@@ -91,6 +91,147 @@ anchor "agent"
 load anchor "agent" from "/etc/pf.anchors/agent"
 `
 
+// seatbeltProfileContent is the SBPL policy written to seatbeltProfilePath.
+// It is loaded at Claude launch time via sandbox-exec.  Parameters must be
+// supplied by the wrapper script:
+//
+//	HOME        — agent home directory (/Users/agent)
+//	PROJECT_DIR — project workspace path
+//	TMPDIR      — temp directory (/private/tmp)
+const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
+;; Installed by sandbox setup — do not edit manually.
+;; To update: rm /Users/agent/.config/sandbox/claude.sb && sandbox setup
+;;
+;; Required parameters (pass via sandbox-exec -D KEY=VALUE):
+;;   HOME        - agent home dir  (e.g. /Users/agent)
+;;   PROJECT_DIR - project workspace (e.g. /Users/Shared/workspace/myproject)
+;;   TMPDIR      - temp dir (e.g. /private/tmp)
+
+(version 1)
+(deny default)
+
+;; ── Process execution ─────────────────────────────────────────────────────────
+(allow process-exec (subpath "/usr/bin"))
+(allow process-exec (subpath "/bin"))
+(allow process-exec (subpath "/usr/local/bin"))
+(allow process-exec (subpath "/opt/homebrew/bin"))
+(allow process-exec (subpath (param "HOME")))
+(allow process-fork)
+(allow process-info* (target same-sandbox))
+(allow signal (target same-sandbox))
+
+;; ── System libraries (required by Node.js) ────────────────────────────────────
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+(allow file-read* (subpath "/System/Library"))
+(allow file-read* (subpath "/Library/Frameworks"))
+(allow file-read* (subpath "/private/etc"))
+(allow file-read* (literal "/dev/urandom"))
+(allow file-read* (literal "/dev/null"))
+(allow file-read* (literal "/dev/zero"))
+(allow file-write* (literal "/dev/null"))
+(allow file-read* (subpath "/usr/local"))
+(allow file-read* (subpath "/opt/homebrew"))
+
+;; ── Project workspace — full read/write ───────────────────────────────────────
+(allow file-read* (subpath (param "PROJECT_DIR")))
+(allow file-write* (subpath (param "PROJECT_DIR")))
+
+;; ── Claude config (auth tokens, settings, model cache) ────────────────────────
+(allow file-read* (subpath (string-append (param "HOME") "/.claude")))
+(allow file-write* (subpath (string-append (param "HOME") "/.claude")))
+
+;; ── Claude installation (binary + node_modules) ───────────────────────────────
+(allow file-read* (subpath (string-append (param "HOME") "/.local")))
+(allow file-write* (subpath (string-append (param "HOME") "/.local")))
+
+;; ── Git config (needed for commit operations) ─────────────────────────────────
+(allow file-read* (literal (string-append (param "HOME") "/.gitconfig")))
+(allow file-read* (subpath (string-append (param "HOME") "/.config/git")))
+
+;; ── Shell rc files (read-only; needed at login) ───────────────────────────────
+(allow file-read* (literal (string-append (param "HOME") "/.zshrc")))
+(allow file-read* (literal (string-append (param "HOME") "/.zprofile")))
+(allow file-read* (literal (string-append (param "HOME") "/.bashrc")))
+(allow file-read* (literal (string-append (param "HOME") "/.bash_profile")))
+
+;; ── npm / node cache ──────────────────────────────────────────────────────────
+(allow file-read* file-write* (subpath (string-append (param "HOME") "/.npm")))
+
+;; ── Temp and cache directories ────────────────────────────────────────────────
+(allow file-read* file-write* (subpath (param "TMPDIR")))
+(allow file-read* file-write* (subpath "/private/tmp"))
+(allow file-read* file-write* (subpath "/private/var/folders"))
+
+;; ── Terminal support (Node.js requires these) ─────────────────────────────────
+(allow pseudo-tty)
+(allow file-ioctl)
+(allow file-read* file-write* (literal "/dev/ptmx"))
+(allow file-read* file-write* (regex #"/dev/ttys[0-9]+"))
+
+;; ── Mach services ─────────────────────────────────────────────────────────────
+(allow mach-lookup (global-name "com.apple.system.logger"))
+(allow mach-lookup (global-name "com.apple.CoreServices.coreservicesd"))
+(allow mach-lookup (global-name "com.apple.system.notification_center"))
+(allow mach-lookup (global-name "com.apple.mDNSResponder"))
+(allow mach-host*)
+
+;; ── Network: outbound for Anthropic API calls ─────────────────────────────────
+(allow network-outbound)
+(allow network-inbound (local tcp "*:*"))
+
+;; ── DENY sensitive credential directories ─────────────────────────────────────
+;; These appear last so they override the broad allows above (last match wins).
+(deny file-read* (subpath (string-append (param "HOME") "/.ssh")))
+(deny file-read* (subpath (string-append (param "HOME") "/.aws")))
+(deny file-read* (subpath (string-append (param "HOME") "/.gnupg")))
+(deny file-read* (subpath (string-append (param "HOME") "/Library/Keychains")))
+(deny file-read* (subpath (string-append (param "HOME") "/.config/gh")))
+`
+
+// seatbeltWrapperContent is the launch wrapper installed at seatbeltWrapperPath.
+// It enforces seatbelt confinement every time Claude is started as the agent user.
+const seatbeltWrapperContent = `#!/bin/bash
+# claude-sandboxed — launch Claude Code under seatbelt confinement.
+# Installed by sandbox setup — do not edit manually.
+#
+# Usage:
+#   claude-sandboxed [PROJECT_DIR] [claude-args...]
+#
+# If the first argument is an existing directory it is used as PROJECT_DIR;
+# otherwise $PWD is used and all arguments are forwarded to claude.
+set -euo pipefail
+
+PROFILE=/Users/agent/.config/sandbox/claude.sb
+CLAUDE_BIN=/Users/agent/.local/bin/claude
+
+if [[ ! -f "$PROFILE" ]]; then
+    printf 'error: seatbelt profile not found: %s\n' "$PROFILE" >&2
+    printf 'Run "sandbox setup" to install it.\n' >&2
+    exit 1
+fi
+
+if [[ ! -f "$CLAUDE_BIN" ]]; then
+    printf 'error: claude binary not found: %s\n' "$CLAUDE_BIN" >&2
+    exit 1
+fi
+
+# Resolve PROJECT_DIR from first arg if it looks like a directory.
+if [[ $# -gt 0 && -d "$1" ]]; then
+    PROJECT_DIR="$1"
+    shift
+else
+    PROJECT_DIR="${PROJECT_DIR:-$PWD}"
+fi
+
+exec /usr/bin/sandbox-exec \
+    -D "HOME=$HOME" \
+    -D "PROJECT_DIR=$PROJECT_DIR" \
+    -D "TMPDIR=${TMPDIR:-/private/tmp}" \
+    -f "$PROFILE" \
+    "$CLAUDE_BIN" "$@"
+`
+
 const hostsBlocklistContent = `
 # === AI Agent Blocklist ===
 # Tunnel services
@@ -198,7 +339,13 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupSharedWorkspace(ui, r, cu.Username); err != nil {
 		return err
 	}
+	if err := setupBackupScope(ui, r); err != nil {
+		return err
+	}
 	if err := setupHardeningGaps(ui, r); err != nil {
+		return err
+	}
+	if err := setupSeatbelt(ui, r); err != nil {
 		return err
 	}
 	if err := setupSudoers(ui, r, cu.Username); err != nil {
@@ -349,6 +496,23 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 	}
 	ui.Ok(fmt.Sprintf("Permissions: 770, setgid, owner %s:%s", currentUser, sharedGroup))
 
+	// umask 077 (set for the agent user) clears group bits on newly created files.
+	// An inheritable ACL grants the dev group read/write on all files in the workspace
+	// regardless of umask, so both principals can collaborate without weakening isolation
+	// elsewhere.
+	if workspaceHasDevACL() {
+		ui.SkipDone(fmt.Sprintf("Workspace ACL already grants '%s' group inherited access", sharedGroup))
+	} else {
+		aclEntry := "group:" + sharedGroup +
+			" allow read,write,execute,append,delete,delete_child," +
+			"readattr,writeattr,readextattr,writeextattr,readsecurity," +
+			"file_inherit,directory_inherit"
+		if err := r.Sudo("chmod", "+a", aclEntry, sharedWorkspace); err != nil {
+			return fmt.Errorf("set workspace ACL: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Workspace ACL set: '%s' group gets inherited read/write access", sharedGroup))
+	}
+
 	// Symlink from current user's home
 	symlink := os.Getenv("HOME") + "/workspace-shared"
 	if info, err := os.Lstat(symlink); err == nil {
@@ -377,6 +541,29 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 		}
 		ui.Ok(fmt.Sprintf("Created symlink %s → %s", agentLink, sharedWorkspace))
 	}
+	return nil
+}
+
+// ── Step 3b: Backup scope file ────────────────────────────────────────────────
+
+func setupBackupScope(ui *UI, r *Runner) error {
+	ui.Step("Initialize backup scope file")
+
+	if _, err := os.Stat(backupExcludesFile); err == nil {
+		ui.SkipDone(fmt.Sprintf("Backup scope file already exists at %s", backupExcludesFile))
+		return nil
+	}
+
+	if _, err := os.Stat(sharedWorkspace); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Shared workspace not found (%s) — backup scope file skipped", sharedWorkspace))
+		return nil
+	}
+
+	if err := r.UserWriteFile(backupExcludesFile, defaultBackupExcludesContent); err != nil {
+		return fmt.Errorf("write backup scope file: %w", err)
+	}
+	ui.Ok(fmt.Sprintf("Backup scope file created at %s", backupExcludesFile))
+	ui.WarnMsg(fmt.Sprintf("Edit %s to list repos you do not want backed up.", backupExcludesFile))
 	return nil
 }
 
@@ -430,7 +617,60 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	return nil
 }
 
-// ── Step 5: Passwordless sudo ─────────────────────────────────────────────────
+// ── Step 5: Seatbelt profile ──────────────────────────────────────────────────
+
+func setupSeatbelt(ui *UI, r *Runner) error {
+	ui.Step("Install seatbelt profile for Claude runtime")
+
+	// Create profile directory as the agent user so ownership is correct.
+	if err := r.AsAgent("mkdir", "-p", seatbeltProfileDir); err != nil {
+		return fmt.Errorf("mkdir %s: %w", seatbeltProfileDir, err)
+	}
+
+	// Write the SBPL policy file (routes through Runner for audit).
+	if _, err := os.Stat(seatbeltProfilePath); err == nil {
+		ui.SkipDone(fmt.Sprintf("Seatbelt profile already exists at %s", seatbeltProfilePath))
+		ui.WarnMsg(fmt.Sprintf("To replace it, delete first: sudo rm %s", seatbeltProfilePath))
+	} else {
+		if err := r.SudoWriteFile(seatbeltProfilePath, seatbeltProfileContent); err != nil {
+			return fmt.Errorf("write seatbelt profile: %w", err)
+		}
+		if err := r.Sudo("chown", agentUser+":staff", seatbeltProfilePath); err != nil {
+			return fmt.Errorf("chown seatbelt profile: %w", err)
+		}
+		if err := r.Sudo("chmod", "644", seatbeltProfilePath); err != nil {
+			return fmt.Errorf("chmod seatbelt profile: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Seatbelt profile written to %s", seatbeltProfilePath))
+	}
+
+	// Ensure ~/.local/bin exists before writing the wrapper.
+	wrapperDir := agentHome + "/.local/bin"
+	if err := r.AsAgent("mkdir", "-p", wrapperDir); err != nil {
+		return fmt.Errorf("mkdir %s: %w", wrapperDir, err)
+	}
+
+	// Write the launch wrapper (routes through Runner for audit).
+	if _, err := os.Stat(seatbeltWrapperPath); err == nil {
+		ui.SkipDone(fmt.Sprintf("Seatbelt wrapper already exists at %s", seatbeltWrapperPath))
+		ui.WarnMsg(fmt.Sprintf("To replace it, delete first: sudo rm %s", seatbeltWrapperPath))
+	} else {
+		if err := r.SudoWriteFile(seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
+			return fmt.Errorf("write seatbelt wrapper: %w", err)
+		}
+		if err := r.Sudo("chown", agentUser+":staff", seatbeltWrapperPath); err != nil {
+			return fmt.Errorf("chown seatbelt wrapper: %w", err)
+		}
+		if err := r.Sudo("chmod", "755", seatbeltWrapperPath); err != nil {
+			return fmt.Errorf("chmod seatbelt wrapper: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Seatbelt wrapper written to %s", seatbeltWrapperPath))
+	}
+
+	return nil
+}
+
+// ── Step 6: Passwordless sudo ─────────────────────────────────────────────────
 
 func setupSudoers(ui *UI, r *Runner, currentUser string) error {
 	ui.Step(fmt.Sprintf("Configure passwordless sudo (%s → %s)", currentUser, agentUser))
@@ -599,6 +839,12 @@ func verifySetup(ui *UI) {
 		ui.WarnMsg(fmt.Sprintf("Shared workspace missing: %s", sharedWorkspace))
 	}
 
+	if workspaceHasDevACL() {
+		ui.Ok(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
+	} else {
+		ui.WarnMsg(fmt.Sprintf("Workspace ACL missing '%s' group — agent files will not be readable by controlling user", sharedGroup))
+	}
+
 	if out, err := sudoOutput("pfctl", "-a", pfAnchorName, "-sr"); err == nil &&
 		strings.Contains(out, "block") {
 		n := len(strings.Split(strings.TrimSpace(out), "\n"))
@@ -626,6 +872,18 @@ func verifySetup(ui *UI) {
 		ui.Ok(fmt.Sprintf("DNS blocklist active (%d domains in /etc/hosts)", n))
 	} else {
 		ui.WarnMsg("DNS blocklist not installed in /etc/hosts")
+	}
+
+	if _, err := os.Stat(seatbeltProfilePath); err == nil {
+		ui.Ok(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
+	} else {
+		ui.WarnMsg(fmt.Sprintf("Seatbelt profile missing: %s", seatbeltProfilePath))
+	}
+
+	if info, err := os.Stat(seatbeltWrapperPath); err == nil && info.Mode()&0o111 != 0 {
+		ui.Ok(fmt.Sprintf("Seatbelt wrapper installed and executable at %s", seatbeltWrapperPath))
+	} else {
+		ui.WarnMsg(fmt.Sprintf("Seatbelt wrapper missing or not executable: %s", seatbeltWrapperPath))
 	}
 }
 
@@ -664,6 +922,16 @@ func gidTaken(gid string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// workspaceHasDevACL returns true when the workspace directory already has an
+// inherited ACE for the shared group, so the setup step can be skipped.
+func workspaceHasDevACL() bool {
+	out, err := exec.Command("ls", "-led", sharedWorkspace).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "group:"+sharedGroup)
 }
 
 func groupMembershipContains(group, username string) (bool, error) {

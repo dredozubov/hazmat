@@ -94,6 +94,17 @@ func (r *Runner) SudoAppendFile(path, content string) error {
 	return sudoAppendFile(path, content)
 }
 
+// UserWriteFile creates or overwrites a user-owned file without sudo.
+func (r *Runner) UserWriteFile(path, content string) error {
+	if r.Verbose && r.ui != nil {
+		r.ui.ShowFileOp("Write", path, content)
+	}
+	if r.DryRun {
+		return nil
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 // UserAppendFile appends content to a user-owned file (e.g. ~/.zshrc).
 // No sudo required; opens, writes, and closes atomically.
 func (r *Runner) UserAppendFile(path, content string) error {
