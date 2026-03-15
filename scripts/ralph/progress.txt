@@ -6,3 +6,10 @@
 #
 # --- Iteration logs below ---
 
+[iter 1] sandboxing-5ef.1 — Canonicalized workspace paths: backup.sh, sandbox/backup.go, sandbox/test.go now all use /Users/Shared/workspace instead of $HOME/workspace
+[iter 2] sandboxing-5ef.4 — Removed --delete from default backup; added --sync flag with .backup-target marker validation; testBackup covers wrong-path, missing-marker, valid-marker, remote-passthrough cases
+[iter 3] sandboxing-5ef.2 — Added inheritable macOS ACL (group:dev, file_inherit+directory_inherit) to workspace; workspaceHasDevACL() helper for idempotent setup/verify; test suite gains ACL check + bidirectional read/write tests
+[iter 4] sandboxing-5ef.3 — Added seatbelt confinement: claude.sb SBPL profile (deny-default), claude-sandboxed wrapper, setupSeatbelt() and testSeatbelt() with 5 confinement tests (write/read allow+deny, .claude auth)
+[iter 5] sandboxing-5ef.5 — Replaced hardcoded personal repo excludes with .backup-excludes scope file; added --show-scope flag; setup creates default file; tests verify parser+presence
+[iter 6] sandboxing-5ef.6 — Added sandbox restore+rollback commands; testRestore end-to-end test; comprehensive Uninstall/Rollback section in setup-option-a.md
+[iter 7] sandboxing-5ef.7 — Expanded verification: backup test uses production backupBuiltinExcludes; restore checks content parity; added testDecommission (removeUmaskLine, pf anchor stripping, DNS blocklist stripping, scope file removal); documented quick/full modes

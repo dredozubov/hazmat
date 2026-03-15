@@ -601,31 +601,114 @@ Layer 6: Docker socket hardening
 
 ## Uninstall / Rollback
 
+### Automated rollback (recommended)
+
+The `sandbox rollback` command reverses all host mutations made by `sandbox setup`:
+
 ```bash
-# Remove pf rules
+# Preview what would change (no writes):
+sandbox rollback --dry-run
+
+# Execute rollback (interactive confirmation):
+sandbox rollback
+
+# Also delete the agent user account and home directory:
+sandbox rollback --delete-user
+
+# Also delete the dev group:
+sandbox rollback --delete-group
+
+# Full teardown — remove everything:
+sandbox rollback --delete-user --delete-group
+```
+
+The rollback command handles each mutation individually and is idempotent — safe to run even if some steps were already undone. The shared workspace (`/Users/Shared/workspace`) is intentionally **not** removed automatically; back it up first if needed.
+
+### Workspace backup before teardown
+
+```bash
+# Back up workspace to an external volume before removing anything:
+sandbox backup /Volumes/BACKUP/workspace
+
+# Or to a remote host:
+sandbox backup user@nas:/backup/workspace
+```
+
+### Workspace restore
+
+To restore workspace files from a backup:
+
+```bash
+# Restore to the shared workspace (additive — no files deleted):
+sandbox restore /Volumes/BACKUP/workspace
+
+# Full mirror restore (removes workspace-only files):
+sandbox restore --sync /Volumes/BACKUP/workspace
+
+# Preview without writing:
+sandbox restore --dry-run /Volumes/BACKUP/workspace
+```
+
+The restore source must contain a `.backup-target` marker file. This prevents accidental restores from wrong paths:
+
+```bash
+# Initialize a backup location as a restore source (one-time):
+touch /Volumes/BACKUP/workspace/.backup-target
+```
+
+### Manual rollback reference
+
+If `sandbox rollback` is unavailable, use these commands directly:
+
+```bash
+# 1. Remove LaunchDaemon (pf persistence)
+sudo launchctl bootout system /Library/LaunchDaemons/com.local.pf-agent.plist 2>/dev/null
+sudo rm -f /Library/LaunchDaemons/com.local.pf-agent.plist
+
+# 2. Restore pf.conf from timestamped backup (preferred)
+ls /etc/pf.conf.backup.*          # find the backup made during setup
+sudo cp /etc/pf.conf.backup.TIMESTAMP /etc/pf.conf
+sudo pfctl -f /etc/pf.conf
+
+# 2b. Alternative: strip the anchor lines manually
+sudo sed -i '' '/# Claude Code sandbox user blocklist/d' /etc/pf.conf
 sudo sed -i '' '/anchor "agent"/d' /etc/pf.conf
-sudo sed -i '' '/load anchor "agent"/d' /etc/pf.conf
+sudo sed -i '' '/load anchor "agent" from/d' /etc/pf.conf
 sudo rm -f /etc/pf.anchors/agent
 sudo pfctl -f /etc/pf.conf
 
-# Remove LaunchDaemon
-sudo launchctl unload /Library/LaunchDaemons/com.local.pf-agent.plist 2>/dev/null
-sudo rm -f /Library/LaunchDaemons/com.local.pf-agent.plist
-
-# Remove DNS blocklist entries from /etc/hosts (if used)
-sudo sed -i '' '/AI Agent Blocklist/,/^$/d' /etc/hosts
+# 3. Remove DNS blocklist from /etc/hosts
+# Remove the block between '# === AI Agent Blocklist ===' and
+# '# === End AI Agent Blocklist ===' lines, then flush DNS:
+sudo sed -i '' '/^# === AI Agent Blocklist ===/,/^# === End AI Agent Blocklist ===/d' /etc/hosts
 sudo dscacheutil -flushcache
+sudo killall -HUP mDNSResponder
 
-# Remove sudoers entry
+# 4. Remove sudoers entry
 sudo rm -f /etc/sudoers.d/agent
 
-# Remove user
-sudo dscl . -delete /Users/agent
+# 5. Remove seatbelt profile and wrapper
+sudo rm -f /Users/agent/.config/sandbox/claude.sb
+sudo rm -f /Users/agent/.local/bin/claude-sandboxed
 
-# Remove home directory (if you want to delete everything)
+# 6. Remove convenience symlinks
+rm -f ~/workspace-shared
+sudo rm -f /Users/agent/workspace
+
+# 7. Remove umask 077 from .zshrc files (if added during setup)
+# Edit ~/.zshrc and /Users/agent/.zshrc and remove the 'umask 077' line.
+
+# 8. Remove backup scope file
+rm -f /Users/Shared/workspace/.backup-excludes
+
+# 9. Remove agent user and home (DESTRUCTIVE — back up workspace first)
+sudo dscl . -delete /Users/agent
 sudo rm -rf /Users/agent
 
-# Remove shared workspace (if no longer needed)
+# 10. Remove dev group
+sudo dscl . -delete /Groups/dev
+
+# 11. Remove shared workspace (DESTRUCTIVE — back up first)
 # sudo rm -rf /Users/Shared/workspace
 ```
 
