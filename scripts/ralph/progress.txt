@@ -1,0 +1,8 @@
+# Ralph Progress Log
+# Generated: 2026-03-15
+#
+# This file accumulates knowledge across iterations.
+# Each iteration should append a summary of actions taken.
+#
+# --- Iteration logs below ---
+
