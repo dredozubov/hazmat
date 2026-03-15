@@ -30,6 +30,10 @@ const (
 	pfDaemonPlist   = "/Library/LaunchDaemons/com.local.pf-agent.plist"
 	sudoersFile     = "/etc/sudoers.d/agent"
 	hostsMarker     = "# === AI Agent Blocklist ==="
+
+	seatbeltProfileDir  = agentHome + "/.config/sandbox"
+	seatbeltProfilePath = agentHome + "/.config/sandbox/claude.sb"
+	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
 )
 
 func main() {
@@ -49,6 +53,8 @@ func main() {
 		newSetupCmd(),
 		newTestCmd(),
 		newBackupCmd(),
+		newRestoreCmd(),
+		newRollbackCmd(),
 		newConnectCmd(), // hidden: used internally for agent-user network probes
 	)
 
