@@ -25,7 +25,7 @@
 set -euo pipefail
 
 # Canonical shared workspace — must match the sharedWorkspace constant in
-# sandbox/main.go and the SHARED_WORKSPACE variable in setup.sh.
+# sandbox/main.go.
 SHARED_WORKSPACE="/Users/Shared/workspace"
 BACKUP_TARGET_MARKER=".backup-target"
 BACKUP_EXCLUDES_FILE="${SHARED_WORKSPACE}/.backup-excludes"

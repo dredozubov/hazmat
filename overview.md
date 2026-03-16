@@ -16,6 +16,14 @@ You need a **blast radius limiter** — something that contains the damage when 
 | **3** | Docker Sandboxes / Devcontainers | 15 min | ~90% native | Free (Docker Desktop personal) | Best balance of security + UX |
 | **4** | Full VM (Lima / Lume / Tart) | 45 min | ~85-95% native | Free | Maximum isolation, autonomous agents |
 
+For the dedicated-user setup in [setup-option-a.md](setup-option-a.md), the key UX improvement is a host-side command surface:
+
+- `claude-sandbox` launches Claude directly in the sandbox
+- `agent-shell` opens an interactive sandboxed shell
+- `agent-exec` runs one-off tools like `make`, `npx`, `uv`, and `uvx`
+
+That keeps the security boundary intact without making the user live inside `sudo -u agent -i`.
+
 ## Decision Flowchart
 
 ```

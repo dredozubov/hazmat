@@ -1,6 +1,6 @@
 # Option A Setup: Dedicated `agent` User + Soft pf Blocklist
 
-Complete setup guide for sandboxing Claude Code on macOS using a dedicated user account with blocklist-based network restrictions.
+Complete setup guide for sandboxing Claude Code on macOS using a dedicated user account with blocklist-based network restrictions and a host-side command surface that keeps day-to-day usage pleasant.
 
 ## Architecture
 
@@ -23,11 +23,17 @@ Your user (dr)                     Sandbox user (agent)
                                      ◎ monitors all outbound connections
 ```
 
-All Claude Code work happens as `agent`. Your main user is for everything else.
+All Claude Code work happens as `agent`. Your main user remains the driver seat: `sandbox setup` installs `claude-sandbox`, `agent-shell`, and `agent-exec` so you can stay in your normal shell while the actual work executes as the sandbox user.
 
 ### Security Model
 
 The primary defense is **user isolation** — the agent physically cannot access your critical data (SSH keys, Keychain, cloud creds, browser data). The network blocklist catches obvious exfiltration channels (SMTP, tunnel services, paste sites). LuLu provides visibility. Together these form a practical defense-in-depth stack without breaking the agent's ability to fetch docs, search the web, and download packages.
+
+The UX model is:
+
+- Identity-bound things live in `/Users/agent`: Claude auth, SSH keys, API keys, npm/uv caches, git identity
+- Shared runtimes stay on the host: Homebrew installs `node`, `make`, `uv`, `uvx`, `rg`, `jq`, etc. once
+- Host-side wrappers route those tools into the sandbox user with the shared workspace as the working directory
 
 See [attack-surface-deep-dive.md](attack-surface-deep-dive.md) for the full threat analysis and [soft-pf-blocklist.md](soft-pf-blocklist.md) for the blocklist philosophy.
 
@@ -146,28 +152,37 @@ echo 'umask 077' >> ~/.zshrc
 exit
 ```
 
+### Tooling Model: Shared Runtimes, Split Identity
+
+Use the sandbox user for credentials and mutable state, but keep general-purpose toolchains installed once via Homebrew on the host:
+
+- Install as `agent`: Claude Code, SSH keys, Git identity, Anthropic key, cloud credentials
+- Install on the host via Homebrew: `node`, `make`, `uv`, `ripgrep`, `jq`, `gh`, `pnpm`, `fd`, other compilers or CLIs
+- Run those host-installed binaries through the sandbox with `agent-exec ...` or inside `agent-shell`
+
+This avoids duplicating toolchains per user while still keeping the blast radius bounded to `/Users/agent` and `/Users/Shared/workspace`.
+
 ### Additional Tools (as needed)
 
 ```bash
-sudo -u agent -i
+# Preferred: install shared tooling once via Homebrew on your main user
+brew install node make uv pnpm ripgrep jq
 
-# Node.js (if not already system-wide)
-# Option A: Use system node (from homebrew)
-# Homebrew node at /opt/homebrew/bin/node is typically world-readable
+# Then use it through the sandbox:
+cd ~/workspace-shared/my-project
+agent-exec make test
+agent-exec npx vitest
+agent-exec uvx ruff check .
 
-# Option B: Install nvm for the agent user
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-source ~/.zshrc
-nvm install 22
-
-# Python (if needed)
-# System python3 is available; or install pyenv for the agent user
-
-# Terraform, kubectl, etc. (if doing infra work)
-# Install per-tool as needed into agent's home or use system-wide binaries
-
-exit
+# Only install per-agent runtimes when they truly need agent-private state
+# (for example a separate nvm tree or pyenv installation).
 ```
+
+`sandbox setup` configures the agent shell to expose:
+
+- `PATH=/Users/agent/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:...`
+- XDG cache/config/data directories under `/Users/agent`
+- `alias claude=claude-sandboxed` so `claude` inside the agent shell always stays seatbelted
 
 ---
 
@@ -485,27 +500,61 @@ LuLu and pf are independent layers — pf blocks at the packet level, LuLu monit
 
 ## Daily Workflow
 
-### Starting a Session
+### Recommended: Stay in Your Normal Shell
 
 ```bash
-# Switch to the agent user
+cd ~/workspace-shared/my-project
+
+# Launch Claude directly in the sandbox
+claude-sandbox
+
+# Or open a full interactive shell as the sandbox user
+agent-shell
+
+# Or run one-off tools without leaving your normal shell
+agent-exec make test
+agent-exec npx vitest
+agent-exec uvx ruff check .
+```
+
+### What the Generated Wrappers Do
+
+If you use `sandbox setup`, it installs three host-side commands in `~/.local/bin`:
+
+- `claude-sandbox` → `sandbox claude`
+- `agent-shell` → `sandbox shell`
+- `agent-exec` → `sandbox exec`
+
+They preserve the current project directory, switch to the `agent` user, apply the seatbelt profile, and expose Homebrew-installed tooling inside the sandbox.
+
+### Optional Aliases
+
+If you want secure-by-default muscle memory, add these to your own shell config:
+
+```bash
+alias claude='claude-sandbox'
+alias ax='agent-exec'
+alias ash='agent-shell'
+```
+
+### Fallback: Raw User Switch
+
+You can still drop into the sandbox user manually:
+
+```bash
 sudo -u agent -i
-
-# Go to your project
 cd ~/workspace/my-project
-
-# Run Claude Code
 claude
 ```
 
 ### iTerm Shortcut (Recommended)
 
-Create a dedicated iTerm profile for the agent user:
+Create a dedicated iTerm profile that launches `agent-shell`:
 
 1. **iTerm > Settings > Profiles > +** (create new profile)
 2. Name: `Agent`
-3. **General > Command:** select "Login Shell"
-4. **General > Send text at start:** `sudo -u agent -i`
+3. **General > Command:** select "Command"
+4. Command: `agent-shell`
 5. **Colors:** pick a distinct color scheme (e.g., red accent) so you always know which tab is sandboxed
 6. Optionally assign a hotkey (e.g., `Ctrl+Shift+A`) to open a new Agent tab
 
@@ -687,28 +736,43 @@ sudo killall -HUP mDNSResponder
 # 4. Remove sudoers entry
 sudo rm -f /etc/sudoers.d/agent
 
-# 5. Remove seatbelt profile and wrapper
+# 5. Remove seatbelt profile, agent env, and wrapper commands
 sudo rm -f /Users/agent/.config/sandbox/claude.sb
+sudo rm -f /Users/agent/.config/sandbox/agent-env.zsh
 sudo rm -f /Users/agent/.local/bin/claude-sandboxed
+rm -f ~/.local/bin/claude-sandbox
+rm -f ~/.local/bin/agent-shell
+rm -f ~/.local/bin/agent-exec
 
-# 6. Remove convenience symlinks
+# 6. Remove sandbox shell blocks from .zshrc files
+# Remove the block between:
+#   # >>> sandbox agent shell >>>
+#   # <<< sandbox agent shell <<<
+# in /Users/agent/.zshrc
+#
+# Remove the block between:
+#   # >>> sandbox user path >>>
+#   # <<< sandbox user path <<<
+# in ~/.zshrc
+
+# 7. Remove convenience symlinks
 rm -f ~/workspace-shared
 sudo rm -f /Users/agent/workspace
 
-# 7. Remove umask 077 from .zshrc files (if added during setup)
+# 8. Remove umask 077 from .zshrc files (if added during setup)
 # Edit ~/.zshrc and /Users/agent/.zshrc and remove the 'umask 077' line.
 
-# 8. Remove backup scope file
+# 9. Remove backup scope file
 rm -f /Users/Shared/workspace/.backup-excludes
 
-# 9. Remove agent user and home (DESTRUCTIVE — back up workspace first)
+# 10. Remove agent user and home (DESTRUCTIVE — back up workspace first)
 sudo dscl . -delete /Users/agent
 sudo rm -rf /Users/agent
 
-# 10. Remove dev group
+# 11. Remove dev group
 sudo dscl . -delete /Groups/dev
 
-# 11. Remove shared workspace (DESTRUCTIVE — back up first)
+# 12. Remove shared workspace (DESTRUCTIVE — back up first)
 # sudo rm -rf /Users/Shared/workspace
 ```
 
@@ -752,6 +816,25 @@ SSH (port 22) is allowed by the soft blocklist. If it still fails, check the age
 ### npm install fails for specific packages
 
 Some packages download binaries from custom CDNs. These should work with the soft blocklist (all HTTPS is allowed). If a download URL is DNS-blocked, remove it from the blocklist.
+
+### `make`, `npx`, `uv`, or `uvx` is not found in the sandbox
+
+```bash
+# Confirm the host has the tool
+command -v make
+command -v npx
+command -v uv
+
+# Confirm the sandbox command surface is present
+command -v agent-exec
+command -v agent-shell
+command -v claude-sandbox
+
+# Re-run setup to refresh the managed PATH/env files and seatbelt policy
+sandbox setup
+```
+
+The sandbox exposes `/opt/homebrew/bin`, `/opt/homebrew/sbin`, and `/usr/local/bin`. Install shared toolchains there; keep credentials and mutable caches under `/Users/agent`.
 
 ### Agent user can't access shared workspace
 

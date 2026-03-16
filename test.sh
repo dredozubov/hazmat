@@ -2,7 +2,7 @@
 #
 # Sandbox test suite — verifies the Option A setup is working correctly.
 #
-# Tests are grouped to mirror the 8 setup steps in setup.sh.
+# Tests mirror the Go-based `sandbox setup` flow.
 # Run as your normal user (dr), not root. Some checks use sudo -u agent.
 #
 # Usage:
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-# --- Configuration (must match setup.sh) -------------------------------------
+# --- Configuration (must match sandbox/main.go) ------------------------------
 
 AGENT_USER="agent"
 AGENT_HOME="/Users/${AGENT_USER}"
@@ -112,7 +112,7 @@ step "Agent user"
 if id "${AGENT_USER}" &>/dev/null; then
   pass "User '${AGENT_USER}' exists"
 else
-  fail "User '${AGENT_USER}' does not exist — run setup.sh first"
+  fail "User '${AGENT_USER}' does not exist — run sandbox setup first"
 fi
 
 agent_uid=$(id -u "${AGENT_USER}" 2>/dev/null || echo "none")
@@ -407,7 +407,7 @@ if grep -q "AI Agent Blocklist" /etc/hosts 2>/dev/null; then
   blocked_count=$(grep -c "^0.0.0.0" /etc/hosts 2>/dev/null || echo "0")
   pass "DNS blocklist present in /etc/hosts (${blocked_count} entries)"
 else
-  fail "DNS blocklist not found in /etc/hosts — run setup.sh and choose yes for DNS blocklist"
+  fail "DNS blocklist not found in /etc/hosts — run sandbox setup and choose yes for DNS blocklist"
 fi
 
 check_blocked_domain() {

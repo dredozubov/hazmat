@@ -6,7 +6,7 @@ Research and practical guides for securely running Claude Code with `--dangerous
 
 | File | Description |
 |------|-------------|
-| **[setup-option-a.md](setup-option-a.md)** | **Complete setup: dedicated `agent` user + soft pf blocklist + DNS blocklist + LuLu** |
+| **[setup-option-a.md](setup-option-a.md)** | **Complete setup: dedicated `agent` user + soft pf blocklist + DNS blocklist + LuLu + host-side wrappers (`claude-sandbox`, `agent-shell`, `agent-exec`)** |
 
 ## Research: Attack Surfaces & Threat Analysis
 
