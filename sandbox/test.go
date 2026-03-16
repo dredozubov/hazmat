@@ -66,6 +66,7 @@ func runTest(quick bool) error {
 	testDNSBlocklist(ui)
 	testPersistence(ui)
 	testAgentTools(ui)
+	testCommandSurface(ui)
 	testSeatbelt(ui)
 	testBackup(ui)
 	testRestore(ui)
@@ -385,7 +386,7 @@ func testPfFirewallLive(ui *UI, quick bool, selfPath string) {
 
 	probes := []struct {
 		host, port, label string
-		wantAllow          bool
+		wantAllow         bool
 	}{
 		{"1.1.1.1", "443", "HTTPS", true},
 		{"1.1.1.1", "25", "SMTP", false},
@@ -522,7 +523,49 @@ func testAgentTools(ui *UI) {
 	}
 }
 
-// ── Step 11: Seatbelt confinement ─────────────────────────────────────────────
+// ── Step 11: Command surface ─────────────────────────────────────────────────
+
+func testCommandSurface(ui *UI) {
+	ui.Step("Command surface")
+
+	if asAgentQuiet("test", "-f", agentEnvPath) == nil {
+		ui.TestPass(fmt.Sprintf("Agent env file exists: %s", agentEnvPath))
+	} else {
+		ui.TestFail(fmt.Sprintf("Agent env file missing: %s", agentEnvPath))
+	}
+
+	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "agent-env.zsh") {
+		ui.TestPass("Agent .zshrc sources the sandbox env file")
+	} else {
+		ui.TestFail("Agent .zshrc does not source the sandbox env file")
+	}
+
+	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
+		path := hostWrapperPath(wrapper)
+		if info, err := os.Stat(path); err != nil {
+			ui.TestFail(fmt.Sprintf("Host wrapper missing: %s", path))
+		} else if info.Mode()&0o111 == 0 {
+			ui.TestFail(fmt.Sprintf("Host wrapper not executable: %s", path))
+		} else {
+			ui.TestPass(fmt.Sprintf("Host wrapper is executable: %s", path))
+		}
+	}
+
+	userZshrc := userZshrcPath()
+	switch {
+	case strings.Contains(os.Getenv("PATH"), hostWrapperDir()):
+		ui.TestPass(fmt.Sprintf("Current shell PATH includes %s", hostWrapperDir()))
+	case func() bool {
+		data, err := os.ReadFile(userZshrc)
+		return err == nil && strings.Contains(string(data), "/.local/bin")
+	}():
+		ui.TestPass(fmt.Sprintf("%s configures ~/.local/bin in PATH", userZshrc))
+	default:
+		ui.TestWarn(fmt.Sprintf("%s does not appear to expose ~/.local/bin yet — open a new shell after setup", userZshrc))
+	}
+}
+
+// ── Step 12: Seatbelt confinement ─────────────────────────────────────────────
 
 func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
@@ -628,7 +671,7 @@ func testSeatbelt(ui *UI) {
 	}
 }
 
-// ── Step 12: Backup ───────────────────────────────────────────────────────────
+// ── Step 13: Backup ───────────────────────────────────────────────────────────
 
 func testBackup(ui *UI) {
 	ui.Step("Backup")
@@ -752,7 +795,7 @@ func testBackup(ui *UI) {
 	}
 }
 
-// ── Step 13: Restore ─────────────────────────────────────────────────────────
+// ── Step 14: Restore ─────────────────────────────────────────────────────────
 
 func testRestore(ui *UI) {
 	ui.Step("Restore")
@@ -858,24 +901,42 @@ func testRestore(ui *UI) {
 	}
 }
 
-// ── Step 14: Decommission coverage ────────────────────────────────────────────
+// ── Step 15: Decommission coverage ────────────────────────────────────────────
 
 // testDecommission exercises the rollback helper functions with representative
 // fixtures so that future refactors cannot quietly break the decommission path.
 func testDecommission(ui *UI) {
 	ui.Step("Decommission (rollback) coverage")
 
-	// ── removeUmaskLine ───────────────────────────────────────────────────────
-	// Verify that the umask stripping function removes the target line without
-	// disturbing surrounding content.
-	fixture := "# shell config\numask 077\nexport PATH=$HOME/.local/bin:$PATH\n"
-	cleaned := removeUmaskLine(fixture)
+	// ── umask managed block ───────────────────────────────────────────────────
+	// Verify that removeManagedBlock removes only the managed umask block and
+	// leaves surrounding content intact.
+	fixture := "# shell config\n" +
+		managedBlock(umaskBlockStart, umaskBlockEnd, "umask 077") +
+		"export PATH=$HOME/.local/bin:$PATH\n"
+	cleaned := removeManagedBlock(fixture, umaskBlockStart, umaskBlockEnd)
 	if strings.Contains(cleaned, "umask 077") {
-		ui.TestFail("removeUmaskLine: 'umask 077' still present after removal")
+		ui.TestFail("umask rollback: 'umask 077' still present after managed block removal")
+	} else if strings.Contains(cleaned, umaskBlockStart) {
+		ui.TestFail("umask rollback: block start marker still present after removal")
 	} else if !strings.Contains(cleaned, "export PATH") {
-		ui.TestFail("removeUmaskLine: removed too much — surrounding lines missing")
+		ui.TestFail("umask rollback: removed too much — surrounding lines missing")
 	} else {
-		ui.TestPass("removeUmaskLine strips 'umask 077' while preserving surrounding lines")
+		ui.TestPass("umask rollback removes managed block without disturbing surrounding content")
+	}
+
+	// ── managed block helpers ────────────────────────────────────────────────
+	fixture = "export FOO=1\n" +
+		managedBlock(userPathBlockStart, userPathBlockEnd, `export PATH="$HOME/.local/bin:$PATH"`) +
+		"export BAR=2\n"
+	cleaned = removeManagedBlock(fixture, userPathBlockStart, userPathBlockEnd)
+	switch {
+	case strings.Contains(cleaned, userPathBlockStart):
+		ui.TestFail("removeManagedBlock: managed block start marker still present after removal")
+	case !strings.Contains(cleaned, "export FOO=1") || !strings.Contains(cleaned, "export BAR=2"):
+		ui.TestFail("removeManagedBlock: removed too much — surrounding shell lines missing")
+	default:
+		ui.TestPass("removeManagedBlock strips the managed block while preserving surrounding lines")
 	}
 
 	// ── pf anchor line stripping ──────────────────────────────────────────────

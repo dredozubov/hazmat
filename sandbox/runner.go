@@ -143,6 +143,15 @@ func (r *Runner) Symlink(target, link string) error {
 	return os.Symlink(target, link)
 }
 
+// MkdirAll shows and optionally creates a user-owned directory tree.
+func (r *Runner) MkdirAll(path string, mode os.FileMode) error {
+	r.showCmd(fmt.Sprintf("mkdir -p %s", path))
+	if r.DryRun {
+		return nil
+	}
+	return os.MkdirAll(path, mode)
+}
+
 // ── Firewall / daemon ─────────────────────────────────────────────────────────
 
 // PfctlLoad shows and optionally reloads /etc/pf.conf.

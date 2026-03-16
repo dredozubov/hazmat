@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,8 +114,8 @@ const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
 ;; ── Process execution ─────────────────────────────────────────────────────────
 (allow process-exec (subpath "/usr/bin"))
 (allow process-exec (subpath "/bin"))
-(allow process-exec (subpath "/usr/local/bin"))
-(allow process-exec (subpath "/opt/homebrew/bin"))
+(allow process-exec (subpath "/usr/local"))
+(allow process-exec (subpath "/opt/homebrew"))
 (allow process-exec (subpath (param "HOME")))
 (allow process-fork)
 (allow process-info* (target same-sandbox))
@@ -157,6 +158,12 @@ const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
 
 ;; ── npm / node cache ──────────────────────────────────────────────────────────
 (allow file-read* file-write* (subpath (string-append (param "HOME") "/.npm")))
+
+;; ── XDG / toolchain state under agent home ──────────────────────────────────
+(allow file-read* file-write* (subpath (string-append (param "HOME") "/.cache")))
+(allow file-read* file-write* (subpath (string-append (param "HOME") "/.config")))
+(allow file-read* file-write* (subpath (string-append (param "HOME") "/.local/share")))
+(allow file-read* file-write* (subpath (string-append (param "HOME") "/Library/Caches")))
 
 ;; ── Temp and cache directories ────────────────────────────────────────────────
 (allow file-read* file-write* (subpath (param "TMPDIR")))
@@ -204,6 +211,12 @@ set -euo pipefail
 
 PROFILE=/Users/agent/.config/sandbox/claude.sb
 CLAUDE_BIN=/Users/agent/.local/bin/claude
+export PATH="/Users/agent/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export TMPDIR="${TMPDIR:-/private/tmp}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 
 if [[ ! -f "$PROFILE" ]]; then
     printf 'error: seatbelt profile not found: %s\n' "$PROFILE" >&2
@@ -227,7 +240,7 @@ fi
 exec /usr/bin/sandbox-exec \
     -D "HOME=$HOME" \
     -D "PROJECT_DIR=$PROJECT_DIR" \
-    -D "TMPDIR=${TMPDIR:-/private/tmp}" \
+    -D "TMPDIR=$TMPDIR" \
     -f "$PROFILE" \
     "$CLAUDE_BIN" "$@"
 `
@@ -283,17 +296,60 @@ const hostsBlocklistContent = `
 // ── Command ───────────────────────────────────────────────────────────────────
 
 func newSetupCmd() *cobra.Command {
-	return &cobra.Command{
+	var agentUIDFlag, sharedGIDFlag string
+	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Configure the macOS sandbox (Option A: dedicated agent user + pf firewall)",
-		RunE:  runSetup,
+		Long: `Configure the macOS sandbox: dedicated agent user, shared workspace, pf port
+blocklist, DNS blocklist, seatbelt profile, and host-side command wrappers.
+
+Interactive by default — prompts for confirmation before making any changes.
+For scripted or autonomous use, pass --yes to answer all prompts automatically:
+
+  sandbox setup --yes
+  sandbox setup --yes --agent-uid 601 --group-gid 601
+
+Use --dry-run to preview all commands without executing anything.`,
+	}
+	cmd.Flags().StringVar(&agentUIDFlag, "agent-uid", "",
+		"Override UID for the agent user (default: 599; use when 599 is already taken)")
+	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
+		"Override GID for the dev group (default: 599; use when 599 is already taken)")
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if agentUIDFlag != "" {
+			agentUID = agentUIDFlag
+		}
+		if sharedGIDFlag != "" {
+			sharedGID = sharedGIDFlag
+		}
+		return runSetup(c, args)
+	}
+	return cmd
+}
+
+// newStatusCmd exposes verifySetup as a standalone command for quick health
+// checks.  Returns exit code 1 when any critical check fails so callers
+// (scripts, Claude, CI) can test whether the sandbox is ready.
+func newStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Check sandbox health (quick invariant check, no changes)",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			ui := &UI{}
+			verifySetup(ui)
+			if ui.Summary() {
+				return fmt.Errorf("sandbox is not fully configured")
+			}
+			return nil
+		},
 	}
 }
 
 // runSetup is the top-level entry point.  Named return so defer can inspect
 // retErr and print the rollback hint — equivalent to shell's "trap ... ERR".
 func runSetup(_ *cobra.Command, _ []string) (retErr error) {
-	ui := &UI{DryRun: flagDryRun}
+	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
 
 	if err := checkPlatform(); err != nil {
@@ -317,6 +373,10 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		cYellow.Println("  Steps already complete are skipped when run for real.")
 		cYellow.Println("  ────────────────────────────────────────────────────")
 		fmt.Println()
+	} else if !ui.YesAll && !ui.IsInteractive() {
+		// Non-TTY without --yes: fail fast with an actionable message rather
+		// than silently aborting after the Ask prompt returns false.
+		return fmt.Errorf("stdin is not a terminal\nFor non-interactive setup run: sandbox setup --yes")
 	} else if !ui.Ask("Proceed with setup?") {
 		fmt.Println("  Aborted.")
 		return nil
@@ -346,6 +406,9 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 	if err := setupSeatbelt(ui, r); err != nil {
+		return err
+	}
+	if err := setupUserExperience(ui, r); err != nil {
 		return err
 	}
 	if err := setupSudoers(ui, r, cu.Username); err != nil {
@@ -382,7 +445,7 @@ func setupAgentUser(ui *UI, r *Runner) error {
 	if taken, err := uidTaken(agentUID); err != nil {
 		return fmt.Errorf("check UID: %w", err)
 	} else if taken {
-		return fmt.Errorf("UID %s is already taken — edit agentUID in main.go", agentUID)
+		return fmt.Errorf("UID %s is already taken — use: sandbox setup --agent-uid <different-uid>", agentUID)
 	}
 
 	record := "/Users/" + agentUser
@@ -414,11 +477,31 @@ func setupAgentUser(ui *UI, r *Runner) error {
 	}
 	ui.Ok("Hidden from login screen")
 
-	fmt.Printf("\n  Set a password for the '%s' user:\n", agentUser)
-	if err := r.Interactive("sudo", "passwd", agentUser); err != nil {
-		return fmt.Errorf("passwd: %w", err)
+	if ui.IsInteractive() {
+		fmt.Printf("\n  Set a password for the '%s' user:\n", agentUser)
+		if err := r.Interactive("sudo", "passwd", agentUser); err != nil {
+			return fmt.Errorf("passwd: %w", err)
+		}
+		ui.Ok("Password set")
+	} else {
+		// Non-interactive (--yes, piped stdin, or dry-run): generate a random
+		// password.  The agent account is never used for login; this satisfies
+		// macOS's requirement that every account has a password hash.
+		var password string
+		if r.DryRun {
+			password = "<random-base64>"
+		} else {
+			pass, err := exec.Command("openssl", "rand", "-base64", "24").Output()
+			if err != nil {
+				return fmt.Errorf("generate random password: %w", err)
+			}
+			password = strings.TrimSpace(string(pass))
+		}
+		if err := r.Sudo("dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
+			return fmt.Errorf("set agent password: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Password set for '%s' (random, login is disabled)", agentUser))
 	}
-	ui.Ok("Password set")
 
 	if _, err := user.Lookup(agentUser); err != nil {
 		return fmt.Errorf("user '%s' not found after creation: %w", agentUser, err)
@@ -437,7 +520,7 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 		if taken, err := gidTaken(sharedGID); err != nil {
 			return fmt.Errorf("check GID: %w", err)
 		} else if taken {
-			return fmt.Errorf("GID %s is already taken — edit sharedGID in main.go", sharedGID)
+			return fmt.Errorf("GID %s is already taken — use: sandbox setup --group-gid <different-gid>", sharedGID)
 		}
 
 		record := "/Groups/" + sharedGroup
@@ -588,25 +671,32 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 		ui.SkipDone("Docker socket not found (Docker Desktop not running or not installed)")
 	}
 
-	// Restrictive umask for agent user.
+	// Restrictive umask for agent user — use a managed block so rollback is precise.
 	// asAgentOutput is a read — bypasses Runner.
 	agentZshrc := agentHome + "/.zshrc"
-	if out, _ := asAgentOutput("cat", agentZshrc); strings.Contains(out, "umask 077") {
+	agentZshrcData, _ := asAgentOutput("cat", agentZshrc)
+	if strings.Contains(agentZshrcData, umaskBlockStart) {
 		ui.SkipDone("umask 077 already set in agent's .zshrc")
 	} else {
-		if err := r.SudoAppendFile(agentZshrc, "umask 077\n"); err != nil {
+		updated := upsertManagedBlock(agentZshrcData, umaskBlockStart, umaskBlockEnd, "umask 077")
+		if err := r.SudoWriteFile(agentZshrc, updated); err != nil {
 			return fmt.Errorf("set umask in agent .zshrc: %w", err)
+		}
+		if err := r.Sudo("chown", agentUser+":staff", agentZshrc); err != nil {
+			return fmt.Errorf("chown agent .zshrc: %w", err)
 		}
 		ui.Ok("Set umask 077 in agent's .zshrc")
 	}
 
-	// Restrictive umask for current user.
+	// Restrictive umask for current user — managed block so rollback only removes ours.
 	// os.ReadFile is a read — bypasses Runner.
 	userZshrc := os.Getenv("HOME") + "/.zshrc"
-	if data, err := os.ReadFile(userZshrc); err == nil && strings.Contains(string(data), "umask 077") {
+	userZshrcData, _ := os.ReadFile(userZshrc)
+	if strings.Contains(string(userZshrcData), umaskBlockStart) {
 		ui.SkipDone("umask 077 already set in your .zshrc")
 	} else if ui.Ask("Add 'umask 077' to your .zshrc? (prevents /tmp leakage)") {
-		if err := r.UserAppendFile(userZshrc, "umask 077\n"); err != nil {
+		updated := upsertManagedBlock(string(userZshrcData), umaskBlockStart, umaskBlockEnd, "umask 077")
+		if err := r.UserWriteFile(userZshrc, updated); err != nil {
 			return fmt.Errorf("write .zshrc: %w", err)
 		}
 		ui.Ok("Set umask 077 in your .zshrc")
@@ -627,22 +717,18 @@ func setupSeatbelt(ui *UI, r *Runner) error {
 		return fmt.Errorf("mkdir %s: %w", seatbeltProfileDir, err)
 	}
 
-	// Write the SBPL policy file (routes through Runner for audit).
-	if _, err := os.Stat(seatbeltProfilePath); err == nil {
-		ui.SkipDone(fmt.Sprintf("Seatbelt profile already exists at %s", seatbeltProfilePath))
-		ui.WarnMsg(fmt.Sprintf("To replace it, delete first: sudo rm %s", seatbeltProfilePath))
-	} else {
-		if err := r.SudoWriteFile(seatbeltProfilePath, seatbeltProfileContent); err != nil {
-			return fmt.Errorf("write seatbelt profile: %w", err)
-		}
-		if err := r.Sudo("chown", agentUser+":staff", seatbeltProfilePath); err != nil {
-			return fmt.Errorf("chown seatbelt profile: %w", err)
-		}
-		if err := r.Sudo("chmod", "644", seatbeltProfilePath); err != nil {
-			return fmt.Errorf("chmod seatbelt profile: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Seatbelt profile written to %s", seatbeltProfilePath))
+	// The profile and wrapper are managed artifacts. Re-write them on every run
+	// so setup doubles as an in-place upgrade path when the policy evolves.
+	if err := r.SudoWriteFile(seatbeltProfilePath, seatbeltProfileContent); err != nil {
+		return fmt.Errorf("write seatbelt profile: %w", err)
 	}
+	if err := r.Sudo("chown", agentUser+":staff", seatbeltProfilePath); err != nil {
+		return fmt.Errorf("chown seatbelt profile: %w", err)
+	}
+	if err := r.Sudo("chmod", "644", seatbeltProfilePath); err != nil {
+		return fmt.Errorf("chmod seatbelt profile: %w", err)
+	}
+	ui.Ok(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
 
 	// Ensure ~/.local/bin exists before writing the wrapper.
 	wrapperDir := agentHome + "/.local/bin"
@@ -650,22 +736,106 @@ func setupSeatbelt(ui *UI, r *Runner) error {
 		return fmt.Errorf("mkdir %s: %w", wrapperDir, err)
 	}
 
-	// Write the launch wrapper (routes through Runner for audit).
-	if _, err := os.Stat(seatbeltWrapperPath); err == nil {
-		ui.SkipDone(fmt.Sprintf("Seatbelt wrapper already exists at %s", seatbeltWrapperPath))
-		ui.WarnMsg(fmt.Sprintf("To replace it, delete first: sudo rm %s", seatbeltWrapperPath))
-	} else {
-		if err := r.SudoWriteFile(seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
-			return fmt.Errorf("write seatbelt wrapper: %w", err)
-		}
-		if err := r.Sudo("chown", agentUser+":staff", seatbeltWrapperPath); err != nil {
-			return fmt.Errorf("chown seatbelt wrapper: %w", err)
-		}
-		if err := r.Sudo("chmod", "755", seatbeltWrapperPath); err != nil {
-			return fmt.Errorf("chmod seatbelt wrapper: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Seatbelt wrapper written to %s", seatbeltWrapperPath))
+	if err := r.SudoWriteFile(seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
+		return fmt.Errorf("write seatbelt wrapper: %w", err)
 	}
+	if err := r.Sudo("chown", agentUser+":staff", seatbeltWrapperPath); err != nil {
+		return fmt.Errorf("chown seatbelt wrapper: %w", err)
+	}
+	if err := r.Sudo("chmod", "755", seatbeltWrapperPath); err != nil {
+		return fmt.Errorf("chmod seatbelt wrapper: %w", err)
+	}
+	ui.Ok(fmt.Sprintf("Seatbelt wrapper installed at %s", seatbeltWrapperPath))
+
+	return nil
+}
+
+func setupUserExperience(ui *UI, r *Runner) error {
+	ui.Step("Install command wrappers and toolchain env")
+
+	for _, dir := range []string{
+		defaultAgentCacheHome,
+		defaultAgentDataHome,
+		agentHome + "/.npm",
+	} {
+		if err := r.AsAgent("mkdir", "-p", dir); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+	}
+
+	if err := r.SudoWriteFile(agentEnvPath, agentEnvContent()); err != nil {
+		return fmt.Errorf("write agent env file: %w", err)
+	}
+	if err := r.Sudo("chown", agentUser+":staff", agentEnvPath); err != nil {
+		return fmt.Errorf("chown agent env file: %w", err)
+	}
+	if err := r.Sudo("chmod", "644", agentEnvPath); err != nil {
+		return fmt.Errorf("chmod agent env file: %w", err)
+	}
+	ui.Ok(fmt.Sprintf("Agent toolchain env written to %s", agentEnvPath))
+
+	agentZshrc := agentHome + "/.zshrc"
+	agentZshrcData, _ := asAgentOutput("cat", agentZshrc)
+	updatedAgentZshrc := upsertManagedBlock(agentZshrcData,
+		agentShellBlockStart,
+		agentShellBlockEnd,
+		`[[ -f "$HOME/.config/sandbox/agent-env.zsh" ]] && source "$HOME/.config/sandbox/agent-env.zsh"`,
+	)
+	if err := r.SudoWriteFile(agentZshrc, updatedAgentZshrc); err != nil {
+		return fmt.Errorf("update %s: %w", agentZshrc, err)
+	}
+	if err := r.Sudo("chown", agentUser+":staff", agentZshrc); err != nil {
+		return fmt.Errorf("chown %s: %w", agentZshrc, err)
+	}
+	ui.Ok(fmt.Sprintf("Agent shell bootstraps %s", agentEnvPath))
+
+	if err := r.MkdirAll(hostWrapperDir(), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", hostWrapperDir(), err)
+	}
+
+	sandboxBin, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve sandbox binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(sandboxBin); err == nil {
+		sandboxBin = resolved
+	}
+
+	wrappers := []struct {
+		name       string
+		subcommand string
+	}{
+		{name: hostClaudeWrapperName, subcommand: "claude"},
+		{name: hostExecWrapperName, subcommand: "exec"},
+		{name: hostShellWrapperName, subcommand: "shell"},
+	}
+	for _, wrapper := range wrappers {
+		path := hostWrapperPath(wrapper.name)
+		if err := r.UserWriteFile(path, hostWrapperContent(sandboxBin, wrapper.subcommand)); err != nil {
+			return fmt.Errorf("write wrapper %s: %w", path, err)
+		}
+		if err := r.Chmod(path, 0o755); err != nil {
+			return fmt.Errorf("chmod %s: %w", path, err)
+		}
+		ui.Ok(fmt.Sprintf("Installed host wrapper %s", path))
+	}
+
+	userZshrc := userZshrcPath()
+	userZshrcData, _ := os.ReadFile(userZshrc)
+	if strings.Contains(string(userZshrcData), "/.local/bin") {
+		ui.SkipDone(fmt.Sprintf("%s already configures ~/.local/bin in PATH", userZshrc))
+		return nil
+	}
+
+	updatedUserZshrc := upsertManagedBlock(string(userZshrcData),
+		userPathBlockStart,
+		userPathBlockEnd,
+		`export PATH="$HOME/.local/bin:$PATH"`,
+	)
+	if err := r.UserWriteFile(userZshrc, updatedUserZshrc); err != nil {
+		return fmt.Errorf("update %s: %w", userZshrc, err)
+	}
+	ui.Ok(fmt.Sprintf("Added ~/.local/bin PATH block to %s", userZshrc))
 
 	return nil
 }
@@ -817,73 +987,95 @@ func setupLaunchDaemon(ui *UI, r *Runner) error {
 
 // verifySetup re-checks key invariants after all steps complete.
 // All operations here are read-only; no Runner needed.
+// Uses TestPass/TestFail/TestWarn so callers (sandbox status) can check
+// ui.Fail > 0 and return a non-zero exit code when the sandbox is broken.
 func verifySetup(ui *UI) {
 	ui.Step("Verify setup")
 	fmt.Println()
 
 	if u, err := user.Lookup(agentUser); err == nil {
-		ui.Ok(fmt.Sprintf("User '%s' exists (uid=%s)", agentUser, u.Uid))
+		ui.TestPass(fmt.Sprintf("User '%s' exists (uid=%s)", agentUser, u.Uid))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("User '%s' not found", agentUser))
+		ui.TestFail(fmt.Sprintf("User '%s' not found", agentUser))
 	}
 
 	if _, err := os.Stat(agentHome); err == nil {
-		ui.Ok(fmt.Sprintf("Home directory exists at %s", agentHome))
+		ui.TestPass(fmt.Sprintf("Home directory exists at %s", agentHome))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("Home directory missing: %s", agentHome))
+		ui.TestFail(fmt.Sprintf("Home directory missing: %s", agentHome))
 	}
 
 	if info, err := os.Stat(sharedWorkspace); err == nil {
-		ui.Ok(fmt.Sprintf("Shared workspace exists at %s (%s)", sharedWorkspace, info.Mode()))
+		ui.TestPass(fmt.Sprintf("Shared workspace exists at %s (%s)", sharedWorkspace, info.Mode()))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("Shared workspace missing: %s", sharedWorkspace))
+		ui.TestFail(fmt.Sprintf("Shared workspace missing: %s", sharedWorkspace))
 	}
 
+	// ACL is advisory: files are still accessible via the dev group,
+	// but new files created with umask 077 need the ACL to be readable.
 	if workspaceHasDevACL() {
-		ui.Ok(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
+		ui.TestPass(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("Workspace ACL missing '%s' group — agent files will not be readable by controlling user", sharedGroup))
+		ui.TestWarn(fmt.Sprintf("Workspace ACL missing '%s' group — agent files may not be readable by controlling user", sharedGroup))
 	}
 
 	if out, err := sudoOutput("pfctl", "-a", pfAnchorName, "-sr"); err == nil &&
 		strings.Contains(out, "block") {
 		n := len(strings.Split(strings.TrimSpace(out), "\n"))
-		ui.Ok(fmt.Sprintf("pf anchor loaded with %d rules", n))
+		ui.TestPass(fmt.Sprintf("pf anchor loaded with %d rules", n))
 	} else {
-		ui.WarnMsg("pf anchor not loaded or empty — try: sudo pfctl -f /etc/pf.conf && sudo pfctl -e")
+		ui.TestFail("pf anchor not loaded or empty — try: sudo pfctl -f /etc/pf.conf && sudo pfctl -e")
 	}
 
 	if out, err := sudoOutput("pfctl", "-si"); err == nil &&
 		strings.Contains(out, "Status: Enabled") {
-		ui.Ok("pf is enabled")
+		ui.TestPass("pf is enabled")
 	} else {
-		ui.WarnMsg("pf is not enabled — run: sudo pfctl -e")
+		ui.TestFail("pf is not enabled — run: sudo pfctl -e")
 	}
 
 	if err := sudo("-u", agentUser, "whoami"); err == nil {
-		ui.Ok(fmt.Sprintf("Passwordless sudo works (%s → %s)", os.Getenv("USER"), agentUser))
+		ui.TestPass(fmt.Sprintf("Passwordless sudo works (%s → %s)", os.Getenv("USER"), agentUser))
 	} else {
-		ui.WarnMsg("Passwordless sudo not working")
+		ui.TestFail("Passwordless sudo not working")
 	}
 
+	// DNS blocklist is optional — was a prompted step during setup.
 	if data, err := os.ReadFile("/etc/hosts"); err == nil &&
 		strings.Contains(string(data), "AI Agent Blocklist") {
 		n := strings.Count(string(data), "0.0.0.0 ")
-		ui.Ok(fmt.Sprintf("DNS blocklist active (%d domains in /etc/hosts)", n))
+		ui.TestPass(fmt.Sprintf("DNS blocklist active (%d domains in /etc/hosts)", n))
 	} else {
-		ui.WarnMsg("DNS blocklist not installed in /etc/hosts")
+		ui.TestWarn("DNS blocklist not installed in /etc/hosts (optional — see setup-option-a.md)")
 	}
 
 	if _, err := os.Stat(seatbeltProfilePath); err == nil {
-		ui.Ok(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
+		ui.TestPass(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("Seatbelt profile missing: %s", seatbeltProfilePath))
+		ui.TestFail(fmt.Sprintf("Seatbelt profile missing: %s", seatbeltProfilePath))
 	}
 
 	if info, err := os.Stat(seatbeltWrapperPath); err == nil && info.Mode()&0o111 != 0 {
-		ui.Ok(fmt.Sprintf("Seatbelt wrapper installed and executable at %s", seatbeltWrapperPath))
+		ui.TestPass(fmt.Sprintf("Seatbelt wrapper installed and executable at %s", seatbeltWrapperPath))
 	} else {
-		ui.WarnMsg(fmt.Sprintf("Seatbelt wrapper missing or not executable: %s", seatbeltWrapperPath))
+		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing or not executable: %s", seatbeltWrapperPath))
+	}
+
+	// Agent shell env is advisory — wrappers work without it but PATH and
+	// aliases inside agent-shell will be incomplete.
+	if _, err := os.Stat(agentEnvPath); err == nil {
+		ui.TestPass(fmt.Sprintf("Agent shell env installed at %s", agentEnvPath))
+	} else {
+		ui.TestWarn(fmt.Sprintf("Agent shell env missing: %s", agentEnvPath))
+	}
+
+	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
+		path := hostWrapperPath(wrapper)
+		if info, err := os.Stat(path); err == nil && info.Mode()&0o111 != 0 {
+			ui.TestPass(fmt.Sprintf("Host wrapper installed: %s", path))
+		} else {
+			ui.TestFail(fmt.Sprintf("Host wrapper missing or not executable: %s", path))
+		}
 	}
 }
 

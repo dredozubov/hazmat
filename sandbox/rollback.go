@@ -22,6 +22,7 @@ func newRollbackCmd() *cobra.Command {
   - DNS blocklist from /etc/hosts
   - Sudoers entry (/etc/sudoers.d/agent)
   - Seatbelt profile and wrapper
+  - Agent shell env + host wrapper commands
   - Convenience symlinks (~/workspace-shared, /Users/agent/workspace)
   - umask 077 lines from .zshrc files
   - Backup scope file (.backup-excludes)
@@ -74,6 +75,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	rollbackDNSBlocklist(ui, r)
 	rollbackSudoers(ui, r)
 	rollbackSeatbelt(ui, r)
+	rollbackUserExperience(ui, r)
 	rollbackSymlinks(ui, r)
 	rollbackUmask(ui, r)
 	rollbackBackupScope(ui, r)
@@ -270,6 +272,60 @@ func rollbackSeatbelt(ui *UI, r *Runner) {
 	}
 }
 
+func rollbackUserExperience(ui *UI, r *Runner) {
+	ui.Step("Remove command wrappers and shell integration")
+
+	if _, err := os.Stat(agentEnvPath); os.IsNotExist(err) {
+		ui.SkipDone(fmt.Sprintf("%s not present", agentEnvPath))
+	} else if err := r.Sudo("rm", "-f", agentEnvPath); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", agentEnvPath, err))
+	} else {
+		ui.Ok(fmt.Sprintf("Removed %s", agentEnvPath))
+	}
+
+	for _, path := range []string{
+		hostWrapperPath(hostClaudeWrapperName),
+		hostWrapperPath(hostExecWrapperName),
+		hostWrapperPath(hostShellWrapperName),
+	} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			ui.SkipDone(fmt.Sprintf("%s not present", path))
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
+		} else {
+			ui.Ok(fmt.Sprintf("Removed %s", path))
+		}
+	}
+
+	agentZshrc := agentHome + "/.zshrc"
+	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
+		strings.Contains(data, agentShellBlockStart) {
+		cleaned := removeManagedBlock(data, agentShellBlockStart, agentShellBlockEnd)
+		if err := r.SudoWriteFile(agentZshrc, cleaned); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
+		} else {
+			ui.Ok(fmt.Sprintf("Removed sandbox shell block from %s", agentZshrc))
+		}
+	} else {
+		ui.SkipDone(fmt.Sprintf("Sandbox shell block not present in %s", agentZshrc))
+	}
+
+	userZshrc := userZshrcPath()
+	if data, err := os.ReadFile(userZshrc); err == nil &&
+		strings.Contains(string(data), userPathBlockStart) {
+		cleaned := removeManagedBlock(string(data), userPathBlockStart, userPathBlockEnd)
+		if err := r.UserWriteFile(userZshrc, cleaned); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", userZshrc, err))
+		} else {
+			ui.Ok(fmt.Sprintf("Removed sandbox PATH block from %s", userZshrc))
+		}
+	} else {
+		ui.SkipDone(fmt.Sprintf("Sandbox PATH block not present in %s", userZshrc))
+	}
+}
+
 func rollbackSymlinks(ui *UI, r *Runner) {
 	ui.Step("Remove convenience symlinks")
 
@@ -299,44 +355,35 @@ func rollbackSymlinks(ui *UI, r *Runner) {
 }
 
 func rollbackUmask(ui *UI, r *Runner) {
-	ui.Step("Remove umask 077 from .zshrc files")
+	ui.Step("Remove umask managed block from .zshrc files")
 
-	// Agent .zshrc
+	// Agent .zshrc — only remove the block this tool added.
 	agentZshrc := agentHome + "/.zshrc"
-	if data, err := asAgentOutput("cat", agentZshrc); err == nil && strings.Contains(data, "umask 077") {
-		cleaned := removeUmaskLine(data)
+	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
+		strings.Contains(data, umaskBlockStart) {
+		cleaned := removeManagedBlock(data, umaskBlockStart, umaskBlockEnd)
 		if err := r.SudoWriteFile(agentZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed 'umask 077' from %s", agentZshrc))
+			ui.Ok(fmt.Sprintf("Removed umask block from %s", agentZshrc))
 		}
 	} else {
-		ui.SkipDone(fmt.Sprintf("'umask 077' not present in %s", agentZshrc))
+		ui.SkipDone(fmt.Sprintf("Umask block not present in %s", agentZshrc))
 	}
 
-	// Current user .zshrc
+	// Current user .zshrc — only remove the block this tool added.
 	userZshrc := os.Getenv("HOME") + "/.zshrc"
-	if data, err := os.ReadFile(userZshrc); err == nil && strings.Contains(string(data), "umask 077") {
-		cleaned := removeUmaskLine(string(data))
+	if data, err := os.ReadFile(userZshrc); err == nil &&
+		strings.Contains(string(data), umaskBlockStart) {
+		cleaned := removeManagedBlock(string(data), umaskBlockStart, umaskBlockEnd)
 		if err := r.UserWriteFile(userZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", userZshrc, err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed 'umask 077' from %s", userZshrc))
+			ui.Ok(fmt.Sprintf("Removed umask block from %s", userZshrc))
 		}
 	} else {
-		ui.SkipDone(fmt.Sprintf("'umask 077' not present in %s", userZshrc))
+		ui.SkipDone(fmt.Sprintf("Umask block not present in %s", userZshrc))
 	}
-}
-
-// removeUmaskLine strips all lines containing "umask 077" from s.
-func removeUmaskLine(s string) string {
-	var kept []string
-	for _, line := range strings.Split(s, "\n") {
-		if !strings.Contains(line, "umask 077") {
-			kept = append(kept, line)
-		}
-	}
-	return strings.Join(kept, "\n")
 }
 
 func rollbackBackupScope(ui *UI, r *Runner) {

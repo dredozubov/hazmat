@@ -21,6 +21,9 @@ type UI struct {
 	// DryRun causes Ask to skip the prompt and assume yes, so dry-run output
 	// shows the commands that would run for optional steps.
 	DryRun bool
+	// YesAll causes Ask to assume yes without prompting (--yes / -y flag).
+	// Unlike DryRun, commands are still executed.
+	YesAll bool
 }
 
 var (
@@ -137,6 +140,12 @@ func (u *UI) ShowFileOp(verb, path, content string) {
 	}
 }
 
+// IsInteractive returns true when the UI should prompt the user: not in
+// dry-run, not in --yes mode, and stdin is a real terminal.
+func (u *UI) IsInteractive() bool {
+	return !u.DryRun && !u.YesAll && term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 // Ask prints a [y/N] prompt and reads one line.
 // In dry-run mode, prints the prompt and assumes yes so previewed output
 // includes commands that belong to optional steps.
@@ -146,6 +155,11 @@ func (u *UI) ShowFileOp(verb, path, content string) {
 func (u *UI) Ask(prompt string) bool {
 	if u.DryRun {
 		faint.Printf("    [dry-run] Would ask: %s [y/N]  → assuming yes for preview\n", prompt)
+		return true
+	}
+	if u.YesAll {
+		cBold.Printf("  %s [y/N] ", prompt)
+		fmt.Println("y  (--yes)")
 		return true
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -184,14 +198,15 @@ func (u *UI) Banner(currentUser string) {
 	fmt.Printf("    2. Create a '%s' group (only %s + %s)\n", sharedGroup, currentUser, agentUser)
 	fmt.Printf("    3. Set up a shared workspace at %s\n", sharedWorkspace)
 	fmt.Println("    4. Harden known macOS isolation gaps")
-	fmt.Printf("    5. Configure passwordless sudo (%s → %s)\n", currentUser, agentUser)
-	fmt.Println("    6. Install a pf port blocklist (SMTP, IRC, FTP, Tor, etc.)")
-	fmt.Println("    7. Add a DNS domain blocklist (tunnel/paste/fileshare services)")
-	fmt.Println("    8. Persist firewall rules across reboots")
+	fmt.Println("    5. Install sandbox-aware shell wrappers and toolchain env")
+	fmt.Printf("    6. Configure passwordless sudo (%s → %s)\n", currentUser, agentUser)
+	fmt.Println("    7. Install a pf port blocklist (SMTP, IRC, FTP, Tor, etc.)")
+	fmt.Println("    8. Add a DNS domain blocklist (tunnel/paste/fileshare services)")
+	fmt.Println("    9. Persist firewall rules across reboots")
 	fmt.Println()
 	fmt.Println("  You'll need to manually install afterward:")
 	fmt.Println("    • Claude Code (as the agent user)")
-	fmt.Println("    • An SSH key for GitHub (as the agent user)")
+	fmt.Println("    • A GitHub Personal Access Token for HTTPS git auth")
 	fmt.Println("    • LuLu network monitor (optional, recommended)")
 	fmt.Println()
 }
@@ -210,22 +225,39 @@ func (u *UI) DoneBox(currentUser string) {
 	cBold.Println("  2. Set your Anthropic API key:")
 	fmt.Println(`     echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc`)
 	fmt.Println()
-	cBold.Println("  3. Create an SSH key for GitHub:")
-	fmt.Printf("     ssh-keygen -t ed25519 -C \"agent@$(hostname -s)\"\n")
-	fmt.Println("     cat ~/.ssh/id_ed25519.pub")
-	fmt.Println("     # Add to GitHub → Settings → SSH keys")
+	cBold.Println("  3. Configure git HTTPS authentication:")
+	fmt.Println("     git config --global credential.helper 'store --file ~/.config/git/credentials'")
+	fmt.Println("     # Create a GitHub Personal Access Token (scope: repo)")
+	fmt.Println("     # github.com → Settings → Developer settings → Personal access tokens")
+	fmt.Println("     # git will prompt for it on the first push; it is then stored.")
+	fmt.Println("     #")
+	fmt.Println("     # Note: git-over-SSH is blocked by the seatbelt profile.")
 	fmt.Println()
 	cBold.Println("  4. Configure git:")
 	fmt.Println(`     git config --global user.name "Your Name"`)
 	fmt.Println(`     git config --global user.email "you@example.com"`)
 	fmt.Println()
-	cBold.Println("  5. Install LuLu (optional, recommended):")
+	cBold.Println("  5. Use the generated wrappers from your normal shell:")
+	fmt.Println("     cd ~/workspace-shared/my-project")
+	fmt.Println("     claude-sandbox")
+	fmt.Println("     agent-shell")
+	fmt.Println("     agent-exec make test")
+	fmt.Println("     agent-exec npx vitest")
+	fmt.Println("     agent-exec uvx ruff check .")
+	fmt.Println()
+	cYellow.Println("  Note: wrappers are in ~/.local/bin — reload your shell first:")
+	fmt.Println("     source ~/.zshrc   (or open a new terminal)")
+	fmt.Println()
+	cBold.Println("  6. Install LuLu (optional, recommended):")
 	fmt.Println("     https://objective-see.org/products/lulu.html")
 	fmt.Println()
-	cBold.Println("  Daily workflow:")
-	fmt.Printf("     sudo -u %s -i\n", agentUser)
-	fmt.Println("     cd ~/workspace/my-project")
+	cBold.Println("  Agent-shell workflow:")
+	fmt.Println("     cd ~/workspace-shared/my-project")
+	fmt.Println("     agent-shell")
 	fmt.Println("     claude")
+	fmt.Println("     make test")
+	fmt.Println("     npx vitest")
+	fmt.Println("     uvx ruff check .")
 	fmt.Println()
 	fmt.Println("  To uninstall, see setup-option-a.md § Uninstall / Rollback")
 	fmt.Println()

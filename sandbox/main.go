@@ -9,21 +9,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// flagVerbose and flagDryRun are persistent flags bound to the root command
-// so they are available on every subcommand without repetition.
+// flagVerbose, flagDryRun, and flagYesAll are persistent flags bound to the
+// root command so they are available on every subcommand without repetition.
 var (
 	flagVerbose bool
 	flagDryRun  bool
+	flagYesAll  bool
 )
 
-// Sandbox configuration — must match setup.sh exactly.
+// agentUID and sharedGID are vars so setup can override them via --agent-uid
+// and --group-gid flags when the defaults conflict with existing UIDs/GIDs.
+var (
+	agentUID = "599"
+	sharedGID = "599"
+)
+
+// Sandbox configuration shared by the Go-based setup, test, and rollback flows.
 const (
 	agentUser       = "agent"
-	agentUID        = "599"
 	agentHome       = "/Users/agent"
 	sharedWorkspace = "/Users/Shared/workspace"
 	sharedGroup     = "dev"
-	sharedGID       = "599"
 	pfAnchorName    = "agent"
 	pfAnchorFile    = "/etc/pf.anchors/agent"
 	pfDaemonLabel   = "com.local.pf-agent"
@@ -34,6 +40,24 @@ const (
 	seatbeltProfileDir  = agentHome + "/.config/sandbox"
 	seatbeltProfilePath = agentHome + "/.config/sandbox/claude.sb"
 	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
+	agentEnvPath        = seatbeltProfileDir + "/agent-env.zsh"
+
+	agentShellBlockStart = "# >>> sandbox agent shell >>>"
+	agentShellBlockEnd   = "# <<< sandbox agent shell <<<"
+	userPathBlockStart   = "# >>> sandbox user path >>>"
+	userPathBlockEnd     = "# <<< sandbox user path <<<"
+	umaskBlockStart      = "# >>> sandbox umask >>>"
+	umaskBlockEnd        = "# <<< sandbox umask <<<"
+
+	hostWrapperDirRel      = ".local/bin"
+	hostClaudeWrapperName  = "claude-sandbox"
+	hostExecWrapperName    = "agent-exec"
+	hostShellWrapperName   = "agent-shell"
+	defaultAgentPath       = agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	defaultAgentCacheHome  = agentHome + "/.cache"
+	defaultAgentConfigHome = agentHome + "/.config"
+	defaultAgentDataHome   = agentHome + "/.local/share"
+	defaultAgentTmpDir     = "/private/tmp"
 )
 
 func main() {
@@ -48,13 +72,19 @@ func main() {
 		"Print each command before executing")
 	root.PersistentFlags().BoolVarP(&flagDryRun, "dry-run", "n", false,
 		"Print all commands without executing (implies --verbose)")
+	root.PersistentFlags().BoolVarP(&flagYesAll, "yes", "y", false,
+		"Answer yes to all prompts (for non-interactive / scripted use)")
 
 	root.AddCommand(
 		newSetupCmd(),
+		newStatusCmd(),
 		newTestCmd(),
 		newBackupCmd(),
 		newRestoreCmd(),
 		newRollbackCmd(),
+		newShellCmd(),
+		newExecCmd(),
+		newClaudeCmd(),
 		newConnectCmd(), // hidden: used internally for agent-user network probes
 	)
 
