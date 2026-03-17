@@ -122,10 +122,10 @@ func testAgentUser(ui *UI) {
 	}
 }
 
-// ── Step 2: Dev group and shared workspace ────────────────────────────────────
+// ── Step 2: Dev group and workspace root ─────────────────────────────────────
 
 func testDevGroupAndWorkspace(ui *UI, currentUser string) {
-	ui.Step("Dev group and shared workspace")
+	ui.Step("Dev group and workspace root")
 
 	if _, err := user.LookupGroup(sharedGroup); err == nil {
 		ui.TestPass(fmt.Sprintf("Group '%s' exists", sharedGroup))
@@ -143,31 +143,41 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 
 	info, err := os.Stat(sharedWorkspace)
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("Shared workspace missing: %s", sharedWorkspace))
+		ui.TestFail(fmt.Sprintf("Workspace root missing: %s", sharedWorkspace))
 		return
 	}
-	ui.TestPass(fmt.Sprintf("Shared workspace exists: %s", sharedWorkspace))
+	ui.TestPass(fmt.Sprintf("Workspace root exists: %s", sharedWorkspace))
+
+	if homeAllowsAgentTraverse(os.Getenv("HOME")) {
+		if homeHasAgentTraverseACL(os.Getenv("HOME")) {
+			ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to %s", agentUser, workspaceHint))
+		} else {
+			ui.TestPass(fmt.Sprintf("Home directory permissions already let '%s' reach %s", agentUser, workspaceHint))
+		}
+	} else {
+		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — %s may be unreachable", agentUser, workspaceHint))
+	}
 
 	perms := info.Mode().Perm()
 	if perms == 0o770 {
-		ui.TestPass(fmt.Sprintf("Shared workspace permissions: %04o", perms))
+		ui.TestPass(fmt.Sprintf("Workspace root permissions: %04o", perms))
 	} else {
-		ui.TestFail(fmt.Sprintf("Shared workspace permissions: %04o (expected 0770)", perms))
+		ui.TestFail(fmt.Sprintf("Workspace root permissions: %04o (expected 0770)", perms))
 	}
 
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		gidStr := strconv.FormatUint(uint64(st.Gid), 10)
 		if g, err := user.LookupGroupId(gidStr); err == nil && g.Name == sharedGroup {
-			ui.TestPass(fmt.Sprintf("Shared workspace group: %s", sharedGroup))
+			ui.TestPass(fmt.Sprintf("Workspace root group: %s", sharedGroup))
 		} else {
-			ui.TestFail(fmt.Sprintf("Shared workspace group is gid=%s, expected '%s'", gidStr, sharedGroup))
+			ui.TestFail(fmt.Sprintf("Workspace root group is gid=%s, expected '%s'", gidStr, sharedGroup))
 		}
 	}
 
 	if info.Mode()&fs.ModeSetgid != 0 {
-		ui.TestPass("Shared workspace has setgid bit")
+		ui.TestPass("Workspace root has setgid bit")
 	} else {
-		ui.TestFail(fmt.Sprintf("Shared workspace missing setgid bit (%s)", info.Mode()))
+		ui.TestFail(fmt.Sprintf("Workspace root missing setgid bit (%s)", info.Mode()))
 	}
 
 	// ACL check: workspace must have an inherited ACE for the dev group so that
@@ -184,15 +194,15 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	if f, err := os.Create(tmpDr); err == nil {
 		f.Close()
 		os.Remove(tmpDr)
-		ui.TestPass(fmt.Sprintf("%s can write to shared workspace", currentUser))
+		ui.TestPass(fmt.Sprintf("%s can write to workspace root", currentUser))
 	} else {
-		ui.TestFail(fmt.Sprintf("%s cannot write to shared workspace", currentUser))
+		ui.TestFail(fmt.Sprintf("%s cannot write to workspace root", currentUser))
 	}
 
 	// Write test as agent; also check setgid inheritance
 	tmpAgent := fmt.Sprintf("%s/.test_agent_%d", sharedWorkspace, os.Getpid())
 	if err := asAgentQuiet("touch", tmpAgent); err == nil {
-		ui.TestPass(fmt.Sprintf("%s can write to shared workspace", agentUser))
+		ui.TestPass(fmt.Sprintf("%s can write to workspace root", agentUser))
 
 		if finfo, err := os.Stat(tmpAgent); err == nil {
 			if st, ok := finfo.Sys().(*syscall.Stat_t); ok {
@@ -206,7 +216,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		}
 		sudo("rm", "-f", tmpAgent) //nolint:errcheck
 	} else {
-		ui.TestFail(fmt.Sprintf("%s cannot write to shared workspace", agentUser))
+		ui.TestFail(fmt.Sprintf("%s cannot write to workspace root", agentUser))
 	}
 
 	// Bidirectional access: agent-created file must be readable/writable by controlling user.
@@ -684,7 +694,7 @@ func testBackup(ui *UI) {
 		return
 	}
 
-	// Dry-run rsync against the shared workspace using production flags (backupBuiltinExcludes).
+	// Dry-run rsync against the workspace root using production flags (backupBuiltinExcludes).
 	// This ensures the test exercises the same exclude set that runBackup() uses.
 	src := sharedWorkspace + "/"
 	if _, err := os.Stat(sharedWorkspace); os.IsNotExist(err) {
@@ -787,7 +797,7 @@ func testBackup(ui *UI) {
 	}
 	_ = origExcludes // suppress unused var warning
 
-	// Backup scope file should exist in the shared workspace if setup was run.
+	// Backup scope file should exist in the workspace root if setup was run.
 	if _, err := os.Stat(backupExcludesFile); err == nil {
 		ui.TestPass(fmt.Sprintf("Backup scope file exists: %s", backupExcludesFile))
 	} else {

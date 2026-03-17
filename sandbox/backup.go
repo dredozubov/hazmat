@@ -19,7 +19,7 @@ const backupTargetMarker = ".backup-target"
 // omit from backup.  Edit this file to change backup scope; the effective
 // scope is always printed before rsync runs, and can be inspected with
 // sandbox backup --show-scope.
-const backupExcludesFile = sharedWorkspace + "/.backup-excludes"
+var backupExcludesFile = sharedWorkspace + "/.backup-excludes"
 
 // backupBuiltinExcludes are universal build artifacts always excluded.
 // These are not user-configurable because they are safe to omit from any
@@ -41,7 +41,8 @@ var backupBuiltinExcludes = []string{
 // defaultBackupExcludesContent is the template written to backupExcludesFile
 // during setup.  Users should edit this file to list large or re-cloneable
 // repos they do not want backed up.
-const defaultBackupExcludesContent = `# Backup exclude patterns for ` + sharedWorkspace + `
+func defaultBackupExcludesContent() string {
+	return `# Backup exclude patterns for ` + sharedWorkspace + `
 # Format: one rsync pattern per line (same as rsync --exclude).
 # Lines beginning with # are comments; blank lines are ignored.
 #
@@ -53,14 +54,15 @@ const defaultBackupExcludesContent = `# Backup exclude patterns for ` + sharedWo
 # /bitcoin/
 # /my-big-archive/
 `
+}
 
 func newBackupCmd() *cobra.Command {
 	var syncMode, showScope bool
 	cmd := &cobra.Command{
 		Use:   "backup [--show-scope | <destination>]",
-		Short: "Back up the shared workspace to destination using rsync",
-		Long: `Backs up the canonical shared workspace (` + sharedWorkspace + `) to the given
-destination using rsync.  Always uses the shared workspace path regardless of
+		Short: "Back up the workspace root to destination using rsync",
+		Long: `Backs up the canonical workspace root (` + sharedWorkspace + `) to the given
+destination using rsync. Always uses the workspace root regardless of
 which user invokes the command.
 
 Exclude rules come from two sources (printed before each run):
@@ -151,7 +153,7 @@ func runBackup(syncMode bool, args []string) error {
 	src := sharedWorkspace + "/"
 
 	if _, err := os.Stat(sharedWorkspace); err != nil {
-		return fmt.Errorf("shared workspace %q not found: %w", sharedWorkspace, err)
+		return fmt.Errorf("workspace root %q not found: %w", sharedWorkspace, err)
 	}
 
 	if syncMode {

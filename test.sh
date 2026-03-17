@@ -15,7 +15,7 @@ set -euo pipefail
 
 AGENT_USER="agent"
 AGENT_HOME="/Users/${AGENT_USER}"
-SHARED_WORKSPACE="/Users/Shared/workspace"
+SHARED_WORKSPACE="${HOME}/workspace"
 SHARED_GROUP="dev"
 PF_ANCHOR_NAME="agent"
 PF_ANCHOR_FILE="/etc/pf.anchors/${PF_ANCHOR_NAME}"
@@ -143,10 +143,10 @@ else
 fi
 
 # ===========================================================================
-# Step 2: Dev group and shared workspace
+# Step 2: Dev group and workspace root
 # ===========================================================================
 
-step "Dev group and shared workspace"
+step "Dev group and workspace root"
 
 if dscl . -read "/Groups/${SHARED_GROUP}" &>/dev/null; then
   pass "Group '${SHARED_GROUP}' exists"
@@ -167,40 +167,46 @@ else
 fi
 
 if [[ -d "${SHARED_WORKSPACE}" ]]; then
-  pass "Shared workspace exists: ${SHARED_WORKSPACE}"
+  pass "Workspace root exists: ${SHARED_WORKSPACE}"
 else
-  fail "Shared workspace missing: ${SHARED_WORKSPACE}"
+  fail "Workspace root missing: ${SHARED_WORKSPACE}"
+fi
+
+if ls -led "${HOME}" 2>/dev/null | grep -q "user:${AGENT_USER}"; then
+  pass "Home directory ACL includes traverse access for ${AGENT_USER}"
+else
+  warn "Home directory ACL for ${AGENT_USER} not detected"
 fi
 
 ws_perms=$(stat -f '%Lp' "${SHARED_WORKSPACE}" 2>/dev/null || echo "unknown")
 ws_group=$(stat -f '%Sg' "${SHARED_WORKSPACE}" 2>/dev/null || echo "unknown")
 if [[ "${ws_perms}" == "770" ]]; then
-  pass "Shared workspace permissions: ${ws_perms}"
+  pass "Workspace root permissions: ${ws_perms}"
 else
-  fail "Shared workspace permissions: ${ws_perms} (expected 770)"
+  fail "Workspace root permissions: ${ws_perms} (expected 770)"
 fi
 
 if [[ "${ws_group}" == "${SHARED_GROUP}" ]]; then
-  pass "Shared workspace group: ${ws_group}"
+  pass "Workspace root group: ${ws_group}"
 else
-  fail "Shared workspace group: '${ws_group}' (expected ${SHARED_GROUP})"
+  fail "Workspace root group: '${ws_group}' (expected ${SHARED_GROUP})"
 fi
 
 # Check setgid bit
 ws_full_perms=$(stat -f '%Sp' "${SHARED_WORKSPACE}" 2>/dev/null || echo "unknown")
 if [[ "${ws_full_perms}" == *s* ]] || [[ "${ws_full_perms}" == *S* ]]; then
-  pass "Shared workspace has setgid bit"
+  pass "Workspace root has setgid bit"
 else
-  fail "Shared workspace missing setgid bit (${ws_full_perms})"
+  fail "Workspace root missing setgid bit (${ws_full_perms})"
 fi
 
 # Test write as dr
 test_file_dr="${SHARED_WORKSPACE}/.test_dr_$$"
 if touch "${test_file_dr}" 2>/dev/null; then
   rm -f "${test_file_dr}"
-  pass "${CURRENT_USER} can write to shared workspace"
+  pass "${CURRENT_USER} can write to workspace root"
 else
-  fail "${CURRENT_USER} cannot write to shared workspace"
+  fail "${CURRENT_USER} cannot write to workspace root"
 fi
 
 # Test write as agent
@@ -209,14 +215,14 @@ if sudo -u "${AGENT_USER}" touch "${test_file_agent}" 2>/dev/null; then
   # Check that file inherited dev group (setgid)
   file_group=$(stat -f '%Sg' "${test_file_agent}" 2>/dev/null || echo "unknown")
   sudo rm -f "${test_file_agent}"
-  pass "${AGENT_USER} can write to shared workspace"
+  pass "${AGENT_USER} can write to workspace root"
   if [[ "${file_group}" == "${SHARED_GROUP}" ]]; then
     pass "New files inherit '${SHARED_GROUP}' group (setgid working)"
   else
     warn "New file group is '${file_group}', expected '${SHARED_GROUP}' — setgid may not be working"
   fi
 else
-  fail "${AGENT_USER} cannot write to shared workspace"
+  fail "${AGENT_USER} cannot write to workspace root"
 fi
 
 # ===========================================================================

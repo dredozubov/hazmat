@@ -9,7 +9,7 @@ Your user (dr)                     Sandbox user (agent)
 ├── ~/.ssh/           INVISIBLE    ├── ~/.claude/        (own credentials)
 ├── ~/.aws/           INVISIBLE    ├── ~/.gitconfig      (own git identity)
 ├── ~/.gnupg/         INVISIBLE    ├── ~/.ssh/id_ed25519 (scoped deploy key)
-├── ~/Library/        INVISIBLE    └── (shared workspace access)
+├── ~/Library/        INVISIBLE    └── (access to ~/workspace via ACL + seatbelt)
 ├── Keychain          INVISIBLE
 ├── Browser data      INVISIBLE    pf blocklist (kernel-enforced):
 ├── ~/Documents/      INVISIBLE      ✗ SMTP, IRC, FTP, Telnet, SMB
@@ -33,7 +33,7 @@ The UX model is:
 
 - Identity-bound things live in `/Users/agent`: Claude auth, SSH keys, API keys, npm/uv caches, git identity
 - Shared runtimes stay on the host: Homebrew installs `node`, `make`, `uv`, `uvx`, `rg`, `jq`, etc. once
-- Host-side wrappers route those tools into the sandbox user with the shared workspace as the working directory
+- Host-side wrappers route those tools into the sandbox user with one writable project under `~/workspace` plus optional read-only reference directories
 
 See [attack-surface-deep-dive.md](attack-surface-deep-dive.md) for the full threat analysis and [soft-pf-blocklist.md](soft-pf-blocklist.md) for the blocklist philosophy.
 
@@ -82,37 +82,31 @@ ls -la /Users/agent/
 
 ---
 
-## Step 2: Shared Workspace
+## Step 2: Workspace Root
 
-Projects live in a shared location accessible to both users. Your home directory stays untouched.
+Projects live in `~/workspace`. The agent gets controlled access into that tree: the active project is writable in a sandboxed session, and sibling repos can be mounted as read-only references.
 
 ```bash
-# Create shared workspace
-sudo mkdir -p /Users/Shared/workspace
-sudo chown dr:staff /Users/Shared/workspace
-sudo chmod 770 /Users/Shared/workspace
+# Create workspace root
+mkdir -p ~/workspace
+sudo chown dr:dev ~/workspace
+sudo chmod 770 ~/workspace
+sudo chmod g+s ~/workspace
 
-# Convenience symlink from your user
-ln -s /Users/Shared/workspace ~/workspace-shared
+# Let the agent user traverse your home directory to reach ~/workspace
+sudo chmod +a "user:agent allow execute,readattr,readextattr,readsecurity" ~
 
 # Convenience symlink from agent user
-sudo -u agent ln -s /Users/Shared/workspace /Users/agent/workspace
+sudo -u agent ln -s ~/workspace /Users/agent/workspace
 ```
 
 ### Move or Clone Projects
 
 ```bash
-# Option 1: Move existing projects
-mv ~/workspace/my-project /Users/Shared/workspace/
-
-# Option 2: Clone fresh
-cd /Users/Shared/workspace
+# Keep projects directly under ~/workspace
+cd ~/workspace
 git clone git@github.com:you/my-project.git
-
-# Option 3: Symlink individual projects (keeps originals in place)
-ln -s ~/workspace/my-project /Users/Shared/workspace/my-project
-# Note: agent can read/write through symlinks if target permissions allow.
-# For maximum isolation, clone or move instead of symlinking.
+git clone git@github.com:you/reference-repo.git
 ```
 
 ---
@@ -160,7 +154,7 @@ Use the sandbox user for credentials and mutable state, but keep general-purpose
 - Install on the host via Homebrew: `node`, `make`, `uv`, `ripgrep`, `jq`, `gh`, `pnpm`, `fd`, other compilers or CLIs
 - Run those host-installed binaries through the sandbox with `agent-exec ...` or inside `agent-shell`
 
-This avoids duplicating toolchains per user while still keeping the blast radius bounded to `/Users/agent` and `/Users/Shared/workspace`.
+This avoids duplicating toolchains per user while still keeping the blast radius bounded to `/Users/agent` and the explicitly exposed portion of `~/workspace`.
 
 ### Additional Tools (as needed)
 
@@ -169,7 +163,7 @@ This avoids duplicating toolchains per user while still keeping the blast radius
 brew install node make uv pnpm ripgrep jq
 
 # Then use it through the sandbox:
-cd ~/workspace-shared/my-project
+cd ~/workspace/my-project
 agent-exec make test
 agent-exec npx vitest
 agent-exec uvx ruff check .
@@ -213,13 +207,13 @@ echo 'umask 077' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### 4c: Set restrictive umask on shared workspace
+### 4c: Keep `~/workspace` group-accessible but not world-readable
 
-Files created in the shared workspace should be readable by both users (staff group) but not others:
+Files created in `~/workspace` should be readable by both users (`dev` group) but not others:
 
 ```bash
-# Ensure new files in shared workspace inherit group permissions
-chmod g+s /Users/Shared/workspace
+# Ensure new files in ~/workspace inherit group permissions
+chmod g+s ~/workspace
 ```
 
 ### 4d: Passwordless sudo for user switching
@@ -503,10 +497,13 @@ LuLu and pf are independent layers — pf blocks at the packet level, LuLu monit
 ### Recommended: Stay in Your Normal Shell
 
 ```bash
-cd ~/workspace-shared/my-project
+cd ~/workspace/my-project
 
 # Launch Claude directly in the sandbox
 claude-sandbox
+
+# Add one or more read-only reference repos when useful
+claude-sandbox --reference ~/workspace/reference-repo
 
 # Or open a full interactive shell as the sandbox user
 agent-shell
@@ -525,7 +522,7 @@ If you use `sandbox setup`, it installs three host-side commands in `~/.local/bi
 - `agent-shell` → `sandbox shell`
 - `agent-exec` → `sandbox exec`
 
-They preserve the current project directory, switch to the `agent` user, apply the seatbelt profile, and expose Homebrew-installed tooling inside the sandbox.
+They preserve the current project directory, switch to the `agent` user, apply the seatbelt profile, and expose Homebrew-installed tooling inside the sandbox. Use `--reference <dir>` to mark sibling repos as read-only context for the session.
 
 ### Optional Aliases
 
@@ -626,7 +623,7 @@ Layer 6: Docker socket hardening
 ## Hardening Checklist
 
 - [ ] `agent` user created and hidden from login screen
-- [ ] Shared workspace set up with correct permissions (770, setgid)
+- [ ] `~/workspace` prepared with correct permissions (770, setgid, home traversal ACL)
 - [ ] Claude Code installed and authenticated as `agent`
 - [ ] SSH key created for `agent`, added to GitHub (scoped)
 - [ ] Docker socket restricted (`chmod 700`)
@@ -671,7 +668,7 @@ sandbox rollback --delete-group
 sandbox rollback --delete-user --delete-group
 ```
 
-The rollback command handles each mutation individually and is idempotent — safe to run even if some steps were already undone. The shared workspace (`/Users/Shared/workspace`) is intentionally **not** removed automatically; back it up first if needed.
+The rollback command handles each mutation individually and is idempotent — safe to run even if some steps were already undone. The workspace root (`~/workspace`) is intentionally **not** removed automatically; back it up first if needed.
 
 ### Workspace backup before teardown
 
@@ -688,7 +685,7 @@ sandbox backup user@nas:/backup/workspace
 To restore workspace files from a backup:
 
 ```bash
-# Restore to the shared workspace (additive — no files deleted):
+# Restore to the workspace root (additive — no files deleted):
 sandbox restore /Volumes/BACKUP/workspace
 
 # Full mirror restore (removes workspace-only files):
@@ -755,15 +752,15 @@ rm -f ~/.local/bin/agent-exec
 #   # <<< sandbox user path <<<
 # in ~/.zshrc
 
-# 7. Remove convenience symlinks
-rm -f ~/workspace-shared
+# 7. Remove workspace access helpers
 sudo rm -f /Users/agent/workspace
+sudo chmod -a "user:agent allow execute,readattr,readextattr,readsecurity" ~
 
 # 8. Remove umask 077 from .zshrc files (if added during setup)
 # Edit ~/.zshrc and /Users/agent/.zshrc and remove the 'umask 077' line.
 
 # 9. Remove backup scope file
-rm -f /Users/Shared/workspace/.backup-excludes
+rm -f ~/workspace/.backup-excludes
 
 # 10. Remove agent user and home (DESTRUCTIVE — back up workspace first)
 sudo dscl . -delete /Users/agent
@@ -772,8 +769,8 @@ sudo rm -rf /Users/agent
 # 11. Remove dev group
 sudo dscl . -delete /Groups/dev
 
-# 12. Remove shared workspace (DESTRUCTIVE — back up first)
-# sudo rm -rf /Users/Shared/workspace
+# 12. Remove workspace root (DESTRUCTIVE — back up first)
+# rm -rf ~/workspace
 ```
 
 ---
@@ -836,13 +833,16 @@ sandbox setup
 
 The sandbox exposes `/opt/homebrew/bin`, `/opt/homebrew/sbin`, and `/usr/local/bin`. Install shared toolchains there; keep credentials and mutable caches under `/Users/agent`.
 
-### Agent user can't access shared workspace
+### Agent user can't access `~/workspace`
 
 ```bash
-ls -la /Users/Shared/workspace
-# Should be drwxrwx--- (or drwxrws---) with owner dr:staff
-# agent is in the staff group by default, so group access works
+ls -la ~/workspace
+ls -led ~
+# ~/workspace should be drwxrwx--- (or drwxrws---) with owner dr:dev
+# ~ should include an ACL entry for user:agent with execute access
 
 # Fix if needed:
-sudo chmod 770 /Users/Shared/workspace
+sudo chmod 770 ~/workspace
+sudo chmod g+s ~/workspace
+sudo chmod +a "user:agent allow execute,readattr,readextattr,readsecurity" ~
 ```

@@ -23,7 +23,7 @@ func newRollbackCmd() *cobra.Command {
   - Sudoers entry (/etc/sudoers.d/agent)
   - Seatbelt profile and wrapper
   - Agent shell env + host wrapper commands
-  - Convenience symlinks (~/workspace-shared, /Users/agent/workspace)
+  - Workspace access helpers (/Users/agent/workspace, home-directory ACL)
   - umask 077 lines from .zshrc files
   - Backup scope file (.backup-excludes)
 
@@ -31,7 +31,7 @@ User and group deletion require explicit flags because they are destructive:
   --delete-user   Delete the agent user account and home directory
   --delete-group  Delete the dev group
 
-The shared workspace (` + sharedWorkspace + `) is NOT removed automatically.
+The workspace root (` + sharedWorkspace + `) is NOT removed automatically.
 Back it up first if needed: sandbox backup /Volumes/BACKUP/workspace
 
 Use --dry-run to preview all commands without executing.`,
@@ -94,7 +94,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 
 	fmt.Println()
 	cGreen.Println("  Rollback complete.")
-	cYellow.Printf("  Note: shared workspace at %s was not touched. Remove it manually if no longer needed.\n", sharedWorkspace)
+	cYellow.Printf("  Note: workspace root at %s was not touched. Remove it manually if no longer needed.\n", sharedWorkspace)
 	return nil
 }
 
@@ -327,18 +327,15 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 }
 
 func rollbackSymlinks(ui *UI, r *Runner) {
-	ui.Step("Remove convenience symlinks")
+	ui.Step("Remove workspace access helpers")
 
-	// ~/workspace-shared is owned by the current user — no sudo needed.
-	userLink := os.Getenv("HOME") + "/workspace-shared"
-	if info, err := os.Lstat(userLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(userLink); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove symlink %s: %v", userLink, err))
+	legacyLink := os.Getenv("HOME") + "/workspace-shared"
+	if info, err := os.Lstat(legacyLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(legacyLink); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not remove legacy symlink %s: %v", legacyLink, err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed symlink %s", userLink))
+			ui.Ok(fmt.Sprintf("Removed legacy symlink %s", legacyLink))
 		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("%s is not a symlink or does not exist", userLink))
 	}
 
 	// /Users/agent/workspace is owned by the agent user — use sudo.
@@ -351,6 +348,16 @@ func rollbackSymlinks(ui *UI, r *Runner) {
 		}
 	} else {
 		ui.SkipDone(fmt.Sprintf("%s is not a symlink or does not exist", agentLink))
+	}
+
+	if homeHasAgentTraverseACL(os.Getenv("HOME")) {
+		if err := r.Sudo("chmod", "-a", homeTraverseACLEntry(), os.Getenv("HOME")); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL from %s: %v", os.Getenv("HOME"), err))
+		} else {
+			ui.Ok(fmt.Sprintf("Removed home traversal ACL from %s", os.Getenv("HOME")))
+		}
+	} else {
+		ui.SkipDone(fmt.Sprintf("Home traversal ACL not present on %s", os.Getenv("HOME")))
 	}
 }
 
@@ -394,7 +401,7 @@ func rollbackBackupScope(ui *UI, r *Runner) {
 		return
 	}
 
-	// The scope file lives inside the shared workspace — user-owned, no sudo.
+	// The scope file lives inside the workspace root — user-owned, no sudo.
 	if err := os.Remove(backupExcludesFile); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", backupExcludesFile, err))
 	} else {

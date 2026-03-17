@@ -31,12 +31,12 @@ func TestUpsertManagedBlockReplacesExisting(t *testing.T) {
 }
 
 func TestIsWithinDir(t *testing.T) {
-	base := "/Users/Shared/workspace"
+	base := "/Users/dr/workspace"
 
-	if !isWithinDir(base, "/Users/Shared/workspace/project") {
+	if !isWithinDir(base, "/Users/dr/workspace/project") {
 		t.Fatal("expected child path to be inside base")
 	}
-	if !isWithinDir(base, "/Users/Shared/workspace") {
+	if !isWithinDir(base, "/Users/dr/workspace") {
 		t.Fatal("expected base path to be inside base")
 	}
 	if isWithinDir(base, "/Users/dr/project") {

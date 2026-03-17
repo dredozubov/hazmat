@@ -13,8 +13,8 @@ func newRestoreCmd() *cobra.Command {
 	var syncMode bool
 	cmd := &cobra.Command{
 		Use:   "restore <source>",
-		Short: "Restore the shared workspace from a backup",
-		Long: `Restores files from a backup into the canonical shared workspace (` + sharedWorkspace + `).
+		Short: "Restore the workspace root from a backup",
+		Long: `Restores files from a backup into the canonical workspace root (` + sharedWorkspace + `).
 
 Uses rsync in reverse (backup → workspace). By default, restore is additive:
 no workspace files are deleted. Use --sync for a full mirror that removes
@@ -40,7 +40,7 @@ Examples:
 
 func runRestore(syncMode bool, src string) error {
 	if _, err := os.Stat(sharedWorkspace); err != nil {
-		return fmt.Errorf("shared workspace %q not found: %w\nRun 'sandbox setup' first.", sharedWorkspace, err)
+		return fmt.Errorf("workspace root %q not found: %w\nRun 'sandbox setup' first.", sharedWorkspace, err)
 	}
 
 	if err := validateRestoreSrc(src); err != nil {

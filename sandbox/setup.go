@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -105,7 +106,7 @@ const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
 ;;
 ;; Required parameters (pass via sandbox-exec -D KEY=VALUE):
 ;;   HOME        - agent home dir  (e.g. /Users/agent)
-;;   PROJECT_DIR - project workspace (e.g. /Users/Shared/workspace/myproject)
+;;   PROJECT_DIR - project workspace (e.g. /Users/dr/workspace/myproject)
 ;;   TMPDIR      - temp dir (e.g. /private/tmp)
 
 (version 1)
@@ -300,7 +301,7 @@ func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Configure the macOS sandbox (Option A: dedicated agent user + pf firewall)",
-		Long: `Configure the macOS sandbox: dedicated agent user, shared workspace, pf port
+		Long: `Configure the macOS sandbox: dedicated agent user, workspace-root ACLs, pf port
 blocklist, DNS blocklist, seatbelt profile, and host-side command wrappers.
 
 Interactive by default — prompts for confirmation before making any changes.
@@ -554,18 +555,18 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 	return nil
 }
 
-// ── Step 3: Shared workspace ──────────────────────────────────────────────────
+// ── Step 3: Workspace root ────────────────────────────────────────────────────
 
 func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
-	ui.Step("Set up shared workspace")
+	ui.Step(fmt.Sprintf("Prepare workspace root at %s", sharedWorkspace))
 
 	if _, err := os.Stat(sharedWorkspace); os.IsNotExist(err) {
-		if err := r.Sudo("mkdir", "-p", sharedWorkspace); err != nil {
+		if err := r.MkdirAll(sharedWorkspace, 0o770); err != nil {
 			return fmt.Errorf("mkdir %s: %w", sharedWorkspace, err)
 		}
 		ui.Ok(fmt.Sprintf("Created %s", sharedWorkspace))
 	} else {
-		ui.SkipDone(fmt.Sprintf("Shared workspace exists at %s", sharedWorkspace))
+		ui.SkipDone(fmt.Sprintf("Workspace root exists at %s", sharedWorkspace))
 	}
 
 	if err := r.Sudo("chown", currentUser+":"+sharedGroup, sharedWorkspace); err != nil {
@@ -578,6 +579,23 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 		return fmt.Errorf("chmod g+s %s: %w", sharedWorkspace, err)
 	}
 	ui.Ok(fmt.Sprintf("Permissions: 770, setgid, owner %s:%s", currentUser, sharedGroup))
+
+	// The workspace now lives inside the controlling user's home directory.
+	// Grant the agent account directory traversal on $HOME so it can reach
+	// ~/workspace without opening up the rest of the home directory for listing.
+	homeDir := os.Getenv("HOME")
+	if homeAllowsAgentTraverse(homeDir) {
+		if homeHasAgentTraverseACL(homeDir) {
+			ui.SkipDone(fmt.Sprintf("Home directory ACL already lets '%s' traverse to %s", agentUser, workspaceHint))
+		} else {
+			ui.SkipDone(fmt.Sprintf("Home directory permissions already allow '%s' to reach %s", agentUser, workspaceHint))
+		}
+	} else {
+		if err := r.Sudo("chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
+			return fmt.Errorf("set home traversal ACL: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Home directory ACL set: '%s' can traverse to %s", agentUser, workspaceHint))
+	}
 
 	// umask 077 (set for the agent user) clears group bits on newly created files.
 	// An inheritable ACL grants the dev group read/write on all files in the workspace
@@ -596,19 +614,9 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 		ui.Ok(fmt.Sprintf("Workspace ACL set: '%s' group gets inherited read/write access", sharedGroup))
 	}
 
-	// Symlink from current user's home
-	symlink := os.Getenv("HOME") + "/workspace-shared"
-	if info, err := os.Lstat(symlink); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			ui.SkipDone("Symlink ~/workspace-shared already exists")
-		} else {
-			ui.WarnMsg("~/workspace-shared exists but is not a symlink — skipping")
-		}
-	} else {
-		if err := r.Symlink(sharedWorkspace, symlink); err != nil {
-			return fmt.Errorf("symlink ~/workspace-shared: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Created symlink ~/workspace-shared → %s", sharedWorkspace))
+	legacyLink := os.Getenv("HOME") + "/workspace-shared"
+	if info, err := os.Lstat(legacyLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		ui.WarnMsg(fmt.Sprintf("Legacy symlink %s still exists; remove it if you no longer need the old alias", legacyLink))
 	}
 
 	// Symlink from agent user's home
@@ -638,11 +646,11 @@ func setupBackupScope(ui *UI, r *Runner) error {
 	}
 
 	if _, err := os.Stat(sharedWorkspace); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Shared workspace not found (%s) — backup scope file skipped", sharedWorkspace))
+		ui.WarnMsg(fmt.Sprintf("Workspace root not found (%s) — backup scope file skipped", sharedWorkspace))
 		return nil
 	}
 
-	if err := r.UserWriteFile(backupExcludesFile, defaultBackupExcludesContent); err != nil {
+	if err := r.UserWriteFile(backupExcludesFile, defaultBackupExcludesContent()); err != nil {
 		return fmt.Errorf("write backup scope file: %w", err)
 	}
 	ui.Ok(fmt.Sprintf("Backup scope file created at %s", backupExcludesFile))
@@ -1006,9 +1014,19 @@ func verifySetup(ui *UI) {
 	}
 
 	if info, err := os.Stat(sharedWorkspace); err == nil {
-		ui.TestPass(fmt.Sprintf("Shared workspace exists at %s (%s)", sharedWorkspace, info.Mode()))
+		ui.TestPass(fmt.Sprintf("Workspace root exists at %s (%s)", sharedWorkspace, info.Mode()))
 	} else {
-		ui.TestFail(fmt.Sprintf("Shared workspace missing: %s", sharedWorkspace))
+		ui.TestFail(fmt.Sprintf("Workspace root missing: %s", sharedWorkspace))
+	}
+
+	if homeAllowsAgentTraverse(os.Getenv("HOME")) {
+		if homeHasAgentTraverseACL(os.Getenv("HOME")) {
+			ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to %s", agentUser, workspaceHint))
+		} else {
+			ui.TestPass(fmt.Sprintf("Home directory permissions already let '%s' reach %s", agentUser, workspaceHint))
+		}
+	} else {
+		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — %s may be inaccessible from the sandbox", agentUser, workspaceHint))
 	}
 
 	// ACL is advisory: files are still accessible via the dev group,
@@ -1124,6 +1142,50 @@ func workspaceHasDevACL() bool {
 		return false
 	}
 	return strings.Contains(string(out), "group:"+sharedGroup)
+}
+
+func homeTraverseACLEntry() string {
+	return "user:" + agentUser + " allow execute,readattr,readextattr,readsecurity"
+}
+
+func homeHasAgentTraverseACL(homeDir string) bool {
+	out, err := exec.Command("ls", "-led", homeDir).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "user:"+agentUser) &&
+		strings.Contains(string(out), " allow execute")
+}
+
+func homeAllowsAgentTraverse(homeDir string) bool {
+	if homeHasAgentTraverseACL(homeDir) {
+		return true
+	}
+
+	info, err := os.Stat(homeDir)
+	if err != nil {
+		return false
+	}
+	if info.Mode().Perm()&0o001 != 0 {
+		return true
+	}
+	if info.Mode().Perm()&0o010 == 0 {
+		return false
+	}
+
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	group, err := user.LookupGroupId(fmt.Sprintf("%d", st.Gid))
+	if err != nil {
+		return false
+	}
+	member, err := groupMembershipContains(group.Name, agentUser)
+	if err != nil {
+		return false
+	}
+	return member
 }
 
 func groupMembershipContains(group, username string) (bool, error) {

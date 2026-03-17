@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -20,22 +21,25 @@ var (
 // agentUID and sharedGID are vars so setup can override them via --agent-uid
 // and --group-gid flags when the defaults conflict with existing UIDs/GIDs.
 var (
-	agentUID = "599"
+	agentUID  = "599"
 	sharedGID = "599"
+)
+
+var (
+	sharedWorkspace = filepath.Join(os.Getenv("HOME"), "workspace")
 )
 
 // Sandbox configuration shared by the Go-based setup, test, and rollback flows.
 const (
-	agentUser       = "agent"
-	agentHome       = "/Users/agent"
-	sharedWorkspace = "/Users/Shared/workspace"
-	sharedGroup     = "dev"
-	pfAnchorName    = "agent"
-	pfAnchorFile    = "/etc/pf.anchors/agent"
-	pfDaemonLabel   = "com.local.pf-agent"
-	pfDaemonPlist   = "/Library/LaunchDaemons/com.local.pf-agent.plist"
-	sudoersFile     = "/etc/sudoers.d/agent"
-	hostsMarker     = "# === AI Agent Blocklist ==="
+	agentUser     = "agent"
+	agentHome     = "/Users/agent"
+	sharedGroup   = "dev"
+	pfAnchorName  = "agent"
+	pfAnchorFile  = "/etc/pf.anchors/agent"
+	pfDaemonLabel = "com.local.pf-agent"
+	pfDaemonPlist = "/Library/LaunchDaemons/com.local.pf-agent.plist"
+	sudoersFile   = "/etc/sudoers.d/agent"
+	hostsMarker   = "# === AI Agent Blocklist ==="
 
 	seatbeltProfileDir  = agentHome + "/.config/sandbox"
 	seatbeltProfilePath = agentHome + "/.config/sandbox/claude.sb"
@@ -58,6 +62,7 @@ const (
 	defaultAgentConfigHome = agentHome + "/.config"
 	defaultAgentDataHome   = agentHome + "/.local/share"
 	defaultAgentTmpDir     = "/private/tmp"
+	workspaceHint          = "~/workspace"
 )
 
 func main() {
