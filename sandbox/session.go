@@ -90,6 +90,9 @@ func newClaudeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := warnDockerProject(cfg.ProjectDir); err != nil {
+				return err
+			}
 			if err := ensureAgentClaudeInstalled(); err != nil {
 				return err
 			}
@@ -210,6 +213,73 @@ func isWithinDir(base, target string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+// dockerArtifacts lists filenames that indicate a project requires Docker.
+// Their presence means the host Docker daemon would be needed, which is a
+// full sandbox escape — the agent user cannot safely share it.
+var dockerArtifacts = []string{
+	"Dockerfile",
+	"Containerfile",
+	"compose.yaml",
+	"compose.yml",
+	"docker-compose.yml",
+	"docker-compose.yaml",
+}
+
+// warnDockerProject checks whether projectDir contains Docker artifacts and
+// returns an error with Tier 3 guidance if it does. The host Docker socket is
+// locked to owner-only (0700) by sandbox setup, so Docker commands will fail
+// silently inside the sandbox. This surfaces the issue early with a clear path.
+//
+// Note: the Docker socket is blocked by filesystem ACL (0700 on dr's socket),
+// not by the seatbelt policy. The seatbelt allows broad network-outbound;
+// the protection is the socket file permission, enforced by sandbox setup.
+func warnDockerProject(projectDir string) error {
+	var found []string
+	for _, name := range dockerArtifacts {
+		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
+			found = append(found, name)
+		}
+	}
+	// Also check .devcontainer/
+	if _, err := os.Stat(filepath.Join(projectDir, ".devcontainer")); err == nil {
+		found = append(found, ".devcontainer/")
+	}
+	if len(found) == 0 {
+		return nil
+	}
+
+	msg := fmt.Sprintf(`
+Docker artifacts detected in %s:
+  %s
+
+This sandbox mode (Tier 2: dedicated agent user) does not support Docker.
+The host Docker socket is locked to owner-only (0700) and is inaccessible
+to the agent user. Granting access would be a full sandbox escape — the
+agent could bind-mount the workspace into any container.
+
+Use Tier 3 instead:
+
+  docker sandbox run claude %s
+
+Or for docker-compose projects:
+
+  docker sandbox run claude %s   # docker compose works inside the sandbox
+
+See tier3-docker-sandboxes.md for setup and network policy configuration.
+Network policy defaults to allow — switch to deny-mode before running:
+
+  docker sandbox network proxy <name> --allow-host "api.anthropic.com"
+  docker sandbox network proxy <name> --allow-host "github.com"
+  docker sandbox network proxy <name> --deny-host "*"
+`,
+		projectDir,
+		strings.Join(found, "\n  "),
+		projectDir,
+		projectDir,
+	)
+	return fmt.Errorf("%s", strings.TrimLeft(msg, "\n"))
 }
 
 func ensureAgentClaudeInstalled() error {

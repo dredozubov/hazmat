@@ -129,13 +129,19 @@ Based on "Your AI, My Shell" research and documented attacks:
 
 ### Critical Gap: Docker Socket
 
-On your system, the Docker socket has permissions `srwxr-xr-x`. **Any user can access the Docker daemon**, which grants root-equivalent access within the Docker VM.
+On your system, the Docker socket has permissions `srwxr-xr-x`. **Any user can access the Docker daemon**, which grants root-equivalent access within the Docker VM — including full read/write access to any bind-mounted path (your workspace).
 
 **Fix:**
 ```bash
 chmod 700 ~/.docker/run/docker.sock
 # Or stop Docker Desktop when running untrusted agent sessions
 ```
+
+`sandbox setup` applies this automatically. `sandbox test` verifies it.
+
+**Important:** this protection is enforced at the **filesystem ACL level** (socket owned by `dr`, mode `0700`). The seatbelt profile used by `sandbox-exec` contains `(allow network-outbound)` broadly and does **not** block Unix domain socket connections by path. If the socket permissions are ever reset (e.g. Docker Desktop restart), the seatbelt provides no fallback — run `sandbox test` to verify after restarts.
+
+**What socket access actually grants on macOS:** Root on the Docker VM (not the macOS host kernel), plus full read/write on anything bind-mounted into any container — including `/Users/Shared/workspace`. Container network traffic also bypasses `pf` UID rules: it appears as `com.docker.backend` traffic, not as the agent user's UID. For projects that require Docker, use Tier 3 (Docker Sandboxes) rather than granting socket access in Tier 2.
 
 ### Gap: Process Visibility
 

@@ -16,6 +16,9 @@ docker sandbox run claude ~/my-project
 
 ### Network Isolation
 
+> **Required for this threat model.** Docker Sandboxes default to allow-all egress. Switch
+> to deny-mode with an explicit allowlist before running any agent session:
+
 ```bash
 docker sandbox network proxy claude-myproject --allow-host "api.anthropic.com"
 docker sandbox network proxy claude-myproject --allow-host "github.com"
@@ -94,15 +97,20 @@ services:
     volumes:
       - ./workspace:/workspace
     networks: [isolated]
+    user: "1000:1000"           # never run as root
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: [/tmp, /run]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits:
-          cpus: "4"
-          memory: "8g"
+    # Use service-level limits, not deploy.resources — the Compose spec says
+    # deploy may be ignored by runtimes that don't support it (e.g. plain
+    # `docker compose up` without Swarm mode).
+    cpus: "4"
+    mem_limit: 8g
+    pids_limit: 200
+    ulimits:
+      nofile: { soft: 1024, hard: 1024 }
+      nproc:  { soft: 200,  hard: 200 }
 
 networks:
   isolated:
@@ -136,11 +144,50 @@ USER node
 WORKDIR /workspace
 ```
 
+## Compose Hardening Reference
+
+When writing or reviewing a `docker-compose.yml` for agent use, apply this checklist:
+
+| Setting | Safe value | Why |
+|---|---|---|
+| `user` | `"UID:GID"` (non-root) | Root in container = root in VM; files written as root are hard to clean up |
+| `read_only: true` | required | Prevents writes to container filesystem; use `tmpfs` for writable scratch |
+| `tmpfs` | `[/tmp, /run]` | Writable scratch that is never persisted or shared |
+| `cap_drop: [ALL]` | required | Drops all Linux capabilities; add back only what's proven necessary |
+| `security_opt: ["no-new-privileges:true"]` | required | Prevents `setuid`/`setgid` privilege escalation |
+| `cpus` / `mem_limit` / `pids_limit` | set explicit limits | Prevents fork bombs and resource exhaustion |
+| `ulimits` | restrict `nproc`, `nofile` | Second line of defense against fork bombs |
+| Port bindings | `"127.0.0.1:PORT:PORT"` only | Avoids exposing ports on `0.0.0.0` to the host network |
+| Secrets | `secrets:` block | Mounts secrets as tmpfs files; `environment:` leaks them into `docker inspect` |
+
+### What to ban in agent-facing Compose files
+
+```yaml
+# NEVER allow any of these:
+privileged: true                    # removes all container isolation
+network_mode: host                  # container shares VM network namespace
+network_mode: none                  # agent cannot reach Anthropic API
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock  # full daemon escape
+  - /:/hostfs                       # full VM root access
+environment:
+  - ANTHROPIC_API_KEY=${KEY}        # prefer secrets: block
+```
+
+`use_api_socket: true` (Docker Compose's Buildx shorthand for socket mounting) is equally prohibited.
+
+> **CVE-2025-62725** (docker-compose < 2.40.2, affects >= 2.34.0): When a `docker-compose.yml`
+> references a remote OCI artifact as its source, compose resolves annotation paths without
+> sanitisation, enabling path traversal to write arbitrary host files. The trigger is remote
+> OCI artifact resolution, not a plain local compose file. Ensure docker-compose >= 2.40.2.
+
 ## Critical Rules for All Docker Approaches
 
-1. **NEVER mount `/var/run/docker.sock`** into the container — if the agent can talk to the Docker daemon, it can create privileged containers and escape completely
-2. `--dangerously-skip-permissions` inside containers does **not prevent exfiltration** of anything accessible in the container, including Claude Code credentials
-3. Performance overhead on macOS: bind mounts are ~3.5x slower than native for metadata-heavy ops (improved with VirtioFS but still measurable)
+1. **NEVER share the host Docker socket** — giving the agent access to any Docker daemon it did not exclusively own is a full sandbox escape. `chmod 700 ~/.docker/run/docker.sock` keeps the host daemon inaccessible to other users (enforced by `sandbox setup` and verified by `sandbox test`).
+2. **NEVER mount `/var/run/docker.sock`** into a container — if the agent can talk to the daemon, it can create privileged containers and escape completely.
+3. **Set deny-mode network policy** on Docker Sandboxes before each session — the default is allow-all.
+4. `--dangerously-skip-permissions` inside containers does **not prevent exfiltration** of anything accessible in the container, including Claude Code credentials.
+5. Performance overhead on macOS: bind mounts are ~3.5x slower than native for metadata-heavy ops (improved with VirtioFS but still measurable).
 
 ## Docker Desktop Pricing
 
