@@ -29,6 +29,11 @@ Legend:
 | Agent modifies `~/.zshrc` or similar | Partial | Yes | Yes | Yes | Yes |
 | Agent accesses browser cookies or saved credentials | No | Partial | Yes | Yes | Yes |
 | Agent accesses Keychain-adjacent material | No | Partial | Yes | Yes | Yes |
+| MCP child processes inherit agent user's full shell env (API keys, SSH_AUTH_SOCK) | No | No | No¹ | No¹ | No¹ |
+| MEMORY.md injection → cross-session persistent instructions | No | No | No | No | Yes² |
+| Any main-user process reads `~/.claude/history.jsonl`, `paste-cache/`, `~/.claude.json` | No | No | No⁵ | No⁵ | No⁵ |
+| Settings misconfiguration removes permission gates (`skipDangerousModePermissionPrompt`) | No | No | Partial⁶ | Partial⁶ | Yes⁷ |
+| World-writable `git-worktrees.json` (0666) → worktree injection | No | No | Partial⁸ | Partial⁸ | Yes⁷ |
 
 ### Network and Localhost Surface
 
@@ -38,6 +43,8 @@ Legend:
 | Network exfiltration via DNS | No | No | Partial | Yes | Yes |
 | Lateral movement on localhost or LAN | No | Partial | Partial | Yes | Yes |
 | Prompt injection via MCP server | Partial | Partial | Partial | Yes | Yes |
+| SSH agent socket abuse (SSH_AUTH_SOCK → auth to remote servers without key exfil) | No | No | No³ | No³ | No³ |
+| MCP supply chain: compromised npm/PyPI package exfiltrates credentials at spawn time | No | No | Partial⁴ | Partial⁴ | Partial⁴ |
 
 ### Escape, Persistence, and Recovery Surface
 
@@ -50,6 +57,24 @@ Legend:
 | Agent consumes all CPU or memory | No | No | No | Yes | Yes |
 | Full host compromise | No | No | No | Partial | Yes |
 
+## Matrix Footnotes
+
+1. **MCP env inheritance is not addressed by any tier.** All tiers run MCP server subprocesses that inherit the agent user's shell environment. Tier 2 limits *which user's* environment is exposed (agent user, not main user), but if the agent user has API keys or SSH_AUTH_SOCK in its shell profile, those reach every MCP child. `CLAUDE_CODE_DONT_INHERIT_ENV=1` does not suppress this (confirmed by testing). Mitigation: export only the specific credentials each MCP server legitimately needs, or use `env -i` to strip-and-reconstruct the environment before launching Claude.
+
+2. **MEMORY.md persistence is only cleanly addressed by Tier 4 snapshot rollback.** Lower tiers cannot distinguish a poisoned memory entry from a legitimate user preference. Detection requires diffing the memory files after each session.
+
+3. **SSH agent abuse bypasses all filesystem-based isolation.** No tier removes `SSH_AUTH_SOCK` from the environment. An MCP server or a compromised subprocess with code execution can authenticate to any SSH server the user's key has access to, without reading the key from disk. Mitigation: don't export `SSH_AUTH_SOCK` in the agent user's shell, or use a separate SSH key with limited access for agent sessions.
+
+4. **pf egress filtering reduces but does not eliminate supply-chain exfil risk.** A pf allowlist blocks exfiltration to unknown destinations, but an attacker routing through an allowlisted CDN (e.g., Cloudflare, AWS CloudFront, Google Cloud Run) bypasses it. The MCP subprocess still inherits all credentials at spawn time. Mitigation: lockfile pinning for MCP packages (not currently supported by Claude's MCP config format) and vetting installed packages.
+
+5. **`~/.claude/` disk artifacts are not protected from main-user processes by any tier.** Tier 2 protects the agent user from reading the main user's `~/.claude/`. But any process running as the main user — including Claude itself in non-Tier-2 setups, other tools, or a compromised browser — can read `~/.claude/history.jsonl` (full prompt history), `~/.claude.json` (all credentials and project paths), and `~/.claude/paste-cache/` (all pasted content). These files accumulate indefinitely. Mitigation: periodic rotation of `history.jsonl` and `paste-cache/`; treat `~/.claude.json` as a credential file and protect it accordingly.
+
+6. **Settings misconfigurations are not addressed by any tier below Tier 4.** `~/.claude/settings.json` is owned by the main user and writable by the main user. Prompt injection or supply-chain code running as the main user can set `skipDangerousModePermissionPrompt: true`, removing the confirmation dialog for dangerous mode, or `autoAllowBashIfSandboxed: true`, removing per-command Bash approval. Tier 2 prevents the sandbox user from writing this file; it does not prevent the main user from having done so in a previous session. Mitigation: audit `~/.claude/settings.json` for these keys after any suspicious session.
+
+7. **Tier 4 VM snapshot rollback restores `~/.claude/settings.json` and `git-worktrees.json` to clean state.** This is the only tier where these misconfigurations are cleaned up automatically.
+
+8. **`git-worktrees.json` world-writable (0666) is a sandbox bypass.** If this file is 0666, the sandbox user can write it — injecting worktree entries that redirect Claude to attacker-controlled paths on the main user's next session. Fix: `chmod 600 ~/.claude/git-worktrees.json`. Verified permissions: 0666 observed on the research system.
+
 ## Important Caveats
 
 - Tier 0 and Tier 1 are primarily process-level controls. They are not strong answers to broad host exposure.
@@ -57,6 +82,9 @@ Legend:
 - Tier 2 `pf` rules are not a complete answer for every exfiltration path, and they do not meaningfully constrain container traffic.
 - Tier 3 is only a strong answer when the agent is using its own daemon or microVM, not the host daemon.
 - Tier 4 is the best recovery story because rollback is part of the design, not an afterthought.
+- **No tier currently addresses MCP env inheritance, SSH agent socket abuse, or MCP supply-chain attacks against the agent user's own credentials.** These require operational controls (what you export into the shell) not sandbox architecture controls.
+- **`~/.claude/` accumulated artifacts (history, paste-cache, debug logs) are a high-value target that no tier protects from main-user processes.** These grow indefinitely and should be rotated manually.
+- **Operational settings (`skipDangerousModePermissionPrompt`, world-writable `git-worktrees.json`) can silently remove tier protections.** Audit `~/.claude/settings.json` and fix file permissions as part of Tier 2 setup.
 
 ## Threat Notes
 

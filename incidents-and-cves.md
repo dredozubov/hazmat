@@ -2,6 +2,8 @@
 
 Use this file when you want the rationale behind the architecture. These incidents are not trivia; they explain why the repo recommends separate users, deny-by-default networking, dedicated Docker daemons, and eventually full VMs.
 
+For the full evidence base — quantitative research, complete CVE table, supply chain attacks, MCP tool-poisoning attacks, academic papers, and per-attack sandbox coverage analysis — see [security-evidence.md](security-evidence.md).
+
 ## Fast Map: Incident to Design Choice
 
 | Incident or CVE | What it demonstrates | Design choice it supports | Read next |

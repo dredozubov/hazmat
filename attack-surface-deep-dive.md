@@ -63,7 +63,37 @@ Based on "Your AI, My Shell" research and documented attacks:
 
 ---
 
-## 3. Network Exfiltration Vectors
+## 3. MCP Subprocess Credential Inheritance
+
+### Confirmed: all MCP children inherit the full parent shell environment
+
+Live process inspection (March 2026, v2.1.77) using `ps ewww` on MCP child processes confirmed that every spawned MCP server — whether Python via `uv tool uvx` or Node.js via `npm exec` — inherits the complete environment of the Claude parent process. No per-tool credential scoping occurs.
+
+In a typical session, every MCP child had:
+- All API keys exported into the parent shell (`OPENROUTER_API_KEY`, `CONTEXT7_API_KEY`, `GITHUB_PERSONAL_ACCESS_TOKEN`, etc.)
+- `SSH_AUTH_SOCK` — the path to the unlocked SSH agent socket
+
+This is distinct from the Tier 2 protection against reading the *main user's* `~/.ssh/` or `~/.aws/`. Tier 2 user isolation controls filesystem access between users; it does not affect what credentials the agent user exports into its own shell before launching Claude. If you start Claude with `GITHUB_PERSONAL_ACCESS_TOKEN=xxx claude`, every MCP server you load gets that token.
+
+**`CLAUDE_CODE_DONT_INHERIT_ENV=1` does not suppress this.** Tested and confirmed against a live session: all MCP children still received the full credential environment.
+
+### npm exec and uvx run unverified code at MCP spawn time
+
+Claude spawns MCP servers via `npm exec @modelcontextprotocol/server-github` and `uv tool uvx mcp-reddit`. Both download the latest matching version at runtime with no lockfile pinning in the MCP spawn path. A compromise of any listed package — or a package with a typosquatted name — gets immediate code execution with all credentials from the above.
+
+Any code running at package init time (the module constructor, `__init__.py`, top-level `index.js`) runs before the first tool call and has full access to the inherited environment. This is the mechanism behind attacks like SANDWORM_MODE (see Section 7).
+
+### SSH agent socket enables lateral movement without key extraction
+
+`SSH_AUTH_SOCK` in every child process means any compromised MCP server can authenticate as the user to any SSH server the user's key has access to. The private key is never read from disk — authentication flows through the already-unlocked agent in memory. An attacker cannot exfiltrate the key itself, but can perform any SSH operation the key authorizes.
+
+**Tier 2 does not mitigate this.** Filesystem isolation prevents reading `~/.ssh/id_rsa`, but SSH agent authentication does not require reading the key file.
+
+See [attack-chains.md](attack-chains.md) for the step-by-step exploitation of each of these vectors.
+
+---
+
+## 4. Network Exfiltration Vectors
 
 ### Blockable at pf level (port-based)
 
@@ -110,7 +140,7 @@ Based on "Your AI, My Shell" research and documented attacks:
 
 ---
 
-## 4. DNS Tunneling — The Documented Claude Code Attack
+## 5. DNS Tunneling — The Documented Claude Code Attack
 
 **CVE-2025-55284** demonstrated DNS exfiltration against Claude Code specifically:
 
@@ -125,7 +155,7 @@ Based on "Your AI, My Shell" research and documented attacks:
 
 ---
 
-## 5. macOS User Isolation — Gaps to Harden
+## 6. macOS User Isolation — Gaps to Harden
 
 ### Critical Gap: Docker Socket
 
@@ -178,7 +208,7 @@ Any user can see all processes via `ps aux`, including command-line arguments. m
 
 ---
 
-## 6. Privilege Escalation History
+## 7. Privilege Escalation History
 
 Apple patches privilege escalation vulnerabilities **regularly**, meaning new ones are continuously discovered:
 
@@ -196,7 +226,7 @@ Apple patches privilege escalation vulnerabilities **regularly**, meaning new on
 
 ---
 
-## 7. Supply Chain Attacks Through the Agent
+## 8. Supply Chain Attacks Through the Agent
 
 ### Documented Campaigns
 
@@ -208,12 +238,22 @@ Apple patches privilege escalation vulnerabilities **regularly**, meaning new on
 
 **s1ngularity (Aug 2025):** Hijacked legitimate Nx build package to steal crypto wallets, GitHub/npm tokens, SSH keys. First documented case of malware weaponizing AI CLI tools.
 
+### Documentation provider poisoning
+
+AI coding agents frequently fetch documentation at task time via MCP servers (e.g., Context7). If the documentation provider is compromised or if the user's MCP config points to a malicious documentation server, poisoned "documentation" responses can embed code patterns that contain malicious payloads. The developer reviews what looks like a standard API usage example and runs it. This vector:
+
+- Does not require compromising the user's machine
+- Affects the developer's machine and every CI/CD pipeline that runs the generated code
+- Has no detection path in standard monitoring — the malicious content arrives over legitimate HTTPS to a legitimate-looking documentation service
+
 ### How User Isolation Helps
 
 Even if a supply chain attack compromises the sandbox user:
 - It cannot access your main user's SSH keys, cloud credentials, Keychain, or browser data
 - The blast radius is limited to the workspace and the sandbox user's credentials
 - The sandbox user's credentials can be scoped (limited GitHub deploy key, limited API permissions)
+
+**Critical caveat:** User isolation does NOT protect the agent user's own credentials from supply-chain attacks. If the agent user has `GITHUB_PERSONAL_ACCESS_TOKEN` in its environment (because it needs to call the GitHub MCP server), a compromised npm package inherits that token on spawn — before any tool call, before any user interaction. This is not addressed by any current tier. The only mitigation is not exporting tokens that MCP servers don't need, or accepting that those tokens are exposed to every MCP package loaded.
 
 ---
 

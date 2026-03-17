@@ -20,6 +20,7 @@ If you only read three files, read these in order:
 | I want the main no-VM setup | [setup-option-a.md](setup-option-a.md) | [tier2-user-pf-isolation.md](tier2-user-pf-isolation.md) |
 | My repo needs `docker build` or `docker compose` | [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) | [attack-surface-deep-dive.md](attack-surface-deep-dive.md) |
 | I want the rationale behind the controls | [incidents-and-cves.md](incidents-and-cves.md) | [attack-surface-deep-dive.md](attack-surface-deep-dive.md) |
+| I want the full incident/CVE/research evidence base | [security-evidence.md](security-evidence.md) | [threat-matrix.md](threat-matrix.md) |
 | I need the lowest-friction option for trusted repos | [tier0-builtin-sandbox.md](tier0-builtin-sandbox.md) | [tier1-seatbelt-wrappers.md](tier1-seatbelt-wrappers.md) |
 | I need the strongest boundary for hostile or unattended work | [tier4-vm-isolation.md](tier4-vm-isolation.md) | [vm-tools-comparison.md](vm-tools-comparison.md) |
 
@@ -51,6 +52,7 @@ If you only read three files, read these in order:
 | [threat-matrix.md](threat-matrix.md) | Which tier blocks which attack classes |
 | [attack-surface-deep-dive.md](attack-surface-deep-dive.md) | Where the real escape and exfiltration paths are |
 | [incidents-and-cves.md](incidents-and-cves.md) | Which real incidents and CVEs justify the design |
+| [security-evidence.md](security-evidence.md) | Full incident catalog, CVE table, academic papers, and per-attack sandbox coverage analysis |
 | [soft-pf-blocklist.md](soft-pf-blocklist.md) | What `pf` can and cannot realistically block |
 
 ### 3. Implement and Validate
