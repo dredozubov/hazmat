@@ -73,6 +73,7 @@ func newClaudeCmd() *cobra.Command {
 	var project string
 	var workspace string
 	var references []string
+	var allowDocker bool
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
 		Short: "Launch Claude Code inside the sandbox as the agent user",
@@ -90,7 +91,7 @@ func newClaudeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := warnDockerProject(cfg.ProjectDir); err != nil {
+			if err := warnDockerProject(cfg.ProjectDir, allowDocker); err != nil {
 				return err
 			}
 			if err := ensureAgentClaudeInstalled(); err != nil {
@@ -106,6 +107,8 @@ func newClaudeCmd() *cobra.Command {
 		"Read-only workspace root to expose to the agent (optional)")
 	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
 		"Read-only reference directory (repeat flag for multiple paths)")
+	cmd.Flags().BoolVar(&allowDocker, "allow-docker", false,
+		"Allow running in a project that contains Docker artifacts (Docker commands will still fail inside the sandbox; use Tier 3 for actual Docker support)")
 	return cmd
 }
 
@@ -228,14 +231,19 @@ var dockerArtifacts = []string{
 }
 
 // warnDockerProject checks whether projectDir contains Docker artifacts and
-// returns an error with Tier 3 guidance if it does. The host Docker socket is
-// locked to owner-only (0700) by sandbox setup, so Docker commands will fail
-// silently inside the sandbox. This surfaces the issue early with a clear path.
+// either returns an error (allow=false) or prints a warning and continues
+// (allow=true) with Tier 3 guidance. The host Docker socket is locked to
+// owner-only (0700) by sandbox setup, so Docker commands will fail inside
+// the sandbox regardless. This surfaces the issue early with a clear path.
+//
+// Pass allow=true via --allow-docker when the project has Docker files but
+// this session only needs code-editing — Docker commands will still fail,
+// but the session is not blocked.
 //
 // Note: the Docker socket is blocked by filesystem ACL (0700 on dr's socket),
 // not by the seatbelt policy. The seatbelt allows broad network-outbound;
 // the protection is the socket file permission, enforced by sandbox setup.
-func warnDockerProject(projectDir string) error {
+func warnDockerProject(projectDir string, allow bool) error {
 	var found []string
 	for _, name := range dockerArtifacts {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
@@ -273,13 +281,22 @@ Network policy defaults to allow — switch to deny-mode before running:
   docker sandbox network proxy <name> --allow-host "api.anthropic.com"
   docker sandbox network proxy <name> --allow-host "github.com"
   docker sandbox network proxy <name> --deny-host "*"
+
+To run Tier 2 anyway for code-only work (Docker commands will still fail):
+
+  sandbox claude --allow-docker ...
 `,
 		projectDir,
 		strings.Join(found, "\n  "),
 		projectDir,
 		projectDir,
 	)
-	return fmt.Errorf("%s", strings.TrimLeft(msg, "\n"))
+	msg = strings.TrimLeft(msg, "\n")
+	if allow {
+		fmt.Fprintln(os.Stderr, "Warning:", msg)
+		return nil
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 func ensureAgentClaudeInstalled() error {

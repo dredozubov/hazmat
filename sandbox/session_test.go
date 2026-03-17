@@ -237,6 +237,101 @@ func TestGenerateSBPLReferenceCoveredByWorkspaceRootSkipped(t *testing.T) {
 	}
 }
 
+// ── warnDockerProject ─────────────────────────────────────────────────────────
+
+func TestWarnDockerProjectCleanDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := warnDockerProject(dir, false); err != nil {
+		t.Fatalf("expected no error for clean dir, got: %v", err)
+	}
+}
+
+func TestWarnDockerProjectRootArtifacts(t *testing.T) {
+	markers := []string{
+		"Dockerfile",
+		"Containerfile",
+		"compose.yaml",
+		"compose.yml",
+		"docker-compose.yml",
+		"docker-compose.yaml",
+	}
+	for _, name := range markers {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644); err != nil {
+				t.Fatalf("create %s: %v", name, err)
+			}
+			err := warnDockerProject(dir, false)
+			if err == nil {
+				t.Fatalf("expected error when %s is present, got nil", name)
+			}
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("error message should name %q, got: %s", name, err)
+			}
+		})
+	}
+}
+
+func TestWarnDockerProjectDevcontainerDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
+		t.Fatalf("mkdir .devcontainer: %v", err)
+	}
+	err := warnDockerProject(dir, false)
+	if err == nil {
+		t.Fatal("expected error when .devcontainer/ is present, got nil")
+	}
+	if !strings.Contains(err.Error(), ".devcontainer/") {
+		t.Errorf("error message should name .devcontainer/, got: %s", err)
+	}
+}
+
+func TestWarnDockerProjectMultipleMarkersAllListed(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"Dockerfile", "compose.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	err := warnDockerProject(dir, false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, name := range []string{"Dockerfile", "compose.yaml"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("expected %q in error message, got: %s", name, err)
+		}
+	}
+}
+
+func TestWarnDockerProjectAllowFlagContinues(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	// allow=true should not return an error even when markers are present.
+	if err := warnDockerProject(dir, true); err != nil {
+		t.Fatalf("expected no error with allow=true, got: %v", err)
+	}
+}
+
+func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	err := warnDockerProject(dir, false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "docker sandbox run") {
+		t.Errorf("error message should mention Tier 3 command, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "--allow-docker") {
+		t.Errorf("error message should mention --allow-docker override, got: %s", err)
+	}
+}
+
 // ── agentEnvPairs ──────────────────────────────────────────────────────────────
 
 func TestAgentEnvPairsExposeWorkspaceSession(t *testing.T) {

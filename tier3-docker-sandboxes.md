@@ -93,7 +93,7 @@ services:
     build: .
     environment:
       - HTTPS_PROXY=http://proxy:3128
-      - ANTHROPIC_API_KEY
+      - ANTHROPIC_API_KEY          # must be env var — Claude Code reads only from environment, not files
     volumes:
       - ./workspace:/workspace
     networks: [isolated]
@@ -158,7 +158,7 @@ When writing or reviewing a `docker-compose.yml` for agent use, apply this check
 | `cpus` / `mem_limit` / `pids_limit` | set explicit limits | Prevents fork bombs and resource exhaustion |
 | `ulimits` | restrict `nproc`, `nofile` | Second line of defense against fork bombs |
 | Port bindings | `"127.0.0.1:PORT:PORT"` only | Avoids exposing ports on `0.0.0.0` to the host network |
-| Secrets | `secrets:` block | Mounts secrets as tmpfs files; `environment:` leaks them into `docker inspect` |
+| Secrets | `secrets:` block | Mounts secrets as tmpfs files; `environment:` leaks them into `docker inspect`. Exception: `ANTHROPIC_API_KEY` must be in `environment:` because Claude Code reads only from the process environment, not from files. Use `secrets:` for all other credentials (database passwords, tokens, etc.). |
 
 ### What to ban in agent-facing Compose files
 
