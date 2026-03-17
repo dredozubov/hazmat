@@ -19,13 +19,14 @@ type sessionConfig struct {
 
 func newShellCmd() *cobra.Command {
 	var project string
+	var workspace string
 	var references []string
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open an interactive sandboxed shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg, err := resolveSessionConfig(project, references)
+			cfg, err := resolveSessionConfig(project, workspace, references)
 			if err != nil {
 				return err
 			}
@@ -34,21 +35,24 @@ func newShellCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside ~/workspace (defaults to current directory)")
+		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
+	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
+		"Read-only workspace root to expose to the agent (optional)")
 	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
+		"Read-only reference directory (repeat flag for multiple paths)")
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
 	var project string
+	var workspace string
 	var references []string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a tool inside the sandbox as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, err := resolveSessionConfig(project, references)
+			cfg, err := resolveSessionConfig(project, workspace, references)
 			if err != nil {
 				return err
 			}
@@ -57,14 +61,17 @@ func newExecCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside ~/workspace (defaults to current directory)")
+		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
+	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
+		"Read-only workspace root to expose to the agent (optional)")
 	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
+		"Read-only reference directory (repeat flag for multiple paths)")
 	return cmd
 }
 
 func newClaudeCmd() *cobra.Command {
 	var project string
+	var workspace string
 	var references []string
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
@@ -79,7 +86,7 @@ func newClaudeCmd() *cobra.Command {
 				project = projectHint
 			}
 
-			cfg, err := resolveSessionConfig(project, references)
+			cfg, err := resolveSessionConfig(project, workspace, references)
 			if err != nil {
 				return err
 			}
@@ -91,9 +98,11 @@ func newClaudeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside ~/workspace (defaults to current directory)")
+		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
+	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
+		"Read-only workspace root to expose to the agent (optional)")
 	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
+		"Read-only reference directory (repeat flag for multiple paths)")
 	return cmd
 }
 
@@ -114,33 +123,36 @@ func maybeConsumeProjectArg(args []string) (string, []string, error) {
 	return abs, args[1:], nil
 }
 
-func resolveSessionConfig(project string, references []string) (sessionConfig, error) {
-	workspace := sharedWorkspace
-	if resolved, err := filepath.EvalSymlinks(sharedWorkspace); err == nil {
-		workspace = resolved
-	}
-
-	projectDir, err := resolveWorkspaceDir(project, workspace, "project", true)
+func resolveSessionConfig(project, workspace string, references []string) (sessionConfig, error) {
+	projectDir, err := resolveDir(project, true)
 	if err != nil {
-		return sessionConfig{}, err
+		return sessionConfig{}, fmt.Errorf("project: %w", err)
 	}
 
-	referenceDirs, err := resolveReferenceDirs(references, workspace)
+	var workspaceRoot string
+	if workspace != "" {
+		workspaceRoot, err = resolveDir(workspace, false)
+		if err != nil {
+			return sessionConfig{}, fmt.Errorf("workspace: %w", err)
+		}
+	}
+
+	referenceDirs, err := resolveReferenceDirs(references)
 	if err != nil {
 		return sessionConfig{}, err
 	}
 
 	return sessionConfig{
-		WorkspaceRoot: workspace,
+		WorkspaceRoot: workspaceRoot,
 		ProjectDir:    projectDir,
 		ReferenceDirs: referenceDirs,
 	}, nil
 }
 
-func resolveWorkspaceDir(target, workspace, label string, defaultToCwd bool) (string, error) {
-	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
-		workspace = resolved
-	}
+// resolveDir resolves target to an absolute, symlink-free directory path.
+// If target is empty and defaultToCwd is true, the current working directory
+// is used. The resolved path must exist and be a directory.
+func resolveDir(target string, defaultToCwd bool) (string, error) {
 	if target == "" && defaultToCwd {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -149,7 +161,7 @@ func resolveWorkspaceDir(target, workspace, label string, defaultToCwd bool) (st
 		target = wd
 	}
 	if target == "" {
-		return "", fmt.Errorf("%s path is required", label)
+		return "", fmt.Errorf("path is required")
 	}
 
 	abs, err := filepath.Abs(target)
@@ -168,14 +180,10 @@ func resolveWorkspaceDir(target, workspace, label string, defaultToCwd bool) (st
 		return "", fmt.Errorf("%q is not a directory", abs)
 	}
 
-	if !isWithinDir(workspace, abs) {
-		return "", fmt.Errorf("%s is outside %s\nMove the %s into %s or pass a path inside %s",
-			abs, workspaceHint, label, workspaceHint, workspaceHint)
-	}
 	return abs, nil
 }
 
-func resolveReferenceDirs(references []string, workspace string) ([]string, error) {
+func resolveReferenceDirs(references []string) ([]string, error) {
 	if len(references) == 0 {
 		return nil, nil
 	}
@@ -183,9 +191,9 @@ func resolveReferenceDirs(references []string, workspace string) ([]string, erro
 	seen := make(map[string]struct{}, len(references))
 	resolved := make([]string, 0, len(references))
 	for _, ref := range references {
-		abs, err := resolveWorkspaceDir(ref, workspace, "reference directory", false)
+		abs, err := resolveDir(ref, false)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("reference %q: %w", ref, err)
 		}
 		if _, ok := seen[abs]; ok {
 			continue
@@ -217,12 +225,20 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 		return fmt.Errorf("seatbelt profile missing at %s\nRun 'sandbox setup' first", seatbeltProfilePath)
 	}
 
+	// When no explicit workspace root is given, collapse WORKSPACE_ROOT to
+	// PROJECT_DIR so the static SBPL profile's param remains valid without
+	// inadvertently exposing directories outside the project.
+	workspaceRoot := cfg.WorkspaceRoot
+	if workspaceRoot == "" {
+		workspaceRoot = cfg.ProjectDir
+	}
+
 	full := []string{"-u", agentUser, "/usr/bin/env", "-i"}
 	full = append(full, agentEnvPairs(cfg)...)
 	full = append(full,
 		"/usr/bin/sandbox-exec",
 		"-D", "HOME="+agentHome,
-		"-D", "WORKSPACE_ROOT="+cfg.WorkspaceRoot,
+		"-D", "WORKSPACE_ROOT="+workspaceRoot,
 		"-D", "PROJECT_DIR="+cfg.ProjectDir,
 		"-D", "TMPDIR="+defaultAgentTmpDir,
 		"-f", seatbeltProfilePath,
