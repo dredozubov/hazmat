@@ -497,13 +497,16 @@ LuLu and pf are independent layers — pf blocks at the packet level, LuLu monit
 ### Recommended: Stay in Your Normal Shell
 
 ```bash
-cd ~/workspace/my-project
+cd /path/to/your-project   # any directory — need not be under ~/workspace
 
-# Launch Claude directly in the sandbox
+# Launch Claude in the sandbox (project = cwd, no extra read access)
 claude-sandbox
 
-# Add one or more read-only reference repos when useful
-claude-sandbox --reference ~/workspace/reference-repo
+# Expose ~/workspace read-only so Claude can read sibling repos for context
+claude-sandbox -W ~/workspace
+
+# Expose specific repos read-only instead of the whole workspace
+claude-sandbox -R ~/workspace/reference-repo -R ~/workspace/shared-lib
 
 # Or open a full interactive shell as the sandbox user
 agent-shell
@@ -522,7 +525,12 @@ If you use `sandbox setup`, it installs three host-side commands in `~/.local/bi
 - `agent-shell` → `sandbox shell`
 - `agent-exec` → `sandbox exec`
 
-They preserve the current project directory, switch to the `agent` user, apply the seatbelt profile, and expose Homebrew-installed tooling inside the sandbox. Use `--reference <dir>` to mark sibling repos as read-only context for the session.
+They preserve the current project directory (which may be anywhere on the filesystem, not just under `~/workspace`), switch to the `agent` user, apply a per-session seatbelt policy, and expose Homebrew-installed tooling inside the sandbox.
+
+Filesystem scope flags:
+- `-W <dir>` / `--workspace <dir>` — expose a directory tree as read-only context (e.g. `-W ~/workspace` gives Claude read access to all sibling repos)
+- `-R <dir>` / `--reference <dir>` — expose a specific directory read-only; repeat for multiple paths; more precise than `-W` when you only need one or two repos
+- `-C <dir>` / `--project <dir>` — override the writable project root (defaults to cwd)
 
 ### Optional Aliases
 
@@ -540,7 +548,7 @@ You can still drop into the sandbox user manually:
 
 ```bash
 sudo -u agent -i
-cd ~/workspace/my-project
+cd /path/to/your-project
 claude
 ```
 
