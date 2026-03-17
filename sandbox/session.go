@@ -30,6 +30,7 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warnUnmanagedProject(cfg.ProjectDir)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
@@ -56,6 +57,7 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warnUnmanagedProject(cfg.ProjectDir)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
@@ -94,11 +96,14 @@ func newClaudeCmd() *cobra.Command {
 			if err := warnDockerProject(cfg.ProjectDir, allowDocker); err != nil {
 				return err
 			}
-			if err := ensureAgentClaudeInstalled(); err != nil {
-				return err
-			}
+			warnUnmanagedProject(cfg.ProjectDir)
+			// The install check runs inside the sandbox after privilege
+			// transition, so no extra sudo call is needed on the daily path.
 			return runAgentSeatbeltScript(cfg,
-				`cd "$SANDBOX_PROJECT_DIR" && exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
+				`cd "$SANDBOX_PROJECT_DIR" && `+
+					`{ test -x "$HOME/.local/bin/claude" || `+
+					`{ echo "Error: Claude Code not installed for agent user. Run: sandbox bootstrap" >&2; exit 1; }; }; `+
+					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
@@ -299,13 +304,28 @@ To run Tier 2 anyway for code-only work (Docker commands will still fail):
 	return fmt.Errorf("%s", msg)
 }
 
-func ensureAgentClaudeInstalled() error {
-	if asAgentQuiet("test", "-x", agentHome+"/.local/bin/claude") == nil {
-		return nil
+// warnUnmanagedProject prints a warning when projectDir is outside the
+// canonical workspace root.  Projects outside that root are not covered
+// by 'sandbox backup' — changes made in the session will not be backed up.
+//
+// The warning is advisory: the session still launches.  To silence it,
+// move the project inside ~/workspace or enroll it with 'sandbox enroll'.
+func warnUnmanagedProject(projectDir string) {
+	// Resolve sharedWorkspace symlinks so the comparison works even when
+	// ~/workspace is itself a symlink (e.g. → /Users/Shared/workspace).
+	managedRoot := sharedWorkspace
+	if resolved, err := filepath.EvalSymlinks(sharedWorkspace); err == nil {
+		managedRoot = resolved
 	}
-	return fmt.Errorf("Claude Code is not installed for %s\nInstall it with: sudo -u %s -i, then run: curl -fsSL https://claude.ai/install.sh | bash",
-		agentUser, agentUser)
+	if isWithinDir(managedRoot, projectDir) {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"Warning: %s is outside the managed workspace (%s).\n"+
+			"Changes made in this session are not covered by 'sandbox backup'.\n",
+		projectDir, sharedWorkspace)
 }
+
 
 // generateSBPL produces a per-session Seatbelt (SBPL) policy with all
 // filesystem boundaries embedded as literal absolute paths. This makes
@@ -453,14 +473,26 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 		return fmt.Errorf("write seatbelt policy: %w", err)
 	}
 	defer os.Remove(policyFile)
+	// Explicit chmod overrides the process umask so sandbox-launch always
+	// receives a 0644 file regardless of what umask dr has set.
+	if err := os.Chmod(policyFile, 0o644); err != nil {
+		return fmt.Errorf("set seatbelt policy mode: %w", err)
+	}
 
-	full := []string{"-u", agentUser, "/usr/bin/env", "-i"}
+	// The NOPASSWD sudoers rule covers exactly:
+	//   sudo -u agent /usr/local/libexec/sandbox-launch <policy-file> ...
+	//
+	// sandbox-launch validates the policy file path and SUDO_UID ownership
+	// before calling sandbox-exec -f.  It refuses -p inline policies.
+	// env -i runs *inside* the sandbox so the environment is set after the
+	// privilege boundary is crossed.
+	full := []string{
+		"-u", agentUser,
+		launchHelper, policyFile,
+		"/usr/bin/env", "-i",
+	}
 	full = append(full, agentEnvPairs(cfg)...)
-	full = append(full,
-		"/usr/bin/sandbox-exec",
-		"-f", policyFile,
-		"/bin/zsh", "-lc", script, "zsh",
-	)
+	full = append(full, "/bin/zsh", "-lc", script, "zsh")
 	full = append(full, args...)
 
 	cmd := exec.Command("sudo", full...)

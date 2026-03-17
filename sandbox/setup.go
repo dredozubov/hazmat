@@ -282,6 +282,9 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupUserExperience(ui, r); err != nil {
 		return err
 	}
+	if err := setupLaunchHelper(ui, r); err != nil {
+		return err
+	}
 	if err := setupSudoers(ui, r, cu.Username); err != nil {
 		return err
 	}
@@ -295,9 +298,8 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
-	verifySetup(ui)
-
 	if !flagDryRun {
+		verifySetup(ui)
 		ui.DoneBox(cu.Username)
 	}
 	return nil
@@ -550,9 +552,8 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	}
 
 	// Restrictive umask for agent user — use a managed block so rollback is precise.
-	// asAgentOutput is a read — bypasses Runner.
 	agentZshrc := agentHome + "/.zshrc"
-	agentZshrcData, _ := asAgentOutput("cat", agentZshrc)
+	agentZshrcData, _ := r.AgentOutput("cat", agentZshrc)
 	if strings.Contains(agentZshrcData, umaskBlockStart) {
 		ui.SkipDone("umask 077 already set in agent's .zshrc")
 	} else {
@@ -641,7 +642,7 @@ func setupUserExperience(ui *UI, r *Runner) error {
 	ui.Ok(fmt.Sprintf("Agent toolchain env written to %s", agentEnvPath))
 
 	agentZshrc := agentHome + "/.zshrc"
-	agentZshrcData, _ := asAgentOutput("cat", agentZshrc)
+	agentZshrcData, _ := r.AgentOutput("cat", agentZshrc)
 	updatedAgentZshrc := upsertManagedBlock(agentZshrcData,
 		agentShellBlockStart,
 		agentShellBlockEnd,
@@ -706,17 +707,72 @@ func setupUserExperience(ui *UI, r *Runner) error {
 	return nil
 }
 
+// ── Step 5b: Install sandbox-launch helper ────────────────────────────────────
+
+// setupLaunchHelper verifies that the sandbox-launch helper is installed at
+// launchHelper and has the expected ownership and mode.
+//
+// The helper is built separately via 'make sandbox-launch && sudo make install-helper'
+// (or 'make install').  Setup does not build it automatically — the user must
+// have run make install before 'sandbox setup'.  If the helper is absent, setup
+// prints clear instructions and fails so the sudoers step is never reached with
+// an incorrect path.
+func setupLaunchHelper(ui *UI, r *Runner) error {
+	ui.Step("Verify sandbox-launch helper")
+
+	info, err := os.Stat(launchHelper)
+	if err != nil {
+		// Helper not installed — print build instructions and fail.
+		return fmt.Errorf("%s not found.\n\n"+
+			"Build and install the helper before running setup:\n\n"+
+			"  cd sandbox\n"+
+			"  make sandbox-launch\n"+
+			"  sudo make install-helper\n\n"+
+			"Then re-run: sandbox setup", launchHelper)
+	}
+
+	// Must be a regular executable file owned by root.
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", launchHelper)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("%s is not executable", launchHelper)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != 0 {
+		return fmt.Errorf("%s must be owned by root (uid 0), got uid %d", launchHelper, stat.Uid)
+	}
+
+	ui.Ok(fmt.Sprintf("%s present (root-owned, executable)", launchHelper))
+
+	// Validate syntax: run 'sandbox-launch --help' would exit non-zero since
+	// it does not recognise that flag, but the binary must at least exec.
+	// Cheapest check: just verify exit code is non-zero but the binary runs.
+	_ = r // no runtime action needed; presence + metadata is sufficient
+	return nil
+}
+
 // ── Step 6: Passwordless sudo ─────────────────────────────────────────────────
 
 func setupSudoers(ui *UI, r *Runner, currentUser string) error {
 	ui.Step(fmt.Sprintf("Configure passwordless sudo (%s → %s)", currentUser, agentUser))
 
-	// sudoOutput is a read — bypasses Runner.
-	if data, err := sudoOutput("cat", sudoersFile); err == nil &&
-		strings.Contains(data, currentUser) {
-		ui.SkipDone("Sudoers entry already exists")
+	entry := fmt.Sprintf("%s ALL=(%s) NOPASSWD: %s\n", currentUser, agentUser, launchHelper)
+	if data, err := r.SudoOutput("cat", sudoersFile); err == nil &&
+		strings.Contains(data, launchHelper) {
+		// The correct narrow rule is already present — nothing to do.
+		ui.SkipDone(fmt.Sprintf("Sudoers entry already targets %s", launchHelper))
 	} else {
-		entry := fmt.Sprintf("%s ALL=(%s) NOPASSWD: ALL\n", currentUser, agentUser)
+		// Either the file is absent or it contains a broader rule (e.g. the
+		// old "NOPASSWD: ALL" from a previous setup run).  Overwrite it with
+		// the narrow entry.  This is the upgrade path for existing installs.
+		if err == nil && strings.Contains(data, currentUser) {
+			ui.WarnMsg(fmt.Sprintf("Existing sudoers entry does not target %s — replacing with narrow rule", launchHelper))
+		}
+		// Grant passwordless access to exactly sandbox-launch — the narrow
+		// helper that validates policy files before calling sandbox-exec.
+		// It refuses deny-bypassing policies and checks SUDO_UID ownership.
+		// Install and bootstrap steps run under normal sudo (password required).
 		if err := r.SudoWriteFile(sudoersFile, entry); err != nil {
 			return fmt.Errorf("write sudoers: %w", err)
 		}
@@ -730,17 +786,15 @@ func setupSudoers(ui *UI, r *Runner, currentUser string) error {
 			sudo("rm", "-f", sudoersFile) //nolint:errcheck
 			return fmt.Errorf("sudoers syntax invalid — entry removed. Configure manually: %w", err)
 		}
-		ui.Ok(fmt.Sprintf("Sudoers entry created: %s can switch to %s without password",
-			currentUser, agentUser))
+		ui.Ok(fmt.Sprintf("Sudoers entry written: %s can run %s as %s without password",
+			currentUser, launchHelper, agentUser))
 	}
 
-	// Smoke-test that the sudo rule works. r.Sudo returns nil in dry-run,
-	// which naturally prints the "verified" message — correct for a preview.
-	if err := r.Sudo("-u", agentUser, "whoami"); err != nil {
-		ui.WarnMsg(fmt.Sprintf("sudo -u %s failed — you may be prompted for a password", agentUser))
-	} else {
-		ui.Ok(fmt.Sprintf("Verified: sudo -u %s works", agentUser))
-	}
+	// Live smoke-test is skipped: 'sandbox-launch' with no args exits 1 (usage
+	// error) and 'sudo' with a missing NOPASSWD rule also exits 1 — the two
+	// outcomes are indistinguishable without stderr capture in the Runner.
+	// The entry was validated by visudo -c above.
+	// Run 'sandbox test' after setup to exercise the full passwordless path.
 	return nil
 }
 
@@ -961,7 +1015,7 @@ func checkPlatform() error {
 }
 
 func uidTaken(uid string) (bool, error) {
-	out, err := sudoOutput("dscl", ".", "-list", "/Users", "UniqueID")
+	out, err := dscl("-list", "/Users", "UniqueID")
 	if err != nil {
 		return false, fmt.Errorf("dscl list UIDs: %w", err)
 	}
@@ -974,7 +1028,7 @@ func uidTaken(uid string) (bool, error) {
 }
 
 func gidTaken(gid string) (bool, error) {
-	out, err := sudoOutput("dscl", ".", "-list", "/Groups", "PrimaryGroupID")
+	out, err := dscl("-list", "/Groups", "PrimaryGroupID")
 	if err != nil {
 		return false, fmt.Errorf("dscl list GIDs: %w", err)
 	}
@@ -1041,7 +1095,7 @@ func homeAllowsAgentTraverse(homeDir string) bool {
 }
 
 func groupMembershipContains(group, username string) (bool, error) {
-	out, err := sudoOutput("dscl", ".", "-read", "/Groups/"+group, "GroupMembership")
+	out, err := dscl("-read", "/Groups/"+group, "GroupMembership")
 	if err != nil {
 		return false, nil // group exists but has no members yet
 	}

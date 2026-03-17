@@ -173,6 +173,30 @@ func (r *Runner) LaunchctlBootstrap(plist string) error {
 	return launchctlBootstrap(plist)
 }
 
+// ── Read-only sudo helpers ────────────────────────────────────────────────────
+// These are for idempotency checks — reads that bypass normal write routing.
+// In dry-run they return an empty string so the step is treated as "not done"
+// and the corresponding commands are shown in the preview output.
+
+// SudoOutput runs a sudo read in non-dry-run mode.
+// In dry-run it skips the call and returns ("", errDryRun) so the caller's
+// idempotency check fails and the associated commands appear in preview output.
+func (r *Runner) SudoOutput(args ...string) (string, error) {
+	if r.DryRun {
+		return "", fmt.Errorf("dry-run: skipped")
+	}
+	return sudoOutput(args...)
+}
+
+// AgentOutput runs an agent-user read in non-dry-run mode.
+// Same dry-run semantics as SudoOutput.
+func (r *Runner) AgentOutput(args ...string) (string, error) {
+	if r.DryRun {
+		return "", fmt.Errorf("dry-run: skipped")
+	}
+	return asAgentOutput(args...)
+}
+
 // ── Display helper ────────────────────────────────────────────────────────────
 
 // shellQuote returns args with minimal shell quoting for display purposes only.

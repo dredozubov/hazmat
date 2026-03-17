@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+// dscl runs a read-only dscl query without sudo.
+// Directory Service reads for UIDs, GIDs, and group membership are
+// world-readable on macOS and do not require elevated privileges.
+func dscl(args ...string) (string, error) {
+	full := append([]string{"."}, args...)
+	out, err := exec.Command("dscl", full...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // sudo runs a command with sudo, discarding stdout/stderr.
 func sudo(args ...string) error {
 	cmd := exec.Command("sudo", args...)
@@ -50,6 +59,10 @@ func sudoAppendFile(path, content string) error {
 
 // asAgentQuiet runs args as the agent user via "sudo -u agent <args>",
 // discarding stdout/stderr.  Returns exit code only.
+//
+// Requires the full sudoers rule (NOPASSWD: ALL or the specific command).
+// For operations covered by the narrow NOPASSWD rule (sandbox-exec only),
+// use agentSandboxExecQuiet instead.
 func asAgentQuiet(args ...string) error {
 	full := append([]string{"-u", agentUser}, args...)
 	cmd := exec.Command("sudo", full...)
@@ -70,6 +83,7 @@ func asAgentOutput(args ...string) (string, error) {
 func asAgentShellQuiet(script string) error {
 	return asAgentQuiet("bash", "-c", script)
 }
+
 
 // agentTCPConnect tests whether the agent user can reach host:port.
 // It invokes the binary itself as the agent user via "sudo -u agent sandbox _connect",

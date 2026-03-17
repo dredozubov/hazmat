@@ -33,6 +33,7 @@ var (
 const (
 	agentUser     = "agent"
 	agentHome     = "/Users/agent"
+	launchHelper  = "/usr/local/libexec/sandbox-launch"
 	sharedGroup   = "dev"
 	pfAnchorName  = "agent"
 	pfAnchorFile  = "/etc/pf.anchors/agent"
@@ -81,6 +82,7 @@ func main() {
 
 	root.AddCommand(
 		newSetupCmd(),
+		newBootstrapCmd(),
 		newStatusCmd(),
 		newTestCmd(),
 		newBackupCmd(),
