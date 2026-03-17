@@ -93,168 +93,27 @@ anchor "agent"
 load anchor "agent" from "/etc/pf.anchors/agent"
 `
 
-// seatbeltProfileContent is the SBPL policy written to seatbeltProfilePath.
-// It is loaded at Claude launch time via sandbox-exec.  Parameters must be
-// supplied by the wrapper script:
-//
-//	HOME           — agent home directory (/Users/agent)
-//	WORKSPACE_ROOT — host workspace root (for read-only reference access)
-//	PROJECT_DIR    — active project directory (read/write)
-//	TMPDIR         — temp directory (/private/tmp)
-const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
-;; Installed by sandbox setup — do not edit manually.
-;; To update: rm /Users/agent/.config/sandbox/claude.sb && sandbox setup
-;;
-;; Required parameters (pass via sandbox-exec -D KEY=VALUE):
-;;   HOME           - agent home dir  (e.g. /Users/agent)
-;;   WORKSPACE_ROOT - workspace root  (e.g. /Users/dr/workspace)
-;;   PROJECT_DIR    - active project  (e.g. /Users/dr/workspace/myproject)
-;;   TMPDIR         - temp dir (e.g. /private/tmp)
-
-(version 1)
-(deny default)
-
-;; ── Process execution ─────────────────────────────────────────────────────────
-(allow process-exec (subpath "/usr/bin"))
-(allow process-exec (subpath "/bin"))
-(allow process-exec (subpath "/usr/local"))
-(allow process-exec (subpath "/opt/homebrew"))
-(allow process-exec (subpath (param "HOME")))
-(allow process-fork)
-(allow process-info* (target same-sandbox))
-(allow signal (target same-sandbox))
-
-;; ── System libraries (required by Node.js) ────────────────────────────────────
-(allow file-read* (subpath "/usr/lib"))
-(allow file-read* (subpath "/usr/share"))
-(allow file-read* (subpath "/System/Library"))
-(allow file-read* (subpath "/Library/Frameworks"))
-(allow file-read* (subpath "/private/etc"))
-(allow file-read* (literal "/dev/urandom"))
-(allow file-read* (literal "/dev/null"))
-(allow file-read* (literal "/dev/zero"))
-(allow file-write* (literal "/dev/null"))
-(allow file-read* (subpath "/usr/local"))
-(allow file-read* (subpath "/opt/homebrew"))
-
-;; ── Workspace root — read-only access for reference repos ────────────────────
-(allow file-read* (subpath (param "WORKSPACE_ROOT")))
-
-;; ── Active project — full read/write ──────────────────────────────────────────
-(allow file-read* (subpath (param "PROJECT_DIR")))
-(allow file-write* (subpath (param "PROJECT_DIR")))
-
-;; ── Claude config (auth tokens, settings, model cache) ────────────────────────
-(allow file-read* (subpath (string-append (param "HOME") "/.claude")))
-(allow file-write* (subpath (string-append (param "HOME") "/.claude")))
-
-;; ── Claude installation (binary + node_modules) ───────────────────────────────
-(allow file-read* (subpath (string-append (param "HOME") "/.local")))
-(allow file-write* (subpath (string-append (param "HOME") "/.local")))
-
-;; ── Git config (needed for commit operations) ─────────────────────────────────
-(allow file-read* (literal (string-append (param "HOME") "/.gitconfig")))
-(allow file-read* (subpath (string-append (param "HOME") "/.config/git")))
-
-;; ── Shell rc files (read-only; needed at login) ───────────────────────────────
-(allow file-read* (literal (string-append (param "HOME") "/.zshrc")))
-(allow file-read* (literal (string-append (param "HOME") "/.zprofile")))
-(allow file-read* (literal (string-append (param "HOME") "/.bashrc")))
-(allow file-read* (literal (string-append (param "HOME") "/.bash_profile")))
-
-;; ── npm / node cache ──────────────────────────────────────────────────────────
-(allow file-read* file-write* (subpath (string-append (param "HOME") "/.npm")))
-
-;; ── XDG / toolchain state under agent home ──────────────────────────────────
-(allow file-read* file-write* (subpath (string-append (param "HOME") "/.cache")))
-(allow file-read* file-write* (subpath (string-append (param "HOME") "/.config")))
-(allow file-read* file-write* (subpath (string-append (param "HOME") "/.local/share")))
-(allow file-read* file-write* (subpath (string-append (param "HOME") "/Library/Caches")))
-
-;; ── Temp and cache directories ────────────────────────────────────────────────
-(allow file-read* file-write* (subpath (param "TMPDIR")))
-(allow file-read* file-write* (subpath "/private/tmp"))
-(allow file-read* file-write* (subpath "/private/var/folders"))
-
-;; ── Terminal support (Node.js requires these) ─────────────────────────────────
-(allow pseudo-tty)
-(allow file-ioctl)
-(allow file-read* file-write* (literal "/dev/ptmx"))
-(allow file-read* file-write* (regex #"/dev/ttys[0-9]+"))
-
-;; ── Mach services ─────────────────────────────────────────────────────────────
-(allow mach-lookup (global-name "com.apple.system.logger"))
-(allow mach-lookup (global-name "com.apple.CoreServices.coreservicesd"))
-(allow mach-lookup (global-name "com.apple.system.notification_center"))
-(allow mach-lookup (global-name "com.apple.mDNSResponder"))
-(allow mach-host*)
-
-;; ── Network: outbound for Anthropic API calls ─────────────────────────────────
-(allow network-outbound)
-(allow network-inbound (local tcp "*:*"))
-
-;; ── DENY sensitive credential directories ─────────────────────────────────────
-;; These appear last so they override the broad allows above (last match wins).
-(deny file-read* (subpath (string-append (param "HOME") "/.ssh")))
-(deny file-read* (subpath (string-append (param "HOME") "/.aws")))
-(deny file-read* (subpath (string-append (param "HOME") "/.gnupg")))
-(deny file-read* (subpath (string-append (param "HOME") "/Library/Keychains")))
-(deny file-read* (subpath (string-append (param "HOME") "/.config/gh")))
-`
-
 // seatbeltWrapperContent is the launch wrapper installed at seatbeltWrapperPath.
-// It enforces seatbelt confinement every time Claude is started as the agent user.
+// It is aliased to `claude` inside agent-shell sessions. The outer sandbox-exec
+// confinement applied by `sandbox shell/exec/claude` already covers the session,
+// so this wrapper simply execs the claude binary directly.
 const seatbeltWrapperContent = `#!/bin/bash
-# claude-sandboxed — launch Claude Code under seatbelt confinement.
+# claude-sandboxed — launch Claude Code inside the agent sandbox.
 # Installed by sandbox setup — do not edit manually.
 #
-# Usage:
-#   claude-sandboxed [PROJECT_DIR] [claude-args...]
-#
-# If the first argument is an existing directory it is used as PROJECT_DIR;
-# otherwise $PWD is used and all arguments are forwarded to claude.
-#
-# If SANDBOX_WORKSPACE_ROOT is set (for example by agent-shell / claude-sandbox),
-# it is passed through so sibling repos under ~/workspace stay readable.
+# This wrapper is aliased to "claude" in the agent shell. It runs inside a
+# session already confined by sandbox-exec (started via "sandbox shell" or
+# "sandbox claude"), so no additional seatbelt policy is applied here.
 set -euo pipefail
 
-PROFILE=/Users/agent/.config/sandbox/claude.sb
 CLAUDE_BIN=/Users/agent/.local/bin/claude
-export PATH="/Users/agent/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-export TMPDIR="${TMPDIR:-/private/tmp}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
-export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 
-if [[ ! -f "$PROFILE" ]]; then
-    printf 'error: seatbelt profile not found: %s\n' "$PROFILE" >&2
-    printf 'Run "sandbox setup" to install it.\n' >&2
-    exit 1
-fi
-
-if [[ ! -f "$CLAUDE_BIN" ]]; then
+if [[ ! -x "$CLAUDE_BIN" ]]; then
     printf 'error: claude binary not found: %s\n' "$CLAUDE_BIN" >&2
     exit 1
 fi
 
-# Resolve PROJECT_DIR from first arg if it looks like a directory.
-if [[ $# -gt 0 && -d "$1" ]]; then
-    PROJECT_DIR="$1"
-    shift
-else
-    PROJECT_DIR="${PROJECT_DIR:-$PWD}"
-fi
-
-WORKSPACE_ROOT="${SANDBOX_WORKSPACE_ROOT:-${WORKSPACE_ROOT:-$PROJECT_DIR}}"
-
-exec /usr/bin/sandbox-exec \
-    -D "HOME=$HOME" \
-    -D "WORKSPACE_ROOT=$WORKSPACE_ROOT" \
-    -D "PROJECT_DIR=$PROJECT_DIR" \
-    -D "TMPDIR=$TMPDIR" \
-    -f "$PROFILE" \
-    "$CLAUDE_BIN" "$@"
+exec "$CLAUDE_BIN" "$@"
 `
 
 const hostsBlocklistContent = `
@@ -726,35 +585,23 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	return nil
 }
 
-// ── Step 5: Seatbelt profile ──────────────────────────────────────────────────
+// ── Step 5: Seatbelt wrapper ──────────────────────────────────────────────────
 
 func setupSeatbelt(ui *UI, r *Runner) error {
-	ui.Step("Install seatbelt profile for Claude runtime")
+	ui.Step("Install seatbelt wrapper for Claude runtime")
 
-	// Create profile directory as the agent user so ownership is correct.
+	// Create the config dir (used by agentEnvPath) and the bin dir.
 	if err := r.AsAgent("mkdir", "-p", seatbeltProfileDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", seatbeltProfileDir, err)
 	}
 
-	// The profile and wrapper are managed artifacts. Re-write them on every run
-	// so setup doubles as an in-place upgrade path when the policy evolves.
-	if err := r.SudoWriteFile(seatbeltProfilePath, seatbeltProfileContent); err != nil {
-		return fmt.Errorf("write seatbelt profile: %w", err)
-	}
-	if err := r.Sudo("chown", agentUser+":staff", seatbeltProfilePath); err != nil {
-		return fmt.Errorf("chown seatbelt profile: %w", err)
-	}
-	if err := r.Sudo("chmod", "644", seatbeltProfilePath); err != nil {
-		return fmt.Errorf("chmod seatbelt profile: %w", err)
-	}
-	ui.Ok(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
-
-	// Ensure ~/.local/bin exists before writing the wrapper.
 	wrapperDir := agentHome + "/.local/bin"
 	if err := r.AsAgent("mkdir", "-p", wrapperDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", wrapperDir, err)
 	}
 
+	// The wrapper is a managed artifact; re-write on every run so setup
+	// doubles as an upgrade path.
 	if err := r.SudoWriteFile(seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
 		return fmt.Errorf("write seatbelt wrapper: %w", err)
 	}
@@ -1076,12 +923,6 @@ func verifySetup(ui *UI) {
 		ui.TestPass(fmt.Sprintf("DNS blocklist active (%d domains in /etc/hosts)", n))
 	} else {
 		ui.TestWarn("DNS blocklist not installed in /etc/hosts (optional — see setup-option-a.md)")
-	}
-
-	if _, err := os.Stat(seatbeltProfilePath); err == nil {
-		ui.TestPass(fmt.Sprintf("Seatbelt profile installed at %s", seatbeltProfilePath))
-	} else {
-		ui.TestFail(fmt.Sprintf("Seatbelt profile missing: %s", seatbeltProfilePath))
 	}
 
 	if info, err := os.Stat(seatbeltWrapperPath); err == nil && info.Mode()&0o111 != 0 {

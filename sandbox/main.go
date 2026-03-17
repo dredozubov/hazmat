@@ -42,7 +42,6 @@ const (
 	hostsMarker   = "# === AI Agent Blocklist ==="
 
 	seatbeltProfileDir  = agentHome + "/.config/sandbox"
-	seatbeltProfilePath = agentHome + "/.config/sandbox/claude.sb"
 	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
 	agentEnvPath        = seatbeltProfileDir + "/agent-env.zsh"
 

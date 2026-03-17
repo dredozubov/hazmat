@@ -127,6 +127,118 @@ func TestResolveSessionConfigProjectOutsideWorkspace(t *testing.T) {
 	}
 }
 
+// ── generateSBPL ──────────────────────────────────────────────────────────────
+
+func TestGenerateSBPLProjectOnly(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	// Project dir must have both read and write.
+	if !strings.Contains(policy, `(allow file-read* (subpath "/tmp/myproject"))`) {
+		t.Error("expected file-read* rule for PROJECT_DIR")
+	}
+	if !strings.Contains(policy, `(allow file-write* (subpath "/tmp/myproject"))`) {
+		t.Error("expected file-write* rule for PROJECT_DIR")
+	}
+
+	// No broad workspace read when WorkspaceRoot is empty.
+	if strings.Contains(policy, "WORKSPACE_ROOT") {
+		t.Error("policy should not reference WORKSPACE_ROOT param when WorkspaceRoot is empty")
+	}
+
+	// Credential dirs must be denied.
+	for _, cred := range []string{"/.ssh", "/.aws", "/.gnupg"} {
+		want := `(deny file-read* (subpath "` + agentHome + cred + `"))`
+		if !strings.Contains(policy, want) {
+			t.Errorf("expected credential deny rule for %s", cred)
+		}
+	}
+}
+
+func TestGenerateSBPLWithReferenceDirs(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir:    "/tmp/myproject",
+		ReferenceDirs: []string{"/tmp/ref1", "/tmp/ref2"},
+	}
+	policy := generateSBPL(cfg)
+
+	// Each reference dir must have a read rule.
+	for _, ref := range cfg.ReferenceDirs {
+		want := `(allow file-read* (subpath "` + ref + `"))`
+		if !strings.Contains(policy, want) {
+			t.Errorf("expected file-read* rule for reference dir %s", ref)
+		}
+	}
+
+	// Reference dirs must NOT have a write rule.
+	for _, ref := range cfg.ReferenceDirs {
+		bad := `(allow file-write* (subpath "` + ref + `"))`
+		if strings.Contains(policy, bad) {
+			t.Errorf("reference dir %s must not have file-write* rule", ref)
+		}
+	}
+}
+
+func TestGenerateSBPLWithWorkspaceRoot(t *testing.T) {
+	cfg := sessionConfig{
+		WorkspaceRoot: "/Users/Shared/workspace",
+		ProjectDir:    "/Users/Shared/workspace/myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	// Workspace root gets a broad read rule.
+	if !strings.Contains(policy, `(allow file-read* (subpath "/Users/Shared/workspace"))`) {
+		t.Error("expected broad file-read* rule for WorkspaceRoot")
+	}
+
+	// Workspace root must NOT get a write rule.
+	if strings.Contains(policy, `(allow file-write* (subpath "/Users/Shared/workspace"))`) {
+		t.Error("workspace root must not have file-write* rule")
+	}
+
+	// Project dir still gets read+write.
+	if !strings.Contains(policy, `(allow file-write* (subpath "/Users/Shared/workspace/myproject"))`) {
+		t.Error("expected file-write* rule for PROJECT_DIR even when WorkspaceRoot is set")
+	}
+}
+
+func TestGenerateSBPLWorkspaceEqualToProjectOmitsBroadRead(t *testing.T) {
+	// When WorkspaceRoot == ProjectDir, the broad workspace read rule should
+	// be omitted (it would be redundant and emit a confusingly wide allow).
+	cfg := sessionConfig{
+		WorkspaceRoot: "/tmp/myproject",
+		ProjectDir:    "/tmp/myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	// Only one file-read* rule for the path, not two.
+	count := strings.Count(policy, `(allow file-read* (subpath "/tmp/myproject"))`)
+	if count != 1 {
+		t.Errorf("expected exactly 1 file-read* rule for path, got %d", count)
+	}
+}
+
+func TestGenerateSBPLReferenceCoveredByWorkspaceRootSkipped(t *testing.T) {
+	// A reference dir that falls under WorkspaceRoot should not generate a
+	// redundant rule — the workspace read allow already covers it.
+	cfg := sessionConfig{
+		WorkspaceRoot: "/Users/Shared/workspace",
+		ProjectDir:    "/Users/Shared/workspace/myproject",
+		ReferenceDirs: []string{"/Users/Shared/workspace/lib"},
+	}
+	policy := generateSBPL(cfg)
+
+	// The broad workspace root rule covers lib already; no separate rule needed.
+	redundant := `(allow file-read* (subpath "/Users/Shared/workspace/lib"))`
+	if strings.Contains(policy, redundant) {
+		t.Error("redundant per-reference rule emitted when reference is inside WorkspaceRoot")
+	}
+}
+
+// ── agentEnvPairs ──────────────────────────────────────────────────────────────
+
 func TestAgentEnvPairsExposeWorkspaceSession(t *testing.T) {
 	cfg := sessionConfig{
 		WorkspaceRoot: "/Users/dr/workspace",

@@ -580,12 +580,6 @@ func testCommandSurface(ui *UI) {
 func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
-	if _, err := os.Stat(seatbeltProfilePath); err != nil {
-		ui.TestFail(fmt.Sprintf("Seatbelt profile missing: %s — run sandbox setup", seatbeltProfilePath))
-		return
-	}
-	ui.TestPass(fmt.Sprintf("Seatbelt profile exists: %s", seatbeltProfilePath))
-
 	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
 		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run sandbox setup", seatbeltWrapperPath))
 	} else if info.Mode()&0o111 == 0 {
@@ -605,7 +599,9 @@ func testSeatbelt(ui *UI) {
 		return
 	}
 
-	// runSandboxed executes args as the agent user under the seatbelt profile.
+	// Create isolated test directories. referenceDir is passed explicitly as a
+	// reference dir so it receives per-dir read-only access (not covered by a
+	// broad workspace root rule).
 	projectDir := fmt.Sprintf("%s/.seatbelt-project-%d", sharedWorkspace, os.Getpid())
 	referenceDir := fmt.Sprintf("%s/.seatbelt-reference-%d", sharedWorkspace, os.Getpid())
 	if err := os.MkdirAll(projectDir, 0o770); err != nil {
@@ -619,15 +615,21 @@ func testSeatbelt(ui *UI) {
 	defer os.RemoveAll(projectDir)
 	defer os.RemoveAll(referenceDir)
 
+	// Generate a per-session policy with the test dirs embedded as literals.
+	cfg := sessionConfig{
+		ProjectDir:    projectDir,
+		ReferenceDirs: []string{referenceDir},
+	}
+	policyContent := generateSBPL(cfg)
+	policyFile := fmt.Sprintf("/private/tmp/sandbox-test-%d.sb", os.Getpid())
+	if err := os.WriteFile(policyFile, []byte(policyContent), 0o644); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not write test seatbelt policy: %v", err))
+		return
+	}
+	defer os.Remove(policyFile)
+
 	runSandboxed := func(args ...string) error {
-		all := []string{
-			"/usr/bin/sandbox-exec",
-			"-D", "HOME=" + agentHome,
-			"-D", "WORKSPACE_ROOT=" + sharedWorkspace,
-			"-D", "PROJECT_DIR=" + projectDir,
-			"-D", "TMPDIR=/private/tmp",
-			"-f", seatbeltProfilePath,
-		}
+		all := []string{"/usr/bin/sandbox-exec", "-f", policyFile}
 		all = append(all, args...)
 		return asAgentQuiet(all...)
 	}
@@ -641,13 +643,13 @@ func testSeatbelt(ui *UI) {
 		ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied write inside PROJECT_DIR: %v", err))
 	}
 
-	// Denied: write to a sibling repo under the workspace root.
+	// Denied: write to a reference directory (read-only, not read+write).
 	testRefWritePath := fmt.Sprintf("%s/.seatbelt-ref-write-%d", referenceDir, os.Getpid())
 	if err := runSandboxed("/usr/bin/touch", testRefWritePath); err != nil {
-		ui.TestPass("Seatbelt denies writes to sibling repos under WORKSPACE_ROOT")
+		ui.TestPass("Seatbelt denies writes to reference directories")
 	} else {
 		sudo("rm", "-f", testRefWritePath) //nolint:errcheck
-		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write outside PROJECT_DIR but inside WORKSPACE_ROOT")
+		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write to a reference directory")
 	}
 
 	// Denied: write to agent HOME outside approved subdirs.
@@ -677,18 +679,18 @@ func testSeatbelt(ui *UI) {
 		ui.TestWarn("Could not create probe file for seatbelt read-denial test")
 	}
 
-	// Allowed: read from a sibling reference directory under the workspace root.
+	// Allowed: read from a directory passed as an explicit reference.
 	probeWsPath := fmt.Sprintf("%s/.seatbelt-read-%d", referenceDir, os.Getpid())
 	if f, err := os.Create(probeWsPath); err == nil {
 		f.Close()
 		defer os.Remove(probeWsPath)
 		if err := runSandboxed("/bin/cat", probeWsPath); err == nil {
-			ui.TestPass("Seatbelt allows reads inside WORKSPACE_ROOT reference directories")
+			ui.TestPass("Seatbelt allows reads inside explicit reference directories")
 		} else {
-			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside WORKSPACE_ROOT: %v", err))
+			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside reference directory: %v", err))
 		}
 	} else {
-		ui.TestWarn(fmt.Sprintf("Could not create read probe in workspace root: %v", err))
+		ui.TestWarn(fmt.Sprintf("Could not create read probe in reference directory: %v", err))
 	}
 
 	// Allowed: read ~/.claude (Claude auth tokens must be accessible).

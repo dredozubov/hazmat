@@ -220,28 +220,158 @@ func ensureAgentClaudeInstalled() error {
 		agentUser, agentUser)
 }
 
-func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
-	if _, err := os.Stat(seatbeltProfilePath); err != nil {
-		return fmt.Errorf("seatbelt profile missing at %s\nRun 'sandbox setup' first", seatbeltProfilePath)
+// generateSBPL produces a per-session Seatbelt (SBPL) policy with all
+// filesystem boundaries embedded as literal absolute paths. This makes
+// --reference an actual OS-level boundary rather than an advisory env var:
+// only the listed directories receive read access, not the entire workspace.
+//
+// Policy structure:
+//   - PROJECT_DIR gets read+write
+//   - Each ReferenceDirs entry gets read-only (skipped if covered by WorkspaceRoot
+//     or if it is the same as ProjectDir)
+//   - WorkspaceRoot (if non-empty and different from ProjectDir) gets broad read-only
+//   - Agent home subtrees, system libraries, tmp, terminal, mach, and network
+//     rules are identical to the former static profile
+//   - Credential directories are denied last (last-match wins in SBPL)
+func generateSBPL(cfg sessionConfig) string {
+	var b strings.Builder
+	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
+
+	w(";; Claude Code runtime seatbelt policy.\n")
+	w(";; Generated per-session by sandbox — do not edit manually.\n\n")
+	w("(version 1)\n(deny default)\n\n")
+
+	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", agentHome} {
+		w("(allow process-exec (subpath %q))\n", p)
+	}
+	w("(allow process-fork)\n")
+	w("(allow process-info* (target same-sandbox))\n")
+	w("(allow signal (target same-sandbox))\n\n")
+
+	w(";; ── System libraries (required by Node.js) ────────────────────────────────\n")
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
+		w("(allow file-read* (subpath %q))\n", p)
+	}
+	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {
+		w("(allow file-read* (literal %q))\n", p)
+	}
+	w("(allow file-write* (literal \"/dev/null\"))\n")
+	for _, p := range []string{"/usr/local", "/opt/homebrew"} {
+		w("(allow file-read* (subpath %q))\n", p)
+	}
+	w("\n")
+
+	// Workspace root: broad read-only, only when explicitly requested and
+	// distinct from the project dir (avoid a redundant rule).
+	if cfg.WorkspaceRoot != "" && cfg.WorkspaceRoot != cfg.ProjectDir {
+		w(";; ── Workspace root — read-only ────────────────────────────────────────────\n")
+		w("(allow file-read* (subpath %q))\n\n", cfg.WorkspaceRoot)
 	}
 
-	// When no explicit workspace root is given, collapse WORKSPACE_ROOT to
-	// PROJECT_DIR so the static SBPL profile's param remains valid without
-	// inadvertently exposing directories outside the project.
-	workspaceRoot := cfg.WorkspaceRoot
-	if workspaceRoot == "" {
-		workspaceRoot = cfg.ProjectDir
+	// Reference dirs: individual read-only rules, skipping any path already
+	// covered by the workspace root or the project dir.
+	if len(cfg.ReferenceDirs) > 0 {
+		var pending []string
+		for _, ref := range cfg.ReferenceDirs {
+			if cfg.WorkspaceRoot != "" && isWithinDir(cfg.WorkspaceRoot, ref) {
+				continue // already covered by workspace root read rule
+			}
+			if isWithinDir(cfg.ProjectDir, ref) {
+				continue // already covered by project read+write rule below
+			}
+			pending = append(pending, ref)
+		}
+		if len(pending) > 0 {
+			w(";; ── Reference directories — read-only ─────────────────────────────────────\n")
+			for _, ref := range pending {
+				w("(allow file-read* (subpath %q))\n", ref)
+			}
+			w("\n")
+		}
 	}
+
+	w(";; ── Active project — full read/write ──────────────────────────────────────\n")
+	w("(allow file-read* (subpath %q))\n", cfg.ProjectDir)
+	w("(allow file-write* (subpath %q))\n\n", cfg.ProjectDir)
+
+	home := agentHome
+	w(";; ── Claude config (auth tokens, settings, model cache) ────────────────────\n")
+	w("(allow file-read* (subpath %q))\n", home+"/.claude")
+	w("(allow file-write* (subpath %q))\n\n", home+"/.claude")
+
+	w(";; ── Claude installation (binary + node_modules) ───────────────────────────\n")
+	w("(allow file-read* (subpath %q))\n", home+"/.local")
+	w("(allow file-write* (subpath %q))\n\n", home+"/.local")
+
+	w(";; ── Git config (needed for commit operations) ──────────────────────────────\n")
+	w("(allow file-read* (literal %q))\n", home+"/.gitconfig")
+	w("(allow file-read* (subpath %q))\n\n", home+"/.config/git")
+
+	w(";; ── Shell rc files (read-only; needed at login) ────────────────────────────\n")
+	for _, rc := range []string{"/.zshrc", "/.zprofile", "/.bashrc", "/.bash_profile"} {
+		w("(allow file-read* (literal %q))\n", home+rc)
+	}
+	w("\n")
+
+	w(";; ── npm / node cache ────────────────────────────────────────────────────────\n")
+	w("(allow file-read* file-write* (subpath %q))\n\n", home+"/.npm")
+
+	w(";; ── XDG / toolchain state under agent home ─────────────────────────────────\n")
+	for _, sub := range []string{"/.cache", "/.config", "/.local/share", "/Library/Caches"} {
+		w("(allow file-read* file-write* (subpath %q))\n", home+sub)
+	}
+	w("\n")
+
+	w(";; ── Temp and cache directories ──────────────────────────────────────────────\n")
+	for _, p := range []string{"/private/tmp", "/private/var/folders"} {
+		w("(allow file-read* file-write* (subpath %q))\n", p)
+	}
+	w("\n")
+
+	w(";; ── Terminal support (Node.js requires these) ──────────────────────────────\n")
+	w("(allow pseudo-tty)\n")
+	w("(allow file-ioctl)\n")
+	w("(allow file-read* file-write* (literal \"/dev/ptmx\"))\n")
+	w("(allow file-read* file-write* (regex #\"/dev/ttys[0-9]+\"))\n\n")
+
+	w(";; ── Mach services ───────────────────────────────────────────────────────────\n")
+	for _, svc := range []string{
+		"com.apple.system.logger",
+		"com.apple.CoreServices.coreservicesd",
+		"com.apple.system.notification_center",
+		"com.apple.mDNSResponder",
+	} {
+		w("(allow mach-lookup (global-name %q))\n", svc)
+	}
+	w("(allow mach-host*)\n\n")
+
+	w(";; ── Network: outbound for Anthropic API calls ──────────────────────────────\n")
+	w("(allow network-outbound)\n")
+	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
+
+	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
+	w(";; These appear last so they override the broad allows above (last match wins).\n")
+	for _, sub := range []string{"/.ssh", "/.aws", "/.gnupg", "/Library/Keychains", "/.config/gh"} {
+		w("(deny file-read* (subpath %q))\n", home+sub)
+	}
+
+	return b.String()
+}
+
+func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
+	policy := generateSBPL(cfg)
+	policyFile := fmt.Sprintf("/private/tmp/sandbox-%d.sb", os.Getpid())
+	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
+		return fmt.Errorf("write seatbelt policy: %w", err)
+	}
+	defer os.Remove(policyFile)
 
 	full := []string{"-u", agentUser, "/usr/bin/env", "-i"}
 	full = append(full, agentEnvPairs(cfg)...)
 	full = append(full,
 		"/usr/bin/sandbox-exec",
-		"-D", "HOME="+agentHome,
-		"-D", "WORKSPACE_ROOT="+workspaceRoot,
-		"-D", "PROJECT_DIR="+cfg.ProjectDir,
-		"-D", "TMPDIR="+defaultAgentTmpDir,
-		"-f", seatbeltProfilePath,
+		"-f", policyFile,
 		"/bin/zsh", "-lc", script, "zsh",
 	)
 	full = append(full, args...)

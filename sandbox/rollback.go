@@ -259,7 +259,7 @@ func rollbackSudoers(ui *UI, r *Runner) {
 func rollbackSeatbelt(ui *UI, r *Runner) {
 	ui.Step("Remove seatbelt profile and wrapper")
 
-	for _, path := range []string{seatbeltProfilePath, seatbeltWrapperPath} {
+	for _, path := range []string{seatbeltWrapperPath} {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			ui.SkipDone(fmt.Sprintf("%s not present", path))
 			continue
