@@ -1,10 +1,46 @@
-# Tier 3: Docker Sandboxes & Devcontainers
+# Tier 3: Docker Sandboxes and Devcontainers
 
 **Effort:** 15 minutes | **Performance:** ~90% native | **Cost:** Free (Docker Desktop personal)
 
-## Option A: Docker Sandboxes (Simplest, Strongest Desktop Isolation)
+## Read This When
 
-Docker Sandboxes (Docker Desktop 4.58+) run each agent in a **dedicated microVM** — not a regular container. Each gets its own Docker daemon and kernel.
+Use Tier 3 when any of these are true:
+
+- the project needs `docker build`, `docker run`, or `docker compose`
+- the repo uses a devcontainer workflow
+- Tier 2 blocks the workflow because the host Docker socket must stay inaccessible
+- you want a stronger boundary than "same user, same host daemon" but less overhead than a full VM
+
+If the project does not need Docker, [setup-option-a.md](setup-option-a.md) and Tier 2 are usually the better default. For the broader selection logic, start with [overview.md](overview.md).
+
+## Design Choices in Tier 3
+
+- Give the agent a dedicated Docker daemon or microVM. Do not share the host daemon.
+- Treat Docker networking as its own surface. Deny-mode egress is part of the design, not an optional extra.
+- Treat Compose files as security-relevant configuration, not just developer convenience.
+- Keep Docker Desktop and Compose versions current because container tooling itself has meaningful CVEs.
+
+## Which Option Should You Pick?
+
+| Option | Use when | Why it is not the default |
+|--------|----------|---------------------------|
+| **A. Docker Sandboxes** | You want the cleanest UX/security balance | Requires Docker Desktop 4.58+ |
+| **B. Official Anthropic devcontainer** | You want Anthropic's reference container workflow | Heavier IDE/container workflow than Docker Sandboxes |
+| **C. Trail of Bits devcontainer** | You want a security-focused devcontainer baseline | Still a devcontainer workflow, not the simplest day-to-day UX |
+| **D. Compose + Squid proxy** | You need maximum control or want to design your own isolation | Highest setup complexity and easiest to misconfigure |
+
+## Version Checks
+
+Before relying on Tier 3, verify the toolchain:
+
+- Docker Desktop `>= 4.44.3` to avoid CVE-2025-9074
+- `docker-compose >= 2.40.2` to avoid CVE-2025-62725
+
+Read [incidents-and-cves.md](incidents-and-cves.md) for why these versions matter.
+
+## Option A: Docker Sandboxes (Recommended)
+
+Docker Sandboxes (Docker Desktop 4.58+) run each agent in a **dedicated microVM**, not a regular container. Each sandbox gets its own Docker daemon and kernel.
 
 ### Setup
 
@@ -37,15 +73,15 @@ docker sandbox run claude ~/project ~/docs:ro  # read-only extra mounts
 
 ### Why This Is the Best Balance
 
-- MicroVM-based hard security boundary (not just container namespaces)
-- Agent can build/run Docker containers inside the sandbox without affecting host
-- `--dangerously-skip-permissions` is safe because the microVM is the boundary
-- Workspace syncs between host and sandbox at the same absolute path
-- Supports Claude Code, Gemini CLI, Codex, Copilot, Kiro
+- MicroVM-based hard security boundary, not just container namespaces
+- The agent can build and run Docker containers inside the sandbox without affecting the host daemon
+- `--dangerously-skip-permissions` is acceptable here because the microVM is the primary boundary
+- Workspace paths stay stable between host and sandbox
+- It supports Claude Code, Gemini CLI, Codex, Copilot, and Kiro
 
 ### Authentication
 
-Set `ANTHROPIC_API_KEY` in `~/.bashrc` or `~/.zshrc` globally (not inline — the daemon runs independently of the current shell).
+Set `ANTHROPIC_API_KEY` in `~/.bashrc` or `~/.zshrc` globally, not inline on the command. The daemon runs independently of the current shell session.
 
 ## Option B: Official Anthropic Devcontainer
 
@@ -59,27 +95,31 @@ git clone https://github.com/anthropics/claude-code .devcontainer-ref
 ```
 
 **Included security:**
-- Default-deny firewall (`init-firewall.sh`)
-- Allowlist: npm registry, GitHub, Claude API, Sentry only
+
+- default-deny firewall (`init-firewall.sh`)
+- allowlist for npm, GitHub, Claude API, and Sentry
 - DNS and SSH outbound permitted
-- `--dangerously-skip-permissions` is safe inside
+- `--dangerously-skip-permissions` is safe inside the devcontainer
 
 Source: [github.com/anthropics/claude-code/tree/main/.devcontainer](https://github.com/anthropics/claude-code/tree/main/.devcontainer)
 
-## Option C: Trail of Bits Devcontainer (Security-Focused)
+## Option C: Trail of Bits Devcontainer
 
 ```bash
 git clone https://github.com/trailofbits/claude-code-devcontainer
 ```
 
 **Features:**
-- Ubuntu 24.04, Node.js 22, Python 3.13
-- Read-only host mounts for git config
-- Persistent volumes for command history, Claude config, and GitHub CLI auth
-- Does NOT mount the Docker socket
-- Optional iptables rules for network restriction
 
-## Option D: Docker Compose + Squid Proxy (Maximum Control)
+- Ubuntu 24.04, Node.js 22, Python 3.13
+- read-only host mounts for git config
+- persistent volumes for command history, Claude config, and GitHub CLI auth
+- does not mount the Docker socket
+- optional iptables rules for network restriction
+
+## Option D: Docker Compose + Squid Proxy
+
+Use this path only when you want to design the isolation yourself. It offers the most control and the most room to make a mistake.
 
 ```yaml
 services:
@@ -93,35 +133,39 @@ services:
     build: .
     environment:
       - HTTPS_PROXY=http://proxy:3128
-      - ANTHROPIC_API_KEY          # must be env var — Claude Code reads only from environment, not files
+      - ANTHROPIC_API_KEY
     volumes:
       - ./workspace:/workspace
     networks: [isolated]
-    user: "1000:1000"           # never run as root
+    user: "1000:1000"
     read_only: true
     tmpfs: [/tmp, /run]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    # Use service-level limits, not deploy.resources — the Compose spec says
-    # deploy may be ignored by runtimes that don't support it (e.g. plain
-    # `docker compose up` without Swarm mode).
     cpus: "4"
     mem_limit: 8g
     pids_limit: 200
     ulimits:
       nofile: { soft: 1024, hard: 1024 }
-      nproc:  { soft: 200,  hard: 200 }
+      nproc: { soft: 200, hard: 200 }
 
 networks:
   isolated:
-    internal: true   # no internet access
+    internal: true
   internet:
     driver: bridge
 ```
 
-### Squid Config (squid.conf)
+### Why This Example Looks Like This
 
-```
+- `HTTPS_PROXY` stays in `environment:` because it is operational config, not secret material.
+- `ANTHROPIC_API_KEY` also remains in `environment:` because Claude Code expects it there.
+- Other credentials should move to Compose `secrets:` rather than env vars whenever the tool supports it.
+- Service-level limits are used instead of `deploy.resources` because the Compose spec allows non-Swarm runtimes to ignore `deploy`.
+
+### Squid Config (`squid.conf`)
+
+```conf
 acl allowed_domains dstdomain .anthropic.com
 acl allowed_domains dstdomain .github.com
 acl allowed_domains dstdomain registry.npmjs.org
@@ -146,52 +190,57 @@ WORKDIR /workspace
 
 ## Compose Hardening Reference
 
-When writing or reviewing a `docker-compose.yml` for agent use, apply this checklist:
+When writing or reviewing a Compose file for agent use, apply this checklist:
 
 | Setting | Safe value | Why |
-|---|---|---|
-| `user` | `"UID:GID"` (non-root) | Root in container = root in VM; files written as root are hard to clean up |
-| `read_only: true` | required | Prevents writes to container filesystem; use `tmpfs` for writable scratch |
-| `tmpfs` | `[/tmp, /run]` | Writable scratch that is never persisted or shared |
-| `cap_drop: [ALL]` | required | Drops all Linux capabilities; add back only what's proven necessary |
-| `security_opt: ["no-new-privileges:true"]` | required | Prevents `setuid`/`setgid` privilege escalation |
-| `cpus` / `mem_limit` / `pids_limit` | set explicit limits | Prevents fork bombs and resource exhaustion |
-| `ulimits` | restrict `nproc`, `nofile` | Second line of defense against fork bombs |
-| Port bindings | `"127.0.0.1:PORT:PORT"` only | Avoids exposing ports on `0.0.0.0` to the host network |
-| Secrets | `secrets:` block | Mounts secrets as tmpfs files; `environment:` leaks them into `docker inspect`. Exception: `ANTHROPIC_API_KEY` must be in `environment:` because Claude Code reads only from the process environment, not from files. Use `secrets:` for all other credentials (database passwords, tokens, etc.). |
+|---------|------------|-----|
+| `user` | `"UID:GID"` (non-root) | Root in container means root inside the Docker VM and causes awkward file ownership |
+| `read_only: true` | required | Prevents writes to the container filesystem; use `tmpfs` for scratch space |
+| `tmpfs` | `[/tmp, /run]` | Writable scratch that is not persisted or shared |
+| `cap_drop: [ALL]` | required | Drops all Linux capabilities; add back only what is proven necessary |
+| `security_opt: ["no-new-privileges:true"]` | required | Prevents `setuid` and `setgid` escalation paths |
+| `cpus`, `mem_limit`, `pids_limit` | set explicit limits | Reduces resource-exhaustion and fork-bomb risk |
+| `ulimits` | restrict `nproc`, `nofile` | Secondary line of defense against abuse |
+| Port bindings | `"127.0.0.1:PORT:PORT"` only | Avoids exposing services broadly on the host network |
+| Secrets | `secrets:` block when supported | Keeps secrets out of `docker inspect`; `ANTHROPIC_API_KEY` is the main practical exception for Claude Code |
 
-### What to ban in agent-facing Compose files
+### What to Ban in Agent-Facing Compose Files
 
 ```yaml
 # NEVER allow any of these:
-privileged: true                    # removes all container isolation
-network_mode: host                  # container shares VM network namespace
-network_mode: none                  # agent cannot reach Anthropic API
+privileged: true
+network_mode: host
 volumes:
-  - /var/run/docker.sock:/var/run/docker.sock  # full daemon escape
-  - /:/hostfs                       # full VM root access
+  - /var/run/docker.sock:/var/run/docker.sock
+  - /:/hostfs
+use_api_socket: true
 environment:
-  - ANTHROPIC_API_KEY=${KEY}        # prefer secrets: block
+  - AWS_SECRET_ACCESS_KEY=...
+  - DATABASE_URL=...
 ```
 
-`use_api_socket: true` (Docker Compose's Buildx shorthand for socket mounting) is equally prohibited.
+`network_mode: none` is also usually wrong for Claude Code because it breaks access to the Anthropic API and package registries.
 
-> **CVE-2025-62725** (docker-compose < 2.40.2, affects >= 2.34.0): When a `docker-compose.yml`
-> references a remote OCI artifact as its source, compose resolves annotation paths without
-> sanitisation, enabling path traversal to write arbitrary host files. The trigger is remote
-> OCI artifact resolution, not a plain local compose file. Ensure docker-compose >= 2.40.2.
+> **CVE-2025-62725** (docker-compose < 2.40.2, affects >= 2.34.0): when a Compose file references a remote OCI artifact, unsanitized annotation paths can lead to host-file writes. The trigger is remote OCI artifact resolution, not every plain local Compose file.
+
+## What Tier 3 Does Not Solve by Itself
+
+- It does not stop exfiltration of anything already reachable inside the sandbox.
+- It does not make broad domain allowlists safe.
+- It does not make old Docker or Compose versions safe.
+- It does not make insecure Compose files safe unless you apply the hardening guidance.
 
 ## Critical Rules for All Docker Approaches
 
-1. **NEVER share the host Docker socket** — giving the agent access to any Docker daemon it did not exclusively own is a full sandbox escape. `chmod 700 ~/.docker/run/docker.sock` keeps the host daemon inaccessible to other users (enforced by `sandbox setup` and verified by `sandbox test`).
-2. **NEVER mount `/var/run/docker.sock`** into a container — if the agent can talk to the daemon, it can create privileged containers and escape completely.
-3. **Set deny-mode network policy** on Docker Sandboxes before each session — the default is allow-all.
-4. `--dangerously-skip-permissions` inside containers does **not prevent exfiltration** of anything accessible in the container, including Claude Code credentials.
-5. Performance overhead on macOS: bind mounts are ~3.5x slower than native for metadata-heavy ops (improved with VirtioFS but still measurable).
+1. **Never share the host Docker socket.** Giving the agent access to any Docker daemon it does not exclusively own is a full sandbox escape.
+2. **Never mount `/var/run/docker.sock` into a container.** If the agent can talk to the daemon, it can create privileged containers and escape.
+3. **Set deny-mode network policy on Docker Sandboxes before each session.** The default is allow-all.
+4. `--dangerously-skip-permissions` inside containers does not prevent exfiltration of anything accessible in the container, including Claude Code credentials.
+5. Performance overhead on macOS is real. Bind mounts are still slower than native for metadata-heavy workloads, even with modern virtualization improvements.
 
 ## Docker Desktop Pricing
 
-- **Personal:** Free (individuals, education, open source, small businesses <250 employees AND <$10M revenue)
+- **Personal:** Free (individuals, education, open source, small businesses with fewer than 250 employees and less than $10M revenue)
 - **Pro:** $9/month
 - **Team:** $15/user/month
 - **Business:** $21/user/month
@@ -205,10 +254,10 @@ brew install colima docker
 colima start --cpu 4 --memory 8 --disk 50
 ```
 
-- Completely free (MIT license)
-- ~400MB RAM idle vs Docker Desktop's 2GB+
-- CLI-only (no GUI)
-- 24,000+ GitHub stars
+- completely free (MIT license)
+- lower idle RAM than Docker Desktop
+- CLI-only
+- no Docker Sandbox feature and less integrated UX than Docker Desktop
 
 ## Free Alternative: Podman
 
@@ -218,7 +267,7 @@ podman machine init
 podman machine start
 ```
 
-- Completely free (Apache 2.0)
-- Rootless by default (more secure than Docker)
-- Daemonless (no privileged background service)
-- Some Docker Compose features may need adjustment
+- completely free (Apache 2.0)
+- rootless by default
+- daemonless
+- some Docker Compose workflows need adjustment
