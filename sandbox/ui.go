@@ -240,6 +240,7 @@ func (u *UI) DoneBox(currentUser string) {
 	cBold.Println("  5. Use the generated wrappers from your normal shell:")
 	fmt.Println("     cd ~/workspace/my-project")
 	fmt.Println("     claude-sandbox")
+	fmt.Println("     claude-sandbox --reference ~/workspace/reference-repo")
 	fmt.Println("     agent-shell")
 	fmt.Println("     agent-exec make test")
 	fmt.Println("     agent-exec npx vitest")

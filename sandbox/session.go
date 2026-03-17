@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,48 +11,61 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type sessionConfig struct {
+	WorkspaceRoot string
+	ProjectDir    string
+	ReferenceDirs []string
+}
+
 func newShellCmd() *cobra.Command {
 	var project string
+	var references []string
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open an interactive sandboxed shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			projectDir, err := resolveProjectDir(project)
+			cfg, err := resolveSessionConfig(project, references)
 			if err != nil {
 				return err
 			}
-			return runAgentSeatbeltScript(projectDir,
+			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside the shared workspace (defaults to current directory)")
+		"Project directory inside ~/workspace (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
+		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
 	var project string
+	var references []string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a tool inside the sandbox as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			projectDir, err := resolveProjectDir(project)
+			cfg, err := resolveSessionConfig(project, references)
 			if err != nil {
 				return err
 			}
-			return runAgentSeatbeltScript(projectDir,
+			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside the shared workspace (defaults to current directory)")
+		"Project directory inside ~/workspace (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
+		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
 	return cmd
 }
 
 func newClaudeCmd() *cobra.Command {
 	var project string
+	var references []string
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
 		Short: "Launch Claude Code inside the sandbox as the agent user",
@@ -65,19 +79,21 @@ func newClaudeCmd() *cobra.Command {
 				project = projectHint
 			}
 
-			projectDir, err := resolveProjectDir(project)
+			cfg, err := resolveSessionConfig(project, references)
 			if err != nil {
 				return err
 			}
 			if err := ensureAgentClaudeInstalled(); err != nil {
 				return err
 			}
-			return runAgentSeatbeltScript(projectDir,
+			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory inside the shared workspace (defaults to current directory)")
+		"Project directory inside ~/workspace (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
+		"Read-only reference directory inside ~/workspace (repeat flag for multiple paths)")
 	return cmd
 }
 
@@ -98,14 +114,42 @@ func maybeConsumeProjectArg(args []string) (string, []string, error) {
 	return abs, args[1:], nil
 }
 
-func resolveProjectDir(project string) (string, error) {
-	target := project
-	if target == "" {
+func resolveSessionConfig(project string, references []string) (sessionConfig, error) {
+	workspace := sharedWorkspace
+	if resolved, err := filepath.EvalSymlinks(sharedWorkspace); err == nil {
+		workspace = resolved
+	}
+
+	projectDir, err := resolveWorkspaceDir(project, workspace, "project", true)
+	if err != nil {
+		return sessionConfig{}, err
+	}
+
+	referenceDirs, err := resolveReferenceDirs(references, workspace)
+	if err != nil {
+		return sessionConfig{}, err
+	}
+
+	return sessionConfig{
+		WorkspaceRoot: workspace,
+		ProjectDir:    projectDir,
+		ReferenceDirs: referenceDirs,
+	}, nil
+}
+
+func resolveWorkspaceDir(target, workspace, label string, defaultToCwd bool) (string, error) {
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = resolved
+	}
+	if target == "" && defaultToCwd {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("determine current directory: %w", err)
 		}
 		target = wd
+	}
+	if target == "" {
+		return "", fmt.Errorf("%s path is required", label)
 	}
 
 	abs, err := filepath.Abs(target)
@@ -124,15 +168,32 @@ func resolveProjectDir(project string) (string, error) {
 		return "", fmt.Errorf("%q is not a directory", abs)
 	}
 
-	workspace := sharedWorkspace
-	if resolved, err := filepath.EvalSymlinks(sharedWorkspace); err == nil {
-		workspace = resolved
-	}
 	if !isWithinDir(workspace, abs) {
-		return "", fmt.Errorf("%s is outside %s\nMove the repo into ~/workspace-shared or pass --project with a directory inside %s",
-			abs, sharedWorkspace, sharedWorkspace)
+		return "", fmt.Errorf("%s is outside %s\nMove the %s into %s or pass a path inside %s",
+			abs, workspaceHint, label, workspaceHint, workspaceHint)
 	}
 	return abs, nil
+}
+
+func resolveReferenceDirs(references []string, workspace string) ([]string, error) {
+	if len(references) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(references))
+	resolved := make([]string, 0, len(references))
+	for _, ref := range references {
+		abs, err := resolveWorkspaceDir(ref, workspace, "reference directory", false)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[abs]; ok {
+			continue
+		}
+		seen[abs] = struct{}{}
+		resolved = append(resolved, abs)
+	}
+	return resolved, nil
 }
 
 func isWithinDir(base, target string) bool {
@@ -151,17 +212,18 @@ func ensureAgentClaudeInstalled() error {
 		agentUser, agentUser)
 }
 
-func runAgentSeatbeltScript(projectDir, script string, args ...string) error {
+func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
 	if _, err := os.Stat(seatbeltProfilePath); err != nil {
 		return fmt.Errorf("seatbelt profile missing at %s\nRun 'sandbox setup' first", seatbeltProfilePath)
 	}
 
 	full := []string{"-u", agentUser, "/usr/bin/env", "-i"}
-	full = append(full, agentEnvPairs(projectDir)...)
+	full = append(full, agentEnvPairs(cfg)...)
 	full = append(full,
 		"/usr/bin/sandbox-exec",
 		"-D", "HOME="+agentHome,
-		"-D", "PROJECT_DIR="+projectDir,
+		"-D", "WORKSPACE_ROOT="+cfg.WorkspaceRoot,
+		"-D", "PROJECT_DIR="+cfg.ProjectDir,
 		"-D", "TMPDIR="+defaultAgentTmpDir,
 		"-f", seatbeltProfilePath,
 		"/bin/zsh", "-lc", script, "zsh",
@@ -175,7 +237,8 @@ func runAgentSeatbeltScript(projectDir, script string, args ...string) error {
 	return cmd.Run()
 }
 
-func agentEnvPairs(projectDir string) []string {
+func agentEnvPairs(cfg sessionConfig) []string {
+	referencesJSON, _ := json.Marshal(cfg.ReferenceDirs)
 	pairs := []string{
 		"HOME=" + agentHome,
 		"USER=" + agentUser,
@@ -188,7 +251,9 @@ func agentEnvPairs(projectDir string) []string {
 		"XDG_DATA_HOME=" + defaultAgentDataHome,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 		"SANDBOX_ACTIVE=1",
-		"SANDBOX_PROJECT_DIR=" + projectDir,
+		"SANDBOX_WORKSPACE_ROOT=" + cfg.WorkspaceRoot,
+		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
+		"SANDBOX_REFERENCE_DIRS_JSON=" + string(referencesJSON),
 	}
 	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
 		if value := os.Getenv(key); value != "" {

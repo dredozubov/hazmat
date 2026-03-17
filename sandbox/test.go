@@ -606,11 +606,25 @@ func testSeatbelt(ui *UI) {
 	}
 
 	// runSandboxed executes args as the agent user under the seatbelt profile.
+	projectDir := fmt.Sprintf("%s/.seatbelt-project-%d", sharedWorkspace, os.Getpid())
+	referenceDir := fmt.Sprintf("%s/.seatbelt-reference-%d", sharedWorkspace, os.Getpid())
+	if err := os.MkdirAll(projectDir, 0o770); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create seatbelt project dir: %v", err))
+		return
+	}
+	if err := os.MkdirAll(referenceDir, 0o770); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create seatbelt reference dir: %v", err))
+		return
+	}
+	defer os.RemoveAll(projectDir)
+	defer os.RemoveAll(referenceDir)
+
 	runSandboxed := func(args ...string) error {
 		all := []string{
 			"/usr/bin/sandbox-exec",
 			"-D", "HOME=" + agentHome,
-			"-D", "PROJECT_DIR=" + sharedWorkspace,
+			"-D", "WORKSPACE_ROOT=" + sharedWorkspace,
+			"-D", "PROJECT_DIR=" + projectDir,
 			"-D", "TMPDIR=/private/tmp",
 			"-f", seatbeltProfilePath,
 		}
@@ -618,13 +632,22 @@ func testSeatbelt(ui *UI) {
 		return asAgentQuiet(all...)
 	}
 
-	// Allowed: write inside workspace.
-	testWritePath := fmt.Sprintf("%s/.seatbelt-write-%d", sharedWorkspace, os.Getpid())
+	// Allowed: write inside the active project directory.
+	testWritePath := fmt.Sprintf("%s/.seatbelt-write-%d", projectDir, os.Getpid())
 	if err := runSandboxed("/usr/bin/touch", testWritePath); err == nil {
 		sudo("rm", "-f", testWritePath) //nolint:errcheck
-		ui.TestPass("Seatbelt allows writes inside PROJECT_DIR (workspace)")
+		ui.TestPass("Seatbelt allows writes inside PROJECT_DIR")
 	} else {
 		ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied write inside PROJECT_DIR: %v", err))
+	}
+
+	// Denied: write to a sibling repo under the workspace root.
+	testRefWritePath := fmt.Sprintf("%s/.seatbelt-ref-write-%d", referenceDir, os.Getpid())
+	if err := runSandboxed("/usr/bin/touch", testRefWritePath); err != nil {
+		ui.TestPass("Seatbelt denies writes to sibling repos under WORKSPACE_ROOT")
+	} else {
+		sudo("rm", "-f", testRefWritePath) //nolint:errcheck
+		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write outside PROJECT_DIR but inside WORKSPACE_ROOT")
 	}
 
 	// Denied: write to agent HOME outside approved subdirs.
@@ -654,18 +677,18 @@ func testSeatbelt(ui *UI) {
 		ui.TestWarn("Could not create probe file for seatbelt read-denial test")
 	}
 
-	// Allowed: read inside workspace.
-	probeWsPath := fmt.Sprintf("%s/.seatbelt-read-%d", sharedWorkspace, os.Getpid())
+	// Allowed: read from a sibling reference directory under the workspace root.
+	probeWsPath := fmt.Sprintf("%s/.seatbelt-read-%d", referenceDir, os.Getpid())
 	if f, err := os.Create(probeWsPath); err == nil {
 		f.Close()
 		defer os.Remove(probeWsPath)
 		if err := runSandboxed("/bin/cat", probeWsPath); err == nil {
-			ui.TestPass("Seatbelt allows reads inside PROJECT_DIR")
+			ui.TestPass("Seatbelt allows reads inside WORKSPACE_ROOT reference directories")
 		} else {
-			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside PROJECT_DIR: %v", err))
+			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside WORKSPACE_ROOT: %v", err))
 		}
 	} else {
-		ui.TestWarn(fmt.Sprintf("Could not create read probe in workspace: %v", err))
+		ui.TestWarn(fmt.Sprintf("Could not create read probe in workspace root: %v", err))
 	}
 
 	// Allowed: read ~/.claude (Claude auth tokens must be accessible).

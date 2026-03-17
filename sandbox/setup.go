@@ -97,17 +97,19 @@ load anchor "agent" from "/etc/pf.anchors/agent"
 // It is loaded at Claude launch time via sandbox-exec.  Parameters must be
 // supplied by the wrapper script:
 //
-//	HOME        — agent home directory (/Users/agent)
-//	PROJECT_DIR — project workspace path
-//	TMPDIR      — temp directory (/private/tmp)
+//	HOME           — agent home directory (/Users/agent)
+//	WORKSPACE_ROOT — host workspace root (for read-only reference access)
+//	PROJECT_DIR    — active project directory (read/write)
+//	TMPDIR         — temp directory (/private/tmp)
 const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
 ;; Installed by sandbox setup — do not edit manually.
 ;; To update: rm /Users/agent/.config/sandbox/claude.sb && sandbox setup
 ;;
 ;; Required parameters (pass via sandbox-exec -D KEY=VALUE):
-;;   HOME        - agent home dir  (e.g. /Users/agent)
-;;   PROJECT_DIR - project workspace (e.g. /Users/dr/workspace/myproject)
-;;   TMPDIR      - temp dir (e.g. /private/tmp)
+;;   HOME           - agent home dir  (e.g. /Users/agent)
+;;   WORKSPACE_ROOT - workspace root  (e.g. /Users/dr/workspace)
+;;   PROJECT_DIR    - active project  (e.g. /Users/dr/workspace/myproject)
+;;   TMPDIR         - temp dir (e.g. /private/tmp)
 
 (version 1)
 (deny default)
@@ -135,7 +137,10 @@ const seatbeltProfileContent = `;; Claude Code runtime seatbelt profile.
 (allow file-read* (subpath "/usr/local"))
 (allow file-read* (subpath "/opt/homebrew"))
 
-;; ── Project workspace — full read/write ───────────────────────────────────────
+;; ── Workspace root — read-only access for reference repos ────────────────────
+(allow file-read* (subpath (param "WORKSPACE_ROOT")))
+
+;; ── Active project — full read/write ──────────────────────────────────────────
 (allow file-read* (subpath (param "PROJECT_DIR")))
 (allow file-write* (subpath (param "PROJECT_DIR")))
 
@@ -208,6 +213,9 @@ const seatbeltWrapperContent = `#!/bin/bash
 #
 # If the first argument is an existing directory it is used as PROJECT_DIR;
 # otherwise $PWD is used and all arguments are forwarded to claude.
+#
+# If SANDBOX_WORKSPACE_ROOT is set (for example by agent-shell / claude-sandbox),
+# it is passed through so sibling repos under ~/workspace stay readable.
 set -euo pipefail
 
 PROFILE=/Users/agent/.config/sandbox/claude.sb
@@ -238,8 +246,11 @@ else
     PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 fi
 
+WORKSPACE_ROOT="${SANDBOX_WORKSPACE_ROOT:-${WORKSPACE_ROOT:-$PROJECT_DIR}}"
+
 exec /usr/bin/sandbox-exec \
     -D "HOME=$HOME" \
+    -D "WORKSPACE_ROOT=$WORKSPACE_ROOT" \
     -D "PROJECT_DIR=$PROJECT_DIR" \
     -D "TMPDIR=$TMPDIR" \
     -f "$PROFILE" \
