@@ -134,32 +134,50 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 		return fmt.Errorf("use --secret-key-from-env or run interactively for secret key input")
 	}
 
-	// Kopia encryption password — auto-generated unless user provides one.
+	// Kopia encryption password — prompt with empty-to-generate, or env var.
 	var kopiaPassword string
 	if envPass := os.Getenv("HAZMAT_CLOUD_PASSWORD"); envPass != "" {
 		kopiaPassword = envPass
+	} else if interactive {
+		fmt.Print("  Encryption Password (press Enter to auto-generate): ")
+		pass, err := term.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return err
+		}
+		fmt.Println()
+		kopiaPassword = string(pass)
+
+		if kopiaPassword == "" {
+			if cfg.Backup.Cloud.Password != "" {
+				// Reuse existing password (re-running config cloud).
+				kopiaPassword = cfg.Backup.Cloud.Password
+				cDim.Printf("    Reusing existing encryption password\n")
+			} else {
+				passphrase, err := generatePassphrase(7) // ~90 bits
+				if err != nil {
+					return fmt.Errorf("generate encryption password: %w", err)
+				}
+				kopiaPassword = passphrase
+				fmt.Println()
+				cBold.Println("  Encryption password (auto-generated):")
+				fmt.Println()
+				fmt.Printf("    %s\n", kopiaPassword)
+				fmt.Println()
+				cYellow.Println("  Save this password. You need it to restore from cloud backup.")
+				cYellow.Println("  It cannot be recovered if lost.")
+				fmt.Println()
+			}
+		}
 	} else if cfg.Backup.Cloud.Password != "" {
-		// Reuse existing password (re-running config cloud).
 		kopiaPassword = cfg.Backup.Cloud.Password
 	} else {
-		// Auto-generate a strong diceware passphrase for encryption.
-		// Human-readable so it can be written down for disaster recovery.
-		passphrase, err := generatePassphrase(7) // ~90 bits
+		// Non-interactive, no env var, no existing password — auto-generate.
+		passphrase, err := generatePassphrase(7)
 		if err != nil {
 			return fmt.Errorf("generate encryption password: %w", err)
 		}
 		kopiaPassword = passphrase
-
-		if interactive {
-			fmt.Println()
-			cBold.Println("  Encryption password (auto-generated):")
-			fmt.Println()
-			fmt.Printf("    %s\n", kopiaPassword)
-			fmt.Println()
-			cYellow.Println("  Save this password. You need it to restore from cloud backup.")
-			cYellow.Println("  It cannot be recovered if lost.")
-			fmt.Println()
-		}
+		fmt.Printf("  Encryption password (auto-generated): %s\n", kopiaPassword)
 	}
 
 	// Save config (endpoint, bucket, access key, kopia password — not secret key)

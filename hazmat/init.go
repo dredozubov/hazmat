@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // ── Embedded content ──────────────────────────────────────────────────────────
@@ -499,31 +500,38 @@ func setupAgentUser(ui *UI, r *Runner) error {
 	}
 	ui.Ok("Hidden from login screen")
 
-	if ui.IsInteractive() {
-		fmt.Printf("\n  Set a password for the '%s' user:\n", agentUser)
-		if err := r.Interactive("set agent user password", "sudo", "passwd", agentUser); err != nil {
-			return fmt.Errorf("passwd: %w", err)
+	// Generate or prompt for the agent user password. The agent account
+	// is hidden and never used for interactive login; the password only
+	// exists because macOS requires every account to have a password hash.
+	var password string
+	if r.DryRun {
+		password = "<random-192bit-base64>"
+	} else if ui.IsInteractive() && !ui.YesAll {
+		fmt.Printf("\n  Set a password for the '%s' user (press Enter to auto-generate): ", agentUser)
+		pass, err := term.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return fmt.Errorf("read password: %w", err)
 		}
-		ui.Ok("Password set")
-	} else {
-		// Non-interactive (--yes, piped stdin, or dry-run): generate a random
-		// password.  The agent account is never used for login; this satisfies
-		// macOS's requirement that every account has a password hash.
-		var password string
-		if r.DryRun {
-			password = "<random-192bit-base64>"
-		} else {
-			var err error
+		fmt.Println()
+		password = string(pass)
+		if password == "" {
 			password, err = generateRandomPassword(24) // 192 bits
 			if err != nil {
 				return fmt.Errorf("generate agent password: %w", err)
 			}
+			cDim.Printf("    Auto-generated (agent login is disabled, password rarely needed)\n")
 		}
-		if err := r.Sudo("set agent password", "dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
-			return fmt.Errorf("set agent password: %w", err)
+	} else {
+		var err error
+		password, err = generateRandomPassword(24)
+		if err != nil {
+			return fmt.Errorf("generate agent password: %w", err)
 		}
-		ui.Ok(fmt.Sprintf("Password set for '%s' (random, login is disabled)", agentUser))
 	}
+	if err := r.Sudo("set agent password", "dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
+		return fmt.Errorf("set agent password: %w", err)
+	}
+	ui.Ok("Password set")
 
 	if !r.DryRun {
 		if _, err := user.Lookup(agentUser); err != nil {
