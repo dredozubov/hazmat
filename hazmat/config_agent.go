@@ -55,9 +55,15 @@ func runConfigAgent(ui *UI) error {
 	// ── API key ─────────────────────────────────────────────────────────────
 	ui.Step("Anthropic API key")
 
-	currentKey, _ := sudoOutput("sudo", "-u", agentUser, "-i",
-		"bash", "-c", "grep ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null | tail -1")
-	currentKey = strings.TrimSpace(currentKey)
+	// Read agent's .zshrc directly (ACLs allow host user to read agent home).
+	var currentKey string
+	if data, err := os.ReadFile(agentHome + "/.zshrc"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, "ANTHROPIC_API_KEY") {
+				currentKey = strings.TrimSpace(line)
+			}
+		}
+	}
 
 	// Check if the host user already has an API key we can copy.
 	hostKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -117,13 +123,9 @@ func runConfigAgent(ui *UI) error {
 	// ── Git identity ────────────────────────────────────────────────────────
 	ui.Step("Git identity")
 
-	// Read the agent user's current git config.
-	agentName, _ := sudoOutput("sudo", "-u", agentUser, "-i",
-		"bash", "-c", "git config --global user.name 2>/dev/null")
-	agentName = strings.TrimSpace(agentName)
-	agentEmail, _ := sudoOutput("sudo", "-u", agentUser, "-i",
-		"bash", "-c", "git config --global user.email 2>/dev/null")
-	agentEmail = strings.TrimSpace(agentEmail)
+	// Read the agent user's git config directly (ACLs allow host user read access).
+	agentName := gitConfigValue(agentHome + "/.gitconfig", "name")
+	agentEmail := gitConfigValue(agentHome + "/.gitconfig", "email")
 
 	// Read the host user's git config as defaults.
 	hostName, _ := execOutput("git", "config", "--global", "user.name")
@@ -196,9 +198,7 @@ func runConfigAgent(ui *UI) error {
 	// ── Git credential helper ───────────────────────────────────────────────
 	ui.Step("Git credential helper (SSH is blocked — use HTTPS)")
 
-	currentHelper, _ := sudoOutput("sudo", "-u", agentUser, "-i",
-		"bash", "-c", "git config --global credential.helper 2>/dev/null")
-	currentHelper = strings.TrimSpace(currentHelper)
+	currentHelper := gitConfigValue(agentHome+"/.gitconfig", "helper")
 
 	if currentHelper != "" {
 		ui.SkipDone(fmt.Sprintf("credential.helper = %s", currentHelper))
@@ -217,6 +217,26 @@ func runConfigAgent(ui *UI) error {
 		fmt.Println()
 	}
 	return nil
+}
+
+// gitConfigValue reads a value from a git config file by searching for
+// the key name. Simple parser — good enough for user.name, user.email,
+// credential.helper.
+func gitConfigValue(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, key+" = ") {
+			return strings.TrimPrefix(line, key+" = ")
+		}
+		if strings.HasPrefix(line, key+"=") {
+			return strings.TrimPrefix(line, key+"=")
+		}
+	}
+	return ""
 }
 
 // setAgentAPIKey writes the API key to the agent user's .zshrc.
