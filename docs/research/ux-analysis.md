@@ -16,6 +16,8 @@
   |< - - - - - - - - - - - - - >|  create agent user --------->|
   |                              |  create dev group ---------->|
   |  [set agent password]        |  prepare ~/workspace ------->|
+  |                              |  configure snapshot backup ->|
+  |  Cloud backup? [y/N]         |  (optional: S3 credentials) |
   |< - - - - - - - - - - - - - >|  harden gaps --------------->|
   |                              |  install seatbelt ---------->|
   |                              |  install wrappers ---------->|
@@ -63,6 +65,7 @@
    |  hazmat claude               |                              |
    |----------------------------->|                              |
    |                              |  resolve project path        |
+   |                              |  snapshot project (Kopia)    |
    |                              |  check Docker artifacts      |
    |                              |  generate per-session SBPL   |
    |                              |  write /tmp/hazmat-PID.sb    |
@@ -87,25 +90,33 @@
 ### Flow 3: Backup / Restore
 
 ```
-  Local backup:                    Cloud backup:
-  +----------------------+         +----------------------+
-  | hazmat backup /dest  |         | hazmat init --cloud |  (one-time)
-  |   rsync ~/workspace  |         |   S3 endpoint        |
-  |   apply excludes     |         |   access key         |
-  |   additive by default|         |   secret key         |
-  |                      |         |   bucket name        |
-  | hazmat backup --sync |         |   encryption password|
-  |   /dest              |         |                      |
-  |   mirror (deletes!)  |         | hazmat backup --cloud|
-  |   needs .backup-     |         |   kopia snapshot     |
-  |   target marker      |         |   incremental        |
-  +----------------------+         |   encrypted at rest  |
-                                   |   deduped            |
-  Local restore:                   |                      |
-  +----------------------+         | hazmat restore --cloud|
-  | hazmat restore /src  |         |   latest snapshot    |
-  |   rsync -> ~/workspace|        |   full restore       |
-  +----------------------+         +----------------------+
+  Automatic (every session):         Cloud (optional):
+  +----------------------------+     +----------------------------+
+  | hazmat claude/exec/shell   |     | hazmat config cloud        |  (one-time)
+  |   pre-session Kopia        |     |   S3 endpoint              |
+  |   snapshot of project dir  |     |   access key               |
+  |   incremental, sub-second  |     |   secret key → credential  |
+  |   stored in local repo     |     |   bucket + encryption pw   |
+  +----------------------------+     |                            |
+                                     | hazmat backup --cloud      |
+  Recovery:                          |   workspace Kopia snapshot |
+  +----------------------------+     |   incremental, encrypted   |
+  | hazmat snapshots           |     |   deduped                  |
+  |   list project snapshots   |     |                            |
+  | hazmat diff                |     | hazmat restore --cloud     |
+  |   changes since snapshot   |     |   latest snapshot          |
+  | hazmat restore             |     |   full workspace restore   |
+  |   restore project from     |     +----------------------------+
+  |   local snapshot           |
+  |   (snapshots current state |     Configuration:
+  |   first = undo-the-undo)   |     +----------------------------+
+  +----------------------------+     | hazmat config              |
+                                     |   view current settings    |
+                                     | hazmat config edit         |
+                                     |   open config.yaml         |
+                                     | hazmat config set K V      |
+                                     |   change retention, etc.   |
+                                     +----------------------------+
 ```
 
 
@@ -122,7 +133,7 @@
   +-- remove command wrappers + shell blocks
   +-- remove workspace symlink + ACLs
   +-- remove umask blocks
-  +-- remove backup scope file
+  +-- remove local snapshot repository
   |
   +-- --delete-user -> delete agent account + home dir
   +-- --delete-group -> delete dev group
@@ -173,9 +184,14 @@ Run agents:
   shell       Open a contained shell
   exec        Run a command in containment
 
+Snapshots:
+  diff        Show changes since the last snapshot
+  restore     Restore project from snapshot or workspace from cloud
+  snapshots   List local snapshots for the current project
+
 Workspace:
-  backup      Back up the workspace
-  restore     Restore from backup
+  backup      Back up workspace to cloud (Kopia)
+  config      View or edit hazmat configuration
   status      Show setup progress and health
 ```
 
@@ -184,13 +200,18 @@ Workspace:
 
 ## Configuration
 
+All backup settings live in `~/.config/hazmat/config.yaml`. Cloud secret key
+is stored separately in `~/.config/hazmat/cloud-credentials` (0600).
+
 | Setting | Default | Override |
 |---------|---------|---------|
 | Workspace path | `~/workspace` | `HAZMAT_WORKSPACE` env var |
 | Agent UID | 599 | `--agent-uid` flag on init |
 | Group GID | 599 | `--group-gid` flag on init |
-| Backup excludes | `~/workspace/.backup-excludes` | Edit file directly |
-| Cloud backup | `~/.config/hazmat/cloud-backup.json` | `hazmat init cloud` |
+| Snapshot retention | 20 latest, 7 daily, 4 weekly | `hazmat config set backup.retention.keep_latest N` |
+| Snapshot excludes | node_modules, .venv, dist, build, target | `hazmat config set backup.excludes.add PATTERN` |
+| Cloud endpoint | — | `hazmat config cloud` or `hazmat config set` |
+| Cloud secret key | — | `hazmat config cloud` or `HAZMAT_CLOUD_SECRET_KEY` env |
 | Blocked ports | Hardcoded (SMTP, IRC, FTP, Tor, etc.) | Opinionated, not configurable |
 | Blocked domains | Hardcoded (ngrok, pastebin, etc.) | Opinionated, not configurable |
 | Seatbelt policy | Generated per-session | Dynamic, not configurable |
@@ -205,9 +226,9 @@ Workspace:
 
 2. **`--ignore-docker` escape hatch.** If Docker files are detected, `hazmat claude` refuses to run. Pass `--ignore-docker` if you have Docker files but don't need Docker support.
 
-3. **Read-only vs. read-write.** `-C` (project) = read-write. `-W` (workspace) and `-R` (references) = read-only. Only the project directory can be modified.
+3. **Read-only vs. read-write.** `-C` (project) = read-write. `-R` (read) = read-only. Only the project directory can be modified.
 
-4. **`.backup-target` sentinel.** `hazmat backup --sync` requires a `.backup-target` file in the destination to prevent accidental deletions.
+4. **Pre-session snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project before launching. Skip with `--no-backup`.
 
 5. **Agent password.** Set during setup but rarely needed. `hazmat enroll` and `hazmat claude` use passwordless sudo. To reset: `sudo passwd agent`.
 

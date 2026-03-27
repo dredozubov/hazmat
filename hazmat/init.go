@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // ── Embedded content ──────────────────────────────────────────────────────────
@@ -239,14 +237,7 @@ func newInitEnrollCmd() *cobra.Command {
 
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
 func newInitCloudCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "cloud",
-		Short: "Configure S3 cloud backup credentials",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runCloudSetup()
-		},
-	}
+	return newConfigCloudCmd()
 }
 
 // newStatusCmd shows a progress checklist and optionally runs health checks.
@@ -458,81 +449,6 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	return nil
 }
 
-// CloudConfig stores S3-compatible storage credentials for Kopia backups.
-type CloudConfig struct {
-	Endpoint   string `json:"endpoint"`
-	AccessKey  string `json:"access_key"`
-	SecretKey  string `json:"secret_key"`
-	Bucket     string `json:"bucket"`
-	Password   string `json:"password"` // Kopia repository password
-}
-
-func runCloudSetup() error {
-	ui := &UI{}
-	if !ui.IsInteractive() {
-		return fmt.Errorf("cloud setup requires an interactive terminal")
-	}
-
-	fmt.Println()
-	cBold.Println("  ┌────────────────────────────────────────────────┐")
-	cBold.Println("  │  Cloud Backup Setup — S3-compatible storage    │")
-	cBold.Println("  └────────────────────────────────────────────────┘")
-	fmt.Println()
-
-	var cfg CloudConfig
-	fmt.Print("  S3 Endpoint [s3.fr-par.scw.cloud]: ")
-	fmt.Scanln(&cfg.Endpoint)
-	if cfg.Endpoint == "" {
-		cfg.Endpoint = "s3.fr-par.scw.cloud"
-	}
-
-	fmt.Print("  S3 Access Key: ")
-	fmt.Scanln(&cfg.AccessKey)
-	if cfg.AccessKey == "" {
-		return fmt.Errorf("access key is required")
-	}
-
-	fmt.Print("  S3 Secret Key: ")
-	secret, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return err
-	}
-	cfg.SecretKey = string(secret)
-	fmt.Println(" (set)")
-
-	fmt.Print("  S3 Bucket: ")
-	fmt.Scanln(&cfg.Bucket)
-	if cfg.Bucket == "" {
-		return fmt.Errorf("bucket name is required")
-	}
-
-	fmt.Print("  Kopia Repository Password (for encryption): ")
-	pass, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return err
-	}
-	cfg.Password = string(pass)
-	fmt.Println(" (set)")
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	configDir := filepath.Dir(cloudBackupConfig)
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(cloudBackupConfig, data, 0o600); err != nil {
-		return err
-	}
-
-	fmt.Println()
-	cGreen.Printf("  Cloud backup configuration saved to %s\n", cloudBackupConfig)
-	cYellow.Println("  Note: Run 'hazmat backup --cloud' to initialize the repository and start backups.")
-	return nil
-}
 
 // ── Step 1: Agent user ────────────────────────────────────────────────────────
 
@@ -751,36 +667,60 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 func setupLocalRepo(ui *UI) error {
 	ui.Step("Configure snapshot backup")
 
+	// Write config.yaml with defaults if it doesn't exist yet.
+	cfg, _ := loadConfig()
+	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+		if !flagDryRun {
+			if err := saveConfig(cfg); err != nil {
+				return fmt.Errorf("write config: %w", err)
+			}
+		}
+	}
+
 	if _, err := os.Stat(localConfigFile); err == nil {
 		ui.SkipDone(fmt.Sprintf("Snapshot repository already configured at %s", localRepoDir))
-		printBackupConfig()
-		return nil
-	}
-
-	if flagDryRun {
+	} else if flagDryRun {
 		faint.Printf("    $ kopia repository create filesystem --path %s\n", localRepoDir)
-		printBackupConfig()
-		return nil
+	} else {
+		if err := initLocalRepo(); err != nil {
+			return fmt.Errorf("initialize snapshot repo: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Snapshot repository created at %s", localRepoDir))
 	}
 
-	if err := initLocalRepo(); err != nil {
-		return fmt.Errorf("initialize snapshot repo: %w", err)
+	printBackupConfig(cfg)
+
+	// Offer cloud setup if interactive, not already configured, and not --yes.
+	if cfg.Backup.Cloud == nil && !flagDryRun && !flagYesAll {
+		innerUI := &UI{}
+		if innerUI.IsInteractive() {
+			if innerUI.Ask("Set up cloud backup (S3-compatible)?") {
+				if err := runConfigCloud("", "", "", false); err != nil {
+					// Non-fatal: user can configure later.
+					cYellow.Printf("\n    Cloud setup skipped: %v\n", err)
+					fmt.Println("    Configure later: hazmat config cloud")
+				}
+			}
+		}
 	}
-	ui.Ok(fmt.Sprintf("Snapshot repository created at %s", localRepoDir))
-	printBackupConfig()
+
 	return nil
 }
 
-func printBackupConfig() {
+func printBackupConfig(cfg HazmatConfig) {
 	fmt.Println()
 	cDim.Println("    Snapshots are taken automatically before each session.")
 	fmt.Println()
-	cDim.Printf("    Repository:  %s\n", localRepoDir)
+	cDim.Printf("    Repository:  %s\n", cfg.Backup.Local.Path)
 	cDim.Printf("    Retention:   %d latest, %d daily, %d weekly\n",
-		defaultKeepLatest, defaultKeepDaily, defaultKeepWeekly)
+		cfg.Backup.Local.Retention.KeepLatest,
+		cfg.Backup.Local.Retention.KeepDaily,
+		cfg.Backup.Local.Retention.KeepWeekly)
 	cDim.Printf("    Excludes:    node_modules/ .venv/ dist/ build/ target/ ...\n")
-	fmt.Println()
-	cDim.Println("    Cloud backup (optional):  hazmat init cloud")
+	if cfg.Backup.Cloud != nil {
+		cDim.Printf("    Cloud:       %s/%s\n", cfg.Backup.Cloud.Endpoint, cfg.Backup.Cloud.Bucket)
+	}
+	cDim.Printf("    Config:      %s\n", configFilePath)
 	fmt.Println()
 }
 

@@ -31,8 +31,7 @@ var (
 )
 
 var (
-	sharedWorkspace   = defaultWorkspace()
-	cloudBackupConfig = filepath.Join(os.Getenv("HOME"), ".config/hazmat/cloud-backup.json")
+	sharedWorkspace = defaultWorkspace()
 )
 
 func defaultWorkspace() string {
@@ -130,6 +129,8 @@ func main() {
 	restoreCmd.GroupID = "snap"
 
 	// ── Workspace ──
+	configCmd := newConfigCmd()
+	configCmd.GroupID = "ws"
 	backupCmd := newBackupCmd()
 	backupCmd.GroupID = "ws"
 	statusCmd := newStatusCmd()
@@ -145,7 +146,7 @@ func main() {
 		initCmd,
 		claudeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
-		backupCmd, statusCmd,
+		configCmd, backupCmd, statusCmd,
 		newConnectCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")

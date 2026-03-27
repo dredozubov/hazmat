@@ -84,9 +84,17 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Backup
 
-**Excludes are for common web/Python/Rust/Node projects.** Built-in excludes: `node_modules/`, `.venv/`, `__pycache__/`, `.next/`, `dist/`, `build/`, `target/`. If your project uses different conventions (e.g., Java `out/`, Go `vendor/` not excluded by default), those directories get backed up.
+**Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for offsite workspace backup. Both configured via `~/.config/hazmat/config.yaml`.
 
-**Credentials may be in backups.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the workspace, so they're NOT in workspace backups. But if you have `.env` files in your project, those ARE backed up.
+**Snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project directory before launching. The snapshot covers only the write-target directory — not the whole workspace, not read-only dirs. Skip with `--no-backup`.
+
+**Retention is configurable.** Default: 20 latest, 7 daily, 4 weekly per project. Change via `hazmat config set backup.retention.keep_latest N` or edit `config.yaml` directly.
+
+**Excludes are for common web/Python/Rust/Node projects.** Default excludes: `node_modules/`, `.venv/`, `__pycache__/`, `.next/`, `dist/`, `build/`, `target/`. Add more via `hazmat config set backup.excludes.add PATTERN` or edit `config.yaml`.
+
+**Cloud secret key is stored separately.** The config file (`config.yaml`) is human-readable and safe to share. The S3 secret key lives in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var.
+
+**Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
 
 **Cloud backup encrypts at rest.** Kopia encrypts all blobs with the repository password. Local rsync backups are unencrypted.
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"github.com/kopia/kopia/fs"
 	"github.com/kopia/kopia/fs/localfs"
 	"github.com/kopia/kopia/repo"
-	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/filesystem"
 	"github.com/kopia/kopia/repo/blob/s3"
 	"github.com/kopia/kopia/snapshot"
@@ -261,60 +259,95 @@ func snapshotProject(projectDir, command string) error {
 
 // ── Cloud backup/restore ────────────────────────────────────────────────────
 
-func loadCloudConfig() (*CloudConfig, error) {
-	data, err := os.ReadFile(cloudBackupConfig)
-	if err != nil {
-		return nil, fmt.Errorf("could not read cloud backup config: %w\nRun 'hazmat init cloud' first.", err)
-	}
-	var cfg CloudConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("could not parse cloud backup config: %w", err)
-	}
-	return &cfg, nil
-}
-
-func getS3Storage(ctx context.Context, cfg *CloudConfig) (blob.Storage, error) {
-	endpoint := strings.TrimPrefix(cfg.Endpoint, "https://")
-	endpoint = strings.TrimPrefix(endpoint, "http://")
-	useTLS := !strings.HasPrefix(cfg.Endpoint, "http://")
-
-	return s3.New(ctx, &s3.Options{
-		Endpoint:        endpoint,
-		DoNotUseTLS:     !useTLS,
-		BucketName:      cfg.Bucket,
-		AccessKeyID:     cfg.AccessKey,
-		SecretAccessKey: cfg.SecretKey,
-	}, false)
-}
-
 func openCloudRepo(ctx context.Context) (repo.Repository, error) {
-	cfg, err := loadCloudConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Backup.Cloud == nil {
+		return nil, fmt.Errorf("cloud backup not configured\nRun: hazmat config cloud")
+	}
+
+	secretKey, err := loadCloudSecretKey()
 	if err != nil {
 		return nil, err
 	}
 
-	st, err := getS3Storage(ctx, cfg)
+	cloud := cfg.Backup.Cloud
+	endpoint := strings.TrimPrefix(cloud.Endpoint, "https://")
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	useTLS := !strings.HasPrefix(cloud.Endpoint, "http://")
+
+	st, err := s3.New(ctx, &s3.Options{
+		Endpoint:        endpoint,
+		DoNotUseTLS:     !useTLS,
+		BucketName:      cloud.Bucket,
+		AccessKeyID:     cloud.AccessKey,
+		SecretAccessKey: secretKey,
+	}, false)
 	if err != nil {
 		return nil, fmt.Errorf("connect to S3: %w", err)
 	}
 
-	configFile := filepath.Join(os.Getenv("HOME"), ".config/hazmat/kopia.config")
+	kopiaCloudConfig := filepath.Join(os.Getenv("HOME"), ".config/hazmat/kopia-cloud.config")
 
-	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+	if _, err := os.Stat(kopiaCloudConfig); os.IsNotExist(err) {
 		fmt.Println("Initializing Kopia repository in S3...")
-		if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, cfg.Password); err != nil {
+		if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, cloud.Password); err != nil {
 			fmt.Printf("Initialization note: %v\n", err)
 		}
-		if err := repo.Connect(ctx, configFile, st, cfg.Password, &repo.ConnectOptions{}); err != nil {
+		if err := repo.Connect(ctx, kopiaCloudConfig, st, cloud.Password, &repo.ConnectOptions{}); err != nil {
 			return nil, fmt.Errorf("connect to cloud repo: %w", err)
 		}
 	}
 
-	r, err := repo.Open(ctx, configFile, cfg.Password, &repo.Options{})
+	r, err := repo.Open(ctx, kopiaCloudConfig, cloud.Password, &repo.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("open cloud repo: %w", err)
 	}
 	return r, nil
+}
+
+// updateRetentionFromConfig reads the current config and updates the local
+// Kopia repo's retention policy to match.
+func updateRetentionFromConfig(cfg HazmatConfig) error {
+	ctx := context.Background()
+	r, err := openLocalRepo(ctx)
+	if err != nil {
+		return err
+	}
+	defer r.Close(ctx)
+
+	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "UpdateRetention"})
+	if err != nil {
+		return err
+	}
+	defer wr.Close(ctx)
+
+	ret := cfg.Backup.Local.Retention
+	latest := policy.OptionalInt(ret.KeepLatest)
+	daily := policy.OptionalInt(ret.KeepDaily)
+	weekly := policy.OptionalInt(ret.KeepWeekly)
+	zero := policy.OptionalInt(0)
+
+	pol := &policy.Policy{
+		RetentionPolicy: policy.RetentionPolicy{
+			KeepLatest:  &latest,
+			KeepDaily:   &daily,
+			KeepWeekly:  &weekly,
+			KeepMonthly: &zero,
+			KeepAnnual:  &zero,
+		},
+		FilesPolicy: policy.FilesPolicy{
+			IgnoreRules: cfg.Backup.Excludes,
+		},
+	}
+
+	if err := policy.SetPolicy(ctx, wr, snapshot.SourceInfo{}, pol); err != nil {
+		return err
+	}
+
+	return wr.Flush(ctx)
 }
 
 func runCloudBackup() error {
