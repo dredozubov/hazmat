@@ -12,40 +12,38 @@ import (
 	"golang.org/x/term"
 )
 
-func newEnrollCmd() *cobra.Command {
+func newConfigAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "enroll",
-		Short: "Set API key and git credentials for the agent user",
-		Long: `Configure the agent user's credentials in one step. This replaces the
-manual process of switching to the agent shell and running multiple commands.
+		Use:   "agent",
+		Short: "Configure API key and git identity for the agent user",
+		Long: `Configure the agent user's credentials.
 
 Sets up:
-  1. Anthropic API key (or Claude.ai login token)
-  2. Git identity (name + email)
+  1. Anthropic API key (copies from host env, or paste, or skip for /login)
+  2. Git identity (name + email, pre-filled from host git config)
   3. Git credential helper (HTTPS with stored credentials)
 
-This command is idempotent: values already set are shown and can be kept or
-overridden. Run it again any time to update credentials.
+Idempotent: existing values are shown and can be kept or overridden.
 
 Examples:
-  hazmat enroll                   # Interactive prompts`,
+  hazmat config agent`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runEnroll(nil)
+			return runConfigAgent(nil)
 		},
 	}
 	return cmd
 }
 
-// runEnroll configures agent credentials. If ui is non-nil, uses its step
-// counter (chained from setup). If nil, creates a standalone UI.
-func runEnroll(ui *UI) error {
+// runConfigAgent configures agent credentials. If ui is non-nil, uses its
+// step counter (chained from init). If nil, creates a standalone UI.
+func runConfigAgent(ui *UI) error {
 	standalone := ui == nil
 	if standalone {
 		ui = &UI{}
 	}
 	if !ui.IsInteractive() {
-		return fmt.Errorf("enroll requires an interactive terminal")
+		return fmt.Errorf("config agent requires an interactive terminal")
 	}
 
 	if _, err := user.Lookup(agentUser); err != nil {
@@ -92,7 +90,7 @@ func runEnroll(ui *UI) error {
 			}
 			ui.Ok("API key copied from host environment")
 		} else {
-			fmt.Println("  You can set it later with 'hazmat enroll' or 'claude /login' inside the sandbox.")
+			fmt.Println("  You can set it later with 'hazmat config agent' or 'claude /login' inside the sandbox.")
 			ui.SkipDone("API key skipped")
 		}
 	} else {
@@ -192,7 +190,7 @@ func runEnroll(ui *UI) error {
 	if gitName != "" || gitEmail != "" {
 		ui.Ok(fmt.Sprintf("Git identity: %s <%s>", gitName, gitEmail))
 	} else {
-		ui.WarnMsg("Skipped — run 'hazmat enroll' later to set")
+		ui.WarnMsg("Skipped — run 'hazmat config agent' later to set")
 	}
 
 	// ── Git credential helper ───────────────────────────────────────────────

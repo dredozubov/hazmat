@@ -185,7 +185,7 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init --yes               # Non-interactive, auto-confirm
   hazmat init check               # Verify the setup
   hazmat init rollback            # Undo everything
-  hazmat init enroll              # Re-configure credentials
+  hazmat config agent              # Re-configure credentials
   hazmat init cloud               # Configure S3 cloud backup
 
 Use --dry-run to preview all commands without executing anything.`,
@@ -230,9 +230,12 @@ func newInitRollbackCmd() *cobra.Command {
 	return newRollbackCmd()
 }
 
-// newInitEnrollCmd wraps enroll as `hazmat init enroll`.
+// newInitEnrollCmd wraps config agent as `hazmat config agent` (legacy alias).
 func newInitEnrollCmd() *cobra.Command {
-	return newEnrollCmd()
+	cmd := newConfigAgentCmd()
+	cmd.Use = "enroll"
+	cmd.Short = "Configure API key and git identity (alias for config agent)"
+	return cmd
 }
 
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
@@ -285,7 +288,7 @@ func runStatus(full bool) error {
 			info, err := os.Stat(agentHome + "/.local/bin/claude")
 			return err == nil && info.Mode()&0o111 != 0
 		}},
-		{"Credentials set", "hazmat init enroll", func() bool {
+		{"Credentials set", "hazmat config agent", func() bool {
 			data, err := os.ReadFile(agentHome + "/.zshrc")
 			if err != nil {
 				return false
@@ -423,12 +426,11 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
-	// ── Enroll: API key + git credentials ───────────────────────────────────
+	// ── Agent credentials: API key + git identity ───────────────────────────
 	if !flagDryRun && ui.IsInteractive() {
-		if err := runEnroll(ui); err != nil {
-			// Non-fatal: user can run 'hazmat enroll' later.
-			cYellow.Printf("\n  Enrollment skipped: %v\n", err)
-			fmt.Println("  Run 'hazmat enroll' later to set credentials.")
+		if err := runConfigAgent(ui); err != nil {
+			cYellow.Printf("\n  Agent config skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config agent' later to set credentials.")
 		}
 	}
 
@@ -459,7 +461,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	fmt.Println("    cd your-project && hazmat claude")
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
-	fmt.Println("  Update creds:   hazmat enroll")
+	fmt.Println("  Update creds:   hazmat config agent")
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat init rollback")
 	fmt.Println()

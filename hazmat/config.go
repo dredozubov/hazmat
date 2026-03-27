@@ -138,12 +138,13 @@ func newConfigCmd() *cobra.Command {
 Subcommands:
   hazmat config              Show current configuration
   hazmat config edit         Open config in $EDITOR
+  hazmat config agent        Configure API key and git identity
   hazmat config cloud        Configure S3 cloud backup credentials
   hazmat config set K V      Set a configuration value
 
 Examples:
   hazmat config
-  hazmat config edit
+  hazmat config agent
   hazmat config cloud --endpoint s3.fr-par.scw.cloud --bucket my-backups
   hazmat config set backup.retention.keep_latest 30`,
 		Args: cobra.NoArgs,
@@ -153,6 +154,7 @@ Examples:
 	}
 
 	cmd.AddCommand(newConfigEditCmd())
+	cmd.AddCommand(newConfigAgentCmd())
 	cmd.AddCommand(newConfigCloudCmd())
 	cmd.AddCommand(newConfigSetCmd())
 

@@ -354,7 +354,7 @@ Docker is not available in this containment mode (socket locked to owner-only).
 // by 'hazmat backup' — changes made in the session will not be backed up.
 //
 // The warning is advisory: the session still launches.  To silence it,
-// move the project inside ~/workspace or enroll it with 'hazmat enroll'.
+// move the project inside ~/workspace or enroll it with 'hazmat config agent'.
 func warnUnmanagedProject(projectDir string) {
 	// Resolve sharedWorkspace symlinks so the comparison works even when
 	// ~/workspace is itself a symlink (e.g. → /Users/Shared/workspace).
