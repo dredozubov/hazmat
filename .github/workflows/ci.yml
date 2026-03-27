@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION_FILE: hazmat/go.mod
+  GO_CACHE_DEP: hazmat/go.sum
+
+jobs:
+  go-test:
+    name: Test & vet
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Vet
+        working-directory: hazmat
+        run: go vet ./...
+
+      - name: Unit tests
+        working-directory: hazmat
+        run: go test ./...
+
+  go-build:
+    name: Build (${{ matrix.goarch }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        goarch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Build hazmat
+        working-directory: hazmat
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -o hazmat-darwin-${{ matrix.goarch }} .
+          go build -trimpath -o hazmat-launch-darwin-${{ matrix.goarch }} ./cmd/hazmat-launch
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: hazmat-darwin-${{ matrix.goarch }}
+          path: |
+            hazmat/hazmat-darwin-${{ matrix.goarch }}
+            hazmat/hazmat-launch-darwin-${{ matrix.goarch }}
+
+  tla-model-check:
+    name: TLA+ model checking
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache tla2tools.jar
+        id: cache-tla
+        uses: actions/cache@v4
+        with:
+          path: ~/tla2tools.jar
+          key: tla2tools-v2026.03.12
+
+      - name: Download TLC
+        if: steps.cache-tla.outputs.cache-hit != 'true'
+        run: >
+          curl -fsSL
+          https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          -o ~/tla2tools.jar
+
+      - name: Check MC_SetupRollback (safety + liveness)
+        working-directory: tla
+        run: >
+          java -XX:+UseParallelGC -jar ~/tla2tools.jar
+          -workers auto -lncheck final
+          -config MC_SetupRollback.cfg
+          MC_SetupRollback.tla
+
+      - name: Check MC_SeatbeltPolicy (safety)
+        working-directory: tla
+        run: >
+          java -XX:+UseParallelGC -jar ~/tla2tools.jar
+          -workers auto
+          -config MC_SeatbeltPolicy.cfg
+          MC_SeatbeltPolicy.tla
