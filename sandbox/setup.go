@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // ── Embedded content ──────────────────────────────────────────────────────────
@@ -168,6 +170,7 @@ const hostsBlocklistContent = `
 
 func newSetupCmd() *cobra.Command {
 	var agentUIDFlag, sharedGIDFlag string
+	var cloudOnly bool
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Configure the macOS sandbox (Option A: dedicated agent user + pf firewall)",
@@ -179,6 +182,7 @@ For scripted or autonomous use, pass --yes to answer all prompts automatically:
 
   sandbox setup --yes
   sandbox setup --yes --agent-uid 601 --group-gid 601
+  sandbox setup --cloud  # Interactive setup for S3-compatible cloud backups
 
 Use --dry-run to preview all commands without executing anything.`,
 	}
@@ -186,12 +190,17 @@ Use --dry-run to preview all commands without executing anything.`,
 		"Override UID for the agent user (default: 599; use when 599 is already taken)")
 	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
 		"Override GID for the dev group (default: 599; use when 599 is already taken)")
+	cmd.Flags().BoolVar(&cloudOnly, "cloud", false,
+		"Configure only S3-compatible cloud backup credentials")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if agentUIDFlag != "" {
 			agentUID = agentUIDFlag
 		}
 		if sharedGIDFlag != "" {
 			sharedGID = sharedGIDFlag
+		}
+		if cloudOnly {
+			return runCloudSetup()
 		}
 		return runSetup(c, args)
 	}
@@ -302,6 +311,82 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		verifySetup(ui)
 		ui.DoneBox(cu.Username)
 	}
+	return nil
+}
+
+// CloudConfig stores S3-compatible storage credentials for Kopia backups.
+type CloudConfig struct {
+	Endpoint   string `json:"endpoint"`
+	AccessKey  string `json:"access_key"`
+	SecretKey  string `json:"secret_key"`
+	Bucket     string `json:"bucket"`
+	Password   string `json:"password"` // Kopia repository password
+}
+
+func runCloudSetup() error {
+	ui := &UI{}
+	if !ui.IsInteractive() {
+		return fmt.Errorf("cloud setup requires an interactive terminal")
+	}
+
+	fmt.Println()
+	cBold.Println("  ┌────────────────────────────────────────────────┐")
+	cBold.Println("  │  Cloud Backup Setup — S3-compatible storage    │")
+	cBold.Println("  └────────────────────────────────────────────────┘")
+	fmt.Println()
+
+	var cfg CloudConfig
+	fmt.Print("  S3 Endpoint [s3.fr-par.scw.cloud]: ")
+	fmt.Scanln(&cfg.Endpoint)
+	if cfg.Endpoint == "" {
+		cfg.Endpoint = "s3.fr-par.scw.cloud"
+	}
+
+	fmt.Print("  S3 Access Key: ")
+	fmt.Scanln(&cfg.AccessKey)
+	if cfg.AccessKey == "" {
+		return fmt.Errorf("access key is required")
+	}
+
+	fmt.Print("  S3 Secret Key: ")
+	secret, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	cfg.SecretKey = string(secret)
+	fmt.Println(" (set)")
+
+	fmt.Print("  S3 Bucket: ")
+	fmt.Scanln(&cfg.Bucket)
+	if cfg.Bucket == "" {
+		return fmt.Errorf("bucket name is required")
+	}
+
+	fmt.Print("  Kopia Repository Password (for encryption): ")
+	pass, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	cfg.Password = string(pass)
+	fmt.Println(" (set)")
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	configDir := filepath.Dir(cloudBackupConfig)
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(cloudBackupConfig, data, 0o600); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	cGreen.Printf("  Cloud backup configuration saved to %s\n", cloudBackupConfig)
+	cYellow.Println("  Note: Run 'sandbox backup --cloud' to initialize the repository and start backups.")
 	return nil
 }
 

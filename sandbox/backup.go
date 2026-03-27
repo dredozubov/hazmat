@@ -57,48 +57,53 @@ func defaultBackupExcludesContent() string {
 }
 
 func newBackupCmd() *cobra.Command {
-	var syncMode, showScope bool
+	var syncMode, showScope, cloudMode bool
 	cmd := &cobra.Command{
-		Use:   "backup [--show-scope | <destination>]",
-		Short: "Back up the workspace root to destination using rsync",
+		Use:   "backup [--show-scope | [--cloud] [<destination>]]",
+		Short: "Back up the workspace root to destination using rsync or cloud (Kopia)",
 		Long: `Backs up the canonical workspace root (` + sharedWorkspace + `) to the given
-destination using rsync. Always uses the workspace root regardless of
-which user invokes the command.
+destination using rsync (local) or Kopia (cloud). Always uses the workspace
+root regardless of which user invokes the command.
 
 Exclude rules come from two sources (printed before each run):
   1. Built-in excludes: universal build artifacts (node_modules/, .venv/, etc.)
   2. User excludes:     ` + backupExcludesFile + `
      Edit this file to add or remove repos from backup scope.
 
-By default, backup is additive: no files are deleted from the destination.
+By default, local backup is additive: no files are deleted from the destination.
 Use --sync for a full mirror that removes destination-only files; the
 destination must first be initialized with a ` + backupTargetMarker + ` marker file.
 
-Use --show-scope to inspect effective includes/excludes without running rsync.
+Cloud backups (--cloud) use Kopia to provide encrypted, deduplicated, and
+incremental snapshots to S3-compatible storage. Setup credentials first with:
+  sandbox setup --cloud
+
+Use --show-scope to inspect effective includes/excludes without running.
 
 Examples:
   sandbox backup --show-scope
   sandbox backup /Volumes/BACKUP/workspace
-  sandbox backup user@nas:/backup/workspace
-
-  # One-time: initialize a local destination for --sync
-  touch /Volumes/BACKUP/workspace/` + backupTargetMarker + `
-  sandbox backup --sync /Volumes/BACKUP/workspace`,
+  sandbox backup --cloud`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showScope {
 				return printBackupScope()
 			}
+			if cloudMode {
+				return runCloudBackup()
+			}
 			if len(args) != 1 {
-				return fmt.Errorf("destination required (or use --show-scope to inspect scope without running)")
+				return fmt.Errorf("destination required (or use --cloud for S3 backup, or --show-scope to inspect scope)")
 			}
 			return runBackup(syncMode, args)
 		},
 	}
 	cmd.Flags().BoolVar(&syncMode, "sync", false,
-		"Mirror mode: delete destination-only files (requires "+backupTargetMarker+" marker in destination)")
+		"Mirror mode (local only): delete destination-only files (requires "+backupTargetMarker+" marker in destination)")
 	cmd.Flags().BoolVar(&showScope, "show-scope", false,
-		"Print effective backup scope (built-in and user excludes) then exit without running rsync")
+		"Print effective backup scope (built-in and user excludes) then exit without running")
+	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
+		"Perform incremental encrypted backup to cloud (requires 'sandbox setup --cloud')")
 	return cmd
 }
 

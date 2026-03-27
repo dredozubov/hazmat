@@ -10,31 +10,40 @@ import (
 )
 
 func newRestoreCmd() *cobra.Command {
-	var syncMode bool
+	var syncMode, cloudMode bool
 	cmd := &cobra.Command{
-		Use:   "restore <source>",
+		Use:   "restore [--cloud] [<source>]",
 		Short: "Restore the workspace root from a backup",
 		Long: `Restores files from a backup into the canonical workspace root (` + sharedWorkspace + `).
 
-Uses rsync in reverse (backup → workspace). By default, restore is additive:
+Local restores use rsync (backup → workspace). By default, restore is additive:
 no workspace files are deleted. Use --sync for a full mirror that removes
 workspace-only files.
 
-The backup source must contain a ` + backupTargetMarker + ` marker file to prevent
+Local backup source must contain a ` + backupTargetMarker + ` marker file to prevent
 accidental restores from wrong paths.
+
+Cloud restores (--cloud) use Kopia to restore from the latest snapshot in S3.
 
 Examples:
   sandbox restore /Volumes/BACKUP/workspace
   sandbox restore --sync /Volumes/BACKUP/workspace
-  sandbox restore --dry-run /Volumes/BACKUP/workspace
-  sandbox restore user@nas:/backup/workspace`,
-		Args: cobra.ExactArgs(1),
+  sandbox restore --cloud`,
+		Args: cobra.RangeArgs(0, 1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if cloudMode {
+				return runCloudRestore()
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("source required (or use --cloud for S3 restore)")
+			}
 			return runRestore(syncMode, args[0])
 		},
 	}
 	cmd.Flags().BoolVar(&syncMode, "sync", false,
-		"Mirror mode: delete workspace-only files (full restore)")
+		"Mirror mode (local only): delete workspace-only files (full restore)")
+	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
+		"Restore latest snapshot from cloud storage")
 	return cmd
 }
 

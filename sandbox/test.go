@@ -2,17 +2,28 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/kopia/kopia/fs/localfs"
+	"github.com/kopia/kopia/repo"
+	"github.com/kopia/kopia/repo/blob/filesystem"
+	"github.com/kopia/kopia/snapshot"
+	"github.com/kopia/kopia/snapshot/restore"
+	"github.com/kopia/kopia/snapshot/snapshotfs"
+	"github.com/kopia/kopia/snapshot/upload"
 	"github.com/spf13/cobra"
 )
 
@@ -70,6 +81,8 @@ func runTest(quick bool) error {
 	testSeatbelt(ui)
 	testBackup(ui)
 	testRestore(ui)
+	testCloudBackup(ui)
+	testCloudRestore(ui)
 	testDecommission(ui)
 
 	if ui.Summary() {
@@ -1048,6 +1061,305 @@ func testDecommission(ui *UI) {
 		}
 	} else {
 		ui.TestWarn(fmt.Sprintf("Could not create temp scope file for decommission test: %v", err))
+	}
+}
+
+// kopiaTest holds state shared between testCloudBackup (Step 15) and
+// testCloudRestore (Step 16). Step 15 populates these; Step 16 consumes
+// and cleans up.
+var kopiaTest struct {
+	repoDir    string
+	configFile string
+	sourceDir  string
+	password   string
+}
+
+// ── Step 15: Cloud Backup ───────────────────────────────────────────────────
+
+func testCloudBackup(ui *UI) {
+	ui.Step("Cloud Backup (Go-native Kopia)")
+
+	ctx := context.Background()
+	kopiaTest.repoDir = fmt.Sprintf("/tmp/sandboxtest-kopia-repo-%d", os.Getpid())
+	kopiaTest.sourceDir = fmt.Sprintf("/tmp/sandboxtest-kopia-src-%d", os.Getpid())
+	kopiaTest.password = "test-password-T3st!"
+
+	if err := os.MkdirAll(kopiaTest.repoDir, 0o700); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create temp repo dir: %v", err))
+		return
+	}
+	if err := os.MkdirAll(kopiaTest.sourceDir, 0o700); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create temp source dir: %v", err))
+		return
+	}
+
+	// Create first test file
+	if err := os.WriteFile(filepath.Join(kopiaTest.sourceDir, "hello.txt"), []byte("hello kopia"), 0o644); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create test file: %v", err))
+		return
+	}
+
+	// 1. Initialize local filesystem storage
+	st, err := filesystem.New(ctx, &filesystem.Options{Path: kopiaTest.repoDir}, false)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not initialize storage: %v", err))
+		return
+	}
+	ui.TestPass("Kopia: storage initialization successful")
+
+	// 2. Initialize repository (encrypted with password)
+	if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, kopiaTest.password); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not initialize repository: %v", err))
+		return
+	}
+	ui.TestPass("Kopia: repository initialization successful")
+
+	// 3. Connect and Open
+	kopiaTest.configFile = filepath.Join(kopiaTest.repoDir, "kopia.config")
+	if err := repo.Connect(ctx, kopiaTest.configFile, st, kopiaTest.password, &repo.ConnectOptions{}); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not connect: %v", err))
+		return
+	}
+	r, err := repo.Open(ctx, kopiaTest.configFile, kopiaTest.password, &repo.Options{})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not open: %v", err))
+		return
+	}
+	defer r.Close(ctx)
+	ui.TestPass("Kopia: repository open successful")
+
+	// 4. First backup — single file
+	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test"})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not create writer: %v", err))
+		return
+	}
+
+	localEntry, err := localfs.Directory(kopiaTest.sourceDir)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not open local directory: %v", err))
+		return
+	}
+
+	sourceInfo := snapshot.SourceInfo{
+		Host:     "test-host",
+		UserName: "test-user",
+		Path:     kopiaTest.sourceDir,
+	}
+
+	uploader1 := upload.NewUploader(wr)
+	snap1, err := uploader1.Upload(ctx, localEntry, nil, sourceInfo)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: first upload failed: %v", err))
+		wr.Close(ctx)
+		return
+	}
+	ui.TestPass(fmt.Sprintf("Kopia: first upload successful (root: %v)", snap1.RootObjectID()))
+
+	// Save snapshot manifest (mirrors production code)
+	if _, err := snapshot.SaveSnapshot(ctx, wr, snap1); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not save first snapshot: %v", err))
+		wr.Close(ctx)
+		return
+	}
+	if err := wr.Flush(ctx); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: first flush failed: %v", err))
+		return
+	}
+	ui.TestPass("Kopia: first snapshot manifest saved")
+
+	// 5. Incrementality — add a second file, re-upload with previous snapshots
+	if err := os.WriteFile(filepath.Join(kopiaTest.sourceDir, "world.txt"), []byte("world kopia"), 0o644); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create second test file: %v", err))
+		return
+	}
+
+	ctx2, wr2, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test-Incr"})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not create second writer: %v", err))
+		return
+	}
+
+	localEntry2, err := localfs.Directory(kopiaTest.sourceDir)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not reopen local directory: %v", err))
+		wr2.Close(ctx2)
+		return
+	}
+
+	// Pass previous snapshots so kopia can skip unchanged files
+	previous, err := snapshot.ListSnapshots(ctx2, wr2, sourceInfo)
+	if err != nil {
+		previous = nil
+	}
+
+	uploader2 := upload.NewUploader(wr2)
+	snap2, err := uploader2.Upload(ctx2, localEntry2, nil, sourceInfo, previous...)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: incremental upload failed: %v", err))
+		wr2.Close(ctx2)
+		return
+	}
+
+	cached := atomic.LoadInt32(&snap2.Stats.CachedFiles)
+	nonCached := atomic.LoadInt32(&snap2.Stats.NonCachedFiles)
+	if cached >= 1 {
+		ui.TestPass(fmt.Sprintf("Kopia: incremental upload — %d cached, %d new files", cached, nonCached))
+	} else {
+		ui.TestFail(fmt.Sprintf("Kopia: incremental upload expected cached files >0, got cached=%d non-cached=%d", cached, nonCached))
+	}
+
+	if _, err := snapshot.SaveSnapshot(ctx2, wr2, snap2); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not save second snapshot: %v", err))
+		wr2.Close(ctx2)
+		return
+	}
+	if err := wr2.Flush(ctx2); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: second flush failed: %v", err))
+		return
+	}
+
+	// Verify we now have exactly 2 snapshots
+	allSnaps, err := snapshot.ListSnapshots(ctx, r, sourceInfo)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not list snapshots: %v", err))
+		return
+	}
+	if len(allSnaps) == 2 {
+		ui.TestPass(fmt.Sprintf("Kopia: snapshot count correct (%d)", len(allSnaps)))
+	} else {
+		ui.TestFail(fmt.Sprintf("Kopia: expected 2 snapshots, got %d", len(allSnaps)))
+	}
+
+	// 6. Encryption at rest — verify no plaintext in blob storage
+	plaintext := [][]byte{[]byte("hello kopia"), []byte("world kopia")}
+	foundPlaintext := false
+
+	_ = filepath.WalkDir(kopiaTest.repoDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		for _, pt := range plaintext {
+			if bytes.Contains(data, pt) {
+				foundPlaintext = true
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+
+	if !foundPlaintext {
+		ui.TestPass("Kopia: encryption verified — no plaintext found in blob storage")
+	} else {
+		ui.TestFail("Kopia: PLAINTEXT content found in blob storage — encryption may be broken")
+	}
+}
+
+// ── Step 16: Cloud Restore ──────────────────────────────────────────────────
+
+func testCloudRestore(ui *UI) {
+	ui.Step("Cloud Restore (Go-native Kopia)")
+
+	// Clean up shared state when done, regardless of outcome
+	defer func() {
+		if kopiaTest.repoDir != "" {
+			os.RemoveAll(kopiaTest.repoDir)
+		}
+		if kopiaTest.sourceDir != "" {
+			os.RemoveAll(kopiaTest.sourceDir)
+		}
+	}()
+
+	if kopiaTest.configFile == "" {
+		ui.TestSkip("Kopia: skipping restore — backup step did not complete")
+		return
+	}
+
+	ctx := context.Background()
+	r, err := repo.Open(ctx, kopiaTest.configFile, kopiaTest.password, &repo.Options{})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not reopen repository: %v", err))
+		return
+	}
+	defer r.Close(ctx)
+
+	sourceInfo := snapshot.SourceInfo{
+		Host:     "test-host",
+		UserName: "test-user",
+		Path:     kopiaTest.sourceDir,
+	}
+
+	snapshots, err := snapshot.ListSnapshots(ctx, r, sourceInfo)
+	if err != nil || len(snapshots) == 0 {
+		ui.TestFail(fmt.Sprintf("Kopia: no snapshots found for restore (err=%v)", err))
+		return
+	}
+
+	// Use latest snapshot (should be the 2-file snapshot)
+	latest := snapshots[len(snapshots)-1]
+	ui.TestPass(fmt.Sprintf("Kopia: found %d snapshot(s), restoring latest", len(snapshots)))
+
+	rootEntry, err := snapshotfs.SnapshotRoot(r, latest)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not get snapshot root: %v", err))
+		return
+	}
+
+	restoreDir := fmt.Sprintf("/tmp/sandboxtest-kopia-restore-%d", os.Getpid())
+	if err := os.MkdirAll(restoreDir, 0o700); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not create restore dir: %v", err))
+		return
+	}
+	defer os.RemoveAll(restoreDir)
+
+	output := &restore.FilesystemOutput{
+		TargetPath:     restoreDir,
+		OverwriteFiles: true,
+	}
+	if err := output.Init(ctx); err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: could not initialize restore output: %v", err))
+		return
+	}
+	// MinSizeForPlaceholder must be > any file size to avoid shallow .kopia-entry placeholders.
+	stats, err := restore.Entry(ctx, r, output, rootEntry, restore.Options{
+		Parallel:              4,
+		MinSizeForPlaceholder: 1 << 30, // 1 GiB: larger than any test file
+	})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: restore.Entry failed: %v", err))
+		return
+	}
+
+	if stats.RestoredFileCount == 2 {
+		ui.TestPass(fmt.Sprintf("Kopia: restored %d files (%d bytes)", stats.RestoredFileCount, stats.RestoredTotalFileSize))
+	} else {
+		ui.TestFail(fmt.Sprintf("Kopia: expected 2 restored files, got %d", stats.RestoredFileCount))
+	}
+
+	// Round-trip content verification
+	wantFiles := map[string]string{
+		"hello.txt": "hello kopia",
+		"world.txt": "world kopia",
+	}
+	allMatch := true
+	for name, want := range wantFiles {
+		got, err := os.ReadFile(filepath.Join(restoreDir, name))
+		if err != nil {
+			ui.TestFail(fmt.Sprintf("Kopia: restored file %q not found: %v", name, err))
+			allMatch = false
+			continue
+		}
+		if string(got) != want {
+			ui.TestFail(fmt.Sprintf("Kopia: %q content mismatch: got %q, want %q", name, got, want))
+			allMatch = false
+		}
+	}
+	if allMatch {
+		ui.TestPass("Kopia: round-trip content verification passed — all files match")
 	}
 }
 

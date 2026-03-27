@@ -26,7 +26,8 @@ var (
 )
 
 var (
-	sharedWorkspace = filepath.Join(os.Getenv("HOME"), "workspace")
+	sharedWorkspace   = filepath.Join(os.Getenv("HOME"), "workspace")
+	cloudBackupConfig = filepath.Join(os.Getenv("HOME"), ".config/sandbox/cloud-backup.json")
 )
 
 // Sandbox configuration shared by the Go-based setup, test, and rollback flows.
