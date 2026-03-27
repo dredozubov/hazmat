@@ -400,7 +400,12 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow process-info* (target same-sandbox))\n")
 	w("(allow signal (target same-sandbox))\n\n")
 
-	w(";; ── System libraries (required by Node.js) ────────────────────────────────\n")
+	w(";; ── System info (V8 reads CPU/memory via sysctl at startup) ────────────\n")
+	w("(allow sysctl-read)\n\n")
+
+	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
+	w(";; Root literal is required for realpath() path resolution.\n")
+	w("(allow file-read* (literal \"/\"))\n")
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
