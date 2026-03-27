@@ -16,8 +16,8 @@ make all       # builds hazmat + hazmat-launch
 ```bash
 cd hazmat
 make test                    # unit tests + go vet
-./hazmat init check          # integration: verify setup
-./hazmat init check --full   # integration: include live network probes
+./hazmat check          # integration: verify setup
+./hazmat check --full   # integration: include live network probes
 ```
 
 E2E tests run a full lifecycle (init, containment, snapshot, restore, rollback) and require sudo:

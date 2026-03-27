@@ -135,8 +135,8 @@ This is enforced by the seatbelt — not advisory. The agent physically cannot w
 
 ```bash
 hazmat status              # quick health checklist
-hazmat init check          # full verification suite
-hazmat init check --full   # include live network probes
+hazmat check          # full verification suite
+hazmat check --full   # include live network probes
 ```
 
 ## Backup and Restore
@@ -195,8 +195,8 @@ Setup and rollback ordering, seatbelt policy structure, and backup safety are [f
 ## Undo Everything
 
 ```bash
-hazmat init rollback                               # remove system config
-hazmat init rollback --delete-user --delete-group   # also delete agent account
+hazmat rollback                               # remove system config
+hazmat rollback --delete-user --delete-group   # also delete agent account
 ```
 
 Your project files are not touched.

@@ -104,7 +104,7 @@ hazmat backup --cloud
 - `PreRestoreSnapshotFail` — pre-restore snapshot fails, restore continues
 - `RestoreComplete` — restore overwrites destination
 - `CloudBackup` — manual cloud backup
-- `RollbackRepo` — remove local repository (during hazmat init rollback)
+- `RollbackRepo` — remove local repository (during hazmat rollback)
 
 ### Key Design Choices
 

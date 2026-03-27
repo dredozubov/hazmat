@@ -183,8 +183,8 @@ Interactive by default — prompts for confirmation before making changes.
 
   hazmat init                     # Interactive (recommended)
   hazmat init --yes               # Non-interactive, auto-confirm
-  hazmat init check               # Verify the setup
-  hazmat init rollback            # Undo everything
+  hazmat check               # Verify the setup
+  hazmat rollback            # Undo everything
   hazmat config agent              # Re-configure credentials
   hazmat init cloud               # Configure S3 cloud backup
 
@@ -206,7 +206,7 @@ Use --dry-run to preview all commands without executing anything.`,
 	return cmd
 }
 
-// newInitCheckCmd wraps the test suite as `hazmat init check`.
+// newInitCheckCmd creates the `hazmat check` command.
 func newInitCheckCmd() *cobra.Command {
 	var full bool
 	cmd := &cobra.Command{
@@ -225,10 +225,6 @@ live network probes that verify firewall rules are active.`,
 	return cmd
 }
 
-// newInitRollbackCmd wraps rollback as `hazmat init rollback`.
-func newInitRollbackCmd() *cobra.Command {
-	return newRollbackCmd()
-}
 
 
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
@@ -243,13 +239,13 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show setup progress and health check",
 		Long: `Shows which setup phases are complete and what to do next.
-Use --full to run the complete health check suite (same as 'hazmat init check --quick').`,
+Use --full to run the complete health check suite (same as 'hazmat check --quick').`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runStatus(full)
 		},
 	}
-	cmd.Flags().BoolVar(&full, "full", false, "Run full health checks (same as 'hazmat init check --quick')")
+	cmd.Flags().BoolVar(&full, "full", false, "Run full health checks (same as 'hazmat check --quick')")
 	return cmd
 }
 
@@ -477,7 +473,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	fmt.Println("  Check status:   hazmat status")
 	fmt.Println("  Update creds:   hazmat config agent")
 	fmt.Println("  View config:    hazmat config")
-	fmt.Println("  Uninstall:      hazmat init rollback")
+	fmt.Println("  Uninstall:      hazmat rollback")
 	fmt.Println()
 	return nil
 }
@@ -1013,7 +1009,7 @@ func setupSudoers(ui *UI, r *Runner, currentUser string) error {
 	// error) and 'sudo' with a missing NOPASSWD rule also exits 1 — the two
 	// outcomes are indistinguishable without stderr capture in the Runner.
 	// The entry was validated by visudo -c above.
-	// Run 'hazmat init check' after setup to exercise the full passwordless path.
+	// Run 'hazmat check' after setup to exercise the full passwordless path.
 	return nil
 }
 

@@ -69,8 +69,8 @@ hazmat exec -C ~/workspace/proj npm test
 ```bash
 hazmat                          # shows setup progress checklist
 hazmat status                   # same thing
-hazmat init check               # run full verification suite
-hazmat init check --full        # include live network probes
+hazmat check               # run full verification suite
+hazmat check --full        # include live network probes
 ```
 
 ## Backup and Restore
@@ -102,8 +102,8 @@ hazmat init enroll             # re-enter API key, git name/email
 ## Uninstalling
 
 ```bash
-hazmat init rollback                              # remove all system config
-hazmat init rollback --delete-user --delete-group  # also delete agent account
+hazmat rollback                              # remove all system config
+hazmat rollback --delete-user --delete-group  # also delete agent account
 ```
 
 Your project files are not deleted. Back them up first if needed.

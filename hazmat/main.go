@@ -102,14 +102,14 @@ func main() {
 	root.PersistentFlags().BoolVarP(&flagYesAll, "yes", "y", false,
 		"Answer yes to all prompts (for non-interactive / scripted use)")
 
-	// ── Setup (run once) ──
+	// ── Setup ──
 	initCmd := newInitCmd()
 	initCmd.GroupID = "setup"
-	initCmd.AddCommand(
-		newInitCheckCmd(),
-		newInitRollbackCmd(),
-		newInitCloudCmd(),
-	)
+	initCmd.AddCommand(newInitCloudCmd())
+	rollbackCmd := newRollbackCmd()
+	rollbackCmd.GroupID = "setup"
+	checkCmd := newInitCheckCmd()
+	checkCmd.GroupID = "setup"
 
 	// ── Run agents ──
 	claudeCmd := newClaudeCmd()
@@ -136,13 +136,13 @@ func main() {
 	statusCmd.GroupID = "ws"
 
 	root.AddGroup(
-		&cobra.Group{ID: "setup", Title: "Setup (run once):"},
+		&cobra.Group{ID: "setup", Title: "Setup:"},
 		&cobra.Group{ID: "run", Title: "Run agents:"},
 		&cobra.Group{ID: "snap", Title: "Snapshots:"},
 		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
 	root.AddCommand(
-		initCmd,
+		initCmd, rollbackCmd, checkCmd,
 		claudeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, backupCmd, statusCmd,

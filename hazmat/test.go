@@ -48,8 +48,8 @@ func runTest(quick bool) error {
 	cBold.Println("  └──────────────────────────────────────────────┘")
 	fmt.Println()
 	fmt.Println("  Modes:")
-	fmt.Println("    hazmat init check          Quick checks (no external traffic)")
-	fmt.Println("    hazmat init check --full   Full suite including live network probes")
+	fmt.Println("    hazmat check          Quick checks (no external traffic)")
+	fmt.Println("    hazmat check --full   Full suite including live network probes")
 	fmt.Println()
 
 	cu, err := user.Current()

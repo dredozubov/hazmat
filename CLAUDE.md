@@ -36,7 +36,7 @@ assets/                  Brand images
 cd hazmat
 make all                 # builds hazmat + hazmat-launch with version from git
 go test ./...            # unit tests
-./hazmat init check      # integration tests (Steps 15-16 = Kopia backup/restore)
+./hazmat check      # integration tests (Steps 15-16 = Kopia backup/restore)
 ```
 
 ## Releasing

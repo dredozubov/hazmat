@@ -53,7 +53,7 @@
 **Commands:** 1 (`hazmat init`) then `hazmat claude`
 **Sudo prompts:** 3-5 (setup steps + bootstrap install)
 **Time:** ~10 minutes (mostly Claude Code installer download)
-**Recovery:** `hazmat init rollback` undoes everything
+**Recovery:** `hazmat rollback` undoes everything
 
 
 ### Flow 2: Daily Usage
@@ -123,7 +123,7 @@
 ### Flow 4: Rollback / Uninstall
 
 ```
-  hazmat init rollback
+  hazmat rollback
   |
   +-- remove LaunchDaemon
   +-- remove pf anchor + restore pf.conf from backup
@@ -158,7 +158,7 @@
 
 `hazmat status` shows where the user is in the flow at any time.
 Individual concerns can be re-run: `hazmat init enroll` (update API key
-or git config), `hazmat init check` (verify setup).
+or git config), `hazmat check` (verify setup).
 
 
 ---
