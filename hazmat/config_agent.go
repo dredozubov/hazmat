@@ -144,22 +144,22 @@ func runConfigAgent(ui *UI) error {
 	var gitName, gitEmail string
 	if defaultName != "" || defaultEmail != "" {
 		// We have defaults — offer to use them.
-		source := "host git config"
+		source := "from host git config"
 		if agentName != "" {
-			source = "agent"
+			source = "current"
 		}
-		fmt.Printf("  Name  [%s] (%s): ", defaultName, source)
+		fmt.Printf("  Name  [%s] (%s, Enter to accept): ", defaultName, source)
 		gitName, _ = reader.ReadString('\n')
 		gitName = strings.TrimSpace(gitName)
 		if gitName == "" {
 			gitName = defaultName
 		}
 
-		source = "host git config"
+		source = "from host git config"
 		if agentEmail != "" {
-			source = "agent"
+			source = "current"
 		}
-		fmt.Printf("  Email [%s] (%s): ", defaultEmail, source)
+		fmt.Printf("  Email [%s] (%s, Enter to accept): ", defaultEmail, source)
 		gitEmail, _ = reader.ReadString('\n')
 		gitEmail = strings.TrimSpace(gitEmail)
 		if gitEmail == "" {
