@@ -23,8 +23,8 @@ import (
 // ── Local repo paths ────────────────────────────────────────────────────────
 
 var (
-	localRepoDir    = filepath.Join(os.Getenv("HOME"), ".local/share/hazmat/repo")
-	localConfigFile = filepath.Join(os.Getenv("HOME"), ".local/share/hazmat/repo.config")
+	localRepoDir    = filepath.Join(os.Getenv("HOME"), ".hazmat/repo")
+	localConfigFile = filepath.Join(os.Getenv("HOME"), ".hazmat/repo.config")
 )
 
 // Fixed password for the local repo. This is local-only, protected by
@@ -289,7 +289,7 @@ func openCloudRepo(ctx context.Context) (repo.Repository, error) {
 		return nil, fmt.Errorf("connect to S3: %w", err)
 	}
 
-	kopiaCloudConfig := filepath.Join(os.Getenv("HOME"), ".config/hazmat/kopia-cloud.config")
+	kopiaCloudConfig := filepath.Join(os.Getenv("HOME"), ".hazmat/kopia-cloud.config")
 
 	if _, err := os.Stat(kopiaCloudConfig); os.IsNotExist(err) {
 		fmt.Println("Initializing Kopia repository in S3...")

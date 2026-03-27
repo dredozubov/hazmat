@@ -13,12 +13,12 @@ import (
 
 // ── Config file path ────────────────────────────────────────────────────────
 
-var configFilePath = filepath.Join(os.Getenv("HOME"), ".config/hazmat/config.yaml")
+var configFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/config.yaml")
 
 // cloudCredentialPath stores the S3 secret key separately from the main
 // config file. The config file is human-readable and safe to share; the
 // credential file is 0600 and contains only the secret key.
-var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".config/hazmat/cloud-credentials")
+var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-credentials")
 
 // ── Config types ────────────────────────────────────────────────────────────
 
