@@ -36,10 +36,20 @@ func (r *Runner) showCmd(shell string) {
 	}
 }
 
+// showReason prints a dim one-liner explaining why sudo is needed.
+// Called before every privileged operation so the user is never surprised.
+func (r *Runner) showReason(reason string) {
+	if reason != "" {
+		faint.Printf("    → %s\n", reason)
+	}
+}
+
 // ── Privileged commands ───────────────────────────────────────────────────────
 
-// Sudo shows and optionally executes: sudo <args>
-func (r *Runner) Sudo(args ...string) error {
+// Sudo shows why, then optionally executes: sudo <args>.
+// The reason string explains to the user why root access is needed.
+func (r *Runner) Sudo(reason string, args ...string) error {
+	r.showReason(reason)
 	r.showCmd("sudo " + strings.Join(shellQuote(args), " "))
 	if r.DryRun {
 		return nil
@@ -49,7 +59,8 @@ func (r *Runner) Sudo(args ...string) error {
 
 // Interactive shows the command; in dry-run annotates it as interactive and
 // skips execution so the user is never prompted during a preview run.
-func (r *Runner) Interactive(name string, args ...string) error {
+func (r *Runner) Interactive(reason, name string, args ...string) error {
+	r.showReason(reason)
 	shell := name + " " + strings.Join(args, " ")
 	if r.DryRun {
 		faint.Printf("    $ %s  ← interactive, skipped in dry-run\n", shell)
@@ -59,8 +70,9 @@ func (r *Runner) Interactive(name string, args ...string) error {
 	return runInteractive(name, args...)
 }
 
-// AsAgent shows and optionally executes: sudo -u agent <args>
-func (r *Runner) AsAgent(args ...string) error {
+// AsAgent shows why, then optionally executes: sudo -u agent <args>.
+func (r *Runner) AsAgent(reason string, args ...string) error {
+	r.showReason(reason)
 	r.showCmd("sudo -u " + agentUser + " " + strings.Join(shellQuote(args), " "))
 	if r.DryRun {
 		return nil
@@ -73,7 +85,8 @@ func (r *Runner) AsAgent(args ...string) error {
 // (/etc/sudoers.d, /etc/pf.conf, /etc/hosts, LaunchDaemons) must be auditable.
 
 // SudoWriteFile creates or overwrites path as root via sudo tee.
-func (r *Runner) SudoWriteFile(path, content string) error {
+func (r *Runner) SudoWriteFile(reason, path, content string) error {
+	r.showReason(reason)
 	if r.Verbose && r.ui != nil {
 		r.ui.ShowFileOp("Write", path, content)
 	}
@@ -84,7 +97,8 @@ func (r *Runner) SudoWriteFile(path, content string) error {
 }
 
 // SudoAppendFile appends content to a root-owned file via sudo tee -a.
-func (r *Runner) SudoAppendFile(path, content string) error {
+func (r *Runner) SudoAppendFile(reason, path, content string) error {
+	r.showReason(reason)
 	if r.Verbose && r.ui != nil {
 		r.ui.ShowFileOp("Append to", path, content)
 	}
@@ -156,7 +170,8 @@ func (r *Runner) MkdirAll(path string, mode os.FileMode) error {
 
 // PfctlLoad shows and optionally reloads /etc/pf.conf.
 // Captures stderr so syntax errors are never silently swallowed.
-func (r *Runner) PfctlLoad() error {
+func (r *Runner) PfctlLoad(reason string) error {
+	r.showReason(reason)
 	r.showCmd("sudo pfctl -f /etc/pf.conf")
 	if r.DryRun {
 		return nil
@@ -165,7 +180,8 @@ func (r *Runner) PfctlLoad() error {
 }
 
 // LaunchctlBootstrap shows and optionally bootstraps a system LaunchDaemon.
-func (r *Runner) LaunchctlBootstrap(plist string) error {
+func (r *Runner) LaunchctlBootstrap(reason, plist string) error {
+	r.showReason(reason)
 	r.showCmd(fmt.Sprintf("sudo launchctl bootstrap system %s", plist))
 	if r.DryRun {
 		return nil

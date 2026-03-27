@@ -112,7 +112,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 		ui.WarnMsg("Your sudo password is required to install Claude Code as the agent user.")
 		// r.Interactive connects stdin/stdout/stderr so the curl installer's
 		// prompts are fully visible.
-		if err := r.Interactive("sudo", "-u", agentUser, "-i",
+		if err := r.Interactive("install Claude Code as agent user", "sudo", "-u", agentUser, "-i",
 			"bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
@@ -127,20 +127,20 @@ func runBootstrap(ui *UI, r *Runner) error {
 	// Always ensure .claude is agent-owned so the agent process can write
 	// to it at runtime.  'install -d' is idempotent: it creates the
 	// directory if absent and applies the given owner/mode unconditionally.
-	if err := r.Sudo("install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", claudeDir); err != nil {
+	if err := r.Sudo("create agent .claude config directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", claudeDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", claudeDir, err)
 	}
 
 	if _, err := sudoOutput("test", "-f", settingsPath); err == nil {
 		ui.SkipDone(settingsPath + " already present (not overwritten)")
 	} else {
-		if err := r.SudoWriteFile(settingsPath, agentSettingsJSON); err != nil {
+		if err := r.SudoWriteFile("write agent Claude settings", settingsPath, agentSettingsJSON); err != nil {
 			return fmt.Errorf("write settings.json: %w", err)
 		}
-		if err := r.Sudo("chown", agentUser+":staff", settingsPath); err != nil {
+		if err := r.Sudo("set agent settings ownership", "chown", agentUser+":staff", settingsPath); err != nil {
 			return fmt.Errorf("chown settings.json: %w", err)
 		}
-		if err := r.Sudo("chmod", "0600", settingsPath); err != nil {
+		if err := r.Sudo("set agent settings permissions", "chmod", "0600", settingsPath); err != nil {
 			return fmt.Errorf("chmod settings.json: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Wrote %s (0600)", settingsPath))
@@ -153,7 +153,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 
 	// Always ensure hooks/ is agent-owned (same idempotent install -d logic
 	// as .claude above).
-	if err := r.Sudo("install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", hooksDir); err != nil {
+	if err := r.Sudo("create agent hooks directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", hooksDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", hooksDir, err)
 	}
 
@@ -163,13 +163,13 @@ func runBootstrap(ui *UI, r *Runner) error {
 	if _, err := sudoOutput("test", "-f", hookScript); err == nil {
 		ui.SkipDone(hookScript + " already present (not overwritten)")
 	} else {
-		if err := r.SudoWriteFile(hookScript, agentPreToolUseHook); err != nil {
+		if err := r.SudoWriteFile("write agent pre-tool-use hook", hookScript, agentPreToolUseHook); err != nil {
 			return fmt.Errorf("write hook script: %w", err)
 		}
-		if err := r.Sudo("chown", agentUser+":staff", hookScript); err != nil {
+		if err := r.Sudo("set hook script ownership", "chown", agentUser+":staff", hookScript); err != nil {
 			return fmt.Errorf("chown hook script: %w", err)
 		}
-		if err := r.Sudo("chmod", "0700", hookScript); err != nil {
+		if err := r.Sudo("make hook script executable", "chmod", "0700", hookScript); err != nil {
 			return fmt.Errorf("chmod hook script: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Wrote %s (0700)", hookScript))

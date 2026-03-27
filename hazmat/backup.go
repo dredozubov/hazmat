@@ -201,7 +201,7 @@ func runBackup(syncMode bool, args []string) error {
 
 	ui := &UI{DryRun: flagDryRun}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
-	return r.Interactive("rsync", rsyncArgs...)
+	return r.Interactive("backup workspace via rsync", "rsync", rsyncArgs...)
 }
 
 // validateSyncDest ensures that dest is an initialized backup target before

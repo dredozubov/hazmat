@@ -109,10 +109,10 @@ func rollbackLaunchDaemon(ui *UI, r *Runner) {
 	}
 
 	// bootout may fail if the daemon was never loaded; ignore the error.
-	r.Sudo("launchctl", "bootout", "system", pfDaemonPlist) //nolint:errcheck
+	r.Sudo("unload firewall persistence daemon", "launchctl", "bootout", "system", pfDaemonPlist) //nolint:errcheck
 	ui.Ok("LaunchDaemon unloaded (or was not loaded)")
 
-	if err := r.Sudo("rm", "-f", pfDaemonPlist); err != nil {
+	if err := r.Sudo("remove firewall persistence plist", "rm", "-f", pfDaemonPlist); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", pfDaemonPlist, err))
 	} else {
 		ui.Ok(fmt.Sprintf("Removed %s", pfDaemonPlist))
@@ -125,7 +125,7 @@ func rollbackPfFirewall(ui *UI, r *Runner) {
 	if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
 		ui.SkipDone("pf anchor file not present")
 	} else {
-		if err := r.Sudo("rm", "-f", pfAnchorFile); err != nil {
+		if err := r.Sudo("remove pf anchor file", "rm", "-f", pfAnchorFile); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", pfAnchorFile, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed pf anchor file %s", pfAnchorFile))
@@ -147,7 +147,7 @@ func rollbackPfFirewall(ui *UI, r *Runner) {
 	// Prefer restoring from the timestamped backup made during setup.
 	backup := latestPfConfBackup()
 	if backup != "" {
-		if err := r.Sudo("cp", "-f", backup, pfConf); err != nil {
+		if err := r.Sudo("restore original pf.conf from backup", "cp", "-f", backup, pfConf); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not restore %s from backup %s: %v — stripping lines in place", pfConf, backup, err))
 			stripPfAnchorLines(ui, r, pfConf, data)
 		} else {
@@ -158,7 +158,7 @@ func rollbackPfFirewall(ui *UI, r *Runner) {
 		stripPfAnchorLines(ui, r, pfConf, data)
 	}
 
-	if err := r.PfctlLoad(); err != nil {
+	if err := r.PfctlLoad("reload pf rules after anchor removal"); err != nil {
 		ui.WarnMsg(fmt.Sprintf("pfctl reload failed: %v", err))
 	} else {
 		ui.Ok("pf rules reloaded")
@@ -188,7 +188,7 @@ func stripPfAnchorLines(ui *UI, r *Runner, pfConf string, data []byte) {
 		kept = append(kept, line)
 	}
 	cleaned := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	if err := r.SudoWriteFile(pfConf, cleaned); err != nil {
+	if err := r.SudoWriteFile("strip agent anchor lines from pf.conf", pfConf, cleaned); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", pfConf, err))
 	} else {
 		ui.Ok("Removed agent anchor lines from /etc/pf.conf")
@@ -229,15 +229,15 @@ func rollbackDNSBlocklist(ui *UI, r *Runner) {
 	}
 
 	cleaned := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	if err := r.SudoWriteFile("/etc/hosts", cleaned); err != nil {
+	if err := r.SudoWriteFile("remove DNS blocklist from /etc/hosts", "/etc/hosts", cleaned); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not update /etc/hosts: %v", err))
 		return
 	}
 	ui.Ok("Removed DNS blocklist from /etc/hosts")
 
 	// Flush DNS cache — fire-and-forget.
-	r.Sudo("dscacheutil", "-flushcache")       //nolint:errcheck
-	r.Sudo("killall", "-HUP", "mDNSResponder") //nolint:errcheck
+	r.Sudo("flush DNS cache after blocklist removal", "dscacheutil", "-flushcache")       //nolint:errcheck
+	r.Sudo("restart mDNSResponder after blocklist removal", "killall", "-HUP", "mDNSResponder") //nolint:errcheck
 	ui.Ok("DNS cache flushed")
 }
 
@@ -249,7 +249,7 @@ func rollbackSudoers(ui *UI, r *Runner) {
 		return
 	}
 
-	if err := r.Sudo("rm", "-f", sudoersFile); err != nil {
+	if err := r.Sudo("remove sudoers entry", "rm", "-f", sudoersFile); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", sudoersFile, err))
 	} else {
 		ui.Ok(fmt.Sprintf("Removed %s", sudoersFile))
@@ -264,7 +264,7 @@ func rollbackSeatbelt(ui *UI, r *Runner) {
 			ui.SkipDone(fmt.Sprintf("%s not present", path))
 			continue
 		}
-		if err := r.Sudo("rm", "-f", path); err != nil {
+		if err := r.Sudo("remove seatbelt wrapper", "rm", "-f", path); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed %s", path))
@@ -277,7 +277,7 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 
 	if _, err := os.Stat(agentEnvPath); os.IsNotExist(err) {
 		ui.SkipDone(fmt.Sprintf("%s not present", agentEnvPath))
-	} else if err := r.Sudo("rm", "-f", agentEnvPath); err != nil {
+	} else if err := r.Sudo("remove agent environment file", "rm", "-f", agentEnvPath); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", agentEnvPath, err))
 	} else {
 		ui.Ok(fmt.Sprintf("Removed %s", agentEnvPath))
@@ -303,7 +303,7 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
 		strings.Contains(data, agentShellBlockStart) {
 		cleaned := removeManagedBlock(data, agentShellBlockStart, agentShellBlockEnd)
-		if err := r.SudoWriteFile(agentZshrc, cleaned); err != nil {
+		if err := r.SudoWriteFile("remove hazmat shell block from agent .zshrc", agentZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed hazmat shell block from %s", agentZshrc))
@@ -341,7 +341,7 @@ func rollbackSymlinks(ui *UI, r *Runner) {
 	// /Users/agent/workspace is owned by the agent user — use sudo.
 	agentLink := agentHome + "/workspace"
 	if asAgentQuiet("test", "-L", agentLink) == nil {
-		if err := r.Sudo("rm", "-f", agentLink); err != nil {
+		if err := r.Sudo("remove agent workspace symlink", "rm", "-f", agentLink); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove symlink %s: %v", agentLink, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed symlink %s", agentLink))
@@ -351,7 +351,7 @@ func rollbackSymlinks(ui *UI, r *Runner) {
 	}
 
 	if homeHasAgentTraverseACL(os.Getenv("HOME")) {
-		if err := r.Sudo("chmod", "-a", homeTraverseACLEntry(), os.Getenv("HOME")); err != nil {
+		if err := r.Sudo("remove home directory traverse ACL", "chmod", "-a", homeTraverseACLEntry(), os.Getenv("HOME")); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL from %s: %v", os.Getenv("HOME"), err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed home traversal ACL from %s", os.Getenv("HOME")))
@@ -369,7 +369,7 @@ func rollbackUmask(ui *UI, r *Runner) {
 	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
 		strings.Contains(data, umaskBlockStart) {
 		cleaned := removeManagedBlock(data, umaskBlockStart, umaskBlockEnd)
-		if err := r.SudoWriteFile(agentZshrc, cleaned); err != nil {
+		if err := r.SudoWriteFile("remove umask block from agent .zshrc", agentZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed umask block from %s", agentZshrc))
@@ -415,7 +415,7 @@ func rollbackAgentUser(ui *UI, r *Runner) {
 	if _, err := user.Lookup(agentUser); err != nil {
 		ui.SkipDone(fmt.Sprintf("User '%s' does not exist", agentUser))
 	} else {
-		if err := r.Sudo("dscl", ".", "-delete", "/Users/"+agentUser); err != nil {
+		if err := r.Sudo("delete agent user account", "dscl", ".", "-delete", "/Users/"+agentUser); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not delete user record for '%s': %v", agentUser, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Deleted user record for '%s'", agentUser))
@@ -423,7 +423,7 @@ func rollbackAgentUser(ui *UI, r *Runner) {
 	}
 
 	if _, err := os.Stat(agentHome); err == nil {
-		if err := r.Sudo("rm", "-rf", agentHome); err != nil {
+		if err := r.Sudo("delete agent home directory", "rm", "-rf", agentHome); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove home directory %s: %v", agentHome, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed home directory %s", agentHome))
@@ -441,7 +441,7 @@ func rollbackDevGroup(ui *UI, r *Runner) {
 		return
 	}
 
-	if err := r.Sudo("dscl", ".", "-delete", "/Groups/"+sharedGroup); err != nil {
+	if err := r.Sudo("delete dev group", "dscl", ".", "-delete", "/Groups/"+sharedGroup); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not delete group '%s': %v", sharedGroup, err))
 	} else {
 		ui.Ok(fmt.Sprintf("Deleted group '%s'", sharedGroup))

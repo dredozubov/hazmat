@@ -80,7 +80,7 @@ func runRestore(syncMode bool, src string) error {
 
 	ui := &UI{DryRun: flagDryRun}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
-	return r.Interactive("rsync", rsyncArgs...)
+	return r.Interactive("restore workspace from backup via rsync", "rsync", rsyncArgs...)
 }
 
 // validateRestoreSrc checks that src is a valid, initialized backup.

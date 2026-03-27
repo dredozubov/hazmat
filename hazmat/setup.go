@@ -511,37 +511,41 @@ func setupAgentUser(ui *UI, r *Runner) error {
 	}
 
 	record := "/Users/" + agentUser
-	for _, args := range [][]string{
-		{"dscl", ".", "-create", record},
-		{"dscl", ".", "-create", record, "UserShell", "/bin/zsh"},
-		{"dscl", ".", "-create", record, "UniqueID", agentUID},
-		{"dscl", ".", "-create", record, "PrimaryGroupID", "20"},
-		{"dscl", ".", "-create", record, "NFSHomeDirectory", agentHome},
+	type reasonedCmd struct {
+		reason string
+		args   []string
+	}
+	for _, rc := range []reasonedCmd{
+		{"create agent user record", []string{"dscl", ".", "-create", record}},
+		{"set agent user shell", []string{"dscl", ".", "-create", record, "UserShell", "/bin/zsh"}},
+		{"set agent user UID", []string{"dscl", ".", "-create", record, "UniqueID", agentUID}},
+		{"set agent user primary group", []string{"dscl", ".", "-create", record, "PrimaryGroupID", "20"}},
+		{"set agent user home directory", []string{"dscl", ".", "-create", record, "NFSHomeDirectory", agentHome}},
 	} {
-		if err := r.Sudo(args...); err != nil {
-			return fmt.Errorf("dscl %v: %w", args[2:], err)
+		if err := r.Sudo(rc.reason, rc.args...); err != nil {
+			return fmt.Errorf("dscl %v: %w", rc.args[2:], err)
 		}
 	}
 	ui.Ok("User record created")
 
-	if err := r.Sudo("mkdir", "-p", agentHome); err != nil {
+	if err := r.Sudo("create agent home directory", "mkdir", "-p", agentHome); err != nil {
 		return fmt.Errorf("mkdir %s: %w", agentHome, err)
 	}
-	if err := r.Sudo("chown", agentUser+":staff", agentHome); err != nil {
+	if err := r.Sudo("set agent home directory ownership", "chown", agentUser+":staff", agentHome); err != nil {
 		return fmt.Errorf("chown %s: %w", agentHome, err)
 	}
 	// createhomedir may exit non-zero even on success; ignore the error.
-	r.Sudo("createhomedir", "-c", "-u", agentUser) //nolint:errcheck
+	r.Sudo("populate agent home directory", "createhomedir", "-c", "-u", agentUser) //nolint:errcheck
 	ui.Ok(fmt.Sprintf("Home directory created at %s", agentHome))
 
-	if err := r.Sudo("dscl", ".", "-create", record, "IsHidden", "1"); err != nil {
+	if err := r.Sudo("hide agent from login screen", "dscl", ".", "-create", record, "IsHidden", "1"); err != nil {
 		return fmt.Errorf("hide user: %w", err)
 	}
 	ui.Ok("Hidden from login screen")
 
 	if ui.IsInteractive() {
 		fmt.Printf("\n  Set a password for the '%s' user:\n", agentUser)
-		if err := r.Interactive("sudo", "passwd", agentUser); err != nil {
+		if err := r.Interactive("set agent user password", "sudo", "passwd", agentUser); err != nil {
 			return fmt.Errorf("passwd: %w", err)
 		}
 		ui.Ok("Password set")
@@ -559,14 +563,16 @@ func setupAgentUser(ui *UI, r *Runner) error {
 			}
 			password = strings.TrimSpace(string(pass))
 		}
-		if err := r.Sudo("dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
+		if err := r.Sudo("set agent password", "dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
 			return fmt.Errorf("set agent password: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Password set for '%s' (random, login is disabled)", agentUser))
 	}
 
-	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("user '%s' not found after creation: %w", agentUser, err)
+	if !r.DryRun {
+		if _, err := user.Lookup(agentUser); err != nil {
+			return fmt.Errorf("user '%s' not found after creation: %w", agentUser, err)
+		}
 	}
 	return nil
 }
@@ -586,13 +592,17 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 		}
 
 		record := "/Groups/" + sharedGroup
-		for _, args := range [][]string{
-			{"dscl", ".", "-create", record},
-			{"dscl", ".", "-create", record, "PrimaryGroupID", sharedGID},
-			{"dscl", ".", "-create", record, "RealName", "Shared dev workspace"},
+		type reasonedCmd struct {
+			reason string
+			args   []string
+		}
+		for _, rc := range []reasonedCmd{
+			{"create dev group", []string{"dscl", ".", "-create", record}},
+			{"set dev group GID", []string{"dscl", ".", "-create", record, "PrimaryGroupID", sharedGID}},
+			{"set dev group description", []string{"dscl", ".", "-create", record, "RealName", "Shared dev workspace"}},
 		} {
-			if err := r.Sudo(args...); err != nil {
-				return fmt.Errorf("dscl %v: %w", args[2:], err)
+			if err := r.Sudo(rc.reason, rc.args...); err != nil {
+				return fmt.Errorf("dscl %v: %w", rc.args[2:], err)
 			}
 		}
 		ui.Ok(fmt.Sprintf("Group '%s' created (gid=%s)", sharedGroup, sharedGID))
@@ -606,7 +616,7 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 		if member {
 			ui.SkipDone(fmt.Sprintf("%s is already a member of '%s'", u, sharedGroup))
 		} else {
-			if err := r.Sudo("dscl", ".", "-append",
+			if err := r.Sudo("add "+u+" to dev group", "dscl", ".", "-append",
 				"/Groups/"+sharedGroup, "GroupMembership", u); err != nil {
 				return fmt.Errorf("add %s to %s: %w", u, sharedGroup, err)
 			}
@@ -630,13 +640,13 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 		ui.SkipDone(fmt.Sprintf("Workspace root exists at %s", sharedWorkspace))
 	}
 
-	if err := r.Sudo("chown", currentUser+":"+sharedGroup, sharedWorkspace); err != nil {
+	if err := r.Sudo("set workspace ownership", "chown", currentUser+":"+sharedGroup, sharedWorkspace); err != nil {
 		return fmt.Errorf("chown %s: %w", sharedWorkspace, err)
 	}
-	if err := r.Sudo("chmod", "770", sharedWorkspace); err != nil {
+	if err := r.Sudo("set workspace permissions", "chmod", "770", sharedWorkspace); err != nil {
 		return fmt.Errorf("chmod 770 %s: %w", sharedWorkspace, err)
 	}
-	if err := r.Sudo("chmod", "g+s", sharedWorkspace); err != nil {
+	if err := r.Sudo("set workspace setgid", "chmod", "g+s", sharedWorkspace); err != nil {
 		return fmt.Errorf("chmod g+s %s: %w", sharedWorkspace, err)
 	}
 	ui.Ok(fmt.Sprintf("Permissions: 770, setgid, owner %s:%s", currentUser, sharedGroup))
@@ -652,7 +662,7 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 			ui.SkipDone(fmt.Sprintf("Home directory permissions already allow '%s' to reach %s", agentUser, workspaceHint))
 		}
 	} else {
-		if err := r.Sudo("chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
+		if err := r.Sudo("allow agent to traverse home directory", "chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
 			return fmt.Errorf("set home traversal ACL: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Home directory ACL set: '%s' can traverse to %s", agentUser, workspaceHint))
@@ -669,7 +679,7 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 			" allow read,write,execute,append,delete,delete_child," +
 			"readattr,writeattr,readextattr,writeextattr,readsecurity," +
 			"file_inherit,directory_inherit"
-		if err := r.Sudo("chmod", "+a", aclEntry, sharedWorkspace); err != nil {
+		if err := r.Sudo("grant dev group workspace access", "chmod", "+a", aclEntry, sharedWorkspace); err != nil {
 			return fmt.Errorf("set workspace ACL: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Workspace ACL set: '%s' group gets inherited read/write access", sharedGroup))
@@ -688,7 +698,7 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 	} else if asAgentQuiet("test", "-e", agentLink) == nil {
 		ui.WarnMsg(fmt.Sprintf("%s exists but is not a symlink — skipping", agentLink))
 	} else {
-		if err := r.AsAgent("ln", "-s", sharedWorkspace, agentLink); err != nil {
+		if err := r.AsAgent("create workspace symlink in agent home", "ln", "-s", sharedWorkspace, agentLink); err != nil {
 			return fmt.Errorf("symlink %s: %w", agentLink, err)
 		}
 		ui.Ok(fmt.Sprintf("Created symlink %s → %s", agentLink, sharedWorkspace))
@@ -747,10 +757,10 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 		ui.SkipDone("umask 077 already set in agent's .zshrc")
 	} else {
 		updated := upsertManagedBlock(agentZshrcData, umaskBlockStart, umaskBlockEnd, "umask 077")
-		if err := r.SudoWriteFile(agentZshrc, updated); err != nil {
+		if err := r.SudoWriteFile("write agent umask to .zshrc", agentZshrc, updated); err != nil {
 			return fmt.Errorf("set umask in agent .zshrc: %w", err)
 		}
-		if err := r.Sudo("chown", agentUser+":staff", agentZshrc); err != nil {
+		if err := r.Sudo("set agent .zshrc ownership", "chown", agentUser+":staff", agentZshrc); err != nil {
 			return fmt.Errorf("chown agent .zshrc: %w", err)
 		}
 		ui.Ok("Set umask 077 in agent's .zshrc")
@@ -779,24 +789,24 @@ func setupSeatbelt(ui *UI, r *Runner) error {
 	ui.Step("Install seatbelt wrapper for Claude runtime")
 
 	// Create the config dir (used by agentEnvPath) and the bin dir.
-	if err := r.AsAgent("mkdir", "-p", seatbeltProfileDir); err != nil {
+	if err := r.AsAgent("create seatbelt config directory", "mkdir", "-p", seatbeltProfileDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", seatbeltProfileDir, err)
 	}
 
 	wrapperDir := agentHome + "/.local/bin"
-	if err := r.AsAgent("mkdir", "-p", wrapperDir); err != nil {
+	if err := r.AsAgent("create agent bin directory", "mkdir", "-p", wrapperDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", wrapperDir, err)
 	}
 
 	// The wrapper is a managed artifact; re-write on every run so setup
 	// doubles as an upgrade path.
-	if err := r.SudoWriteFile(seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
+	if err := r.SudoWriteFile("install seatbelt wrapper", seatbeltWrapperPath, seatbeltWrapperContent); err != nil {
 		return fmt.Errorf("write seatbelt wrapper: %w", err)
 	}
-	if err := r.Sudo("chown", agentUser+":staff", seatbeltWrapperPath); err != nil {
+	if err := r.Sudo("set seatbelt wrapper ownership", "chown", agentUser+":staff", seatbeltWrapperPath); err != nil {
 		return fmt.Errorf("chown seatbelt wrapper: %w", err)
 	}
-	if err := r.Sudo("chmod", "755", seatbeltWrapperPath); err != nil {
+	if err := r.Sudo("make seatbelt wrapper executable", "chmod", "755", seatbeltWrapperPath); err != nil {
 		return fmt.Errorf("chmod seatbelt wrapper: %w", err)
 	}
 	ui.Ok(fmt.Sprintf("Seatbelt wrapper installed at %s", seatbeltWrapperPath))
@@ -812,18 +822,18 @@ func setupUserExperience(ui *UI, r *Runner) error {
 		defaultAgentDataHome,
 		agentHome + "/.npm",
 	} {
-		if err := r.AsAgent("mkdir", "-p", dir); err != nil {
+		if err := r.AsAgent("create agent directory", "mkdir", "-p", dir); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
 
-	if err := r.SudoWriteFile(agentEnvPath, agentEnvContent()); err != nil {
+	if err := r.SudoWriteFile("write agent toolchain env", agentEnvPath, agentEnvContent()); err != nil {
 		return fmt.Errorf("write agent env file: %w", err)
 	}
-	if err := r.Sudo("chown", agentUser+":staff", agentEnvPath); err != nil {
+	if err := r.Sudo("set agent env file ownership", "chown", agentUser+":staff", agentEnvPath); err != nil {
 		return fmt.Errorf("chown agent env file: %w", err)
 	}
-	if err := r.Sudo("chmod", "644", agentEnvPath); err != nil {
+	if err := r.Sudo("set agent env file permissions", "chmod", "644", agentEnvPath); err != nil {
 		return fmt.Errorf("chmod agent env file: %w", err)
 	}
 	ui.Ok(fmt.Sprintf("Agent toolchain env written to %s", agentEnvPath))
@@ -835,10 +845,10 @@ func setupUserExperience(ui *UI, r *Runner) error {
 		agentShellBlockEnd,
 		`[[ -f "$HOME/.config/hazmat/agent-env.zsh" ]] && source "$HOME/.config/hazmat/agent-env.zsh"`,
 	)
-	if err := r.SudoWriteFile(agentZshrc, updatedAgentZshrc); err != nil {
+	if err := r.SudoWriteFile("write agent shell bootstrap to .zshrc", agentZshrc, updatedAgentZshrc); err != nil {
 		return fmt.Errorf("update %s: %w", agentZshrc, err)
 	}
-	if err := r.Sudo("chown", agentUser+":staff", agentZshrc); err != nil {
+	if err := r.Sudo("set agent .zshrc ownership", "chown", agentUser+":staff", agentZshrc); err != nil {
 		return fmt.Errorf("chown %s: %w", agentZshrc, err)
 	}
 	ui.Ok(fmt.Sprintf("Agent shell bootstraps %s", agentEnvPath))
@@ -960,13 +970,13 @@ func setupSudoers(ui *UI, r *Runner, currentUser string) error {
 		// helper that validates policy files before calling sandbox-exec.
 		// It refuses deny-bypassing policies and checks SUDO_UID ownership.
 		// Install and bootstrap steps run under normal sudo (password required).
-		if err := r.SudoWriteFile(sudoersFile, entry); err != nil {
+		if err := r.SudoWriteFile("write sudoers entry for passwordless agent access", sudoersFile, entry); err != nil {
 			return fmt.Errorf("write sudoers: %w", err)
 		}
-		if err := r.Sudo("chmod", "440", sudoersFile); err != nil {
+		if err := r.Sudo("set sudoers file permissions", "chmod", "440", sudoersFile); err != nil {
 			return fmt.Errorf("chmod sudoers: %w", err)
 		}
-		if err := r.Sudo("visudo", "-c", "-f", sudoersFile); err != nil {
+		if err := r.Sudo("validate sudoers syntax", "visudo", "-c", "-f", sudoersFile); err != nil {
 			// Validation failed: clean up the invalid file and bail.
 			// Direct sudo() here because this is error recovery, not
 			// a primary operation — we never want to skip or preview it.
@@ -994,7 +1004,7 @@ func setupPfFirewall(ui *UI, r *Runner) error {
 		ui.SkipDone(fmt.Sprintf("pf anchor file already exists at %s", pfAnchorFile))
 		ui.WarnMsg(fmt.Sprintf("To replace it, delete first: sudo rm %s", pfAnchorFile))
 	} else {
-		if err := r.SudoWriteFile(pfAnchorFile, pfAnchorContent); err != nil {
+		if err := r.SudoWriteFile("write pf firewall anchor rules", pfAnchorFile, pfAnchorContent); err != nil {
 			return fmt.Errorf("write pf anchor: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Created pf anchor at %s", pfAnchorFile))
@@ -1009,24 +1019,24 @@ func setupPfFirewall(ui *UI, r *Runner) error {
 		ui.SkipDone("Anchor already registered in /etc/pf.conf")
 	} else {
 		ts := time.Now().Format("20060102150405")
-		if err := r.Sudo("cp", "/etc/pf.conf", "/etc/pf.conf.backup."+ts); err != nil {
+		if err := r.Sudo("backup pf.conf before modification", "cp", "/etc/pf.conf", "/etc/pf.conf.backup."+ts); err != nil {
 			return fmt.Errorf("backup pf.conf: %w", err)
 		}
 		ui.Ok("Backed up /etc/pf.conf")
 
-		if err := r.SudoAppendFile("/etc/pf.conf", pfConfAddition); err != nil {
+		if err := r.SudoAppendFile("register pf anchor in system config", "/etc/pf.conf", pfConfAddition); err != nil {
 			return fmt.Errorf("append to pf.conf: %w", err)
 		}
 		ui.Ok("Registered anchor in /etc/pf.conf")
 	}
 
-	if err := r.PfctlLoad(); err != nil {
+	if err := r.PfctlLoad("reload firewall rules"); err != nil {
 		ui.WarnMsg(fmt.Sprintf("pfctl failed to load rules: %v", err))
 	} else {
 		ui.Ok("pf rules loaded")
 	}
 	// pfctl -e returns 1 if already enabled — not an error, ignore it.
-	r.Sudo("pfctl", "-e") //nolint:errcheck
+	r.Sudo("enable packet filter", "pfctl", "-e") //nolint:errcheck
 	ui.Ok("pf enabled")
 	return nil
 }
@@ -1048,13 +1058,13 @@ func setupDNSBlocklist(ui *UI, r *Runner) error {
 		return nil
 	}
 
-	if err := r.SudoAppendFile("/etc/hosts", hostsBlocklistContent); err != nil {
+	if err := r.SudoAppendFile("add DNS blocklist to system hosts file", "/etc/hosts", hostsBlocklistContent); err != nil {
 		return fmt.Errorf("append to /etc/hosts: %w", err)
 	}
 
 	// Cache flush is fire-and-forget; ignore errors.
-	r.Sudo("dscacheutil", "-flushcache")       //nolint:errcheck
-	r.Sudo("killall", "-HUP", "mDNSResponder") //nolint:errcheck
+	r.Sudo("flush DNS cache", "dscacheutil", "-flushcache")       //nolint:errcheck
+	r.Sudo("restart mDNSResponder", "killall", "-HUP", "mDNSResponder") //nolint:errcheck
 	ui.Ok("DNS blocklist added to /etc/hosts and cache flushed")
 	ui.WarnMsg("This is system-wide. /etc/hosts does not block subdomains.")
 	ui.WarnMsg("For wildcard blocking (*.ngrok.io), use dnsmasq — see soft-pf-blocklist.md")
@@ -1071,13 +1081,13 @@ func setupLaunchDaemon(ui *UI, r *Runner) error {
 		return nil
 	}
 
-	if err := r.SudoWriteFile(pfDaemonPlist, pfDaemonPlistContent); err != nil {
+	if err := r.SudoWriteFile("install firewall persistence daemon", pfDaemonPlist, pfDaemonPlistContent); err != nil {
 		return fmt.Errorf("write LaunchDaemon plist: %w", err)
 	}
-	if err := r.Sudo("chmod", "644", pfDaemonPlist); err != nil {
+	if err := r.Sudo("set launch daemon permissions", "chmod", "644", pfDaemonPlist); err != nil {
 		return fmt.Errorf("chmod plist: %w", err)
 	}
-	if err := r.LaunchctlBootstrap(pfDaemonPlist); err != nil {
+	if err := r.LaunchctlBootstrap("start firewall persistence daemon", pfDaemonPlist); err != nil {
 		ui.WarnMsg(fmt.Sprintf("launchctl bootstrap: %v — plist written but not loaded", err))
 	} else {
 		ui.Ok("LaunchDaemon installed — pf rules will reload on boot")
