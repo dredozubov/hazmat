@@ -173,16 +173,20 @@ func newSetupCmd() *cobra.Command {
 	var cloudOnly bool
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Configure the macOS sandbox (Option A: dedicated agent user + pf firewall)",
-		Long: `Configure the macOS sandbox: dedicated agent user, workspace-root ACLs, pf port
-blocklist, DNS blocklist, seatbelt profile, and host-side command wrappers.
+		Short: "Set up everything: containment, Claude Code, and credentials",
+		Long: `One command to go from fresh macOS to a running sandboxed Claude session.
 
-Interactive by default — prompts for confirmation before making any changes.
-For scripted or autonomous use, pass --yes to answer all prompts automatically:
+Creates a dedicated agent user, workspace ACLs, pf port blocklist, DNS
+blocklist, seatbelt profile, installs Claude Code, and prompts for API key
+and git credentials.
 
-  hazmat setup --yes
-  hazmat setup --yes --agent-uid 601 --group-gid 601
-  hazmat setup --cloud  # Interactive setup for S3-compatible cloud backups
+After setup completes:   cd ~/workspace/my-project && hazmat claude
+
+Interactive by default — prompts for confirmation before making changes.
+
+  hazmat setup                    # Interactive (recommended)
+  hazmat setup --yes              # Non-interactive, auto-confirm
+  hazmat setup --cloud            # Configure S3 cloud backup only
 
 Use --dry-run to preview all commands without executing anything.`,
 	}
@@ -236,22 +240,10 @@ func runStatus(full bool) error {
 	}
 
 	phases := []phase{
-		{"System setup", "hazmat setup", func() bool {
-			_, err := user.Lookup(agentUser)
-			return err == nil
-		}},
-		{"Claude Code installed", "hazmat bootstrap", func() bool {
-			_, err := sudoOutput("test", "-x", agentHome+"/.local/bin/claude")
-			return err == nil
-		}},
-		{"Agent credentials", "hazmat enroll", func() bool {
-			out, err := sudoOutput("sudo", "-u", agentUser, "-i",
-				"bash", "-c", "grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo ok")
-			return err == nil && strings.TrimSpace(out) == "ok"
-		}},
-		{"Verified", "hazmat test", func() bool {
-			// Just check a few critical invariants rather than running
-			// the full test suite.
+		{"Containment configured", "hazmat setup", func() bool {
+			if _, err := user.Lookup(agentUser); err != nil {
+				return false
+			}
 			if _, err := os.Stat(sudoersFile); err != nil {
 				return false
 			}
@@ -259,6 +251,15 @@ func runStatus(full bool) error {
 				return false
 			}
 			return true
+		}},
+		{"Claude Code installed", "hazmat bootstrap", func() bool {
+			_, err := sudoOutput("test", "-x", agentHome+"/.local/bin/claude")
+			return err == nil
+		}},
+		{"Credentials set", "hazmat enroll", func() bool {
+			out, err := sudoOutput("sudo", "-u", agentUser, "-i",
+				"bash", "-c", "grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo ok")
+			return err == nil && strings.TrimSpace(out) == "ok"
 		}},
 	}
 
@@ -386,10 +387,34 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
+	// ── Bootstrap: install Claude Code ──────────────────────────────────────
+	if err := runBootstrap(ui, r); err != nil {
+		return err
+	}
+
+	// ── Enroll: API key + git credentials ───────────────────────────────────
+	if !flagDryRun && ui.IsInteractive() {
+		if err := runEnroll(); err != nil {
+			// Non-fatal: user can run 'hazmat enroll' later.
+			cYellow.Printf("\n  Enrollment skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat enroll' later to set credentials.")
+		}
+	}
+
 	if !flagDryRun {
 		verifySetup(ui)
-		ui.DoneBox(cu.Username)
 	}
+
+	fmt.Println()
+	cGreen.Println("━━━ Setup complete ━━━")
+	fmt.Println()
+	fmt.Println("  Ready to use:")
+	fmt.Println("    cd ~/workspace/my-project && hazmat claude")
+	fmt.Println()
+	fmt.Println("  Check status:   hazmat status")
+	fmt.Println("  Update creds:   hazmat enroll")
+	fmt.Println("  Uninstall:      hazmat rollback")
+	fmt.Println()
 	return nil
 }
 
