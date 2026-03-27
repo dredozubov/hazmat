@@ -1,7 +1,9 @@
 #!/bin/bash
 # E2E lifecycle test for Hazmat.
 #
-# Runs the full init → check → session → rollback → reinit cycle.
+# Tests every critical path: init, containment, snapshot, restore (with
+# byte-level content verification), rollback, and idempotency.
+#
 # Works anywhere: local Mac, Lume VM guest, GHA macOS runner, Cirrus CI.
 #
 # Usage:
@@ -24,6 +26,29 @@ TOTAL=0
 pass() { PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[32m✓\033[0m %s\n" "$1"; }
 fail() { FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[31m✗\033[0m %s\n" "$1"; }
 phase() { printf "\n\033[1m── %s ──\033[0m\n\n" "$1"; }
+
+assert_file_content() {
+    local file="$1" expected="$2" label="$3"
+    if [ ! -f "$file" ]; then
+        fail "$label: file missing ($file)"
+        return
+    fi
+    actual=$(cat "$file")
+    if [ "$actual" = "$expected" ]; then
+        pass "$label"
+    else
+        fail "$label: expected $(printf '%q' "$expected"), got $(printf '%q' "$actual")"
+    fi
+}
+
+assert_file_absent() {
+    local file="$1" label="$2"
+    if [ ! -e "$file" ]; then
+        pass "$label"
+    else
+        fail "$label: file still exists ($file)"
+    fi
+}
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
@@ -48,104 +73,193 @@ else
     "$HAZMAT" init check --full && pass "hazmat init check --full passed" || fail "hazmat init check --full failed"
 fi
 
-# ── Phase 2: Session + snapshot ──────────────────────────────────────────────
+# ── Phase 2: Containment ────────────────────────────────────────────────────
 
-phase "Phase 2: Session + snapshot"
+phase "Phase 2: Containment verification"
 
 PROJECT=$(mktemp -d)
-echo "e2e test content" > "$PROJECT/file.txt"
-mkdir -p "$PROJECT/subdir"
-echo "nested" > "$PROJECT/subdir/nested.txt"
 
-# exec should work in containment
-"$HAZMAT" exec -C "$PROJECT" ls > /dev/null \
-    && pass "hazmat exec runs successfully" \
+# exec runs in containment
+"$HAZMAT" exec -C "$PROJECT" echo "hello" > /dev/null \
+    && pass "hazmat exec runs in containment" \
     || fail "hazmat exec failed"
 
-# Snapshot should have been created
+# Agent can write to project dir
+"$HAZMAT" exec -C "$PROJECT" touch "$PROJECT/agent-wrote-this" > /dev/null 2>&1 \
+    && pass "agent can write to project directory" \
+    || fail "agent cannot write to project directory"
+
+# Agent CANNOT read host credential directories
+for dir in .ssh .aws .gnupg ".config/gh"; do
+    full="$HOME/$dir"
+    if [ -d "$full" ]; then
+        "$HAZMAT" exec -C "$PROJECT" ls "$full" > /dev/null 2>&1 \
+            && fail "ISOLATION BREACH: agent read ~/$dir" \
+            || pass "agent cannot read ~/$dir"
+    fi
+done
+
+# Agent CANNOT write outside project
+"$HAZMAT" exec -C "$PROJECT" touch /tmp/hazmat-escape-test-$$ > /dev/null 2>&1
+if [ -f "/tmp/hazmat-escape-test-$$" ]; then
+    # /tmp is shared — this is a known limitation, not a breach.
+    # But agent should NOT be able to write to host home.
+    rm -f "/tmp/hazmat-escape-test-$$"
+fi
+"$HAZMAT" exec -C "$PROJECT" touch "$HOME/hazmat-escape-test-$$" > /dev/null 2>&1 \
+    && { rm -f "$HOME/hazmat-escape-test-$$"; fail "ISOLATION BREACH: agent wrote to host home"; } \
+    || pass "agent cannot write to host home directory"
+
+rm -rf "$PROJECT"
+
+# ── Phase 3: Snapshot creation ───────────────────────────────────────────────
+
+phase "Phase 3: Snapshot creation"
+
+PROJECT=$(mktemp -d)
+echo "original line 1" > "$PROJECT/file.txt"
+mkdir -p "$PROJECT/subdir"
+echo "nested content" > "$PROJECT/subdir/nested.txt"
+printf '\x00\x01\x02\xff' > "$PROJECT/binary.dat"
+
+# First session: automatic snapshot of original state
+"$HAZMAT" exec -C "$PROJECT" true > /dev/null
 cd "$PROJECT"
 "$HAZMAT" snapshots 2>&1 | grep -q "pre-session" \
     && pass "pre-session snapshot created automatically" \
-    || fail "no pre-session snapshot found"
+    || fail "no pre-session snapshot found after exec"
 
-# --no-backup should skip snapshot
+# --no-backup skips snapshot
 SNAP_BEFORE=$("$HAZMAT" snapshots 2>&1 | grep -c "pre-session" || true)
 "$HAZMAT" exec --no-backup -C "$PROJECT" true > /dev/null
 SNAP_AFTER=$("$HAZMAT" snapshots 2>&1 | grep -c "pre-session" || true)
 [ "$SNAP_BEFORE" = "$SNAP_AFTER" ] \
     && pass "--no-backup skipped snapshot" \
-    || fail "--no-backup did not skip snapshot"
+    || fail "--no-backup created a snapshot anyway (before=$SNAP_BEFORE after=$SNAP_AFTER)"
 
-# Credential isolation: agent should NOT be able to read host SSH keys
-if [ -d "$HOME/.ssh" ]; then
-    "$HAZMAT" exec -C "$PROJECT" ls "$HOME/.ssh" > /dev/null 2>&1 \
-        && fail "ISOLATION BREACH: agent read host .ssh" \
-        || pass "agent cannot read host .ssh"
+# Second session: snapshot again (should now have 2 pre-session snapshots)
+"$HAZMAT" exec -C "$PROJECT" true > /dev/null
+SNAP_COUNT=$("$HAZMAT" snapshots 2>&1 | grep -c "pre-session" || true)
+[ "$SNAP_COUNT" -ge 2 ] \
+    && pass "multiple snapshots accumulate ($SNAP_COUNT)" \
+    || fail "expected ≥2 snapshots, got $SNAP_COUNT"
+
+# ── Phase 4: Agent damages project, restore recovers it ─────────────────────
+
+phase "Phase 4: Snapshot restore (content verification)"
+
+# Simulate agent damage: modify, delete, and add files
+echo "CORRUPTED BY AGENT" > "$PROJECT/file.txt"
+rm -f "$PROJECT/subdir/nested.txt"
+rm -f "$PROJECT/binary.dat"
+echo "rogue file" > "$PROJECT/rogue.txt"
+mkdir -p "$PROJECT/rogue-dir"
+echo "rogue nested" > "$PROJECT/rogue-dir/evil.txt"
+
+# Verify damage happened
+assert_file_content "$PROJECT/file.txt" "CORRUPTED BY AGENT" "damage: file.txt overwritten"
+assert_file_absent "$PROJECT/subdir/nested.txt" "damage: nested.txt deleted"
+assert_file_absent "$PROJECT/binary.dat" "damage: binary.dat deleted"
+
+# Restore from the most recent pre-session snapshot (session=2 because
+# the second exec created snapshot #2 of the original state before
+# the agent damage happened outside containment).
+"$HAZMAT" --yes restore --session=1 2>&1
+RESTORE_EXIT=$?
+[ "$RESTORE_EXIT" -eq 0 ] \
+    && pass "hazmat restore completed successfully" \
+    || fail "hazmat restore failed (exit $RESTORE_EXIT)"
+
+# Verify restored content byte-for-byte
+assert_file_content "$PROJECT/file.txt" "original line 1" \
+    "restore: file.txt content matches original"
+assert_file_content "$PROJECT/subdir/nested.txt" "nested content" \
+    "restore: subdir/nested.txt content matches original"
+
+# Verify binary file round-trip
+if [ -f "$PROJECT/binary.dat" ]; then
+    ACTUAL_HEX=$(xxd -p "$PROJECT/binary.dat" | tr -d '\n')
+    if [ "$ACTUAL_HEX" = "000102ff" ]; then
+        pass "restore: binary.dat byte-level content matches"
+    else
+        fail "restore: binary.dat content mismatch (hex: $ACTUAL_HEX)"
+    fi
 else
-    printf "  - skipped .ssh test (directory doesn't exist)\n"
+    fail "restore: binary.dat not restored"
 fi
 
-# Agent should NOT be able to read host AWS credentials
-if [ -d "$HOME/.aws" ]; then
-    "$HAZMAT" exec -C "$PROJECT" ls "$HOME/.aws" > /dev/null 2>&1 \
-        && fail "ISOLATION BREACH: agent read host .aws" \
-        || pass "agent cannot read host .aws"
-else
-    printf "  - skipped .aws test (directory doesn't exist)\n"
-fi
+# ── Phase 5: Undo-the-undo (pre-restore snapshot exists) ────────────────────
+
+phase "Phase 5: Pre-restore snapshot (undo-the-undo)"
+
+"$HAZMAT" snapshots 2>&1 | grep -q "pre-restore" \
+    && pass "pre-restore snapshot was created during restore" \
+    || fail "no pre-restore snapshot found (undo-the-undo is broken)"
 
 cd "$REPO_ROOT"
 rm -rf "$PROJECT"
 
-# ── Phase 3: Rollback ───────────────────────────────────────────────────────
+# ── Phase 6: Rollback completeness ──────────────────────────────────────────
 
-phase "Phase 3: Rollback"
+phase "Phase 6: Rollback"
 sudo "$HAZMAT" init rollback --delete-user --delete-group --yes \
     && pass "hazmat init rollback completed" \
     || fail "hazmat init rollback failed"
 
-# Verify clean state
+# Every artifact must be gone
 ! id agent > /dev/null 2>&1 \
     && pass "agent user removed" \
-    || fail "agent user still exists after rollback"
+    || fail "agent user still exists"
 
 ! test -f /etc/sudoers.d/agent \
     && pass "sudoers file removed" \
-    || fail "sudoers file still exists after rollback"
+    || fail "sudoers file still exists"
 
 ! test -f /etc/pf.anchors/agent \
     && pass "pf anchor file removed" \
-    || fail "pf anchor file still exists after rollback"
+    || fail "pf anchor file still exists"
 
 ! grep -q "AI Agent Blocklist" /etc/hosts \
     && pass "DNS blocklist removed from /etc/hosts" \
-    || fail "DNS blocklist still in /etc/hosts after rollback"
+    || fail "DNS blocklist still in /etc/hosts"
 
-# ── Phase 4: Idempotency ────────────────────────────────────────────────────
+! test -f /Library/LaunchDaemons/com.local.pf-agent.plist \
+    && pass "LaunchDaemon plist removed" \
+    || fail "LaunchDaemon plist still exists"
 
-phase "Phase 4: Idempotency (reinit)"
-sudo "$HAZMAT" init --yes && pass "second hazmat init completed" || fail "second hazmat init failed"
+# ── Phase 7: Idempotency ────────────────────────────────────────────────────
+
+phase "Phase 7: Idempotency (rollback → reinit → check)"
+sudo "$HAZMAT" init --yes && pass "reinit completed" || fail "reinit failed"
 
 if [ "$QUICK" = "--quick" ]; then
-    "$HAZMAT" init check && pass "second hazmat init check passed" || fail "second hazmat init check failed"
+    "$HAZMAT" init check && pass "reinit check passed" || fail "reinit check failed"
 else
-    "$HAZMAT" init check --full && pass "second hazmat init check --full passed" || fail "second hazmat init check --full failed"
+    "$HAZMAT" init check --full && pass "reinit check --full passed" || fail "reinit check --full failed"
 fi
 
-# ── Phase 5: TLA+ invariant (AgentContained) ────────────────────────────────
+# ── Phase 8: Invariants ─────────────────────────────────────────────────────
 
-phase "Phase 5: Invariant checks"
+phase "Phase 8: Invariant checks"
 
-# Sudoers and pf anchor must coexist
+# TLA+ AgentContained: sudoers and pf anchor must coexist or both be absent
 if test -f /etc/sudoers.d/agent && test -f /etc/pf.anchors/agent; then
     pass "AgentContained: sudoers and pf anchor both present"
 elif ! test -f /etc/sudoers.d/agent && ! test -f /etc/pf.anchors/agent; then
-    pass "AgentContained: neither sudoers nor pf anchor present"
+    pass "AgentContained: neither present (clean state)"
 else
     fail "AgentContained VIOLATED: sudoers and pf anchor out of sync"
 fi
 
-# ── Final cleanup ────────────────────────────────────────────────────────────
+# Verify init is actually idempotent (running init again changes nothing)
+sudo "$HAZMAT" init --yes 2>&1 | grep -c "already" > /tmp/hazmat-idemp-$$ || true
+SKIP_COUNT=$(cat /tmp/hazmat-idemp-$$)
+rm -f /tmp/hazmat-idemp-$$
+[ "$SKIP_COUNT" -gt 5 ] \
+    && pass "idempotency: init on already-configured system skips ≥$SKIP_COUNT steps" \
+    || fail "idempotency: expected most steps to be skipped, only $SKIP_COUNT were"
+
+# ── Cleanup ──────────────────────────────────────────────────────────────────
 
 phase "Cleanup"
 sudo "$HAZMAT" init rollback --delete-user --delete-group --yes > /dev/null 2>&1 \
