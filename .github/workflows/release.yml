@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.goarch }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        goarch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: hazmat/go.mod
+          cache-dependency-path: hazmat/go.sum
+
+      - name: Build
+        working-directory: hazmat
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          VERSION: ${{ github.ref_name }}
+        run: |
+          LDFLAGS="-X main.version=${VERSION}"
+          go build -trimpath -ldflags "${LDFLAGS}" -o hazmat .
+          go build -trimpath -ldflags "${LDFLAGS}" -o hazmat-launch ./cmd/hazmat-launch
+
+      - name: Package
+        working-directory: hazmat
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARCH: ${{ matrix.goarch }}
+        run: tar czf "hazmat-${VERSION}-darwin-${ARCH}.tar.gz" hazmat hazmat-launch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hazmat-darwin-${{ matrix.goarch }}
+          path: hazmat/hazmat-*.tar.gz
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum hazmat-*.tar.gz > checksums.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: >
+          gh release create "${TAG}"
+          artifacts/hazmat-*.tar.gz
+          artifacts/checksums.txt
+          --title "Hazmat ${TAG}"
+          --generate-notes
+
+  update-tap:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute checksums
+        id: sums
+        working-directory: artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          ARM64=$(sha256sum "hazmat-${TAG}-darwin-arm64.tar.gz" | cut -d' ' -f1)
+          AMD64=$(sha256sum "hazmat-${TAG}-darwin-amd64.tar.gz" | cut -d' ' -f1)
+          echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
+          echo "amd64=${AMD64}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone tap repo
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: gh repo clone dredozubov/homebrew-tap tap
+
+      - name: Update formula
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA_ARM64: ${{ steps.sums.outputs.arm64 }}
+          SHA_AMD64: ${{ steps.sums.outputs.amd64 }}
+        run: |
+          BARE="${TAG#v}"
+          cd tap
+          mkdir -p Formula
+          cp ../homebrew/hazmat.rb Formula/hazmat.rb
+          sed -i "s/version \"0.0.0\"/version \"${BARE}\"/" Formula/hazmat.rb
+          sed -i "s/PLACEHOLDER_ARM64/${SHA_ARM64}/" Formula/hazmat.rb
+          sed -i "s/PLACEHOLDER_AMD64/${SHA_AMD64}/" Formula/hazmat.rb
+
+      - name: Push tap update
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/hazmat.rb
+          git commit -m "hazmat ${TAG}"
+          git push
