@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -79,8 +78,7 @@ func runTest(quick bool) error {
 	testAgentTools(ui)
 	testCommandSurface(ui)
 	testSeatbelt(ui)
-	testBackup(ui)
-	testRestore(ui)
+	testLocalSnapshot(ui)
 	testCloudBackup(ui)
 	testCloudRestore(ui)
 	testDecommission(ui)
@@ -718,233 +716,119 @@ func testSeatbelt(ui *UI) {
 	}
 }
 
-// ── Step 13: Backup ───────────────────────────────────────────────────────────
+// ── Step 13: Local Snapshot ──────────────────────────────────────────────────
 
-func testBackup(ui *UI) {
-	ui.Step("Backup")
+func testLocalSnapshot(ui *UI) {
+	ui.Step("Local Snapshot (Kopia)")
 
-	// Verify rsync is available
-	if _, err := os.Stat("/usr/bin/rsync"); err == nil {
-		ui.TestPass("rsync is present at /usr/bin/rsync")
-	} else {
-		ui.TestFail("rsync not found at /usr/bin/rsync")
+	// Test with a throwaway repo to avoid touching the real one.
+	tmpRepoDir := fmt.Sprintf("/tmp/haztest-local-repo-%d", os.Getpid())
+	tmpConfigFile := tmpRepoDir + "/repo.config"
+	tmpSourceDir := fmt.Sprintf("/tmp/haztest-local-src-%d", os.Getpid())
+	defer os.RemoveAll(tmpRepoDir)
+	defer os.RemoveAll(tmpSourceDir)
+
+	if err := os.MkdirAll(tmpRepoDir, 0o700); err != nil {
+		ui.TestFail(fmt.Sprintf("could not create temp repo dir: %v", err))
+		return
+	}
+	if err := os.MkdirAll(tmpSourceDir, 0o700); err != nil {
+		ui.TestFail(fmt.Sprintf("could not create temp source dir: %v", err))
 		return
 	}
 
-	// Dry-run rsync against the workspace root using production flags (backupBuiltinExcludes).
-	// This ensures the test exercises the same exclude set that runBackup() uses.
-	src := sharedWorkspace + "/"
-	if _, err := os.Stat(sharedWorkspace); os.IsNotExist(err) {
-		ui.TestSkip(fmt.Sprintf("%s does not exist — skipping rsync dry-run", sharedWorkspace))
-	} else {
-		tmpDest := fmt.Sprintf("/tmp/haztest-backup-%d", os.Getpid())
-		rsyncArgs := []string{"--dry-run", "-aHAX"}
-		for _, e := range backupBuiltinExcludes {
-			rsyncArgs = append(rsyncArgs, "--exclude="+e)
-		}
-		rsyncArgs = append(rsyncArgs, src, tmpDest)
-		err := runInteractive("rsync", rsyncArgs...)
-		if err == nil {
-			ui.TestPass(fmt.Sprintf("rsync options are valid (dry-run, no --delete, %d built-in excludes)", len(backupBuiltinExcludes)))
-		} else {
-			ui.TestWarn(fmt.Sprintf("rsync dry-run failed: %v", err))
-		}
-	}
+	// Write fixture files.
+	os.WriteFile(filepath.Join(tmpSourceDir, "main.go"), []byte("package main\n"), 0o644)
+	os.MkdirAll(filepath.Join(tmpSourceDir, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(tmpSourceDir, "pkg/lib.go"), []byte("package pkg\n"), 0o644)
 
-	// ── backup safety: validateSyncDest ──────────────────────────────────────
-
-	// Wrong-path / missing-mount: non-existent local path must be rejected
-	nonExistent := fmt.Sprintf("/tmp/haztest-no-such-dest-%d", os.Getpid())
-	if err := validateSyncDest(nonExistent); err != nil {
-		ui.TestPass("--sync rejects non-existent local destination (wrong-path guard)")
-	} else {
-		ui.TestFail("--sync accepted non-existent local destination — wrong-path guard missing")
-	}
-
-	// Existing directory without marker must be rejected
-	tmpNoMarker := fmt.Sprintf("/tmp/haztest-backup-nomarker-%d", os.Getpid())
-	if err := os.MkdirAll(tmpNoMarker, 0o700); err == nil {
-		defer os.RemoveAll(tmpNoMarker)
-		if err := validateSyncDest(tmpNoMarker); err != nil {
-			ui.TestPass("--sync rejects destination without " + backupTargetMarker + " marker (destructive-mode guard)")
-		} else {
-			ui.TestFail("--sync accepted destination without marker — destructive-mode guard missing")
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("could not create temp dir for marker test: %v", err))
-	}
-
-	// Existing directory with marker must be accepted
-	tmpWithMarker := fmt.Sprintf("/tmp/haztest-backup-marker-%d", os.Getpid())
-	if err := os.MkdirAll(tmpWithMarker, 0o700); err == nil {
-		defer os.RemoveAll(tmpWithMarker)
-		markerPath := tmpWithMarker + "/" + backupTargetMarker
-		if f, err := os.Create(markerPath); err == nil {
-			f.Close()
-			if err := validateSyncDest(tmpWithMarker); err == nil {
-				ui.TestPass("--sync accepts initialized destination (marker present)")
-			} else {
-				ui.TestFail(fmt.Sprintf("--sync rejected valid initialized destination: %v", err))
-			}
-		} else {
-			ui.TestWarn(fmt.Sprintf("could not create marker file for test: %v", err))
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("could not create temp dir for marker test: %v", err))
-	}
-
-	// Remote destination (user@host:path) must pass through without local checks
-	if err := validateSyncDest("user@nas:/backup/workspace"); err == nil {
-		ui.TestPass("--sync passes remote destinations through without local validation")
-	} else {
-		ui.TestFail(fmt.Sprintf("--sync incorrectly rejected remote destination: %v", err))
-	}
-
-	// ── scope file ────────────────────────────────────────────────────────────
-
-	// loadUserExcludes must return an error (not panic) when the file is absent.
-	tmpScope := fmt.Sprintf("/tmp/haztest-excludes-%d", os.Getpid())
-	origExcludes := backupExcludesFile
-
-	// We can't reassign the const, so test via a temp file written directly.
-	// Verify loadUserExcludes correctly parses comment and blank lines.
-	scopeContent := "# comment\n\n/my-big-repo/\n# another comment\n/nixpkgs/\n"
-	if err := os.WriteFile(tmpScope, []byte(scopeContent), 0o644); err == nil {
-		defer os.Remove(tmpScope)
-		f, ferr := os.Open(tmpScope)
-		if ferr == nil {
-			defer f.Close()
-			var active []string
-			sc := bufio.NewScanner(f)
-			for sc.Scan() {
-				line := strings.TrimSpace(sc.Text())
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
-				}
-				active = append(active, line)
-			}
-			if len(active) == 2 && active[0] == "/my-big-repo/" && active[1] == "/nixpkgs/" {
-				ui.TestPass("Scope file parser skips comments and blank lines, loads active patterns")
-			} else {
-				ui.TestFail(fmt.Sprintf("Scope file parser returned unexpected patterns: %v", active))
-			}
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("Could not write temp scope file for parser test: %v", err))
-	}
-	_ = origExcludes // suppress unused var warning
-
-	// Backup scope file should exist in the workspace root if setup was run.
-	if _, err := os.Stat(backupExcludesFile); err == nil {
-		ui.TestPass(fmt.Sprintf("Backup scope file exists: %s", backupExcludesFile))
-	} else {
-		ui.TestWarn(fmt.Sprintf("Backup scope file not found at %s — run hazmat init to create it", backupExcludesFile))
-	}
-}
-
-// ── Step 14: Restore ─────────────────────────────────────────────────────────
-
-func testRestore(ui *UI) {
-	ui.Step("Restore")
-
-	// ── validateRestoreSrc guards ─────────────────────────────────────────────
-
-	// Non-existent local source must be rejected.
-	nonExistent := fmt.Sprintf("/tmp/haztest-no-restore-src-%d", os.Getpid())
-	if err := validateRestoreSrc(nonExistent); err != nil {
-		ui.TestPass("restore rejects non-existent local source (wrong-path guard)")
-	} else {
-		ui.TestFail("restore accepted non-existent local source — wrong-path guard missing")
-	}
-
-	// Existing directory without marker must be rejected.
-	tmpNoMarker := fmt.Sprintf("/tmp/haztest-restore-nomarker-%d", os.Getpid())
-	if err := os.MkdirAll(tmpNoMarker, 0o700); err == nil {
-		defer os.RemoveAll(tmpNoMarker)
-		if err := validateRestoreSrc(tmpNoMarker); err != nil {
-			ui.TestPass("restore rejects source without " + backupTargetMarker + " marker")
-		} else {
-			ui.TestFail("restore accepted source without marker — destructive-mode guard missing")
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("could not create temp dir for restore marker test: %v", err))
-	}
-
-	// Remote source (user@host:path) must pass through without local checks.
-	if err := validateRestoreSrc("user@nas:/backup/workspace"); err == nil {
-		ui.TestPass("restore passes remote sources through without local validation")
-	} else {
-		ui.TestFail(fmt.Sprintf("restore incorrectly rejected remote source: %v", err))
-	}
-
-	// ── End-to-end: restore from fixture backup to temp destination ───────────
-
-	// Build a fixture backup directory: marker + some files.
-	tmpSrc := fmt.Sprintf("/tmp/haztest-restore-src-%d", os.Getpid())
-	tmpDest := fmt.Sprintf("/tmp/haztest-restore-dest-%d", os.Getpid())
-	if err := os.MkdirAll(tmpSrc, 0o700); err != nil {
-		ui.TestWarn(fmt.Sprintf("could not create restore fixture dir: %v", err))
-		return
-	}
-	defer os.RemoveAll(tmpSrc)
-	defer os.RemoveAll(tmpDest)
-
-	if err := os.MkdirAll(tmpDest, 0o700); err != nil {
-		ui.TestWarn(fmt.Sprintf("could not create restore dest dir: %v", err))
-		return
-	}
-
-	// Write marker + fixture files.
-	if err := os.WriteFile(tmpSrc+"/"+backupTargetMarker, nil, 0o644); err != nil {
-		ui.TestWarn(fmt.Sprintf("could not write marker for restore fixture: %v", err))
-		return
-	}
-	if err := os.WriteFile(tmpSrc+"/hello.txt", []byte("restore test\n"), 0o644); err != nil {
-		ui.TestWarn(fmt.Sprintf("could not write fixture file: %v", err))
-		return
-	}
-	if err := os.MkdirAll(tmpSrc+"/subdir", 0o755); err == nil {
-		os.WriteFile(tmpSrc+"/subdir/nested.txt", []byte("nested\n"), 0o644) //nolint:errcheck
-	}
-
-	// Validate that the marker passes the guard.
-	if err := validateRestoreSrc(tmpSrc); err != nil {
-		ui.TestFail(fmt.Sprintf("restore rejected valid initialized source: %v", err))
-		return
-	}
-	ui.TestPass("restore accepts initialized source (marker present)")
-
-	// Run rsync from fixture backup to temp dest (additive, no --delete).
-	err := runInteractive("rsync", "-aHAX",
-		"--exclude="+backupTargetMarker, // marker is backup metadata, not workspace content
-		tmpSrc+"/", tmpDest+"/",
-	)
+	// 1. Initialize repo
+	ctx := context.Background()
+	st, err := filesystem.New(ctx, &filesystem.Options{Path: tmpRepoDir}, false)
 	if err != nil {
-		ui.TestWarn(fmt.Sprintf("rsync restore dry-run failed: %v", err))
+		ui.TestFail(fmt.Sprintf("local snapshot: could not create storage: %v", err))
 		return
 	}
+	if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, "test-pass"); err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: could not initialize repo: %v", err))
+		return
+	}
+	if err := repo.Connect(ctx, tmpConfigFile, st, "test-pass", &repo.ConnectOptions{}); err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: could not connect: %v", err))
+		return
+	}
+	ui.TestPass("local snapshot: repository initialization successful")
 
-	// Verify fixture files were restored — both presence and content parity.
-	if data, err := os.ReadFile(tmpDest + "/hello.txt"); err == nil {
-		ui.TestPass("restore end-to-end: top-level file present in destination")
-		if string(data) == "restore test\n" {
-			ui.TestPass("restore end-to-end: content parity verified for top-level file")
-		} else {
-			ui.TestFail(fmt.Sprintf("restore end-to-end: content mismatch — got %q, want %q", string(data), "restore test\n"))
-		}
+	// 2. First snapshot
+	r, err := repo.Open(ctx, tmpConfigFile, "test-pass", &repo.Options{})
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: could not open repo: %v", err))
+		return
+	}
+	defer r.Close(ctx)
+
+	if err := snapshotDir(ctx, r.(repo.DirectRepository), tmpSourceDir, "pre-session (test)"); err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: first snapshot failed: %v", err))
+		return
+	}
+	ui.TestPass("local snapshot: first snapshot successful")
+
+	// 3. Modify source, take incremental snapshot
+	os.WriteFile(filepath.Join(tmpSourceDir, "new.go"), []byte("package main\n"), 0o644)
+	if err := snapshotDir(ctx, r.(repo.DirectRepository), tmpSourceDir, "pre-session (test-2)"); err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: incremental snapshot failed: %v", err))
+		return
+	}
+	ui.TestPass("local snapshot: incremental snapshot successful")
+
+	// 4. List snapshots
+	si := localSourceInfo(tmpSourceDir)
+	snaps, err := snapshot.ListSnapshots(ctx, r, si)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: could not list snapshots: %v", err))
+		return
+	}
+	if len(snaps) == 2 {
+		ui.TestPass(fmt.Sprintf("local snapshot: snapshot count correct (%d)", len(snaps)))
 	} else {
-		ui.TestFail("restore end-to-end: top-level file missing from destination after rsync")
+		ui.TestFail(fmt.Sprintf("local snapshot: expected 2 snapshots, got %d", len(snaps)))
 	}
 
-	if data, err := os.ReadFile(tmpDest + "/subdir/nested.txt"); err == nil {
-		ui.TestPass("restore end-to-end: nested file present in destination (directory tree preserved)")
-		if string(data) == "nested\n" {
-			ui.TestPass("restore end-to-end: content parity verified for nested file")
-		} else {
-			ui.TestFail(fmt.Sprintf("restore end-to-end: content mismatch for nested file — got %q, want %q", string(data), "nested\n"))
-		}
+	// 5. Restore first snapshot (before modification) and verify
+	first := snaps[0]
+	restoreDir := fmt.Sprintf("/tmp/haztest-local-restore-%d", os.Getpid())
+	defer os.RemoveAll(restoreDir)
+
+	stats, err := restoreSnapshotTo(ctx, r, first, restoreDir)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: restore failed: %v", err))
+		return
+	}
+	if stats.RestoredFileCount == 2 {
+		ui.TestPass(fmt.Sprintf("local snapshot: restored %d files from first snapshot", stats.RestoredFileCount))
 	} else {
-		ui.TestFail("restore end-to-end: nested file missing from destination after rsync")
+		ui.TestFail(fmt.Sprintf("local snapshot: expected 2 restored files from first snapshot, got %d", stats.RestoredFileCount))
+	}
+
+	// new.go should NOT exist in first snapshot
+	if _, err := os.Stat(filepath.Join(restoreDir, "new.go")); os.IsNotExist(err) {
+		ui.TestPass("local snapshot: first snapshot correctly does not contain new.go")
+	} else {
+		ui.TestFail("local snapshot: first snapshot unexpectedly contains new.go")
+	}
+
+	// main.go should exist with correct content
+	if data, err := os.ReadFile(filepath.Join(restoreDir, "main.go")); err == nil && string(data) == "package main\n" {
+		ui.TestPass("local snapshot: round-trip content verification passed")
+	} else {
+		ui.TestFail("local snapshot: content mismatch after restore")
+	}
+
+	// 6. Check that real local repo exists if hazmat init was run
+	if _, err := os.Stat(localConfigFile); err == nil {
+		ui.TestPass(fmt.Sprintf("local snapshot repo configured at %s", localRepoDir))
+	} else {
+		ui.TestWarn(fmt.Sprintf("local snapshot repo not found at %s — run hazmat init to create it", localRepoDir))
 	}
 }
 
@@ -1047,19 +931,19 @@ func testDecommission(ui *UI) {
 		ui.TestPass("DNS blocklist stripping removes agent block without touching surrounding /etc/hosts entries")
 	}
 
-	// ── Backup scope file removal ─────────────────────────────────────────────
-	// Verify that the scope file can be removed with os.Remove (as rollbackBackupScope does).
-	tmpScope := fmt.Sprintf("/tmp/haztest-decom-scope-%d", os.Getpid())
-	if err := os.WriteFile(tmpScope, []byte("# test\n/foo/\n"), 0o644); err == nil {
-		if err := os.Remove(tmpScope); err != nil {
-			ui.TestFail(fmt.Sprintf("Backup scope file removal failed: %v", err))
-		} else if _, err := os.Stat(tmpScope); os.IsNotExist(err) {
-			ui.TestPass("Backup scope file removal: file no longer exists after os.Remove")
+	// ── Local snapshot repo removal ───────────────────────────────────────────
+	// Verify that rollbackLocalRepo can clean up a repo directory.
+	tmpRepoDecom := fmt.Sprintf("/tmp/haztest-decom-repo-%d", os.Getpid())
+	if err := os.MkdirAll(tmpRepoDecom, 0o700); err == nil {
+		if err := os.RemoveAll(tmpRepoDecom); err != nil {
+			ui.TestFail(fmt.Sprintf("Local repo removal failed: %v", err))
+		} else if _, err := os.Stat(tmpRepoDecom); os.IsNotExist(err) {
+			ui.TestPass("Local repo removal: directory no longer exists after os.RemoveAll")
 		} else {
-			ui.TestFail("Backup scope file removal: file still exists after os.Remove")
+			ui.TestFail("Local repo removal: directory still exists after os.RemoveAll")
 		}
 	} else {
-		ui.TestWarn(fmt.Sprintf("Could not create temp scope file for decommission test: %v", err))
+		ui.TestWarn(fmt.Sprintf("Could not create temp repo dir for decommission test: %v", err))
 	}
 }
 

@@ -397,7 +397,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupSharedWorkspace(ui, r, cu.Username); err != nil {
 		return err
 	}
-	if err := setupBackupScope(ui, r); err != nil {
+	if err := setupLocalRepo(ui); err != nil {
 		return err
 	}
 	if err := setupHardeningGaps(ui, r); err != nil {
@@ -746,24 +746,23 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 
 // ── Step 3b: Backup scope file ────────────────────────────────────────────────
 
-func setupBackupScope(ui *UI, r *Runner) error {
-	ui.Step("Initialize backup scope file")
+func setupLocalRepo(ui *UI) error {
+	ui.Step("Initialize local snapshot repository")
 
-	if _, err := os.Stat(backupExcludesFile); err == nil {
-		ui.SkipDone(fmt.Sprintf("Backup scope file already exists at %s", backupExcludesFile))
+	if _, err := os.Stat(localConfigFile); err == nil {
+		ui.SkipDone(fmt.Sprintf("Local snapshot repository already exists at %s", localRepoDir))
 		return nil
 	}
 
-	if _, err := os.Stat(sharedWorkspace); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Workspace root not found (%s) — backup scope file skipped", sharedWorkspace))
+	if flagDryRun {
+		faint.Printf("    $ kopia repository create filesystem --path %s\n", localRepoDir)
 		return nil
 	}
 
-	if err := r.UserWriteFile(backupExcludesFile, defaultBackupExcludesContent()); err != nil {
-		return fmt.Errorf("write backup scope file: %w", err)
+	if err := initLocalRepo(); err != nil {
+		return fmt.Errorf("initialize local snapshot repo: %w", err)
 	}
-	ui.Ok(fmt.Sprintf("Backup scope file created at %s", backupExcludesFile))
-	ui.WarnMsg(fmt.Sprintf("Edit %s to list repos you do not want backed up.", backupExcludesFile))
+	ui.Ok(fmt.Sprintf("Local snapshot repository created at %s", localRepoDir))
 	return nil
 }
 

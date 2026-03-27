@@ -78,7 +78,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	rollbackUserExperience(ui, r)
 	rollbackSymlinks(ui, r)
 	rollbackUmask(ui, r)
-	rollbackBackupScope(ui, r)
+	rollbackLocalRepo(ui)
 
 	if deleteUser {
 		rollbackAgentUser(ui, r)
@@ -393,19 +393,20 @@ func rollbackUmask(ui *UI, r *Runner) {
 	}
 }
 
-func rollbackBackupScope(ui *UI, r *Runner) {
-	ui.Step("Remove backup scope file")
+func rollbackLocalRepo(ui *UI) {
+	ui.Step("Remove local snapshot repository")
 
-	if _, err := os.Stat(backupExcludesFile); os.IsNotExist(err) {
-		ui.SkipDone("Backup scope file not present")
+	if _, err := os.Stat(localRepoDir); os.IsNotExist(err) {
+		ui.SkipDone("Local snapshot repository not present")
 		return
 	}
 
-	// The scope file lives inside the workspace root — user-owned, no sudo.
-	if err := os.Remove(backupExcludesFile); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", backupExcludesFile, err))
+	// Remove config file and repo directory. Both are user-owned, no sudo.
+	os.Remove(localConfigFile)
+	if err := os.RemoveAll(localRepoDir); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", localRepoDir, err))
 	} else {
-		ui.Ok(fmt.Sprintf("Removed %s", backupExcludesFile))
+		ui.Ok(fmt.Sprintf("Removed %s", localRepoDir))
 	}
 }
 

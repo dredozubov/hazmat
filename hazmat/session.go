@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,7 @@ type sessionConfig struct {
 func newShellCmd() *cobra.Command {
 	var project string
 	var readDirs []string
+	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
@@ -29,6 +31,7 @@ func newShellCmd() *cobra.Command {
 				return err
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
+			preSessionSnapshot(cfg.ProjectDir, "shell", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
@@ -37,12 +40,15 @@ func newShellCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
+		"Skip pre-session snapshot")
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
 	var project string
 	var readDirs []string
+	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -53,6 +59,7 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
+			preSessionSnapshot(cfg.ProjectDir, "exec", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
@@ -61,6 +68,8 @@ func newExecCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
+		"Skip pre-session snapshot")
 	return cmd
 }
 
@@ -68,6 +77,7 @@ func newClaudeCmd() *cobra.Command {
 	var project string
 	var readDirs []string
 	var allowDocker bool
+	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
 		Short: "Launch Claude Code in containment",
@@ -89,6 +99,7 @@ func newClaudeCmd() *cobra.Command {
 				return err
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
+			preSessionSnapshot(cfg.ProjectDir, "claude", noBackup)
 			// The install check runs inside the sandbox after privilege
 			// transition, so no extra sudo call is needed on the daily path.
 			return runAgentSeatbeltScript(cfg,
@@ -104,6 +115,8 @@ func newClaudeCmd() *cobra.Command {
 		"Read-only directory to expose to the agent (repeatable)")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Skip Docker artifact check (Docker won't work; use Tier 3 for Docker support)")
+	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
+		"Skip pre-session snapshot")
 	return cmd
 }
 
@@ -473,6 +486,22 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// preSessionSnapshot takes an automatic snapshot before a session starts.
+// Warns on failure but never blocks the session.
+func preSessionSnapshot(projectDir, command string, skip bool) {
+	if skip {
+		return
+	}
+	start := time.Now()
+	fmt.Fprintf(os.Stderr, "  Snapshot: %s ... ", projectDir)
+	if err := snapshotProject(projectDir, command); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Warning: pre-session snapshot failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  Session will proceed without a restore point.")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "done (%.1fs)\n", time.Since(start).Seconds())
 }
 
 func agentEnvPairs(cfg sessionConfig) []string {

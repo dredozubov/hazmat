@@ -10,6 +10,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set at build time via -ldflags:
+//
+//	go build -ldflags "-X main.version=v0.1.0"
+var version = "dev"
+
 // flagVerbose, flagDryRun, and flagYesAll are persistent flags bound to the
 // root command so they are available on every subcommand without repetition.
 var (
@@ -77,6 +82,7 @@ func main() {
 	root := &cobra.Command{
 		Use:           "hazmat",
 		Short:         "Hazmat — AI agent containment for macOS",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -115,23 +121,31 @@ func main() {
 	execCmd := newExecCmd()
 	execCmd.GroupID = "run"
 
+	// ── Snapshots ──
+	snapshotsCmd := newSnapshotsCmd()
+	snapshotsCmd.GroupID = "snap"
+	diffCmd := newDiffCmd()
+	diffCmd.GroupID = "snap"
+	restoreCmd := newRestoreCmd()
+	restoreCmd.GroupID = "snap"
+
 	// ── Workspace ──
 	backupCmd := newBackupCmd()
 	backupCmd.GroupID = "ws"
-	restoreCmd := newRestoreCmd()
-	restoreCmd.GroupID = "ws"
 	statusCmd := newStatusCmd()
 	statusCmd.GroupID = "ws"
 
 	root.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Setup (run once):"},
 		&cobra.Group{ID: "run", Title: "Run agents:"},
+		&cobra.Group{ID: "snap", Title: "Snapshots:"},
 		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
 	root.AddCommand(
 		initCmd,
 		claudeCmd, shellCmd, execCmd,
-		backupCmd, restoreCmd, statusCmd,
+		snapshotsCmd, diffCmd, restoreCmd,
+		backupCmd, statusCmd,
 		newConnectCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")

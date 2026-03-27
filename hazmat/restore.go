@@ -1,115 +1,117 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
 
 func newRestoreCmd() *cobra.Command {
-	var syncMode, cloudMode bool
+	var cloudMode bool
+	var sessionIdx int
 	cmd := &cobra.Command{
-		Use:   "restore [--cloud] [<source>]",
-		Short: "Restore the workspace root from a backup",
-		Long: `Restores files from a backup into the canonical workspace root (` + sharedWorkspace + `).
+		Use:   "restore [--cloud | --session=N]",
+		Short: "Restore project from snapshot or workspace from cloud",
+		Long: `Without flags, restores the current project directory from the most recent
+local snapshot (taken automatically before each session).
 
-Local restores use rsync (backup → workspace). By default, restore is additive:
-no workspace files are deleted. Use --sync for a full mirror that removes
-workspace-only files.
+Current state is snapshotted first ("pre-restore") so the restore is
+reversible.
 
-Local backup source must contain a ` + backupTargetMarker + ` marker file to prevent
-accidental restores from wrong paths.
-
-Cloud restores (--cloud) use Kopia to restore from the latest snapshot in S3.
+Use --session=N to restore to N sessions ago (default: 1, the most recent).
+Use --cloud to restore the entire workspace from the latest cloud snapshot.
 
 Examples:
-  hazmat restore /Volumes/BACKUP/workspace
-  hazmat restore --sync /Volumes/BACKUP/workspace
-  hazmat restore --cloud`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(_ *cobra.Command, args []string) error {
+  hazmat restore              Restore project to pre-last-session state
+  hazmat restore --session=3  Restore project to 3 sessions ago
+  hazmat restore --cloud      Restore workspace from S3`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if cloudMode {
 				return runCloudRestore()
 			}
-			if len(args) != 1 {
-				return fmt.Errorf("source required (or use --cloud for S3 restore)")
-			}
-			return runRestore(syncMode, args[0])
+			return runProjectRestore(sessionIdx)
 		},
 	}
-	cmd.Flags().BoolVar(&syncMode, "sync", false,
-		"Mirror mode (local only): delete workspace-only files (full restore)")
 	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
-		"Restore latest snapshot from cloud storage")
+		"Restore entire workspace from latest cloud snapshot")
+	cmd.Flags().IntVar(&sessionIdx, "session", 1,
+		"Which snapshot to restore (1 = most recent, 2 = second most recent, ...)")
 	return cmd
 }
 
-func runRestore(syncMode bool, src string) error {
-	if _, err := os.Stat(sharedWorkspace); err != nil {
-		return fmt.Errorf("workspace root %q not found: %w\nRun 'hazmat init' first.", sharedWorkspace, err)
+func runProjectRestore(sessionIdx int) error {
+	ctx := context.Background()
+
+	projectDir, err := resolveDir("", true)
+	if err != nil {
+		return fmt.Errorf("resolve project directory: %w", err)
 	}
 
-	if err := validateRestoreSrc(src); err != nil {
+	r, err := openLocalRepo(ctx)
+	if err != nil {
+		return fmt.Errorf("open snapshot repository: %w", err)
+	}
+	defer r.Close(ctx)
+
+	snaps, err := listSnapshots(ctx, r, projectDir)
+	if err != nil || len(snaps) == 0 {
+		return fmt.Errorf("no snapshots found for %s\nRun a session first (hazmat claude/exec/shell) to create one.", projectDir)
+	}
+
+	if sessionIdx < 1 || sessionIdx > len(snaps) {
+		return fmt.Errorf("--session=%d out of range (have %d snapshots)\nUse 'hazmat snapshots' to see available snapshots.", sessionIdx, len(snaps))
+	}
+
+	// Snapshots are newest-last; --session=1 means the last element.
+	target := snaps[len(snaps)-sessionIdx]
+
+	fmt.Printf("Restore %s to snapshot from %v?\n", projectDir, target.StartTime.ToTime().Local().Format("2006-01-02 15:04:05"))
+	fmt.Printf("  Description: %s\n", target.Description)
+	fmt.Println("  Current state will be snapshotted first (recoverable).")
+	fmt.Println()
+
+	if !flagYesAll {
+		ui := &UI{}
+		if !ui.Ask("Proceed with restore?") {
+			fmt.Println("  Aborted.")
+			return nil
+		}
+	}
+
+	// Snapshot current state before restoring so "undo the undo" is possible.
+	fmt.Print("  Snapshotting current state... ")
+	if err := snapshotProject(projectDir, "pre-restore"); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Warning: could not snapshot current state: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  Proceeding with restore — current state may not be recoverable.")
+	} else {
+		fmt.Println("done")
+	}
+
+	fmt.Print("  Restoring... ")
+	stats, err := restoreSnapshotTo(ctx, r, target, projectDir)
+	if err != nil {
 		return err
 	}
 
-	// Ensure trailing slash on src so rsync copies contents, not the directory itself.
-	if !strings.HasSuffix(src, "/") && !strings.Contains(src, ":") {
-		src += "/"
-	}
-
-	dest := sharedWorkspace + "/"
-
-	fmt.Printf("Source:      %s\n", src)
-	fmt.Printf("Destination: %s\n", dest)
-	if syncMode {
-		fmt.Println("Mode:        SYNC — workspace-only files will be deleted")
-	} else {
-		fmt.Println("Mode:        safe (additive, no deletions)")
-	}
-	fmt.Println()
-
-	rsyncArgs := []string{"-aHAX", "--progress"}
-	if syncMode {
-		rsyncArgs = append(rsyncArgs, "--delete")
-	}
-	rsyncArgs = append(rsyncArgs, src, dest)
-
-	ui := &UI{DryRun: flagDryRun}
-	r := NewRunner(ui, flagVerbose, flagDryRun)
-	return r.Interactive("restore workspace from backup via rsync", "rsync", rsyncArgs...)
+	fmt.Printf("done (%d files, %s)\n",
+		stats.RestoredFileCount,
+		formatBytes(stats.RestoredTotalFileSize))
+	return nil
 }
 
-// validateRestoreSrc checks that src is a valid, initialized backup.
-// For local paths: src must exist and contain a backupTargetMarker.
-// For remote paths (containing ":"): local checks are skipped.
-func validateRestoreSrc(src string) error {
-	if strings.Contains(src, ":") {
-		return nil
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return strconv.FormatFloat(float64(b)/float64(1<<30), 'f', 1, 64) + " GB"
+	case b >= 1<<20:
+		return strconv.FormatFloat(float64(b)/float64(1<<20), 'f', 1, 64) + " MB"
+	case b >= 1<<10:
+		return strconv.FormatFloat(float64(b)/float64(1<<10), 'f', 1, 64) + " KB"
+	default:
+		return strconv.FormatInt(b, 10) + " B"
 	}
-
-	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf(
-			"restore source %q does not exist or is not mounted\n"+
-				"Mount the volume or check the path.",
-			src,
-		)
-	}
-
-	marker := filepath.Join(src, backupTargetMarker)
-	if _, err := os.Stat(marker); err != nil {
-		return fmt.Errorf(
-			"restore source %q is not an initialized backup target\n"+
-				"Missing sentinel file: %s\n"+
-				"This check prevents restoring from wrong paths.\n"+
-				"If this is a valid backup, initialize it:\n"+
-				"  touch %s",
-			src, marker, marker,
-		)
-	}
-
-	return nil
 }

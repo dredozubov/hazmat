@@ -1,4 +1,6 @@
-GOFLAGS ?= -trimpath
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GOFLAGS  ?= -trimpath
+LDFLAGS  := -X main.version=$(VERSION)
 
 # Installed paths (must match constants in main.go)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
@@ -9,10 +11,10 @@ LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 all: hazmat hazmat-launch
 
 hazmat:
-	go build $(GOFLAGS) -o hazmat .
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat .
 
 hazmat-launch:
-	go build $(GOFLAGS) -o hazmat-launch ./cmd/hazmat-launch
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
 
 # Install both binaries.  Run 'sudo make install' or install each separately.
 # hazmat-launch must be installed before 'hazmat setup' is run so the
