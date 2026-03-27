@@ -443,12 +443,12 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.Password != "" {
 		fmt.Println()
 		cYellow.Println("  ┌──────────────────────────────────────────────────┐")
-		cYellow.Println("  │  SAVE YOUR CLOUD BACKUP ENCRYPTION PASSWORD     │")
+		cYellow.Println("  │  SAVE YOUR CLOUD BACKUP RECOVERY KEY             │")
 		cYellow.Println("  └──────────────────────────────────────────────────┘")
 		fmt.Println()
 		fmt.Printf("    %s\n", cfg.Backup.Cloud.Password)
 		fmt.Println()
-		cYellow.Println("  You need this to restore from cloud backup.")
+		cYellow.Println("  You need this key to restore from cloud backup.")
 		cYellow.Println("  It cannot be recovered if lost.")
 		fmt.Println()
 	}
