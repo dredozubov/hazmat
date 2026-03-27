@@ -40,86 +40,84 @@ func TestResolveDirRejectsFile(t *testing.T) {
 	}
 }
 
-func TestResolveReferenceDirsDeduplicates(t *testing.T) {
-	refA := filepath.Join(t.TempDir(), "ref-a")
-	refB := filepath.Join(t.TempDir(), "ref-b")
-	for _, dir := range []string{refA, refB} {
+func TestResolveReadDirsDeduplicates(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{dirA, dirB} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	refAResolved, err := filepath.EvalSymlinks(refA)
+	dirAResolved, err := filepath.EvalSymlinks(dirA)
 	if err != nil {
-		t.Fatalf("EvalSymlinks(%s): %v", refA, err)
+		t.Fatalf("EvalSymlinks(%s): %v", dirA, err)
 	}
-	refBResolved, err := filepath.EvalSymlinks(refB)
+	dirBResolved, err := filepath.EvalSymlinks(dirB)
 	if err != nil {
-		t.Fatalf("EvalSymlinks(%s): %v", refB, err)
+		t.Fatalf("EvalSymlinks(%s): %v", dirB, err)
 	}
 
-	got, err := resolveReferenceDirs([]string{refA, refA, refB})
+	got, err := resolveReadDirs([]string{dirA, dirA, dirB})
 	if err != nil {
-		t.Fatalf("resolveReferenceDirs returned error: %v", err)
+		t.Fatalf("resolveReadDirs returned error: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected 2 unique references, got %d (%v)", len(got), got)
+		t.Fatalf("expected 2 unique dirs, got %d (%v)", len(got), got)
 	}
-	if got[0] != refAResolved || got[1] != refBResolved {
-		t.Fatalf("unexpected reference order/content: %v", got)
+	if got[0] != dirAResolved || got[1] != dirBResolved {
+		t.Fatalf("unexpected order/content: %v", got)
 	}
 }
 
-func TestResolveReferenceDirsAcceptsPathsOutsideWorkspace(t *testing.T) {
-	// References are no longer required to be inside ~/workspace.
-	outside := t.TempDir()
-	got, err := resolveReferenceDirs([]string{outside})
+func TestResolveReadDirsAcceptsAnyPath(t *testing.T) {
+	dir := t.TempDir()
+	got, err := resolveReadDirs([]string{dir})
 	if err != nil {
-		t.Fatalf("expected outside reference path to be accepted, got error: %v", err)
+		t.Fatalf("expected path to be accepted, got error: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("expected 1 reference, got %d", len(got))
+		t.Fatalf("expected 1 dir, got %d", len(got))
 	}
 }
 
-func TestResolveSessionConfigExplicitWorkspace(t *testing.T) {
+func TestResolveSessionConfigWithReadDirs(t *testing.T) {
 	projectDir := t.TempDir()
-	workspaceDir := t.TempDir()
+	readDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, workspaceDir, nil)
+	cfg, err := resolveSessionConfig(projectDir, []string{readDir})
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
 
 	wantProject, _ := filepath.EvalSymlinks(projectDir)
-	wantWorkspace, _ := filepath.EvalSymlinks(workspaceDir)
+	wantRead, _ := filepath.EvalSymlinks(readDir)
 
 	if cfg.ProjectDir != wantProject {
 		t.Errorf("ProjectDir = %q, want %q", cfg.ProjectDir, wantProject)
 	}
-	if cfg.WorkspaceRoot != wantWorkspace {
-		t.Errorf("WorkspaceRoot = %q, want %q", cfg.WorkspaceRoot, wantWorkspace)
+	if len(cfg.ReadDirs) != 1 || cfg.ReadDirs[0] != wantRead {
+		t.Errorf("ReadDirs = %v, want [%q]", cfg.ReadDirs, wantRead)
 	}
 }
 
-func TestResolveSessionConfigNoWorkspaceLeaveWorkspaceRootEmpty(t *testing.T) {
+func TestResolveSessionConfigNoReadDirs(t *testing.T) {
 	projectDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, "", nil)
+	cfg, err := resolveSessionConfig(projectDir, nil)
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
-	if cfg.WorkspaceRoot != "" {
-		t.Errorf("WorkspaceRoot = %q, want empty string when no --workspace given", cfg.WorkspaceRoot)
+	if len(cfg.ReadDirs) != 0 {
+		t.Errorf("ReadDirs = %v, want empty", cfg.ReadDirs)
 	}
 }
 
-func TestResolveSessionConfigProjectOutsideWorkspace(t *testing.T) {
-	// A project directory that is not under ~/workspace must be accepted.
+func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 	projectDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, "", nil)
+	cfg, err := resolveSessionConfig(projectDir, nil)
 	if err != nil {
-		t.Fatalf("project outside ~/workspace was rejected: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 	want, _ := filepath.EvalSymlinks(projectDir)
 	if cfg.ProjectDir != want {
@@ -143,9 +141,9 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 		t.Error("expected file-write* rule for PROJECT_DIR")
 	}
 
-	// No broad workspace read when WorkspaceRoot is empty.
-	if strings.Contains(policy, "WORKSPACE_ROOT") {
-		t.Error("policy should not reference WORKSPACE_ROOT param when WorkspaceRoot is empty")
+	// No read-only section when ReadDirs is empty.
+	if strings.Contains(policy, "Read-only directories") {
+		t.Error("policy should not have read-only section when ReadDirs is empty")
 	}
 
 	// Credential dirs must be denied.
@@ -157,83 +155,75 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 	}
 }
 
-func TestGenerateSBPLWithReferenceDirs(t *testing.T) {
+func TestGenerateSBPLWithReadDirs(t *testing.T) {
 	cfg := sessionConfig{
-		ProjectDir:    "/tmp/myproject",
-		ReferenceDirs: []string{"/tmp/ref1", "/tmp/ref2"},
+		ProjectDir: "/tmp/myproject",
+		ReadDirs:   []string{"/tmp/ref1", "/tmp/ref2"},
 	}
 	policy := generateSBPL(cfg)
 
-	// Each reference dir must have a read rule.
-	for _, ref := range cfg.ReferenceDirs {
-		want := `(allow file-read* (subpath "` + ref + `"))`
+	// Each read dir must have a read rule.
+	for _, dir := range cfg.ReadDirs {
+		want := `(allow file-read* (subpath "` + dir + `"))`
 		if !strings.Contains(policy, want) {
-			t.Errorf("expected file-read* rule for reference dir %s", ref)
+			t.Errorf("expected file-read* rule for read dir %s", dir)
 		}
 	}
 
-	// Reference dirs must NOT have a write rule.
-	for _, ref := range cfg.ReferenceDirs {
-		bad := `(allow file-write* (subpath "` + ref + `"))`
+	// Read dirs must NOT have a write rule.
+	for _, dir := range cfg.ReadDirs {
+		bad := `(allow file-write* (subpath "` + dir + `"))`
 		if strings.Contains(policy, bad) {
-			t.Errorf("reference dir %s must not have file-write* rule", ref)
+			t.Errorf("read dir %s must not have file-write* rule", dir)
 		}
 	}
 }
 
-func TestGenerateSBPLWithWorkspaceRoot(t *testing.T) {
+func TestGenerateSBPLReadDirEqualToProjectOmitted(t *testing.T) {
+	// A read dir that equals ProjectDir is redundant (project already has
+	// read+write) and should not emit a separate read-only rule.
 	cfg := sessionConfig{
-		WorkspaceRoot: "/Users/Shared/workspace",
-		ProjectDir:    "/Users/Shared/workspace/myproject",
+		ProjectDir: "/tmp/myproject",
+		ReadDirs:   []string{"/tmp/myproject"},
 	}
 	policy := generateSBPL(cfg)
 
-	// Workspace root gets a broad read rule.
-	if !strings.Contains(policy, `(allow file-read* (subpath "/Users/Shared/workspace"))`) {
-		t.Error("expected broad file-read* rule for WorkspaceRoot")
-	}
-
-	// Workspace root must NOT get a write rule.
-	if strings.Contains(policy, `(allow file-write* (subpath "/Users/Shared/workspace"))`) {
-		t.Error("workspace root must not have file-write* rule")
-	}
-
-	// Project dir still gets read+write.
-	if !strings.Contains(policy, `(allow file-write* (subpath "/Users/Shared/workspace/myproject"))`) {
-		t.Error("expected file-write* rule for PROJECT_DIR even when WorkspaceRoot is set")
-	}
-}
-
-func TestGenerateSBPLWorkspaceEqualToProjectOmitsBroadRead(t *testing.T) {
-	// When WorkspaceRoot == ProjectDir, the broad workspace read rule should
-	// be omitted (it would be redundant and emit a confusingly wide allow).
-	cfg := sessionConfig{
-		WorkspaceRoot: "/tmp/myproject",
-		ProjectDir:    "/tmp/myproject",
-	}
-	policy := generateSBPL(cfg)
-
-	// Only one file-read* rule for the path, not two.
 	count := strings.Count(policy, `(allow file-read* (subpath "/tmp/myproject"))`)
 	if count != 1 {
 		t.Errorf("expected exactly 1 file-read* rule for path, got %d", count)
 	}
 }
 
-func TestGenerateSBPLReferenceCoveredByWorkspaceRootSkipped(t *testing.T) {
-	// A reference dir that falls under WorkspaceRoot should not generate a
-	// redundant rule — the workspace read allow already covers it.
+func TestGenerateSBPLReadDirCoveredByBroaderReadDirSkipped(t *testing.T) {
+	// A narrow read dir inside a broader one should not emit a redundant rule.
 	cfg := sessionConfig{
-		WorkspaceRoot: "/Users/Shared/workspace",
-		ProjectDir:    "/Users/Shared/workspace/myproject",
-		ReferenceDirs: []string{"/Users/Shared/workspace/lib"},
+		ProjectDir: "/tmp/myproject",
+		ReadDirs:   []string{"/Users/Shared/code", "/Users/Shared/code/lib"},
 	}
 	policy := generateSBPL(cfg)
 
-	// The broad workspace root rule covers lib already; no separate rule needed.
-	redundant := `(allow file-read* (subpath "/Users/Shared/workspace/lib"))`
+	// The broad rule covers lib already; no separate rule needed.
+	redundant := `(allow file-read* (subpath "/Users/Shared/code/lib"))`
 	if strings.Contains(policy, redundant) {
-		t.Error("redundant per-reference rule emitted when reference is inside WorkspaceRoot")
+		t.Error("redundant rule emitted for read dir inside a broader read dir")
+	}
+	// The broad rule itself must be present.
+	if !strings.Contains(policy, `(allow file-read* (subpath "/Users/Shared/code"))`) {
+		t.Error("expected read rule for broader read dir")
+	}
+}
+
+func TestGenerateSBPLReadDirInsideProjectSkipped(t *testing.T) {
+	// A read dir inside the project is redundant — project has read+write.
+	cfg := sessionConfig{
+		ProjectDir: "/Users/Shared/code/myproject",
+		ReadDirs:   []string{"/Users/Shared/code/myproject/subdir"},
+	}
+	policy := generateSBPL(cfg)
+
+	redundant := `(allow file-read* (subpath "/Users/Shared/code/myproject/subdir"))`
+	if strings.Contains(policy, redundant) {
+		t.Error("redundant rule emitted for read dir inside project dir")
 	}
 }
 
@@ -334,11 +324,10 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 
 // ── agentEnvPairs ──────────────────────────────────────────────────────────────
 
-func TestAgentEnvPairsExposeWorkspaceSession(t *testing.T) {
+func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	cfg := sessionConfig{
-		WorkspaceRoot: "/Users/dr/workspace",
-		ProjectDir:    "/Users/dr/workspace/project",
-		ReferenceDirs: []string{
+		ProjectDir: "/Users/dr/workspace/project",
+		ReadDirs: []string{
 			"/Users/dr/workspace/ref-a",
 			"/Users/dr/workspace/ref-b",
 		},
@@ -354,18 +343,15 @@ func TestAgentEnvPairsExposeWorkspaceSession(t *testing.T) {
 		values[key] = value
 	}
 
-	if values["SANDBOX_WORKSPACE_ROOT"] != cfg.WorkspaceRoot {
-		t.Fatalf("SANDBOX_WORKSPACE_ROOT = %q, want %q", values["SANDBOX_WORKSPACE_ROOT"], cfg.WorkspaceRoot)
-	}
 	if values["SANDBOX_PROJECT_DIR"] != cfg.ProjectDir {
 		t.Fatalf("SANDBOX_PROJECT_DIR = %q, want %q", values["SANDBOX_PROJECT_DIR"], cfg.ProjectDir)
 	}
 
-	var refs []string
-	if err := json.Unmarshal([]byte(values["SANDBOX_REFERENCE_DIRS_JSON"]), &refs); err != nil {
-		t.Fatalf("unmarshal SANDBOX_REFERENCE_DIRS_JSON: %v", err)
+	var dirs []string
+	if err := json.Unmarshal([]byte(values["SANDBOX_READ_DIRS_JSON"]), &dirs); err != nil {
+		t.Fatalf("unmarshal SANDBOX_READ_DIRS_JSON: %v", err)
 	}
-	if len(refs) != len(cfg.ReferenceDirs) {
-		t.Fatalf("reference count = %d, want %d", len(refs), len(cfg.ReferenceDirs))
+	if len(dirs) != len(cfg.ReadDirs) {
+		t.Fatalf("read dir count = %d, want %d", len(dirs), len(cfg.ReadDirs))
 	}
 }

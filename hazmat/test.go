@@ -612,26 +612,25 @@ func testSeatbelt(ui *UI) {
 		return
 	}
 
-	// Create isolated test directories. referenceDir is passed explicitly as a
-	// reference dir so it receives per-dir read-only access (not covered by a
-	// broad workspace root rule).
+	// Create isolated test directories. readDir is passed as a read-only dir
+	// so it receives a per-dir read rule separate from the project.
 	projectDir := fmt.Sprintf("%s/.seatbelt-project-%d", sharedWorkspace, os.Getpid())
-	referenceDir := fmt.Sprintf("%s/.seatbelt-reference-%d", sharedWorkspace, os.Getpid())
+	readDir := fmt.Sprintf("%s/.seatbelt-read-%d", sharedWorkspace, os.Getpid())
 	if err := os.MkdirAll(projectDir, 0o770); err != nil {
 		ui.TestWarn(fmt.Sprintf("Could not create seatbelt project dir: %v", err))
 		return
 	}
-	if err := os.MkdirAll(referenceDir, 0o770); err != nil {
-		ui.TestWarn(fmt.Sprintf("Could not create seatbelt reference dir: %v", err))
+	if err := os.MkdirAll(readDir, 0o770); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not create seatbelt read dir: %v", err))
 		return
 	}
 	defer os.RemoveAll(projectDir)
-	defer os.RemoveAll(referenceDir)
+	defer os.RemoveAll(readDir)
 
 	// Generate a per-session policy with the test dirs embedded as literals.
 	cfg := sessionConfig{
-		ProjectDir:    projectDir,
-		ReferenceDirs: []string{referenceDir},
+		ProjectDir: projectDir,
+		ReadDirs:   []string{readDir},
 	}
 	policyContent := generateSBPL(cfg)
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-test-%d.sb", os.Getpid())
@@ -656,13 +655,13 @@ func testSeatbelt(ui *UI) {
 		ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied write inside PROJECT_DIR: %v", err))
 	}
 
-	// Denied: write to a reference directory (read-only, not read+write).
-	testRefWritePath := fmt.Sprintf("%s/.seatbelt-ref-write-%d", referenceDir, os.Getpid())
-	if err := runSandboxed("/usr/bin/touch", testRefWritePath); err != nil {
-		ui.TestPass("Seatbelt denies writes to reference directories")
+	// Denied: write to a read-only directory.
+	testReadWritePath := fmt.Sprintf("%s/.seatbelt-read-write-%d", readDir, os.Getpid())
+	if err := runSandboxed("/usr/bin/touch", testReadWritePath); err != nil {
+		ui.TestPass("Seatbelt denies writes to read-only directories")
 	} else {
-		sudo("rm", "-f", testRefWritePath) //nolint:errcheck
-		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write to a reference directory")
+		sudo("rm", "-f", testReadWritePath) //nolint:errcheck
+		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write to a read-only directory")
 	}
 
 	// Denied: write to agent HOME outside approved subdirs.
@@ -692,18 +691,18 @@ func testSeatbelt(ui *UI) {
 		ui.TestWarn("Could not create probe file for seatbelt read-denial test")
 	}
 
-	// Allowed: read from a directory passed as an explicit reference.
-	probeWsPath := fmt.Sprintf("%s/.seatbelt-read-%d", referenceDir, os.Getpid())
-	if f, err := os.Create(probeWsPath); err == nil {
+	// Allowed: read from a directory passed as a read-only dir.
+	probeReadPath := fmt.Sprintf("%s/.seatbelt-readprobe-%d", readDir, os.Getpid())
+	if f, err := os.Create(probeReadPath); err == nil {
 		f.Close()
-		defer os.Remove(probeWsPath)
-		if err := runSandboxed("/bin/cat", probeWsPath); err == nil {
-			ui.TestPass("Seatbelt allows reads inside explicit reference directories")
+		defer os.Remove(probeReadPath)
+		if err := runSandboxed("/bin/cat", probeReadPath); err == nil {
+			ui.TestPass("Seatbelt allows reads inside read-only directories")
 		} else {
-			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside reference directory: %v", err))
+			ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied read inside read-only directory: %v", err))
 		}
 	} else {
-		ui.TestWarn(fmt.Sprintf("Could not create read probe in reference directory: %v", err))
+		ui.TestWarn(fmt.Sprintf("Could not create read probe in read-only directory: %v", err))
 	}
 
 	// Allowed: read ~/.claude (Claude auth tokens must be accessible).

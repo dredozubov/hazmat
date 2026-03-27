@@ -12,21 +12,19 @@ import (
 )
 
 type sessionConfig struct {
-	WorkspaceRoot string
-	ProjectDir    string
-	ReferenceDirs []string
+	ProjectDir string
+	ReadDirs   []string
 }
 
 func newShellCmd() *cobra.Command {
 	var project string
-	var workspace string
-	var references []string
+	var readDirs []string
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg, err := resolveSessionConfig(project, workspace, references)
+			cfg, err := resolveSessionConfig(project, readDirs)
 			if err != nil {
 				return err
 			}
@@ -36,24 +34,21 @@ func newShellCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
-	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
-		"Read-only workspace root to expose to the agent (optional)")
-	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory (repeat flag for multiple paths)")
+		"Writable project directory (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
+		"Read-only directory to expose to the agent (repeatable)")
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
 	var project string
-	var workspace string
-	var references []string
+	var readDirs []string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, err := resolveSessionConfig(project, workspace, references)
+			cfg, err := resolveSessionConfig(project, readDirs)
 			if err != nil {
 				return err
 			}
@@ -63,18 +58,15 @@ func newExecCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
-	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
-		"Read-only workspace root to expose to the agent (optional)")
-	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory (repeat flag for multiple paths)")
+		"Writable project directory (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
+		"Read-only directory to expose to the agent (repeatable)")
 	return cmd
 }
 
 func newClaudeCmd() *cobra.Command {
 	var project string
-	var workspace string
-	var references []string
+	var readDirs []string
 	var allowDocker bool
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
@@ -89,7 +81,7 @@ func newClaudeCmd() *cobra.Command {
 				project = projectHint
 			}
 
-			cfg, err := resolveSessionConfig(project, workspace, references)
+			cfg, err := resolveSessionConfig(project, readDirs)
 			if err != nil {
 				return err
 			}
@@ -107,11 +99,9 @@ func newClaudeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory, may be outside ~/workspace)")
-	cmd.Flags().StringVarP(&workspace, "workspace", "W", "",
-		"Read-only workspace root to expose to the agent (optional)")
-	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
-		"Read-only reference directory (repeat flag for multiple paths)")
+		"Writable project directory (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
+		"Read-only directory to expose to the agent (repeatable)")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Skip Docker artifact check (Docker won't work; use Tier 3 for Docker support)")
 	return cmd
@@ -134,29 +124,20 @@ func maybeConsumeProjectArg(args []string) (string, []string, error) {
 	return abs, args[1:], nil
 }
 
-func resolveSessionConfig(project, workspace string, references []string) (sessionConfig, error) {
+func resolveSessionConfig(project string, readPaths []string) (sessionConfig, error) {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return sessionConfig{}, fmt.Errorf("project: %w", err)
 	}
 
-	var workspaceRoot string
-	if workspace != "" {
-		workspaceRoot, err = resolveDir(workspace, false)
-		if err != nil {
-			return sessionConfig{}, fmt.Errorf("workspace: %w", err)
-		}
-	}
-
-	referenceDirs, err := resolveReferenceDirs(references)
+	readDirs, err := resolveReadDirs(readPaths)
 	if err != nil {
 		return sessionConfig{}, err
 	}
 
 	return sessionConfig{
-		WorkspaceRoot: workspaceRoot,
-		ProjectDir:    projectDir,
-		ReferenceDirs: referenceDirs,
+		ProjectDir: projectDir,
+		ReadDirs:   readDirs,
 	}, nil
 }
 
@@ -194,17 +175,17 @@ func resolveDir(target string, defaultToCwd bool) (string, error) {
 	return abs, nil
 }
 
-func resolveReferenceDirs(references []string) ([]string, error) {
-	if len(references) == 0 {
+func resolveReadDirs(paths []string) ([]string, error) {
+	if len(paths) == 0 {
 		return nil, nil
 	}
 
-	seen := make(map[string]struct{}, len(references))
-	resolved := make([]string, 0, len(references))
-	for _, ref := range references {
-		abs, err := resolveDir(ref, false)
+	seen := make(map[string]struct{}, len(paths))
+	resolved := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs, err := resolveDir(p, false)
 		if err != nil {
-			return nil, fmt.Errorf("reference %q: %w", ref, err)
+			return nil, fmt.Errorf("read dir %q: %w", p, err)
 		}
 		if _, ok := seen[abs]; ok {
 			continue
@@ -308,14 +289,13 @@ func warnUnmanagedProject(projectDir string) {
 
 // generateSBPL produces a per-session Seatbelt (SBPL) policy with all
 // filesystem boundaries embedded as literal absolute paths. This makes
-// --reference an actual OS-level boundary rather than an advisory env var:
-// only the listed directories receive read access, not the entire workspace.
+// --read an actual OS-level boundary rather than an advisory env var:
+// only the listed directories receive read access beyond the project.
 //
 // Policy structure:
 //   - PROJECT_DIR gets read+write
-//   - Each ReferenceDirs entry gets read-only (skipped if covered by WorkspaceRoot
-//     or if it is the same as ProjectDir)
-//   - WorkspaceRoot (if non-empty and different from ProjectDir) gets broad read-only
+//   - Each ReadDirs entry gets read-only (skipped if covered by ProjectDir
+//     or another ReadDirs entry)
 //   - Agent home subtrees, system libraries, tmp, terminal, mach, and network
 //     rules are identical to the former static profile
 //   - Credential directories are denied last (last-match wins in SBPL)
@@ -348,30 +328,30 @@ func generateSBPL(cfg sessionConfig) string {
 	}
 	w("\n")
 
-	// Workspace root: broad read-only, only when explicitly requested and
-	// distinct from the project dir (avoid a redundant rule).
-	if cfg.WorkspaceRoot != "" && cfg.WorkspaceRoot != cfg.ProjectDir {
-		w(";; ── Workspace root — read-only ────────────────────────────────────────────\n")
-		w("(allow file-read* (subpath %q))\n\n", cfg.WorkspaceRoot)
-	}
-
-	// Reference dirs: individual read-only rules, skipping any path already
-	// covered by the workspace root or the project dir.
-	if len(cfg.ReferenceDirs) > 0 {
+	// Read-only directories: individual rules, skipping any path already
+	// covered by the project dir or by another (broader) read dir.
+	if len(cfg.ReadDirs) > 0 {
 		var pending []string
-		for _, ref := range cfg.ReferenceDirs {
-			if cfg.WorkspaceRoot != "" && isWithinDir(cfg.WorkspaceRoot, ref) {
-				continue // already covered by workspace root read rule
+		for _, dir := range cfg.ReadDirs {
+			if isWithinDir(cfg.ProjectDir, dir) {
+				continue // already covered by project read+write
 			}
-			if isWithinDir(cfg.ProjectDir, ref) {
-				continue // already covered by project read+write rule below
+			covered := false
+			for _, other := range cfg.ReadDirs {
+				if other != dir && isWithinDir(other, dir) {
+					covered = true
+					break
+				}
 			}
-			pending = append(pending, ref)
+			if covered {
+				continue
+			}
+			pending = append(pending, dir)
 		}
 		if len(pending) > 0 {
-			w(";; ── Reference directories — read-only ─────────────────────────────────────\n")
-			for _, ref := range pending {
-				w("(allow file-read* (subpath %q))\n", ref)
+			w(";; ── Read-only directories ──────────────────────────────────────────────────\n")
+			for _, dir := range pending {
+				w("(allow file-read* (subpath %q))\n", dir)
 			}
 			w("\n")
 		}
@@ -495,7 +475,7 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 }
 
 func agentEnvPairs(cfg sessionConfig) []string {
-	referencesJSON, _ := json.Marshal(cfg.ReferenceDirs)
+	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
 	pairs := []string{
 		"HOME=" + agentHome,
 		"USER=" + agentUser,
@@ -508,9 +488,8 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"XDG_DATA_HOME=" + defaultAgentDataHome,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 		"SANDBOX_ACTIVE=1",
-		"SANDBOX_WORKSPACE_ROOT=" + cfg.WorkspaceRoot,
 		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
-		"SANDBOX_REFERENCE_DIRS_JSON=" + string(referencesJSON),
+		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
 	}
 	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
 		if value := os.Getenv(key); value != "" {
