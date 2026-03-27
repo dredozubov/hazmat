@@ -62,7 +62,16 @@ fi
 if lume get "$BASE_VM" &>/dev/null; then
     echo "Base VM $BASE_VM already exists."
 else
+    # Detect host macOS version to pick the right unattended preset.
+    HOST_VERSION=$(sw_vers -productVersion | cut -d. -f1)
+    case "$HOST_VERSION" in
+        26) PRESET="tahoe" ;;
+        15) PRESET="sequoia" ;;
+        *)  PRESET="tahoe" ;;
+    esac
+
     echo "Creating base VM $BASE_VM (one-time, ~15-20 min)..."
+    echo "Host macOS $HOST_VERSION → using '$PRESET' preset."
     echo "This downloads macOS from Apple and runs unattended Setup Assistant."
     lume create "$BASE_VM" \
         --os macOS \
@@ -70,7 +79,7 @@ else
         --cpu 4 \
         --memory 8GB \
         --disk-size 50GB \
-        --unattended sequoia \
+        --unattended "$PRESET" \
         --no-display
     echo "Base VM $BASE_VM created."
 
