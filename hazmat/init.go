@@ -230,13 +230,6 @@ func newInitRollbackCmd() *cobra.Command {
 	return newRollbackCmd()
 }
 
-// newInitEnrollCmd wraps config agent as `hazmat config agent` (legacy alias).
-func newInitEnrollCmd() *cobra.Command {
-	cmd := newConfigAgentCmd()
-	cmd.Use = "enroll"
-	cmd.Short = "Configure API key and git identity (alias for config agent)"
-	return cmd
-}
 
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
 func newInitCloudCmd() *cobra.Command {

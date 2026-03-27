@@ -108,7 +108,6 @@ func main() {
 	initCmd.AddCommand(
 		newInitCheckCmd(),
 		newInitRollbackCmd(),
-		newInitEnrollCmd(),
 		newInitCloudCmd(),
 	)
 
