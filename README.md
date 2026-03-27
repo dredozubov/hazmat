@@ -43,7 +43,7 @@ Claude Code ships with a [sandbox](https://github.com/anthropic-experimental/san
 
 **Agents actively reason about escaping.** Ona's research showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root` path traversal, then attempting to disable bubblewrap when that was caught. The agent figured this out unprompted.
 
-**The CVE record backs this up.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) (CVSS 8.7): RCE through malicious project config files. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration via config-based redirect — leaked your key before the trust prompt appeared. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection, executing with host privileges after restart. All patched, all real.
+**The CVE record backs this up.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) (CVSS 8.7): RCE through malicious project config files. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration via config-based redirect — leaked your key before the trust prompt appeared. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection, executing with host privileges after restart. All patched, all real. See [cve-audit.md](docs/cve-audit.md) for a step-by-step analysis of how hazmat's layers defend against each one.
 
 **No single layer is enough.** A Seatbelt profile can deny file reads — but it doesn't stop the agent from sending your project code to an arbitrary server over HTTPS. A firewall can block exfiltration protocols — but it doesn't stop the agent from reading `~/.ssh/id_rsa` if it runs as your user. Each layer covers a different class of threat. You need all of them working together.
 
@@ -226,11 +226,12 @@ If you need stronger isolation, see [tier4-vm-isolation.md](docs/tier4-vm-isolat
 |-----|---------------|
 | [usage.md](docs/usage.md) | Complete user guide |
 | [overview.md](docs/overview.md) | Tier selection and design choices |
+| [cve-audit.md](docs/cve-audit.md) | Step-by-step CVE defense analysis |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
 | [attack-surface-deep-dive.md](docs/research/attack-surface-deep-dive.md) | Escape and exfiltration paths |
 | [security-evidence.md](docs/research/security-evidence.md) | Incidents, CVEs, and academic sources |
-| [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification of setup/rollback ordering |
+| [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification of setup/rollback and backup safety |
 
 ## License
 
