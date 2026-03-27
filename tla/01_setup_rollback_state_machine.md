@@ -43,11 +43,11 @@ Step  3: setupBackupScope      → backupScope
 Step  4: setupHardeningGaps    → umask
 Step  5: setupSeatbelt         → seatbelt
 Step  6: setupUserExperience   → wrappers
-Step  7: setupLaunchHelper     → (verify only — fails if absent)
-Step  8: setupSudoers          → sudoers       ← agent becomes launchable
-Step  9: setupPfFirewall       → pfAnchor      ← firewall activates
-Step 10: setupDNSBlocklist     → dnsBlocklist
-Step 11: setupLaunchDaemon     → launchDaemon
+Step  7: setupPfFirewall       → pfAnchor      ← firewall activates
+Step  8: setupDNSBlocklist     → dnsBlocklist
+Step  9: setupLaunchDaemon     → launchDaemon
+Step 10: setupLaunchHelper     → (verify only — fails if absent)
+Step 11: setupSudoers          → sudoers       ← agent becomes launchable (AFTER firewall)
 Step 12: runBootstrap          → claudeCode
 Step 13: runEnroll             → credentials
 ```
@@ -88,39 +88,21 @@ and how many setup/rollback attempts have occurred.
 
 ## What TLC Finds
 
-### Finding 1: Security Window (AgentContained VIOLATED)
+### Finding 1: Security Window (AgentContained — FIXED)
 
 **Invariant:** `(agentUser ∧ sudoers) ⇒ pfAnchor`
 
-**Violation:** Setup succeeds through step 8 (sudoers installed), then fails
-at step 9 (pf firewall). The agent user is now launchable via
-`sudo -u agent ...` with no firewall containment.
+**Original violation:** Setup installed sudoers (step 8) before pf firewall
+(step 9). If setup was interrupted between those steps, the agent was
+launchable with no network containment.
 
-**Counterexample (confirmed by TLC, 726 states generated in <1s):**
-```
-State  1: Init — all resources FALSE
-State  2: InstallLaunchHelper → launchHelper = TRUE
-State  3: BeginSetup → phase = "setting_up", setupStep = 0
-State  4: SetupStepSucceed step 0 → agentUser = TRUE
-State  5: SetupStepSucceed step 1 → devGroup = TRUE
-State  6: SetupStepSucceed step 2 → workspace = TRUE
-State  7: SetupStepSucceed step 3 → backupScope = TRUE
-State  8: SetupStepSucceed step 4 → umask = TRUE
-State  9: SetupStepSucceed step 5 → seatbelt = TRUE
-State 10: SetupStepSucceed step 6 → wrappers = TRUE
-State 11: SetupStepSucceed step 7 → (helper verified, no-op)
-State 12: SetupStepSucceed step 8 → sudoers = TRUE, pfAnchor = FALSE  ← VIOLATION
-```
+**Fix applied:** Reordered setup so pf/dns/daemon (steps 7-9) run before
+launchHelper verification and sudoers (steps 10-11). The firewall's
+`user agent` rules only require the agent user to exist (step 0).
 
-At State 12, `agentUser = TRUE ∧ sudoers = TRUE ∧ pfAnchor = FALSE`.
-The agent is launchable with no firewall. Setup hasn't even failed yet — it's
-about to proceed to step 9 — but if the user Ctrl-C's or `pfctl` fails here,
-the system is left in an unsafe state.
-
-**Suggested fix:** Reorder setup so that `setupPfFirewall` (network containment)
-runs BEFORE `setupSudoers` (privilege grant). The firewall does not depend on
-the agent user being launchable — it uses `user agent` in pf rules which only
-requires the user to exist, not sudoers.
+**TLC confirmation:** After fix, AgentContained passes across all 1887 distinct
+states. The agent is never launchable without firewall containment in any
+reachable state.
 
 ### Invariants That Pass
 
@@ -138,5 +120,5 @@ requires the user to exist, not sudoers.
 | `MaxSetupAttempts` | 2 | Covers: first setup fails, re-run succeeds |
 | `MaxRollbackAttempts` | 2 | Covers: rollback after first setup, then after re-setup |
 
-**Confirmed state space:** 2769 states generated, 1596 distinct. Runtime: <1 second.
-(With `AgentContained` enabled: violation found after 726 states in <1s.)
+**Confirmed state space:** 3372 states generated, 1887 distinct. Runtime: <1 second.
+All 5 safety invariants + liveness pass after the fix.

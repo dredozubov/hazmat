@@ -114,7 +114,7 @@ INVARIANTS
 \* INVARIANTS
 \*   AgentContained          \* KNOWN VIOLATION — uncomment to see counterexample
 ```
-Expected: passes all invariants except `AgentContained` (1596 distinct states, <1s).
+Expected: No error has been found (1887 distinct states, <1s).
 
 ---
 
@@ -139,6 +139,6 @@ fi
 
 | Problem | Model Bounds | Expected States | Runtime |
 |---------|-------------|-----------------|---------|
-| 01 Setup/Rollback | 2 setup, 2 rollback | 1596 distinct | <1s |
+| 01 Setup/Rollback | 2 setup, 2 rollback | 1887 distinct | <1s |
 
 If TLC runs for more than 60 seconds, reduce your model bounds.

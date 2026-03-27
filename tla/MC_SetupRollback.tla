@@ -160,13 +160,16 @@ SetupStepSucceed ==
        \/ (setupStep = 4  /\ umask'        = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \/ (setupStep = 5  /\ seatbelt'     = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \/ (setupStep = 6  /\ wrappers'     = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \* Step 7: launchHelper verification — does NOT create it, only checks.
+       \* Steps 7-9: Network containment BEFORE privilege grant.
+       \* pf firewall and DNS blocklist are installed before sudoers so the agent
+       \* is never launchable without network containment (AgentContained invariant).
+       \/ (setupStep = 7  /\ pfAnchor'    = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 8  /\ dnsBlocklist' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 9  /\ launchDaemon' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
+       \* Step 10: launchHelper verification — does NOT create it, only checks.
        \* If helper is absent, setup MUST fail (modeled by SetupStepFail guard).
-       \/ (setupStep = 7  /\ launchHelper         /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 8  /\ sudoers'     = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 9  /\ pfAnchor'    = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 10 /\ dnsBlocklist' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 11 /\ launchDaemon' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
+       \/ (setupStep = 10 /\ launchHelper         /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 11 /\ sudoers'     = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \/ (setupStep = 12 /\ claudeCode'  = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, credentials>>)
        \/ (setupStep = 13 /\ credentials' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode>>)
     /\ setupStep' = setupStep + 1
@@ -188,10 +191,10 @@ SetupComplete ==
 SetupStepFail ==
     /\ phase = "setting_up"
     /\ setupStep < 14
-    \* Step 7 fails deterministically when helper is missing
-    /\ \/ (setupStep = 7 /\ ~launchHelper)
+    \* Step 10 fails deterministically when helper is missing
+    /\ \/ (setupStep = 10 /\ ~launchHelper)
        \* Any other step can fail nondeterministically
-       \/ setupStep /= 7
+       \/ setupStep /= 10
     /\ phase' = "idle"
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,

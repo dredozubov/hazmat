@@ -55,16 +55,16 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean`, `SetupEventuallyCompletes` |
-| Status | **Finding: AgentContained violated** — sudoers installed at step 8 before pf at step 9 |
+| Status | **Fixed** — pf/dns/daemon now run before sudoers; AgentContained proved |
 
-**What was found:** If setup succeeds through step 8 (sudoers) but fails at
-step 9 (pf firewall), the agent user is launchable via `sudo -u agent` with no
-firewall containment. The controlling user or a cron job could invoke the agent
-in this window without network restrictions.
+**What was found:** Setup originally installed sudoers (step 8) before pf
+firewall (step 9). If setup was interrupted between those steps, the agent was
+launchable via `sudo -u agent` with no firewall containment.
 
-**Suggested fix:** Reorder setup so `setupPfFirewall` runs before `setupSudoers`.
-The firewall's `user agent` rules only require the agent user to exist (step 0),
-not sudoers. Moving the firewall earlier closes the security window.
+**Fix applied:** Reordered setup so `setupPfFirewall`, `setupDNSBlocklist`, and
+`setupLaunchDaemon` run before `setupLaunchHelper` and `setupSudoers`. The
+firewall's `user agent` rules only require the agent user to exist (step 0),
+not sudoers. `AgentContained` now passes TLC (1887 distinct states, <1s).
 
 **Change rules:**
 - Any change to setup step ordering must be modeled and proved against

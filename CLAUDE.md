@@ -50,8 +50,7 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
      -config MC_SetupRollback.cfg MC_SetupRollback.tla
    ```
 3. **Key invariant: `AgentContained`** — the agent must never be launchable
-   (sudoers exists) without firewall containment (pfAnchor active). Currently
-   violated by step ordering (known finding, see `tla/01_setup_rollback_state_machine.md`).
+   (sudoers exists) without firewall containment (pfAnchor active).
 
 ## When making security-relevant changes
 

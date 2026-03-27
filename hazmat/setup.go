@@ -371,12 +371,6 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupUserExperience(ui, r); err != nil {
 		return err
 	}
-	if err := setupLaunchHelper(ui, r); err != nil {
-		return err
-	}
-	if err := setupSudoers(ui, r, cu.Username); err != nil {
-		return err
-	}
 	if err := setupPfFirewall(ui, r); err != nil {
 		return err
 	}
@@ -384,6 +378,12 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 	if err := setupLaunchDaemon(ui, r); err != nil {
+		return err
+	}
+	if err := setupLaunchHelper(ui, r); err != nil {
+		return err
+	}
+	if err := setupSudoers(ui, r, cu.Username); err != nil {
 		return err
 	}
 
