@@ -28,18 +28,22 @@ This command is idempotent: values already set are shown and can be kept or
 overridden. Run it again any time to update credentials.
 
 Examples:
-  hazmat enroll                   # Interactive prompts
-  hazmat enroll --api-key sk-ant-...  # Non-interactive API key`,
+  hazmat enroll                   # Interactive prompts`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runEnroll()
+			return runEnroll(nil)
 		},
 	}
 	return cmd
 }
 
-func runEnroll() error {
-	ui := &UI{}
+// runEnroll configures agent credentials. If ui is non-nil, uses its step
+// counter (chained from setup). If nil, creates a standalone UI.
+func runEnroll(ui *UI) error {
+	standalone := ui == nil
+	if standalone {
+		ui = &UI{}
+	}
 	if !ui.IsInteractive() {
 		return fmt.Errorf("enroll requires an interactive terminal")
 	}
@@ -48,27 +52,20 @@ func runEnroll() error {
 		return fmt.Errorf("agent user %q not found — run 'hazmat setup' first", agentUser)
 	}
 
-	fmt.Println()
-	cBold.Println("  ┌──────────────────────────────────────────────┐")
-	cBold.Println("  │  Agent Credential Setup                      │")
-	cBold.Println("  └──────────────────────────────────────────────┘")
-	fmt.Println()
-
 	reader := bufio.NewReader(os.Stdin)
 
-	// ── Step 1: API key ─────────────────────────────────────────────────────
-	cBold.Println("  1. Anthropic API Key")
-	fmt.Println()
+	// ── API key ─────────────────────────────────────────────────────────────
+	ui.Step("Anthropic API key")
 
 	currentKey, _ := sudoOutput("sudo", "-u", agentUser, "-i",
 		"bash", "-c", "grep ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null | tail -1")
 	currentKey = strings.TrimSpace(currentKey)
 
 	if currentKey != "" {
-		cDim.Printf("     Current: %s\n", maskKey(currentKey))
-		fmt.Print("     New API key (Enter to keep current, or paste new): ")
+		cDim.Printf("  Current: %s\n", maskKey(currentKey))
+		fmt.Print("  New API key (Enter to keep, or paste new): ")
 	} else {
-		fmt.Print("     API key (sk-ant-...): ")
+		fmt.Print("  API key (sk-ant-...): ")
 	}
 
 	apiKey, _ := term.ReadPassword(int(syscall.Stdin))
@@ -77,25 +74,22 @@ func runEnroll() error {
 	if len(apiKey) > 0 {
 		key := strings.TrimSpace(string(apiKey))
 		if key != "" {
-			// Write the export line, replacing any existing one
 			script := fmt.Sprintf(
 				`sed -i '' '/^export ANTHROPIC_API_KEY=/d' ~/.zshrc 2>/dev/null; echo 'export ANTHROPIC_API_KEY="%s"' >> ~/.zshrc`,
 				key)
 			if _, err := sudoOutput("sudo", "-u", agentUser, "-i", "bash", "-c", script); err != nil {
 				return fmt.Errorf("set API key: %w", err)
 			}
-			cGreen.Println("     ✓ API key set")
+			ui.Ok("API key set")
 		}
 	} else if currentKey != "" {
-		cDim.Println("     (kept existing)")
+		ui.SkipDone("API key kept")
 	} else {
-		cYellow.Println("     ! Skipped — set later with: hazmat enroll")
+		ui.WarnMsg("Skipped — run 'hazmat enroll' later to set")
 	}
-	fmt.Println()
 
-	// ── Step 2: Git identity ────────────────────────────────────────────────
-	cBold.Println("  2. Git Identity")
-	fmt.Println()
+	// ── Git identity ────────────────────────────────────────────────────────
+	ui.Step("Git identity")
 
 	currentName, _ := sudoOutput("sudo", "-u", agentUser, "-i",
 		"bash", "-c", "git config --global user.name 2>/dev/null")
@@ -105,9 +99,9 @@ func runEnroll() error {
 	currentEmail = strings.TrimSpace(currentEmail)
 
 	if currentName != "" {
-		fmt.Printf("     Git name [%s]: ", currentName)
+		fmt.Printf("  Name [%s]: ", currentName)
 	} else {
-		fmt.Print("     Git name: ")
+		fmt.Print("  Name: ")
 	}
 	gitName, _ := reader.ReadString('\n')
 	gitName = strings.TrimSpace(gitName)
@@ -116,9 +110,9 @@ func runEnroll() error {
 	}
 
 	if currentEmail != "" {
-		fmt.Printf("     Git email [%s]: ", currentEmail)
+		fmt.Printf("  Email [%s]: ", currentEmail)
 	} else {
-		fmt.Print("     Git email: ")
+		fmt.Print("  Email: ")
 	}
 	gitEmail, _ := reader.ReadString('\n')
 	gitEmail = strings.TrimSpace(gitEmail)
@@ -140,48 +134,34 @@ func runEnroll() error {
 	}
 
 	if gitName != "" || gitEmail != "" {
-		cGreen.Printf("     ✓ Git identity: %s <%s>\n", gitName, gitEmail)
+		ui.Ok(fmt.Sprintf("Git identity: %s <%s>", gitName, gitEmail))
 	} else {
-		cYellow.Println("     ! Skipped — set later with: hazmat enroll")
+		ui.WarnMsg("Skipped — run 'hazmat enroll' later to set")
 	}
-	fmt.Println()
 
-	// ── Step 3: Git credential helper ───────────────────────────────────────
-	cBold.Println("  3. Git Credential Helper")
-	fmt.Println()
-	fmt.Println("     SSH is blocked by the seatbelt profile. Use HTTPS with a")
-	fmt.Println("     GitHub personal access token (scope: repo) instead.")
-	fmt.Println()
+	// ── Git credential helper ───────────────────────────────────────────────
+	ui.Step("Git credential helper (SSH is blocked — use HTTPS)")
 
 	currentHelper, _ := sudoOutput("sudo", "-u", agentUser, "-i",
 		"bash", "-c", "git config --global credential.helper 2>/dev/null")
 	currentHelper = strings.TrimSpace(currentHelper)
 
 	if currentHelper != "" {
-		cGreen.Printf("     ✓ Already configured: %s\n", currentHelper)
+		ui.SkipDone(fmt.Sprintf("credential.helper = %s", currentHelper))
 	} else {
-		fmt.Print("     Configure git credential store? [Y/n]: ")
-		ans, _ := reader.ReadString('\n')
-		ans = strings.TrimSpace(strings.ToLower(ans))
-		if ans == "" || ans == "y" || ans == "yes" {
-			helper := "store --file " + agentHome + "/.config/git/credentials"
-			if _, err := sudoOutput("sudo", "-u", agentUser, "-i",
-				"bash", "-c", fmt.Sprintf("mkdir -p ~/.config/git && git config --global credential.helper %q", helper)); err != nil {
-				return fmt.Errorf("set credential helper: %w", err)
-			}
-			cGreen.Println("     ✓ Credential helper configured")
-			fmt.Println("       Git will prompt for your PAT on first push.")
-		} else {
-			cDim.Println("     (skipped)")
+		helper := "store --file " + agentHome + "/.config/git/credentials"
+		if _, err := sudoOutput("sudo", "-u", agentUser, "-i",
+			"bash", "-c", fmt.Sprintf("mkdir -p ~/.config/git && git config --global credential.helper %q", helper)); err != nil {
+			return fmt.Errorf("set credential helper: %w", err)
 		}
+		ui.Ok("Credential helper configured (git will prompt for PAT on first push)")
 	}
 
-	fmt.Println()
-	cGreen.Println("  ━━━ Enrollment complete ━━━")
-	fmt.Println()
-	fmt.Println("  Next: hazmat test        (verify everything)")
-	fmt.Println("        hazmat claude      (start a session)")
-	fmt.Println()
+	if standalone {
+		fmt.Println()
+		fmt.Println("  Next: hazmat claude")
+		fmt.Println()
+	}
 	return nil
 }
 

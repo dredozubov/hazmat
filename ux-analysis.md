@@ -202,7 +202,7 @@ Maintenance:
 
 1. **SSH is blocked.** The seatbelt denies `~/.ssh` access to prevent credential exfiltration. Use HTTPS + personal access token for git.
 
-2. **`--allow-docker` escape hatch.** If Docker files are detected, `hazmat claude` refuses to run. Pass `--allow-docker` if you have Docker files but don't need Docker support.
+2. **`--ignore-docker` escape hatch.** If Docker files are detected, `hazmat claude` refuses to run. Pass `--ignore-docker` if you have Docker files but don't need Docker support.
 
 3. **Read-only vs. read-write.** `-C` (project) = read-write. `-W` (workspace) and `-R` (references) = read-only. Only the project directory can be modified.
 

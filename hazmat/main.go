@@ -79,6 +79,15 @@ func main() {
 		Short:         "Hazmat — AI agent containment for macOS",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand: show status checklist + hint to use --help.
+			if err := runStatus(false); err != nil {
+				return err
+			}
+			cDim.Println("  Run hazmat --help for all commands.")
+			fmt.Println()
+			return nil
+		},
 	}
 
 	root.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false,

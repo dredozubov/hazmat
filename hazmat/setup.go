@@ -394,7 +394,7 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 
 	// ── Enroll: API key + git credentials ───────────────────────────────────
 	if !flagDryRun && ui.IsInteractive() {
-		if err := runEnroll(); err != nil {
+		if err := runEnroll(ui); err != nil {
 			// Non-fatal: user can run 'hazmat enroll' later.
 			cYellow.Printf("\n  Enrollment skipped: %v\n", err)
 			fmt.Println("  Run 'hazmat enroll' later to set credentials.")
@@ -403,9 +403,9 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 
 	if !flagDryRun {
 		verifySetup(ui)
+		ui.Logo()
 	}
 
-	fmt.Println()
 	cGreen.Println("━━━ Setup complete ━━━")
 	fmt.Println()
 	fmt.Println("  Ready to use:")
@@ -762,14 +762,12 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	userZshrcData, _ := os.ReadFile(userZshrc)
 	if strings.Contains(string(userZshrcData), umaskBlockStart) {
 		ui.SkipDone("umask 077 already set in your .zshrc")
-	} else if ui.Ask("Add 'umask 077' to your .zshrc? (prevents /tmp leakage)") {
+	} else {
 		updated := upsertManagedBlock(string(userZshrcData), umaskBlockStart, umaskBlockEnd, "umask 077")
 		if err := r.UserWriteFile(userZshrc, updated); err != nil {
 			return fmt.Errorf("write .zshrc: %w", err)
 		}
 		ui.Ok("Set umask 077 in your .zshrc")
-	} else {
-		ui.WarnMsg("Skipped. Consider adding 'umask 077' manually.")
 	}
 
 	return nil
@@ -1047,11 +1045,6 @@ func setupDNSBlocklist(ui *UI, r *Runner) error {
 	if strings.Contains(string(hosts), hostsMarker) {
 		ui.SkipDone("DNS blocklist already present in /etc/hosts")
 		ui.WarnMsg(fmt.Sprintf("To replace it, remove the block between '%s' markers first.", hostsMarker))
-		return nil
-	}
-
-	if !ui.Ask("Add DNS blocklist to /etc/hosts? (blocks tunnel/paste/fileshare domains system-wide)") {
-		ui.WarnMsg("Skipped DNS blocklist. See soft-pf-blocklist.md for alternatives (dnsmasq, NextDNS).")
 		return nil
 	}
 

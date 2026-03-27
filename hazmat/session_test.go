@@ -327,8 +327,8 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 	if !strings.Contains(err.Error(), "docker hazmat run") {
 		t.Errorf("error message should mention Tier 3 command, got: %s", err)
 	}
-	if !strings.Contains(err.Error(), "--allow-docker") {
-		t.Errorf("error message should mention --allow-docker override, got: %s", err)
+	if !strings.Contains(err.Error(), "--ignore-docker") {
+		t.Errorf("error message should mention --ignore-docker override, got: %s", err)
 	}
 }
 

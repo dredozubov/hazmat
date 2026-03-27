@@ -23,7 +23,7 @@ func newShellCmd() *cobra.Command {
 	var references []string
 	cmd := &cobra.Command{
 		Use:   "shell",
-		Short: "Open an interactive sandboxed shell as the agent user",
+		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg, err := resolveSessionConfig(project, workspace, references)
@@ -50,7 +50,7 @@ func newExecCmd() *cobra.Command {
 	var references []string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
-		Short: "Run a tool inside the sandbox as the agent user",
+		Short: "Run a command in containment as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cfg, err := resolveSessionConfig(project, workspace, references)
@@ -78,7 +78,7 @@ func newClaudeCmd() *cobra.Command {
 	var allowDocker bool
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude-args...]",
-		Short: "Launch Claude Code inside the sandbox as the agent user",
+		Short: "Launch Claude Code in containment",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
 			projectHint, forwarded, err := maybeConsumeProjectArg(args)
@@ -112,8 +112,8 @@ func newClaudeCmd() *cobra.Command {
 		"Read-only workspace root to expose to the agent (optional)")
 	cmd.Flags().StringArrayVarP(&references, "reference", "R", nil,
 		"Read-only reference directory (repeat flag for multiple paths)")
-	cmd.Flags().BoolVar(&allowDocker, "allow-docker", false,
-		"Allow running in a project that contains Docker artifacts (Docker commands will still fail inside the sandbox; use Tier 3 for actual Docker support)")
+	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
+		"Skip Docker artifact check (Docker won't work; use Tier 3 for Docker support)")
 	return cmd
 }
 
@@ -241,7 +241,7 @@ var dockerArtifacts = []string{
 // owner-only (0700) by sandbox setup, so Docker commands will fail inside
 // the sandbox regardless. This surfaces the issue early with a clear path.
 //
-// Pass allow=true via --allow-docker when the project has Docker files but
+// Pass allow=true via --ignore-docker when the project has Docker files but
 // this session only needs code-editing — Docker commands will still fail,
 // but the session is not blocked.
 //
@@ -264,36 +264,15 @@ func warnDockerProject(projectDir string, allow bool) error {
 	}
 
 	msg := fmt.Sprintf(`
-Docker artifacts detected in %s:
-  %s
+Docker artifacts detected in %s: %s
 
-This sandbox mode (Tier 2: dedicated agent user) does not support Docker.
-The host Docker socket is locked to owner-only (0700) and is inaccessible
-to the agent user. Granting access would be a full sandbox escape — the
-agent could bind-mount the workspace into any container.
+Docker is not available in this containment mode (socket locked to owner-only).
 
-Use Tier 3 instead:
-
-  docker hazmat run claude %s
-
-Or for docker-compose projects:
-
-  docker hazmat run claude %s   # docker compose works inside the sandbox
-
-See tier3-docker-sandboxes.md for setup and network policy configuration.
-Network policy defaults to allow — switch to deny-mode before running:
-
-  docker hazmat network proxy <name> --allow-host "api.anthropic.com"
-  docker hazmat network proxy <name> --allow-host "github.com"
-  docker hazmat network proxy <name> --deny-host "*"
-
-To run Tier 2 anyway for code-only work (Docker commands will still fail):
-
-  hazmat claude --allow-docker ...
+  hazmat claude --ignore-docker   Continue without Docker support
+  docker hazmat run claude %s     Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
 `,
 		projectDir,
-		strings.Join(found, "\n  "),
-		projectDir,
+		strings.Join(found, ", "),
 		projectDir,
 	)
 	msg = strings.TrimLeft(msg, "\n")
