@@ -7,6 +7,7 @@ strategy.md
 *.db
 
 # Beads runtime files
-.beads/dolt-monitor.pid
-.beads/dolt-server.activity
-.beads/dolt-server.port
+.beads/
+
+# macOS
+.DS_Store
