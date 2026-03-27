@@ -291,13 +291,15 @@ func runStatus(full bool) error {
 			return true
 		}},
 		{"Claude Code installed", "hazmat init", func() bool {
-			_, err := sudoOutput("test", "-x", agentHome+"/.local/bin/claude")
-			return err == nil
+			info, err := os.Stat(agentHome + "/.local/bin/claude")
+			return err == nil && info.Mode()&0o111 != 0
 		}},
 		{"Credentials set", "hazmat init enroll", func() bool {
-			out, err := sudoOutput("sudo", "-u", agentUser, "-i",
-				"bash", "-c", "grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo ok")
-			return err == nil && strings.TrimSpace(out) == "ok"
+			data, err := os.ReadFile(agentHome + "/.zshrc")
+			if err != nil {
+				return false
+			}
+			return strings.Contains(string(data), "ANTHROPIC_API_KEY")
 		}},
 	}
 
