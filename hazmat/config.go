@@ -101,7 +101,7 @@ func saveConfig(cfg HazmatConfig) error {
 	}
 
 	header := "# Hazmat configuration\n# Edit manually or via: hazmat config set <key> <value>\n\n"
-	return os.WriteFile(configFilePath, []byte(header+string(data)), 0o644)
+	return os.WriteFile(configFilePath, []byte(header+string(data)), 0o600)
 }
 
 // ── Cloud credential (secret key only) ──────────────────────────────────────

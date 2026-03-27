@@ -92,7 +92,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **Excludes are for common web/Python/Rust/Node projects.** Default excludes: `node_modules/`, `.venv/`, `__pycache__/`, `.next/`, `dist/`, `build/`, `target/`. Add more via `hazmat config set backup.excludes.add PATTERN` or edit `config.yaml`.
 
-**Cloud secret key is stored separately.** The config file (`config.yaml`) is human-readable and safe to share. The S3 secret key lives in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var.
+**Cloud credentials are split across two files.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint, bucket, access key, and Kopia encryption password. The S3 secret key lives separately in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var. Both files are owner-read-only because the config contains the access key and encryption password.
 
 **Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
 
