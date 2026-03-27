@@ -14,7 +14,7 @@ hazmat:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat .
 
 hazmat-launch:
-	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
+	CGO_ENABLED=1 go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
 
 # Install both binaries.  Run 'sudo make install' or install each separately.
 # hazmat-launch must be installed before 'hazmat setup' is run so the
