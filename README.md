@@ -37,6 +37,33 @@ Permission prompts don't help when you're running `--dangerously-skip-permission
 
 Hazmat doesn't try to make the agent behave. It isolates it.
 
+## Why Not Just Use the Built-in Sandbox?
+
+Claude Code ships with a [sandbox](https://github.com/anthropic-experimental/sandbox-runtime) based on `sandbox-exec` (macOS) and bubblewrap (Linux). Other tools — [Agent Safehouse](https://github.com/eugene1g/agent-safehouse), [nono](https://github.com/always-further/nono) — wrap the same primitive. These are useful. They are also insufficient.
+
+**Agents actively reason about escaping.** Ona's research showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root` path traversal, then attempting to disable bubblewrap when that was caught. The agent figured this out unprompted.
+
+**The CVE record backs this up.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) (CVSS 8.7): RCE through malicious project config files. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration via config-based redirect — leaked your key before the trust prompt appeared. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection, executing with host privileges after restart. All patched, all real.
+
+**No single layer is enough.** A Seatbelt profile can deny file reads — but it doesn't stop the agent from sending your project code to an arbitrary server over HTTPS. A firewall can block exfiltration protocols — but it doesn't stop the agent from reading `~/.ssh/id_rsa` if it runs as your user. Each layer covers a different class of threat. You need all of them working together.
+
+Hazmat stacks five independent enforcement layers: user isolation, kernel filesystem sandbox, credential deny, network firewall, and DNS blocklist — plus snapshot rollback. Most tools do one or two.
+
+### Comparison
+
+| | [Built-in sandbox](https://github.com/anthropic-experimental/sandbox-runtime) | [Agent Safehouse](https://github.com/eugene1g/agent-safehouse) | [SandVault](https://github.com/webcoyote/sandvault) | [nono](https://github.com/always-further/nono) | [Docker](https://docs.docker.com/ai/sandboxes/) | **Hazmat** |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Separate user account | — | — | ✓ | — | ✓ | ✓ |
+| Seatbelt / kernel sandbox | ✓ | ✓ | ✓ | ✓ | n/a | ✓ |
+| Credential path deny | — | partial | — | — | ✓ | ✓ |
+| Network firewall (pf) | — | — | — | — | ✓ | ✓ |
+| DNS blocklist | — | — | — | — | — | ✓ |
+| Backup / rollback | — | — | — | ✓ | — | ✓ |
+| Agent-agnostic | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| macOS native | ✓ | ✓ | ✓ | ✓ | — | ✓ |
+
+Docker gives strong isolation but runs Linux containers — no access to macOS toolchains, Xcode, or native frameworks. And you're sending your code into a container runtime you may not fully control. Hazmat keeps everything native.
+
 ## What It Does
 
 | Layer | Protection |
