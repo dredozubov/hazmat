@@ -119,10 +119,12 @@ jobs:
       - name: Push tap update
         env:
           TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/dredozubov/homebrew-tap.git"
           git add Formula/hazmat.rb
           git commit -m "hazmat ${TAG}"
           git push
