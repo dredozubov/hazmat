@@ -438,7 +438,20 @@ func generateSBPL(cfg sessionConfig) string {
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")
-	for _, sub := range []string{"/.ssh", "/.aws", "/.gnupg", "/Library/Keychains", "/.config/gh"} {
+	for _, sub := range []string{
+		"/.ssh",                // SSH keys
+		"/.aws",                // AWS credentials
+		"/.gnupg",              // GPG keys
+		"/Library/Keychains",   // macOS Keychain
+		"/.config/gh",          // GitHub CLI tokens
+		"/.docker",             // Docker registry credentials
+		"/.kube",               // Kubernetes credentials
+		"/.netrc",              // HTTP/FTP basic auth
+		"/.m2/settings.xml",    // Maven credentials (file, not dir)
+		"/.config/gcloud",      // Google Cloud credentials
+		"/.azure",              // Azure CLI credentials
+		"/.oci",                // Oracle Cloud credentials
+	} {
 		w("(deny file-read* (subpath %q))\n", home+sub)
 	}
 

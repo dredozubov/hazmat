@@ -7,13 +7,14 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 ## Repository layout
 
 ```
-hazmat/              Go source (package main, module hazmat)
-  cmd/hazmat-launch/ Privileged helper binary (narrow sudo target)
-  Makefile           Build targets: hazmat, hazmat-launch
-*.md                 Documentation (tiers, threat model, setup guide)
-ux-analysis.md       User flow diagrams and UX analysis
-art/                 Homer-in-hazmat ASCII art generator
-assets/              Brand images
+hazmat/                  Go source (package main, module hazmat)
+  cmd/hazmat-launch/     Privileged helper binary (narrow sudo target)
+  Makefile               Build targets: hazmat, hazmat-launch
+*.md                     Documentation (tiers, threat model, setup guide)
+ux-analysis.md           User flow diagrams and UX analysis
+design-assumptions.md    Explicit design assumptions and security tradeoffs
+art/                     Homer-in-hazmat ASCII art generator
+assets/                  Brand images
 ```
 
 ## Build and test
@@ -33,6 +34,15 @@ go test ./cmd/hazmat-launch/
 - **Setup is unified.** `hazmat setup` chains system config + bootstrap + enroll. The standalone `bootstrap` and `enroll` commands exist for re-running individually.
 - **Pre-flight checks run before any mutations.** `preflightChecks()` in setup.go validates all prerequisites before the first `dscl` call.
 - **Seatbelt policies are per-session.** Generated dynamically in `generateSBPL()` with literal paths embedded. Written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
+
+## When making security-relevant changes
+
+**Update design-assumptions.md** if you change:
+- The seatbelt credential deny list
+- Network policy (pf rules or DNS blocklist)
+- The trust model or containment boundaries
+- Credential storage or handling
+- Any assumption about what the agent can or cannot access
 
 ## When making user-facing changes
 
