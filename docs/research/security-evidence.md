@@ -178,10 +178,26 @@ Multiple scanning firms (Shodan, Censys) found 30,000–42,000 OpenClaw instance
 
 | CVE | CVSS | Description | Attack Vector | Patched |
 |-----|------|-------------|---------------|---------|
-| CVE-2025-59536 | 8.7 | RCE via malicious project files. Code injection via tool initialization. Opening a crafted repository triggers shell execution. | Malicious CLAUDE.md or project files | Yes |
-| CVE-2026-21852 | 5.3 | API key exfiltration. Malicious repository causes key disclosure before trust prompt appears. | Crafted repo | Yes |
+| CVE-2025-52882 | 8.8 | WebSocket origin bypass in IDE extensions. Visiting a malicious page could read files, run notebook code. | Malicious webpage + IDE extension | Yes (1.0.24) |
+| CVE-2025-54795 | 9.8 | Echo command parsing error bypasses confirmation prompt → untrusted command execution. | Context injection | Yes (1.0.20) |
+| CVE-2025-55284 | 7.1 | Permissive default allowlist enables file read and network exfiltration without confirmation. | Context injection | Yes (1.0.4) |
+| CVE-2025-58764 | 9.8 | Command parsing error bypasses confirmation prompt → untrusted command execution. | Context injection | Yes (1.0.105) |
+| CVE-2025-59041 | 9.8 | RCE via unsanitized `git config user.email` interpolation. Executes before trust dialog. | Malicious repo git config | Yes (1.0.105) |
+| CVE-2025-59536 | 8.7 | RCE via malicious project files. Code injection via tool initialization. Executes before trust dialog. | Malicious CLAUDE.md, hooks, MCP, env vars | Yes (1.0.111) |
+| CVE-2025-59829 | 6.5 | Symlink bypasses permission deny rules, allowing read of denied files. | Symlink in accessible path | Yes (1.0.120) |
+| CVE-2025-64755 | 8.8 | Sed command validation bypass allows arbitrary file writes on host. | Context injection | Yes (2.0.31) |
+| CVE-2025-66032 | 9.8 | `$IFS` and short CLI flag parsing bypass read-only validation → arbitrary code execution. | Context injection | Yes (1.0.93) |
+| CVE-2026-21852 | 5.3 | API key exfiltration. Malicious repository causes key disclosure before trust prompt via `ANTHROPIC_BASE_URL` redirect. | Crafted repo settings | Yes (2.0.65) |
+| CVE-2026-24052 | 6.5 | Domain validation bypass via `startsWith()`. Attacker domains pass trusted domain check. | Crafted domain name | Yes (1.0.111) |
+| CVE-2026-24887 | 8.8 | `find` command parsing error bypasses confirmation prompt → untrusted command execution. | Context injection | Yes (2.0.72) |
+| CVE-2026-25723 | 8.8 | Piped `sed`+`echo` command injection bypasses file write restrictions → writes to `.claude/` and outside project. | Context injection | Yes (2.0.55) |
+| CVE-2026-25724 | 6.3 | Symlink bypasses deny rules (second instance). Files denied in settings.json accessible via symlink. | Symlink in accessible path | Yes (2.1.7) |
+| CVE-2026-25725 | 8.8 | Sandbox escape via persistent `settings.json` injection. Hooks execute with host privileges after restart. | File write during session | Yes (2.1.2) |
+| CVE-2026-33068 | 8.8 | Trust dialog bypass. Repo-committed `.claude/settings.json` sets `bypassPermissions`, skipping consent. | Malicious repo settings | Yes (2.1.53) |
 
-**Design implication:** Both CVEs exploit the initialization phase before the trust prompt. Sandboxing does not prevent these exploits from executing, but it limits what the exploited process can reach: no primary-user secrets, no SSH keys, no Keychain.
+**16 CVEs total.** Attack classes: pre-trust RCE (2), confirmation prompt bypass (6), symlink deny bypass (2), sandbox/settings escape (2), exfiltration (3), IDE extension (1). All patched.
+
+**Design implication:** The majority (8 of 16) exploit Claude's application-level safety gates — confirmation prompts, permission modes, command validation. These gates are the inner defense layer. OS-level containment (user isolation, seatbelt, pf) is the outer layer that holds when the inner layer is bypassed. See [cve-audit.md](../cve-audit.md) for per-CVE defense analysis.
 
 ---
 
@@ -191,7 +207,7 @@ Multiple scanning firms (Shodan, Censys) found 30,000–42,000 OpenClaw instance
 |-----|------|----------|-------------|-----------|
 | CVE-2024-6091 | 9.8 | AutoGPT | RCE via prompt injection in plugin system | Yes |
 | CVE-2025-3248 | 9.8 | Langflow | Unauthenticated RCE. Arbitrary code execution without auth. | Yes |
-| CVE-2025-55284 | 8.9 | LangChain | Server-side template injection → RCE | No |
+| CVE-2025-55284 | 8.9 | LangChain | Server-side template injection → RCE (distinct from Claude Code's CVE-2025-55284) | No |
 | CVE-2025-53773 | 8.1 | LangChain | Path traversal in document loaders → code execution | No |
 | CVE-2025-9074 | 9.3 | Docker Desktop | Container escape via Docker Engine API exposure | No |
 | CVE-2025-62725 | — | docker-compose | Path traversal via OCI artifact annotations → host file write | No |
@@ -476,6 +492,12 @@ The design tradeoff is explicit: workspace files are accessible (the agent needs
 | 2025 Q2 | CVE-2025-3248 (Langflow CVSS 9.8) — CISA KEV | CVE |
 | 2025 Q2 | CVE-2025-55284 (LangChain SSTI) | CVE |
 | 2025 Q2 | CVE-2025-53773 (LangChain path traversal) | CVE |
+| 2025 Q2 | CVE-2025-55284 (Claude Code permissive allowlist → file read + exfil, CVSS 7.1) | CVE |
+| 2025 Q2 | CVE-2025-54795 (Claude Code echo command bypass, CVSS 9.8) | CVE |
+| 2025 Q2 | CVE-2025-52882 (Claude Code IDE WebSocket origin bypass, CVSS 8.8) | CVE |
+| 2025 Q3 | CVE-2025-66032 (Claude Code $IFS / short-flag parsing bypass, CVSS 9.8) | CVE |
+| 2025 Q3 | CVE-2025-64755 (Claude Code sed validation bypass → arbitrary writes, CVSS 8.8) | CVE |
+| 2025 Q3 | CVE-2025-59829 (Claude Code symlink permission deny bypass, CVSS 6.5) | CVE |
 | 2025 Q3 | arXiv:2509.22040 (84% injection success rate published) | Academic |
 | 2025 Q3 | s1ngularity campaign (2,349 secret patterns, agent weaponization) | Supply chain |
 | 2025 Q3 | MaliciousCorgi campaign (1.5M developer exposure) | Supply chain |
@@ -494,13 +516,21 @@ The design tradeoff is explicit: workspace files are accessible (the agent needs
 | Jan 2026 | PromptArmor `.docx` exfiltration attack | Incident |
 | Jan 2026 | CVE-2026-22708 (Cursor Seatbelt bypass) | CVE |
 | Jan 2026 | CVE-2025-59536 (Claude Code RCE via project files, CVSS 8.7) | CVE |
+| Jan 2026 | CVE-2025-59041 (Claude Code RCE via git config email injection, CVSS 9.8) | CVE |
+| Jan 2026 | CVE-2025-58764 (Claude Code command parsing bypass, CVSS 9.8) | CVE |
 | Jan 2026 | arXiv:2601.17548 (>85% adaptive injection) | Academic |
 | Feb 2026 | CVE-2026-21852 (Claude Code API key exfiltration, CVSS 5.3) | CVE |
+| Feb 2026 | CVE-2026-24052 (Claude Code domain validation bypass, CVSS 6.5) | CVE |
+| Feb 2026 | CVE-2026-25723 (Claude Code sed command injection → file writes, CVSS 8.8) | CVE |
+| Feb 2026 | CVE-2026-25724 (Claude Code symlink deny bypass, CVSS 6.3) | CVE |
+| Feb 2026 | CVE-2026-25725 (Claude Code sandbox escape via settings.json, CVSS 8.8) | CVE |
+| Feb 2026 | CVE-2026-24887 (Claude Code find command bypass, CVSS 8.8) | CVE |
 | Feb 2026 | ClawHavoc (824+ malicious OpenClaw skills, AMOS delivery) | Supply chain |
 | Feb 2026 | ClawJacked (WebSocket hijack) | Incident |
 | Feb 2026 | Vidar infostealer `~/.openclaw/` targeting | Incident |
 | Feb 2026 | CVE-2026-25253 (OpenClaw 1-click RCE, CVSS 8.8) | CVE |
 | Feb 2026 | CVE-2026-25593 (OpenClaw unauthenticated local RCE) | CVE |
+| Mar 2026 | CVE-2026-33068 (Claude Code trust dialog bypass via repo settings, CVSS 8.8) | CVE |
 | Mar 2026 | arXiv:2603.03637 (64% image-embedded injection) | Academic |
 | Mar 2026 | IDEsaster audit (30+ vulns, 24 CVEs across IDE AI extensions) | Research |
 | Mar 2026 | SANDWORM_MODE kill chain documented | Research |
