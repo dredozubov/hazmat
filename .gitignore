@@ -1,5 +1,6 @@
-sandbox/sandbox
-sandbox/sandbox-launch
+hazmat/hazmat
+hazmat/hazmat-launch
+strategy.md
 
 # Dolt database files (added by bd init)
 .dolt/
