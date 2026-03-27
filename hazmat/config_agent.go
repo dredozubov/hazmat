@@ -90,13 +90,13 @@ func runConfigAgent(ui *UI) error {
 			}
 			ui.Ok("API key copied from host environment")
 		} else {
-			fmt.Println("  You can set it later with 'hazmat config agent' or 'claude /login' inside the sandbox.")
+			fmt.Println("  You can set it later with 'hazmat config agent' or type /login inside 'hazmat claude'.")
 			ui.SkipDone("API key skipped")
 		}
 	} else {
 		fmt.Println("  Three options:")
 		fmt.Println("    1) Paste an API key now (sk-ant-...)")
-		fmt.Println("    2) Press Enter to skip — use 'claude /login' inside the sandbox later")
+		fmt.Println("    2) Press Enter to skip — run 'hazmat claude' and type /login")
 		fmt.Println()
 		fmt.Print("  API key: ")
 		apiKey, _ := term.ReadPassword(int(syscall.Stdin))
@@ -109,8 +109,8 @@ func runConfigAgent(ui *UI) error {
 			}
 			ui.Ok("API key set")
 		} else {
-			fmt.Println("  Run 'hazmat shell' then 'claude /login' to authenticate via browser.")
-			ui.SkipDone("API key skipped — use /login later")
+			fmt.Println("  Run 'hazmat claude' and type /login to authenticate via browser.")
+			ui.SkipDone("API key skipped — use /login inside Claude")
 		}
 	}
 
