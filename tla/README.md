@@ -14,7 +14,8 @@ and TLC's exhaustive state exploration are designed to verify.
 
 | # | File | Hazard | Priority |
 |---|------|--------|----------|
-| 1 | `01_setup_rollback_state_machine.md` | Security window: agent launchable without firewall after partial setup | **Critical** |
+| 1 | `01_setup_rollback_state_machine.md` | Security window: agent launchable without firewall after partial setup/rollback | **Critical** |
+| 2 | `02_seatbelt_policy_structure.md` | Credential write exposure via project dir or static config allows | **Medium** |
 
 ## What TLA+ Adds Here
 

@@ -87,11 +87,41 @@ The principle: **grant privilege last, revoke privilege first.**
 
 ---
 
+### 2 — Seatbelt Policy Structure
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/02_seatbelt_policy_structure.md` |
+| TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
+| Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
+| Key invariants | `CredentialReadDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption` |
+| Known violation | `CredentialWriteDenied` — static `.config` allow covers `.config/gcloud` writes |
+| Status | **Proved** — credential reads always denied; write exposure documented as design tradeoff |
+
+**What was found:** Credential `file-write*` access is not fully denied.
+Two vectors: (a) `ProjectDir = /Users/agent` grants write to all of agent home
+including `.ssh`; (b) static `.config` allow covers `.config/gcloud`.
+
+**Assessment:** Design tradeoff — agent needs `.config` write for toolchain
+state. Credential deny covers `file-read*` only (exfiltration prevention).
+Writing to credential dirs is corruption, not exfiltration.
+
+**Change rules:**
+- Do not reorder the sections in `generateSBPL()` — credential denies MUST be
+  last. Moving any allow after the denies would break `CredentialReadDenied`.
+- Adding new credential paths to the deny list requires adding them to
+  `CredPaths` in the TLA+ model and re-running TLC.
+- Adding new static allow paths (new `AgentHomeSubs`) requires checking whether
+  they cover any credential paths — add to the model and re-verify.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
 |------|---------------|
 | `01_setup_rollback_state_machine` | `hazmat/setup.go:runSetup()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
+| `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 
 ---
 

@@ -139,6 +139,7 @@ fi
 
 | Problem | Model Bounds | Expected States | Runtime |
 |---------|-------------|-----------------|---------|
-| 01 Setup/Rollback | 2 setup, 2 rollback | 1887 distinct | <1s |
+| 01 Setup/Rollback | 2 setup, 2 rollback | 26,905 distinct | <1s |
+| 02 Seatbelt Policy | 6 paths, 4 project choices | 192 distinct | <1s |
 
 If TLC runs for more than 60 seconds, reduce your model bounds.
