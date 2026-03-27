@@ -511,13 +511,13 @@ func setupAgentUser(ui *UI, r *Runner) error {
 		// macOS's requirement that every account has a password hash.
 		var password string
 		if r.DryRun {
-			password = "<random-base64>"
+			password = "<random-192bit-base64>"
 		} else {
-			pass, err := exec.Command("openssl", "rand", "-base64", "24").Output()
+			var err error
+			password, err = generateRandomPassword(24) // 192 bits
 			if err != nil {
-				return fmt.Errorf("generate random password: %w", err)
+				return fmt.Errorf("generate agent password: %w", err)
 			}
-			password = strings.TrimSpace(string(pass))
 		}
 		if err := r.Sudo("set agent password", "dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
 			return fmt.Errorf("set agent password: %w", err)

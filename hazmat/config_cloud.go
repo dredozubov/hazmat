@@ -134,23 +134,32 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 		return fmt.Errorf("use --secret-key-from-env or run interactively for secret key input")
 	}
 
-	// Kopia encryption password
+	// Kopia encryption password — auto-generated unless user provides one.
 	var kopiaPassword string
 	if envPass := os.Getenv("HAZMAT_CLOUD_PASSWORD"); envPass != "" {
 		kopiaPassword = envPass
-	} else if interactive {
-		fmt.Print("  Kopia Encryption Password: ")
-		pass, err := term.ReadPassword(int(syscall.Stdin))
-		if err != nil {
-			return err
-		}
-		kopiaPassword = string(pass)
-		fmt.Println(" (set)")
-		if kopiaPassword == "" {
-			return fmt.Errorf("encryption password is required")
-		}
+	} else if cfg.Backup.Cloud.Password != "" {
+		// Reuse existing password (re-running config cloud).
+		kopiaPassword = cfg.Backup.Cloud.Password
 	} else {
-		return fmt.Errorf("set HAZMAT_CLOUD_PASSWORD env var or run interactively")
+		// Auto-generate a strong diceware passphrase for encryption.
+		// Human-readable so it can be written down for disaster recovery.
+		passphrase, err := generatePassphrase(7) // ~90 bits
+		if err != nil {
+			return fmt.Errorf("generate encryption password: %w", err)
+		}
+		kopiaPassword = passphrase
+
+		if interactive {
+			fmt.Println()
+			cBold.Println("  Encryption password (auto-generated):")
+			fmt.Println()
+			fmt.Printf("    %s\n", kopiaPassword)
+			fmt.Println()
+			cYellow.Println("  Save this password. You need it to restore from cloud backup.")
+			cYellow.Println("  It cannot be recovered if lost.")
+			fmt.Println()
+		}
 	}
 
 	// Save config (endpoint, bucket, access key, kopia password — not secret key)

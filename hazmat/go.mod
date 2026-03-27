@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/fatih/color v1.18.0
 	github.com/kopia/kopia v0.22.3
+	github.com/sethvargo/go-diceware v0.5.0
 	github.com/spf13/cobra v1.10.1
 	golang.org/x/term v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
