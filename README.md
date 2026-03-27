@@ -190,6 +190,8 @@ Three enforcement layers, all OS-level:
 2. **Seatbelt** — kernel-level filesystem policy denies reads/writes outside approved paths. Credential directories are explicitly denied.
 3. **pf firewall** — packet filter rules scoped to `user agent` block dangerous protocols. The agent can't send email, connect to IRC, or tunnel out.
 
+Setup and rollback ordering, seatbelt policy structure, and backup safety are [formally verified with TLA+](tla/VERIFIED.md). The specs found three real bugs before users could — including a containment gap where the agent could be launched without firewall protection.
+
 ## Undo Everything
 
 ```bash
