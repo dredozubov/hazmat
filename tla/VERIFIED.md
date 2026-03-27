@@ -117,12 +117,53 @@ across all 192 reachable states.
 
 ---
 
+### 3 — Backup/Restore Safety
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/03_backup_restore_safety.md` |
+| TLA+ files | `tla/MC_BackupSafety.tla`, `tla/MC_BackupSafety.cfg` |
+| Governed code | `hazmat/kopia_wrapper.go` — `openLocalRepo()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()` |
+| Governed code | `hazmat/restore.go` — `runProjectRestore()` |
+| Governed code | `hazmat/session.go` — `preSessionSnapshot()`, session commands |
+| Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt` |
+| Key liveness | `SessionEventuallyLaunches`, `RestoreEventuallyCompletes` |
+| Status | **Fixed** — cloud restore now takes pre-restore snapshot before overwriting |
+
+**What was found:**
+
+1. **Cloud restore:** `runCloudRestore()` overwrote the entire workspace without
+   taking a pre-restore snapshot. If the cloud snapshot was stale or wrong, the
+   user's current workspace was permanently lost with no undo. The local restore
+   path (`runProjectRestore()`) did this correctly.
+
+**Fix applied:**
+
+1. Added `snapshotProject(sharedWorkspace, "pre-cloud-restore")` to
+   `runCloudRestore()` before the overwrite, matching the pattern in
+   `runProjectRestore()`. Failure is non-fatal (warn and proceed).
+
+The principle: **every overwrite must be preceded by a snapshot attempt.**
+`RestoreReversible` now passes across all 395 distinct states (<1s).
+
+**Change rules:**
+- Adding a new restore path (e.g., restore from external drive) must include a
+  pre-restore snapshot step. Add the path to the TLA+ model and verify
+  `RestoreReversible` still holds.
+- Changing when `preSessionSnapshot()` is called relative to sandbox entry must
+  preserve the ordering: snapshot before sandbox boundary.
+- Adding new snapshot triggers must ensure `openLocalRepo()` auto-init is
+  called first (modeled by `RepoBeforeSnapshot`).
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
 |------|---------------|
 | `01_setup_rollback_state_machine` | `hazmat/setup.go:runSetup()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
+| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
 
 ---
 

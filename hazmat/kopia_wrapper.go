@@ -295,6 +295,16 @@ func runCloudRestore() error {
 	latest := snapshots[len(snapshots)-1]
 	fmt.Printf("Restoring latest cloud snapshot from %v...\n", latest.StartTime.ToTime())
 
+	// Snapshot current workspace state before restoring so the restore is
+	// reversible. Same pattern as runProjectRestore() in restore.go.
+	fmt.Print("  Snapshotting current workspace state... ")
+	if err := snapshotProject(sharedWorkspace, "pre-cloud-restore"); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Warning: could not snapshot current state: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  Proceeding with restore — current state may not be recoverable.")
+	} else {
+		fmt.Println("done")
+	}
+
 	stats, err := restoreSnapshotTo(ctx, r, latest, sharedWorkspace)
 	if err != nil {
 		return err
