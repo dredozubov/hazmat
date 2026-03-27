@@ -61,31 +61,59 @@ func runEnroll(ui *UI) error {
 		"bash", "-c", "grep ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null | tail -1")
 	currentKey = strings.TrimSpace(currentKey)
 
+	// Check if the host user already has an API key we can copy.
+	hostKey := os.Getenv("ANTHROPIC_API_KEY")
+
 	if currentKey != "" {
 		cDim.Printf("  Current: %s\n", maskKey(currentKey))
 		fmt.Print("  New API key (Enter to keep, or paste new): ")
-	} else {
-		fmt.Print("  API key (sk-ant-...): ")
-	}
+		apiKey, _ := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
 
-	apiKey, _ := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
-
-	if len(apiKey) > 0 {
 		key := strings.TrimSpace(string(apiKey))
 		if key != "" {
-			script := fmt.Sprintf(
-				`sed -i '' '/^export ANTHROPIC_API_KEY=/d' ~/.zshrc 2>/dev/null; echo 'export ANTHROPIC_API_KEY="%s"' >> ~/.zshrc`,
-				key)
-			if _, err := sudoOutput("sudo", "-u", agentUser, "-i", "bash", "-c", script); err != nil {
+			if err := setAgentAPIKey(key); err != nil {
+				return fmt.Errorf("set API key: %w", err)
+			}
+			ui.Ok("API key updated")
+		} else {
+			ui.SkipDone("API key kept")
+		}
+	} else if hostKey != "" {
+		// Offer to copy the host user's key.
+		masked := hostKey
+		if len(masked) > 15 {
+			masked = masked[:11] + "..." + masked[len(masked)-4:]
+		}
+		fmt.Printf("  Found ANTHROPIC_API_KEY in your environment: %s\n", masked)
+		if ui.Ask("Copy this key to the agent user?") {
+			if err := setAgentAPIKey(hostKey); err != nil {
+				return fmt.Errorf("set API key: %w", err)
+			}
+			ui.Ok("API key copied from host environment")
+		} else {
+			fmt.Println("  You can set it later with 'hazmat enroll' or 'claude /login' inside the sandbox.")
+			ui.SkipDone("API key skipped")
+		}
+	} else {
+		fmt.Println("  Three options:")
+		fmt.Println("    1) Paste an API key now (sk-ant-...)")
+		fmt.Println("    2) Press Enter to skip — use 'claude /login' inside the sandbox later")
+		fmt.Println()
+		fmt.Print("  API key: ")
+		apiKey, _ := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+
+		key := strings.TrimSpace(string(apiKey))
+		if key != "" {
+			if err := setAgentAPIKey(key); err != nil {
 				return fmt.Errorf("set API key: %w", err)
 			}
 			ui.Ok("API key set")
+		} else {
+			fmt.Println("  Run 'hazmat shell' then 'claude /login' to authenticate via browser.")
+			ui.SkipDone("API key skipped — use /login later")
 		}
-	} else if currentKey != "" {
-		ui.SkipDone("API key kept")
-	} else {
-		ui.WarnMsg("Skipped — run 'hazmat enroll' later to set")
 	}
 
 	// ── Git identity ────────────────────────────────────────────────────────
@@ -163,6 +191,15 @@ func runEnroll(ui *UI) error {
 		fmt.Println()
 	}
 	return nil
+}
+
+// setAgentAPIKey writes the API key to the agent user's .zshrc.
+func setAgentAPIKey(key string) error {
+	script := fmt.Sprintf(
+		`sed -i '' '/^export ANTHROPIC_API_KEY=/d' ~/.zshrc 2>/dev/null; echo 'export ANTHROPIC_API_KEY="%s"' >> ~/.zshrc`,
+		key)
+	_, err := sudoOutput("sudo", "-u", agentUser, "-i", "bash", "-c", script)
+	return err
 }
 
 // maskKey shows "export ANTHROPIC_API_KEY=sk-ant-...xxxx" with most of the
