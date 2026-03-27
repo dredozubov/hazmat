@@ -26,9 +26,16 @@ var (
 )
 
 var (
-	sharedWorkspace   = filepath.Join(os.Getenv("HOME"), "workspace")
+	sharedWorkspace   = defaultWorkspace()
 	cloudBackupConfig = filepath.Join(os.Getenv("HOME"), ".config/hazmat/cloud-backup.json")
 )
+
+func defaultWorkspace() string {
+	if ws := os.Getenv("HAZMAT_WORKSPACE"); ws != "" {
+		return ws
+	}
+	return filepath.Join(os.Getenv("HOME"), "workspace")
+}
 
 // Hazmat configuration shared by the Go-based setup, test, and rollback flows.
 const (
@@ -81,19 +88,47 @@ func main() {
 	root.PersistentFlags().BoolVarP(&flagYesAll, "yes", "y", false,
 		"Answer yes to all prompts (for non-interactive / scripted use)")
 
-	root.AddCommand(
-		newSetupCmd(),
-		newBootstrapCmd(),
-		newStatusCmd(),
-		newTestCmd(),
-		newBackupCmd(),
-		newRestoreCmd(),
-		newRollbackCmd(),
-		newShellCmd(),
-		newExecCmd(),
-		newClaudeCmd(),
-		newConnectCmd(), // hidden: used internally for agent-user network probes
+	// ── Get started ──
+	setupCmd := newSetupCmd()
+	setupCmd.GroupID = "start"
+	bootstrapCmd := newBootstrapCmd()
+	bootstrapCmd.GroupID = "start"
+	enrollCmd := newEnrollCmd()
+	enrollCmd.GroupID = "start"
+	testCmd := newTestCmd()
+	testCmd.GroupID = "start"
+
+	// ── Daily use ──
+	claudeCmd := newClaudeCmd()
+	claudeCmd.GroupID = "use"
+	shellCmd := newShellCmd()
+	shellCmd.GroupID = "use"
+	execCmd := newExecCmd()
+	execCmd.GroupID = "use"
+
+	// ── Maintenance ──
+	backupCmd := newBackupCmd()
+	backupCmd.GroupID = "maint"
+	restoreCmd := newRestoreCmd()
+	restoreCmd.GroupID = "maint"
+	statusCmd := newStatusCmd()
+	statusCmd.GroupID = "maint"
+	rollbackCmd := newRollbackCmd()
+	rollbackCmd.GroupID = "maint"
+
+	root.AddGroup(
+		&cobra.Group{ID: "start", Title: "Get started:"},
+		&cobra.Group{ID: "use", Title: "Daily use:"},
+		&cobra.Group{ID: "maint", Title: "Maintenance:"},
 	)
+	// Registration order controls display order within groups.
+	root.AddCommand(
+		setupCmd, bootstrapCmd, enrollCmd, testCmd,
+		claudeCmd, shellCmd, execCmd,
+		backupCmd, restoreCmd, statusCmd, rollbackCmd,
+		newConnectCmd(),
+	)
+	root.SetHelpCommandGroupID("maint")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

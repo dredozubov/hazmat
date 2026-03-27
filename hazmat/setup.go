@@ -207,23 +207,96 @@ Use --dry-run to preview all commands without executing anything.`,
 	return cmd
 }
 
-// newStatusCmd exposes verifySetup as a standalone command for quick health
-// checks.  Returns exit code 1 when any critical check fails so callers
-// (scripts, Claude, CI) can test whether the sandbox is ready.
+// newStatusCmd shows a progress checklist and optionally runs health checks.
 func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var full bool
+	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Check sandbox health (quick invariant check, no changes)",
-		Args:  cobra.NoArgs,
+		Short: "Show setup progress and health check",
+		Long: `Shows which setup phases are complete and what to do next.
+Use --full to run the complete health check suite (same as 'hazmat test --quick').`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{}
-			verifySetup(ui)
-			if ui.Summary() {
-				return fmt.Errorf("sandbox is not fully configured")
-			}
-			return nil
+			return runStatus(full)
 		},
 	}
+	cmd.Flags().BoolVar(&full, "full", false, "Run full health checks (same as 'hazmat test --quick')")
+	return cmd
+}
+
+func runStatus(full bool) error {
+	fmt.Println()
+	cBold.Println("  Hazmat — AI agent containment for macOS")
+	fmt.Println()
+
+	type phase struct {
+		label   string
+		command string
+		check   func() bool
+	}
+
+	phases := []phase{
+		{"System setup", "hazmat setup", func() bool {
+			_, err := user.Lookup(agentUser)
+			return err == nil
+		}},
+		{"Claude Code installed", "hazmat bootstrap", func() bool {
+			_, err := sudoOutput("test", "-x", agentHome+"/.local/bin/claude")
+			return err == nil
+		}},
+		{"Agent credentials", "hazmat enroll", func() bool {
+			out, err := sudoOutput("sudo", "-u", agentUser, "-i",
+				"bash", "-c", "grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo ok")
+			return err == nil && strings.TrimSpace(out) == "ok"
+		}},
+		{"Verified", "hazmat test", func() bool {
+			// Just check a few critical invariants rather than running
+			// the full test suite.
+			if _, err := os.Stat(sudoersFile); err != nil {
+				return false
+			}
+			if _, err := os.Stat(pfAnchorFile); err != nil {
+				return false
+			}
+			return true
+		}},
+	}
+
+	allDone := true
+	nextHint := ""
+	for _, p := range phases {
+		ok := p.check()
+		if ok {
+			cGreen.Printf("  [✓] %-24s %s\n", p.label, p.command)
+		} else {
+			if nextHint == "" {
+				cYellow.Printf("  [→] %-24s %s   ◀ next\n", p.label, p.command)
+				nextHint = p.command
+			} else {
+				cDim.Printf("  [ ] %-24s %s\n", p.label, p.command)
+			}
+			allDone = false
+		}
+	}
+
+	fmt.Println()
+	if allDone {
+		fmt.Println("  Quick start:")
+		fmt.Println("    cd ~/workspace/my-project && hazmat claude")
+	} else {
+		fmt.Printf("  Next step: %s\n", nextHint)
+	}
+	fmt.Println()
+
+	if full {
+		ui := &UI{}
+		verifySetup(ui)
+		if ui.Summary() {
+			return fmt.Errorf("health check found failures")
+		}
+	}
+
+	return nil
 }
 
 // runSetup is the top-level entry point.  Named return so defer can inspect
@@ -269,6 +342,12 @@ func runSetup(_ *cobra.Command, _ []string) (retErr error) {
 			fmt.Fprintln(os.Stderr, "See setup-option-a.md § Uninstall / Rollback")
 		}
 	}()
+
+	if !flagDryRun {
+		if err := preflightChecks(cu.Username); err != nil {
+			return err
+		}
+	}
 
 	if err := setupAgentUser(ui, r); err != nil {
 		return err
@@ -811,7 +890,7 @@ func setupLaunchHelper(ui *UI, r *Runner) error {
 		return fmt.Errorf("%s not found.\n\n"+
 			"Build and install the helper before running setup:\n\n"+
 			"  cd hazmat\n"+
-			"  make sandbox-launch\n"+
+			"  make hazmat-launch\n"+
 			"  sudo make install-helper\n\n"+
 			"Then re-run: hazmat setup", launchHelper)
 	}
@@ -1089,6 +1168,67 @@ func verifySetup(ui *UI) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// preflightChecks validates that all prerequisites are met before making any
+// system changes. This catches problems like missing hazmat-launch or UID
+// conflicts before setup modifies 13 system files.
+func preflightChecks(currentUser string) error {
+	type check struct {
+		label string
+		fn    func() error
+	}
+
+	checks := []check{
+		{"macOS detected", checkPlatform},
+		{"hazmat-launch installed", func() error {
+			info, err := os.Stat(launchHelper)
+			if err != nil {
+				return fmt.Errorf("%s not found\n\n"+
+					"Build and install the helper before running setup:\n\n"+
+					"  cd hazmat\n"+
+					"  make hazmat-launch\n"+
+					"  sudo make install-helper", launchHelper)
+			}
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+				return fmt.Errorf("%s is not an executable file", launchHelper)
+			}
+			return nil
+		}},
+		{"UID " + agentUID + " available", func() error {
+			if _, err := user.Lookup(agentUser); err == nil {
+				return nil // agent user already exists — fine
+			}
+			if taken, err := uidTaken(agentUID); err != nil {
+				return fmt.Errorf("cannot check UID: %w", err)
+			} else if taken {
+				return fmt.Errorf("UID %s is already taken — use: hazmat setup --agent-uid <different-uid>", agentUID)
+			}
+			return nil
+		}},
+		{"GID " + sharedGID + " available", func() error {
+			if _, err := user.LookupGroup(sharedGroup); err == nil {
+				return nil // group already exists — fine
+			}
+			if taken, err := gidTaken(sharedGID); err != nil {
+				return fmt.Errorf("cannot check GID: %w", err)
+			} else if taken {
+				return fmt.Errorf("GID %s is already taken — use: hazmat setup --group-gid <different-gid>", sharedGID)
+			}
+			return nil
+		}},
+	}
+
+	fmt.Println("  Pre-flight checks:")
+	for _, c := range checks {
+		if err := c.fn(); err != nil {
+			cRed.Printf("  ✗ %s\n", c.label)
+			return fmt.Errorf("pre-flight check failed: %w", err)
+		}
+		cGreen.Printf("  ✓ %s\n", c.label)
+	}
+	fmt.Println()
+	return nil
+}
 
 func checkPlatform() error {
 	cmd := exec.Command("uname")
