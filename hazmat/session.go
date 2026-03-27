@@ -102,7 +102,7 @@ func newClaudeCmd() *cobra.Command {
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
-					`{ echo "Error: Claude Code not installed for agent user. Run: sandbox bootstrap" >&2; exit 1; }; }; `+
+					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap" >&2; exit 1; }; }; `+
 					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
@@ -274,22 +274,22 @@ agent could bind-mount the workspace into any container.
 
 Use Tier 3 instead:
 
-  docker sandbox run claude %s
+  docker hazmat run claude %s
 
 Or for docker-compose projects:
 
-  docker sandbox run claude %s   # docker compose works inside the sandbox
+  docker hazmat run claude %s   # docker compose works inside the sandbox
 
 See tier3-docker-sandboxes.md for setup and network policy configuration.
 Network policy defaults to allow — switch to deny-mode before running:
 
-  docker sandbox network proxy <name> --allow-host "api.anthropic.com"
-  docker sandbox network proxy <name> --allow-host "github.com"
-  docker sandbox network proxy <name> --deny-host "*"
+  docker hazmat network proxy <name> --allow-host "api.anthropic.com"
+  docker hazmat network proxy <name> --allow-host "github.com"
+  docker hazmat network proxy <name> --deny-host "*"
 
 To run Tier 2 anyway for code-only work (Docker commands will still fail):
 
-  sandbox claude --allow-docker ...
+  hazmat claude --allow-docker ...
 `,
 		projectDir,
 		strings.Join(found, "\n  "),
@@ -306,10 +306,10 @@ To run Tier 2 anyway for code-only work (Docker commands will still fail):
 
 // warnUnmanagedProject prints a warning when projectDir is outside the
 // canonical workspace root.  Projects outside that root are not covered
-// by 'sandbox backup' — changes made in the session will not be backed up.
+// by 'hazmat backup' — changes made in the session will not be backed up.
 //
 // The warning is advisory: the session still launches.  To silence it,
-// move the project inside ~/workspace or enroll it with 'sandbox enroll'.
+// move the project inside ~/workspace or enroll it with 'hazmat enroll'.
 func warnUnmanagedProject(projectDir string) {
 	// Resolve sharedWorkspace symlinks so the comparison works even when
 	// ~/workspace is itself a symlink (e.g. → /Users/Shared/workspace).
@@ -322,7 +322,7 @@ func warnUnmanagedProject(projectDir string) {
 	}
 	fmt.Fprintf(os.Stderr,
 		"Warning: %s is outside the managed workspace (%s).\n"+
-			"Changes made in this session are not covered by 'sandbox backup'.\n",
+			"Changes made in this session are not covered by 'hazmat backup'.\n",
 		projectDir, sharedWorkspace)
 }
 
@@ -345,7 +345,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 
 	w(";; Claude Code runtime seatbelt policy.\n")
-	w(";; Generated per-session by sandbox — do not edit manually.\n\n")
+	w(";; Generated per-session by hazmat — do not edit manually.\n\n")
 	w("(version 1)\n(deny default)\n\n")
 
 	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
@@ -468,21 +468,21 @@ func generateSBPL(cfg sessionConfig) string {
 
 func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
 	policy := generateSBPL(cfg)
-	policyFile := fmt.Sprintf("/private/tmp/sandbox-%d.sb", os.Getpid())
+	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
 		return fmt.Errorf("write seatbelt policy: %w", err)
 	}
 	defer os.Remove(policyFile)
-	// Explicit chmod overrides the process umask so sandbox-launch always
+	// Explicit chmod overrides the process umask so hazmat-launch always
 	// receives a 0644 file regardless of what umask dr has set.
 	if err := os.Chmod(policyFile, 0o644); err != nil {
 		return fmt.Errorf("set seatbelt policy mode: %w", err)
 	}
 
 	// The NOPASSWD sudoers rule covers exactly:
-	//   sudo -u agent /usr/local/libexec/sandbox-launch <policy-file> ...
+	//   sudo -u agent /usr/local/libexec/hazmat-launch <policy-file> ...
 	//
-	// sandbox-launch validates the policy file path and SUDO_UID ownership
+	// hazmat-launch validates the policy file path and SUDO_UID ownership
 	// before calling sandbox-exec -f.  It refuses -p inline policies.
 	// env -i runs *inside* the sandbox so the environment is set after the
 	// privilege boundary is crossed.

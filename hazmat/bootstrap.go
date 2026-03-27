@@ -44,10 +44,10 @@ const agentSettingsJSON = `{
 // ~/.claude/hooks/pre-tool-use.sh during bootstrap.
 //
 // The block between the managed markers is the framework section updated by
-// 'sandbox bootstrap'.  Add your custom rules BELOW the END marker — they
+// 'hazmat bootstrap'.  Add your custom rules BELOW the END marker — they
 // will not be touched on reruns.
 const agentPreToolUseHook = `#!/bin/bash
-# [BEGIN sandbox-bootstrap managed] ──────────────────────────────────────────
+# [BEGIN hazmat-bootstrap managed] ──────────────────────────────────────────
 # PreToolUse hook — runs before every Claude Code tool invocation.
 # Receives tool details in $HOOK_INPUT (JSON).
 # Exit 0 to allow.  Exit 2 with a message on stdout to block.
@@ -61,9 +61,9 @@ const agentPreToolUseHook = `#!/bin/bash
 #       exit 2
 #     fi
 #   fi
-# [END sandbox-bootstrap managed] ────────────────────────────────────────────
+# [END hazmat-bootstrap managed] ────────────────────────────────────────────
 
-# Add custom rules here (not overwritten by sandbox bootstrap):
+# Add custom rules here (not overwritten by hazmat bootstrap):
 
 exit 0
 `
@@ -75,11 +75,11 @@ func newBootstrapCmd() *cobra.Command {
 		Long: `Install Claude Code for the agent user, write a default settings.json with
 allow/deny rules, and create a PreToolUse hook skeleton.
 
-Run once after 'sandbox setup'. All steps require your password (sudo).
-After bootstrap, 'sandbox claude' runs without any password prompt.
+Run once after 'hazmat setup'. All steps require your password (sudo).
+After bootstrap, 'hazmat claude' runs without any password prompt.
 
 Steps:
-  1. Verify the agent user exists (run 'sandbox setup' first if not)
+  1. Verify the agent user exists (run 'hazmat setup' first if not)
   2. Install Claude Code under ~/.local/bin/claude for the agent user
   3. Write ~/.claude/settings.json (0600) if not already present
   4. Create ~/.claude/hooks/ (0700) and a PreToolUse hook (0700) if absent
@@ -98,7 +98,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 	// ── Step 1: verify agent user ─────────────────────────────────────────────
 	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
 	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("agent user %q not found — run 'sandbox setup' first", agentUser)
+		return fmt.Errorf("agent user %q not found — run 'hazmat setup' first", agentUser)
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
@@ -195,7 +195,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 	fmt.Println()
 	cBold.Println("  4. Test a session:")
 	fmt.Println("       cd ~/workspace/my-project")
-	fmt.Println("       sandbox claude")
+	fmt.Println("       hazmat claude")
 	fmt.Println()
 
 	return nil

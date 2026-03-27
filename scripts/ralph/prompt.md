@@ -144,6 +144,6 @@ tail -20 scripts/ralph/progress.txt
 
 ## Constraints
 - This is a macOS-only project — do not add cross-platform abstractions
-- All code is Go (sandbox/) or bash (*.sh) — do not introduce other languages
+- All code is Go (hazmat/) or bash (*.sh) — do not introduce other languages
 - Security-sensitive paths (/etc/sudoers.d, /etc/pf.anchors, /etc/hosts, LaunchDaemons) must remain auditable — all writes must route through the Runner transparency layer
 - Do not remove or weaken any security checks; when in doubt, fail loudly rather than silently

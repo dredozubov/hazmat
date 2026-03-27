@@ -18,7 +18,7 @@ const backupTargetMarker = ".backup-target"
 // backupExcludesFile is the user-editable file listing repos and paths to
 // omit from backup.  Edit this file to change backup scope; the effective
 // scope is always printed before rsync runs, and can be inspected with
-// sandbox backup --show-scope.
+// hazmat backup --show-scope.
 var backupExcludesFile = sharedWorkspace + "/.backup-excludes"
 
 // backupBuiltinExcludes are universal build artifacts always excluded.
@@ -47,7 +47,7 @@ func defaultBackupExcludesContent() string {
 # Lines beginning with # are comments; blank lines are ignored.
 #
 # Edit this file to control what is excluded from backup.
-# To verify the effective scope before running: sandbox backup --show-scope
+# To verify the effective scope before running: hazmat backup --show-scope
 #
 # Add top-level directories you do not need backed up, for example:
 # /nixpkgs/
@@ -76,14 +76,14 @@ destination must first be initialized with a ` + backupTargetMarker + ` marker f
 
 Cloud backups (--cloud) use Kopia to provide encrypted, deduplicated, and
 incremental snapshots to S3-compatible storage. Setup credentials first with:
-  sandbox setup --cloud
+  hazmat setup --cloud
 
 Use --show-scope to inspect effective includes/excludes without running.
 
 Examples:
-  sandbox backup --show-scope
-  sandbox backup /Volumes/BACKUP/workspace
-  sandbox backup --cloud`,
+  hazmat backup --show-scope
+  hazmat backup /Volumes/BACKUP/workspace
+  hazmat backup --cloud`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if showScope {
@@ -103,7 +103,7 @@ Examples:
 	cmd.Flags().BoolVar(&showScope, "show-scope", false,
 		"Print effective backup scope (built-in and user excludes) then exit without running")
 	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
-		"Perform incremental encrypted backup to cloud (requires 'sandbox setup --cloud')")
+		"Perform incremental encrypted backup to cloud (requires 'hazmat setup --cloud')")
 	return cmd
 }
 
@@ -121,7 +121,7 @@ func printBackupScope() error {
 	userExcludes, err := loadUserExcludes()
 	if err != nil {
 		fmt.Println("  (file not found — no user-specific excludes)")
-		fmt.Printf("  To create it, run: sandbox setup\n")
+		fmt.Printf("  To create it, run: hazmat setup\n")
 		fmt.Printf("  Or manually: cp /dev/null %s\n", backupExcludesFile)
 	} else if len(userExcludes) == 0 {
 		fmt.Println("  (file exists but contains no active exclude patterns)")

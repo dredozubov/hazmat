@@ -14,8 +14,8 @@ func newRollbackCmd() *cobra.Command {
 	var deleteUser, deleteGroup bool
 	cmd := &cobra.Command{
 		Use:   "rollback",
-		Short: "Undo host mutations made by sandbox setup",
-		Long: `Reverses the system-level changes applied by sandbox setup:
+		Short: "Undo host mutations made by hazmat setup",
+		Long: `Reverses the system-level changes applied by hazmat setup:
 
   - pf anchor file and /etc/pf.conf additions
   - LaunchDaemon for pf persistence
@@ -32,7 +32,7 @@ User and group deletion require explicit flags because they are destructive:
   --delete-group  Delete the dev group
 
 The workspace root (` + sharedWorkspace + `) is NOT removed automatically.
-Back it up first if needed: sandbox backup /Volumes/BACKUP/workspace
+Back it up first if needed: hazmat backup /Volumes/BACKUP/workspace
 
 Use --dry-run to preview all commands without executing.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -65,7 +65,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 		cYellow.Println("  DRY RUN — no changes will be made.")
 		cYellow.Println("  ────────────────────────────────────────────────────")
 		fmt.Println()
-	} else if !ui.Ask("Rollback all sandbox setup changes?") {
+	} else if !ui.Ask("Rollback all hazmat setup changes?") {
 		fmt.Println("  Aborted.")
 		return nil
 	}
@@ -306,10 +306,10 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 		if err := r.SudoWriteFile(agentZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed sandbox shell block from %s", agentZshrc))
+			ui.Ok(fmt.Sprintf("Removed hazmat shell block from %s", agentZshrc))
 		}
 	} else {
-		ui.SkipDone(fmt.Sprintf("Sandbox shell block not present in %s", agentZshrc))
+		ui.SkipDone(fmt.Sprintf("Hazmat shell block not present in %s", agentZshrc))
 	}
 
 	userZshrc := userZshrcPath()
@@ -319,10 +319,10 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 		if err := r.UserWriteFile(userZshrc, cleaned); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", userZshrc, err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed sandbox PATH block from %s", userZshrc))
+			ui.Ok(fmt.Sprintf("Removed hazmat PATH block from %s", userZshrc))
 		}
 	} else {
-		ui.SkipDone(fmt.Sprintf("Sandbox PATH block not present in %s", userZshrc))
+		ui.SkipDone(fmt.Sprintf("Hazmat PATH block not present in %s", userZshrc))
 	}
 }
 

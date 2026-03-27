@@ -26,9 +26,9 @@ accidental restores from wrong paths.
 Cloud restores (--cloud) use Kopia to restore from the latest snapshot in S3.
 
 Examples:
-  sandbox restore /Volumes/BACKUP/workspace
-  sandbox restore --sync /Volumes/BACKUP/workspace
-  sandbox restore --cloud`,
+  hazmat restore /Volumes/BACKUP/workspace
+  hazmat restore --sync /Volumes/BACKUP/workspace
+  hazmat restore --cloud`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cloudMode {
@@ -49,7 +49,7 @@ Examples:
 
 func runRestore(syncMode bool, src string) error {
 	if _, err := os.Stat(sharedWorkspace); err != nil {
-		return fmt.Errorf("workspace root %q not found: %w\nRun 'sandbox setup' first.", sharedWorkspace, err)
+		return fmt.Errorf("workspace root %q not found: %w\nRun 'hazmat setup' first.", sharedWorkspace, err)
 	}
 
 	if err := validateRestoreSrc(src); err != nil {

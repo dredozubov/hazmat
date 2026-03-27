@@ -23,7 +23,7 @@ Your user (dr)                     Sandbox user (agent)
                                      ◎ monitors all outbound connections
 ```
 
-All Claude Code work happens as `agent`. Your main user remains the driver seat: `sandbox setup` installs `claude-sandbox`, `agent-shell`, and `agent-exec` so you can stay in your normal shell while the actual work executes as the sandbox user.
+All Claude Code work happens as `agent`. Your main user remains the driver seat: `hazmat setup` installs `claude-hazmat`, `agent-shell`, and `agent-exec` so you can stay in your normal shell while the actual work executes as the sandbox user.
 
 ### Security Model
 
@@ -172,7 +172,7 @@ agent-exec uvx ruff check .
 # (for example a separate nvm tree or pyenv installation).
 ```
 
-`sandbox setup` configures the agent shell to expose:
+`hazmat setup` configures the agent shell to expose:
 
 - `PATH=/Users/agent/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:...`
 - XDG cache/config/data directories under `/Users/agent`
@@ -500,13 +500,13 @@ LuLu and pf are independent layers — pf blocks at the packet level, LuLu monit
 cd /path/to/your-project   # any directory — need not be under ~/workspace
 
 # Launch Claude in the sandbox (project = cwd, no extra read access)
-claude-sandbox
+claude-hazmat
 
 # Expose ~/workspace read-only so Claude can read sibling repos for context
-claude-sandbox -W ~/workspace
+claude-hazmat -W ~/workspace
 
 # Expose specific repos read-only instead of the whole workspace
-claude-sandbox -R ~/workspace/reference-repo -R ~/workspace/shared-lib
+claude-hazmat -R ~/workspace/reference-repo -R ~/workspace/shared-lib
 
 # Or open a full interactive shell as the sandbox user
 agent-shell
@@ -519,11 +519,11 @@ agent-exec uvx ruff check .
 
 ### What the Generated Wrappers Do
 
-If you use `sandbox setup`, it installs three host-side commands in `~/.local/bin`:
+If you use `hazmat setup`, it installs three host-side commands in `~/.local/bin`:
 
-- `claude-sandbox` → `sandbox claude`
-- `agent-shell` → `sandbox shell`
-- `agent-exec` → `sandbox exec`
+- `claude-hazmat` → `hazmat claude`
+- `agent-shell` → `hazmat shell`
+- `agent-exec` → `hazmat exec`
 
 They preserve the current project directory (which may be anywhere on the filesystem, not just under `~/workspace`), switch to the `agent` user, apply a per-session seatbelt policy, and expose Homebrew-installed tooling inside the sandbox.
 
@@ -537,7 +537,7 @@ Filesystem scope flags:
 If you want secure-by-default muscle memory, add these to your own shell config:
 
 ```bash
-alias claude='claude-sandbox'
+alias claude='claude-hazmat'
 alias ax='agent-exec'
 alias ash='agent-shell'
 ```
@@ -657,23 +657,23 @@ Layer 6: Docker socket hardening
 
 ### Automated rollback (recommended)
 
-The `sandbox rollback` command reverses all host mutations made by `sandbox setup`:
+The `hazmat rollback` command reverses all host mutations made by `hazmat setup`:
 
 ```bash
 # Preview what would change (no writes):
-sandbox rollback --dry-run
+hazmat rollback --dry-run
 
 # Execute rollback (interactive confirmation):
-sandbox rollback
+hazmat rollback
 
 # Also delete the agent user account and home directory:
-sandbox rollback --delete-user
+hazmat rollback --delete-user
 
 # Also delete the dev group:
-sandbox rollback --delete-group
+hazmat rollback --delete-group
 
 # Full teardown — remove everything:
-sandbox rollback --delete-user --delete-group
+hazmat rollback --delete-user --delete-group
 ```
 
 The rollback command handles each mutation individually and is idempotent — safe to run even if some steps were already undone. The workspace root (`~/workspace`) is intentionally **not** removed automatically; back it up first if needed.
@@ -682,10 +682,10 @@ The rollback command handles each mutation individually and is idempotent — sa
 
 ```bash
 # Back up workspace to an external volume before removing anything:
-sandbox backup /Volumes/BACKUP/workspace
+hazmat backup /Volumes/BACKUP/workspace
 
 # Or to a remote host:
-sandbox backup user@nas:/backup/workspace
+hazmat backup user@nas:/backup/workspace
 ```
 
 ### Workspace restore
@@ -694,13 +694,13 @@ To restore workspace files from a backup:
 
 ```bash
 # Restore to the workspace root (additive — no files deleted):
-sandbox restore /Volumes/BACKUP/workspace
+hazmat restore /Volumes/BACKUP/workspace
 
 # Full mirror restore (removes workspace-only files):
-sandbox restore --sync /Volumes/BACKUP/workspace
+hazmat restore --sync /Volumes/BACKUP/workspace
 
 # Preview without writing:
-sandbox restore --dry-run /Volumes/BACKUP/workspace
+hazmat restore --dry-run /Volumes/BACKUP/workspace
 ```
 
 The restore source must contain a `.backup-target` marker file. This prevents accidental restores from wrong paths:
@@ -712,7 +712,7 @@ touch /Volumes/BACKUP/workspace/.backup-target
 
 ### Manual rollback reference
 
-If `sandbox rollback` is unavailable, use these commands directly:
+If `hazmat rollback` is unavailable, use these commands directly:
 
 ```bash
 # 1. Remove LaunchDaemon (pf persistence)
@@ -742,22 +742,22 @@ sudo killall -HUP mDNSResponder
 sudo rm -f /etc/sudoers.d/agent
 
 # 5. Remove seatbelt profile, agent env, and wrapper commands
-sudo rm -f /Users/agent/.config/sandbox/claude.sb
-sudo rm -f /Users/agent/.config/sandbox/agent-env.zsh
+sudo rm -f /Users/agent/.config/hazmat/claude.sb
+sudo rm -f /Users/agent/.config/hazmat/agent-env.zsh
 sudo rm -f /Users/agent/.local/bin/claude-sandboxed
-rm -f ~/.local/bin/claude-sandbox
+rm -f ~/.local/bin/claude-hazmat
 rm -f ~/.local/bin/agent-shell
 rm -f ~/.local/bin/agent-exec
 
-# 6. Remove sandbox shell blocks from .zshrc files
+# 6. Remove hazmat shell blocks from .zshrc files
 # Remove the block between:
-#   # >>> sandbox agent shell >>>
-#   # <<< sandbox agent shell <<<
+#   # >>> hazmat agent shell >>>
+#   # <<< hazmat agent shell <<<
 # in /Users/agent/.zshrc
 #
 # Remove the block between:
-#   # >>> sandbox user path >>>
-#   # <<< sandbox user path <<<
+#   # >>> hazmat user path >>>
+#   # <<< hazmat user path <<<
 # in ~/.zshrc
 
 # 7. Remove workspace access helpers
@@ -833,10 +833,10 @@ command -v uv
 # Confirm the sandbox command surface is present
 command -v agent-exec
 command -v agent-shell
-command -v claude-sandbox
+command -v claude-hazmat
 
 # Re-run setup to refresh the managed PATH/env files and seatbelt policy
-sandbox setup
+hazmat setup
 ```
 
 The sandbox exposes `/opt/homebrew/bin`, `/opt/homebrew/sbin`, and `/usr/local/bin`. Install shared toolchains there; keep credentials and mutable caches under `/Users/agent`.

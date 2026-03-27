@@ -27,14 +27,14 @@ var (
 
 var (
 	sharedWorkspace   = filepath.Join(os.Getenv("HOME"), "workspace")
-	cloudBackupConfig = filepath.Join(os.Getenv("HOME"), ".config/sandbox/cloud-backup.json")
+	cloudBackupConfig = filepath.Join(os.Getenv("HOME"), ".config/hazmat/cloud-backup.json")
 )
 
-// Sandbox configuration shared by the Go-based setup, test, and rollback flows.
+// Hazmat configuration shared by the Go-based setup, test, and rollback flows.
 const (
 	agentUser     = "agent"
 	agentHome     = "/Users/agent"
-	launchHelper  = "/usr/local/libexec/sandbox-launch"
+	launchHelper  = "/usr/local/libexec/hazmat-launch"
 	sharedGroup   = "dev"
 	pfAnchorName  = "agent"
 	pfAnchorFile  = "/etc/pf.anchors/agent"
@@ -43,19 +43,19 @@ const (
 	sudoersFile   = "/etc/sudoers.d/agent"
 	hostsMarker   = "# === AI Agent Blocklist ==="
 
-	seatbeltProfileDir  = agentHome + "/.config/sandbox"
+	seatbeltProfileDir  = agentHome + "/.config/hazmat"
 	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
 	agentEnvPath        = seatbeltProfileDir + "/agent-env.zsh"
 
-	agentShellBlockStart = "# >>> sandbox agent shell >>>"
-	agentShellBlockEnd   = "# <<< sandbox agent shell <<<"
-	userPathBlockStart   = "# >>> sandbox user path >>>"
-	userPathBlockEnd     = "# <<< sandbox user path <<<"
-	umaskBlockStart      = "# >>> sandbox umask >>>"
-	umaskBlockEnd        = "# <<< sandbox umask <<<"
+	agentShellBlockStart = "# >>> hazmat agent shell >>>"
+	agentShellBlockEnd   = "# <<< hazmat agent shell <<<"
+	userPathBlockStart   = "# >>> hazmat user path >>>"
+	userPathBlockEnd     = "# <<< hazmat user path <<<"
+	umaskBlockStart      = "# >>> hazmat umask >>>"
+	umaskBlockEnd        = "# <<< hazmat umask <<<"
 
 	hostWrapperDirRel      = ".local/bin"
-	hostClaudeWrapperName  = "claude-sandbox"
+	hostClaudeWrapperName  = "claude-hazmat"
 	hostExecWrapperName    = "agent-exec"
 	hostShellWrapperName   = "agent-shell"
 	defaultAgentPath       = agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -68,8 +68,8 @@ const (
 
 func main() {
 	root := &cobra.Command{
-		Use:           "sandbox",
-		Short:         "macOS Claude Code sandbox management",
+		Use:           "hazmat",
+		Short:         "Hazmat — AI agent containment for macOS",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -102,7 +102,7 @@ func main() {
 }
 
 // newConnectCmd is a hidden internal subcommand that dials host:port and exits
-// 0 on success, 1 on failure.  Invoked as: sudo -u agent sandbox _connect host port
+// 0 on success, 1 on failure.  Invoked as: sudo -u agent hazmat _connect host port
 // This lets the test command probe network reachability as the agent user using
 // Go's net.Dial rather than bash's /dev/tcp, without requiring any special setup.
 func newConnectCmd() *cobra.Command {

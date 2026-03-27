@@ -31,7 +31,7 @@ func newTestCmd() *cobra.Command {
 	var quick bool
 	cmd := &cobra.Command{
 		Use:   "test",
-		Short: "Verify the sandbox setup is working correctly",
+		Short: "Verify the hazmat setup is working correctly",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runTest(quick)
 		},
@@ -45,12 +45,12 @@ func runTest(quick bool) error {
 
 	fmt.Println()
 	cBold.Println("  ┌──────────────────────────────────────────────┐")
-	cBold.Println("  │  Sandbox test suite — Option A verification  │")
+	cBold.Println("  │  Hazmat test suite — Option A verification   │")
 	cBold.Println("  └──────────────────────────────────────────────┘")
 	fmt.Println()
 	fmt.Println("  Modes:")
-	fmt.Println("    sandbox test           Full suite including live network probes")
-	fmt.Println("    sandbox test --quick   Skip live TCP/network tests (no external traffic)")
+	fmt.Println("    hazmat test           Full suite including live network probes")
+	fmt.Println("    hazmat test --quick   Skip live TCP/network tests (no external traffic)")
 	fmt.Println()
 
 	cu, err := user.Current()
@@ -98,7 +98,7 @@ func testAgentUser(ui *UI) {
 
 	u, err := user.Lookup(agentUser)
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("User '%s' does not exist — run sandbox setup first", agentUser))
+		ui.TestFail(fmt.Sprintf("User '%s' does not exist — run hazmat setup first", agentUser))
 		return
 	}
 	ui.TestPass(fmt.Sprintf("User '%s' exists", agentUser))
@@ -199,7 +199,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	if workspaceHasDevACL() {
 		ui.TestPass(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
 	} else {
-		ui.TestFail(fmt.Sprintf("Workspace ACL missing '%s' group — run sandbox setup again to add it", sharedGroup))
+		ui.TestFail(fmt.Sprintf("Workspace ACL missing '%s' group — run hazmat setup again to add it", sharedGroup))
 	}
 
 	// Write test as current user
@@ -454,7 +454,7 @@ func testDNSBlocklist(ui *UI) {
 
 	hosts, err := os.ReadFile("/etc/hosts")
 	if err != nil || !strings.Contains(string(hosts), "AI Agent Blocklist") {
-		ui.TestFail("DNS blocklist not found in /etc/hosts — run sandbox setup and enable the DNS blocklist")
+		ui.TestFail("DNS blocklist not found in /etc/hosts — run hazmat setup and enable the DNS blocklist")
 		return
 	}
 	n := strings.Count(string(hosts), "0.0.0.0 ")
@@ -558,9 +558,9 @@ func testCommandSurface(ui *UI) {
 	}
 
 	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "agent-env.zsh") {
-		ui.TestPass("Agent .zshrc sources the sandbox env file")
+		ui.TestPass("Agent .zshrc sources the hazmat env file")
 	} else {
-		ui.TestFail("Agent .zshrc does not source the sandbox env file")
+		ui.TestFail("Agent .zshrc does not source the hazmat env file")
 	}
 
 	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
@@ -594,7 +594,7 @@ func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
 	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
-		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run sandbox setup", seatbeltWrapperPath))
+		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run hazmat setup", seatbeltWrapperPath))
 	} else if info.Mode()&0o111 == 0 {
 		ui.TestFail(fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath))
 	} else {
@@ -634,7 +634,7 @@ func testSeatbelt(ui *UI) {
 		ReferenceDirs: []string{referenceDir},
 	}
 	policyContent := generateSBPL(cfg)
-	policyFile := fmt.Sprintf("/private/tmp/sandbox-test-%d.sb", os.Getpid())
+	policyFile := fmt.Sprintf("/private/tmp/hazmat-test-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policyContent), 0o644); err != nil {
 		ui.TestWarn(fmt.Sprintf("Could not write test seatbelt policy: %v", err))
 		return
@@ -738,7 +738,7 @@ func testBackup(ui *UI) {
 	if _, err := os.Stat(sharedWorkspace); os.IsNotExist(err) {
 		ui.TestSkip(fmt.Sprintf("%s does not exist — skipping rsync dry-run", sharedWorkspace))
 	} else {
-		tmpDest := fmt.Sprintf("/tmp/sandboxtest-backup-%d", os.Getpid())
+		tmpDest := fmt.Sprintf("/tmp/haztest-backup-%d", os.Getpid())
 		rsyncArgs := []string{"--dry-run", "-aHAX"}
 		for _, e := range backupBuiltinExcludes {
 			rsyncArgs = append(rsyncArgs, "--exclude="+e)
@@ -755,7 +755,7 @@ func testBackup(ui *UI) {
 	// ── backup safety: validateSyncDest ──────────────────────────────────────
 
 	// Wrong-path / missing-mount: non-existent local path must be rejected
-	nonExistent := fmt.Sprintf("/tmp/sandboxtest-no-such-dest-%d", os.Getpid())
+	nonExistent := fmt.Sprintf("/tmp/haztest-no-such-dest-%d", os.Getpid())
 	if err := validateSyncDest(nonExistent); err != nil {
 		ui.TestPass("--sync rejects non-existent local destination (wrong-path guard)")
 	} else {
@@ -763,7 +763,7 @@ func testBackup(ui *UI) {
 	}
 
 	// Existing directory without marker must be rejected
-	tmpNoMarker := fmt.Sprintf("/tmp/sandboxtest-backup-nomarker-%d", os.Getpid())
+	tmpNoMarker := fmt.Sprintf("/tmp/haztest-backup-nomarker-%d", os.Getpid())
 	if err := os.MkdirAll(tmpNoMarker, 0o700); err == nil {
 		defer os.RemoveAll(tmpNoMarker)
 		if err := validateSyncDest(tmpNoMarker); err != nil {
@@ -776,7 +776,7 @@ func testBackup(ui *UI) {
 	}
 
 	// Existing directory with marker must be accepted
-	tmpWithMarker := fmt.Sprintf("/tmp/sandboxtest-backup-marker-%d", os.Getpid())
+	tmpWithMarker := fmt.Sprintf("/tmp/haztest-backup-marker-%d", os.Getpid())
 	if err := os.MkdirAll(tmpWithMarker, 0o700); err == nil {
 		defer os.RemoveAll(tmpWithMarker)
 		markerPath := tmpWithMarker + "/" + backupTargetMarker
@@ -804,7 +804,7 @@ func testBackup(ui *UI) {
 	// ── scope file ────────────────────────────────────────────────────────────
 
 	// loadUserExcludes must return an error (not panic) when the file is absent.
-	tmpScope := fmt.Sprintf("/tmp/sandboxtest-excludes-%d", os.Getpid())
+	tmpScope := fmt.Sprintf("/tmp/haztest-excludes-%d", os.Getpid())
 	origExcludes := backupExcludesFile
 
 	// We can't reassign the const, so test via a temp file written directly.
@@ -839,7 +839,7 @@ func testBackup(ui *UI) {
 	if _, err := os.Stat(backupExcludesFile); err == nil {
 		ui.TestPass(fmt.Sprintf("Backup scope file exists: %s", backupExcludesFile))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Backup scope file not found at %s — run sandbox setup to create it", backupExcludesFile))
+		ui.TestWarn(fmt.Sprintf("Backup scope file not found at %s — run hazmat setup to create it", backupExcludesFile))
 	}
 }
 
@@ -851,7 +851,7 @@ func testRestore(ui *UI) {
 	// ── validateRestoreSrc guards ─────────────────────────────────────────────
 
 	// Non-existent local source must be rejected.
-	nonExistent := fmt.Sprintf("/tmp/sandboxtest-no-restore-src-%d", os.Getpid())
+	nonExistent := fmt.Sprintf("/tmp/haztest-no-restore-src-%d", os.Getpid())
 	if err := validateRestoreSrc(nonExistent); err != nil {
 		ui.TestPass("restore rejects non-existent local source (wrong-path guard)")
 	} else {
@@ -859,7 +859,7 @@ func testRestore(ui *UI) {
 	}
 
 	// Existing directory without marker must be rejected.
-	tmpNoMarker := fmt.Sprintf("/tmp/sandboxtest-restore-nomarker-%d", os.Getpid())
+	tmpNoMarker := fmt.Sprintf("/tmp/haztest-restore-nomarker-%d", os.Getpid())
 	if err := os.MkdirAll(tmpNoMarker, 0o700); err == nil {
 		defer os.RemoveAll(tmpNoMarker)
 		if err := validateRestoreSrc(tmpNoMarker); err != nil {
@@ -881,8 +881,8 @@ func testRestore(ui *UI) {
 	// ── End-to-end: restore from fixture backup to temp destination ───────────
 
 	// Build a fixture backup directory: marker + some files.
-	tmpSrc := fmt.Sprintf("/tmp/sandboxtest-restore-src-%d", os.Getpid())
-	tmpDest := fmt.Sprintf("/tmp/sandboxtest-restore-dest-%d", os.Getpid())
+	tmpSrc := fmt.Sprintf("/tmp/haztest-restore-src-%d", os.Getpid())
+	tmpDest := fmt.Sprintf("/tmp/haztest-restore-dest-%d", os.Getpid())
 	if err := os.MkdirAll(tmpSrc, 0o700); err != nil {
 		ui.TestWarn(fmt.Sprintf("could not create restore fixture dir: %v", err))
 		return
@@ -1050,7 +1050,7 @@ func testDecommission(ui *UI) {
 
 	// ── Backup scope file removal ─────────────────────────────────────────────
 	// Verify that the scope file can be removed with os.Remove (as rollbackBackupScope does).
-	tmpScope := fmt.Sprintf("/tmp/sandboxtest-decom-scope-%d", os.Getpid())
+	tmpScope := fmt.Sprintf("/tmp/haztest-decom-scope-%d", os.Getpid())
 	if err := os.WriteFile(tmpScope, []byte("# test\n/foo/\n"), 0o644); err == nil {
 		if err := os.Remove(tmpScope); err != nil {
 			ui.TestFail(fmt.Sprintf("Backup scope file removal failed: %v", err))
@@ -1080,8 +1080,8 @@ func testCloudBackup(ui *UI) {
 	ui.Step("Cloud Backup (Go-native Kopia)")
 
 	ctx := context.Background()
-	kopiaTest.repoDir = fmt.Sprintf("/tmp/sandboxtest-kopia-repo-%d", os.Getpid())
-	kopiaTest.sourceDir = fmt.Sprintf("/tmp/sandboxtest-kopia-src-%d", os.Getpid())
+	kopiaTest.repoDir = fmt.Sprintf("/tmp/haztest-kopia-repo-%d", os.Getpid())
+	kopiaTest.sourceDir = fmt.Sprintf("/tmp/haztest-kopia-src-%d", os.Getpid())
 	kopiaTest.password = "test-password-T3st!"
 
 	if err := os.MkdirAll(kopiaTest.repoDir, 0o700); err != nil {
@@ -1309,7 +1309,7 @@ func testCloudRestore(ui *UI) {
 		return
 	}
 
-	restoreDir := fmt.Sprintf("/tmp/sandboxtest-kopia-restore-%d", os.Getpid())
+	restoreDir := fmt.Sprintf("/tmp/haztest-kopia-restore-%d", os.Getpid())
 	if err := os.MkdirAll(restoreDir, 0o700); err != nil {
 		ui.TestFail(fmt.Sprintf("Kopia: could not create restore dir: %v", err))
 		return

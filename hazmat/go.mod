@@ -1,4 +1,4 @@
-module sandbox
+module hazmat
 
 go 1.25
 

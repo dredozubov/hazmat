@@ -83,7 +83,7 @@ Read [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) for the Docker-speci
 
 For the dedicated-user setup in [setup-option-a.md](setup-option-a.md), the key UX improvement is the host-side command surface:
 
-- `claude-sandbox` launches Claude directly in the sandbox
+- `claude-hazmat` launches Claude directly in the sandbox
 - `agent-shell` opens an interactive sandboxed shell
 - `agent-exec` runs one-off tools like `make`, `npx`, `uv`, and `uvx`
 

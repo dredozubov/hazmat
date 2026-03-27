@@ -86,7 +86,7 @@ func asAgentShellQuiet(script string) error {
 
 
 // agentTCPConnect tests whether the agent user can reach host:port.
-// It invokes the binary itself as the agent user via "sudo -u agent sandbox _connect",
+// It invokes the binary itself as the agent user via "sudo -u agent hazmat _connect",
 // so the actual TCP dial runs under the agent user's UID and is subject to pf rules.
 // Falls back to bash /dev/tcp if os.Executable() fails (e.g. go run).
 func agentTCPConnect(selfPath, host, port string) bool {

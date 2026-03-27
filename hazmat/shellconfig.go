@@ -23,7 +23,7 @@ func agentShellBlockContent() string {
 	return managedBlock(
 		agentShellBlockStart,
 		agentShellBlockEnd,
-		`[[ -f "$HOME/.config/sandbox/agent-env.zsh" ]] && source "$HOME/.config/sandbox/agent-env.zsh"`,
+		`[[ -f "$HOME/.config/hazmat/agent-env.zsh" ]] && source "$HOME/.config/hazmat/agent-env.zsh"`,
 	)
 }
 
@@ -36,7 +36,7 @@ func userPathBlockContent() string {
 }
 
 func agentEnvContent() string {
-	return fmt.Sprintf(`# Managed by sandbox setup.
+	return fmt.Sprintf(`# Managed by hazmat setup.
 export PATH="%s"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -50,26 +50,26 @@ if [[ -x "$HOME/.local/bin/claude-sandboxed" ]]; then
 fi
 
 if [[ -n "${SANDBOX_ACTIVE:-}" && -o interactive ]]; then
-  PROMPT="%%F{red}[agent:sandbox]%%f %%~ %%# "
+  PROMPT="%%F{red}[agent:hazmat]%%f %%~ %%# "
 fi
 `, defaultAgentPath)
 }
 
-func hostWrapperContent(sandboxBin, subcommand string) string {
-	// No fallback to `command -v sandbox`: on macOS that resolves to
-	// /usr/bin/sandbox (Apple's SBPL tool), not this binary.
+func hostWrapperContent(hazmatBin, subcommand string) string {
+	// No fallback to `command -v hazmat`: on macOS `command -v sandbox`
+	// resolves to /usr/bin/sandbox (Apple's SBPL tool), not this binary.
 	return fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
 
-SANDBOX_BIN=%q
-if [[ ! -x "$SANDBOX_BIN" ]]; then
-  printf 'error: sandbox binary not found: %%s\n' "$SANDBOX_BIN" >&2
-  printf 'Re-run "sandbox setup" to refresh the wrappers.\n' >&2
+HAZMAT_BIN=%q
+if [[ ! -x "$HAZMAT_BIN" ]]; then
+  printf 'error: hazmat binary not found: %%s\n' "$HAZMAT_BIN" >&2
+  printf 'Re-run "hazmat setup" to refresh the wrappers.\n' >&2
   exit 1
 fi
 
-exec "$SANDBOX_BIN" %s "$@"
-`, sandboxBin, subcommand)
+exec "$HAZMAT_BIN" %s "$@"
+`, hazmatBin, subcommand)
 }
 
 func managedBlock(start, end string, lines ...string) string {

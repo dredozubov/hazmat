@@ -24,7 +24,7 @@ import (
 func loadCloudConfig() (*CloudConfig, error) {
 	data, err := os.ReadFile(cloudBackupConfig)
 	if err != nil {
-		return nil, fmt.Errorf("could not read cloud backup config: %w\nRun 'sandbox setup --cloud' first.", err)
+		return nil, fmt.Errorf("could not read cloud backup config: %w\nRun 'hazmat setup --cloud' first.", err)
 	}
 	var cfg CloudConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -62,7 +62,7 @@ func runCloudBackup() error {
 		return fmt.Errorf("could not connect to S3 storage: %w", err)
 	}
 
-	configFile := filepath.Join(os.Getenv("HOME"), ".config/sandbox/kopia.config")
+	configFile := filepath.Join(os.Getenv("HOME"), ".config/hazmat/kopia.config")
 
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		fmt.Println("Initializing Kopia repository in S3...")
@@ -107,7 +107,7 @@ func runCloudBackup() error {
 	}
 
 	sourceInfo := snapshot.SourceInfo{
-		Host:     "sandbox-host",
+		Host:     "hazmat-host",
 		UserName: os.Getenv("USER"),
 		Path:     sourcePath,
 	}
@@ -127,7 +127,7 @@ func runCloudBackup() error {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
-	manifest.Description = "Sandbox workspace backup"
+	manifest.Description = "Hazmat workspace backup"
 	manifest.EndTime = fs.UTCTimestampFromTime(time.Now())
 
 	if _, err := snapshot.SaveSnapshot(ctx, wr, manifest); err != nil {
@@ -154,7 +154,7 @@ func runCloudRestore() error {
 		return fmt.Errorf("could not connect to S3 storage: %w", err)
 	}
 
-	configFile := filepath.Join(os.Getenv("HOME"), ".config/sandbox/kopia.config")
+	configFile := filepath.Join(os.Getenv("HOME"), ".config/hazmat/kopia.config")
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		if err := repo.Connect(ctx, configFile, st, cfg.Password, &repo.ConnectOptions{}); err != nil {
 			return fmt.Errorf("could not connect to repository: %w", err)
@@ -168,7 +168,7 @@ func runCloudRestore() error {
 	defer r.Close(ctx)
 
 	sourceInfo := snapshot.SourceInfo{
-		Host:     "sandbox-host",
+		Host:     "hazmat-host",
 		UserName: os.Getenv("USER"),
 		Path:     sharedWorkspace,
 	}

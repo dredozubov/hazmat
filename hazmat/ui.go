@@ -115,11 +115,11 @@ func (u *UI) Summary() bool {
 
 	switch {
 	case u.Fail > 0:
-		cRed.Println("  Sandbox is NOT fully operational. Fix failures before running Claude in auto mode.")
+		cRed.Println("  Hazmat is NOT fully operational. Fix failures before running Claude in auto mode.")
 	case u.Warn > 0:
-		cYellow.Println("  Sandbox is operational with warnings. Review warnings before running autonomously.")
+		cYellow.Println("  Hazmat is operational with warnings. Review warnings before running autonomously.")
 	default:
-		cGreen.Println("  All checks passed. Sandbox is ready.")
+		cGreen.Println("  All checks passed. Hazmat is ready.")
 	}
 	fmt.Println()
 	return u.Fail > 0
@@ -208,13 +208,13 @@ func (u *UI) Banner(currentUser string) {
 	fmt.Printf("    2. Create a '%s' group (only %s + %s)\n", sharedGroup, currentUser, agentUser)
 	fmt.Printf("    3. Prepare %s for sandboxed project access\n", sharedWorkspace)
 	fmt.Println("    4. Harden known macOS isolation gaps")
-	fmt.Println("    5. Install sandbox-aware shell wrappers and toolchain env")
+	fmt.Println("    5. Install hazmat-aware shell wrappers and toolchain env")
 	fmt.Printf("    6. Configure passwordless sudo (%s → %s)\n", currentUser, agentUser)
 	fmt.Println("    7. Install a pf port blocklist (SMTP, IRC, FTP, Tor, etc.)")
 	fmt.Println("    8. Add a DNS domain blocklist (tunnel/paste/fileshare services)")
 	fmt.Println("    9. Persist firewall rules across reboots")
 	fmt.Println()
-	fmt.Println("  After setup, run 'sandbox bootstrap' to install Claude Code and")
+	fmt.Println("  After setup, run 'hazmat bootstrap' to install Claude Code and")
 	fmt.Println("  write default settings for the agent user.  Then:")
 	fmt.Println("    • Set ANTHROPIC_API_KEY for the agent user")
 	fmt.Println("    • Configure git HTTPS credentials (SSH is blocked by the seatbelt)")
@@ -230,7 +230,7 @@ func (u *UI) DoneBox(currentUser string) {
 	fmt.Println("  Next steps:")
 	fmt.Println()
 	cBold.Println("  1. Bootstrap the agent user (installs Claude Code, settings, and hooks):")
-	fmt.Println("     sandbox bootstrap")
+	fmt.Println("     hazmat bootstrap")
 	fmt.Println()
 	cBold.Println("  2. Authenticate the agent user (choose one):")
 	fmt.Printf("     sudo -u %s -i\n", agentUser)
@@ -246,7 +246,7 @@ func (u *UI) DoneBox(currentUser string) {
 	cBold.Println("  4. Reload your shell, then test a session:")
 	fmt.Println("     source ~/.zshrc   (or open a new terminal)")
 	fmt.Println("     cd ~/workspace/my-project")
-	fmt.Println("     sandbox claude")
+	fmt.Println("     hazmat claude")
 	fmt.Println()
 	cBold.Println("  5. Install LuLu for network monitoring (optional, recommended):")
 	fmt.Println("     https://objective-see.org/products/lulu.html")
