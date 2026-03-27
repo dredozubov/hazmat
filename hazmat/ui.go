@@ -202,10 +202,13 @@ func (u *UI) Banner(currentUser string) {
 	fmt.Println()
 	cRed.Print("  ☢ "); cBold.Println("Hazmat — AI agent containment for macOS")
 	fmt.Println()
-	fmt.Println("  This will create a contained environment, install Claude Code,")
-	fmt.Println("  and configure your credentials. After setup:")
+	fmt.Println("  Creates a contained environment for AI agents: dedicated user,")
+	fmt.Println("  filesystem sandbox, firewall, DNS blocklist, and snapshot backup.")
 	fmt.Println()
-	fmt.Printf("    cd %s/my-project && hazmat claude\n", workspaceHint)
+	cDim.Println("  Preview first:  hazmat init --dry-run")
+	fmt.Println()
+	fmt.Println("  After setup:")
+	fmt.Printf("    cd your-project && hazmat claude\n")
 	fmt.Println()
 }
 

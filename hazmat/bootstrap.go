@@ -194,7 +194,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 	fmt.Println("       " + hookScript + "  — PreToolUse guard")
 	fmt.Println()
 	cBold.Println("  4. Test a session:")
-	fmt.Println("       cd ~/workspace/my-project")
+	fmt.Println("       cd your-project")
 	fmt.Println("       hazmat claude")
 	fmt.Println()
 

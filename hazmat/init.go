@@ -179,7 +179,7 @@ Creates a dedicated agent user, workspace ACLs, pf port blocklist, DNS
 blocklist, seatbelt profile, installs Claude Code, and prompts for API key
 and git credentials.
 
-After init completes:   cd ~/workspace/my-project && hazmat claude
+After init completes:   cd your-project && hazmat claude
 
 Interactive by default — prompts for confirmation before making changes.
 
@@ -321,7 +321,7 @@ func runStatus(full bool) error {
 	fmt.Println()
 	if allDone {
 		fmt.Println("  Quick start:")
-		fmt.Println("    cd ~/workspace/my-project && hazmat claude")
+		fmt.Println("    cd your-project && hazmat claude")
 	} else {
 		fmt.Printf("  Next step: %s\n", nextHint)
 	}
@@ -447,7 +447,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	cGreen.Println("━━━ Setup complete ━━━")
 	fmt.Println()
 	fmt.Println("  Ready to use:")
-	fmt.Println("    cd ~/workspace/my-project && hazmat claude")
+	fmt.Println("    cd your-project && hazmat claude")
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
 	fmt.Println("  Update creds:   hazmat enroll")
