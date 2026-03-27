@@ -10,6 +10,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 hazmat/                  Go source (package main, module hazmat)
   cmd/hazmat-launch/     Privileged helper binary (narrow sudo target)
   Makefile               Build targets: hazmat, hazmat-launch
+tla/                     TLA+ formal verification specs (see tla/VERIFIED.md)
 *.md                     Documentation (tiers, threat model, setup guide)
 ux-analysis.md           User flow diagrams and UX analysis
 design-assumptions.md    Explicit design assumptions and security tradeoffs
@@ -34,6 +35,23 @@ go test ./cmd/hazmat-launch/
 - **Setup is unified.** `hazmat setup` chains system config + bootstrap + enroll. The standalone `bootstrap` and `enroll` commands exist for re-running individually.
 - **Pre-flight checks run before any mutations.** `preflightChecks()` in setup.go validates all prerequisites before the first `dscl` call.
 - **Seatbelt policies are per-session.** Generated dynamically in `generateSBPL()` with literal paths embedded. Written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
+
+## When changing setup or rollback
+
+**Check TLA+ specs first.** Setup/rollback step ordering is formally verified.
+See `tla/VERIFIED.md` for the authoritative rules. In short:
+
+1. **Adding, removing, or reordering setup/rollback steps** — update the TLA+
+   spec (`tla/MC_SetupRollback.tla`) first, run TLC, prove invariants pass,
+   then implement in Go.
+2. **Run TLC** after any change to `setup.go` or `rollback.go`:
+   ```bash
+   cd tla && java -jar ~/workspace/tla2tools.jar -workers auto \
+     -config MC_SetupRollback.cfg MC_SetupRollback.tla
+   ```
+3. **Key invariant: `AgentContained`** — the agent must never be launchable
+   (sudoers exists) without firewall containment (pfAnchor active). Currently
+   violated by step ordering (known finding, see `tla/01_setup_rollback_state_machine.md`).
 
 ## When making security-relevant changes
 
