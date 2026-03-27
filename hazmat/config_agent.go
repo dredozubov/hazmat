@@ -210,13 +210,6 @@ func runConfigAgent(ui *UI) error {
 				return fmt.Errorf("set git config: %w", err)
 			}
 
-			// Ensure git credentials directory exists
-			credDir := agentHome + "/.config/git"
-			if _, err := os.Stat(credDir); os.IsNotExist(err) {
-				sudo("mkdir", "-p", credDir)
-				sudo("chown", agentUser, credDir)
-			}
-
 			if gitName != "" || gitEmail != "" {
 				ui.Ok(fmt.Sprintf("Git identity: %s <%s>", gitName, gitEmail))
 			}
@@ -238,30 +231,22 @@ func runConfigAgent(ui *UI) error {
 	return nil
 }
 
-// updateAgentFile reads a file from agent home, applies a transform,
-// writes to a temp file, then sudo installs it back with agent ownership.
-func updateAgentFile(path string, transform func(string) string, mode os.FileMode) error {
-	// Read current content (host can read via ACLs).
+// updateAgentFile reads a file from agent home, applies a transform, and
+// writes it back. Uses O_WRONLY|O_TRUNC on the existing file to preserve
+// ownership (agent:dev). No sudo needed — the host user has group write
+// access via the dev group (set up during hazmat init).
+func updateAgentFile(path string, transform func(string) string, _ os.FileMode) error {
 	current, _ := os.ReadFile(path)
 	updated := transform(string(current))
 
-	// Write to temp file.
-	tmp, err := os.CreateTemp("", "hazmat-agent-*")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("open %s for writing: %w (run 'hazmat init' to fix permissions)", path, err)
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer f.Close()
 
-	if _, err := tmp.WriteString(updated); err != nil {
-		tmp.Close()
-		return err
-	}
-	tmp.Close()
-
-	// Install with correct ownership and mode.
-	return sudo("install", "-o", agentUser, "-g", "staff",
-		"-m", fmt.Sprintf("%04o", mode), tmpPath, path)
+	_, err = f.WriteString(updated)
+	return err
 }
 
 // ── Minimal INI parser for .gitconfig ───────────────────────────────────────

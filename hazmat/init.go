@@ -419,6 +419,27 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
+	// Make agent config files group-writable by dev so 'hazmat config agent'
+	// can modify them without sudo. Both dr and agent are in the dev group.
+	if !flagDryRun {
+		for _, path := range []string{
+			agentHome + "/.zshrc",
+			agentHome + "/.gitconfig",
+		} {
+			// Pre-create if missing (gitconfig may not exist yet).
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				sudo("touch", path)
+			}
+			sudo("chown", agentUser+":"+sharedGroup, path)
+			sudo("chmod", "0660", path)
+		}
+		// Ensure git credentials directory exists.
+		credDir := agentHome + "/.config/git"
+		sudo("mkdir", "-p", credDir)
+		sudo("chown", "-R", agentUser+":"+sharedGroup, credDir)
+		sudo("chmod", "0770", credDir)
+	}
+
 	// ── Agent credentials: API key + git identity ───────────────────────────
 	if !flagDryRun && ui.IsInteractive() {
 		if err := runConfigAgent(ui); err != nil {
