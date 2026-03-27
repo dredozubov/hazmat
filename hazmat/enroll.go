@@ -119,33 +119,61 @@ func runEnroll(ui *UI) error {
 	// ── Git identity ────────────────────────────────────────────────────────
 	ui.Step("Git identity")
 
-	currentName, _ := sudoOutput("sudo", "-u", agentUser, "-i",
+	// Read the agent user's current git config.
+	agentName, _ := sudoOutput("sudo", "-u", agentUser, "-i",
 		"bash", "-c", "git config --global user.name 2>/dev/null")
-	currentName = strings.TrimSpace(currentName)
-	currentEmail, _ := sudoOutput("sudo", "-u", agentUser, "-i",
+	agentName = strings.TrimSpace(agentName)
+	agentEmail, _ := sudoOutput("sudo", "-u", agentUser, "-i",
 		"bash", "-c", "git config --global user.email 2>/dev/null")
-	currentEmail = strings.TrimSpace(currentEmail)
+	agentEmail = strings.TrimSpace(agentEmail)
 
-	if currentName != "" {
-		fmt.Printf("  Name [%s]: ", currentName)
+	// Read the host user's git config as defaults.
+	hostName, _ := execOutput("git", "config", "--global", "user.name")
+	hostName = strings.TrimSpace(hostName)
+	hostEmail, _ := execOutput("git", "config", "--global", "user.email")
+	hostEmail = strings.TrimSpace(hostEmail)
+
+	// Pick the best default: agent's existing config > host user's config.
+	defaultName := agentName
+	if defaultName == "" {
+		defaultName = hostName
+	}
+	defaultEmail := agentEmail
+	if defaultEmail == "" {
+		defaultEmail = hostEmail
+	}
+
+	var gitName, gitEmail string
+	if defaultName != "" || defaultEmail != "" {
+		// We have defaults — offer to use them.
+		source := "host git config"
+		if agentName != "" {
+			source = "agent"
+		}
+		fmt.Printf("  Name  [%s] (%s): ", defaultName, source)
+		gitName, _ = reader.ReadString('\n')
+		gitName = strings.TrimSpace(gitName)
+		if gitName == "" {
+			gitName = defaultName
+		}
+
+		source = "host git config"
+		if agentEmail != "" {
+			source = "agent"
+		}
+		fmt.Printf("  Email [%s] (%s): ", defaultEmail, source)
+		gitEmail, _ = reader.ReadString('\n')
+		gitEmail = strings.TrimSpace(gitEmail)
+		if gitEmail == "" {
+			gitEmail = defaultEmail
+		}
 	} else {
 		fmt.Print("  Name: ")
-	}
-	gitName, _ := reader.ReadString('\n')
-	gitName = strings.TrimSpace(gitName)
-	if gitName == "" {
-		gitName = currentName
-	}
-
-	if currentEmail != "" {
-		fmt.Printf("  Email [%s]: ", currentEmail)
-	} else {
+		gitName, _ = reader.ReadString('\n')
+		gitName = strings.TrimSpace(gitName)
 		fmt.Print("  Email: ")
-	}
-	gitEmail, _ := reader.ReadString('\n')
-	gitEmail = strings.TrimSpace(gitEmail)
-	if gitEmail == "" {
-		gitEmail = currentEmail
+		gitEmail, _ = reader.ReadString('\n')
+		gitEmail = strings.TrimSpace(gitEmail)
 	}
 
 	if gitName != "" {
