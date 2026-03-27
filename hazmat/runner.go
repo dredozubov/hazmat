@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/fatih/color"
@@ -55,6 +56,21 @@ func (r *Runner) Sudo(reason string, args ...string) error {
 		return nil
 	}
 	return sudo(args...)
+}
+
+// SudoVisible runs a sudo command with stdout/stderr visible to the user
+// but no stdin (not interactive). Use for commands that print progress
+// but don't need input, like installers.
+func (r *Runner) SudoVisible(reason string, args ...string) error {
+	r.showReason(reason)
+	r.showCmd("sudo " + strings.Join(shellQuote(args), " "))
+	if r.DryRun {
+		return nil
+	}
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // Interactive shows the command; in dry-run annotates it as interactive and

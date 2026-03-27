@@ -75,8 +75,8 @@ func newBootstrapCmd() *cobra.Command {
 		Long: `Install Claude Code for the agent user, write a default settings.json with
 allow/deny rules, and create a PreToolUse hook skeleton.
 
-Run once after 'hazmat init'. All steps require your password (sudo).
-After bootstrap, 'hazmat claude' runs without any password prompt.
+Run once after 'hazmat init'. Uses the passwordless sudo rule configured
+during init — no password prompt.
 
 Steps:
   1. Verify the agent user exists (run 'hazmat init' first if not)
@@ -109,10 +109,8 @@ func runBootstrap(ui *UI, r *Runner) error {
 	if _, err := sudoOutput("test", "-x", claudeBin); err == nil {
 		ui.SkipDone("Claude Code already installed")
 	} else {
-		ui.WarnMsg("Your sudo password is required to install Claude Code as the agent user.")
-		// r.Interactive connects stdin/stdout/stderr so the curl installer's
-		// prompts are fully visible.
-		if err := r.Interactive("install Claude Code as agent user", "sudo", "-u", agentUser, "-i",
+		if err := r.SudoVisible("install Claude Code as agent user",
+			"-u", agentUser, "-i",
 			"bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
