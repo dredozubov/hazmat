@@ -9,23 +9,23 @@
 # Prerequisites:
 #   - Apple Silicon Mac
 #   - Lume installed: brew install lume
-#   - First run pulls ~40 GB macOS image (cached after that)
 #
-# What it does:
-#   1. Clones a vanilla macOS Sequoia VM (CoW, fast)
-#   2. Boots it headless with the repo shared via VirtioFS
-#   3. SSHs in, installs Go, runs scripts/e2e.sh
-#   4. Destroys the clone
+# First run creates a base VM from IPSW (~15-20 min, one-time). Subsequent
+# runs clone the base (~seconds) and destroy the clone after testing.
+#
+# Base VM: hazmat-e2e-base (persistent, reused across runs)
+# Test VM: hazmat-e2e-<pid> (ephemeral, destroyed after each run)
 
 set -euo pipefail
 
-VM_NAME="hazmat-e2e-$$"
-VM_IMAGE="macos-sequoia-vanilla:latest"
+BASE_VM="hazmat-e2e-base"
+TEST_VM="hazmat-e2e-$$"
 VM_USER="lume"
 VM_PASS="lume"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 QUICK=""
 KEEP=""
+VM_IP=""
 
 for arg in "$@"; do
     case "$arg" in
@@ -36,14 +36,15 @@ done
 
 cleanup() {
     if [ -n "$KEEP" ]; then
-        echo "VM $VM_NAME kept alive for debugging."
-        echo "  SSH:     ssh $VM_USER@\$(lume get $VM_NAME -f json | jq -r '.ip')"
-        echo "  Destroy: lume stop $VM_NAME && lume delete $VM_NAME --force"
+        echo ""
+        echo "VM $TEST_VM kept alive for debugging."
+        echo "  SSH:     ssh $VM_USER@$VM_IP"
+        echo "  Destroy: lume stop $TEST_VM && lume delete $TEST_VM --force"
         return
     fi
-    echo "Cleaning up VM $VM_NAME..."
-    lume stop "$VM_NAME" 2>/dev/null || true
-    lume delete "$VM_NAME" --force 2>/dev/null || true
+    echo "Cleaning up VM $TEST_VM..."
+    lume stop "$TEST_VM" 2>/dev/null || true
+    lume delete "$TEST_VM" --force 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -54,72 +55,102 @@ if ! command -v lume &>/dev/null; then
     exit 1
 fi
 
-echo "Creating VM $VM_NAME from $VM_IMAGE..."
-lume clone "$VM_IMAGE" "$VM_NAME" 2>/dev/null \
-    || lume pull "$VM_IMAGE" && lume clone "$VM_IMAGE" "$VM_NAME"
+# ── Ensure base VM exists ────────────────────────────────────────────────────
+# Creates a macOS Sequoia VM with unattended setup (user: lume, pass: lume,
+# SSH enabled). This takes ~15-20 min on first run but only happens once.
 
-echo "Booting VM (headless, shared dir: $REPO_ROOT)..."
-lume run "$VM_NAME" --no-display --shared-dir "$REPO_ROOT" &
-VM_PID=$!
+if lume get "$BASE_VM" &>/dev/null; then
+    echo "Base VM $BASE_VM already exists."
+else
+    echo "Creating base VM $BASE_VM (one-time, ~15-20 min)..."
+    echo "This downloads macOS from Apple and runs unattended Setup Assistant."
+    lume create "$BASE_VM" \
+        --os macOS \
+        --ipsw latest \
+        --cpu 4 \
+        --memory 8GB \
+        --disk-size 50GB \
+        --unattended sequoia \
+        --no-display
+    echo "Base VM $BASE_VM created."
 
-# ── Wait for SSH ─────────────────────────────────────────────────────────────
+    # Boot the base VM to install Go, then stop it.
+    echo "Installing Go in base VM..."
+    lume run "$BASE_VM" --no-display &
+    BASE_PID=$!
 
-echo "Waiting for SSH..."
-for i in $(seq 1 60); do
-    VM_IP=$(lume get "$VM_NAME" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
-    if [ -n "$VM_IP" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$VM_USER@$VM_IP" true 2>/dev/null; then
-        echo "SSH ready at $VM_USER@$VM_IP"
-        break
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo "Error: VM did not become reachable via SSH within 120s"
-        exit 1
-    fi
-    sleep 2
-done
+    wait_for_ssh "$BASE_VM"
 
-# SSH helper
-vm_ssh() {
-    ssh -o StrictHostKeyChecking=no -o BatchMode=no \
-        "$VM_USER@$VM_IP" "$@"
-}
+    BASE_IP=$(get_vm_ip "$BASE_VM")
+    vm_ssh_to "$BASE_IP" 'command -v brew &>/dev/null || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    vm_ssh_to "$BASE_IP" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'
+    # Enable passwordless sudo
+    vm_ssh_to "$BASE_IP" "echo '$VM_PASS' | sudo -S sh -c 'echo \"$VM_USER ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$VM_USER && chmod 440 /etc/sudoers.d/$VM_USER'"
 
-vm_ssh_pass() {
-    # For commands that need the password piped to sudo
-    sshpass -p "$VM_PASS" ssh -o StrictHostKeyChecking=no "$VM_USER@$VM_IP" "$@"
-}
-
-# ── Install Go if needed ─────────────────────────────────────────────────────
-
-echo "Checking Go installation in VM..."
-if ! vm_ssh "command -v go" &>/dev/null; then
-    echo "Installing Go in VM via Homebrew..."
-    vm_ssh 'command -v brew &>/dev/null || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-    vm_ssh 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'
+    lume stop "$BASE_VM"
+    wait
+    echo "Base VM ready with Go + passwordless sudo."
 fi
 
-# ── Configure passwordless sudo ──────────────────────────────────────────────
+# ── Helper functions ─────────────────────────────────────────────────────────
 
-echo "Enabling passwordless sudo for test user..."
-vm_ssh "echo '$VM_PASS' | sudo -S sh -c 'echo \"$VM_USER ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$VM_USER'"
+get_vm_ip() {
+    local vm="$1"
+    # Try JSON output first, fall back to text parsing
+    local ip
+    ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
+    if [ -z "$ip" ]; then
+        ip=$(lume get "$vm" 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1 || true)
+    fi
+    echo "$ip"
+}
 
-# ── Run E2E tests ────────────────────────────────────────────────────────────
+wait_for_ssh() {
+    local vm="$1"
+    echo "Waiting for SSH on $vm..."
+    for i in $(seq 1 90); do
+        local ip
+        ip=$(get_vm_ip "$vm")
+        if [ -n "$ip" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$VM_USER@$ip" true 2>/dev/null; then
+            echo "SSH ready at $VM_USER@$ip"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "Error: VM did not become reachable via SSH within 180s"
+    return 1
+}
 
-# The repo is mounted at /Volumes/My Shared Files inside the VM.
-# Copy it to a local path to avoid VirtioFS performance quirks with Go builds.
+vm_ssh_to() {
+    local ip="$1"
+    shift
+    ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$VM_USER@$ip" "$@"
+}
+
+# ── Clone and boot test VM ───────────────────────────────────────────────────
+
+echo "Cloning $BASE_VM → $TEST_VM..."
+lume clone "$BASE_VM" "$TEST_VM"
+
+echo "Booting $TEST_VM (headless, shared dir: $REPO_ROOT)..."
+lume run "$TEST_VM" --no-display --shared-dir "$REPO_ROOT" &
+
+wait_for_ssh "$TEST_VM"
+VM_IP=$(get_vm_ip "$TEST_VM")
+
+# ── Copy repo to VM local disk ───────────────────────────────────────────────
+# VirtioFS is fine for reads but Go builds are faster on local disk.
+
 GUEST_REPO="/tmp/hazmat-repo"
-
 echo "Copying repo to VM local disk..."
-vm_ssh "rm -rf $GUEST_REPO && cp -a '/Volumes/My Shared Files' $GUEST_REPO"
+vm_ssh_to "$VM_IP" "rm -rf $GUEST_REPO && cp -a '/Volumes/My Shared Files' $GUEST_REPO"
+
+# ── Run E2E ──────────────────────────────────────────────────────────────────
 
 echo ""
 echo "════════════════════════════════════════════════════════"
-echo "  Running E2E tests inside VM"
+echo "  Running E2E tests inside VM ($TEST_VM)"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# Run the test. eval brew shellenv ensures Go is on PATH.
-vm_ssh "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $GUEST_REPO && bash scripts/e2e.sh $QUICK"
-EXIT_CODE=$?
-
-exit "$EXIT_CODE"
+vm_ssh_to "$VM_IP" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $GUEST_REPO && bash scripts/e2e.sh $QUICK"
