@@ -34,6 +34,15 @@ var (
 // they can already read your source code directly.
 const localRepoPassword = "hazmat-local-snapshots"
 
+// Default retention policy for local snapshots.
+const (
+	defaultKeepLatest  = 20
+	defaultKeepDaily   = 7
+	defaultKeepWeekly  = 4
+	defaultKeepMonthly = 0
+	defaultKeepAnnual  = 0
+)
+
 // ── Source info ─────────────────────────────────────────────────────────────
 
 func localSourceInfo(sourcePath string) snapshot.SourceInfo {
@@ -46,7 +55,8 @@ func localSourceInfo(sourcePath string) snapshot.SourceInfo {
 
 // ── Local repo lifecycle ────────────────────────────────────────────────────
 
-// initLocalRepo creates the local Kopia repository. Called during hazmat init.
+// initLocalRepo creates the local Kopia repository and sets the global
+// retention policy. Called during hazmat init.
 // Idempotent — returns nil if the repo already exists.
 func initLocalRepo() error {
 	ctx := context.Background()
@@ -65,7 +75,6 @@ func initLocalRepo() error {
 	}
 
 	if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, localRepoPassword); err != nil {
-		// Already initialized — not an error.
 		if !strings.Contains(err.Error(), "already initialized") {
 			return fmt.Errorf("initialize local repo: %w", err)
 		}
@@ -75,7 +84,55 @@ func initLocalRepo() error {
 		return fmt.Errorf("connect local repo: %w", err)
 	}
 
+	// Set global retention policy.
+	if err := setRetentionPolicy(ctx); err != nil {
+		return fmt.Errorf("set retention policy: %w", err)
+	}
+
 	return nil
+}
+
+// setRetentionPolicy sets the global (host-level) retention policy for the
+// local repo. This applies to all sources (all project snapshots).
+func setRetentionPolicy(ctx context.Context) error {
+	r, err := repo.Open(ctx, localConfigFile, localRepoPassword, &repo.Options{})
+	if err != nil {
+		return err
+	}
+	defer r.Close(ctx)
+
+	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "SetPolicy"})
+	if err != nil {
+		return err
+	}
+	defer wr.Close(ctx)
+
+	latest := policy.OptionalInt(defaultKeepLatest)
+	daily := policy.OptionalInt(defaultKeepDaily)
+	weekly := policy.OptionalInt(defaultKeepWeekly)
+	monthly := policy.OptionalInt(defaultKeepMonthly)
+	annual := policy.OptionalInt(defaultKeepAnnual)
+
+	// Global policy — empty SourceInfo means it applies to all sources.
+	globalSource := snapshot.SourceInfo{}
+	pol := &policy.Policy{
+		RetentionPolicy: policy.RetentionPolicy{
+			KeepLatest:  &latest,
+			KeepDaily:   &daily,
+			KeepWeekly:  &weekly,
+			KeepMonthly: &monthly,
+			KeepAnnual:  &annual,
+		},
+		FilesPolicy: policy.FilesPolicy{
+			IgnoreRules: backupBuiltinExcludes,
+		},
+	}
+
+	if err := policy.SetPolicy(ctx, wr, globalSource, pol); err != nil {
+		return err
+	}
+
+	return wr.Flush(ctx)
 }
 
 // openLocalRepo opens the local Kopia repository. If the repo doesn't exist

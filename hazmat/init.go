@@ -747,23 +747,39 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 // ── Step 3b: Backup scope file ────────────────────────────────────────────────
 
 func setupLocalRepo(ui *UI) error {
-	ui.Step("Initialize local snapshot repository")
+	ui.Step("Configure snapshot backup")
 
 	if _, err := os.Stat(localConfigFile); err == nil {
-		ui.SkipDone(fmt.Sprintf("Local snapshot repository already exists at %s", localRepoDir))
+		ui.SkipDone(fmt.Sprintf("Snapshot repository already configured at %s", localRepoDir))
+		printBackupConfig()
 		return nil
 	}
 
 	if flagDryRun {
 		faint.Printf("    $ kopia repository create filesystem --path %s\n", localRepoDir)
+		printBackupConfig()
 		return nil
 	}
 
 	if err := initLocalRepo(); err != nil {
-		return fmt.Errorf("initialize local snapshot repo: %w", err)
+		return fmt.Errorf("initialize snapshot repo: %w", err)
 	}
-	ui.Ok(fmt.Sprintf("Local snapshot repository created at %s", localRepoDir))
+	ui.Ok(fmt.Sprintf("Snapshot repository created at %s", localRepoDir))
+	printBackupConfig()
 	return nil
+}
+
+func printBackupConfig() {
+	fmt.Println()
+	cDim.Println("    Snapshots are taken automatically before each session.")
+	fmt.Println()
+	cDim.Printf("    Repository:  %s\n", localRepoDir)
+	cDim.Printf("    Retention:   %d latest, %d daily, %d weekly\n",
+		defaultKeepLatest, defaultKeepDaily, defaultKeepWeekly)
+	cDim.Printf("    Excludes:    node_modules/ .venv/ dist/ build/ target/ ...\n")
+	fmt.Println()
+	cDim.Println("    Cloud backup (optional):  hazmat init cloud")
+	fmt.Println()
 }
 
 // ── Step 4: Hardening gaps ────────────────────────────────────────────────────
