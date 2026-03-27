@@ -54,7 +54,9 @@ VARIABLES
     phase,           \* "idle" | "setting_up" | "rolling_back"
     setupStep,       \* 0..14 — which step setup will attempt next
     setupAttempts,   \* how many full setup runs have been started
-    rollbackAttempts \* how many full rollback runs have been started
+    rollbackAttempts,\* how many full rollback runs have been started
+    rollbackStep,    \* 0..10 — which rollback step is next
+    rollbackMode     \* "none" | "core" | "destructive"
 
 CONSTANTS
     MaxSetupAttempts,    \* e.g. 2
@@ -63,7 +65,8 @@ CONSTANTS
 vars == <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
           wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
           launchDaemon, claudeCode, credentials,
-          phase, setupStep, setupAttempts, rollbackAttempts>>
+          phase, setupStep, setupAttempts, rollbackAttempts,
+          rollbackStep, rollbackMode>>
 
 resources == <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                wrappers, sudoers, pfAnchor, dnsBlocklist,
@@ -92,6 +95,8 @@ TypeOK ==
     /\ setupStep     \in 0..14
     /\ setupAttempts \in 0..MaxSetupAttempts
     /\ rollbackAttempts \in 0..MaxRollbackAttempts
+    /\ rollbackStep  \in 0..10
+    /\ rollbackMode  \in {"none", "core", "destructive"}
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Initial state — clean system, nothing installed
@@ -116,6 +121,8 @@ Init ==
     /\ setupStep     = 0
     /\ setupAttempts = 0
     /\ rollbackAttempts = 0
+    /\ rollbackStep  = 0
+    /\ rollbackMode  = "none"
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Helper: launchHelper is an external prerequisite (built separately).
@@ -129,7 +136,8 @@ InstallLaunchHelper ==
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, sudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
-                    phase, setupStep, setupAttempts, rollbackAttempts>>
+                    phase, setupStep, setupAttempts, rollbackAttempts,
+                    rollbackStep, rollbackMode>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Setup actions — each step mirrors a setupX() function in setup.go
@@ -146,7 +154,8 @@ BeginSetup ==
     /\ setupAttempts' = setupAttempts + 1
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
-                    launchDaemon, claudeCode, credentials, rollbackAttempts>>
+                    launchDaemon, claudeCode, credentials, rollbackAttempts,
+                    rollbackStep, rollbackMode>>
 
 \* Setup step succeeds: resource becomes present (or already was — idempotent).
 \* Models the "check exists? skip : create" pattern in every setupX() function.
@@ -173,7 +182,7 @@ SetupStepSucceed ==
        \/ (setupStep = 12 /\ claudeCode'  = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, credentials>>)
        \/ (setupStep = 13 /\ credentials' = TRUE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode>>)
     /\ setupStep' = setupStep + 1
-    /\ UNCHANGED <<phase, setupAttempts, rollbackAttempts>>
+    /\ UNCHANGED <<phase, setupAttempts, rollbackAttempts, rollbackStep, rollbackMode>>
 
 \* Setup step succeeds on the final step — setup completes, return to idle.
 SetupComplete ==
@@ -183,7 +192,8 @@ SetupComplete ==
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
-                    setupStep, setupAttempts, rollbackAttempts>>
+                    setupStep, setupAttempts, rollbackAttempts,
+                    rollbackStep, rollbackMode>>
 
 \* Setup step fails (nondeterministic) — setup aborts, returns to idle.
 \* Resources created by earlier steps remain (no automatic cleanup).
@@ -199,65 +209,96 @@ SetupStepFail ==
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
-                    setupStep, setupAttempts, rollbackAttempts>>
+                    setupStep, setupAttempts, rollbackAttempts,
+                    rollbackStep, rollbackMode>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Rollback actions — mirrors rollbackX() functions in rollback.go
-\* Each step removes a resource if present (idempotent skip if absent).
-\* Rollback steps always succeed (best-effort; warnings printed but no abort).
+\* Rollback runs steps sequentially; each step removes one resource.
+\* Individual steps cannot fail (warn and continue in real code).
+\* However, the process CAN be interrupted (Ctrl-C, crash) between steps,
+\* which is modeled by RollbackInterrupt.
+\*
+\* Rollback step ordering mirrors rollback.go:runRollback():
+\*   Step 0: rollbackSudoers          ← revoke privilege FIRST
+\*   Step 1: rollbackLaunchDaemon
+\*   Step 2: rollbackPfFirewall
+\*   Step 3: rollbackDNSBlocklist
+\*   Step 4: rollbackSeatbelt
+\*   Step 5: rollbackUserExperience (wrappers)
+\*   Step 6: rollbackSymlinks + rollbackUmask
+\*   Step 7: rollbackBackupScope
+\*   Step 8: (optional) rollbackAgentUser — only with --delete-user
+\*   Step 9: (optional) rollbackDevGroup  — only with --delete-group
+\*
+\* Does NOT remove: workspace (explicitly preserved, manual cleanup).
+\* Does NOT remove: launchHelper (external binary, not managed by setup).
+\* Does NOT remove: claudeCode/credentials (removed only if agent user deleted).
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 BeginRollback ==
     /\ phase = "idle"
     /\ rollbackAttempts < MaxRollbackAttempts
     /\ phase'            = "rolling_back"
+    /\ rollbackStep'     = 0
     /\ rollbackAttempts' = rollbackAttempts + 1
+    \* Nondeterministic choice: core (preserve user/group) or destructive
+    /\ rollbackMode' \in {"core", "destructive"}
     /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
                     wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts>>
 
-\* Rollback removes all non-destructive resources in one atomic step.
-\* This models the real code which runs all rollbackX() functions sequentially
-\* without aborting on individual failures.
-\* Does NOT remove: agentUser, devGroup (require --delete-user, --delete-group).
-\* Does NOT remove: workspace (explicitly preserved, manual cleanup).
-\* Does NOT remove: launchHelper (external binary, not managed by setup).
-RollbackCore ==
+\* Each rollback step removes one resource, matching rollback.go ordering.
+RollbackStepSucceed ==
     /\ phase = "rolling_back"
-    /\ launchDaemon' = FALSE
-    /\ pfAnchor'     = FALSE
-    /\ dnsBlocklist'  = FALSE
-    /\ sudoers'      = FALSE
-    /\ seatbelt'     = FALSE
-    /\ wrappers'     = FALSE
-    /\ umask'        = FALSE
-    /\ backupScope'  = FALSE
-    /\ claudeCode'   = FALSE   \* settings/hooks removed; Claude Code may remain installed
-    /\ credentials'  = FALSE   \* credentials removed with agent home cleanup
-    /\ phase'        = "idle"
-    /\ UNCHANGED <<agentUser, devGroup, workspace, launchHelper,
-                    setupStep, setupAttempts, rollbackAttempts>>
+    /\ rollbackStep < 10
+    /\ \/ (rollbackStep = 0 /\ sudoers'      = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 1 /\ launchDaemon' = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
+       \/ (rollbackStep = 2 /\ pfAnchor'     = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 3 /\ dnsBlocklist'  = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 4 /\ seatbelt'     = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 5 /\ wrappers'     = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 6 /\ umask'        = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 7 /\ backupScope'  = FALSE /\ UNCHANGED <<agentUser, devGroup, workspace, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \* Steps 8-9: destructive only (--delete-user, --delete-group).
+       \* In core mode these are no-ops (user and group preserved).
+       \/ (rollbackStep = 8 /\
+              IF rollbackMode = "destructive"
+              THEN /\ agentUser'   = FALSE
+                   /\ claudeCode'  = FALSE   \* rm -rf /Users/agent takes these
+                   /\ credentials' = FALSE
+                   /\ UNCHANGED <<devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon>>
+              ELSE UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 9 /\
+              IF rollbackMode = "destructive"
+              THEN /\ devGroup' = FALSE
+                   /\ UNCHANGED <<agentUser, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>
+              ELSE UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+    /\ rollbackStep' = rollbackStep + 1
+    /\ UNCHANGED <<phase, rollbackMode, setupStep, setupAttempts, rollbackAttempts>>
 
-\* Destructive rollback: also removes user and/or group.
-\* Models --delete-user --delete-group flags.
-RollbackDestructive ==
+\* Rollback completes after all steps.
+RollbackComplete ==
     /\ phase = "rolling_back"
-    /\ launchDaemon' = FALSE
-    /\ pfAnchor'     = FALSE
-    /\ dnsBlocklist'  = FALSE
-    /\ sudoers'      = FALSE
-    /\ seatbelt'     = FALSE
-    /\ wrappers'     = FALSE
-    /\ umask'        = FALSE
-    /\ backupScope'  = FALSE
-    /\ claudeCode'   = FALSE
-    /\ credentials'  = FALSE
-    /\ agentUser'    = FALSE
-    /\ devGroup'     = FALSE
+    /\ rollbackStep = 10
     /\ phase'        = "idle"
-    /\ UNCHANGED <<workspace, launchHelper,
-                    setupStep, setupAttempts, rollbackAttempts>>
+    /\ rollbackMode' = "none"
+    /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
+                    wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
+                    launchDaemon, claudeCode, credentials,
+                    rollbackStep, setupStep, setupAttempts, rollbackAttempts>>
+
+\* Rollback interrupted (Ctrl-C, crash) — returns to idle with partial state.
+RollbackInterrupt ==
+    /\ phase = "rolling_back"
+    /\ rollbackStep < 10
+    /\ phase'        = "idle"
+    /\ rollbackMode' = "none"
+    /\ UNCHANGED <<agentUser, devGroup, workspace, backupScope, umask, seatbelt,
+                    wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist,
+                    launchDaemon, claudeCode, credentials,
+                    rollbackStep, setupStep, setupAttempts, rollbackAttempts>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Terminal state — all attempts exhausted, system is idle. Allow stuttering
@@ -281,14 +322,16 @@ Next ==
     \/ SetupComplete
     \/ SetupStepFail
     \/ BeginRollback
-    \/ RollbackCore
-    \/ RollbackDestructive
+    \/ RollbackStepSucceed
+    \/ RollbackComplete
+    \/ RollbackInterrupt
     \/ Done
 
 Fairness ==
     /\ WF_vars(SetupStepSucceed)
     /\ WF_vars(SetupComplete)
-    /\ WF_vars(RollbackCore)
+    /\ WF_vars(RollbackStepSucceed)
+    /\ WF_vars(RollbackComplete)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -300,12 +343,21 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 \* "Launchable" means both the agent user and sudoers entry exist, so the
 \* controlling user can run `sudo -u agent ...` without a password.
 \* The firewall (pfAnchor) must already be active in that state.
-\*
-\* Current code: sudoers is step 8, pfAnchor is step 9.
-\* This invariant will FAIL if setup can be interrupted between steps 8 and 9,
-\* leaving the agent launchable with no firewall. This is a real finding.
+\* Checked during BOTH setup AND rollback intermediate states.
 AgentContained ==
     (agentUser /\ sudoers) => pfAnchor
+
+\* --- Stronger containment: DNS blocklist must also be active ---
+\* pf blocks exfiltration ports; DNS blocklist blocks tunnel services by name.
+\* Both should be in place whenever the agent is launchable.
+AgentFullyContained ==
+    (agentUser /\ sudoers) => (pfAnchor /\ dnsBlocklist)
+
+\* --- Boot persistence: if firewall is active, daemon should ensure it survives reboot ---
+\* Without the LaunchDaemon, a reboot silently removes pf rules.
+\* This can be violated if setup is interrupted after pfAnchor but before launchDaemon.
+FirewallPersistent ==
+    pfAnchor => launchDaemon
 
 \* --- Rollback completeness: after destructive rollback, no artifacts remain ---
 \* (except workspace and launchHelper, which are explicitly preserved)
@@ -316,7 +368,6 @@ NoOrphanedArtifacts ==
          /\ ~claudeCode /\ ~credentials)
 
 \* --- Ordering: sudoers must not exist without the launch helper ---
-\* setup.go: setupLaunchHelper() is step 7, setupSudoers() is step 8.
 \* The helper path is embedded in the sudoers rule. If helper doesn't exist,
 \* the sudoers entry points to nothing (harmless but wrong).
 SudoersRequiresHelper ==

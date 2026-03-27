@@ -14,8 +14,8 @@ func newRollbackCmd() *cobra.Command {
 	var deleteUser, deleteGroup bool
 	cmd := &cobra.Command{
 		Use:   "rollback",
-		Short: "Undo host mutations made by hazmat setup",
-		Long: `Reverses the system-level changes applied by hazmat setup:
+		Short: "Undo host mutations made by hazmat init",
+		Long: `Reverses the system-level changes applied by hazmat init:
 
   - pf anchor file and /etc/pf.conf additions
   - LaunchDaemon for pf persistence
@@ -65,15 +65,15 @@ func runRollback(deleteUser, deleteGroup bool) error {
 		cYellow.Println("  DRY RUN — no changes will be made.")
 		cYellow.Println("  ────────────────────────────────────────────────────")
 		fmt.Println()
-	} else if !ui.Ask("Rollback all hazmat setup changes?") {
+	} else if !ui.Ask("Rollback all hazmat init changes?") {
 		fmt.Println("  Aborted.")
 		return nil
 	}
 
+	rollbackSudoers(ui, r)
 	rollbackLaunchDaemon(ui, r)
 	rollbackPfFirewall(ui, r)
 	rollbackDNSBlocklist(ui, r)
-	rollbackSudoers(ui, r)
 	rollbackSeatbelt(ui, r)
 	rollbackUserExperience(ui, r)
 	rollbackSymlinks(ui, r)

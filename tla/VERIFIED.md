@@ -55,16 +55,25 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean`, `SetupEventuallyCompletes` |
-| Status | **Fixed** — pf/dns/daemon now run before sudoers; AgentContained proved |
+| Status | **Fixed** — containment before privilege in both setup and rollback |
 
-**What was found:** Setup originally installed sudoers (step 8) before pf
-firewall (step 9). If setup was interrupted between those steps, the agent was
-launchable via `sudo -u agent` with no firewall containment.
+**What was found:**
 
-**Fix applied:** Reordered setup so `setupPfFirewall`, `setupDNSBlocklist`, and
-`setupLaunchDaemon` run before `setupLaunchHelper` and `setupSudoers`. The
-firewall's `user agent` rules only require the agent user to exist (step 0),
-not sudoers. `AgentContained` now passes TLC (1887 distinct states, <1s).
+1. **Setup:** sudoers was installed (step 8) before pf firewall (step 9). If
+   setup was interrupted between those steps, the agent was launchable without
+   firewall containment.
+
+2. **Rollback:** pf firewall was removed (step 2) before sudoers (step 4). If
+   rollback was interrupted between those steps, the agent remained launchable
+   with the firewall already gone. Mirror image of the setup bug.
+
+**Fixes applied:**
+
+1. **Setup:** Reordered so pf/dns/daemon run before launchHelper and sudoers.
+2. **Rollback:** Reordered so sudoers is removed first, before firewall/dns/daemon.
+
+The principle: **grant privilege last, revoke privilege first.**
+`AgentContained` now passes across all 26,905 reachable states (<1s).
 
 **Change rules:**
 - Any change to setup step ordering must be modeled and proved against
