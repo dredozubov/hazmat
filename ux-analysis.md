@@ -127,7 +127,7 @@
   +-- --delete-user -> delete agent account + home dir
   +-- --delete-group -> delete dev group
       |
-      +-- ~/workspace left intact (user must back up first)
+      +-- your files are not deleted (back up first with hazmat backup)
 ```
 
 

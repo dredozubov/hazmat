@@ -92,7 +92,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Rollback
 
-**Rollback does not touch the workspace.** `hazmat init rollback` removes system configuration (users, firewall, sudoers, wrappers) but leaves `~/workspace` intact. Any files the agent created or modified in the workspace persist.
+**Rollback does not delete your files.** `hazmat init rollback` removes system configuration (users, firewall, sudoers, wrappers) but does not delete any project files the agent created or modified. Back up first if needed.
 
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents (Claude cache, settings, credentials) survive rollback.
 
