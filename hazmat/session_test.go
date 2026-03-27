@@ -324,6 +324,137 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 
 // ── agentEnvPairs ──────────────────────────────────────────────────────────────
 
+// ── parseClaudeArgs tests ────────────────────────────────────────────────────
+
+func TestParseClaudeArgsEmpty(t *testing.T) {
+	opts, fwd, err := parseClaudeArgs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.project != "" || opts.noBackup || opts.allowDocker || len(opts.readDirs) != 0 {
+		t.Fatalf("expected zero opts, got %+v", opts)
+	}
+	if len(fwd) != 0 {
+		t.Fatalf("expected no forwarded args, got %v", fwd)
+	}
+}
+
+func TestParseClaudeArgsForwardsUnknownFlags(t *testing.T) {
+	args := []string{"--print", "explain this code", "--model", "sonnet"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.project != "" || opts.noBackup {
+		t.Fatalf("hazmat flags should be empty, got %+v", opts)
+	}
+	want := []string{"--print", "explain this code", "--model", "sonnet"}
+	if len(fwd) != len(want) {
+		t.Fatalf("forwarded = %v, want %v", fwd, want)
+	}
+	for i := range want {
+		if fwd[i] != want[i] {
+			t.Fatalf("forwarded[%d] = %q, want %q", i, fwd[i], want[i])
+		}
+	}
+}
+
+func TestParseClaudeArgsMixedFlags(t *testing.T) {
+	args := []string{"--no-backup", "-C", "/myproject", "-p", "hello", "--ignore-docker"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.project != "/myproject" {
+		t.Fatalf("project = %q, want /myproject", opts.project)
+	}
+	if !opts.noBackup {
+		t.Fatal("noBackup should be true")
+	}
+	if !opts.allowDocker {
+		t.Fatal("allowDocker should be true")
+	}
+	want := []string{"-p", "hello"}
+	if len(fwd) != len(want) {
+		t.Fatalf("forwarded = %v, want %v", fwd, want)
+	}
+	for i := range want {
+		if fwd[i] != want[i] {
+			t.Fatalf("forwarded[%d] = %q, want %q", i, fwd[i], want[i])
+		}
+	}
+}
+
+func TestParseClaudeArgsDoubleDash(t *testing.T) {
+	args := []string{"--no-backup", "--", "--help", "--project", "/sneaky"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.noBackup {
+		t.Fatal("noBackup should be true")
+	}
+	// Everything after -- is forwarded, even things that look like hazmat flags.
+	want := []string{"--help", "--project", "/sneaky"}
+	if len(fwd) != len(want) {
+		t.Fatalf("forwarded = %v, want %v", fwd, want)
+	}
+	for i := range want {
+		if fwd[i] != want[i] {
+			t.Fatalf("forwarded[%d] = %q, want %q", i, fwd[i], want[i])
+		}
+	}
+}
+
+func TestParseClaudeArgsEqualsForm(t *testing.T) {
+	args := []string{"--project=/foo", "--read=/bar", "--read=/baz", "-p", "hi"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.project != "/foo" {
+		t.Fatalf("project = %q, want /foo", opts.project)
+	}
+	if len(opts.readDirs) != 2 || opts.readDirs[0] != "/bar" || opts.readDirs[1] != "/baz" {
+		t.Fatalf("readDirs = %v, want [/bar /baz]", opts.readDirs)
+	}
+	if len(fwd) != 2 || fwd[0] != "-p" || fwd[1] != "hi" {
+		t.Fatalf("forwarded = %v, want [-p hi]", fwd)
+	}
+}
+
+func TestParseClaudeArgsReadRepeat(t *testing.T) {
+	args := []string{"-R", "/a", "-R", "/b", "myarg"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.readDirs) != 2 || opts.readDirs[0] != "/a" || opts.readDirs[1] != "/b" {
+		t.Fatalf("readDirs = %v, want [/a /b]", opts.readDirs)
+	}
+	if len(fwd) != 1 || fwd[0] != "myarg" {
+		t.Fatalf("forwarded = %v, want [myarg]", fwd)
+	}
+}
+
+func TestParseClaudeArgsMissingValue(t *testing.T) {
+	for _, flag := range []string{"--project", "-C", "--read", "-R"} {
+		_, _, err := parseClaudeArgs([]string{flag})
+		if err == nil {
+			t.Fatalf("%s without value should error", flag)
+		}
+	}
+}
+
+func TestParseClaudeArgsHelp(t *testing.T) {
+	for _, flag := range []string{"--help", "-h"} {
+		_, _, err := parseClaudeArgs([]string{flag})
+		if err != errClaudeHelp {
+			t.Fatalf("parseClaudeArgs(%q) error = %v, want errClaudeHelp", flag, err)
+		}
+	}
+}
+
 func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/Users/dr/workspace/project",

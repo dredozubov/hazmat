@@ -74,32 +74,56 @@ func newExecCmd() *cobra.Command {
 }
 
 func newClaudeCmd() *cobra.Command {
-	var project string
-	var readDirs []string
-	var allowDocker bool
-	var noBackup bool
 	cmd := &cobra.Command{
-		Use:   "claude [flags] [claude-args...]",
+		Use:   "claude [hazmat-flags] [claude-flags] [claude-args...]",
 		Short: "Launch Claude Code in containment",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(_ *cobra.Command, args []string) error {
-			projectHint, forwarded, err := maybeConsumeProjectArg(args)
+		Long: `Launch Claude Code in a sandboxed environment.
+
+Hazmat flags (parsed first, may appear anywhere before --):
+  -C, --project <dir>    Writable project directory (defaults to cwd)
+  -R, --read <dir>       Read-only directory (repeatable)
+  --no-backup            Skip pre-session snapshot
+  --ignore-docker        Skip Docker artifact check
+
+All other flags and arguments are forwarded to Claude Code.
+
+Examples:
+  hazmat claude                        Launch interactively
+  hazmat claude -p "explain this"      Print mode
+  hazmat claude --model sonnet         Use specific model
+  hazmat claude -C /proj -p "hi"       Set project + Claude print mode
+  hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode`,
+		// Cobra's flag parser rejects unknown flags, which prevents
+		// forwarding Claude's own flags (--print, --model, etc.).
+		// We disable Cobra's parsing and extract hazmat flags manually.
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts, forwarded, err := parseClaudeArgs(args)
 			if err != nil {
+				if err == errClaudeHelp {
+					return cmd.Help()
+				}
 				return err
-			}
-			if project == "" {
-				project = projectHint
 			}
 
-			cfg, err := resolveSessionConfig(project, readDirs)
+			if opts.project == "" {
+				var projectHint string
+				projectHint, forwarded, err = maybeConsumeProjectArg(forwarded)
+				if err != nil {
+					return err
+				}
+				opts.project = projectHint
+			}
+
+			cfg, err := resolveSessionConfig(opts.project, opts.readDirs)
 			if err != nil {
 				return err
 			}
-			if err := warnDockerProject(cfg.ProjectDir, allowDocker); err != nil {
+			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
-			preSessionSnapshot(cfg.ProjectDir, "claude", noBackup)
+			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
 			// The install check runs inside the sandbox after privilege
 			// transition, so no extra sudo call is needed on the daily path.
 			return runAgentSeatbeltScript(cfg,
@@ -109,15 +133,63 @@ func newClaudeCmd() *cobra.Command {
 					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
-	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory)")
-	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
-		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Skip Docker artifact check (Docker won't work; use Tier 3 for Docker support)")
-	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
-		"Skip pre-session snapshot")
 	return cmd
+}
+
+// claudeOpts holds hazmat-specific flags extracted from the claude command line.
+type claudeOpts struct {
+	project     string
+	readDirs    []string
+	noBackup    bool
+	allowDocker bool
+}
+
+var errClaudeHelp = fmt.Errorf("help requested")
+
+// parseClaudeArgs separates hazmat flags from claude flags+args.
+// Hazmat flags (--project, --read, --no-backup, --ignore-docker) are extracted;
+// everything else is returned as forwarded args for claude.
+func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
+	var opts claudeOpts
+	var forwarded []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		// -- separator: everything after is forwarded verbatim.
+		if arg == "--" {
+			forwarded = append(forwarded, args[i+1:]...)
+			return opts, forwarded, nil
+		}
+
+		switch {
+		case arg == "--help" || arg == "-h":
+			return opts, nil, errClaudeHelp
+		case arg == "--no-backup":
+			opts.noBackup = true
+		case arg == "--ignore-docker":
+			opts.allowDocker = true
+		case arg == "--project" || arg == "-C":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
+			}
+			i++
+			opts.project = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.project = arg[len("--project="):]
+		case arg == "--read" || arg == "-R":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
+			}
+			i++
+			opts.readDirs = append(opts.readDirs, args[i])
+		case strings.HasPrefix(arg, "--read="):
+			opts.readDirs = append(opts.readDirs, arg[len("--read="):])
+		default:
+			forwarded = append(forwarded, arg)
+		}
+	}
+	return opts, forwarded, nil
 }
 
 func maybeConsumeProjectArg(args []string) (string, []string, error) {
