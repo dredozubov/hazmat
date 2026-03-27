@@ -35,7 +35,7 @@ The UX model is:
 - Shared runtimes stay on the host: Homebrew installs `node`, `make`, `uv`, `uvx`, `rg`, `jq`, etc. once
 - Host-side wrappers route those tools into the sandbox user with one writable project under `~/workspace` plus optional read-only reference directories
 
-See [attack-surface-deep-dive.md](attack-surface-deep-dive.md) for the full threat analysis and [soft-pf-blocklist.md](soft-pf-blocklist.md) for the blocklist philosophy.
+See [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) for the full threat analysis and [soft-pf-blocklist.md](research/soft-pf-blocklist.md) for the blocklist philosophy.
 
 ---
 
@@ -646,7 +646,7 @@ Layer 6: Docker socket hardening
 
 ### Optional Additions
 
-- [ ] Seatbelt profile layered on top (see [seatbelt-profile-reference.md](seatbelt-profile-reference.md))
+- [ ] Seatbelt profile layered on top (see [seatbelt-profile-reference.md](research/seatbelt-profile-reference.md))
 - [ ] Cloud credentials scoped and stored in agent's home
 - [ ] Cron watchdog for runaway processes: `*/5 * * * * [ $(pgrep -u agent -c) -gt 50 ] && pkill -u agent`
 - [ ] Periodic review of LuLu logs for anomalous connections

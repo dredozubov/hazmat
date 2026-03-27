@@ -45,7 +45,7 @@ This includes Docker daemons, host services, shared sockets, hypervisors, and an
 
 This is what happens after compromise: modified shell rc files, LaunchAgents, poisoned caches, resource exhaustion, and whether you have a clean rollback path. Tier 4 is strongest here because snapshots make recovery predictable.
 
-For the attack-by-attack view, read [threat-matrix.md](threat-matrix.md). For concrete incidents that motivated these layers, read [incidents-and-cves.md](incidents-and-cves.md).
+For the attack-by-attack view, read [threat-matrix.md](threat-matrix.md). For concrete incidents that motivated these layers, read [incidents-and-cves.md](research/incidents-and-cves.md).
 
 ## Tier Summary
 
@@ -104,6 +104,6 @@ Claude Code has five permission modes, from most restrictive to most permissive:
 ## What to Read Next
 
 - Read [threat-matrix.md](threat-matrix.md) if you want the risk-by-risk comparison.
-- Read [attack-surface-deep-dive.md](attack-surface-deep-dive.md) if you want the escape and exfiltration details.
-- Read [incidents-and-cves.md](incidents-and-cves.md) if you want the real incidents and CVEs that justify the controls.
+- Read [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) if you want the escape and exfiltration details.
+- Read [incidents-and-cves.md](research/incidents-and-cves.md) if you want the real incidents and CVEs that justify the controls.
 - Read [setup-option-a.md](setup-option-a.md) or [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) once you know which boundary you want.

@@ -189,20 +189,20 @@ Hazmat is OS-level containment, not a VM. Here's what that means:
 - **Shared `/tmp`.** The agent can read temp files from other processes.
 - **macOS only.** No Linux, no WSL. The containment primitives (`sandbox-exec`, `dscl`, `pfctl`) are macOS-specific.
 
-For the full threat model, see [threat-matrix.md](threat-matrix.md). For the design assumptions and tradeoffs, see [design-assumptions.md](design-assumptions.md).
+For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For the design assumptions and tradeoffs, see [design-assumptions.md](docs/design-assumptions.md).
 
-If you need stronger isolation, see [tier4-vm-isolation.md](tier4-vm-isolation.md) for the full VM path.
+If you need stronger isolation, see [tier4-vm-isolation.md](docs/tier4-vm-isolation.md) for the full VM path.
 
 ## Documentation
 
 | Doc | What it covers |
 |-----|---------------|
-| [usage.md](usage.md) | Complete user guide |
-| [overview.md](overview.md) | Tier selection and design choices |
-| [threat-matrix.md](threat-matrix.md) | Risk-by-risk coverage analysis |
-| [design-assumptions.md](design-assumptions.md) | Every non-obvious design decision |
-| [attack-surface-deep-dive.md](attack-surface-deep-dive.md) | Escape and exfiltration paths |
-| [security-evidence.md](security-evidence.md) | Incidents, CVEs, and academic sources |
+| [usage.md](docs/usage.md) | Complete user guide |
+| [overview.md](docs/overview.md) | Tier selection and design choices |
+| [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
+| [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
+| [attack-surface-deep-dive.md](docs/research/attack-surface-deep-dive.md) | Escape and exfiltration paths |
+| [security-evidence.md](docs/research/security-evidence.md) | Incidents, CVEs, and academic sources |
 | [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification of setup/rollback ordering |
 
 ## License

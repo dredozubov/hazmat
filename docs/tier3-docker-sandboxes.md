@@ -36,7 +36,7 @@ Before relying on Tier 3, verify the toolchain:
 - Docker Desktop `>= 4.44.3` to avoid CVE-2025-9074
 - `docker-compose >= 2.40.2` to avoid CVE-2025-62725
 
-Read [incidents-and-cves.md](incidents-and-cves.md) for why these versions matter.
+Read [incidents-and-cves.md](research/incidents-and-cves.md) for why these versions matter.
 
 ## Option A: Docker Sandboxes (Recommended)
 

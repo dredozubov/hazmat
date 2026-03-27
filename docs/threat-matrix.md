@@ -6,8 +6,8 @@ Use this file after [overview.md](overview.md) when you already know the candida
 
 | Primary concern | Minimum sensible tier | Why | Read next |
 |-----------------|-----------------------|-----|-----------|
-| Protect `~/.ssh`, cloud creds, or `~/.claude` from agent access | Tier 2 | Separate macOS user changes what the agent can reach | [attack-surface-deep-dive.md](attack-surface-deep-dive.md) |
-| Prevent easy network exfiltration | Tier 2 | Separate-user `pf` helps, but Docker changes the story | [soft-pf-blocklist.md](soft-pf-blocklist.md) |
+| Protect `~/.ssh`, cloud creds, or `~/.claude` from agent access | Tier 2 | Separate macOS user changes what the agent can reach | [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) |
+| Prevent easy network exfiltration | Tier 2 | Separate-user `pf` helps, but Docker changes the story | [soft-pf-blocklist.md](research/soft-pf-blocklist.md) |
 | Run Docker or Compose safely | Tier 3 | Shared host daemon is the wrong boundary | [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) |
 | Recover cleanly from compromise or long autonomy | Tier 4 | Snapshot rollback is the strongest recovery model | [tier4-vm-isolation.md](tier4-vm-isolation.md) |
 | Keep native performance on non-Docker work | Tier 2 | Strongest no-VM option with manageable friction | [setup-option-a.md](setup-option-a.md) |

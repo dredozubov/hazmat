@@ -11,9 +11,19 @@ hazmat/                  Go source (package main, module hazmat)
   cmd/hazmat-launch/     Privileged helper binary (narrow sudo target)
   Makefile               Build targets: hazmat, hazmat-launch
 tla/                     TLA+ formal verification specs (see tla/VERIFIED.md)
-*.md                     Documentation (tiers, threat model, setup guide)
-ux-analysis.md           User flow diagrams and UX analysis
-design-assumptions.md    Explicit design assumptions and security tradeoffs
+docs/                    User-facing documentation
+  usage.md               Complete user guide
+  overview.md            Tier selection and design choices
+  design-assumptions.md  Explicit design assumptions and security tradeoffs
+  threat-matrix.md       Risk-by-risk coverage analysis
+  setup-option-a.md      Tier 2 setup walkthrough
+  tier3-docker-sandboxes.md  Docker project guide
+  tier4-vm-isolation.md  VM isolation guide
+  research/              Internal research and reference material
+    ux-analysis.md       User flow diagrams and UX analysis
+    attack-surface-deep-dive.md  Escape and exfiltration path analysis
+    security-evidence.md Incidents, CVEs, and academic sources
+    ...                  Tier research, seatbelt reference, pf design, etc.
 art/                     Homer-in-hazmat ASCII art generator
 assets/                  Brand images
 ```
@@ -54,7 +64,7 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
 
 ## When making security-relevant changes
 
-**Update design-assumptions.md** if you change:
+**Update docs/design-assumptions.md** if you change:
 - The seatbelt credential deny list
 - Network policy (pf rules or DNS blocklist)
 - The trust model or containment boundaries
@@ -63,7 +73,7 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
 
 ## When making user-facing changes
 
-**Update ux-analysis.md** if you change:
+**Update docs/research/ux-analysis.md** if you change:
 - The setup flow (steps added, removed, or reordered)
 - Command names, flags, or help text
 - The status checklist phases
