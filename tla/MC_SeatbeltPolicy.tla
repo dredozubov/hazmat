@@ -15,8 +15,8 @@
 \*
 \* Key correctness properties:
 \*   1. Credential reads are ALWAYS denied (section 4 deny overrides all allows)
-\*   2. Read dirs never grant write access
-\*   3. Credential writes are NOT always denied (known design tradeoff)
+\*   2. Credential writes are ALWAYS denied (section 4 deny overrides all allows)
+\*   3. Read dirs never grant write access
 \*
 \* Governed code:
 \*   hazmat/session.go — generateSBPL(), isWithinDir()
@@ -74,6 +74,7 @@ vars == <<projectDir, readDirs, rules, section>>
 AllowRead(sec, p)  == [section |-> sec, action |-> "allow_read",  path |-> p]
 AllowWrite(sec, p) == [section |-> sec, action |-> "allow_write", path |-> p]
 DenyRead(sec, p)   == [section |-> sec, action |-> "deny_read",   path |-> p]
+DenyWrite(sec, p)  == [section |-> sec, action |-> "deny_write",  path |-> p]
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Type invariant
@@ -137,10 +138,12 @@ EmitHomeConfig ==
     /\ UNCHANGED <<projectDir, readDirs>>
 
 \* Section 4: Credential denies (static, ALWAYS LAST).
-\* Only deny file-read*. file-write* is NOT denied (design decision).
+\* Deny both file-read* (exfiltration) and file-write* (planting).
 EmitCredDenies ==
     /\ section = 4
-    /\ rules' = rules \cup {DenyRead(4, p) : p \in CredPaths}
+    /\ rules' = rules \cup
+         {DenyRead(4, p)  : p \in CredPaths} \cup
+         {DenyWrite(4, p) : p \in CredPaths}
     /\ section' = 5
     /\ UNCHANGED <<projectDir, readDirs>>
 
@@ -179,15 +182,16 @@ EffectiveRead(target) ==
             IN (CHOOSE r \in matching : r.section = maxSec).action
 
 \* Effective write access for a target path.
-\* Returns "allow_write" or "deny_default".
-\* (There are no deny-write rules in the current policy.)
+\* Returns "allow_write", "deny_write", or "deny_default".
 EffectiveWrite(target) ==
     LET matching == {r \in rules :
-            r.action = "allow_write"
+            r.action \in {"allow_write", "deny_write"}
             /\ Contains(target, r.path)}
     IN IF matching = {}
        THEN "deny_default"
-       ELSE "allow_write"
+       ELSE LET maxSec == CHOOSE s \in {r.section : r \in matching} :
+                    \A r \in matching : r.section <= s
+            IN (CHOOSE r \in matching : r.section = maxSec).action
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Safety invariants — checked when policy generation is complete (section = 5)
@@ -201,17 +205,12 @@ CredentialReadDenied ==
     section = 5 =>
         \A cred \in CredPaths : EffectiveRead(cred) = "deny_read"
 
-\* --- Informational: credential file-write* denied ---
-\* This WILL FAIL because:
-\*   (a) If ProjectDir covers a credential path, section 2 allows writes.
-\*   (b) If an AgentHomeSub covers a credential path (e.g., configDir covers
-\*       gcloudDir), section 3 allows writes.
-\* These are known design tradeoffs (agent needs .config write access for
-\* toolchain state; the threat model prioritizes preventing credential
-\* exfiltration over preventing credential corruption).
+\* --- Credential writes denied ---
+\* Section 4 now denies both file-read* and file-write* for all credential
+\* paths. Since section 4 is always the highest section, this should PASS.
 CredentialWriteDenied ==
     section = 5 =>
-        \A cred \in CredPaths : EffectiveWrite(cred) = "deny_default"
+        \A cred \in CredPaths : EffectiveWrite(cred) = "deny_write"
 
 \* --- Read dirs never grant write access ---
 \* Rules emitted for ReadDirs (section 1) must only be AllowRead, never AllowWrite.
@@ -219,10 +218,13 @@ ReadDirsNoWrite ==
     section = 5 =>
         ~\E r \in rules : r.section = 1 /\ r.action = "allow_write"
 
-\* --- Project dir is always writable ---
+\* --- Project dir is writable (unless it IS a credential path) ---
+\* If the user picks a credential dir as their project, the deny wins.
+\* This is correct — credential protection takes priority.
 ProjectDirWritable ==
     section = 5 =>
-        EffectiveWrite(projectDir) = "allow_write"
+        \/ projectDir \in CredPaths  \* credential deny overrides — expected
+        \/ EffectiveWrite(projectDir) = "allow_write"
 
 \* --- Read dirs within project are elided (subsumption) ---
 \* If a read dir is inside ProjectDir, no rule should be emitted for it

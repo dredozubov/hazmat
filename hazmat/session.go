@@ -418,6 +418,7 @@ func generateSBPL(cfg sessionConfig) string {
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")
+	w(";; Both file-read* (exfiltration) and file-write* (planting) are denied.\n")
 	for _, sub := range []string{
 		"/.ssh",                // SSH keys
 		"/.aws",                // AWS credentials
@@ -432,7 +433,7 @@ func generateSBPL(cfg sessionConfig) string {
 		"/.azure",              // Azure CLI credentials
 		"/.oci",                // Oracle Cloud credentials
 	} {
-		w("(deny file-read* (subpath %q))\n", home+sub)
+		w("(deny file-read* file-write* (subpath %q))\n", home+sub)
 	}
 
 	return b.String()

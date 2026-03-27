@@ -148,7 +148,7 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 
 	// Credential dirs must be denied.
 	for _, cred := range []string{"/.ssh", "/.aws", "/.gnupg"} {
-		want := `(deny file-read* (subpath "` + agentHome + cred + `"))`
+		want := `(deny file-read* file-write* (subpath "` + agentHome + cred + `"))`
 		if !strings.Contains(policy, want) {
 			t.Errorf("expected credential deny rule for %s", cred)
 		}

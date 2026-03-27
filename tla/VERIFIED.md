@@ -95,16 +95,17 @@ The principle: **grant privilege last, revoke privilege first.**
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
 | Key invariants | `CredentialReadDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption` |
-| Known violation | `CredentialWriteDenied` — static `.config` allow covers `.config/gcloud` writes |
-| Status | **Proved** — credential reads always denied; write exposure documented as design tradeoff |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption` |
+| Status | **Fixed** — credential denies now cover both `file-read*` and `file-write*` |
 
-**What was found:** Credential `file-write*` access is not fully denied.
-Two vectors: (a) `ProjectDir = /Users/agent` grants write to all of agent home
-including `.ssh`; (b) static `.config` allow covers `.config/gcloud`.
+**What was found:** Credential deny rules only blocked `file-read*`, not
+`file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
+`.ssh`; (b) static `.config` allow covered `.config/gcloud` writes.
 
-**Assessment:** Design tradeoff — agent needs `.config` write for toolchain
-state. Credential deny covers `file-read*` only (exfiltration prevention).
-Writing to credential dirs is corruption, not exfiltration.
+**Fix applied:** Changed deny rules from `(deny file-read* ...)` to
+`(deny file-read* file-write* ...)`. Both reads and writes to all credential
+paths are now denied regardless of user input. `CredentialWriteDenied` passes
+across all 192 reachable states.
 
 **Change rules:**
 - Do not reorder the sections in `generateSBPL()` — credential denies MUST be
