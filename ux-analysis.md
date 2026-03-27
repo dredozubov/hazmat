@@ -7,7 +7,7 @@
 ```
  USER                          HAZMAT                         SYSTEM
   |                              |                              |
-  |  hazmat setup                |                              |
+  |  hazmat init                |                              |
   |----------------------------->|                              |
   |                              |  pre-flight checks           |
   |                              |    macOS? hazmat-launch?     |
@@ -22,8 +22,8 @@
   |                              |  verify hazmat-launch ------>|
   |                              |  configure sudo ------------>|
   |                              |  configure pf firewall ----->|
-  |  [y/n DNS blocklist?]        |  configure DNS ------------->|
-  |< - - - - - - - - - - - - - >|  install LaunchDaemon ------>|
+  |                              |  configure DNS ------------->|
+  |                              |  install LaunchDaemon ------>|
   |                              |                              |
   |                              |  --- bootstrap ---           |
   |                              |  install Claude Code ------->|
@@ -48,10 +48,10 @@
   |<=============================>                              |
 ```
 
-**Commands:** 1 (`hazmat setup`) then `hazmat claude`
+**Commands:** 1 (`hazmat init`) then `hazmat claude`
 **Sudo prompts:** 3-5 (setup steps + bootstrap install)
 **Time:** ~10 minutes (mostly Claude Code installer download)
-**Recovery:** `hazmat rollback` undoes everything
+**Recovery:** `hazmat init rollback` undoes everything
 
 
 ### Flow 2: Daily Usage
@@ -89,7 +89,7 @@
 ```
   Local backup:                    Cloud backup:
   +----------------------+         +----------------------+
-  | hazmat backup /dest  |         | hazmat setup --cloud |  (one-time)
+  | hazmat backup /dest  |         | hazmat init --cloud |  (one-time)
   |   rsync ~/workspace  |         |   S3 endpoint        |
   |   apply excludes     |         |   access key         |
   |   additive by default|         |   secret key         |
@@ -112,7 +112,7 @@
 ### Flow 4: Rollback / Uninstall
 
 ```
-  hazmat rollback
+  hazmat init rollback
   |
   +-- remove LaunchDaemon
   +-- remove pf anchor + restore pf.conf from backup
@@ -138,44 +138,45 @@
 
     Hazmat -- AI agent containment for macOS
 
-    [ok] Containment configured   hazmat setup
-    [ok] Claude Code installed    hazmat bootstrap
-    [->] Credentials set          hazmat enroll   < next
-    [ ]  Verified                 hazmat test
+    [ok] Containment configured   hazmat init
+    [ok] Claude Code installed    hazmat init
+    [->] Credentials set          hazmat init enroll   < next
 
-    Next step: hazmat enroll
+    Next step: hazmat init enroll
 ```
 
-`hazmat status` shows where the user is in the setup flow at any time.
-Individual phases can be re-run standalone: `hazmat bootstrap` (reinstall
-Claude), `hazmat enroll` (update API key or git config).
+`hazmat status` shows where the user is in the flow at any time.
+Individual concerns can be re-run: `hazmat init enroll` (update API key
+or git config), `hazmat init check` (verify setup).
 
 
 ---
 
 ## Command Reference
 
-### Help Output (grouped by workflow phase)
+### Help Output
 
 ```
 Hazmat -- AI agent containment for macOS
 
-Get started:
-  setup       Set up everything: containment, Claude Code, and credentials
-  bootstrap   Install Claude Code for the agent user (re-run standalone)
-  enroll      Set API key and git credentials (re-run standalone)
-  test        Verify the hazmat setup is working correctly
+Setup (run once):
+  init        Set up containment, install Claude Code, configure credentials
 
-Daily use:
-  claude      Launch Claude Code inside the sandbox as the agent user
-  shell       Open an interactive sandboxed shell as the agent user
-  exec        Run a single command inside the sandbox as the agent user
+  Subcommands:
+    init check      Verify the setup is working
+    init rollback   Undo all setup changes
+    init enroll     Re-configure API key and git credentials
+    init cloud      Configure S3 cloud backup
 
-Maintenance:
-  backup      Back up the workspace (local rsync or cloud Kopia)
-  restore     Restore the workspace from backup
-  status      Show setup progress and health check
-  rollback    Undo all setup changes
+Run agents:
+  claude      Launch Claude Code in containment
+  shell       Open a contained shell
+  exec        Run a command in containment
+
+Workspace:
+  backup      Back up the workspace
+  restore     Restore from backup
+  status      Show setup progress and health
 ```
 
 
@@ -186,10 +187,10 @@ Maintenance:
 | Setting | Default | Override |
 |---------|---------|---------|
 | Workspace path | `~/workspace` | `HAZMAT_WORKSPACE` env var |
-| Agent UID | 599 | `--agent-uid` flag on setup |
-| Group GID | 599 | `--group-gid` flag on setup |
+| Agent UID | 599 | `--agent-uid` flag on init |
+| Group GID | 599 | `--group-gid` flag on init |
 | Backup excludes | `~/workspace/.backup-excludes` | Edit file directly |
-| Cloud backup | `~/.config/hazmat/cloud-backup.json` | `hazmat setup --cloud` |
+| Cloud backup | `~/.config/hazmat/cloud-backup.json` | `hazmat init cloud` |
 | Blocked ports | Hardcoded (SMTP, IRC, FTP, Tor, etc.) | Opinionated, not configurable |
 | Blocked domains | Hardcoded (ngrok, pastebin, etc.) | Opinionated, not configurable |
 | Seatbelt policy | Generated per-session | Dynamic, not configurable |
@@ -210,7 +211,7 @@ Maintenance:
 
 5. **Agent password.** Set during setup but rarely needed. `hazmat enroll` and `hazmat claude` use passwordless sudo. To reset: `sudo passwd agent`.
 
-6. **Pre-flight checks.** `hazmat setup` validates platform, hazmat-launch binary, UID/GID availability before making any system changes. If a check fails, nothing is modified.
+6. **Pre-flight checks.** `hazmat init` validates platform, hazmat-launch binary, UID/GID availability before making any system changes. If a check fails, nothing is modified.
 
 
 ---

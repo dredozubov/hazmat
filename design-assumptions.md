@@ -14,7 +14,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **One agent user, period.** Username `agent`, UID 599, home `/Users/agent`. These are hardcoded constants, not configuration. You can override UID/GID at setup time (`--agent-uid`, `--group-gid`), but the username and home path are fixed.
 
-**One human controller.** Setup creates ACLs for the user who runs `hazmat setup`. A second human user on the same Mac cannot co-manage the workspace without manual ACL changes.
+**One human controller.** Setup creates ACLs for the user who runs `hazmat init`. A second human user on the same Mac cannot co-manage the workspace without manual ACL changes.
 
 **Concurrent sessions are possible but racy.** Each `hazmat claude` gets a unique seatbelt policy (PID-based filename). But both sessions share the same agent home, Claude config, git identity, and API key. Two Claude instances writing to `~/.claude/` simultaneously is undefined behavior. We don't prevent it.
 
@@ -92,7 +92,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Rollback
 
-**Rollback does not touch the workspace.** `hazmat rollback` removes system configuration (users, firewall, sudoers, wrappers) but leaves `~/workspace` intact. Any files the agent created or modified in the workspace persist.
+**Rollback does not touch the workspace.** `hazmat init rollback` removes system configuration (users, firewall, sudoers, wrappers) but leaves `~/workspace` intact. Any files the agent created or modified in the workspace persist.
 
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents (Claude cache, settings, credentials) survive rollback.
 

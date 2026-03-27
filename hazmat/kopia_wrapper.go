@@ -24,7 +24,7 @@ import (
 func loadCloudConfig() (*CloudConfig, error) {
 	data, err := os.ReadFile(cloudBackupConfig)
 	if err != nil {
-		return nil, fmt.Errorf("could not read cloud backup config: %w\nRun 'hazmat setup --cloud' first.", err)
+		return nil, fmt.Errorf("could not read cloud backup config: %w\nRun 'hazmat init cloud' first.", err)
 	}
 	var cfg CloudConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {

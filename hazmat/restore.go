@@ -49,7 +49,7 @@ Examples:
 
 func runRestore(syncMode bool, src string) error {
 	if _, err := os.Stat(sharedWorkspace); err != nil {
-		return fmt.Errorf("workspace root %q not found: %w\nRun 'hazmat setup' first.", sharedWorkspace, err)
+		return fmt.Errorf("workspace root %q not found: %w\nRun 'hazmat init' first.", sharedWorkspace, err)
 	}
 
 	if err := validateRestoreSrc(src); err != nil {

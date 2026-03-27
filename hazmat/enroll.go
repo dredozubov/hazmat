@@ -49,7 +49,7 @@ func runEnroll(ui *UI) error {
 	}
 
 	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("agent user %q not found — run 'hazmat setup' first", agentUser)
+		return fmt.Errorf("agent user %q not found — run 'hazmat init' first", agentUser)
 	}
 
 	reader := bufio.NewReader(os.Stdin)

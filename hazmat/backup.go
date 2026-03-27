@@ -76,7 +76,7 @@ destination must first be initialized with a ` + backupTargetMarker + ` marker f
 
 Cloud backups (--cloud) use Kopia to provide encrypted, deduplicated, and
 incremental snapshots to S3-compatible storage. Setup credentials first with:
-  hazmat setup --cloud
+  hazmat init cloud
 
 Use --show-scope to inspect effective includes/excludes without running.
 
@@ -103,7 +103,7 @@ Examples:
 	cmd.Flags().BoolVar(&showScope, "show-scope", false,
 		"Print effective backup scope (built-in and user excludes) then exit without running")
 	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
-		"Perform incremental encrypted backup to cloud (requires 'hazmat setup --cloud')")
+		"Perform incremental encrypted backup to cloud (requires 'hazmat init cloud')")
 	return cmd
 }
 
@@ -121,7 +121,7 @@ func printBackupScope() error {
 	userExcludes, err := loadUserExcludes()
 	if err != nil {
 		fmt.Println("  (file not found — no user-specific excludes)")
-		fmt.Printf("  To create it, run: hazmat setup\n")
+		fmt.Printf("  To create it, run: hazmat init\n")
 		fmt.Printf("  Or manually: cp /dev/null %s\n", backupExcludesFile)
 	} else if len(userExcludes) == 0 {
 		fmt.Println("  (file exists but contains no active exclude patterns)")

@@ -94,7 +94,7 @@ func newClaudeCmd() *cobra.Command {
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
-					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap" >&2; exit 1; }; }; `+
+					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
 					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}

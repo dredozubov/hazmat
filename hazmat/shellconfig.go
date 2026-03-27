@@ -36,7 +36,7 @@ func userPathBlockContent() string {
 }
 
 func agentEnvContent() string {
-	return fmt.Sprintf(`# Managed by hazmat setup.
+	return fmt.Sprintf(`# Managed by hazmat init.
 export PATH="%s"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -64,7 +64,7 @@ set -euo pipefail
 HAZMAT_BIN=%q
 if [[ ! -x "$HAZMAT_BIN" ]]; then
   printf 'error: hazmat binary not found: %%s\n' "$HAZMAT_BIN" >&2
-  printf 'Re-run "hazmat setup" to refresh the wrappers.\n' >&2
+  printf 'Re-run "hazmat init" to refresh the wrappers.\n' >&2
   exit 1
 fi
 

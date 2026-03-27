@@ -31,7 +31,7 @@ func newTestCmd() *cobra.Command {
 	var quick bool
 	cmd := &cobra.Command{
 		Use:   "test",
-		Short: "Verify the hazmat setup is working correctly",
+		Short: "Verify the hazmat init is working correctly",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runTest(quick)
 		},
@@ -45,12 +45,12 @@ func runTest(quick bool) error {
 
 	fmt.Println()
 	cBold.Println("  ┌──────────────────────────────────────────────┐")
-	cBold.Println("  │  Hazmat test suite — Option A verification   │")
+	cBold.Println("  │  Hazmat verification suite                   │")
 	cBold.Println("  └──────────────────────────────────────────────┘")
 	fmt.Println()
 	fmt.Println("  Modes:")
-	fmt.Println("    hazmat test           Full suite including live network probes")
-	fmt.Println("    hazmat test --quick   Skip live TCP/network tests (no external traffic)")
+	fmt.Println("    hazmat init check          Quick checks (no external traffic)")
+	fmt.Println("    hazmat init check --full   Full suite including live network probes")
 	fmt.Println()
 
 	cu, err := user.Current()
@@ -98,7 +98,7 @@ func testAgentUser(ui *UI) {
 
 	u, err := user.Lookup(agentUser)
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("User '%s' does not exist — run hazmat setup first", agentUser))
+		ui.TestFail(fmt.Sprintf("User '%s' does not exist — run hazmat init first", agentUser))
 		return
 	}
 	ui.TestPass(fmt.Sprintf("User '%s' exists", agentUser))
@@ -199,7 +199,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	if workspaceHasDevACL() {
 		ui.TestPass(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
 	} else {
-		ui.TestFail(fmt.Sprintf("Workspace ACL missing '%s' group — run hazmat setup again to add it", sharedGroup))
+		ui.TestFail(fmt.Sprintf("Workspace ACL missing '%s' group — run hazmat init again to add it", sharedGroup))
 	}
 
 	// Write test as current user
@@ -454,7 +454,7 @@ func testDNSBlocklist(ui *UI) {
 
 	hosts, err := os.ReadFile("/etc/hosts")
 	if err != nil || !strings.Contains(string(hosts), "AI Agent Blocklist") {
-		ui.TestFail("DNS blocklist not found in /etc/hosts — run hazmat setup and enable the DNS blocklist")
+		ui.TestFail("DNS blocklist not found in /etc/hosts — run hazmat init and enable the DNS blocklist")
 		return
 	}
 	n := strings.Count(string(hosts), "0.0.0.0 ")
@@ -594,7 +594,7 @@ func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
 	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
-		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run hazmat setup", seatbeltWrapperPath))
+		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run hazmat init", seatbeltWrapperPath))
 	} else if info.Mode()&0o111 == 0 {
 		ui.TestFail(fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath))
 	} else {
@@ -838,7 +838,7 @@ func testBackup(ui *UI) {
 	if _, err := os.Stat(backupExcludesFile); err == nil {
 		ui.TestPass(fmt.Sprintf("Backup scope file exists: %s", backupExcludesFile))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Backup scope file not found at %s — run hazmat setup to create it", backupExcludesFile))
+		ui.TestWarn(fmt.Sprintf("Backup scope file not found at %s — run hazmat init to create it", backupExcludesFile))
 	}
 }
 

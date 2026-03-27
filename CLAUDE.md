@@ -25,15 +25,15 @@ cd hazmat
 go build -o hazmat .
 go build -o hazmat-launch ./cmd/hazmat-launch
 go test ./cmd/hazmat-launch/
-./hazmat test --quick    # integration tests (Steps 15-16 = Kopia backup/restore)
+./hazmat init check      # integration tests (Steps 15-16 = Kopia backup/restore)
 ```
 
 ## Key conventions
 
 - **Apple sandbox-exec references stay as-is.** `sandbox-exec`, `sandbox_init`, `sandboxed`, `same-sandbox`, `SANDBOX_*` env vars — these are Apple API names, not our tool. Never rename them.
 - **Agent system identity is separate from tool name.** User `agent`, group `dev`, pf anchor `agent`, sudoers file `agent` — these don't change when the tool is renamed.
-- **Setup is unified.** `hazmat setup` chains system config + bootstrap + enroll. The standalone `bootstrap` and `enroll` commands exist for re-running individually.
-- **Pre-flight checks run before any mutations.** `preflightChecks()` in setup.go validates all prerequisites before the first `dscl` call.
+- **`hazmat init` is the single entry point for all static setup.** It chains system config + bootstrap + enroll. Subcommands (`init check`, `init rollback`, `init enroll`, `init cloud`) handle individual concerns. `bootstrap` is an internal step, not a user-facing command.
+- **Pre-flight checks run before any mutations.** `preflightChecks()` in init.go validates all prerequisites before the first `dscl` call.
 - **Seatbelt policies are per-session.** Generated dynamically in `generateSBPL()` with literal paths embedded. Written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
 
 ## When changing setup or rollback
@@ -44,7 +44,7 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
 1. **Adding, removing, or reordering setup/rollback steps** — update the TLA+
    spec (`tla/MC_SetupRollback.tla`) first, run TLC, prove invariants pass,
    then implement in Go.
-2. **Run TLC** after any change to `setup.go` or `rollback.go`:
+2. **Run TLC** after any change to `init.go` or `rollback.go`:
    ```bash
    cd tla && java -jar ~/workspace/tla2tools.jar -workers auto \
      -config MC_SetupRollback.cfg MC_SetupRollback.tla

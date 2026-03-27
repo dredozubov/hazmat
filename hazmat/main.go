@@ -97,47 +97,44 @@ func main() {
 	root.PersistentFlags().BoolVarP(&flagYesAll, "yes", "y", false,
 		"Answer yes to all prompts (for non-interactive / scripted use)")
 
-	// ── Get started ──
-	setupCmd := newSetupCmd()
-	setupCmd.GroupID = "start"
-	bootstrapCmd := newBootstrapCmd()
-	bootstrapCmd.GroupID = "start"
-	enrollCmd := newEnrollCmd()
-	enrollCmd.GroupID = "start"
-	testCmd := newTestCmd()
-	testCmd.GroupID = "start"
+	// ── Setup (run once) ──
+	initCmd := newInitCmd()
+	initCmd.GroupID = "setup"
+	initCmd.AddCommand(
+		newInitCheckCmd(),
+		newInitRollbackCmd(),
+		newInitEnrollCmd(),
+		newInitCloudCmd(),
+	)
 
-	// ── Daily use ──
+	// ── Run agents ──
 	claudeCmd := newClaudeCmd()
-	claudeCmd.GroupID = "use"
+	claudeCmd.GroupID = "run"
 	shellCmd := newShellCmd()
-	shellCmd.GroupID = "use"
+	shellCmd.GroupID = "run"
 	execCmd := newExecCmd()
-	execCmd.GroupID = "use"
+	execCmd.GroupID = "run"
 
-	// ── Maintenance ──
+	// ── Workspace ──
 	backupCmd := newBackupCmd()
-	backupCmd.GroupID = "maint"
+	backupCmd.GroupID = "ws"
 	restoreCmd := newRestoreCmd()
-	restoreCmd.GroupID = "maint"
+	restoreCmd.GroupID = "ws"
 	statusCmd := newStatusCmd()
-	statusCmd.GroupID = "maint"
-	rollbackCmd := newRollbackCmd()
-	rollbackCmd.GroupID = "maint"
+	statusCmd.GroupID = "ws"
 
 	root.AddGroup(
-		&cobra.Group{ID: "start", Title: "Get started:"},
-		&cobra.Group{ID: "use", Title: "Daily use:"},
-		&cobra.Group{ID: "maint", Title: "Maintenance:"},
+		&cobra.Group{ID: "setup", Title: "Setup (run once):"},
+		&cobra.Group{ID: "run", Title: "Run agents:"},
+		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
-	// Registration order controls display order within groups.
 	root.AddCommand(
-		setupCmd, bootstrapCmd, enrollCmd, testCmd,
+		initCmd,
 		claudeCmd, shellCmd, execCmd,
-		backupCmd, restoreCmd, statusCmd, rollbackCmd,
+		backupCmd, restoreCmd, statusCmd,
 		newConnectCmd(),
 	)
-	root.SetHelpCommandGroupID("maint")
+	root.SetHelpCommandGroupID("ws")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
