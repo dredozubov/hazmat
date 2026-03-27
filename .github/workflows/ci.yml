@@ -106,3 +106,18 @@ jobs:
           -workers auto
           -config MC_SeatbeltPolicy.cfg
           MC_SeatbeltPolicy.tla
+
+  e2e:
+    name: E2E lifecycle
+    runs-on: macos-14
+    needs: [go-test, go-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: E2E lifecycle test
+        run: bash scripts/e2e.sh --quick

@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
 LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper clean
+.PHONY: all hazmat hazmat-launch install install-helper clean test e2e e2e-vm
 
 all: hazmat hazmat-launch
 
@@ -27,6 +27,15 @@ install-helper: hazmat-launch
 	sudo install -d -m 0755 $$(dirname $(LAUNCH_HELPER))
 	sudo install -m 0755 hazmat-launch $(LAUNCH_HELPER)
 	@echo "Installed $(LAUNCH_HELPER)"
+
+test:
+	go test ./...
+
+e2e: all
+	bash ../scripts/e2e.sh
+
+e2e-vm: all
+	bash ../scripts/e2e-vm.sh
 
 clean:
 	rm -f hazmat hazmat-launch
