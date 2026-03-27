@@ -11,6 +11,8 @@ hazmat/                  Go source (package main, module hazmat)
   cmd/hazmat-launch/     Privileged helper binary (narrow sudo target)
   Makefile               Build targets: hazmat, hazmat-launch
 tla/                     TLA+ formal verification specs (see tla/VERIFIED.md)
+homebrew/                Homebrew formula template (synced to dredozubov/homebrew-tap)
+scripts/                 release.sh and helpers
 docs/                    User-facing documentation
   usage.md               Complete user guide
   overview.md            Tier selection and design choices
@@ -32,11 +34,23 @@ assets/                  Brand images
 
 ```bash
 cd hazmat
-go build -o hazmat .
-go build -o hazmat-launch ./cmd/hazmat-launch
-go test ./cmd/hazmat-launch/
+make all                 # builds hazmat + hazmat-launch with version from git
+go test ./...            # unit tests
 ./hazmat init check      # integration tests (Steps 15-16 = Kopia backup/restore)
 ```
+
+## Releasing
+
+```bash
+./scripts/release.sh 0.1.0       # tag, push — triggers CI release
+./scripts/release.sh 0.1.0 --dry # preview without doing anything
+```
+
+What happens: CI builds arm64+amd64 → GitHub release with tarballs+checksums → auto-updates `dredozubov/homebrew-tap` formula. Users install with `brew install dredozubov/tap/hazmat`.
+
+- **Version** is embedded via `go build -ldflags "-X main.version=..."`. The Makefile reads it from `git describe`.
+- **Homebrew tap** lives at [dredozubov/homebrew-tap](https://github.com/dredozubov/homebrew-tap). One repo, all formulae. Updated automatically by the release workflow via `TAP_TOKEN` secret.
+- **hazmat-launch** is included in the tarball but NOT installed by Homebrew (requires root). `hazmat init` handles privileged installation.
 
 ## Key conventions
 
