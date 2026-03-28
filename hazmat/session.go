@@ -452,32 +452,11 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow file-write* (subpath %q))\n\n", cfg.ProjectDir)
 
 	home := agentHome
-	w(";; ── Claude config (auth tokens, settings, model cache) ────────────────────\n")
-	w("(allow file-read* (subpath %q))\n", home+"/.claude")
-	w("(allow file-write* (subpath %q))\n\n", home+"/.claude")
-
-	w(";; ── Claude installation (binary + node_modules) ───────────────────────────\n")
-	w("(allow file-read* (subpath %q))\n", home+"/.local")
-	w("(allow file-write* (subpath %q))\n\n", home+"/.local")
-
-	w(";; ── Git config (needed for commit operations) ──────────────────────────────\n")
-	w("(allow file-read* (literal %q))\n", home+"/.gitconfig")
-	w("(allow file-read* (subpath %q))\n\n", home+"/.config/git")
-
-	w(";; ── Shell rc files (read-only; needed at login) ────────────────────────────\n")
-	for _, rc := range []string{"/.zshrc", "/.zprofile", "/.bashrc", "/.bash_profile"} {
-		w("(allow file-read* (literal %q))\n", home+rc)
-	}
-	w("\n")
-
-	w(";; ── npm / node cache ────────────────────────────────────────────────────────\n")
-	w("(allow file-read* file-write* (subpath %q))\n\n", home+"/.npm")
-
-	w(";; ── XDG / toolchain state under agent home ─────────────────────────────────\n")
-	for _, sub := range []string{"/.cache", "/.config", "/.local/share", "/Library/Caches"} {
-		w("(allow file-read* file-write* (subpath %q))\n", home+sub)
-	}
-	w("\n")
+	w(";; ── Agent home — broad read/write, credential dirs denied below ───────────\n")
+	w(";; A single subpath rule replaces individual subdirectory allows.\n")
+	w(";; Claude Code, Node.js, git, and shell rc files all live here.\n")
+	w(";; Credential directories are denied at the end (last-match-wins).\n")
+	w("(allow file-read* file-write* (subpath %q))\n\n", home)
 
 	w(";; ── Temp and cache directories ──────────────────────────────────────────────\n")
 	for _, p := range []string{"/private/tmp", "/private/var/folders"} {
