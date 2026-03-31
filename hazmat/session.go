@@ -17,6 +17,18 @@ type sessionConfig struct {
 	ReadDirs   []string
 }
 
+func runProjectPreflight(projectDir string) error {
+	if ensureProjectWritable(projectDir) {
+		fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+	}
+	if fixed, err := ensureGitMetadataHealthy(projectDir); err != nil {
+		return err
+	} else if fixed {
+		fmt.Fprintln(os.Stderr, "  Fixed Git metadata permissions for collaborative access")
+	}
+	return nil
+}
+
 func newShellCmd() *cobra.Command {
 	var project string
 	var readDirs []string
@@ -30,9 +42,8 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			if ensureProjectWritable(cfg.ProjectDir) {
-				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
+				return err
 			}
 			preSessionSnapshot(cfg.ProjectDir, "shell", noBackup)
 			return runAgentSeatbeltScript(cfg,
@@ -61,9 +72,8 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			if ensureProjectWritable(cfg.ProjectDir) {
-				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
+				return err
 			}
 			preSessionSnapshot(cfg.ProjectDir, "exec", noBackup)
 			return runAgentSeatbeltScript(cfg,
@@ -128,9 +138,8 @@ Examples:
 
 			// Pre-flight: ensure the agent user can write to the project.
 			// Catches projects created before hazmat init or with restrictive umask.
-
-			if ensureProjectWritable(cfg.ProjectDir) {
-				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
+				return err
 			}
 
 			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)

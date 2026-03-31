@@ -97,6 +97,37 @@ func collectACLTargets(projectDir string) []string {
 	return paths
 }
 
+func applyDevACLTree(root string) []string {
+	aclEntry := devGroupACLEntry()
+	noInherit := devGroupACLEntryNoInherit()
+
+	var failures []string
+	if err := exec.Command("chmod", "+a", aclEntry, root).Run(); err != nil {
+		failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+	}
+
+	for _, p := range collectACLTargets(root) {
+		info, err := os.Lstat(p)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		args := []string{"+a", noInherit, p}
+		if info.IsDir() {
+			args = []string{"+a", aclEntry, p}
+		}
+		if err := exec.Command("chmod", args...).Run(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
+		}
+	}
+
+	return failures
+}
+
 // ensureProjectWritable checks if the agent user can write to the project
 // directory and applies the dev group ACL if not. Called as a pre-flight
 // check before every session.
@@ -117,32 +148,9 @@ func ensureProjectWritable(projectDir string) bool {
 
 	fmt.Fprintf(os.Stderr, "  Setting up project for agent access (one-time)...\n")
 
-	// 1. Set inheritable ACL on the project root (covers new files).
-	aclEntry := devGroupACLEntry()
-	if err := exec.Command("chmod", "+a", aclEntry, projectDir).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "  Warning: could not set project ACL: %v\n", err)
+	if failures := applyDevACLTree(projectDir); len(failures) > 0 {
+		fmt.Fprintf(os.Stderr, "  Warning: could not fully set project ACL: %s\n", failures[0])
 		return false
-	}
-
-	// 2. Apply non-inheritable ACL to existing files and inheritable ACL to
-	// existing directories so future files also inherit collaborative access.
-	noInherit := devGroupACLEntryNoInherit()
-	paths := collectACLTargets(projectDir)
-
-	// Apply inheritable ACL to directories, non-inheritable to files.
-	for _, p := range paths {
-		info, err := os.Lstat(p)
-		if err != nil {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		if info.IsDir() {
-			exec.Command("chmod", "+a", aclEntry, p).Run()
-		} else {
-			exec.Command("chmod", "+a", noInherit, p).Run()
-		}
 	}
 
 	return true
