@@ -23,7 +23,17 @@ var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-creden
 // ── Config types ────────────────────────────────────────────────────────────
 
 type HazmatConfig struct {
-	Backup BackupConfig `yaml:"backup"`
+	Backup  BackupConfig  `yaml:"backup"`
+	Session SessionConfig `yaml:"session"`
+}
+
+type SessionConfig struct {
+	// SkipPermissions passes --dangerously-skip-permissions to Claude Code.
+	// Default: true. The containment is OS-level (user isolation + seatbelt
+	// + pf firewall); Claude's permission prompts are redundant inside hazmat.
+	// Set to false if you want Claude's own permission prompts as an
+	// additional layer.
+	SkipPermissions *bool `yaml:"skip_permissions,omitempty"`
 }
 
 type BackupConfig struct {
@@ -52,6 +62,15 @@ type CloudBackup struct {
 }
 
 // ── Defaults ────────────────────────────────────────────────────────────────
+
+// SkipPermissions returns whether --dangerously-skip-permissions should be
+// passed to Claude Code. Default: true.
+func (c HazmatConfig) SkipPermissions() bool {
+	if c.Session.SkipPermissions == nil {
+		return true // default: skip permissions, containment is OS-level
+	}
+	return *c.Session.SkipPermissions
+}
 
 func defaultConfig() HazmatConfig {
 	return HazmatConfig{
@@ -220,6 +239,11 @@ func runConfigShow() error {
 		fmt.Println()
 	}
 
+	cBold.Println("  Session")
+	fmt.Println()
+	fmt.Printf("    Skip permissions: %v (--dangerously-skip-permissions)\n", cfg.SkipPermissions())
+	fmt.Println()
+
 	cDim.Printf("  Config file: %s\n", configFilePath)
 	fmt.Println()
 	return nil
@@ -267,10 +291,12 @@ Keys:
   backup.cloud.endpoint          S3-compatible endpoint
   backup.cloud.bucket            S3 bucket name
   backup.cloud.access_key        S3 access key
+  session.skip_permissions        Pass --dangerously-skip-permissions to Claude (default: true)
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
-  hazmat config set backup.excludes.add .idea/`,
+  hazmat config set backup.excludes.add .idea/
+  hazmat config set session.skip_permissions false`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runConfigSet(args[0], args[1])
@@ -322,6 +348,9 @@ func runConfigSet(key, value string) error {
 	case "backup.cloud.access_key":
 		ensureCloudConfig(&cfg)
 		cfg.Backup.Cloud.AccessKey = value
+	case "session.skip_permissions":
+		b := value == "true" || value == "1" || value == "yes"
+		cfg.Session.SkipPermissions = &b
 	default:
 		return fmt.Errorf("unknown key: %s\nRun 'hazmat config set --help' for available keys.", key)
 	}

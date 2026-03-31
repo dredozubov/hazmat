@@ -124,14 +124,21 @@ Examples:
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
 			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
+
 			// --dangerously-skip-permissions is the default inside hazmat.
 			// The containment is OS-level (user isolation + seatbelt +
 			// pf firewall); Claude's permission prompts are redundant.
+			// Configurable via: hazmat config set session.skip_permissions false
+			skipFlag := ""
+			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
+				skipFlag = "--dangerously-skip-permissions "
+			}
+
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
-					`exec "$HOME/.local/bin/claude" --dangerously-skip-permissions "$@"`, forwarded...)
+					`exec "$HOME/.local/bin/claude" `+skipFlag+`"$@"`, forwarded...)
 		},
 	}
 	return cmd
