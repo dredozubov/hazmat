@@ -404,8 +404,12 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow sysctl-read)\n\n")
 
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
-	w(";; Root literal is required for realpath() path resolution.\n")
+	w(";; Path traversal literals required for realpath() resolution.\n")
 	w("(allow file-read* (literal \"/\"))\n")
+	w("(allow file-read* (literal \"/private\"))\n")
+	w("(allow file-read* (literal \"/usr\"))\n")
+	w("(allow file-read* (literal \"/System\"))\n")
+	w("(allow file-read* (literal \"/Library\"))\n")
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
@@ -459,6 +463,10 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow file-read* file-write* (subpath %q))\n\n", home)
 
 	w(";; ── Temp and cache directories ──────────────────────────────────────────────\n")
+	w(";; ── DNS resolver + system state ───────────────────────────────────────────\n")
+	w(";; resolv.conf is a symlink to /private/var/run/resolv.conf.\n")
+	w("(allow file-read* (subpath \"/private/var/run\"))\n\n")
+
 	for _, p := range []string{"/private/tmp", "/private/var/folders"} {
 		w("(allow file-read* file-write* (subpath %q))\n", p)
 	}
@@ -481,8 +489,10 @@ func generateSBPL(cfg sessionConfig) string {
 	}
 	w("(allow mach-host*)\n\n")
 
-	w(";; ── Network: outbound for Anthropic API calls ──────────────────────────────\n")
+	w(";; ── Network: outbound for API calls + DNS ─────────────────────────────────\n")
 	w("(allow network-outbound)\n")
+	w("(allow network-bind)\n")
+	w("(allow system-socket)\n")
 	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
@@ -509,17 +519,27 @@ func generateSBPL(cfg sessionConfig) string {
 }
 
 func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
+	pid := os.Getpid()
+
 	policy := generateSBPL(cfg)
-	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
+	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", pid)
 	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
 		return fmt.Errorf("write seatbelt policy: %w", err)
 	}
 	defer os.Remove(policyFile)
-	// Explicit chmod overrides the process umask so hazmat-launch always
-	// receives a 0644 file regardless of what umask dr has set.
 	if err := os.Chmod(policyFile, 0o644); err != nil {
 		return fmt.Errorf("set seatbelt policy mode: %w", err)
 	}
+
+	// Write a DNS preload script for Node.js. The sandbox may not be able
+	// to reach the system DNS resolver (e.g. Tailscale MagicDNS at
+	// 100.100.100.100 is per-user). Fall back to public DNS servers.
+	dnsFixFile := fmt.Sprintf("/private/tmp/hazmat-%d-dns.js", pid)
+	dnsServers := detectDNSServers()
+	dnsScript := fmt.Sprintf(`require("dns").setServers(%s);`, dnsServers)
+	os.WriteFile(dnsFixFile, []byte(dnsScript), 0o644)
+	os.Chmod(dnsFixFile, 0o644)
+	defer os.Remove(dnsFixFile)
 
 	// The NOPASSWD sudoers rule covers exactly:
 	//   sudo -u agent /usr/local/libexec/hazmat-launch <policy-file> ...
@@ -560,6 +580,46 @@ func preSessionSnapshot(projectDir, command string, skip bool) {
 	fmt.Fprintf(os.Stderr, "done (%.1fs)\n", time.Since(start).Seconds())
 }
 
+// detectDNSServers returns a JSON array of DNS server addresses for Node's
+// dns.setServers(). Reads the system DNS config via scutil, adds public
+// fallbacks to handle cases where the system resolver is per-user
+// (e.g. Tailscale MagicDNS at 100.100.100.100).
+func detectDNSServers() string {
+	var servers []string
+	seen := make(map[string]bool)
+
+	// Read system DNS servers from scutil.
+	if out, err := exec.Command("scutil", "--dns").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "nameserver") {
+				parts := strings.Fields(line)
+				if len(parts) >= 3 {
+					ip := parts[2]
+					if !seen[ip] {
+						servers = append(servers, ip)
+						seen[ip] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Always include public DNS as fallback.
+	for _, ip := range []string{"1.1.1.1", "8.8.8.8"} {
+		if !seen[ip] {
+			servers = append(servers, ip)
+		}
+	}
+
+	// Format as JSON array for Node's dns.setServers().
+	quoted := make([]string, len(servers))
+	for i, s := range servers {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return "[" + strings.Join(quoted, ",") + "]"
+}
+
 func agentEnvPairs(cfg sessionConfig) []string {
 	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
 	pairs := []string{
@@ -577,6 +637,17 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
 		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
 	}
+	// Forward NODE_OPTIONS with DNS fix preload if the file exists.
+	dnsFixFile := fmt.Sprintf("/private/tmp/hazmat-%d-dns.js", os.Getpid())
+	if _, err := os.Stat(dnsFixFile); err == nil {
+		existing := os.Getenv("NODE_OPTIONS")
+		nodeOpts := "--require=" + dnsFixFile
+		if existing != "" {
+			nodeOpts = existing + " " + nodeOpts
+		}
+		pairs = append(pairs, "NODE_OPTIONS="+nodeOpts)
+	}
+
 	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
 		if value := os.Getenv(key); value != "" {
 			pairs = append(pairs, key+"="+value)
