@@ -22,17 +22,24 @@ jobs:
           go-version-file: hazmat/go.mod
           cache-dependency-path: hazmat/go.sum
 
-      - name: Build
+      - name: Build hazmat
         working-directory: hazmat
         env:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
           VERSION: ${{ github.ref_name }}
-        run: |
-          LDFLAGS="-X main.version=${VERSION}"
-          go build -trimpath -ldflags "${LDFLAGS}" -o hazmat .
-          go build -trimpath -ldflags "${LDFLAGS}" -o hazmat-launch ./cmd/hazmat-launch
+        run: go build -trimpath -ldflags "-X main.version=${VERSION}" -o hazmat .
+
+      - name: Build hazmat-launch (CGO required for sandbox_init)
+        working-directory: hazmat
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '1'
+          CC: clang -arch ${{ matrix.goarch == 'amd64' && 'x86_64' || 'arm64' }}
+          VERSION: ${{ github.ref_name }}
+        run: go build -trimpath -ldflags "-X main.version=${VERSION}" -o hazmat-launch ./cmd/hazmat-launch
 
       - name: Package
         working-directory: hazmat
