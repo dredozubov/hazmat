@@ -675,6 +675,7 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 	// hazmat, so those directories won't have the ACL and the agent can't write.
 	// Apply the ACL to existing contents now. This is safe (additive, doesn't
 	// change ownership or Unix permission bits) and recorded for rollback.
+	cDim.Printf("  Scanning %s for items needing ACL update (this may take a moment for large workspaces)...\n", sharedWorkspace)
 	if n, err := applyACLToExistingContents(r, ui, sharedWorkspace); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not apply ACL to some existing items: %v", err))
 	} else if n > 0 {
