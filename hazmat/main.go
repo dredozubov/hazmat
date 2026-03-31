@@ -127,6 +127,8 @@ func main() {
 	backupCmd.GroupID = "ws"
 	statusCmd := newStatusCmd()
 	statusCmd.GroupID = "ws"
+	exportCmd := newExportCmd()
+	exportCmd.GroupID = "ws"
 
 	root.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Setup:"},
@@ -138,7 +140,7 @@ func main() {
 		initCmd, rollbackCmd, checkCmd,
 		claudeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
-		configCmd, backupCmd, statusCmd,
+		configCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
