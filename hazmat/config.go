@@ -78,12 +78,13 @@ func (c HazmatConfig) SkipPermissions() bool {
 }
 
 // SessionReadDirs returns the configured read-only directories.
-// Default: [sharedWorkspace] (typically ~/workspace).
+// Default: empty (no automatic read-only dirs). Configure via
+// hazmat config set session.read_dirs.add ~/workspace
 func (c HazmatConfig) SessionReadDirs() []string {
 	if c.Session.ReadDirs != nil {
 		return *c.Session.ReadDirs
 	}
-	return []string{sharedWorkspace}
+	return nil
 }
 
 func defaultConfig() HazmatConfig {

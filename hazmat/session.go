@@ -15,6 +15,7 @@ import (
 type sessionConfig struct {
 	ProjectDir string
 	ReadDirs   []string
+	ResumeDir  string // invoker's session dir — needs seatbelt read+write for symlink targets
 }
 
 func newShellCmd() *cobra.Command {
@@ -30,7 +31,10 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnUnmanagedProject(cfg.ProjectDir)
+			
+			if ensureProjectWritable(cfg.ProjectDir) {
+				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			}
 			preSessionSnapshot(cfg.ProjectDir, "shell", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
@@ -58,7 +62,10 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnUnmanagedProject(cfg.ProjectDir)
+			
+			if ensureProjectWritable(cfg.ProjectDir) {
+				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			}
 			preSessionSnapshot(cfg.ProjectDir, "exec", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
@@ -86,13 +93,17 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --ignore-docker        Skip Docker artifact check
 
 All other flags and arguments are forwarded to Claude Code.
+When --resume or --continue is detected, sessions from your user account
+are automatically synced to the agent user via symlinks.
 
 Examples:
   hazmat claude                        Launch interactively
   hazmat claude -p "explain this"      Print mode
   hazmat claude --model sonnet         Use specific model
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
-  hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode`,
+  hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
+  hazmat claude --resume               Resume a conversation in containment
+  hazmat claude --continue             Continue most recent conversation`,
 		// Cobra's flag parser rejects unknown flags, which prevents
 		// forwarding Claude's own flags (--print, --model, etc.).
 		// We disable Cobra's parsing and extract hazmat flags manually.
@@ -122,8 +133,29 @@ Examples:
 			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
-			warnUnmanagedProject(cfg.ProjectDir)
+
+			// Pre-flight: ensure the agent user can write to the project.
+			// Catches projects created before hazmat init or with restrictive umask.
+			
+			if ensureProjectWritable(cfg.ProjectDir) {
+				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
+			}
+
 			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
+
+			// Sync sessions for --resume / --continue.
+			// Symlinks the invoking user's session files into the agent's
+			// config so Claude Code can discover and resume them.
+			wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
+			if wantsResume || wantsContinue {
+				invokerDir, err := syncResumeSession(cfg.ProjectDir, resumeTarget)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: session sync failed: %v\n", err)
+					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+				} else if invokerDir != "" {
+					cfg.ResumeDir = invokerDir
+				}
+			}
 
 			// --dangerously-skip-permissions is the default inside hazmat.
 			// The containment is OS-level (user isolation + seatbelt +
@@ -280,9 +312,41 @@ func expandTilde(path string) string {
 	return path
 }
 
-// defaultReadDirs prepends the configured session.read_dirs to the
-// user-supplied read dirs, skipping any that don't exist on disk and
-// deduplicating against what the user already passed via -R.
+// invokerGoModCache returns the invoking user's Go module cache path
+// by running `go env GOMODCACHE`. Returns "" if Go is not installed
+// or the path doesn't exist.
+func invokerGoModCache() string {
+	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(string(out))
+	if p == "" {
+		return ""
+	}
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
+
+// implicitReadDirs returns toolchain cache directories that are always
+// included as read-only without user configuration. These are the invoking
+// user's package manager caches — sharing them avoids re-downloading the
+// world on every sandboxed build. Only paths that actually exist on disk
+// are returned.
+func implicitReadDirs() []string {
+	var dirs []string
+	if p := invokerGoModCache(); p != "" {
+		dirs = append(dirs, p)
+	}
+	// Future: Rust (~/.cargo/registry), Maven (~/.m2/repository), etc.
+	return dirs
+}
+
+// defaultReadDirs prepends the configured session.read_dirs and implicit
+// toolchain dirs to the user-supplied read dirs, skipping any that don't
+// exist on disk and deduplicating against what the user already passed via -R.
 func defaultReadDirs(explicit []string) []string {
 	cfg, _ := loadConfig()
 	configured := cfg.SessionReadDirs()
@@ -318,9 +382,27 @@ func defaultReadDirs(explicit []string) []string {
 	if len(added) > 0 {
 		fmt.Fprintf(os.Stderr, "hazmat: auto-adding -R %s (from config session.read_dirs)\n",
 			strings.Join(added, " -R "))
-		return append(added, explicit...)
 	}
-	return explicit
+
+	// Implicit toolchain dirs — always included, no config needed.
+	var implicit []string
+	for _, dir := range implicitReadDirs() {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
+		if _, dup := explicitResolved[resolved]; dup {
+			continue
+		}
+		implicit = append(implicit, dir)
+		explicitResolved[resolved] = struct{}{}
+	}
+	if len(implicit) > 0 {
+		fmt.Fprintf(os.Stderr, "hazmat: auto-adding -R %s (toolchain cache)\n",
+			strings.Join(implicit, " -R "))
+	}
+
+	return append(append(added, implicit...), explicit...)
 }
 
 func resolveReadDirs(paths []string) ([]string, error) {
@@ -412,29 +494,6 @@ Docker is not available in this containment mode (socket locked to owner-only).
 	return fmt.Errorf("%s", msg)
 }
 
-// warnUnmanagedProject prints a warning when projectDir is outside the
-// canonical workspace root.  Projects outside that root are not covered
-// by 'hazmat backup' — changes made in the session will not be backed up.
-//
-// The warning is advisory: the session still launches.  To silence it,
-// move the project inside ~/workspace or enroll it with 'hazmat config agent'.
-func warnUnmanagedProject(projectDir string) {
-	// Resolve sharedWorkspace symlinks so the comparison works even when
-	// ~/workspace is itself a symlink (e.g. → /Users/Shared/workspace).
-	managedRoot := sharedWorkspace
-	if resolved, err := filepath.EvalSymlinks(sharedWorkspace); err == nil {
-		managedRoot = resolved
-	}
-	if isWithinDir(managedRoot, projectDir) {
-		return
-	}
-	fmt.Fprintf(os.Stderr,
-		"Warning: %s is outside the managed workspace (%s).\n"+
-			"Changes made in this session are not covered by 'hazmat backup'.\n",
-		projectDir, sharedWorkspace)
-}
-
-
 // generateSBPL produces a per-session Seatbelt (SBPL) policy with all
 // filesystem boundaries embedded as literal absolute paths. This makes
 // --read an actual OS-level boundary rather than an advisory env var:
@@ -469,7 +528,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
 	w(";; Path traversal literals for realpath() and symlink resolution.\n")
 	w(";; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.\n")
-	for _, p := range []string{"/", "/private", "/var", "/tmp", "/usr", "/System", "/Library"} {
+	for _, p := range []string{"/", "/private", "/var", "/tmp", "/etc", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
@@ -517,6 +576,16 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow file-read* (subpath %q))\n", cfg.ProjectDir)
 	w("(allow file-write* (subpath %q))\n\n", cfg.ProjectDir)
 
+	// Resume session directory: when --resume or --continue is used, symlinks
+	// in the agent's session dir point to the invoking user's session files.
+	// The seatbelt must allow read+write so Claude Code can follow the symlinks
+	// and append new messages to the resumed conversation transcript.
+	// Narrowly scoped to just the project's session directory (JSONL files only).
+	if cfg.ResumeDir != "" {
+		w(";; ── Resume session directory (symlink targets) ────────────────────────────\n")
+		w("(allow file-read* file-write* (subpath %q))\n\n", cfg.ResumeDir)
+	}
+
 	home := agentHome
 	w(";; ── Agent home — broad read/write, credential dirs denied below ───────────\n")
 	w(";; A single subpath rule replaces individual subdirectory allows.\n")
@@ -546,6 +615,10 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.CoreServices.coreservicesd",
 		"com.apple.system.notification_center",
 		"com.apple.mDNSResponder",
+		"com.apple.trustd",                // TLS certificate verification (Go, curl, Python, etc.)
+		"com.apple.system.opendirectoryd.api",            // user/group directory lookups
+		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam (needed by git, ssh, etc.)
+		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
@@ -555,22 +628,30 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow network-outbound)\n")
 	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
 
+	w(";; ── Project write (re-assert after all read-only rules) ───────────────────\n")
+	w(";; SBPL is last-match-wins. When a read-only -R directory is a parent of\n")
+	w(";; the project directory (e.g. -R ~/workspace with project ~/workspace/foo),\n")
+	w(";; the broad file-read* rule must not suppress the project's write access.\n")
+	w(";; Re-asserting file-write* here guarantees it is the last matching allow\n")
+	w(";; for any write operation targeting the project directory.\n")
+	w("(allow file-read* file-write* (subpath %q))\n\n", cfg.ProjectDir)
+
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")
 	w(";; Both file-read* (exfiltration) and file-write* (planting) are denied.\n")
 	for _, sub := range []string{
-		"/.ssh",                // SSH keys
-		"/.aws",                // AWS credentials
-		"/.gnupg",              // GPG keys
-		"/Library/Keychains",   // macOS Keychain
-		"/.config/gh",          // GitHub CLI tokens
-		"/.docker",             // Docker registry credentials
-		"/.kube",               // Kubernetes credentials
-		"/.netrc",              // HTTP/FTP basic auth
-		"/.m2/settings.xml",    // Maven credentials (file, not dir)
-		"/.config/gcloud",      // Google Cloud credentials
-		"/.azure",              // Azure CLI credentials
-		"/.oci",                // Oracle Cloud credentials
+		"/.ssh",              // SSH keys
+		"/.aws",              // AWS credentials
+		"/.gnupg",            // GPG keys
+		"/Library/Keychains", // macOS Keychain
+		"/.config/gh",        // GitHub CLI tokens
+		"/.docker",           // Docker registry credentials
+		"/.kube",             // Kubernetes credentials
+		"/.netrc",            // HTTP/FTP basic auth
+		"/.m2/settings.xml",  // Maven credentials (file, not dir)
+		"/.config/gcloud",    // Google Cloud credentials
+		"/.azure",            // Azure CLI credentials
+		"/.oci",              // Oracle Cloud credentials
 	} {
 		w("(deny file-read* file-write* (subpath %q))\n", home+sub)
 	}
@@ -578,8 +659,59 @@ func generateSBPL(cfg sessionConfig) string {
 	return b.String()
 }
 
+// syncGitSafeDirectory writes safe.directory entries to the agent user's
+// global gitconfig so git accepts repos owned by the invoking user.
+// Git 2.36+ rejects repos with different ownership; modern git (2.45+)
+// checks this before reading any config, so env vars don't work — it
+// must be in the global gitconfig file.
+// Runs as the invoking user (not agent), writing to agentHome/.gitconfig
+// which is group-writable via the dev group ACL.
+func syncGitSafeDirectory(cfg sessionConfig) {
+	gitconfig := agentHome + "/.gitconfig"
+	content, _ := os.ReadFile(gitconfig)
+	sections := parseINI(string(content))
+
+	// Collect all directories that need safe.directory entries.
+	dirs := []string{cfg.ProjectDir}
+	dirs = append(dirs, cfg.ReadDirs...)
+
+	// Remove existing [safe] section entries and rebuild with current dirs.
+	found := false
+	for i, s := range sections {
+		if s.name != "safe" {
+			continue
+		}
+		found = true
+		var kept []string
+		for _, line := range s.lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "directory =") || strings.HasPrefix(trimmed, "directory=") {
+				continue // remove old entries
+			}
+			kept = append(kept, line)
+		}
+		for _, d := range dirs {
+			kept = append(kept, "\tdirectory = "+d)
+		}
+		sections[i].lines = kept
+	}
+
+	if !found {
+		var lines []string
+		for _, d := range dirs {
+			lines = append(lines, "\tdirectory = "+d)
+		}
+		sections = append(sections, iniSection{name: "safe", lines: lines})
+	}
+
+	os.WriteFile(gitconfig, []byte(renderINI(sections)), 0o644)
+}
+
 func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
 	pid := os.Getpid()
+
+	// Write safe.directory to agent's gitconfig before entering sandbox.
+	syncGitSafeDirectory(cfg)
 
 	policy := generateSBPL(cfg)
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", pid)
@@ -652,5 +784,15 @@ func agentEnvPairs(cfg sessionConfig) []string {
 			pairs = append(pairs, key+"="+value)
 		}
 	}
+
+	// Go toolchain: share the invoking user's module cache read-only.
+	// GOMODCACHE points to the invoker's cache so `go build` uses
+	// pre-downloaded modules instead of re-fetching. The seatbelt enforces
+	// read-only access — if a new dependency is needed, `go mod download`
+	// must be run outside the sandbox first.
+	if modCache := invokerGoModCache(); modCache != "" {
+		pairs = append(pairs, "GOMODCACHE="+modCache)
+	}
+
 	return pairs
 }

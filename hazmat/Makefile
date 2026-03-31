@@ -11,9 +11,11 @@ LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 all: hazmat hazmat-launch
 
 hazmat:
+	@rm -f hazmat
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat .
 
 hazmat-launch:
+	@rm -f hazmat-launch
 	CGO_ENABLED=1 go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
 
 # Install both binaries.  Run 'sudo make install' or install each separately.

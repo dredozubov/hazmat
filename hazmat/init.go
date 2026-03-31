@@ -382,7 +382,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupDevGroup(ui, r, cu.Username); err != nil {
 		return err
 	}
-	if err := setupSharedWorkspace(ui, r, cu.Username); err != nil {
+	if err := setupHomeDirTraverse(ui, r); err != nil {
 		return err
 	}
 	if err := setupLocalRepo(ui); err != nil {
@@ -617,90 +617,26 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 
 // ── Step 3: Workspace root ────────────────────────────────────────────────────
 
-func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
-	ui.Step(fmt.Sprintf("Prepare workspace root at %s", sharedWorkspace))
+// setupHomeDirTraverse grants the agent user directory traversal on $HOME
+// so it can reach project directories anywhere under the user's home.
+// This is a one-time ACL on the home directory itself — it does NOT grant
+// read or list access, only execute (traverse).
+func setupHomeDirTraverse(ui *UI, r *Runner) error {
+	ui.Step("Allow agent to traverse home directory")
 
-	if _, err := os.Stat(sharedWorkspace); os.IsNotExist(err) {
-		if err := r.MkdirAll(sharedWorkspace, 0o770); err != nil {
-			return fmt.Errorf("mkdir %s: %w", sharedWorkspace, err)
-		}
-		ui.Ok(fmt.Sprintf("Created %s", sharedWorkspace))
-	} else {
-		ui.SkipDone(fmt.Sprintf("Workspace root exists at %s", sharedWorkspace))
-	}
-
-	if err := r.Sudo("set workspace ownership", "chown", currentUser+":"+sharedGroup, sharedWorkspace); err != nil {
-		return fmt.Errorf("chown %s: %w", sharedWorkspace, err)
-	}
-	if err := r.Sudo("set workspace permissions", "chmod", "770", sharedWorkspace); err != nil {
-		return fmt.Errorf("chmod 770 %s: %w", sharedWorkspace, err)
-	}
-	if err := r.Sudo("set workspace setgid", "chmod", "g+s", sharedWorkspace); err != nil {
-		return fmt.Errorf("chmod g+s %s: %w", sharedWorkspace, err)
-	}
-	ui.Ok(fmt.Sprintf("Permissions: 770, setgid, owner %s:%s", currentUser, sharedGroup))
-
-	// The workspace now lives inside the controlling user's home directory.
-	// Grant the agent account directory traversal on $HOME so it can reach
-	// ~/workspace without opening up the rest of the home directory for listing.
 	homeDir := os.Getenv("HOME")
 	if homeAllowsAgentTraverse(homeDir) {
 		if homeHasAgentTraverseACL(homeDir) {
-			ui.SkipDone(fmt.Sprintf("Home directory ACL already lets '%s' traverse to %s", agentUser, workspaceHint))
+			ui.SkipDone("Home directory ACL already allows agent traversal")
 		} else {
-			ui.SkipDone(fmt.Sprintf("Home directory permissions already allow '%s' to reach %s", agentUser, workspaceHint))
+			ui.SkipDone("Home directory permissions already allow agent traversal")
 		}
 	} else {
-		if err := r.Sudo("allow agent to traverse home directory", "chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
+		if err := r.Sudo("allow agent to traverse home directory",
+			"chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
 			return fmt.Errorf("set home traversal ACL: %w", err)
 		}
-		ui.Ok(fmt.Sprintf("Home directory ACL set: '%s' can traverse to %s", agentUser, workspaceHint))
-	}
-
-	// umask 077 (set for the agent user) clears group bits on newly created files.
-	// An inheritable ACL grants the dev group read/write on all files in the workspace
-	// regardless of umask, so both principals can collaborate without weakening isolation
-	// elsewhere.
-	if workspaceHasDevACL() {
-		ui.SkipDone(fmt.Sprintf("Workspace ACL already grants '%s' group inherited access", sharedGroup))
-	} else {
-		if err := r.Sudo("grant dev group workspace access", "chmod", "+a", devGroupACLEntry(), sharedWorkspace); err != nil {
-			return fmt.Errorf("set workspace ACL: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Workspace ACL set: '%s' group gets inherited read/write access", sharedGroup))
-	}
-
-	// Inheritable ACLs only propagate to items created AFTER the ACL is set.
-	// Users almost always have existing projects in ~/workspace before installing
-	// hazmat, so those directories won't have the ACL and the agent can't write.
-	// Apply the ACL to existing contents now. This is safe (additive, doesn't
-	// change ownership or Unix permission bits) and recorded for rollback.
-	cDim.Printf("  Scanning %s for items needing ACL update (this may take a moment for large workspaces)...\n", sharedWorkspace)
-	if n, err := applyACLToExistingContents(r, ui, sharedWorkspace); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not apply ACL to some existing items: %v", err))
-	} else if n > 0 {
-		ui.Ok(fmt.Sprintf("Applied workspace ACL to %d existing items", n))
-	} else {
-		ui.SkipDone("All existing workspace items already have correct ACL")
-	}
-
-	legacyLink := os.Getenv("HOME") + "/workspace-shared"
-	if info, err := os.Lstat(legacyLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		ui.WarnMsg(fmt.Sprintf("Legacy symlink %s still exists; remove it if you no longer need the old alias", legacyLink))
-	}
-
-	// Symlink from agent user's home
-	// asAgentQuiet("test", ...) is a read-only check — bypasses Runner.
-	agentLink := agentHome + "/workspace"
-	if asAgentQuiet("test", "-L", agentLink) == nil {
-		ui.SkipDone(fmt.Sprintf("Symlink %s already exists", agentLink))
-	} else if asAgentQuiet("test", "-e", agentLink) == nil {
-		ui.WarnMsg(fmt.Sprintf("%s exists but is not a symlink — skipping", agentLink))
-	} else {
-		if err := r.AsAgent("create workspace symlink in agent home", "ln", "-s", sharedWorkspace, agentLink); err != nil {
-			return fmt.Errorf("symlink %s: %w", agentLink, err)
-		}
-		ui.Ok(fmt.Sprintf("Created symlink %s → %s", agentLink, sharedWorkspace))
+		ui.Ok("Home directory ACL set — agent can reach project directories")
 	}
 	return nil
 }
@@ -1155,28 +1091,11 @@ func verifySetup(ui *UI) {
 		ui.TestFail(fmt.Sprintf("Home directory missing: %s", agentHome))
 	}
 
-	if info, err := os.Stat(sharedWorkspace); err == nil {
-		ui.TestPass(fmt.Sprintf("Workspace root exists at %s (%s)", sharedWorkspace, info.Mode()))
+	homeDir := os.Getenv("HOME")
+	if homeAllowsAgentTraverse(homeDir) {
+		ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to project directories", agentUser))
 	} else {
-		ui.TestFail(fmt.Sprintf("Workspace root missing: %s", sharedWorkspace))
-	}
-
-	if homeAllowsAgentTraverse(os.Getenv("HOME")) {
-		if homeHasAgentTraverseACL(os.Getenv("HOME")) {
-			ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to %s", agentUser, workspaceHint))
-		} else {
-			ui.TestPass(fmt.Sprintf("Home directory permissions already let '%s' reach %s", agentUser, workspaceHint))
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — %s may be inaccessible from the sandbox", agentUser, workspaceHint))
-	}
-
-	// ACL is advisory: files are still accessible via the dev group,
-	// but new files created with umask 077 need the ACL to be readable.
-	if workspaceHasDevACL() {
-		ui.TestPass(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
-	} else {
-		ui.TestWarn(fmt.Sprintf("Workspace ACL missing '%s' group — agent files may not be readable by controlling user", sharedGroup))
+		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — project directories may be inaccessible", agentUser))
 	}
 
 	if out, err := sudoOutput("pfctl", "-a", pfAnchorName, "-sr"); err == nil &&
@@ -1329,16 +1248,6 @@ func gidTaken(gid string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// workspaceHasDevACL returns true when the workspace directory already has an
-// inherited ACE for the shared group, so the setup step can be skipped.
-func workspaceHasDevACL() bool {
-	out, err := exec.Command("ls", "-led", sharedWorkspace).CombinedOutput()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), "group:"+sharedGroup)
 }
 
 func homeTraverseACLEntry() string {

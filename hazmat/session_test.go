@@ -127,74 +127,44 @@ func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 
 // ── defaultReadDirs ─────────────────────────────────────────────────────────
 
-// isolateDefaultReadDirs overrides sharedWorkspace and configFilePath so
-// defaultReadDirs uses only the test-supplied values, not real user config.
-func isolateDefaultReadDirs(t *testing.T, ws string) {
+func isolateConfig(t *testing.T) {
 	t.Helper()
-	savedWS := sharedWorkspace
 	savedCfg := configFilePath
-	sharedWorkspace = ws
 	configFilePath = filepath.Join(t.TempDir(), "nonexistent.yaml")
-	t.Cleanup(func() {
-		sharedWorkspace = savedWS
-		configFilePath = savedCfg
-	})
+	t.Cleanup(func() { configFilePath = savedCfg })
 }
 
-func TestDefaultReadDirsIncludesWorkspace(t *testing.T) {
-	ws := t.TempDir()
-	isolateDefaultReadDirs(t, ws)
-
+func TestDefaultReadDirsNoConfiguredDirsByDefault(t *testing.T) {
+	isolateConfig(t)
+	// With no config, defaultReadDirs returns only implicit toolchain dirs
+	// (e.g. go/pkg/mod if it exists). No configured session.read_dirs.
 	got := defaultReadDirs(nil)
-	if len(got) != 1 || got[0] != ws {
-		t.Errorf("defaultReadDirs(nil) = %v, want [%q]", got, ws)
+	for _, d := range got {
+		// Implicit toolchain dirs are fine — they're auto-detected, not configured.
+		if !isImplicitToolchainDir(d) {
+			t.Errorf("unexpected non-toolchain read dir: %s", d)
+		}
 	}
 }
 
-func TestDefaultReadDirsSkipsMissingWorkspace(t *testing.T) {
-	isolateDefaultReadDirs(t, "/nonexistent-workspace-test")
-
-	got := defaultReadDirs(nil)
-	if len(got) != 0 {
-		t.Errorf("defaultReadDirs(nil) = %v, want empty", got)
+func isImplicitToolchainDir(d string) bool {
+	implicit := implicitReadDirs()
+	for _, i := range implicit {
+		if d == i {
+			return true
+		}
 	}
-}
-
-func TestDefaultReadDirsDedupsExplicitWorkspace(t *testing.T) {
-	ws := t.TempDir()
-	isolateDefaultReadDirs(t, ws)
-
-	got := defaultReadDirs([]string{ws})
-	if len(got) != 1 || got[0] != ws {
-		t.Errorf("defaultReadDirs([ws]) = %v, want single [%q]", got, ws)
-	}
-}
-
-func TestDefaultReadDirsPreservesExplicitDirs(t *testing.T) {
-	ws := t.TempDir()
-	extra := t.TempDir()
-	isolateDefaultReadDirs(t, ws)
-
-	got := defaultReadDirs([]string{extra})
-	if len(got) != 2 || got[0] != ws || got[1] != extra {
-		t.Errorf("defaultReadDirs([extra]) = %v, want [%q, %q]", got, ws, extra)
-	}
+	return false
 }
 
 func TestDefaultReadDirsUsesConfigReadDirs(t *testing.T) {
-	// When config has explicit read_dirs, use those instead of sharedWorkspace.
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
-	savedWS := sharedWorkspace
 	savedCfg := configFilePath
-	sharedWorkspace = "/nonexistent-workspace-test"
 	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
 	configFilePath = cfgFile
-	t.Cleanup(func() {
-		sharedWorkspace = savedWS
-		configFilePath = savedCfg
-	})
+	t.Cleanup(func() { configFilePath = savedCfg })
 
 	cfg := defaultConfig()
 	dirs := []string{dir1, dir2}
@@ -204,8 +174,14 @@ func TestDefaultReadDirsUsesConfigReadDirs(t *testing.T) {
 	}
 
 	got := defaultReadDirs(nil)
-	if len(got) != 2 || got[0] != dir1 || got[1] != dir2 {
-		t.Errorf("defaultReadDirs(nil) = %v, want [%q, %q]", got, dir1, dir2)
+	found := 0
+	for _, d := range got {
+		if d == dir1 || d == dir2 {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Errorf("defaultReadDirs(nil) = %v, want to contain [%q, %q]", got, dir1, dir2)
 	}
 }
 
@@ -215,17 +191,10 @@ func TestDefaultReadDirsExpandsTilde(t *testing.T) {
 		t.Skip("cannot determine home dir")
 	}
 
-	// Point sharedWorkspace to non-existent so the default doesn't interfere.
-	// Write config with ~/workspace (tilde) — should expand to $HOME/workspace.
-	savedWS := sharedWorkspace
 	savedCfg := configFilePath
-	sharedWorkspace = "/nonexistent-workspace-test"
 	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
 	configFilePath = cfgFile
-	t.Cleanup(func() {
-		sharedWorkspace = savedWS
-		configFilePath = savedCfg
-	})
+	t.Cleanup(func() { configFilePath = savedCfg })
 
 	cfg := defaultConfig()
 	dirs := []string{"~/workspace"}
@@ -239,8 +208,14 @@ func TestDefaultReadDirsExpandsTilde(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Skipf("%s does not exist, skipping", want)
 	}
-	if len(got) != 1 || got[0] != want {
-		t.Errorf("defaultReadDirs(nil) = %v, want [%q]", got, want)
+	found := false
+	for _, d := range got {
+		if d == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("defaultReadDirs(nil) = %v, want to contain %q", got, want)
 	}
 }
 
@@ -343,6 +318,58 @@ func TestGenerateSBPLReadDirInsideProjectSkipped(t *testing.T) {
 	redundant := `(allow file-read* (subpath "/Users/Shared/code/myproject/subdir"))`
 	if strings.Contains(policy, redundant) {
 		t.Error("redundant rule emitted for read dir inside project dir")
+	}
+}
+
+func TestGenerateSBPLWithResumeDir(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+		ResumeDir:  "/Users/dr/.claude/projects/-tmp-myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	// Resume dir must have read+write for symlink target access.
+	want := `(allow file-read* file-write* (subpath "/Users/dr/.claude/projects/-tmp-myproject"))`
+	if !strings.Contains(policy, want) {
+		t.Error("expected read+write rule for ResumeDir")
+	}
+}
+
+func TestGenerateSBPLNoResumeDirWhenEmpty(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	if strings.Contains(policy, "Resume session directory") {
+		t.Error("resume section should not appear when ResumeDir is empty")
+	}
+}
+
+func TestGenerateSBPLProjectWriteReasserted(t *testing.T) {
+	// When a read dir is a parent of the project dir, the project's write
+	// access must be re-asserted as the last allow before credential denies.
+	cfg := sessionConfig{
+		ProjectDir: "/Users/dr/workspace/sandboxing",
+		ReadDirs:   []string{"/Users/dr/workspace"},
+	}
+	policy := generateSBPL(cfg)
+
+	// The project write re-assertion must appear after the read-only section
+	// and before the credential deny section.
+	reassert := `(allow file-read* file-write* (subpath "/Users/dr/workspace/sandboxing"))`
+	denySection := ";; ── DENY sensitive credential directories"
+
+	reassertIdx := strings.LastIndex(policy, reassert)
+	denyIdx := strings.Index(policy, denySection)
+	if reassertIdx < 0 {
+		t.Fatal("project write re-assertion not found in policy")
+	}
+	if denyIdx < 0 {
+		t.Fatal("credential deny section not found in policy")
+	}
+	if reassertIdx > denyIdx {
+		t.Error("project write re-assertion must appear before credential denies")
 	}
 }
 

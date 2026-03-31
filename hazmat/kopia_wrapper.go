@@ -359,8 +359,8 @@ func runCloudBackup() error {
 	}
 	defer r.Close(ctx)
 
-	fmt.Printf("Backing up %s to cloud...\n", sharedWorkspace)
-	if err := snapshotDir(ctx, r.(repo.DirectRepository), sharedWorkspace, "Hazmat workspace backup"); err != nil {
+	fmt.Printf("Backing up %s to cloud...\n", cloudBackupDir)
+	if err := snapshotDir(ctx, r.(repo.DirectRepository), cloudBackupDir, "Hazmat workspace backup"); err != nil {
 		return err
 	}
 
@@ -377,9 +377,9 @@ func runCloudRestore() error {
 	}
 	defer r.Close(ctx)
 
-	snapshots, err := listSnapshots(ctx, r, sharedWorkspace)
+	snapshots, err := listSnapshots(ctx, r, cloudBackupDir)
 	if err != nil || len(snapshots) == 0 {
-		return fmt.Errorf("no cloud snapshots found for %s", sharedWorkspace)
+		return fmt.Errorf("no cloud snapshots found for %s", cloudBackupDir)
 	}
 
 	latest := snapshots[len(snapshots)-1]
@@ -388,14 +388,14 @@ func runCloudRestore() error {
 	// Snapshot current workspace state before restoring so the restore is
 	// reversible. Same pattern as runProjectRestore() in restore.go.
 	fmt.Print("  Snapshotting current workspace state... ")
-	if err := snapshotProject(sharedWorkspace, "pre-cloud-restore"); err != nil {
+	if err := snapshotProject(cloudBackupDir, "pre-cloud-restore"); err != nil {
 		fmt.Fprintf(os.Stderr, "\n  Warning: could not snapshot current state: %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Proceeding with restore — current state may not be recoverable.")
 	} else {
 		fmt.Println("done")
 	}
 
-	stats, err := restoreSnapshotTo(ctx, r, latest, sharedWorkspace)
+	stats, err := restoreSnapshotTo(ctx, r, latest, cloudBackupDir)
 	if err != nil {
 		return err
 	}

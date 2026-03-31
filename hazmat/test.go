@@ -133,10 +133,16 @@ func testAgentUser(ui *UI) {
 	}
 }
 
-// ── Step 2: Dev group and workspace root ─────────────────────────────────────
+// testWorkspaceDir returns a temporary directory for test fixtures.
+// Tests that need a writable directory use this instead of a hardcoded workspace.
+func testWorkspaceDir() string {
+	return os.TempDir()
+}
+
+// ── Step 2: Dev group and home traverse ──────────────────────────────────────
 
 func testDevGroupAndWorkspace(ui *UI, currentUser string) {
-	ui.Step("Dev group and workspace root")
+	ui.Step("Dev group and home traverse")
 
 	if _, err := user.LookupGroup(sharedGroup); err == nil {
 		ui.TestPass(fmt.Sprintf("Group '%s' exists", sharedGroup))
@@ -152,56 +158,14 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		}
 	}
 
-	info, err := os.Stat(sharedWorkspace)
-	if err != nil {
-		ui.TestFail(fmt.Sprintf("Workspace root missing: %s", sharedWorkspace))
-		return
-	}
-	ui.TestPass(fmt.Sprintf("Workspace root exists: %s", sharedWorkspace))
-
 	if homeAllowsAgentTraverse(os.Getenv("HOME")) {
-		if homeHasAgentTraverseACL(os.Getenv("HOME")) {
-			ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to %s", agentUser, workspaceHint))
-		} else {
-			ui.TestPass(fmt.Sprintf("Home directory permissions already let '%s' reach %s", agentUser, workspaceHint))
-		}
+		ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to project directories", agentUser))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — %s may be unreachable", agentUser, workspaceHint))
-	}
-
-	perms := info.Mode().Perm()
-	if perms == 0o770 {
-		ui.TestPass(fmt.Sprintf("Workspace root permissions: %04o", perms))
-	} else {
-		ui.TestFail(fmt.Sprintf("Workspace root permissions: %04o (expected 0770)", perms))
-	}
-
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		gidStr := strconv.FormatUint(uint64(st.Gid), 10)
-		if g, err := user.LookupGroupId(gidStr); err == nil && g.Name == sharedGroup {
-			ui.TestPass(fmt.Sprintf("Workspace root group: %s", sharedGroup))
-		} else {
-			ui.TestFail(fmt.Sprintf("Workspace root group is gid=%s, expected '%s'", gidStr, sharedGroup))
-		}
-	}
-
-	if info.Mode()&fs.ModeSetgid != 0 {
-		ui.TestPass("Workspace root has setgid bit")
-	} else {
-		ui.TestFail(fmt.Sprintf("Workspace root missing setgid bit (%s)", info.Mode()))
-	}
-
-	// ACL check: workspace must have an inherited ACE for the dev group so that
-	// files created by the agent (with umask 077) are still accessible to the
-	// controlling user — and vice versa.
-	if workspaceHasDevACL() {
-		ui.TestPass(fmt.Sprintf("Workspace ACL grants '%s' group inherited read/write access", sharedGroup))
-	} else {
-		ui.TestFail(fmt.Sprintf("Workspace ACL missing '%s' group — run hazmat init again to add it", sharedGroup))
+		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — project directories may be unreachable", agentUser))
 	}
 
 	// Write test as current user
-	tmpDr := fmt.Sprintf("%s/.test_dr_%d", sharedWorkspace, os.Getpid())
+	tmpDr := fmt.Sprintf("%s/.test_dr_%d", testWorkspaceDir(), os.Getpid())
 	if f, err := os.Create(tmpDr); err == nil {
 		f.Close()
 		os.Remove(tmpDr)
@@ -211,7 +175,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	}
 
 	// Write test as agent; also check setgid inheritance
-	tmpAgent := fmt.Sprintf("%s/.test_agent_%d", sharedWorkspace, os.Getpid())
+	tmpAgent := fmt.Sprintf("%s/.test_agent_%d", testWorkspaceDir(), os.Getpid())
 	if err := asAgentQuiet("touch", tmpAgent); err == nil {
 		ui.TestPass(fmt.Sprintf("%s can write to workspace root", agentUser))
 
@@ -232,7 +196,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 
 	// Bidirectional access: agent-created file must be readable/writable by controlling user.
 	// This verifies that the inheritable ACL overrides the agent's umask 077.
-	tmpAgentRW := fmt.Sprintf("%s/.test_agent_rw_%d", sharedWorkspace, os.Getpid())
+	tmpAgentRW := fmt.Sprintf("%s/.test_agent_rw_%d", testWorkspaceDir(), os.Getpid())
 	if err := asAgentShellQuiet(fmt.Sprintf("echo test > %q", tmpAgentRW)); err == nil {
 		defer sudo("rm", "-f", tmpAgentRW) //nolint:errcheck
 
@@ -254,7 +218,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	}
 
 	// Bidirectional access: controlling-user-created file must be readable/writable by agent.
-	tmpUserRW := fmt.Sprintf("%s/.test_user_rw_%d", sharedWorkspace, os.Getpid())
+	tmpUserRW := fmt.Sprintf("%s/.test_user_rw_%d", testWorkspaceDir(), os.Getpid())
 	if f, err := os.Create(tmpUserRW); err == nil {
 		f.Close()
 		defer os.Remove(tmpUserRW)
@@ -612,8 +576,8 @@ func testSeatbelt(ui *UI) {
 
 	// Create isolated test directories. readDir is passed as a read-only dir
 	// so it receives a per-dir read rule separate from the project.
-	projectDir := fmt.Sprintf("%s/.seatbelt-project-%d", sharedWorkspace, os.Getpid())
-	readDir := fmt.Sprintf("%s/.seatbelt-read-%d", sharedWorkspace, os.Getpid())
+	projectDir := fmt.Sprintf("%s/.seatbelt-project-%d", testWorkspaceDir(), os.Getpid())
+	readDir := fmt.Sprintf("%s/.seatbelt-read-%d", testWorkspaceDir(), os.Getpid())
 	if err := os.MkdirAll(projectDir, 0o770); err != nil {
 		ui.TestWarn(fmt.Sprintf("Could not create seatbelt project dir: %v", err))
 		return

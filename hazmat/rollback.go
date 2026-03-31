@@ -24,6 +24,7 @@ func newRollbackCmd() *cobra.Command {
   - Seatbelt profile and wrapper
   - Agent shell env + host wrapper commands
   - Workspace access helpers (/Users/agent/workspace, home-directory ACL)
+  - Workspace ACLs applied to existing project directories
   - umask 077 lines from .zshrc files
   - Backup scope file (.backup-excludes)
 
@@ -31,8 +32,7 @@ User and group deletion require explicit flags because they are destructive:
   --delete-user   Delete the agent user account and home directory
   --delete-group  Delete the dev group
 
-The workspace root (` + sharedWorkspace + `) is NOT removed automatically.
-Back it up first if needed: hazmat backup /Volumes/BACKUP/workspace
+Your project files are NOT modified or removed.
 
 Use --dry-run to preview all commands without executing.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -76,7 +76,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	rollbackDNSBlocklist(ui, r)
 	rollbackSeatbelt(ui, r)
 	rollbackUserExperience(ui, r)
-	rollbackSymlinks(ui, r)
+	rollbackHomeDirTraverse(ui, r)
 	rollbackUmask(ui, r)
 	rollbackLocalRepo(ui)
 
@@ -94,7 +94,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 
 	fmt.Println()
 	cGreen.Println("  Rollback complete.")
-	cYellow.Printf("  Note: workspace root at %s was not touched. Remove it manually if no longer needed.\n", sharedWorkspace)
+	fmt.Println("  Your project files were not touched.")
 	return nil
 }
 
@@ -326,38 +326,18 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 	}
 }
 
-func rollbackSymlinks(ui *UI, r *Runner) {
-	ui.Step("Remove workspace access helpers")
+func rollbackHomeDirTraverse(ui *UI, r *Runner) {
+	ui.Step("Remove home directory traverse ACL")
 
-	legacyLink := os.Getenv("HOME") + "/workspace-shared"
-	if info, err := os.Lstat(legacyLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(legacyLink); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove legacy symlink %s: %v", legacyLink, err))
+	homeDir := os.Getenv("HOME")
+	if homeHasAgentTraverseACL(homeDir) {
+		if err := r.Sudo("remove home directory traverse ACL", "chmod", "-a", homeTraverseACLEntry(), homeDir); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL: %v", err))
 		} else {
-			ui.Ok(fmt.Sprintf("Removed legacy symlink %s", legacyLink))
-		}
-	}
-
-	// /Users/agent/workspace is owned by the agent user — use sudo.
-	agentLink := agentHome + "/workspace"
-	if asAgentQuiet("test", "-L", agentLink) == nil {
-		if err := r.Sudo("remove agent workspace symlink", "rm", "-f", agentLink); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove symlink %s: %v", agentLink, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed symlink %s", agentLink))
+			ui.Ok("Removed home traversal ACL")
 		}
 	} else {
-		ui.SkipDone(fmt.Sprintf("%s is not a symlink or does not exist", agentLink))
-	}
-
-	if homeHasAgentTraverseACL(os.Getenv("HOME")) {
-		if err := r.Sudo("remove home directory traverse ACL", "chmod", "-a", homeTraverseACLEntry(), os.Getenv("HOME")); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL from %s: %v", os.Getenv("HOME"), err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed home traversal ACL from %s", os.Getenv("HOME")))
-		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Home traversal ACL not present on %s", os.Getenv("HOME")))
+		ui.SkipDone("Home traversal ACL not present")
 	}
 }
 

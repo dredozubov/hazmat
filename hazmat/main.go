@@ -30,16 +30,10 @@ var (
 	sharedGID = "599"
 )
 
-var (
-	sharedWorkspace = defaultWorkspace()
-)
-
-func defaultWorkspace() string {
-	if ws := os.Getenv("HAZMAT_WORKSPACE"); ws != "" {
-		return ws
-	}
-	return filepath.Join(os.Getenv("HOME"), "workspace")
-}
+// cloudBackupDir is the directory that `hazmat backup --cloud` snapshots.
+// There is no "managed workspace" concept — any directory is a valid project.
+// This is solely for the cloud backup scope.
+var cloudBackupDir = filepath.Join(os.Getenv("HOME"), "workspace")
 
 // Hazmat configuration shared by the Go-based setup, test, and rollback flows.
 const (
@@ -74,7 +68,6 @@ const (
 	defaultAgentConfigHome = agentHome + "/.config"
 	defaultAgentDataHome   = agentHome + "/.local/share"
 	defaultAgentTmpDir     = "/private/tmp"
-	workspaceHint          = "~/workspace"
 )
 
 func main() {

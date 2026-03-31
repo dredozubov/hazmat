@@ -27,7 +27,7 @@ func newBackupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup [--cloud]",
 		Short: "Back up the workspace to cloud storage (Kopia)",
-		Long: `Backs up the canonical workspace root (` + sharedWorkspace + `) to S3-compatible
+		Long: `Backs up the canonical workspace root (` + cloudBackupDir + `) to S3-compatible
 cloud storage using Kopia. Snapshots are encrypted, deduplicated, and
 incremental.
 
