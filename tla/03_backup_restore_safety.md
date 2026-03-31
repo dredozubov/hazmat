@@ -65,17 +65,17 @@ hazmat restore [--session=N]
 ```
 hazmat restore --cloud
   openCloudRepo()  → loadCloudConfig() + connect to S3
-  listSnapshots(sharedWorkspace)
-  snapshotProject(sharedWorkspace, "pre-cloud-restore")  ← SAFETY NET (was missing)
+  listSnapshots(cloudBackupDir)
+  snapshotProject(cloudBackupDir, "pre-cloud-restore")  ← SAFETY NET (was missing)
     failure → warn, proceed
-  restoreSnapshotTo(latest, sharedWorkspace)
+  restoreSnapshotTo(latest, cloudBackupDir)
 ```
 
 ### Cloud backup
 ```
 hazmat backup --cloud
   openCloudRepo()  → loadCloudConfig() + connect to S3
-  snapshotDir(sharedWorkspace, "Hazmat workspace backup")
+  snapshotDir(cloudBackupDir, "Hazmat workspace backup")
 ```
 
 ## TLA+ Model

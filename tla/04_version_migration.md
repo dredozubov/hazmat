@@ -112,3 +112,18 @@ java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
 4. **The `AgentContained` invariant must hold everywhere** — init, migration,
    failure, rollback, partial rollback after partial migration. 44,795 states
    is a lot of "everywhere."
+
+## Known spec-vs-implementation divergences
+
+**Detection heuristic for v0.1.0 installs.** The spec models `Init` as
+starting from `Expected(v)` for any version — a complete, consistent artifact
+set. The Go implementation (`detectV010Artifacts()` in `migrate.go`) only
+checks for the agent workspace symlink and workspace ACL to determine that a
+v0.1.0 install exists. A system with a partial v0.1.0 install is detected as
+v0.1.0 even though not all 14 artifacts in `Expected(V1)` are present.
+
+This is acceptable because:
+- The migration up function is best-effort (removes what exists, skips what doesn't)
+- The idempotent init steps after migration create anything that's missing
+- The spec proves the *ideal* migration path is safe; the Go code handles the messy reality
+- A partial v0.1.0 install has fewer artifacts than `Expected(V1)`, so the migration is strictly easier (fewer things to remove)
