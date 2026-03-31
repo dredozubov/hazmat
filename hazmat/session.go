@@ -617,7 +617,8 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.mDNSResponder",
 		"com.apple.trustd",                // TLS certificate verification (Go, curl, Python, etc.)
 		"com.apple.system.opendirectoryd.api",            // user/group directory lookups
-		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam (needed by git, ssh, etc.)
+		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
+		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
@@ -659,59 +660,8 @@ func generateSBPL(cfg sessionConfig) string {
 	return b.String()
 }
 
-// syncGitSafeDirectory writes safe.directory entries to the agent user's
-// global gitconfig so git accepts repos owned by the invoking user.
-// Git 2.36+ rejects repos with different ownership; modern git (2.45+)
-// checks this before reading any config, so env vars don't work — it
-// must be in the global gitconfig file.
-// Runs as the invoking user (not agent), writing to agentHome/.gitconfig
-// which is group-writable via the dev group ACL.
-func syncGitSafeDirectory(cfg sessionConfig) {
-	gitconfig := agentHome + "/.gitconfig"
-	content, _ := os.ReadFile(gitconfig)
-	sections := parseINI(string(content))
-
-	// Collect all directories that need safe.directory entries.
-	dirs := []string{cfg.ProjectDir}
-	dirs = append(dirs, cfg.ReadDirs...)
-
-	// Remove existing [safe] section entries and rebuild with current dirs.
-	found := false
-	for i, s := range sections {
-		if s.name != "safe" {
-			continue
-		}
-		found = true
-		var kept []string
-		for _, line := range s.lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "directory =") || strings.HasPrefix(trimmed, "directory=") {
-				continue // remove old entries
-			}
-			kept = append(kept, line)
-		}
-		for _, d := range dirs {
-			kept = append(kept, "\tdirectory = "+d)
-		}
-		sections[i].lines = kept
-	}
-
-	if !found {
-		var lines []string
-		for _, d := range dirs {
-			lines = append(lines, "\tdirectory = "+d)
-		}
-		sections = append(sections, iniSection{name: "safe", lines: lines})
-	}
-
-	os.WriteFile(gitconfig, []byte(renderINI(sections)), 0o644)
-}
-
 func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
 	pid := os.Getpid()
-
-	// Write safe.directory to agent's gitconfig before entering sandbox.
-	syncGitSafeDirectory(cfg)
 
 	policy := generateSBPL(cfg)
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", pid)
