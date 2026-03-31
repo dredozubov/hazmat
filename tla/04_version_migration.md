@@ -49,18 +49,34 @@ when `phase = "failed"`.
 
 | Invariant | What it ensures |
 |-----------|----------------|
-| `AgentContained` | Sudoers never exists without pf firewall — even during migration |
-| `NoSkippedMigrations` | Every adjacent version pair in the chain is applied |
-| `MigrationsOrdered` | Migrations go forward only (v1 < v2) |
+| `AgentContained` | Sudoers never exists without pf firewall — during init, migration, failure, AND rollback |
 | `InitComplete` | After init finishes, all expected artifacts for the binary version are present |
 | `VersionConsistent` | After init finishes, the recorded version matches the binary |
-| `MigrationRecoverable` | A failed migration can always be retried |
+| `FailureRecoverable` | Any failed state can retry init or start rollback |
+| `MigrationForward` | Migrations go forward only (v1 < v2) |
+| `RollbackClean` | After rollback completes, zero artifacts remain |
+| `RollbackAlwaysAvailable` | From idle, done, or failed — rollback can always start if artifacts exist |
 
 ## Liveness
 
-`EventuallyComplete`: if failures are transient and the user keeps retrying
-init, the system eventually reaches the "done" state with all artifacts
-present for the current binary version.
+`EventuallyComplete`: under strong fairness (transient failures), the system
+reaches either "done" (fully initialized) or "clean" (fully rolled back).
+
+## Rollback from any state
+
+Rollback is modeled as removing one artifact at a time, respecting ordering
+constraints encoded in `CanRemove`. The critical constraint: sudoers must be
+removed before pfAnchor (revoke privilege before removing containment). TLC
+checks that `AgentContained` holds at every intermediate rollback state,
+including rollback of a partially migrated system.
+
+## TLC results
+
+- **44,795 distinct states** explored
+- **140,535 state transitions** checked
+- **0 errors** found
+- **3 seconds** runtime
+- Graph depth: 18 (longest path from any initial state to terminal)
 
 ## Model bounds
 
@@ -68,25 +84,31 @@ present for the current binary version.
 - Binary version: v0.3.0
 - Init from any previous version (including v0.3.0 = already current)
 - Failure at any migration step
+- Rollback from any state (idle, done, failed, mid-migration)
+- Rollback failure and retry
 
 ## Running
 
 ```bash
 cd tla
-java -jar ~/workspace/tla2tools.jar -workers auto \
-  -config MC_Migration.cfg MC_Migration.tla
+java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
+  -lncheck final -config MC_Migration.cfg MC_Migration.tla
 ```
 
 ## Change rules
 
-1. **Adding a new version**: add it to `Versions`, `VersionOrder`,
-   `ExpectedArtifacts`, and `MigrationExists` in the config. Write the
-   migration function in Go. Re-run TLC.
+1. **Adding a new version**: add `V4` constant, `Expected(V4)`,
+   `HasMigration(V3, V4)`, update `NextVersion(V3) == V4`. Run TLC.
+   It checks all paths from every older version through the new migration,
+   AND rollback from every intermediate state.
 
-2. **Changing expected artifacts for a version**: update `ExpectedArtifacts`
-   in the config. If the change affects an existing version (not just the
-   latest), you may need to add a migration step.
+2. **Changing expected artifacts for a version**: update `Expected(v)`.
+   If the change affects an existing version, you need a migration step.
 
-3. **The AgentContained invariant must hold during migration**. If a
-   migration removes the pf anchor, it must remove sudoers first (or in
-   the same step). Model the migration's artifact transformation and verify.
+3. **Adding rollback ordering constraints**: update `CanRemove`. If a new
+   artifact depends on another for safety, encode the dependency. TLC
+   verifies `AgentContained` across all removal orderings.
+
+4. **The `AgentContained` invariant must hold everywhere** — init, migration,
+   failure, rollback, partial rollback after partial migration. 44,795 states
+   is a lot of "everywhere."

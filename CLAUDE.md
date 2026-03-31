@@ -2,30 +2,60 @@
 
 ## What this is
 
-Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside containment: dedicated system user, seatbelt sandboxing, pf firewall, DNS blocklist. Written in Go, single binary + helper.
+Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside containment: dedicated system user, seatbelt sandboxing, pf firewall, DNS blocklist, and automatic snapshots. Written in Go, single binary + cgo helper.
+
+## Before you change anything
+
+**Read `tla/VERIFIED.md` first.** Four subsystems are under formal verification with TLA+. Changes to these areas MUST update the TLA+ spec and pass TLC before the Go implementation changes. This is not optional — CI enforces it.
+
+| Spec | What it governs | Key invariant |
+|------|----------------|---------------|
+| `MC_SetupRollback` | Init step ordering, rollback ordering | `AgentContained` — sudoers never without firewall |
+| `MC_SeatbeltPolicy` | Seatbelt policy structure, credential denies | `CredentialReadDenied` — credential dirs always denied |
+| `MC_BackupSafety` | Snapshot/restore lifecycle | `RestoreReversible` — every overwrite has a prior snapshot |
+| `MC_Migration` | Version upgrades, rollback from any state | `AgentContained` across 44,795 states including partial migrations |
+
+**The workflow: spec first, prove, then implement.**
+
+```
+1. Identify which spec governs your change (see table above)
+2. Update the .tla spec to model your intended design
+3. Run TLC — must exit 0 ("No error has been found")
+4. If TLC finds a violation, fix the DESIGN (not the invariant)
+5. Implement the proved design in Go
+6. Update tla/VERIFIED.md with the result
+```
+
+Running TLC:
+```bash
+cd tla
+java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
+  -lncheck final -config MC_SetupRollback.cfg MC_SetupRollback.tla
+java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
+  -config MC_SeatbeltPolicy.cfg MC_SeatbeltPolicy.tla
+java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
+  -lncheck final -config MC_Migration.cfg MC_Migration.tla
+```
 
 ## Repository layout
 
 ```
 hazmat/                  Go source (package main, module hazmat)
-  cmd/hazmat-launch/     Privileged helper binary (narrow sudo target)
+  cmd/hazmat-launch/     Privileged helper binary (cgo, calls sandbox_init)
   Makefile               Build targets: hazmat, hazmat-launch
-tla/                     TLA+ formal verification specs (see tla/VERIFIED.md)
-homebrew/                Homebrew formula template (synced to dredozubov/homebrew-tap)
-scripts/                 release.sh and helpers
+tla/                     TLA+ formal verification specs
+  VERIFIED.md            Authoritative record of what's proved
+  MC_SetupRollback.*     Init/rollback state machine
+  MC_SeatbeltPolicy.*    Seatbelt policy structure
+  MC_BackupSafety.*      Backup/restore safety
+  MC_Migration.*         Version migration + rollback from any state
+scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
   usage.md               Complete user guide
-  overview.md            Tier selection and design choices
-  design-assumptions.md  Explicit design assumptions and security tradeoffs
-  threat-matrix.md       Risk-by-risk coverage analysis
-  setup-option-a.md      Tier 2 setup walkthrough
-  tier3-docker-sandboxes.md  Docker project guide
-  tier4-vm-isolation.md  VM isolation guide
+  cve-audit.md           How hazmat defends against every known Claude Code CVE
+  design-assumptions.md  Every non-obvious design decision
+  brief-supply-chain-hardening.md  Supply chain attack analysis
   research/              Internal research and reference material
-    ux-analysis.md       User flow diagrams and UX analysis
-    attack-surface-deep-dive.md  Escape and exfiltration path analysis
-    security-evidence.md Incidents, CVEs, and academic sources
-    ...                  Tier research, seatbelt reference, pf design, etc.
 art/                     Homer-in-hazmat ASCII art generator
 assets/                  Brand images
 ```
@@ -34,63 +64,38 @@ assets/                  Brand images
 
 ```bash
 cd hazmat
-make all                 # builds hazmat + hazmat-launch with version from git
+make all                 # builds hazmat + hazmat-launch (cgo) with version from git
 go test ./...            # unit tests
-./hazmat check      # integration tests (Steps 15-16 = Kopia backup/restore)
+./hazmat check           # integration tests
+./hazmat check --full    # include live network probes
 ```
 
-## Releasing
+## When to update TLA+ specs
 
-```bash
-./scripts/release.sh 0.1.0       # tag, push — triggers CI release
-./scripts/release.sh 0.1.0 --dry # preview without doing anything
-```
+### Adding or reordering init/rollback steps
+→ Update `MC_SetupRollback.tla` first, run TLC, then implement.
 
-What happens: CI builds arm64+amd64 → GitHub release with tarballs+checksums → auto-updates `dredozubov/homebrew-tap` formula. Users install with `brew install dredozubov/tap/hazmat`.
+### Changing the seatbelt policy (credential denies, path rules)
+→ Update `MC_SeatbeltPolicy.tla` first, run TLC, then implement.
 
-- **Version** is embedded via `go build -ldflags "-X main.version=..."`. The Makefile reads it from `git describe`.
-- **Homebrew tap** lives at [dredozubov/homebrew-tap](https://github.com/dredozubov/homebrew-tap). One repo, all formulae. Updated automatically by the release workflow via `TAP_TOKEN` secret.
-- **hazmat-launch** is included in the tarball but NOT installed by Homebrew (requires root). `hazmat init` handles privileged installation.
+### Adding a new hazmat version or changing what init creates
+→ Update `MC_Migration.tla`: add the version to `Versions`, define `Expected(v)`,
+add `HasMigration` pair. Run TLC. The spec verifies `AgentContained` holds during
+migration from every older version AND during rollback from any intermediate state
+(44,795 states checked).
+
+### Adding or changing backup/restore paths
+→ Update `MC_BackupSafety.tla` first, run TLC, then implement.
 
 ## Key conventions
 
-- **Apple sandbox-exec references stay as-is.** `sandbox-exec`, `sandbox_init`, `sandboxed`, `same-sandbox`, `SANDBOX_*` env vars — these are Apple API names, not our tool. Never rename them.
-- **Agent system identity is separate from tool name.** User `agent`, group `dev`, pf anchor `agent`, sudoers file `agent` — these don't change when the tool is renamed.
-- **`hazmat init` is the single entry point for all static setup.** It chains system config + bootstrap + enroll. Subcommands (`init check`, `init rollback`, `init enroll`, `init cloud`) handle individual concerns. `bootstrap` is an internal step, not a user-facing command.
-- **Pre-flight checks run before any mutations.** `preflightChecks()` in init.go validates all prerequisites before the first `dscl` call.
-- **Seatbelt policies are per-session.** Generated dynamically in `generateSBPL()` with literal paths embedded. Written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
-
-## When changing setup or rollback
-
-**Check TLA+ specs first.** Setup/rollback step ordering is formally verified.
-See `tla/VERIFIED.md` for the authoritative rules. In short:
-
-1. **Adding, removing, or reordering setup/rollback steps** — update the TLA+
-   spec (`tla/MC_SetupRollback.tla`) first, run TLC, prove invariants pass,
-   then implement in Go.
-2. **Run TLC** after any change to `init.go` or `rollback.go`:
-   ```bash
-   cd tla && java -jar ~/workspace/tla2tools.jar -workers auto \
-     -config MC_SetupRollback.cfg MC_SetupRollback.tla
-   ```
-3. **Key invariant: `AgentContained`** — the agent must never be launchable
-   (sudoers exists) without firewall containment (pfAnchor active).
-
-## When adding a new version or changing init artifacts
-
-**Check the migration spec.** Version migration is formally verified.
-
-1. **Adding a new hazmat version** — update `tla/MC_Migration.cfg` first:
-   add the version to `Versions`, `VersionOrder`, `ExpectedArtifacts`, and
-   `MigrationExists`. Run TLC. Then write the migration function in Go.
-2. **Changing what init creates** — update `ExpectedArtifacts` for the
-   affected version in the TLA+ config. Run TLC to verify `AgentContained`
-   holds across migration from every older version.
-3. **Run TLC** after any change to init artifacts or migration logic:
-   ```bash
-   cd tla && java -jar ~/workspace/tla2tools.jar -workers auto \
-     -lncheck final -config MC_Migration.cfg MC_Migration.tla
-   ```
+- **Apple sandbox-exec references stay as-is.** `sandbox-exec`, `sandbox_init`, `sandboxed`, `same-sandbox`, `SANDBOX_*` env vars — these are Apple API names, not our tool.
+- **Agent system identity is separate from tool name.** User `agent`, group `dev`, pf anchor `agent`, sudoers file `agent`.
+- **`hazmat init` is the single entry point for all setup.** Subcommands: `check`, `cloud`. `rollback` is top-level.
+- **Pre-flight checks run before any mutations.** `preflightChecks()` validates prerequisites before the first `dscl` call.
+- **Seatbelt policies are per-session.** Generated in `generateSBPL()`, written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
+- **hazmat-launch uses sandbox_init() via cgo.** Not `sandbox-exec`. Direct kernel sandbox API, one fewer process in the chain.
+- **No sudo in daily commands.** `hazmat claude/exec/shell` use the NOPASSWD sudoers rule for hazmat-launch. `hazmat config agent` writes directly via dev group. Project ACLs are applied by the file owner (no sudo).
 
 ## When making security-relevant changes
 
@@ -99,24 +104,7 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
 - Network policy (pf rules or DNS blocklist)
 - The trust model or containment boundaries
 - Credential storage or handling
-- Any assumption about what the agent can or cannot access
-
-## When making user-facing changes
-
-**Update docs/research/ux-analysis.md** if you change:
-- The setup flow (steps added, removed, or reordered)
-- Command names, flags, or help text
-- The status checklist phases
-- Backup/restore behavior
-- Rollback steps
-- Any user-visible prompts or error messages
-
-Specifically update:
-1. The relevant **flow diagram** (Flow 1-5 in "User Journey Map")
-2. The **Command Reference** section if commands/flags changed
-3. The **Configuration** table if defaults or overrides changed
-4. The **Non-Obvious Behaviors** list if gotchas were added or resolved
-5. The **Remaining UX Improvements** backlog if items were completed or added
+- Supply chain hardening (npmrc, pip.conf)
 
 ## Commit message style
 
@@ -126,4 +114,4 @@ Specifically update:
 <why, in 1-3 lines>
 ```
 
-Areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `rename`, `test`
+Areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `rename`, `test`, `tla`

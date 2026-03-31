@@ -171,7 +171,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 
 ---
 
-### 4 — Version Migration
+### 4 — Version Migration and Rollback from Any State
 
 | Field | Value |
 |-------|-------|
@@ -179,24 +179,49 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
+| Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
 | Governed code | `~/.hazmat/state.json` — version tracking |
-| Key invariants | `AgentContained`, `NoSkippedMigrations`, `MigrationsOrdered`, `InitComplete`, `VersionConsistent`, `MigrationRecoverable` |
+| Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
-| Status | **Spec written** — awaiting first TLC run and Go implementation |
+| Status | **Proved** — 44,795 states, 140,535 transitions, 0 errors (3s) |
 
 **What this verifies:**
 
-Upgrading from any previous init version to the current binary version
-produces a consistent system state. Migrations are applied in sequence
-(no skipping). The `AgentContained` invariant holds during migration — the
-agent is never launchable without firewall containment, even mid-upgrade.
+1. **Forward migration:** Upgrading from any previous init version (v0.1.0,
+   v0.2.0) to the current binary version (v0.3.0) produces a consistent
+   system with exactly the expected artifacts. Migrations are sequential —
+   no version is skipped.
+
+2. **Rollback from any state:** The system can reach a clean state (zero
+   artifacts) via rollback from any intermediate state: fully initialized,
+   mid-migration, or after a migration failure. Rollback respects ordering
+   constraints — sudoers is removed before pfAnchor (revoke privilege
+   before removing containment).
+
+3. **AgentContained everywhere:** Across all 44,795 reachable states —
+   including partial migrations, failed states, and partial rollbacks — the
+   agent is never launchable without firewall containment.
+
+4. **Failure recovery:** From any failed state, the user can either retry
+   init (resume migration) or start rollback. No state is permanently stuck.
+
+**What was found during spec development:**
+
+1. **Liveness violation:** The first version used weak fairness on
+   `MigrateSucceed`, which allowed an infinite fail → recover → fail loop
+   without progress. TLC caught this. Fixed with strong fairness (models
+   the assumption that transient failures eventually clear).
 
 **Change rules:**
-- Adding a new hazmat version requires adding it to the TLA+ model
-  (`Versions`, `VersionOrder`, `ExpectedArtifacts`, `MigrationExists`),
-  writing the migration function in Go, and re-running TLC.
-- The `AgentContained` invariant must pass across all migration states.
-- Migration steps that remove firewall artifacts must remove sudoers first.
+- Adding a new hazmat version requires adding it to `MC_Migration.tla`:
+  new `V4` constant, `Expected(V4)` definition, `HasMigration(V3, V4)`,
+  and `NextVersion(V3) == V4`. Run TLC — it checks all paths from every
+  older version through the new migration, including rollback.
+- The `CanRemove` function defines rollback ordering constraints. If a new
+  artifact depends on another (like sudoers depends on pfAnchor), add the
+  constraint there and re-verify.
+- The `AgentContained` invariant must pass across ALL states — init,
+  migration, failed, and rollback. This is the non-negotiable property.
 
 ---
 
