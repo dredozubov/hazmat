@@ -209,6 +209,41 @@ func TestDefaultReadDirsUsesConfigReadDirs(t *testing.T) {
 	}
 }
 
+func TestDefaultReadDirsExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+
+	// Point sharedWorkspace to non-existent so the default doesn't interfere.
+	// Write config with ~/workspace (tilde) — should expand to $HOME/workspace.
+	savedWS := sharedWorkspace
+	savedCfg := configFilePath
+	sharedWorkspace = "/nonexistent-workspace-test"
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	configFilePath = cfgFile
+	t.Cleanup(func() {
+		sharedWorkspace = savedWS
+		configFilePath = savedCfg
+	})
+
+	cfg := defaultConfig()
+	dirs := []string{"~/workspace"}
+	cfg.Session.ReadDirs = &dirs
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	got := defaultReadDirs(nil)
+	want := filepath.Join(home, "workspace")
+	if _, err := os.Stat(want); err != nil {
+		t.Skipf("%s does not exist, skipping", want)
+	}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("defaultReadDirs(nil) = %v, want [%q]", got, want)
+	}
+}
+
 // ── generateSBPL ──────────────────────────────────────────────────────────────
 
 func TestGenerateSBPLProjectOnly(t *testing.T) {

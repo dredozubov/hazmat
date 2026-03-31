@@ -268,6 +268,18 @@ func resolveDir(target string, defaultToCwd bool) (string, error) {
 	return abs, nil
 }
 
+// expandTilde replaces a leading ~ with the current user's home directory.
+func expandTilde(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
+
 // defaultReadDirs prepends the configured session.read_dirs to the
 // user-supplied read dirs, skipping any that don't exist on disk and
 // deduplicating against what the user already passed via -R.
@@ -288,6 +300,7 @@ func defaultReadDirs(explicit []string) []string {
 
 	var added []string
 	for _, dir := range configured {
+		dir = expandTilde(dir)
 		if _, err := os.Stat(dir); err != nil {
 			continue // skip non-existent
 		}
