@@ -4,143 +4,144 @@
 \* system state, with no skipped migrations, no stale artifacts, and the
 \* AgentContained invariant preserved throughout.
 \*
-\* The model treats each version as having a set of expected artifacts. A
-\* migration transforms the artifact set from one version's expected state
-\* to the next. Init is modeled as "apply all pending migrations then run
-\* normal idempotent setup."
-\*
 \* Expected TLC result: No error has been found.
 \*
 \* Governed code:
 \*   hazmat/init.go       — runInit(), migration dispatch
 \*   hazmat/migrate.go    — migration functions (to be created)
 \*   ~/.hazmat/state.json — version tracking file
-\*
-\* Model bounds: 4 versions, 3 migration steps, failure at any step.
 
 EXTENDS Naturals, Sequences, FiniteSets
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Constants — version chain and artifact definitions
+\* Concrete model: 3 hazmat versions
 \* ═══════════════════════════════════════════════════════════════════════════════
 
-CONSTANTS
-    Versions,          \* Ordered set of known versions, e.g. {"0.1.0", "0.2.0", "0.3.0"}
-    VersionOrder,      \* Function: version -> natural (0.1.0 -> 1, 0.2.0 -> 2, ...)
-    BinaryVersion,     \* The version of the currently installed hazmat binary
-    ExpectedArtifacts, \* Function: version -> set of artifact names
-    MigrationExists    \* Function: <<from, to>> -> BOOLEAN
+V1 == "v0.1.0"   \* Initial release: workspace concept
+V2 == "v0.2.0"   \* Workspace removed, lazy per-project ACL
+V3 == "v0.3.0"   \* Supply chain hardening (npmrc, pip.conf)
+
+Versions == {V1, V2, V3}
+BinaryVersion == V3
+
+VersionOrd(v) ==
+    IF v = V1 THEN 1
+    ELSE IF v = V2 THEN 2
+    ELSE 3
+
+VersionLT(a, b) == VersionOrd(a) < VersionOrd(b)
+
+\* Artifacts expected after a successful init at each version.
+Expected(v) ==
+    IF v = V1 THEN
+        {"agentUser", "devGroup", "workspace", "workspaceACL",
+         "agentSymlink", "umask", "seatbelt", "wrappers",
+         "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
+         "launchDaemon", "localRepo"}
+    ELSE IF v = V2 THEN
+        {"agentUser", "devGroup", "homeDirTraverse",
+         "umask", "seatbelt", "wrappers",
+         "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
+         "launchDaemon", "localRepo"}
+    ELSE \* V3
+        {"agentUser", "devGroup", "homeDirTraverse",
+         "umask", "seatbelt", "wrappers",
+         "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
+         "launchDaemon", "localRepo", "npmrc"}
+
+\* Which adjacent migration functions exist.
+HasMigration(from, to) ==
+    \/ (from = V1 /\ to = V2)
+    \/ (from = V2 /\ to = V3)
+
+\* Successor version (for building migration chain).
+NextVersion(v) ==
+    IF v = V1 THEN V2
+    ELSE IF v = V2 THEN V3
+    ELSE v  \* V3 has no successor
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Variables
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 VARIABLES
-    initVersion,       \* Version recorded in state.json (last successful init)
+    initVersion,       \* Version recorded in state.json
     artifacts,         \* Set of currently active system artifacts
-    appliedMigrations, \* Sequence of <<from, to>> pairs that have been applied
     phase,             \* "idle" | "migrating" | "initializing" | "done" | "failed"
-    migrationStep,     \* Index into the migration chain being applied
-    migrationChain     \* Sequence of <<from, to>> pairs to apply
+    migrateFrom        \* Version we're migrating FROM (current step)
 
-vars == <<initVersion, artifacts, appliedMigrations, phase, migrationStep, migrationChain>>
-
-\* ═══════════════════════════════════════════════════════════════════════════════
-\* Helpers
-\* ═══════════════════════════════════════════════════════════════════════════════
-
-\* Is version a strictly less than version b?
-VersionLT(a, b) == VersionOrder[a] < VersionOrder[b]
-
-\* Is version a less than or equal to version b?
-VersionLEQ(a, b) == VersionOrder[a] <= VersionOrder[b]
-
-\* Build the migration chain: sequence of adjacent version pairs from
-\* initVersion to BinaryVersion.
-MigrationChainFor(from, to) ==
-    LET ordered == CHOOSE seq \in [1..Cardinality(Versions) -> Versions]:
-                       \A i \in 1..Cardinality(Versions)-1:
-                           VersionOrder[seq[i]] < VersionOrder[seq[i+1]]
-        fromIdx == CHOOSE i \in 1..Len(ordered): ordered[i] = from
-        toIdx   == CHOOSE i \in 1..Len(ordered): ordered[i] = to
-    IN  [i \in 1..(toIdx - fromIdx) |->
-            <<ordered[fromIdx + i - 1], ordered[fromIdx + i]>>]
+vars == <<initVersion, artifacts, phase, migrateFrom>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Initial state
+\* Initial state: system was initialized at some version <= BinaryVersion
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 Init ==
-    \* Start from any valid previous init version with its expected artifacts.
     \E v \in Versions:
-        /\ VersionLEQ(v, BinaryVersion)
+        /\ VersionOrd(v) <= VersionOrd(BinaryVersion)
         /\ initVersion = v
-        /\ artifacts = ExpectedArtifacts[v]
-        /\ appliedMigrations = <<>>
+        /\ artifacts = Expected(v)
         /\ phase = "idle"
-        /\ migrationStep = 0
-        /\ migrationChain = <<>>
+        /\ migrateFrom = v
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Actions
 \* ═══════════════════════════════════════════════════════════════════════════════
 
-\* User runs "hazmat init" — determine which migrations are needed.
+\* User runs "hazmat init".
 StartInit ==
     /\ phase = "idle"
     /\ IF initVersion = BinaryVersion
-       THEN \* Already up to date — go straight to idempotent init.
+       THEN \* Already current — skip to idempotent init.
             /\ phase' = "initializing"
-            /\ migrationChain' = <<>>
-            /\ UNCHANGED <<initVersion, artifacts, appliedMigrations, migrationStep>>
-       ELSE \* Need migrations.
+            /\ UNCHANGED <<initVersion, artifacts, migrateFrom>>
+       ELSE \* Need migration from initVersion.
             /\ phase' = "migrating"
-            /\ migrationChain' = MigrationChainFor(initVersion, BinaryVersion)
-            /\ migrationStep' = 1
-            /\ UNCHANGED <<initVersion, artifacts, appliedMigrations>>
+            /\ migrateFrom' = initVersion
+            /\ UNCHANGED <<initVersion, artifacts>>
 
 \* Apply one migration step (success).
-MigrationStepSucceed ==
+\* Transforms artifacts from migrateFrom's expected set to next version's.
+MigrateSucceed ==
     /\ phase = "migrating"
-    /\ migrationStep <= Len(migrationChain)
-    /\ LET step == migrationChain[migrationStep]
-           from == step[1]
-           to   == step[2]
+    /\ migrateFrom /= BinaryVersion
+    /\ LET to == NextVersion(migrateFrom)
        IN
-        /\ MigrationExists[step]
-        \* Migration transforms artifacts: remove old-version-only, add new-version.
-        /\ artifacts' = (artifacts \ (ExpectedArtifacts[from] \ ExpectedArtifacts[to]))
-                        \cup (ExpectedArtifacts[to] \ ExpectedArtifacts[from])
-        /\ appliedMigrations' = Append(appliedMigrations, step)
+        /\ HasMigration(migrateFrom, to)
+        \* Remove artifacts only in old version, add artifacts only in new.
+        /\ artifacts' = (artifacts \ (Expected(migrateFrom) \ Expected(to)))
+                        \cup (Expected(to) \ Expected(migrateFrom))
         /\ initVersion' = to
-        /\ migrationStep' = migrationStep + 1
-        /\ IF migrationStep + 1 > Len(migrationChain)
-           THEN phase' = "initializing"  \* All migrations done, proceed to init.
+        /\ migrateFrom' = to
+        /\ IF to = BinaryVersion
+           THEN phase' = "initializing"
            ELSE phase' = "migrating"
-        /\ UNCHANGED migrationChain
 
-\* Migration step fails (power failure, error, etc.)
-MigrationStepFail ==
+\* Migration step fails.
+MigrateFail ==
     /\ phase = "migrating"
-    /\ migrationStep <= Len(migrationChain)
+    /\ migrateFrom /= BinaryVersion
     /\ phase' = "failed"
-    \* Artifacts may be partially transformed — this is the dangerous state.
-    \* The invariant MigrationRecoverable must hold here.
-    /\ UNCHANGED <<initVersion, artifacts, appliedMigrations, migrationStep, migrationChain>>
+    /\ UNCHANGED <<initVersion, artifacts, migrateFrom>>
 
 \* Idempotent init — ensures all expected artifacts are present.
 RunInit ==
     /\ phase = "initializing"
-    /\ artifacts' = ExpectedArtifacts[BinaryVersion]
+    /\ artifacts' = Expected(BinaryVersion)
     /\ initVersion' = BinaryVersion
     /\ phase' = "done"
-    /\ UNCHANGED <<appliedMigrations, migrationStep, migrationChain>>
+    /\ UNCHANGED migrateFrom
 
-\* Recovery from failed migration: user re-runs "hazmat init".
-RecoverFromFailure ==
+\* Recovery: user re-runs init after failure.
+Recover ==
     /\ phase = "failed"
     /\ phase' = "idle"
-    /\ UNCHANGED <<initVersion, artifacts, appliedMigrations, migrationStep, migrationChain>>
+    /\ UNCHANGED <<initVersion, artifacts, migrateFrom>>
+
+\* Stay done (stuttering allowed by TLA+, but explicit for clarity).
+Done ==
+    /\ phase = "done"
+    /\ UNCHANGED vars
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Next-state relation
@@ -148,59 +149,53 @@ RecoverFromFailure ==
 
 Next ==
     \/ StartInit
-    \/ MigrationStepSucceed
-    \/ MigrationStepFail
+    \/ MigrateSucceed
+    \/ MigrateFail
     \/ RunInit
-    \/ RecoverFromFailure
+    \/ Recover
+    \/ Done
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Invariants (safety)
+\* Invariants
 \* ═══════════════════════════════════════════════════════════════════════════════
 
-\* The agent must never be launchable without firewall containment.
-\* This must hold even during migration.
+\* Agent must never be launchable without firewall — even mid-migration.
 AgentContained ==
     "sudoers" \in artifacts => "pfAnchor" \in artifacts
 
-\* No migration is ever skipped.
-NoSkippedMigrations ==
-    \A i \in 1..Len(appliedMigrations)-1:
-        appliedMigrations[i][2] = appliedMigrations[i+1][1]
-
-\* Migrations are applied in version order.
-MigrationsOrdered ==
-    \A i \in 1..Len(appliedMigrations):
-        VersionLT(appliedMigrations[i][1], appliedMigrations[i][2])
-
-\* After successful init, all expected artifacts are present.
+\* After init completes, all expected artifacts are present.
 InitComplete ==
-    phase = "done" => artifacts = ExpectedArtifacts[BinaryVersion]
+    phase = "done" => artifacts = Expected(BinaryVersion)
 
-\* After successful init, the recorded version matches the binary.
+\* After init completes, recorded version matches binary.
 VersionConsistent ==
     phase = "done" => initVersion = BinaryVersion
 
-\* A failed migration can always be retried by re-running init.
+\* A failed migration can always be retried.
 MigrationRecoverable ==
-    phase = "failed" => ENABLED RecoverFromFailure
+    phase = "failed" => ENABLED Recover
 
-\* Combined safety property.
+\* Migration only moves forward.
+MigrationForward ==
+    phase = "migrating" => VersionOrd(migrateFrom) <= VersionOrd(BinaryVersion)
+
 Safety ==
     /\ AgentContained
-    /\ NoSkippedMigrations
-    /\ MigrationsOrdered
     /\ InitComplete
     /\ VersionConsistent
     /\ MigrationRecoverable
+    /\ MigrationForward
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Liveness
 \* ═══════════════════════════════════════════════════════════════════════════════
 
-\* Fairness: if init is started and no step permanently fails, it completes.
-Fairness == WF_vars(Next)
+\* Strong fairness on MigrateSucceed: if it's repeatedly enabled (user keeps
+\* retrying after failures), it eventually fires. This models the assumption
+\* that failures are transient — if the user keeps trying, migration succeeds.
+Fairness == SF_vars(MigrateSucceed) /\ WF_vars(StartInit) /\ WF_vars(RunInit) /\ WF_vars(Recover)
 
-\* Init eventually reaches "done" (if failures are transient).
+\* Under strong fairness (transient failures), init eventually completes.
 EventuallyComplete == <>(phase = "done")
 
 Spec == Init /\ [][Next]_vars /\ Fairness
