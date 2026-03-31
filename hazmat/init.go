@@ -161,6 +161,9 @@ const hostsBlocklistContent = `
 0.0.0.0 pipedream.com
 0.0.0.0 hookbin.com
 0.0.0.0 beeceptor.com
+# Known supply-chain C2 domains
+# axios compromise (2026) — axios/axios#10604
+0.0.0.0 sfrclak.com
 # === End AI Agent Blocklist ===
 `
 

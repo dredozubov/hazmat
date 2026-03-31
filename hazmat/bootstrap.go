@@ -173,6 +173,74 @@ func runBootstrap(ui *UI, r *Runner) error {
 		ui.Ok(fmt.Sprintf("Wrote %s (0700)", hookScript))
 	}
 
+	// ── Step 5: supply chain hardening ───────────────────────────────────────
+	// Block lifecycle scripts in package managers to prevent supply chain
+	// attacks like the axios compromise (axios/axios#10604) where a malicious
+	// postinstall hook delivered a RAT within 2 seconds of npm install.
+	ui.Step("Supply chain hardening (package manager scripts)")
+
+	npmrc := agentHome + "/.npmrc"
+	if _, err := sudoOutput("test", "-f", npmrc); err == nil {
+		// Check if ignore-scripts is already set.
+		if out, _ := sudoOutput("grep", "ignore-scripts", npmrc); out != "" {
+			ui.SkipDone("npm ignore-scripts already configured")
+		} else {
+			if err := r.Sudo("append ignore-scripts to npmrc",
+				"bash", "-c", fmt.Sprintf("echo 'ignore-scripts=true' >> %s", npmrc)); err != nil {
+				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", npmrc, err))
+			} else {
+				ui.Ok("npm: ignore-scripts=true appended to " + npmrc)
+			}
+		}
+	} else {
+		npmrcContent := `# Managed by hazmat — supply chain hardening.
+#
+# Blocks npm lifecycle scripts (preinstall, postinstall, etc.) to prevent
+# supply chain attacks. The axios compromise (2026) delivered a RAT entirely
+# through a postinstall hook that executed in 2 seconds — before detection
+# was possible.
+#
+# To allow scripts for a specific package:
+#   npm install --ignore-scripts=false sharp
+#
+# CVE references: axios/axios#10604, ua-parser-js (2021), event-stream (2018)
+ignore-scripts=true
+`
+		if err := r.SudoWriteFile("write agent .npmrc with ignore-scripts", npmrc, npmrcContent); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", npmrc, err))
+		} else {
+			r.Sudo("set npmrc ownership", "chown", agentUser+":staff", npmrc)
+			ui.Ok("npm: ignore-scripts=true (blocks postinstall supply chain attacks)")
+		}
+	}
+
+	// pip: use --no-input and recommend uv for safer installs.
+	// pip's setup.py runs arbitrary code at install time — same attack class
+	// as npm postinstall. Unlike npm, pip has no global ignore-scripts flag,
+	// but we can set safer defaults.
+	pipConf := agentHome + "/.config/pip/pip.conf"
+	if _, err := sudoOutput("test", "-f", pipConf); err == nil {
+		ui.SkipDone("pip.conf already configured")
+	} else {
+		pipConfContent := `# Managed by hazmat — supply chain hardening.
+#
+# pip's setup.py mechanism runs arbitrary code at install time.
+# These settings reduce the attack surface but cannot fully prevent it.
+# Prefer uv (https://github.com/astral-sh/uv) for safer dependency installation.
+[global]
+no-input = true
+disable-pip-version-check = true
+`
+		pipConfDir := agentHome + "/.config/pip"
+		r.Sudo("create pip config directory", "mkdir", "-p", pipConfDir)
+		if err := r.SudoWriteFile("write agent pip.conf", pipConf, pipConfContent); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", pipConf, err))
+		} else {
+			r.Sudo("set pip config ownership", "chown", "-R", agentUser+":staff", pipConfDir)
+			ui.Ok("pip: safer defaults configured")
+		}
+	}
+
 	// ── Done ──────────────────────────────────────────────────────────────────
 	fmt.Println()
 	cGreen.Println("━━━ Bootstrap complete ━━━")
