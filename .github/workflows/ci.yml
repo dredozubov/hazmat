@@ -107,6 +107,14 @@ jobs:
           -config MC_SeatbeltPolicy.cfg
           MC_SeatbeltPolicy.tla
 
+      - name: Check MC_Migration (safety + liveness)
+        working-directory: tla
+        run: >
+          java -XX:+UseParallelGC -jar ~/tla2tools.jar
+          -workers auto -lncheck final
+          -config MC_Migration.cfg
+          MC_Migration.tla
+
   e2e:
     name: E2E lifecycle
     runs-on: macos-14

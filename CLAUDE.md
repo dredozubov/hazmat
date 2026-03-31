@@ -76,6 +76,22 @@ See `tla/VERIFIED.md` for the authoritative rules. In short:
 3. **Key invariant: `AgentContained`** — the agent must never be launchable
    (sudoers exists) without firewall containment (pfAnchor active).
 
+## When adding a new version or changing init artifacts
+
+**Check the migration spec.** Version migration is formally verified.
+
+1. **Adding a new hazmat version** — update `tla/MC_Migration.cfg` first:
+   add the version to `Versions`, `VersionOrder`, `ExpectedArtifacts`, and
+   `MigrationExists`. Run TLC. Then write the migration function in Go.
+2. **Changing what init creates** — update `ExpectedArtifacts` for the
+   affected version in the TLA+ config. Run TLC to verify `AgentContained`
+   holds across migration from every older version.
+3. **Run TLC** after any change to init artifacts or migration logic:
+   ```bash
+   cd tla && java -jar ~/workspace/tla2tools.jar -workers auto \
+     -lncheck final -config MC_Migration.cfg MC_Migration.tla
+   ```
+
 ## When making security-relevant changes
 
 **Update docs/design-assumptions.md** if you change:

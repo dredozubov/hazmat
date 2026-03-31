@@ -94,18 +94,30 @@ The principle: **grant privilege last, revoke privilege first.**
 | Spec | `tla/02_seatbelt_policy_structure.md` |
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
-| Key invariants | `CredentialReadDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption` |
-| Status | **Fixed** — credential denies now cover both `file-read*` and `file-write*` |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential` |
+| Status | **Fixed** — credential denies cover both ops; resume dir + project re-assertion modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
 `.ssh`; (b) static `.config` allow covered `.config/gcloud` writes.
 
-**Fix applied:** Changed deny rules from `(deny file-read* ...)` to
-`(deny file-read* file-write* ...)`. Both reads and writes to all credential
-paths are now denied regardless of user input. `CredentialWriteDenied` passes
-across all 192 reachable states.
+**Fixes applied:**
+
+1. Changed deny rules from `(deny file-read* ...)` to
+   `(deny file-read* file-write* ...)`. Both reads and writes to all credential
+   paths are now denied regardless of user input.
+
+2. Added `ResumeDir` (section 3) — optional read+write allow for the invoking
+   user's session directory when `--resume` or `--continue` is used. This path is
+   under the invoker's home (e.g., `/Users/dr/.claude/...`), never under agent home,
+   so it cannot overlap with credential paths. `ResumeDirNotCredential` verifies this.
+
+3. Added project write re-assertion (section 5) — when a read-only `-R` directory
+   is a parent of the project directory, the project's write access is re-asserted
+   as the last allow before credential denies.
+
+Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
+4=agent home, 5=project write re-assert, 6=credential denies.
 
 **Change rules:**
 - Do not reorder the sections in `generateSBPL()` — credential denies MUST be
@@ -114,6 +126,8 @@ across all 192 reachable states.
   `CredPaths` in the TLA+ model and re-running TLC.
 - Adding new static allow paths (new `AgentHomeSubs`) requires checking whether
   they cover any credential paths — add to the model and re-verify.
+- Adding new optional read+write sections (like ResumeDir) requires modeling the
+  path and verifying it cannot overlap with `CredPaths`.
 
 ---
 
@@ -157,13 +171,43 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 
 ---
 
+### 4 — Version Migration
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/04_version_migration.md` |
+| TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
+| Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
+| Governed code | `hazmat/migrate.go` — migration functions (per-version) |
+| Governed code | `~/.hazmat/state.json` — version tracking |
+| Key invariants | `AgentContained`, `NoSkippedMigrations`, `MigrationsOrdered`, `InitComplete`, `VersionConsistent`, `MigrationRecoverable` |
+| Key liveness | `EventuallyComplete` |
+| Status | **Spec written** — awaiting first TLC run and Go implementation |
+
+**What this verifies:**
+
+Upgrading from any previous init version to the current binary version
+produces a consistent system state. Migrations are applied in sequence
+(no skipping). The `AgentContained` invariant holds during migration — the
+agent is never launchable without firewall containment, even mid-upgrade.
+
+**Change rules:**
+- Adding a new hazmat version requires adding it to the TLA+ model
+  (`Versions`, `VersionOrder`, `ExpectedArtifacts`, `MigrationExists`),
+  writing the migration function in Go, and re-running TLC.
+- The `AgentContained` invariant must pass across all migration states.
+- Migration steps that remove firewall artifacts must remove sudoers first.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
 |------|---------------|
-| `01_setup_rollback_state_machine` | `hazmat/setup.go:runSetup()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
+| `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
+| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
 
 ---
 
