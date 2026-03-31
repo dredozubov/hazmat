@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 )
 
 // devGroupACLEntry returns the macOS ACL entry string that grants the dev
@@ -28,13 +25,25 @@ func devGroupACLEntryNoInherit() string {
 		"readattr,writeattr,readextattr,writeextattr,readsecurity"
 }
 
+func aclOutputHasDevACL(output string, requireInherit bool) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.Contains(line, "group:"+sharedGroup) {
+			continue
+		}
+		if !requireInherit || (strings.Contains(line, "file_inherit") && strings.Contains(line, "directory_inherit")) {
+			return true
+		}
+	}
+	return false
+}
+
 // pathHasDevACL checks whether a path already has a dev group ACL entry.
-func pathHasDevACL(path string) bool {
+func pathHasDevACL(path string, requireInherit bool) bool {
 	out, err := exec.Command("ls", "-le", path).CombinedOutput()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), "group:"+sharedGroup)
+	return aclOutputHasDevACL(string(out), requireInherit)
 }
 
 // writableByAgentMode reports whether Unix ownership + mode bits alone are
@@ -58,37 +67,13 @@ func writableByAgentMode(mode os.FileMode, ownerUID, agentUID uint32, groupHasAg
 }
 
 // projectRootWritableByAgent avoids a daily sudo probe by checking whether the
-// project root is already writable through the dev ACL or ordinary mode bits.
+// project root already has the inheritable dev ACL needed for host/agent
+// collaboration on future files as well as current ones.
 func projectRootWritableByAgent(projectDir string) bool {
-	if pathHasDevACL(projectDir) {
+	if pathHasDevACL(projectDir, true) {
 		return true
 	}
-
-	info, err := os.Stat(projectDir)
-	if err != nil {
-		return false
-	}
-
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false
-	}
-
-	agent, err := user.Lookup(agentUser)
-	if err != nil {
-		return false
-	}
-	agentUID64, err := strconv.ParseUint(agent.Uid, 10, 32)
-	if err != nil {
-		return false
-	}
-
-	groupHasAgent := false
-	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
-		groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
-	}
-
-	return writableByAgentMode(info.Mode(), stat.Uid, uint32(agentUID64), groupHasAgent)
+	return false
 }
 
 // collectACLTargets returns the existing project paths that should receive the
@@ -102,11 +87,6 @@ func collectACLTargets(projectDir string) []string {
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
-		}
-		if d.IsDir() && d.Name() == ".git" {
-			// Set ACL on .git dir itself but skip internals.
-			paths = append(paths, path)
-			return filepath.SkipDir
 		}
 		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".venv" || d.Name() == "venv") {
 			return filepath.SkipDir // skip large dependency dirs
@@ -130,7 +110,7 @@ func collectACLTargets(projectDir string) []string {
 //
 // Returns true if a fix was applied (for UI messaging).
 func ensureProjectWritable(projectDir string) bool {
-	// Fast path: agent can already write via ACL or mode bits — nothing to do.
+	// Fast path: project already has the inheritable dev ACL we need.
 	if projectRootWritableByAgent(projectDir) {
 		return false
 	}
@@ -144,9 +124,8 @@ func ensureProjectWritable(projectDir string) bool {
 		return false
 	}
 
-	// 2. Apply non-inheritable ACL to existing content so the agent can
-	// modify existing source files (not just newly created ones).
-	// Skip .git internals for performance.
+	// 2. Apply non-inheritable ACL to existing files and inheritable ACL to
+	// existing directories so future files also inherit collaborative access.
 	noInherit := devGroupACLEntryNoInherit()
 	paths := collectACLTargets(projectDir)
 

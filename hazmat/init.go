@@ -228,8 +228,6 @@ live network probes that verify firewall rules are active.`,
 	return cmd
 }
 
-
-
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
 func newInitCloudCmd() *cobra.Command {
 	return newConfigCloudCmd()
@@ -502,7 +500,6 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	return nil
 }
 
-
 // ── Step 1: Agent user ────────────────────────────────────────────────────────
 
 func setupAgentUser(ui *UI, r *Runner) error {
@@ -754,19 +751,8 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 		ui.Ok("Set umask 077 in agent's .zshrc")
 	}
 
-	// Restrictive umask for current user — managed block so rollback only removes ours.
-	// os.ReadFile is a read — bypasses Runner.
-	userZshrc := os.Getenv("HOME") + "/.zshrc"
-	userZshrcData, _ := os.ReadFile(userZshrc)
-	if strings.Contains(string(userZshrcData), umaskBlockStart) {
-		ui.SkipDone("umask 077 already set in your .zshrc")
-	} else {
-		updated := upsertManagedBlock(string(userZshrcData), umaskBlockStart, umaskBlockEnd, "umask 077")
-		if err := r.UserWriteFile(userZshrc, updated); err != nil {
-			return fmt.Errorf("write .zshrc: %w", err)
-		}
-		ui.Ok("Set umask 077 in your .zshrc")
-	}
+	// Restrictive umask for current user — leave the host shell untouched.
+	ui.SkipDone("Host shell umask left unchanged")
 
 	return nil
 }
@@ -872,22 +858,30 @@ func setupUserExperience(ui *UI, r *Runner) error {
 		ui.Ok(fmt.Sprintf("Installed host wrapper %s", path))
 	}
 
-	userZshrc := userZshrcPath()
-	userZshrcData, _ := os.ReadFile(userZshrc)
-	if strings.Contains(string(userZshrcData), "/.local/bin") {
-		ui.SkipDone(fmt.Sprintf("%s already configures ~/.local/bin in PATH", userZshrc))
+	profile, ok := currentUserShellProfile()
+	if !ok {
+		ui.WarnMsg(fmt.Sprintf("Shell %q is not auto-configured — add %s to your PATH manually", filepath.Base(os.Getenv("SHELL")), hostWrapperDir()))
 		return nil
 	}
 
-	updatedUserZshrc := upsertManagedBlock(string(userZshrcData),
+	userRCData, _ := os.ReadFile(profile.rcPath)
+	if strings.Contains(string(userRCData), userPathBlockStart) {
+		ui.SkipDone(fmt.Sprintf("%s already has a hazmat PATH block", profile.rcPath))
+		return nil
+	}
+
+	updatedUserRC := upsertManagedBlock(string(userRCData),
 		userPathBlockStart,
 		userPathBlockEnd,
-		`export PATH="$HOME/.local/bin:$PATH"`,
+		profile.pathBlockLines...,
 	)
-	if err := r.UserWriteFile(userZshrc, updatedUserZshrc); err != nil {
-		return fmt.Errorf("update %s: %w", userZshrc, err)
+	if err := r.MkdirAll(filepath.Dir(profile.rcPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(profile.rcPath), err)
 	}
-	ui.Ok(fmt.Sprintf("Added ~/.local/bin PATH block to %s", userZshrc))
+	if err := r.UserWriteFile(profile.rcPath, updatedUserRC); err != nil {
+		return fmt.Errorf("update %s: %w", profile.rcPath, err)
+	}
+	ui.Ok(fmt.Sprintf("Added %s PATH block to %s", hostWrapperDir(), profile.rcPath))
 
 	return nil
 }
@@ -1051,7 +1045,7 @@ func setupDNSBlocklist(ui *UI, r *Runner) error {
 	}
 
 	// Cache flush is fire-and-forget; ignore errors.
-	r.Sudo("flush DNS cache", "dscacheutil", "-flushcache")       //nolint:errcheck
+	r.Sudo("flush DNS cache", "dscacheutil", "-flushcache")             //nolint:errcheck
 	r.Sudo("restart mDNSResponder", "killall", "-HUP", "mDNSResponder") //nolint:errcheck
 	ui.Ok("DNS blocklist added to /etc/hosts and cache flushed")
 	ui.WarnMsg("This is system-wide. /etc/hosts does not block subdomains.")

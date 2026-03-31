@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSanitizePathForClaude(t *testing.T) {
@@ -102,5 +105,108 @@ func TestDetectResumeFlagsMixedWithOtherArgs(t *testing.T) {
 	}
 	if target != "" {
 		t.Fatalf("expected empty target, got %q", target)
+	}
+}
+
+func TestSelectResumeSessionFilesContinueChoosesNewest(t *testing.T) {
+	files := []resumeSessionFile{
+		{name: "older.jsonl", modTime: time.Unix(10, 0)},
+		{name: "newer.jsonl", modTime: time.Unix(20, 0)},
+	}
+
+	selected := selectResumeSessionFiles(files, "", true)
+	if len(selected) != 1 || selected[0].name != "newer.jsonl" {
+		t.Fatalf("selected = %+v, want newer.jsonl", selected)
+	}
+}
+
+func TestSyncResumeSessionFilesCopiesRequestedTarget(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "keep.jsonl"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "pick.jsonl"), []byte("pick"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "pick", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "pick.jsonl")); err != nil {
+		t.Fatalf("pick.jsonl not copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "keep.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("keep.jsonl should not be copied, got err=%v", err)
+	}
+}
+
+func TestSyncResumeSessionFilesContinueCopiesOnlyLatest(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	oldPath := filepath.Join(srcDir, "old.jsonl")
+	newPath := filepath.Join(srcDir, "new.jsonl")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Unix(10, 0)
+	newTime := time.Unix(20, 0)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "", true)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "new.jsonl")); err != nil {
+		t.Fatalf("new.jsonl not copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "old.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("old.jsonl should not be copied, got err=%v", err)
+	}
+}
+
+func TestSyncResumeSessionFilesLeavesExistingRegularFiles(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "session.jsonl"), []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destPath := filepath.Join(destDir, "session.jsonl")
+	if err := os.WriteFile(destPath, []byte("agent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 0 {
+		t.Fatalf("synced = %d, want 0", synced)
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "agent" {
+		t.Fatalf("dest contents = %q, want agent copy preserved", data)
 	}
 }

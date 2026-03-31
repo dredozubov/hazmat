@@ -2,15 +2,19 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 )
 
 // sanitizePathForClaude replicates Claude Code's sanitizePath function.
 // It replaces all non-alphanumeric characters with hyphens, matching:
-//   src/utils/sessionStoragePortable.ts → sanitizePath()
+//
+//	src/utils/sessionStoragePortable.ts → sanitizePath()
 //
 // For paths exceeding 200 characters after sanitization, Claude Code
 // truncates and appends a hash suffix. We handle that case via prefix
@@ -80,83 +84,162 @@ func agentSessionDir(invokerDir string) (string, error) {
 	return dest, nil
 }
 
-// syncResumeSession makes the invoking user's Claude Code sessions
-// visible to the agent user via symbolic links. This enables --resume
-// and --continue to find conversations started outside the sandbox.
-//
-// Symlinks point from the agent's session directory into the invoker's.
-// The seatbelt policy is extended (via sessionConfig.ResumeDir) to allow
-// read+write access to the invoker's session directory so Claude Code
-// can follow the symlinks and append to the resumed transcript.
-//
-// Files that already exist in the agent's directory as regular files
-// (not symlinks) are left untouched — they represent sessions the agent
-// has continued independently.
-//
-// Returns the invoker's session directory path (for seatbelt policy) or
-// "" if no sync was needed.
-func syncResumeSession(projectDir string, resumeTarget string) (invokerDir string, err error) {
-	srcDir := invokerSessionDir(projectDir)
-	if srcDir == "" {
-		return "", nil // no sessions to sync — not an error
-	}
+type resumeSessionFile struct {
+	name    string
+	path    string
+	modTime time.Time
+}
 
-	destDir, err := agentSessionDir(srcDir)
+func listResumeSessionFiles(dir string) ([]resumeSessionFile, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("list sessions in %s: %w", dir, err)
 	}
 
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return "", fmt.Errorf("list sessions in %s: %w", srcDir, err)
-	}
-
-	synced := 0
-
+	var files []resumeSessionFile
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".jsonl") {
 			continue
 		}
 
-		// When resuming a specific session, only link that file.
-		if resumeTarget != "" {
-			if name != resumeTarget+".jsonl" {
-				continue
-			}
+		info, err := e.Info()
+		if err != nil {
+			return nil, fmt.Errorf("stat session %s: %w", filepath.Join(dir, name), err)
 		}
 
-		src := filepath.Join(srcDir, name)
-		dest := filepath.Join(destDir, name)
+		files = append(files, resumeSessionFile{
+			name:    name,
+			path:    filepath.Join(dir, name),
+			modTime: info.ModTime(),
+		})
+	}
 
-		// Check if dest already exists.
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].name < files[j].name
+	})
+	return files, nil
+}
+
+func selectResumeSessionFiles(files []resumeSessionFile, resumeTarget string, wantsContinue bool) []resumeSessionFile {
+	if resumeTarget != "" {
+		target := resumeTarget + ".jsonl"
+		for _, file := range files {
+			if file.name == target {
+				return []resumeSessionFile{file}
+			}
+		}
+		return nil
+	}
+
+	if wantsContinue {
+		var latest *resumeSessionFile
+		for i := range files {
+			file := &files[i]
+			if latest == nil || file.modTime.After(latest.modTime) || (file.modTime.Equal(latest.modTime) && file.name > latest.name) {
+				latest = file
+			}
+		}
+		if latest == nil {
+			return nil
+		}
+		return []resumeSessionFile{*latest}
+	}
+
+	return files
+}
+
+func copyResumeSessionFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file for %s: %w", dest, err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return fmt.Errorf("copy %s to %s: %w", src, dest, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file for %s: %w", dest, err)
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", tmpName, dest, err)
+	}
+	return nil
+}
+
+func syncResumeSessionFiles(srcDir, destDir, resumeTarget string, wantsContinue bool) (int, error) {
+	files, err := listResumeSessionFiles(srcDir)
+	if err != nil {
+		return 0, err
+	}
+
+	selected := selectResumeSessionFiles(files, resumeTarget, wantsContinue)
+	synced := 0
+	for _, file := range selected {
+		dest := filepath.Join(destDir, file.name)
+
 		info, err := os.Lstat(dest)
 		if err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
-				// Existing symlink — update if target changed.
-				existing, _ := os.Readlink(dest)
-				if existing == src {
-					continue // already correct
+				if err := os.Remove(dest); err != nil {
+					return synced, fmt.Errorf("remove stale symlink %s: %w", dest, err)
 				}
-				os.Remove(dest)
 			} else {
-				// Regular file — agent has its own copy, don't overwrite.
+				// Regular file — agent has its own local copy, don't overwrite it.
 				continue
 			}
 		}
 
-		if err := os.Symlink(src, dest); err != nil {
-			fmt.Fprintf(os.Stderr, "  Warning: could not link %s: %v\n", name, err)
-			continue
+		if err := copyResumeSessionFile(file.path, dest); err != nil {
+			return synced, err
 		}
 		synced++
+	}
+
+	return synced, nil
+}
+
+// syncResumeSession copies the invoking user's Claude Code sessions into the
+// agent user's session directory. This lets --resume and --continue work
+// without granting the seatbelt direct access to the host transcript store.
+//
+// Existing regular files are left untouched so agent-local continuations are
+// never overwritten. When --continue is used, only the most recent session is
+// copied. A targeted --resume copies only the requested session. Bare --resume
+// copies the available project sessions so Claude can offer its picker UI.
+func syncResumeSession(projectDir string, resumeTarget string, wantsContinue bool) error {
+	srcDir := invokerSessionDir(projectDir)
+	if srcDir == "" {
+		return nil // no sessions to sync — not an error
+	}
+
+	destDir, err := agentSessionDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, resumeTarget, wantsContinue)
+	if err != nil {
+		return err
 	}
 
 	if synced > 0 {
 		fmt.Fprintf(os.Stderr, "  Resume: synced %d session(s) from %s\n", synced, invokerHome())
 	}
 
-	return srcDir, nil
+	return nil
 }
 
 // detectResumeFlags scans the forwarded Claude args for --resume/-r and

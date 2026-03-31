@@ -25,7 +25,7 @@ func newRollbackCmd() *cobra.Command {
   - Agent shell env + host wrapper commands
   - Workspace access helpers (/Users/agent/workspace, home-directory ACL)
   - Workspace ACLs applied to existing project directories
-  - umask 077 lines from .zshrc files
+  - umask 077 lines from managed shell rc files
   - Backup scope file (.backup-excludes)
 
 User and group deletion require explicit flags because they are destructive:
@@ -241,7 +241,7 @@ func rollbackDNSBlocklist(ui *UI, r *Runner) {
 	ui.Ok("Removed DNS blocklist from /etc/hosts")
 
 	// Flush DNS cache — fire-and-forget.
-	r.Sudo("flush DNS cache after blocklist removal", "dscacheutil", "-flushcache")       //nolint:errcheck
+	r.Sudo("flush DNS cache after blocklist removal", "dscacheutil", "-flushcache")             //nolint:errcheck
 	r.Sudo("restart mDNSResponder after blocklist removal", "killall", "-HUP", "mDNSResponder") //nolint:errcheck
 	ui.Ok("DNS cache flushed")
 }
@@ -317,17 +317,18 @@ func rollbackUserExperience(ui *UI, r *Runner) {
 		ui.SkipDone(fmt.Sprintf("Hazmat shell block not present in %s", agentZshrc))
 	}
 
-	userZshrc := userZshrcPath()
-	if data, err := os.ReadFile(userZshrc); err == nil &&
-		strings.Contains(string(data), userPathBlockStart) {
-		cleaned := removeManagedBlock(string(data), userPathBlockStart, userPathBlockEnd)
-		if err := r.UserWriteFile(userZshrc, cleaned); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", userZshrc, err))
+	for _, profile := range supportedUserShellProfiles() {
+		if data, err := os.ReadFile(profile.rcPath); err == nil &&
+			strings.Contains(string(data), userPathBlockStart) {
+			cleaned := removeManagedBlock(string(data), userPathBlockStart, userPathBlockEnd)
+			if err := r.UserWriteFile(profile.rcPath, cleaned); err != nil {
+				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", profile.rcPath, err))
+			} else {
+				ui.Ok(fmt.Sprintf("Removed hazmat PATH block from %s", profile.rcPath))
+			}
 		} else {
-			ui.Ok(fmt.Sprintf("Removed hazmat PATH block from %s", userZshrc))
+			ui.SkipDone(fmt.Sprintf("Hazmat PATH block not present in %s", profile.rcPath))
 		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Hazmat PATH block not present in %s", userZshrc))
 	}
 }
 
@@ -347,7 +348,7 @@ func rollbackHomeDirTraverse(ui *UI, r *Runner) {
 }
 
 func rollbackUmask(ui *UI, r *Runner) {
-	ui.Step("Remove umask managed block from .zshrc files")
+	ui.Step("Remove umask managed block from shell rc files")
 
 	// Agent .zshrc — only remove the block this tool added.
 	agentZshrc := agentHome + "/.zshrc"
@@ -363,18 +364,18 @@ func rollbackUmask(ui *UI, r *Runner) {
 		ui.SkipDone(fmt.Sprintf("Umask block not present in %s", agentZshrc))
 	}
 
-	// Current user .zshrc — only remove the block this tool added.
-	userZshrc := os.Getenv("HOME") + "/.zshrc"
-	if data, err := os.ReadFile(userZshrc); err == nil &&
-		strings.Contains(string(data), umaskBlockStart) {
-		cleaned := removeManagedBlock(string(data), umaskBlockStart, umaskBlockEnd)
-		if err := r.UserWriteFile(userZshrc, cleaned); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", userZshrc, err))
+	for _, profile := range supportedUserShellProfiles() {
+		if data, err := os.ReadFile(profile.rcPath); err == nil &&
+			strings.Contains(string(data), umaskBlockStart) {
+			cleaned := removeManagedBlock(string(data), umaskBlockStart, umaskBlockEnd)
+			if err := r.UserWriteFile(profile.rcPath, cleaned); err != nil {
+				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", profile.rcPath, err))
+			} else {
+				ui.Ok(fmt.Sprintf("Removed umask block from %s", profile.rcPath))
+			}
 		} else {
-			ui.Ok(fmt.Sprintf("Removed umask block from %s", userZshrc))
+			ui.SkipDone(fmt.Sprintf("Umask block not present in %s", profile.rcPath))
 		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Umask block not present in %s", userZshrc))
 	}
 }
 

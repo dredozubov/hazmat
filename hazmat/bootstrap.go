@@ -7,6 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	claudeInstallerURL    = "https://claude.ai/install.sh"
+	claudeInstallerSHA256 = "431889ac7d056f636aaf5b71524666d04c89c45560f80329940846479d484778"
+)
+
 // agentSettingsJSON is the default Claude Code settings written to the agent
 // user's ~/.claude/settings.json during bootstrap.
 //
@@ -109,9 +114,20 @@ func runBootstrap(ui *UI, r *Runner) error {
 	if _, err := sudoOutput("test", "-x", claudeBin); err == nil {
 		ui.SkipDone("Claude Code already installed")
 	} else {
-		if err := r.SudoVisible("install Claude Code as agent user",
+		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
 			"-u", agentUser, "-i",
-			"bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"); err != nil {
+			"bash", "-lc", fmt.Sprintf(`set -euo pipefail
+installer=$(mktemp "${TMPDIR:-/tmp}/claude-install.XXXXXX")
+cleanup() { rm -f "$installer"; }
+trap cleanup EXIT
+curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
+actual=$(shasum -a 256 "$installer" | awk '{print $1}')
+expected=%q
+if [[ "$actual" != "$expected" ]]; then
+  echo "Claude installer checksum mismatch: expected $expected, got $actual" >&2
+  exit 1
+fi
+bash "$installer"`, claudeInstallerURL, claudeInstallerSHA256)); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
 		ui.Ok("Claude Code installed")

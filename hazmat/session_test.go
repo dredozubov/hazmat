@@ -321,28 +321,17 @@ func TestGenerateSBPLReadDirInsideProjectSkipped(t *testing.T) {
 	}
 }
 
-func TestGenerateSBPLWithResumeDir(t *testing.T) {
-	cfg := sessionConfig{
-		ProjectDir: "/tmp/myproject",
-		ResumeDir:  "/Users/dr/.claude/projects/-tmp-myproject",
-	}
-	policy := generateSBPL(cfg)
-
-	// Resume dir must have read+write for symlink target access.
-	want := `(allow file-read* file-write* (subpath "/Users/dr/.claude/projects/-tmp-myproject"))`
-	if !strings.Contains(policy, want) {
-		t.Error("expected read+write rule for ResumeDir")
-	}
-}
-
-func TestGenerateSBPLNoResumeDirWhenEmpty(t *testing.T) {
+func TestGenerateSBPLDoesNotGrantHostResumeDirAccess(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/tmp/myproject",
 	}
 	policy := generateSBPL(cfg)
 
 	if strings.Contains(policy, "Resume session directory") {
-		t.Error("resume section should not appear when ResumeDir is empty")
+		t.Error("resume section should not appear in the seatbelt policy")
+	}
+	if strings.Contains(policy, "/Users/dr/.claude/projects") {
+		t.Error("seatbelt should not reference host Claude transcript directories")
 	}
 }
 
@@ -580,6 +569,26 @@ func TestParseClaudeArgsReadRepeat(t *testing.T) {
 	}
 	if len(fwd) != 1 || fwd[0] != "myarg" {
 		t.Fatalf("forwarded = %v, want [myarg]", fwd)
+	}
+}
+
+func TestParseClaudeArgsForwardsLeadingDirectory(t *testing.T) {
+	args := []string{"/tmp/project", "-p", "hi"}
+	opts, fwd, err := parseClaudeArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.project != "" {
+		t.Fatalf("project = %q, want empty", opts.project)
+	}
+	want := []string{"/tmp/project", "-p", "hi"}
+	if len(fwd) != len(want) {
+		t.Fatalf("forwarded = %v, want %v", fwd, want)
+	}
+	for i := range want {
+		if fwd[i] != want[i] {
+			t.Fatalf("forwarded[%d] = %q, want %q", i, fwd[i], want[i])
+		}
 	}
 }
 

@@ -15,7 +15,6 @@ import (
 type sessionConfig struct {
 	ProjectDir string
 	ReadDirs   []string
-	ResumeDir  string // invoker's session dir — needs seatbelt read+write for symlink targets
 }
 
 func newShellCmd() *cobra.Command {
@@ -31,7 +30,7 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			
+
 			if ensureProjectWritable(cfg.ProjectDir) {
 				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
 			}
@@ -62,7 +61,7 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			
+
 			if ensureProjectWritable(cfg.ProjectDir) {
 				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
 			}
@@ -93,8 +92,10 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --ignore-docker        Skip Docker artifact check
 
 All other flags and arguments are forwarded to Claude Code.
+Directory arguments are forwarded unchanged; use -C/--project to change
+the writable project root.
 When --resume or --continue is detected, sessions from your user account
-are automatically synced to the agent user via symlinks.
+are copied into the agent user's local Claude session directory.
 
 Examples:
   hazmat claude                        Launch interactively
@@ -117,15 +118,6 @@ Examples:
 				return err
 			}
 
-			if opts.project == "" {
-				var projectHint string
-				projectHint, forwarded, err = maybeConsumeProjectArg(forwarded)
-				if err != nil {
-					return err
-				}
-				opts.project = projectHint
-			}
-
 			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
 			if err != nil {
 				return err
@@ -136,7 +128,7 @@ Examples:
 
 			// Pre-flight: ensure the agent user can write to the project.
 			// Catches projects created before hazmat init or with restrictive umask.
-			
+
 			if ensureProjectWritable(cfg.ProjectDir) {
 				fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
 			}
@@ -144,16 +136,14 @@ Examples:
 			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
 
 			// Sync sessions for --resume / --continue.
-			// Symlinks the invoking user's session files into the agent's
-			// config so Claude Code can discover and resume them.
+			// Copies the invoking user's session files into the agent's
+			// config so Claude Code can discover and resume them without
+			// reading the host transcript directory in place.
 			wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
 			if wantsResume || wantsContinue {
-				invokerDir, err := syncResumeSession(cfg.ProjectDir, resumeTarget)
-				if err != nil {
+				if err := syncResumeSession(cfg.ProjectDir, resumeTarget, wantsContinue); err != nil {
 					fmt.Fprintf(os.Stderr, "  Warning: session sync failed: %v\n", err)
 					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
-				} else if invokerDir != "" {
-					cfg.ResumeDir = invokerDir
 				}
 			}
 
@@ -230,23 +220,6 @@ func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 		}
 	}
 	return opts, forwarded, nil
-}
-
-func maybeConsumeProjectArg(args []string) (string, []string, error) {
-	if len(args) == 0 {
-		return "", nil, nil
-	}
-
-	candidate := args[0]
-	abs, err := filepath.Abs(candidate)
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve %q: %w", candidate, err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil || !info.IsDir() {
-		return "", args, nil
-	}
-	return abs, args[1:], nil
 }
 
 func resolveSessionConfig(project string, readPaths []string) (sessionConfig, error) {
@@ -576,16 +549,6 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow file-read* (subpath %q))\n", cfg.ProjectDir)
 	w("(allow file-write* (subpath %q))\n\n", cfg.ProjectDir)
 
-	// Resume session directory: when --resume or --continue is used, symlinks
-	// in the agent's session dir point to the invoking user's session files.
-	// The seatbelt must allow read+write so Claude Code can follow the symlinks
-	// and append new messages to the resumed conversation transcript.
-	// Narrowly scoped to just the project's session directory (JSONL files only).
-	if cfg.ResumeDir != "" {
-		w(";; ── Resume session directory (symlink targets) ────────────────────────────\n")
-		w("(allow file-read* file-write* (subpath %q))\n\n", cfg.ResumeDir)
-	}
-
 	home := agentHome
 	w(";; ── Agent home — broad read/write, credential dirs denied below ───────────\n")
 	w(";; A single subpath rule replaces individual subdirectory allows.\n")
@@ -615,8 +578,8 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.CoreServices.coreservicesd",
 		"com.apple.system.notification_center",
 		"com.apple.mDNSResponder",
-		"com.apple.trustd",                // TLS certificate verification (Go, curl, Python, etc.)
-		"com.apple.system.opendirectoryd.api",            // user/group directory lookups
+		"com.apple.trustd",                                // TLS certificate verification (Go, curl, Python, etc.)
+		"com.apple.system.opendirectoryd.api",             // user/group directory lookups
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks

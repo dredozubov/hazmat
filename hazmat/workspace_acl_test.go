@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+func TestACLTagOutputHasDevACL(t *testing.T) {
+	t.Parallel()
+
+	withInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
+	if !aclOutputHasDevACL(withInherit, true) {
+		t.Fatal("expected inheritable ACL to match")
+	}
+
+	withoutInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity"
+	if aclOutputHasDevACL(withoutInherit, true) {
+		t.Fatal("expected non-inheritable ACL to fail inherit check")
+	}
+	if !aclOutputHasDevACL(withoutInherit, false) {
+		t.Fatal("expected non-inheritable ACL to match when inherit is not required")
+	}
+}
+
 func TestWritableByAgentMode(t *testing.T) {
 	t.Parallel()
 
@@ -97,8 +114,17 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 	if err := os.MkdirAll(gitDir, 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref"), 0o644); err != nil {
+	gitHead := filepath.Join(gitDir, "HEAD")
+	if err := os.WriteFile(gitHead, []byte("ref"), 0o644); err != nil {
 		t.Fatalf("write .git/HEAD: %v", err)
+	}
+	gitObjectDir := filepath.Join(gitDir, "objects", "aa")
+	if err := os.MkdirAll(gitObjectDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git objects dir: %v", err)
+	}
+	gitObject := filepath.Join(gitObjectDir, "blob")
+	if err := os.WriteFile(gitObject, []byte("blob"), 0o644); err != nil {
+		t.Fatalf("write git object: %v", err)
 	}
 
 	nodeModulesDir := filepath.Join(projectDir, "node_modules", "pkg")
@@ -120,7 +146,7 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 		got[target] = true
 	}
 
-	for _, want := range []string{keepFile, subdir, nestedFile, gitDir} {
+	for _, want := range []string{keepFile, subdir, nestedFile, gitDir, gitHead, gitObjectDir, gitObject} {
 		if !got[want] {
 			t.Fatalf("collectACLTargets() missing %s", want)
 		}
@@ -128,7 +154,6 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 
 	for _, forbidden := range []string{
 		linkPath,
-		filepath.Join(gitDir, "HEAD"),
 		filepath.Join(nodeModulesDir, "index.js"),
 		filepath.Join(projectDir, "node_modules"),
 	} {

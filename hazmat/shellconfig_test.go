@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,4 +53,36 @@ func containsLine(s, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCurrentUserShellProfileZsh(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
+
+	profile, ok := currentUserShellProfile()
+	if !ok {
+		t.Fatal("expected zsh profile to be detected")
+	}
+	if profile.rcPath != filepath.Join(os.Getenv("HOME"), ".zshrc") {
+		t.Fatalf("rcPath = %q", profile.rcPath)
+	}
+	if len(profile.pathBlockLines) != 1 || profile.pathBlockLines[0] != `export PATH="$HOME/.local/bin:$PATH"` {
+		t.Fatalf("unexpected path block lines: %#v", profile.pathBlockLines)
+	}
+}
+
+func TestCurrentUserShellProfileFish(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHELL", "/opt/homebrew/bin/fish")
+
+	profile, ok := currentUserShellProfile()
+	if !ok {
+		t.Fatal("expected fish profile to be detected")
+	}
+	if profile.rcPath != filepath.Join(os.Getenv("HOME"), ".config", "fish", "config.fish") {
+		t.Fatalf("rcPath = %q", profile.rcPath)
+	}
+	if len(profile.pathBlockLines) != 3 {
+		t.Fatalf("unexpected fish path block lines: %#v", profile.pathBlockLines)
+	}
 }

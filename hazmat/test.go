@@ -471,7 +471,7 @@ func testAgentTools(ui *UI) {
 	}(); out != "" {
 		ui.TestPass(fmt.Sprintf("Claude Code is in agent's PATH: %s", out))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Claude Code not found for agent user — install as: sudo -u %s -i, then: curl -fsSL https://claude.ai/install.sh | bash", agentUser))
+		ui.TestWarn(fmt.Sprintf("Claude Code not found for agent user — run 'hazmat bootstrap' or verify %s", claudeInstallerURL))
 	}
 
 	// API key

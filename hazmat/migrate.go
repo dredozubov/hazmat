@@ -223,7 +223,7 @@ func detectV010Artifacts() bool {
 	// Check for workspace with dev group ownership (set by v0.1.0 init).
 	home := os.Getenv("HOME")
 	workspaceDir := home + "/workspace"
-	if pathHasDevACL(workspaceDir) {
+	if pathHasDevACL(workspaceDir, false) {
 		return true
 	}
 	return false
