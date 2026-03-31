@@ -536,7 +536,31 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 	// 100.100.100.100 is per-user). Fall back to public DNS servers.
 	dnsFixFile := fmt.Sprintf("/private/tmp/hazmat-%d-dns.js", pid)
 	dnsServers := detectDNSServers()
-	dnsScript := fmt.Sprintf(`require("dns").setServers(%s);`, dnsServers)
+	// Set c-ares DNS servers AND override the default lookup to use c-ares
+	// (dns.resolve) instead of getaddrinfo. On macOS, getaddrinfo goes
+	// through mDNSResponder which may be unreachable from the sandbox
+	// (e.g. Tailscale MagicDNS). Node's https/http modules use dns.lookup
+	// by default, so we must override it.
+	dnsScript := fmt.Sprintf(`const dns = require("dns");
+dns.setServers(%[1]s);
+const _resolver = new dns.Resolver();
+_resolver.setServers(%[1]s);
+dns.lookup = function(hostname, options, callback) {
+  if (typeof options === "function") { callback = options; options = {}; }
+  if (typeof options === "number") { options = { family: options }; }
+  const wantAll = options && options.all;
+  _resolver.resolve4(hostname, (err4, a4) => {
+    const addrs4 = (a4 || []).map(a => ({ address: a, family: 4 }));
+    _resolver.resolve6(hostname, (err6, a6) => {
+      const addrs6 = (a6 || []).map(a => ({ address: a, family: 6 }));
+      const all = addrs4.concat(addrs6);
+      if (all.length === 0) return callback(err4 || err6 || new Error("ENOTFOUND"));
+      if (wantAll) return callback(null, all);
+      callback(null, all[0].address, all[0].family);
+    });
+  });
+};
+`, dnsServers)
 	os.WriteFile(dnsFixFile, []byte(dnsScript), 0o644)
 	os.Chmod(dnsFixFile, 0o644)
 	defer os.Remove(dnsFixFile)
