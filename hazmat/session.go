@@ -26,7 +26,7 @@ func newShellCmd() *cobra.Command {
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg, err := resolveSessionConfig(project, readDirs)
+			cfg, err := resolveSessionConfig(project, defaultReadDirs(readDirs))
 			if err != nil {
 				return err
 			}
@@ -54,7 +54,7 @@ func newExecCmd() *cobra.Command {
 		Short: "Run a command in containment as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, err := resolveSessionConfig(project, readDirs)
+			cfg, err := resolveSessionConfig(project, defaultReadDirs(readDirs))
 			if err != nil {
 				return err
 			}
@@ -115,7 +115,7 @@ Examples:
 				opts.project = projectHint
 			}
 
-			cfg, err := resolveSessionConfig(opts.project, opts.readDirs)
+			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
 			if err != nil {
 				return err
 			}
@@ -266,6 +266,48 @@ func resolveDir(target string, defaultToCwd bool) (string, error) {
 	}
 
 	return abs, nil
+}
+
+// defaultReadDirs prepends the configured session.read_dirs to the
+// user-supplied read dirs, skipping any that don't exist on disk and
+// deduplicating against what the user already passed via -R.
+func defaultReadDirs(explicit []string) []string {
+	cfg, _ := loadConfig()
+	configured := cfg.SessionReadDirs()
+
+	// Resolve explicit dirs for dedup comparison.
+	explicitResolved := make(map[string]struct{}, len(explicit))
+	for _, d := range explicit {
+		abs, err := filepath.Abs(d)
+		if err == nil {
+			if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+				explicitResolved[resolved] = struct{}{}
+			}
+		}
+	}
+
+	var added []string
+	for _, dir := range configured {
+		if _, err := os.Stat(dir); err != nil {
+			continue // skip non-existent
+		}
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
+		if _, dup := explicitResolved[resolved]; dup {
+			continue
+		}
+		added = append(added, dir)
+		explicitResolved[resolved] = struct{}{}
+	}
+
+	if len(added) > 0 {
+		fmt.Fprintf(os.Stderr, "hazmat: auto-adding -R %s (from config session.read_dirs)\n",
+			strings.Join(added, " -R "))
+		return append(added, explicit...)
+	}
+	return explicit
 }
 
 func resolveReadDirs(paths []string) ([]string, error) {

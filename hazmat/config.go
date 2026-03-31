@@ -34,6 +34,11 @@ type SessionConfig struct {
 	// Set to false if you want Claude's own permission prompts as an
 	// additional layer.
 	SkipPermissions *bool `yaml:"skip_permissions,omitempty"`
+
+	// ReadDirs are automatically added as -R (read-only) directories for
+	// every session. Default: [~/workspace]. Visible in `hazmat config`,
+	// configurable via `hazmat config set session.read_dirs.add <dir>`.
+	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
 }
 
 type BackupConfig struct {
@@ -70,6 +75,15 @@ func (c HazmatConfig) SkipPermissions() bool {
 		return true // default: skip permissions, containment is OS-level
 	}
 	return *c.Session.SkipPermissions
+}
+
+// SessionReadDirs returns the configured read-only directories.
+// Default: [sharedWorkspace] (typically ~/workspace).
+func (c HazmatConfig) SessionReadDirs() []string {
+	if c.Session.ReadDirs != nil {
+		return *c.Session.ReadDirs
+	}
+	return []string{sharedWorkspace}
 }
 
 func defaultConfig() HazmatConfig {
@@ -242,6 +256,12 @@ func runConfigShow() error {
 	cBold.Println("  Session")
 	fmt.Println()
 	fmt.Printf("    Skip permissions: %v (--dangerously-skip-permissions)\n", cfg.SkipPermissions())
+	readDirs := cfg.SessionReadDirs()
+	if len(readDirs) > 0 {
+		fmt.Printf("    Read dirs:        %s\n", strings.Join(readDirs, ", "))
+	} else {
+		fmt.Printf("    Read dirs:        (none)\n")
+	}
 	fmt.Println()
 
 	cDim.Printf("  Config file: %s\n", configFilePath)
@@ -292,11 +312,14 @@ Keys:
   backup.cloud.bucket            S3 bucket name
   backup.cloud.access_key        S3 access key
   session.skip_permissions        Pass --dangerously-skip-permissions to Claude (default: true)
+  session.read_dirs.add           Add a read-only directory to auto-include in sessions
+  session.read_dirs.remove        Remove a read-only directory from auto-include
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
   hazmat config set backup.excludes.add .idea/
-  hazmat config set session.skip_permissions false`,
+  hazmat config set session.skip_permissions false
+  hazmat config set session.read_dirs.add ~/other-code`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runConfigSet(args[0], args[1])
@@ -351,6 +374,25 @@ func runConfigSet(key, value string) error {
 	case "session.skip_permissions":
 		b := value == "true" || value == "1" || value == "yes"
 		cfg.Session.SkipPermissions = &b
+	case "session.read_dirs.add":
+		dirs := cfg.SessionReadDirs()
+		for _, d := range dirs {
+			if d == value {
+				fmt.Printf("Already in read_dirs: %s\n", value)
+				return nil
+			}
+		}
+		dirs = append(dirs, value)
+		cfg.Session.ReadDirs = &dirs
+	case "session.read_dirs.remove":
+		dirs := cfg.SessionReadDirs()
+		filtered := dirs[:0]
+		for _, d := range dirs {
+			if d != value {
+				filtered = append(filtered, d)
+			}
+		}
+		cfg.Session.ReadDirs = &filtered
 	default:
 		return fmt.Errorf("unknown key: %s\nRun 'hazmat config set --help' for available keys.", key)
 	}

@@ -125,6 +125,90 @@ func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 	}
 }
 
+// ── defaultReadDirs ─────────────────────────────────────────────────────────
+
+// isolateDefaultReadDirs overrides sharedWorkspace and configFilePath so
+// defaultReadDirs uses only the test-supplied values, not real user config.
+func isolateDefaultReadDirs(t *testing.T, ws string) {
+	t.Helper()
+	savedWS := sharedWorkspace
+	savedCfg := configFilePath
+	sharedWorkspace = ws
+	configFilePath = filepath.Join(t.TempDir(), "nonexistent.yaml")
+	t.Cleanup(func() {
+		sharedWorkspace = savedWS
+		configFilePath = savedCfg
+	})
+}
+
+func TestDefaultReadDirsIncludesWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	isolateDefaultReadDirs(t, ws)
+
+	got := defaultReadDirs(nil)
+	if len(got) != 1 || got[0] != ws {
+		t.Errorf("defaultReadDirs(nil) = %v, want [%q]", got, ws)
+	}
+}
+
+func TestDefaultReadDirsSkipsMissingWorkspace(t *testing.T) {
+	isolateDefaultReadDirs(t, "/nonexistent-workspace-test")
+
+	got := defaultReadDirs(nil)
+	if len(got) != 0 {
+		t.Errorf("defaultReadDirs(nil) = %v, want empty", got)
+	}
+}
+
+func TestDefaultReadDirsDedupsExplicitWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	isolateDefaultReadDirs(t, ws)
+
+	got := defaultReadDirs([]string{ws})
+	if len(got) != 1 || got[0] != ws {
+		t.Errorf("defaultReadDirs([ws]) = %v, want single [%q]", got, ws)
+	}
+}
+
+func TestDefaultReadDirsPreservesExplicitDirs(t *testing.T) {
+	ws := t.TempDir()
+	extra := t.TempDir()
+	isolateDefaultReadDirs(t, ws)
+
+	got := defaultReadDirs([]string{extra})
+	if len(got) != 2 || got[0] != ws || got[1] != extra {
+		t.Errorf("defaultReadDirs([extra]) = %v, want [%q, %q]", got, ws, extra)
+	}
+}
+
+func TestDefaultReadDirsUsesConfigReadDirs(t *testing.T) {
+	// When config has explicit read_dirs, use those instead of sharedWorkspace.
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	savedWS := sharedWorkspace
+	savedCfg := configFilePath
+	sharedWorkspace = "/nonexistent-workspace-test"
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	configFilePath = cfgFile
+	t.Cleanup(func() {
+		sharedWorkspace = savedWS
+		configFilePath = savedCfg
+	})
+
+	cfg := defaultConfig()
+	dirs := []string{dir1, dir2}
+	cfg.Session.ReadDirs = &dirs
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	got := defaultReadDirs(nil)
+	if len(got) != 2 || got[0] != dir1 || got[1] != dir2 {
+		t.Errorf("defaultReadDirs(nil) = %v, want [%q, %q]", got, dir1, dir2)
+	}
+}
+
 // ── generateSBPL ──────────────────────────────────────────────────────────────
 
 func TestGenerateSBPLProjectOnly(t *testing.T) {
