@@ -418,25 +418,32 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
-	// Make agent config files group-writable by dev so 'hazmat config agent'
-	// can modify them without sudo. Both dr and agent are in the dev group.
+	// Make agent config files and directories group-writable by dev so
+	// hazmat commands (config agent, resume, etc.) can modify them without
+	// sudo. Both dr and agent are in the dev group. Setgid on directories
+	// ensures new content inherits the dev group.
 	if !flagDryRun {
+		// Files: agent:dev 0660
 		for _, path := range []string{
 			agentHome + "/.zshrc",
 			agentHome + "/.gitconfig",
 		} {
-			// Pre-create if missing (gitconfig may not exist yet).
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				sudo("touch", path)
 			}
 			sudo("chown", agentUser+":"+sharedGroup, path)
 			sudo("chmod", "0660", path)
 		}
-		// Ensure git credentials directory exists.
-		credDir := agentHome + "/.config/git"
-		sudo("mkdir", "-p", credDir)
-		sudo("chown", "-R", agentUser+":"+sharedGroup, credDir)
-		sudo("chmod", "0770", credDir)
+		// Directories: agent:dev 2770 (setgid so new content inherits dev group)
+		for _, dir := range []string{
+			agentHome + "/.config/git",
+			agentHome + "/.claude",
+			agentHome + "/.claude/projects",
+		} {
+			sudo("mkdir", "-p", dir)
+			sudo("chown", agentUser+":"+sharedGroup, dir)
+			sudo("chmod", "2770", dir)
+		}
 	}
 
 	// ── Agent credentials: API key + git identity ───────────────────────────
@@ -657,14 +664,23 @@ func setupSharedWorkspace(ui *UI, r *Runner, currentUser string) error {
 	if workspaceHasDevACL() {
 		ui.SkipDone(fmt.Sprintf("Workspace ACL already grants '%s' group inherited access", sharedGroup))
 	} else {
-		aclEntry := "group:" + sharedGroup +
-			" allow read,write,execute,append,delete,delete_child," +
-			"readattr,writeattr,readextattr,writeextattr,readsecurity," +
-			"file_inherit,directory_inherit"
-		if err := r.Sudo("grant dev group workspace access", "chmod", "+a", aclEntry, sharedWorkspace); err != nil {
+		if err := r.Sudo("grant dev group workspace access", "chmod", "+a", devGroupACLEntry(), sharedWorkspace); err != nil {
 			return fmt.Errorf("set workspace ACL: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Workspace ACL set: '%s' group gets inherited read/write access", sharedGroup))
+	}
+
+	// Inheritable ACLs only propagate to items created AFTER the ACL is set.
+	// Users almost always have existing projects in ~/workspace before installing
+	// hazmat, so those directories won't have the ACL and the agent can't write.
+	// Apply the ACL to existing contents now. This is safe (additive, doesn't
+	// change ownership or Unix permission bits) and recorded for rollback.
+	if n, err := applyACLToExistingContents(r, ui, sharedWorkspace); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Could not apply ACL to some existing items: %v", err))
+	} else if n > 0 {
+		ui.Ok(fmt.Sprintf("Applied workspace ACL to %d existing items", n))
+	} else {
+		ui.SkipDone("All existing workspace items already have correct ACL")
 	}
 
 	legacyLink := os.Getenv("HOME") + "/workspace-shared"
