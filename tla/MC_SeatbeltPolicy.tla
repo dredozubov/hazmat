@@ -153,11 +153,16 @@ EmitResumeDir ==
     /\ section' = 4
     /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
 
-\* Section 4: Agent home config subdirectories (static read+write allows).
-\* .claude, .local, .config, .npm, .cache — all get read+write.
+\* Section 4: Agent home — BROAD read+write allow on entire agent home.
+\* This replaced individual subdirectory allows (.claude, .local, .config, etc.)
+\* because Claude Code needs to access paths that can't be enumerated in advance.
+\* Credential directories are denied in section 6 (last-match-wins overrides this).
 EmitHomeConfig ==
     /\ section = 4
     /\ rules' = rules \cup
+         \* Broad allow on agentHome covers ALL subpaths including AgentHomeSubs
+         \* AND CredPaths. The credential denies in section 6 override this.
+         {AllowRead(4, agentHome), AllowWrite(4, agentHome)} \cup
          {AllowRead(4, p) : p \in AgentHomeSubs} \cup
          {AllowWrite(4, p) : p \in AgentHomeSubs}
     /\ section' = 5
