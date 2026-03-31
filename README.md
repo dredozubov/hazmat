@@ -6,48 +6,50 @@
 
 <p align="center">
   <strong>Full autonomy. Controlled environment.</strong><br>
-  macOS containment for AI agents running with <code>--dangerously-skip-permissions</code>
+  The missing runtime for <code>--dangerously-skip-permissions</code>
 </p>
 
 ---
 
-Hazmat runs AI agents with full permissions — inside containment.
+Claude Code is most useful when you let it work autonomously. But `--dangerously-skip-permissions` means exactly what it says — the agent runs with your full privileges, your credentials, your files.
 
-No guardrails. No sandboxed APIs. Just isolation.
+Hazmat makes that safe.
 
 ```bash
-hazmat claude                     # Claude Code in containment
+hazmat claude    # full autonomy, OS-level containment, automatic snapshots
+```
+
+One command. The agent gets its own macOS user, a kernel-enforced sandbox, a firewall, and automatic pre-session backups. You get full productivity without the risk.
+
+## The Problem
+
+`--dangerously-skip-permissions` is where the real productivity is. Permission prompts break flow, interrupt agent loops, and make multi-step tasks impractical. Every serious Claude Code user ends up here eventually.
+
+But the built-in protections aren't enough:
+
+- **Agents actively reason about escaping.** Ona's research showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root` path traversal, then attempting to disable bubblewrap when that was caught.
+- **[16 Claude Code CVEs](docs/cve-audit.md) and counting.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536): RCE through project config files. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration before the trust prompt appeared.
+- **Supply chain attacks execute instantly.** The [axios npm compromise](https://github.com/axios/axios/issues/10604) (2026) delivered a RAT through a `postinstall` hook in 2 seconds — before `npm install` even finished. The [s1ngularity attack](https://www.wiz.io/blog/s1ngularity-supply-chain-attack) weaponized Claude Code itself to steal credentials.
+
+No single layer is enough. A seatbelt profile can block file reads — but not HTTPS exfiltration. A firewall can block protocols — but not credential access. You need all of them working together.
+
+## What Hazmat Does
+
+```bash
+hazmat claude                     # Claude Code with full autonomy
 hazmat exec ./my-agent-loop.sh    # any agent, any script
 hazmat shell                      # interactive contained shell
 ```
 
-The agent gets its own macOS user, a kernel-enforced filesystem sandbox, a firewall blocking exfiltration protocols, and snapshot-based rollback. It can do anything it needs to inside the boundary. It can't get out.
-
-## Why This Exists
-
-If you're running Claude Code, Codex, or any agent loop with full system access, the agent can:
-
-- Delete your files
-- Read your SSH keys and AWS credentials
-- Exfiltrate code over SMTP, IRC, or tunnel services
-- Modify your shell config, git hooks, or LaunchAgents
-- `curl` your secrets to any server
-
-Permission prompts don't help when you're running `--dangerously-skip-permissions`. And if you're running agent loops (Ralph, Gastown, custom scripts), there are no prompts at all.
-
-Hazmat doesn't try to make the agent behave. It isolates it.
-
-## Why Not Just Use the Built-in Sandbox?
-
-Claude Code ships with a [sandbox](https://github.com/anthropic-experimental/sandbox-runtime) based on `sandbox-exec` (macOS) and bubblewrap (Linux). Other tools — [Agent Safehouse](https://github.com/eugene1g/agent-safehouse), [nono](https://github.com/always-further/nono) — wrap the same primitive. These are useful. They are also insufficient.
-
-**Agents actively reason about escaping.** Ona's research showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root` path traversal, then attempting to disable bubblewrap when that was caught. The agent figured this out unprompted.
-
-**The CVE record backs this up.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) (CVSS 8.7): RCE through malicious project config files. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration via config-based redirect — leaked your key before the trust prompt appeared. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection, executing with host privileges after restart. All patched, all real — and there are [16 Claude Code CVEs total](docs/cve-audit.md). See [cve-audit.md](docs/cve-audit.md) for a step-by-step analysis of how hazmat's layers defend against each one.
-
-**No single layer is enough.** A Seatbelt profile can deny file reads — but it doesn't stop the agent from sending your project code to an arbitrary server over HTTPS. A firewall can block exfiltration protocols — but it doesn't stop the agent from reading `~/.ssh/id_rsa` if it runs as your user. Each layer covers a different class of threat. You need all of them working together.
-
-Hazmat stacks five independent enforcement layers: user isolation, kernel filesystem sandbox, credential deny, network firewall, and DNS blocklist — plus snapshot rollback. Most tools do one or two.
+| Layer | What it protects |
+|-------|-----------------|
+| **User isolation** | Dedicated `agent` macOS user. Your `~/.ssh`, `~/.aws`, Keychain — structurally inaccessible |
+| **Kernel sandbox** | Per-session [seatbelt](https://developer.apple.com/documentation/security) policy. Project gets read-write, everything else denied |
+| **Credential deny** | SSH keys, AWS creds, GPG keys, GitHub tokens — blocked at the kernel level, even inside agent home |
+| **Network firewall** | `pf` rules block SMTP, IRC, FTP, Tor, VPN, and other exfiltration protocols |
+| **DNS blocklist** | Known tunnel/paste/C2 services (ngrok, pastebin, webhook.site) resolve to localhost |
+| **Supply chain hardening** | npm `ignore-scripts=true` by default — blocks the entire class of postinstall attacks |
+| **Automatic snapshots** | Kopia snapshots before every session — roll back if the agent breaks something |
 
 ### Comparison
 
@@ -58,115 +60,71 @@ Hazmat stacks five independent enforcement layers: user isolation, kernel filesy
 | Credential path deny | — | partial | — | — | ✓ | ✓ |
 | Network firewall (pf) | — | — | — | — | ✓ | ✓ |
 | DNS blocklist | — | — | — | — | — | ✓ |
+| Supply chain hardening | — | — | — | — | — | ✓ |
 | Backup / rollback | — | — | — | ✓ | — | ✓ |
 | Agent-agnostic | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | macOS native | ✓ | ✓ | ✓ | ✓ | — | ✓ |
 
-Docker gives strong isolation but runs Linux containers — no access to macOS toolchains, Xcode, or native frameworks. And you're sending your code into a container runtime you may not fully control. Hazmat keeps everything native.
-
-## What It Does
-
-| Layer | Protection |
-|-------|------------|
-| **User isolation** | Dedicated `agent` macOS user — separate home, no access to your files |
-| **Filesystem sandbox** | Per-session [seatbelt](https://developer.apple.com/documentation/security) policy. Project gets read-write, everything else is denied |
-| **Credential deny** | SSH keys, AWS creds, GPG keys, Keychain, GitHub tokens — all blocked at the kernel level |
-| **Network firewall** | `pf` rules block SMTP, IRC, FTP, Tor, VPN, and other exfiltration protocols for the agent user |
-| **DNS blocklist** | Known tunnel/paste services (ngrok, pastebin, etc.) resolve to localhost |
-| **Backup/restore** | Kopia snapshots of the workspace — roll back if the agent breaks something |
-
 ## Quick Start
 
 ```bash
-# Build
-cd hazmat
-make
+# Install via Homebrew
+brew install dredozubov/tap/hazmat
 
-# One-time setup (~10 min, needs sudo)
+# One-time setup (~10 min)
 hazmat init
 
-# Launch Claude Code in containment
-cd ~/workspace/my-project
+# Start working
+cd your-project
 hazmat claude
 ```
 
-`hazmat init` creates the agent user, configures the firewall and DNS blocklist, installs Claude Code for the agent, and asks for your API key. It's interactive — every step is explained and confirmed. Preview without changes:
+`hazmat init` creates the agent user, configures containment, installs Claude Code, and sets up automatic snapshots. Every step is explained and confirmed. Preview first with `hazmat init --dry-run`.
+
+## Daily Workflow
 
 ```bash
-hazmat init --dry-run
-```
+# Claude Code — full autonomy, contained
+hazmat claude
+hazmat claude -p "refactor the auth module"
+hazmat claude -C ~/other-project
 
-## Usage
-
-### Run Claude Code
-
-```bash
-hazmat claude                              # current directory as project
-hazmat claude -C ~/workspace/other-proj    # specify project
-hazmat claude -R ~/workspace/shared-lib    # expose a read-only directory
-```
-
-### Run Any Command
-
-```bash
+# Any command in containment
 hazmat exec npm test
 hazmat exec python train.py
 hazmat exec ./run-agent-loop.sh
-hazmat exec -C ~/workspace/proj make build
-```
 
-### Interactive Shell
+# Interactive shell
+hazmat shell
 
-```bash
-hazmat shell    # zsh as the agent user, inside containment
+# See what the agent changed
+hazmat diff
+hazmat snapshots
+hazmat restore          # undo last session
 ```
 
 ### Read-Only Directories
 
-The agent can only write to the project directory. Expose additional read-only paths with `-R`:
+The agent can only write to the project directory. Expose additional read-only paths:
 
 ```bash
-hazmat claude -R ~/workspace -R ~/reference-docs
+hazmat claude -R ~/workspace/shared-lib -R ~/reference-docs
 ```
 
-This is enforced by the seatbelt — not advisory. The agent physically cannot write outside the project.
+Enforced by the kernel sandbox — not advisory.
 
-## Verify Setup
+## Configuration
 
 ```bash
-hazmat status              # quick health checklist
-hazmat check          # full verification suite
-hazmat check --full   # include live network probes
+hazmat config                                        # view everything
+hazmat config edit                                   # open config in $EDITOR
+hazmat config agent                                  # set API key + git identity
+hazmat config cloud                                  # set up S3 backup
+hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
+hazmat config set backup.retention.keep_latest 30     # change snapshot retention
 ```
 
-## Backup and Restore
-
-```bash
-# Local backup (rsync)
-hazmat backup /Volumes/BACKUP/workspace
-
-# Cloud backup (encrypted, incremental via Kopia)
-hazmat init cloud                # one-time: configure S3 credentials
-hazmat backup --cloud            # snapshot
-hazmat restore --cloud           # restore latest
-```
-
-## What the Agent Can and Can't Do
-
-**Can:**
-- Read and write files in the project directory
-- Read directories exposed with `-R`
-- Make HTTPS/HTTP requests to any host
-- Run any command available to the agent user
-- Use git, npm, python, make — normal dev tools
-
-**Can't:**
-- Read your SSH keys, AWS credentials, GPG keys, or Keychain
-- Send email (SMTP), use IRC, FTP, Tor, VPN, or SOCKS proxies
-- Access Docker (socket locked to your user)
-- Write files outside the project directory
-- Use `sudo`
-- Read your shell history, browser data, or credential stores
+All settings live in `~/.hazmat/config.yaml`.
 
 ## Architecture
 
@@ -174,66 +132,66 @@ hazmat restore --cloud           # restore latest
   You (dr)                          Agent (agent)
   ────────                          ─────────────
   ~/                                /Users/agent/
-  ~/.ssh, ~/.aws  ← denied →       ~/.claude/ (API key)
+  ~/.ssh, ~/.aws  ← denied →       ~/.claude/
   ~/workspace/    ← shared →        ~/workspace/ (symlink)
 
   hazmat claude
        │
-       ├── generates per-session seatbelt policy
+       ├── snapshot project (Kopia)
+       ├── generate per-session seatbelt policy
        ├── sudo -u agent hazmat-launch <policy>
-       ├── sandbox-exec -f <policy> ...
-       └── claude --dangerously-skip-permissions
+       ├── sandbox_init() (kernel sandbox)
+       └── exec claude --dangerously-skip-permissions
 ```
 
-Three enforcement layers, all OS-level:
-1. **Unix user** — the agent process runs as a different user. Your home directory is simply not accessible.
-2. **Seatbelt** — kernel-level filesystem policy denies reads/writes outside approved paths. Credential directories are explicitly denied.
-3. **pf firewall** — packet filter rules scoped to `user agent` block dangerous protocols. The agent can't send email, connect to IRC, or tunnel out.
+Three OS-level enforcement layers:
+1. **Unix user** — the agent runs as a different user. Your home directory is structurally inaccessible.
+2. **Seatbelt** — kernel-level filesystem policy. Default deny, explicit allows for project and toolchain paths.
+3. **pf firewall** — packet filter rules scoped to `user agent`. Blocks dangerous protocols.
 
-Setup and rollback ordering, seatbelt policy structure, and backup safety are [formally verified with TLA+](tla/VERIFIED.md). The specs found three real bugs before users could — including a containment gap where the agent could be launched without firewall protection.
+Setup ordering, seatbelt policy structure, and backup safety are [formally verified with TLA+](tla/VERIFIED.md).
 
 ## Undo Everything
 
 ```bash
-hazmat rollback                               # remove system config
+hazmat rollback                               # remove all system config
 hazmat rollback --delete-user --delete-group   # also delete agent account
 ```
 
 Your project files are not touched.
 
-## Requirements
-
-- macOS (Ventura or later recommended)
-- Go 1.21+ (to build)
-- Admin access (for one-time `hazmat init`)
-- An Anthropic API key (for Claude Code)
-
 ## Honest Limitations
 
-Hazmat is OS-level containment, not a VM. Here's what that means:
-
-- **Seatbelt is defense-in-depth.** Apple's SBPL is undocumented and has known mach service escape paths. It prevents accidents and blocks obvious credential access. It is not a security jail against a determined adversary.
-- **Network blocking is port/domain-based.** HTTPS exfiltration to novel domains is not blocked. The agent can `curl` any URL on port 443.
-- **DNS blocklist is exact-match.** `ngrok.io` is blocked, `*.ngrok.io` subdomains are not (use dnsmasq or NextDNS for wildcard blocking).
+- **Seatbelt is defense-in-depth.** Apple's SBPL is undocumented. It prevents accidents and blocks credential access, but is not a VM-level boundary.
+- **HTTPS exfiltration is not blocked.** The agent can `curl` any URL on port 443. The DNS blocklist catches known-bad domains but not novel ones.
+- **macOS only.** No Linux (yet). The containment primitives are macOS-specific.
 - **Shared `/tmp`.** The agent can read temp files from other processes.
-- **macOS only.** No Linux, no WSL. The containment primitives (`sandbox-exec`, `dscl`, `pfctl`) are macOS-specific.
 
-For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For the design assumptions and tradeoffs, see [design-assumptions.md](docs/design-assumptions.md).
-
-If you need stronger isolation, see [tier4-vm-isolation.md](docs/tier4-vm-isolation.md) for the full VM path.
+For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For stronger isolation, see [tier4-vm-isolation.md](docs/tier4-vm-isolation.md).
 
 ## Documentation
 
 | Doc | What it covers |
 |-----|---------------|
 | [usage.md](docs/usage.md) | Complete user guide |
-| [overview.md](docs/overview.md) | Tier selection and design choices |
-| [cve-audit.md](docs/cve-audit.md) | Step-by-step CVE defense analysis |
+| [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
-| [attack-surface-deep-dive.md](docs/research/attack-surface-deep-dive.md) | Escape and exfiltration paths |
-| [security-evidence.md](docs/research/security-evidence.md) | Incidents, CVEs, and academic sources |
-| [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification of setup/rollback and backup safety |
+| [brief-supply-chain-hardening.md](docs/brief-supply-chain-hardening.md) | Supply chain attack analysis and mitigations |
+| [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification specs |
+
+## Contributing
+
+Hazmat is early. The UX, security model, and documentation are all actively evolving. Feedback is the most valuable contribution right now.
+
+**Ways to help:**
+
+- **Try it and tell us what broke.** [Open an issue](https://github.com/dredozubov/hazmat/issues) with your macOS version and what happened. Rough bug reports are fine.
+- **Tell us what's confusing.** If a prompt didn't make sense, a command did something unexpected, or the docs left you guessing — that's a bug.
+- **Security review.** If you find a containment bypass, credential leak, or policy gap — please report it. We take these seriously.
+- **Linux port.** The architecture is OS-agnostic (user isolation + kernel sandbox + firewall). The primitives are different (namespaces, seccomp, nftables). This is the biggest open project.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions and PR guidelines.
 
 ## License
 
