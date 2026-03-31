@@ -70,6 +70,11 @@ func runRollback(deleteUser, deleteGroup bool) error {
 		return nil
 	}
 
+	// Run reverse migrations first — removes artifacts from newer versions
+	// that the core rollback functions don't know about. The TLA+ spec
+	// (MC_Migration) proves AgentContained holds during this process.
+	runDownMigrations(ui, r)
+
 	rollbackSudoers(ui, r)
 	rollbackLaunchDaemon(ui, r)
 	rollbackPfFirewall(ui, r)

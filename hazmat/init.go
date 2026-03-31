@@ -376,6 +376,16 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		}
 	}
 
+	// ── Migrations: upgrade from older init versions ─────────────────────
+	// Must run BEFORE normal setup steps so old artifacts are cleaned up
+	// before new ones are created. The TLA+ spec (MC_Migration) proves
+	// this preserves AgentContained across all 44,795 reachable states.
+	if !flagDryRun {
+		if err := runMigrations(ui, r); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+
 	if err := setupAgentUser(ui, r); err != nil {
 		return err
 	}
@@ -455,6 +465,10 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	}
 
 	if !flagDryRun {
+		// Record the version so future inits can detect and migrate.
+		if err := saveState(version); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not save init state: %v", err))
+		}
 		verifySetup(ui)
 		ui.Logo()
 	}
