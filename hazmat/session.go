@@ -468,8 +468,8 @@ func generateSBPL(cfg sessionConfig) string {
 
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
 	w(";; Path traversal literals for realpath() and symlink resolution.\n")
-	w(";; /var → /private/var is needed for resolv.conf (DNS).\n")
-	for _, p := range []string{"/", "/private", "/var", "/usr", "/System", "/Library"} {
+	w(";; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.\n")
+	for _, p := range []string{"/", "/private", "/var", "/tmp", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
