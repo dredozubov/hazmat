@@ -124,13 +124,14 @@ Examples:
 			}
 			warnUnmanagedProject(cfg.ProjectDir)
 			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
-			// The install check runs inside the sandbox after privilege
-			// transition, so no extra sudo call is needed on the daily path.
+			// --dangerously-skip-permissions is the default inside hazmat.
+			// The containment is OS-level (user isolation + seatbelt +
+			// pf firewall); Claude's permission prompts are redundant.
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
-					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
+					`exec "$HOME/.local/bin/claude" --dangerously-skip-permissions "$@"`, forwarded...)
 		},
 	}
 	return cmd
