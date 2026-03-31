@@ -1,22 +1,26 @@
 ---- MODULE MC_SeatbeltPolicy ----
 \* Seatbelt (SBPL) policy generation — verifies that credential deny rules
-\* are effective for ALL combinations of user-provided ProjectDir and ReadDirs.
+\* are effective for ALL combinations of user-provided ProjectDir, ReadDirs,
+\* and ResumeDir.
 \*
 \* SBPL semantics: rules are evaluated in order, LAST match wins.
 \* generateSBPL() emits rules in fixed sections:
 \*   Section 1: Read-only directory allows (user input, filtered)
 \*   Section 2: Project directory read+write allows (user input)
-\*   Section 3: Agent home config allows (static — .claude, .local, .config, etc.)
-\*   Section 4: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
+\*   Section 3: Resume session directory read+write (optional, invoker's ~/.claude/...)
+\*   Section 4: Agent home config allows (static — .claude, .local, .config, etc.)
+\*   Section 5: Project write re-assertion (same path as section 2, last allow)
+\*   Section 6: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
 \*
 \* Since all rules within a section have the same action type, "last match wins"
 \* reduces to "highest section number wins." This lets us model rules as a set
 \* of (section, action, path) tuples instead of an ordered sequence.
 \*
 \* Key correctness properties:
-\*   1. Credential reads are ALWAYS denied (section 4 deny overrides all allows)
-\*   2. Credential writes are ALWAYS denied (section 4 deny overrides all allows)
+\*   1. Credential reads are ALWAYS denied (section 6 deny overrides all allows)
+\*   2. Credential writes are ALWAYS denied (section 6 deny overrides all allows)
 \*   3. Read dirs never grant write access
+\*   4. ResumeDir (invoker's session dir) cannot be a credential path
 \*
 \* Governed code:
 \*   hazmat/session.go — generateSBPL(), isWithinDir()
@@ -33,21 +37,26 @@ CONSTANTS
     AgentHomeSubs,  \* subset: paths under agent home that get static read+write allows
     ProjectChoices, \* subset: valid choices for ProjectDir
     ReadChoices,    \* subset: valid choices for ReadDir entries
+    ResumeChoices,  \* subset: valid choices for ResumeDir (invoker's session dir or none)
     \* Model constant identifiers for abstract paths
     normalProj,     \* /Users/dr/workspace/myproject
     agentHome,      \* /Users/agent
     configDir,      \* /Users/agent/.config
     sshDir,         \* /Users/agent/.ssh
     gcloudDir,      \* /Users/agent/.config/gcloud
-    outsideRef      \* /tmp/reference
+    outsideRef,     \* /tmp/reference
+    invokerSess     \* /Users/dr/.claude/projects/-foo (invoker's session dir)
 
 ASSUME CredPaths \subseteq Paths
 ASSUME AgentHomeSubs \subseteq Paths
 ASSUME ProjectChoices \subseteq Paths
 ASSUME ReadChoices \subseteq Paths
+ASSUME ResumeChoices \ {"none"} \subseteq Paths
 
 \* Contains(child, parent) = TRUE iff `child` is within (or equal to) `parent`.
 \* Hardcoded containment relation for our abstract path model.
+\* invokerSess is under the invoker's home (/Users/dr/.claude/...), which is
+\* NOT under agentHome. It has no containment relationship with credential paths.
 Contains(child, parent) ==
     \/ child = parent
     \/ (child = sshDir     /\ parent = agentHome)
@@ -62,10 +71,11 @@ Contains(child, parent) ==
 VARIABLES
     projectDir,   \* chosen project directory (a Path)
     readDirs,     \* chosen read directories (SUBSET Paths)
+    resumeDir,    \* chosen resume session directory (a Path or "none")
     rules,        \* set of emitted rules: [section, action, path]
-    section       \* 0..5: which section we're generating (5 = done)
+    section       \* 0..7: which section we're generating (7 = done)
 
-vars == <<projectDir, readDirs, rules, section>>
+vars == <<projectDir, readDirs, resumeDir, rules, section>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Rule constructors
@@ -83,7 +93,8 @@ DenyWrite(sec, p)  == [section |-> sec, action |-> "deny_write",  path |-> p]
 TypeOK ==
     /\ projectDir \in Paths
     /\ readDirs   \subseteq Paths
-    /\ section    \in 0..5
+    /\ resumeDir  \in Paths \cup {"none"}
+    /\ section    \in 0..7
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Initial state — nondeterministic choice of inputs
@@ -92,6 +103,7 @@ TypeOK ==
 Init ==
     /\ projectDir \in ProjectChoices
     /\ readDirs   \in SUBSET ReadChoices
+    /\ resumeDir  \in ResumeChoices
     /\ rules      = {}
     /\ section    = 0
 
@@ -104,11 +116,11 @@ Init ==
 EmitSystemLibs ==
     /\ section = 0
     /\ section' = 1
-    /\ UNCHANGED <<projectDir, readDirs, rules>>
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir, rules>>
 
 \* Section 1: Read-only directory allows.
 \* Each read dir gets (allow file-read*) unless subsumed.
-\* Models session.go:334-357 filtering logic.
+\* Models session.go filtering logic.
 EmitReadDirs ==
     /\ section = 1
     /\ LET
@@ -118,45 +130,72 @@ EmitReadDirs ==
        IN
          rules' = rules \cup {AllowRead(1, d) : d \in notSubsumed}
     /\ section' = 2
-    /\ UNCHANGED <<projectDir, readDirs>>
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
 
 \* Section 2: Project directory read+write.
 EmitProjectDir ==
     /\ section = 2
     /\ rules' = rules \cup {AllowRead(2, projectDir), AllowWrite(2, projectDir)}
     /\ section' = 3
-    /\ UNCHANGED <<projectDir, readDirs>>
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
 
-\* Section 3: Agent home config subdirectories (static read+write allows).
+\* Section 3: Resume session directory read+write (optional).
+\* When --resume or --continue is used, the invoking user's session directory
+\* (~/.claude/projects/<hash>/) is opened for read+write so Claude Code can
+\* follow symlinks and append to the resumed conversation transcript.
+\* This path is under the INVOKER's home, not the agent's — it should never
+\* overlap with credential paths (which are under agent home).
+EmitResumeDir ==
+    /\ section = 3
+    /\ IF resumeDir /= "none"
+       THEN rules' = rules \cup {AllowRead(3, resumeDir), AllowWrite(3, resumeDir)}
+       ELSE UNCHANGED rules
+    /\ section' = 4
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+
+\* Section 4: Agent home config subdirectories (static read+write allows).
 \* .claude, .local, .config, .npm, .cache — all get read+write.
 EmitHomeConfig ==
-    /\ section = 3
-    /\ rules' = rules \cup
-         {AllowRead(3, p) : p \in AgentHomeSubs} \cup
-         {AllowWrite(3, p) : p \in AgentHomeSubs}
-    /\ section' = 4
-    /\ UNCHANGED <<projectDir, readDirs>>
-
-\* Section 4: Credential denies (static, ALWAYS LAST).
-\* Deny both file-read* (exfiltration) and file-write* (planting).
-EmitCredDenies ==
     /\ section = 4
     /\ rules' = rules \cup
-         {DenyRead(4, p)  : p \in CredPaths} \cup
-         {DenyWrite(4, p) : p \in CredPaths}
+         {AllowRead(4, p) : p \in AgentHomeSubs} \cup
+         {AllowWrite(4, p) : p \in AgentHomeSubs}
     /\ section' = 5
-    /\ UNCHANGED <<projectDir, readDirs>>
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+
+\* Section 5: Project write re-assertion.
+\* When a read-only -R directory is a parent of the project directory,
+\* the broad file-read* rule could interact with SBPL evaluation.
+\* Re-asserting file-write* here guarantees it is the last matching
+\* allow for any write operation targeting the project directory.
+EmitProjectWriteReassert ==
+    /\ section = 5
+    /\ rules' = rules \cup {AllowRead(5, projectDir), AllowWrite(5, projectDir)}
+    /\ section' = 6
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+
+\* Section 6: Credential denies (static, ALWAYS LAST).
+\* Deny both file-read* (exfiltration) and file-write* (planting).
+EmitCredDenies ==
+    /\ section = 6
+    /\ rules' = rules \cup
+         {DenyRead(6, p)  : p \in CredPaths} \cup
+         {DenyWrite(6, p) : p \in CredPaths}
+    /\ section' = 7
+    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
 
 \* Terminal.
 Done ==
-    /\ section = 5
+    /\ section = 7
     /\ UNCHANGED vars
 
 Next ==
     \/ EmitSystemLibs
     \/ EmitReadDirs
     \/ EmitProjectDir
+    \/ EmitResumeDir
     \/ EmitHomeConfig
+    \/ EmitProjectWriteReassert
     \/ EmitCredDenies
     \/ Done
 
@@ -194,35 +233,33 @@ EffectiveWrite(target) ==
             IN (CHOOSE r \in matching : r.section = maxSec).action
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Safety invariants — checked when policy generation is complete (section = 5)
+\* Safety invariants — checked when policy generation is complete (section = 7)
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 \* --- CRITICAL: credential file-read* is always denied ---
-\* No matter what ProjectDir or ReadDirs the user chooses, the credential
-\* deny in section 4 must override all earlier allows. Since section 4 is
-\* always the highest section, this SHOULD pass.
+\* No matter what ProjectDir, ReadDirs, or ResumeDir the user chooses, the
+\* credential deny in section 6 must override all earlier allows.
 CredentialReadDenied ==
-    section = 5 =>
+    section = 7 =>
         \A cred \in CredPaths : EffectiveRead(cred) = "deny_read"
 
 \* --- Credential writes denied ---
-\* Section 4 now denies both file-read* and file-write* for all credential
-\* paths. Since section 4 is always the highest section, this should PASS.
+\* Section 6 denies both file-read* and file-write* for all credential paths.
 CredentialWriteDenied ==
-    section = 5 =>
+    section = 7 =>
         \A cred \in CredPaths : EffectiveWrite(cred) = "deny_write"
 
 \* --- Read dirs never grant write access ---
 \* Rules emitted for ReadDirs (section 1) must only be AllowRead, never AllowWrite.
 ReadDirsNoWrite ==
-    section = 5 =>
+    section = 7 =>
         ~\E r \in rules : r.section = 1 /\ r.action = "allow_write"
 
 \* --- Project dir is writable (unless it IS a credential path) ---
 \* If the user picks a credential dir as their project, the deny wins.
 \* This is correct — credential protection takes priority.
 ProjectDirWritable ==
-    section = 5 =>
+    section = 7 =>
         \/ projectDir \in CredPaths  \* credential deny overrides — expected
         \/ EffectiveWrite(projectDir) = "allow_write"
 
@@ -230,9 +267,17 @@ ProjectDirWritable ==
 \* If a read dir is inside ProjectDir, no rule should be emitted for it
 \* (the project's read+write already covers it).
 ReadDirSubsumption ==
-    section = 5 =>
+    section = 7 =>
         ~\E r \in rules :
             r.section = 1
             /\ Contains(r.path, projectDir)
+
+\* --- ResumeDir never overlaps credential paths ---
+\* The resume session directory is under the invoker's home (/Users/dr/...),
+\* not under agent home. It must never be a credential path.
+ResumeDirNotCredential ==
+    section = 7 =>
+        \/ resumeDir = "none"
+        \/ resumeDir \notin CredPaths
 
 ====
