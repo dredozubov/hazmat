@@ -9,5 +9,10 @@ strategy.md
 # Beads runtime files
 .beads/
 
+# TLC model checker output
+tla/states/
+tla/*_TTrace_*.tla
+tla/*_TTrace_*.bin
+
 # macOS
 .DS_Store

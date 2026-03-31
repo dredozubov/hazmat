@@ -56,6 +56,30 @@ Read directories are strictly read-only — the agent cannot modify them.
 hazmat claude -C ~/workspace/other-project
 ```
 
+### Resuming a Conversation Inside the Sandbox
+
+When you start a conversation as yourself (`claude`) and later want to continue it inside containment, `--resume` and `--continue` work seamlessly:
+
+```bash
+# Start a conversation as yourself (no containment)
+cd ~/workspace/my-project
+claude
+
+# Later, resume that same conversation inside containment
+hazmat claude --resume              # interactive picker — shows your sessions
+hazmat claude --continue            # resume the most recent session
+hazmat claude --resume <session-id> # resume a specific session by ID
+```
+
+**How it works:** Hazmat detects `--resume` or `--continue` in the forwarded flags and creates symbolic links from the agent user's session directory to your session files. The seatbelt policy is extended to allow read+write access to your session directory so Claude Code can follow the symlinks and append new messages to the conversation transcript.
+
+- Sessions started as yourself are visible to the agent inside the sandbox
+- The conversation continues in-place — new messages append to your original session file
+- Sessions started inside the sandbox (by the agent) remain independent
+- If the agent already has a session with the same ID, the agent's version takes priority
+
+**Security note:** The session sync adds a narrowly-scoped seatbelt exception for your `~/.claude/projects/<project>/` directory. This directory contains only conversation transcripts (JSONL files), not credentials. The exception is only active when `--resume` or `--continue` is used.
+
 ### Running Other Commands in Containment
 
 ```bash
