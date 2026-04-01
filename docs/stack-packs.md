@@ -58,26 +58,28 @@ hazmat config set packs.pin "~/workspace/my-app:node,go"
 hazmat config set packs.unpin ~/workspace/my-app
 ```
 
-Hazmat stores the raw project path in `~/.hazmat/config.yaml`, then matches it
-as a canonical resolved path in `~/.hazmat/config.yaml`, then matches against
-the canonical project path at session start. Re-running `packs.pin` for the
-same project replaces the existing pin set instead of creating duplicate
-entries for different spellings of the same path.
+Hazmat canonicalizes the project path (`Abs` + `EvalSymlinks`) before storing
+the pin. At session start, the session's project path is resolved the same way
+and compared for exact equality. This means `~/workspace/my-app` and
+`/Users/dr/workspace/my-app` both resolve to the same canonical pin. Re-running
+`packs.pin` for the same project replaces the existing pin set.
 
-## Built-In Behavior
+## Built-In Packs
 
-Today, packs can influence three parts of session setup:
+| Pack | Detects | Read dirs | Env passthrough | Snapshot excludes |
+|------|---------|-----------|-----------------|-------------------|
+| `go` | `go.mod` | — | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
+| `node` | `package.json` | `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
+| `python-poetry` | `pyproject.toml`, `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
+| `rust` | `Cargo.toml` | `~/.cargo/registry`, `~/.rustup/toolchains` | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
+| `terraform-plan` | `main.tf`, `terraform.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
+| `tla-java` | `MC_*.cfg` files | `/opt/homebrew/opt/openjdk`, `/Library/Java` | `JAVA_HOME` | `tla/states/`, `*.dot` |
 
-1. Read-only access
-2. Pre-session snapshot excludes
-3. Safe environment passthrough
+Packs influence three parts of session setup:
 
-For example:
-
-- `node` excludes `node_modules/`, `.next/`, `.turbo/`, and related build output from automatic snapshots
-- `python-poetry` adds `~/.local/share/pypoetry` read-only when present
-- `go` can pass through `GOPATH`, `GOPROXY`, and `GOPRIVATE`
-- `rust` can pass through `RUSTUP_HOME`, `CARGO_HOME`, and `CARGO_TARGET_DIR`
+1. **Read-only access** — toolchain and cache directories
+2. **Pre-session snapshot excludes** — reproducible build artifacts
+3. **Safe environment passthrough** — passive selectors from the invoker's environment
 
 Hazmat prints pack-derived read-only paths, snapshot excludes, registry redirect
 keys, and warnings at session start so the behavior stays visible.
@@ -140,10 +142,6 @@ canonical project path + SHA-256 of the file contents:
 
 If the user declines, packs are not activated. They can still use `--pack`
 manually.
-
-When CLI flags (`--pack`) or config pinning already provide packs for a
-session, the repo recommendation prompt is skipped to avoid blocking
-sessions that already have explicit configuration.
 
 ## User Packs
 
