@@ -146,7 +146,7 @@ bash "$installer"
 		os.Chmod(scriptFile.Name(), 0o755)
 
 		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
-			"-u", agentUser, "-i", "bash", scriptFile.Name()); err != nil {
+			"-u", agentUser, "bash", scriptFile.Name()); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
 		ui.Ok("Claude Code installed")

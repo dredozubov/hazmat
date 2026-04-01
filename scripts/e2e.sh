@@ -170,8 +170,8 @@ assert_file_absent "$PROJECT/binary.dat" "damage: binary.dat deleted"
 # Restore from the most recent pre-session snapshot (session=2 because
 # the second exec created snapshot #2 of the original state before
 # the agent damage happened outside containment).
-"$HAZMAT" --yes restore --session=1 2>&1
-RESTORE_EXIT=$?
+RESTORE_EXIT=0
+"$HAZMAT" --yes restore --session=1 2>&1 || RESTORE_EXIT=$?
 [ "$RESTORE_EXIT" -eq 0 ] \
     && pass "hazmat restore completed successfully" \
     || fail "hazmat restore failed (exit $RESTORE_EXIT)"
