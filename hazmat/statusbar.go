@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -21,8 +22,10 @@ type statusBar struct {
 	packNames  []string
 	projectDir string
 
-	mu     sync.Mutex
-	active bool
+	mu          sync.Mutex
+	active      bool
+	barRow      uint16 // terminal row where the bar was last drawn
+	reducedRows uint16 // rows reported via TIOCSWINSZ (0 = not set)
 }
 
 func newStatusBar(packNames []string, projectDir string) *statusBar {
@@ -77,6 +80,9 @@ func (s *statusBar) Start() func() {
 
 // render draws the status bar on the terminal's bottom line and sets the
 // scroll region to rows 1..h-1, keeping the bar outside the scrollable area.
+// It also shrinks the terminal's reported height by one row via TIOCSWINSZ so
+// that child processes (e.g. Claude Code) lay out their UI within the scroll
+// region, eliminating the blank-line gap at the bottom of the content area.
 func (s *statusBar) render() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,8 +92,16 @@ func (s *statusBar) render() {
 	}
 
 	fd := int(os.Stderr.Fd())
-	w, h, err := term.GetSize(fd)
-	if err != nil || w < 20 || h < 3 {
+	winsz, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+	if err != nil || winsz.Col < 20 || winsz.Row < 3 {
+		return
+	}
+	h := int(winsz.Row)
+	w := int(winsz.Col)
+
+	// If this SIGWINCH was triggered by our own TIOCSWINSZ call below, skip
+	// to avoid an infinite resize loop.
+	if s.reducedRows != 0 && winsz.Row == s.reducedRows {
 		return
 	}
 
@@ -104,6 +118,15 @@ func (s *statusBar) render() {
 	buf.WriteString("\0338")
 
 	os.Stderr.Write(buf.Bytes())
+
+	s.barRow = uint16(h)
+
+	// Shrink the reported terminal height by one so child processes lay out
+	// within the scroll region. The resulting SIGWINCH is suppressed above.
+	shrunk := *winsz
+	shrunk.Row = uint16(h - 1)
+	s.reducedRows = shrunk.Row
+	_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &shrunk)
 }
 
 func (s *statusBar) writeBar(buf *bytes.Buffer, w int) {
@@ -203,16 +226,28 @@ func (s *statusBar) restore() {
 	s.active = false
 
 	fd := int(os.Stderr.Fd())
-	_, h, err := term.GetSize(fd)
-	if err != nil {
-		// Best-effort: reset scroll region even if we can't get the size.
+
+	// Restore the terminal height we previously shrunk. The resulting SIGWINCH
+	// is harmless: s.active is false, so render() returns immediately.
+	barRow := int(s.barRow)
+	if s.reducedRows != 0 {
+		if winsz, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
+			restored := *winsz
+			restored.Row = s.reducedRows + 1
+			_ = unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &restored)
+		}
+		s.reducedRows = 0
+	}
+
+	if barRow == 0 {
+		// Bar was never drawn; just reset the scroll region.
 		os.Stderr.Write([]byte("\033[r"))
 		return
 	}
 
 	var buf bytes.Buffer
 	buf.WriteString("\033[r")
-	fmt.Fprintf(&buf, "\0337\033[%d;1H\033[K\0338", h)
+	fmt.Fprintf(&buf, "\0337\033[%d;1H\033[K\0338", barRow)
 	os.Stderr.Write(buf.Bytes())
 }
 
