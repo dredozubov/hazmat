@@ -8,7 +8,7 @@ Complete setup guide for sandboxing Claude Code on macOS using a dedicated user 
 Your user (dr)                     Sandbox user (agent)
 ├── ~/.ssh/           INVISIBLE    ├── ~/.claude/        (own credentials)
 ├── ~/.aws/           INVISIBLE    ├── ~/.gitconfig      (own git identity)
-├── ~/.gnupg/         INVISIBLE    ├── ~/.ssh/id_ed25519 (scoped deploy key)
+├── ~/.gnupg/         INVISIBLE    ├── ~/.config/git/credentials (scoped PAT)
 ├── ~/Library/        INVISIBLE    └── (access to ~/workspace via ACL + seatbelt)
 ├── Keychain          INVISIBLE
 ├── Browser data      INVISIBLE    pf blocklist (kernel-enforced):
@@ -31,7 +31,7 @@ The primary defense is **user isolation** — the agent physically cannot access
 
 The UX model is:
 
-- Identity-bound things live in `/Users/agent`: Claude auth, SSH keys, API keys, npm/uv caches, git identity
+- Identity-bound things live in `/Users/agent`: Claude auth, git credential store, API keys, npm/uv caches, git identity
 - Shared runtimes stay on the host: Homebrew installs `node`, `make`, `uv`, `uvx`, `rg`, `jq`, etc. once
 - Host-side wrappers route those tools into the sandbox user with one writable project under `~/workspace` plus optional read-only reference directories
 
@@ -44,7 +44,7 @@ See [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) for the 
 - macOS Sequoia or later (Apple Silicon)
 - Admin access to your Mac
 - Anthropic API key
-- GitHub account with SSH key support
+- GitHub account that can issue a fine-grained personal access token
 
 ---
 
@@ -105,8 +105,14 @@ sudo -u agent ln -s ~/workspace /Users/agent/workspace
 ```bash
 # Keep projects directly under ~/workspace
 cd ~/workspace
-git clone git@github.com:you/my-project.git
-git clone git@github.com:you/reference-repo.git
+git clone https://github.com/you/my-project.git
+git clone https://github.com/you/reference-repo.git
+```
+
+If an existing repo uses an SSH remote, switch it before using it inside hazmat:
+
+```bash
+git remote set-url origin https://github.com/you/my-project.git
 ```
 
 ---
@@ -126,14 +132,14 @@ claude --version
 git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 
-# SSH key for GitHub (scoped — separate from your main key)
-ssh-keygen -t ed25519 -C "agent@$(hostname -s)" -f ~/.ssh/id_ed25519
-cat ~/.ssh/id_ed25519.pub
-# --> Add this to your GitHub account (Settings > SSH keys)
-#     or as a deploy key on specific repos
+# Use HTTPS remotes with git's built-in credential store.
+# Hazmat sessions do not support ~/.ssh or SSH agent forwarding.
+git config --global credential.helper "store --file ~/.config/git/credentials"
+mkdir -p ~/.config/git
+chmod 700 ~/.config/git
 
-# Test GitHub SSH
-ssh -T git@github.com
+# On the first HTTPS pull/push, enter your GitHub username and a fine-grained PAT.
+# Git will persist it to ~/.config/git/credentials.
 
 # Anthropic API key
 echo 'export ANTHROPIC_API_KEY="sk-ant-api03-YOUR-KEY-HERE"' >> ~/.zshrc
@@ -150,7 +156,7 @@ exit
 
 Use the sandbox user for credentials and mutable state, but keep general-purpose toolchains installed once via Homebrew on the host:
 
-- Install as `agent`: Claude Code, SSH keys, Git identity, Anthropic key, cloud credentials
+- Install as `agent`: Claude Code, git credential store, Git identity, Anthropic key, cloud credentials
 - Install on the host via Homebrew: `node`, `make`, `uv`, `ripgrep`, `jq`, `gh`, `pnpm`, `fd`, other compilers or CLIs
 - Run those host-installed binaries through the sandbox with `agent-exec ...` or inside `agent-shell`
 
@@ -596,10 +602,12 @@ Same pattern: create scoped service accounts, store credentials in agent's home 
 
 ### GitHub
 
-The agent's SSH key should be scoped. Options:
-- **Deploy keys** on specific repos (read-only or read-write per repo)
+Use HTTPS remotes with credentials stored in the agent user's git credential store. Options:
 - **Fine-grained personal access token** with limited repo access
 - **Separate GitHub account** for maximum isolation
+- **Repo-specific HTTPS tokens** on platforms that support them
+
+SSH is intentionally unsupported inside hazmat sessions: the seatbelt denies `~/.ssh`, and forwarding `SSH_AUTH_SOCK` would reintroduce a signing oracle into the stripped agent environment.
 
 ---
 
@@ -619,7 +627,7 @@ Layer 4: LuLu monitoring
   └─ Real-time visibility into outbound connections
 
 Layer 5: Scoped credentials
-  └─ Agent has limited GitHub key, limited cloud permissions
+  └─ Agent has limited GitHub token, limited cloud permissions
   └─ If compromised, blast radius is small
 
 Layer 6: Docker socket hardening
@@ -633,7 +641,7 @@ Layer 6: Docker socket hardening
 - [ ] `agent` user created and hidden from login screen
 - [ ] `~/workspace` prepared with correct permissions (770, setgid, home traversal ACL)
 - [ ] Claude Code installed and authenticated as `agent`
-- [ ] SSH key created for `agent`, added to GitHub (scoped)
+- [ ] HTTPS git credential helper configured for `agent` with a fine-grained PAT
 - [ ] Docker socket restricted (`chmod 700`)
 - [ ] `umask 077` set for both users
 - [ ] Passwordless sudo configured (`dr` -> `agent`)
@@ -813,10 +821,12 @@ sudo -u agent curl -v --max-time 5 https://the-service.com
 ### Git push/pull fails
 
 ```bash
-sudo -u agent ssh -vT git@github.com
+sudo -u agent git remote -v
+sudo -u agent git config --global --get credential.helper
+sudo -u agent ls -l /Users/agent/.config/git/credentials
 ```
 
-SSH (port 22) is allowed by the soft blocklist. If it still fails, check the agent's SSH key configuration.
+Use `https://` remotes inside hazmat. `git@github.com:...` remotes will fail because the seatbelt denies `~/.ssh` and hazmat does not expose `SSH_AUTH_SOCK`.
 
 ### npm install fails for specific packages
 

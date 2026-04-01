@@ -47,6 +47,8 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="sk-ant-..."` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
 
+**SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Use HTTPS remotes with a fine-grained PAT in git's credential store instead.
+
 **Seatbelt protects the host user's credentials.** The deny list blocks: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`. The agent cannot read the host user's SSH keys, AWS tokens, or GitHub CLI tokens.
 
 **The deny list is not exhaustive.** Not blocked: `~/.docker/config.json`, `~/.kube/config`, `~/.netrc`, `~/.m2/settings.xml`, `/Library/Preferences`. If you have credentials in these locations, the seatbelt won't prevent the agent from reading them. We should expand this list.

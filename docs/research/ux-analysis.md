@@ -222,7 +222,7 @@ is stored separately in `~/.config/hazmat/cloud-credentials` (0600).
 
 ## Non-Obvious Behaviors
 
-1. **SSH is blocked.** The seatbelt denies `~/.ssh` access to prevent credential exfiltration. Use HTTPS + personal access token for git.
+1. **SSH is blocked.** The seatbelt denies `~/.ssh` access to prevent credential exfiltration. Use HTTPS + a fine-grained personal access token via git's credential helper for git.
 
 2. **`--ignore-docker` escape hatch.** If Docker files are detected, `hazmat claude` refuses to run. Pass `--ignore-docker` if you have Docker files but don't need Docker support.
 
