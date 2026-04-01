@@ -890,6 +890,8 @@ func applyClaudeImportPlan(plan claudeImportPlan, env claudeImportEnv, r *Runner
 		case claudeImportSkip:
 			result.Skipped = append(result.Skipped, item)
 			continue
+		default:
+			// New, conflict, and overwrite statuses all flow to apply below.
 		}
 
 		if err := applyClaudeImportItem(item, env, r); err != nil {

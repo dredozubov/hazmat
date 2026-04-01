@@ -174,7 +174,7 @@ func newConnectCmd() *cobra.Command {
 			if err != nil {
 				os.Exit(1)
 			}
-			conn.Close()
+			conn.Close() //nolint:errcheck // diagnostic probe; process exits immediately
 		},
 	}
 }

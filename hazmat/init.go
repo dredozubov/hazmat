@@ -441,10 +441,10 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 			agentHome + "/.gitconfig",
 		} {
 			if _, err := os.Stat(path); os.IsNotExist(err) {
-				sudo("touch", path)
+				sudo("touch", path) //nolint:errcheck // best-effort within verified init step; step-level errors handled by MC_SetupRollback
 			}
-			sudo("chown", agentUser+":"+sharedGroup, path)
-			sudo("chmod", "0660", path)
+			sudo("chown", agentUser+":"+sharedGroup, path) //nolint:errcheck // best-effort ownership
+			sudo("chmod", "0660", path)                    //nolint:errcheck // best-effort permissions
 		}
 		// Directories: agent:dev 2770 (setgid so new content inherits dev group)
 		for _, dir := range []string{
@@ -452,9 +452,9 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 			agentHome + "/.claude",
 			agentHome + "/.claude/projects",
 		} {
-			sudo("mkdir", "-p", dir)
-			sudo("chown", agentUser+":"+sharedGroup, dir)
-			sudo("chmod", "2770", dir)
+			sudo("mkdir", "-p", dir)                       //nolint:errcheck // best-effort within verified init step
+			sudo("chown", agentUser+":"+sharedGroup, dir) //nolint:errcheck // best-effort ownership
+			sudo("chmod", "2770", dir)                    //nolint:errcheck // best-effort permissions
 		}
 	}
 

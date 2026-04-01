@@ -1,0 +1,64 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gosec       # security: weak crypto, unsafe usage, bind-to-all
+    - bidichk     # Trojan Source detection (bidi Unicode)
+    - exhaustive  # switch completeness on enum types
+
+  settings:
+    errcheck:
+      exclude-functions:
+        # Terminal output — if stdout/stderr write fails, nothing useful to do.
+        - (*github.com/fatih/color.Color).Print
+        - (*github.com/fatih/color.Color).Printf
+        - (*github.com/fatih/color.Color).Println
+        - (*github.com/fatih/color.Color).Fprint
+        - (*github.com/fatih/color.Color).Fprintf
+        - (*github.com/fatih/color.Color).Fprintln
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Interactive input — empty result caught downstream.
+        - fmt.Scanln
+    exhaustive:
+      default-signifies-exhaustive: true
+    gosec:
+      excludes:
+        # System tool with intentional multi-user permissions and subprocess usage.
+        # See docs/design-assumptions.md for the security model.
+        - G101  # false positive on constant/enum names containing "credential"
+        - G110  # decompression bomb — trusted kopia snapshot extraction only
+        - G115  # integer overflow on conversion — non-crypto code
+        - G204  # subprocess with variable — core functionality of a sudo/dscl wrapper
+        - G301  # directory permissions >0750 — intentional shared dev-group access (02770)
+        - G302  # file permissions >0600 — intentional shared dev-group access (0660)
+        - G304  # file path variable — config reading from known constant paths
+        - G306  # WriteFile permissions >0600 — same as G302
+        - G702  # command injection via taint — core functionality of a sudo/dscl wrapper
+        - G703  # path traversal via taint — writing to known config paths
+        - G104  # errors unhandled — duplicates errcheck, which has better config
+        - G122  # walk TOCTOU — project-local directory walks, not security-sensitive
+
+  exclusions:
+    rules:
+      # Generated ANSI art — intentional escape sequences.
+      - path: homer_art\.go
+        linters: [staticcheck]
+        text: "ST1018"
+      # Deferred cleanup — standard Go pattern, best-effort.
+      - linters: [errcheck]
+        source: "defer .*\\.(Close|Remove|RemoveAll)\\("
+      # Error strings with newlines provide actionable UX hints to the user.
+      - linters: [staticcheck]
+        text: "ST1005: error strings should not end with punctuation or newlines"
+      # "Claude" and "OpenCode" are proper nouns.
+      - linters: [staticcheck]
+        text: "ST1005: error strings should not be capitalized"
+      # Test and verification code — diagnostic setup/cleanup is fire-and-forget.
+      - path: (_test\.go$|^test\.go$)
+        linters: [errcheck]

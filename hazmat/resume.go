@@ -164,7 +164,7 @@ func copyResumeSessionFile(src, dest string) error {
 	defer os.Remove(tmpName)
 
 	if _, err := io.Copy(tmp, in); err != nil {
-		tmp.Close()
+		tmp.Close() //nolint:errcheck // error-path close; copy error is more important
 		return fmt.Errorf("copy %s to %s: %w", src, dest, err)
 	}
 	if err := tmp.Close(); err != nil {

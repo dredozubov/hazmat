@@ -389,7 +389,7 @@ func rollbackLocalRepo(ui *UI) {
 	}
 
 	// Remove config file and repo directory. Both are user-owned, no sudo.
-	os.Remove(localConfigFile)
+	os.Remove(localConfigFile) //nolint:errcheck // best-effort config cleanup during rollback
 	if err := os.RemoveAll(localRepoDir); err != nil {
 		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", localRepoDir, err))
 	} else {

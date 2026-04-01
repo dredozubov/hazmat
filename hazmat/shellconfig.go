@@ -63,26 +63,6 @@ func hostWrapperPath(name string) string {
 	return filepath.Join(hostWrapperDir(), name)
 }
 
-func agentShellBlockContent() string {
-	return managedBlock(
-		agentShellBlockStart,
-		agentShellBlockEnd,
-		`[[ -f "$HOME/.config/hazmat/agent-env.zsh" ]] && source "$HOME/.config/hazmat/agent-env.zsh"`,
-	)
-}
-
-func userPathBlockContent() string {
-	lines := []string{`export PATH="$HOME/.local/bin:$PATH"`}
-	if profile, ok := currentUserShellProfile(); ok {
-		lines = profile.pathBlockLines
-	}
-	return managedBlock(
-		userPathBlockStart,
-		userPathBlockEnd,
-		lines...,
-	)
-}
-
 func agentEnvContent() string {
 	return fmt.Sprintf(`# Managed by hazmat init.
 export PATH="%s"

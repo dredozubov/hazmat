@@ -77,8 +77,8 @@ func migrateUp_0_1_0_to_0_2_0(ui *UI, r *Runner) error {
 	// Only if it's currently 770 dr:dev (as set by old init).
 	if info, err := os.Stat(workspaceDir); err == nil {
 		if info.Mode().Perm() == 0o770 {
-			exec.Command("sudo", "chmod", "755", workspaceDir).Run()
-			exec.Command("sudo", "chown", os.Getenv("USER")+":staff", workspaceDir).Run()
+			exec.Command("sudo", "chmod", "755", workspaceDir).Run()                              //nolint:errcheck // best-effort migration cleanup
+			exec.Command("sudo", "chown", os.Getenv("USER")+":staff", workspaceDir).Run() //nolint:errcheck // best-effort migration cleanup
 			ui.Ok("Restored ~/workspace to 755 dr:staff")
 		}
 	}
@@ -86,14 +86,14 @@ func migrateUp_0_1_0_to_0_2_0(ui *UI, r *Runner) error {
 	// Remove legacy workspace-shared symlink if it exists.
 	legacyLink := home + "/workspace-shared"
 	if info, err := os.Lstat(legacyLink); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		os.Remove(legacyLink)
+		os.Remove(legacyLink) //nolint:errcheck // best-effort legacy cleanup
 		ui.Ok("Removed legacy ~/workspace-shared symlink")
 	}
 
 	// Remove old .backup-excludes file.
 	backupExcludes := home + "/workspace/.backup-excludes"
 	if _, err := os.Stat(backupExcludes); err == nil {
-		os.Remove(backupExcludes)
+		os.Remove(backupExcludes) //nolint:errcheck // best-effort legacy cleanup
 		ui.Ok("Removed .backup-excludes")
 	}
 
@@ -223,10 +223,7 @@ func detectV010Artifacts() bool {
 	// Check for workspace with dev group ownership (set by v0.1.0 init).
 	home := os.Getenv("HOME")
 	workspaceDir := home + "/workspace"
-	if pathHasDevACL(workspaceDir, false) {
-		return true
-	}
-	return false
+	return pathHasDevACL(workspaceDir, false)
 }
 
 // runDownMigrations applies reverse migrations during rollback.
@@ -236,7 +233,7 @@ func runDownMigrations(ui *UI, r *Runner) {
 	state, _ := loadState()
 	if state.InitVersion == "" {
 		if state.hasHarnessState() {
-			os.Remove(stateFilePath)
+			os.Remove(stateFilePath) //nolint:errcheck // best-effort state cleanup during rollback
 		}
 		return
 	}
@@ -262,5 +259,5 @@ func runDownMigrations(ui *UI, r *Runner) {
 	}
 
 	// Remove state file.
-	os.Remove(stateFilePath)
+	os.Remove(stateFilePath) //nolint:errcheck // best-effort state cleanup during rollback
 }

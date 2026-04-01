@@ -33,7 +33,6 @@ var (
 	cBlue   = color.New(color.FgBlue, color.Bold)
 	cBold   = color.New(color.Bold)
 	cDim    = color.New(color.Faint)
-	cOrange = color.New(color.FgHiYellow, color.Bold)
 )
 
 func (u *UI) Step(label string) {

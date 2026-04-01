@@ -387,7 +387,7 @@ exec /bin/cat -- "$rel"`
 	defer os.Remove(tmpName)
 
 	if _, err := io.Copy(tmp, stdout); err != nil {
-		tmp.Close()
+		tmp.Close() //nolint:errcheck // error-path close; copy error is more important
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return fmt.Errorf("copy %s to %s: %w", relPath, destPath, err)
@@ -439,7 +439,7 @@ func extractTarArchive(r io.Reader, destDir string) error {
 			if err := os.MkdirAll(target, 0o700); err != nil {
 				return fmt.Errorf("create directory %s: %w", target, err)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return fmt.Errorf("create parent directory for %s: %w", target, err)
 			}
@@ -448,7 +448,7 @@ func extractTarArchive(r io.Reader, destDir string) error {
 				return fmt.Errorf("create %s: %w", target, err)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+				f.Close() //nolint:errcheck // error-path close; copy error is more important
 				return fmt.Errorf("write %s: %w", target, err)
 			}
 			if err := f.Close(); err != nil {

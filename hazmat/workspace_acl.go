@@ -70,10 +70,7 @@ func writableByAgentMode(mode os.FileMode, ownerUID, agentUID uint32, groupHasAg
 // project root already has the inheritable dev ACL needed for host/agent
 // collaboration on future files as well as current ones.
 func projectRootWritableByAgent(projectDir string) bool {
-	if pathHasDevACL(projectDir, true) {
-		return true
-	}
-	return false
+	return pathHasDevACL(projectDir, true)
 }
 
 // collectACLTargets returns the existing project paths that should receive the
@@ -81,7 +78,7 @@ func projectRootWritableByAgent(projectDir string) bool {
 // project link to a target outside the project tree.
 func collectACLTargets(projectDir string) []string {
 	var paths []string
-	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled in callback; partial walk is acceptable
 		if err != nil || path == projectDir {
 			return nil
 		}

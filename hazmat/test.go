@@ -23,21 +23,7 @@ import (
 	"github.com/kopia/kopia/snapshot/restore"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/upload"
-	"github.com/spf13/cobra"
 )
-
-func newTestCmd() *cobra.Command {
-	var quick bool
-	cmd := &cobra.Command{
-		Use:   "test",
-		Short: "Verify the hazmat init is working correctly",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runTest(quick)
-		},
-	}
-	cmd.Flags().BoolVar(&quick, "quick", false, "Skip live network tests (no external traffic)")
-	return cmd
-}
 
 func runTest(quick bool) error {
 	ui := &UI{}
@@ -516,7 +502,7 @@ func testAgentTools(ui *UI) {
 	}(); out != "" {
 		ui.TestPass(fmt.Sprintf("OpenCode is in agent's PATH: %s", out))
 	} else {
-		ui.TestSkip(fmt.Sprintf("OpenCode not installed for agent user (optional — run 'hazmat bootstrap opencode' to test it)"))
+		ui.TestSkip("OpenCode not installed for agent user (optional — run 'hazmat bootstrap opencode' to test it)")
 	}
 }
 

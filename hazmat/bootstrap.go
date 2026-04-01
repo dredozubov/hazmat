@@ -163,11 +163,11 @@ bash "$installer"
 		}
 		defer os.Remove(scriptFile.Name())
 		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close()
+			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
 			return fmt.Errorf("write bootstrap script: %w", err)
 		}
-		scriptFile.Close()
-		os.Chmod(scriptFile.Name(), 0o755)
+		scriptFile.Close()                    //nolint:errcheck // close-to-flush; exec below catches problems
+		os.Chmod(scriptFile.Name(), 0o755)    //nolint:errcheck // exec below fails if not executable
 
 		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
 			"-u", agentUser, "-H", "bash", scriptFile.Name()); err != nil {
@@ -268,7 +268,7 @@ ignore-scripts=true
 		if err := r.SudoWriteFile("write agent .npmrc with ignore-scripts", npmrc, npmrcContent); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", npmrc, err))
 		} else {
-			r.Sudo("set npmrc ownership", "chown", agentUser+":staff", npmrc)
+			r.Sudo("set npmrc ownership", "chown", agentUser+":staff", npmrc) //nolint:errcheck // auxiliary to successful write above
 			ui.Ok("npm: ignore-scripts=true (blocks postinstall supply chain attacks)")
 		}
 	}
@@ -291,11 +291,11 @@ no-input = true
 disable-pip-version-check = true
 `
 		pipConfDir := agentHome + "/.config/pip"
-		r.Sudo("create pip config directory", "mkdir", "-p", pipConfDir)
+		r.Sudo("create pip config directory", "mkdir", "-p", pipConfDir) //nolint:errcheck // SudoWriteFile below handles the critical path
 		if err := r.SudoWriteFile("write agent pip.conf", pipConf, pipConfContent); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", pipConf, err))
 		} else {
-			r.Sudo("set pip config ownership", "chown", "-R", agentUser+":staff", pipConfDir)
+			r.Sudo("set pip config ownership", "chown", "-R", agentUser+":staff", pipConfDir) //nolint:errcheck // auxiliary to successful write above
 			ui.Ok("pip: safer defaults configured")
 		}
 	}

@@ -588,6 +588,8 @@ func applyOpenCodeImportPlan(plan opencodeImportPlan, env opencodeImportEnv, r *
 		case claudeImportSkip:
 			result.Skipped = append(result.Skipped, item)
 			continue
+		default:
+			// New, conflict, and overwrite statuses all flow to apply below.
 		}
 
 		if err := applyOpenCodeImportItem(item, env, r); err != nil {

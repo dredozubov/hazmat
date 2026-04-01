@@ -240,7 +240,7 @@ func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapsho
 	// placeholder"). OverwriteDirectories only covers non-shallow entries.
 	entries, _ := os.ReadDir(destPath)
 	for _, e := range entries {
-		os.RemoveAll(filepath.Join(destPath, e.Name()))
+		os.RemoveAll(filepath.Join(destPath, e.Name())) //nolint:errcheck // best-effort pre-restore cleanup; restore handles conflicts
 	}
 	if err := os.MkdirAll(destPath, 0o770); err != nil {
 		return nil, fmt.Errorf("create destination: %w", err)

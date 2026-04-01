@@ -64,10 +64,10 @@ test -x "$HOME/.local/bin/opencode"
 		}
 		defer os.Remove(scriptFile.Name())
 		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close()
+			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
 			return fmt.Errorf("write OpenCode bootstrap script: %w", err)
 		}
-		scriptFile.Close()
+		scriptFile.Close() //nolint:errcheck // close-to-flush; chmod below catches problems
 		if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
 			return fmt.Errorf("chmod OpenCode bootstrap script: %w", err)
 		}
