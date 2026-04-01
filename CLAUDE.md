@@ -17,6 +17,21 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 
 **The workflow: spec first, prove, then implement.**
 
+```mermaid
+flowchart TD
+    A[Identify which spec governs your change] --> B[Update the .tla spec]
+    B --> C[Run TLC]
+    C --> D{TLC exits 0?}
+    D -- "no (violation found)" --> E["Fix the DESIGN\n(never the invariant)"]
+    E --> B
+    D -- yes --> F[Implement proved design in Go]
+    F --> G[Update tla/VERIFIED.md]
+
+    style E fill:#fee,stroke:#c33,color:#000
+    style D fill:#ffd,stroke:#a80,color:#000
+    style G fill:#dfd,stroke:#3a3,color:#000
+```
+
 ```
 1. Identify which spec governs your change (see table above)
 2. Update the .tla spec to model your intended design

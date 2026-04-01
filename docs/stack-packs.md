@@ -19,6 +19,36 @@ session without weakening the containment model.
 - Inject arbitrary flags or preload-style environment variables
 - Reconfigure Claude/OpenCode runtime settings
 
+```mermaid
+block-beta
+    columns 2
+    block:allowed["Packs CAN"]
+        columns 1
+        a1["Add read-only dirs"]
+        a2["Add snapshot excludes"]
+        a3["Pass safe env selectors"]
+        a4["Show warnings"]
+    end
+    block:denied["Packs CANNOT"]
+        columns 1
+        d1["Widen write scope"]
+        d2["Expose denied credentials"]
+        d3["Change network policy"]
+        d4["Inject code or flags"]
+    end
+
+    style allowed fill:#dfd,stroke:#3a3,color:#000
+    style denied fill:#fee,stroke:#c33,color:#000
+    style a1 fill:#cfc,stroke:#3a3,color:#000
+    style a2 fill:#cfc,stroke:#3a3,color:#000
+    style a3 fill:#cfc,stroke:#3a3,color:#000
+    style a4 fill:#cfc,stroke:#3a3,color:#000
+    style d1 fill:#fcc,stroke:#c33,color:#000
+    style d2 fill:#fcc,stroke:#c33,color:#000
+    style d3 fill:#fcc,stroke:#c33,color:#000
+    style d4 fill:#fcc,stroke:#c33,color:#000
+```
+
 This is the core design rule: packs may reduce friction, but they may not
 weaken Hazmat's trust boundary.
 

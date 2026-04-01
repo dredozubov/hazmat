@@ -13,6 +13,29 @@ hazmat claude     # launch Claude Code in containment
 
 That's it. `init` creates a contained environment, installs Claude Code, asks for your API key and git credentials, and can optionally import portable basics from your existing Claude setup. After that, you just use `hazmat claude` every day.
 
+```mermaid
+flowchart LR
+    subgraph once ["One-time setup (hazmat init)"]
+        direction TB
+        I1[Create agent user] --> I2[Set up workspace ACLs]
+        I2 --> I3[Init snapshot repo]
+        I3 --> I4[Install firewall + DNS blocklist]
+        I4 --> I5[Install Claude Code]
+        I5 --> I6[Configure API key + git creds]
+    end
+    subgraph daily ["Every session (hazmat claude)"]
+        direction TB
+        D1[Snapshot project] --> D2[Generate seatbelt policy]
+        D2 --> D3[Resolve packs]
+        D3 --> D4[Launch as agent user in sandbox]
+        D4 --> D5[Exit: clean up policy]
+    end
+    once --> daily
+
+    style once fill:#f5f5ff,stroke:#33a,color:#000
+    style daily fill:#f5fff5,stroke:#3a3,color:#000
+```
+
 ## What `hazmat init` Does
 
 When you run `hazmat init`, it:
