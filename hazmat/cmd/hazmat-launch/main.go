@@ -20,6 +20,17 @@
 //   - Proper PTY handling for interactive TUI applications
 //   - One fewer process in the sudo → sandbox → target chain
 //
+// Intentional use of deprecated API: sandbox_init() and sandbox_free_error()
+// have been deprecated since macOS 10.8. There is no public, non-deprecated
+// replacement for applying an SBPL policy string to the current process at
+// runtime. Apple's recommended replacement is App Sandbox (entitlements
+// declared at build time), which cannot generate per-session policies.
+// The private alternatives (sandbox_compile_string, sandbox_apply) are absent
+// from all public SDK headers and are worse to depend on. sandbox-exec(1) is
+// also deprecated and wraps the same functions. If Apple removes sandbox_init,
+// the build will fail with a link error and we will have to revert to exec'ing
+// sandbox-exec, losing correct signal forwarding and PTY handling.
+//
 // Usage (called by runAgentSeatbeltScript):
 //
 //	sudo -u agent /usr/local/libexec/hazmat-launch <policy-file> <cmd> [args...]
@@ -27,6 +38,7 @@
 package main
 
 /*
+#cgo CFLAGS: -Wno-deprecated-declarations
 #include <sandbox.h>
 #include <stdlib.h>
 */
