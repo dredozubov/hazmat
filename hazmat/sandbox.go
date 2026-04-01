@@ -219,37 +219,60 @@ func runSandboxReset() error {
 	}
 
 	backend := cfg.SandboxBackend()
+	managed := cfg.ManagedSandboxes()
 	fmt.Println()
 	cBold.Println("  Sandbox reset")
 	fmt.Println()
-	if backend == nil {
+	if backend == nil && len(managed) == 0 {
 		cDim.Println("  No Tier 3 backend is currently configured.")
 		fmt.Println()
 		return nil
 	}
 
-	fmt.Printf("    Backend:         %s\n", formatSandboxBackendLabel(backend.Type))
-	fmt.Printf("    Policy profile:  %s\n", backend.PolicyProfile)
+	if backend != nil {
+		fmt.Printf("    Backend:         %s\n", formatSandboxBackendLabel(backend.Type))
+		fmt.Printf("    Policy profile:  %s\n", backend.PolicyProfile)
+	} else {
+		fmt.Printf("    Backend:         (not configured)\n")
+	}
+	if len(managed) > 0 {
+		fmt.Printf("    Managed:         %d sandbox(es)\n", len(managed))
+		for _, sandbox := range managed {
+			fmt.Printf("      - %s (%s, %s)\n", sandbox.Name, sandbox.Agent, sandbox.ProjectDir)
+		}
+	} else {
+		fmt.Printf("    Managed:         (none)\n")
+	}
 	fmt.Println()
 
-	if !ui.Ask("Forget the configured Tier 3 backend?") {
+	if !ui.Ask("Forget the configured Tier 3 backend and remove managed sandboxes?") {
 		fmt.Println()
 		return nil
 	}
 
 	if flagDryRun {
 		cYellow.Println("  Dry-run: would clear sandbox backend configuration")
+		for _, sandbox := range managed {
+			cYellow.Printf("  Dry-run: would remove Docker Sandbox %s\n", sandbox.Name)
+		}
 		fmt.Println()
 		return nil
 	}
 
+	if err := removeManagedSandboxes(sandboxProbeFactory(), managed); err != nil {
+		return err
+	}
+
 	cfg.Sandbox.Backend = nil
+	cfg.Sandbox.Managed = nil
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
 
 	ui.Ok("Cleared Tier 3 backend configuration")
-	cDim.Println("  Existing Docker Sandboxes were left untouched.")
+	if len(managed) > 0 {
+		cDim.Println("  Removed Hazmat-managed Docker Sandboxes.")
+	}
 	fmt.Println()
 	return nil
 }
@@ -521,6 +544,46 @@ func sandboxApprovalGranted(projectDir, backendType, policyProfile string) bool 
 	return false
 }
 
+func recordManagedSandbox(sandbox ManagedSandboxConfig) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for i, existing := range cfg.Sandbox.Managed {
+		if existing.Name == sandbox.Name {
+			cfg.Sandbox.Managed[i] = sandbox
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfg.Sandbox.Managed = append(cfg.Sandbox.Managed, sandbox)
+	}
+
+	return saveConfig(cfg)
+}
+
+func removeManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig) error {
+	for _, sandbox := range sandboxes {
+		if sandbox.BackendType != "" && sandbox.BackendType != sandboxBackendDockerSandboxes {
+			return fmt.Errorf("cannot remove managed sandbox %s: unsupported backend %q", sandbox.Name, sandbox.BackendType)
+		}
+		out, err := probe.Output("docker", "sandbox", "rm", sandbox.Name)
+		if err != nil && !sandboxMissing(out) {
+			return fmt.Errorf("remove Docker Sandbox %s: %s", sandbox.Name, oneLine(out))
+		}
+	}
+	return nil
+}
+
+func sandboxMissing(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "no such")
+}
+
 func recordSandboxApproval(projectDir, backendType, policyProfile string) error {
 	af := loadSandboxApprovals()
 
@@ -638,6 +701,16 @@ func prepareDockerSandbox(cfg sessionConfig, agent string) (sandboxProbe, string
 	}
 	if err := ensureSandboxApproval(cfg.ProjectDir, backend.Type, profile); err != nil {
 		return nil, "", err
+	}
+	if err := recordManagedSandbox(ManagedSandboxConfig{
+		Name:          sandboxName(agent, cfg, profile.Name),
+		BackendType:   backend.Type,
+		Agent:         agent,
+		ProjectDir:    cfg.ProjectDir,
+		PolicyProfile: profile.Name,
+		LastUsedAt:    sandboxNow().Format(time.RFC3339),
+	}); err != nil {
+		return nil, "", fmt.Errorf("record managed sandbox: %w", err)
 	}
 
 	name := sandboxName(agent, cfg, profile.Name)

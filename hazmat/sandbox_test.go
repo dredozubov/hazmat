@@ -224,6 +224,9 @@ func TestRunSandboxResetClearsBackendConfig(t *testing.T) {
 	if cfg.SandboxBackend() != nil {
 		t.Fatal("expected sandbox backend to be cleared")
 	}
+	if len(cfg.ManagedSandboxes()) != 0 {
+		t.Fatalf("expected managed sandboxes to be cleared, got %d", len(cfg.ManagedSandboxes()))
+	}
 }
 
 func TestSandboxApprovalRoundTrip(t *testing.T) {
@@ -343,6 +346,17 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 		"--dangerously-skip-permissions", "-p", "hi")) {
 		t.Fatal("expected sandbox run command with forwarded Claude args")
 	}
+
+	updatedCfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after launch: %v", err)
+	}
+	if len(updatedCfg.ManagedSandboxes()) != 1 {
+		t.Fatalf("expected 1 managed sandbox, got %d", len(updatedCfg.ManagedSandboxes()))
+	}
+	if updatedCfg.ManagedSandboxes()[0].Name != name {
+		t.Fatalf("managed sandbox name = %q, want %q", updatedCfg.ManagedSandboxes()[0].Name, name)
+	}
 }
 
 func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
@@ -459,5 +473,108 @@ func TestRunSandboxClaudeSessionReadDirsRequireDesktop461(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "additional read-only workspaces") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunSandboxResetRemovesManagedSandboxes(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	cfg.Sandbox.Managed = []ManagedSandboxConfig{
+		{
+			Name:          "hazmat-claude-demo-123",
+			BackendType:   sandboxBackendDockerSandboxes,
+			Agent:         "claude",
+			ProjectDir:    "/tmp/project",
+			PolicyProfile: sandboxPolicyProfileBaseline,
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "rm", "hazmat-claude-demo-123")] = fakeSandboxResult{
+		output: "removed",
+	}
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	savedDryRun := flagDryRun
+	flagDryRun = false
+	defer func() { flagDryRun = savedDryRun }()
+
+	savedYesAll := flagYesAll
+	flagYesAll = true
+	defer func() { flagYesAll = savedYesAll }()
+
+	if err := runSandboxReset(); err != nil {
+		t.Fatalf("runSandboxReset: %v", err)
+	}
+	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "rm", "hazmat-claude-demo-123")) {
+		t.Fatal("expected sandbox rm command to be issued")
+	}
+
+	updatedCfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after reset: %v", err)
+	}
+	if updatedCfg.SandboxBackend() != nil {
+		t.Fatal("expected backend to be cleared")
+	}
+	if len(updatedCfg.ManagedSandboxes()) != 0 {
+		t.Fatalf("expected managed sandboxes to be cleared, got %d", len(updatedCfg.ManagedSandboxes()))
+	}
+}
+
+func TestRunSandboxResetIgnoresMissingManagedSandbox(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	cfg.Sandbox.Managed = []ManagedSandboxConfig{
+		{
+			Name:          "hazmat-claude-demo-123",
+			BackendType:   sandboxBackendDockerSandboxes,
+			Agent:         "claude",
+			ProjectDir:    "/tmp/project",
+			PolicyProfile: sandboxPolicyProfileBaseline,
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "rm", "hazmat-claude-demo-123")] = fakeSandboxResult{
+		output: "Error: sandbox not found",
+		err:    fmt.Errorf("missing"),
+	}
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	savedDryRun := flagDryRun
+	flagDryRun = false
+	defer func() { flagDryRun = savedDryRun }()
+
+	savedYesAll := flagYesAll
+	flagYesAll = true
+	defer func() { flagYesAll = savedYesAll }()
+
+	if err := runSandboxReset(); err != nil {
+		t.Fatalf("runSandboxReset should ignore missing sandboxes: %v", err)
 	}
 }

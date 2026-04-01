@@ -49,7 +49,8 @@ type SessionConfig struct {
 }
 
 type SandboxConfig struct {
-	Backend *SandboxBackendConfig `yaml:"backend,omitempty"`
+	Backend *SandboxBackendConfig  `yaml:"backend,omitempty"`
+	Managed []ManagedSandboxConfig `yaml:"managed,omitempty"`
 }
 
 type SandboxBackendConfig struct {
@@ -58,6 +59,15 @@ type SandboxBackendConfig struct {
 	DesktopVersion string `yaml:"docker_desktop_version,omitempty"`
 	ComposeVersion string `yaml:"compose_version,omitempty"`
 	ConfiguredAt   string `yaml:"configured_at,omitempty"`
+}
+
+type ManagedSandboxConfig struct {
+	Name          string `yaml:"name,omitempty"`
+	BackendType   string `yaml:"backend_type,omitempty"`
+	Agent         string `yaml:"agent,omitempty"`
+	ProjectDir    string `yaml:"project,omitempty"`
+	PolicyProfile string `yaml:"policy_profile,omitempty"`
+	LastUsedAt    string `yaml:"last_used_at,omitempty"`
 }
 
 // PacksConfig holds per-project pack pinning.
@@ -139,6 +149,10 @@ func (c HazmatConfig) SandboxBackend() *SandboxBackendConfig {
 		return nil
 	}
 	return c.Sandbox.Backend
+}
+
+func (c HazmatConfig) ManagedSandboxes() []ManagedSandboxConfig {
+	return c.Sandbox.Managed
 }
 
 func defaultConfig() HazmatConfig {
@@ -341,6 +355,11 @@ func runConfigShow() error {
 		}
 	} else {
 		fmt.Printf("    Backend:          (not configured)\n")
+	}
+	if managed := cfg.ManagedSandboxes(); len(managed) > 0 {
+		fmt.Printf("    Managed sandboxes: %d\n", len(managed))
+	} else {
+		fmt.Printf("    Managed sandboxes: (none)\n")
 	}
 	fmt.Println()
 
