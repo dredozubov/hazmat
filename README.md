@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hazmat-final.png" alt="Hazmat" width="200">
+  <a href="#"><img src="assets/hazmat-final.png" alt="Hazmat" width="400"></a>
 </p>
 
 <h1 align="center">Hazmat</h1>
@@ -210,3 +210,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions and PR guidelines.
 ## License
 
 MIT
+
+---
+
+<sub>The Simpsons and all related characters are property of 20th Television and The Walt Disney Company. The Claude logo is property of Anthropic. We do not claim any rights to these properties. Their use here is purely for entertainment purposes.</sub>
