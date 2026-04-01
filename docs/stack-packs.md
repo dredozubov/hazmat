@@ -143,6 +143,28 @@ canonical project path + SHA-256 of the file contents:
 If the user declines, packs are not activated. They can still use `--pack`
 manually.
 
+## For Project Maintainers
+
+To recommend packs for your repo, add `.hazmat/packs.yaml`:
+
+```yaml
+packs:
+  - go
+  - node
+```
+
+The file only lists names of existing built-in or user-installed packs. It
+cannot define custom packs, paths, env vars, or any session config inline.
+
+Tell your contributors which packs the repo needs, and note any prerequisites
+(runtimes, tools) in the project README. When a contributor runs `hazmat claude`
+for the first time, they'll see the approval prompt with the exact pack list.
+
+If your project needs a pack that doesn't exist as a built-in, contributors
+can create a matching user pack on their machines (see below). The `.hazmat/packs.yaml`
+should still reference the pack name — it will resolve through the user pack
+loader.
+
 ## User Packs
 
 User-installed packs live in:
@@ -151,15 +173,96 @@ User-installed packs live in:
 ~/.hazmat/packs/<name>.yaml
 ```
 
-Hazmat loads built-in packs first, then falls back to user packs with the same
-schema. User packs are validated before use:
+Hazmat resolves pack names by checking built-ins first, then user packs. This
+means you can extend or replace a built-in by creating a user pack with the
+same name, or create entirely new packs for stacks that hazmat doesn't ship.
 
-- pack name format is restricted
-- manifest size is bounded
-- read-only paths are canonicalized and checked against Hazmat's credential deny zones
-- env passthrough keys must be in the safe allowlist
+### When to create a user pack
 
-If a pack is invalid, Hazmat rejects it instead of partially applying it.
+- A built-in pack is close but your environment differs (e.g., SDKMAN Java
+  instead of Homebrew, or a custom Cargo registry)
+- Your project uses a stack that has no built-in pack
+- You need read-only access to a toolchain path specific to your machine
+
+### Writing a user pack
+
+A pack manifest is YAML with strict field validation. Unknown fields are
+rejected at load time.
+
+```yaml
+pack:
+  name: java-sdkman
+  version: 1
+  description: Java via SDKMAN (instead of Homebrew)
+
+detect:
+  files: [pom.xml, build.gradle]
+
+session:
+  read_dirs:
+    - ~/.sdkman/candidates/java
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - .gradle/
+    - build/
+    - target/
+    - "*.class"
+
+warnings:
+  - "Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."
+
+commands:
+  build: ./gradlew build
+  test: ./gradlew test
+```
+
+**Fields reference:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pack.name` | yes | Lowercase alphanumeric + hyphens |
+| `pack.version` | yes | Must be `1` |
+| `pack.description` | no | One-line description |
+| `detect.files` | no | Filenames (no paths) that suggest this pack |
+| `session.read_dirs` | no | Paths added read-only (`~` expands to invoker home) |
+| `session.env_passthrough` | no | Env var names from the safe allowlist only |
+| `backup.excludes` | no | Glob patterns for snapshot exclusion |
+| `warnings` | no | Messages shown at session start |
+| `commands` | no | Name-to-command hints (informational, not executed) |
+
+**Validation rules:**
+
+- Read-only paths are canonicalized (`Abs` + `EvalSymlinks`) and checked
+  against the credential deny list. Paths that resolve to `~/.ssh`, `~/.aws`,
+  or other denied zones are rejected.
+- Env passthrough keys must be in the safe set (passive pointers like `GOPATH`,
+  `JAVA_HOME`, `VIRTUAL_ENV`). Keys that accept arbitrary flags or preload code
+  (`NODE_OPTIONS`, `PYTHONPATH`, `GOFLAGS`, `LD_PRELOAD`) are rejected.
+- No negation in exclude patterns.
+- Manifest size limit: 8KB.
+
+If any validation fails, hazmat rejects the entire pack rather than partially
+applying it.
+
+### Combining multiple packs
+
+Activate multiple packs in one session:
+
+```bash
+hazmat claude --pack node --pack python-poetry
+```
+
+Or pin a combination:
+
+```bash
+hazmat config set packs.pin "~/workspace/fullstack:node,python-poetry"
+```
+
+Packs merge additively. Read dirs, excludes, env passthrough, and warnings are
+unioned and deduplicated. If two packs add the same read dir or exclude, it
+appears once.
 
 ## Self-Hosting: Developing Hazmat Under Hazmat
 
