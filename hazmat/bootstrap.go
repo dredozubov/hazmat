@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/user"
 
 	"github.com/spf13/cobra"
@@ -114,9 +115,11 @@ func runBootstrap(ui *UI, r *Runner) error {
 	if _, err := sudoOutput("test", "-x", claudeBin); err == nil {
 		ui.SkipDone("Claude Code already installed")
 	} else {
-		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
-			"-u", agentUser, "-i",
-			"bash", "-lc", fmt.Sprintf(`set -euo pipefail
+		// Write the installer script to a temp file rather than passing it
+		// inline. sudo -i joins arguments into a single string for the login
+		// shell, which strips newlines and evaluates $variables prematurely.
+		installScript := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
 installer=$(mktemp "${TMPDIR:-/tmp}/claude-install.XXXXXX")
 cleanup() { rm -f "$installer"; }
 trap cleanup EXIT
@@ -127,7 +130,23 @@ if [[ "$actual" != "$expected" ]]; then
   echo "Claude installer checksum mismatch: expected $expected, got $actual" >&2
   exit 1
 fi
-bash "$installer"`, claudeInstallerURL, claudeInstallerSHA256)); err != nil {
+bash "$installer"
+`, claudeInstallerURL, claudeInstallerSHA256)
+
+		scriptFile, err := os.CreateTemp("", "hazmat-bootstrap-*.sh")
+		if err != nil {
+			return fmt.Errorf("create bootstrap script: %w", err)
+		}
+		defer os.Remove(scriptFile.Name())
+		if _, err := scriptFile.WriteString(installScript); err != nil {
+			scriptFile.Close()
+			return fmt.Errorf("write bootstrap script: %w", err)
+		}
+		scriptFile.Close()
+		os.Chmod(scriptFile.Name(), 0o755)
+
+		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
+			"-u", agentUser, "-i", "bash", scriptFile.Name()); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
 		ui.Ok("Claude Code installed")
