@@ -87,12 +87,12 @@ func runConfigAgent(ui *UI) error {
 		if ui.Ask("Copy this key to the agent user?") {
 			newAPIKey = hostKey
 		} else {
-			fmt.Println("  Set it later with 'hazmat config agent' or type /login inside 'hazmat claude'.")
+			fmt.Println("  Set it later with 'hazmat config agent', import host Claude basics, or type /login inside 'hazmat claude'.")
 			ui.SkipDone("API key skipped")
 		}
 	} else {
 		fmt.Println("    1) Paste an API key now (sk-ant-...)")
-		fmt.Println("    2) Press Enter to skip — run 'hazmat claude' and type /login")
+		fmt.Println("    2) Press Enter to skip — import host Claude basics or run 'hazmat claude' and type /login")
 		fmt.Println()
 		fmt.Print("  API key: ")
 		apiKey, _ := term.ReadPassword(int(syscall.Stdin))

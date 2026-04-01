@@ -42,9 +42,9 @@ type SessionConfig struct {
 }
 
 type BackupConfig struct {
-	Local     LocalBackupConfig `yaml:"local"`
-	Excludes  []string          `yaml:"excludes"`
-	Cloud     *CloudBackup      `yaml:"cloud,omitempty"`
+	Local    LocalBackupConfig `yaml:"local"`
+	Excludes []string          `yaml:"excludes"`
+	Cloud    *CloudBackup      `yaml:"cloud,omitempty"`
 }
 
 type LocalBackupConfig struct {
@@ -53,9 +53,9 @@ type LocalBackupConfig struct {
 }
 
 type RetentionConfig struct {
-	KeepLatest  int `yaml:"keep_latest"`
-	KeepDaily   int `yaml:"keep_daily"`
-	KeepWeekly  int `yaml:"keep_weekly"`
+	KeepLatest int `yaml:"keep_latest"`
+	KeepDaily  int `yaml:"keep_daily"`
+	KeepWeekly int `yaml:"keep_weekly"`
 }
 
 type CloudBackup struct {
@@ -173,12 +173,14 @@ Subcommands:
   hazmat config              Show current configuration
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
+  hazmat config import claude Import portable Claude basics
   hazmat config cloud        Configure S3 cloud backup credentials
   hazmat config set K V      Set a configuration value
 
 Examples:
   hazmat config
   hazmat config agent
+  hazmat config import claude --dry-run
   hazmat config cloud --endpoint s3.fr-par.scw.cloud --bucket my-backups
   hazmat config set backup.retention.keep_latest 30`,
 		Args: cobra.NoArgs,
@@ -189,6 +191,7 @@ Examples:
 
 	cmd.AddCommand(newConfigEditCmd())
 	cmd.AddCommand(newConfigAgentCmd())
+	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
 	cmd.AddCommand(newConfigSetCmd())
 

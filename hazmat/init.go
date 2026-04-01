@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -465,6 +466,18 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		}
 	}
 
+	// ── Optional import: portable Claude basics ─────────────────────────────
+	if env, err := defaultClaudeImportEnv(); err == nil {
+		if err := runClaudeBasicsImport(ui, r, env, claudeImportOptions{
+			PromptBeforeImport: true,
+			ConflictPolicy:     claudeConflictPrompt,
+			AllowNoopMessage:   false,
+		}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
+			cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config import claude' later to retry.")
+		}
+	}
+
 	if !flagDryRun {
 		// Record the version so future inits can detect and migrate.
 		if err := saveState(version); err != nil {
@@ -497,6 +510,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
 	fmt.Println("  Update creds:   hazmat config agent")
+	fmt.Println("  Import basics:  hazmat config import claude")
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")
 	fmt.Println()

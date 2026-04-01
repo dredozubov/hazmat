@@ -79,7 +79,7 @@ cd your-project
 hazmat claude
 ```
 
-`hazmat init` creates the agent user, configures containment, installs Claude Code, and sets up automatic snapshots. Every step is explained and confirmed. Preview first with `hazmat init --dry-run`.
+`hazmat init` creates the agent user, configures containment, installs Claude Code, and sets up automatic snapshots. It can also seed the agent with portable conveniences from an existing agent setup while keeping Hazmat in control of runtime and safety settings. Every step is explained and confirmed. Preview first with `hazmat init --dry-run`.
 
 ## Daily Workflow
 
@@ -133,12 +133,15 @@ claude --resume "$(hazmat export claude session <session-id>)" --fork-session
 hazmat config                                        # view everything
 hazmat config edit                                   # open config in $EDITOR
 hazmat config agent                                  # set API key + git identity
+hazmat config import claude                          # import portable basics from an existing setup
 hazmat config cloud                                  # set up S3 backup
 hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
 hazmat config set backup.retention.keep_latest 30     # change snapshot retention
 ```
 
 All settings live in `~/.hazmat/config.yaml`.
+
+Portable import keeps Hazmat's runtime and safety config separate from whatever you use outside containment. See [docs/claude-import.md](docs/claude-import.md) for the current import rules and non-goals.
 
 ## Architecture
 
@@ -188,6 +191,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | Doc | What it covers |
 |-----|---------------|
 | [usage.md](docs/usage.md) | Complete user guide |
+| [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |

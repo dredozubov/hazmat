@@ -11,7 +11,7 @@ hazmat init       # one-time setup (~10 min, needs sudo)
 hazmat claude     # launch Claude Code in containment
 ```
 
-That's it. `init` creates a contained environment, installs Claude Code, and asks for your API key and git credentials. After that, you just use `hazmat claude` every day.
+That's it. `init` creates a contained environment, installs Claude Code, asks for your API key and git credentials, and can optionally import portable basics from your existing Claude setup. After that, you just use `hazmat claude` every day.
 
 ## What `hazmat init` Does
 
@@ -23,6 +23,7 @@ When you run `hazmat init`, it:
 4. Adds a DNS blocklist for tunnel and paste services (ngrok, pastebin, etc.)
 5. Installs Claude Code for the agent user
 6. Asks for your Anthropic API key and git credentials
+7. Optionally imports portable Claude basics such as sign-in state, commands, and skills
 
 Everything is interactive — it explains each step and asks for confirmation. To preview without making changes:
 
@@ -145,8 +146,21 @@ hazmat restore --cloud         # restore latest snapshot
 ## Updating Credentials
 
 ```bash
-hazmat init enroll             # re-enter API key, git name/email
+hazmat config agent            # re-enter API key, git name/email
 ```
+
+## Importing Portable Claude Basics
+
+```bash
+hazmat config import claude
+hazmat config import claude --dry-run
+hazmat config import claude --overwrite
+hazmat config import claude --skip-existing
+```
+
+Hazmat treats this as a curated import, not a full Claude migration. It can copy sign-in state, git identity, commands, and skills into the agent environment. Hazmat keeps its own runtime settings, hooks, MCP configuration, plugins, and safety controls.
+
+Detailed scope, symlink behavior, conflict handling, and MCP migration guidance live in [claude-import.md](claude-import.md).
 
 ## Uninstalling
 
