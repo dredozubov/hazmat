@@ -47,7 +47,7 @@ Use --dry-run to preview all commands without executing.`,
 }
 
 func runRollback(deleteUser, deleteGroup bool) error {
-	ui := &UI{DryRun: flagDryRun}
+	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
 
 	if err := checkPlatform(); err != nil {
