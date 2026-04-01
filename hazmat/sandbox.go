@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -33,6 +34,8 @@ var (
 	sandboxProbeFactory     = func() sandboxProbe { return hostSandboxProbe{} }
 )
 
+var sandboxApprovalsFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/sandbox-approvals.yaml")
+
 type semver struct {
 	major int
 	minor int
@@ -43,6 +46,17 @@ type sandboxPolicyProfile struct {
 	Name       string
 	Policy     string
 	AllowHosts []string
+}
+
+type sandboxApprovalRecord struct {
+	ProjectDir    string `yaml:"project"`
+	BackendType   string `yaml:"backend"`
+	PolicyProfile string `yaml:"policy_profile"`
+	ApprovedAt    string `yaml:"approved_at,omitempty"`
+}
+
+type sandboxApprovalsFile struct {
+	Approvals []sandboxApprovalRecord `yaml:"approvals"`
 }
 
 type sandboxDoctorCheck struct {
@@ -473,6 +487,93 @@ func formatSandboxBackendLabel(kind string) string {
 	}
 }
 
+func loadSandboxApprovals() sandboxApprovalsFile {
+	data, err := os.ReadFile(sandboxApprovalsFilePath)
+	if err != nil {
+		return sandboxApprovalsFile{}
+	}
+	var af sandboxApprovalsFile
+	_ = yaml.Unmarshal(data, &af)
+	return af
+}
+
+func saveSandboxApprovals(af sandboxApprovalsFile) error {
+	dir := filepath.Dir(sandboxApprovalsFilePath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(&af)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(sandboxApprovalsFilePath, data, 0o600)
+}
+
+func sandboxApprovalGranted(projectDir, backendType, policyProfile string) bool {
+	af := loadSandboxApprovals()
+	for _, rec := range af.Approvals {
+		if rec.ProjectDir == projectDir &&
+			rec.BackendType == backendType &&
+			rec.PolicyProfile == policyProfile {
+			return true
+		}
+	}
+	return false
+}
+
+func recordSandboxApproval(projectDir, backendType, policyProfile string) error {
+	af := loadSandboxApprovals()
+
+	filtered := af.Approvals[:0]
+	for _, rec := range af.Approvals {
+		if rec.ProjectDir != projectDir {
+			filtered = append(filtered, rec)
+		}
+	}
+	filtered = append(filtered, sandboxApprovalRecord{
+		ProjectDir:    projectDir,
+		BackendType:   backendType,
+		PolicyProfile: policyProfile,
+		ApprovedAt:    sandboxNow().Format(time.RFC3339),
+	})
+	af.Approvals = filtered
+
+	return saveSandboxApprovals(af)
+}
+
+func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicyProfile) error {
+	if sandboxApprovalGranted(projectDir, backendType, profile.Name) {
+		return nil
+	}
+
+	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+	if !ui.IsInteractive() && !flagDryRun && !flagYesAll {
+		return fmt.Errorf("Tier 3 approval required for %s. Re-run interactively or with --yes to record approval, or use --ignore-docker for code-only work", projectDir)
+	}
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "hazmat: Tier 3 approval required for %s\n", projectDir)
+	fmt.Fprintf(os.Stderr, "hazmat: backend: %s\n", formatSandboxBackendLabel(backendType))
+	fmt.Fprintf(os.Stderr, "hazmat: policy profile: %s\n", profile.Name)
+	fmt.Fprintln(os.Stderr)
+
+	if !ui.Ask("Approve Tier 3 Docker Sandbox use for this project?") {
+		return fmt.Errorf("Tier 3 approval declined for %s", projectDir)
+	}
+
+	if flagDryRun {
+		fmt.Fprintln(os.Stderr, "hazmat: dry-run: would record Tier 3 approval")
+		return nil
+	}
+
+	if err := recordSandboxApproval(projectDir, backendType, profile.Name); err != nil {
+		return fmt.Errorf("save Tier 3 approval: %w", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "hazmat: Tier 3 approval recorded.")
+	return nil
+}
+
 func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 	if wantsResume, _, wantsContinue := detectResumeFlags(forwarded); wantsResume || wantsContinue {
 		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --sandbox mode")
@@ -528,11 +629,14 @@ func prepareDockerSandbox(cfg sessionConfig, agent string) (sandboxProbe, string
 	}
 
 	probe := sandboxProbeFactory()
-	_, profile, version, err := loadHealthySandboxLaunchBackend(probe)
+	backend, profile, version, err := loadHealthySandboxLaunchBackend(probe)
 	if err != nil {
 		return nil, "", err
 	}
 	if err := validateSandboxLaunchCompatibility(agent, cfg, version); err != nil {
+		return nil, "", err
+	}
+	if err := ensureSandboxApproval(cfg.ProjectDir, backend.Type, profile); err != nil {
 		return nil, "", err
 	}
 
@@ -580,7 +684,6 @@ func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig,
 	if err != nil {
 		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("parse Docker Desktop version: %w", err)
 	}
-
 	return backend, profile, version, nil
 }
 

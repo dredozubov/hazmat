@@ -226,10 +226,69 @@ func TestRunSandboxResetClearsBackendConfig(t *testing.T) {
 	}
 }
 
+func TestSandboxApprovalRoundTrip(t *testing.T) {
+	saved := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	t.Cleanup(func() { sandboxApprovalsFilePath = saved })
+
+	if sandboxApprovalGranted("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline) {
+		t.Fatal("should not be approved before recording")
+	}
+	if err := recordSandboxApproval("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatal(err)
+	}
+	if !sandboxApprovalGranted("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline) {
+		t.Fatal("should be approved after recording")
+	}
+}
+
+func TestSandboxApprovalInvalidatedOnPolicyChange(t *testing.T) {
+	saved := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	t.Cleanup(func() { sandboxApprovalsFilePath = saved })
+
+	if err := recordSandboxApproval("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatal(err)
+	}
+	if !sandboxApprovalGranted("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline) {
+		t.Fatal("should be approved with original tuple")
+	}
+	if sandboxApprovalGranted("/test/project", sandboxBackendDockerSandboxes, "stricter") {
+		t.Fatal("approval should not survive policy change")
+	}
+	if sandboxApprovalGranted("/test/project", "colima", sandboxPolicyProfileBaseline) {
+		t.Fatal("approval should not survive backend change")
+	}
+}
+
+func TestEnsureSandboxApprovalYesAllRecordsApproval(t *testing.T) {
+	savedPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedPath }()
+
+	savedYesAll := flagYesAll
+	flagYesAll = true
+	defer func() { flagYesAll = savedYesAll }()
+
+	savedDryRun := flagDryRun
+	flagDryRun = false
+	defer func() { flagDryRun = savedDryRun }()
+
+	if err := ensureSandboxApproval("/test/project", sandboxBackendDockerSandboxes, defaultSandboxPolicyProfile()); err != nil {
+		t.Fatalf("ensureSandboxApproval: %v", err)
+	}
+	if !sandboxApprovalGranted("/test/project", sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline) {
+		t.Fatal("approval should be recorded when --yes is active")
+	}
+}
+
 func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
 	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
 
 	cfg := defaultConfig()
 	cfg.Sandbox.Backend = &SandboxBackendConfig{
@@ -245,6 +304,9 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
 	name := sandboxName("claude", sessionCfg, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
 
 	probe := healthySandboxProbe()
 	probe.outputs[sandboxProbeKey("docker", "desktop", "version", "--short")] = fakeSandboxResult{
@@ -287,6 +349,9 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
 	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
 
 	cfg := defaultConfig()
 	cfg.Sandbox.Backend = &SandboxBackendConfig{
@@ -302,6 +367,9 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
 	name := sandboxName("shell", sessionCfg, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
 
 	probe := healthySandboxProbe()
 	probe.outputs[sandboxProbeKey("docker", "desktop", "version", "--short")] = fakeSandboxResult{

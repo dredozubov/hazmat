@@ -49,6 +49,7 @@ func newShellCmd() *cobra.Command {
 	var packNames []string
 	var noBackup bool
 	var useSandbox bool
+	var allowDocker bool
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
@@ -59,6 +60,10 @@ func newShellCmd() *cobra.Command {
 				return err
 			}
 			if err := applyPacks(&cfg, packNames); err != nil {
+				return err
+			}
+			useSandbox, err = resolveSessionSandboxMode("shell", cfg.ProjectDir, useSandbox, allowDocker)
+			if err != nil {
 				return err
 			}
 			preSessionSnapshot(cfg, "shell", noBackup)
@@ -82,6 +87,8 @@ func newShellCmd() *cobra.Command {
 		"Skip pre-session snapshot")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run inside the configured Tier 3 Docker Sandbox backend")
+	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
+		"Continue in Tier 2 even if Docker markers are present")
 	return cmd
 }
 
@@ -91,6 +98,7 @@ func newExecCmd() *cobra.Command {
 	var packNames []string
 	var noBackup bool
 	var useSandbox bool
+	var allowDocker bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -101,6 +109,10 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 			if err := applyPacks(&cfg, packNames); err != nil {
+				return err
+			}
+			useSandbox, err = resolveSessionSandboxMode("exec", cfg.ProjectDir, useSandbox, allowDocker)
+			if err != nil {
 				return err
 			}
 			preSessionSnapshot(cfg, "exec", noBackup)
@@ -124,6 +136,8 @@ func newExecCmd() *cobra.Command {
 		"Skip pre-session snapshot")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run inside the configured Tier 3 Docker Sandbox backend")
+	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
+		"Continue in Tier 2 even if Docker markers are present")
 	return cmd
 }
 
@@ -176,15 +190,14 @@ Examples:
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
-			if !opts.useSandbox {
-				if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
-					return err
-				}
+			useSandbox, err := resolveSessionSandboxMode("claude", cfg.ProjectDir, opts.useSandbox, opts.allowDocker)
+			if err != nil {
+				return err
 			}
 
 			preSessionSnapshot(cfg, "claude", opts.noBackup)
 
-			if opts.useSandbox {
+			if useSandbox {
 				return runSandboxClaudeSession(cfg, forwarded)
 			}
 
@@ -783,6 +796,114 @@ var dockerArtifacts = []string{
 	"docker-compose.yaml",
 }
 
+type dockerProjectDetection struct {
+	HardMarkers []string
+	SoftMarkers []string
+}
+
+func (d dockerProjectDetection) HasHardMarkers() bool {
+	return len(d.HardMarkers) > 0
+}
+
+func (d dockerProjectDetection) HasSoftMarkers() bool {
+	return len(d.SoftMarkers) > 0
+}
+
+func (d dockerProjectDetection) markers() []string {
+	out := make([]string, 0, len(d.HardMarkers)+len(d.SoftMarkers))
+	out = append(out, d.HardMarkers...)
+	out = append(out, d.SoftMarkers...)
+	return out
+}
+
+func detectDockerProject(projectDir string) dockerProjectDetection {
+	var detection dockerProjectDetection
+	for _, name := range dockerArtifacts {
+		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
+			detection.HardMarkers = append(detection.HardMarkers, name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".devcontainer")); err == nil {
+		detection.SoftMarkers = append(detection.SoftMarkers, ".devcontainer/")
+	}
+	return detection
+}
+
+func dockerTier3Example(commandName, projectDir string) string {
+	switch commandName {
+	case "shell":
+		return fmt.Sprintf("hazmat shell --sandbox -C %s", projectDir)
+	case "exec":
+		return fmt.Sprintf("hazmat exec --sandbox -C %s -- <command>", projectDir)
+	default:
+		return fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
+	}
+}
+
+func dockerProjectBlockedMessage(commandName, projectDir string, detection dockerProjectDetection) string {
+	return strings.TrimLeft(fmt.Sprintf(`
+Docker artifacts detected in %s: %s
+
+Docker-capable sessions require the configured Tier 3 Docker Sandbox backend.
+
+  hazmat sandbox setup              Record the supported Tier 3 backend
+  %s   Use Tier 3 for full Docker
+  hazmat %s --ignore-docker         Continue without Docker support
+`,
+		projectDir,
+		strings.Join(detection.markers(), ", "),
+		dockerTier3Example(commandName, projectDir),
+		commandName,
+	), "\n")
+}
+
+func dockerProjectAdvisoryMessage(commandName, projectDir string, detection dockerProjectDetection) string {
+	return strings.TrimLeft(fmt.Sprintf(`
+Container workflow metadata detected in %s: %s
+
+Hazmat is continuing in the current containment mode because .devcontainer/
+alone does not force Tier 3 routing.
+
+  %s   Use Tier 3 explicitly if this session needs Docker
+`,
+		projectDir,
+		strings.Join(detection.markers(), ", "),
+		dockerTier3Example(commandName, projectDir),
+	), "\n")
+}
+
+func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox, allowDocker bool) (bool, error) {
+	if requestedSandbox {
+		return true, nil
+	}
+
+	detection := detectDockerProject(projectDir)
+	if detection.HasHardMarkers() {
+		if allowDocker {
+			fmt.Fprintln(os.Stderr, "Warning:", dockerProjectBlockedMessage(commandName, projectDir, detection))
+			return false, nil
+		}
+
+		cfg, err := loadConfig()
+		if err != nil {
+			return false, err
+		}
+		if cfg.SandboxBackend() == nil {
+			return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
+		}
+
+		fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
+		fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into the configured Tier 3 Docker Sandbox backend\n", commandName)
+		return true, nil
+	}
+
+	if detection.HasSoftMarkers() {
+		fmt.Fprintln(os.Stderr, "Warning:", dockerProjectAdvisoryMessage(commandName, projectDir, detection))
+	}
+
+	return false, nil
+}
+
 // warnDockerProject checks whether projectDir contains Docker artifacts and
 // either returns an error (allow=false) or prints a warning and continues
 // (allow=true) with Tier 3 guidance. The host Docker socket is locked to
@@ -797,33 +918,15 @@ var dockerArtifacts = []string{
 // not by the seatbelt policy. The seatbelt allows broad network-outbound;
 // the protection is the socket file permission, enforced by sandbox setup.
 func warnDockerProject(projectDir string, allow bool) error {
-	var found []string
-	for _, name := range dockerArtifacts {
-		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
-			found = append(found, name)
+	detection := detectDockerProject(projectDir)
+	if !detection.HasHardMarkers() {
+		if detection.HasSoftMarkers() {
+			fmt.Fprintln(os.Stderr, "Warning:", dockerProjectAdvisoryMessage("claude", projectDir, detection))
 		}
-	}
-	// Also check .devcontainer/
-	if _, err := os.Stat(filepath.Join(projectDir, ".devcontainer")); err == nil {
-		found = append(found, ".devcontainer/")
-	}
-	if len(found) == 0 {
 		return nil
 	}
 
-	msg := fmt.Sprintf(`
-Docker artifacts detected in %s: %s
-
-Docker is not available in this containment mode (socket locked to owner-only).
-
-  hazmat claude --ignore-docker   Continue without Docker support
-  hazmat claude --sandbox -C %s   Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
-`,
-		projectDir,
-		strings.Join(found, ", "),
-		projectDir,
-	)
-	msg = strings.TrimLeft(msg, "\n")
+	msg := dockerProjectBlockedMessage("claude", projectDir, detection)
 	if allow {
 		fmt.Fprintln(os.Stderr, "Warning:", msg)
 		return nil

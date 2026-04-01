@@ -525,12 +525,8 @@ func TestWarnDockerProjectDevcontainerDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
 		t.Fatalf("mkdir .devcontainer: %v", err)
 	}
-	err := warnDockerProject(dir, false)
-	if err == nil {
-		t.Fatal("expected error when .devcontainer/ is present, got nil")
-	}
-	if !strings.Contains(err.Error(), ".devcontainer/") {
-		t.Errorf("error message should name .devcontainer/, got: %s", err)
+	if err := warnDockerProject(dir, false); err != nil {
+		t.Fatalf("expected advisory-only behavior for .devcontainer/, got: %v", err)
 	}
 }
 
@@ -577,6 +573,113 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--ignore-docker") {
 		t.Errorf("error message should mention --ignore-docker override, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "hazmat sandbox setup") {
+		t.Errorf("error message should mention sandbox setup, got: %s", err)
+	}
+}
+
+func TestResolveSessionSandboxModeHardMarkersNeedSetup(t *testing.T) {
+	isolateConfig(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	useSandbox, err := resolveSessionSandboxMode("claude", dir, false, false)
+	if err == nil {
+		t.Fatal("expected missing backend config to fail closed")
+	}
+	if useSandbox {
+		t.Fatal("useSandbox should be false when setup is missing")
+	}
+	if !strings.Contains(err.Error(), "hazmat sandbox setup") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionSandboxModeAutoRoutesConfiguredDockerProject(t *testing.T) {
+	savedCfg := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	t.Cleanup(func() { configFilePath = savedCfg })
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	useSandbox, err := resolveSessionSandboxMode("shell", dir, false, false)
+	if err != nil {
+		t.Fatalf("resolveSessionSandboxMode: %v", err)
+	}
+	if !useSandbox {
+		t.Fatal("expected configured Docker project to auto-route into Tier 3")
+	}
+}
+
+func TestResolveSessionSandboxModeIgnoreDockerKeepsTier2(t *testing.T) {
+	savedCfg := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	t.Cleanup(func() { configFilePath = savedCfg })
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	useSandbox, err := resolveSessionSandboxMode("exec", dir, false, true)
+	if err != nil {
+		t.Fatalf("resolveSessionSandboxMode: %v", err)
+	}
+	if useSandbox {
+		t.Fatal("expected --ignore-docker to keep the session in Tier 2")
+	}
+}
+
+func TestResolveSessionSandboxModeDevcontainerOnlyIsAdvisory(t *testing.T) {
+	savedCfg := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	t.Cleanup(func() { configFilePath = savedCfg })
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
+		t.Fatalf("mkdir .devcontainer: %v", err)
+	}
+
+	useSandbox, err := resolveSessionSandboxMode("claude", dir, false, false)
+	if err != nil {
+		t.Fatalf("resolveSessionSandboxMode: %v", err)
+	}
+	if useSandbox {
+		t.Fatal("expected .devcontainer-only repo to stay in Tier 2")
 	}
 }
 
