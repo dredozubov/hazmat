@@ -1,0 +1,20 @@
+pack:
+  name: go
+  version: 1
+  description: Go project defaults
+
+detect:
+  files: [go.mod]
+
+session:
+  env_passthrough: [GOPATH, GOPROXY, GOPRIVATE, CGO_ENABLED]
+
+backup:
+  excludes: [vendor/]
+
+warnings:
+  - "Go module cache is shared read-only from invoker. Run 'go mod download' outside sandbox for new deps."
+
+commands:
+  test: go test ./...
+  build: go build ./...

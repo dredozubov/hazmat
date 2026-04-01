@@ -1,0 +1,23 @@
+pack:
+  name: rust
+  version: 1
+  description: Rust project defaults
+
+detect:
+  files: [Cargo.toml]
+
+session:
+  read_dirs:
+    - ~/.cargo/registry
+    - ~/.rustup/toolchains
+  env_passthrough: [RUSTUP_HOME, CARGO_HOME, CARGO_TARGET_DIR]
+
+backup:
+  excludes:
+    - target/
+
+commands:
+  test: cargo test
+  build: cargo build
+  check: cargo check
+  lint: cargo clippy

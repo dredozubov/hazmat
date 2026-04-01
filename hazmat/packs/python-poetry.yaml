@@ -1,0 +1,28 @@
+pack:
+  name: python-poetry
+  version: 1
+  description: Python project with Poetry
+
+detect:
+  files: [pyproject.toml, poetry.lock]
+
+session:
+  read_dirs:
+    - ~/.local/share/pypoetry
+  env_passthrough: [VIRTUAL_ENV]
+
+backup:
+  excludes:
+    - .venv/
+    - __pycache__/
+    - .pytest_cache/
+    - .mypy_cache/
+    - .ruff_cache/
+    - "*.pyc"
+    - dist/
+    - "*.egg-info/"
+
+commands:
+  test: poetry run pytest
+  lint: poetry run ruff check .
+  format: poetry run ruff format .

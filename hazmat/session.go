@@ -13,8 +13,11 @@ import (
 )
 
 type sessionConfig struct {
-	ProjectDir string
-	ReadDirs   []string
+	ProjectDir       string
+	ReadDirs         []string
+	BackupExcludes   []string
+	PackEnv          map[string]string // from pack env_passthrough (resolved values)
+	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
 }
 
 func runProjectPreflight(projectDir string) error {
@@ -32,6 +35,7 @@ func runProjectPreflight(projectDir string) error {
 func newShellCmd() *cobra.Command {
 	var project string
 	var readDirs []string
+	var packNames []string
 	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "shell",
@@ -42,10 +46,13 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := applyPacks(&cfg, packNames); err != nil {
+				return err
+			}
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
-			preSessionSnapshot(cfg.ProjectDir, "shell", noBackup)
+			preSessionSnapshot(cfg, "shell", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
@@ -54,6 +61,8 @@ func newShellCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&packNames, "pack", nil,
+		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	return cmd
@@ -62,6 +71,7 @@ func newShellCmd() *cobra.Command {
 func newExecCmd() *cobra.Command {
 	var project string
 	var readDirs []string
+	var packNames []string
 	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
@@ -72,10 +82,13 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := applyPacks(&cfg, packNames); err != nil {
+				return err
+			}
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
-			preSessionSnapshot(cfg.ProjectDir, "exec", noBackup)
+			preSessionSnapshot(cfg, "exec", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
@@ -84,6 +97,8 @@ func newExecCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&packNames, "pack", nil,
+		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	return cmd
@@ -98,6 +113,7 @@ func newClaudeCmd() *cobra.Command {
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
   -R, --read <dir>       Read-only directory (repeatable)
+  --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
   --ignore-docker        Skip Docker artifact check
 
@@ -132,6 +148,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if err := applyPacks(&cfg, opts.packs); err != nil {
+				return err
+			}
 			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
@@ -142,7 +161,7 @@ Examples:
 				return err
 			}
 
-			preSessionSnapshot(cfg.ProjectDir, "claude", opts.noBackup)
+			preSessionSnapshot(cfg, "claude", opts.noBackup)
 
 			// Sync sessions for --resume / --continue.
 			// Copies the invoking user's session files into the agent's
@@ -184,6 +203,7 @@ func newOpenCodeCmd() *cobra.Command {
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
   -R, --read <dir>       Read-only directory (repeatable)
+  --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
   --ignore-docker        Skip Docker artifact check
 
@@ -210,6 +230,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if err := applyPacks(&cfg, opts.packs); err != nil {
+				return err
+			}
 			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
@@ -217,7 +240,7 @@ Examples:
 				return err
 			}
 
-			preSessionSnapshot(cfg.ProjectDir, "opencode", opts.noBackup)
+			preSessionSnapshot(cfg, "opencode", opts.noBackup)
 
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && `+
@@ -234,6 +257,7 @@ Examples:
 type harnessSessionOpts struct {
 	project     string
 	readDirs    []string
+	packs       []string
 	noBackup    bool
 	allowDocker bool
 }
@@ -244,8 +268,8 @@ var errHarnessHelp = fmt.Errorf("help requested")
 var errClaudeHelp = errHarnessHelp
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --no-backup, --ignore-docker) are extracted;
-// everything else is returned as forwarded args for the harness tool.
+// Hazmat flags (--project, --read, --pack, --no-backup, --ignore-docker)
+// are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
 	var forwarded []string
@@ -282,6 +306,14 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.readDirs = append(opts.readDirs, args[i])
 		case strings.HasPrefix(arg, "--read="):
 			opts.readDirs = append(opts.readDirs, arg[len("--read="):])
+		case arg == "--pack":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires a pack name", arg)
+			}
+			i++
+			opts.packs = append(opts.packs, args[i])
+		case strings.HasPrefix(arg, "--pack="):
+			opts.packs = append(opts.packs, arg[len("--pack="):])
 		default:
 			forwarded = append(forwarded, arg)
 		}
@@ -291,6 +323,86 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 
 func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 	return parseHarnessArgs(args)
+}
+
+// applyPacks resolves, validates, and merges active packs into the session
+// config. It also prints pack suggestions and warnings to stderr.
+func applyPacks(cfg *sessionConfig, packFlags []string) error {
+	packs, err := resolveActivePacks(packFlags, cfg.ProjectDir)
+	if err != nil {
+		return err
+	}
+
+	// Detect and suggest packs if none are active.
+	activeNames := make(map[string]struct{}, len(packs))
+	for _, p := range packs {
+		activeNames[p.PackMeta.Name] = struct{}{}
+	}
+	if suggestions := suggestPacks(cfg.ProjectDir, activeNames); len(suggestions) > 0 {
+		fmt.Fprintf(os.Stderr, "hazmat: suggested packs: %s (activate with --pack <name>)\n",
+			strings.Join(suggestions, ", "))
+	}
+
+	if len(packs) == 0 {
+		return nil
+	}
+
+	// Print active packs.
+	names := make([]string, 0, len(packs))
+	for _, p := range packs {
+		names = append(names, p.PackMeta.Name)
+	}
+	fmt.Fprintf(os.Stderr, "hazmat: active packs: %s\n", strings.Join(names, ", "))
+
+	// Merge all packs.
+	merged, err := mergePacks(packs)
+	if err != nil {
+		return err
+	}
+
+	// Apply merged read dirs.
+	if len(merged.ReadDirs) > 0 {
+		cfg.ReadDirs = append(cfg.ReadDirs, merged.ReadDirs...)
+		fmt.Fprintf(os.Stderr, "hazmat: pack read dirs: %s\n",
+			strings.Join(merged.ReadDirs, ", "))
+	}
+
+	if len(merged.Excludes) > 0 {
+		seen := make(map[string]struct{}, len(cfg.BackupExcludes))
+		for _, pat := range cfg.BackupExcludes {
+			seen[pat] = struct{}{}
+		}
+		var added []string
+		for _, pat := range merged.Excludes {
+			if _, dup := seen[pat]; dup {
+				continue
+			}
+			cfg.BackupExcludes = append(cfg.BackupExcludes, pat)
+			added = append(added, pat)
+			seen[pat] = struct{}{}
+		}
+		if len(added) > 0 {
+			fmt.Fprintf(os.Stderr, "hazmat: pack snapshot excludes: %s\n",
+				strings.Join(added, ", "))
+		}
+	}
+
+	// Apply env passthrough.
+	cfg.PackEnv = merged.EnvPassthrough
+	cfg.PackRegistryKeys = merged.RegistryKeys
+
+	// Surface registry-redirect keys as a residual risk notice.
+	if len(merged.RegistryKeys) > 0 {
+		fmt.Fprintf(os.Stderr, "hazmat: note: pack passes registry URLs from invoker env: %s\n",
+			strings.Join(merged.RegistryKeys, ", "))
+	}
+
+	// Print warnings.
+	for _, w := range merged.Warnings {
+		fmt.Fprintf(os.Stderr, "hazmat: pack warning: %s\n", w)
+	}
+
+	return nil
 }
 
 func resolveSessionConfig(project string, readPaths []string) (sessionConfig, error) {
@@ -305,8 +417,9 @@ func resolveSessionConfig(project string, readPaths []string) (sessionConfig, er
 	}
 
 	return sessionConfig{
-		ProjectDir: projectDir,
-		ReadDirs:   readDirs,
+		ProjectDir:     projectDir,
+		ReadDirs:       readDirs,
+		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil
 }
 
@@ -753,13 +866,13 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 
 // preSessionSnapshot takes an automatic snapshot before a session starts.
 // Warns on failure but never blocks the session.
-func preSessionSnapshot(projectDir, command string, skip bool) {
+func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
 	if skip {
 		return
 	}
 	start := time.Now()
-	fmt.Fprintf(os.Stderr, "  Snapshot: %s ... ", projectDir)
-	if err := snapshotProject(projectDir, command); err != nil {
+	fmt.Fprintf(os.Stderr, "  Snapshot: %s ... ", cfg.ProjectDir)
+	if err := snapshotProject(cfg.ProjectDir, command, cfg.BackupExcludes...); err != nil {
 		fmt.Fprintf(os.Stderr, "\n  Warning: pre-session snapshot failed: %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Session will proceed without a restore point.")
 		return
@@ -797,6 +910,13 @@ func agentEnvPairs(cfg sessionConfig) []string {
 	// must be run outside the sandbox first.
 	if modCache := invokerGoModCache(); modCache != "" {
 		pairs = append(pairs, "GOMODCACHE="+modCache)
+	}
+
+	// Pack env passthrough: passive path pointers and selectors resolved
+	// from the invoker's environment. Only keys in safeEnvKeys are allowed;
+	// validation happens at pack load time.
+	for key, val := range cfg.PackEnv {
+		pairs = append(pairs, key+"="+val)
 	}
 
 	return pairs

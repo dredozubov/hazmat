@@ -340,12 +340,16 @@ Keys:
   session.skip_permissions        Pass --dangerously-skip-permissions to Claude (default: true)
   session.read_dirs.add           Add a read-only directory to auto-include in sessions
   session.read_dirs.remove        Remove a read-only directory from auto-include
+  packs.pin                       Pin packs to a project (value: project:pack1,pack2)
+  packs.unpin                     Remove pack pinning for a project (value: project path)
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
   hazmat config set backup.excludes.add .idea/
   hazmat config set session.skip_permissions false
-  hazmat config set session.read_dirs.add ~/other-code`,
+  hazmat config set session.read_dirs.add ~/other-code
+  hazmat config set packs.pin "~/workspace/my-app:node,python-poetry"
+  hazmat config set packs.unpin ~/workspace/my-app`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runConfigSet(args[0], args[1])
@@ -419,6 +423,57 @@ func runConfigSet(key, value string) error {
 			}
 		}
 		cfg.Session.ReadDirs = &filtered
+	case "packs.pin":
+		// Format: "project:pack1,pack2"
+		parts := strings.SplitN(value, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("packs.pin format: project:pack1,pack2")
+		}
+		project := strings.TrimSpace(parts[0])
+		if project == "" {
+			return fmt.Errorf("packs.pin format: project:pack1,pack2")
+		}
+		rawPackNames := strings.Split(parts[1], ",")
+		packNames := make([]string, 0, len(rawPackNames))
+		seenPackNames := make(map[string]struct{}, len(rawPackNames))
+		// Validate pack names exist.
+		for _, rawName := range rawPackNames {
+			name := strings.TrimSpace(rawName)
+			if name == "" {
+				return fmt.Errorf("packs.pin format: project:pack1,pack2")
+			}
+			if _, seen := seenPackNames[name]; seen {
+				continue
+			}
+			if _, err := loadPackByName(name); err != nil {
+				return fmt.Errorf("unknown pack %q: %w", name, err)
+			}
+			packNames = append(packNames, name)
+			seenPackNames[name] = struct{}{}
+		}
+		// Replace existing pin for this project, or append.
+		found := false
+		for i, pin := range cfg.Packs.Pinned {
+			if pin.ProjectDir == project {
+				cfg.Packs.Pinned[i].Packs = packNames
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.Packs.Pinned = append(cfg.Packs.Pinned, PackPin{
+				ProjectDir: project,
+				Packs:      packNames,
+			})
+		}
+	case "packs.unpin":
+		filtered := cfg.Packs.Pinned[:0]
+		for _, pin := range cfg.Packs.Pinned {
+			if pin.ProjectDir != value {
+				filtered = append(filtered, pin)
+			}
+		}
+		cfg.Packs.Pinned = filtered
 	default:
 		return fmt.Errorf("unknown key: %s\nRun 'hazmat config set --help' for available keys.", key)
 	}

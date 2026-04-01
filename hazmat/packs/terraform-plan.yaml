@@ -1,0 +1,22 @@
+pack:
+  name: terraform-plan
+  version: 1
+  description: Terraform plan/validate only — no apply, no cloud creds
+
+detect:
+  files: [main.tf, terraform.tf]
+
+backup:
+  excludes:
+    - .terraform/
+    - "*.tfstate"
+    - "*.tfstate.backup"
+
+warnings:
+  - "Plan and validate only. Cloud credentials are not exposed."
+  - "terraform apply requires execution outside the sandbox."
+
+commands:
+  plan: terraform plan
+  validate: terraform validate
+  fmt: terraform fmt -check

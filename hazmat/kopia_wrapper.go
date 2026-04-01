@@ -151,8 +151,27 @@ func openLocalRepo(ctx context.Context) (repo.Repository, error) {
 
 // ── Snapshot operations ─────────────────────────────────────────────────────
 
+func snapshotIgnoreRules(extra []string) []string {
+	cfg, err := loadConfig()
+	base := backupBuiltinExcludes
+	if err == nil && len(cfg.Backup.Excludes) > 0 {
+		base = cfg.Backup.Excludes
+	}
+
+	rules := make([]string, 0, len(base)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, pat := range append(append([]string{}, base...), extra...) {
+		if _, dup := seen[pat]; dup {
+			continue
+		}
+		rules = append(rules, pat)
+		seen[pat] = struct{}{}
+	}
+	return rules
+}
+
 // snapshotDir creates a Kopia snapshot of sourcePath in the given repo.
-func snapshotDir(ctx context.Context, r repo.DirectRepository, sourcePath, description string) error {
+func snapshotDir(ctx context.Context, r repo.DirectRepository, sourcePath, description string, ignoreRules ...string) error {
 	ctx, wr, err := r.NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Snapshot"})
 	if err != nil {
 		return fmt.Errorf("create writer: %w", err)
@@ -168,7 +187,7 @@ func snapshotDir(ctx context.Context, r repo.DirectRepository, sourcePath, descr
 
 	p := &policy.Policy{
 		FilesPolicy: policy.FilesPolicy{
-			IgnoreRules: backupBuiltinExcludes,
+			IgnoreRules: snapshotIgnoreRules(ignoreRules),
 		},
 	}
 
@@ -251,7 +270,7 @@ func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapsho
 
 // snapshotProject takes a pre-session snapshot of the project directory.
 // Returns nil on success. Callers should warn but not block on error.
-func snapshotProject(projectDir, command string) error {
+func snapshotProject(projectDir, command string, ignoreRules ...string) error {
 	ctx := context.Background()
 
 	r, err := openLocalRepo(ctx)
@@ -261,7 +280,7 @@ func snapshotProject(projectDir, command string) error {
 	defer r.Close(ctx)
 
 	desc := fmt.Sprintf("pre-session (%s)", command)
-	return snapshotDir(ctx, r.(repo.DirectRepository), projectDir, desc)
+	return snapshotDir(ctx, r.(repo.DirectRepository), projectDir, desc, ignoreRules...)
 }
 
 // ── Cloud backup/restore ────────────────────────────────────────────────────

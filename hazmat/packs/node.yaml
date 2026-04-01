@@ -1,0 +1,26 @@
+pack:
+  name: node
+  version: 1
+  description: Node.js project defaults
+
+detect:
+  files: [package.json]
+
+session:
+  read_dirs:
+    - /opt/homebrew/lib/node_modules
+  env_passthrough: [NODE_ENV]
+
+backup:
+  excludes:
+    - node_modules/
+    - .next/
+    - .turbo/
+    - .nuxt/
+    - out/
+    - .vercel/
+
+commands:
+  test: npx vitest
+  build: npm run build
+  lint: npx eslint .

@@ -112,6 +112,37 @@ func TestResolveSessionConfigNoReadDirs(t *testing.T) {
 	}
 }
 
+func TestResolveSessionConfigUsesConfiguredBackupExcludes(t *testing.T) {
+	projectDir := t.TempDir()
+
+	savedCfg := configFilePath
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	configFilePath = cfgFile
+	t.Cleanup(func() { configFilePath = savedCfg })
+
+	cfg := defaultConfig()
+	cfg.Backup.Excludes = append(cfg.Backup.Excludes, ".terraform/")
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionCfg, err := resolveSessionConfig(projectDir, nil)
+	if err != nil {
+		t.Fatalf("resolveSessionConfig: %v", err)
+	}
+
+	found := false
+	for _, pat := range sessionCfg.BackupExcludes {
+		if pat == ".terraform/" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("BackupExcludes = %v, want to contain .terraform/", sessionCfg.BackupExcludes)
+	}
+}
+
 func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 	projectDir := t.TempDir()
 
@@ -639,6 +670,9 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 			"/Users/dr/workspace/ref-a",
 			"/Users/dr/workspace/ref-b",
 		},
+		PackEnv: map[string]string{
+			"GOPATH": "/Users/dr/go",
+		},
 	}
 
 	pairs := agentEnvPairs(cfg)
@@ -661,5 +695,38 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 	if len(dirs) != len(cfg.ReadDirs) {
 		t.Fatalf("read dir count = %d, want %d", len(dirs), len(cfg.ReadDirs))
+	}
+	if values["GOPATH"] != "/Users/dr/go" {
+		t.Fatalf("GOPATH = %q, want /Users/dr/go", values["GOPATH"])
+	}
+}
+
+func TestApplyPacksMergesSnapshotExcludes(t *testing.T) {
+	isolateConfig(t)
+
+	cfg := sessionConfig{
+		ProjectDir:     t.TempDir(),
+		BackupExcludes: []string{"node_modules/"},
+	}
+
+	if err := applyPacks(&cfg, []string{"node"}); err != nil {
+		t.Fatalf("applyPacks: %v", err)
+	}
+
+	countNodeModules := 0
+	foundNext := false
+	for _, pat := range cfg.BackupExcludes {
+		if pat == "node_modules/" {
+			countNodeModules++
+		}
+		if pat == ".next/" {
+			foundNext = true
+		}
+	}
+	if countNodeModules != 1 {
+		t.Fatalf("node_modules/ count = %d, want 1 in %v", countNodeModules, cfg.BackupExcludes)
+	}
+	if !foundNext {
+		t.Fatalf("BackupExcludes = %v, want to contain .next/", cfg.BackupExcludes)
 	}
 }
