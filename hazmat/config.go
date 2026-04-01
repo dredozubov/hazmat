@@ -26,6 +26,7 @@ type HazmatConfig struct {
 	Backup  BackupConfig  `yaml:"backup"`
 	Session SessionConfig `yaml:"session"`
 	Packs   PacksConfig   `yaml:"packs,omitempty"`
+	Sandbox SandboxConfig `yaml:"sandbox,omitempty"`
 }
 
 type SessionConfig struct {
@@ -45,6 +46,18 @@ type SessionConfig struct {
 	// every session. Default: empty. Visible in `hazmat config`, configurable
 	// via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
+}
+
+type SandboxConfig struct {
+	Backend *SandboxBackendConfig `yaml:"backend,omitempty"`
+}
+
+type SandboxBackendConfig struct {
+	Type           string `yaml:"type,omitempty"`
+	PolicyProfile  string `yaml:"policy_profile,omitempty"`
+	DesktopVersion string `yaml:"docker_desktop_version,omitempty"`
+	ComposeVersion string `yaml:"compose_version,omitempty"`
+	ConfiguredAt   string `yaml:"configured_at,omitempty"`
 }
 
 // PacksConfig holds per-project pack pinning.
@@ -119,6 +132,13 @@ func (c HazmatConfig) SessionReadDirs() []string {
 		return *c.Session.ReadDirs
 	}
 	return nil
+}
+
+func (c HazmatConfig) SandboxBackend() *SandboxBackendConfig {
+	if c.Sandbox.Backend == nil || c.Sandbox.Backend.Type == "" {
+		return nil
+	}
+	return c.Sandbox.Backend
 }
 
 func defaultConfig() HazmatConfig {
@@ -302,6 +322,25 @@ func runConfigShow() error {
 		fmt.Printf("    Read dirs:        %s\n", strings.Join(readDirs, ", "))
 	} else {
 		fmt.Printf("    Read dirs:        (none)\n")
+	}
+	fmt.Println()
+
+	cBold.Println("  Sandbox")
+	fmt.Println()
+	if backend := cfg.SandboxBackend(); backend != nil {
+		fmt.Printf("    Backend:          %s\n", formatSandboxBackendLabel(backend.Type))
+		fmt.Printf("    Policy profile:   %s\n", backend.PolicyProfile)
+		if backend.DesktopVersion != "" {
+			fmt.Printf("    Desktop version:  %s\n", backend.DesktopVersion)
+		}
+		if backend.ComposeVersion != "" {
+			fmt.Printf("    Compose version:  %s\n", backend.ComposeVersion)
+		}
+		if backend.ConfiguredAt != "" {
+			fmt.Printf("    Configured at:    %s\n", backend.ConfiguredAt)
+		}
+	} else {
+		fmt.Printf("    Backend:          (not configured)\n")
 	}
 	fmt.Println()
 

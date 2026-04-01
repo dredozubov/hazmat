@@ -105,6 +105,8 @@ func main() {
 	rollbackCmd.GroupID = "setup"
 	checkCmd := newInitCheckCmd()
 	checkCmd.GroupID = "setup"
+	sandboxCmd := newSandboxCmd()
+	sandboxCmd.GroupID = "setup"
 
 	// ── Run agents ──
 	claudeCmd := newClaudeCmd()
@@ -145,7 +147,7 @@ func main() {
 		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
 	root.AddCommand(
-		initCmd, bootstrapCmd, rollbackCmd, checkCmd,
+		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
 		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, packCmd, backupCmd, statusCmd, exportCmd,
