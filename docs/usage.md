@@ -97,9 +97,10 @@ Today packs can:
 They cannot widen write access, expose blocked credentials, or change firewall
 policy.
 
-Repos can declare recommended packs in `.hazmat/packs.yaml`. On first use,
-hazmat prompts for approval; after that, packs activate automatically. See
-[stack-packs.md](stack-packs.md) for details.
+Repos can ship a `.hazmat/packs.yaml` listing recommended packs. On first use,
+hazmat prompts once for approval; after that, packs activate automatically.
+Write your own packs in `~/.hazmat/packs/` for stacks or environments that
+built-ins don't cover. Full reference: [stack-packs.md](stack-packs.md).
 
 ### Specifying a Different Project Directory
 

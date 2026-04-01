@@ -323,3 +323,10 @@ Prerequisites:
 - Java 17+ installed locally (Homebrew: `brew install openjdk`)
 - `~/workspace/tla2tools.jar` downloaded (see `tla/VERIFIED.md`)
 - `~/workspace` as the sole entry in `session.read_dirs`
+
+## Further Reading
+
+- [design-assumptions.md](design-assumptions.md) — credential storage zones, pack trust model, approval trust boundaries
+- [threat-matrix.md](threat-matrix.md) — footnotes 9 and 10 cover pack approval threat analysis
+- [usage.md](usage.md) — daily workflow including packs
+- [overview.md](overview.md) — tier selection and where packs fit in the containment model

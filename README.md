@@ -125,12 +125,14 @@ hazmat claude --pack node
 hazmat config set packs.pin "~/workspace/my-app:node,go"
 ```
 
-Stack packs are ergonomic overlays for common stacks. They can auto-add
-read-only toolchain paths, extend snapshot excludes for reproducible build
-artifacts, and pass through a small safe set of environment selectors such as
-`GOPATH` or `VIRTUAL_ENV`. They do not widen project write access, relax the
-credential deny list, or change the network policy. See
-[docs/stack-packs.md](docs/stack-packs.md).
+Stack packs are ergonomic overlays for common stacks. They add read-only
+toolchain paths, extend snapshot excludes, and pass through safe environment
+selectors like `GOPATH` or `VIRTUAL_ENV`. They cannot widen write access,
+relax the credential deny list, or change the network policy.
+
+Repos can declare recommended packs in `.hazmat/packs.yaml`. On first use,
+hazmat prompts once for approval — after that, packs activate automatically.
+See [docs/stack-packs.md](docs/stack-packs.md).
 
 ### Handing a Hazmat Session Back to Host Claude
 
@@ -216,7 +218,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [usage.md](docs/usage.md) | Complete user guide |
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
-| [stack-packs.md](docs/stack-packs.md) | Stack pack activation, pinning, and safety boundaries |
+| [stack-packs.md](docs/stack-packs.md) | Stack packs: activation, repo recommendations, user pack authoring, trust model |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |

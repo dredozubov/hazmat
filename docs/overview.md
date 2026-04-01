@@ -105,6 +105,8 @@ For the dedicated-user setup in [setup-option-a.md](setup-option-a.md), the key 
 
 That preserves the boundary without forcing the user to live inside `sudo -u agent -i`.
 
+[Stack packs](stack-packs.md) provide per-stack session ergonomics (read-only toolchain paths, snapshot excludes, safe env passthrough) without weakening Tier 2's containment. Repos can recommend packs via `.hazmat/packs.yaml`; hazmat prompts once for approval.
+
 ## Claude Code Permission Modes
 
 Claude Code has five permission modes, from most restrictive to most permissive:
