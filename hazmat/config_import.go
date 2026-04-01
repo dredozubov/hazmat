@@ -215,7 +215,7 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 				policy = claudeConflictFail
 			}
 
-			err = runClaudeBasicsImport(ui, r, env, claudeImportOptions{
+			err = claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,

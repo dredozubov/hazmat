@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestSemverCompare(t *testing.T) {
 	tests := []struct {
@@ -12,12 +16,12 @@ func TestSemverCompare(t *testing.T) {
 		{"0.2.0", "0.2.0", 0},
 		{"0.1.0", "0.3.0", -1},
 		{"1.0.0", "0.9.9", 1},
-		{"v0.2.0", "0.2.0", 0},     // v prefix stripped
+		{"v0.2.0", "0.2.0", 0},      // v prefix stripped
 		{"0.2.0-dirty", "0.2.0", 0}, // -dirty stripped
 		{"dev", "0.3.0", 1},         // dev > any release
 		{"0.3.0", "dev", -1},        // release < dev
 		{"dev", "dev", 0},
-		{"abc123", "0.1.0", 1},      // commit hash = dev
+		{"abc123", "0.1.0", 1}, // commit hash = dev
 	}
 	for _, tc := range tests {
 		got := semverCompare(tc.a, tc.b)
@@ -71,4 +75,61 @@ func TestPendingMigrations(t *testing.T) {
 			t.Errorf("expected nil for dev target, got %d", len(chain))
 		}
 	})
+}
+
+func TestSaveStatePreservesHarnessState(t *testing.T) {
+	originalStateFilePath := stateFilePath
+	stateFilePath = filepath.Join(t.TempDir(), "state.json")
+	t.Cleanup(func() {
+		stateFilePath = originalStateFilePath
+	})
+
+	if err := updateHarnessState(HarnessClaude, func(state HarnessState) HarnessState {
+		state.StateVersion = "1"
+		state.LastImportRunAt = "2026-04-01T10:00:00Z"
+		return state
+	}); err != nil {
+		t.Fatalf("updateHarnessState: %v", err)
+	}
+
+	if err := saveState("0.3.0"); err != nil {
+		t.Fatalf("saveState: %v", err)
+	}
+
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	if state.InitVersion != "0.3.0" {
+		t.Fatalf("InitVersion = %q, want %q", state.InitVersion, "0.3.0")
+	}
+
+	claude, ok := state.Harnesses[HarnessClaude]
+	if !ok {
+		t.Fatalf("expected %q harness state to be preserved", HarnessClaude)
+	}
+	if claude.StateVersion != "1" {
+		t.Fatalf("StateVersion = %q, want %q", claude.StateVersion, "1")
+	}
+	if claude.LastImportRunAt != "2026-04-01T10:00:00Z" {
+		t.Fatalf("LastImportRunAt = %q, want preserved value", claude.LastImportRunAt)
+	}
+}
+
+func TestRunDownMigrationsRemovesHarnessOnlyStateFile(t *testing.T) {
+	originalStateFilePath := stateFilePath
+	stateFilePath = filepath.Join(t.TempDir(), "state.json")
+	t.Cleanup(func() {
+		stateFilePath = originalStateFilePath
+	})
+
+	if err := claudeCodeHarness.RecordInstalled(); err != nil {
+		t.Fatalf("RecordInstalled: %v", err)
+	}
+
+	runDownMigrations(&UI{}, nil)
+
+	if _, err := os.Stat(stateFilePath); !os.IsNotExist(err) {
+		t.Fatalf("state file still exists after rollback cleanup, err=%v", err)
+	}
 }

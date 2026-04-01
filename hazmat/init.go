@@ -426,7 +426,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	}
 
 	// ── Bootstrap: install Claude Code ──────────────────────────────────────
-	if err := runBootstrap(ui, r); err != nil {
+	if err := claudeCodeHarness.Bootstrap(ui, r); err != nil {
 		return err
 	}
 
@@ -468,7 +468,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 
 	// ── Optional import: portable Claude basics ─────────────────────────────
 	if env, err := defaultClaudeImportEnv(); err == nil {
-		if err := runClaudeBasicsImport(ui, r, env, claudeImportOptions{
+		if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
 			PromptBeforeImport: true,
 			ConflictPolicy:     claudeConflictPrompt,
 			AllowNoopMessage:   false,

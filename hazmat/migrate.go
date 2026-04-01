@@ -235,6 +235,9 @@ func detectV010Artifacts() bool {
 func runDownMigrations(ui *UI, r *Runner) {
 	state, _ := loadState()
 	if state.InitVersion == "" {
+		if state.hasHarnessState() {
+			os.Remove(stateFilePath)
+		}
 		return
 	}
 

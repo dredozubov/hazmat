@@ -95,7 +95,7 @@ This command is idempotent: steps already completed are skipped.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return runBootstrap(ui, r)
+			return claudeCodeHarness.Bootstrap(ui, r)
 		},
 	}
 }

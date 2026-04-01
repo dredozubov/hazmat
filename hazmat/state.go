@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-// stateFilePath is where hazmat records which version last completed init.
+// stateFilePath is where hazmat records core init state and harness metadata.
 var stateFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/state.json")
 
-// HazmatState tracks the installed version for migration purposes.
+// HazmatState tracks the installed core version and any managed harness state.
 type HazmatState struct {
-	InitVersion string `json:"init_version"`
-	InitDate    string `json:"init_date"`
+	InitVersion string                     `json:"init_version"`
+	InitDate    string                     `json:"init_date"`
+	Harnesses   map[HarnessID]HarnessState `json:"harnesses,omitempty"`
 }
 
 func loadState() (HazmatState, error) {
@@ -35,19 +36,41 @@ func loadState() (HazmatState, error) {
 }
 
 func saveState(ver string) error {
+	s, err := loadState()
+	if err != nil {
+		s = HazmatState{}
+	}
+	s.InitVersion = ver
+	s.InitDate = time.Now().UTC().Format(time.RFC3339)
+	return writeState(s)
+}
+
+func updateHarnessState(id HarnessID, mutate func(HarnessState) HarnessState) error {
+	s, err := loadState()
+	if err != nil {
+		return err
+	}
+	if s.Harnesses == nil {
+		s.Harnesses = make(map[HarnessID]HarnessState)
+	}
+	s.Harnesses[id] = mutate(s.Harnesses[id])
+	return writeState(s)
+}
+
+func writeState(s HazmatState) error {
 	dir := filepath.Dir(stateFilePath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
-	}
-	s := HazmatState{
-		InitVersion: ver,
-		InitDate:    time.Now().UTC().Format(time.RFC3339),
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(stateFilePath, append(data, '\n'), 0o600)
+}
+
+func (s HazmatState) hasHarnessState() bool {
+	return len(s.Harnesses) > 0
 }
 
 // semverCompare returns -1, 0, or 1 comparing a and b as semver strings.
