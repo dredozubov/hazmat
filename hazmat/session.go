@@ -995,7 +995,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		f, err := os.CreateTemp("", "hazmat-resume-*.typescript")
 		if err == nil {
 			transcriptPath = f.Name()
-			f.Close()
+			_ = f.Close()
 			if err := os.Chmod(transcriptPath, 0o600); err != nil {
 				_ = os.Remove(transcriptPath)
 				transcriptPath = ""
