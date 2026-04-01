@@ -383,7 +383,7 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 
 			info, err := f.Stat()
 			if err != nil {
-				f.Close()
+				_ = f.Close()
 				continue
 			}
 			if info.Size() < offset {
@@ -391,13 +391,13 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 				tail = tail[:0]
 			}
 			if info.Size() == offset {
-				f.Close()
+				_ = f.Close()
 				continue
 			}
 
 			chunk := make([]byte, info.Size()-offset)
 			n, err := f.ReadAt(chunk, offset)
-			f.Close()
+			_ = f.Close()
 			if err != nil && err != io.EOF {
 				continue
 			}

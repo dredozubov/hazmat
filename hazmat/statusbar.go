@@ -117,7 +117,7 @@ func (s *statusBar) render() {
 	// Restore cursor inside the scroll region.
 	buf.WriteString("\0338")
 
-	os.Stderr.Write(buf.Bytes())
+	_, _ = os.Stderr.Write(buf.Bytes())
 
 	s.barRow = uint16(h)
 
@@ -241,14 +241,14 @@ func (s *statusBar) restore() {
 
 	if barRow == 0 {
 		// Bar was never drawn; just reset the scroll region.
-		os.Stderr.Write([]byte("\033[r"))
+		_, _ = os.Stderr.Write([]byte("\033[r"))
 		return
 	}
 
 	var buf bytes.Buffer
 	buf.WriteString("\033[r")
 	fmt.Fprintf(&buf, "\0337\033[%d;1H\033[K\0338", barRow)
-	os.Stderr.Write(buf.Bytes())
+	_, _ = os.Stderr.Write(buf.Bytes())
 }
 
 // shortenDir returns a display-friendly path: replaces the home prefix with ~
