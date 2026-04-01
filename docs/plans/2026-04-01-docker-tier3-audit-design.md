@@ -143,6 +143,26 @@ Do not support Colima, Podman, or generic devcontainer execution as first-class
 Hazmat backends in v1. Those may be considered later behind a backend adapter,
 but they should not expand the initial threat surface.
 
+## Implementation Sequencing
+
+The security contract in this document is intended to be fixed before Tier 3
+ships. Hazmat should be rigid about the required containment properties and the
+conditions a backend must satisfy to qualify.
+
+The code-level backend interface should not be treated as equally fixed at this
+stage. Hazmat should implement Docker Sandboxes as the first concrete backend,
+learn the real operational seams from that implementation, and only then
+extract the reusable backend interface.
+
+In other words:
+
+- fix the security contract now
+- discover the software abstraction from the first real backend
+- admit later backends only if they satisfy the same security contract
+
+This sequencing is deliberate. It avoids premature abstraction while still
+preventing Hazmat from weakening the acceptance bar for future backends.
+
 ## Proposed Command Surface
 
 Canonical session commands:
