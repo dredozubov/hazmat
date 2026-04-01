@@ -4,6 +4,13 @@ This document is the authoritative record of which subsystems are under formal
 verification, what was proved or disproved, and the governance rules that apply
 to future changes in those areas.
 
+Important scope boundary: the current TLA+ suite governs Hazmat's core
+containment, rollback, seatbelt, backup, and core version-migration logic. It
+does **not** yet model harness-specific lifecycle and import state such as
+Claude/OpenCode curated imports, per-harness metadata under `~/.hazmat/state.json`,
+or session-only stack pack activation/pinning. That work is tracked separately
+and should not be implied by the existing proofs.
+
 ---
 
 ## Governance Rules
@@ -51,7 +58,7 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 |-------|-------|
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
-| Governed code | `hazmat/setup.go` — `runSetup()`, all `setupX()` functions |
+| Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean`, `SetupEventuallyCompletes` |
@@ -153,7 +160,7 @@ Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir
 
 **Fix applied:**
 
-1. Added `snapshotProject(sharedWorkspace, "pre-cloud-restore")` to
+1. Added `snapshotProject(cloudBackupDir, "pre-cloud-restore")` to
    `runCloudRestore()` before the overwrite, matching the pattern in
    `runProjectRestore()`. Failure is non-fatal (warn and proceed).
 
@@ -180,7 +187,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
-| Governed code | `~/.hazmat/state.json` — version tracking |
+| Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is currently out of model) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
 | Status | **Proved** — 44,795 states, 140,535 transitions, 0 errors (3s) |
@@ -233,6 +240,18 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
+
+---
+
+## Not Yet Formally Modeled
+
+- Harness-specific bootstrap/import lifecycle for Claude/OpenCode
+- Per-harness metadata stored in `~/.hazmat/state.json`
+- Harness-specific rollback semantics beyond the agent-home coarse model
+- Stack pack activation, project pinning, and pack-specific snapshot ignore rules
+
+Until a harness-specific spec exists, these areas are governed by tests and
+documentation rather than the current TLC proofs.
 
 ---
 

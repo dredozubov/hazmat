@@ -300,6 +300,31 @@ func TestLoadPackInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLoadPackRejectsUnknownFields(t *testing.T) {
+	data := []byte(`
+pack:
+  name: test
+  version: 1
+  unknown_field: oops
+`)
+	if _, err := loadPack(data); err == nil {
+		t.Fatal("expected error for unknown field in pack section")
+	}
+}
+
+func TestLoadPackRejectsUnknownTopLevelKey(t *testing.T) {
+	data := []byte(`
+pack:
+  name: test
+  version: 1
+network:
+  allow_ssh: true
+`)
+	if _, err := loadPack(data); err == nil {
+		t.Fatal("expected error for unknown top-level key")
+	}
+}
+
 // ── Built-in packs ────────────────────────────────────────────────────────
 
 func TestBuiltinPacksLoad(t *testing.T) {

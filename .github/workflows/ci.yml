@@ -34,6 +34,19 @@ jobs:
         working-directory: hazmat
         run: go test ./...
 
+      - name: CLI smoke tests
+        working-directory: hazmat
+        run: |
+          go run . bootstrap --help >/dev/null
+          go run . bootstrap opencode --help >/dev/null
+          go run . opencode --help >/dev/null
+          go run . pack --help >/dev/null
+          go run . pack list >/dev/null
+          go run . pack show node >/dev/null
+          go run . config set --help >/dev/null
+          go run . config import claude --dry-run >/dev/null
+          go run . config import opencode --dry-run >/dev/null
+
   go-build:
     name: Build (${{ matrix.goarch }})
     runs-on: macos-latest

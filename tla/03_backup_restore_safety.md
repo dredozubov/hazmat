@@ -34,18 +34,18 @@ ordering**, not Kopia internals:
 |------|-----------|
 | `hazmat/kopia_wrapper.go` | `initLocalRepo()`, `openLocalRepo()`, `snapshotDir()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()`, `restoreSnapshotTo()` |
 | `hazmat/restore.go` | `runProjectRestore()` |
-| `hazmat/session.go` | `preSessionSnapshot()`, session commands (`shell`, `exec`, `claude`) |
+| `hazmat/session.go` | `preSessionSnapshot()`, session commands (`shell`, `exec`, `claude`, `opencode`) |
 | `hazmat/backup.go` | `newBackupCmd()`, `backupBuiltinExcludes` |
 
 ## Operation Paths (as implemented)
 
 ### Pre-session snapshot
 ```
-session command → preSessionSnapshot(projectDir, cmd, skip)
+session command → preSessionSnapshot(cfg, cmd, skip)
   skip=true  → return (no snapshot)
-  skip=false → snapshotProject(projectDir, cmd)
+  skip=false → snapshotProject(projectDir, cmd, ignoreRules...)
     openLocalRepo()  → auto-init if needed
-    snapshotDir()    → create snapshot
+    snapshotDir()    → create snapshot with configured ignore rules
     success → print timing, continue to session
     failure → warn to stderr, continue to session
 ```
@@ -122,6 +122,10 @@ hazmat backup --cloud
 
 4. **Cloud operations require config.** `loadCloudConfig()` fails immediately
    with a helpful error if the config file doesn't exist.
+
+5. **Snapshot contents are out of model.** Config-level exclude rules and
+   session-only stack-pack excludes change what gets snapshotted, but this
+   spec models only ordering and non-blocking behavior, not exact file sets.
 
 ## What TLC Should Find
 

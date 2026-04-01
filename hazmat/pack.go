@@ -270,13 +270,17 @@ var builtinPacksFS embed.FS
 var userPackDir = filepath.Join(os.Getenv("HOME"), ".hazmat/packs")
 
 // loadPack parses and schema-validates a single pack manifest from YAML bytes.
+// Unknown fields are rejected (fail closed) so typos and unsupported keys
+// are caught at load time rather than silently ignored.
 func loadPack(data []byte) (Pack, error) {
 	if len(data) > packMaxSize {
 		return Pack{}, fmt.Errorf("pack manifest exceeds %d byte limit", packMaxSize)
 	}
 
 	var p Pack
-	if err := yaml.Unmarshal(data, &p); err != nil {
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&p); err != nil {
 		return Pack{}, fmt.Errorf("parse pack: %w", err)
 	}
 
@@ -570,7 +574,7 @@ func runPackList() error {
 	}
 
 	fmt.Println()
-	fmt.Println("  Activate: hazmat claude --pack <name>")
+	fmt.Println("  Activate: hazmat claude|opencode|shell|exec --pack <name>")
 	fmt.Println("  Pin:      hazmat config set packs.pin \"~/workspace/app:node,go\"")
 	fmt.Println()
 	return nil

@@ -4,10 +4,12 @@
 \* session, and that repository preconditions are always met.
 \*
 \* The model covers three operation paths:
-\*   1. Pre-session snapshot (automatic before hazmat claude/exec/shell)
+\*   1. Pre-session snapshot (automatic before hazmat claude/exec/shell/opencode)
 \*   2. Local project restore (hazmat restore)
 \*   3. Cloud restore (hazmat restore --cloud)
 \*   4. Cloud backup (hazmat backup --cloud)
+\*
+\* Pack-specific/configured snapshot ignore rules are intentionally out of model.
 \*
 \* Each operation can succeed or fail nondeterministically. The key safety
 \* properties are about ordering (snapshot before overwrite) and graceful
@@ -112,7 +114,7 @@ RollbackRepo ==
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Session lifecycle — models preSessionSnapshot() + session launch
 \*
-\* Session commands: hazmat claude, hazmat exec, hazmat shell
+\* Session commands: hazmat claude, hazmat exec, hazmat shell, hazmat opencode
 \* Each calls preSessionSnapshot() which calls openLocalRepo() (auto-init)
 \* then snapshotProject(). On failure, warns but proceeds.
 \* ═══════════════════════════════════════════════════════════════════════════════

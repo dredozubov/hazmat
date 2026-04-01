@@ -37,16 +37,16 @@ type SessionConfig struct {
 	SkipPermissions *bool `yaml:"skip_permissions,omitempty"`
 
 	// ReadDirs are automatically added as -R (read-only) directories for
-	// every session. Default: [~/workspace]. Visible in `hazmat config`,
-	// configurable via `hazmat config set session.read_dirs.add <dir>`.
+	// every session. Default: empty. Visible in `hazmat config`, configurable
+	// via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
 }
 
 // PacksConfig holds per-project pack pinning.
 type PacksConfig struct {
 	// Pinned maps canonical project paths to pack names.
-	// Config stores raw paths (with ~); matching resolves both sides
-	// through Abs + EvalSymlinks before comparison.
+	// Input paths are normalized through Abs + EvalSymlinks before storage,
+	// so matching is stable across different spellings of the same path.
 	Pinned []PackPin `yaml:"pinned,omitempty"`
 }
 
@@ -433,6 +433,13 @@ func runConfigSet(key, value string) error {
 		if project == "" {
 			return fmt.Errorf("packs.pin format: project:pack1,pack2")
 		}
+		// Canonicalize the project path so pin/unpin/match all use the
+		// same resolved form. This prevents ~/app and /Users/dr/app from
+		// creating duplicate pins.
+		canonProject, err := canonicalizePath(expandTilde(project))
+		if err != nil {
+			return fmt.Errorf("resolve project path %q: %w", project, err)
+		}
 		rawPackNames := strings.Split(parts[1], ",")
 		packNames := make([]string, 0, len(rawPackNames))
 		seenPackNames := make(map[string]struct{}, len(rawPackNames))
@@ -454,7 +461,7 @@ func runConfigSet(key, value string) error {
 		// Replace existing pin for this project, or append.
 		found := false
 		for i, pin := range cfg.Packs.Pinned {
-			if pin.ProjectDir == project {
+			if pin.ProjectDir == canonProject {
 				cfg.Packs.Pinned[i].Packs = packNames
 				found = true
 				break
@@ -462,14 +469,19 @@ func runConfigSet(key, value string) error {
 		}
 		if !found {
 			cfg.Packs.Pinned = append(cfg.Packs.Pinned, PackPin{
-				ProjectDir: project,
+				ProjectDir: canonProject,
 				Packs:      packNames,
 			})
 		}
 	case "packs.unpin":
+		unpinPath := strings.TrimSpace(value)
+		// Canonicalize so the unpin matches regardless of path spelling.
+		if canonical, err := canonicalizePath(expandTilde(unpinPath)); err == nil {
+			unpinPath = canonical
+		}
 		filtered := cfg.Packs.Pinned[:0]
 		for _, pin := range cfg.Packs.Pinned {
-			if pin.ProjectDir != value {
+			if pin.ProjectDir != unpinPath {
 				filtered = append(filtered, pin)
 			}
 		}

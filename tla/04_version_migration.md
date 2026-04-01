@@ -15,12 +15,20 @@ old version created. Without a formal migration path:
 
 ### Version tracking
 
-`~/.hazmat/state.json` records which version last completed init:
+`~/.hazmat/state.json` records which version last completed init. It may also
+contain opaque harness metadata, but the current migration spec models only the
+core `init_version` / `init_date` fields:
 
 ```json
 {
   "init_version": "0.2.0",
-  "init_date": "2026-03-31T19:00:00Z"
+  "init_date": "2026-03-31T19:00:00Z",
+  "harnesses": {
+    "claude": {
+      "state_version": "1",
+      "last_import_run_at": "2026-04-01T11:00:00Z"
+    }
+  }
 }
 ```
 
@@ -114,6 +122,13 @@ java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
    is a lot of "everywhere."
 
 ## Known spec-vs-implementation divergences
+
+**Harness metadata in `state.json` is intentionally out of model.** The Go
+implementation now persists per-harness metadata under `state.harnesses`.
+`MC_Migration.tla` models only the core init-version migration chain because
+that metadata does not yet participate in Hazmat's versioned host-artifact
+migration logic. A future harness-specific migration track should model it
+explicitly rather than overloading the current core migration model.
 
 **Detection heuristic for v0.1.0 installs.** The spec models `Init` as
 starting from `Expected(v)` for any version — a complete, consistent artifact

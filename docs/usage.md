@@ -18,12 +18,13 @@ That's it. `init` creates a contained environment, installs Claude Code, asks fo
 When you run `hazmat init`, it:
 
 1. Creates a hidden `agent` macOS user (separate from yours)
-2. Sets up a shared workspace at `~/workspace` with proper permissions
-3. Installs a firewall that blocks the agent from SMTP, IRC, FTP, Tor, and other exfiltration protocols
-4. Adds a DNS blocklist for tunnel and paste services (ngrok, pastebin, etc.)
-5. Installs Claude Code for the agent user
-6. Asks for your Anthropic API key and git credentials
-7. Optionally imports portable Claude basics such as sign-in state, commands, and skills
+2. Adds the host-side access needed for contained sessions to reach the selected project directories
+3. Initializes the local Kopia repository for automatic pre-session snapshots
+4. Installs a firewall that blocks the agent from SMTP, IRC, FTP, Tor, and other exfiltration protocols
+5. Adds a DNS blocklist for tunnel and paste services (ngrok, pastebin, etc.)
+6. Installs Claude Code for the agent user
+7. Asks for your Anthropic API key and git credentials
+8. Optionally imports portable Claude basics such as sign-in state, commands, and skills
 
 Everything is interactive — it explains each step and asks for confirmation. To preview without making changes:
 
@@ -36,6 +37,7 @@ hazmat init --dry-run
 ```bash
 cd ~/workspace/my-project
 hazmat claude
+hazmat opencode
 ```
 
 This generates a per-session security policy, switches to the agent user, and launches Claude Code inside macOS seatbelt containment. When you exit Claude, the session is cleaned up.
@@ -50,6 +52,27 @@ hazmat claude -R ~/code/lib -R ~/docs     # cherry-pick specific dirs
 ```
 
 Read directories are strictly read-only — the agent cannot modify them.
+
+### Stack Packs
+
+Packs let you carry stack-specific ergonomics into a session without weakening
+Hazmat's trust boundaries:
+
+```bash
+hazmat pack list
+hazmat pack show node
+hazmat claude --pack node
+hazmat config set packs.pin "~/workspace/my-project:node,go"
+```
+
+Today packs can:
+
+- add read-only toolchain or cache directories
+- add snapshot excludes for reproducible build artifacts
+- pass through a small safe set of environment selectors such as `GOPATH` or `VIRTUAL_ENV`
+
+They cannot widen write access, expose blocked credentials, or change firewall
+policy. Full details live in [stack-packs.md](stack-packs.md).
 
 ### Specifying a Different Project Directory
 
@@ -112,6 +135,7 @@ claude --resume "$(hazmat export claude session -C ~/workspace/other-project)" -
 hazmat shell                    # interactive shell as the agent user
 hazmat exec npm install         # run a single command
 hazmat exec -C ~/workspace/proj npm test
+hazmat opencode -C ~/workspace/proj
 ```
 
 ## Checking Status
@@ -125,17 +149,25 @@ hazmat check --full        # include live network probes
 
 ## Backup and Restore
 
-### Local Backup (rsync)
+### Local project snapshots
+
+Hazmat automatically snapshots the current project directory before every
+session:
 
 ```bash
-hazmat backup /Volumes/BACKUP/workspace           # additive copy
-hazmat backup --sync /Volumes/BACKUP/workspace     # mirror (deletes extras)
-hazmat backup --show-scope                          # show what's included/excluded
+hazmat snapshots
+hazmat diff
+hazmat restore
+hazmat restore --session=2
 ```
 
-Edit `~/workspace/.backup-excludes` to control what's excluded.
+These snapshots cover only the selected project directory, not the entire
+workspace and not the extra read-only directories you pass via `-R`.
 
-### Cloud Backup (encrypted, incremental)
+Default excludes live in `hazmat config`, and packs can add stack-specific
+snapshot excludes such as `node_modules/` or `target/` for the active session.
+
+### Cloud backup (encrypted, incremental)
 
 ```bash
 hazmat init cloud              # one-time: configure S3 credentials
@@ -210,11 +242,4 @@ Your project files are not deleted. Back them up first if needed.
 - Read files outside the approved directories
 - Use `sudo`
 
-## Environment Variable
-
-Set `HAZMAT_WORKSPACE` to override the default `~/workspace` path:
-
-```bash
-export HAZMAT_WORKSPACE=~/code
-hazmat init    # uses ~/code instead of ~/workspace
-```
+For the current import policy and non-goals, see [claude-import.md](claude-import.md) and [opencode-import.md](opencode-import.md).

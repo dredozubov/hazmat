@@ -34,8 +34,12 @@
 \*   9: setupLaunchDaemon
 \*  10: setupLaunchHelper (verify, not create)
 \*  11: setupSudoers              ← privilege granted LAST
-\*  12: runBootstrap (claudeCode + npmrc)
+\*  12: runBootstrap (default Claude bootstrap + package-manager hardening)
 \*  13: configAgent (credentials)
+\*
+\* Explicit non-init harness commands like "hazmat bootstrap opencode",
+\* curated harness import flows, and session-only stack pack activation are
+\* intentionally out of model here.
 
 EXTENDS Naturals, FiniteSets
 

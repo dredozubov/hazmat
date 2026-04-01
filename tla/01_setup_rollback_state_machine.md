@@ -2,10 +2,11 @@
 
 ## Problem Statement
 
-Hazmat setup creates ~14 system resources in a fixed order: agent user, dev
-group, workspace, backup scope, umask, seatbelt wrapper, command wrappers,
-launch helper verification, sudoers, pf firewall, DNS blocklist, LaunchDaemon,
-Claude Code, and credentials. Rollback removes them in reverse order.
+Hazmat setup creates core system resources in a fixed order: agent user, dev
+group, home-directory traverse ACL, local snapshot repository, umask,
+seatbelt wrapper, command wrappers, pf firewall, DNS blocklist, LaunchDaemon,
+launch helper verification, sudoers, default Claude bootstrap, and agent
+credentials. Rollback removes the host-managed resources in reverse-safe order.
 
 The interesting correctness questions are NOT about concurrency (setup is
 sequential) but about the **state machine** formed by all possible
@@ -30,16 +31,18 @@ setup/interrupt/rollback/re-setup sequences:
 
 | File | Functions |
 |------|-----------|
-| `hazmat/setup.go` | `runSetup()`, `setupAgentUser()`, `setupDevGroup()`, `setupSharedWorkspace()`, `setupBackupScope()`, `setupHardeningGaps()`, `setupSeatbelt()`, `setupUserExperience()`, `setupLaunchHelper()`, `setupSudoers()`, `setupPfFirewall()`, `setupDNSBlocklist()`, `setupLaunchDaemon()`, `runBootstrap()`, `runEnroll()` |
-| `hazmat/rollback.go` | `runRollback()`, `rollbackLaunchDaemon()`, `rollbackPfFirewall()`, `rollbackDNSBlocklist()`, `rollbackSudoers()`, `rollbackSeatbelt()`, `rollbackUserExperience()`, `rollbackSymlinks()`, `rollbackUmask()`, `rollbackBackupScope()`, `rollbackAgentUser()`, `rollbackDevGroup()` |
+| `hazmat/init.go` | `runInit()`, `setupAgentUser()`, `setupDevGroup()`, `setupHomeDirTraverse()`, `setupLocalRepo()`, `setupHardeningGaps()`, `setupSeatbelt()`, `setupUserExperience()`, `setupPfFirewall()`, `setupDNSBlocklist()`, `setupLaunchDaemon()`, `setupLaunchHelper()`, `setupSudoers()` |
+| `hazmat/bootstrap.go` | `runBootstrap()` |
+| `hazmat/config_agent.go` | `runConfigAgent()` |
+| `hazmat/rollback.go` | `runRollback()`, `rollbackSudoers()`, `rollbackLaunchDaemon()`, `rollbackPfFirewall()`, `rollbackDNSBlocklist()`, `rollbackSeatbelt()`, `rollbackUserExperience()`, `rollbackHomeDirTraverse()`, `rollbackUmask()`, `rollbackLocalRepo()`, `rollbackAgentUser()`, `rollbackDevGroup()` |
 
 ## Setup Step Ordering (as implemented)
 
 ```
 Step  0: setupAgentUser        → agentUser
 Step  1: setupDevGroup         → devGroup
-Step  2: setupSharedWorkspace  → workspace
-Step  3: setupBackupScope      → backupScope
+Step  2: setupHomeDirTraverse  → homeDirTraverse
+Step  3: setupLocalRepo        → localRepo
 Step  4: setupHardeningGaps    → umask
 Step  5: setupSeatbelt         → seatbelt
 Step  6: setupUserExperience   → wrappers
@@ -49,7 +52,7 @@ Step  9: setupLaunchDaemon     → launchDaemon
 Step 10: setupLaunchHelper     → (verify only — fails if absent)
 Step 11: setupSudoers          → sudoers       ← agent becomes launchable (AFTER firewall)
 Step 12: runBootstrap          → claudeCode
-Step 13: runEnroll             → credentials
+Step 13: runConfigAgent        → credentials
 ```
 
 ## TLA+ Model
@@ -82,9 +85,10 @@ and how many setup/rollback attempts have occurred.
    Modeling them as one atomic step is safe because the real code always
    completes all steps.
 
-3. **Workspace is never removed.** Both `RollbackCore` and `RollbackDestructive`
-   leave `workspace = TRUE`. This matches the real code which explicitly
-   preserves the workspace to avoid surprise data loss.
+3. **Harness/session ergonomics are out of model.** Optional harness-specific
+   commands such as `hazmat bootstrap opencode`, curated import flows, and
+   session-only stack pack activation are not part of `runInit()` and are
+   therefore outside this setup/rollback model.
 
 ## What TLC Finds
 

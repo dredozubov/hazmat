@@ -10,7 +10,10 @@
 \*   hazmat/init.go       — runInit(), migration dispatch
 \*   hazmat/migrate.go    — migration functions (to be created)
 \*   hazmat/rollback.go   — runRollback()
-\*   ~/.hazmat/state.json — version tracking file
+\*   ~/.hazmat/state.json — core version tracking file
+\*
+\* Extra per-harness metadata may exist under state.json, but it is intentionally
+\* out of model until harness-specific migration tracks are formalized.
 
 EXTENDS Naturals, Sequences, FiniteSets
 

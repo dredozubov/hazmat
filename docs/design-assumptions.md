@@ -16,11 +16,11 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **One human controller.** Setup creates ACLs for the user who runs `hazmat init`. A second human user on the same Mac cannot co-manage the workspace without manual ACL changes.
 
-**Concurrent sessions are possible but racy.** Each `hazmat claude` gets a unique seatbelt policy (PID-based filename). But both sessions share the same agent home, Claude config, git identity, and API key. Two Claude instances writing to `~/.claude/` simultaneously is undefined behavior. We don't prevent it.
+**Concurrent sessions are possible but racy.** Each `hazmat claude`, `hazmat opencode`, `hazmat shell`, or `hazmat exec` session gets a unique seatbelt policy (PID-based filename). But all sessions share the same agent home and harness state. Two harness instances writing to shared state like `~/.claude/` or `~/.config/opencode/` simultaneously is undefined behavior. We don't prevent it.
 
 ## Shell
 
-**zsh only.** The agent user's shell is `/bin/zsh`. Environment setup writes to `.zshrc`. Host wrappers are added to the host user's `.zshrc`. If you use bash or fish as your login shell, the PATH modifications from setup won't take effect — you'd need to source them manually. We don't detect or warn about this.
+**Agent shell is zsh; host PATH setup supports zsh, bash, and fish.** The agent user's shell is `/bin/zsh`, and the agent bootstrap writes to the agent's `.zshrc`. On the controlling user side, hazmat detects zsh, bash, and fish and writes the PATH block to the matching rc file. Unsupported shells are warned and left for manual setup.
 
 ## Network Security Model
 
@@ -70,19 +70,21 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Workspace Model
 
-**One canonical workspace.** `~/workspace` (or `HAZMAT_WORKSPACE`). All backup, restore, and scope operations target this single root. You can run `hazmat claude` on projects outside this path (with a warning), but they won't be covered by `hazmat backup`.
+**Projects are arbitrary directories.** Any existing directory can be a Hazmat project via `-C` or the current working directory. Sessions are not confined to a managed workspace root.
 
-**Project = read-write, everything else = read-only.** The `-C` flag (project) grants full write access. The `-W` flag (workspace root) and `-R` flags (references) grant read-only access. This is enforced by the seatbelt, not advisory.
+**Cloud backup still has a canonical root.** `hazmat backup --cloud` and `hazmat restore --cloud` target `~/workspace`. That path is a backup scope convention, not a session boundary.
 
-**No workspace isolation between projects.** If you pass `-W ~/workspace`, the agent can read ALL projects in your workspace. There's no per-project read boundary. The project flag only controls write scope.
+**Project = read-write, everything else = read-only.** The `-C` flag selects the writable project directory. `-R` adds extra read-only paths. This is enforced by the seatbelt, not advisory.
+
+**No special workspace read shortcut exists.** If you want broad read access, you must pass that path explicitly with `-R`. Hazmat does not reserve a separate workspace flag anymore.
 
 ## Claude Code Coupling
 
-**Harnesses are explicit, but Claude is still the default path.** `hazmat init` still bootstraps Claude Code by default and the seatbelt explicitly allows Claude state in `~/.claude/`. Other harnesses, like the current OpenCode prototype, are installed and configured explicitly via harness-specific commands such as `hazmat bootstrap opencode` and `hazmat opencode`.
+**Harnesses are explicit, but Claude is still the default path.** `hazmat init` still bootstraps Claude Code by default and the seatbelt explicitly allows Claude state in `~/.claude/`. Other harnesses, like the current OpenCode prototype, are installed and configured explicitly via harness-specific commands such as `hazmat bootstrap opencode`, `hazmat opencode`, and `hazmat config import opencode`.
 
-**Cannot run other agents without code changes.** To use Cursor, aider, or OpenAI's tools, you'd need to modify: the install step, the seatbelt policy paths, the wrapper script, and the settings format. There's no agent abstraction layer.
+**Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Cursor, aider, or OpenAI's tools, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
 
-**The vision is agent-agnostic containment.** The current implementation is Claude-specific because that's the first use case, but the underlying containment (user isolation, pf, seatbelt) is generic. A future `hazmat run <anything>` would generalize this.
+**The vision is agent-agnostic containment.** The current implementation has explicit harness support because containment (user isolation, pf, seatbelt) is generic, while harness bootstrapping and portable-import scope remain harness-specific.
 
 ## Backup
 
@@ -94,16 +96,20 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **Excludes are for common web/Python/Rust/Node projects.** Default excludes: `node_modules/`, `.venv/`, `__pycache__/`, `.next/`, `dist/`, `build/`, `target/`. Add more via `hazmat config set backup.excludes.add PATTERN` or edit `config.yaml`.
 
+**Packs can extend snapshot excludes per session.** Active stack packs may add more excludes such as `.terraform/` or `.turbo/` for the current session only. They affect what goes into automatic pre-session snapshots, not the seatbelt allow rules.
+
 **Cloud credentials are split across two files.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint, bucket, access key, and Kopia encryption password. The S3 secret key lives separately in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var. Both files are owner-read-only because the config contains the access key and encryption password.
 
 **Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
 
-**Cloud backup encrypts at rest.** Kopia encrypts all blobs with the repository password. Local rsync backups are unencrypted.
+**Stack packs are ergonomic overlays, not policy escapes.** Packs may add read-only paths, snapshot excludes, safe env passthrough, warnings, and command hints. They cannot add write scope, expose denied credential paths, or modify the firewall model.
+
+**Cloud backup encrypts at rest.** Both local and cloud snapshots use Kopia's encrypted repository format. The local repository relies on a fixed local-only password plus filesystem permissions; the cloud repository relies on the configured repository password.
 
 ## Rollback
 
 **Rollback does not delete your files.** `hazmat rollback` removes system configuration (users, firewall, sudoers, wrappers) but does not delete any project files the agent created or modified. Back up first if needed.
 
-**Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents (Claude cache, settings, credentials) survive rollback.
+**Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents, including harness state such as Claude and OpenCode config, auth, and imported basics, survive rollback.
 
 **pf.conf restoration depends on backup.** Setup creates a timestamped backup of `/etc/pf.conf` before modifying it. Rollback restores from this backup. If the backup is missing or was modified after setup, rollback strips the anchor lines in-place, which is fragile.

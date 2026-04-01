@@ -116,6 +116,22 @@ hazmat claude -R ~/workspace/shared-lib -R ~/reference-docs
 
 Enforced by the kernel sandbox — not advisory.
 
+### Stack Packs
+
+```bash
+hazmat pack list
+hazmat pack show node
+hazmat claude --pack node
+hazmat config set packs.pin "~/workspace/my-app:node,go"
+```
+
+Stack packs are ergonomic overlays for common stacks. They can auto-add
+read-only toolchain paths, extend snapshot excludes for reproducible build
+artifacts, and pass through a small safe set of environment selectors such as
+`GOPATH` or `VIRTUAL_ENV`. They do not widen project write access, relax the
+credential deny list, or change the network policy. See
+[docs/stack-packs.md](docs/stack-packs.md).
+
 ### Handing a Hazmat Session Back to Host Claude
 
 If you start a conversation inside `hazmat claude` and later want to continue it outside containment, export it into your normal Claude session store:
@@ -137,6 +153,8 @@ hazmat config import claude                          # import portable basics fr
 hazmat config import opencode                        # import portable OpenCode basics from an existing setup
 hazmat bootstrap opencode                            # install OpenCode for the agent user
 hazmat opencode                                      # launch OpenCode in containment
+hazmat pack list                                     # inspect built-in and user stack packs
+hazmat config set packs.pin "~/workspace/app:node,go" # auto-activate packs for a project
 hazmat config cloud                                  # set up S3 backup
 hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
 hazmat config set backup.retention.keep_latest 30     # change snapshot retention
@@ -146,6 +164,7 @@ All settings live in `~/.hazmat/config.yaml`.
 
 Portable import keeps Hazmat's runtime and safety config separate from whatever you use outside containment. See [docs/claude-import.md](docs/claude-import.md) for the current import rules and non-goals.
 OpenCode follows the same curated story; see [docs/opencode-import.md](docs/opencode-import.md).
+Stack packs are documented in [docs/stack-packs.md](docs/stack-packs.md).
 
 ## Architecture
 
@@ -197,6 +216,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [usage.md](docs/usage.md) | Complete user guide |
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
+| [stack-packs.md](docs/stack-packs.md) | Stack pack activation, pinning, and safety boundaries |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
