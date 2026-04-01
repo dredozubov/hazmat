@@ -216,6 +216,13 @@ func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapsho
 		return nil, fmt.Errorf("get snapshot root: %w", err)
 	}
 
+	// Remove existing contents so Kopia's shallow restore path doesn't
+	// refuse to overwrite existing directories ("cowardly refusing to add
+	// placeholder"). OverwriteDirectories only covers non-shallow entries.
+	entries, _ := os.ReadDir(destPath)
+	for _, e := range entries {
+		os.RemoveAll(filepath.Join(destPath, e.Name()))
+	}
 	if err := os.MkdirAll(destPath, 0o770); err != nil {
 		return nil, fmt.Errorf("create destination: %w", err)
 	}
