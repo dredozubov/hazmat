@@ -405,6 +405,9 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	if err := setupUserExperience(ui, r); err != nil {
 		return err
 	}
+	if err := setupGitSafeDirectory(ui, r); err != nil {
+		return err
+	}
 	if err := setupPfFirewall(ui, r); err != nil {
 		return err
 	}

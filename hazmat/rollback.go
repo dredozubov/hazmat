@@ -81,6 +81,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	rollbackDNSBlocklist(ui, r)
 	rollbackSeatbelt(ui, r)
 	rollbackUserExperience(ui, r)
+	rollbackGitSafeDirectory(ui, r)
 	rollbackHomeDirTraverse(ui, r)
 	rollbackUmask(ui, r)
 	rollbackLocalRepo(ui)

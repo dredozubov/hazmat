@@ -335,6 +335,28 @@ func TestGenerateSBPLDoesNotGrantHostResumeDirAccess(t *testing.T) {
 	}
 }
 
+func TestGenerateSBPLAllowsAncestorMetadata(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/Users/dr/workspace/project",
+		ReadDirs:   []string{"/Users/dr/workspace/references", "/opt/tools"},
+	}
+	policy := generateSBPL(cfg)
+
+	for _, want := range []string{
+		`(allow file-read-metadata (literal "/Users"))`,
+		`(allow file-read-metadata (literal "/Users/dr"))`,
+		`(allow file-read-metadata (literal "/Users/dr/workspace"))`,
+		`(allow file-read-metadata (literal "/opt"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("expected ancestor metadata rule %q in policy:\n%s", want, policy)
+		}
+	}
+	if strings.Count(policy, `(allow file-read-metadata (literal "/Users/dr/workspace"))`) != 1 {
+		t.Fatal("shared ancestor should only appear once")
+	}
+}
+
 func TestGenerateSBPLProjectWriteReasserted(t *testing.T) {
 	// When a read dir is a parent of the project dir, the project's write
 	// access must be re-asserted as the last allow before credential denies.

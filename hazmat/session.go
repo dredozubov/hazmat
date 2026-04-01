@@ -525,6 +525,27 @@ func generateSBPL(cfg sessionConfig) string {
 	}
 	w("\n")
 
+	// Ancestor metadata: tools like git need to stat() each ancestor directory
+	// when resolving canonical paths (strbuf_realpath). Without this, git can't
+	// verify safe.directory matches and readlink(1) returns truncated paths.
+	// file-read-metadata allows stat/lstat/getattr but NOT open/read/readdir,
+	// so no directory contents or file data are exposed.
+	ancestors := make(map[string]struct{})
+	hostPaths := append([]string{cfg.ProjectDir}, cfg.ReadDirs...)
+	for _, dir := range hostPaths {
+		for p := filepath.Dir(dir); p != "/" && p != "."; p = filepath.Dir(p) {
+			ancestors[p] = struct{}{}
+		}
+	}
+	if len(ancestors) > 0 {
+		w(";; ── Ancestor metadata (stat only, no content) ────────────────────────────\n")
+		w(";; Required for path canonicalization by git, readlink, etc.\n")
+		for p := range ancestors {
+			w("(allow file-read-metadata (literal %q))\n", p)
+		}
+		w("\n")
+	}
+
 	// Read-only directories: individual rules, skipping any path already
 	// covered by the project dir or by another (broader) read dir.
 	if len(cfg.ReadDirs) > 0 {
