@@ -513,10 +513,9 @@ func resolveActivePacks(packFlags []string, projectDir string) ([]Pack, error) {
 			for _, n := range recNames {
 				names[n] = struct{}{}
 			}
-		} else if len(names) == 0 {
-			// No CLI or pinned packs active — prompt for approval.
-			// If packs are already active from CLI/pins, skip the prompt
-			// to avoid blocking sessions that already have explicit config.
+		} else {
+			// Not yet approved — prompt regardless of other pack sources.
+			// Approval is a one-time cost that establishes the trust record.
 			if promptPackApproval(projectDir, recNames) {
 				if err := recordApproval(projectDir, fileHash); err != nil {
 					fmt.Fprintf(os.Stderr, "hazmat: warning: could not save approval: %v\n", err)
