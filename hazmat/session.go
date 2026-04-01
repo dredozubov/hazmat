@@ -1071,11 +1071,19 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
-		"com.apple.pboard",                                // pasteboard (clipboard image paste in Claude Code)
+		"com.apple.pboard", // pasteboard (clipboard read/write — paste into Claude Code and copy out)
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
 	w("(allow mach-host*)\n\n")
+
+	w(";; ── Pasteboard shared memory (clipboard copy out of session) ───────────────\n")
+	w(";; mach-lookup for com.apple.pboard covers the IPC handshake; the actual\n")
+	w(";; clipboard data is transferred via POSIX shared memory segments named\n")
+	w(";; com.apple.pasteboard.<N>.  Without these rules pbcopy silently fails.\n")
+	w("(allow ipc-posix-shm-read-data    (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n")
+	w("(allow ipc-posix-shm-write-data   (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n")
+	w("(allow ipc-posix-shm-write-create (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n\n")
 
 	w(";; ── Network: outbound for API calls ──────────────────────────────────────\n")
 	w("(allow network-outbound)\n")
