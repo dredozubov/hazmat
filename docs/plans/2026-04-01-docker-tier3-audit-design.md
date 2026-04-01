@@ -32,6 +32,31 @@ native Hazmat path.
 The proposal below keeps the current Tier 2 model intact and adds a separate
 Tier 3 runtime for Docker-capable sessions.
 
+## Security Rationale on macOS
+
+This proposal should not be read as claiming that Docker Sandboxes create an
+entirely new host-hypervisor boundary on macOS. Regular Docker Desktop already
+runs ordinary containers behind a Linux VM on macOS.
+
+The important shift for Hazmat's threat model is therefore not simply
+"host kernel shared" versus "host kernel not shared." The more relevant shift
+is:
+
+- regular Docker Desktop: shared Linux VM, shared Docker daemon, shared
+  container state
+- Docker Sandboxes: isolated per-sandbox runtime, private Docker daemon, and a
+  separate policy/control plane per sandbox
+
+For Hazmat, the primary security value is:
+
+- no access to a shared Docker daemon
+- reduced lateral movement across unrelated containers and images
+- a cleaner per-sandbox policy enforcement point
+
+The dedicated microVM and kernel remain useful additional boundaries, but on
+macOS they should be described as incremental isolation improvements rather
+than the sole or dominant reason to prefer Docker Sandboxes.
+
 ## Relevant Existing Materials
 
 An auditor reviewing this proposal should also inspect:
@@ -61,7 +86,7 @@ The design must satisfy all of the following:
 
 1. Preserve the current Tier 2 security properties for non-Docker repositories.
 2. Allow Docker-capable sessions only when the agent is using a dedicated
-   Docker daemon or microVM boundary.
+   Docker daemon inside an isolated Tier 3 runtime.
 3. Prevent any session from reaching a host Docker daemon or shared Docker
    socket.
 4. Apply deny-by-default or explicit-allow network controls to the Docker
@@ -111,6 +136,8 @@ Reasons:
 - clearer audit surface
 - better UX than generic devcontainer orchestration
 - strongest alignment with the current Tier 3 guidance
+- private-daemon isolation is the main security property Hazmat needs in
+  Phase 1-3
 
 Do not support Colima, Podman, or generic devcontainer execution as first-class
 Hazmat backends in v1. Those may be considered later behind a backend adapter,
@@ -188,13 +215,15 @@ The backend manager is responsible for:
 - ensuring the runtime uses its own Docker daemon rather than the host daemon
 
 The backend manager is a trust boundary. It must fail closed if it cannot prove
-that the runtime is using a private daemon or microVM boundary.
+that the runtime is using a private daemon inside the intended isolated Tier 3
+runtime.
 
 ### Tier 3 network policy manager
 
-The network manager is responsible for turning the Docker-capable runtime from
-"allow-all by default" into "explicitly allowed only." It must apply policy
-before the agent session starts.
+The network manager is responsible for applying an explicit Hazmat-managed
+policy profile before the agent session starts. Hazmat should treat the
+backend's out-of-the-box network defaults as insufficient for this threat
+model, even if the backend provides built-in restricted modes.
 
 At minimum, v1 should allow:
 
@@ -240,6 +269,12 @@ For v1, the launcher should pass the minimum viable environment:
 - fixed runtime variables Hazmat itself requires
 
 It should not pass through arbitrary host shell state.
+
+Because Docker's sandbox runtime is daemon-backed, the Phase 2/3
+implementation must validate that the chosen credential-delivery mechanism is
+actually compatible with the real backend launch semantics. This document
+states Hazmat's intended security property, not a claim that raw Docker
+Sandboxes already provide that behavior automatically.
 
 ### Session recorder and export layer
 
@@ -324,9 +359,14 @@ Hazmat must not delegate these choices to the agent session itself.
 The Tier 3 runtime is trusted as the primary Docker isolation boundary. It must
 provide:
 
-- a private Docker daemon or microVM
+- a private Docker daemon
+- an isolated per-sandbox runtime
 - isolation from the host daemon
 - an enforceable network control plane
+
+For the v1 backend, that isolated runtime is expected to be a Docker Sandbox
+microVM. The private-daemon property is the more important requirement for this
+threat model.
 
 ### Boundary D: Agent process
 
@@ -356,6 +396,8 @@ These invariants are non-negotiable:
 8. Tier 2 remains unchanged for non-Docker projects.
 9. Model API credentials are delivered only as explicit launch-time env
    injection and are not persisted inside the sandbox by default.
+10. The chosen credential-delivery mechanism is verified against the actual
+    backend launch semantics before auto-routing ships.
 
 If any one of these invariants cannot be enforced, Docker mode should not ship.
 
@@ -403,6 +445,20 @@ exclusions, backend identity, and pre-launch network-policy application.
 - downgrade from Tier 3 to Tier 2 or host execution
 - abuse of stable sandbox reuse
 - credential bleed through devcontainer- or Docker-specific config files
+
+### Risk Framing Specific to macOS
+
+On macOS, the most important Docker-specific risk is not direct escape into the
+macOS host kernel. The more immediate risks are:
+
+- access to a shared Docker daemon
+- root on a shared Docker VM
+- cross-container access to bind-mounted data and Docker state
+- container traffic escaping Tier 2's UID-based host firewall model
+
+The Tier 3 design is primarily intended to remove those risks by giving the
+agent a private daemon and isolated runtime, not by promising a fundamentally
+different host-hypervisor boundary.
 
 ## UX and Safety Model
 
