@@ -663,6 +663,36 @@ func TestParseClaudeArgsHelp(t *testing.T) {
 	}
 }
 
+func TestClaudeLaunchUIBareResumeClearsScreenAndSkipsStatusBar(t *testing.T) {
+	ui := claudeLaunchUI([]string{"--resume"})
+	if !ui.clearScreen {
+		t.Fatal("clearScreen should be true for bare --resume")
+	}
+	if ui.showStatusBar {
+		t.Fatal("showStatusBar should be false for bare --resume")
+	}
+}
+
+func TestClaudeLaunchUITargetedResumeKeepsStatusBar(t *testing.T) {
+	ui := claudeLaunchUI([]string{"--resume", "a1b2c3"})
+	if ui.clearScreen {
+		t.Fatal("clearScreen should be false for targeted --resume")
+	}
+	if !ui.showStatusBar {
+		t.Fatal("showStatusBar should stay enabled for targeted --resume")
+	}
+}
+
+func TestClaudeLaunchUIContinueKeepsStatusBar(t *testing.T) {
+	ui := claudeLaunchUI([]string{"--continue"})
+	if ui.clearScreen {
+		t.Fatal("clearScreen should be false for --continue")
+	}
+	if !ui.showStatusBar {
+		t.Fatal("showStatusBar should stay enabled for --continue")
+	}
+}
+
 func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/Users/dr/workspace/project",

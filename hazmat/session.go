@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 type sessionConfig struct {
@@ -19,6 +20,11 @@ type sessionConfig struct {
 	PackEnv          map[string]string // from pack env_passthrough (resolved values)
 	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
 	ActivePacks      []string          // pack names, for status bar
+}
+
+type sessionLaunchUI struct {
+	clearScreen   bool
+	showStatusBar bool
 }
 
 func runProjectPreflight(projectDir string) error {
@@ -185,7 +191,7 @@ Examples:
 				skipFlag = "--dangerously-skip-permissions "
 			}
 
-			return runAgentSeatbeltScript(cfg,
+			return runAgentSeatbeltScriptWithUI(cfg, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
@@ -320,6 +326,17 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 
 func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 	return parseHarnessArgs(args)
+}
+
+func claudeLaunchUI(forwarded []string) sessionLaunchUI {
+	wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
+	if wantsResume && resumeTarget == "" && !wantsContinue {
+		return sessionLaunchUI{
+			clearScreen:   true,
+			showStatusBar: false,
+		}
+	}
+	return sessionLaunchUI{showStatusBar: true}
 }
 
 // applyPacks resolves, validates, and merges active packs into the session
@@ -828,6 +845,10 @@ func generateSBPL(cfg sessionConfig) string {
 }
 
 func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
+	return runAgentSeatbeltScriptWithUI(cfg, sessionLaunchUI{showStatusBar: true}, script, args...)
+}
+
+func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script string, args ...string) error {
 	pid := os.Getpid()
 
 	policy := generateSBPL(cfg)
@@ -861,9 +882,14 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
-	teardown := bar.Start()
-	defer teardown()
+	if ui.showStatusBar {
+		bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
+		teardown := bar.Start()
+		defer teardown()
+	}
+	if ui.clearScreen && term.IsTerminal(int(os.Stderr.Fd())) {
+		fmt.Fprint(os.Stderr, "\033[2J\033[H")
+	}
 
 	return cmd.Run()
 }
