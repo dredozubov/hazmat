@@ -36,6 +36,11 @@ type SessionConfig struct {
 	// additional layer.
 	SkipPermissions *bool `yaml:"skip_permissions,omitempty"`
 
+	// StatusBar enables Hazmat's terminal status bar for interactive sessions.
+	// Default: false. Keep this opt-in until the terminal behavior is robust
+	// across resume pickers and first-run environments.
+	StatusBar *bool `yaml:"status_bar,omitempty"`
+
 	// ReadDirs are automatically added as -R (read-only) directories for
 	// every session. Default: empty. Visible in `hazmat config`, configurable
 	// via `hazmat config set session.read_dirs.add <dir>`.
@@ -95,6 +100,15 @@ func (c HazmatConfig) SkipPermissions() bool {
 		return true // default: skip permissions, containment is OS-level
 	}
 	return *c.Session.SkipPermissions
+}
+
+// StatusBar returns whether Hazmat should render its terminal status bar.
+// Default: false.
+func (c HazmatConfig) StatusBar() bool {
+	if c.Session.StatusBar == nil {
+		return false
+	}
+	return *c.Session.StatusBar
 }
 
 // SessionReadDirs returns the configured read-only directories.
@@ -282,6 +296,7 @@ func runConfigShow() error {
 	cBold.Println("  Session")
 	fmt.Println()
 	fmt.Printf("    Skip permissions: %v (--dangerously-skip-permissions)\n", cfg.SkipPermissions())
+	fmt.Printf("    Status bar:       %v (opt-in)\n", cfg.StatusBar())
 	readDirs := cfg.SessionReadDirs()
 	if len(readDirs) > 0 {
 		fmt.Printf("    Read dirs:        %s\n", strings.Join(readDirs, ", "))
@@ -337,16 +352,18 @@ Keys:
   backup.cloud.endpoint          S3-compatible endpoint
   backup.cloud.bucket            S3 bucket name
   backup.cloud.access_key        S3 access key
-  session.skip_permissions        Pass --dangerously-skip-permissions to Claude (default: true)
-  session.read_dirs.add           Add a read-only directory to auto-include in sessions
-  session.read_dirs.remove        Remove a read-only directory from auto-include
-  packs.pin                       Pin packs to a project (value: project:pack1,pack2)
-  packs.unpin                     Remove pack pinning for a project (value: project path)
+  session.skip_permissions       Pass --dangerously-skip-permissions to Claude (default: true)
+  session.status_bar             Enable Hazmat's terminal status bar (default: false)
+  session.read_dirs.add          Add a read-only directory to auto-include in sessions
+  session.read_dirs.remove       Remove a read-only directory from auto-include
+  packs.pin                      Pin packs to a project (value: project:pack1,pack2)
+  packs.unpin                    Remove pack pinning for a project (value: project path)
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
   hazmat config set backup.excludes.add .idea/
   hazmat config set session.skip_permissions false
+  hazmat config set session.status_bar true
   hazmat config set session.read_dirs.add ~/other-code
   hazmat config set packs.pin "~/workspace/my-app:node,python-poetry"
   hazmat config set packs.unpin ~/workspace/my-app`,
@@ -404,6 +421,9 @@ func runConfigSet(key, value string) error {
 	case "session.skip_permissions":
 		b := value == "true" || value == "1" || value == "yes"
 		cfg.Session.SkipPermissions = &b
+	case "session.status_bar":
+		b := value == "true" || value == "1" || value == "yes"
+		cfg.Session.StatusBar = &b
 	case "session.read_dirs.add":
 		dirs := cfg.SessionReadDirs()
 		for _, d := range dirs {

@@ -179,6 +179,75 @@ func TestDefaultReadDirsNoConfiguredDirsByDefault(t *testing.T) {
 	}
 }
 
+func TestStatusBarDisabledByDefault(t *testing.T) {
+	isolateConfig(t)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.StatusBar() {
+		t.Fatal("StatusBar should default to false")
+	}
+}
+
+func TestRunConfigSetSessionStatusBar(t *testing.T) {
+	isolateConfig(t)
+
+	if err := runConfigSet("session.status_bar", "true"); err != nil {
+		t.Fatalf("runConfigSet enable: %v", err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after enable: %v", err)
+	}
+	if !cfg.StatusBar() {
+		t.Fatal("StatusBar should be true after enabling")
+	}
+
+	if err := runConfigSet("session.status_bar", "false"); err != nil {
+		t.Fatalf("runConfigSet disable: %v", err)
+	}
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after disable: %v", err)
+	}
+	if cfg.StatusBar() {
+		t.Fatal("StatusBar should be false after disabling")
+	}
+}
+
+func TestApplyStatusBarConfigDisablesBarAndWatcherByDefault(t *testing.T) {
+	ui := applyStatusBarConfig(sessionLaunchUI{
+		showStatusBar:    true,
+		waitForAltScreen: true,
+	}, defaultConfig())
+	if ui.showStatusBar {
+		t.Fatal("showStatusBar should be false when status bar is disabled in config")
+	}
+	if ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be false when status bar is disabled in config")
+	}
+}
+
+func TestApplyStatusBarConfigPreservesBarWhenEnabled(t *testing.T) {
+	enabled := true
+	ui := applyStatusBarConfig(sessionLaunchUI{
+		showStatusBar:    true,
+		waitForAltScreen: true,
+	}, HazmatConfig{
+		Session: SessionConfig{
+			StatusBar: &enabled,
+		},
+	})
+	if !ui.showStatusBar {
+		t.Fatal("showStatusBar should stay enabled when config opts in")
+	}
+	if !ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should stay enabled when config opts in")
+	}
+}
+
 func isImplicitToolchainDir(d string) bool {
 	implicit := implicitReadDirs()
 	for _, i := range implicit {

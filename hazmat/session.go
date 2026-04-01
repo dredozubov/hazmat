@@ -929,7 +929,19 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 	return runAgentSeatbeltScriptWithUI(cfg, sessionLaunchUI{showStatusBar: true}, script, args...)
 }
 
+func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI {
+	if !cfg.StatusBar() {
+		ui.showStatusBar = false
+		ui.waitForAltScreen = false
+	}
+	return ui
+}
+
 func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script string, args ...string) error {
+	if hcfg, err := loadConfig(); err == nil {
+		ui = applyStatusBarConfig(ui, hcfg)
+	}
+
 	pid := os.Getpid()
 
 	policy := generateSBPL(cfg)
