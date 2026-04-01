@@ -18,6 +18,7 @@ type sessionConfig struct {
 	BackupExcludes   []string
 	PackEnv          map[string]string // from pack env_passthrough (resolved values)
 	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
+	ActivePacks      []string          // pack names, for status bar
 }
 
 func runProjectPreflight(projectDir string) error {
@@ -352,6 +353,7 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 	for _, p := range packs {
 		names = append(names, p.PackMeta.Name)
 	}
+	cfg.ActivePacks = names
 	fmt.Fprintf(os.Stderr, "hazmat: active packs: %s\n", strings.Join(names, ", "))
 
 	// Merge all packs.
@@ -861,6 +863,11 @@ func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) er
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
+	teardown := bar.Start()
+	defer teardown()
+
 	return cmd.Run()
 }
 
