@@ -45,6 +45,52 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Credential Storage
 
+```mermaid
+block-beta
+    columns 1
+    block:host["Host user home (/Users/dr)"]
+        columns 3
+        ssh["~/.ssh"]
+        aws["~/.aws"]
+        gnupg["~/.gnupg"]
+        keychain["~/Library/Keychains"]
+        ghcli["~/.config/gh"]
+        docker["~/.docker"]
+    end
+    block:agent["Agent user home (/Users/agent)"]
+        columns 3
+        apikey["API key in .zshrc"]
+        gitcred["Git PAT in credentials"]
+        claudeconf["~/.claude/ config"]
+    end
+    block:project["Project directory (read-write)"]
+        columns 3
+        env[".env / .env.local"]
+        src["Source code"]
+        dotgit[".git/"]
+    end
+
+    style host fill:#fee,stroke:#c33,color:#000
+    style agent fill:#ffd,stroke:#a80,color:#000
+    style project fill:#dfd,stroke:#3a3,color:#000
+    style ssh fill:#fcc,stroke:#c33,color:#000
+    style aws fill:#fcc,stroke:#c33,color:#000
+    style gnupg fill:#fcc,stroke:#c33,color:#000
+    style keychain fill:#fcc,stroke:#c33,color:#000
+    style ghcli fill:#fcc,stroke:#c33,color:#000
+    style docker fill:#fcc,stroke:#c33,color:#000
+    style apikey fill:#ffe,stroke:#a80,color:#000
+    style gitcred fill:#ffe,stroke:#a80,color:#000
+    style claudeconf fill:#ffe,stroke:#a80,color:#000
+    style env fill:#ffd,stroke:#aa0,color:#000
+    style src fill:#cfc,stroke:#3a3,color:#000
+    style dotgit fill:#cfc,stroke:#3a3,color:#000
+```
+
+- **Red zone** — host user credentials. Denied by seatbelt + user isolation. Agent cannot read or write these.
+- **Yellow zone** — agent user credentials. Plain text, accessible within agent sessions. Protected from host-level reads by file permissions.
+- **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
+
 **Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="sk-ant-..."` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
 
 **SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Use HTTPS remotes with a fine-grained PAT in git's credential store instead.

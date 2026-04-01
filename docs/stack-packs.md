@@ -125,7 +125,24 @@ This file is pure data: a list of existing pack names. No inline definitions,
 no custom paths, no env keys, no executable hooks.
 
 **Repo owns intent; host owns trust.** Hazmat reads the file as a hint, not
-authority. On first encounter, it prompts:
+authority.
+
+```mermaid
+flowchart TD
+    A[Session start] --> B{.hazmat/packs.yaml exists?}
+    B -- no --> C[Check --pack flags and config pins]
+    B -- yes --> D[Compute SHA-256 of file]
+    D --> E{Approved in ~/.hazmat/approvals.yaml?}
+    E -- "yes (path + hash match)" --> F[Activate recommended packs]
+    E -- no --> G[Prompt user: approve these packs?]
+    G -- yes --> H[Record approval] --> F
+    G -- no --> I["Skip (print --pack hint)"]
+    C --> J[Resolve and merge all active packs]
+    F --> J
+    I --> J
+```
+
+On first encounter, it prompts:
 
 ```
 hazmat: this repo recommends packs: go, tla-java

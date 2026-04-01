@@ -70,6 +70,22 @@ Read [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) for the Docker-speci
 
 ## Decision Flow
 
+```mermaid
+flowchart TD
+    Start([Which tier?]) --> Q1{Trusted repo +<br/>supervised use?}
+    Q1 -- yes --> T01["Tier 0 or 1<br/><em>process-level controls</em>"]
+    Q1 -- no --> Q2{Needs Docker<br/>or Compose?}
+    Q2 -- yes --> T3["Tier 3<br/><em>dedicated daemon / microVM</em>"]
+    Q2 -- no --> Q3{Unattended, sensitive<br/>data, or hostile repo?}
+    Q3 -- yes --> T4["Tier 4<br/><em>full VM + snapshot rollback</em>"]
+    Q3 -- no --> T2["Tier 2<br/><em>dedicated macOS user + pf</em>"]
+
+    style T01 fill:#dfd,stroke:#3a3,color:#000
+    style T2 fill:#ddf,stroke:#33a,color:#000
+    style T3 fill:#ffd,stroke:#a80,color:#000
+    style T4 fill:#fee,stroke:#c33,color:#000
+```
+
 1. Is the repo trusted and are you supervising closely?
    If yes, Tier 0 or Tier 1 may be enough.
 2. Does the repo need Docker, Docker Compose, or a devcontainer workflow?
