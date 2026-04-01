@@ -790,6 +790,7 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
+		"com.apple.pboard",                                // pasteboard (clipboard image paste in Claude Code)
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
