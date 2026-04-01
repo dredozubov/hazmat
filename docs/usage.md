@@ -71,14 +71,39 @@ hazmat claude --continue            # resume the most recent session
 hazmat claude --resume <session-id> # resume a specific session by ID
 ```
 
-**How it works:** Hazmat detects `--resume` or `--continue` in the forwarded flags and creates symbolic links from the agent user's session directory to your session files. The seatbelt policy is extended to allow read+write access to your session directory so Claude Code can follow the symlinks and append new messages to the conversation transcript.
+**How it works:** Hazmat detects `--resume` or `--continue` in the forwarded flags and copies the matching host Claude session transcripts into the agent user's local Claude session directory before launch.
 
-- Sessions started as yourself are visible to the agent inside the sandbox
-- The conversation continues in-place — new messages append to your original session file
-- Sessions started inside the sandbox (by the agent) remain independent
-- If the agent already has a session with the same ID, the agent's version takes priority
+- `hazmat claude --resume` copies the project's available sessions so Claude can show its picker UI
+- `hazmat claude --continue` copies only the latest session
+- `hazmat claude --resume <session-id>` copies one specific session
+- Existing agent-local files are not overwritten, so contained continuations stay independent once they diverge
 
-**Security note:** The session sync adds a narrowly-scoped seatbelt exception for your `~/.claude/projects/<project>/` directory. This directory contains only conversation transcripts (JSONL files), not credentials. The exception is only active when `--resume` or `--continue` is used.
+**Security note:** The sandbox does not get direct access to your host `~/.claude/projects/` directory. Hazmat stages copies into the agent-owned Claude store instead.
+
+### Continuing a Hazmat Session Outside the Sandbox
+
+When a conversation started inside containment and you want to continue it as your normal user, export the hazmat session into your host Claude session store and then resume it:
+
+```bash
+# Continue the latest hazmat Claude session for the current project
+claude --resume "$(hazmat export claude session)" --fork-session
+
+# Continue a specific hazmat session
+claude --resume "$(hazmat export claude session <session-id>)" --fork-session
+
+# Export from a different project directory
+claude --resume "$(hazmat export claude session -C ~/workspace/other-project)" --fork-session
+```
+
+**What `hazmat export claude session` does:**
+
+- Defaults to the latest hazmat Claude session for the current project
+- Accepts an optional session ID to export a specific session
+- Copies the transcript and session sidecar directory from the agent user's `~/.claude/projects/...`
+- Updates your host Claude `sessions-index.json`
+- Prints the Claude resume ID on stdout for scripting
+
+`--fork-session` is recommended so your host-side continuation cleanly diverges from the contained hazmat session. The export is a point-in-time handoff, not a live sync. If the hazmat session advances later, run the export again before resuming.
 
 ### Running Other Commands in Containment
 

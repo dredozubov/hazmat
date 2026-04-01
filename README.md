@@ -94,6 +94,9 @@ hazmat exec npm test
 hazmat exec python train.py
 hazmat exec ./run-agent-loop.sh
 
+# Continue a hazmat Claude session as your normal user
+claude --resume "$(hazmat export claude session)" --fork-session
+
 # Interactive shell
 hazmat shell
 
@@ -112,6 +115,17 @@ hazmat claude -R ~/workspace/shared-lib -R ~/reference-docs
 ```
 
 Enforced by the kernel sandbox — not advisory.
+
+### Handing a Hazmat Session Back to Host Claude
+
+If you start a conversation inside `hazmat claude` and later want to continue it outside containment, export it into your normal Claude session store:
+
+```bash
+claude --resume "$(hazmat export claude session)" --fork-session
+claude --resume "$(hazmat export claude session <session-id>)" --fork-session
+```
+
+`hazmat export claude session` exports the latest hazmat Claude session for the current project by default, or a specific session when you pass an ID. It copies the session bundle into your host `~/.claude/projects/...` directory and prints the resume ID on stdout.
 
 ## Configuration
 
