@@ -133,7 +133,7 @@ fi
 bash "$installer"
 `, claudeInstallerURL, claudeInstallerSHA256)
 
-		scriptFile, err := os.CreateTemp("", "hazmat-bootstrap-*.sh")
+		scriptFile, err := os.CreateTemp("/tmp", "hazmat-bootstrap-*.sh")
 		if err != nil {
 			return fmt.Errorf("create bootstrap script: %w", err)
 		}

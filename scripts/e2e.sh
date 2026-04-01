@@ -110,7 +110,7 @@ done
 if [ -f "/tmp/hazmat-escape-test-$$" ]; then
     # /tmp is shared — this is a known limitation, not a breach.
     # But agent should NOT be able to write to host home.
-    rm -f "/tmp/hazmat-escape-test-$$"
+    sudo rm -f "/tmp/hazmat-escape-test-$$"
 fi
 "$HAZMAT" exec -C "$PROJECT" touch "$HOME/hazmat-escape-test-$$" > /dev/null 2>&1 \
     && { rm -f "$HOME/hazmat-escape-test-$$"; fail "ISOLATION BREACH: agent wrote to host home"; } \
