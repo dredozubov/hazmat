@@ -17,6 +17,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 1 | `01_setup_rollback_state_machine.md` | Security window: agent launchable without firewall after partial setup/rollback | **Critical** |
 | 2 | `02_seatbelt_policy_structure.md` | Credential write exposure via project dir or static config allows | **Medium** |
 | 3 | `03_backup_restore_safety.md` | Cloud restore overwrites workspace without pre-restore snapshot (data loss) | **High** |
+| 5 | `05_tier3_launch_containment.md` | Tier 3 host-side launch can expose credential paths or launch before policy if mount planning/gating is wrong | **High** |
 
 ## What TLA+ Adds Here
 

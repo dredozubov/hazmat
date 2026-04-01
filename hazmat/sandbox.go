@@ -88,10 +88,11 @@ type sandboxProbe interface {
 }
 
 type sandboxLaunchSpec struct {
-	Name    string
-	Agent   string
-	Config  sessionConfig
-	Profile sandboxPolicyProfile
+	Name          string
+	Agent         string
+	Config        sessionConfig
+	Profile       sandboxPolicyProfile
+	MountReadDirs []string
 }
 
 type sandboxBackendAdapter interface {
@@ -144,7 +145,7 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 		return fmt.Errorf("Docker Desktop %s is too old for shell sandboxes; hazmat shell --sandbox and hazmat exec --sandbox require >= %s",
 			version.String(), minShellSandboxVersion.String())
 	}
-	if len(spec.Config.ReadDirs) > 0 && !version.AtLeast(minExtraWorkspaceVer) {
+	if len(spec.MountReadDirs) > 0 && !version.AtLeast(minExtraWorkspaceVer) {
 		return fmt.Errorf("Docker Desktop %s is too old for additional read-only workspaces; --sandbox with -R or auto-added read dirs requires >= %s",
 			version.String(), minExtraWorkspaceVer.String())
 	}
@@ -153,7 +154,7 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 
 func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error {
 	args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
-	for _, dir := range spec.Config.ReadDirs {
+	for _, dir := range spec.MountReadDirs {
 		args = append(args, dir+":ro")
 	}
 	out, err := probe.Output("docker", args...)
@@ -798,11 +799,9 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 	if err != nil {
 		return nil, nil, "", err
 	}
-	spec := sandboxLaunchSpec{
-		Name:    sandboxName(agent, cfg, profile.Name),
-		Agent:   agent,
-		Config:  cfg,
-		Profile: profile,
+	spec, err := buildSandboxLaunchSpec(agent, cfg, profile)
+	if err != nil {
+		return nil, nil, "", err
 	}
 	if err := adapter.ValidateLaunchCompatibility(spec, backend, version); err != nil {
 		return nil, nil, "", err
@@ -825,6 +824,41 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 	}
 
 	return adapter, probe, spec.Name, nil
+}
+
+func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
+	if isCredentialDenyPath(cfg.ProjectDir) {
+		return sandboxLaunchSpec{}, fmt.Errorf("project dir %q resolves to credential deny zone", cfg.ProjectDir)
+	}
+
+	var mountReadDirs []string
+	for _, dir := range cfg.ReadDirs {
+		if isCredentialDenyPath(dir) {
+			return sandboxLaunchSpec{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
+		}
+		if isWithinDir(cfg.ProjectDir, dir) {
+			continue
+		}
+		covered := false
+		for _, other := range cfg.ReadDirs {
+			if other != dir && isWithinDir(other, dir) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		mountReadDirs = append(mountReadDirs, dir)
+	}
+
+	return sandboxLaunchSpec{
+		Name:          sandboxName(agent, cfg.ProjectDir, mountReadDirs, profile.Name),
+		Agent:         agent,
+		Config:        cfg,
+		Profile:       profile,
+		MountReadDirs: mountReadDirs,
+	}, nil
 }
 
 func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig, sandboxPolicyProfile, semver, error) {
@@ -874,8 +908,8 @@ func sandboxPolicyProfileByName(name string) (sandboxPolicyProfile, error) {
 	}
 }
 
-func sandboxName(agent string, cfg sessionConfig, profileName string) string {
-	base := strings.ToLower(filepath.Base(cfg.ProjectDir))
+func sandboxName(agent, projectDir string, mountReadDirs []string, profileName string) string {
+	base := strings.ToLower(filepath.Base(projectDir))
 	base = sandboxNamePattern.ReplaceAllString(base, "-")
 	base = strings.Trim(base, "-")
 	if base == "" {
@@ -885,10 +919,10 @@ func sandboxName(agent string, cfg sessionConfig, profileName string) string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(agent))
 	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(cfg.ProjectDir))
+	_, _ = h.Write([]byte(projectDir))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write([]byte(profileName))
-	for _, dir := range cfg.ReadDirs {
+	for _, dir := range mountReadDirs {
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(dir))
 	}

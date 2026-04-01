@@ -11,19 +11,12 @@ Claude/OpenCode curated imports, per-harness metadata under `~/.hazmat/state.jso
 or session-only stack pack activation/pinning. That work is tracked separately
 and should not be implied by the existing proofs.
 
-Important additional scope boundary: the current TLA+ suite also does **not**
-model Tier 3 container containment for Docker-capable sessions. The existing
-Seatbelt proofs cover Tier 2 host-side containment only. They should not be
-read as proving equivalent properties for any future Docker Sandbox or other
-container-backed runtime.
-
-For a future Tier 3 model, the key properties to prove would be the container
-equivalents of today's Seatbelt guarantees:
-
-- mount-planner exclusions for credential and unrelated host paths
-- minimal environment passthrough at launch time
-- backend identity validation
-- network policy applied before agent launch
+Important additional scope boundary: the current TLA+ suite now includes the
+host-side Tier 3 launch boundary for Docker-capable sessions: mount-planner
+exclusions, zero extra env passthrough in the current implementation, backend
+readiness gating, and policy-before-launch ordering. It still does **not**
+model Docker Sandbox or microVM internals, container runtime behavior after
+launch, Compose semantics, or future non-Docker backends.
 
 ---
 
@@ -246,6 +239,60 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 
 ---
 
+### 5 — Tier 3 Launch Containment
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/05_tier3_launch_containment.md` |
+| TLA+ files | `tla/MC_Tier3LaunchContainment.tla`, `tla/MC_Tier3LaunchContainment.cfg` |
+| Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
+| Governed code | `hazmat/pack.go` — `isCredentialDenyPath()` |
+| Governed code | `hazmat/session.go` — `isWithinDir()` |
+| Key invariants | `CredentialPathsNeverMounted`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `BackendValidationBeforeLaunch`, `PolicyBeforeLaunch`, `ApprovalBeforeLaunch`, `PackEnvRejected`, `ShellVersionGate`, `ExtraWorkspaceVersionGate` |
+| Status | **Fixed and Proved** — Tier 3 mount planning now rejects credential deny zones, filters covered read-only mounts, and preserves policy-before-launch gating |
+
+**What was found:**
+
+1. The initial Tier 3 Docker Sandboxes path mounted `ProjectDir` and
+   `ReadDirs` directly, without a Tier 3 equivalent of the credential deny-zone
+   checks already used for pack `read_dirs`.
+
+2. The initial Tier 3 mount path also did not filter read-only directories
+   already covered by the project directory or by another broader read-only
+   directory, even though Tier 2 already applies that filtering in
+   `generateSBPL()`.
+
+**Fixes applied:**
+
+1. Added `buildSandboxLaunchSpec()` as the explicit Tier 3 mount planner. It
+   rejects project/read-only mount inputs that resolve to credential deny zones
+   and filters read-only mounts already covered by the project or another
+   broader reference path.
+
+2. Updated Tier 3 launch compatibility checks and sandbox naming to use the
+   effective read-only mount set rather than raw `ReadDirs`, so redundant
+   `-R` inputs do not trigger spurious extra-workspace version gates or create
+   distinct sandbox identities for the same effective mount plan.
+
+The principle: **Tier 3 must prove its host-side launch boundary explicitly;
+it cannot inherit Tier 2's Seatbelt guarantees by implication.** TLC now
+passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
+
+**Change rules:**
+- Any change to Tier 3 mount planning must preserve both properties:
+  no credential-zone mounts and no redundant read-only mounts. Update the
+  TLA+ model first, then the Go implementation.
+- Adding new credential deny paths requires updating both `credentialDenySubs`
+  and `CredentialLeaves`/the abstract path model before committing.
+- Reordering backend validation, approval, sandbox creation, policy
+  application, or launch requires re-running TLC; `PolicyBeforeLaunch` and
+  `BackendValidationBeforeLaunch` are load-bearing.
+- Introducing any explicit Tier 3 env passthrough (for example launch-time
+  API-key delivery) requires updating this spec first. The current proof only
+  covers the zero-extra-env launch path in `hazmat/sandbox.go`.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -254,6 +301,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
+| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/pack.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 
 ---
 
@@ -263,6 +311,8 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 - Per-harness metadata stored in `~/.hazmat/state.json`
 - Harness-specific rollback semantics beyond the agent-home coarse model
 - Stack pack activation, project pinning, and pack-specific snapshot ignore rules
+- Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
+- Explicit Tier 3 API-key or other model-credential injection mechanisms, which are not yet implemented in `hazmat/sandbox.go`
 
 Until a harness-specific spec exists, these areas are governed by tests and
 documentation rather than the current TLC proofs.

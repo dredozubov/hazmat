@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -285,6 +286,70 @@ func TestEnsureSandboxApprovalYesAllRecordsApproval(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxLaunchSpecRejectsCredentialProjectDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	_, err = buildSandboxLaunchSpec("claude", sessionConfig{ProjectDir: home}, defaultSandboxPolicyProfile())
+	if err == nil {
+		t.Fatal("expected credential-parent project dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildSandboxLaunchSpecRejectsCredentialReadDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	_, err = buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: t.TempDir(),
+		ReadDirs:   []string{filepath.Join(home, ".ssh")},
+	}, defaultSandboxPolicyProfile())
+	if err == nil {
+		t.Fatal("expected credential read dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildSandboxLaunchSpecFiltersCoveredReadDirs(t *testing.T) {
+	projectDir := t.TempDir()
+	projectChild := filepath.Join(projectDir, "child")
+	if err := os.MkdirAll(projectChild, 0o755); err != nil {
+		t.Fatalf("mkdir projectChild: %v", err)
+	}
+
+	refDir := filepath.Join(t.TempDir(), "ref")
+	refChild := filepath.Join(refDir, "nested")
+	for _, dir := range []string{refDir, refChild} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		ReadDirs:   []string{projectChild, refDir, refChild},
+	}, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
+	}
+	if len(spec.MountReadDirs) != 1 || spec.MountReadDirs[0] != refDir {
+		t.Fatalf("MountReadDirs = %v, want [%q]", spec.MountReadDirs, refDir)
+	}
+	wantName := sandboxName("claude", projectDir, []string{refDir}, sandboxPolicyProfileBaseline)
+	if spec.Name != wantName {
+		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
 func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
@@ -306,7 +371,7 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
-	name := sandboxName("claude", sessionCfg, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -380,7 +445,7 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
-	name := sandboxName("shell", sessionCfg, sandboxPolicyProfileBaseline)
+	name := sandboxName("shell", projectDir, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -473,6 +538,66 @@ func TestRunSandboxClaudeSessionReadDirsRequireDesktop461(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "additional read-only workspaces") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunSandboxClaudeSessionReadDirsWithinProjectSkipExtraWorkspaceGate(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.58.1",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	projectChild := filepath.Join(projectDir, "child")
+	if err := os.MkdirAll(projectChild, 0o755); err != nil {
+		t.Fatalf("mkdir projectChild: %v", err)
+	}
+	sessionCfg := sessionConfig{
+		ProjectDir: projectDir,
+		ReadDirs:   []string{projectChild},
+	}
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
+		output: "created",
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
+		"--allow-host", "api.anthropic.com",
+		"--allow-host", "github.com",
+		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
+		output: "configured",
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	if err := runSandboxClaudeSession(sessionCfg, nil); err != nil {
+		t.Fatalf("runSandboxClaudeSession: %v", err)
+	}
+
+	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
+		t.Fatal("expected sandbox create command without extra read-only mount")
+	}
+	if containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir, projectChild+":ro")) {
+		t.Fatal("did not expect project child to be mounted read-only")
 	}
 }
 

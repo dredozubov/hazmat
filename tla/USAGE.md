@@ -142,5 +142,6 @@ fi
 | 01 Setup/Rollback | 2 setup, 2 rollback | 26,905 distinct | <1s |
 | 02 Seatbelt Policy | 6 paths, 4 project choices | 192 distinct | <1s |
 | 03 Backup Safety | 3 snapshots, 2 sessions, 2 restores | 395 distinct | <1s |
+| 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
 
 If TLC runs for more than 60 seconds, reduce your model bounds.
