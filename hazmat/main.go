@@ -109,6 +109,8 @@ func main() {
 	// ── Run agents ──
 	claudeCmd := newClaudeCmd()
 	claudeCmd.GroupID = "run"
+	codexCmd := newCodexCmd()
+	codexCmd.GroupID = "run"
 	opencodeCmd := newOpenCodeCmd()
 	opencodeCmd.GroupID = "run"
 	shellCmd := newShellCmd()
@@ -144,7 +146,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd,
-		claudeCmd, opencodeCmd, shellCmd, execCmd,
+		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, packCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(),

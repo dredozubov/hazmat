@@ -504,6 +504,18 @@ func testAgentTools(ui *UI) {
 	} else {
 		ui.TestSkip("OpenCode not installed for agent user (optional — run 'hazmat bootstrap opencode' to test it)")
 	}
+
+	// Codex
+	if path, ok := findInstalledCodexBinary(); ok {
+		ui.TestPass(fmt.Sprintf("Codex installed: %s", path))
+	} else if _, out, _ := func() (bool, string, error) {
+		out, err := asAgentOutput("bash", "-c", "command -v codex 2>/dev/null")
+		return err == nil && out != "", out, err
+	}(); out != "" {
+		ui.TestPass(fmt.Sprintf("Codex is in agent's PATH: %s", out))
+	} else {
+		ui.TestSkip("Codex not installed for agent user (optional — run 'hazmat bootstrap codex' to test it)")
+	}
 }
 
 // ── Step 11: Command surface ─────────────────────────────────────────────────

@@ -85,6 +85,7 @@ compatibility.
 
 Subcommands:
   hazmat bootstrap claude
+  hazmat bootstrap codex
   hazmat bootstrap opencode`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -94,6 +95,7 @@ Subcommands:
 		},
 	}
 	cmd.AddCommand(newBootstrapClaudeCmd())
+	cmd.AddCommand(newBootstrapCodexCmd())
 	cmd.AddCommand(newBootstrapOpenCodeCmd())
 	return cmd
 }
@@ -166,8 +168,8 @@ bash "$installer"
 			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
 			return fmt.Errorf("write bootstrap script: %w", err)
 		}
-		scriptFile.Close()                    //nolint:errcheck // close-to-flush; exec below catches problems
-		os.Chmod(scriptFile.Name(), 0o755)    //nolint:errcheck // exec below fails if not executable
+		scriptFile.Close()                 //nolint:errcheck // close-to-flush; exec below catches problems
+		os.Chmod(scriptFile.Name(), 0o755) //nolint:errcheck // exec below fails if not executable
 
 		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
 			"-u", agentUser, "-H", "bash", scriptFile.Name()); err != nil {

@@ -9,8 +9,10 @@ type HarnessID string
 
 const (
 	HarnessClaude               HarnessID = "claude"
+	HarnessCodex                HarnessID = "codex"
 	HarnessOpenCode             HarnessID = "opencode"
 	claudeHarnessStateVersion             = "1"
+	codexHarnessStateVersion              = "1"
 	opencodeHarnessStateVersion           = "1"
 )
 
@@ -26,9 +28,11 @@ type HarnessState struct {
 }
 
 type ClaudeHarness struct{}
+type CodexHarness struct{}
 type OpenCodeHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
+var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -36,6 +40,14 @@ func (ClaudeHarness) Spec() HarnessSpec {
 		ID:           HarnessClaude,
 		DisplayName:  "Claude Code",
 		StateVersion: claudeHarnessStateVersion,
+	}
+}
+
+func (CodexHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessCodex,
+		DisplayName:  "Codex",
+		StateVersion: codexHarnessStateVersion,
 	}
 }
 
@@ -77,6 +89,22 @@ func (h ClaudeHarness) RecordInstalled() error {
 
 func (h ClaudeHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
+}
+
+func (h CodexHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runCodexBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h CodexHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
 }
 
 func (h OpenCodeHarness) Bootstrap(ui *UI, r *Runner) error {

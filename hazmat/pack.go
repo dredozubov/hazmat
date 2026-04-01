@@ -742,7 +742,7 @@ func runPackList() error {
 	}
 
 	fmt.Println()
-	fmt.Println("  Activate: hazmat claude|opencode|shell|exec --pack <name>")
+	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --pack <name>")
 	fmt.Println("  Pin:      hazmat config set packs.pin \"~/workspace/app:node,go\"")
 	fmt.Println()
 	return nil

@@ -259,6 +259,60 @@ Examples:
 	return cmd
 }
 
+func newCodexCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "codex [hazmat-flags] [codex-flags] [codex-args...]",
+		Short: "Launch Codex in containment",
+		Long: `Launch Codex in a sandboxed environment.
+
+Hazmat flags (parsed first, may appear anywhere before --):
+  -C, --project <dir>    Writable project directory (defaults to cwd)
+  -R, --read <dir>       Read-only directory (repeatable)
+  --pack <name>          Activate a stack pack (repeatable)
+  --no-backup            Skip pre-session snapshot
+  --ignore-docker        Skip Docker artifact check
+
+All other flags and arguments are forwarded to Codex.
+Directory arguments are forwarded unchanged; use -C/--project to change
+the writable project root.
+
+Examples:
+  hazmat codex
+  hazmat codex "explain this repo"
+  hazmat codex -C /proj --full-auto
+  hazmat codex --no-backup`,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts, forwarded, err := parseHarnessArgs(args)
+			if err != nil {
+				if err == errHarnessHelp {
+					return cmd.Help()
+				}
+				return err
+			}
+
+			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+			if err != nil {
+				return err
+			}
+			if err := applyPacks(&cfg, opts.packs); err != nil {
+				return err
+			}
+			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
+				return err
+			}
+			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
+				return err
+			}
+
+			preSessionSnapshot(cfg, "codex", opts.noBackup)
+
+			return runAgentSeatbeltScript(cfg, codexLaunchScript(), forwarded...)
+		},
+	}
+	return cmd
+}
+
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
