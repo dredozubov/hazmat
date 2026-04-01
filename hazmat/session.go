@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -23,8 +26,9 @@ type sessionConfig struct {
 }
 
 type sessionLaunchUI struct {
-	clearScreen   bool
-	showStatusBar bool
+	clearScreen      bool
+	showStatusBar    bool
+	waitForAltScreen bool
 }
 
 func runProjectPreflight(projectDir string) error {
@@ -332,11 +336,88 @@ func claudeLaunchUI(forwarded []string) sessionLaunchUI {
 	wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
 	if wantsResume && resumeTarget == "" && !wantsContinue {
 		return sessionLaunchUI{
-			clearScreen:   true,
-			showStatusBar: false,
+			clearScreen:      true,
+			showStatusBar:    false,
+			waitForAltScreen: true,
 		}
 	}
 	return sessionLaunchUI{showStatusBar: true}
+}
+
+var altScreenEnterSequences = [][]byte{
+	[]byte("\x1b[?1049h"),
+	[]byte("\x1b[?1047h"),
+	[]byte("\x1b[?47h"),
+}
+
+func transcriptHasAltScreenEnter(buf []byte) bool {
+	for _, seq := range altScreenEnterSequences {
+		if len(seq) > 0 && bytes.Contains(buf, seq) {
+			return true
+		}
+	}
+	return false
+}
+
+func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struct{}) {
+	const (
+		pollInterval = 100 * time.Millisecond
+		tailBytes    = 64
+	)
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var offset int64
+	var tail []byte
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			f, err := os.Open(path)
+			if err != nil {
+				continue
+			}
+
+			info, err := f.Stat()
+			if err != nil {
+				f.Close()
+				continue
+			}
+			if info.Size() < offset {
+				offset = 0
+				tail = tail[:0]
+			}
+			if info.Size() == offset {
+				f.Close()
+				continue
+			}
+
+			chunk := make([]byte, info.Size()-offset)
+			n, err := f.ReadAt(chunk, offset)
+			f.Close()
+			if err != nil && err != io.EOF {
+				continue
+			}
+
+			chunk = chunk[:n]
+			offset += int64(n)
+
+			window := append(append([]byte{}, tail...), chunk...)
+			if transcriptHasAltScreenEnter(window) {
+				activate()
+				return
+			}
+
+			if len(window) > tailBytes {
+				tail = append([]byte{}, window[len(window)-tailBytes:]...)
+			} else {
+				tail = append([]byte{}, window...)
+			}
+		}
+	}
 }
 
 // applyPacks resolves, validates, and merges active packs into the session
@@ -877,16 +958,66 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	full = append(full, "/bin/zsh", "-lc", script, "zsh")
 	full = append(full, args...)
 
-	cmd := exec.Command("sudo", full...)
+	var (
+		barOnce     sync.Once
+		barTeardown = func() {}
+	)
+	startBar := func() {
+		barOnce.Do(func() {
+			bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
+			barTeardown = bar.Start()
+		})
+	}
+
+	if ui.showStatusBar {
+		startBar()
+	}
+
+	var (
+		cmd            *exec.Cmd
+		transcriptPath string
+		watchStop      chan struct{}
+		watchDone      chan struct{}
+	)
+	if ui.waitForAltScreen && term.IsTerminal(int(os.Stderr.Fd())) {
+		f, err := os.CreateTemp("", "hazmat-resume-*.typescript")
+		if err == nil {
+			transcriptPath = f.Name()
+			f.Close()
+			if err := os.Chmod(transcriptPath, 0o600); err != nil {
+				_ = os.Remove(transcriptPath)
+				transcriptPath = ""
+			}
+		}
+	}
+	if transcriptPath != "" {
+		scriptArgs := append([]string{"-q", transcriptPath, "sudo"}, full...)
+		cmd = exec.Command("script", scriptArgs...)
+		watchStop = make(chan struct{})
+		watchDone = make(chan struct{})
+		go func() {
+			defer close(watchDone)
+			watchTranscriptForAltScreen(transcriptPath, startBar, watchStop)
+		}()
+	} else {
+		cmd = exec.Command("sudo", full...)
+	}
+
+	defer func() {
+		if watchStop != nil {
+			close(watchStop)
+			<-watchDone
+		}
+		if transcriptPath != "" {
+			_ = os.Remove(transcriptPath)
+		}
+		barTeardown()
+	}()
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if ui.showStatusBar {
-		bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
-		teardown := bar.Start()
-		defer teardown()
-	}
 	if ui.clearScreen && term.IsTerminal(int(os.Stderr.Fd())) {
 		fmt.Fprint(os.Stderr, "\033[2J\033[H")
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveDirAcceptsAnyExistingDirectory(t *testing.T) {
@@ -671,6 +672,9 @@ func TestClaudeLaunchUIBareResumeClearsScreenAndSkipsStatusBar(t *testing.T) {
 	if ui.showStatusBar {
 		t.Fatal("showStatusBar should be false for bare --resume")
 	}
+	if !ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be true for bare --resume")
+	}
 }
 
 func TestClaudeLaunchUITargetedResumeKeepsStatusBar(t *testing.T) {
@@ -681,6 +685,9 @@ func TestClaudeLaunchUITargetedResumeKeepsStatusBar(t *testing.T) {
 	if !ui.showStatusBar {
 		t.Fatal("showStatusBar should stay enabled for targeted --resume")
 	}
+	if ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be false for targeted --resume")
+	}
 }
 
 func TestClaudeLaunchUIContinueKeepsStatusBar(t *testing.T) {
@@ -690,6 +697,59 @@ func TestClaudeLaunchUIContinueKeepsStatusBar(t *testing.T) {
 	}
 	if !ui.showStatusBar {
 		t.Fatal("showStatusBar should stay enabled for --continue")
+	}
+	if ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be false for --continue")
+	}
+}
+
+func TestTranscriptHasAltScreenEnter(t *testing.T) {
+	if !transcriptHasAltScreenEnter([]byte("prefix\x1b[?1049hsuffix")) {
+		t.Fatal("expected alt-screen enter sequence to be detected")
+	}
+	if transcriptHasAltScreenEnter([]byte("plain output only")) {
+		t.Fatal("unexpected alt-screen detection for plain output")
+	}
+}
+
+func TestWatchTranscriptForAltScreenActivatesAcrossChunkBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "transcript")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	activated := make(chan struct{})
+	stop := make(chan struct{})
+	go watchTranscriptForAltScreen(path, func() { close(activated) }, stop)
+	defer close(stop)
+
+	appendChunk := func(data string) {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(data); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	appendChunk("prefix\x1b[?10")
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-activated:
+		t.Fatal("watcher activated before full alt-screen sequence arrived")
+	default:
+	}
+
+	appendChunk("49hmain")
+	select {
+	case <-activated:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher did not activate after alt-screen sequence arrived")
 	}
 }
 
