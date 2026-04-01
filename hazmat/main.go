@@ -63,7 +63,7 @@ const (
 	hostClaudeWrapperName  = "claude-hazmat"
 	hostExecWrapperName    = "agent-exec"
 	hostShellWrapperName   = "agent-shell"
-	defaultAgentPath       = agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	defaultAgentPath       = agentHome + "/.opencode/bin:" + agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 	defaultAgentCacheHome  = agentHome + "/.cache"
 	defaultAgentConfigHome = agentHome + "/.config"
 	defaultAgentDataHome   = agentHome + "/.local/share"

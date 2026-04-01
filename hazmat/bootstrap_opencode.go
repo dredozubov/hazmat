@@ -9,7 +9,10 @@ import (
 )
 
 const (
-	opencodeInstallerURL = "https://opencode.ai/install"
+	opencodeInstallerURL  = "https://opencode.ai/install"
+	openCodeCurrentBinRel = "/.opencode/bin/opencode"
+	openCodeLegacyBinRel  = "/.local/bin/opencode"
+	openCodeMissingHelp   = "Error: OpenCode not installed for agent user. Run: hazmat bootstrap opencode"
 )
 
 const agentOpenCodeConfigJSON = `{
@@ -17,6 +20,75 @@ const agentOpenCodeConfigJSON = `{
   "autoupdate": false
 }
 `
+
+func openCodeBinaryCandidates() []string {
+	return []string{
+		agentHome + openCodeCurrentBinRel,
+		agentHome + openCodeLegacyBinRel,
+	}
+}
+
+func findInstalledOpenCodeBinary() (string, bool) {
+	return findInstalledOpenCodeBinaryWith(sudoOutput)
+}
+
+func findInstalledOpenCodeBinaryWith(read func(args ...string) (string, error)) (string, bool) {
+	for _, path := range openCodeBinaryCandidates() {
+		if _, err := read("test", "-x", path); err == nil {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func openCodeLaunchScript() string {
+	return `cd "$SANDBOX_PROJECT_DIR" && ` +
+		`opencode_bin=""; ` +
+		`for candidate in "$HOME` + openCodeCurrentBinRel + `" "$HOME` + openCodeLegacyBinRel + `"; do ` +
+		`if [ -x "$candidate" ]; then opencode_bin="$candidate"; break; fi; ` +
+		`done; ` +
+		`if [ -z "$opencode_bin" ]; then echo "` + openCodeMissingHelp + `" >&2; exit 1; fi; ` +
+		`exec "$opencode_bin" "$@"`
+}
+
+func ensureOpenCodePathShim(ui *UI, r *Runner) error {
+	ui.Step("Ensure OpenCode is on agent PATH")
+
+	installedPath, ok := findInstalledOpenCodeBinaryWith(r.SudoOutput)
+	if !ok {
+		if !r.DryRun {
+			return fmt.Errorf("OpenCode binary not found after install")
+		}
+		installedPath = agentHome + openCodeCurrentBinRel
+	}
+
+	shimPath := agentHome + openCodeLegacyBinRel
+	if installedPath == shimPath {
+		ui.SkipDone(shimPath + " already present")
+		return nil
+	}
+
+	shimDir := agentHome + "/.local/bin"
+	if err := r.Sudo("create agent OpenCode PATH directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", shimDir); err != nil {
+		return fmt.Errorf("ensure %s: %w", shimDir, err)
+	}
+	if _, err := r.SudoOutput("test", "-L", shimPath); err == nil {
+		if err := r.Sudo("refresh OpenCode PATH shim", "ln", "-sfn", installedPath, shimPath); err != nil {
+			return fmt.Errorf("refresh OpenCode PATH shim: %w", err)
+		}
+		ui.Ok(fmt.Sprintf("Linked %s -> %s", shimPath, installedPath))
+		return nil
+	}
+	if _, err := r.SudoOutput("test", "-e", shimPath); err == nil {
+		ui.SkipDone(shimPath + " already present (not overwritten)")
+		return nil
+	}
+	if err := r.Sudo("link OpenCode into agent PATH", "ln", "-s", installedPath, shimPath); err != nil {
+		return fmt.Errorf("link OpenCode PATH shim: %w", err)
+	}
+	ui.Ok(fmt.Sprintf("Linked %s -> %s", shimPath, installedPath))
+	return nil
+}
 
 func newBootstrapOpenCodeCmd() *cobra.Command {
 	return &cobra.Command{
@@ -44,9 +116,8 @@ func runOpenCodeBootstrap(ui *UI, r *Runner) error {
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	ui.Step("Install OpenCode for agent user")
-	opencodeBin := agentHome + "/.local/bin/opencode"
-	if _, err := sudoOutput("test", "-x", opencodeBin); err == nil {
-		ui.SkipDone("OpenCode already installed")
+	if opencodeBin, ok := findInstalledOpenCodeBinaryWith(r.SudoOutput); ok {
+		ui.SkipDone(fmt.Sprintf("OpenCode already installed at %s", opencodeBin))
 	} else {
 		installScript := fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
@@ -54,9 +125,20 @@ installer=$(mktemp "${TMPDIR:-/tmp}/opencode-install.XXXXXX")
 cleanup() { rm -f "$installer"; }
 trap cleanup EXIT
 curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
-env OPENCODE_INSTALL_DIR="$HOME/.local/bin" bash "$installer" --no-modify-path
-test -x "$HOME/.local/bin/opencode"
-`, opencodeInstallerURL)
+bash "$installer" --no-modify-path
+if [ -x "$HOME%s" ] && [ ! -e "$HOME%s" ] && [ ! -L "$HOME%s" ]; then
+  install -d -m 0700 "$HOME/.local/bin"
+  ln -s "$HOME%s" "$HOME%s"
+fi
+test -x "$HOME%s" || test -x "$HOME%s"
+`, opencodeInstallerURL,
+			openCodeCurrentBinRel,
+			openCodeLegacyBinRel,
+			openCodeLegacyBinRel,
+			openCodeCurrentBinRel,
+			openCodeLegacyBinRel,
+			openCodeCurrentBinRel,
+			openCodeLegacyBinRel)
 
 		scriptFile, err := os.CreateTemp("/tmp", "hazmat-opencode-bootstrap-*.sh")
 		if err != nil {
@@ -77,6 +159,10 @@ test -x "$HOME/.local/bin/opencode"
 			return fmt.Errorf("install OpenCode: %w", err)
 		}
 		ui.Ok("OpenCode installed")
+	}
+
+	if err := ensureOpenCodePathShim(ui, r); err != nil {
+		return err
 	}
 
 	ui.Step("Write agent OpenCode config")

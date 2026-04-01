@@ -243,11 +243,7 @@ Examples:
 
 			preSessionSnapshot(cfg, "opencode", opts.noBackup)
 
-			return runAgentSeatbeltScript(cfg,
-				`cd "$SANDBOX_PROJECT_DIR" && `+
-					`{ test -x "$HOME/.local/bin/opencode" || `+
-					`{ echo "Error: OpenCode not installed for agent user. Run: hazmat bootstrap opencode" >&2; exit 1; }; }; `+
-					`exec "$HOME/.local/bin/opencode" "$@"`, forwarded...)
+			return runAgentSeatbeltScript(cfg, openCodeLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
