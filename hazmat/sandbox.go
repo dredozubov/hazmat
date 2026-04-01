@@ -74,11 +74,18 @@ type sandboxDoctorReport struct {
 }
 
 type sandboxListResponse struct {
-	VMs []sandboxVM `json:"vms"`
+	VMs       []sandboxVM `json:"vms"`
+	Sandboxes []sandboxVM `json:"sandboxes"`
 }
 
 type sandboxVM struct {
 	Name string `json:"name"`
+}
+
+type dockerServerVersionResponse struct {
+	Platform struct {
+		Name string `json:"Name"`
+	} `json:"Platform"`
 }
 
 type sandboxProbe interface {
@@ -390,11 +397,11 @@ func collectSandboxDoctorReport(probe sandboxProbe) sandboxDoctorReport {
 		report.addCheck("Docker CLI", true, "docker command found")
 	}
 
-	desktopOut, desktopErr := probe.Output("docker", "desktop", "version", "--short")
+	desktopOut, desktopErr := probe.Output("docker", "version", "--format", "{{json .Server}}")
 	if desktopErr != nil {
 		report.addCheck("Docker Desktop version", false,
-			fmt.Sprintf("docker desktop version --short failed: %s", oneLine(desktopOut)))
-	} else if version, err := extractToolSemver(desktopOut); err != nil {
+			fmt.Sprintf("docker version --format '{{json .Server}}' failed: %s", oneLine(desktopOut)))
+	} else if version, err := extractDockerDesktopSemver(desktopOut); err != nil {
 		report.addCheck("Docker Desktop version", false, err.Error())
 	} else if !version.AtLeast(minDockerDesktopVersion) {
 		report.addCheck("Docker Desktop version", false,
@@ -428,7 +435,7 @@ func collectSandboxDoctorReport(probe sandboxProbe) sandboxDoctorReport {
 		report.addCheck("Docker Sandboxes control plane", false, err.Error())
 	} else {
 		report.addCheck("Docker Sandboxes control plane", true,
-			fmt.Sprintf("docker sandbox ls --json returned %d VM(s)", vmCount))
+			fmt.Sprintf("docker sandbox ls --json returned %d sandbox(es)", vmCount))
 	}
 
 	policyHelpOut, policyHelpErr := probe.Output("docker", "sandbox", "network", "proxy", "--help")
@@ -559,10 +566,28 @@ func validateSandboxListJSON(data string) (int, error) {
 	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
 		return 0, fmt.Errorf("docker sandbox ls --json did not return valid JSON: %w", err)
 	}
-	if !strings.Contains(data, `"vms"`) {
-		return 0, fmt.Errorf(`docker sandbox ls --json did not include a "vms" field`)
+	if strings.Contains(data, `"sandboxes"`) {
+		return len(parsed.Sandboxes), nil
 	}
-	return len(parsed.VMs), nil
+	if strings.Contains(data, `"vms"`) {
+		return len(parsed.VMs), nil
+	}
+	return 0, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
+}
+
+func extractDockerDesktopSemver(raw string) (semver, error) {
+	var parsed dockerServerVersionResponse
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return semver{}, fmt.Errorf("docker version --format '{{json .Server}}' did not return valid JSON: %w", err)
+	}
+	if parsed.Platform.Name == "" {
+		return semver{}, fmt.Errorf("docker version --format '{{json .Server}}' did not include Server.Platform.Name")
+	}
+	version, err := extractToolSemver(parsed.Platform.Name)
+	if err != nil {
+		return semver{}, fmt.Errorf("parse Docker Desktop version from %q: %w", parsed.Platform.Name, err)
+	}
+	return version, nil
 }
 
 func extractToolSemver(raw string) (semver, error) {

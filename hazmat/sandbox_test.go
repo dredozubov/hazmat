@@ -53,14 +53,14 @@ func sandboxProbeKey(name string, args ...string) string {
 func healthySandboxProbe() *fakeSandboxProbe {
 	return &fakeSandboxProbe{
 		outputs: map[string]fakeSandboxResult{
-			sandboxProbeKey("docker", "desktop", "version", "--short"): {
-				output: "4.58.1",
+			sandboxProbeKey("docker", "version", "--format", "{{json .Server}}"): {
+				output: `{"Platform":{"Name":"Docker Desktop 4.58.1 (123456)"}}`,
 			},
 			sandboxProbeKey("docker", "compose", "version"): {
 				output: "Docker Compose version v2.40.3",
 			},
 			sandboxProbeKey("docker", "sandbox", "ls", "--json"): {
-				output: `{"vms":[]}`,
+				output: `{"sandboxes":[]}`,
 			},
 			sandboxProbeKey("docker", "sandbox", "network", "proxy", "--help"): {
 				output: "Usage: docker sandbox network proxy [OPTIONS]\n      --policy string\n      --allow-host strings\n",
@@ -100,12 +100,22 @@ func TestExtractToolSemver(t *testing.T) {
 }
 
 func TestValidateSandboxListJSON(t *testing.T) {
-	count, err := validateSandboxListJSON(`{"vms":[{"name":"claude-demo"}]}`)
+	count, err := validateSandboxListJSON(`{"sandboxes":[{"name":"claude-demo"}]}`)
 	if err != nil {
 		t.Fatalf("validateSandboxListJSON: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("count = %d, want 1", count)
+	}
+}
+
+func TestValidateSandboxListJSONLegacyVMs(t *testing.T) {
+	count, err := validateSandboxListJSON(`{"vms":[{"name":"claude-demo"}]}`)
+	if err != nil {
+		t.Fatalf("validateSandboxListJSON legacy: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("legacy count = %d, want 1", count)
 	}
 }
 
@@ -135,8 +145,8 @@ func TestCollectSandboxDoctorReportHealthy(t *testing.T) {
 
 func TestCollectSandboxDoctorReportOldDesktopVersionFails(t *testing.T) {
 	probe := healthySandboxProbe()
-	probe.outputs[sandboxProbeKey("docker", "desktop", "version", "--short")] = fakeSandboxResult{
-		output: "4.57.0",
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.57.0 (123456)"}}`,
 	}
 
 	report := collectSandboxDoctorReport(probe)
@@ -377,8 +387,8 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	}
 
 	probe := healthySandboxProbe()
-	probe.outputs[sandboxProbeKey("docker", "desktop", "version", "--short")] = fakeSandboxResult{
-		output: "4.61.1",
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
 	}
 	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
 		output: "created",
@@ -451,8 +461,8 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	}
 
 	probe := healthySandboxProbe()
-	probe.outputs[sandboxProbeKey("docker", "desktop", "version", "--short")] = fakeSandboxResult{
-		output: "4.61.1",
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
 	}
 	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "shell", projectDir)] = fakeSandboxResult{
 		output: "created",
