@@ -55,6 +55,7 @@ assert_file_absent() {
 phase "Build"
 cd "$REPO_ROOT/hazmat"
 make clean && make all
+sudo make install-helper
 pass "hazmat + hazmat-launch built"
 
 # ── Unit tests ───────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ go test ./... && pass "go test ./... passed" || fail "go test ./... failed"
 # ── Phase 1: Fresh install ───────────────────────────────────────────────────
 
 phase "Phase 1: Fresh install"
-sudo "$HAZMAT" init --yes && pass "hazmat init completed" || fail "hazmat init failed"
+"$HAZMAT" init --yes && pass "hazmat init completed" || fail "hazmat init failed"
 
 if [ "$QUICK" = "--quick" ]; then
     "$HAZMAT" check && pass "hazmat check passed" || fail "hazmat check failed"
@@ -202,7 +203,7 @@ rm -rf "$PROJECT"
 # ── Phase 6: Rollback completeness ──────────────────────────────────────────
 
 phase "Phase 6: Rollback"
-sudo "$HAZMAT" rollback --delete-user --delete-group --yes \
+"$HAZMAT" rollback --delete-user --delete-group --yes \
     && pass "hazmat rollback completed" \
     || fail "hazmat rollback failed"
 
@@ -230,7 +231,7 @@ sudo "$HAZMAT" rollback --delete-user --delete-group --yes \
 # ── Phase 7: Idempotency ────────────────────────────────────────────────────
 
 phase "Phase 7: Idempotency (rollback → reinit → check)"
-sudo "$HAZMAT" init --yes && pass "reinit completed" || fail "reinit failed"
+"$HAZMAT" init --yes && pass "reinit completed" || fail "reinit failed"
 
 if [ "$QUICK" = "--quick" ]; then
     "$HAZMAT" check && pass "reinit check passed" || fail "reinit check failed"
@@ -252,7 +253,7 @@ else
 fi
 
 # Verify init is actually idempotent (running init again changes nothing)
-sudo "$HAZMAT" init --yes 2>&1 | grep -c "already" > /tmp/hazmat-idemp-$$ || true
+"$HAZMAT" init --yes 2>&1 | grep -c "already" > /tmp/hazmat-idemp-$$ || true
 SKIP_COUNT=$(cat /tmp/hazmat-idemp-$$)
 rm -f /tmp/hazmat-idemp-$$
 [ "$SKIP_COUNT" -gt 5 ] \
@@ -262,7 +263,7 @@ rm -f /tmp/hazmat-idemp-$$
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 
 phase "Cleanup"
-sudo "$HAZMAT" rollback --delete-user --delete-group --yes > /dev/null 2>&1 \
+"$HAZMAT" rollback --delete-user --delete-group --yes > /dev/null 2>&1 \
     && pass "final rollback completed" \
     || fail "final rollback failed"
 
