@@ -471,6 +471,188 @@ func TestSuggestPacksNoMatchReturnsEmpty(t *testing.T) {
 	}
 }
 
+// ── repo recommendations ───────────────────────────────────────────────────
+
+func TestLoadRepoRecommendationsValid(t *testing.T) {
+	dir := t.TempDir()
+	recDir := filepath.Join(dir, ".hazmat")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// "go" is a built-in pack that exists.
+	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
+		[]byte("packs:\n  - go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	names, hash, err := loadRepoRecommendations(dir)
+	if err != nil {
+		t.Fatalf("loadRepoRecommendations: %v", err)
+	}
+	if len(names) != 1 || names[0] != "go" {
+		t.Fatalf("names = %v, want [go]", names)
+	}
+	if hash == "" {
+		t.Fatal("hash should not be empty")
+	}
+}
+
+func TestLoadRepoRecommendationsNoFile(t *testing.T) {
+	dir := t.TempDir()
+	names, hash, err := loadRepoRecommendations(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if names != nil || hash != "" {
+		t.Fatalf("expected nil/empty for missing file, got %v / %q", names, hash)
+	}
+}
+
+func TestLoadRepoRecommendationsUnknownPack(t *testing.T) {
+	dir := t.TempDir()
+	recDir := filepath.Join(dir, ".hazmat")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
+		[]byte("packs:\n  - nonexistent-pack-xyz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := loadRepoRecommendations(dir)
+	if err == nil {
+		t.Fatal("expected error for unknown pack name")
+	}
+}
+
+func TestLoadRepoRecommendationsRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	recDir := filepath.Join(dir, ".hazmat")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
+		[]byte("packs:\n  - go\nread_dirs:\n  - /tmp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := loadRepoRecommendations(dir)
+	if err == nil {
+		t.Fatal("expected error for unknown field in recommendations file")
+	}
+}
+
+func TestLoadRepoRecommendationsRejectsInlineDefinitions(t *testing.T) {
+	dir := t.TempDir()
+	recDir := filepath.Join(dir, ".hazmat")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Even if the YAML is structurally valid, unknown keys are rejected.
+	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
+		[]byte("packs:\n  - go\nsession:\n  env_passthrough: [SSH_AUTH_SOCK]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := loadRepoRecommendations(dir)
+	if err == nil {
+		t.Fatal("expected error for inline session config in recommendations file")
+	}
+}
+
+// ── approval records ──────────────────────────────────────────────────────
+
+func TestApprovalRoundTrip(t *testing.T) {
+	saved := approvalsFilePath
+	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { approvalsFilePath = saved })
+
+	if isApproved("/test/project", "abc123") {
+		t.Fatal("should not be approved before recording")
+	}
+
+	if err := recordApproval("/test/project", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !isApproved("/test/project", "abc123") {
+		t.Fatal("should be approved after recording")
+	}
+}
+
+func TestApprovalInvalidatedOnHashChange(t *testing.T) {
+	saved := approvalsFilePath
+	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { approvalsFilePath = saved })
+
+	if err := recordApproval("/test/project", "hash1"); err != nil {
+		t.Fatal(err)
+	}
+	if !isApproved("/test/project", "hash1") {
+		t.Fatal("should be approved with original hash")
+	}
+	if isApproved("/test/project", "hash2") {
+		t.Fatal("should NOT be approved with different hash")
+	}
+}
+
+func TestApprovalReplacesStaleEntry(t *testing.T) {
+	saved := approvalsFilePath
+	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { approvalsFilePath = saved })
+
+	if err := recordApproval("/test/project", "hash1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordApproval("/test/project", "hash2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Old hash should no longer be approved.
+	if isApproved("/test/project", "hash1") {
+		t.Fatal("old hash should be replaced")
+	}
+	// New hash should be approved.
+	if !isApproved("/test/project", "hash2") {
+		t.Fatal("new hash should be approved")
+	}
+
+	// Should have exactly one entry for this project.
+	af := loadApprovals()
+	count := 0
+	for _, rec := range af.Approvals {
+		if rec.ProjectDir == "/test/project" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 approval entry, got %d", count)
+	}
+}
+
+func TestApprovalDifferentProjectsIndependent(t *testing.T) {
+	saved := approvalsFilePath
+	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { approvalsFilePath = saved })
+
+	if err := recordApproval("/project/a", "hashA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordApproval("/project/b", "hashB"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !isApproved("/project/a", "hashA") {
+		t.Fatal("project a should be approved")
+	}
+	if !isApproved("/project/b", "hashB") {
+		t.Fatal("project b should be approved")
+	}
+	if isApproved("/project/a", "hashB") {
+		t.Fatal("project a with project b's hash should not be approved")
+	}
+}
+
 // ── safeEnvKeys coverage ───────────────────────────────────────────────────
 
 func TestSafeEnvKeysExcludesDangerousKeys(t *testing.T) {

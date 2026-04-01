@@ -104,6 +104,10 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **Stack packs are ergonomic overlays, not policy escapes.** Packs may add read-only paths, snapshot excludes, safe env passthrough, warnings, and command hints. They cannot add write scope, expose denied credential paths, or modify the firewall model.
 
+**Repo-recommended packs require explicit host approval.** A `.hazmat/packs.yaml` in the project directory may list pack names, but it is a hint, not authority. Hazmat prompts the user once, then stores approval in `~/.hazmat/approvals.yaml` keyed by canonical project path + SHA-256 of the file. If the file changes, approval is invalidated. This prevents the agent (which can write to the project directory) from silently escalating its own session config — any change to the recommendations file triggers a re-prompt.
+
+**`~/workspace` as a global read dir is a security tradeoff.** If `session.read_dirs` includes `~/workspace`, every hazmat session can read every repo and artifact under that tree. This is appropriate for single-developer machines where all workspace content is at the same trust level. For multi-tenant or mixed-trust workspaces, use per-session `-R` flags or pack-based read dirs instead.
+
 **Cloud backup encrypts at rest.** Both local and cloud snapshots use Kopia's encrypted repository format. The local repository relies on a fixed local-only password plus filesystem permissions; the cloud repository relies on the configured repository password.
 
 ## Rollback

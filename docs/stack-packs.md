@@ -109,6 +109,42 @@ Registry redirect keys like `GOPROXY` and `NPM_CONFIG_REGISTRY` are allowed but
 surfaced explicitly at session start because they change where downloads come
 from.
 
+## Repo-Recommended Packs
+
+A repo can declare which packs it needs in `.hazmat/packs.yaml`:
+
+```yaml
+packs:
+  - go
+  - tla-java
+```
+
+This file is pure data: a list of existing pack names. No inline definitions,
+no custom paths, no env keys, no executable hooks.
+
+**Repo owns intent; host owns trust.** Hazmat reads the file as a hint, not
+authority. On first encounter, it prompts:
+
+```
+hazmat: this repo recommends packs: go, tla-java
+hazmat: source: /Users/dr/workspace/hazmat/.hazmat/packs.yaml
+hazmat: approve these packs for this repo? [y/N]
+```
+
+Approval is stored outside the repo in `~/.hazmat/approvals.yaml`, keyed by
+canonical project path + SHA-256 of the file contents:
+
+- Same repo + same file = no prompt (approved)
+- File changes (pack added or removed) = re-approve
+- Repo cloned to a different path = re-approve
+
+If the user declines, packs are not activated. They can still use `--pack`
+manually.
+
+When CLI flags (`--pack`) or config pinning already provide packs for a
+session, the repo recommendation prompt is skipped to avoid blocking
+sessions that already have explicit configuration.
+
 ## User Packs
 
 User-installed packs live in:
@@ -126,3 +162,16 @@ schema. User packs are validated before use:
 - env passthrough keys must be in the safe allowlist
 
 If a pack is invalid, Hazmat rejects it instead of partially applying it.
+
+## Self-Hosting: Developing Hazmat Under Hazmat
+
+Hazmat's own repo includes `.hazmat/packs.yaml` recommending `go` and
+`tla-java`. On first `hazmat claude` in this repo, approve the recommended
+packs and the session gets Go toolchain support plus Java paths for TLC model
+checking.
+
+Prerequisites:
+- Go installed locally
+- Java 17+ installed locally (Homebrew: `brew install openjdk`)
+- `~/workspace/tla2tools.jar` downloaded (see `tla/VERIFIED.md`)
+- `~/workspace` as the sole entry in `session.read_dirs`

@@ -72,7 +72,11 @@ Today packs can:
 - pass through a small safe set of environment selectors such as `GOPATH` or `VIRTUAL_ENV`
 
 They cannot widen write access, expose blocked credentials, or change firewall
-policy. Full details live in [stack-packs.md](stack-packs.md).
+policy.
+
+Repos can declare recommended packs in `.hazmat/packs.yaml`. On first use,
+hazmat prompts for approval; after that, packs activate automatically. See
+[stack-packs.md](stack-packs.md) for details.
 
 ### Specifying a Different Project Directory
 

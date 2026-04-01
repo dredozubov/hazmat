@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -337,10 +339,152 @@ func allBuiltinPackNames() []string {
 	return names
 }
 
-// ── Resolution: CLI flags + config pinning ─────────────────────────────────
+// ── Repo-recommended packs ─────────────────────────────────────────────────
+//
+// A repo may declare recommended packs in .hazmat/packs.yaml.
+// The file is pure data: a list of pack names referencing existing built-in
+// or user-installed packs. No inline definitions, no paths, no env keys.
+//
+// Repo owns intent; host owns trust. Recommendations are never auto-activated.
+// On first encounter (or after file change), hazmat prompts the user for
+// approval. Approval is stored outside the repo in ~/.hazmat/approvals.yaml,
+// keyed by canonical project path + SHA-256 of the recommendations file.
+
+const repoRecommendedFile = ".hazmat/packs.yaml"
+
+// repoRecommendedPacks is the schema for .hazmat/packs.yaml.
+type repoRecommendedPacks struct {
+	Packs []string `yaml:"packs"`
+}
+
+// packApprovalRecord is one entry in the approvals file.
+type packApprovalRecord struct {
+	ProjectDir string `yaml:"project"`
+	FileHash   string `yaml:"hash"`
+}
+
+var approvalsFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/approvals.yaml")
+
+// approvalsFile is the top-level schema for ~/.hazmat/approvals.yaml.
+type approvalsFile struct {
+	Approvals []packApprovalRecord `yaml:"approvals"`
+}
+
+// loadRepoRecommendations reads .hazmat/packs.yaml from the
+// project directory. Returns the pack names and the SHA-256 of the file
+// contents. Returns nil names if the file doesn't exist.
+func loadRepoRecommendations(projectDir string) ([]string, string, error) {
+	path := filepath.Join(projectDir, repoRecommendedFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", nil
+		}
+		return nil, "", fmt.Errorf("read %s: %w", repoRecommendedFile, err)
+	}
+
+	if len(data) > packMaxSize {
+		return nil, "", fmt.Errorf("%s exceeds %d byte limit", repoRecommendedFile, packMaxSize)
+	}
+
+	var rec repoRecommendedPacks
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&rec); err != nil {
+		return nil, "", fmt.Errorf("parse %s: %w", repoRecommendedFile, err)
+	}
+
+	// Validate: every name must resolve through existing loaders.
+	for _, name := range rec.Packs {
+		if _, err := loadPackByName(name); err != nil {
+			return nil, "", fmt.Errorf("%s: unknown pack %q", repoRecommendedFile, name)
+		}
+	}
+
+	hash := sha256.Sum256(data)
+	return rec.Packs, hex.EncodeToString(hash[:]), nil
+}
+
+// loadApprovals reads the approvals file.
+func loadApprovals() approvalsFile {
+	data, err := os.ReadFile(approvalsFilePath)
+	if err != nil {
+		return approvalsFile{}
+	}
+	var af approvalsFile
+	_ = yaml.Unmarshal(data, &af)
+	return af
+}
+
+// saveApprovals writes the approvals file.
+func saveApprovals(af approvalsFile) error {
+	dir := filepath.Dir(approvalsFilePath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(&af)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(approvalsFilePath, data, 0o600)
+}
+
+// isApproved checks whether the given project + hash combination is approved.
+func isApproved(projectDir, fileHash string) bool {
+	af := loadApprovals()
+	for _, rec := range af.Approvals {
+		if rec.ProjectDir == projectDir && rec.FileHash == fileHash {
+			return true
+		}
+	}
+	return false
+}
+
+// recordApproval stores approval for a project + hash. Replaces any existing
+// approval for the same project (since hash changed = re-approve).
+func recordApproval(projectDir, fileHash string) error {
+	af := loadApprovals()
+
+	// Remove stale approval for same project.
+	filtered := af.Approvals[:0]
+	for _, rec := range af.Approvals {
+		if rec.ProjectDir != projectDir {
+			filtered = append(filtered, rec)
+		}
+	}
+	filtered = append(filtered, packApprovalRecord{
+		ProjectDir: projectDir,
+		FileHash:   fileHash,
+	})
+	af.Approvals = filtered
+
+	return saveApprovals(af)
+}
+
+// promptPackApproval asks the user to approve repo-recommended packs.
+// Returns true if approved. Non-interactive sessions (no TTY) return false.
+func promptPackApproval(projectDir string, packNames []string) bool {
+	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends packs: %s\n",
+		strings.Join(packNames, ", "))
+	fmt.Fprintf(os.Stderr, "hazmat: source: %s/%s\n", projectDir, repoRecommendedFile)
+	fmt.Fprintf(os.Stderr, "hazmat: approve these packs for this repo? [y/N] ")
+
+	var answer string
+	if _, err := fmt.Scanln(&answer); err != nil {
+		return false
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer == "y" || answer == "yes"
+}
+
+// ── Resolution: CLI flags + config pinning + repo recommendations ────────
 
 // resolveActivePacks determines which packs to load for a session.
-// Sources (in order): --pack CLI flags, then config pinning for the project.
+// Sources (in priority order):
+//  1. --pack CLI flags (always active, no approval needed)
+//  2. Config pinning for the project (always active, user configured)
+//  3. Repo .hazmat/packs.yaml (requires host approval)
+//
 // Returns loaded, validated packs.
 func resolveActivePacks(packFlags []string, projectDir string) ([]Pack, error) {
 	// Collect pack names from CLI flags.
@@ -361,6 +505,31 @@ func resolveActivePacks(packFlags []string, projectDir string) ([]Pack, error) {
 				names[n] = struct{}{}
 			}
 		}
+	}
+
+	// Add repo-recommended packs if approved by host.
+	if recNames, fileHash, err := loadRepoRecommendations(projectDir); err == nil && len(recNames) > 0 {
+		if isApproved(projectDir, fileHash) {
+			for _, n := range recNames {
+				names[n] = struct{}{}
+			}
+		} else if len(names) == 0 {
+			// No CLI or pinned packs active — prompt for approval.
+			// If packs are already active from CLI/pins, skip the prompt
+			// to avoid blocking sessions that already have explicit config.
+			if promptPackApproval(projectDir, recNames) {
+				if err := recordApproval(projectDir, fileHash); err != nil {
+					fmt.Fprintf(os.Stderr, "hazmat: warning: could not save approval: %v\n", err)
+				}
+				for _, n := range recNames {
+					names[n] = struct{}{}
+				}
+			} else {
+				fmt.Fprintln(os.Stderr, "hazmat: repo packs declined. Use --pack to activate manually.")
+			}
+		}
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "hazmat: warning: %v\n", err)
 	}
 
 	if len(names) == 0 {
