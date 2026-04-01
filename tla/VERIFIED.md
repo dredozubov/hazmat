@@ -11,6 +11,20 @@ Claude/OpenCode curated imports, per-harness metadata under `~/.hazmat/state.jso
 or session-only stack pack activation/pinning. That work is tracked separately
 and should not be implied by the existing proofs.
 
+Important additional scope boundary: the current TLA+ suite also does **not**
+model Tier 3 container containment for Docker-capable sessions. The existing
+Seatbelt proofs cover Tier 2 host-side containment only. They should not be
+read as proving equivalent properties for any future Docker Sandbox or other
+container-backed runtime.
+
+For a future Tier 3 model, the key properties to prove would be the container
+equivalents of today's Seatbelt guarantees:
+
+- mount-planner exclusions for credential and unrelated host paths
+- minimal environment passthrough at launch time
+- backend identity validation
+- network policy applied before agent launch
+
 ---
 
 ## Governance Rules

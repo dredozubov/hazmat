@@ -787,7 +787,7 @@ Docker artifacts detected in %s: %s
 Docker is not available in this containment mode (socket locked to owner-only).
 
   hazmat claude --ignore-docker   Continue without Docker support
-  docker hazmat run claude %s     Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
+  docker sandbox run claude %s    Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
 `,
 		projectDir,
 		strings.Join(found, ", "),

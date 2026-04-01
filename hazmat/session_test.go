@@ -572,7 +572,7 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "docker hazmat run") {
+	if !strings.Contains(err.Error(), "docker sandbox run") {
 		t.Errorf("error message should mention Tier 3 command, got: %s", err)
 	}
 	if !strings.Contains(err.Error(), "--ignore-docker") {

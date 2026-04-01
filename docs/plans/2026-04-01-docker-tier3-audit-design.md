@@ -41,6 +41,7 @@ An auditor reviewing this proposal should also inspect:
 - `docs/tier3-docker-sandboxes.md` for the current Docker guidance
 - `hazmat/session.go` for the current Docker artifact gate and `--ignore-docker`
   behavior
+- `tla/VERIFIED.md` for the current formal-verification scope boundary
 
 ## Problem Statement
 
@@ -80,10 +81,10 @@ This proposal does not attempt to:
 
 ## Recommended Product Shape
 
-Hazmat should ship a first-class Docker mode that behaves as a Tier 3 runtime.
-The operator continues to use `hazmat claude`, `hazmat exec`, and
+Hazmat should ship a first-class Tier 3 sandbox mode for Docker-capable
+sessions. The operator continues to use `hazmat claude`, `hazmat exec`, and
 `hazmat shell` as the primary entrypoints. Hazmat detects whether the current
-project requires Docker and routes the session to the correct runtime.
+project requires Tier 3 and routes the session to the correct runtime.
 
 Recommended behavior:
 
@@ -95,6 +96,8 @@ Recommended behavior:
   docs.
 - Docker-oriented repository where the user only wants code editing:
   `--ignore-docker` remains available as an explicit override.
+- Operator override: `--sandbox` forces the canonical command to use Tier 3
+  rather than introducing a parallel session command surface.
 
 ## Recommendation for v1 Backend
 
@@ -115,30 +118,35 @@ but they should not expand the initial threat surface.
 
 ## Proposed Command Surface
 
-Primary commands:
+Canonical session commands:
 
 - `hazmat claude`
 - `hazmat exec`
 - `hazmat shell`
 
-New Docker-specific commands:
+Explicit Tier 3 selection:
 
-- `hazmat docker setup`
-- `hazmat docker doctor`
-- `hazmat docker claude`
-- `hazmat docker exec`
-- `hazmat docker shell`
+- `hazmat claude --sandbox`
+- `hazmat exec --sandbox`
+- `hazmat shell --sandbox`
 
-The generic commands remain the default UX. The Docker-specific commands exist
-for explicit control, diagnostics, support, and testing.
+Tier 3 management commands:
+
+- `hazmat sandbox setup`
+- `hazmat sandbox doctor`
+- `hazmat sandbox reset`
+
+The namespace is intentionally backend-agnostic. Docker Sandboxes are the v1
+backend, but the product surface should describe the abstraction rather than
+bind itself permanently to a single vendor name.
 
 ## Architecture Overview
 
 ### Components
 
 1. Tier detector
-2. Docker backend manager
-3. Docker network policy manager
+2. Tier 3 backend manager
+3. Tier 3 network policy manager
 4. Mount planner
 5. Runtime launcher
 6. Session recorder and export layer
@@ -153,12 +161,24 @@ The tier detector is responsible for deciding whether a project should run in:
 
 Inputs:
 
-- repository Docker markers such as `Dockerfile`, `compose.yaml`,
-  `docker-compose.yml`, `Containerfile`, and `.devcontainer/`
-- explicit user override such as `--ignore-docker`
-- backend readiness state from `hazmat docker doctor`
+- hard Docker markers such as `Dockerfile`, `compose.yaml`,
+  `docker-compose.yml`, and `Containerfile`
+- soft container-workflow markers such as `.devcontainer/`
+- explicit user override such as `--ignore-docker` or `--sandbox`
+- backend readiness state from `hazmat sandbox doctor`
 
-### Docker backend manager
+Routing rule for v1:
+
+- hard Docker markers are sufficient to auto-route into Tier 3 when the backend
+  is configured
+- `.devcontainer/` alone is not sufficient to auto-route by itself
+- `.devcontainer/` alone should produce an advisory unless Hazmat positively
+  determines that the devcontainer config itself requires Docker or Compose
+
+This distinction exists because IDE-oriented devcontainer metadata is not the
+same thing as proof that a CLI session must be Docker-capable.
+
+### Tier 3 backend manager
 
 The backend manager is responsible for:
 
@@ -170,7 +190,7 @@ The backend manager is responsible for:
 The backend manager is a trust boundary. It must fail closed if it cannot prove
 that the runtime is using a private daemon or microVM boundary.
 
-### Docker network policy manager
+### Tier 3 network policy manager
 
 The network manager is responsible for turning the Docker-capable runtime from
 "allow-all by default" into "explicitly allowed only." It must apply policy
@@ -210,6 +230,16 @@ The launcher starts the agent tool inside the Tier 3 runtime with:
 - no host Docker socket
 - no host SSH agent socket
 - no host credential mounts
+- `ANTHROPIC_API_KEY` passed from the parent process environment at launch
+  time via explicit env injection
+- no persistence of model API credentials inside the sandbox between sessions
+
+For v1, the launcher should pass the minimum viable environment:
+
+- `ANTHROPIC_API_KEY`
+- fixed runtime variables Hazmat itself requires
+
+It should not pass through arbitrary host shell state.
 
 ### Session recorder and export layer
 
@@ -223,7 +253,7 @@ Hazmat should preserve its current session model as much as possible:
 
 ### 1. Setup
 
-`hazmat docker setup` verifies the presence and version of the supported Docker
+`hazmat sandbox setup` verifies the presence and version of the supported Docker
 backend and records approved configuration. It should not grant broad trust to
 arbitrary Docker installations; it should validate the exact backend type and
 minimum version.
@@ -235,6 +265,7 @@ Before launching a Docker-oriented session, Hazmat runs:
 - Docker marker detection
 - backend health check
 - version floor check
+- approval check for the project/backend/profile tuple
 - network policy materialization
 - mount plan generation
 
@@ -249,7 +280,8 @@ instance before starting the agent process.
 
 Hazmat launches the requested tool within the Tier 3 runtime using the prepared
 mounts and environment. The operator should not need to invoke raw Docker
-commands.
+commands, and the canonical `hazmat claude|exec|shell` commands remain the
+entrypoint even when Tier 3 is selected explicitly with `--sandbox`.
 
 ### 5. Active session
 
@@ -259,10 +291,15 @@ access to the host daemon.
 
 ### 6. Cleanup
 
-Hazmat may either reuse a stable per-project sandbox or destroy ephemeral
-instances after use. Either choice must be explicit in the product model and
-auditable. v1 should prefer stable per-project sandboxes for UX, with explicit
-reset and removal commands.
+The lifecycle decision is:
+
+- stable per-project sandbox identity
+- ephemeral per-session agent process or container layer inside that sandbox
+- explicit reset via `hazmat sandbox reset`
+- cleanup on `hazmat rollback`
+
+This preserves warm per-project state where intended while avoiding ambiguous
+cross-project reuse.
 
 ## Trust Boundaries
 
@@ -317,8 +354,27 @@ These invariants are non-negotiable:
 7. Hazmat must fail closed when backend identity, backend health, or network
    policy state is uncertain.
 8. Tier 2 remains unchanged for non-Docker projects.
+9. Model API credentials are delivered only as explicit launch-time env
+   injection and are not persisted inside the sandbox by default.
 
 If any one of these invariants cannot be enforced, Docker mode should not ship.
+
+## Formal Verification Scope Gap
+
+Hazmat's current TLA+ proofs cover Tier 2 containment properties built around
+Seatbelt policy generation, rollback ordering, backup safety, and migration
+logic. They do not currently cover Tier 3 container containment.
+
+This matters because the Tier 2 proof of credential isolation is grounded in
+SBPL deny rules. In Tier 3, the analogous security property is enforced by:
+
+- what the mount planner refuses to mount
+- what environment variables the launcher refuses to pass through
+- what backend identity the control plane accepts
+
+Until a Tier 3 model exists, `tla/VERIFIED.md` should not be read as proving
+Tier 3 containment. A future model should cover at least mount-planner
+exclusions, backend identity, and pre-launch network-policy application.
 
 ## Threat Model
 
@@ -359,6 +415,7 @@ Required UX properties:
 - single mental model: "run Hazmat, not raw Docker"
 - clear routing: Hazmat explains why a repo is using Tier 2 or Tier 3
 - explicit override for code-only sessions on Docker repos
+- explicit Tier 3 selection on the canonical commands via `--sandbox`
 - clear diagnostics when backend setup is missing
 - no suggestion that exposing host Docker is an acceptable shortcut
 
@@ -387,7 +444,7 @@ Hazmat should log enough information for an operator or auditor to answer:
 - which backend was used
 - which network profile was applied
 - which paths were mounted read-write and read-only
-- whether the session was launched via auto-routing or explicit Docker mode
+- whether the session was launched via auto-routing or explicit `--sandbox`
 
 The logs should avoid storing secret values but should preserve enough structure
 to reconstruct policy decisions.
@@ -396,32 +453,33 @@ to reconstruct policy decisions.
 
 ### Phase 0: Correct current UX
 
-Before introducing Docker mode, Hazmat should fix current messaging so the
-recommended path in errors is a real supported command rather than a placeholder
-or stale reference.
+Fix the existing Tier 3 hint immediately anywhere it points to a non-existent
+command surface. This is not a design-phase defer; it is an immediate hygiene
+fix required for the current Docker gate to remain credible.
 
 ### Phase 1: Backend setup and diagnostics
 
 Ship:
 
-- `hazmat docker setup`
-- `hazmat docker doctor`
+- `hazmat sandbox setup`
+- `hazmat sandbox doctor`
+- `hazmat sandbox reset`
 - version checks
 - backend identity checks
 - policy validation checks
 
 Do not auto-route sessions yet.
 
-### Phase 2: Explicit Docker mode
+### Phase 2: Explicit Tier 3 selection
 
 Ship:
 
-- `hazmat docker claude`
-- `hazmat docker exec`
-- `hazmat docker shell`
+- `--sandbox` flag on `hazmat claude`
+- `--sandbox` flag on `hazmat exec`
+- `--sandbox` flag on `hazmat shell`
 
-This gives auditors and early adopters a concrete path to test without changing
-the generic command behavior.
+This gives auditors and early adopters a concrete path to test without creating
+two parallel session command surfaces.
 
 ### Phase 3: Auto-routing
 
@@ -440,12 +498,12 @@ Only after the primary path is stable should Hazmat consider:
 
 These should be resolved before implementation freeze:
 
-1. Should Tier 3 sandboxes be ephemeral per session or stable per project?
-2. Which package registries belong in the default allowlist, if any?
-3. How much operator-facing network customization is acceptable without
+1. Which package registries belong in the default allowlist, if any?
+2. How much operator-facing network customization is acceptable without
    creating a footgun?
-4. Should Docker mode have a separate snapshot and restore story from Tier 2?
-5. How should Hazmat expose Docker-specific state reset to the operator?
+3. Should Docker mode have a separate snapshot and restore story from Tier 2?
+4. How much `.devcontainer` parsing is acceptable in v1 before the detector
+   becomes too implicit or too error-prone?
 
 ## Red-Team Review Questions
 
@@ -473,6 +531,10 @@ are true:
 - the design preserves the current Tier 2 boundary
 - the Docker-capable runtime is private to the agent session
 - network policy is automatic and auditable
+- canonical session commands remain the primary UX, with `--sandbox` as the
+  explicit Tier 3 override
+- model API credentials are passed only at launch time and are not stored in
+  the sandbox by default
 - the operator can use Docker workflows through Hazmat without touching raw host
   Docker access
 - the red-team questions above have concrete test plans and clear expected
@@ -481,8 +543,9 @@ are true:
 ## Summary
 
 The recommended path is not "let Tier 2 use Docker." The recommended path is to
-make Docker a first-class Tier 3 runtime inside Hazmat and make that path
-simple enough that users adopt it by default.
+make Docker a first-class Tier 3 runtime inside Hazmat, keep the operator on
+the canonical `hazmat claude|exec|shell` entrypoints, and make that path simple
+enough that users adopt it by default.
 
 That is the only approach that offers a meaningful usability unlock without
 abandoning Hazmat's existing security posture.
