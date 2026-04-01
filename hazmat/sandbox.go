@@ -1,9 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,8 +24,11 @@ const (
 var (
 	minDockerDesktopVersion = semver{major: 4, minor: 58, patch: 0}
 	minComposeVersion       = semver{major: 2, minor: 40, patch: 2}
+	minShellSandboxVersion  = semver{major: 4, minor: 61, patch: 0}
+	minExtraWorkspaceVer    = semver{major: 4, minor: 61, patch: 0}
 	semverPattern           = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 	sandboxHostPattern      = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	sandboxNamePattern      = regexp.MustCompile(`[^a-z0-9]+`)
 	sandboxNow              = func() time.Time { return time.Now().UTC() }
 	sandboxProbeFactory     = func() sandboxProbe { return hostSandboxProbe{} }
 )
@@ -63,6 +70,7 @@ type sandboxVM struct {
 type sandboxProbe interface {
 	LookPath(name string) (string, error)
 	Output(name string, args ...string) (string, error)
+	Run(name string, args ...string) error
 }
 
 type hostSandboxProbe struct{}
@@ -74,6 +82,14 @@ func (hostSandboxProbe) LookPath(name string) (string, error) {
 func (hostSandboxProbe) Output(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
+}
+
+func (hostSandboxProbe) Run(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func newSandboxCmd() *cobra.Command {
@@ -455,6 +471,193 @@ func formatSandboxBackendLabel(kind string) string {
 		}
 		return kind
 	}
+}
+
+func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
+	if wantsResume, _, wantsContinue := detectResumeFlags(forwarded); wantsResume || wantsContinue {
+		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --sandbox mode")
+	}
+
+	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
+		forwarded = append([]string{"--dangerously-skip-permissions"}, forwarded...)
+	}
+
+	probe, name, err := prepareDockerSandbox(cfg, "claude")
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for Claude\n", name)
+	args := []string{"sandbox", "run", name}
+	if len(forwarded) > 0 {
+		args = append(args, "--")
+		args = append(args, forwarded...)
+	}
+	return probe.Run("docker", args...)
+}
+
+func runSandboxShellSession(cfg sessionConfig) error {
+	probe, name, err := prepareDockerSandbox(cfg, "shell")
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for shell\n", name)
+	return probe.Run("docker", "sandbox", "run", name, "--",
+		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", cfg.ProjectDir)
+}
+
+func runSandboxExecSession(cfg sessionConfig, commandArgs []string) error {
+	probe, name, err := prepareDockerSandbox(cfg, "shell")
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for exec\n", name)
+	args := []string{
+		"sandbox", "run", name, "--",
+		"-lc", `cd "$1" && shift && exec "$@"`, "bash", cfg.ProjectDir,
+	}
+	args = append(args, commandArgs...)
+	return probe.Run("docker", args...)
+}
+
+func prepareDockerSandbox(cfg sessionConfig, agent string) (sandboxProbe, string, error) {
+	if len(cfg.PackEnv) > 0 {
+		return nil, "", fmt.Errorf("stack pack env passthrough is not supported with --sandbox yet")
+	}
+
+	probe := sandboxProbeFactory()
+	_, profile, version, err := loadHealthySandboxLaunchBackend(probe)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := validateSandboxLaunchCompatibility(agent, cfg, version); err != nil {
+		return nil, "", err
+	}
+
+	name := sandboxName(agent, cfg, profile.Name)
+	if err := ensureDockerSandbox(probe, name, agent, cfg); err != nil {
+		return nil, "", err
+	}
+	if err := applyDockerSandboxPolicy(probe, name, profile); err != nil {
+		return nil, "", err
+	}
+
+	return probe, name, nil
+}
+
+func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig, sandboxPolicyProfile, semver, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, err
+	}
+	backend := cfg.SandboxBackend()
+	if backend == nil {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not configured. Run: hazmat sandbox setup")
+	}
+	if backend.Type != sandboxBackendDockerSandboxes {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured Tier 3 backend %q is not supported for session launch", backend.Type)
+	}
+
+	report := collectSandboxDoctorReport(probe)
+	if !report.Healthy() {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not healthy. Run: hazmat sandbox doctor")
+	}
+	if report.Backend != backend.Type {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured backend %q does not match detected backend %q. Run: hazmat sandbox setup", backend.Type, report.Backend)
+	}
+
+	profile, err := sandboxPolicyProfileByName(backend.PolicyProfile)
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, err
+	}
+	if report.PolicyProfile.Name != profile.Name {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured policy profile %q does not match detected profile %q. Run: hazmat sandbox setup", profile.Name, report.PolicyProfile.Name)
+	}
+
+	version, err := extractToolSemver(report.DesktopVersion)
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("parse Docker Desktop version: %w", err)
+	}
+
+	return backend, profile, version, nil
+}
+
+func sandboxPolicyProfileByName(name string) (sandboxPolicyProfile, error) {
+	switch name {
+	case sandboxPolicyProfileBaseline:
+		return defaultSandboxPolicyProfile(), nil
+	case "":
+		return sandboxPolicyProfile{}, fmt.Errorf("configured sandbox policy profile is empty")
+	default:
+		return sandboxPolicyProfile{}, fmt.Errorf("unsupported sandbox policy profile %q", name)
+	}
+}
+
+func validateSandboxLaunchCompatibility(agent string, cfg sessionConfig, desktopVersion semver) error {
+	if agent == "shell" && !desktopVersion.AtLeast(minShellSandboxVersion) {
+		return fmt.Errorf("Docker Desktop %s is too old for shell sandboxes; hazmat shell --sandbox and hazmat exec --sandbox require >= %s", desktopVersion.String(), minShellSandboxVersion.String())
+	}
+	if len(cfg.ReadDirs) > 0 && !desktopVersion.AtLeast(minExtraWorkspaceVer) {
+		return fmt.Errorf("Docker Desktop %s is too old for additional read-only workspaces; --sandbox with -R or auto-added read dirs requires >= %s", desktopVersion.String(), minExtraWorkspaceVer.String())
+	}
+	return nil
+}
+
+func sandboxName(agent string, cfg sessionConfig, profileName string) string {
+	base := strings.ToLower(filepath.Base(cfg.ProjectDir))
+	base = sandboxNamePattern.ReplaceAllString(base, "-")
+	base = strings.Trim(base, "-")
+	if base == "" {
+		base = "workspace"
+	}
+
+	h := sha256.New()
+	_, _ = h.Write([]byte(agent))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(cfg.ProjectDir))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(profileName))
+	for _, dir := range cfg.ReadDirs {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(dir))
+	}
+	sum := hex.EncodeToString(h.Sum(nil)[:6])
+	return fmt.Sprintf("hazmat-%s-%s-%s", agent, base, sum)
+}
+
+func ensureDockerSandbox(probe sandboxProbe, name, agent string, cfg sessionConfig) error {
+	args := []string{"sandbox", "create", "--name", name, agent, cfg.ProjectDir}
+	for _, dir := range cfg.ReadDirs {
+		args = append(args, dir+":ro")
+	}
+
+	out, err := probe.Output("docker", args...)
+	if err != nil && !sandboxAlreadyExists(out) {
+		return fmt.Errorf("create Docker Sandbox %s: %s", name, oneLine(out))
+	}
+	return nil
+}
+
+func sandboxAlreadyExists(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "already exists") ||
+		strings.Contains(lower, "already in use") ||
+		strings.Contains(lower, "name is already")
+}
+
+func applyDockerSandboxPolicy(probe sandboxProbe, name string, profile sandboxPolicyProfile) error {
+	args := []string{"sandbox", "network", "proxy", name, "--policy", profile.Policy}
+	for _, host := range profile.AllowHosts {
+		args = append(args, "--allow-host", host)
+	}
+
+	out, err := probe.Output("docker", args...)
+	if err != nil {
+		return fmt.Errorf("apply Docker Sandbox policy to %s: %s", name, oneLine(out))
+	}
+	return nil
 }
 
 func oneLine(s string) string {

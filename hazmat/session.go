@@ -48,6 +48,7 @@ func newShellCmd() *cobra.Command {
 	var readDirs []string
 	var packNames []string
 	var noBackup bool
+	var useSandbox bool
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
@@ -60,10 +61,13 @@ func newShellCmd() *cobra.Command {
 			if err := applyPacks(&cfg, packNames); err != nil {
 				return err
 			}
+			preSessionSnapshot(cfg, "shell", noBackup)
+			if useSandbox {
+				return runSandboxShellSession(cfg)
+			}
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
-			preSessionSnapshot(cfg, "shell", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
@@ -76,6 +80,8 @@ func newShellCmd() *cobra.Command {
 		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
+		"Run inside the configured Tier 3 Docker Sandbox backend")
 	return cmd
 }
 
@@ -84,6 +90,7 @@ func newExecCmd() *cobra.Command {
 	var readDirs []string
 	var packNames []string
 	var noBackup bool
+	var useSandbox bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -96,10 +103,13 @@ func newExecCmd() *cobra.Command {
 			if err := applyPacks(&cfg, packNames); err != nil {
 				return err
 			}
+			preSessionSnapshot(cfg, "exec", noBackup)
+			if useSandbox {
+				return runSandboxExecSession(cfg, args)
+			}
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
-			preSessionSnapshot(cfg, "exec", noBackup)
 			return runAgentSeatbeltScript(cfg,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
@@ -112,6 +122,8 @@ func newExecCmd() *cobra.Command {
 		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
+		"Run inside the configured Tier 3 Docker Sandbox backend")
 	return cmd
 }
 
@@ -126,6 +138,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
+  --sandbox              Use the configured Tier 3 Docker Sandbox backend
   --ignore-docker        Skip Docker artifact check
 
 All other flags and arguments are forwarded to Claude Code.
@@ -139,6 +152,7 @@ Examples:
   hazmat claude -p "explain this"      Print mode
   hazmat claude --model sonnet         Use specific model
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
+  hazmat claude --sandbox -C /proj     Use Tier 3 Docker Sandboxes
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
   hazmat claude --continue             Continue most recent conversation`,
@@ -162,8 +176,16 @@ Examples:
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
-			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
-				return err
+			if !opts.useSandbox {
+				if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
+					return err
+				}
+			}
+
+			preSessionSnapshot(cfg, "claude", opts.noBackup)
+
+			if opts.useSandbox {
+				return runSandboxClaudeSession(cfg, forwarded)
 			}
 
 			// Pre-flight: ensure the agent user can write to the project.
@@ -171,8 +193,6 @@ Examples:
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
-
-			preSessionSnapshot(cfg, "claude", opts.noBackup)
 
 			// Sync sessions for --resume / --continue.
 			// Copies the invoking user's session files into the agent's
@@ -241,6 +261,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if opts.useSandbox {
+				return fmt.Errorf("--sandbox is not supported for hazmat opencode yet")
+			}
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
@@ -295,6 +318,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if opts.useSandbox {
+				return fmt.Errorf("--sandbox is not supported for hazmat codex yet")
+			}
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
@@ -320,6 +346,7 @@ type harnessSessionOpts struct {
 	readDirs    []string
 	packs       []string
 	noBackup    bool
+	useSandbox  bool
 	allowDocker bool
 }
 
@@ -329,7 +356,8 @@ var errHarnessHelp = fmt.Errorf("help requested")
 var errClaudeHelp = errHarnessHelp
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --pack, --no-backup, --ignore-docker)
+// Hazmat flags (--project, --read, --pack, --no-backup, --sandbox,
+// --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
@@ -349,6 +377,8 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			return opts, nil, errHarnessHelp
 		case arg == "--no-backup":
 			opts.noBackup = true
+		case arg == "--sandbox":
+			opts.useSandbox = true
 		case arg == "--ignore-docker":
 			opts.allowDocker = true
 		case arg == "--project" || arg == "-C":
@@ -787,7 +817,7 @@ Docker artifacts detected in %s: %s
 Docker is not available in this containment mode (socket locked to owner-only).
 
   hazmat claude --ignore-docker   Continue without Docker support
-  docker sandbox run claude %s    Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
+  hazmat claude --sandbox -C %s   Use Tier 3 for full Docker (see tier3-docker-sandboxes.md)
 `,
 		projectDir,
 		strings.Join(found, ", "),

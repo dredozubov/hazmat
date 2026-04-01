@@ -572,7 +572,7 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "docker sandbox run") {
+	if !strings.Contains(err.Error(), "hazmat claude --sandbox") {
 		t.Errorf("error message should mention Tier 3 command, got: %s", err)
 	}
 	if !strings.Contains(err.Error(), "--ignore-docker") {
@@ -589,7 +589,7 @@ func TestParseClaudeArgsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.project != "" || opts.noBackup || opts.allowDocker || len(opts.readDirs) != 0 {
+	if opts.project != "" || opts.noBackup || opts.useSandbox || opts.allowDocker || len(opts.readDirs) != 0 {
 		t.Fatalf("expected zero opts, got %+v", opts)
 	}
 	if len(fwd) != 0 {
@@ -618,7 +618,7 @@ func TestParseClaudeArgsForwardsUnknownFlags(t *testing.T) {
 }
 
 func TestParseClaudeArgsMixedFlags(t *testing.T) {
-	args := []string{"--no-backup", "-C", "/myproject", "-p", "hello", "--ignore-docker"}
+	args := []string{"--no-backup", "--sandbox", "-C", "/myproject", "-p", "hello", "--ignore-docker"}
 	opts, fwd, err := parseClaudeArgs(args)
 	if err != nil {
 		t.Fatal(err)
@@ -628,6 +628,9 @@ func TestParseClaudeArgsMixedFlags(t *testing.T) {
 	}
 	if !opts.noBackup {
 		t.Fatal("noBackup should be true")
+	}
+	if !opts.useSandbox {
+		t.Fatal("useSandbox should be true")
 	}
 	if !opts.allowDocker {
 		t.Fatal("allowDocker should be true")
