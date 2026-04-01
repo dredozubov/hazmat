@@ -25,6 +25,7 @@ var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-creden
 type HazmatConfig struct {
 	Backup  BackupConfig  `yaml:"backup"`
 	Session SessionConfig `yaml:"session"`
+	Packs   PacksConfig   `yaml:"packs,omitempty"`
 }
 
 type SessionConfig struct {
@@ -39,6 +40,25 @@ type SessionConfig struct {
 	// every session. Default: [~/workspace]. Visible in `hazmat config`,
 	// configurable via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
+}
+
+// PacksConfig holds per-project pack pinning.
+type PacksConfig struct {
+	// Pinned maps canonical project paths to pack names.
+	// Config stores raw paths (with ~); matching resolves both sides
+	// through Abs + EvalSymlinks before comparison.
+	Pinned []PackPin `yaml:"pinned,omitempty"`
+}
+
+// PackPin associates a project directory with a list of pack names.
+type PackPin struct {
+	ProjectDir string   `yaml:"project"`
+	Packs      []string `yaml:"packs"`
+}
+
+// PackPins returns the configured pack pins (nil if none).
+func (c HazmatConfig) PackPins() []PackPin {
+	return c.Packs.Pinned
 }
 
 type BackupConfig struct {
@@ -174,6 +194,7 @@ Subcommands:
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
+  hazmat config import opencode Import portable OpenCode basics
   hazmat config cloud        Configure S3 cloud backup credentials
   hazmat config set K V      Set a configuration value
 
@@ -181,6 +202,7 @@ Examples:
   hazmat config
   hazmat config agent
   hazmat config import claude --dry-run
+  hazmat config import opencode --dry-run
   hazmat config cloud --endpoint s3.fr-par.scw.cloud --bucket my-backups
   hazmat config set backup.retention.keep_latest 30`,
 		Args: cobra.NoArgs,

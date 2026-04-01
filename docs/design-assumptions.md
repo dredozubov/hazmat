@@ -78,7 +78,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 ## Claude Code Coupling
 
-**Tightly coupled to Claude Code.** The bootstrap step installs Claude Code specifically (`curl -fsSL https://claude.ai/install.sh`). The seatbelt allows `~/.claude/` read-write. Settings and hooks use Claude Code's format. The `hazmat claude` command runs the Claude binary.
+**Harnesses are explicit, but Claude is still the default path.** `hazmat init` still bootstraps Claude Code by default and the seatbelt explicitly allows Claude state in `~/.claude/`. Other harnesses, like the current OpenCode prototype, are installed and configured explicitly via harness-specific commands such as `hazmat bootstrap opencode` and `hazmat opencode`.
 
 **Cannot run other agents without code changes.** To use Cursor, aider, or OpenAI's tools, you'd need to modify: the install step, the seatbelt policy paths, the wrapper script, and the settings format. There's no agent abstraction layer.
 

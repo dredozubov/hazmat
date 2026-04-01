@@ -8,8 +8,10 @@ import (
 type HarnessID string
 
 const (
-	HarnessClaude             HarnessID = "claude"
-	claudeHarnessStateVersion           = "1"
+	HarnessClaude               HarnessID = "claude"
+	HarnessOpenCode             HarnessID = "opencode"
+	claudeHarnessStateVersion             = "1"
+	opencodeHarnessStateVersion           = "1"
 )
 
 type HarnessSpec struct {
@@ -24,14 +26,24 @@ type HarnessState struct {
 }
 
 type ClaudeHarness struct{}
+type OpenCodeHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
+var openCodeHarness = OpenCodeHarness{}
 
 func (ClaudeHarness) Spec() HarnessSpec {
 	return HarnessSpec{
 		ID:           HarnessClaude,
 		DisplayName:  "Claude Code",
 		StateVersion: claudeHarnessStateVersion,
+	}
+}
+
+func (OpenCodeHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessOpenCode,
+		DisplayName:  "OpenCode",
+		StateVersion: opencodeHarnessStateVersion,
 	}
 }
 
@@ -60,15 +72,53 @@ func (h ClaudeHarness) ImportBasics(ui *UI, r *Runner, env claudeImportEnv, opts
 }
 
 func (h ClaudeHarness) RecordInstalled() error {
-	spec := h.Spec()
+	return recordHarnessInstalled(h.Spec())
+}
+
+func (h ClaudeHarness) RecordBasicsImported() error {
+	return recordHarnessImportRun(h.Spec())
+}
+
+func (h OpenCodeHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runOpenCodeBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h OpenCodeHarness) ImportBasics(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
+	if err := runOpenCodeBasicsImport(ui, r, env, opts); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordBasicsImported(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h OpenCodeHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
+}
+
+func (h OpenCodeHarness) RecordBasicsImported() error {
+	return recordHarnessImportRun(h.Spec())
+}
+
+func recordHarnessInstalled(spec HarnessSpec) error {
 	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
 		state.StateVersion = spec.StateVersion
 		return state
 	})
 }
 
-func (h ClaudeHarness) RecordBasicsImported() error {
-	spec := h.Spec()
+func recordHarnessImportRun(spec HarnessSpec) error {
 	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
 		state.StateVersion = spec.StateVersion
 		state.LastImportRunAt = time.Now().UTC().Format(time.RFC3339)

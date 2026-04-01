@@ -99,6 +99,8 @@ func main() {
 	initCmd := newInitCmd()
 	initCmd.GroupID = "setup"
 	initCmd.AddCommand(newInitCloudCmd())
+	bootstrapCmd := newBootstrapCmd()
+	bootstrapCmd.GroupID = "setup"
 	rollbackCmd := newRollbackCmd()
 	rollbackCmd.GroupID = "setup"
 	checkCmd := newInitCheckCmd()
@@ -107,6 +109,8 @@ func main() {
 	// ── Run agents ──
 	claudeCmd := newClaudeCmd()
 	claudeCmd.GroupID = "run"
+	opencodeCmd := newOpenCodeCmd()
+	opencodeCmd.GroupID = "run"
 	shellCmd := newShellCmd()
 	shellCmd.GroupID = "run"
 	execCmd := newExecCmd()
@@ -137,8 +141,8 @@ func main() {
 		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
 	root.AddCommand(
-		initCmd, rollbackCmd, checkCmd,
-		claudeCmd, shellCmd, execCmd,
+		initCmd, bootstrapCmd, rollbackCmd, checkCmd,
+		claudeCmd, opencodeCmd, shellCmd, execCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(),

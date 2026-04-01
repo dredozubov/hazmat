@@ -506,6 +506,18 @@ func testAgentTools(ui *UI) {
 	} else {
 		ui.TestWarn("No ~/.claude/settings.json for agent user — permissions and deny rules not configured")
 	}
+
+	// OpenCode
+	if asAgentQuiet("test", "-f", agentHome+"/.local/bin/opencode") == nil {
+		ui.TestPass(fmt.Sprintf("OpenCode installed: %s/.local/bin/opencode", agentHome))
+	} else if _, out, _ := func() (bool, string, error) {
+		out, err := asAgentOutput("bash", "-c", "command -v opencode 2>/dev/null")
+		return err == nil && out != "", out, err
+	}(); out != "" {
+		ui.TestPass(fmt.Sprintf("OpenCode is in agent's PATH: %s", out))
+	} else {
+		ui.TestSkip(fmt.Sprintf("OpenCode not installed for agent user (optional — run 'hazmat bootstrap opencode' to test it)"))
+	}
 }
 
 // ── Step 11: Command surface ─────────────────────────────────────────────────

@@ -30,6 +30,30 @@ func testClaudeImportEnv(t *testing.T) claudeImportEnv {
 	}
 }
 
+func testOpenCodeImportEnv(t *testing.T) opencodeImportEnv {
+	t.Helper()
+
+	hostHome := filepath.Join(t.TempDir(), "host")
+	agentHome := filepath.Join(t.TempDir(), "agent")
+	for _, dir := range []string{
+		hostHome,
+		agentHome,
+		filepath.Join(hostHome, ".config", "opencode"),
+		filepath.Join(agentHome, ".config", "opencode"),
+		filepath.Join(hostHome, ".local", "share", "opencode"),
+		filepath.Join(agentHome, ".local", "share", "opencode"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	return opencodeImportEnv{
+		hostHome:  hostHome,
+		agentHome: agentHome,
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -286,6 +310,146 @@ func TestResolveConflictsFailsWithoutExplicitPolicy(t *testing.T) {
 	}
 	if err := plan.resolveConflicts(claudeConflictFail); err == nil {
 		t.Fatal("expected explicit conflict policy to be required")
+	}
+}
+
+func TestScanOpenCodeImportPlanOnlyIncludesPortableBasics(t *testing.T) {
+	env := testOpenCodeImportEnv(t)
+
+	writeTestFile(t, env.hostAuthFile(), `{"provider":"anthropic","token":"abc123"}`)
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	commandTarget := filepath.Join(t.TempDir(), "command.md")
+	writeTestFile(t, commandTarget, "# ship\n")
+	if err := os.MkdirAll(env.hostCommandsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(commandTarget, filepath.Join(env.hostCommandsDir(), "ship.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	agentSource := filepath.Join(t.TempDir(), "agent-source")
+	writeTestFile(t, filepath.Join(agentSource, "AGENT.md"), "# Agent\n")
+	if err := os.MkdirAll(env.hostAgentsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(agentSource, filepath.Join(env.hostAgentsDir(), "reviewer")); err != nil {
+		t.Fatal(err)
+	}
+
+	skillSource := filepath.Join(t.TempDir(), "skill-source")
+	writeTestFile(t, filepath.Join(skillSource, "SKILL.md"), "# Skill\n")
+	if err := os.MkdirAll(env.hostSkillsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(skillSource, filepath.Join(env.hostSkillsDir(), "brainstorming")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, env.hostConfigPath(), `{"model":"anthropic/claude-sonnet-4-5"}`)
+
+	plan, err := scanOpenCodeImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanOpenCodeImportPlan: %v", err)
+	}
+
+	if !plan.hasCategory("sign-in") {
+		t.Fatal("expected sign-in item in import plan")
+	}
+	if !plan.hasCategory("git identity") {
+		t.Fatal("expected git identity item in import plan")
+	}
+	if got := plan.countCategory("command"); got != 1 {
+		t.Fatalf("command count = %d, want 1", got)
+	}
+	if got := plan.countCategory("agent"); got != 1 {
+		t.Fatalf("agent count = %d, want 1", got)
+	}
+	if got := plan.countCategory("skill"); got != 1 {
+		t.Fatalf("skill count = %d, want 1", got)
+	}
+
+	for _, item := range plan.Items {
+		if item.Name == "opencode.json" {
+			t.Fatal("opencode.json should not be part of portable import scope")
+		}
+	}
+}
+
+func TestApplyOpenCodeImportPlanCopiesPortableContent(t *testing.T) {
+	env := testOpenCodeImportEnv(t)
+
+	writeTestFile(t, env.hostAuthFile(), `{"provider":"anthropic","token":"abc123"}`)
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	commandTarget := filepath.Join(t.TempDir(), "command.md")
+	writeTestFile(t, commandTarget, "ship it\n")
+	if err := os.MkdirAll(env.hostCommandsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(commandTarget, filepath.Join(env.hostCommandsDir(), "ship.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	agentSource := filepath.Join(t.TempDir(), "agent-source")
+	writeTestFile(t, filepath.Join(agentSource, "AGENT.md"), "# Agent\n")
+	if err := os.MkdirAll(env.hostAgentsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(agentSource, filepath.Join(env.hostAgentsDir(), "reviewer")); err != nil {
+		t.Fatal(err)
+	}
+
+	skillSource := filepath.Join(t.TempDir(), "skill-source")
+	writeTestFile(t, filepath.Join(skillSource, "SKILL.md"), "# Skill\n")
+	if err := os.MkdirAll(env.hostSkillsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(skillSource, filepath.Join(env.hostSkillsDir(), "brainstorming")); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := scanOpenCodeImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanOpenCodeImportPlan: %v", err)
+	}
+	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+		t.Fatalf("resolveConflicts: %v", err)
+	}
+	if _, err := applyOpenCodeImportPlan(plan, env, nil); err != nil {
+		t.Fatalf("applyOpenCodeImportPlan: %v", err)
+	}
+
+	authRaw, err := os.ReadFile(env.agentAuthFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(authRaw) != `{"provider":"anthropic","token":"abc123"}` {
+		t.Fatalf("agent auth file = %q", authRaw)
+	}
+
+	gitConfigRaw, err := os.ReadFile(env.agentGitConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitConfig := string(gitConfigRaw)
+	if !containsAll(gitConfig, "name = Denis", "email = denis@example.com") {
+		t.Fatalf("agent gitconfig missing imported identity:\n%s", gitConfig)
+	}
+
+	commandDest := filepath.Join(env.agentCommandsDir(), "ship.md")
+	commandInfo, err := os.Lstat(commandDest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandInfo.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("expected imported command to be copied as a regular file")
+	}
+	if _, err := os.Stat(filepath.Join(env.agentAgentsDir(), "reviewer", "AGENT.md")); err != nil {
+		t.Fatalf("expected copied agent file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(env.agentSkillsDir(), "brainstorming", "SKILL.md")); err != nil {
+		t.Fatalf("expected copied skill file: %v", err)
 	}
 }
 

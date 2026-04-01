@@ -122,7 +122,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, forwarded, err := parseClaudeArgs(args)
 			if err != nil {
-				if err == errClaudeHelp {
+				if err == errHarnessHelp {
 					return cmd.Help()
 				}
 				return err
@@ -175,21 +175,79 @@ Examples:
 	return cmd
 }
 
-// claudeOpts holds hazmat-specific flags extracted from the claude command line.
-type claudeOpts struct {
+func newOpenCodeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "opencode [hazmat-flags] [opencode-flags] [opencode-args...]",
+		Short: "Launch OpenCode in containment",
+		Long: `Launch OpenCode in a sandboxed environment.
+
+Hazmat flags (parsed first, may appear anywhere before --):
+  -C, --project <dir>    Writable project directory (defaults to cwd)
+  -R, --read <dir>       Read-only directory (repeatable)
+  --no-backup            Skip pre-session snapshot
+  --ignore-docker        Skip Docker artifact check
+
+All other flags and arguments are forwarded to OpenCode.
+Directory arguments are forwarded unchanged; use -C/--project to change
+the writable project root.
+
+Examples:
+  hazmat opencode
+  hazmat opencode -p "explain this"
+  hazmat opencode -C /proj -p "hi"
+  hazmat opencode --no-backup -p "hi"`,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts, forwarded, err := parseHarnessArgs(args)
+			if err != nil {
+				if err == errHarnessHelp {
+					return cmd.Help()
+				}
+				return err
+			}
+
+			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+			if err != nil {
+				return err
+			}
+			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
+				return err
+			}
+			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
+				return err
+			}
+
+			preSessionSnapshot(cfg.ProjectDir, "opencode", opts.noBackup)
+
+			return runAgentSeatbeltScript(cfg,
+				`cd "$SANDBOX_PROJECT_DIR" && `+
+					`{ test -x "$HOME/.local/bin/opencode" || `+
+					`{ echo "Error: OpenCode not installed for agent user. Run: hazmat bootstrap opencode" >&2; exit 1; }; }; `+
+					`exec "$HOME/.local/bin/opencode" "$@"`, forwarded...)
+		},
+	}
+	return cmd
+}
+
+// harnessSessionOpts holds hazmat-specific flags extracted from a harness
+// command line before forwarding the rest to the harness CLI.
+type harnessSessionOpts struct {
 	project     string
 	readDirs    []string
 	noBackup    bool
 	allowDocker bool
 }
 
-var errClaudeHelp = fmt.Errorf("help requested")
+type claudeOpts = harnessSessionOpts
 
-// parseClaudeArgs separates hazmat flags from claude flags+args.
+var errHarnessHelp = fmt.Errorf("help requested")
+var errClaudeHelp = errHarnessHelp
+
+// parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
 // Hazmat flags (--project, --read, --no-backup, --ignore-docker) are extracted;
-// everything else is returned as forwarded args for claude.
-func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
-	var opts claudeOpts
+// everything else is returned as forwarded args for the harness tool.
+func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
+	var opts harnessSessionOpts
 	var forwarded []string
 
 	for i := 0; i < len(args); i++ {
@@ -203,7 +261,7 @@ func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 
 		switch {
 		case arg == "--help" || arg == "-h":
-			return opts, nil, errClaudeHelp
+			return opts, nil, errHarnessHelp
 		case arg == "--no-backup":
 			opts.noBackup = true
 		case arg == "--ignore-docker":
@@ -229,6 +287,10 @@ func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 		}
 	}
 	return opts, forwarded, nil
+}
+
+func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
+	return parseHarnessArgs(args)
 }
 
 func resolveSessionConfig(project string, readPaths []string) (sessionConfig, error) {

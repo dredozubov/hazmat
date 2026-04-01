@@ -75,8 +75,32 @@ exit 0
 `
 
 func newBootstrapCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "bootstrap",
+		Short: "Install a harness tool for the agent user",
+		Long: `Install a supported harness tool into the agent environment.
+
+Without a subcommand, 'hazmat bootstrap' installs Claude Code for backward
+compatibility.
+
+Subcommands:
+  hazmat bootstrap claude
+  hazmat bootstrap opencode`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+			r := NewRunner(ui, flagVerbose, flagDryRun)
+			return claudeCodeHarness.Bootstrap(ui, r)
+		},
+	}
+	cmd.AddCommand(newBootstrapClaudeCmd())
+	cmd.AddCommand(newBootstrapOpenCodeCmd())
+	return cmd
+}
+
+func newBootstrapClaudeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "claude",
 		Short: "Install Claude Code for the agent user and write default settings",
 		Long: `Install Claude Code for the agent user, write a default settings.json with
 allow/deny rules, and create a PreToolUse hook skeleton.

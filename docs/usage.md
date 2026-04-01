@@ -162,6 +162,29 @@ Hazmat treats this as a curated import, not a full Claude migration. It can copy
 
 Detailed scope, symlink behavior, conflict handling, and MCP migration guidance live in [claude-import.md](claude-import.md).
 
+## Running OpenCode
+
+```bash
+hazmat bootstrap opencode
+hazmat opencode
+hazmat opencode -p "summarize this repo"
+```
+
+This is a prototype harness path alongside Claude. It uses the same containment, project preflight, and snapshot flow, but OpenCode keeps its own config and session state.
+
+## Importing Portable OpenCode Basics
+
+```bash
+hazmat config import opencode
+hazmat config import opencode --dry-run
+hazmat config import opencode --overwrite
+hazmat config import opencode --skip-existing
+```
+
+Hazmat treats this as a curated import, not a full OpenCode migration. It can copy sign-in state, git identity, commands, agents, and skills into the agent environment. Hazmat keeps its own runtime settings, plugins, project-local `.opencode` directories, and safety controls separate.
+
+Detailed scope, symlink behavior, and migration guidance live in [opencode-import.md](opencode-import.md).
+
 ## Uninstalling
 
 ```bash

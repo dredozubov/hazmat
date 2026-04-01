@@ -168,6 +168,7 @@ and skills.`,
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(newConfigImportClaudeCmd())
+	cmd.AddCommand(newConfigImportOpenCodeCmd())
 	return cmd
 }
 
@@ -273,7 +274,7 @@ func runClaudeBasicsImport(ui *UI, r *Runner, env claudeImportEnv, opts claudeIm
 		policy = claudeConflictFail
 	}
 	if plan.conflictCount() > 0 && policy == claudeConflictPrompt {
-		selected, err := promptClaudeConflictPolicy()
+		selected, err := promptImportConflictPolicy()
 		if err != nil {
 			return err
 		}
@@ -707,7 +708,7 @@ func (p *claudeImportPlan) resolveConflicts(policy claudeConflictPolicy) error {
 	return nil
 }
 
-func promptClaudeConflictPolicy() (claudeConflictPolicy, error) {
+func promptImportConflictPolicy() (claudeConflictPolicy, error) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println()
