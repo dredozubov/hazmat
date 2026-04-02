@@ -120,6 +120,24 @@ func TestValidateSandboxListJSONLegacyVMs(t *testing.T) {
 	}
 }
 
+func TestSandboxStatusFromJSON(t *testing.T) {
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "ls", "--json")] = fakeSandboxResult{
+		output: `{"sandboxes":[{"name":"hazmat-demo","status":"stopped"}]}`,
+	}
+
+	status, exists, err := sandboxStatus(probe, "hazmat-demo")
+	if err != nil {
+		t.Fatalf("sandboxStatus: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected sandbox to exist")
+	}
+	if status != "stopped" {
+		t.Fatalf("status = %q, want stopped", status)
+	}
+}
+
 func TestValidateSandboxPolicyProfileRejectsDuplicateHost(t *testing.T) {
 	err := validateSandboxPolicyProfile(sandboxPolicyProfile{
 		Name:       "baseline",
@@ -153,6 +171,25 @@ func TestCollectSandboxDoctorReportOldDesktopVersionFails(t *testing.T) {
 	report := collectSandboxDoctorReport(probe)
 	if report.Healthy() {
 		t.Fatal("expected report to fail when Docker Desktop is too old")
+	}
+}
+
+func TestCollectSandboxDoctorReportFallsBackToDockerAppVersion(t *testing.T) {
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: "null\nError response from daemon: Docker Desktop is unable to start",
+		err:    errors.New("daemon unavailable"),
+	}
+	probe.outputs[sandboxProbeKey("plutil", "-extract", "CFBundleShortVersionString", "raw", "/Applications/Docker.app/Contents/Info.plist")] = fakeSandboxResult{
+		output: "4.67.0",
+	}
+
+	report := collectSandboxDoctorReport(probe)
+	if !report.Healthy() {
+		t.Fatalf("expected fallback version probe to keep report healthy, got %+v", report.Checks)
+	}
+	if report.DesktopVersion != "4.67.0" {
+		t.Fatalf("DesktopVersion = %q, want 4.67.0", report.DesktopVersion)
 	}
 }
 
@@ -683,6 +720,107 @@ func TestRunSandboxClaudeSessionDoesNotRecordManagedSandboxWhenCreateFails(t *te
 	}
 	if len(updatedCfg.ManagedSandboxes()) != 0 {
 		t.Fatalf("expected no managed sandboxes after failed create, got %d", len(updatedCfg.ManagedSandboxes()))
+	}
+}
+
+func TestRunSandboxClaudeSessionRecreatesStoppedSandbox(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "ls", "--json")] = fakeSandboxResult{
+		output: fmt.Sprintf(`{"sandboxes":[{"name":%q,"status":"stopped"}]}`, name),
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "rm", name)] = fakeSandboxResult{
+		output: "removed",
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	if err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, []string{"-p", "hi"}); err != nil {
+		t.Fatalf("runSandboxClaudeSession: %v", err)
+	}
+
+	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "rm", name)) {
+		t.Fatal("expected stopped sandbox to be removed before recreate")
+	}
+	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
+		t.Fatal("expected sandbox create command after removing stopped sandbox")
+	}
+}
+
+func TestRunSandboxClaudeSessionCreateFailureHintsWhenDesktopStopped(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.outputs[sandboxProbeKey("docker", "desktop", "status")] = fakeSandboxResult{
+		output: "Name                Value\nStatus              stopped\n",
+	}
+	probe.runErrs = map[string]error{
+		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): errors.New("create failed"),
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, nil)
+	if err == nil {
+		t.Fatal("expected launch to fail when sandbox create fails")
+	}
+	if !strings.Contains(err.Error(), "Docker Desktop stopped unexpectedly") {
+		t.Fatalf("expected desktop stopped hint, got: %v", err)
 	}
 }
 

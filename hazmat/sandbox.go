@@ -79,7 +79,8 @@ type sandboxListResponse struct {
 }
 
 type sandboxVM struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Status string `json:"status,omitempty"`
 }
 
 type dockerServerVersionResponse struct {
@@ -160,9 +161,19 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 }
 
 func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error {
-	exists, err := sandboxExists(probe, spec.Name)
+	status, exists, err := sandboxStatus(probe, spec.Name)
 	if err != nil {
 		return err
+	}
+	if exists {
+		if status != "" && status != "running" {
+			fmt.Fprintf(os.Stderr, "hazmat: removing stopped Docker Sandbox %s\n", spec.Name)
+			out, rmErr := probe.Output("docker", "sandbox", "rm", spec.Name)
+			if rmErr != nil && !sandboxMissing(out) {
+				return fmt.Errorf("remove stopped Docker Sandbox %s: %s", spec.Name, oneLine(out))
+			}
+			exists = false
+		}
 	}
 	if exists {
 		fmt.Fprintf(os.Stderr, "hazmat: reusing Docker Sandbox %s\n", spec.Name)
@@ -173,7 +184,7 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 			args = append(args, dir+":ro")
 		}
 		if err := probe.Run("docker", args...); err != nil {
-			return fmt.Errorf("create Docker Sandbox %s", spec.Name)
+			return sandboxActionError(probe, err, "create Docker Sandbox %s", spec.Name)
 		}
 	}
 
@@ -183,7 +194,7 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 		policyArgs = append(policyArgs, "--allow-host", host)
 	}
 	if err := probe.Run("docker", policyArgs...); err != nil {
-		return fmt.Errorf("apply Docker network policy to %s", spec.Name)
+		return sandboxActionError(probe, err, "apply Docker network policy to %s", spec.Name)
 	}
 	return nil
 }
@@ -194,19 +205,28 @@ func (dockerSandboxesBackend) RunClaudeSession(probe sandboxProbe, sandboxName s
 		args = append(args, "--")
 		args = append(args, forwarded...)
 	}
-	return probe.Run("docker", args...)
+	if err := probe.Run("docker", args...); err != nil {
+		return sandboxActionError(probe, err, "run Claude in Docker Sandbox %s", sandboxName)
+	}
+	return nil
 }
 
 func (dockerSandboxesBackend) RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error {
-	return probe.Run("docker", "sandbox", "run", sandboxName, "--",
-		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", projectDir)
+	if err := probe.Run("docker", "sandbox", "run", sandboxName, "--",
+		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", projectDir); err != nil {
+		return sandboxActionError(probe, err, "run shell in Docker Sandbox %s", sandboxName)
+	}
+	return nil
 }
 
 func (dockerSandboxesBackend) RunExecSession(probe sandboxProbe, sandboxName, projectDir string, commandArgs []string) error {
 	args := []string{"sandbox", "run", sandboxName, "--",
 		"-lc", `cd "$1" && shift && exec "$@"`, "bash", projectDir}
 	args = append(args, commandArgs...)
-	return probe.Run("docker", args...)
+	if err := probe.Run("docker", args...); err != nil {
+		return sandboxActionError(probe, err, "run exec session in Docker Sandbox %s", sandboxName)
+	}
+	return nil
 }
 
 func (dockerSandboxesBackend) RemoveManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig) error {
@@ -395,19 +415,16 @@ func collectSandboxDoctorReport(probe sandboxProbe) sandboxDoctorReport {
 		report.addCheck("Docker CLI", true, "docker command found")
 	}
 
-	desktopOut, desktopErr := probe.Output("docker", "version", "--format", "{{json .Server}}")
-	if desktopErr != nil {
-		report.addCheck("Docker Desktop version", false,
-			fmt.Sprintf("docker version --format '{{json .Server}}' failed: %s", oneLine(desktopOut)))
-	} else if version, err := extractDockerDesktopSemver(desktopOut); err != nil {
+	desktopVersion, source, err := detectDockerDesktopVersion(probe)
+	if err != nil {
 		report.addCheck("Docker Desktop version", false, err.Error())
-	} else if !version.AtLeast(minDockerDesktopVersion) {
+	} else if !desktopVersion.AtLeast(minDockerDesktopVersion) {
 		report.addCheck("Docker Desktop version", false,
-			fmt.Sprintf("found %s, need >= %s", version.String(), minDockerDesktopVersion.String()))
+			fmt.Sprintf("found %s, need >= %s", desktopVersion.String(), minDockerDesktopVersion.String()))
 	} else {
-		report.DesktopVersion = version.String()
+		report.DesktopVersion = desktopVersion.String()
 		report.addCheck("Docker Desktop version", true,
-			fmt.Sprintf("found %s (requires >= %s)", version.String(), minDockerDesktopVersion.String()))
+			fmt.Sprintf("found %s via %s (requires >= %s)", desktopVersion.String(), source, minDockerDesktopVersion.String()))
 	}
 
 	composeOut, composeErr := probe.Output("docker", "compose", "version")
@@ -627,21 +644,40 @@ func sandboxListNames(data string) ([]string, error) {
 	return nil, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
 }
 
-func sandboxExists(probe sandboxProbe, name string) (bool, error) {
+func sandboxStatus(probe sandboxProbe, name string) (string, bool, error) {
 	out, err := probe.Output("docker", "sandbox", "ls", "--json")
 	if err != nil {
-		return false, fmt.Errorf("list Docker Sandboxes: %s", oneLine(out))
+		return "", false, fmt.Errorf("list Docker Sandboxes: %s", oneLine(out))
 	}
-	names, err := sandboxListNames(out)
+	var parsed sandboxListResponse
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		return "", false, fmt.Errorf("docker sandbox ls --json did not return valid JSON: %w", err)
+	}
+
+	var sandboxes []sandboxVM
+	switch {
+	case strings.Contains(out, `"sandboxes"`):
+		sandboxes = parsed.Sandboxes
+	case strings.Contains(out, `"vms"`):
+		sandboxes = parsed.VMs
+	default:
+		return "", false, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
+	}
+
+	for _, sandbox := range sandboxes {
+		if sandbox.Name == name {
+			return strings.ToLower(sandbox.Status), true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func sandboxExists(probe sandboxProbe, name string) (bool, error) {
+	_, exists, err := sandboxStatus(probe, name)
 	if err != nil {
 		return false, err
 	}
-	for _, existing := range names {
-		if existing == name {
-			return true, nil
-		}
-	}
-	return false, nil
+	return exists, nil
 }
 
 func extractDockerDesktopSemver(raw string) (semver, error) {
@@ -657,6 +693,38 @@ func extractDockerDesktopSemver(raw string) (semver, error) {
 		return semver{}, fmt.Errorf("parse Docker Desktop version from %q: %w", parsed.Platform.Name, err)
 	}
 	return version, nil
+}
+
+func dockerDesktopAppSemver(probe sandboxProbe) (semver, error) {
+	raw, err := probe.Output("plutil", "-extract", "CFBundleShortVersionString", "raw", "/Applications/Docker.app/Contents/Info.plist")
+	if err != nil {
+		return semver{}, fmt.Errorf("plutil Docker.app version failed: %s", oneLine(raw))
+	}
+	version, err := extractToolSemver(raw)
+	if err != nil {
+		return semver{}, fmt.Errorf("parse Docker.app version from %q: %w", oneLine(raw), err)
+	}
+	return version, nil
+}
+
+func detectDockerDesktopVersion(probe sandboxProbe) (semver, string, error) {
+	raw, err := probe.Output("docker", "version", "--format", "{{json .Server}}")
+	if err == nil {
+		version, parseErr := extractDockerDesktopSemver(raw)
+		if parseErr == nil {
+			return version, "docker version", nil
+		}
+	}
+
+	appVersion, appErr := dockerDesktopAppSemver(probe)
+	if appErr == nil {
+		return appVersion, "Docker.app bundle", nil
+	}
+
+	if err != nil {
+		return semver{}, "", fmt.Errorf("docker version --format '{{json .Server}}' failed: %s", oneLine(raw))
+	}
+	return semver{}, "", appErr
 }
 
 func extractToolSemver(raw string) (semver, error) {
@@ -703,6 +771,29 @@ func formatSandboxBackendLabel(kind string) string {
 		}
 		return kind
 	}
+}
+
+func dockerDesktopStatus(probe sandboxProbe) (string, error) {
+	out, err := probe.Output("docker", "desktop", "status")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) >= 2 && fields[0] == "Status" {
+			return strings.ToLower(fields[1]), nil
+		}
+	}
+	return "", fmt.Errorf("status line not found")
+}
+
+func sandboxActionError(probe sandboxProbe, err error, format string, args ...any) error {
+	base := fmt.Sprintf(format, args...)
+	status, statusErr := dockerDesktopStatus(probe)
+	if statusErr == nil && status == "stopped" {
+		return fmt.Errorf("%s: Docker Desktop stopped unexpectedly; restart Docker Desktop and retry", base)
+	}
+	return fmt.Errorf("%s", base)
 }
 
 func loadSandboxApprovals() sandboxApprovalsFile {
