@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -390,15 +391,6 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
 		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
 	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
-		output: "created",
-	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
-		"--allow-host", "api.anthropic.com",
-		"--allow-host", "github.com",
-		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
-		output: "configured",
-	}
 
 	savedProbeFactory := sandboxProbeFactory
 	sandboxProbeFactory = func() sandboxProbe { return probe }
@@ -408,10 +400,10 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 		t.Fatalf("runSandboxClaudeSession: %v", err)
 	}
 
-	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
+	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
 		t.Fatal("expected sandbox create command to be issued")
 	}
-	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
+	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
 		"--allow-host", "api.anthropic.com",
 		"--allow-host", "github.com",
 		"--allow-host", "registry.npmjs.org")) {
@@ -450,15 +442,6 @@ func TestRunSandboxClaudeSessionAutoDetectsAndRecordsBackend(t *testing.T) {
 	}
 
 	probe := healthySandboxProbe()
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
-		output: "created",
-	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
-		"--allow-host", "api.anthropic.com",
-		"--allow-host", "github.com",
-		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
-		output: "configured",
-	}
 
 	savedProbeFactory := sandboxProbeFactory
 	sandboxProbeFactory = func() sandboxProbe { return probe }
@@ -487,6 +470,9 @@ func TestRunSandboxClaudeSessionAutoDetectsAndRecordsBackend(t *testing.T) {
 	}
 	if len(updatedCfg.ManagedSandboxes()) != 1 {
 		t.Fatalf("expected 1 managed sandbox, got %d", len(updatedCfg.ManagedSandboxes()))
+	}
+	if updatedCfg.ManagedSandboxes()[0].Name != name {
+		t.Fatalf("managed sandbox name = %q, want %q", updatedCfg.ManagedSandboxes()[0].Name, name)
 	}
 }
 
@@ -519,15 +505,6 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	probe := healthySandboxProbe()
 	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
 		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
-	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "shell", projectDir)] = fakeSandboxResult{
-		output: "created",
-	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
-		"--allow-host", "api.anthropic.com",
-		"--allow-host", "github.com",
-		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
-		output: "configured",
 	}
 
 	savedProbeFactory := sandboxProbeFactory
@@ -641,15 +618,6 @@ func TestRunSandboxClaudeSessionReadDirsWithinProjectSkipExtraWorkspaceGate(t *t
 	}
 
 	probe := healthySandboxProbe()
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
-		output: "created",
-	}
-	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
-		"--allow-host", "api.anthropic.com",
-		"--allow-host", "github.com",
-		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
-		output: "configured",
-	}
 
 	savedProbeFactory := sandboxProbeFactory
 	sandboxProbeFactory = func() sandboxProbe { return probe }
@@ -659,11 +627,62 @@ func TestRunSandboxClaudeSessionReadDirsWithinProjectSkipExtraWorkspaceGate(t *t
 		t.Fatalf("runSandboxClaudeSession: %v", err)
 	}
 
-	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
+	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
 		t.Fatal("expected sandbox create command without extra read-only mount")
 	}
-	if containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir, projectChild+":ro")) {
+	if containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir, projectChild+":ro")) {
 		t.Fatal("did not expect project child to be mounted read-only")
+	}
+}
+
+func TestRunSandboxClaudeSessionDoesNotRecordManagedSandboxWhenCreateFails(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.runErrs = map[string]error{
+		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): errors.New("create failed"),
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, nil)
+	if err == nil {
+		t.Fatal("expected launch to fail when sandbox create fails")
+	}
+
+	updatedCfg, cfgErr := loadConfig()
+	if cfgErr != nil {
+		t.Fatalf("loadConfig after failed launch: %v", cfgErr)
+	}
+	if len(updatedCfg.ManagedSandboxes()) != 0 {
+		t.Fatalf("expected no managed sandboxes after failed create, got %d", len(updatedCfg.ManagedSandboxes()))
 	}
 }
 

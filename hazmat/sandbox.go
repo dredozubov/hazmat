@@ -160,22 +160,30 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 }
 
 func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error {
-	args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
-	for _, dir := range spec.MountReadDirs {
-		args = append(args, dir+":ro")
+	exists, err := sandboxExists(probe, spec.Name)
+	if err != nil {
+		return err
 	}
-	out, err := probe.Output("docker", args...)
-	if err != nil && !sandboxAlreadyExists(out) {
-		return fmt.Errorf("create Docker Sandbox %s: %s", spec.Name, oneLine(out))
+	if exists {
+		fmt.Fprintf(os.Stderr, "hazmat: reusing Docker Sandbox %s\n", spec.Name)
+	} else {
+		fmt.Fprintf(os.Stderr, "hazmat: creating Docker Sandbox %s (first launch may take a few minutes)\n", spec.Name)
+		args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
+		for _, dir := range spec.MountReadDirs {
+			args = append(args, dir+":ro")
+		}
+		if err := probe.Run("docker", args...); err != nil {
+			return fmt.Errorf("create Docker Sandbox %s", spec.Name)
+		}
 	}
 
+	fmt.Fprintf(os.Stderr, "hazmat: applying Docker network policy to %s\n", spec.Name)
 	policyArgs := []string{"sandbox", "network", "proxy", spec.Name, "--policy", spec.Profile.Policy}
 	for _, host := range spec.Profile.AllowHosts {
 		policyArgs = append(policyArgs, "--allow-host", host)
 	}
-	out, err = probe.Output("docker", policyArgs...)
-	if err != nil {
-		return fmt.Errorf("apply Docker Sandbox policy to %s: %s", spec.Name, oneLine(out))
+	if err := probe.Run("docker", policyArgs...); err != nil {
+		return fmt.Errorf("apply Docker network policy to %s", spec.Name)
 	}
 	return nil
 }
@@ -217,12 +225,9 @@ func (dockerSandboxesBackend) RemoveManagedSandboxes(probe sandboxProbe, sandbox
 func newSandboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
-		Short: "Manage Tier 3 backend setup and diagnostics",
-		Long: `Manage Hazmat's Tier 3 backend state.
-
-Phase 1 adds backend setup and diagnostics only. Session routing remains
-unchanged until a later phase.`,
-		Args: cobra.NoArgs,
+		Short: "Manage Docker Sandbox support and diagnostics",
+		Long:  `Manage Hazmat's Docker Sandbox backend state and launch prerequisites.`,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
@@ -230,7 +235,7 @@ unchanged until a later phase.`,
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "doctor",
-		Short: "Verify the Tier 3 backend is healthy",
+		Short: "Verify Docker Sandbox support is healthy",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runSandboxDoctor()
@@ -238,7 +243,7 @@ unchanged until a later phase.`,
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "setup",
-		Short: "Validate and record the supported Tier 3 backend",
+		Short: "Validate and record Docker Sandbox support",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runSandboxSetup()
@@ -246,12 +251,9 @@ unchanged until a later phase.`,
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "reset",
-		Short: "Forget the configured Tier 3 backend",
-		Long: `Forget Hazmat's recorded Tier 3 backend configuration.
-
-Phase 1 only clears Hazmat's local backend state. It does not remove any
-Docker Sandboxes because Hazmat is not managing session sandboxes yet.`,
-		Args: cobra.NoArgs,
+		Short: "Forget recorded Docker Sandbox support",
+		Long:  `Forget Hazmat's recorded Docker Sandbox backend configuration and remove Hazmat-managed sandboxes.`,
+		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runSandboxReset()
 		},
@@ -309,8 +311,8 @@ func runSandboxSetup() error {
 		return err
 	}
 
-	ui.Ok("Saved Tier 3 backend configuration")
-	cDim.Println("  Phase 1 complete: backend checks are recorded, but session routing is unchanged.")
+	ui.Ok("Saved Docker Sandbox configuration")
+	cDim.Println("  Docker-capable sessions can now use the recorded backend, or auto-detect it later if needed.")
 	fmt.Println()
 	return nil
 }
@@ -328,7 +330,7 @@ func runSandboxReset() error {
 	cBold.Println("  Sandbox reset")
 	fmt.Println()
 	if backend == nil && len(managed) == 0 {
-		cDim.Println("  No Tier 3 backend is currently configured.")
+		cDim.Println("  No Docker Sandbox backend is currently configured.")
 		fmt.Println()
 		return nil
 	}
@@ -349,7 +351,7 @@ func runSandboxReset() error {
 	}
 	fmt.Println()
 
-	if !ui.Ask("Forget the configured Tier 3 backend and remove managed sandboxes?") {
+	if !ui.Ask("Forget the configured Docker Sandbox backend and remove managed sandboxes?") {
 		fmt.Println()
 		return nil
 	}
@@ -373,7 +375,7 @@ func runSandboxReset() error {
 		return err
 	}
 
-	ui.Ok("Cleared Tier 3 backend configuration")
+	ui.Ok("Cleared Docker Sandbox configuration")
 	if len(managed) > 0 {
 		cDim.Println("  Removed Hazmat-managed Docker Sandboxes.")
 	}
@@ -502,7 +504,7 @@ func printSandboxDoctorReport(report sandboxDoctorReport, configured *SandboxBac
 	fmt.Println()
 	if report.Healthy() {
 		if configured == nil {
-			cYellow.Println("  Backend checks passed. Tier 3 launch can auto-detect this backend; run 'hazmat sandbox setup' to record it in advance.")
+			cYellow.Println("  Backend checks passed. Docker support can auto-detect this backend; run 'hazmat sandbox setup' to record it in advance.")
 		} else {
 			cGreen.Println("  Backend checks passed.")
 		}
@@ -596,17 +598,50 @@ func validateSandboxProxyHelp(helpText string) error {
 }
 
 func validateSandboxListJSON(data string) (int, error) {
+	names, err := sandboxListNames(data)
+	if err != nil {
+		return 0, err
+	}
+	return len(names), nil
+}
+
+func sandboxListNames(data string) ([]string, error) {
 	var parsed sandboxListResponse
 	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
-		return 0, fmt.Errorf("docker sandbox ls --json did not return valid JSON: %w", err)
+		return nil, fmt.Errorf("docker sandbox ls --json did not return valid JSON: %w", err)
 	}
 	if strings.Contains(data, `"sandboxes"`) {
-		return len(parsed.Sandboxes), nil
+		names := make([]string, 0, len(parsed.Sandboxes))
+		for _, sandbox := range parsed.Sandboxes {
+			names = append(names, sandbox.Name)
+		}
+		return names, nil
 	}
 	if strings.Contains(data, `"vms"`) {
-		return len(parsed.VMs), nil
+		names := make([]string, 0, len(parsed.VMs))
+		for _, sandbox := range parsed.VMs {
+			names = append(names, sandbox.Name)
+		}
+		return names, nil
 	}
-	return 0, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
+	return nil, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
+}
+
+func sandboxExists(probe sandboxProbe, name string) (bool, error) {
+	out, err := probe.Output("docker", "sandbox", "ls", "--json")
+	if err != nil {
+		return false, fmt.Errorf("list Docker Sandboxes: %s", oneLine(out))
+	}
+	names, err := sandboxListNames(out)
+	if err != nil {
+		return false, err
+	}
+	for _, existing := range names {
+		if existing == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func extractDockerDesktopSemver(raw string) (semver, error) {
@@ -780,29 +815,29 @@ func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicy
 
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	if !ui.IsInteractive() && !flagDryRun && !flagYesAll {
-		return fmt.Errorf("Tier 3 approval required for %s. Re-run interactively or with --yes to record approval, or use --ignore-docker for code-only work", projectDir)
+		return fmt.Errorf("Docker Sandbox approval required for %s. Re-run interactively or with --yes to record approval, or use --ignore-docker for code-only work", projectDir)
 	}
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "hazmat: Tier 3 approval required for %s\n", projectDir)
+	fmt.Fprintf(os.Stderr, "hazmat: Docker Sandbox approval required for %s\n", projectDir)
 	fmt.Fprintf(os.Stderr, "hazmat: backend: %s\n", formatSandboxBackendLabel(backendType))
 	fmt.Fprintf(os.Stderr, "hazmat: policy profile: %s\n", profile.Name)
 	fmt.Fprintln(os.Stderr)
 
-	if !ui.Ask("Approve Tier 3 Docker Sandbox use for this project?") {
-		return fmt.Errorf("Tier 3 approval declined for %s", projectDir)
+	if !ui.Ask("Approve Docker Sandbox support for this project?") {
+		return fmt.Errorf("Docker Sandbox approval declined for %s", projectDir)
 	}
 
 	if flagDryRun {
-		fmt.Fprintln(os.Stderr, "hazmat: dry-run: would record Tier 3 approval")
+		fmt.Fprintln(os.Stderr, "hazmat: dry-run: would record Docker Sandbox approval")
 		return nil
 	}
 
 	if err := recordSandboxApproval(projectDir, backendType, profile.Name); err != nil {
-		return fmt.Errorf("save Tier 3 approval: %w", err)
+		return fmt.Errorf("save Docker Sandbox approval: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "hazmat: Tier 3 approval recorded.")
+	fmt.Fprintln(os.Stderr, "hazmat: Docker Sandbox approval recorded.")
 	return nil
 }
 
@@ -820,7 +855,7 @@ func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for Claude\n", name)
+	fmt.Fprintf(os.Stderr, "hazmat: starting Claude in Docker Sandbox %s\n", name)
 	return adapter.RunClaudeSession(probe, name, forwarded)
 }
 
@@ -830,7 +865,7 @@ func runSandboxShellSession(cfg sessionConfig) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for shell\n", name)
+	fmt.Fprintf(os.Stderr, "hazmat: starting shell in Docker Sandbox %s\n", name)
 	return adapter.RunShellSession(probe, name, cfg.ProjectDir)
 }
 
@@ -840,7 +875,7 @@ func runSandboxExecSession(cfg sessionConfig, commandArgs []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "hazmat: using Docker Sandbox %s for exec\n", name)
+	fmt.Fprintf(os.Stderr, "hazmat: starting exec session in Docker Sandbox %s\n", name)
 	return adapter.RunExecSession(probe, name, cfg.ProjectDir, commandArgs)
 }
 
@@ -868,6 +903,9 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 	if err := ensureSandboxApproval(cfg.ProjectDir, backend.Type, profile); err != nil {
 		return nil, nil, "", err
 	}
+	if err := adapter.PrepareLaunch(probe, spec); err != nil {
+		return nil, nil, "", err
+	}
 	if err := recordManagedSandbox(ManagedSandboxConfig{
 		Name:          spec.Name,
 		BackendType:   backend.Type,
@@ -877,9 +915,6 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 		LastUsedAt:    sandboxNow().Format(time.RFC3339),
 	}); err != nil {
 		return nil, nil, "", fmt.Errorf("record managed sandbox: %w", err)
-	}
-	if err := adapter.PrepareLaunch(probe, spec); err != nil {
-		return nil, nil, "", err
 	}
 
 	return adapter, probe, spec.Name, nil
@@ -928,21 +963,21 @@ func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig,
 	backend := cfg.SandboxBackend()
 	detectedBackend, detectedProfile, version, err := detectHealthySandboxBackend(probe)
 	if err != nil {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not healthy. Run: hazmat sandbox doctor")
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Docker Sandbox support is not healthy. Run: hazmat sandbox doctor")
 	}
 
 	if backend == nil {
 		if !flagDryRun {
 			if err := recordSandboxBackendConfig(detectedBackend); err != nil {
-				return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("record auto-detected Tier 3 backend: %w", err)
+				return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("record auto-detected Docker Sandbox backend: %w", err)
 			}
-			fmt.Fprintf(os.Stderr, "hazmat: detected healthy Tier 3 backend %s\n", formatSandboxBackendLabel(detectedBackend.Type))
+			fmt.Fprintf(os.Stderr, "hazmat: detected Docker Sandbox support via %s\n", formatSandboxBackendLabel(detectedBackend.Type))
 			fmt.Fprintln(os.Stderr, "hazmat: recorded backend configuration automatically.")
 		}
 		return detectedBackend, detectedProfile, version, nil
 	}
 	if _, err := sandboxBackendAdapterForType(backend.Type); err != nil {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured Tier 3 backend %q is not supported for session launch", backend.Type)
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured Docker Sandbox backend %q is not supported for session launch", backend.Type)
 	}
 	if detectedBackend.Type != backend.Type {
 		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured backend %q does not match detected backend %q. Run: hazmat sandbox setup", backend.Type, detectedBackend.Type)

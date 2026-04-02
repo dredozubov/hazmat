@@ -86,9 +86,9 @@ func newShellCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Run inside the configured Tier 3 Docker Sandbox backend")
+		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Continue in Tier 2 even if Docker markers are present")
+		"Continue without Docker support even if Docker markers are present")
 	return cmd
 }
 
@@ -135,9 +135,9 @@ func newExecCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Run inside the configured Tier 3 Docker Sandbox backend")
+		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Continue in Tier 2 even if Docker markers are present")
+		"Continue without Docker support even if Docker markers are present")
 	return cmd
 }
 
@@ -152,7 +152,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
-  --sandbox              Use the configured Tier 3 Docker Sandbox backend
+  --sandbox              Use Docker Sandbox support
   --ignore-docker        Skip Docker artifact check
 
 All other flags and arguments are forwarded to Claude Code.
@@ -166,7 +166,7 @@ Examples:
   hazmat claude -p "explain this"      Print mode
   hazmat claude --model sonnet         Use specific model
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
-  hazmat claude --sandbox -C /proj     Use Tier 3 Docker Sandboxes
+  hazmat claude --sandbox -C /proj     Use Docker Sandboxes
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
   hazmat claude --continue             Continue most recent conversation`,
@@ -844,11 +844,11 @@ func dockerProjectBlockedMessage(commandName, projectDir string, detection docke
 	return strings.TrimLeft(fmt.Sprintf(`
 Docker artifacts detected in %s: %s
 
-Docker-capable sessions require a healthy Tier 3 Docker Sandbox backend.
+Docker-capable sessions require healthy Docker Sandbox support.
 
-  hazmat sandbox doctor             Verify the Tier 3 backend
-  %s   Use Tier 3 for full Docker
-  hazmat sandbox setup              Record the backend in advance (optional)
+  hazmat sandbox doctor             Verify Docker Sandbox support
+  %s   Use isolated Docker support
+  hazmat sandbox setup              Record Docker Sandbox support in advance (optional)
   hazmat %s --ignore-docker         Continue without Docker support
 `,
 		projectDir,
@@ -863,9 +863,9 @@ func dockerProjectAdvisoryMessage(commandName, projectDir string, detection dock
 Container workflow metadata detected in %s: %s
 
 Hazmat is continuing in the current containment mode because .devcontainer/
-alone does not force Tier 3 routing.
+alone does not force Docker Sandbox routing.
 
-  %s   Use Tier 3 explicitly if this session needs Docker
+  %s   Use Docker Sandboxes explicitly if this session needs Docker
 `,
 		projectDir,
 		strings.Join(detection.markers(), ", "),
@@ -895,12 +895,12 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 				return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
 			}
 			fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
-			fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into the detected Tier 3 Docker Sandbox backend\n", commandName)
+			fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into Docker Sandboxes\n", commandName)
 			return true, nil
 		}
 
 		fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
-		fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into the configured Tier 3 Docker Sandbox backend\n", commandName)
+		fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into Docker Sandboxes\n", commandName)
 		return true, nil
 	}
 
@@ -913,7 +913,7 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 
 // warnDockerProject checks whether projectDir contains Docker artifacts and
 // either returns an error (allow=false) or prints a warning and continues
-// (allow=true) with Tier 3 guidance. The host Docker socket is locked to
+// (allow=true) with Docker Sandbox guidance. The host Docker socket is locked to
 // owner-only (0700) by sandbox setup, so Docker commands will fail inside
 // the sandbox regardless. This surfaces the issue early with a clear path.
 //

@@ -559,7 +559,7 @@ func TestWarnDockerProjectAllowFlagContinues(t *testing.T) {
 	}
 }
 
-func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
+func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
 		t.Fatalf("create Dockerfile: %v", err)
@@ -569,7 +569,7 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "hazmat claude --sandbox") {
-		t.Errorf("error message should mention Tier 3 command, got: %s", err)
+		t.Errorf("error message should mention Docker Sandbox command, got: %s", err)
 	}
 	if !strings.Contains(err.Error(), "--ignore-docker") {
 		t.Errorf("error message should mention --ignore-docker override, got: %s", err)
@@ -620,7 +620,7 @@ func TestResolveSessionSandboxModeAutoRoutesHealthyDockerProjectWithoutConfigure
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if !useSandbox {
-		t.Fatal("expected healthy Docker project to auto-route into Tier 3 without prior setup")
+		t.Fatal("expected healthy Docker project to auto-route into Docker Sandboxes without prior setup")
 	}
 }
 
@@ -648,7 +648,7 @@ func TestResolveSessionSandboxModeAutoRoutesConfiguredDockerProject(t *testing.T
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if !useSandbox {
-		t.Fatal("expected configured Docker project to auto-route into Tier 3")
+		t.Fatal("expected configured Docker project to auto-route into Docker Sandboxes")
 	}
 }
 
@@ -676,7 +676,7 @@ func TestResolveSessionSandboxModeIgnoreDockerKeepsTier2(t *testing.T) {
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if useSandbox {
-		t.Fatal("expected --ignore-docker to keep the session in Tier 2")
+		t.Fatal("expected --ignore-docker to keep the session out of Docker Sandboxes")
 	}
 }
 
@@ -704,7 +704,7 @@ func TestResolveSessionSandboxModeDevcontainerOnlyIsAdvisory(t *testing.T) {
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if useSandbox {
-		t.Fatal("expected .devcontainer-only repo to stay in Tier 2")
+		t.Fatal("expected .devcontainer-only repo to stay out of Docker Sandboxes")
 	}
 }
 
