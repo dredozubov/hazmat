@@ -284,13 +284,9 @@ func runSandboxSetup() error {
 	if !report.Healthy() {
 		return fmt.Errorf("sandbox backend is not healthy")
 	}
-
-	backend := &SandboxBackendConfig{
-		Type:           sandboxBackendDockerSandboxes,
-		PolicyProfile:  report.PolicyProfile.Name,
-		DesktopVersion: report.DesktopVersion,
-		ComposeVersion: report.ComposeVersion,
-		ConfiguredAt:   sandboxNow().Format(time.RFC3339),
+	backend, _, _, err := healthySandboxBackendFromReport(report)
+	if err != nil {
+		return err
 	}
 
 	fmt.Println()
@@ -506,7 +502,7 @@ func printSandboxDoctorReport(report sandboxDoctorReport, configured *SandboxBac
 	fmt.Println()
 	if report.Healthy() {
 		if configured == nil {
-			cYellow.Println("  Backend checks passed. Run 'hazmat sandbox setup' to record this backend.")
+			cYellow.Println("  Backend checks passed. Tier 3 launch can auto-detect this backend; run 'hazmat sandbox setup' to record it in advance.")
 		} else {
 			cGreen.Println("  Backend checks passed.")
 		}
@@ -549,6 +545,44 @@ func validateSandboxPolicyProfile(profile sandboxPolicyProfile) error {
 		seen[host] = struct{}{}
 	}
 	return nil
+}
+
+func healthySandboxBackendFromReport(report sandboxDoctorReport) (*SandboxBackendConfig, sandboxPolicyProfile, semver, error) {
+	if !report.Healthy() {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("sandbox backend is not healthy")
+	}
+	if _, err := sandboxBackendAdapterForType(report.Backend); err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, err
+	}
+	profile, err := sandboxPolicyProfileByName(report.PolicyProfile.Name)
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, err
+	}
+	version, err := extractToolSemver(report.DesktopVersion)
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("parse Docker Desktop version: %w", err)
+	}
+	backend := &SandboxBackendConfig{
+		Type:           report.Backend,
+		PolicyProfile:  profile.Name,
+		DesktopVersion: report.DesktopVersion,
+		ComposeVersion: report.ComposeVersion,
+		ConfiguredAt:   sandboxNow().Format(time.RFC3339),
+	}
+	return backend, profile, version, nil
+}
+
+func detectHealthySandboxBackend(probe sandboxProbe) (*SandboxBackendConfig, sandboxPolicyProfile, semver, error) {
+	return healthySandboxBackendFromReport(collectSandboxDoctorReport(probe))
+}
+
+func recordSandboxBackendConfig(backend *SandboxBackendConfig) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Sandbox.Backend = backend
+	return saveConfig(cfg)
 }
 
 func validateSandboxProxyHelp(helpText string) error {
@@ -892,34 +926,31 @@ func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig,
 		return nil, sandboxPolicyProfile{}, semver{}, err
 	}
 	backend := cfg.SandboxBackend()
+	detectedBackend, detectedProfile, version, err := detectHealthySandboxBackend(probe)
+	if err != nil {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not healthy. Run: hazmat sandbox doctor")
+	}
+
 	if backend == nil {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not configured. Run: hazmat sandbox setup")
+		if !flagDryRun {
+			if err := recordSandboxBackendConfig(detectedBackend); err != nil {
+				return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("record auto-detected Tier 3 backend: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "hazmat: detected healthy Tier 3 backend %s\n", formatSandboxBackendLabel(detectedBackend.Type))
+			fmt.Fprintln(os.Stderr, "hazmat: recorded backend configuration automatically.")
+		}
+		return detectedBackend, detectedProfile, version, nil
 	}
 	if _, err := sandboxBackendAdapterForType(backend.Type); err != nil {
 		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured Tier 3 backend %q is not supported for session launch", backend.Type)
 	}
-
-	report := collectSandboxDoctorReport(probe)
-	if !report.Healthy() {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("Tier 3 backend is not healthy. Run: hazmat sandbox doctor")
+	if detectedBackend.Type != backend.Type {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured backend %q does not match detected backend %q. Run: hazmat sandbox setup", backend.Type, detectedBackend.Type)
 	}
-	if report.Backend != backend.Type {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured backend %q does not match detected backend %q. Run: hazmat sandbox setup", backend.Type, report.Backend)
+	if detectedProfile.Name != backend.PolicyProfile {
+		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured policy profile %q does not match detected profile %q. Run: hazmat sandbox setup", backend.PolicyProfile, detectedProfile.Name)
 	}
-
-	profile, err := sandboxPolicyProfileByName(backend.PolicyProfile)
-	if err != nil {
-		return nil, sandboxPolicyProfile{}, semver{}, err
-	}
-	if report.PolicyProfile.Name != profile.Name {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("configured policy profile %q does not match detected profile %q. Run: hazmat sandbox setup", profile.Name, report.PolicyProfile.Name)
-	}
-
-	version, err := extractToolSemver(report.DesktopVersion)
-	if err != nil {
-		return nil, sandboxPolicyProfile{}, semver{}, fmt.Errorf("parse Docker Desktop version: %w", err)
-	}
-	return backend, profile, version, nil
+	return backend, detectedProfile, version, nil
 }
 
 func sandboxPolicyProfileByName(name string) (sandboxPolicyProfile, error) {

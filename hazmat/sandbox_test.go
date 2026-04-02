@@ -434,6 +434,62 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	}
 }
 
+func TestRunSandboxClaudeSessionAutoDetectsAndRecordsBackend(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	projectDir := t.TempDir()
+	sessionCfg := sessionConfig{ProjectDir: projectDir}
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)] = fakeSandboxResult{
+		output: "created",
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
+		"--allow-host", "api.anthropic.com",
+		"--allow-host", "github.com",
+		"--allow-host", "registry.npmjs.org")] = fakeSandboxResult{
+		output: "configured",
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	if err := runSandboxClaudeSession(sessionCfg, []string{"-p", "hi"}); err != nil {
+		t.Fatalf("runSandboxClaudeSession: %v", err)
+	}
+
+	updatedCfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after auto-detect launch: %v", err)
+	}
+	backend := updatedCfg.SandboxBackend()
+	if backend == nil {
+		t.Fatal("expected backend to be auto-recorded")
+	}
+	if backend.Type != sandboxBackendDockerSandboxes {
+		t.Fatalf("backend.Type = %q, want %q", backend.Type, sandboxBackendDockerSandboxes)
+	}
+	if backend.PolicyProfile != sandboxPolicyProfileBaseline {
+		t.Fatalf("backend.PolicyProfile = %q, want %q", backend.PolicyProfile, sandboxPolicyProfileBaseline)
+	}
+	if backend.DesktopVersion != "4.58.1" {
+		t.Fatalf("backend.DesktopVersion = %q, want 4.58.1", backend.DesktopVersion)
+	}
+	if len(updatedCfg.ManagedSandboxes()) != 1 {
+		t.Fatalf("expected 1 managed sandbox, got %d", len(updatedCfg.ManagedSandboxes()))
+	}
+}
+
 func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")

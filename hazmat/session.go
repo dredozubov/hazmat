@@ -844,10 +844,11 @@ func dockerProjectBlockedMessage(commandName, projectDir string, detection docke
 	return strings.TrimLeft(fmt.Sprintf(`
 Docker artifacts detected in %s: %s
 
-Docker-capable sessions require the configured Tier 3 Docker Sandbox backend.
+Docker-capable sessions require a healthy Tier 3 Docker Sandbox backend.
 
-  hazmat sandbox setup              Record the supported Tier 3 backend
+  hazmat sandbox doctor             Verify the Tier 3 backend
   %s   Use Tier 3 for full Docker
+  hazmat sandbox setup              Record the backend in advance (optional)
   hazmat %s --ignore-docker         Continue without Docker support
 `,
 		projectDir,
@@ -888,8 +889,14 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 		if err != nil {
 			return false, err
 		}
+
 		if cfg.SandboxBackend() == nil {
-			return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
+			if _, _, _, err := detectHealthySandboxBackend(sandboxProbeFactory()); err != nil {
+				return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
+			}
+			fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
+			fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into the detected Tier 3 Docker Sandbox backend\n", commandName)
+			return true, nil
 		}
 
 		fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
@@ -1071,7 +1078,7 @@ func generateSBPL(cfg sessionConfig) string {
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
-		"com.apple.pboard", // pasteboard (clipboard read/write — paste into Claude Code and copy out)
+		"com.apple.pboard",                                // pasteboard (clipboard read/write — paste into Claude Code and copy out)
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}

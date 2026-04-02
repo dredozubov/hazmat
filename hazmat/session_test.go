@@ -579,7 +579,7 @@ func TestWarnDockerProjectErrorMentionsTier3(t *testing.T) {
 	}
 }
 
-func TestResolveSessionSandboxModeHardMarkersNeedSetup(t *testing.T) {
+func TestResolveSessionSandboxModeHardMarkersNeedHealthyBackend(t *testing.T) {
 	isolateConfig(t)
 
 	dir := t.TempDir()
@@ -587,15 +587,40 @@ func TestResolveSessionSandboxModeHardMarkersNeedSetup(t *testing.T) {
 		t.Fatalf("create Dockerfile: %v", err)
 	}
 
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return &fakeSandboxProbe{lookPathErr: os.ErrNotExist} }
+	t.Cleanup(func() { sandboxProbeFactory = savedProbeFactory })
+
 	useSandbox, err := resolveSessionSandboxMode("claude", dir, false, false)
 	if err == nil {
-		t.Fatal("expected missing backend config to fail closed")
+		t.Fatal("expected missing healthy backend to fail closed")
 	}
 	if useSandbox {
-		t.Fatal("useSandbox should be false when setup is missing")
+		t.Fatal("useSandbox should be false when backend detection fails")
 	}
-	if !strings.Contains(err.Error(), "hazmat sandbox setup") {
+	if !strings.Contains(err.Error(), "hazmat sandbox doctor") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionSandboxModeAutoRoutesHealthyDockerProjectWithoutConfiguredBackend(t *testing.T) {
+	isolateConfig(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return healthySandboxProbe() }
+	t.Cleanup(func() { sandboxProbeFactory = savedProbeFactory })
+
+	useSandbox, err := resolveSessionSandboxMode("claude", dir, false, false)
+	if err != nil {
+		t.Fatalf("resolveSessionSandboxMode: %v", err)
+	}
+	if !useSandbox {
+		t.Fatal("expected healthy Docker project to auto-route into Tier 3 without prior setup")
 	}
 }
 
