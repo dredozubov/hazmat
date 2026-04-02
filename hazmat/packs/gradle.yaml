@@ -1,0 +1,28 @@
+pack:
+  name: gradle
+  version: 1
+  description: Gradle build system (Java/Kotlin/Android)
+
+detect:
+  files: [gradlew]
+
+session:
+  read_dirs:
+    - /opt/homebrew/opt/openjdk
+    - /Library/Java/JavaVirtualMachines
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - .gradle/
+    - build/
+    - "*.class"
+    - "*.jar"
+
+warnings:
+  - "Gradle user home (~/.gradle) is not shared into the sandbox. Run './gradlew dependencies' outside to pre-populate the cache for offline builds."
+
+commands:
+  build: ./gradlew assemble
+  test: ./gradlew test
+  check: ./gradlew check

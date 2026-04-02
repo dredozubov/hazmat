@@ -1,0 +1,24 @@
+pack:
+  name: kotlin-multiplatform
+  version: 1
+  description: Kotlin Multiplatform (KMP/KMM) project
+
+detect:
+  files: [settings.gradle.kts]
+
+session:
+  read_dirs:
+    - ~/.konan
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - .kotlin/
+    - "*.klib"
+    - xcuserdata/
+    - DerivedData/
+    - build/
+    - .gradle/
+
+warnings:
+  - "Kotlin/Native toolchain (~/.konan) is read-only. Run './gradlew :shared:compileKotlinIosArm64' outside to pre-download the toolchain."

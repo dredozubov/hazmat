@@ -1,0 +1,23 @@
+pack:
+  name: android
+  version: 1
+  description: Android SDK project
+
+detect:
+  files: [local.properties]
+
+session:
+  read_dirs:
+    - ~/Library/Android/sdk
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - "*.apk"
+    - "*.aab"
+    - "*.aar"
+    - .cxx/
+    - build/
+
+warnings:
+  - "Android SDK is read-only from ~/Library/Android/sdk. Run 'sdkmanager' outside the sandbox to install new SDK components."

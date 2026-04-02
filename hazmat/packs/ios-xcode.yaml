@@ -1,0 +1,15 @@
+pack:
+  name: ios-xcode
+  version: 1
+  description: iOS / macOS Xcode project
+
+detect:
+  files: [Podfile, Package.swift]
+
+backup:
+  excludes:
+    - Pods/
+    - DerivedData/
+    - "*.xcarchive"
+    - .build/
+    - "*.ipa"
