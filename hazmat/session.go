@@ -26,6 +26,8 @@ type sessionConfig struct {
 	PackWarnings     []string          // warnings surfaced by active packs
 	ActivePacks      []string          // pack names, for status bar
 	ServiceAccess    []string          // explicit external-service access granted to session
+	RoutingReason    string            // plain-language explanation for the chosen mode
+	SessionNotes     []string          // plain-language notes about session behavior
 }
 
 type sessionLaunchUI struct {
@@ -89,6 +91,7 @@ func newShellCmd() *cobra.Command {
 			if useSandbox {
 				mode = sessionModeDockerSandbox
 			}
+			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("shell", cfg.ProjectDir, useSandbox, allowDocker, mode)
 			printSessionContract(cfg, mode, noBackup)
 			preSessionSnapshot(cfg, "shell", noBackup)
 			if useSandbox {
@@ -143,6 +146,7 @@ func newExecCmd() *cobra.Command {
 			if useSandbox {
 				mode = sessionModeDockerSandbox
 			}
+			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("exec", cfg.ProjectDir, useSandbox, allowDocker, mode)
 			printSessionContract(cfg, mode, noBackup)
 			preSessionSnapshot(cfg, "exec", noBackup)
 			if useSandbox {
@@ -227,6 +231,7 @@ Examples:
 			if useSandbox {
 				mode = sessionModeDockerSandbox
 			}
+			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("claude", cfg.ProjectDir, opts.useSandbox, opts.allowDocker, mode)
 			printSessionContract(cfg, mode, opts.noBackup)
 
 			preSessionSnapshot(cfg, "claude", opts.noBackup)
@@ -314,9 +319,10 @@ Examples:
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
-			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
+			if err := warnDockerProject("opencode", cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
+			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("opencode", cfg.ProjectDir, false, opts.allowDocker, sessionModeNative)
 			printSessionContract(cfg, sessionModeNative, opts.noBackup)
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
@@ -372,9 +378,10 @@ Examples:
 			if err := applyPacks(&cfg, opts.packs); err != nil {
 				return err
 			}
-			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
+			if err := warnDockerProject("codex", cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
+			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("codex", cfg.ProjectDir, false, opts.allowDocker, sessionModeNative)
 			printSessionContract(cfg, sessionModeNative, opts.noBackup)
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
@@ -769,6 +776,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 
 	fmt.Fprintln(&b, "hazmat: session")
 	fmt.Fprintf(&b, "  Mode:                 %s\n", mode.label())
+	if cfg.RoutingReason != "" {
+		fmt.Fprintf(&b, "  Why this mode:        %s\n", cfg.RoutingReason)
+	}
 	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
 	fmt.Fprintf(&b, "  Extra read-only:      %s\n", sessionContractList(cfg.ReadDirs))
 	fmt.Fprintf(&b, "  Packs:                %s\n", sessionContractList(cfg.ActivePacks))
@@ -784,6 +794,12 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	if len(cfg.PackRegistryKeys) > 0 {
 		fmt.Fprintf(&b, "  Invoker env passthrough: registry URLs via %s\n",
 			strings.Join(cfg.PackRegistryKeys, ", "))
+	}
+	if len(cfg.SessionNotes) > 0 {
+		fmt.Fprintln(&b, "  Notes:")
+		for _, note := range cfg.SessionNotes {
+			fmt.Fprintf(&b, "    - %s\n", note)
+		}
 	}
 	if len(cfg.PackWarnings) > 0 {
 		fmt.Fprintln(&b, "  Warnings:")
@@ -886,25 +902,31 @@ func dockerTier3Example(commandName, projectDir string) string {
 		return fmt.Sprintf("hazmat shell --sandbox -C %s", projectDir)
 	case "exec":
 		return fmt.Sprintf("hazmat exec --sandbox -C %s -- <command>", projectDir)
+	case "claude":
+		return fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
 	default:
 		return fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
 	}
 }
 
 func dockerProjectBlockedMessage(commandName, projectDir string, detection dockerProjectDetection) string {
+	sessionExample := dockerTier3Example(commandName, projectDir)
+	if commandName == "opencode" || commandName == "codex" {
+		sessionExample = fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
+	}
 	return strings.TrimLeft(fmt.Sprintf(`
-Docker artifacts detected in %s: %s
+This project appears to need Docker support: %s
 
-Docker-capable sessions require healthy Docker Sandbox support.
+Hazmat is stopping instead of falling back to native containment, because
+Docker commands need Docker Sandbox mode for this project.
 
-  hazmat sandbox doctor             Verify Docker Sandbox support
-  %s   Use isolated Docker support
-  hazmat sandbox setup              Record Docker Sandbox support in advance (optional)
-  hazmat %s --ignore-docker         Continue without Docker support
+  hazmat sandbox doctor      Check Docker Sandbox support
+  %s
+  hazmat sandbox setup       Record Docker Sandbox support in advance (optional)
+  hazmat %s --ignore-docker  Continue without Docker support
 `,
-		projectDir,
 		strings.Join(detection.markers(), ", "),
-		dockerTier3Example(commandName, projectDir),
+		sessionExample,
 		commandName,
 	), "\n")
 }
@@ -922,6 +944,33 @@ alone does not force Docker Sandbox routing.
 		strings.Join(detection.markers(), ", "),
 		dockerTier3Example(commandName, projectDir),
 	), "\n")
+}
+
+func sessionRoutingExplanation(commandName, projectDir string, requestedSandbox, allowDocker bool, mode sessionMode) (string, []string) {
+	if requestedSandbox {
+		return "using Docker Sandbox because --sandbox was requested", nil
+	}
+
+	detection := detectDockerProject(projectDir)
+	if mode == sessionModeDockerSandbox {
+		if len(detection.HardMarkers) > 0 {
+			return fmt.Sprintf("using Docker Sandbox because this project appears to need Docker (%s)", strings.Join(detection.HardMarkers, ", ")), nil
+		}
+		return "using Docker Sandbox for this session", nil
+	}
+
+	if len(detection.HardMarkers) > 0 && allowDocker {
+		return "staying in native containment because --ignore-docker was set", []string{
+			fmt.Sprintf("Docker files detected: %s. Docker commands will still fail in native containment.", strings.Join(detection.HardMarkers, ", ")),
+			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+		}
+	}
+	if len(detection.SoftMarkers) > 0 {
+		return "staying in native containment because .devcontainer/ alone does not require Docker mode", []string{
+			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+		}
+	}
+	return "using native containment because no Docker requirement was detected", nil
 }
 
 func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox, allowDocker bool) (bool, error) {
@@ -945,18 +994,10 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 			if _, _, _, err := detectHealthySandboxBackend(sandboxProbeFactory()); err != nil {
 				return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
 			}
-			fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
-			fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into Docker Sandboxes\n", commandName)
 			return true, nil
 		}
 
-		fmt.Fprintf(os.Stderr, "hazmat: Docker artifacts detected: %s\n", strings.Join(detection.HardMarkers, ", "))
-		fmt.Fprintf(os.Stderr, "hazmat: auto-routing %s into Docker Sandboxes\n", commandName)
 		return true, nil
-	}
-
-	if detection.HasSoftMarkers() {
-		fmt.Fprintln(os.Stderr, "Warning:", dockerProjectAdvisoryMessage(commandName, projectDir, detection))
 	}
 
 	return false, nil
@@ -975,18 +1016,14 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 // Note: the Docker socket is blocked by filesystem ACL (0700 on dr's socket),
 // not by the seatbelt policy. The seatbelt allows broad network-outbound;
 // the protection is the socket file permission, enforced by sandbox setup.
-func warnDockerProject(projectDir string, allow bool) error {
+func warnDockerProject(commandName, projectDir string, allow bool) error {
 	detection := detectDockerProject(projectDir)
 	if !detection.HasHardMarkers() {
-		if detection.HasSoftMarkers() {
-			fmt.Fprintln(os.Stderr, "Warning:", dockerProjectAdvisoryMessage("claude", projectDir, detection))
-		}
 		return nil
 	}
 
-	msg := dockerProjectBlockedMessage("claude", projectDir, detection)
+	msg := dockerProjectBlockedMessage(commandName, projectDir, detection)
 	if allow {
-		fmt.Fprintln(os.Stderr, "Warning:", msg)
 		return nil
 	}
 	return fmt.Errorf("%s", msg)

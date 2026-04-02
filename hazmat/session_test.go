@@ -489,7 +489,7 @@ func TestGenerateSBPLProjectWriteReasserted(t *testing.T) {
 
 func TestWarnDockerProjectCleanDir(t *testing.T) {
 	dir := t.TempDir()
-	if err := warnDockerProject(dir, false); err != nil {
+	if err := warnDockerProject("claude", dir, false); err != nil {
 		t.Fatalf("expected no error for clean dir, got: %v", err)
 	}
 }
@@ -509,7 +509,7 @@ func TestWarnDockerProjectRootArtifacts(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644); err != nil {
 				t.Fatalf("create %s: %v", name, err)
 			}
-			err := warnDockerProject(dir, false)
+			err := warnDockerProject("claude", dir, false)
 			if err == nil {
 				t.Fatalf("expected error when %s is present, got nil", name)
 			}
@@ -525,7 +525,7 @@ func TestWarnDockerProjectDevcontainerDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
 		t.Fatalf("mkdir .devcontainer: %v", err)
 	}
-	if err := warnDockerProject(dir, false); err != nil {
+	if err := warnDockerProject("claude", dir, false); err != nil {
 		t.Fatalf("expected advisory-only behavior for .devcontainer/, got: %v", err)
 	}
 }
@@ -537,7 +537,7 @@ func TestWarnDockerProjectMultipleMarkersAllListed(t *testing.T) {
 			t.Fatalf("create %s: %v", name, err)
 		}
 	}
-	err := warnDockerProject(dir, false)
+	err := warnDockerProject("claude", dir, false)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -554,7 +554,7 @@ func TestWarnDockerProjectAllowFlagContinues(t *testing.T) {
 		t.Fatalf("create Dockerfile: %v", err)
 	}
 	// allow=true should not return an error even when markers are present.
-	if err := warnDockerProject(dir, true); err != nil {
+	if err := warnDockerProject("claude", dir, true); err != nil {
 		t.Fatalf("expected no error with allow=true, got: %v", err)
 	}
 }
@@ -564,7 +564,7 @@ func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
 		t.Fatalf("create Dockerfile: %v", err)
 	}
-	err := warnDockerProject(dir, false)
+	err := warnDockerProject("claude", dir, false)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -576,6 +576,23 @@ func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "hazmat sandbox setup") {
 		t.Errorf("error message should mention sandbox setup, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "stopping instead of falling back to native containment") {
+		t.Errorf("error message should explain the routing decision, got: %s", err)
+	}
+}
+
+func TestWarnDockerProjectNativeOnlyCommandMentionsFallbackCommand(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	err := warnDockerProject("opencode", dir, false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "hazmat claude --sandbox") {
+		t.Errorf("native-only command should point to a Docker-capable session, got: %s", err)
 	}
 }
 
@@ -1061,6 +1078,8 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		PackWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
 		ActivePacks:      []string{"go", "node"},
 		ServiceAccess:    []string{"github"},
+		RoutingReason:    "using Docker Sandbox because this project appears to need Docker (Dockerfile)",
+		SessionNotes:     []string{"If this session needs Docker, use: hazmat claude --sandbox -C /tmp/project"},
 	}
 
 	got := renderSessionContract(cfg, sessionModeDockerSandbox, false)
@@ -1068,6 +1087,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 	for _, want := range []string{
 		"hazmat: session",
 		"Mode:                 Docker Sandbox",
+		"Why this mode:        using Docker Sandbox because this project appears to need Docker (Dockerfile)",
 		"Project (read-write): /tmp/project",
 		"Extra read-only:      /opt/homebrew/lib/node_modules, /Users/dr/go/pkg/mod",
 		"Packs:                go, node",
@@ -1075,6 +1095,8 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Pre-session snapshot: on",
 		"Snapshot excludes:    vendor/, .next/",
 		"Invoker env passthrough: registry URLs via GOPROXY",
+		"Notes:",
+		"If this session needs Docker, use: hazmat claude --sandbox -C /tmp/project",
 		"Warnings:",
 		"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version.",
 	} {
@@ -1097,5 +1119,49 @@ func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderSessionContract missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestSessionRoutingExplanationRequestedSandbox(t *testing.T) {
+	reason, notes := sessionRoutingExplanation("claude", t.TempDir(), true, false, sessionModeDockerSandbox)
+	if reason != "using Docker Sandbox because --sandbox was requested" {
+		t.Fatalf("reason = %q", reason)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("notes = %v, want empty", notes)
+	}
+}
+
+func TestSessionRoutingExplanationIgnoreDocker(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	reason, notes := sessionRoutingExplanation("claude", dir, false, true, sessionModeNative)
+	if reason != "staying in native containment because --ignore-docker was set" {
+		t.Fatalf("reason = %q", reason)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notes = %v, want 2 entries", notes)
+	}
+	if !strings.Contains(notes[0], "Docker files detected: Dockerfile") {
+		t.Fatalf("notes[0] = %q", notes[0])
+	}
+	if !strings.Contains(notes[1], "hazmat claude --sandbox") {
+		t.Fatalf("notes[1] = %q", notes[1])
+	}
+}
+
+func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
+		t.Fatalf("mkdir .devcontainer: %v", err)
+	}
+	reason, notes := sessionRoutingExplanation("claude", dir, false, false, sessionModeNative)
+	if reason != "staying in native containment because .devcontainer/ alone does not require Docker mode" {
+		t.Fatalf("reason = %q", reason)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "hazmat claude --sandbox") {
+		t.Fatalf("notes = %v", notes)
 	}
 }
