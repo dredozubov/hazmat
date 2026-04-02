@@ -450,7 +450,12 @@ func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsNoSiblings(t *testing.T) {
 }
 
 func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsWithSiblings(t *testing.T) {
-	workspaceDir := t.TempDir()
+	// Resolve symlinks on TempDir (macOS: /var → /private/var) so test
+	// paths match the EvalSymlinks output from expandAncestorReadDir.
+	workspaceDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
 	projectDir := filepath.Join(workspaceDir, "niche-sieve")
 	siblingA := filepath.Join(workspaceDir, "hazmat")
 	siblingB := filepath.Join(workspaceDir, "other-proj")
@@ -494,7 +499,11 @@ func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsWithSiblings(t *testing.T)
 }
 
 func TestExpandAncestorReadDirDeepNesting(t *testing.T) {
-	root := t.TempDir()
+	// Resolve symlinks on TempDir (macOS: /var → /private/var).
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
 	// root/team/niche-sieve is the project
 	// root/team/hazmat and root/docs should appear
 	teamDir := filepath.Join(root, "team")
