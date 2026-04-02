@@ -119,6 +119,8 @@ func main() {
 	shellCmd.GroupID = "run"
 	execCmd := newExecCmd()
 	execCmd.GroupID = "run"
+	explainCmd := newExplainCmd()
+	explainCmd.GroupID = "run"
 
 	// ── Snapshots ──
 	snapshotsCmd := newSnapshotsCmd()
@@ -148,7 +150,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd,
+		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, packCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(),

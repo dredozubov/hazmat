@@ -1165,3 +1165,41 @@ func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 		t.Fatalf("notes = %v", notes)
 	}
 }
+
+func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
+	isolateConfig(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return healthySandboxProbe() }
+	t.Cleanup(func() { sandboxProbeFactory = savedProbeFactory })
+
+	cfg, mode, err := resolveExplainSession("claude", harnessSessionOpts{project: dir})
+	if err != nil {
+		t.Fatalf("resolveExplainSession: %v", err)
+	}
+	if mode != sessionModeDockerSandbox {
+		t.Fatalf("mode = %q, want Docker Sandbox", mode)
+	}
+	if !strings.Contains(cfg.RoutingReason, "Dockerfile") {
+		t.Fatalf("RoutingReason = %q", cfg.RoutingReason)
+	}
+}
+
+func TestResolveExplainSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+	dir := t.TempDir()
+	_, _, err := resolveExplainSession("opencode", harnessSessionOpts{
+		project:    dir,
+		useSandbox: true,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--sandbox is not supported for hazmat opencode yet") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
