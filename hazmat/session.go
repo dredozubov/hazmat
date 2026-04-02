@@ -43,6 +43,11 @@ const (
 	sessionModeDockerSandbox sessionMode = "docker-sandbox"
 )
 
+type preparedSession struct {
+	Config sessionConfig
+	Mode   sessionMode
+}
+
 func (m sessionMode) label() string {
 	switch m {
 	case sessionModeDockerSandbox:
@@ -76,31 +81,24 @@ func newShellCmd() *cobra.Command {
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg, err := resolveSessionConfig(project, defaultReadDirs(readDirs))
+			prepared, err := resolvePreparedSession("shell", harnessSessionOpts{
+				project:     project,
+				readDirs:    readDirs,
+				packs:       packNames,
+				noBackup:    noBackup,
+				useSandbox:  useSandbox,
+				allowDocker: allowDocker,
+			}, true)
 			if err != nil {
 				return err
 			}
-			if err := applyPacks(&cfg, packNames); err != nil {
+			if err := beginPreparedSession(prepared, "shell", noBackup, false); err != nil {
 				return err
 			}
-			useSandbox, err = resolveSessionSandboxMode("shell", cfg.ProjectDir, useSandbox, allowDocker)
-			if err != nil {
-				return err
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxShellSession(prepared.Config)
 			}
-			mode := sessionModeNative
-			if useSandbox {
-				mode = sessionModeDockerSandbox
-			}
-			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("shell", cfg.ProjectDir, useSandbox, allowDocker, mode)
-			printSessionContract(cfg, mode, noBackup)
-			preSessionSnapshot(cfg, "shell", noBackup)
-			if useSandbox {
-				return runSandboxShellSession(cfg)
-			}
-			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
-				return err
-			}
-			return runAgentSeatbeltScript(cfg,
+			return runAgentSeatbeltScript(prepared.Config,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
 	}
@@ -131,31 +129,24 @@ func newExecCmd() *cobra.Command {
 		Short: "Run a command in containment as the agent user",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, err := resolveSessionConfig(project, defaultReadDirs(readDirs))
+			prepared, err := resolvePreparedSession("exec", harnessSessionOpts{
+				project:     project,
+				readDirs:    readDirs,
+				packs:       packNames,
+				noBackup:    noBackup,
+				useSandbox:  useSandbox,
+				allowDocker: allowDocker,
+			}, true)
 			if err != nil {
 				return err
 			}
-			if err := applyPacks(&cfg, packNames); err != nil {
+			if err := beginPreparedSession(prepared, "exec", noBackup, false); err != nil {
 				return err
 			}
-			useSandbox, err = resolveSessionSandboxMode("exec", cfg.ProjectDir, useSandbox, allowDocker)
-			if err != nil {
-				return err
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxExecSession(prepared.Config, args)
 			}
-			mode := sessionModeNative
-			if useSandbox {
-				mode = sessionModeDockerSandbox
-			}
-			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("exec", cfg.ProjectDir, useSandbox, allowDocker, mode)
-			printSessionContract(cfg, mode, noBackup)
-			preSessionSnapshot(cfg, "exec", noBackup)
-			if useSandbox {
-				return runSandboxExecSession(cfg, args)
-			}
-			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
-				return err
-			}
-			return runAgentSeatbeltScript(cfg,
+			return runAgentSeatbeltScript(prepared.Config,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
 	}
@@ -216,34 +207,16 @@ Examples:
 				return err
 			}
 
-			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+			prepared, err := resolvePreparedSession("claude", opts, true)
 			if err != nil {
 				return err
 			}
-			if err := applyPacks(&cfg, opts.packs); err != nil {
+			if err := beginPreparedSession(prepared, "claude", opts.noBackup, false); err != nil {
 				return err
 			}
-			useSandbox, err := resolveSessionSandboxMode("claude", cfg.ProjectDir, opts.useSandbox, opts.allowDocker)
-			if err != nil {
-				return err
-			}
-			mode := sessionModeNative
-			if useSandbox {
-				mode = sessionModeDockerSandbox
-			}
-			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("claude", cfg.ProjectDir, opts.useSandbox, opts.allowDocker, mode)
-			printSessionContract(cfg, mode, opts.noBackup)
 
-			preSessionSnapshot(cfg, "claude", opts.noBackup)
-
-			if useSandbox {
-				return runSandboxClaudeSession(cfg, forwarded)
-			}
-
-			// Pre-flight: ensure the agent user can write to the project.
-			// Catches projects created before hazmat init or with restrictive umask.
-			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
-				return err
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxClaudeSession(prepared.Config, forwarded)
 			}
 
 			// Sync sessions for --resume / --continue.
@@ -252,7 +225,7 @@ Examples:
 			// reading the host transcript directory in place.
 			wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
 			if wantsResume || wantsContinue {
-				if err := syncResumeSession(cfg.ProjectDir, resumeTarget, wantsContinue); err != nil {
+				if err := syncResumeSession(prepared.Config.ProjectDir, resumeTarget, wantsContinue); err != nil {
 					fmt.Fprintf(os.Stderr, "  Warning: session sync failed: %v\n", err)
 					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
 				}
@@ -267,7 +240,7 @@ Examples:
 				skipFlag = "--dangerously-skip-permissions "
 			}
 
-			return runAgentSeatbeltScriptWithUI(cfg, claudeLaunchUI(forwarded),
+			return runAgentSeatbeltScriptWithUI(prepared.Config, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
@@ -309,28 +282,14 @@ Examples:
 				return err
 			}
 
-			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+			prepared, err := resolvePreparedSession("opencode", opts, false)
 			if err != nil {
 				return err
 			}
-			if opts.useSandbox {
-				return fmt.Errorf("--sandbox is not supported for hazmat opencode yet")
-			}
-			if err := applyPacks(&cfg, opts.packs); err != nil {
+			if err := beginPreparedSession(prepared, "opencode", opts.noBackup, true); err != nil {
 				return err
 			}
-			if err := warnDockerProject("opencode", cfg.ProjectDir, opts.allowDocker); err != nil {
-				return err
-			}
-			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("opencode", cfg.ProjectDir, false, opts.allowDocker, sessionModeNative)
-			printSessionContract(cfg, sessionModeNative, opts.noBackup)
-			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
-				return err
-			}
-
-			preSessionSnapshot(cfg, "opencode", opts.noBackup)
-
-			return runAgentSeatbeltScript(cfg, openCodeLaunchScript(), forwarded...)
+			return runAgentSeatbeltScript(prepared.Config, openCodeLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -368,28 +327,14 @@ Examples:
 				return err
 			}
 
-			cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+			prepared, err := resolvePreparedSession("codex", opts, false)
 			if err != nil {
 				return err
 			}
-			if opts.useSandbox {
-				return fmt.Errorf("--sandbox is not supported for hazmat codex yet")
-			}
-			if err := applyPacks(&cfg, opts.packs); err != nil {
+			if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
 				return err
 			}
-			if err := warnDockerProject("codex", cfg.ProjectDir, opts.allowDocker); err != nil {
-				return err
-			}
-			cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation("codex", cfg.ProjectDir, false, opts.allowDocker, sessionModeNative)
-			printSessionContract(cfg, sessionModeNative, opts.noBackup)
-			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
-				return err
-			}
-
-			preSessionSnapshot(cfg, "codex", opts.noBackup)
-
-			return runAgentSeatbeltScript(cfg, codexLaunchScript(), forwarded...)
+			return runAgentSeatbeltScript(prepared.Config, codexLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -640,6 +585,68 @@ func resolveSessionConfig(project string, readPaths []string) (sessionConfig, er
 		ReadDirs:       readDirs,
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil
+}
+
+func resolvePreparedSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
+	cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+	if err != nil {
+		return preparedSession{}, err
+	}
+	if err := applyPacks(&cfg, opts.packs); err != nil {
+		return preparedSession{}, err
+	}
+
+	mode, err := resolvePreparedSessionMode(commandName, cfg.ProjectDir, opts.useSandbox, opts.allowDocker, supportsSandbox)
+	if err != nil {
+		return preparedSession{}, err
+	}
+
+	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, opts.useSandbox, opts.allowDocker, mode)
+	return preparedSession{Config: cfg, Mode: mode}, nil
+}
+
+func resolvePreparedSessionMode(commandName, projectDir string, requestedSandbox, allowDocker, supportsSandbox bool) (sessionMode, error) {
+	if supportsSandbox {
+		useSandbox, err := resolveSessionSandboxMode(commandName, projectDir, requestedSandbox, allowDocker)
+		if err != nil {
+			return "", err
+		}
+		if useSandbox {
+			return sessionModeDockerSandbox, nil
+		}
+		return sessionModeNative, nil
+	}
+
+	if requestedSandbox {
+		return "", fmt.Errorf("--sandbox is not supported for hazmat %s yet", commandName)
+	}
+	if err := warnDockerProject(commandName, projectDir, allowDocker); err != nil {
+		return "", err
+	}
+	return sessionModeNative, nil
+}
+
+func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
+	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
+	if prepared.Mode != sessionModeNative {
+		preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
+		return nil
+	}
+
+	if preflightBeforeSnapshot {
+		if err := runProjectPreflight(prepared.Config.ProjectDir); err != nil {
+			return err
+		}
+	}
+
+	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
+
+	if !preflightBeforeSnapshot {
+		if err := runProjectPreflight(prepared.Config.ProjectDir); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveDir resolves target to an absolute, symlink-free directory path.

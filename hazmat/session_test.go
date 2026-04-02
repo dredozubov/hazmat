@@ -1190,6 +1190,20 @@ func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
 	}
 }
 
+func TestResolvePreparedSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+	dir := t.TempDir()
+	_, err := resolvePreparedSession("opencode", harnessSessionOpts{
+		project:    dir,
+		useSandbox: true,
+	}, false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--sandbox is not supported for hazmat opencode yet") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveExplainSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
 	dir := t.TempDir()
 	_, _, err := resolveExplainSession("opencode", harnessSessionOpts{

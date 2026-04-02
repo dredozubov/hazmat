@@ -73,35 +73,19 @@ func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfi
 		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, or codex)", target)
 	}
 
-	cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
-	if err != nil {
-		return sessionConfig{}, "", err
-	}
-	if err := applyPacks(&cfg, opts.packs); err != nil {
-		return sessionConfig{}, "", err
-	}
-
 	switch target {
 	case "claude", "shell", "exec":
-		useSandbox, err := resolveSessionSandboxMode(target, cfg.ProjectDir, opts.useSandbox, opts.allowDocker)
+		prepared, err := resolvePreparedSession(target, opts, true)
 		if err != nil {
 			return sessionConfig{}, "", err
 		}
-		mode := sessionModeNative
-		if useSandbox {
-			mode = sessionModeDockerSandbox
-		}
-		cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(target, cfg.ProjectDir, opts.useSandbox, opts.allowDocker, mode)
-		return cfg, mode, nil
+		return prepared.Config, prepared.Mode, nil
 	case "opencode", "codex":
-		if opts.useSandbox {
-			return sessionConfig{}, "", fmt.Errorf("--sandbox is not supported for hazmat %s yet", target)
-		}
-		if err := warnDockerProject(target, cfg.ProjectDir, opts.allowDocker); err != nil {
+		prepared, err := resolvePreparedSession(target, opts, false)
+		if err != nil {
 			return sessionConfig{}, "", err
 		}
-		cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(target, cfg.ProjectDir, false, opts.allowDocker, sessionModeNative)
-		return cfg, sessionModeNative, nil
+		return prepared.Config, prepared.Mode, nil
 	default:
 		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q", target)
 	}
