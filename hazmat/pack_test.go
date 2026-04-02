@@ -428,6 +428,24 @@ func TestMergePacksSurfacesRegistryKeys(t *testing.T) {
 	}
 }
 
+func TestMergePacksSurfacesCredentialKeys(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_test123")
+	packs := []Pack{
+		{
+			PackMeta: PackMeta{Name: "github", Version: 1},
+			Session:  PackSession{EnvPassthrough: []string{"GH_TOKEN"}},
+		},
+	}
+
+	result, err := mergePacks(packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.CredentialKeys) != 1 || result.CredentialKeys[0] != "GH_TOKEN" {
+		t.Errorf("CredentialKeys = %v, want [GH_TOKEN]", result.CredentialKeys)
+	}
+}
+
 // ── suggestPacks ───────────────────────────────────────────────────────────
 
 func TestSuggestPacksMatchesDetectFiles(t *testing.T) {

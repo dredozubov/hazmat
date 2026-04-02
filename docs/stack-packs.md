@@ -102,6 +102,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `node` | `package.json` | `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
 | `python-poetry` | `pyproject.toml`, `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `rust` | `Cargo.toml` | `~/.cargo/registry`, `~/.rustup/toolchains` | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
+| `github` | — | — | `GH_TOKEN` | — |
 | `terraform-plan` | `main.tf`, `terraform.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `tla-java` | `MC_*.cfg` files | `/opt/homebrew/opt/openjdk`, `/Library/Java` | `JAVA_HOME` | `tla/states/`, `*.dot` |
 
@@ -135,11 +136,29 @@ Examples of intentionally forbidden keys:
 - `GOFLAGS`
 - `LD_PRELOAD`
 - `DYLD_INSERT_LIBRARIES`
-- credential variables such as `AWS_ACCESS_KEY_ID` or `GITHUB_TOKEN`
+- broad credential variables such as `AWS_ACCESS_KEY_ID` or `GITHUB_TOKEN`
 
 Registry redirect keys like `GOPROXY` and `NPM_CONFIG_REGISTRY` are allowed but
 surfaced explicitly at session start because they change where downloads come
 from.
+
+### Scoped credential tokens
+
+A small set of credential tokens are allowed through packs when the user
+deliberately provisions them with limited scope. Currently:
+
+- `GH_TOKEN` — GitHub CLI access via fine-grained PAT
+
+These are categorized separately from passive path pointers. When active, hazmat
+surfaces a stronger warning at session start:
+
+```
+hazmat: warning: pack passes credential tokens from invoker env: GH_TOKEN
+hazmat: the agent can act as you on services these tokens authenticate to
+```
+
+The user controls the blast radius by choosing the token's scope (e.g., read-only
+access to specific repos). The pack itself does not control what the token can do.
 
 ## Repo-Recommended Packs
 

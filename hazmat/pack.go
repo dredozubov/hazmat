@@ -122,6 +122,13 @@ var safeEnvKeys = map[string]bool{
 	// Editor preference
 	"EDITOR": true,
 	"VISUAL": true,
+
+	// Scoped credential tokens — user-provisioned, scope-limited.
+	// Unlike path pointers above, these ARE credentials. They are allowed
+	// because the user controls the token scope (e.g., read-only PAT) and
+	// must explicitly activate a pack that requests them. Surfaced in UX
+	// with a stronger warning than registry keys.
+	"GH_TOKEN": true,
 }
 
 // registryEnvKeys are safeEnvKeys that can redirect downloads to different
@@ -129,6 +136,13 @@ var safeEnvKeys = map[string]bool{
 var registryEnvKeys = map[string]bool{
 	"GOPROXY":             true,
 	"NPM_CONFIG_REGISTRY": true,
+}
+
+// credentialEnvKeys are safeEnvKeys that carry authentication tokens.
+// These get a stronger UX warning than registry keys because they grant
+// the agent the ability to act as the user on external services.
+var credentialEnvKeys = map[string]bool{
+	"GH_TOKEN": true,
 }
 
 // ── Pack manifest types ────────────────────────────────────────────────────
@@ -589,6 +603,7 @@ type packMergeResult struct {
 	Excludes       []string          // backup exclude patterns
 	Warnings       []string          // messages to show at session start
 	RegistryKeys   []string          // active registry-redirect env keys (for UX)
+	CredentialKeys []string          // active credential-token env keys (for UX)
 }
 
 // mergePacks validates paths and merges all active packs into a single result.
@@ -622,6 +637,9 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 				result.EnvPassthrough[key] = val
 				if registryEnvKeys[key] {
 					result.RegistryKeys = append(result.RegistryKeys, key)
+				}
+				if credentialEnvKeys[key] {
+					result.CredentialKeys = append(result.CredentialKeys, key)
 				}
 			}
 		}
