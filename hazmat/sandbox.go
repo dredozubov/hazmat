@@ -682,14 +682,6 @@ func sandboxStatus(probe sandboxProbe, name string) (string, bool, error) {
 	return "", false, nil
 }
 
-func sandboxExists(probe sandboxProbe, name string) (bool, error) {
-	_, exists, err := sandboxStatus(probe, name)
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
-}
-
 func extractDockerDesktopSemver(raw string) (semver, error) {
 	var parsed dockerServerVersionResponse
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -818,10 +810,7 @@ func sandboxActionError(probe sandboxProbe, output string, err error, format str
 }
 
 func sandboxNotFoundError(output string) bool {
-	if strings.Contains(strings.ToLower(output), "no sandbox found") {
-		return true
-	}
-	return false
+	return strings.Contains(strings.ToLower(output), "no sandbox found")
 }
 
 func claudeSandboxAuthError(output string) bool {
@@ -1079,18 +1068,29 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 	}
 
 	var mountReadDirs []string
+	seen := make(map[string]struct{})
 	for _, dir := range cfg.ReadDirs {
 		if isCredentialDenyPath(dir) {
 			return sandboxLaunchSpec{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
 		}
-		// Docker's Claude sandbox template copies CLAUDE.md files from parent
-		// directories into the sandbox during create. A read-only mount on a
-		// project ancestor (for example /Users/dr/workspace with project
-		// /Users/dr/workspace/foo) makes those copies fail on the ancestor path.
-		if isWithinDir(dir, cfg.ProjectDir) {
+		// Skip dirs within the project — already accessible as the workspace.
+		if isWithinDir(cfg.ProjectDir, dir) {
 			continue
 		}
-		if isWithinDir(cfg.ProjectDir, dir) {
+		// Ancestor of project: can't mount the parent read-only because
+		// Docker's sandbox template copies CLAUDE.md from parent dirs
+		// during create, and an ancestor ro mount conflicts with the
+		// writable workspace. Expand into sibling directories instead.
+		if isWithinDir(dir, cfg.ProjectDir) {
+			for _, s := range expandAncestorReadDir(dir, cfg.ProjectDir) {
+				if isCredentialDenyPath(s) {
+					continue
+				}
+				if _, dup := seen[s]; !dup {
+					mountReadDirs = append(mountReadDirs, s)
+					seen[s] = struct{}{}
+				}
+			}
 			continue
 		}
 		covered := false
@@ -1103,7 +1103,10 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		if covered {
 			continue
 		}
-		mountReadDirs = append(mountReadDirs, dir)
+		if _, dup := seen[dir]; !dup {
+			mountReadDirs = append(mountReadDirs, dir)
+			seen[dir] = struct{}{}
+		}
 	}
 
 	return sandboxLaunchSpec{
@@ -1113,6 +1116,51 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		Profile:       profile,
 		MountReadDirs: mountReadDirs,
 	}, nil
+}
+
+// expandAncestorReadDir lists sibling directories at each path level
+// between ancestor and projectDir. When a read_dir is a parent of the
+// project, Docker sandboxes can't mount it read-only (it conflicts with
+// the writable workspace). This function enumerates the directories at
+// each level that don't lie on the path to the project, giving the
+// sandbox access to siblings without the overlapping-mount conflict.
+func expandAncestorReadDir(ancestor, projectDir string) []string {
+	rel, err := filepath.Rel(ancestor, projectDir)
+	if err != nil {
+		return nil
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	if len(parts) == 0 || (len(parts) == 1 && parts[0] == ".") {
+		return nil // ancestor IS the project
+	}
+
+	var result []string
+	current := ancestor
+	for i, part := range parts {
+		entries, err := os.ReadDir(current)
+		if err != nil {
+			break
+		}
+		for _, e := range entries {
+			if e.Name() == part {
+				continue // on the path to project, skip
+			}
+			child := filepath.Join(current, e.Name())
+			resolved, err := filepath.EvalSymlinks(child)
+			if err != nil {
+				continue
+			}
+			info, err := os.Stat(resolved)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			result = append(result, resolved)
+		}
+		if i < len(parts)-1 {
+			current = filepath.Join(current, part)
+		}
+	}
+	return result
 }
 
 func loadHealthySandboxLaunchBackend(probe sandboxProbe) (*SandboxBackendConfig, sandboxPolicyProfile, semver, error) {
@@ -1179,13 +1227,6 @@ func sandboxName(agent, projectDir string, mountReadDirs []string, profileName s
 	}
 	sum := hex.EncodeToString(h.Sum(nil)[:6])
 	return fmt.Sprintf("hazmat-%s-%s-%s", agent, base, sum)
-}
-
-func sandboxAlreadyExists(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "already exists") ||
-		strings.Contains(lower, "already in use") ||
-		strings.Contains(lower, "name is already")
 }
 
 func oneLine(s string) string {

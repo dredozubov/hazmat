@@ -420,7 +420,7 @@ func TestBuildSandboxLaunchSpecFiltersCoveredReadDirs(t *testing.T) {
 	}
 }
 
-func TestBuildSandboxLaunchSpecSkipsAncestorReadDirs(t *testing.T) {
+func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsNoSiblings(t *testing.T) {
 	workspaceDir := t.TempDir()
 	projectDir := filepath.Join(workspaceDir, "niche-sieve")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
@@ -431,6 +431,8 @@ func TestBuildSandboxLaunchSpecSkipsAncestorReadDirs(t *testing.T) {
 		t.Fatalf("mkdir cacheDir: %v", err)
 	}
 
+	// workspaceDir has only one child (niche-sieve = project),
+	// so ancestor expansion yields no siblings.
 	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
 		ProjectDir: projectDir,
 		ReadDirs:   []string{workspaceDir, cacheDir},
@@ -444,6 +446,80 @@ func TestBuildSandboxLaunchSpecSkipsAncestorReadDirs(t *testing.T) {
 	wantName := sandboxName("claude", projectDir, []string{cacheDir}, sandboxPolicyProfileBaseline)
 	if spec.Name != wantName {
 		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
+func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsWithSiblings(t *testing.T) {
+	workspaceDir := t.TempDir()
+	projectDir := filepath.Join(workspaceDir, "niche-sieve")
+	siblingA := filepath.Join(workspaceDir, "hazmat")
+	siblingB := filepath.Join(workspaceDir, "other-proj")
+	for _, dir := range []string{projectDir, siblingA, siblingB} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	// Also create a regular file — should not appear in mounts.
+	if err := os.WriteFile(filepath.Join(workspaceDir, "README.md"), []byte("hi"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		ReadDirs:   []string{workspaceDir},
+	}, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
+	}
+
+	got := make(map[string]struct{})
+	for _, d := range spec.MountReadDirs {
+		got[d] = struct{}{}
+	}
+	if _, ok := got[siblingA]; !ok {
+		t.Errorf("MountReadDirs missing sibling %q; got %v", siblingA, spec.MountReadDirs)
+	}
+	if _, ok := got[siblingB]; !ok {
+		t.Errorf("MountReadDirs missing sibling %q; got %v", siblingB, spec.MountReadDirs)
+	}
+	if _, ok := got[projectDir]; ok {
+		t.Errorf("MountReadDirs should not contain projectDir %q", projectDir)
+	}
+	if _, ok := got[workspaceDir]; ok {
+		t.Errorf("MountReadDirs should not contain ancestor %q", workspaceDir)
+	}
+	if len(spec.MountReadDirs) != 2 {
+		t.Errorf("MountReadDirs = %v, want exactly 2 siblings", spec.MountReadDirs)
+	}
+}
+
+func TestExpandAncestorReadDirDeepNesting(t *testing.T) {
+	root := t.TempDir()
+	// root/team/niche-sieve is the project
+	// root/team/hazmat and root/docs should appear
+	teamDir := filepath.Join(root, "team")
+	projectDir := filepath.Join(teamDir, "niche-sieve")
+	sibling := filepath.Join(teamDir, "hazmat")
+	topSibling := filepath.Join(root, "docs")
+	for _, dir := range []string{projectDir, sibling, topSibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	result := expandAncestorReadDir(root, projectDir)
+	got := make(map[string]struct{})
+	for _, d := range result {
+		got[d] = struct{}{}
+	}
+	if _, ok := got[topSibling]; !ok {
+		t.Errorf("missing top-level sibling %q; got %v", topSibling, result)
+	}
+	if _, ok := got[sibling]; !ok {
+		t.Errorf("missing nested sibling %q; got %v", sibling, result)
+	}
+	if _, ok := got[teamDir]; ok {
+		t.Errorf("should not include intermediate dir %q on path to project", teamDir)
 	}
 }
 
