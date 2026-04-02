@@ -988,21 +988,6 @@ Docker commands need Docker Sandbox mode for this project.
 	), "\n")
 }
 
-func dockerProjectAdvisoryMessage(commandName, projectDir string, detection dockerProjectDetection) string {
-	return strings.TrimLeft(fmt.Sprintf(`
-Container workflow metadata detected in %s: %s
-
-Hazmat is continuing in the current containment mode because .devcontainer/
-alone does not force Docker Sandbox routing.
-
-  %s   Use Docker Sandboxes explicitly if this session needs Docker
-`,
-		projectDir,
-		strings.Join(detection.markers(), ", "),
-		dockerTier3Example(commandName, projectDir),
-	), "\n")
-}
-
 func sessionRoutingExplanation(commandName, projectDir string, requestedSandbox, allowDocker bool, mode sessionMode) (string, []string) {
 	if requestedSandbox {
 		return "using Docker Sandbox because --sandbox was requested", nil
