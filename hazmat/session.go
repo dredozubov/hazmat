@@ -898,9 +898,59 @@ func detectDockerProject(projectDir string) dockerProjectDetection {
 		}
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".devcontainer")); err == nil {
-		detection.SoftMarkers = append(detection.SoftMarkers, ".devcontainer/")
+		if devcontainerNeedsDocker(projectDir) {
+			detection.HardMarkers = append(detection.HardMarkers, ".devcontainer/")
+		} else {
+			detection.SoftMarkers = append(detection.SoftMarkers, ".devcontainer/")
+		}
 	}
 	return detection
+}
+
+// devcontainerNeedsDocker inspects devcontainer.json to determine whether
+// the configuration positively requires Docker or Compose. If the config
+// contains "image", "dockerFile", "dockerComposeFile", or a "build" object
+// with a "dockerfile" field, Docker is required and the marker is promoted
+// to hard. If the config is absent or unparseable, we return false (advisory).
+func devcontainerNeedsDocker(projectDir string) bool {
+	// devcontainer.json may live at .devcontainer/devcontainer.json or
+	// at .devcontainer.json in the project root.
+	candidates := []string{
+		filepath.Join(projectDir, ".devcontainer", "devcontainer.json"),
+		filepath.Join(projectDir, ".devcontainer.json"),
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		return devcontainerJSONNeedsDocker(data)
+	}
+	return false
+}
+
+// devcontainerJSONNeedsDocker checks raw devcontainer.json bytes for
+// fields that indicate Docker is required. Only top-level fields are
+// inspected — no deep schema validation.
+func devcontainerJSONNeedsDocker(data []byte) bool {
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	for _, key := range []string{"image", "dockerFile", "dockerComposeFile"} {
+		if _, ok := cfg[key]; ok {
+			return true
+		}
+	}
+	if raw, ok := cfg["build"]; ok {
+		var build map[string]json.RawMessage
+		if json.Unmarshal(raw, &build) == nil {
+			if _, ok := build["dockerfile"]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func dockerTier3Example(commandName, projectDir string) string {

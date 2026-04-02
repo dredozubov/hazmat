@@ -530,6 +530,48 @@ func TestWarnDockerProjectDevcontainerDir(t *testing.T) {
 	}
 }
 
+func TestWarnDockerProjectDevcontainerWithImage(t *testing.T) {
+	dir := t.TempDir()
+	dc := filepath.Join(dir, ".devcontainer")
+	if err := os.MkdirAll(dc, 0o755); err != nil {
+		t.Fatalf("mkdir .devcontainer: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dc, "devcontainer.json"),
+		[]byte(`{"name": "test", "image": "mcr.microsoft.com/devcontainers/go:1"}`), 0o644); err != nil {
+		t.Fatalf("write devcontainer.json: %v", err)
+	}
+	// With image field, .devcontainer/ is a hard marker → blocks without --ignore-docker.
+	if err := warnDockerProject("claude", dir, false); err == nil {
+		t.Fatal("expected hard-marker blocking for .devcontainer/ with image field")
+	}
+}
+
+func TestDevcontainerJSONNeedsDocker(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want bool
+	}{
+		{"image field", `{"image": "node:20"}`, true},
+		{"dockerFile field", `{"dockerFile": "Dockerfile.dev"}`, true},
+		{"dockerComposeFile field", `{"dockerComposeFile": "compose.yaml"}`, true},
+		{"build with dockerfile", `{"build": {"dockerfile": "Dockerfile"}}`, true},
+		{"build without dockerfile", `{"build": {"context": "."}}`, false},
+		{"name only", `{"name": "my-project"}`, false},
+		{"empty object", `{}`, false},
+		{"features only", `{"name": "x", "features": {"ghcr.io/some/feature:1": {}}}`, false},
+		{"invalid json", `not json`, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := devcontainerJSONNeedsDocker([]byte(tc.json))
+			if got != tc.want {
+				t.Errorf("devcontainerJSONNeedsDocker(%s) = %v, want %v", tc.json, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWarnDockerProjectMultipleMarkersAllListed(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"Dockerfile", "compose.yaml"} {
