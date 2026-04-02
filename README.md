@@ -37,12 +37,12 @@ hazmat: session
   Snapshot excludes:    vendor/
 ```
 
-If the project needs Docker, Hazmat switches modes automatically:
+If the project looks compatible with a private Docker daemon, Hazmat switches modes automatically:
 
 ```
 hazmat: session
   Mode:                 Docker Sandbox
-  Why this mode:        using Docker Sandbox because this project appears to need Docker (Dockerfile)
+  Why this mode:        using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)
   Project (read-write): /Users/dr/workspace/api-service
   Extra read-only:      none
   Packs:                node
@@ -83,7 +83,12 @@ hazmat shell                      # interactive contained shell
 
 ### Docker Projects
 
-Projects with Dockerfiles or Compose files are automatically routed into Docker Sandbox mode — the agent runs inside an isolated sandbox with its own private Docker daemon. The session contract tells you which mode was chosen and why. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md).
+Hazmat distinguishes between two Docker shapes:
+
+- **Private-daemon Docker projects** auto-route into Docker Sandbox mode. The agent runs inside an isolated sandbox with its own private Docker daemon.
+- **Shared-daemon Docker projects** do not. If the repo appears to depend on the host Docker daemon, Hazmat stops and asks you to choose an explicit code-only session (`--docker=none`) or move the workflow to Tier 4.
+
+Use `hazmat config docker none -C /path/to/project` to persist code-only routing for a shared-daemon repo. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 
 ### Comparison
 
@@ -191,6 +196,7 @@ hazmat bootstrap opencode                            # install OpenCode for the 
 hazmat opencode                                      # launch OpenCode in containment
 hazmat pack list                                     # inspect built-in and user stack packs
 hazmat config set packs.pin "~/workspace/app:node,go" # auto-activate packs for a project
+hazmat config docker none -C ~/workspace/app         # persist code-only mode for a shared-daemon repo
 hazmat config cloud                                  # set up S3 backup
 hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
 hazmat config set backup.retention.keep_latest 30     # change snapshot retention

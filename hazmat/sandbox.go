@@ -26,15 +26,15 @@ const (
 )
 
 var (
-	minDockerDesktopVersion = semver{major: 4, minor: 58, patch: 0}
-	minComposeVersion       = semver{major: 2, minor: 40, patch: 2}
-	minShellSandboxVersion  = semver{major: 4, minor: 61, patch: 0}
-	minExtraWorkspaceVer    = semver{major: 4, minor: 61, patch: 0}
-	semverPattern           = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
-	sandboxHostPattern      = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*$`)
-	sandboxNamePattern      = regexp.MustCompile(`[^a-z0-9]+`)
-	sandboxNow              = func() time.Time { return time.Now().UTC() }
-	sandboxProbeFactory     = func() sandboxProbe { return hostSandboxProbe{} }
+	minDockerDesktopVersion    = semver{major: 4, minor: 58, patch: 0}
+	minComposeVersion          = semver{major: 2, minor: 40, patch: 2}
+	minShellSandboxVersion     = semver{major: 4, minor: 61, patch: 0}
+	minExtraWorkspaceVer       = semver{major: 4, minor: 61, patch: 0}
+	semverPattern              = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+	sandboxHostPattern         = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	sandboxNamePattern         = regexp.MustCompile(`[^a-z0-9]+`)
+	sandboxNow                 = func() time.Time { return time.Now().UTC() }
+	sandboxProbeFactory        = func() sandboxProbe { return hostSandboxProbe{} }
 	errSandboxNotFound         = errors.New("sandbox not found")
 	errSandboxApprovalDeclined = errors.New("Docker Sandbox approval declined")
 )
@@ -157,11 +157,11 @@ func (dockerSandboxesBackend) Type() string {
 
 func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec, _ *SandboxBackendConfig, version semver) error {
 	if spec.Agent == "shell" && !version.AtLeast(minShellSandboxVersion) {
-		return fmt.Errorf("Docker Desktop %s is too old for shell sandboxes; hazmat shell --sandbox and hazmat exec --sandbox require >= %s",
+		return fmt.Errorf("Docker Desktop %s is too old for shell sandboxes; hazmat shell --docker=sandbox and hazmat exec --docker=sandbox require >= %s",
 			version.String(), minShellSandboxVersion.String())
 	}
 	if len(spec.MountReadDirs) > 0 && !version.AtLeast(minExtraWorkspaceVer) {
-		return fmt.Errorf("Docker Desktop %s is too old for additional read-only workspaces; --sandbox with -R or auto-added read dirs requires >= %s",
+		return fmt.Errorf("Docker Desktop %s is too old for additional read-only workspaces; --docker=sandbox with -R or auto-added read dirs requires >= %s",
 			version.String(), minExtraWorkspaceVer.String())
 	}
 	return nil
@@ -941,7 +941,7 @@ func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicy
 
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	if !ui.IsInteractive() && !flagDryRun && !flagYesAll {
-		return fmt.Errorf("Docker Sandbox approval required for %s. Re-run interactively or with --yes to record approval, or use --ignore-docker for code-only work", projectDir)
+		return fmt.Errorf("Docker Sandbox approval required for %s. Re-run interactively or with --yes to record approval, or use --docker=none for code-only work", projectDir)
 	}
 
 	fmt.Fprintln(os.Stderr)
@@ -969,7 +969,7 @@ func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicy
 
 func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 	if wantsResume, _, wantsContinue := detectResumeFlags(forwarded); wantsResume || wantsContinue {
-		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --sandbox mode")
+		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --docker=sandbox mode")
 	}
 
 	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
@@ -1024,7 +1024,7 @@ func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(
 
 func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
 	if len(cfg.PackEnv) > 0 {
-		return nil, nil, "", fmt.Errorf("stack pack env passthrough is not supported with --sandbox yet")
+		return nil, nil, "", fmt.Errorf("stack pack env passthrough is not supported with --docker=sandbox yet")
 	}
 
 	probe := sandboxProbeFactory()

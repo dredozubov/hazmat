@@ -37,6 +37,29 @@ type sessionLaunchUI struct {
 	waitForAltScreen bool
 }
 
+type dockerMode string
+
+const (
+	dockerModeAuto    dockerMode = "auto"
+	dockerModeNone    dockerMode = "none"
+	dockerModeSandbox dockerMode = "sandbox"
+)
+
+type dockerRequestSource string
+
+const (
+	dockerRequestDefaultAuto   dockerRequestSource = "default-auto"
+	dockerRequestProjectConfig dockerRequestSource = "project-config"
+	dockerRequestFlag          dockerRequestSource = "flag"
+	dockerRequestLegacyIgnore  dockerRequestSource = "legacy-ignore"
+	dockerRequestLegacySandbox dockerRequestSource = "legacy-sandbox"
+)
+
+type dockerRoutingRequest struct {
+	Mode   dockerMode
+	Source dockerRequestSource
+}
+
 type sessionMode string
 
 const (
@@ -77,18 +100,21 @@ func newShellCmd() *cobra.Command {
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
+	var dockerModeValue string
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			prepared, err := resolvePreparedSession("shell", harnessSessionOpts{
-				project:     project,
-				readDirs:    readDirs,
-				packs:       packNames,
-				noBackup:    noBackup,
-				useSandbox:  useSandbox,
-				allowDocker: allowDocker,
+				project:            project,
+				readDirs:           readDirs,
+				packs:              packNames,
+				noBackup:           noBackup,
+				useSandbox:         useSandbox,
+				allowDocker:        allowDocker,
+				dockerMode:         dockerModeValue,
+				dockerModeExplicit: cmd.Flags().Changed("docker"),
 			}, true)
 			if err != nil {
 				return err
@@ -111,10 +137,14 @@ func newShellCmd() *cobra.Command {
 		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
+		"Docker routing: auto, none, or sandbox")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
+	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
 }
 
@@ -125,18 +155,21 @@ func newExecCmd() *cobra.Command {
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
+	var dockerModeValue string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			prepared, err := resolvePreparedSession("exec", harnessSessionOpts{
-				project:     project,
-				readDirs:    readDirs,
-				packs:       packNames,
-				noBackup:    noBackup,
-				useSandbox:  useSandbox,
-				allowDocker: allowDocker,
+				project:            project,
+				readDirs:           readDirs,
+				packs:              packNames,
+				noBackup:           noBackup,
+				useSandbox:         useSandbox,
+				allowDocker:        allowDocker,
+				dockerMode:         dockerModeValue,
+				dockerModeExplicit: cmd.Flags().Changed("docker"),
 			}, true)
 			if err != nil {
 				return err
@@ -159,10 +192,14 @@ func newExecCmd() *cobra.Command {
 		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
+		"Docker routing: auto, none, or sandbox")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
+	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
 }
 
@@ -177,8 +214,9 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
-  --sandbox              Use Docker Sandbox support
-  --ignore-docker        Skip Docker artifact check
+  --docker <mode>        Docker routing: auto, none, or sandbox
+  --sandbox              Alias for --docker=sandbox
+  --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Claude Code.
 Directory arguments are forwarded unchanged; use -C/--project to change
@@ -191,7 +229,8 @@ Examples:
   hazmat claude -p "explain this"      Print mode
   hazmat claude --model sonnet         Use specific model
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
-  hazmat claude --sandbox -C /proj     Use Docker Sandboxes
+  hazmat claude --docker=sandbox -C /proj  Use Docker Sandboxes
+  hazmat claude --docker=none -C /proj     Code-only session in native containment
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
   hazmat claude --continue             Continue most recent conversation`,
@@ -262,16 +301,20 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
-  --ignore-docker        Skip Docker artifact check
+  --docker <mode>        Docker routing: auto, none, or sandbox
+  --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to OpenCode.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+Docker Sandbox sessions are currently available through hazmat claude; use
+--docker=none here for code-only sessions in Docker-marked repos.
 
 Examples:
   hazmat opencode
   hazmat opencode -p "explain this"
   hazmat opencode -C /proj -p "hi"
+  hazmat opencode --docker=none -C /proj
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -307,15 +350,19 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   --pack <name>          Activate a stack pack (repeatable)
   --no-backup            Skip pre-session snapshot
-  --ignore-docker        Skip Docker artifact check
+  --docker <mode>        Docker routing: auto, none, or sandbox
+  --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Codex.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+Docker Sandbox sessions are currently available through hazmat claude; use
+--docker=none here for code-only sessions in Docker-marked repos.
 
 Examples:
   hazmat codex
   hazmat codex "explain this repo"
+  hazmat codex --docker=none -C /proj
   hazmat codex -C /proj --full-auto
   hazmat codex --no-backup`,
 		DisableFlagParsing: true,
@@ -352,12 +399,14 @@ Examples:
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
-	project     string
-	readDirs    []string
-	packs       []string
-	noBackup    bool
-	useSandbox  bool
-	allowDocker bool
+	project            string
+	readDirs           []string
+	packs              []string
+	noBackup           bool
+	useSandbox         bool
+	allowDocker        bool
+	dockerMode         string
+	dockerModeExplicit bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -366,8 +415,8 @@ var errHarnessHelp = fmt.Errorf("help requested")
 var errClaudeHelp = errHarnessHelp
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --pack, --no-backup, --sandbox,
-// --ignore-docker)
+// Hazmat flags (--project, --read, --pack, --no-backup, --docker,
+// --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
@@ -387,6 +436,16 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			return opts, nil, errHarnessHelp
 		case arg == "--no-backup":
 			opts.noBackup = true
+		case arg == "--docker":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires a mode (auto, none, sandbox)", arg)
+			}
+			i++
+			opts.dockerMode = args[i]
+			opts.dockerModeExplicit = true
+		case strings.HasPrefix(arg, "--docker="):
+			opts.dockerMode = arg[len("--docker="):]
+			opts.dockerModeExplicit = true
 		case arg == "--sandbox":
 			opts.useSandbox = true
 		case arg == "--ignore-docker":
@@ -605,18 +664,24 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		return preparedSession{}, err
 	}
 
-	mode, err := resolvePreparedSessionMode(commandName, cfg.ProjectDir, opts.useSandbox, opts.allowDocker, supportsSandbox)
+	request, err := resolveDockerRoutingRequest(cfg.ProjectDir, opts)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	detection := detectDockerProject(cfg.ProjectDir)
+
+	mode, err := resolvePreparedSessionMode(commandName, cfg.ProjectDir, request, detection, supportsSandbox)
 	if err != nil {
 		return preparedSession{}, err
 	}
 
-	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, opts.useSandbox, opts.allowDocker, mode)
+	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
 	return preparedSession{Config: cfg, Mode: mode}, nil
 }
 
-func resolvePreparedSessionMode(commandName, projectDir string, requestedSandbox, allowDocker, supportsSandbox bool) (sessionMode, error) {
+func resolvePreparedSessionMode(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, supportsSandbox bool) (sessionMode, error) {
 	if supportsSandbox {
-		useSandbox, err := resolveSessionSandboxMode(commandName, projectDir, requestedSandbox, allowDocker)
+		useSandbox, err := resolveSessionSandboxMode(commandName, projectDir, request, detection)
 		if err != nil {
 			return "", err
 		}
@@ -626,10 +691,10 @@ func resolvePreparedSessionMode(commandName, projectDir string, requestedSandbox
 		return sessionModeNative, nil
 	}
 
-	if requestedSandbox {
-		return "", fmt.Errorf("--sandbox is not supported for hazmat %s yet", commandName)
+	if request.Mode == dockerModeSandbox {
+		return "", fmt.Errorf("%s", unsupportedSandboxTargetMessage(commandName, projectDir, request))
 	}
-	if err := warnDockerProject(commandName, projectDir, allowDocker); err != nil {
+	if err := warnDockerProject(commandName, projectDir, request); err != nil {
 		return "", err
 	}
 	return sessionModeNative, nil
@@ -880,8 +945,9 @@ var dockerArtifacts = []string{
 }
 
 type dockerProjectDetection struct {
-	HardMarkers []string
-	SoftMarkers []string
+	HardMarkers         []string
+	SoftMarkers         []string
+	SharedDaemonSignals []string
 }
 
 func (d dockerProjectDetection) HasHardMarkers() bool {
@@ -892,11 +958,77 @@ func (d dockerProjectDetection) HasSoftMarkers() bool {
 	return len(d.SoftMarkers) > 0
 }
 
+func (d dockerProjectDetection) HasSharedDaemonSignals() bool {
+	return len(d.SharedDaemonSignals) > 0
+}
+
 func (d dockerProjectDetection) markers() []string {
 	out := make([]string, 0, len(d.HardMarkers)+len(d.SoftMarkers))
 	out = append(out, d.HardMarkers...)
 	out = append(out, d.SoftMarkers...)
 	return out
+}
+
+type sharedDaemonSignalMatcher struct {
+	Needle string
+	Label  string
+}
+
+var sharedDaemonSignalMatchers = []sharedDaemonSignalMatcher{
+	{Needle: "external: true", Label: "external Docker network or volume"},
+	{Needle: "traefik.enable", Label: "Traefik Docker labels"},
+	{Needle: "traefik.docker.network", Label: "Traefik Docker network"},
+	{Needle: "network_mode: host", Label: "host networking"},
+	{Needle: "shared-postgres", Label: "shared container reference"},
+	{Needle: "docker-infra", Label: "other Compose project dependency"},
+}
+
+func validDockerMode(mode dockerMode) bool {
+	switch mode {
+	case dockerModeAuto, dockerModeNone, dockerModeSandbox:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseDockerMode(raw string) (dockerMode, error) {
+	mode := dockerMode(strings.ToLower(strings.TrimSpace(raw)))
+	if validDockerMode(mode) {
+		return mode, nil
+	}
+	return "", fmt.Errorf("invalid Docker mode %q (want auto, none, or sandbox)", raw)
+}
+
+func resolveDockerRoutingRequest(projectDir string, opts harnessSessionOpts) (dockerRoutingRequest, error) {
+	if opts.dockerModeExplicit {
+		if opts.useSandbox || opts.allowDocker {
+			return dockerRoutingRequest{}, fmt.Errorf("cannot combine --docker with deprecated --sandbox/--ignore-docker flags")
+		}
+		mode, err := parseDockerMode(opts.dockerMode)
+		if err != nil {
+			return dockerRoutingRequest{}, err
+		}
+		return dockerRoutingRequest{Mode: mode, Source: dockerRequestFlag}, nil
+	}
+
+	if opts.useSandbox && opts.allowDocker {
+		return dockerRoutingRequest{}, fmt.Errorf("cannot combine --sandbox and --ignore-docker")
+	}
+	if opts.useSandbox {
+		return dockerRoutingRequest{Mode: dockerModeSandbox, Source: dockerRequestLegacySandbox}, nil
+	}
+	if opts.allowDocker {
+		return dockerRoutingRequest{Mode: dockerModeNone, Source: dockerRequestLegacyIgnore}, nil
+	}
+
+	if cfg, err := loadConfig(); err == nil {
+		if mode, ok := cfg.ProjectDockerMode(projectDir); ok {
+			return dockerRoutingRequest{Mode: mode, Source: dockerRequestProjectConfig}, nil
+		}
+	}
+
+	return dockerRoutingRequest{Mode: dockerModeAuto, Source: dockerRequestDefaultAuto}, nil
 }
 
 func detectDockerProject(projectDir string) dockerProjectDetection {
@@ -913,7 +1045,93 @@ func detectDockerProject(projectDir string) dockerProjectDetection {
 			detection.SoftMarkers = append(detection.SoftMarkers, ".devcontainer/")
 		}
 	}
+	if detection.HasHardMarkers() {
+		detection.SharedDaemonSignals = detectSharedDaemonSignals(projectDir)
+	}
 	return detection
+}
+
+func detectSharedDaemonSignals(projectDir string) []string {
+	candidates := sharedDaemonCandidateFiles(projectDir)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var signals []string
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		contents := string(data)
+		rel, err := filepath.Rel(projectDir, path)
+		if err != nil {
+			rel = filepath.Base(path)
+		}
+		for _, matcher := range sharedDaemonSignalMatchers {
+			if !strings.Contains(contents, matcher.Needle) {
+				continue
+			}
+			signal := fmt.Sprintf("%s in %s", matcher.Label, rel)
+			if _, dup := seen[signal]; dup {
+				continue
+			}
+			signals = append(signals, signal)
+			seen[signal] = struct{}{}
+		}
+	}
+	return signals
+}
+
+func sharedDaemonCandidateFiles(projectDir string) []string {
+	seen := make(map[string]struct{})
+	var candidates []string
+
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			return
+		}
+		candidates = append(candidates, path)
+		seen[path] = struct{}{}
+	}
+
+	for _, pattern := range []string{
+		filepath.Join(projectDir, "compose*.yml"),
+		filepath.Join(projectDir, "compose*.yaml"),
+		filepath.Join(projectDir, "docker-compose*.yml"),
+		filepath.Join(projectDir, "docker-compose*.yaml"),
+		filepath.Join(projectDir, "*.sh"),
+	} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			add(match)
+		}
+	}
+
+	scriptsDir := filepath.Join(projectDir, "scripts")
+	_ = filepath.WalkDir(scriptsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		switch filepath.Ext(path) {
+		case ".sh", ".bash", ".zsh":
+			add(path)
+		}
+		return nil
+	})
+
+	return candidates
 }
 
 // devcontainerNeedsDocker inspects devcontainer.json to determine whether
@@ -962,150 +1180,233 @@ func devcontainerJSONNeedsDocker(data []byte) bool {
 	return false
 }
 
-func dockerTier3Example(commandName, projectDir string) string {
+func dockerSessionExample(commandName, projectDir string, mode dockerMode) string {
+	flag := fmt.Sprintf("--docker=%s", mode)
 	switch commandName {
 	case "shell":
-		return fmt.Sprintf("hazmat shell --sandbox -C %s", projectDir)
+		return fmt.Sprintf("hazmat shell %s -C %s", flag, projectDir)
 	case "exec":
-		return fmt.Sprintf("hazmat exec --sandbox -C %s -- <command>", projectDir)
+		return fmt.Sprintf("hazmat exec %s -C %s -- <command>", flag, projectDir)
 	case "claude":
-		return fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
+		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
+	case "opencode":
+		if mode == dockerModeSandbox {
+			return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
+		}
+		return fmt.Sprintf("hazmat opencode %s -C %s", flag, projectDir)
+	case "codex":
+		if mode == dockerModeSandbox {
+			return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
+		}
+		return fmt.Sprintf("hazmat codex %s -C %s", flag, projectDir)
 	default:
-		return fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
+		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	}
 }
 
-func dockerProjectBlockedMessage(commandName, projectDir string, detection dockerProjectDetection) string {
-	sessionExample := dockerTier3Example(commandName, projectDir)
-	if commandName == "opencode" || commandName == "codex" {
-		sessionExample = fmt.Sprintf("hazmat claude --sandbox -C %s", projectDir)
+func summarizeList(values []string, limit int) string {
+	if len(values) == 0 {
+		return ""
 	}
+	if limit <= 0 || len(values) <= limit {
+		return strings.Join(values, ", ")
+	}
+	return fmt.Sprintf("%s, +%d more", strings.Join(values[:limit], ", "), len(values)-limit)
+}
+
+func dockerProjectNeedsSandboxMessage(commandName, projectDir string, detection dockerProjectDetection) string {
 	return strings.TrimLeft(fmt.Sprintf(`
-This project appears to need Docker support: %s
+Docker files detected: %s
 
-Hazmat is stopping instead of falling back to native containment, because
-Docker commands need Docker Sandbox mode for this project.
+Hazmat can only provide Docker access for this project by launching a private
+Docker Sandbox. Native containment does not expose Docker commands.
 
-  hazmat sandbox doctor      Check Docker Sandbox support
+  hazmat sandbox doctor
   %s
-  hazmat sandbox setup       Record Docker Sandbox support in advance (optional)
-  hazmat %s --ignore-docker  Continue without Docker support
+  hazmat config docker none -C %s
+  %s
+
+Use --docker=none only for code-only sessions. Docker commands will not work in
+native containment.
 `,
 		strings.Join(detection.markers(), ", "),
-		sessionExample,
-		commandName,
+		dockerSessionExample(commandName, projectDir, dockerModeSandbox),
+		projectDir,
+		dockerSessionExample(commandName, projectDir, dockerModeNone),
 	), "\n")
 }
 
-func sessionRoutingExplanation(commandName, projectDir string, requestedSandbox, allowDocker bool, mode sessionMode) (string, []string) {
-	if requestedSandbox {
-		return "using Docker Sandbox because --sandbox was requested", nil
+func dockerSharedDaemonUnsupportedMessage(commandName, projectDir string, detection dockerProjectDetection) string {
+	var signalLines strings.Builder
+	for _, signal := range detection.SharedDaemonSignals {
+		fmt.Fprintf(&signalLines, "  - %s\n", signal)
 	}
 
-	detection := detectDockerProject(projectDir)
+	return strings.TrimLeft(fmt.Sprintf(`
+Docker files detected: %s
+
+This project appears to depend on the host Docker daemon:
+%s
+Hazmat containment does not support shared-daemon Docker access. The agent
+cannot safely share a Docker daemon it does not exclusively own.
+
+For code-only sessions:
+  hazmat config docker none -C %s
+  %s
+
+If this detection is wrong and the repo is actually self-contained, force a
+private-daemon session with:
+  %s
+
+Docker commands will not work with --docker=none. For agent-managed shared
+Docker workflows, use Tier 4 or run Docker outside Hazmat.
+`,
+		strings.Join(detection.markers(), ", "),
+		signalLines.String(),
+		projectDir,
+		dockerSessionExample(commandName, projectDir, dockerModeNone),
+		dockerSessionExample(commandName, projectDir, dockerModeSandbox),
+	), "\n")
+}
+
+func dockerProjectBlockedMessage(commandName, projectDir string, detection dockerProjectDetection) string {
+	if detection.HasSharedDaemonSignals() {
+		return dockerSharedDaemonUnsupportedMessage(commandName, projectDir, detection)
+	}
+	return dockerProjectNeedsSandboxMessage(commandName, projectDir, detection)
+}
+
+func sessionRoutingExplanation(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, mode sessionMode) (string, []string) {
 	if mode == sessionModeDockerSandbox {
-		if len(detection.HardMarkers) > 0 {
-			return fmt.Sprintf("using Docker Sandbox because this project appears to need Docker (%s)", strings.Join(detection.HardMarkers, ", ")), nil
+		switch request.Source {
+		case dockerRequestFlag:
+			return "using Docker Sandbox because --docker=sandbox was requested", nil
+		case dockerRequestLegacySandbox:
+			return "using Docker Sandbox because --sandbox was requested", nil
+		case dockerRequestProjectConfig:
+			return "using Docker Sandbox because this project is configured with docker: sandbox", nil
+		default:
+			if len(detection.HardMarkers) > 0 {
+				return fmt.Sprintf("using Docker Sandbox because this project appears compatible with a private Docker daemon (%s)", strings.Join(detection.HardMarkers, ", ")), nil
+			}
+			return "using Docker Sandbox for this session", nil
 		}
-		return "using Docker Sandbox for this session", nil
 	}
 
-	if len(detection.HardMarkers) > 0 && allowDocker {
-		return "staying in native containment because --ignore-docker was set", []string{
-			fmt.Sprintf("Docker files detected: %s. Docker commands will still fail in native containment.", strings.Join(detection.HardMarkers, ", ")),
-			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+	switch request.Mode {
+	case dockerModeNone:
+		var reason string
+		switch request.Source {
+		case dockerRequestFlag:
+			reason = "staying in native containment because --docker=none was requested"
+		case dockerRequestLegacyIgnore:
+			reason = "staying in native containment because --ignore-docker was set"
+		case dockerRequestProjectConfig:
+			reason = "staying in native containment because this project is configured with docker: none"
+		default:
+			reason = "staying in native containment because Docker support was disabled for this session"
 		}
-	}
-	if len(detection.HardMarkers) > 0 && !allowDocker {
-		return "using native containment because Docker Sandbox approval was declined", []string{
-			"Docker commands will not work in this session.",
-			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+
+		var notes []string
+		if len(detection.HardMarkers) > 0 {
+			notes = append(notes, fmt.Sprintf("Docker files detected: %s. Docker commands will not work in native containment.", strings.Join(detection.HardMarkers, ", ")))
 		}
-	}
-	if len(detection.SoftMarkers) > 0 {
-		return "staying in native containment because .devcontainer/ alone does not require Docker mode", []string{
-			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+		if detection.HasSharedDaemonSignals() {
+			notes = append(notes, fmt.Sprintf("Shared-daemon signals detected: %s.", summarizeList(detection.SharedDaemonSignals, 2)))
+		}
+		if len(detection.HardMarkers) > 0 {
+			notes = append(notes, fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)))
+		}
+		return reason, notes
+	case dockerModeAuto:
+		if len(detection.HardMarkers) > 0 {
+			return "using native containment because Docker Sandbox approval was declined", []string{
+				"Docker commands will not work in this session.",
+				fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)),
+			}
+		}
+		if len(detection.SoftMarkers) > 0 {
+			return "staying in native containment because .devcontainer/ alone does not require Docker mode", []string{
+				fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)),
+			}
 		}
 	}
 	return "using native containment because no Docker requirement was detected", nil
 }
 
-func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox, allowDocker bool) (bool, error) {
-	if requestedSandbox {
+func resolveSessionSandboxMode(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection) (bool, error) {
+	switch request.Mode {
+	case dockerModeSandbox:
 		return true, nil
+	case dockerModeNone:
+		return false, nil
+	case dockerModeAuto:
+	default:
+		return false, fmt.Errorf("unsupported Docker mode %q", request.Mode)
 	}
 
-	detection := detectDockerProject(projectDir)
-	if detection.HasHardMarkers() {
-		if allowDocker {
-			fmt.Fprintln(os.Stderr, "Warning:", dockerProjectBlockedMessage(commandName, projectDir, detection))
+	if detection.HasSharedDaemonSignals() {
+		return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
+	}
+	if !detection.HasHardMarkers() {
+		return false, nil
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return false, err
+	}
+
+	var backend *SandboxBackendConfig
+	var profile sandboxPolicyProfile
+
+	if cfg.SandboxBackend() == nil {
+		b, p, _, err := detectHealthySandboxBackend(sandboxProbeFactory())
+		if err != nil {
+			return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
+		}
+		backend, profile = b, p
+	} else {
+		backend = cfg.SandboxBackend()
+		p, err := sandboxPolicyProfileByName(backend.PolicyProfile)
+		if err != nil {
+			p = defaultSandboxPolicyProfile()
+		}
+		profile = p
+	}
+
+	if err := ensureSandboxApproval(projectDir, backend.Type, profile); err != nil {
+		if errors.Is(err, errSandboxApprovalDeclined) {
+			fmt.Fprintf(os.Stderr, "hazmat: falling back to native containment (Docker commands will not work in session)\n")
+			fmt.Fprintf(os.Stderr, "hazmat: hint: use --docker=none to skip this prompt or hazmat config docker none -C %s to persist code-only mode\n", projectDir)
 			return false, nil
 		}
-
-		cfg, err := loadConfig()
-		if err != nil {
-			return false, err
-		}
-
-		var backend *SandboxBackendConfig
-		var profile sandboxPolicyProfile
-
-		if cfg.SandboxBackend() == nil {
-			b, p, _, err := detectHealthySandboxBackend(sandboxProbeFactory())
-			if err != nil {
-				return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
-			}
-			backend, profile = b, p
-		} else {
-			backend = cfg.SandboxBackend()
-			p, err := sandboxPolicyProfileByName(backend.PolicyProfile)
-			if err != nil {
-				p = defaultSandboxPolicyProfile()
-			}
-			profile = p
-		}
-
-		// Prompt for approval before committing to Docker Sandbox mode.
-		// If declined, fall back to native containment instead of erroring out.
-		if err := ensureSandboxApproval(projectDir, backend.Type, profile); err != nil {
-			if errors.Is(err, errSandboxApprovalDeclined) {
-				fmt.Fprintf(os.Stderr, "hazmat: falling back to native containment (Docker commands will not work in session)\n")
-				fmt.Fprintf(os.Stderr, "hazmat: hint: use --ignore-docker to skip this prompt\n")
-				return false, nil
-			}
-			return false, err
-		}
-
-		return true, nil
+		return false, err
 	}
 
-	return false, nil
+	return true, nil
 }
 
-// warnDockerProject checks whether projectDir contains Docker artifacts and
-// either returns an error (allow=false) or prints a warning and continues
-// (allow=true) with Docker Sandbox guidance. The host Docker socket is locked to
-// owner-only (0700) by sandbox setup, so Docker commands will fail inside
-// the sandbox regardless. This surfaces the issue early with a clear path.
-//
-// Pass allow=true via --ignore-docker when the project has Docker files but
-// this session only needs code-editing — Docker commands will still fail,
-// but the session is not blocked.
-//
-// Note: the Docker socket is blocked by filesystem ACL (0700 on dr's socket),
-// not by the seatbelt policy. The seatbelt allows broad network-outbound;
-// the protection is the socket file permission, enforced by sandbox setup.
-func warnDockerProject(commandName, projectDir string, allow bool) error {
+func unsupportedSandboxTargetMessage(commandName, projectDir string, request dockerRoutingRequest) string {
+	if request.Source == dockerRequestProjectConfig {
+		return fmt.Sprintf("this project is configured with docker: sandbox, but hazmat %s does not support Docker Sandboxes yet\nuse %s or change the project setting with: hazmat config docker none -C %s", commandName, dockerSessionExample("claude", projectDir, dockerModeSandbox), projectDir)
+	}
+	return fmt.Sprintf("--docker=sandbox is not supported for hazmat %s yet\nuse %s instead", commandName, dockerSessionExample("claude", projectDir, dockerModeSandbox))
+}
+
+// warnDockerProject checks whether projectDir contains Docker artifacts that
+// require an explicit Docker choice for commands that do not support Docker
+// Sandboxes directly.
+func warnDockerProject(commandName, projectDir string, request dockerRoutingRequest) error {
+	if request.Mode == dockerModeNone {
+		return nil
+	}
+
 	detection := detectDockerProject(projectDir)
 	if !detection.HasHardMarkers() {
 		return nil
 	}
-
-	msg := dockerProjectBlockedMessage(commandName, projectDir, detection)
-	if allow {
-		return nil
-	}
-	return fmt.Errorf("%s", msg)
+	return fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
 }
 
 // generateSBPL produces a per-session Seatbelt (SBPL) policy with all

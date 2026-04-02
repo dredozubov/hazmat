@@ -14,6 +14,7 @@ func newExplainCmd() *cobra.Command {
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
+	var dockerModeValue string
 
 	cmd := &cobra.Command{
 		Use:   "explain",
@@ -27,17 +28,19 @@ execution.
 Examples:
   hazmat explain
   hazmat explain -C ~/workspace/my-project --pack node
-  hazmat explain --for shell --sandbox -C ~/workspace/docker-app
-  hazmat explain --for opencode --ignore-docker -C ~/workspace/repo`,
+  hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
+  hazmat explain --for opencode --docker=none -C ~/workspace/repo`,
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, mode, err := resolveExplainSession(target, harnessSessionOpts{
-				project:     project,
-				readDirs:    readDirs,
-				packs:       packNames,
-				noBackup:    noBackup,
-				useSandbox:  useSandbox,
-				allowDocker: allowDocker,
+				project:            project,
+				readDirs:           readDirs,
+				packs:              packNames,
+				noBackup:           noBackup,
+				useSandbox:         useSandbox,
+				allowDocker:        allowDocker,
+				dockerMode:         dockerModeValue,
+				dockerModeExplicit: cmd.Flags().Changed("docker"),
 			})
 			if err != nil {
 				return err
@@ -58,10 +61,14 @@ Examples:
 		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
+		"Docker routing: auto, none, or sandbox")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Preview native containment even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
+	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 
 	return cmd
 }

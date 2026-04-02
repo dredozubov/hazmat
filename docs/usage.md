@@ -74,7 +74,7 @@ hazmat: session
 Each line maps to a concrete boundary:
 
 - **Mode** — Native containment (kernel sandbox + user isolation) or Docker Sandbox (private Docker daemon in an isolated runtime)
-- **Why this mode** — what triggered the mode selection (Docker files detected, `--sandbox` flag, or default)
+- **Why this mode** — what triggered the mode selection (`--docker=sandbox`, project config, private-daemon Docker detection, or default)
 - **Project (read-write)** — the only directory the agent can modify
 - **Extra read-only** — additional directories visible to the agent (via `-R` or config)
 - **Packs** — active stack packs and what they add
@@ -86,7 +86,8 @@ Preview any session without running it:
 
 ```bash
 hazmat explain                      # preview current project
-hazmat explain --sandbox            # preview Docker Sandbox mode
+hazmat explain --docker=sandbox     # preview Docker Sandbox mode
+hazmat explain --docker=none        # preview code-only native mode
 hazmat explain --pack node          # preview with a pack
 ```
 
@@ -139,23 +140,39 @@ built-ins don't cover. Full reference: [stack-packs.md](stack-packs.md).
 
 ### Docker Projects
 
-When Hazmat detects Docker files (Dockerfile, compose.yaml, etc.) in the
-project, it automatically routes into Docker Sandbox mode. The agent runs
-inside an isolated sandbox with its own private Docker daemon — it can build
-and run containers without accessing your host Docker daemon.
+Hazmat treats Docker routing as a daemon-boundary question, not just "does this
+repo have Docker files?"
+
+- If the repo looks compatible with a **private Docker daemon**, Hazmat
+  auto-routes into Docker Sandbox mode.
+- If the repo appears to depend on a **shared host daemon** (for example via
+  external Docker networks or Traefik Docker labels), Hazmat stops and asks you
+  to make an explicit choice.
 
 ```bash
-hazmat claude                       # auto-routes if Docker files detected
-hazmat claude --sandbox             # force Docker Sandbox mode
-hazmat claude --ignore-docker       # stay in native mode despite Docker files
+hazmat claude                       # auto-route only for private-daemon fits
+hazmat claude --docker=sandbox      # force Docker Sandbox mode
+hazmat claude --docker=none         # code-only native session
+hazmat config docker none -C ~/workspace/my-project
 ```
+
+Today Docker Sandbox sessions are surfaced through `hazmat claude`,
+`hazmat shell`, and `hazmat exec`. OpenCode and Codex can still use
+`--docker=none` for code-only native sessions in Docker-marked repos.
 
 If `.devcontainer/` is the only Docker-related directory, Hazmat stays in
 native containment unless the devcontainer.json positively indicates Docker
 is needed (e.g., it contains `image`, `dockerFile`, or `dockerComposeFile`).
 
+`--docker=none` is a fallback for code editing against externally managed local
+services. Docker commands still fail inside the session. If the agent must
+restart containers, inspect logs, run `docker exec`, or debug the live Docker
+topology, Tier 4 is the right fit.
+
 For setup details, network policy, and Compose hardening guidance, see
-[tier3-docker-sandboxes.md](tier3-docker-sandboxes.md).
+[tier3-docker-sandboxes.md](tier3-docker-sandboxes.md). For shared-daemon
+projects and the code-only fallback, see
+[shared-daemon-projects.md](shared-daemon-projects.md).
 
 ### Specifying a Different Project Directory
 
@@ -163,9 +180,9 @@ For setup details, network policy, and Compose hardening guidance, see
 hazmat claude -C ~/workspace/other-project
 ```
 
-### Resuming a Conversation Inside the Sandbox
+### Resuming a Conversation Inside Native Containment
 
-When you start a conversation as yourself (`claude`) and later want to continue it inside containment, `--resume` and `--continue` work seamlessly:
+When you start a conversation as yourself (`claude`) and later want to continue it inside **native containment**, `--resume` and `--continue` work seamlessly:
 
 ```bash
 # Start a conversation as yourself (no containment)
@@ -186,6 +203,9 @@ hazmat claude --resume <session-id> # resume a specific session by ID
 - Existing agent-local files are not overwritten, so contained continuations stay independent once they diverge
 
 **Security note:** The sandbox does not get direct access to your host `~/.claude/projects/` directory. Hazmat stages copies into the agent-owned Claude store instead.
+
+**Current limitation:** Docker Sandbox mode uses sandbox-local Claude history.
+Host transcript sync is not applied there yet.
 
 ### Continuing a Hazmat Session Outside the Sandbox
 

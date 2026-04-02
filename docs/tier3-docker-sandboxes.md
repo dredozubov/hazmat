@@ -1,15 +1,22 @@
-# Tier 3: Docker Sandboxes and Devcontainers
+# Tier 3: Docker Sandboxes and Private-Daemon Workflows
 
 **Effort:** 15 minutes | **Performance:** ~90% native | **Cost:** Free (Docker Desktop personal)
+
+Tier 3 is the right fit only when the repo can run inside a **private Docker
+daemon**. It is not the answer for shared-daemon local development setups.
 
 ## Read This When
 
 Use Tier 3 when any of these are true:
 
 - the project needs `docker build`, `docker run`, or `docker compose`
-- the repo uses a devcontainer workflow
-- Tier 2 blocks the workflow because the host Docker socket must stay inaccessible
+- the repo uses a devcontainer workflow that can live inside a private daemon
+- Tier 2 blocks the workflow because the agent needs Docker control, but the host Docker socket must stay inaccessible
 - you want a stronger boundary than "same user, same host daemon" but less overhead than a full VM
+
+Do **not** use Tier 3 when the repo depends on the host daemon for shared
+networks, shared volumes, Traefik routing, or other cross-project Docker state.
+That case is covered in [shared-daemon-projects.md](shared-daemon-projects.md).
 
 If the project does not need Docker, [setup-option-a.md](setup-option-a.md) and Tier 2 are usually the better default. For the broader selection logic, start with [overview.md](overview.md).
 
@@ -49,18 +56,23 @@ separation.
 
 ### Using Docker Sandboxes with Hazmat
 
-Hazmat manages Docker Sandbox lifecycle automatically. Use `--sandbox`
-or let Hazmat auto-route when Docker artifacts are detected:
+Hazmat manages Docker Sandbox lifecycle automatically. Use `--docker=sandbox`
+or let Hazmat auto-route when Docker artifacts are detected **and** the repo
+looks compatible with a private daemon:
 
 ```bash
-hazmat claude --sandbox              # explicit Docker Sandbox mode
-hazmat claude                        # auto-routes if Dockerfile/compose detected
-hazmat explain --sandbox             # preview what the session will do
+hazmat claude --docker=sandbox       # explicit Docker Sandbox mode
+hazmat claude                        # auto-routes for private-daemon fits
+hazmat explain --docker=sandbox      # preview what the session will do
 ```
 
 Hazmat creates the sandbox, applies network policy, and prints a session
 contract showing the mode, routing reason, project boundaries, and active
 packs before launching the agent.
+
+If Hazmat thinks the repo depends on the **host** daemon instead, it stops and
+asks you to choose `--docker=none` for a code-only session or to move the
+workflow to Tier 4.
 
 ### Manual Setup (without Hazmat)
 
@@ -101,6 +113,25 @@ docker sandbox run claude ~/project ~/docs:ro  # read-only extra mounts
 - `--dangerously-skip-permissions` is acceptable here because the microVM is the primary boundary
 - Workspace paths stay stable between host and sandbox
 - It supports Claude Code, Gemini CLI, Codex, Copilot, and Kiro
+
+## Current Product Fit
+
+Hazmat Tier 3 complements Tier 2 only for **self-contained Docker projects**.
+It does not currently provide a smooth "switch modes and keep working" story
+for every repo.
+
+Known continuity gaps relative to Tier 2:
+
+- stack pack env passthrough is not supported in Docker Sandbox mode yet
+- `hazmat claude --resume/--continue` uses sandbox-local history instead of the
+  host transcript sync used by native containment
+- read-only parent directories may be rewritten into sibling mounts because
+  Docker mount semantics differ from seatbelt path rules
+- localhost and service topology differ materially between native containment
+  and Docker Sandbox mode
+
+Treat Tier 3 as the right answer for private-daemon Docker workflows, not as a
+general continuation path for every Docker-heavy local dev environment.
 
 ### Authentication
 
@@ -255,6 +286,7 @@ environment:
 - It does not make broad domain allowlists safe.
 - It does not make old Docker or Compose versions safe.
 - It does not make insecure Compose files safe unless you apply the hardening guidance.
+- It does not support shared-daemon projects. Never share the host Docker socket.
 
 ## Critical Rules for All Docker Approaches
 

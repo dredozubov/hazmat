@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,10 +24,15 @@ var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-creden
 // ── Config types ────────────────────────────────────────────────────────────
 
 type HazmatConfig struct {
-	Backup  BackupConfig  `yaml:"backup"`
-	Session SessionConfig `yaml:"session"`
-	Packs   PacksConfig   `yaml:"packs,omitempty"`
-	Sandbox SandboxConfig `yaml:"sandbox,omitempty"`
+	Backup   BackupConfig             `yaml:"backup"`
+	Session  SessionConfig            `yaml:"session"`
+	Packs    PacksConfig              `yaml:"packs,omitempty"`
+	Projects map[string]ProjectConfig `yaml:"projects,omitempty"`
+	Sandbox  SandboxConfig            `yaml:"sandbox,omitempty"`
+}
+
+type ProjectConfig struct {
+	Docker dockerMode `yaml:"docker,omitempty"`
 }
 
 type SessionConfig struct {
@@ -155,6 +161,17 @@ func (c HazmatConfig) ManagedSandboxes() []ManagedSandboxConfig {
 	return c.Sandbox.Managed
 }
 
+func (c HazmatConfig) ProjectDockerMode(projectDir string) (dockerMode, bool) {
+	if len(c.Projects) == 0 {
+		return dockerModeAuto, false
+	}
+	project, ok := c.Projects[projectDir]
+	if !ok || !validDockerMode(project.Docker) || project.Docker == dockerModeAuto {
+		return dockerModeAuto, false
+	}
+	return project.Docker, true
+}
+
 func defaultConfig() HazmatConfig {
 	return HazmatConfig{
 		Backup: BackupConfig{
@@ -239,6 +256,7 @@ func newConfigCmd() *cobra.Command {
 
 Subcommands:
   hazmat config              Show current configuration
+  hazmat config docker       Configure per-project Docker routing
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
@@ -248,6 +266,7 @@ Subcommands:
 
 Examples:
   hazmat config
+  hazmat config docker none -C ~/workspace/my-project
   hazmat config agent
   hazmat config import claude --dry-run
   hazmat config import opencode --dry-run
@@ -260,6 +279,7 @@ Examples:
 	}
 
 	cmd.AddCommand(newConfigEditCmd())
+	cmd.AddCommand(newConfigDockerCmd())
 	cmd.AddCommand(newConfigAgentCmd())
 	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
@@ -337,6 +357,25 @@ func runConfigShow() error {
 	} else {
 		fmt.Printf("    Read dirs:        (none)\n")
 	}
+	if len(cfg.Projects) > 0 {
+		var projectKeys []string
+		for projectDir, projectCfg := range cfg.Projects {
+			if validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto {
+				projectKeys = append(projectKeys, projectDir)
+			}
+		}
+		sort.Strings(projectKeys)
+		if len(projectKeys) > 0 {
+			fmt.Printf("    Project Docker:   %d configured\n", len(projectKeys))
+			for _, projectDir := range projectKeys {
+				fmt.Printf("      - %s => %s\n", projectDir, cfg.Projects[projectDir].Docker)
+			}
+		} else {
+			fmt.Printf("    Project Docker:   (none)\n")
+		}
+	} else {
+		fmt.Printf("    Project Docker:   (none)\n")
+	}
 	fmt.Println()
 
 	cBold.Println("  Sandbox")
@@ -393,6 +432,34 @@ func newConfigEditCmd() *cobra.Command {
 			return cmd.Run()
 		},
 	}
+}
+
+func newConfigDockerCmd() *cobra.Command {
+	var project string
+
+	cmd := &cobra.Command{
+		Use:   "docker <auto|none|sandbox>",
+		Short: "Configure per-project Docker routing",
+		Long: `Set the preferred Docker routing mode for a project.
+
+Modes:
+  auto     Use Hazmat's default Docker detection and routing
+  none     Keep sessions in native containment for code-only work
+  sandbox  Force Docker Sandbox mode for private-daemon Docker workflows
+
+Examples:
+  hazmat config docker none -C ~/workspace/my-project
+  hazmat config docker sandbox -C ~/workspace/docker-app
+  hazmat config docker auto -C ~/workspace/my-project`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runConfigDocker(project, args[0])
+		},
+	}
+
+	cmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+	return cmd
 }
 
 func newConfigSetCmd() *cobra.Command {
@@ -580,6 +647,41 @@ func runConfigSet(key, value string) error {
 	}
 
 	fmt.Printf("Set %s = %s\n", key, value)
+	return nil
+}
+
+func runConfigDocker(project, rawMode string) error {
+	mode, err := parseDockerMode(rawMode)
+	if err != nil {
+		return err
+	}
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return fmt.Errorf("project: %w", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Projects == nil {
+		cfg.Projects = make(map[string]ProjectConfig)
+	}
+
+	if mode == dockerModeAuto {
+		delete(cfg.Projects, projectDir)
+	} else {
+		cfg.Projects[projectDir] = ProjectConfig{Docker: mode}
+	}
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = nil
+	}
+
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Set Docker mode for %s = %s\n", projectDir, mode)
 	return nil
 }
 
