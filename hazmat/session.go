@@ -21,9 +21,8 @@ type sessionConfig struct {
 	ReadDirs         []string
 	BackupExcludes   []string
 	PackEnv          map[string]string // from pack env_passthrough (resolved values)
-	PackRegistryKeys   []string          // active registry-redirect env keys (for UX)
-	PackCredentialKeys []string          // active credential-token env keys (for UX)
-	ActivePacks        []string          // pack names, for status bar
+	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
+	ActivePacks      []string          // pack names, for status bar
 }
 
 type sessionLaunchUI struct {
@@ -584,19 +583,11 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 	// Apply env passthrough.
 	cfg.PackEnv = merged.EnvPassthrough
 	cfg.PackRegistryKeys = merged.RegistryKeys
-	cfg.PackCredentialKeys = merged.CredentialKeys
 
 	// Surface registry-redirect keys as a residual risk notice.
 	if len(merged.RegistryKeys) > 0 {
 		fmt.Fprintf(os.Stderr, "hazmat: note: pack passes registry URLs from invoker env: %s\n",
 			strings.Join(merged.RegistryKeys, ", "))
-	}
-
-	// Surface credential-token keys with a stronger warning.
-	if len(merged.CredentialKeys) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: warning: pack passes credential tokens from invoker env: %s\n",
-			strings.Join(merged.CredentialKeys, ", "))
-		fmt.Fprintf(os.Stderr, "hazmat: the agent can act as you on services these tokens authenticate to\n")
 	}
 
 	// Print warnings.
