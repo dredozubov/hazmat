@@ -334,6 +334,14 @@ Examples:
 			if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
 				return err
 			}
+
+			// --approval-mode full-auto is the Codex equivalent of Claude's
+			// --dangerously-skip-permissions. The containment is OS-level;
+			// Codex's own permission prompts are redundant inside hazmat.
+			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
+				forwarded = append([]string{"--approval-mode", "full-auto"}, forwarded...)
+			}
+
 			return runAgentSeatbeltScript(prepared.Config, codexLaunchScript(), forwarded...)
 		},
 	}
