@@ -543,6 +543,10 @@ func defaultSandboxPolicyProfile() sandboxPolicyProfile {
 		Policy: "deny",
 		AllowHosts: []string{
 			"api.anthropic.com",
+			"claude.ai",
+			"platform.claude.com",
+			"statsig.anthropic.com",
+			"*.sentry.io",
 			"github.com",
 			"registry.npmjs.org",
 		},
@@ -799,6 +803,9 @@ func sandboxActionError(probe sandboxProbe, output string, err error, format str
 		if sandboxNotFoundError(output) {
 			return fmt.Errorf("%s: %w", base, errSandboxNotFound)
 		}
+		if claudeSandboxAuthError(output) {
+			return fmt.Errorf("%s: Claude is not authenticated in Docker Sandboxes; run 'hazmat claude' interactively and type /login, or configure ANTHROPIC_API_KEY in your shell startup files and restart Docker Desktop", base)
+		}
 	}
 	if dockerDesktopClosedPipeError(output, err) {
 		return fmt.Errorf("%s: Docker Desktop failed unexpectedly; if macOS showed a Docker data-access prompt, click Allow and retry; otherwise restart Docker Desktop and retry", base)
@@ -815,6 +822,11 @@ func sandboxNotFoundError(output string) bool {
 		return true
 	}
 	return false
+}
+
+func claudeSandboxAuthError(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "not logged in") && strings.Contains(lower, "/login")
 }
 
 func dockerDesktopClosedPipeError(output string, err error) bool {

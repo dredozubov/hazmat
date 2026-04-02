@@ -491,6 +491,10 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	}
 	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
 		"--allow-host", "api.anthropic.com",
+		"--allow-host", "claude.ai",
+		"--allow-host", "platform.claude.com",
+		"--allow-host", "statsig.anthropic.com",
+		"--allow-host", "*.sentry.io",
 		"--allow-host", "github.com",
 		"--allow-host", "registry.npmjs.org")) {
 		t.Fatal("expected sandbox policy command to be issued")
@@ -991,6 +995,70 @@ func TestRunSandboxClaudeSessionCreateFailureHintsClosedPipePrompt(t *testing.T)
 	}
 	if !strings.Contains(err.Error(), "click Allow and retry") {
 		t.Fatalf("expected Docker Desktop closed-pipe hint, got: %v", err)
+	}
+}
+
+func TestRunSandboxClaudeSessionNotLoggedInHintsSandboxAuthSetup(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "ls", "--json")] = fakeSandboxResult{
+		output: fmt.Sprintf(`{"sandboxes":[{"name":%q,"status":"running"}]}`, name),
+	}
+	probe.runResults = map[string]fakeSandboxResult{
+		sandboxProbeKey("docker", "sandbox", "network", "proxy", name, "--policy", "deny",
+			"--allow-host", "api.anthropic.com",
+			"--allow-host", "claude.ai",
+			"--allow-host", "platform.claude.com",
+			"--allow-host", "statsig.anthropic.com",
+			"--allow-host", "*.sentry.io",
+			"--allow-host", "github.com",
+			"--allow-host", "registry.npmjs.org"): {},
+		sandboxProbeKey("docker", "sandbox", "run", name): {
+			output: "Not logged in · Please run /login",
+			err:    errors.New("agent exited"),
+		},
+		sandboxProbeKey("docker", "sandbox", "run", name, "--", "--dangerously-skip-permissions"): {
+			output: "Not logged in · Please run /login",
+			err:    errors.New("agent exited"),
+		},
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, nil)
+	if err == nil {
+		t.Fatal("expected launch to fail when Claude is not logged in inside sandbox")
+	}
+	if !strings.Contains(err.Error(), "Claude is not authenticated in Docker Sandboxes") {
+		t.Fatalf("expected sandbox auth hint, got: %v", err)
 	}
 }
 
