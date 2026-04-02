@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +35,7 @@ var (
 	sandboxNamePattern      = regexp.MustCompile(`[^a-z0-9]+`)
 	sandboxNow              = func() time.Time { return time.Now().UTC() }
 	sandboxProbeFactory     = func() sandboxProbe { return hostSandboxProbe{} }
+	errSandboxNotFound      = errors.New("sandbox not found")
 )
 
 var sandboxApprovalsFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/sandbox-approvals.yaml")
@@ -92,7 +96,7 @@ type dockerServerVersionResponse struct {
 type sandboxProbe interface {
 	LookPath(name string) (string, error)
 	Output(name string, args ...string) (string, error)
-	Run(name string, args ...string) error
+	Run(name string, args ...string) (string, error)
 }
 
 type sandboxLaunchSpec struct {
@@ -125,12 +129,14 @@ func (hostSandboxProbe) Output(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func (hostSandboxProbe) Run(name string, args ...string) error {
+func (hostSandboxProbe) Run(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	var out bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &out)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &out)
+	err := cmd.Run()
+	return strings.TrimSpace(out.String()), err
 }
 
 func sandboxBackendAdapterForType(kind string) (sandboxBackendAdapter, error) {
@@ -183,8 +189,8 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 		for _, dir := range spec.MountReadDirs {
 			args = append(args, dir+":ro")
 		}
-		if err := probe.Run("docker", args...); err != nil {
-			return sandboxActionError(probe, err, "create Docker Sandbox %s", spec.Name)
+		if out, err := probe.Run("docker", args...); err != nil {
+			return sandboxActionError(probe, out, err, "create Docker Sandbox %s", spec.Name)
 		}
 	}
 
@@ -193,8 +199,8 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 	for _, host := range spec.Profile.AllowHosts {
 		policyArgs = append(policyArgs, "--allow-host", host)
 	}
-	if err := probe.Run("docker", policyArgs...); err != nil {
-		return sandboxActionError(probe, err, "apply Docker network policy to %s", spec.Name)
+	if out, err := probe.Run("docker", policyArgs...); err != nil {
+		return sandboxActionError(probe, out, err, "apply Docker network policy to %s", spec.Name)
 	}
 	return nil
 }
@@ -205,16 +211,16 @@ func (dockerSandboxesBackend) RunClaudeSession(probe sandboxProbe, sandboxName s
 		args = append(args, "--")
 		args = append(args, forwarded...)
 	}
-	if err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, err, "run Claude in Docker Sandbox %s", sandboxName)
+	if out, err := probe.Run("docker", args...); err != nil {
+		return sandboxActionError(probe, out, err, "run Claude in Docker Sandbox %s", sandboxName)
 	}
 	return nil
 }
 
 func (dockerSandboxesBackend) RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error {
-	if err := probe.Run("docker", "sandbox", "run", sandboxName, "--",
+	if out, err := probe.Run("docker", "sandbox", "run", sandboxName, "--",
 		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", projectDir); err != nil {
-		return sandboxActionError(probe, err, "run shell in Docker Sandbox %s", sandboxName)
+		return sandboxActionError(probe, out, err, "run shell in Docker Sandbox %s", sandboxName)
 	}
 	return nil
 }
@@ -223,8 +229,8 @@ func (dockerSandboxesBackend) RunExecSession(probe sandboxProbe, sandboxName, pr
 	args := []string{"sandbox", "run", sandboxName, "--",
 		"-lc", `cd "$1" && shift && exec "$@"`, "bash", projectDir}
 	args = append(args, commandArgs...)
-	if err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, err, "run exec session in Docker Sandbox %s", sandboxName)
+	if out, err := probe.Run("docker", args...); err != nil {
+		return sandboxActionError(probe, out, err, "run exec session in Docker Sandbox %s", sandboxName)
 	}
 	return nil
 }
@@ -787,13 +793,40 @@ func dockerDesktopStatus(probe sandboxProbe) (string, error) {
 	return "", fmt.Errorf("status line not found")
 }
 
-func sandboxActionError(probe sandboxProbe, err error, format string, args ...any) error {
+func sandboxActionError(probe sandboxProbe, output string, err error, format string, args ...any) error {
 	base := fmt.Sprintf(format, args...)
+	if output != "" {
+		if sandboxNotFoundError(output) {
+			return fmt.Errorf("%s: %w", base, errSandboxNotFound)
+		}
+	}
+	if dockerDesktopClosedPipeError(output, err) {
+		return fmt.Errorf("%s: Docker Desktop failed unexpectedly; if macOS showed a Docker data-access prompt, click Allow and retry; otherwise restart Docker Desktop and retry", base)
+	}
 	status, statusErr := dockerDesktopStatus(probe)
 	if statusErr == nil && status == "stopped" {
 		return fmt.Errorf("%s: Docker Desktop stopped unexpectedly; restart Docker Desktop and retry", base)
 	}
 	return fmt.Errorf("%s", base)
+}
+
+func sandboxNotFoundError(output string) bool {
+	if strings.Contains(strings.ToLower(output), "no sandbox found") {
+		return true
+	}
+	return false
+}
+
+func dockerDesktopClosedPipeError(output string, err error) bool {
+	var text strings.Builder
+	text.WriteString(strings.ToLower(output))
+	if err != nil {
+		if text.Len() > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString(strings.ToLower(err.Error()))
+	}
+	return strings.Contains(text.String(), "io: read/write on closed pipe")
 }
 
 func loadSandboxApprovals() sandboxApprovalsFile {
@@ -941,33 +974,50 @@ func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 		forwarded = append([]string{"--dangerously-skip-permissions"}, forwarded...)
 	}
 
-	adapter, probe, name, err := prepareSandboxLaunch(cfg, "claude")
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stderr, "hazmat: starting Claude in Docker Sandbox %s\n", name)
-	return adapter.RunClaudeSession(probe, name, forwarded)
+	return runPreparedSandboxSession(cfg, "claude", "Claude", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunClaudeSession(probe, name, forwarded)
+	})
 }
 
 func runSandboxShellSession(cfg sessionConfig) error {
-	adapter, probe, name, err := prepareSandboxLaunch(cfg, "shell")
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stderr, "hazmat: starting shell in Docker Sandbox %s\n", name)
-	return adapter.RunShellSession(probe, name, cfg.ProjectDir)
+	return runPreparedSandboxSession(cfg, "shell", "shell", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunShellSession(probe, name, cfg.ProjectDir)
+	})
 }
 
 func runSandboxExecSession(cfg sessionConfig, commandArgs []string) error {
-	adapter, probe, name, err := prepareSandboxLaunch(cfg, "shell")
+	return runPreparedSandboxSession(cfg, "shell", "exec session", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunExecSession(probe, name, cfg.ProjectDir, commandArgs)
+	})
+}
+
+func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(sandboxBackendAdapter, sandboxProbe, string) error) error {
+	adapter, probe, name, err := prepareSandboxLaunch(cfg, agent)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "hazmat: starting exec session in Docker Sandbox %s\n", name)
-	return adapter.RunExecSession(probe, name, cfg.ProjectDir, commandArgs)
+	fmt.Fprintf(os.Stderr, "hazmat: starting %s in Docker Sandbox %s\n", label, name)
+	err = run(adapter, probe, name)
+	if !errors.Is(err, errSandboxNotFound) {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "hazmat: Docker Sandbox %s is stale; removing and recreating once\n", name)
+	if err := removeManagedSandboxes(probe, []ManagedSandboxConfig{{
+		Name:        name,
+		BackendType: adapter.Type(),
+	}}); err != nil {
+		return fmt.Errorf("remove stale Docker Sandbox %s: %w", name, err)
+	}
+
+	adapter, probe, name, err = prepareSandboxLaunch(cfg, agent)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "hazmat: retrying %s in Docker Sandbox %s\n", label, name)
+	return run(adapter, probe, name)
 }
 
 func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
@@ -1020,6 +1070,13 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 	for _, dir := range cfg.ReadDirs {
 		if isCredentialDenyPath(dir) {
 			return sandboxLaunchSpec{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
+		}
+		// Docker's Claude sandbox template copies CLAUDE.md files from parent
+		// directories into the sandbox during create. A read-only mount on a
+		// project ancestor (for example /Users/dr/workspace with project
+		// /Users/dr/workspace/foo) makes those copies fail on the ancestor path.
+		if isWithinDir(dir, cfg.ProjectDir) {
+			continue
 		}
 		if isWithinDir(cfg.ProjectDir, dir) {
 			continue

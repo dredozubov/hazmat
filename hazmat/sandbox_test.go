@@ -13,7 +13,9 @@ import (
 type fakeSandboxProbe struct {
 	lookPathErr error
 	outputs     map[string]fakeSandboxResult
-	runErrs     map[string]error
+	outputSeq   map[string][]fakeSandboxResult
+	runResults  map[string]fakeSandboxResult
+	runSeq      map[string][]fakeSandboxResult
 	calls       []string
 }
 
@@ -32,19 +34,29 @@ func (f *fakeSandboxProbe) LookPath(name string) (string, error) {
 func (f *fakeSandboxProbe) Output(name string, args ...string) (string, error) {
 	key := sandboxProbeKey(name, args...)
 	f.calls = append(f.calls, "output:"+key)
+	if seq := f.outputSeq[key]; len(seq) > 0 {
+		result := seq[0]
+		f.outputSeq[key] = seq[1:]
+		return result.output, result.err
+	}
 	if result, ok := f.outputs[key]; ok {
 		return result.output, result.err
 	}
 	return "", fmt.Errorf("unexpected command: %s", key)
 }
 
-func (f *fakeSandboxProbe) Run(name string, args ...string) error {
+func (f *fakeSandboxProbe) Run(name string, args ...string) (string, error) {
 	key := sandboxProbeKey(name, args...)
 	f.calls = append(f.calls, "run:"+key)
-	if err, ok := f.runErrs[key]; ok {
-		return err
+	if seq := f.runSeq[key]; len(seq) > 0 {
+		result := seq[0]
+		f.runSeq[key] = seq[1:]
+		return result.output, result.err
 	}
-	return nil
+	if result, ok := f.runResults[key]; ok {
+		return result.output, result.err
+	}
+	return "", nil
 }
 
 func sandboxProbeKey(name string, args ...string) string {
@@ -77,6 +89,16 @@ func containsSandboxCall(calls []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func countSandboxCall(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
 }
 
 func TestExtractToolSemver(t *testing.T) {
@@ -398,6 +420,33 @@ func TestBuildSandboxLaunchSpecFiltersCoveredReadDirs(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxLaunchSpecSkipsAncestorReadDirs(t *testing.T) {
+	workspaceDir := t.TempDir()
+	projectDir := filepath.Join(workspaceDir, "niche-sieve")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir projectDir: %v", err)
+	}
+	cacheDir := filepath.Join(t.TempDir(), "pkgmod")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cacheDir: %v", err)
+	}
+
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		ReadDirs:   []string{workspaceDir, cacheDir},
+	}, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
+	}
+	if len(spec.MountReadDirs) != 1 || spec.MountReadDirs[0] != cacheDir {
+		t.Fatalf("MountReadDirs = %v, want [%q]", spec.MountReadDirs, cacheDir)
+	}
+	wantName := sandboxName("claude", projectDir, []string{cacheDir}, sandboxPolicyProfileBaseline)
+	if spec.Name != wantName {
+		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
 func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
@@ -701,8 +750,11 @@ func TestRunSandboxClaudeSessionDoesNotRecordManagedSandboxWhenCreateFails(t *te
 	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
 		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
 	}
-	probe.runErrs = map[string]error{
-		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): errors.New("create failed"),
+	probe.runResults = map[string]fakeSandboxResult{
+		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): {
+			output: "create failed",
+			err:    errors.New("create failed"),
+		},
 	}
 
 	savedProbeFactory := sandboxProbeFactory
@@ -775,6 +827,72 @@ func TestRunSandboxClaudeSessionRecreatesStoppedSandbox(t *testing.T) {
 	}
 }
 
+func TestRunSandboxClaudeSessionRecreatesStaleSandboxAfterRunNotFound(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	runKey := sandboxProbeKey("docker", "sandbox", "run", name, "--", "--dangerously-skip-permissions", "-p", "hi")
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.outputSeq = map[string][]fakeSandboxResult{
+		sandboxProbeKey("docker", "sandbox", "ls", "--json"): {
+			{output: fmt.Sprintf(`{"sandboxes":[{"name":%q,"status":"running"}]}`, name)},
+			{output: `{"sandboxes":[]}`},
+		},
+	}
+	probe.outputs[sandboxProbeKey("docker", "sandbox", "rm", name)] = fakeSandboxResult{
+		output: "removed",
+	}
+	probe.runSeq = map[string][]fakeSandboxResult{
+		runKey: {
+			{output: fmt.Sprintf("no sandbox found in '%s'", name), err: errors.New("missing")},
+			{},
+		},
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	if err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, []string{"-p", "hi"}); err != nil {
+		t.Fatalf("runSandboxClaudeSession: %v", err)
+	}
+
+	if !containsSandboxCall(probe.calls, "output:"+sandboxProbeKey("docker", "sandbox", "rm", name)) {
+		t.Fatal("expected stale sandbox to be removed before retry")
+	}
+	if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir)) {
+		t.Fatal("expected sandbox create command when retrying stale sandbox")
+	}
+	if got := countSandboxCall(probe.calls, "run:"+runKey); got != 2 {
+		t.Fatalf("sandbox run call count = %d, want 2", got)
+	}
+}
+
 func TestRunSandboxClaudeSessionCreateFailureHintsWhenDesktopStopped(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
@@ -807,8 +925,11 @@ func TestRunSandboxClaudeSessionCreateFailureHintsWhenDesktopStopped(t *testing.
 	probe.outputs[sandboxProbeKey("docker", "desktop", "status")] = fakeSandboxResult{
 		output: "Name                Value\nStatus              stopped\n",
 	}
-	probe.runErrs = map[string]error{
-		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): errors.New("create failed"),
+	probe.runResults = map[string]fakeSandboxResult{
+		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): {
+			output: "create failed",
+			err:    errors.New("create failed"),
+		},
 	}
 
 	savedProbeFactory := sandboxProbeFactory
@@ -821,6 +942,55 @@ func TestRunSandboxClaudeSessionCreateFailureHintsWhenDesktopStopped(t *testing.
 	}
 	if !strings.Contains(err.Error(), "Docker Desktop stopped unexpectedly") {
 		t.Fatalf("expected desktop stopped hint, got: %v", err)
+	}
+}
+
+func TestRunSandboxClaudeSessionCreateFailureHintsClosedPipePrompt(t *testing.T) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	defer func() { configFilePath = savedConfigPath }()
+	savedApprovalsPath := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:           sandboxBackendDockerSandboxes,
+		PolicyProfile:  sandboxPolicyProfileBaseline,
+		DesktopVersion: "4.61.0",
+		ComposeVersion: "2.40.3",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+		t.Fatalf("recordSandboxApproval: %v", err)
+	}
+
+	probe := healthySandboxProbe()
+	probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+		output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+	}
+	probe.runResults = map[string]fakeSandboxResult{
+		sandboxProbeKey("docker", "sandbox", "create", "--name", name, "claude", projectDir): {
+			output: "service command exited with code 1: command exited with code 1: io: read/write on closed pipe",
+			err:    errors.New("create failed"),
+		},
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return probe }
+	defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+	err := runSandboxClaudeSession(sessionConfig{ProjectDir: projectDir}, nil)
+	if err == nil {
+		t.Fatal("expected launch to fail when sandbox create hits a closed-pipe engine failure")
+	}
+	if !strings.Contains(err.Error(), "click Allow and retry") {
+		t.Fatalf("expected Docker Desktop closed-pipe hint, got: %v", err)
 	}
 }
 
