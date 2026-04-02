@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1015,6 +1016,12 @@ func sessionRoutingExplanation(commandName, projectDir string, requestedSandbox,
 			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
 		}
 	}
+	if len(detection.HardMarkers) > 0 && !allowDocker {
+		return "using native containment because Docker Sandbox approval was declined", []string{
+			"Docker commands will not work in this session.",
+			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
+		}
+	}
 	if len(detection.SoftMarkers) > 0 {
 		return "staying in native containment because .devcontainer/ alone does not require Docker mode", []string{
 			fmt.Sprintf("If this session needs Docker, use: %s", dockerTier3Example(commandName, projectDir)),
@@ -1040,11 +1047,33 @@ func resolveSessionSandboxMode(commandName, projectDir string, requestedSandbox,
 			return false, err
 		}
 
+		var backend *SandboxBackendConfig
+		var profile sandboxPolicyProfile
+
 		if cfg.SandboxBackend() == nil {
-			if _, _, _, err := detectHealthySandboxBackend(sandboxProbeFactory()); err != nil {
+			b, p, _, err := detectHealthySandboxBackend(sandboxProbeFactory())
+			if err != nil {
 				return false, fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
 			}
-			return true, nil
+			backend, profile = b, p
+		} else {
+			backend = cfg.SandboxBackend()
+			p, err := sandboxPolicyProfileByName(backend.PolicyProfile)
+			if err != nil {
+				p = defaultSandboxPolicyProfile()
+			}
+			profile = p
+		}
+
+		// Prompt for approval before committing to Docker Sandbox mode.
+		// If declined, fall back to native containment instead of erroring out.
+		if err := ensureSandboxApproval(projectDir, backend.Type, profile); err != nil {
+			if errors.Is(err, errSandboxApprovalDeclined) {
+				fmt.Fprintf(os.Stderr, "hazmat: falling back to native containment (Docker commands will not work in session)\n")
+				fmt.Fprintf(os.Stderr, "hazmat: hint: use --ignore-docker to skip this prompt\n")
+				return false, nil
+			}
+			return false, err
 		}
 
 		return true, nil

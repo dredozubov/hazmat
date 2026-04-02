@@ -35,7 +35,8 @@ var (
 	sandboxNamePattern      = regexp.MustCompile(`[^a-z0-9]+`)
 	sandboxNow              = func() time.Time { return time.Now().UTC() }
 	sandboxProbeFactory     = func() sandboxProbe { return hostSandboxProbe{} }
-	errSandboxNotFound      = errors.New("sandbox not found")
+	errSandboxNotFound         = errors.New("sandbox not found")
+	errSandboxApprovalDeclined = errors.New("Docker Sandbox approval declined")
 )
 
 var sandboxApprovalsFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/sandbox-approvals.yaml")
@@ -950,7 +951,7 @@ func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicy
 	fmt.Fprintln(os.Stderr)
 
 	if !ui.Ask("Approve Docker Sandbox support for this project?") {
-		return fmt.Errorf("Docker Sandbox approval declined for %s", projectDir)
+		return fmt.Errorf("%w for %s", errSandboxApprovalDeclined, projectDir)
 	}
 
 	if flagDryRun {

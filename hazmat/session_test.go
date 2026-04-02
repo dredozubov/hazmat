@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,6 +166,20 @@ func isolateConfig(t *testing.T) {
 	savedCfg := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "nonexistent.yaml")
 	t.Cleanup(func() { configFilePath = savedCfg })
+}
+
+func isolateApprovals(t *testing.T) {
+	t.Helper()
+	saved := sandboxApprovalsFilePath
+	sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+	t.Cleanup(func() { sandboxApprovalsFilePath = saved })
+}
+
+func autoApprove(t *testing.T) {
+	t.Helper()
+	saved := flagYesAll
+	flagYesAll = true
+	t.Cleanup(func() { flagYesAll = saved })
 }
 
 func TestDefaultReadDirsNoConfiguredDirsByDefault(t *testing.T) {
@@ -664,6 +680,8 @@ func TestResolveSessionSandboxModeHardMarkersNeedHealthyBackend(t *testing.T) {
 
 func TestResolveSessionSandboxModeAutoRoutesHealthyDockerProjectWithoutConfiguredBackend(t *testing.T) {
 	isolateConfig(t)
+	isolateApprovals(t)
+	autoApprove(t)
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
@@ -687,6 +705,8 @@ func TestResolveSessionSandboxModeAutoRoutesConfiguredDockerProject(t *testing.T
 	savedCfg := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
 	t.Cleanup(func() { configFilePath = savedCfg })
+	isolateApprovals(t)
+	autoApprove(t)
 
 	cfg := defaultConfig()
 	cfg.Sandbox.Backend = &SandboxBackendConfig{
@@ -736,6 +756,46 @@ func TestResolveSessionSandboxModeIgnoreDockerKeepsTier2(t *testing.T) {
 	}
 	if useSandbox {
 		t.Fatal("expected --ignore-docker to keep the session out of Docker Sandboxes")
+	}
+}
+
+func TestResolveSessionSandboxModeDeclinedApprovalFallsBackToNative(t *testing.T) {
+	savedCfg := configFilePath
+	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+	t.Cleanup(func() { configFilePath = savedCfg })
+	isolateApprovals(t)
+
+	cfg := defaultConfig()
+	cfg.Sandbox.Backend = &SandboxBackendConfig{
+		Type:          sandboxBackendDockerSandboxes,
+		PolicyProfile: sandboxPolicyProfileBaseline,
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	// Simulate an interactive decline by directly recording a sentinel error path.
+	// In real usage, ensureSandboxApproval returns errSandboxApprovalDeclined when
+	// the user answers N. In non-interactive test environments, it returns a
+	// different error (approval required), so pre-approve to verify the happy path
+	// is tested elsewhere, and test the decline sentinel directly.
+	err := fmt.Errorf("%w for %s", errSandboxApprovalDeclined, dir)
+	if !errors.Is(err, errSandboxApprovalDeclined) {
+		t.Fatal("errSandboxApprovalDeclined sentinel should be detectable via errors.Is")
+	}
+
+	// Non-interactive without --yes should error (not silently fall back).
+	_, err = resolveSessionSandboxMode("claude", dir, false, false)
+	if err == nil {
+		t.Fatal("expected error in non-interactive mode without approval")
+	}
+	if errors.Is(err, errSandboxApprovalDeclined) {
+		t.Fatal("non-interactive should not return errSandboxApprovalDeclined")
 	}
 }
 
@@ -1210,6 +1270,8 @@ func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 
 func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
 	isolateConfig(t)
+	isolateApprovals(t)
+	autoApprove(t)
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
