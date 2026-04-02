@@ -1020,3 +1020,82 @@ func TestApplyPacksMergesSnapshotExcludes(t *testing.T) {
 		t.Fatalf("BackupExcludes = %v, want to contain .next/", cfg.BackupExcludes)
 	}
 }
+
+func TestApplyPacksPopulatesSessionContractFields(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("GOPROXY", "https://proxy.example")
+
+	cfg := sessionConfig{
+		ProjectDir:     t.TempDir(),
+		BackupExcludes: snapshotIgnoreRules(nil),
+	}
+
+	if err := applyPacks(&cfg, []string{"go"}); err != nil {
+		t.Fatalf("applyPacks: %v", err)
+	}
+
+	if len(cfg.ActivePacks) != 1 || cfg.ActivePacks[0] != "go" {
+		t.Fatalf("ActivePacks = %v, want [go]", cfg.ActivePacks)
+	}
+	if len(cfg.PackRegistryKeys) != 1 || cfg.PackRegistryKeys[0] != "GOPROXY" {
+		t.Fatalf("PackRegistryKeys = %v, want [GOPROXY]", cfg.PackRegistryKeys)
+	}
+	foundVendor := false
+	for _, pat := range cfg.PackExcludes {
+		if pat == "vendor/" {
+			foundVendor = true
+			break
+		}
+	}
+	if !foundVendor {
+		t.Fatalf("PackExcludes = %v, want to contain vendor/", cfg.PackExcludes)
+	}
+}
+
+func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir:       "/tmp/project",
+		ReadDirs:         []string{"/opt/homebrew/lib/node_modules", "/Users/dr/go/pkg/mod"},
+		PackRegistryKeys: []string{"GOPROXY"},
+		PackExcludes:     []string{"vendor/", ".next/"},
+		PackWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
+		ActivePacks:      []string{"go", "node"},
+		ServiceAccess:    []string{"github"},
+	}
+
+	got := renderSessionContract(cfg, sessionModeDockerSandbox, false)
+
+	for _, want := range []string{
+		"hazmat: session",
+		"Mode:                 Docker Sandbox",
+		"Project (read-write): /tmp/project",
+		"Extra read-only:      /opt/homebrew/lib/node_modules, /Users/dr/go/pkg/mod",
+		"Packs:                go, node",
+		"Service access:       github",
+		"Pre-session snapshot: on",
+		"Snapshot excludes:    vendor/, .next/",
+		"Invoker env passthrough: registry URLs via GOPROXY",
+		"Warnings:",
+		"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderSessionContract missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
+	got := renderSessionContract(sessionConfig{ProjectDir: "/tmp/project"}, sessionModeNative, true)
+
+	for _, want := range []string{
+		"Mode:                 Native containment",
+		"Extra read-only:      none",
+		"Packs:                none",
+		"Service access:       none",
+		"Pre-session snapshot: skipped (--no-backup)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderSessionContract missing %q in:\n%s", want, got)
+		}
+	}
+}

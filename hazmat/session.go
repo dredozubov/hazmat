@@ -22,13 +22,32 @@ type sessionConfig struct {
 	BackupExcludes   []string
 	PackEnv          map[string]string // from pack env_passthrough (resolved values)
 	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
+	PackExcludes     []string          // snapshot excludes added by active packs
+	PackWarnings     []string          // warnings surfaced by active packs
 	ActivePacks      []string          // pack names, for status bar
+	ServiceAccess    []string          // explicit external-service access granted to session
 }
 
 type sessionLaunchUI struct {
 	clearScreen      bool
 	showStatusBar    bool
 	waitForAltScreen bool
+}
+
+type sessionMode string
+
+const (
+	sessionModeNative        sessionMode = "native"
+	sessionModeDockerSandbox sessionMode = "docker-sandbox"
+)
+
+func (m sessionMode) label() string {
+	switch m {
+	case sessionModeDockerSandbox:
+		return "Docker Sandbox"
+	default:
+		return "Native containment"
+	}
 }
 
 func runProjectPreflight(projectDir string) error {
@@ -66,6 +85,11 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			mode := sessionModeNative
+			if useSandbox {
+				mode = sessionModeDockerSandbox
+			}
+			printSessionContract(cfg, mode, noBackup)
 			preSessionSnapshot(cfg, "shell", noBackup)
 			if useSandbox {
 				return runSandboxShellSession(cfg)
@@ -115,6 +139,11 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			mode := sessionModeNative
+			if useSandbox {
+				mode = sessionModeDockerSandbox
+			}
+			printSessionContract(cfg, mode, noBackup)
 			preSessionSnapshot(cfg, "exec", noBackup)
 			if useSandbox {
 				return runSandboxExecSession(cfg, args)
@@ -194,6 +223,11 @@ Examples:
 			if err != nil {
 				return err
 			}
+			mode := sessionModeNative
+			if useSandbox {
+				mode = sessionModeDockerSandbox
+			}
+			printSessionContract(cfg, mode, opts.noBackup)
 
 			preSessionSnapshot(cfg, "claude", opts.noBackup)
 
@@ -283,6 +317,7 @@ Examples:
 			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
+			printSessionContract(cfg, sessionModeNative, opts.noBackup)
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
@@ -340,6 +375,7 @@ Examples:
 			if err := warnDockerProject(cfg.ProjectDir, opts.allowDocker); err != nil {
 				return err
 			}
+			printSessionContract(cfg, sessionModeNative, opts.noBackup)
 			if err := runProjectPreflight(cfg.ProjectDir); err != nil {
 				return err
 			}
@@ -539,13 +575,11 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 		return nil
 	}
 
-	// Print active packs.
 	names := make([]string, 0, len(packs))
 	for _, p := range packs {
 		names = append(names, p.PackMeta.Name)
 	}
 	cfg.ActivePacks = names
-	fmt.Fprintf(os.Stderr, "hazmat: active packs: %s\n", strings.Join(names, ", "))
 
 	// Merge all packs.
 	merged, err := mergePacks(packs)
@@ -556,8 +590,6 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 	// Apply merged read dirs.
 	if len(merged.ReadDirs) > 0 {
 		cfg.ReadDirs = append(cfg.ReadDirs, merged.ReadDirs...)
-		fmt.Fprintf(os.Stderr, "hazmat: pack read dirs: %s\n",
-			strings.Join(merged.ReadDirs, ", "))
 	}
 
 	if len(merged.Excludes) > 0 {
@@ -574,26 +606,13 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 			added = append(added, pat)
 			seen[pat] = struct{}{}
 		}
-		if len(added) > 0 {
-			fmt.Fprintf(os.Stderr, "hazmat: pack snapshot excludes: %s\n",
-				strings.Join(added, ", "))
-		}
+		cfg.PackExcludes = added
 	}
 
 	// Apply env passthrough.
 	cfg.PackEnv = merged.EnvPassthrough
 	cfg.PackRegistryKeys = merged.RegistryKeys
-
-	// Surface registry-redirect keys as a residual risk notice.
-	if len(merged.RegistryKeys) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: note: pack passes registry URLs from invoker env: %s\n",
-			strings.Join(merged.RegistryKeys, ", "))
-	}
-
-	// Print warnings.
-	for _, w := range merged.Warnings {
-		fmt.Fprintf(os.Stderr, "hazmat: pack warning: %s\n", w)
-	}
+	cfg.PackWarnings = append([]string(nil), merged.Warnings...)
 
 	return nil
 }
@@ -729,11 +748,6 @@ func defaultReadDirs(explicit []string) []string {
 		explicitResolved[resolved] = struct{}{}
 	}
 
-	if len(added) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: auto-adding -R %s (from config session.read_dirs)\n",
-			strings.Join(added, " -R "))
-	}
-
 	// Implicit toolchain dirs — always included, no config needed.
 	var implicit []string
 	for _, dir := range implicitReadDirs() {
@@ -747,12 +761,49 @@ func defaultReadDirs(explicit []string) []string {
 		implicit = append(implicit, dir)
 		explicitResolved[resolved] = struct{}{}
 	}
-	if len(implicit) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: auto-adding -R %s (toolchain cache)\n",
-			strings.Join(implicit, " -R "))
-	}
-
 	return append(append(added, implicit...), explicit...)
+}
+
+func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool) string {
+	var b strings.Builder
+
+	fmt.Fprintln(&b, "hazmat: session")
+	fmt.Fprintf(&b, "  Mode:                 %s\n", mode.label())
+	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
+	fmt.Fprintf(&b, "  Extra read-only:      %s\n", sessionContractList(cfg.ReadDirs))
+	fmt.Fprintf(&b, "  Packs:                %s\n", sessionContractList(cfg.ActivePacks))
+	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
+	if skipSnapshot {
+		fmt.Fprintln(&b, "  Pre-session snapshot: skipped (--no-backup)")
+	} else {
+		fmt.Fprintln(&b, "  Pre-session snapshot: on")
+	}
+	if len(cfg.PackExcludes) > 0 {
+		fmt.Fprintf(&b, "  Snapshot excludes:    %s\n", strings.Join(cfg.PackExcludes, ", "))
+	}
+	if len(cfg.PackRegistryKeys) > 0 {
+		fmt.Fprintf(&b, "  Invoker env passthrough: registry URLs via %s\n",
+			strings.Join(cfg.PackRegistryKeys, ", "))
+	}
+	if len(cfg.PackWarnings) > 0 {
+		fmt.Fprintln(&b, "  Warnings:")
+		for _, warning := range cfg.PackWarnings {
+			fmt.Fprintf(&b, "    - %s\n", warning)
+		}
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func sessionContractList(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(values, ", ")
+}
+
+func printSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool) {
+	fmt.Fprint(os.Stderr, renderSessionContract(cfg, mode, skipSnapshot))
 }
 
 func resolveReadDirs(paths []string) ([]string, error) {
