@@ -1,6 +1,6 @@
 # Using Hazmat
 
-Hazmat runs AI agents on your Mac with full permissions — inside containment. The agent gets its own system user, can't read your credentials, and is blocked from dangerous network protocols. If it breaks something, you roll back.
+Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
 ## Quick Start
 
@@ -27,8 +27,8 @@ flowchart LR
         direction TB
         D1[Snapshot project] --> D2[Generate seatbelt policy]
         D2 --> D3[Resolve packs]
-        D3 --> D4[Launch as agent user in sandbox]
-        D4 --> D5[Exit: clean up policy]
+        D3 --> D4[Print session contract]
+        D4 --> D5[Launch agent in containment]
     end
     once --> daily
 
@@ -55,6 +55,41 @@ Everything is interactive — it explains each step and asks for confirmation. T
 hazmat init --dry-run
 ```
 
+## The Session Contract
+
+Every session starts with a plain-language summary of what the agent can and can't do:
+
+```
+hazmat: session
+  Mode:                 Native containment
+  Why this mode:        using native containment because no Docker requirement was detected
+  Project (read-write): /Users/dr/workspace/my-app
+  Extra read-only:      /Users/dr/go/pkg/mod
+  Packs:                go
+  Service access:       none
+  Pre-session snapshot: on
+  Snapshot excludes:    vendor/
+```
+
+Each line maps to a concrete boundary:
+
+- **Mode** — Native containment (kernel sandbox + user isolation) or Docker Sandbox (private Docker daemon in an isolated runtime)
+- **Why this mode** — what triggered the mode selection (Docker files detected, `--sandbox` flag, or default)
+- **Project (read-write)** — the only directory the agent can modify
+- **Extra read-only** — additional directories visible to the agent (via `-R` or config)
+- **Packs** — active stack packs and what they add
+- **Service access** — external services the agent can authenticate to
+- **Pre-session snapshot** — whether a rollback point was created
+- **Snapshot excludes** — patterns skipped by the snapshot (from packs)
+
+Preview any session without running it:
+
+```bash
+hazmat explain                      # preview current project
+hazmat explain --sandbox            # preview Docker Sandbox mode
+hazmat explain --pack node          # preview with a pack
+```
+
 ## Daily Usage
 
 ```bash
@@ -63,7 +98,7 @@ hazmat claude
 hazmat opencode
 ```
 
-This generates a per-session security policy, switches to the agent user, and launches Claude Code inside macOS seatbelt containment. When you exit Claude, the session is cleaned up.
+This generates a per-session security policy, switches to the agent user, and launches the agent inside containment. When you exit, the session is cleaned up.
 
 ### Giving the Agent Read Access to Other Directories
 
@@ -101,6 +136,26 @@ Repos can ship a `.hazmat/packs.yaml` listing recommended packs. On first use,
 hazmat prompts once for approval; after that, packs activate automatically.
 Write your own packs in `~/.hazmat/packs/` for stacks or environments that
 built-ins don't cover. Full reference: [stack-packs.md](stack-packs.md).
+
+### Docker Projects
+
+When Hazmat detects Docker files (Dockerfile, compose.yaml, etc.) in the
+project, it automatically routes into Docker Sandbox mode. The agent runs
+inside an isolated sandbox with its own private Docker daemon — it can build
+and run containers without accessing your host Docker daemon.
+
+```bash
+hazmat claude                       # auto-routes if Docker files detected
+hazmat claude --sandbox             # force Docker Sandbox mode
+hazmat claude --ignore-docker       # stay in native mode despite Docker files
+```
+
+If `.devcontainer/` is the only Docker-related directory, Hazmat stays in
+native containment unless the devcontainer.json positively indicates Docker
+is needed (e.g., it contains `image`, `dockerFile`, or `dockerComposeFile`).
+
+For setup details, network policy, and Compose hardening guidance, see
+[tier3-docker-sandboxes.md](tier3-docker-sandboxes.md).
 
 ### Specifying a Different Project Directory
 
@@ -262,11 +317,12 @@ Your project files are not deleted. Back them up first if needed.
 - Make HTTPS requests to any host
 - Run any command available to the agent user
 - Access `/private/tmp` for temporary files
+- Build and run Docker containers (Docker Sandbox mode only)
 
 **Can't:**
 - Read your SSH keys, AWS credentials, GPG keys, or Keychain
 - Send email (SMTP blocked), use IRC, FTP, Tor, or VPN protocols
-- Access Docker (socket locked to your user only)
+- Access the host Docker daemon (socket locked to your user only)
 - Read files outside the approved directories
 - Use `sudo`
 

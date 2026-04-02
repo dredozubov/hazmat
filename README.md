@@ -21,6 +21,36 @@ hazmat claude    # full autonomy, OS-level containment, automatic snapshots
 
 One command. The agent gets its own macOS user, a kernel-enforced sandbox, a firewall, and automatic pre-session backups. You get full productivity without the risk.
 
+## What You See
+
+Every session starts with a contract — a plain-language summary of what the agent can and can't do:
+
+```
+hazmat: session
+  Mode:                 Native containment
+  Why this mode:        using native containment because no Docker requirement was detected
+  Project (read-write): /Users/dr/workspace/my-app
+  Extra read-only:      /Users/dr/go/pkg/mod
+  Packs:                go
+  Service access:       none
+  Pre-session snapshot: on
+  Snapshot excludes:    vendor/
+```
+
+If the project needs Docker, Hazmat switches modes automatically:
+
+```
+hazmat: session
+  Mode:                 Docker Sandbox
+  Why this mode:        using Docker Sandbox because this project appears to need Docker (Dockerfile)
+  Project (read-write): /Users/dr/workspace/api-service
+  Extra read-only:      none
+  Packs:                node
+  ...
+```
+
+Preview any session before running it with `hazmat explain`.
+
 ## The Problem
 
 `--dangerously-skip-permissions` is where the real productivity is. Permission prompts break flow, interrupt agent loops, and make multi-step tasks impractical. Every serious Claude Code user ends up here eventually.
@@ -50,6 +80,10 @@ hazmat shell                      # interactive contained shell
 | **DNS blocklist** | Known tunnel/paste/C2 services (ngrok, pastebin, webhook.site) resolve to localhost |
 | **Supply chain hardening** | npm `ignore-scripts=true` by default — blocks the entire class of postinstall attacks |
 | **Automatic snapshots** | Kopia snapshots before every session — roll back if the agent breaks something |
+
+### Docker Projects
+
+Projects with Dockerfiles or Compose files are automatically routed into Docker Sandbox mode — the agent runs inside an isolated sandbox with its own private Docker daemon. The session contract tells you which mode was chosen and why. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md).
 
 ### Comparison
 
@@ -219,6 +253,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
 | [stack-packs.md](docs/stack-packs.md) | Stack packs: activation, repo recommendations, user pack authoring, trust model |
+| [tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) | Docker Sandbox mode: setup, network policy, Compose hardening |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
 | [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
