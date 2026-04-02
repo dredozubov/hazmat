@@ -456,9 +456,9 @@ func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsWithSiblings(t *testing.T)
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	projectDir := filepath.Join(workspaceDir, "niche-sieve")
-	siblingA := filepath.Join(workspaceDir, "hazmat")
-	siblingB := filepath.Join(workspaceDir, "other-proj")
+	projectDir := filepath.Join(workspaceDir, "project")
+	siblingA := filepath.Join(workspaceDir, "sibling-a")
+	siblingB := filepath.Join(workspaceDir, "sibling-b")
 	for _, dir := range []string{projectDir, siblingA, siblingB} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -504,11 +504,11 @@ func TestExpandAncestorReadDirDeepNesting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
-	// root/team/niche-sieve is the project
-	// root/team/hazmat and root/docs should appear
+	// root/team/project is the project dir;
+	// root/docs and root/team/sibling should appear as siblings.
 	teamDir := filepath.Join(root, "team")
-	projectDir := filepath.Join(teamDir, "niche-sieve")
-	sibling := filepath.Join(teamDir, "hazmat")
+	projectDir := filepath.Join(teamDir, "project")
+	sibling := filepath.Join(teamDir, "sibling")
 	topSibling := filepath.Join(root, "docs")
 	for _, dir := range []string{projectDir, sibling, topSibling} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
