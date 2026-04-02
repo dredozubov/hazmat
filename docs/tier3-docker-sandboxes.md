@@ -40,9 +40,29 @@ Read [incidents-and-cves.md](research/incidents-and-cves.md) for why these versi
 
 ## Option A: Docker Sandboxes (Recommended)
 
-Docker Sandboxes (Docker Desktop 4.58+) run each agent in a **dedicated microVM**, not a regular container. Each sandbox gets its own Docker daemon and kernel.
+Docker Sandboxes (Docker Desktop 4.58+) run each agent in an isolated runtime
+with a **private Docker daemon**. Each sandbox gets its own independent
+container system, preventing lateral movement through daemon sharing.
+The implementation uses a microVM internally, but the primary security
+property for Hazmat's threat model is daemon isolation, not kernel
+separation.
 
-### Setup
+### Using Docker Sandboxes with Hazmat
+
+Hazmat manages Docker Sandbox lifecycle automatically. Use `--sandbox`
+or let Hazmat auto-route when Docker artifacts are detected:
+
+```bash
+hazmat claude --sandbox              # explicit Docker Sandbox mode
+hazmat claude                        # auto-routes if Dockerfile/compose detected
+hazmat explain --sandbox             # preview what the session will do
+```
+
+Hazmat creates the sandbox, applies network policy, and prints a session
+contract showing the mode, routing reason, project boundaries, and active
+packs before launching the agent.
+
+### Manual Setup (without Hazmat)
 
 ```bash
 # Install Docker Desktop (free for personal use)
@@ -52,8 +72,11 @@ docker sandbox run claude ~/my-project
 
 ### Network Isolation
 
-> **Required for this threat model.** Docker Sandboxes default to allow-all egress. Switch
-> to deny-mode with an explicit allowlist before running any agent session:
+> **Mandatory.** Docker Sandboxes default to allow-all egress. Hazmat
+> automatically applies a deny-by-default network policy with an allowlist
+> for required services (Anthropic API, GitHub, package registries) before
+> every session. If you are running Docker Sandboxes manually outside of
+> Hazmat, apply deny-mode yourself:
 
 ```bash
 docker sandbox network proxy claude-myproject --allow-host "api.anthropic.com"
@@ -73,8 +96,8 @@ docker sandbox run claude ~/project ~/docs:ro  # read-only extra mounts
 
 ### Why This Is the Best Balance
 
-- MicroVM-based hard security boundary, not just container namespaces
-- The agent can build and run Docker containers inside the sandbox without affecting the host daemon
+- Private daemon isolation — the agent cannot access the host Docker daemon or other sandboxes
+- The agent can build and run Docker containers inside the sandbox without affecting the host
 - `--dangerously-skip-permissions` is acceptable here because the microVM is the primary boundary
 - Workspace paths stay stable between host and sandbox
 - It supports Claude Code, Gemini CLI, Codex, Copilot, and Kiro
@@ -190,7 +213,10 @@ WORKDIR /workspace
 
 ## Compose Hardening Reference
 
-When writing or reviewing a Compose file for agent use, apply this checklist:
+When writing or reviewing a Compose file for agent use, apply this checklist.
+These are strongly recommended practices for defense-in-depth. Hazmat's primary
+enforcement point is mount scope, environment isolation, and network policy —
+not Compose file validation.
 
 | Setting | Safe value | Why |
 |---------|------------|-----|
@@ -234,7 +260,7 @@ environment:
 
 1. **Never share the host Docker socket.** Giving the agent access to any Docker daemon it does not exclusively own is a full sandbox escape.
 2. **Never mount `/var/run/docker.sock` into a container.** If the agent can talk to the daemon, it can create privileged containers and escape.
-3. **Set deny-mode network policy on Docker Sandboxes before each session.** The default is allow-all.
+3. **Apply deny-mode network policy before each session.** Hazmat does this automatically; if running sandboxes manually, the default is allow-all and you must apply policy yourself.
 4. `--dangerously-skip-permissions` inside containers does not prevent exfiltration of anything accessible in the container, including Claude Code credentials.
 5. Performance overhead on macOS is real. Bind mounts are still slower than native for metadata-heavy workloads, even with modern virtualization improvements.
 
