@@ -784,6 +784,124 @@ func TestPrepareSessionToolsStagesBeadsBinary(t *testing.T) {
 	}
 }
 
+func TestPrepareSessionToolsStagesPnpmBootstrapForNodeProject(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "package.json"),
+		[]byte(`{"name":"openclaw-smoke","packageManager":"pnpm@10.32.1"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	sourceDir := t.TempDir()
+	corepackPath := filepath.Join(sourceDir, "corepack")
+	if err := os.WriteFile(corepackPath, []byte("#!/usr/bin/env node\n"), 0o755); err != nil {
+		t.Fatalf("write corepack source: %v", err)
+	}
+
+	savedLookup := sessionToolCommandPath
+	savedExecCheck := sessionToolExecutableByAgent
+	savedStagingRoot := sessionToolStagingRoot
+	t.Cleanup(func() {
+		sessionToolCommandPath = savedLookup
+		sessionToolExecutableByAgent = savedExecCheck
+		sessionToolStagingRoot = savedStagingRoot
+	})
+
+	sessionToolCommandPath = func(name string) (string, error) {
+		switch name {
+		case "corepack":
+			return corepackPath, nil
+		case "bd":
+			return "", errors.New("not found")
+		default:
+			return "", fmt.Errorf("unexpected tool lookup %q", name)
+		}
+	}
+	sessionToolExecutableByAgent = func(string) bool { return false }
+	sessionToolStagingRoot = t.TempDir()
+
+	cfg := sessionConfig{
+		ProjectDir:         projectDir,
+		ActiveIntegrations: []string{"node"},
+	}
+	if err := prepareSessionTools(&cfg); err != nil {
+		t.Fatalf("prepareSessionTools: %v", err)
+	}
+	if len(cfg.StagedToolDirs) != 1 {
+		t.Fatalf("StagedToolDirs = %v, want one staged dir", cfg.StagedToolDirs)
+	}
+
+	stagedCorepack, err := os.ReadFile(filepath.Join(cfg.StagedToolDirs[0], "corepack"))
+	if err != nil {
+		t.Fatalf("read staged corepack: %v", err)
+	}
+	if string(stagedCorepack) != "#!/usr/bin/env node\n" {
+		t.Fatalf("staged corepack contents = %q", string(stagedCorepack))
+	}
+
+	stagedPnpm, err := os.ReadFile(filepath.Join(cfg.StagedToolDirs[0], "pnpm"))
+	if err != nil {
+		t.Fatalf("read staged pnpm: %v", err)
+	}
+	pnpmScript := string(stagedPnpm)
+	for _, want := range []string{
+		"pm_spec=\"pnpm@10.32.1\"",
+		"corepack enable --install-directory",
+		"corepack install",
+		"npm install --global --prefix",
+	} {
+		if !strings.Contains(pnpmScript, want) {
+			t.Fatalf("staged pnpm missing %q in:\n%s", want, pnpmScript)
+		}
+	}
+	if len(cfg.SessionNotes) != 1 || !strings.Contains(cfg.SessionNotes[0], "pnpm@10.32.1") {
+		t.Fatalf("SessionNotes = %v, want pnpm bootstrap note", cfg.SessionNotes)
+	}
+}
+
+func TestPrepareSessionToolsSkipsPnpmBootstrapWhenPnpmAlreadyReachable(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "package.json"),
+		[]byte(`{"name":"openclaw-smoke","packageManager":"pnpm@10.32.1"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	toolDir := t.TempDir()
+	pnpmPath := filepath.Join(toolDir, "pnpm")
+	if err := os.WriteFile(pnpmPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write pnpm: %v", err)
+	}
+
+	savedExecCheck := integrationAgentExecCheck
+	savedStagingRoot := sessionToolStagingRoot
+	t.Cleanup(func() {
+		integrationAgentExecCheck = savedExecCheck
+		sessionToolStagingRoot = savedStagingRoot
+	})
+	integrationAgentExecCheck = func(path string) bool { return path == pnpmPath }
+	sessionToolStagingRoot = t.TempDir()
+
+	cfg := sessionConfig{
+		ProjectDir:              projectDir,
+		ActiveIntegrations:      []string{"node"},
+		IntegrationPathPrefixes: []string{toolDir},
+	}
+	if err := prepareSessionTools(&cfg); err != nil {
+		t.Fatalf("prepareSessionTools: %v", err)
+	}
+	if len(cfg.StagedToolDirs) != 0 {
+		t.Fatalf("StagedToolDirs = %v, want none", cfg.StagedToolDirs)
+	}
+	if len(cfg.SessionNotes) != 0 {
+		t.Fatalf("SessionNotes = %v, want none", cfg.SessionNotes)
+	}
+}
+
 // ── warnDockerProject ─────────────────────────────────────────────────────────
 
 func TestWarnDockerProjectCleanDir(t *testing.T) {
