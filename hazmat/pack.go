@@ -593,20 +593,37 @@ type packMergeResult struct {
 
 // mergePacks validates paths and merges all active packs into a single result.
 func mergePacks(packs []Pack) (packMergeResult, error) {
+	resolved := make([]resolvedIntegration, 0, len(packs))
+	for _, pack := range packs {
+		resolved = append(resolved, resolvedIntegration{Pack: pack})
+	}
+	return mergeResolvedIntegrations(resolved)
+}
+
+func mergeResolvedIntegrations(integrations []resolvedIntegration) (packMergeResult, error) {
 	var result packMergeResult
 	result.EnvPassthrough = make(map[string]string)
 
 	readDirSeen := make(map[string]struct{})
 	excludeSeen := make(map[string]struct{})
 	warnSeen := make(map[string]struct{})
+	registrySeen := make(map[string]struct{})
 
-	for _, p := range packs {
-		// V2: validate and canonicalize paths.
-		dirs, err := validatePackPaths(p)
-		if err != nil {
-			return packMergeResult{}, err
+	for _, integration := range integrations {
+		if !integration.ReplacePackReadDirs {
+			dirs, err := validatePackPaths(integration.Pack)
+			if err != nil {
+				return packMergeResult{}, err
+			}
+			for _, d := range dirs {
+				if _, dup := readDirSeen[d]; !dup {
+					result.ReadDirs = append(result.ReadDirs, d)
+					readDirSeen[d] = struct{}{}
+				}
+			}
 		}
-		for _, d := range dirs {
+
+		for _, d := range integration.AdditionalReadDirs {
 			if _, dup := readDirSeen[d]; !dup {
 				result.ReadDirs = append(result.ReadDirs, d)
 				readDirSeen[d] = struct{}{}
@@ -614,20 +631,33 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 		}
 
 		// Env passthrough: resolve from invoker's environment.
-		for _, key := range p.Session.EnvPassthrough {
+		for _, key := range integration.Pack.Session.EnvPassthrough {
 			if _, set := result.EnvPassthrough[key]; set {
 				continue
 			}
 			if val := os.Getenv(key); val != "" {
 				result.EnvPassthrough[key] = val
-				if registryEnvKeys[key] {
+				if registryEnvKeys[key] && val != "" {
 					result.RegistryKeys = append(result.RegistryKeys, key)
+					registrySeen[key] = struct{}{}
+				}
+			}
+		}
+		for key, value := range integration.ResolvedEnv {
+			if value == "" {
+				continue
+			}
+			result.EnvPassthrough[key] = value
+			if registryEnvKeys[key] {
+				if _, dup := registrySeen[key]; !dup {
+					result.RegistryKeys = append(result.RegistryKeys, key)
+					registrySeen[key] = struct{}{}
 				}
 			}
 		}
 
 		// Backup excludes.
-		for _, pat := range p.Backup.Excludes {
+		for _, pat := range integration.Pack.Backup.Excludes {
 			if _, dup := excludeSeen[pat]; !dup {
 				result.Excludes = append(result.Excludes, pat)
 				excludeSeen[pat] = struct{}{}
@@ -635,7 +665,13 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 		}
 
 		// Warnings.
-		for _, w := range p.Warnings {
+		for _, w := range integration.Pack.Warnings {
+			if _, dup := warnSeen[w]; !dup {
+				result.Warnings = append(result.Warnings, w)
+				warnSeen[w] = struct{}{}
+			}
+		}
+		for _, w := range integration.AdditionalWarnings {
 			if _, dup := warnSeen[w]; !dup {
 				result.Warnings = append(result.Warnings, w)
 				warnSeen[w] = struct{}{}
@@ -756,6 +792,19 @@ func runPackShow(name string) error {
 		return err
 	}
 
+	projectDir, err := os.Getwd()
+	if err != nil {
+		projectDir = "."
+	}
+	resolved := resolvedIntegration{Pack: p}
+	if resolvedSet, err := resolveRuntimeIntegrations(projectDir, []Pack{p}); err == nil && len(resolvedSet) == 1 {
+		resolved = resolvedSet[0]
+	}
+	merged, err := mergeResolvedIntegrations([]resolvedIntegration{resolved})
+	if err != nil {
+		return err
+	}
+
 	fmt.Println()
 	fmt.Printf("  Integration: %s\n", p.PackMeta.Name)
 	if p.PackMeta.Description != "" {
@@ -766,14 +815,38 @@ func runPackShow(name string) error {
 	if len(p.Detect.Files) > 0 {
 		fmt.Printf("  Detect:          %s\n", strings.Join(p.Detect.Files, ", "))
 	}
+	if spec, ok := integrationResolverFor(name); ok {
+		fmt.Printf("  Resolver:        %s\n", spec.Summary)
+	}
 	if len(p.Session.ReadDirs) > 0 {
-		fmt.Printf("  Read dirs:       %s\n", strings.Join(p.Session.ReadDirs, ", "))
+		fmt.Printf("  Declared read dirs: %s\n", strings.Join(p.Session.ReadDirs, ", "))
+	}
+	if len(merged.ReadDirs) > 0 {
+		fmt.Printf("  Resolved read dirs: %s\n", strings.Join(merged.ReadDirs, ", "))
 	}
 	if len(p.Session.EnvPassthrough) > 0 {
 		fmt.Printf("  Env passthrough: %s\n", strings.Join(p.Session.EnvPassthrough, ", "))
 	}
+	if len(merged.EnvPassthrough) > 0 {
+		var envPairs []string
+		for key, value := range merged.EnvPassthrough {
+			envPairs = append(envPairs, key+"="+value)
+		}
+		sort.Strings(envPairs)
+		fmt.Printf("  Resolved env:    %s\n", strings.Join(envPairs, ", "))
+	}
 	if len(p.Backup.Excludes) > 0 {
 		fmt.Printf("  Excludes:        %s\n", strings.Join(p.Backup.Excludes, ", "))
+	}
+	if resolved.Source != "" {
+		fmt.Printf("  Source:          %s\n", resolved.Source)
+	}
+	if len(resolved.Details) > 0 {
+		fmt.Println()
+		fmt.Println("  Resolution:")
+		for _, detail := range resolved.Details {
+			fmt.Printf("    - %s\n", detail)
+		}
 	}
 	if len(p.Warnings) > 0 {
 		fmt.Println()

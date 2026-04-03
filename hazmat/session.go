@@ -18,20 +18,22 @@ import (
 )
 
 type sessionConfig struct {
-	ProjectDir               string
-	ReadDirs                 []string
-	WriteDirs                []string
-	UserReadDirs             []string          // explicit host-configured or CLI read-only extensions
-	AutoReadDirs             []string          // automatically added read-only dirs from integrations/defaults
-	BackupExcludes           []string
-	IntegrationEnv           map[string]string // from integration env_passthrough (resolved values)
-	IntegrationRegistryKeys  []string          // active registry-redirect env keys (for UX)
-	IntegrationExcludes      []string          // snapshot excludes added by active integrations
-	IntegrationWarnings      []string          // warnings surfaced by active integrations
-	ActiveIntegrations       []string          // integration names, for status bar
-	ServiceAccess            []string          // explicit external-service access granted to session
-	RoutingReason            string            // plain-language explanation for the chosen mode
-	SessionNotes             []string          // plain-language notes about session behavior
+	ProjectDir              string
+	ReadDirs                []string
+	WriteDirs               []string
+	UserReadDirs            []string // explicit host-configured or CLI read-only extensions
+	AutoReadDirs            []string // automatically added read-only dirs from integrations/defaults
+	BackupExcludes          []string
+	IntegrationEnv          map[string]string // from integration env_passthrough (resolved values)
+	IntegrationRegistryKeys []string          // active registry-redirect env keys (for UX)
+	IntegrationExcludes     []string          // snapshot excludes added by active integrations
+	IntegrationSources      []string          // provenance for runtime-resolved integration inputs
+	IntegrationDetails      []string          // detailed runtime resolution notes for explain/show flows
+	IntegrationWarnings     []string          // warnings surfaced by active integrations
+	ActiveIntegrations      []string          // integration names, for status bar
+	ServiceAccess           []string          // explicit external-service access granted to session
+	RoutingReason           string            // plain-language explanation for the chosen mode
+	SessionNotes            []string          // plain-language notes about session behavior
 }
 
 type sessionLaunchUI struct {
@@ -641,8 +643,13 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 	}
 	cfg.ActiveIntegrations = names
 
+	resolved, err := resolveRuntimeIntegrations(cfg.ProjectDir, packs)
+	if err != nil {
+		return err
+	}
+
 	// Merge all integrations.
-	merged, err := mergePacks(packs)
+	merged, err := mergeResolvedIntegrations(resolved)
 	if err != nil {
 		return err
 	}
@@ -675,6 +682,25 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 	cfg.IntegrationEnv = merged.EnvPassthrough
 	cfg.IntegrationRegistryKeys = merged.RegistryKeys
 	cfg.IntegrationWarnings = append([]string(nil), merged.Warnings...)
+	cfg.IntegrationSources = cfg.IntegrationSources[:0]
+	cfg.IntegrationDetails = cfg.IntegrationDetails[:0]
+	sourceSeen := make(map[string]struct{}, len(resolved))
+	detailSeen := make(map[string]struct{})
+	for _, integration := range resolved {
+		if integration.Source != "" {
+			if _, dup := sourceSeen[integration.Source]; !dup {
+				cfg.IntegrationSources = append(cfg.IntegrationSources, integration.Source)
+				sourceSeen[integration.Source] = struct{}{}
+			}
+		}
+		for _, detail := range integration.Details {
+			if _, dup := detailSeen[detail]; dup {
+				continue
+			}
+			cfg.IntegrationDetails = append(cfg.IntegrationDetails, detail)
+			detailSeen[detail] = struct{}{}
+		}
+	}
 
 	return nil
 }
@@ -868,24 +894,6 @@ func expandTilde(path string) string {
 	return path
 }
 
-// invokerGoModCache returns the invoking user's Go module cache path
-// by running `go env GOMODCACHE`. Returns "" if Go is not installed
-// or the path doesn't exist.
-func invokerGoModCache() string {
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		return ""
-	}
-	p := strings.TrimSpace(string(out))
-	if p == "" {
-		return ""
-	}
-	if _, err := os.Stat(p); err != nil {
-		return ""
-	}
-	return p
-}
-
 // implicitReadDirs returns toolchain cache directories that are always
 // included as read-only without user configuration. These are the invoking
 // user's package manager caches — sharing them avoids re-downloading the
@@ -997,6 +1005,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	}
 	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
 	fmt.Fprintf(&b, "  Integrations:         %s\n", sessionContractList(cfg.ActiveIntegrations))
+	if len(cfg.IntegrationSources) > 0 {
+		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))
+	}
 	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
 	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))

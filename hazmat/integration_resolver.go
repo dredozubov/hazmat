@@ -1,0 +1,484 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type resolvedIntegration struct {
+	Pack                Pack
+	ReplacePackReadDirs bool
+	AdditionalReadDirs  []string
+	ResolvedEnv         map[string]string
+	AdditionalWarnings  []string
+	Source              string
+	Details             []string
+}
+
+type integrationResolverSpec struct {
+	Summary              string
+	ReplacesPackReadDirs bool
+	Resolve              func(*integrationResolveContext, Pack) (resolvedIntegration, error)
+}
+
+type integrationProbe interface {
+	LookPath(name string) (string, error)
+	Output(name string, args ...string) (string, error)
+}
+
+type hostIntegrationProbe struct{}
+
+type integrationResolveContext struct {
+	ProjectDir string
+	Probe      integrationProbe
+	homebrew   *integrationHomebrewResolver
+}
+
+type integrationHomebrewResolver struct {
+	projectDir string
+	probe      integrationProbe
+}
+
+type brewPrefixResult struct {
+	Prefix  string
+	Formula string
+	Detail  string
+}
+
+var (
+	integrationProbeFactory   = func() integrationProbe { return hostIntegrationProbe{} }
+	integrationProbeTimeout   = 2 * time.Second
+	integrationBrewCandidates = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
+	integrationJavaHomePath   = "/usr/libexec/java_home"
+	homebrewConsentPrompt     = func() (bool, bool) {
+		if flagDryRun {
+			return false, false
+		}
+		ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+		if !ui.IsInteractive() && !flagYesAll {
+			return false, false
+		}
+		allowed := ui.Ask("Allow Homebrew-backed path resolution for session integrations? This does not itself grant new filesystem access; Hazmat will still show the resolved directories before launch.")
+		return allowed, true
+	}
+)
+
+var builtinIntegrationResolvers = map[string]integrationResolverSpec{
+	"go": {
+		Summary: "runtime go env probe with Homebrew go fallback",
+		Resolve: resolveGoIntegration,
+	},
+	"node": {
+		Summary:              "active Node runtime probe with Homebrew node fallback",
+		ReplacesPackReadDirs: true,
+		Resolve:              resolveNodeIntegration,
+	},
+	"rust": {
+		Summary:              "rustc sysroot probe with Homebrew rust/rustup fallback",
+		ReplacesPackReadDirs: true,
+		Resolve:              resolveRustIntegration,
+	},
+	"tla-java": {
+		Summary:              "JAVA_HOME / java runtime probe with Homebrew openjdk fallback",
+		ReplacesPackReadDirs: true,
+		Resolve:              resolveTLAJavaIntegration,
+	},
+}
+
+func (hostIntegrationProbe) LookPath(name string) (string, error) {
+	return exec.LookPath(name)
+}
+
+func (hostIntegrationProbe) Output(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), integrationProbeTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = integrationProbeEnv()
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("%s timed out after %s", commandLabel(name, args...), integrationProbeTimeout)
+	}
+	return strings.TrimSpace(string(out)), err
+}
+
+func integrationProbeEnv() []string {
+	env := []string{
+		"HOME=" + os.Getenv("HOME"),
+		"PATH=" + os.Getenv("PATH"),
+		"HOMEBREW_NO_AUTO_UPDATE=1",
+	}
+	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE", "TERM"} {
+		if value := os.Getenv(key); value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
+}
+
+func commandLabel(name string, args ...string) string {
+	if len(args) == 0 {
+		return name
+	}
+	return name + " " + strings.Join(args, " ")
+}
+
+func resolveRuntimeIntegrations(projectDir string, packs []Pack) ([]resolvedIntegration, error) {
+	ctx := &integrationResolveContext{
+		ProjectDir: projectDir,
+		Probe:      integrationProbeFactory(),
+	}
+
+	resolved := make([]resolvedIntegration, 0, len(packs))
+	for _, pack := range packs {
+		r := resolvedIntegration{Pack: pack}
+		if spec, ok := builtinIntegrationResolvers[pack.PackMeta.Name]; ok {
+			var err error
+			r, err = spec.Resolve(ctx, pack)
+			if err != nil {
+				return nil, err
+			}
+			r.Pack = pack
+			r.ReplacePackReadDirs = spec.ReplacesPackReadDirs
+		}
+		resolved = append(resolved, r)
+	}
+	return resolved, nil
+}
+
+func integrationResolverFor(name string) (integrationResolverSpec, bool) {
+	spec, ok := builtinIntegrationResolvers[name]
+	return spec, ok
+}
+
+func resolveGoIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
+	result := resolvedIntegration{Pack: pack, ResolvedEnv: make(map[string]string)}
+	if dir, err := probeCanonicalDir(ctx.Probe, "go", "env", "GOROOT"); err == nil && dir != "" {
+		result.AdditionalReadDirs = []string{dir}
+		result.Source = "go (go env GOROOT)"
+		result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", dir))
+		if os.Getenv("GOROOT") == "" {
+			result.ResolvedEnv["GOROOT"] = dir
+		}
+		return result, nil
+	}
+
+	brewResult := ctx.brewPrefix("go")
+	if brewResult.Prefix != "" {
+		dir, err := validatedReadDir(brewResult.Prefix)
+		if err == nil && dir != "" {
+			result.AdditionalReadDirs = []string{dir}
+			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("go: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
+			if os.Getenv("GOROOT") == "" {
+				result.ResolvedEnv["GOROOT"] = dir
+			}
+		}
+	} else if brewResult.Detail != "" {
+		result.Details = append(result.Details, "go: "+brewResult.Detail)
+	}
+	return result, nil
+}
+
+func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
+	result := resolvedIntegration{Pack: pack}
+	if execPath, err := ctx.Probe.Output("node", "-p", "process.execPath"); err == nil && execPath != "" {
+		prefix := filepath.Dir(filepath.Dir(strings.TrimSpace(execPath)))
+		dir, err := validatedReadDir(prefix)
+		if err == nil && dir != "" {
+			result.AdditionalReadDirs = []string{dir}
+			result.Source = "node (active runtime)"
+			result.Details = append(result.Details, fmt.Sprintf("node: resolved active runtime prefix -> %s", dir))
+			return result, nil
+		}
+	}
+
+	brewResult := ctx.brewPrefix("node")
+	if brewResult.Prefix != "" {
+		dir, err := validatedReadDir(brewResult.Prefix)
+		if err == nil && dir != "" {
+			result.AdditionalReadDirs = []string{dir}
+			result.Source = fmt.Sprintf("node (Homebrew %s)", brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("node: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
+		}
+	} else if brewResult.Detail != "" {
+		result.Details = append(result.Details, "node: "+brewResult.Detail)
+	}
+	return result, nil
+}
+
+func resolveRustIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
+	result := resolvedIntegration{Pack: pack}
+	if dir, err := probeCanonicalDir(ctx.Probe, "rustc", "--print", "sysroot"); err == nil && dir != "" {
+		result.AdditionalReadDirs = []string{dir}
+		result.Source = "rust (rustc sysroot)"
+		result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s", dir))
+		return result, nil
+	}
+
+	brewResult := ctx.brewPrefix("rust", "rustup")
+	if brewResult.Prefix != "" {
+		dir, err := validatedReadDir(brewResult.Prefix)
+		if err == nil && dir != "" {
+			result.AdditionalReadDirs = []string{dir}
+			result.Source = fmt.Sprintf("rust (Homebrew %s)", brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("rust: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
+		}
+	} else if brewResult.Detail != "" {
+		result.Details = append(result.Details, "rust: "+brewResult.Detail)
+	}
+	return result, nil
+}
+
+func resolveTLAJavaIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
+	result := resolvedIntegration{Pack: pack, ResolvedEnv: make(map[string]string)}
+	if javaHome, source, err := ctx.resolveJavaHome(); err == nil && javaHome != "" {
+		result.AdditionalReadDirs = []string{javaHome}
+		result.Source = source
+		result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved JDK home -> %s", javaHome))
+		if os.Getenv("JAVA_HOME") == "" {
+			result.ResolvedEnv["JAVA_HOME"] = javaHome
+		}
+		return result, nil
+	}
+
+	brewResult := ctx.brewPrefix("openjdk", "openjdk@21", "openjdk@17")
+	if brewResult.Prefix != "" {
+		if javaHome := javaHomeFromPrefix(brewResult.Prefix); javaHome != "" {
+			result.AdditionalReadDirs = []string{javaHome}
+			result.Source = fmt.Sprintf("tla-java (Homebrew %s)", brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved via Homebrew %s -> %s", brewResult.Formula, javaHome))
+			if os.Getenv("JAVA_HOME") == "" {
+				result.ResolvedEnv["JAVA_HOME"] = javaHome
+			}
+		}
+	} else if brewResult.Detail != "" {
+		result.Details = append(result.Details, "tla-java: "+brewResult.Detail)
+	}
+	return result, nil
+}
+
+func probeCanonicalDir(probe integrationProbe, name string, args ...string) (string, error) {
+	output, err := probe.Output(name, args...)
+	if err != nil {
+		return "", err
+	}
+	return validatedReadDir(output)
+}
+
+func validatedReadDir(path string) (string, error) {
+	path = strings.TrimSpace(expandTilde(path))
+	if path == "" {
+		return "", nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return "", err
+	}
+
+	resolved, err := canonicalizePath(path)
+	if err != nil {
+		return "", err
+	}
+	if isCredentialDenyPath(resolved) {
+		return "", fmt.Errorf("%q resolves to credential deny zone", resolved)
+	}
+	return resolved, nil
+}
+
+func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixResult {
+	resolver := ctx.homebrewResolver()
+	if resolver == nil {
+		return brewPrefixResult{Detail: "Homebrew not found at canonical locations"}
+	}
+
+	allowed, detail := resolver.allowed()
+	if !allowed {
+		return brewPrefixResult{Detail: detail}
+	}
+
+	for _, formula := range formulas {
+		out, err := ctx.Probe.Output(resolver.brewPath(), "--prefix", "--installed", formula)
+		if err != nil || out == "" {
+			continue
+		}
+		dir, err := validatedReadDir(out)
+		if err != nil || dir == "" {
+			continue
+		}
+		return brewPrefixResult{
+			Prefix:  dir,
+			Formula: formula,
+			Detail:  fmt.Sprintf("resolved via Homebrew %s -> %s", formula, dir),
+		}
+	}
+
+	return brewPrefixResult{Detail: "Homebrew fallback found no installed matching formula"}
+}
+
+func (ctx *integrationResolveContext) homebrewResolver() *integrationHomebrewResolver {
+	if ctx.homebrew == nil {
+		ctx.homebrew = &integrationHomebrewResolver{
+			projectDir: ctx.ProjectDir,
+			probe:      ctx.Probe,
+		}
+	}
+	if ctx.homebrew.brewPath() == "" {
+		return nil
+	}
+	return ctx.homebrew
+}
+
+func (r *integrationHomebrewResolver) brewPath() string {
+	for _, candidate := range integrationBrewCandidates {
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if info.Mode()&0o111 == 0 {
+			continue
+		}
+		return candidate
+	}
+	return ""
+}
+
+func (r *integrationHomebrewResolver) allowed() (bool, string) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false, "Homebrew fallback skipped: could not load config"
+	}
+
+	if allowed, configured := cfg.HomebrewIntegrationConsent(); configured {
+		if allowed {
+			return true, "Homebrew fallback enabled in config"
+		}
+		return false, "Homebrew fallback disabled in config"
+	}
+
+	decision, prompted := homebrewConsentPrompt()
+	if !prompted {
+		return false, "Homebrew fallback skipped: consent not configured; set hazmat config set integrations.homebrew enabled|disabled"
+	}
+
+	if err := setHomebrewIntegrationConsent(boolPtr(decision)); err != nil {
+		fmt.Fprintf(os.Stderr, "hazmat: warning: could not save Homebrew integration consent: %v\n", err)
+	}
+	if decision {
+		return true, "Homebrew fallback enabled and recorded in config"
+	}
+	return false, "Homebrew fallback disabled and recorded in config"
+}
+
+func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) {
+	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
+		dir, err := validatedJavaHome(javaHome)
+		if err == nil && dir != "" {
+			return dir, "tla-java (JAVA_HOME)", nil
+		}
+	}
+
+	if output, err := ctx.Probe.Output("java", "-XshowSettings:properties", "-version"); err == nil && output != "" {
+		if javaHome := parseJavaHome(output); javaHome != "" {
+			dir, err := validatedJavaHome(javaHome)
+			if err == nil && dir != "" {
+				return dir, "tla-java (java runtime)", nil
+			}
+		}
+	}
+
+	if info, err := os.Stat(integrationJavaHomePath); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		if out, err := ctx.Probe.Output(integrationJavaHomePath); err == nil && out != "" {
+			dir, err := validatedJavaHome(out)
+			if err == nil && dir != "" {
+				return dir, "tla-java (java_home)", nil
+			}
+		}
+	}
+
+	return "", "", nil
+}
+
+func parseJavaHome(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "java.home =") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(line, "java.home ="))
+	}
+	return ""
+}
+
+func validatedJavaHome(path string) (string, error) {
+	dir, err := validatedReadDir(path)
+	if err != nil || dir == "" {
+		return "", err
+	}
+	info, err := os.Stat(filepath.Join(dir, "bin", "java"))
+	if err != nil || info.IsDir() {
+		return "", fmt.Errorf("%q is not a Java home", dir)
+	}
+	return dir, nil
+}
+
+func javaHomeFromPrefix(prefix string) string {
+	candidates := []string{
+		filepath.Join(prefix, "libexec", "openjdk.jdk", "Contents", "Home"),
+		prefix,
+	}
+	for _, candidate := range candidates {
+		if dir, err := validatedJavaHome(candidate); err == nil && dir != "" {
+			return dir
+		}
+	}
+	return ""
+}
+
+func setHomebrewIntegrationConsent(value *bool) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Integrations.Homebrew = value
+	return saveConfig(cfg)
+}
+
+func boolPtr(value bool) *bool {
+	b := value
+	return &b
+}
+
+func invokerGoModCache() string {
+	probe := integrationProbeFactory()
+	output, err := probe.Output("go", "env", "GOMODCACHE")
+	if err != nil || output == "" {
+		return ""
+	}
+	dir, err := validatedReadDir(output)
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+func renderIntegrationDetails(details []string) string {
+	if len(details) == 0 {
+		return ""
+	}
+
+	var b bytes.Buffer
+	fmt.Fprintln(&b, "hazmat: integration resolution")
+	for _, detail := range details {
+		fmt.Fprintf(&b, "  - %s\n", detail)
+	}
+	b.WriteByte('\n')
+	return b.String()
+}

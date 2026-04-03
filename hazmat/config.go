@@ -24,11 +24,12 @@ var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-creden
 // ── Config types ────────────────────────────────────────────────────────────
 
 type HazmatConfig struct {
-	Backup   BackupConfig             `yaml:"backup"`
-	Session  SessionConfig            `yaml:"session"`
-	Packs    PacksConfig              `yaml:"packs,omitempty"`
-	Projects map[string]ProjectConfig `yaml:"projects,omitempty"`
-	Sandbox  SandboxConfig            `yaml:"sandbox,omitempty"`
+	Backup       BackupConfig             `yaml:"backup"`
+	Session      SessionConfig            `yaml:"session"`
+	Integrations IntegrationsConfig       `yaml:"integrations,omitempty"`
+	Packs        PacksConfig              `yaml:"packs,omitempty"`
+	Projects     map[string]ProjectConfig `yaml:"projects,omitempty"`
+	Sandbox      SandboxConfig            `yaml:"sandbox,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -54,6 +55,10 @@ type SessionConfig struct {
 	// every session. Default: empty. Visible in `hazmat config`, configurable
 	// via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
+}
+
+type IntegrationsConfig struct {
+	Homebrew *bool `yaml:"homebrew,omitempty"`
 }
 
 type SandboxConfig struct {
@@ -150,6 +155,13 @@ func (c HazmatConfig) SessionReadDirs() []string {
 		return *c.Session.ReadDirs
 	}
 	return nil
+}
+
+func (c HazmatConfig) HomebrewIntegrationConsent() (bool, bool) {
+	if c.Integrations.Homebrew == nil {
+		return false, false
+	}
+	return *c.Integrations.Homebrew, true
 }
 
 func (c HazmatConfig) SandboxBackend() *SandboxBackendConfig {
@@ -415,6 +427,19 @@ func runConfigShow() error {
 	}
 	fmt.Println()
 
+	cBold.Println("  Integrations")
+	fmt.Println()
+	if allowed, configured := cfg.HomebrewIntegrationConsent(); configured {
+		state := "disabled"
+		if allowed {
+			state = "enabled"
+		}
+		fmt.Printf("    Homebrew metadata: %s\n", state)
+	} else {
+		fmt.Printf("    Homebrew metadata: ask on first use\n")
+	}
+	fmt.Println()
+
 	cBold.Println("  Sandbox")
 	fmt.Println()
 	if backend := cfg.SandboxBackend(); backend != nil {
@@ -573,6 +598,7 @@ Keys:
   session.status_bar             Enable Hazmat's terminal status bar (default: false)
   session.read_dirs.add          Add a read-only directory to auto-include in sessions
   session.read_dirs.remove       Remove a read-only directory from auto-include
+  integrations.homebrew          Homebrew-backed integration resolution: enabled, disabled, or ask
   integrations.pin               Pin integrations to a project (value: project:name1,name2)
   integrations.unpin             Remove integration pinning for a project (value: project path)
   packs.pin                      Legacy alias for integrations.pin
@@ -584,6 +610,7 @@ Examples:
   hazmat config set session.skip_permissions false
   hazmat config set session.status_bar true
   hazmat config set session.read_dirs.add ~/other-code
+  hazmat config set integrations.homebrew enabled
   hazmat config set integrations.pin "~/workspace/my-app:node,python-poetry"
   hazmat config set integrations.unpin ~/workspace/my-app`,
 		Args: cobra.ExactArgs(2),
@@ -662,6 +689,12 @@ func runConfigSet(key, value string) error {
 			}
 		}
 		cfg.Session.ReadDirs = &filtered
+	case "integrations.homebrew":
+		parsed, err := parseOptionalBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.Integrations.Homebrew = parsed
 	case "integrations.pin", "packs.pin":
 		// Format: "project:pack1,pack2"
 		parts := strings.SplitN(value, ":", 2)
@@ -903,4 +936,17 @@ func parseInt(s string) (int, error) {
 		return 0, fmt.Errorf("value must be non-negative: %d", n)
 	}
 	return n, nil
+}
+
+func parseOptionalBool(value string) (*bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "enabled", "enable", "true", "1", "yes", "on":
+		return boolPtr(true), nil
+	case "disabled", "disable", "false", "0", "no", "off":
+		return boolPtr(false), nil
+	case "ask", "unset", "default", "auto":
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("invalid value %q (want enabled, disabled, or ask)", value)
+	}
 }
