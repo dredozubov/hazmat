@@ -645,6 +645,16 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 			t.Errorf("expected credential deny rule for %s", cred)
 		}
 	}
+
+	for _, want := range []string{
+		`(allow file-read* file-write* (literal "/dev/tty"))`,
+		`(allow file-read* file-write* (literal "/dev/ptmx"))`,
+		`(allow file-read* file-write* (regex #"/dev/ttys[0-9]+"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("expected terminal support rule %q", want)
+		}
+	}
 }
 
 func TestGenerateSBPLWithReadDirs(t *testing.T) {

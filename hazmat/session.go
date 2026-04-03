@@ -1816,6 +1816,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w(";; ── Terminal support (Node.js requires these) ──────────────────────────────\n")
 	w("(allow pseudo-tty)\n")
 	w("(allow file-ioctl)\n")
+	w("(allow file-read* file-write* (literal \"/dev/tty\"))\n")
 	w("(allow file-read* file-write* (literal \"/dev/ptmx\"))\n")
 	w("(allow file-read* file-write* (regex #\"/dev/ttys[0-9]+\"))\n\n")
 
