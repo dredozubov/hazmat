@@ -87,7 +87,7 @@ func TestResolveSessionConfigWithReadDirs(t *testing.T) {
 	projectDir := t.TempDir()
 	readDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, []string{readDir})
+	cfg, err := resolveSessionConfig(projectDir, []string{readDir}, nil)
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestResolveSessionConfigWithReadDirs(t *testing.T) {
 func TestResolveSessionConfigNoReadDirs(t *testing.T) {
 	projectDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, nil)
+	cfg, err := resolveSessionConfig(projectDir, nil, nil)
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestResolveSessionConfigUsesConfiguredBackupExcludes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sessionCfg, err := resolveSessionConfig(projectDir, nil)
+	sessionCfg, err := resolveSessionConfig(projectDir, nil, nil)
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
@@ -149,13 +149,66 @@ func TestResolveSessionConfigUsesConfiguredBackupExcludes(t *testing.T) {
 func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 	projectDir := t.TempDir()
 
-	cfg, err := resolveSessionConfig(projectDir, nil)
+	cfg, err := resolveSessionConfig(projectDir, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want, _ := filepath.EvalSymlinks(projectDir)
 	if cfg.ProjectDir != want {
 		t.Errorf("ProjectDir = %q, want %q", cfg.ProjectDir, want)
+	}
+}
+
+func TestResolveSessionConfigRejectsProjectCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+
+	_, err = resolveSessionConfig(home, nil, nil)
+	if err == nil {
+		t.Fatal("expected credential deny project dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionConfigRejectsReadCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	projectDir := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", projectDir, err)
+	}
+
+	_, err = resolveSessionConfig(projectDir, []string{home}, nil)
+	if err == nil {
+		t.Fatal("expected credential deny read dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionConfigRejectsWriteCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	projectDir := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", projectDir, err)
+	}
+
+	_, err = resolveSessionConfig(projectDir, nil, []string{home})
+	if err == nil {
+		t.Fatal("expected credential deny write dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -279,6 +332,58 @@ func TestRunConfigDockerPersistsProjectMode(t *testing.T) {
 	}
 	if _, ok := cfg.ProjectDockerMode(canonicalProjectDir); ok {
 		t.Fatal("ProjectDockerMode should be cleared after auto")
+	}
+}
+
+func TestRunConfigAccessPersistsProjectDirs(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	readDir := t.TempDir()
+	writeDir := t.TempDir()
+	canonicalReadDir, err := resolveDir(readDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir read: %v", err)
+	}
+	canonicalWriteDir, err := resolveDir(writeDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir write: %v", err)
+	}
+
+	if err := runConfigAccess(projectDir, []string{readDir}, []string{writeDir}, false); err != nil {
+		t.Fatalf("runConfigAccess add: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after add: %v", err)
+	}
+	canonicalProjectDir, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir project: %v", err)
+	}
+	gotRead := cfg.ProjectReadDirs(canonicalProjectDir)
+	gotWrite := cfg.ProjectWriteDirs(canonicalProjectDir)
+	if len(gotRead) != 1 || gotRead[0] != canonicalReadDir {
+		t.Fatalf("ProjectReadDirs = %v, want [%q]", gotRead, canonicalReadDir)
+	}
+	if len(gotWrite) != 1 || gotWrite[0] != canonicalWriteDir {
+		t.Fatalf("ProjectWriteDirs = %v, want [%q]", gotWrite, canonicalWriteDir)
+	}
+
+	if err := runConfigAccess(projectDir, []string{canonicalReadDir}, []string{canonicalWriteDir}, true); err != nil {
+		t.Fatalf("runConfigAccess remove: %v", err)
+	}
+
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig after remove: %v", err)
+	}
+	if got := cfg.ProjectReadDirs(canonicalProjectDir); len(got) != 0 {
+		t.Fatalf("ProjectReadDirs after remove = %v, want empty", got)
+	}
+	if got := cfg.ProjectWriteDirs(canonicalProjectDir); len(got) != 0 {
+		t.Fatalf("ProjectWriteDirs after remove = %v, want empty", got)
 	}
 }
 
@@ -436,6 +541,19 @@ func TestGenerateSBPLWithReadDirs(t *testing.T) {
 		if strings.Contains(policy, bad) {
 			t.Errorf("read dir %s must not have file-write* rule", dir)
 		}
+	}
+}
+
+func TestGenerateSBPLWithWriteDirs(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+		WriteDirs:  []string{"/tmp/venvs/project"},
+	}
+	policy := generateSBPL(cfg)
+
+	want := `(allow file-read* file-write* (subpath "/tmp/venvs/project"))`
+	if !strings.Contains(policy, want) {
+		t.Fatalf("expected read-write rule for write dir in policy:\n%s", policy)
 	}
 }
 
@@ -1205,7 +1323,10 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 			"/Users/dr/workspace/ref-a",
 			"/Users/dr/workspace/ref-b",
 		},
-		PackEnv: map[string]string{
+		WriteDirs: []string{
+			"/Users/dr/.venvs/project",
+		},
+		IntegrationEnv: map[string]string{
 			"GOPATH": "/Users/dr/go",
 		},
 	}
@@ -1231,12 +1352,18 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	if len(dirs) != len(cfg.ReadDirs) {
 		t.Fatalf("read dir count = %d, want %d", len(dirs), len(cfg.ReadDirs))
 	}
+	if err := json.Unmarshal([]byte(values["SANDBOX_WRITE_DIRS_JSON"]), &dirs); err != nil {
+		t.Fatalf("unmarshal SANDBOX_WRITE_DIRS_JSON: %v", err)
+	}
+	if len(dirs) != len(cfg.WriteDirs) {
+		t.Fatalf("write dir count = %d, want %d", len(dirs), len(cfg.WriteDirs))
+	}
 	if values["GOPATH"] != "/Users/dr/go" {
 		t.Fatalf("GOPATH = %q, want /Users/dr/go", values["GOPATH"])
 	}
 }
 
-func TestApplyPacksMergesSnapshotExcludes(t *testing.T) {
+func TestApplyIntegrationsMergesSnapshotExcludes(t *testing.T) {
 	isolateConfig(t)
 
 	cfg := sessionConfig{
@@ -1244,8 +1371,8 @@ func TestApplyPacksMergesSnapshotExcludes(t *testing.T) {
 		BackupExcludes: []string{"node_modules/"},
 	}
 
-	if err := applyPacks(&cfg, []string{"node"}); err != nil {
-		t.Fatalf("applyPacks: %v", err)
+	if err := applyIntegrations(&cfg, []string{"node"}); err != nil {
+		t.Fatalf("applyIntegrations: %v", err)
 	}
 
 	countNodeModules := 0
@@ -1266,7 +1393,7 @@ func TestApplyPacksMergesSnapshotExcludes(t *testing.T) {
 	}
 }
 
-func TestApplyPacksPopulatesSessionContractFields(t *testing.T) {
+func TestApplyIntegrationsPopulatesSessionContractFields(t *testing.T) {
 	isolateConfig(t)
 	t.Setenv("GOPROXY", "https://proxy.example")
 
@@ -1275,39 +1402,42 @@ func TestApplyPacksPopulatesSessionContractFields(t *testing.T) {
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}
 
-	if err := applyPacks(&cfg, []string{"go"}); err != nil {
-		t.Fatalf("applyPacks: %v", err)
+	if err := applyIntegrations(&cfg, []string{"go"}); err != nil {
+		t.Fatalf("applyIntegrations: %v", err)
 	}
 
-	if len(cfg.ActivePacks) != 1 || cfg.ActivePacks[0] != "go" {
-		t.Fatalf("ActivePacks = %v, want [go]", cfg.ActivePacks)
+	if len(cfg.ActiveIntegrations) != 1 || cfg.ActiveIntegrations[0] != "go" {
+		t.Fatalf("ActiveIntegrations = %v, want [go]", cfg.ActiveIntegrations)
 	}
-	if len(cfg.PackRegistryKeys) != 1 || cfg.PackRegistryKeys[0] != "GOPROXY" {
-		t.Fatalf("PackRegistryKeys = %v, want [GOPROXY]", cfg.PackRegistryKeys)
+	if len(cfg.IntegrationRegistryKeys) != 1 || cfg.IntegrationRegistryKeys[0] != "GOPROXY" {
+		t.Fatalf("IntegrationRegistryKeys = %v, want [GOPROXY]", cfg.IntegrationRegistryKeys)
 	}
 	foundVendor := false
-	for _, pat := range cfg.PackExcludes {
+	for _, pat := range cfg.IntegrationExcludes {
 		if pat == "vendor/" {
 			foundVendor = true
 			break
 		}
 	}
 	if !foundVendor {
-		t.Fatalf("PackExcludes = %v, want to contain vendor/", cfg.PackExcludes)
+		t.Fatalf("IntegrationExcludes = %v, want to contain vendor/", cfg.IntegrationExcludes)
 	}
 }
 
 func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 	cfg := sessionConfig{
-		ProjectDir:       "/tmp/project",
-		ReadDirs:         []string{"/opt/homebrew/lib/node_modules", "/Users/dr/go/pkg/mod"},
-		PackRegistryKeys: []string{"GOPROXY"},
-		PackExcludes:     []string{"vendor/", ".next/"},
-		PackWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
-		ActivePacks:      []string{"go", "node"},
-		ServiceAccess:    []string{"github"},
-		RoutingReason:    "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
-		SessionNotes:     []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
+		ProjectDir:              "/tmp/project",
+		AutoReadDirs:            []string{"/opt/homebrew/lib/node_modules", "/Users/dr/go/pkg/mod"},
+		UserReadDirs:            []string{"/Users/dr/workspace/shared-ref"},
+		WriteDirs:               []string{"/Users/dr/.venvs/project"},
+		IntegrationSources:      []string{"go (go env GOROOT)", "node (active runtime)"},
+		IntegrationRegistryKeys: []string{"GOPROXY"},
+		IntegrationExcludes:     []string{"vendor/", ".next/"},
+		IntegrationWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
+		ActiveIntegrations:      []string{"go", "node"},
+		ServiceAccess:           []string{"github"},
+		RoutingReason:           "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
+		SessionNotes:            []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
 	}
 
 	got := renderSessionContract(cfg, sessionModeDockerSandbox, false)
@@ -1317,8 +1447,11 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Mode:                 Docker Sandbox",
 		"Why this mode:        using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
 		"Project (read-write): /tmp/project",
-		"Extra read-only:      /opt/homebrew/lib/node_modules, /Users/dr/go/pkg/mod",
-		"Packs:                go, node",
+		"Integrations:         go, node",
+		"Integration sources: go (go env GOROOT), node (active runtime)",
+		"Auto read-only:       /opt/homebrew/lib/node_modules, /Users/dr/go/pkg/mod",
+		"Read-only extensions: /Users/dr/workspace/shared-ref",
+		"Read-write extensions: /Users/dr/.venvs/project",
 		"Service access:       github",
 		"Pre-session snapshot: on",
 		"Snapshot excludes:    vendor/, .next/",
@@ -1339,8 +1472,10 @@ func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 
 	for _, want := range []string{
 		"Mode:                 Native containment",
-		"Extra read-only:      none",
-		"Packs:                none",
+		"Integrations:         none",
+		"Auto read-only:       none",
+		"Read-only extensions: none",
+		"Read-write extensions: none",
 		"Service access:       none",
 		"Pre-session snapshot: skipped (--no-backup)",
 	} {

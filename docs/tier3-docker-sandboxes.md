@@ -68,7 +68,7 @@ hazmat explain --docker=sandbox      # preview what the session will do
 
 Hazmat creates the sandbox, applies network policy, and prints a session
 contract showing the mode, routing reason, project boundaries, and active
-packs before launching the agent.
+integrations before launching the agent.
 
 If Hazmat thinks the repo depends on the **host** daemon instead, it stops and
 asks you to choose `--docker=none` for a code-only session or to move the
@@ -122,11 +122,14 @@ for every repo.
 
 Known continuity gaps relative to Tier 2:
 
-- stack pack env passthrough is not supported in Docker Sandbox mode yet
+- integration env passthrough is not supported in Docker Sandbox mode yet
 - `hazmat claude --resume/--continue` uses sandbox-local history instead of the
   host transcript sync used by native containment
 - read-only parent directories may be rewritten into sibling mounts because
   Docker mount semantics differ from seatbelt path rules
+- overlapping ancestor read/write extension layouts are rewritten into sibling
+  mounts when Hazmat can do so safely; only irreducibly conflicting layouts are
+  still rejected
 - localhost and service topology differ materially between native containment
   and Docker Sandbox mode
 

@@ -24,15 +24,18 @@ var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-creden
 // ── Config types ────────────────────────────────────────────────────────────
 
 type HazmatConfig struct {
-	Backup   BackupConfig             `yaml:"backup"`
-	Session  SessionConfig            `yaml:"session"`
-	Packs    PacksConfig              `yaml:"packs,omitempty"`
-	Projects map[string]ProjectConfig `yaml:"projects,omitempty"`
-	Sandbox  SandboxConfig            `yaml:"sandbox,omitempty"`
+	Backup       BackupConfig             `yaml:"backup"`
+	Session      SessionConfig            `yaml:"session"`
+	Integrations IntegrationsConfig       `yaml:"integrations,omitempty"`
+	Packs        PacksConfig              `yaml:"packs,omitempty"`
+	Projects     map[string]ProjectConfig `yaml:"projects,omitempty"`
+	Sandbox      SandboxConfig            `yaml:"sandbox,omitempty"`
 }
 
 type ProjectConfig struct {
-	Docker dockerMode `yaml:"docker,omitempty"`
+	Docker    dockerMode `yaml:"docker,omitempty"`
+	ReadDirs  []string   `yaml:"read_dirs,omitempty"`
+	WriteDirs []string   `yaml:"write_dirs,omitempty"`
 }
 
 type SessionConfig struct {
@@ -52,6 +55,10 @@ type SessionConfig struct {
 	// every session. Default: empty. Visible in `hazmat config`, configurable
 	// via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
+}
+
+type IntegrationsConfig struct {
+	Homebrew *bool `yaml:"homebrew,omitempty"`
 }
 
 type SandboxConfig struct {
@@ -150,6 +157,13 @@ func (c HazmatConfig) SessionReadDirs() []string {
 	return nil
 }
 
+func (c HazmatConfig) HomebrewIntegrationConsent() (bool, bool) {
+	if c.Integrations.Homebrew == nil {
+		return false, false
+	}
+	return *c.Integrations.Homebrew, true
+}
+
 func (c HazmatConfig) SandboxBackend() *SandboxBackendConfig {
 	if c.Sandbox.Backend == nil || c.Sandbox.Backend.Type == "" {
 		return nil
@@ -170,6 +184,28 @@ func (c HazmatConfig) ProjectDockerMode(projectDir string) (dockerMode, bool) {
 		return dockerModeAuto, false
 	}
 	return project.Docker, true
+}
+
+func (c HazmatConfig) ProjectReadDirs(projectDir string) []string {
+	if len(c.Projects) == 0 {
+		return nil
+	}
+	project, ok := c.Projects[projectDir]
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), project.ReadDirs...)
+}
+
+func (c HazmatConfig) ProjectWriteDirs(projectDir string) []string {
+	if len(c.Projects) == 0 {
+		return nil
+	}
+	project, ok := c.Projects[projectDir]
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), project.WriteDirs...)
 }
 
 func defaultConfig() HazmatConfig {
@@ -257,6 +293,7 @@ func newConfigCmd() *cobra.Command {
 Subcommands:
   hazmat config              Show current configuration
   hazmat config docker       Configure per-project Docker routing
+  hazmat config access       Configure per-project read/write extensions
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
@@ -267,6 +304,7 @@ Subcommands:
 Examples:
   hazmat config
   hazmat config docker none -C ~/workspace/my-project
+  hazmat config access add -C ~/workspace/my-project --read ~/other-code
   hazmat config agent
   hazmat config import claude --dry-run
   hazmat config import opencode --dry-run
@@ -280,6 +318,7 @@ Examples:
 
 	cmd.AddCommand(newConfigEditCmd())
 	cmd.AddCommand(newConfigDockerCmd())
+	cmd.AddCommand(newConfigAccessCmd())
 	cmd.AddCommand(newConfigAgentCmd())
 	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
@@ -360,21 +399,44 @@ func runConfigShow() error {
 	if len(cfg.Projects) > 0 {
 		var projectKeys []string
 		for projectDir, projectCfg := range cfg.Projects {
-			if validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto {
+			if projectHasOverrides(projectCfg) {
 				projectKeys = append(projectKeys, projectDir)
 			}
 		}
 		sort.Strings(projectKeys)
 		if len(projectKeys) > 0 {
-			fmt.Printf("    Project Docker:   %d configured\n", len(projectKeys))
+			fmt.Printf("    Project overrides: %d configured\n", len(projectKeys))
 			for _, projectDir := range projectKeys {
-				fmt.Printf("      - %s => %s\n", projectDir, cfg.Projects[projectDir].Docker)
+				projectCfg := cfg.Projects[projectDir]
+				fmt.Printf("      - %s\n", projectDir)
+				if validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto {
+					fmt.Printf("        Docker: %s\n", projectCfg.Docker)
+				}
+				if len(projectCfg.ReadDirs) > 0 {
+					fmt.Printf("        Read-only: %s\n", strings.Join(projectCfg.ReadDirs, ", "))
+				}
+				if len(projectCfg.WriteDirs) > 0 {
+					fmt.Printf("        Read-write: %s\n", strings.Join(projectCfg.WriteDirs, ", "))
+				}
 			}
 		} else {
-			fmt.Printf("    Project Docker:   (none)\n")
+			fmt.Printf("    Project overrides: (none)\n")
 		}
 	} else {
-		fmt.Printf("    Project Docker:   (none)\n")
+		fmt.Printf("    Project overrides: (none)\n")
+	}
+	fmt.Println()
+
+	cBold.Println("  Integrations")
+	fmt.Println()
+	if allowed, configured := cfg.HomebrewIntegrationConsent(); configured {
+		state := "disabled"
+		if allowed {
+			state = "enabled"
+		}
+		fmt.Printf("    Homebrew metadata: %s\n", state)
+	} else {
+		fmt.Printf("    Homebrew metadata: ask on first use\n")
 	}
 	fmt.Println()
 
@@ -462,6 +524,61 @@ Examples:
 	return cmd
 }
 
+func newConfigAccessCmd() *cobra.Command {
+	var project string
+
+	newActionCmd := func(name string, remove bool) *cobra.Command {
+		var readDirs []string
+		var writeDirs []string
+
+		short := "Add per-project directory extensions"
+		if remove {
+			short = "Remove per-project directory extensions"
+		}
+
+		cmd := &cobra.Command{
+			Use:   name,
+			Short: short,
+			Args:  cobra.NoArgs,
+			RunE: func(_ *cobra.Command, _ []string) error {
+				return runConfigAccess(project, readDirs, writeDirs, remove)
+			},
+		}
+		cmd.Flags().StringVarP(&project, "project", "C", "",
+			"Project directory (defaults to current directory)")
+		cmd.Flags().StringArrayVar(&readDirs, "read", nil,
+			"Read-only directory to persist for this project (repeatable)")
+		cmd.Flags().StringArrayVar(&writeDirs, "write", nil,
+			"Read-write directory to persist for this project (repeatable)")
+		return cmd
+	}
+
+	cmd := &cobra.Command{
+		Use:   "access",
+		Short: "Configure per-project read/write directory extensions",
+		Long: `Set explicit per-project directory extensions.
+
+These extend Hazmat's default session contract with exact directory paths.
+Read-only entries behave like persistent -R flags. Read-write entries add
+extra writable roots beyond the project directory for that project only.
+
+Examples:
+  hazmat config access add -C ~/workspace/my-app --read ~/.nvm/versions/node/v22
+  hazmat config access add -C ~/workspace/my-app --write ~/.venvs/my-app
+  hazmat config access remove -C ~/workspace/my-app --write ~/.venvs/my-app`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(
+		newActionCmd("add", false),
+		newActionCmd("remove", true),
+	)
+	return cmd
+}
+
 func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
@@ -481,8 +598,11 @@ Keys:
   session.status_bar             Enable Hazmat's terminal status bar (default: false)
   session.read_dirs.add          Add a read-only directory to auto-include in sessions
   session.read_dirs.remove       Remove a read-only directory from auto-include
-  packs.pin                      Pin packs to a project (value: project:pack1,pack2)
-  packs.unpin                    Remove pack pinning for a project (value: project path)
+  integrations.homebrew          Homebrew-backed integration resolution: enabled, disabled, or ask
+  integrations.pin               Pin integrations to a project (value: project:name1,name2)
+  integrations.unpin             Remove integration pinning for a project (value: project path)
+  packs.pin                      Legacy alias for integrations.pin
+  packs.unpin                    Legacy alias for integrations.unpin
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
@@ -490,8 +610,9 @@ Examples:
   hazmat config set session.skip_permissions false
   hazmat config set session.status_bar true
   hazmat config set session.read_dirs.add ~/other-code
-  hazmat config set packs.pin "~/workspace/my-app:node,python-poetry"
-  hazmat config set packs.unpin ~/workspace/my-app`,
+  hazmat config set integrations.homebrew enabled
+  hazmat config set integrations.pin "~/workspace/my-app:node,python-poetry"
+  hazmat config set integrations.unpin ~/workspace/my-app`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runConfigSet(args[0], args[1])
@@ -568,15 +689,21 @@ func runConfigSet(key, value string) error {
 			}
 		}
 		cfg.Session.ReadDirs = &filtered
-	case "packs.pin":
+	case "integrations.homebrew":
+		parsed, err := parseOptionalBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.Integrations.Homebrew = parsed
+	case "integrations.pin", "packs.pin":
 		// Format: "project:pack1,pack2"
 		parts := strings.SplitN(value, ":", 2)
 		if len(parts) != 2 {
-			return fmt.Errorf("packs.pin format: project:pack1,pack2")
+			return fmt.Errorf("integrations.pin format: project:name1,name2")
 		}
 		project := strings.TrimSpace(parts[0])
 		if project == "" {
-			return fmt.Errorf("packs.pin format: project:pack1,pack2")
+			return fmt.Errorf("integrations.pin format: project:name1,name2")
 		}
 		// Canonicalize the project path so pin/unpin/match all use the
 		// same resolved form. This prevents ~/app and /Users/dr/app from
@@ -592,7 +719,7 @@ func runConfigSet(key, value string) error {
 		for _, rawName := range rawPackNames {
 			name := strings.TrimSpace(rawName)
 			if name == "" {
-				return fmt.Errorf("packs.pin format: project:pack1,pack2")
+				return fmt.Errorf("integrations.pin format: project:name1,name2")
 			}
 			if _, seen := seenPackNames[name]; seen {
 				continue
@@ -618,7 +745,7 @@ func runConfigSet(key, value string) error {
 				Packs:      packNames,
 			})
 		}
-	case "packs.unpin":
+	case "integrations.unpin", "packs.unpin":
 		unpinPath := strings.TrimSpace(value)
 		// Canonicalize so the unpin matches regardless of path spelling.
 		if canonical, err := canonicalizePath(expandTilde(unpinPath)); err == nil {
@@ -685,10 +812,118 @@ func runConfigDocker(project, rawMode string) error {
 	return nil
 }
 
+func runConfigAccess(project string, readDirs, writeDirs []string, remove bool) error {
+	if len(readDirs) == 0 && len(writeDirs) == 0 {
+		return fmt.Errorf("specify at least one --read or --write directory")
+	}
+
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return fmt.Errorf("project: %w", err)
+	}
+	readDirs, err = canonicalizeConfiguredDirs(readDirs)
+	if err != nil {
+		return fmt.Errorf("read dirs: %w", err)
+	}
+	writeDirs, err = canonicalizeConfiguredDirs(writeDirs)
+	if err != nil {
+		return fmt.Errorf("write dirs: %w", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Projects == nil {
+		cfg.Projects = make(map[string]ProjectConfig)
+	}
+
+	projectCfg := cfg.Projects[projectDir]
+	projectCfg.ReadDirs = mergeConfiguredDirs(projectCfg.ReadDirs, readDirs, remove)
+	projectCfg.WriteDirs = mergeConfiguredDirs(projectCfg.WriteDirs, writeDirs, remove)
+	if projectHasOverrides(projectCfg) {
+		cfg.Projects[projectDir] = projectCfg
+	} else {
+		delete(cfg.Projects, projectDir)
+	}
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = nil
+	}
+
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	action := "Updated"
+	if remove {
+		action = "Removed"
+	}
+	fmt.Printf("%s project access for %s\n", action, projectDir)
+	return nil
+}
+
 func ensureCloudConfig(cfg *HazmatConfig) {
 	if cfg.Backup.Cloud == nil {
 		cfg.Backup.Cloud = &CloudBackup{}
 	}
+}
+
+func canonicalizeConfiguredDirs(paths []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(paths))
+	var resolved []string
+	for _, path := range paths {
+		dir, err := resolveDir(expandTilde(path), false)
+		if err != nil {
+			return nil, err
+		}
+		if _, dup := seen[dir]; dup {
+			continue
+		}
+		seen[dir] = struct{}{}
+		resolved = append(resolved, dir)
+	}
+	return resolved, nil
+}
+
+func mergeConfiguredDirs(existing, values []string, remove bool) []string {
+	if !remove {
+		seen := make(map[string]struct{}, len(existing)+len(values))
+		merged := make([]string, 0, len(existing)+len(values))
+		for _, dir := range existing {
+			if _, dup := seen[dir]; dup {
+				continue
+			}
+			seen[dir] = struct{}{}
+			merged = append(merged, dir)
+		}
+		for _, dir := range values {
+			if _, dup := seen[dir]; dup {
+				continue
+			}
+			seen[dir] = struct{}{}
+			merged = append(merged, dir)
+		}
+		return merged
+	}
+
+	removeSet := make(map[string]struct{}, len(values))
+	for _, dir := range values {
+		removeSet[dir] = struct{}{}
+	}
+	filtered := existing[:0]
+	for _, dir := range existing {
+		if _, drop := removeSet[dir]; drop {
+			continue
+		}
+		filtered = append(filtered, dir)
+	}
+	return filtered
+}
+
+func projectHasOverrides(projectCfg ProjectConfig) bool {
+	return (validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto) ||
+		len(projectCfg.ReadDirs) > 0 ||
+		len(projectCfg.WriteDirs) > 0
 }
 
 func parseInt(s string) (int, error) {
@@ -701,4 +936,17 @@ func parseInt(s string) (int, error) {
 		return 0, fmt.Errorf("value must be non-negative: %d", n)
 	}
 	return n, nil
+}
+
+func parseOptionalBool(value string) (*bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "enabled", "enable", "true", "1", "yes", "on":
+		return boolPtr(true), nil
+	case "disabled", "disable", "false", "0", "no", "off":
+		return boolPtr(false), nil
+	case "ask", "unset", "default", "auto":
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("invalid value %q (want enabled, disabled, or ask)", value)
+	}
 }

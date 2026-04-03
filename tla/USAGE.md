@@ -11,8 +11,23 @@
 
 Verify:
 ```bash
-java -jar ~/workspace/tla2tools.jar 2>&1 | head -1
-# Expected: TLC Version 2.x ...
+cd tla/
+./run_tlc.sh -help | head -3
+```
+
+`run_tlc.sh` resolves a real Java binary before invoking TLC. This matters on
+macOS hosts where `java` or `/usr/bin/java` may be the Apple launcher stub
+instead of an installed JDK.
+
+If your shell exports `JAVA_HOME=/usr`, that is the same launcher stub, not a
+usable JDK for TLC. `run_tlc.sh` ignores it and keeps searching.
+
+If auto-detection misses your JDK, set one of:
+
+```bash
+JAVA_BIN=/path/to/java ./run_tlc.sh -help
+JAVA_HOME=/path/to/jdk ./run_tlc.sh -help
+TLA2TOOLS_JAR=/path/to/tla2tools.jar ./run_tlc.sh -help
 ```
 
 ---
@@ -34,7 +49,7 @@ tla/
 ### Check invariants (safety)
 ```bash
 cd tla/
-java -jar ~/workspace/tla2tools.jar \
+./run_tlc.sh \
   -workers auto \
   -config MC_SetupRollback.cfg \
   MC_SetupRollback.tla
@@ -43,7 +58,7 @@ java -jar ~/workspace/tla2tools.jar \
 ### Check liveness properties (temporal)
 ```bash
 cd tla/
-java -jar ~/workspace/tla2tools.jar \
+./run_tlc.sh \
   -workers auto \
   -lncheck final \
   -config MC_SetupRollback.cfg \
@@ -123,7 +138,7 @@ Expected: No error has been found (1887 distinct states, <1s).
 TLC exits `0` on success and non-zero on any error or violation.
 
 ```bash
-if java -jar ~/workspace/tla2tools.jar \
+if ./run_tlc.sh \
       -workers auto -terse \
       -config MC.cfg MC.tla 2>&1 | tee /tmp/tlc_out.txt; then
   echo "PASS: no violations found"
@@ -143,5 +158,6 @@ fi
 | 02 Seatbelt Policy | 6 paths, 4 project choices | 192 distinct | <1s |
 | 03 Backup Safety | 3 snapshots, 2 sessions, 2 restores | 395 distinct | <1s |
 | 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
+| 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
 
 If TLC runs for more than 60 seconds, reduce your model bounds.

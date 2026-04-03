@@ -464,10 +464,10 @@ func recordApproval(projectDir, fileHash string) error {
 // promptPackApproval asks the user to approve repo-recommended packs.
 // Returns true if approved. Non-interactive sessions (no TTY) return false.
 func promptPackApproval(projectDir string, packNames []string) bool {
-	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends packs: %s\n",
+	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends integrations: %s\n",
 		strings.Join(packNames, ", "))
 	fmt.Fprintf(os.Stderr, "hazmat: source: %s/%s\n", projectDir, repoRecommendedFile)
-	fmt.Fprintf(os.Stderr, "hazmat: approve these packs for this repo? [y/N] ")
+	fmt.Fprintf(os.Stderr, "hazmat: approve these integrations for this repo? [y/N] ")
 
 	var answer string
 	if _, err := fmt.Scanln(&answer); err != nil {
@@ -524,7 +524,7 @@ func resolveActivePacks(packFlags []string, projectDir string) ([]Pack, error) {
 					names[n] = struct{}{}
 				}
 			} else {
-				fmt.Fprintln(os.Stderr, "hazmat: repo packs declined. Use --pack to activate manually.")
+				fmt.Fprintln(os.Stderr, "hazmat: repo integrations declined. Use --integration to activate manually.")
 			}
 		}
 	} else if err != nil {
@@ -593,20 +593,37 @@ type packMergeResult struct {
 
 // mergePacks validates paths and merges all active packs into a single result.
 func mergePacks(packs []Pack) (packMergeResult, error) {
+	resolved := make([]resolvedIntegration, 0, len(packs))
+	for _, pack := range packs {
+		resolved = append(resolved, resolvedIntegration{Pack: pack})
+	}
+	return mergeResolvedIntegrations(resolved)
+}
+
+func mergeResolvedIntegrations(integrations []resolvedIntegration) (packMergeResult, error) {
 	var result packMergeResult
 	result.EnvPassthrough = make(map[string]string)
 
 	readDirSeen := make(map[string]struct{})
 	excludeSeen := make(map[string]struct{})
 	warnSeen := make(map[string]struct{})
+	registrySeen := make(map[string]struct{})
 
-	for _, p := range packs {
-		// V2: validate and canonicalize paths.
-		dirs, err := validatePackPaths(p)
-		if err != nil {
-			return packMergeResult{}, err
+	for _, integration := range integrations {
+		if !integration.ReplacePackReadDirs {
+			dirs, err := validatePackPaths(integration.Pack)
+			if err != nil {
+				return packMergeResult{}, err
+			}
+			for _, d := range dirs {
+				if _, dup := readDirSeen[d]; !dup {
+					result.ReadDirs = append(result.ReadDirs, d)
+					readDirSeen[d] = struct{}{}
+				}
+			}
 		}
-		for _, d := range dirs {
+
+		for _, d := range integration.AdditionalReadDirs {
 			if _, dup := readDirSeen[d]; !dup {
 				result.ReadDirs = append(result.ReadDirs, d)
 				readDirSeen[d] = struct{}{}
@@ -614,20 +631,33 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 		}
 
 		// Env passthrough: resolve from invoker's environment.
-		for _, key := range p.Session.EnvPassthrough {
+		for _, key := range integration.Pack.Session.EnvPassthrough {
 			if _, set := result.EnvPassthrough[key]; set {
 				continue
 			}
 			if val := os.Getenv(key); val != "" {
 				result.EnvPassthrough[key] = val
-				if registryEnvKeys[key] {
+				if registryEnvKeys[key] && val != "" {
 					result.RegistryKeys = append(result.RegistryKeys, key)
+					registrySeen[key] = struct{}{}
+				}
+			}
+		}
+		for key, value := range integration.ResolvedEnv {
+			if value == "" {
+				continue
+			}
+			result.EnvPassthrough[key] = value
+			if registryEnvKeys[key] {
+				if _, dup := registrySeen[key]; !dup {
+					result.RegistryKeys = append(result.RegistryKeys, key)
+					registrySeen[key] = struct{}{}
 				}
 			}
 		}
 
 		// Backup excludes.
-		for _, pat := range p.Backup.Excludes {
+		for _, pat := range integration.Pack.Backup.Excludes {
 			if _, dup := excludeSeen[pat]; !dup {
 				result.Excludes = append(result.Excludes, pat)
 				excludeSeen[pat] = struct{}{}
@@ -635,7 +665,13 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 		}
 
 		// Warnings.
-		for _, w := range p.Warnings {
+		for _, w := range integration.Pack.Warnings {
+			if _, dup := warnSeen[w]; !dup {
+				result.Warnings = append(result.Warnings, w)
+				warnSeen[w] = struct{}{}
+			}
+		}
+		for _, w := range integration.AdditionalWarnings {
 			if _, dup := warnSeen[w]; !dup {
 				result.Warnings = append(result.Warnings, w)
 				warnSeen[w] = struct{}{}
@@ -650,16 +686,18 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 
 func newPackCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pack",
-		Short: "List and inspect stack packs",
-		Long: `Stack packs configure session ergonomics for technology stacks.
+		Use:     "integration",
+		Aliases: []string{"pack"},
+		Short:   "List and inspect session integrations",
+		Long: `Session integrations configure session ergonomics for technology stacks.
 
 They set read-only paths, backup excludes, and env passthrough for common
-development environments. Packs cannot widen trust boundaries — they may
+development environments. Integrations cannot widen trust boundaries — they may
 only reduce friction or tighten defaults.
 
-  hazmat pack list          List available packs
-  hazmat pack show <name>   Show pack details`,
+  hazmat integration list        List available integrations
+  hazmat integration show <name> Show integration details
+  hazmat pack list               Legacy alias`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runPackList()
@@ -668,7 +706,7 @@ only reduce friction or tighten defaults.
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
-		Short: "List available stack packs",
+		Short: "List available session integrations",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runPackList()
@@ -676,7 +714,7 @@ only reduce friction or tighten defaults.
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show <name>",
-		Short: "Show details of a stack pack",
+		Short: "Show details of a session integration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runPackShow(args[0])
@@ -688,7 +726,7 @@ only reduce friction or tighten defaults.
 
 func runPackList() error {
 	fmt.Println()
-	fmt.Println("  Built-in packs:")
+	fmt.Println("  Built-in integrations:")
 	fmt.Println()
 	for _, name := range allBuiltinPackNames() {
 		p, err := loadBuiltinPack(name)
@@ -713,7 +751,7 @@ func runPackList() error {
 		}
 		if len(userPacks) > 0 {
 			fmt.Println()
-			fmt.Println("  User packs (~/.hazmat/packs/):")
+			fmt.Println("  User integrations (~/.hazmat/packs/):")
 			fmt.Println()
 			for _, name := range userPacks {
 				p, err := loadUserPack(name)
@@ -742,8 +780,8 @@ func runPackList() error {
 	}
 
 	fmt.Println()
-	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --pack <name>")
-	fmt.Println("  Pin:      hazmat config set packs.pin \"~/workspace/app:node,go\"")
+	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --integration <name>")
+	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
 	fmt.Println()
 	return nil
 }
@@ -754,8 +792,21 @@ func runPackShow(name string) error {
 		return err
 	}
 
+	projectDir, err := os.Getwd()
+	if err != nil {
+		projectDir = "."
+	}
+	resolved := resolvedIntegration{Pack: p}
+	if resolvedSet, err := resolveRuntimeIntegrations(projectDir, []Pack{p}); err == nil && len(resolvedSet) == 1 {
+		resolved = resolvedSet[0]
+	}
+	merged, err := mergeResolvedIntegrations([]resolvedIntegration{resolved})
+	if err != nil {
+		return err
+	}
+
 	fmt.Println()
-	fmt.Printf("  Pack: %s\n", p.PackMeta.Name)
+	fmt.Printf("  Integration: %s\n", p.PackMeta.Name)
 	if p.PackMeta.Description != "" {
 		fmt.Printf("  %s\n", p.PackMeta.Description)
 	}
@@ -764,14 +815,38 @@ func runPackShow(name string) error {
 	if len(p.Detect.Files) > 0 {
 		fmt.Printf("  Detect:          %s\n", strings.Join(p.Detect.Files, ", "))
 	}
+	if spec, ok := integrationResolverFor(name); ok {
+		fmt.Printf("  Resolver:        %s\n", spec.Summary)
+	}
 	if len(p.Session.ReadDirs) > 0 {
-		fmt.Printf("  Read dirs:       %s\n", strings.Join(p.Session.ReadDirs, ", "))
+		fmt.Printf("  Declared read dirs: %s\n", strings.Join(p.Session.ReadDirs, ", "))
+	}
+	if len(merged.ReadDirs) > 0 {
+		fmt.Printf("  Resolved read dirs: %s\n", strings.Join(merged.ReadDirs, ", "))
 	}
 	if len(p.Session.EnvPassthrough) > 0 {
 		fmt.Printf("  Env passthrough: %s\n", strings.Join(p.Session.EnvPassthrough, ", "))
 	}
+	if len(merged.EnvPassthrough) > 0 {
+		var envPairs []string
+		for key, value := range merged.EnvPassthrough {
+			envPairs = append(envPairs, key+"="+value)
+		}
+		sort.Strings(envPairs)
+		fmt.Printf("  Resolved env:    %s\n", strings.Join(envPairs, ", "))
+	}
 	if len(p.Backup.Excludes) > 0 {
 		fmt.Printf("  Excludes:        %s\n", strings.Join(p.Backup.Excludes, ", "))
+	}
+	if resolved.Source != "" {
+		fmt.Printf("  Source:          %s\n", resolved.Source)
+	}
+	if len(resolved.Details) > 0 {
+		fmt.Println()
+		fmt.Println("  Resolution:")
+		for _, detail := range resolved.Details {
+			fmt.Printf("    - %s\n", detail)
+		}
 	}
 	if len(p.Warnings) > 0 {
 		fmt.Println()

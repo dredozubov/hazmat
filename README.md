@@ -30,8 +30,10 @@ hazmat: session
   Mode:                 Native containment
   Why this mode:        using native containment because no Docker requirement was detected
   Project (read-write): /Users/dr/workspace/my-app
-  Extra read-only:      /Users/dr/go/pkg/mod
-  Packs:                go
+  Integrations:         go
+  Auto read-only:       /Users/dr/go/pkg/mod
+  Read-only extensions: none
+  Read-write extensions: none
   Service access:       none
   Pre-session snapshot: on
   Snapshot excludes:    vendor/
@@ -44,8 +46,10 @@ hazmat: session
   Mode:                 Docker Sandbox
   Why this mode:        using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)
   Project (read-write): /Users/dr/workspace/api-service
-  Extra read-only:      none
-  Packs:                node
+  Integrations:         node
+  Auto read-only:       none
+  Read-only extensions: none
+  Read-write extensions: none
   ...
 ```
 
@@ -145,33 +149,39 @@ hazmat snapshots
 hazmat restore          # undo last session
 ```
 
-### Read-Only Directories
+### Extra Directories
 
-The agent can only write to the project directory. Expose additional read-only paths:
+The agent can only write to the project directory by default. Expose
+additional read-only or read-write paths explicitly:
 
 ```bash
 hazmat claude -R ~/workspace/shared-lib -R ~/reference-docs
+hazmat claude -W ~/.venvs/my-app
+hazmat config access add -C ~/workspace/my-app --read ~/reference-docs --write ~/.venvs/my-app
 ```
 
-Enforced by the kernel sandbox — not advisory.
+`-R` stays read-only. `-W` adds another explicit writable root for that
+project or session. Both are enforced by the kernel sandbox — not advisory.
 
-### Stack Packs
+### Session Integrations
 
 ```bash
-hazmat pack list
-hazmat pack show node
-hazmat claude --pack node
-hazmat config set packs.pin "~/workspace/my-app:node,go"
+hazmat integration list
+hazmat integration show node
+hazmat claude --integration node
+hazmat config set integrations.pin "~/workspace/my-app:node,go"
 ```
 
-Stack packs are ergonomic overlays for common stacks. They add read-only
-toolchain paths, extend snapshot excludes, and pass through safe environment
-selectors like `GOPATH` or `VIRTUAL_ENV`. They cannot widen write access,
-relax the credential deny list, or change the network policy.
+Session integrations are ergonomic overlays for common stacks. They may add
+auto-resolved read-only toolchain paths, extend snapshot excludes, and pass
+through safe environment selectors like `GOPATH` or `VIRTUAL_ENV`. They do
+not widen write access, relax the credential deny list, or change the network
+policy.
 
-Repos can declare recommended packs in `.hazmat/packs.yaml`. On first use,
-hazmat prompts once for approval — after that, packs activate automatically.
-See [docs/stack-packs.md](docs/stack-packs.md).
+`hazmat pack` and `--pack` still work as legacy aliases while the model is
+migrating. Repos can still declare recommended integrations in
+`.hazmat/packs.yaml`; Hazmat prompts once for approval, then reuses that
+approval until the file changes. See [docs/stack-packs.md](docs/stack-packs.md).
 
 ### Handing a Hazmat Session Back to Host Claude
 
@@ -194,8 +204,9 @@ hazmat config import claude                          # import portable basics fr
 hazmat config import opencode                        # import portable OpenCode basics from an existing setup
 hazmat bootstrap opencode                            # install OpenCode for the agent user
 hazmat opencode                                      # launch OpenCode in containment
-hazmat pack list                                     # inspect built-in and user stack packs
-hazmat config set packs.pin "~/workspace/app:node,go" # auto-activate packs for a project
+hazmat integration list                              # inspect built-in and user integrations
+hazmat config set integrations.pin "~/workspace/app:node,go" # auto-activate integrations for a project
+hazmat config access add -C ~/workspace/app --write ~/.venvs/app # persist project read/write extensions
 hazmat config docker none -C ~/workspace/app         # persist code-only mode for a shared-daemon repo
 hazmat config cloud                                  # set up S3 backup
 hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
@@ -206,7 +217,7 @@ All settings live in `~/.hazmat/config.yaml`.
 
 Portable import keeps Hazmat's runtime and safety config separate from whatever you use outside containment. See [docs/claude-import.md](docs/claude-import.md) for the current import rules and non-goals.
 OpenCode follows the same curated story; see [docs/opencode-import.md](docs/opencode-import.md).
-Stack packs are documented in [docs/stack-packs.md](docs/stack-packs.md).
+Session integrations are documented in [docs/stack-packs.md](docs/stack-packs.md).
 
 ## Architecture
 
@@ -231,7 +242,9 @@ Three OS-level enforcement layers:
 2. **Seatbelt** — kernel-level filesystem policy. Default deny, explicit allows for project and toolchain paths.
 3. **pf firewall** — packet filter rules scoped to `user agent`. Blocks dangerous protocols.
 
-Setup ordering, seatbelt policy structure, and backup safety are [formally verified with TLA+](tla/VERIFIED.md).
+Setup ordering, seatbelt policy structure, backup safety, Tier 3 launch
+containment, and Tier 2/Tier 3 core policy equivalence are [formally verified
+with TLA+](tla/VERIFIED.md).
 
 ## Undo Everything
 
@@ -258,7 +271,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [usage.md](docs/usage.md) | Complete user guide |
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
-| [stack-packs.md](docs/stack-packs.md) | Stack packs: activation, repo recommendations, user pack authoring, trust model |
+| [stack-packs.md](docs/stack-packs.md) | Session integrations: activation, project extensions, repo recommendations, trust model |
 | [tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) | Docker Sandbox mode: setup, network policy, Compose hardening |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |

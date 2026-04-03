@@ -101,11 +101,12 @@ type sandboxProbe interface {
 }
 
 type sandboxLaunchSpec struct {
-	Name          string
-	Agent         string
-	Config        sessionConfig
-	Profile       sandboxPolicyProfile
-	MountReadDirs []string
+	Name           string
+	Agent          string
+	Config         sessionConfig
+	Profile        sandboxPolicyProfile
+	MountReadDirs  []string
+	MountWriteDirs []string
 }
 
 type sandboxBackendAdapter interface {
@@ -160,8 +161,8 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 		return fmt.Errorf("Docker Desktop %s is too old for shell sandboxes; hazmat shell --docker=sandbox and hazmat exec --docker=sandbox require >= %s",
 			version.String(), minShellSandboxVersion.String())
 	}
-	if len(spec.MountReadDirs) > 0 && !version.AtLeast(minExtraWorkspaceVer) {
-		return fmt.Errorf("Docker Desktop %s is too old for additional read-only workspaces; --docker=sandbox with -R or auto-added read dirs requires >= %s",
+	if (len(spec.MountReadDirs) > 0 || len(spec.MountWriteDirs) > 0) && !version.AtLeast(minExtraWorkspaceVer) {
+		return fmt.Errorf("Docker Desktop %s is too old for additional workspaces; --docker=sandbox with -R, -W, or auto-added dirs requires >= %s",
 			version.String(), minExtraWorkspaceVer.String())
 	}
 	return nil
@@ -187,6 +188,9 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 	} else {
 		fmt.Fprintf(os.Stderr, "hazmat: creating Docker Sandbox %s (first launch may take a few minutes)\n", spec.Name)
 		args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
+		for _, dir := range spec.MountWriteDirs {
+			args = append(args, dir)
+		}
 		for _, dir := range spec.MountReadDirs {
 			args = append(args, dir+":ro")
 		}
@@ -1023,8 +1027,8 @@ func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(
 }
 
 func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
-	if len(cfg.PackEnv) > 0 {
-		return nil, nil, "", fmt.Errorf("stack pack env passthrough is not supported with --docker=sandbox yet")
+	if len(cfg.IntegrationEnv) > 0 {
+		return nil, nil, "", fmt.Errorf("integration env passthrough is not supported with --docker=sandbox yet")
 	}
 
 	probe := sandboxProbeFactory()
@@ -1068,6 +1072,48 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		return sandboxLaunchSpec{}, fmt.Errorf("project dir %q resolves to credential deny zone", cfg.ProjectDir)
 	}
 
+	var mountWriteDirs []string
+	writeSeen := make(map[string]struct{})
+	for _, dir := range cfg.WriteDirs {
+		if isCredentialDenyPath(dir) {
+			return sandboxLaunchSpec{}, fmt.Errorf("write dir %q resolves to credential deny zone", dir)
+		}
+		if isWithinDir(cfg.ProjectDir, dir) {
+			continue
+		}
+		if isWithinDir(dir, cfg.ProjectDir) {
+			for _, s := range expandAncestorDirExcludingPaths(dir, []string{cfg.ProjectDir}) {
+				if isCredentialDenyPath(s) {
+					continue
+				}
+				if sandboxPathCoveredByDirs(s, mountWriteDirs) {
+					continue
+				}
+				if _, dup := writeSeen[s]; dup {
+					continue
+				}
+				writeSeen[s] = struct{}{}
+				mountWriteDirs = append(mountWriteDirs, s)
+			}
+			continue
+		}
+		covered := false
+		for _, other := range cfg.WriteDirs {
+			if other != dir && isWithinDir(other, dir) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		if _, dup := writeSeen[dir]; dup {
+			continue
+		}
+		writeSeen[dir] = struct{}{}
+		mountWriteDirs = append(mountWriteDirs, dir)
+	}
+
 	var mountReadDirs []string
 	seen := make(map[string]struct{})
 	for _, dir := range cfg.ReadDirs {
@@ -1078,13 +1124,19 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		if isWithinDir(cfg.ProjectDir, dir) {
 			continue
 		}
-		// Ancestor of project: can't mount the parent read-only because
-		// Docker's sandbox template copies CLAUDE.md from parent dirs
-		// during create, and an ancestor ro mount conflicts with the
-		// writable workspace. Expand into sibling directories instead.
-		if isWithinDir(dir, cfg.ProjectDir) {
-			for _, s := range expandAncestorReadDir(dir, cfg.ProjectDir) {
+		if skip, _ := sandboxReadDirWriteOverlap(dir, mountWriteDirs); skip {
+			continue
+		}
+
+		excluded := sandboxExcludedDescendants(dir, cfg.ProjectDir, mountWriteDirs)
+		// Ancestors of the project dir or of any writable workspace cannot be
+		// mounted directly. Expand them into non-conflicting siblings instead.
+		if len(excluded) > 0 {
+			for _, s := range expandAncestorDirExcludingPaths(dir, excluded) {
 				if isCredentialDenyPath(s) {
+					continue
+				}
+				if skip, _ := sandboxReadDirWriteOverlap(s, mountWriteDirs); skip {
 					continue
 				}
 				if _, dup := seen[s]; !dup {
@@ -1111,55 +1163,133 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 	}
 
 	return sandboxLaunchSpec{
-		Name:          sandboxName(agent, cfg.ProjectDir, mountReadDirs, profile.Name),
-		Agent:         agent,
-		Config:        cfg,
-		Profile:       profile,
-		MountReadDirs: mountReadDirs,
+		Name:           sandboxName(agent, cfg.ProjectDir, mountReadDirs, mountWriteDirs, profile.Name),
+		Agent:          agent,
+		Config:         cfg,
+		Profile:        profile,
+		MountReadDirs:  mountReadDirs,
+		MountWriteDirs: mountWriteDirs,
 	}, nil
 }
 
-// expandAncestorReadDir lists sibling directories at each path level
-// between ancestor and projectDir. When a read_dir is a parent of the
-// project, Docker sandboxes can't mount it read-only (it conflicts with
-// the writable workspace). This function enumerates the directories at
-// each level that don't lie on the path to the project, giving the
-// sandbox access to siblings without the overlapping-mount conflict.
+func sandboxReadDirWriteOverlap(readDir string, writeDirs []string) (skip bool, conflict string) {
+	for _, writeDir := range writeDirs {
+		if isWithinDir(writeDir, readDir) {
+			return true, ""
+		}
+		if isWithinDir(readDir, writeDir) {
+			return false, writeDir
+		}
+	}
+	return false, ""
+}
+
+func sandboxExcludedDescendants(ancestor, projectDir string, writeDirs []string) []string {
+	var excluded []string
+	appendExcluded := func(candidate string) {
+		if !isWithinDir(ancestor, candidate) {
+			return
+		}
+		for i, existing := range excluded {
+			if isWithinDir(existing, candidate) {
+				return
+			}
+			if isWithinDir(candidate, existing) {
+				excluded[i] = candidate
+				return
+			}
+		}
+		excluded = append(excluded, candidate)
+	}
+
+	appendExcluded(projectDir)
+	for _, writeDir := range writeDirs {
+		appendExcluded(writeDir)
+	}
+	return excluded
+}
+
+func sandboxPathCoveredByDirs(target string, dirs []string) bool {
+	for _, dir := range dirs {
+		if isWithinDir(dir, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// expandAncestorReadDir keeps the original project-only helper behavior for
+// tests and call sites that only need to exclude the writable workspace.
 func expandAncestorReadDir(ancestor, projectDir string) []string {
-	rel, err := filepath.Rel(ancestor, projectDir)
+	return expandAncestorDirExcludingPaths(ancestor, []string{projectDir})
+}
+
+// expandAncestorDirExcludingPaths lists sibling directories around one or more
+// excluded descendant paths. Docker sandboxes cannot mount an ancestor
+// read-only or read-write when that ancestor also contains the writable
+// project workspace or another writable mount. This function enumerates the
+// non-conflicting sibling directories instead.
+func expandAncestorDirExcludingPaths(ancestor string, excluded []string) []string {
+	var relParts [][]string
+	for _, excludedPath := range excluded {
+		rel, err := filepath.Rel(ancestor, excludedPath)
+		if err != nil {
+			continue
+		}
+		if rel == "." {
+			return nil
+		}
+		parts := strings.Split(rel, string(os.PathSeparator))
+		if len(parts) == 0 || (len(parts) == 1 && parts[0] == ".") {
+			return nil
+		}
+		relParts = append(relParts, parts)
+	}
+	if len(relParts) == 0 {
+		return nil
+	}
+	return expandAncestorDirLevel(ancestor, relParts)
+}
+
+func expandAncestorDirLevel(current string, excluded [][]string) []string {
+	var result []string
+	entries, err := os.ReadDir(current)
 	if err != nil {
 		return nil
 	}
-	parts := strings.Split(rel, string(os.PathSeparator))
-	if len(parts) == 0 || (len(parts) == 1 && parts[0] == ".") {
-		return nil // ancestor IS the project
+
+	childExcluded := make(map[string][][]string)
+	childTerminal := make(map[string]bool)
+	for _, parts := range excluded {
+		if len(parts) == 0 {
+			return nil
+		}
+		if len(parts) == 1 {
+			childTerminal[parts[0]] = true
+			continue
+		}
+		childExcluded[parts[0]] = append(childExcluded[parts[0]], parts[1:])
 	}
 
-	var result []string
-	current := ancestor
-	for i, part := range parts {
-		entries, err := os.ReadDir(current)
+	for _, e := range entries {
+		child := filepath.Join(current, e.Name())
+		resolved, err := filepath.EvalSymlinks(child)
 		if err != nil {
-			break
+			continue
 		}
-		for _, e := range entries {
-			if e.Name() == part {
-				continue // on the path to project, skip
-			}
-			child := filepath.Join(current, e.Name())
-			resolved, err := filepath.EvalSymlinks(child)
-			if err != nil {
-				continue
-			}
-			info, err := os.Stat(resolved)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-			result = append(result, resolved)
+		info, err := os.Stat(resolved)
+		if err != nil || !info.IsDir() {
+			continue
 		}
-		if i < len(parts)-1 {
-			current = filepath.Join(current, part)
+
+		if childTerminal[e.Name()] {
+			continue
 		}
+		if tails, ok := childExcluded[e.Name()]; ok {
+			result = append(result, expandAncestorDirLevel(resolved, tails)...)
+			continue
+		}
+		result = append(result, resolved)
 	}
 	return result
 }
@@ -1208,7 +1338,7 @@ func sandboxPolicyProfileByName(name string) (sandboxPolicyProfile, error) {
 	}
 }
 
-func sandboxName(agent, projectDir string, mountReadDirs []string, profileName string) string {
+func sandboxName(agent, projectDir string, mountReadDirs, mountWriteDirs []string, profileName string) string {
 	base := strings.ToLower(filepath.Base(projectDir))
 	base = sandboxNamePattern.ReplaceAllString(base, "-")
 	base = strings.Trim(base, "-")
@@ -1222,6 +1352,10 @@ func sandboxName(agent, projectDir string, mountReadDirs []string, profileName s
 	_, _ = h.Write([]byte(projectDir))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write([]byte(profileName))
+	for _, dir := range mountWriteDirs {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(dir))
+	}
 	for _, dir := range mountReadDirs {
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(dir))

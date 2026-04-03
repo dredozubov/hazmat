@@ -10,7 +10,8 @@ func newExplainCmd() *cobra.Command {
 	var target string
 	var project string
 	var readDirs []string
-	var packNames []string
+	var writeDirs []string
+	var integrationNames []string
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
@@ -27,7 +28,7 @@ execution.
 
 Examples:
   hazmat explain
-  hazmat explain -C ~/workspace/my-project --pack node
+  hazmat explain -C ~/workspace/my-project --integration node
   hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
   hazmat explain --for opencode --docker=none -C ~/workspace/repo`,
 		Args: cobra.NoArgs,
@@ -35,7 +36,8 @@ Examples:
 			cfg, mode, err := resolveExplainSession(target, harnessSessionOpts{
 				project:            project,
 				readDirs:           readDirs,
-				packs:              packNames,
+				writeDirs:          writeDirs,
+				integrations:       integrationNames,
 				noBackup:           noBackup,
 				useSandbox:         useSandbox,
 				allowDocker:        allowDocker,
@@ -47,6 +49,7 @@ Examples:
 			}
 
 			printSessionContract(cfg, mode, noBackup)
+			fmt.Fprint(cmd.ErrOrStderr(), renderIntegrationDetails(cfg.IntegrationDetails))
 			return nil
 		},
 	}
@@ -57,8 +60,12 @@ Examples:
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&packNames, "pack", nil,
-		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
+	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
+		"Read-write directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
+		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
+		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -67,6 +74,8 @@ Examples:
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Preview native containment even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
+	_ = cmd.Flags().MarkHidden("pack")
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 
