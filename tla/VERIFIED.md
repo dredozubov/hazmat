@@ -18,6 +18,12 @@ readiness gating, and policy-before-launch ordering. It still does **not**
 model Docker Sandbox or microVM internals, container runtime behavior after
 launch, Compose semantics, or future non-Docker backends.
 
+Important equivalence boundary: the current suite also models a backend-neutral
+effective-policy contract shared by Tier 2 and Tier 3. It proves a narrower
+core containment equivalence and disproves exact backend identity. The suite
+does **not** claim that Seatbelt policy and Docker Sandbox runtime behavior are
+identical implementations.
+
 ---
 
 ## Governance Rules
@@ -293,6 +299,56 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 
 ---
 
+### 6 — Tier 2 vs Tier 3 Effective Policy Equivalence
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/06_tier2_tier3_effective_policy_equivalence.md` |
+| TLA+ files | `tla/MC_TierPolicyEquivalence.tla`, `tla/MC_TierPolicyEquivalence.cfg` |
+| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
+| Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunch()`, `buildSandboxLaunchSpec()` |
+| Governed code | `hazmat/pack.go` — `isCredentialDenyPath()` |
+| Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
+| Status | **Proved** — exact Tier 2/Tier 3 identity is false by design, but the canonical core containment contract is equivalent across both backends |
+
+**What was found:**
+
+1. Exact backend identity is not a valid claim for the current product. The
+   model proves three intentional divergence classes: integration env
+   passthrough, host-side resume history behavior, and Tier 3 ancestor mount
+   rewriting.
+
+2. A real Tier 2 vs Tier 3 mismatch existed in implementation: Tier 3 already
+   rejected project/read/write roots that overlapped credential deny zones, but
+   native Tier 2 session resolution did not reject the same inputs up front.
+
+**Fix applied:**
+
+1. Added credential-deny validation for explicit project, read-only, and
+   read-write roots during native session resolution in
+   `hazmat/session.go:resolveSessionConfig()`. Tier 2 now rejects the same
+   unsafe inputs Tier 3 rejects.
+
+The principle: **Hazmat may share one path-based containment contract across
+tiers, but it must not claim stronger backend identity than the implementation
+actually provides.** TLC passes across all 163,840 reachable states (327,680
+generated, depth 1, 13s).
+
+**Change rules:**
+- Changes to project/read/write root normalization or credential-deny handling
+  in either tier require re-running both this spec and the Tier 3 launch
+  containment spec.
+- Adding Tier 3 integration-env support requires updating this spec first; the
+  current proof treats that difference as an intentional exact-identity break.
+- Changing resume/continue transcript handling across tiers requires updating
+  this spec first; host resume parity is currently outside the equivalent core
+  containment contract.
+- If Tier 3 ancestor-overlap rewriting changes, update the abstract
+  `NeedsAncestorRewrite` model and re-prove the exact-identity break plus the
+  canonical comparable subset.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -302,6 +358,7 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/pack.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
+| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/pack.go:isCredentialDenyPath()` |
 
 ---
 

@@ -18,6 +18,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 2 | `02_seatbelt_policy_structure.md` | Credential write exposure via project dir or static config allows | **Medium** |
 | 3 | `03_backup_restore_safety.md` | Cloud restore overwrites workspace without pre-restore snapshot (data loss) | **High** |
 | 5 | `05_tier3_launch_containment.md` | Tier 3 host-side launch can expose credential paths or launch before policy if mount planning/gating is wrong | **High** |
+| 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Tier 2 and Tier 3 could diverge on effective read/write scope even when Hazmat presents one session contract | **High** |
 
 ## What TLA+ Adds Here
 

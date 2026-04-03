@@ -37,12 +37,7 @@ This spec therefore answers two separate questions:
 
 ## Status
 
-Drafted, with one real code bug fixed during the analysis.
-
-Important caveat: the current local `tla2tools.jar` / TLC runner is hanging in
-this agent environment before producing parse or model-check output, so this
-document records the intended model and the code-level conclusions, but it is
-**not yet listed in `tla/VERIFIED.md` as a proved area**.
+Proved, with one real code bug fixed during the analysis.
 
 ## Current Conclusion
 
@@ -62,7 +57,7 @@ The drafted model encodes three persistent exact-identity gaps:
 
 So the answer to "are the policies identical?" is **no**.
 
-### Core containment equivalence: intended proof target
+### Core containment equivalence: proved
 
 The narrower claim is:
 
@@ -71,9 +66,8 @@ The narrower claim is:
 > rewriting, then Tier 2 and Tier 3 implement the same core containment
 > contract.
 
-That claim is captured by `CanonicalCoreContainmentEquivalent`. Once TLC is
-running reliably in this environment, that is the claim to check before moving
-this area into `tla/VERIFIED.md`.
+That claim is captured by `CanonicalCoreContainmentEquivalent`, and TLC passes
+with the current model bounds.
 
 ## Bug Found and Fixed
 
@@ -152,6 +146,25 @@ identity is impossible once that rewrite behavior enters.
 | `AncestorRewriteBreaksExactIdentity` | Ancestor rewrite makes exact identity false |
 | `CanonicalCoreContainmentEquivalent` | Under canonical comparable inputs, both tiers have the same core containment policy |
 
+## TLC Result
+
+Run:
+
+```bash
+cd tla/
+./run_tlc.sh -workers 1 \
+  -config MC_TierPolicyEquivalence.cfg \
+  MC_TierPolicyEquivalence.tla
+```
+
+Observed result:
+
+- `Model checking completed. No error has been found.`
+- `327680 states generated`
+- `163840 distinct states found`
+- `depth 1`
+- `Finished in 13s`
+
 ## Interpretation
 
 The useful product conclusion is:
@@ -174,5 +187,3 @@ The useful product conclusion is:
 | ReadChoices | 6 | safe roots, nested roots, overlapping roots, unsafe home parent |
 | WriteChoices | 4 | safe write roots plus unsafe broad parent |
 | Launch gate booleans | 5 | env, resume, backend readiness, approval, extra-mount capability |
-
-Run TLC to confirm the exact state count for the current bounds.

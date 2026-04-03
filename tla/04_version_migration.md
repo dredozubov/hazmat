@@ -98,9 +98,9 @@ including rollback of a partially migrated system.
 ## Running
 
 ```bash
-cd tla
-java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
-  -lncheck final -config MC_Migration.cfg MC_Migration.tla
+cd tla/
+./run_tlc.sh -workers auto -lncheck final \
+  -config MC_Migration.cfg MC_Migration.tla
 ```
 
 ## Change rules
