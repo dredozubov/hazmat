@@ -32,12 +32,18 @@
 ## macOS Seatbelt / sandbox-exec
 
 - [sandbox-exec: macOS's Command-Line Sandboxing Tool](https://igorstechnoclub.com/sandbox-exec/) — Best introductory guide
-- [Sandboxing on macOS](https://bdash.net.nz/posts/sandboxing-on-macos/) — Technical deep dive
+- [Sandboxing on macOS](https://bdash.net.nz/posts/sandboxing-on-macos/) — Technical deep dive; best analysis of the deprecation gap and why App Sandbox is not a replacement
 - [macOS Sandbox (HackTricks)](https://book.hacktricks.wiki/en/macos-hardening/macos-security-and-privilege-escalation/macos-security-protections/macos-sandbox/index.html)
 - [macOS Sandbox Debug & Bypass (HackTricks)](https://book.hacktricks.wiki/en/macos-hardening/macos-security-and-privilege-escalation/macos-security-protections/macos-sandbox/macos-sandbox-debug-and-bypass/index.html)
 - [macOS Sandbox Profiles (SBPL Guide)](https://gist.github.com/cedws/b7dd60878a208be09ae7d766e6317061)
 - [OSX Sandbox Seatbelt Profiles](https://github.com/s7ephen/OSX-Sandbox--Seatbelt--Profiles)
 - [Custom macOS Sandbox Profiles](https://github.com/Ozymandias42/macOS-Sandbox-Profiles)
+- [Chromium Mac Sandbox V2 Design Doc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/sandbox/mac/seatbelt_sandbox_design.md) — Documents Chromium's dependency on `sandbox_init_with_parameters()`
+- [Codex CLI issue #215: sandbox-exec deprecation](https://github.com/openai/codex/issues/215) — OpenAI kept it because "it still works very well"
+- [HN: sandbox-exec Deprecation Discussion](https://news.ycombinator.com/item?id=44283454) — Community analysis including Apple insider perspective
+- [HN: macOS's Little-Known Command-Line Sandboxing Tool](https://news.ycombinator.com/item?id=47101200)
+- [Apple Developer Forums thread 661939](https://developer.apple.com/forums/thread/661939) — "How to build a replacement for sandbox-exec?" — No official Apple response
+- [macOS 26 Tahoe Release Notes](https://developer.apple.com/documentation/macos-release-notes/macos-26-release-notes) — Silent on sandbox API changes
 
 ## Open Source Sandbox Tools
 
@@ -127,7 +133,52 @@
 
 ## Apple Technologies
 
-- [Meet Containerization (WWDC25)](https://developer.apple.com/videos/play/wwdc2025/346/)
+- [Meet Containerization — WWDC 2025 Session 346](https://developer.apple.com/videos/play/wwdc2025/346/)
+- [apple/containerization GitHub](https://github.com/apple/containerization) — Swift framework (Apache 2.0)
+- [apple/container GitHub](https://github.com/apple/container) — CLI tool (Apache 2.0), v0.11.0 as of March 2025
+- [Under the hood with Apple's Containerization — Anil Madhavapeddy](https://anil.recoil.org/notes/apple-containerisation) — Best independent technical analysis; startup benchmarks, architecture breakdown
+- [Apple Containers Technical Comparison with Docker — The New Stack](https://thenewstack.io/apple-containers-on-macos-a-technical-comparison-with-docker/)
+- [What You Need To Know About Apple's Container Framework — The New Stack](https://thenewstack.io/what-you-need-to-know-about-apples-new-container-framework/)
+- [Apple Containerization Deep Dive — kevnu.com](https://www.kevnu.com/en/posts/apple-native-containerization-deep-dive-architecture-comparisons-and-practical-guide)
 - [What is Apple Container?](https://medium.com/@kielhyre/what-is-apple-container-a49728ce6c2b)
 - [Apple Containers vs Docker Desktop vs OrbStack](https://www.repoflow.io/blog/apple-containers-vs-docker-desktop-vs-orbstack)
-- [Apple Containers Technical Comparison (The New Stack)](https://thenewstack.io/apple-containers-on-macos-a-technical-comparison-with-docker/)
+- [GitHub Discussion #719: Firewall for container network](https://github.com/apple/container/discussions/719) — Documents network isolation gaps (host gateway reachable, pf doesn't filter vmnet)
+- [GitHub Issue #990: Read-only rootfs support](https://github.com/apple/container/issues/990)
+- [NanoClaw: Apple Container for AI Agent Sandboxing](https://nanoclaws.io/blog/apple-container-macos-agent-sandbox)
+- [SandboxedClaudeCode](https://github.com/CaptainMcCrank/SandboxedClaudeCode) — Uses Apple Container as one isolation option
+- [From Lume to Containerization](https://cua.ai/blog/lume-to-containerization) — Lume's integration plans
+- [Apple Validates Hypervisor-Isolated Containers — Edera](https://edera.dev/stories/apple-just-validated-hypervisor-isolated-containers-heres-what-that-means)
+- [Docker Forum: Apple Container as Docker backend](https://forums.docker.com/t/apple-container-as-a-backend-for-docker-desktop-on-macos-26/149273) — Community request, no Docker response
+
+## Competitive Agent Sandboxing
+
+- [Anthropic: Claude Code Sandboxing Architecture](https://www.anthropic.com/engineering/claude-code-sandboxing) — Built-in sandbox technical design
+- [OpenAI: Codex Sandboxing](https://developers.openai.com/codex/concepts/sandboxing) — Three-platform OS-native sandboxing
+- [OpenAI: Codex Agent Approvals & Security](https://developers.openai.com/codex/agent-approvals-security)
+- [Codex CLI GitHub](https://github.com/openai/codex) — Rust rewrite, 67K+ stars, Apache 2.0
+- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — Six built-in Seatbelt profiles
+- [Cursor: Agent Sandboxing](https://cursor.com/blog/agent-sandboxing) — Seatbelt + Landlock + seccomp, WSL2 on Windows
+- [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) — Linux-focused agent sandbox using Landlock/seccomp
+- [NVIDIA OpenShell Developer Blog](https://developer.nvidia.com/blog/run-autonomous-self-evolving-agents-more-safely-with-nvidia-openshell/)
+- [UK AISI SandboxEscapeBench](https://www.aisi.gov.uk/blog/can-ai-agents-escape-their-sandboxes-a-benchmark-for-safely-measuring-container-breakout-capabilities) — GPT-5 escapes containers ~50% of the time
+- [SandboxEscapeBench Paper (arXiv)](https://arxiv.org/abs/2603.02277)
+- [Pillar Security: Cursor Agent Security Paradox](https://www.pillar.security/blog/the-agent-security-paradox-when-trusted-commands-in-cursor-become-attack-vectors)
+- [Pillar Security: Hidden Security Risks of SWE Agents](https://www.pillar.security/blog/the-hidden-security-risks-of-swe-agents-like-openai-codex-and-devin-ai)
+- [Endor Labs: Cursor Security](https://www.endorlabs.com/learn/cursor-security)
+
+## Claude Code Source Leak (March 31, 2026)
+
+- [VentureBeat: Claude Code Source Leak](https://venturebeat.com/technology/claude-codes-source-code-appears-to-have-leaked-heres-what-we-know) — 512K lines exposed via npm source map
+- [VentureBeat: Security Actions After Leak](https://venturebeat.com/security/claude-code-512000-line-source-leak-attack-paths-audit-security-leaders)
+- [The Register: Claude Code Source Leak](https://www.theregister.com/2026/04/01/claude_code_source_leak_privacy_nightmare/)
+- [Fortune: Anthropic Source Code Leak](https://fortune.com/2026/03/31/anthropic-source-code-claude-code-data-leak-second-security-lapse-days-after-accidentally-revealing-mythos/)
+
+## AI Security M&A (2025-2026)
+
+- [OpenAI acquires Promptfoo](https://openai.com/index/openai-to-acquire-promptfoo/) — AI agent security testing
+- [CNBC: OpenAI Acquires Promptfoo](https://www.cnbc.com/2026/03/09/open-ai-cybersecurity-promptfoo-ai-agents.html)
+- [TechCrunch: OpenAI Acquires Promptfoo](https://techcrunch.com/2026/03/09/openai-acquires-promptfoo-to-secure-its-ai-agents/)
+- [Accenture/Anthropic: Cyber.AI Partnership](https://newsroom.accenture.com/news/2026/accenture-and-anthropic-team-to-help-organizations-secure-scale-ai-driven-cybersecurity-operations)
+- [Microsoft: OWASP Top 10 for Agentic AI](https://www.microsoft.com/en-us/security/blog/2026/03/30/addressing-the-owasp-top-10-risks-in-agentic-ai-with-microsoft-copilot-studio/)
+- [Microsoft: Securing AI Agents](https://www.microsoft.com/en-us/security/blog/2026/01/23/runtime-risk-realtime-defense-securing-ai-agents/)
+- [Software Strategies: Agentic AI Security Startups and M&A](https://softwarestrategiesblog.com/2026/03/28/agentic-ai-security-startups-funding-mna-rsac-2026/) — $96B in security M&A across 400 transactions (2025-2026)
