@@ -1,0 +1,54 @@
+name: Bug Report
+description: Something broke or behaved unexpectedly
+labels: [bug]
+body:
+  - type: input
+    id: hazmat-version
+    attributes:
+      label: Hazmat version
+      placeholder: "e.g. v0.9.3 or dev-abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 15.4 (Sequoia)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: session-mode
+    attributes:
+      label: Session mode
+      options:
+        - Native containment
+        - Docker Sandbox
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do and what went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+
+  - type: textarea
+    id: hazmat-check
+    attributes:
+      label: "`hazmat check` output"
+      description: "Paste the output of `hazmat check` (redact any paths you consider private)."
+      render: text
+    validations:
+      required: false
