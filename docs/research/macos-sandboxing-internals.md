@@ -10,10 +10,38 @@ Deep dive into the OS-level mechanisms available for sandboxing processes on mac
 
 ### Current Status
 
-- **Officially deprecated** since macOS Sierra (2016), but **still fully functional** as of macOS 15.4 (Sequoia)
+- **Officially deprecated** since macOS Sierra (2016), but **still fully functional** as of macOS 26 Tahoe (confirmed through 26.4)
 - Apple's own system software uses Seatbelt extensively (built-in profiles at `/System/Library/Sandbox/Profiles`)
 - Apple has provided **no replacement** for sandboxing arbitrary CLI processes
-- Production users: Claude Code, Cursor, Gemini CLI, Chromium, Firefox, and numerous security tools
+- Production users: Claude Code, Codex CLI, Gemini CLI, Cursor, Chromium, Firefox, Swift Package Manager, Homebrew, Bazel, Nix, and numerous security tools
+
+### Deprecation Analysis (Updated April 2026)
+
+The `sandbox-exec(1)` man page has carried "DEPRECATED" since macOS 10.13.6 High Sierra (~2017). The `sandbox_init(3)` C API has carried `__deprecated` annotations since macOS 10.8 Mountain Lion (2012). **Nine years deprecated, zero removal signals, no functional degradation.**
+
+**Why removal is unlikely in the near term:**
+
+1. **Apple's own apps depend on it.** Safari, Mail, Quick Look, and dozens of system daemons use Seatbelt profiles. Removing kernel enforcement would require Apple to rewrite its own security stack.
+2. **Major third-party dependencies.** Chromium uses `sandbox_init_with_parameters()` by dynamically loading from `libsandbox.dylib`. Firefox, Swift Package Manager, Homebrew, Bazel, and Nix all depend on the same APIs.
+3. **Every AI agent sandbox tool on macOS depends on it.** Claude Code's `/sandbox` command, Codex CLI, Gemini CLI (six built-in Seatbelt profiles), Cursor's agent sandbox, Agent Safehouse, nono, and Hazmat all use sandbox-exec or sandbox_init.
+4. **macOS 26 Tahoe release notes are silent.** No mention of sandbox API changes or removals. ([Source](https://developer.apple.com/documentation/macos-release-notes/macos-26-release-notes))
+5. **No WWDC session has discussed a replacement.** Apple Developer Forums thread 661939 ("How to build a replacement for sandbox-exec?") has no official Apple engineer response providing a path forward. ([Source](https://developer.apple.com/forums/thread/661939))
+
+**App Sandbox is not a replacement.** The official recommendation is the App Sandbox (entitlements-based), but it cannot sandbox arbitrary CLI processes at runtime — it requires re-signing at build time. Mark Rowe's analysis states directly: "In practice, the App Sandbox is not a usable replacement for many large applications. Apple continues to make use of these lower-level APIs for sandboxing its first-party applications and helper tools." ([Source](https://bdash.net.nz/posts/sandboxing-on-macos/))
+
+**Apple Containerization is not a replacement either.** The Containerization framework (WWDC 2025) runs Linux VMs via `Virtualization.framework`. It cannot sandbox macOS-native processes. See [vm-tools-comparison.md](vm-tools-comparison.md) for the full analysis.
+
+**The real risk is silent behavioral change, not removal.** Apple is more likely to modify which SBPL operations are honored than to remove the API. Historical precedent: the launchd rewrite in macOS 10.10 broke Chromium's bootstrap sandbox without any deprecation notice. Hazmat's `hazmat check` validates sandbox behavior at runtime, and the architecture treats seatbelt as defense-in-depth — user isolation and pf firewall are the primary containment layers.
+
+**Industry pattern:** Everyone uses it, everyone acknowledges the deprecation, nobody has a migration plan.
+
+**References:**
+- [Sandboxing on macOS — Mark Rowe](https://bdash.net.nz/posts/sandboxing-on-macos/) — Best technical analysis of the deprecation gap
+- [Codex CLI issue #215](https://github.com/openai/codex/issues/215) — OpenAI acknowledged deprecation but kept sandbox-exec because "it still works very well"
+- [HN: sandbox-exec Deprecation Discussion](https://news.ycombinator.com/item?id=44283454) — Community analysis including Apple insider perspective
+- [Apple Developer Forums thread 661939](https://developer.apple.com/forums/thread/661939) — No official Apple response on replacement path
+- [macOS 26 Release Notes](https://developer.apple.com/documentation/macos-release-notes/macos-26-release-notes) — Silent on sandbox API changes
+- [Chromium Mac Sandbox V2 Design Doc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/sandbox/mac/seatbelt_sandbox_design.md) — Documents Chromium's dependency on `sandbox_init_with_parameters()`
 
 ### What It Can Restrict
 

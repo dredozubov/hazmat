@@ -116,26 +116,73 @@ Lightweight Docker Desktop alternative and Linux VM manager.
 - CVE-2025-9074 (CVSS 9.3) demonstrated escape from Docker container
 - **Not suitable for untrusted agent isolation**
 
-## Apple Containers (Future)
+## Apple Containers
 
-Native OCI-compliant Linux container support announced at WWDC 2025.
+Native OCI-compliant Linux container runtime announced at WWDC 2025 (Session 346, "Meet Containerization"). Open source under Apache 2.0. Latest release: **v0.11.0** (March 31, 2025).
 
-- Written in Swift, built on Virtualization.framework
-- **Each container runs in its own lightweight VM** (unlike Docker's shared-kernel)
-- Optimized for Apple Silicon
-- Open source on GitHub
-- Version 0.1.0 — not yet ready for production
+Two components:
+- [`apple/containerization`](https://github.com/apple/containerization) — Swift framework providing low-level APIs for image management, VM lifecycle, ext4 filesystem, networking
+- [`apple/container`](https://github.com/apple/container) — CLI tool built on the framework (`container run`, `container build`, etc.)
 
-**When mature, this could become the gold standard** — it provides VM-level isolation with container-level ease of use. Lume is already positioning to integrate with it.
+Architecture:
+- **Each container runs in its own lightweight VM** via `Virtualization.framework` (unlike Docker's shared-kernel model)
+- Boots a Linux kernel (Kata-based, v6.12.28+) with `vminitd` (minimal Swift-compiled static init using musl libc)
+- **Linux guests only** — macOS-native binaries (Mach-O) cannot execute inside these containers
+- **Apple Silicon only** — no Intel Mac support
+- Full networking features require **macOS 26 (Tahoe)**
+
+Performance:
+- Startup: **200-700ms** (boots a full Linux kernel per container)
+- Alpine image ~733ms measured by [Anil Madhavapeddy](https://anil.recoil.org/notes/apple-containerisation); other sources report 200-400ms
+- File I/O: VirtioFS shared mounts, performance comparable to Docker Desktop
+
+Filesystem:
+- `--read-only` rootfs supported (PR #999, January 2026)
+- Read-only bind mounts via `--mount type=bind,...,readonly`
+- **No equivalent to Seatbelt's per-path deny rules** — the model is mount-only (unmounted paths are invisible, but there are no active deny rules for mounted content)
+
+Network isolation (**significant gaps**):
+- Each container gets its own IP via vmnet
+- Networks can be created and are isolated from each other
+- **No built-in per-container firewall** or port/protocol blocking
+- Host gateway reachable from `--internal` networks — "any host service bound to 0.0.0.0 is accessible from inside the agent VM without going through the proxy" ([GitHub discussion #719](https://github.com/apple/container/discussions/719))
+- **pf does not filter vmnet-bridged traffic** — host-side firewall rules are ineffective
+- No native DNS blocking or domain allowlisting (workarounds via Squid proxy on dual-homed network)
+- Privileged process inside the VM could bypass guest-side iptables
+
+Security:
+- CVE-2026-20613 fixed in v0.9.0 (first reported CVE)
+- VM-per-container provides hypervisor-level isolation — strongest tier short of separate physical machines
+- But the network isolation gaps are real and documented
+
+**Critical distinction for agent sandboxing:** Apple Containers run **Linux** binaries, not macOS-native processes. Claude Code (Node.js on macOS), Cursor, Gemini CLI, and other macOS-native AI tools cannot run natively inside Apple Containers. You would need Linux builds of these tools — effectively the same tradeoff as Docker. This makes Apple Containers a better Docker, not a replacement for macOS-native sandboxing (Seatbelt, user isolation, pf).
+
+**Not a replacement for sandbox-exec.** Apple Containerization is a completely different mechanism: hypervisor VMs vs. process-level kernel sandbox. It does not address the use case of restricting what a macOS-native CLI tool can do. There is no indication Apple intends it as a sandbox-exec successor.
+
+**Ecosystem adoption:**
+- [SandboxedClaudeCode](https://github.com/CaptainMcCrank/SandboxedClaudeCode) offers Apple Container as one of three isolation options (alongside Bubblewrap and Firejail)
+- [NanoClaw](https://nanoclaws.io/blog/apple-container-macos-agent-sandbox) uses Apple Container for per-conversation isolated AI agent environments
+- Docker has **not** adopted Apple Containerization as a backend; pursuing their own Docker VMM solution
+- Lume is positioning to integrate with it ([blog](https://cua.ai/blog/lume-to-containerization))
+
+**References:**
+- [Meet Containerization — WWDC 2025 Session 346](https://developer.apple.com/videos/play/wwdc2025/346/)
+- [Under the hood with Apple's Containerization — Anil Madhavapeddy](https://anil.recoil.org/notes/apple-containerisation)
+- [Apple Containers Technical Comparison with Docker — The New Stack](https://thenewstack.io/apple-containers-on-macos-a-technical-comparison-with-docker/)
+- [Apple Containerization Deep Dive — kevnu.com](https://www.kevnu.com/en/posts/apple-native-containerization-deep-dive-architecture-comparisons-and-practical-guide)
+- [GitHub Discussion #719: Firewall for container network](https://github.com/apple/container/discussions/719)
+- [NanoClaw Apple Container Blog](https://nanoclaws.io/blog/apple-container-macos-agent-sandbox)
 
 ## Isolation Strength Ranking
 
 1. **Separate physical machine** — strongest, most expensive
 2. **Full VMs** (Lima, Lume, Tart) — hardware-enforced, separate kernel
-3. **MicroVMs** (Docker Sandboxes, Apple Containers) — VM per container
-4. **gVisor** — user-space kernel, ~70 host syscalls
-5. **WebAssembly** — no kernel, explicit imports
-6. **Docker containers** — shared kernel, ~340 syscalls — **weakest**
+3. **MicroVMs** (Docker Sandboxes, Apple Containers) — VM per container, but network isolation gaps in Apple Containers
+4. **OS-level process sandbox + user isolation** (Hazmat) — kernel MACF hooks + Unix permissions + pf firewall. No VM overhead. Not hypervisor-isolated, but multiple independent layers compensate. See [tier2-user-pf-isolation.md](tier2-user-pf-isolation.md)
+5. **OS-level process sandbox** (Seatbelt/Landlock/seccomp wrappers) — single-layer, same user. Claude Code `/sandbox`, Codex CLI, Cursor, NVIDIA OpenShell (Linux)
+6. **gVisor** — user-space kernel, ~70 host syscalls
+7. **WebAssembly** — no kernel, explicit imports
+8. **Docker containers** — shared kernel, ~340 syscalls — **weakest**. UK AISI SandboxEscapeBench: GPT-5 escapes ~50% of misconfigured containers ([Source](https://www.aisi.gov.uk/blog/can-ai-agents-escape-their-sandboxes-a-benchmark-for-safely-measuring-container-breakout-capabilities))
 
 ## Recommendation
 
@@ -147,3 +194,5 @@ Native OCI-compliant Linux container support announced at WWDC 2025.
 | Need macOS guest | Lume or Tart |
 | Interactive desktop VM | UTM |
 | Docker dev convenience (trusted code only) | OrbStack |
+| macOS-native agent containment (no VM) | Hazmat |
+| Linux agent sandboxing (Landlock + seccomp) | [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) |

@@ -16,3 +16,6 @@ tla/*_TTrace_*.bin
 
 # macOS
 .DS_Store
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
