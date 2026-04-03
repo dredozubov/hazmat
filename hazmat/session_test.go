@@ -159,6 +159,59 @@ func TestResolveSessionConfigProjectAnywhere(t *testing.T) {
 	}
 }
 
+func TestResolveSessionConfigRejectsProjectCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+
+	_, err = resolveSessionConfig(home, nil, nil)
+	if err == nil {
+		t.Fatal("expected credential deny project dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionConfigRejectsReadCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	projectDir := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", projectDir, err)
+	}
+
+	_, err = resolveSessionConfig(projectDir, []string{home}, nil)
+	if err == nil {
+		t.Fatal("expected credential deny read dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionConfigRejectsWriteCredentialDenyPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home dir")
+	}
+	projectDir := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", projectDir, err)
+	}
+
+	_, err = resolveSessionConfig(projectDir, nil, []string{home})
+	if err == nil {
+		t.Fatal("expected credential deny write dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // ── defaultReadDirs ─────────────────────────────────────────────────────────
 
 func isolateConfig(t *testing.T) {
