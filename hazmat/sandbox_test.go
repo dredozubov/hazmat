@@ -414,9 +414,56 @@ func TestBuildSandboxLaunchSpecFiltersCoveredReadDirs(t *testing.T) {
 	if len(spec.MountReadDirs) != 1 || spec.MountReadDirs[0] != refDir {
 		t.Fatalf("MountReadDirs = %v, want [%q]", spec.MountReadDirs, refDir)
 	}
-	wantName := sandboxName("claude", projectDir, []string{refDir}, sandboxPolicyProfileBaseline)
+	wantName := sandboxName("claude", projectDir, []string{refDir}, nil, sandboxPolicyProfileBaseline)
 	if spec.Name != wantName {
 		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
+func TestBuildSandboxLaunchSpecIncludesWriteDirs(t *testing.T) {
+	projectDir := t.TempDir()
+	writeDir := filepath.Join(t.TempDir(), "venvs")
+	if err := os.MkdirAll(writeDir, 0o755); err != nil {
+		t.Fatalf("mkdir writeDir: %v", err)
+	}
+
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		WriteDirs:  []string{writeDir},
+	}, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
+	}
+	if len(spec.MountWriteDirs) != 1 || spec.MountWriteDirs[0] != writeDir {
+		t.Fatalf("MountWriteDirs = %v, want [%q]", spec.MountWriteDirs, writeDir)
+	}
+	wantName := sandboxName("claude", projectDir, nil, []string{writeDir}, sandboxPolicyProfileBaseline)
+	if spec.Name != wantName {
+		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
+func TestBuildSandboxLaunchSpecRejectsReadAncestorOfWriteDir(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "project")
+	writeDir := filepath.Join(root, "shared", "venv")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir projectDir: %v", err)
+	}
+	if err := os.MkdirAll(writeDir, 0o755); err != nil {
+		t.Fatalf("mkdir writeDir: %v", err)
+	}
+
+	_, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		ReadDirs:   []string{root},
+		WriteDirs:  []string{writeDir},
+	}, defaultSandboxPolicyProfile())
+	if err == nil {
+		t.Fatal("expected overlapping read/write dirs to be rejected")
+	}
+	if !strings.Contains(err.Error(), "read-only parents of writable workspaces") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -443,7 +490,7 @@ func TestBuildSandboxLaunchSpecExpandsAncestorReadDirsNoSiblings(t *testing.T) {
 	if len(spec.MountReadDirs) != 1 || spec.MountReadDirs[0] != cacheDir {
 		t.Fatalf("MountReadDirs = %v, want [%q]", spec.MountReadDirs, cacheDir)
 	}
-	wantName := sandboxName("claude", projectDir, []string{cacheDir}, sandboxPolicyProfileBaseline)
+	wantName := sandboxName("claude", projectDir, []string{cacheDir}, nil, sandboxPolicyProfileBaseline)
 	if spec.Name != wantName {
 		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
 	}
@@ -553,7 +600,7 @@ func TestRunSandboxClaudeSessionCreatesPolicyAndRuns(t *testing.T) {
 
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -611,7 +658,7 @@ func TestRunSandboxClaudeSessionAutoDetectsAndRecordsBackend(t *testing.T) {
 
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -672,7 +719,7 @@ func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 
 	projectDir := t.TempDir()
 	sessionCfg := sessionConfig{ProjectDir: projectDir}
-	name := sandboxName("shell", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("shell", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -754,7 +801,7 @@ func TestRunSandboxClaudeSessionReadDirsRequireDesktop461(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected extra workspace launch to require newer Docker Desktop")
 	}
-	if !strings.Contains(err.Error(), "additional read-only workspaces") {
+	if !strings.Contains(err.Error(), "additional workspaces") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -787,7 +834,7 @@ func TestRunSandboxClaudeSessionReadDirsWithinProjectSkipExtraWorkspaceGate(t *t
 		ProjectDir: projectDir,
 		ReadDirs:   []string{projectChild},
 	}
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -830,7 +877,7 @@ func TestRunSandboxClaudeSessionDoesNotRecordManagedSandboxWhenCreateFails(t *te
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -884,7 +931,7 @@ func TestRunSandboxClaudeSessionRecreatesStoppedSandbox(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -936,7 +983,7 @@ func TestRunSandboxClaudeSessionRecreatesStaleSandboxAfterRunNotFound(t *testing
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -1002,7 +1049,7 @@ func TestRunSandboxClaudeSessionCreateFailureHintsWhenDesktopStopped(t *testing.
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -1054,7 +1101,7 @@ func TestRunSandboxClaudeSessionCreateFailureHintsClosedPipePrompt(t *testing.T)
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}
@@ -1103,7 +1150,7 @@ func TestRunSandboxClaudeSessionNotLoggedInHintsSandboxAuthSetup(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
-	name := sandboxName("claude", projectDir, nil, sandboxPolicyProfileBaseline)
+	name := sandboxName("claude", projectDir, nil, nil, sandboxPolicyProfileBaseline)
 	if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
 		t.Fatalf("recordSandboxApproval: %v", err)
 	}

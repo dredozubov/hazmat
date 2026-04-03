@@ -18,17 +18,20 @@ import (
 )
 
 type sessionConfig struct {
-	ProjectDir       string
-	ReadDirs         []string
-	BackupExcludes   []string
-	PackEnv          map[string]string // from pack env_passthrough (resolved values)
-	PackRegistryKeys []string          // active registry-redirect env keys (for UX)
-	PackExcludes     []string          // snapshot excludes added by active packs
-	PackWarnings     []string          // warnings surfaced by active packs
-	ActivePacks      []string          // pack names, for status bar
-	ServiceAccess    []string          // explicit external-service access granted to session
-	RoutingReason    string            // plain-language explanation for the chosen mode
-	SessionNotes     []string          // plain-language notes about session behavior
+	ProjectDir               string
+	ReadDirs                 []string
+	WriteDirs                []string
+	UserReadDirs             []string          // explicit host-configured or CLI read-only extensions
+	AutoReadDirs             []string          // automatically added read-only dirs from integrations/defaults
+	BackupExcludes           []string
+	IntegrationEnv           map[string]string // from integration env_passthrough (resolved values)
+	IntegrationRegistryKeys  []string          // active registry-redirect env keys (for UX)
+	IntegrationExcludes      []string          // snapshot excludes added by active integrations
+	IntegrationWarnings      []string          // warnings surfaced by active integrations
+	ActiveIntegrations       []string          // integration names, for status bar
+	ServiceAccess            []string          // explicit external-service access granted to session
+	RoutingReason            string            // plain-language explanation for the chosen mode
+	SessionNotes             []string          // plain-language notes about session behavior
 }
 
 type sessionLaunchUI struct {
@@ -96,7 +99,8 @@ func runProjectPreflight(projectDir string) error {
 func newShellCmd() *cobra.Command {
 	var project string
 	var readDirs []string
-	var packNames []string
+	var writeDirs []string
+	var integrationNames []string
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
@@ -109,7 +113,8 @@ func newShellCmd() *cobra.Command {
 			prepared, err := resolvePreparedSession("shell", harnessSessionOpts{
 				project:            project,
 				readDirs:           readDirs,
-				packs:              packNames,
+				writeDirs:          writeDirs,
+				integrations:       integrationNames,
 				noBackup:           noBackup,
 				useSandbox:         useSandbox,
 				allowDocker:        allowDocker,
@@ -133,8 +138,12 @@ func newShellCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&packNames, "pack", nil,
-		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
+	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
+		"Read-write directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
+		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
+		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -143,6 +152,8 @@ func newShellCmd() *cobra.Command {
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
+	_ = cmd.Flags().MarkHidden("pack")
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
@@ -151,7 +162,8 @@ func newShellCmd() *cobra.Command {
 func newExecCmd() *cobra.Command {
 	var project string
 	var readDirs []string
-	var packNames []string
+	var writeDirs []string
+	var integrationNames []string
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
@@ -164,7 +176,8 @@ func newExecCmd() *cobra.Command {
 			prepared, err := resolvePreparedSession("exec", harnessSessionOpts{
 				project:            project,
 				readDirs:           readDirs,
-				packs:              packNames,
+				writeDirs:          writeDirs,
+				integrations:       integrationNames,
 				noBackup:           noBackup,
 				useSandbox:         useSandbox,
 				allowDocker:        allowDocker,
@@ -188,8 +201,12 @@ func newExecCmd() *cobra.Command {
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
 		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&packNames, "pack", nil,
-		"Activate a stack pack (repeatable, e.g. --pack go --pack node)")
+	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
+		"Read-write directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
+		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
+		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -198,6 +215,8 @@ func newExecCmd() *cobra.Command {
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
+	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
+	_ = cmd.Flags().MarkHidden("pack")
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
@@ -212,7 +231,8 @@ func newClaudeCmd() *cobra.Command {
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
   -R, --read <dir>       Read-only directory (repeatable)
-  --pack <name>          Activate a stack pack (repeatable)
+  -W, --write <dir>      Read-write directory (repeatable)
+  --integration <name>   Activate a session integration (repeatable)
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --sandbox              Alias for --docker=sandbox
@@ -299,7 +319,8 @@ func newOpenCodeCmd() *cobra.Command {
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
   -R, --read <dir>       Read-only directory (repeatable)
-  --pack <name>          Activate a stack pack (repeatable)
+  -W, --write <dir>      Read-write directory (repeatable)
+  --integration <name>   Activate a session integration (repeatable)
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
@@ -348,7 +369,8 @@ func newCodexCmd() *cobra.Command {
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
   -R, --read <dir>       Read-only directory (repeatable)
-  --pack <name>          Activate a stack pack (repeatable)
+  -W, --write <dir>      Read-write directory (repeatable)
+  --integration <name>   Activate a session integration (repeatable)
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
@@ -401,7 +423,8 @@ Examples:
 type harnessSessionOpts struct {
 	project            string
 	readDirs           []string
-	packs              []string
+	writeDirs          []string
+	integrations       []string
 	noBackup           bool
 	useSandbox         bool
 	allowDocker        bool
@@ -415,8 +438,8 @@ var errHarnessHelp = fmt.Errorf("help requested")
 var errClaudeHelp = errHarnessHelp
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --pack, --no-backup, --docker,
-// --sandbox, --ignore-docker)
+// Hazmat flags (--project, --read, --write, --integration, --pack,
+// --no-backup, --docker, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
@@ -466,14 +489,30 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.readDirs = append(opts.readDirs, args[i])
 		case strings.HasPrefix(arg, "--read="):
 			opts.readDirs = append(opts.readDirs, arg[len("--read="):])
-		case arg == "--pack":
+		case arg == "--write" || arg == "-W":
 			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires a pack name", arg)
+				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
 			}
 			i++
-			opts.packs = append(opts.packs, args[i])
+			opts.writeDirs = append(opts.writeDirs, args[i])
+		case strings.HasPrefix(arg, "--write="):
+			opts.writeDirs = append(opts.writeDirs, arg[len("--write="):])
+		case arg == "--integration":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires an integration name", arg)
+			}
+			i++
+			opts.integrations = append(opts.integrations, args[i])
+		case strings.HasPrefix(arg, "--integration="):
+			opts.integrations = append(opts.integrations, arg[len("--integration="):])
+		case arg == "--pack":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("%s requires an integration name", arg)
+			}
+			i++
+			opts.integrations = append(opts.integrations, args[i])
 		case strings.HasPrefix(arg, "--pack="):
-			opts.packs = append(opts.packs, arg[len("--pack="):])
+			opts.integrations = append(opts.integrations, arg[len("--pack="):])
 		default:
 			forwarded = append(forwarded, arg)
 		}
@@ -573,21 +612,22 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 	}
 }
 
-// applyPacks resolves, validates, and merges active packs into the session
-// config. It also prints pack suggestions and warnings to stderr.
-func applyPacks(cfg *sessionConfig, packFlags []string) error {
-	packs, err := resolveActivePacks(packFlags, cfg.ProjectDir)
+// applyIntegrations resolves, validates, and merges active integrations into
+// the session config. Pack manifests are still the underlying source of truth
+// during the migration, but the session contract is integration-centric.
+func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
+	packs, err := resolveActivePacks(integrationFlags, cfg.ProjectDir)
 	if err != nil {
 		return err
 	}
 
-	// Detect and suggest packs if none are active.
+	// Detect and suggest integrations if none are active.
 	activeNames := make(map[string]struct{}, len(packs))
 	for _, p := range packs {
 		activeNames[p.PackMeta.Name] = struct{}{}
 	}
 	if suggestions := suggestPacks(cfg.ProjectDir, activeNames); len(suggestions) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: suggested packs: %s (activate with --pack <name>)\n",
+		fmt.Fprintf(os.Stderr, "hazmat: suggested integrations: %s (activate with --integration <name>)\n",
 			strings.Join(suggestions, ", "))
 	}
 
@@ -599,9 +639,9 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 	for _, p := range packs {
 		names = append(names, p.PackMeta.Name)
 	}
-	cfg.ActivePacks = names
+	cfg.ActiveIntegrations = names
 
-	// Merge all packs.
+	// Merge all integrations.
 	merged, err := mergePacks(packs)
 	if err != nil {
 		return err
@@ -609,7 +649,9 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 
 	// Apply merged read dirs.
 	if len(merged.ReadDirs) > 0 {
-		cfg.ReadDirs = append(cfg.ReadDirs, merged.ReadDirs...)
+		var added []string
+		cfg.ReadDirs, added = appendUniqueDirs(cfg.ReadDirs, merged.ReadDirs)
+		cfg.AutoReadDirs, _ = appendUniqueDirs(cfg.AutoReadDirs, added)
 	}
 
 	if len(merged.Excludes) > 0 {
@@ -626,18 +668,37 @@ func applyPacks(cfg *sessionConfig, packFlags []string) error {
 			added = append(added, pat)
 			seen[pat] = struct{}{}
 		}
-		cfg.PackExcludes = added
+		cfg.IntegrationExcludes = added
 	}
 
 	// Apply env passthrough.
-	cfg.PackEnv = merged.EnvPassthrough
-	cfg.PackRegistryKeys = merged.RegistryKeys
-	cfg.PackWarnings = append([]string(nil), merged.Warnings...)
+	cfg.IntegrationEnv = merged.EnvPassthrough
+	cfg.IntegrationRegistryKeys = merged.RegistryKeys
+	cfg.IntegrationWarnings = append([]string(nil), merged.Warnings...)
 
 	return nil
 }
 
-func resolveSessionConfig(project string, readPaths []string) (sessionConfig, error) {
+func appendUniqueDirs(existing, additions []string) ([]string, []string) {
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, dir := range existing {
+		seen[dir] = struct{}{}
+	}
+
+	merged := append([]string(nil), existing...)
+	var added []string
+	for _, dir := range additions {
+		if _, dup := seen[dir]; dup {
+			continue
+		}
+		seen[dir] = struct{}{}
+		merged = append(merged, dir)
+		added = append(added, dir)
+	}
+	return merged, added
+}
+
+func resolveSessionConfig(project string, readPaths, writePaths []string) (sessionConfig, error) {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return sessionConfig{}, fmt.Errorf("project: %w", err)
@@ -647,20 +708,45 @@ func resolveSessionConfig(project string, readPaths []string) (sessionConfig, er
 	if err != nil {
 		return sessionConfig{}, err
 	}
+	writeDirs, err := resolveReadDirs(writePaths)
+	if err != nil {
+		return sessionConfig{}, fmt.Errorf("write dirs: %w", err)
+	}
 
 	return sessionConfig{
 		ProjectDir:     projectDir,
 		ReadDirs:       readDirs,
+		WriteDirs:      writeDirs,
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil
 }
 
 func resolvePreparedSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
-	cfg, err := resolveSessionConfig(opts.project, defaultReadDirs(opts.readDirs))
+	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {
 		return preparedSession{}, err
 	}
-	if err := applyPacks(&cfg, opts.packs); err != nil {
+
+	userReadPaths := configuredReadDirs(opts.readDirs)
+	projectReadPaths, projectWritePaths := configuredProjectAccess(projectDir)
+	userReadPaths = append(append([]string{}, projectReadPaths...), userReadPaths...)
+	writePaths := append(append([]string{}, projectWritePaths...), opts.writeDirs...)
+	autoReadPaths := subtractResolvedDirs(implicitReadDirs(), userReadPaths)
+	allReadPaths := append(append([]string{}, userReadPaths...), autoReadPaths...)
+
+	cfg, err := resolveSessionConfig(projectDir, allReadPaths, writePaths)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	cfg.UserReadDirs, err = resolveReadDirs(userReadPaths)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	cfg.AutoReadDirs, err = resolveReadDirs(autoReadPaths)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	if err := applyIntegrations(&cfg, opts.integrations); err != nil {
 		return preparedSession{}, err
 	}
 
@@ -801,10 +887,10 @@ func implicitReadDirs() []string {
 	return dirs
 }
 
-// defaultReadDirs prepends the configured session.read_dirs and implicit
-// toolchain dirs to the user-supplied read dirs, skipping any that don't
-// exist on disk and deduplicating against what the user already passed via -R.
-func defaultReadDirs(explicit []string) []string {
+// configuredReadDirs prepends configured session.read_dirs to the user-supplied
+// read dirs, skipping any that don't exist on disk and deduplicating against
+// what the user already passed via -R.
+func configuredReadDirs(explicit []string) []string {
 	cfg, _ := loadConfig()
 	configured := cfg.SessionReadDirs()
 
@@ -835,21 +921,57 @@ func defaultReadDirs(explicit []string) []string {
 		added = append(added, dir)
 		explicitResolved[resolved] = struct{}{}
 	}
+	return append(added, explicit...)
+}
 
-	// Implicit toolchain dirs — always included, no config needed.
-	var implicit []string
-	for _, dir := range implicitReadDirs() {
-		resolved, err := filepath.EvalSymlinks(dir)
+// defaultReadDirs keeps the existing behavior for callers/tests that want the
+// full default read-only set, including implicit toolchain directories.
+func defaultReadDirs(explicit []string) []string {
+	configured := configuredReadDirs(explicit)
+	implicit := subtractResolvedDirs(implicitReadDirs(), configured)
+	return append(configured, implicit...)
+}
+
+func configuredProjectAccess(projectDir string) ([]string, []string) {
+	cfg, _ := loadConfig()
+	return cfg.ProjectReadDirs(projectDir), cfg.ProjectWriteDirs(projectDir)
+}
+
+func subtractResolvedDirs(candidates, existing []string) []string {
+	existingResolved := make(map[string]struct{}, len(existing))
+	for _, dir := range existing {
+		abs, err := filepath.Abs(dir)
 		if err != nil {
 			continue
 		}
-		if _, dup := explicitResolved[resolved]; dup {
+		resolved, err := filepath.EvalSymlinks(abs)
+		if err != nil {
 			continue
 		}
-		implicit = append(implicit, dir)
-		explicitResolved[resolved] = struct{}{}
+		existingResolved[resolved] = struct{}{}
 	}
-	return append(append(added, implicit...), explicit...)
+
+	var filtered []string
+	seen := make(map[string]struct{}, len(candidates))
+	for _, dir := range candidates {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			continue
+		}
+		if _, dup := existingResolved[resolved]; dup {
+			continue
+		}
+		if _, dup := seen[resolved]; dup {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		filtered = append(filtered, dir)
+	}
+	return filtered
 }
 
 func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool) string {
@@ -861,20 +983,22 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 		fmt.Fprintf(&b, "  Why this mode:        %s\n", cfg.RoutingReason)
 	}
 	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
-	fmt.Fprintf(&b, "  Extra read-only:      %s\n", sessionContractList(cfg.ReadDirs))
-	fmt.Fprintf(&b, "  Packs:                %s\n", sessionContractList(cfg.ActivePacks))
+	fmt.Fprintf(&b, "  Integrations:         %s\n", sessionContractList(cfg.ActiveIntegrations))
+	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
+	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
+	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))
 	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
 	if skipSnapshot {
 		fmt.Fprintln(&b, "  Pre-session snapshot: skipped (--no-backup)")
 	} else {
 		fmt.Fprintln(&b, "  Pre-session snapshot: on")
 	}
-	if len(cfg.PackExcludes) > 0 {
-		fmt.Fprintf(&b, "  Snapshot excludes:    %s\n", strings.Join(cfg.PackExcludes, ", "))
+	if len(cfg.IntegrationExcludes) > 0 {
+		fmt.Fprintf(&b, "  Snapshot excludes:    %s\n", strings.Join(cfg.IntegrationExcludes, ", "))
 	}
-	if len(cfg.PackRegistryKeys) > 0 {
+	if len(cfg.IntegrationRegistryKeys) > 0 {
 		fmt.Fprintf(&b, "  Invoker env passthrough: registry URLs via %s\n",
-			strings.Join(cfg.PackRegistryKeys, ", "))
+			strings.Join(cfg.IntegrationRegistryKeys, ", "))
 	}
 	if len(cfg.SessionNotes) > 0 {
 		fmt.Fprintln(&b, "  Notes:")
@@ -882,9 +1006,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 			fmt.Fprintf(&b, "    - %s\n", note)
 		}
 	}
-	if len(cfg.PackWarnings) > 0 {
+	if len(cfg.IntegrationWarnings) > 0 {
 		fmt.Fprintln(&b, "  Warnings:")
-		for _, warning := range cfg.PackWarnings {
+		for _, warning := range cfg.IntegrationWarnings {
 			fmt.Fprintf(&b, "    - %s\n", warning)
 		}
 	}
@@ -1420,8 +1544,10 @@ func warnDockerProject(commandName, projectDir string, request dockerRoutingRequ
 //
 // Policy structure:
 //   - PROJECT_DIR gets read+write
-//   - Each ReadDirs entry gets read-only (skipped if covered by ProjectDir
-//     or another ReadDirs entry)
+//   - Each ReadDirs entry gets read-only (skipped if covered by ProjectDir,
+//     a WriteDirs entry, or another ReadDirs entry)
+//   - Each WriteDirs entry gets read+write (skipped if covered by ProjectDir
+//     or another WriteDirs entry)
 //   - Agent home subtrees, system libraries, tmp, terminal, mach, and network
 //     rules are identical to the former static profile
 //   - Credential directories are denied last (last-match wins in SBPL)
@@ -1469,6 +1595,7 @@ func generateSBPL(cfg sessionConfig) string {
 	// so no directory contents or file data are exposed.
 	ancestors := make(map[string]struct{})
 	hostPaths := append([]string{cfg.ProjectDir}, cfg.ReadDirs...)
+	hostPaths = append(hostPaths, cfg.WriteDirs...)
 	for _, dir := range hostPaths {
 		for p := filepath.Dir(dir); p != "/" && p != "."; p = filepath.Dir(p) {
 			ancestors[p] = struct{}{}
@@ -1484,12 +1611,23 @@ func generateSBPL(cfg sessionConfig) string {
 	}
 
 	// Read-only directories: individual rules, skipping any path already
-	// covered by the project dir or by another (broader) read dir.
+	// covered by the project dir, by a writable extension, or by another
+	// (broader) read dir.
 	if len(cfg.ReadDirs) > 0 {
 		var pending []string
 		for _, dir := range cfg.ReadDirs {
 			if isWithinDir(cfg.ProjectDir, dir) {
 				continue // already covered by project read+write
+			}
+			coveredByWrite := false
+			for _, writeDir := range cfg.WriteDirs {
+				if isWithinDir(writeDir, dir) {
+					coveredByWrite = true
+					break
+				}
+			}
+			if coveredByWrite {
+				continue
 			}
 			covered := false
 			for _, other := range cfg.ReadDirs {
@@ -1507,6 +1645,35 @@ func generateSBPL(cfg sessionConfig) string {
 			w(";; ── Read-only directories ──────────────────────────────────────────────────\n")
 			for _, dir := range pending {
 				w("(allow file-read* (subpath %q))\n", dir)
+			}
+			w("\n")
+		}
+	}
+
+	// Extra writable directories: individual rules, skipping any path already
+	// covered by the project dir or by another (broader) write dir.
+	if len(cfg.WriteDirs) > 0 {
+		var pending []string
+		for _, dir := range cfg.WriteDirs {
+			if isWithinDir(cfg.ProjectDir, dir) {
+				continue
+			}
+			covered := false
+			for _, other := range cfg.WriteDirs {
+				if other != dir && isWithinDir(other, dir) {
+					covered = true
+					break
+				}
+			}
+			if covered {
+				continue
+			}
+			pending = append(pending, dir)
+		}
+		if len(pending) > 0 {
+			w(";; ── Read-write extensions ────────────────────────────────────────────────\n")
+			for _, dir := range pending {
+				w("(allow file-read* file-write* (subpath %q))\n", dir)
 			}
 			w("\n")
 		}
@@ -1568,13 +1735,22 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(allow network-outbound)\n")
 	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
 
-	w(";; ── Project write (re-assert after all read-only rules) ───────────────────\n")
+	w(";; ── Writable roots (re-assert after all read-only rules) ───────────────────\n")
 	w(";; SBPL is last-match-wins. When a read-only -R directory is a parent of\n")
-	w(";; the project directory (e.g. -R ~/workspace with project ~/workspace/foo),\n")
-	w(";; the broad file-read* rule must not suppress the project's write access.\n")
+	w(";; a writable root (e.g. -R ~/workspace with project ~/workspace/foo),\n")
+	w(";; the broad file-read* rule must not suppress explicit write access.\n")
 	w(";; Re-asserting file-write* here guarantees it is the last matching allow\n")
-	w(";; for any write operation targeting the project directory.\n")
+	w(";; for any write operation targeting an explicit writable root.\n")
 	w("(allow file-read* file-write* (subpath %q))\n\n", cfg.ProjectDir)
+	for _, dir := range cfg.WriteDirs {
+		if isWithinDir(cfg.ProjectDir, dir) {
+			continue
+		}
+		w("(allow file-read* file-write* (subpath %q))\n", dir)
+	}
+	if len(cfg.WriteDirs) > 0 {
+		w("\n")
+	}
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")
@@ -1650,7 +1826,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	)
 	startBar := func() {
 		barOnce.Do(func() {
-			bar := newStatusBar(cfg.ActivePacks, cfg.ProjectDir)
+			bar := newStatusBar(cfg.ActiveIntegrations, cfg.ProjectDir)
 			barTeardown = bar.Start()
 		})
 	}
@@ -1737,6 +1913,7 @@ func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
 
 func agentEnvPairs(cfg sessionConfig) []string {
 	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
+	writeDirsJSON, _ := json.Marshal(cfg.WriteDirs)
 	pairs := []string{
 		"HOME=" + agentHome,
 		"USER=" + agentUser,
@@ -1751,6 +1928,7 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"SANDBOX_ACTIVE=1",
 		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
 		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
+		"SANDBOX_WRITE_DIRS_JSON=" + string(writeDirsJSON),
 	}
 	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
 		if value := os.Getenv(key); value != "" {
@@ -1767,10 +1945,10 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		pairs = append(pairs, "GOMODCACHE="+modCache)
 	}
 
-	// Pack env passthrough: passive path pointers and selectors resolved
+	// Integration env passthrough: passive path pointers and selectors resolved
 	// from the invoker's environment. Only keys in safeEnvKeys are allowed;
 	// validation happens at pack load time.
-	for key, val := range cfg.PackEnv {
+	for key, val := range cfg.IntegrationEnv {
 		pairs = append(pairs, key+"="+val)
 	}
 

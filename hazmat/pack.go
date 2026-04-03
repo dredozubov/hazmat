@@ -464,10 +464,10 @@ func recordApproval(projectDir, fileHash string) error {
 // promptPackApproval asks the user to approve repo-recommended packs.
 // Returns true if approved. Non-interactive sessions (no TTY) return false.
 func promptPackApproval(projectDir string, packNames []string) bool {
-	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends packs: %s\n",
+	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends integrations: %s\n",
 		strings.Join(packNames, ", "))
 	fmt.Fprintf(os.Stderr, "hazmat: source: %s/%s\n", projectDir, repoRecommendedFile)
-	fmt.Fprintf(os.Stderr, "hazmat: approve these packs for this repo? [y/N] ")
+	fmt.Fprintf(os.Stderr, "hazmat: approve these integrations for this repo? [y/N] ")
 
 	var answer string
 	if _, err := fmt.Scanln(&answer); err != nil {
@@ -524,7 +524,7 @@ func resolveActivePacks(packFlags []string, projectDir string) ([]Pack, error) {
 					names[n] = struct{}{}
 				}
 			} else {
-				fmt.Fprintln(os.Stderr, "hazmat: repo packs declined. Use --pack to activate manually.")
+				fmt.Fprintln(os.Stderr, "hazmat: repo integrations declined. Use --integration to activate manually.")
 			}
 		}
 	} else if err != nil {
@@ -650,16 +650,18 @@ func mergePacks(packs []Pack) (packMergeResult, error) {
 
 func newPackCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pack",
-		Short: "List and inspect stack packs",
-		Long: `Stack packs configure session ergonomics for technology stacks.
+		Use:     "integration",
+		Aliases: []string{"pack"},
+		Short:   "List and inspect session integrations",
+		Long: `Session integrations configure session ergonomics for technology stacks.
 
 They set read-only paths, backup excludes, and env passthrough for common
-development environments. Packs cannot widen trust boundaries — they may
+development environments. Integrations cannot widen trust boundaries — they may
 only reduce friction or tighten defaults.
 
-  hazmat pack list          List available packs
-  hazmat pack show <name>   Show pack details`,
+  hazmat integration list        List available integrations
+  hazmat integration show <name> Show integration details
+  hazmat pack list               Legacy alias`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runPackList()
@@ -668,7 +670,7 @@ only reduce friction or tighten defaults.
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
-		Short: "List available stack packs",
+		Short: "List available session integrations",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runPackList()
@@ -676,7 +678,7 @@ only reduce friction or tighten defaults.
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show <name>",
-		Short: "Show details of a stack pack",
+		Short: "Show details of a session integration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runPackShow(args[0])
@@ -688,7 +690,7 @@ only reduce friction or tighten defaults.
 
 func runPackList() error {
 	fmt.Println()
-	fmt.Println("  Built-in packs:")
+	fmt.Println("  Built-in integrations:")
 	fmt.Println()
 	for _, name := range allBuiltinPackNames() {
 		p, err := loadBuiltinPack(name)
@@ -713,7 +715,7 @@ func runPackList() error {
 		}
 		if len(userPacks) > 0 {
 			fmt.Println()
-			fmt.Println("  User packs (~/.hazmat/packs/):")
+			fmt.Println("  User integrations (~/.hazmat/packs/):")
 			fmt.Println()
 			for _, name := range userPacks {
 				p, err := loadUserPack(name)
@@ -742,8 +744,8 @@ func runPackList() error {
 	}
 
 	fmt.Println()
-	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --pack <name>")
-	fmt.Println("  Pin:      hazmat config set packs.pin \"~/workspace/app:node,go\"")
+	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --integration <name>")
+	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
 	fmt.Println()
 	return nil
 }
@@ -755,7 +757,7 @@ func runPackShow(name string) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  Pack: %s\n", p.PackMeta.Name)
+	fmt.Printf("  Integration: %s\n", p.PackMeta.Name)
 	if p.PackMeta.Description != "" {
 		fmt.Printf("  %s\n", p.PackMeta.Description)
 	}

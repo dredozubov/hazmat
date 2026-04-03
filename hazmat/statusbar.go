@@ -16,10 +16,11 @@ import (
 )
 
 // statusBar renders a tmux-style bottom bar showing hazmat containment status
-// and active packs. It sets a terminal scroll region to exclude the bottom line
+// and active integrations. It sets a terminal scroll region to exclude the
+// bottom line
 // and redraws on SIGWINCH.
 type statusBar struct {
-	packNames  []string
+	integrationNames []string
 	projectDir string
 
 	mu          sync.Mutex
@@ -28,10 +29,10 @@ type statusBar struct {
 	reducedRows uint16 // rows reported via TIOCSWINSZ (0 = not set)
 }
 
-func newStatusBar(packNames []string, projectDir string) *statusBar {
+func newStatusBar(integrationNames []string, projectDir string) *statusBar {
 	return &statusBar{
-		packNames:  packNames,
-		projectDir: projectDir,
+		integrationNames: integrationNames,
+		projectDir:       projectDir,
 	}
 }
 
@@ -144,7 +145,7 @@ func (s *statusBar) writeBarColor(buf *bytes.Buffer, w int) {
 		amber   = "\033[38;5;214m"  // ☢ symbol
 		white   = "\033[38;5;255m"  // HAZMAT text
 		gray    = "\033[38;5;240m"  // separator
-		green   = "\033[38;5;114m"  // pack names
+		green   = "\033[38;5;114m"  // integration names
 		lgray   = "\033[38;5;245m"  // project path
 		bold    = "\033[1m"
 		boldOff = "\033[22m"
@@ -157,10 +158,10 @@ func (s *statusBar) writeBarColor(buf *bytes.Buffer, w int) {
 	fmt.Fprintf(buf, " %s☢%s%s HAZMAT%s", amber, white, bold, boldOff)
 	used := 9 // visible: " ☢ HAZMAT"
 
-	if len(s.packNames) > 0 {
-		packs := strings.Join(s.packNames, ", ")
-		fmt.Fprintf(buf, "%s │ %s%s", gray, green, packs)
-		used += 3 + utf8.RuneCountInString(packs)
+	if len(s.integrationNames) > 0 {
+		names := strings.Join(s.integrationNames, ", ")
+		fmt.Fprintf(buf, "%s │ %s%s", gray, green, names)
+		used += 3 + utf8.RuneCountInString(names)
 	}
 
 	// Right: project directory.
@@ -190,10 +191,10 @@ func (s *statusBar) writeBarPlain(buf *bytes.Buffer, w int) {
 	left := " ☢ HAZMAT"
 	used := 9
 
-	if len(s.packNames) > 0 {
-		packs := strings.Join(s.packNames, ", ")
-		left += " │ " + packs
-		used += 3 + utf8.RuneCountInString(packs)
+	if len(s.integrationNames) > 0 {
+		names := strings.Join(s.integrationNames, ", ")
+		left += " │ " + names
+		used += 3 + utf8.RuneCountInString(names)
 	}
 	buf.WriteString(left)
 
