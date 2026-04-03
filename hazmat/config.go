@@ -39,11 +39,12 @@ type ProjectConfig struct {
 }
 
 type SessionConfig struct {
-	// SkipPermissions passes --dangerously-skip-permissions to Claude Code.
-	// Default: true. The containment is OS-level (user isolation + seatbelt
-	// + pf firewall); Claude's permission prompts are redundant inside hazmat.
-	// Set to false if you want Claude's own permission prompts as an
-	// additional layer.
+	// SkipPermissions passes harness-specific auto-approval flags to agent
+	// CLIs (for example Claude's --dangerously-skip-permissions and Codex's
+	// --dangerously-bypass-approvals-and-sandbox). Default: true. The
+	// containment is OS-level (user isolation + seatbelt + pf firewall), so
+	// app-level permission prompts are usually redundant inside hazmat. Set
+	// to false if you want those prompts as an additional layer.
 	SkipPermissions *bool `yaml:"skip_permissions,omitempty"`
 
 	// StatusBar enables Hazmat's terminal status bar for interactive sessions.
@@ -129,8 +130,8 @@ type CloudBackup struct {
 
 // ── Defaults ────────────────────────────────────────────────────────────────
 
-// SkipPermissions returns whether --dangerously-skip-permissions should be
-// passed to Claude Code. Default: true.
+// SkipPermissions returns whether Hazmat should pass harness-specific
+// auto-approval flags to agent CLIs. Default: true.
 func (c HazmatConfig) SkipPermissions() bool {
 	if c.Session.SkipPermissions == nil {
 		return true // default: skip permissions, containment is OS-level
@@ -388,7 +389,7 @@ func runConfigShow() error {
 
 	cBold.Println("  Session")
 	fmt.Println()
-	fmt.Printf("    Skip permissions: %v (--dangerously-skip-permissions)\n", cfg.SkipPermissions())
+	fmt.Printf("    Skip permissions: %v (bypass Claude/Codex app prompts)\n", cfg.SkipPermissions())
 	fmt.Printf("    Status bar:       %v (opt-in)\n", cfg.StatusBar())
 	readDirs := cfg.SessionReadDirs()
 	if len(readDirs) > 0 {
@@ -594,7 +595,7 @@ Keys:
   backup.cloud.endpoint          S3-compatible endpoint
   backup.cloud.bucket            S3 bucket name
   backup.cloud.access_key        S3 access key
-  session.skip_permissions       Pass --dangerously-skip-permissions to Claude (default: true)
+  session.skip_permissions       Bypass Claude/Codex app-level permission prompts (default: true)
   session.status_bar             Enable Hazmat's terminal status bar (default: false)
   session.read_dirs.add          Add a read-only directory to auto-include in sessions
   session.read_dirs.remove       Remove a read-only directory from auto-include
