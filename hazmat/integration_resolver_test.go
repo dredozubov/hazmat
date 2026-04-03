@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+func allowAllIntegrationExecutables(t *testing.T) {
+	t.Helper()
+	saved := integrationAgentExecCheck
+	integrationAgentExecCheck = func(string) bool { return true }
+	t.Cleanup(func() { integrationAgentExecCheck = saved })
+}
+
 type fakeIntegrationProbe struct {
 	outputs      map[string]string
 	lookPathErrs map[string]error
@@ -70,10 +77,14 @@ func TestRunConfigSetIntegrationsHomebrew(t *testing.T) {
 }
 
 func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
+	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")
-	if err := os.MkdirAll(goRoot, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir goRoot: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write go binary: %v", err)
 	}
 	canonicalGoRoot, err := canonicalizePath(goRoot)
 	if err != nil {
@@ -148,10 +159,14 @@ func TestMergeResolvedIntegrationsReplacesPackReadDirs(t *testing.T) {
 
 func TestApplyIntegrationsPopulatesSourcesAndDetails(t *testing.T) {
 	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")
-	if err := os.MkdirAll(goRoot, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir goRoot: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write go binary: %v", err)
 	}
 	canonicalGoRoot, err := canonicalizePath(goRoot)
 	if err != nil {
@@ -210,5 +225,76 @@ func TestRenderIntegrationDetails(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderIntegrationDetails missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestIntegrationProbeEnvUsesDefaultAgentPath(t *testing.T) {
+	t.Setenv("PATH", "/tmp/not-the-agent-path")
+
+	env := integrationProbeEnv()
+	found := false
+	for _, entry := range env {
+		if entry == "PATH="+defaultAgentPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("integrationProbeEnv() did not use defaultAgentPath: %v", env)
+	}
+}
+
+func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
+	projectDir := t.TempDir()
+	goRoot := filepath.Join(t.TempDir(), "go-root")
+	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir goRoot: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write go binary: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"go env GOROOT": goRoot,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	savedExecCheck := integrationAgentExecCheck
+	integrationAgentExecCheck = func(path string) bool {
+		return !strings.HasSuffix(path, filepath.Join("bin", "go"))
+	}
+	t.Cleanup(func() { integrationAgentExecCheck = savedExecCheck })
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = nil
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	pack, err := loadBuiltinPack("go")
+	if err != nil {
+		t.Fatalf("loadBuiltinPack(go): %v", err)
+	}
+	t.Setenv("GOROOT", "")
+
+	resolved, err := resolveRuntimeIntegrations(projectDir, []Pack{pack})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("len(resolved) = %d, want 1", len(resolved))
+	}
+	if len(resolved[0].AdditionalReadDirs) != 0 {
+		t.Fatalf("AdditionalReadDirs = %v, want none", resolved[0].AdditionalReadDirs)
+	}
+	if resolved[0].Source != "" {
+		t.Fatalf("Source = %q, want empty", resolved[0].Source)
+	}
+	details := strings.Join(resolved[0].Details, "\n")
+	if !strings.Contains(details, "cannot execute") {
+		t.Fatalf("Details = %v, want cannot execute note", resolved[0].Details)
 	}
 }

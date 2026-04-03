@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -56,6 +59,7 @@ var (
 	integrationProbeTimeout   = 2 * time.Second
 	integrationBrewCandidates = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
 	integrationJavaHomePath   = "/usr/libexec/java_home"
+	integrationAgentExecCheck = func(path string) bool { return pathExecutableByAgent(path) }
 	homebrewConsentPrompt     = func() (bool, bool) {
 		if flagDryRun {
 			return false, false
@@ -111,7 +115,7 @@ func (hostIntegrationProbe) Output(name string, args ...string) (string, error) 
 func integrationProbeEnv() []string {
 	env := []string{
 		"HOME=" + os.Getenv("HOME"),
-		"PATH=" + os.Getenv("PATH"),
+		"PATH=" + defaultAgentPath,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 	}
 	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE", "TERM"} {
@@ -160,25 +164,29 @@ func integrationResolverFor(name string) (integrationResolverSpec, bool) {
 func resolveGoIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
 	result := resolvedIntegration{Pack: pack, ResolvedEnv: make(map[string]string)}
 	if dir, err := probeCanonicalDir(ctx.Probe, "go", "env", "GOROOT"); err == nil && dir != "" {
-		result.AdditionalReadDirs = []string{dir}
-		result.Source = "go (go env GOROOT)"
-		result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", dir))
-		if os.Getenv("GOROOT") == "" {
-			result.ResolvedEnv["GOROOT"] = dir
+		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "go")); err == nil && runtimeDir != "" {
+			result.AdditionalReadDirs = []string{runtimeDir}
+			result.Source = "go (go env GOROOT)"
+			result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", runtimeDir))
+			if os.Getenv("GOROOT") == "" {
+				result.ResolvedEnv["GOROOT"] = runtimeDir
+			}
+			return result, nil
 		}
-		return result, nil
+		result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s, but %s cannot execute %s", dir, agentUser, filepath.Join(dir, "bin", "go")))
 	}
 
 	brewResult := ctx.brewPrefix("go")
 	if brewResult.Prefix != "" {
-		dir, err := validatedReadDir(brewResult.Prefix)
-		if err == nil && dir != "" {
+		if dir := goRootFromPrefix(brewResult.Prefix); dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
 			if os.Getenv("GOROOT") == "" {
 				result.ResolvedEnv["GOROOT"] = dir
 			}
+		} else {
+			result.Details = append(result.Details, fmt.Sprintf("go: Homebrew %s is installed, but %s cannot execute %s", brewResult.Formula, agentUser, filepath.Join(brewResult.Prefix, "libexec", "bin", "go")))
 		}
 	} else if brewResult.Detail != "" {
 		result.Details = append(result.Details, "go: "+brewResult.Detail)
@@ -190,7 +198,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolved
 	result := resolvedIntegration{Pack: pack}
 	if execPath, err := ctx.Probe.Output("node", "-p", "process.execPath"); err == nil && execPath != "" {
 		prefix := filepath.Dir(filepath.Dir(strings.TrimSpace(execPath)))
-		dir, err := validatedReadDir(prefix)
+		dir, err := validatedRuntimeDir(prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = "node (active runtime)"
@@ -201,7 +209,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolved
 
 	brewResult := ctx.brewPrefix("node")
 	if brewResult.Prefix != "" {
-		dir, err := validatedReadDir(brewResult.Prefix)
+		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("node (Homebrew %s)", brewResult.Formula)
@@ -216,15 +224,18 @@ func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolved
 func resolveRustIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
 	result := resolvedIntegration{Pack: pack}
 	if dir, err := probeCanonicalDir(ctx.Probe, "rustc", "--print", "sysroot"); err == nil && dir != "" {
-		result.AdditionalReadDirs = []string{dir}
-		result.Source = "rust (rustc sysroot)"
-		result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s", dir))
-		return result, nil
+		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "rustc")); err == nil && runtimeDir != "" {
+			result.AdditionalReadDirs = []string{runtimeDir}
+			result.Source = "rust (rustc sysroot)"
+			result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s", runtimeDir))
+			return result, nil
+		}
+		result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s, but %s cannot execute %s", dir, agentUser, filepath.Join(dir, "bin", "rustc")))
 	}
 
 	brewResult := ctx.brewPrefix("rust", "rustup")
 	if brewResult.Prefix != "" {
-		dir, err := validatedReadDir(brewResult.Prefix)
+		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "rustc"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("rust (Homebrew %s)", brewResult.Formula)
@@ -291,6 +302,33 @@ func validatedReadDir(path string) (string, error) {
 		return "", fmt.Errorf("%q resolves to credential deny zone", resolved)
 	}
 	return resolved, nil
+}
+
+func validatedRuntimeDir(path, executableRel string) (string, error) {
+	dir, err := validatedReadDir(path)
+	if err != nil || dir == "" {
+		return "", err
+	}
+	if executableRel == "" {
+		return dir, nil
+	}
+	binaryPath := filepath.Join(dir, executableRel)
+	if !integrationAgentExecCheck(binaryPath) {
+		return "", fmt.Errorf("%q is not executable by %s", binaryPath, agentUser)
+	}
+	return dir, nil
+}
+
+func goRootFromPrefix(prefix string) string {
+	for _, candidate := range []string{
+		filepath.Join(prefix, "libexec"),
+		prefix,
+	} {
+		if dir, err := validatedRuntimeDir(candidate, filepath.Join("bin", "go")); err == nil && dir != "" {
+			return dir
+		}
+	}
+	return ""
 }
 
 func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixResult {
@@ -422,9 +460,13 @@ func validatedJavaHome(path string) (string, error) {
 	if err != nil || dir == "" {
 		return "", err
 	}
-	info, err := os.Stat(filepath.Join(dir, "bin", "java"))
+	javaBin := filepath.Join(dir, "bin", "java")
+	info, err := os.Stat(javaBin)
 	if err != nil || info.IsDir() {
 		return "", fmt.Errorf("%q is not a Java home", dir)
+	}
+	if !integrationAgentExecCheck(javaBin) {
+		return "", fmt.Errorf("%q is not executable by %s", javaBin, agentUser)
 	}
 	return dir, nil
 }
@@ -481,4 +523,74 @@ func renderIntegrationDetails(details []string) string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func pathExecutableByAgent(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+
+	agentInfo, err := user.Lookup(agentUser)
+	if err != nil {
+		return false
+	}
+	agentUID64, err := strconv.ParseUint(agentInfo.Uid, 10, 32)
+	if err != nil {
+		return false
+	}
+	agentUID := uint32(agentUID64)
+
+	if !agentHasPathExecute(filepath.Dir(path), agentUID) {
+		return false
+	}
+
+	groupHasAgent := false
+	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
+		groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
+	}
+	return executableByAgentMode(info.Mode(), stat.Uid, agentUID, groupHasAgent)
+}
+
+func agentHasPathExecute(path string, agentUID uint32) bool {
+	path = filepath.Clean(path)
+	if path == "." || path == "" {
+		return false
+	}
+	for current := path; current != "/" && current != "."; current = filepath.Dir(current) {
+		if current == os.Getenv("HOME") && homeAllowsAgentTraverse(current) {
+			continue
+		}
+		info, err := os.Stat(current)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return false
+		}
+		groupHasAgent := false
+		if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
+			groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
+		}
+		if !executableByAgentMode(info.Mode(), stat.Uid, agentUID, groupHasAgent) {
+			return false
+		}
+	}
+	return true
+}
+
+func executableByAgentMode(mode os.FileMode, ownerUID, agentUID uint32, groupHasAgent bool) bool {
+	perm := mode.Perm()
+	if ownerUID == agentUID && perm&0o100 != 0 {
+		return true
+	}
+	if groupHasAgent && perm&0o010 != 0 {
+		return true
+	}
+	return perm&0o001 != 0
 }
