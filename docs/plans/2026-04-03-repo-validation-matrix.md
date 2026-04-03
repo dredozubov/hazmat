@@ -1,14 +1,35 @@
 # Repository Validation Matrix
 
 Status: Current as of 2026-04-03
-Scope: Session integrations, self-hosting, and repo-targeted bootstrap checks
+Scope: Public validation corpus for session integrations, self-hosting, and
+Homebrew-backed toolchain resolution
 
 This note records the real repositories used during the current Hazmat
 integration and self-hosting work. It is not a design document. It is a
 validation ledger: which repos were exercised, what was verified, and what the
 observed outcome was.
 
-## Positive Integration Targets
+For documentation and repeatable QA, the primary corpus should stay focused on
+open-source repositories. The current public corpus is:
+
+- `/Users/dr/workspace/mcp-serp-clustering`
+- `/Users/dr/workspace/poly`
+- `/Users/dr/workspace/hazmat`
+- `/Users/dr/workspace/openclaw`
+- `/Users/dr/workspace/beads`
+
+These five repos are enough to cover the most important current integration
+stories:
+
+- Node runtime resolution from Homebrew
+- repo-pinned `pnpm` bootstrap for Node sessions
+- Rust sysroot resolution from Homebrew
+- Go positive and negative cases
+- TLA+/Java support through Hazmat self-hosting
+- session honesty when a toolchain exists on the host but is not executable by
+  the `agent` user
+
+## Open-Source Validation Targets
 
 ### `/Users/dr/workspace/mcp-serp-clustering`
 
@@ -39,20 +60,6 @@ observed outcome was.
     actually used
   - `rustc --print sysroot` and `cargo --version` both succeeded
 
-### `/Users/dr/workspace/V3SP3R`
-
-- Stack: TLA+ / Java
-- Integration: `tla-java`
-- Mode: native containment
-- Verified:
-  - `hazmat explain -C ... --integration tla-java --no-backup`
-  - `hazmat shell -C ... --integration tla-java`
-  - inside session: `echo "$JAVA_HOME"`, `"$JAVA_HOME/bin/java" -version`
-- Outcome:
-  - Hazmat resolved a real Homebrew OpenJDK home, not the `/usr` launcher stub
-  - session contract, `JAVA_HOME`, and executable runtime matched
-  - `java -version` succeeded inside containment
-
 ### `/Users/dr/workspace/hazmat`
 
 - Stack: Hazmat self-hosting (Go + TLA+ + beads tooling)
@@ -68,6 +75,8 @@ observed outcome was.
   - Go tests pass in-session
   - TLC is reachable through the repo wrapper
   - `bd` is reachable inside the session via staged tool bootstrap
+  - the repo also serves as the public `tla-java` validation target, because it
+    contains the actual TLA runner workflow used by Hazmat
 
 ### `/Users/dr/workspace/openclaw`
 
@@ -86,22 +95,6 @@ observed outcome was.
     directly agent-reachable
   - Python was already reachable in-session
 
-## Routing / Policy Targets
-
-### `/Users/dr/workspace/mypadelway`
-
-- Stack: Node.js repo with shared-daemon Docker signals
-- Integration: `node`
-- Verified:
-  - `hazmat explain -C ... --integration node --no-backup`
-  - `hazmat explain -C ... --docker=none --integration node --no-backup`
-- Outcome:
-  - automatic routing correctly blocked shared-daemon Docker usage
-  - explicit `--docker=none` produced a code-only native session with the right
-    explanatory notes
-
-## Negative / Honesty Targets
-
 ### `/Users/dr/workspace/beads`
 
 - Stack: Go
@@ -119,20 +112,24 @@ observed outcome was.
   - the remaining shell-level `permission denied: go` behavior is a PATH/shim
     UX detail, not a contract dishonesty issue
 
-## Exploratory Python Target
+## Non-Public Supplemental Targets
 
-### `/Users/dr/workspace/LuxTTS`
+The following repos were useful during exploration, but they should not be the
+primary documentation/testing corpus because they are not part of the current
+open-source set:
 
-- Stack: Python project with Poetry-style markers
-- Integration path explored: `python-poetry`
-- Outcome:
-  - useful as a detection target, but not a strong positive validation target
-    for the current branch
-  - current detection is too broad for generic `pyproject.toml` repos
-  - follow-up tracked in `sandboxing-89z`
+- `/Users/dr/workspace/mypadelway`
+  - useful for Docker shared-daemon routing checks
+- `/Users/dr/workspace/LuxTTS`
+  - useful for exploratory Python detection work
+- `/Users/dr/workspace/V3SP3R`
+  - was used earlier as a Java/TLA confirmation target before the corpus was
+    narrowed around open-source repos
 
 ## Notes
 
+- `mcp-serp-clustering`, `poly`, `hazmat`, `openclaw`, and `beads` should be
+  the default examples in future testing docs and audit notes.
 - The Node and Rust positive cases validated the runtime-resolution model.
 - The Beads negative case validated contract honesty when a toolchain exists on
   the host but is not safely reachable by the `agent` user.
@@ -141,3 +138,5 @@ observed outcome was.
   development, not merely see toolchain directories in the contract.
 - OpenClaw still has one optional follow-up for Bun-oriented workflows:
   `sandboxing-5nk`.
+- Python detection still needs refinement before a public Python repo becomes a
+  strong default corpus target. Follow-up: `sandboxing-89z`.
