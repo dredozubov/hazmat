@@ -64,8 +64,6 @@ Examples:
 		"Read-write directory to expose to the agent (repeatable)")
 	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
 		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
-		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -74,8 +72,7 @@ Examples:
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Preview native containment even if Docker markers are present")
-	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
-	_ = cmd.Flags().MarkHidden("pack")
+	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 

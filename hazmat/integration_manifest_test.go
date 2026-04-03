@@ -106,83 +106,83 @@ func TestIsCredentialDenyPathCargoRegistryAllowed(t *testing.T) {
 	}
 }
 
-// ── validatePackSchema ─────────────────────────────────────────────────────
+// ── validateIntegrationSchema ─────────────────────────────────────────────────────
 
-func TestValidatePackSchemaMinimal(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "test", Version: 1},
+func TestValidateIntegrationSchemaMinimal(t *testing.T) {
+	p := IntegrationSpec{
+		Meta: IntegrationMeta{Name: "test", Version: 1},
 	}
-	if err := validatePackSchema(p); err != nil {
-		t.Fatalf("minimal valid pack failed: %v", err)
+	if err := validateIntegrationSchema(p); err != nil {
+		t.Fatalf("minimal valid integration failed: %v", err)
 	}
 }
 
-func TestValidatePackSchemaMissingName(t *testing.T) {
-	p := Pack{PackMeta: PackMeta{Version: 1}}
-	if err := validatePackSchema(p); err == nil {
+func TestValidateIntegrationSchemaMissingName(t *testing.T) {
+	p := IntegrationSpec{Meta: IntegrationMeta{Version: 1}}
+	if err := validateIntegrationSchema(p); err == nil {
 		t.Fatal("expected error for missing name")
 	}
 }
 
-func TestValidatePackSchemaInvalidName(t *testing.T) {
+func TestValidateIntegrationSchemaInvalidName(t *testing.T) {
 	for _, name := range []string{"Test", "foo_bar", "-start", "has space"} {
-		p := Pack{PackMeta: PackMeta{Name: name, Version: 1}}
-		if err := validatePackSchema(p); err == nil {
+		p := IntegrationSpec{Meta: IntegrationMeta{Name: name, Version: 1}}
+		if err := validateIntegrationSchema(p); err == nil {
 			t.Fatalf("expected error for invalid name %q", name)
 		}
 	}
 }
 
-func TestValidatePackSchemaWrongVersion(t *testing.T) {
-	p := Pack{PackMeta: PackMeta{Name: "test", Version: 2}}
-	if err := validatePackSchema(p); err == nil {
+func TestValidateIntegrationSchemaWrongVersion(t *testing.T) {
+	p := IntegrationSpec{Meta: IntegrationMeta{Name: "test", Version: 2}}
+	if err := validateIntegrationSchema(p); err == nil {
 		t.Fatal("expected error for version != 1")
 	}
 }
 
-func TestValidatePackSchemaUnsafeEnvKey(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "test", Version: 1},
-		Session:  PackSession{EnvPassthrough: []string{"NODE_OPTIONS"}},
+func TestValidateIntegrationSchemaUnsafeEnvKey(t *testing.T) {
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "test", Version: 1},
+		Session: IntegrationSession{EnvPassthrough: []string{"NODE_OPTIONS"}},
 	}
-	if err := validatePackSchema(p); err == nil {
+	if err := validateIntegrationSchema(p); err == nil {
 		t.Fatal("expected error for unsafe env key NODE_OPTIONS")
 	}
 }
 
-func TestValidatePackSchemaSafeEnvKey(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "test", Version: 1},
-		Session:  PackSession{EnvPassthrough: []string{"GOPATH", "NODE_ENV"}},
+func TestValidateIntegrationSchemaSafeEnvKey(t *testing.T) {
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "test", Version: 1},
+		Session: IntegrationSession{EnvPassthrough: []string{"GOPATH", "NODE_ENV"}},
 	}
-	if err := validatePackSchema(p); err != nil {
+	if err := validateIntegrationSchema(p); err != nil {
 		t.Fatalf("safe env keys rejected: %v", err)
 	}
 }
 
-func TestValidatePackSchemaNegationExclude(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "test", Version: 1},
-		Backup:   PackBackup{Excludes: []string{"!important/"}},
+func TestValidateIntegrationSchemaNegationExclude(t *testing.T) {
+	p := IntegrationSpec{
+		Meta:   IntegrationMeta{Name: "test", Version: 1},
+		Backup: IntegrationBackup{Excludes: []string{"!important/"}},
 	}
-	if err := validatePackSchema(p); err == nil {
+	if err := validateIntegrationSchema(p); err == nil {
 		t.Fatal("expected error for negation exclude")
 	}
 }
 
-func TestValidatePackSchemaDetectFileWithPath(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "test", Version: 1},
-		Detect:   PackDetect{Files: []string{"src/main.go"}},
+func TestValidateIntegrationSchemaDetectFileWithPath(t *testing.T) {
+	p := IntegrationSpec{
+		Meta:   IntegrationMeta{Name: "test", Version: 1},
+		Detect: IntegrationDetect{Files: []string{"src/main.go"}},
 	}
-	if err := validatePackSchema(p); err == nil {
+	if err := validateIntegrationSchema(p); err == nil {
 		t.Fatal("expected error for detect file with path separator")
 	}
 }
 
-// ── validatePackPaths (V2) ─────────────────────────────────────────────────
+// ── validateIntegrationPaths (V2) ─────────────────────────────────────────────────
 
-func TestValidatePackPathsCredentialDirRejected(t *testing.T) {
+func TestValidateIntegrationPathsCredentialDirRejected(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("cannot determine home dir")
@@ -192,16 +192,16 @@ func TestValidatePackPathsCredentialDirRejected(t *testing.T) {
 		t.Skipf("%s does not exist", sshDir)
 	}
 
-	p := Pack{
-		PackMeta: PackMeta{Name: "bad", Version: 1},
-		Session:  PackSession{ReadDirs: []string{"~/.ssh"}},
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "bad", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{"~/.ssh"}},
 	}
-	if _, err := validatePackPaths(p); err == nil {
+	if _, err := validateIntegrationPaths(p); err == nil {
 		t.Fatal("expected error for ~/.ssh in read_dirs")
 	}
 }
 
-func TestValidatePackPathsSymlinkToCredentialRejected(t *testing.T) {
+func TestValidateIntegrationPathsSymlinkToCredentialRejected(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("cannot determine home dir")
@@ -217,22 +217,22 @@ func TestValidatePackPathsSymlinkToCredentialRejected(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	p := Pack{
-		PackMeta: PackMeta{Name: "bad", Version: 1},
-		Session:  PackSession{ReadDirs: []string{link}},
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "bad", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{link}},
 	}
-	if _, err := validatePackPaths(p); err == nil {
+	if _, err := validateIntegrationPaths(p); err == nil {
 		t.Fatal("expected error for symlink pointing to ~/.ssh")
 	}
 }
 
-func TestValidatePackPathsSafeDirAccepted(t *testing.T) {
+func TestValidateIntegrationPathsSafeDirAccepted(t *testing.T) {
 	dir := t.TempDir()
-	p := Pack{
-		PackMeta: PackMeta{Name: "ok", Version: 1},
-		Session:  PackSession{ReadDirs: []string{dir}},
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "ok", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{dir}},
 	}
-	canonical, err := validatePackPaths(p)
+	canonical, err := validateIntegrationPaths(p)
 	if err != nil {
 		t.Fatalf("safe dir rejected: %v", err)
 	}
@@ -241,12 +241,12 @@ func TestValidatePackPathsSafeDirAccepted(t *testing.T) {
 	}
 }
 
-func TestValidatePackPathsNonExistentSkipped(t *testing.T) {
-	p := Pack{
-		PackMeta: PackMeta{Name: "ok", Version: 1},
-		Session:  PackSession{ReadDirs: []string{"/nonexistent/path/xyz"}},
+func TestValidateIntegrationPathsNonExistentSkipped(t *testing.T) {
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "ok", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{"/nonexistent/path/xyz"}},
 	}
-	canonical, err := validatePackPaths(p)
+	canonical, err := validateIntegrationPaths(p)
 	if err != nil {
 		t.Fatalf("non-existent path should be skipped, not error: %v", err)
 	}
@@ -255,14 +255,14 @@ func TestValidatePackPathsNonExistentSkipped(t *testing.T) {
 	}
 }
 
-// ── loadPack ───────────────────────────────────────────────────────────────
+// ── loadIntegrationSpec ───────────────────────────────────────────────────────────────
 
-func TestLoadPackValid(t *testing.T) {
+func TestLoadIntegrationSpecValid(t *testing.T) {
 	data := []byte(`
-pack:
-  name: test-pack
+integration:
+  name: test-integration
   version: 1
-  description: A test pack
+  description: A test integration
 detect:
   files: [go.mod]
 session:
@@ -275,106 +275,106 @@ warnings:
 commands:
   test: go test ./...
 `)
-	p, err := loadPack(data)
+	p, err := loadIntegrationSpec(data)
 	if err != nil {
-		t.Fatalf("loadPack failed: %v", err)
+		t.Fatalf("loadIntegrationSpec failed: %v", err)
 	}
-	if p.PackMeta.Name != "test-pack" {
-		t.Fatalf("name = %q, want test-pack", p.PackMeta.Name)
+	if p.Meta.Name != "test-integration" {
+		t.Fatalf("name = %q, want test-integration", p.Meta.Name)
 	}
 	if len(p.Session.ReadDirs) != 1 || p.Session.ReadDirs[0] != "/tmp" {
 		t.Fatalf("read_dirs = %v, want [/tmp]", p.Session.ReadDirs)
 	}
 }
 
-func TestLoadPackTooLarge(t *testing.T) {
-	data := make([]byte, packMaxSize+1)
-	if _, err := loadPack(data); err == nil {
+func TestLoadIntegrationSpecTooLarge(t *testing.T) {
+	data := make([]byte, integrationMaxSize+1)
+	if _, err := loadIntegrationSpec(data); err == nil {
 		t.Fatal("expected error for oversized manifest")
 	}
 }
 
-func TestLoadPackInvalidYAML(t *testing.T) {
-	if _, err := loadPack([]byte("{{{")); err == nil {
+func TestLoadIntegrationSpecInvalidYAML(t *testing.T) {
+	if _, err := loadIntegrationSpec([]byte("{{{")); err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
 
-func TestLoadPackRejectsUnknownFields(t *testing.T) {
+func TestLoadIntegrationSpecRejectsUnknownFields(t *testing.T) {
 	data := []byte(`
-pack:
+integration:
   name: test
   version: 1
   unknown_field: oops
 `)
-	if _, err := loadPack(data); err == nil {
-		t.Fatal("expected error for unknown field in pack section")
+	if _, err := loadIntegrationSpec(data); err == nil {
+		t.Fatal("expected error for unknown field in integration section")
 	}
 }
 
-func TestLoadPackRejectsUnknownTopLevelKey(t *testing.T) {
+func TestLoadIntegrationSpecRejectsUnknownTopLevelKey(t *testing.T) {
 	data := []byte(`
-pack:
+integration:
   name: test
   version: 1
 network:
   allow_ssh: true
 `)
-	if _, err := loadPack(data); err == nil {
+	if _, err := loadIntegrationSpec(data); err == nil {
 		t.Fatal("expected error for unknown top-level key")
 	}
 }
 
-// ── Built-in packs ────────────────────────────────────────────────────────
+// ── Built-in integrations ────────────────────────────────────────────────
 
-func TestBuiltinPacksLoad(t *testing.T) {
-	names := allBuiltinPackNames()
+func TestBuiltinIntegrationsLoad(t *testing.T) {
+	names := allBuiltinIntegrationNames()
 	if len(names) == 0 {
-		t.Fatal("no built-in packs found")
+		t.Fatal("no built-in integrations found")
 	}
 	for _, name := range names {
-		p, err := loadBuiltinPack(name)
+		p, err := loadBuiltinIntegrationSpec(name)
 		if err != nil {
-			t.Fatalf("built-in pack %q failed to load: %v", name, err)
+			t.Fatalf("built-in integration %q failed to load: %v", name, err)
 		}
-		if p.PackMeta.Name != name {
-			t.Errorf("built-in pack %q: internal name = %q (mismatch)", name, p.PackMeta.Name)
+		if p.Meta.Name != name {
+			t.Errorf("built-in integration %q: internal name = %q (mismatch)", name, p.Meta.Name)
 		}
 	}
 }
 
-func TestBuiltinPacksSchemaValid(t *testing.T) {
-	for _, name := range allBuiltinPackNames() {
-		p, err := loadBuiltinPack(name)
+func TestBuiltinIntegrationsSchemaValid(t *testing.T) {
+	for _, name := range allBuiltinIntegrationNames() {
+		p, err := loadBuiltinIntegrationSpec(name)
 		if err != nil {
 			t.Fatalf("load %q: %v", name, err)
 		}
-		if err := validatePackSchema(p); err != nil {
-			t.Fatalf("built-in pack %q schema invalid: %v", name, err)
+		if err := validateIntegrationSchema(p); err != nil {
+			t.Fatalf("built-in integration %q schema invalid: %v", name, err)
 		}
 	}
 }
 
-// ── mergePacks ─────────────────────────────────────────────────────────────
+// ── mergeIntegrations ─────────────────────────────────────────────────────────────
 
-func TestMergePacksDeduplicates(t *testing.T) {
+func TestMergeIntegrationsDeduplicates(t *testing.T) {
 	dir := t.TempDir()
-	packs := []Pack{
+	integrations := []IntegrationSpec{
 		{
-			PackMeta: PackMeta{Name: "a", Version: 1},
-			Session:  PackSession{ReadDirs: []string{dir}},
-			Backup:   PackBackup{Excludes: []string{"vendor/"}},
+			Meta:     IntegrationMeta{Name: "a", Version: 1},
+			Session:  IntegrationSession{ReadDirs: []string{dir}},
+			Backup:   IntegrationBackup{Excludes: []string{"vendor/"}},
 			Warnings: []string{"warning one"},
 		},
 		{
-			PackMeta: PackMeta{Name: "b", Version: 1},
-			Session:  PackSession{ReadDirs: []string{dir}}, // duplicate
-			Backup:   PackBackup{Excludes: []string{"vendor/", ".next/"}},
+			Meta:     IntegrationMeta{Name: "b", Version: 1},
+			Session:  IntegrationSession{ReadDirs: []string{dir}}, // duplicate
+			Backup:   IntegrationBackup{Excludes: []string{"vendor/", ".next/"}},
 			Warnings: []string{"warning one", "warning two"}, // one duplicate
 		},
 	}
 
-	result, err := mergePacks(packs)
+	result, err := mergeIntegrations(integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,16 +389,16 @@ func TestMergePacksDeduplicates(t *testing.T) {
 	}
 }
 
-func TestMergePacksResolvesEnv(t *testing.T) {
+func TestMergeIntegrationsResolvesEnv(t *testing.T) {
 	t.Setenv("GOPATH", "/test/gopath")
-	packs := []Pack{
+	integrations := []IntegrationSpec{
 		{
-			PackMeta: PackMeta{Name: "go", Version: 1},
-			Session:  PackSession{EnvPassthrough: []string{"GOPATH", "GOPRIVATE"}},
+			Meta:    IntegrationMeta{Name: "go", Version: 1},
+			Session: IntegrationSession{EnvPassthrough: []string{"GOPATH", "GOPRIVATE"}},
 		},
 	}
 
-	result, err := mergePacks(packs)
+	result, err := mergeIntegrations(integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,16 +410,16 @@ func TestMergePacksResolvesEnv(t *testing.T) {
 	}
 }
 
-func TestMergePacksSurfacesRegistryKeys(t *testing.T) {
+func TestMergeIntegrationsSurfacesRegistryKeys(t *testing.T) {
 	t.Setenv("GOPROXY", "https://proxy.example.com")
-	packs := []Pack{
+	integrations := []IntegrationSpec{
 		{
-			PackMeta: PackMeta{Name: "go", Version: 1},
-			Session:  PackSession{EnvPassthrough: []string{"GOPROXY", "GOPATH"}},
+			Meta:    IntegrationMeta{Name: "go", Version: 1},
+			Session: IntegrationSession{EnvPassthrough: []string{"GOPROXY", "GOPATH"}},
 		},
 	}
 
-	result, err := mergePacks(packs)
+	result, err := mergeIntegrations(integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,15 +428,15 @@ func TestMergePacksSurfacesRegistryKeys(t *testing.T) {
 	}
 }
 
-// ── suggestPacks ───────────────────────────────────────────────────────────
+// ── suggestIntegrations ───────────────────────────────────────────────────────────
 
-func TestSuggestPacksMatchesDetectFiles(t *testing.T) {
+func TestSuggestIntegrationsMatchesDetectFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	suggestions := suggestPacks(dir, nil)
+	suggestions := suggestIntegrations(dir, nil)
 	found := false
 	for _, s := range suggestions {
 		if s == "go" {
@@ -444,28 +444,28 @@ func TestSuggestPacksMatchesDetectFiles(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected 'go' pack suggestion for dir with go.mod, got %v", suggestions)
+		t.Errorf("expected 'go' integration suggestion for dir with go.mod, got %v", suggestions)
 	}
 }
 
-func TestSuggestPacksSkipsActive(t *testing.T) {
+func TestSuggestIntegrationsSkipsActive(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	active := map[string]struct{}{"go": {}}
-	suggestions := suggestPacks(dir, active)
+	suggestions := suggestIntegrations(dir, active)
 	for _, s := range suggestions {
 		if s == "go" {
-			t.Error("'go' pack should not be suggested when already active")
+			t.Error("'go' integration should not be suggested when already active")
 		}
 	}
 }
 
-func TestSuggestPacksNoMatchReturnsEmpty(t *testing.T) {
+func TestSuggestIntegrationsNoMatchReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	suggestions := suggestPacks(dir, nil)
+	suggestions := suggestIntegrations(dir, nil)
 	if len(suggestions) != 0 {
 		t.Errorf("expected no suggestions for empty dir, got %v", suggestions)
 	}
@@ -479,9 +479,8 @@ func TestLoadRepoRecommendationsValid(t *testing.T) {
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// "go" is a built-in pack that exists.
-	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
-		[]byte("packs:\n  - go\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(recDir, "integrations.yaml"),
+		[]byte("integrations:\n  - go\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -508,20 +507,40 @@ func TestLoadRepoRecommendationsNoFile(t *testing.T) {
 	}
 }
 
-func TestLoadRepoRecommendationsUnknownPack(t *testing.T) {
+func TestLoadRepoRecommendationsRejectsLegacyRepoFile(t *testing.T) {
 	dir := t.TempDir()
 	recDir := filepath.Join(dir, ".hazmat")
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
-		[]byte("packs:\n  - nonexistent-pack-xyz\n"), 0o644); err != nil {
+		[]byte("packs:\n  - go\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, _, err := loadRepoRecommendations(dir)
 	if err == nil {
-		t.Fatal("expected error for unknown pack name")
+		t.Fatal("expected legacy repo recommendations file to be rejected")
+	}
+	if !strings.Contains(err.Error(), "rename .hazmat/packs.yaml to .hazmat/integrations.yaml") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRepoRecommendationsUnknownIntegration(t *testing.T) {
+	dir := t.TempDir()
+	recDir := filepath.Join(dir, ".hazmat")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(recDir, "integrations.yaml"),
+		[]byte("integrations:\n  - nonexistent-integration-xyz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := loadRepoRecommendations(dir)
+	if err == nil {
+		t.Fatal("expected error for unknown integration name")
 	}
 }
 
@@ -531,8 +550,8 @@ func TestLoadRepoRecommendationsRejectsUnknownFields(t *testing.T) {
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
-		[]byte("packs:\n  - go\nread_dirs:\n  - /tmp\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(recDir, "integrations.yaml"),
+		[]byte("integrations:\n  - go\nread_dirs:\n  - /tmp\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -549,8 +568,8 @@ func TestLoadRepoRecommendationsRejectsInlineDefinitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Even if the YAML is structurally valid, unknown keys are rejected.
-	if err := os.WriteFile(filepath.Join(recDir, "packs.yaml"),
-		[]byte("packs:\n  - go\nsession:\n  env_passthrough: [SSH_AUTH_SOCK]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(recDir, "integrations.yaml"),
+		[]byte("integrations:\n  - go\nsession:\n  env_passthrough: [SSH_AUTH_SOCK]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -563,9 +582,9 @@ func TestLoadRepoRecommendationsRejectsInlineDefinitions(t *testing.T) {
 // ── approval records ──────────────────────────────────────────────────────
 
 func TestApprovalRoundTrip(t *testing.T) {
-	saved := approvalsFilePath
-	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
-	t.Cleanup(func() { approvalsFilePath = saved })
+	saved := integrationApprovalsFilePath
+	integrationApprovalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { integrationApprovalsFilePath = saved })
 
 	if isApproved("/test/project", "abc123") {
 		t.Fatal("should not be approved before recording")
@@ -581,9 +600,9 @@ func TestApprovalRoundTrip(t *testing.T) {
 }
 
 func TestApprovalInvalidatedOnHashChange(t *testing.T) {
-	saved := approvalsFilePath
-	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
-	t.Cleanup(func() { approvalsFilePath = saved })
+	saved := integrationApprovalsFilePath
+	integrationApprovalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { integrationApprovalsFilePath = saved })
 
 	if err := recordApproval("/test/project", "hash1"); err != nil {
 		t.Fatal(err)
@@ -597,9 +616,9 @@ func TestApprovalInvalidatedOnHashChange(t *testing.T) {
 }
 
 func TestApprovalReplacesStaleEntry(t *testing.T) {
-	saved := approvalsFilePath
-	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
-	t.Cleanup(func() { approvalsFilePath = saved })
+	saved := integrationApprovalsFilePath
+	integrationApprovalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { integrationApprovalsFilePath = saved })
 
 	if err := recordApproval("/test/project", "hash1"); err != nil {
 		t.Fatal(err)
@@ -618,7 +637,7 @@ func TestApprovalReplacesStaleEntry(t *testing.T) {
 	}
 
 	// Should have exactly one entry for this project.
-	af := loadApprovals()
+	af := loadIntegrationApprovals()
 	count := 0
 	for _, rec := range af.Approvals {
 		if rec.ProjectDir == "/test/project" {
@@ -631,9 +650,9 @@ func TestApprovalReplacesStaleEntry(t *testing.T) {
 }
 
 func TestApprovalDifferentProjectsIndependent(t *testing.T) {
-	saved := approvalsFilePath
-	approvalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
-	t.Cleanup(func() { approvalsFilePath = saved })
+	saved := integrationApprovalsFilePath
+	integrationApprovalsFilePath = filepath.Join(t.TempDir(), "approvals.yaml")
+	t.Cleanup(func() { integrationApprovalsFilePath = saved })
 
 	if err := recordApproval("/project/a", "hashA"); err != nil {
 		t.Fatal(err)
@@ -688,7 +707,8 @@ func TestSafeEnvKeysIncludesExpected(t *testing.T) {
 
 func TestCredentialDenySubsMatchSBPL(t *testing.T) {
 	// Verify that credentialDenySubs matches what generateSBPL uses.
-	// If someone updates the seatbelt deny list without updating pack.go,
+	// If someone updates the seatbelt deny list without updating
+	// integration_manifest.go,
 	// this test catches it.
 	cfg := sessionConfig{ProjectDir: "/tmp/test"}
 	policy := generateSBPL(cfg)

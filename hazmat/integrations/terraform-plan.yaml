@@ -1,4 +1,4 @@
-pack:
+integration:
   name: terraform-plan
   version: 1
   description: Terraform plan/validate only — no apply, no cloud creds

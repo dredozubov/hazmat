@@ -133,8 +133,8 @@ func main() {
 	// ── Workspace ──
 	configCmd := newConfigCmd()
 	configCmd.GroupID = "ws"
-	packCmd := newPackCmd()
-	packCmd.GroupID = "ws"
+	integrationCmd := newIntegrationCmd()
+	integrationCmd.GroupID = "ws"
 	backupCmd := newBackupCmd()
 	backupCmd.GroupID = "ws"
 	statusCmd := newStatusCmd()
@@ -152,7 +152,7 @@ func main() {
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
 		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
-		configCmd, packCmd, backupCmd, statusCmd, exportCmd,
+		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")

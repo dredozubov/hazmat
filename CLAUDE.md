@@ -57,9 +57,9 @@ java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
 ```
 hazmat/                  Go source (package main, module hazmat)
   cmd/hazmat-launch/     Privileged helper binary (cgo, calls sandbox_init)
-  packs/                 Built-in stack pack manifests (YAML, embedded in binary)
+  integrations/          Built-in integration manifests (YAML, embedded in binary)
   Makefile               Build targets: hazmat, hazmat-launch
-.hazmat/packs.yaml       Repo-recommended packs for developing hazmat itself
+.hazmat/integrations.yaml Repo-recommended integrations for developing hazmat itself
 tla/                     TLA+ formal verification specs
   VERIFIED.md            Authoritative record of what's proved
   MC_SetupRollback.*     Init/rollback state machine
@@ -69,7 +69,7 @@ tla/                     TLA+ formal verification specs
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
   usage.md               Complete user guide
-  stack-packs.md         Stack packs reference
+  integrations.md        Session integrations reference
   cve-audit.md           How hazmat defends against every known Claude Code CVE
   design-assumptions.md  Every non-obvious design decision
   brief-supply-chain-hardening.md  Supply chain attack analysis
@@ -114,8 +114,8 @@ migration from every older version AND during rollback from any intermediate sta
 - **Seatbelt policies are per-session.** Generated in `generateSBPL()`, written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
 - **hazmat-launch uses sandbox_init() via cgo.** Not `sandbox-exec`. Direct kernel sandbox API, one fewer process in the chain.
 - **No sudo in daily commands.** `hazmat claude/exec/shell` use the NOPASSWD sudoers rule for hazmat-launch. `hazmat config agent` writes directly via dev group. Project ACLs are applied by the file owner (no sudo).
-- **Stack packs are pure data, never executable.** Pack manifests are YAML with strict field validation (`KnownFields`). They may add read-only dirs, env passthrough from a fixed safe set, backup excludes, and warnings. They cannot widen write scope, expose credentials, or change network policy. See [docs/stack-packs.md](docs/stack-packs.md).
-- **Repo-recommended packs require host approval.** `.hazmat/packs.yaml` in a repo declares pack names; hazmat prompts once for approval, keyed by canonical path + file hash. Approval is stored outside the repo in `~/.hazmat/approvals.yaml`.
+- **Integrations are pure data, never executable.** Integration manifests are YAML with strict field validation (`KnownFields`). They may add read-only dirs, env passthrough from a fixed safe set, backup excludes, and warnings. They cannot widen write scope, expose credentials, or change network policy. See [docs/integrations.md](docs/integrations.md).
+- **Repo-recommended integrations require host approval.** `.hazmat/integrations.yaml` in a repo declares integration names; hazmat prompts once for approval, keyed by canonical path + file hash. Approval is stored outside the repo in `~/.hazmat/integration-approvals.yaml`.
 
 ## When making security-relevant changes
 
@@ -134,4 +134,4 @@ migration from every older version AND during rollback from any intermediate sta
 <why, in 1-3 lines>
 ```
 
-Areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `rename`, `test`, `tla`, `pack`
+Areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `rename`, `test`, `tla`, `integration`

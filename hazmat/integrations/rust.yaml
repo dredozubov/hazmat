@@ -1,4 +1,4 @@
-pack:
+integration:
   name: rust
   version: 1
   description: Rust project defaults

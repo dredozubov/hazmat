@@ -101,13 +101,13 @@ func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	}
 	t.Cleanup(func() { integrationProbeFactory = savedFactory })
 
-	pack, err := loadBuiltinPack("go")
+	integration, err := loadBuiltinIntegrationSpec("go")
 	if err != nil {
-		t.Fatalf("loadBuiltinPack(go): %v", err)
+		t.Fatalf("loadBuiltinIntegrationSpec(go): %v", err)
 	}
 	t.Setenv("GOROOT", "")
 
-	resolved, err := resolveRuntimeIntegrations(projectDir, []Pack{pack})
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -139,14 +139,14 @@ func TestMergeResolvedIntegrationsReplacesPackReadDirs(t *testing.T) {
 
 	result, err := mergeResolvedIntegrations([]resolvedIntegration{
 		{
-			Pack: Pack{
-				PackMeta: PackMeta{Name: "node", Version: 1},
-				Session: PackSession{
+			Spec: IntegrationSpec{
+				Meta: IntegrationMeta{Name: "node", Version: 1},
+				Session: IntegrationSession{
 					ReadDirs: []string{declaredDir},
 				},
 			},
-			ReplacePackReadDirs: true,
-			AdditionalReadDirs:  []string{resolvedDir},
+			ReplaceDeclaredReadDirs: true,
+			AdditionalReadDirs:      []string{resolvedDir},
 		},
 	})
 	if err != nil {
@@ -317,13 +317,13 @@ func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 	integrationBrewCandidates = nil
 	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
 
-	pack, err := loadBuiltinPack("go")
+	integration, err := loadBuiltinIntegrationSpec("go")
 	if err != nil {
-		t.Fatalf("loadBuiltinPack(go): %v", err)
+		t.Fatalf("loadBuiltinIntegrationSpec(go): %v", err)
 	}
 	t.Setenv("GOROOT", "")
 
-	resolved, err := resolveRuntimeIntegrations(projectDir, []Pack{pack})
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -504,12 +504,12 @@ func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
 			},
 		},
 	}
-	pack, err := loadBuiltinPack("tla-java")
+	integration, err := loadBuiltinIntegrationSpec("tla-java")
 	if err != nil {
-		t.Fatalf("loadBuiltinPack(tla-java): %v", err)
+		t.Fatalf("loadBuiltinIntegrationSpec(tla-java): %v", err)
 	}
 
-	resolved, err := resolveTLAJavaIntegration(ctx, pack)
+	resolved, err := resolveTLAJavaIntegration(ctx, integration)
 	if err != nil {
 		t.Fatalf("resolveTLAJavaIntegration: %v", err)
 	}

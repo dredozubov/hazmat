@@ -192,14 +192,17 @@ func (u *UI) Ask(prompt string) bool {
 func (u *UI) Logo() {
 	fmt.Println()
 	fmt.Println(homerHazmatArt)
-	cRed.Print("       ☢  "); cBold.Print("H A Z M A T"); cRed.Println("  ☢")
+	cRed.Print("       ☢  ")
+	cBold.Print("H A Z M A T")
+	cRed.Println("  ☢")
 	fmt.Println()
 }
 
 // Banner prints the compact setup header (no art — keep first screen useful).
 func (u *UI) Banner(currentUser string) {
 	fmt.Println()
-	cRed.Print("  ☢ "); cBold.Println("Hazmat — AI agent containment for macOS")
+	cRed.Print("  ☢ ")
+	cBold.Println("Hazmat — AI agent containment for macOS")
 	fmt.Println()
 	fmt.Println("  Creates a contained environment for AI agents: dedicated user,")
 	fmt.Println("  filesystem sandbox, firewall, DNS blocklist, and snapshot backup.")
@@ -210,4 +213,3 @@ func (u *UI) Banner(currentUser string) {
 	fmt.Printf("    cd your-project && hazmat claude\n")
 	fmt.Println()
 }
-

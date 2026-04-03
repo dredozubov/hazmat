@@ -178,10 +178,9 @@ through safe environment selectors like `GOPATH` or `VIRTUAL_ENV`. They do
 not widen write access, relax the credential deny list, or change the network
 policy.
 
-`hazmat pack` and `--pack` still work as legacy aliases while the model is
-migrating. Repos can still declare recommended integrations in
-`.hazmat/packs.yaml`; Hazmat prompts once for approval, then reuses that
-approval until the file changes. See [docs/stack-packs.md](docs/stack-packs.md).
+Repos can declare recommended integrations in `.hazmat/integrations.yaml`;
+Hazmat prompts once for approval, then reuses that approval until the file
+changes. See [docs/integrations.md](docs/integrations.md).
 
 ### Handing a Hazmat Session Back to Host Claude
 
@@ -217,7 +216,7 @@ All settings live in `~/.hazmat/config.yaml`.
 
 Portable import keeps Hazmat's runtime and safety config separate from whatever you use outside containment. See [docs/claude-import.md](docs/claude-import.md) for the current import rules and non-goals.
 OpenCode follows the same curated story; see [docs/opencode-import.md](docs/opencode-import.md).
-Session integrations are documented in [docs/stack-packs.md](docs/stack-packs.md).
+Session integrations are documented in [docs/integrations.md](docs/integrations.md).
 
 ## Architecture
 
@@ -271,7 +270,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [usage.md](docs/usage.md) | Complete user guide |
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
-| [stack-packs.md](docs/stack-packs.md) | Session integrations: activation, project extensions, repo recommendations, trust model |
+| [integrations.md](docs/integrations.md) | Session integrations: activation, project extensions, repo recommendations, trust model |
 | [tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) | Docker Sandbox mode: setup, network policy, Compose hardening |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |

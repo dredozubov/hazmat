@@ -8,7 +8,7 @@ Important scope boundary: the current TLA+ suite governs Hazmat's core
 containment, rollback, seatbelt, backup, and core version-migration logic. It
 does **not** yet model harness-specific lifecycle and import state such as
 Claude/OpenCode curated imports, per-harness metadata under `~/.hazmat/state.json`,
-or session-only stack pack activation/pinning. That work is tracked separately
+or session-only integration activation/pinning. That work is tracked separately
 and should not be implied by the existing proofs.
 
 Important additional scope boundary: the current TLA+ suite now includes the
@@ -252,16 +252,16 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Spec | `tla/05_tier3_launch_containment.md` |
 | TLA+ files | `tla/MC_Tier3LaunchContainment.tla`, `tla/MC_Tier3LaunchContainment.cfg` |
 | Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
-| Governed code | `hazmat/pack.go` — `isCredentialDenyPath()` |
+| Governed code | `hazmat/integration_manifest.go` — `isCredentialDenyPath()` |
 | Governed code | `hazmat/session.go` — `isWithinDir()` |
-| Key invariants | `CredentialPathsNeverMounted`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `BackendValidationBeforeLaunch`, `PolicyBeforeLaunch`, `ApprovalBeforeLaunch`, `PackEnvRejected`, `ShellVersionGate`, `ExtraWorkspaceVersionGate` |
+| Key invariants | `CredentialPathsNeverMounted`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `BackendValidationBeforeLaunch`, `PolicyBeforeLaunch`, `ApprovalBeforeLaunch`, `IntegrationEnvRejected`, `ShellVersionGate`, `ExtraWorkspaceVersionGate` |
 | Status | **Fixed and Proved** — Tier 3 mount planning now rejects credential deny zones, filters covered read-only mounts, and preserves policy-before-launch gating |
 
 **What was found:**
 
 1. The initial Tier 3 Docker Sandboxes path mounted `ProjectDir` and
    `ReadDirs` directly, without a Tier 3 equivalent of the credential deny-zone
-   checks already used for pack `read_dirs`.
+   checks already used for integration `read_dirs`.
 
 2. The initial Tier 3 mount path also did not filter read-only directories
    already covered by the project directory or by another broader read-only
@@ -307,7 +307,7 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 | TLA+ files | `tla/MC_TierPolicyEquivalence.tla`, `tla/MC_TierPolicyEquivalence.cfg` |
 | Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
 | Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunch()`, `buildSandboxLaunchSpec()` |
-| Governed code | `hazmat/pack.go` — `isCredentialDenyPath()` |
+| Governed code | `hazmat/integration_manifest.go` — `isCredentialDenyPath()` |
 | Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
 | Status | **Proved** — exact Tier 2/Tier 3 identity is false by design, but the canonical core containment contract is equivalent across both backends |
 
@@ -357,8 +357,8 @@ generated, depth 1, 13s).
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
-| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/pack.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
-| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/pack.go:isCredentialDenyPath()` |
+| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/integration_manifest.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
+| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/integration_manifest.go:isCredentialDenyPath()` |
 
 ---
 
@@ -367,7 +367,7 @@ generated, depth 1, 13s).
 - Harness-specific bootstrap/import lifecycle for Claude/OpenCode
 - Per-harness metadata stored in `~/.hazmat/state.json`
 - Harness-specific rollback semantics beyond the agent-home coarse model
-- Stack pack activation, project pinning, and pack-specific snapshot ignore rules
+- Integration activation, project pinning, and integration-specific snapshot ignore rules
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
 - Explicit Tier 3 API-key or other model-credential injection mechanisms, which are not yet implemented in `hazmat/sandbox.go`
 

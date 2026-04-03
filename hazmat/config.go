@@ -27,7 +27,6 @@ type HazmatConfig struct {
 	Backup       BackupConfig             `yaml:"backup"`
 	Session      SessionConfig            `yaml:"session"`
 	Integrations IntegrationsConfig       `yaml:"integrations,omitempty"`
-	Packs        PacksConfig              `yaml:"packs,omitempty"`
 	Projects     map[string]ProjectConfig `yaml:"projects,omitempty"`
 	Sandbox      SandboxConfig            `yaml:"sandbox,omitempty"`
 }
@@ -59,6 +58,10 @@ type SessionConfig struct {
 
 type IntegrationsConfig struct {
 	Homebrew *bool `yaml:"homebrew,omitempty"`
+	// Pinned maps canonical project paths to integration names.
+	// Input paths are normalized through Abs + EvalSymlinks before storage,
+	// so matching is stable across different spellings of the same path.
+	Pinned []IntegrationPin `yaml:"pinned,omitempty"`
 }
 
 type SandboxConfig struct {
@@ -83,23 +86,15 @@ type ManagedSandboxConfig struct {
 	LastUsedAt    string `yaml:"last_used_at,omitempty"`
 }
 
-// PacksConfig holds per-project pack pinning.
-type PacksConfig struct {
-	// Pinned maps canonical project paths to pack names.
-	// Input paths are normalized through Abs + EvalSymlinks before storage,
-	// so matching is stable across different spellings of the same path.
-	Pinned []PackPin `yaml:"pinned,omitempty"`
+// IntegrationPin associates a project directory with a list of integration names.
+type IntegrationPin struct {
+	ProjectDir   string   `yaml:"project"`
+	Integrations []string `yaml:"integrations"`
 }
 
-// PackPin associates a project directory with a list of pack names.
-type PackPin struct {
-	ProjectDir string   `yaml:"project"`
-	Packs      []string `yaml:"packs"`
-}
-
-// PackPins returns the configured pack pins (nil if none).
-func (c HazmatConfig) PackPins() []PackPin {
-	return c.Packs.Pinned
+// PinnedIntegrations returns the configured integration pins (nil if none).
+func (c HazmatConfig) PinnedIntegrations() []IntegrationPin {
+	return c.Integrations.Pinned
 }
 
 type BackupConfig struct {
@@ -237,7 +232,16 @@ func loadConfig() (HazmatConfig, error) {
 		return cfg, fmt.Errorf("read config: %w", err)
 	}
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err == nil {
+		if _, legacy := raw["packs"]; legacy {
+			return cfg, fmt.Errorf("config key 'packs' was removed before v1; migrate pinned entries under 'integrations.pinned'")
+		}
+	}
+
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -601,8 +605,6 @@ Keys:
   integrations.homebrew          Homebrew-backed integration resolution: enabled, disabled, or ask
   integrations.pin               Pin integrations to a project (value: project:name1,name2)
   integrations.unpin             Remove integration pinning for a project (value: project path)
-  packs.pin                      Legacy alias for integrations.pin
-  packs.unpin                    Legacy alias for integrations.unpin
 
 Examples:
   hazmat config set backup.retention.keep_latest 30
@@ -695,8 +697,8 @@ func runConfigSet(key, value string) error {
 			return err
 		}
 		cfg.Integrations.Homebrew = parsed
-	case "integrations.pin", "packs.pin":
-		// Format: "project:pack1,pack2"
+	case "integrations.pin":
+		// Format: "project:name1,name2"
 		parts := strings.SplitN(value, ":", 2)
 		if len(parts) != 2 {
 			return fmt.Errorf("integrations.pin format: project:name1,name2")
@@ -712,52 +714,54 @@ func runConfigSet(key, value string) error {
 		if err != nil {
 			return fmt.Errorf("resolve project path %q: %w", project, err)
 		}
-		rawPackNames := strings.Split(parts[1], ",")
-		packNames := make([]string, 0, len(rawPackNames))
-		seenPackNames := make(map[string]struct{}, len(rawPackNames))
-		// Validate pack names exist.
-		for _, rawName := range rawPackNames {
+		rawIntegrationNames := strings.Split(parts[1], ",")
+		integrationNames := make([]string, 0, len(rawIntegrationNames))
+		seenIntegrationNames := make(map[string]struct{}, len(rawIntegrationNames))
+		for _, rawName := range rawIntegrationNames {
 			name := strings.TrimSpace(rawName)
 			if name == "" {
 				return fmt.Errorf("integrations.pin format: project:name1,name2")
 			}
-			if _, seen := seenPackNames[name]; seen {
+			if _, seen := seenIntegrationNames[name]; seen {
 				continue
 			}
-			if _, err := loadPackByName(name); err != nil {
-				return fmt.Errorf("unknown pack %q: %w", name, err)
+			if _, err := loadIntegrationSpecByName(name); err != nil {
+				return fmt.Errorf("unknown integration %q: %w", name, err)
 			}
-			packNames = append(packNames, name)
-			seenPackNames[name] = struct{}{}
+			integrationNames = append(integrationNames, name)
+			seenIntegrationNames[name] = struct{}{}
 		}
-		// Replace existing pin for this project, or append.
 		found := false
-		for i, pin := range cfg.Packs.Pinned {
+		for i, pin := range cfg.Integrations.Pinned {
 			if pin.ProjectDir == canonProject {
-				cfg.Packs.Pinned[i].Packs = packNames
+				cfg.Integrations.Pinned[i].Integrations = integrationNames
 				found = true
 				break
 			}
 		}
 		if !found {
-			cfg.Packs.Pinned = append(cfg.Packs.Pinned, PackPin{
-				ProjectDir: canonProject,
-				Packs:      packNames,
+			cfg.Integrations.Pinned = append(cfg.Integrations.Pinned, IntegrationPin{
+				ProjectDir:   canonProject,
+				Integrations: integrationNames,
 			})
 		}
-	case "integrations.unpin", "packs.unpin":
+	case "integrations.unpin":
 		unpinPath := strings.TrimSpace(value)
 		// Canonicalize so the unpin matches regardless of path spelling.
 		if canonical, err := canonicalizePath(expandTilde(unpinPath)); err == nil {
 			unpinPath = canonical
 		}
-		filtered := cfg.Packs.Pinned[:0]
-		for _, pin := range cfg.Packs.Pinned {
+		filtered := cfg.Integrations.Pinned[:0]
+		for _, pin := range cfg.Integrations.Pinned {
 			if pin.ProjectDir != unpinPath {
 				filtered = append(filtered, pin)
 			}
 		}
-		cfg.Packs.Pinned = filtered
+		cfg.Integrations.Pinned = filtered
+	case "packs.pin":
+		return fmt.Errorf("packs.pin was removed before v1; use integrations.pin")
+	case "packs.unpin":
+		return fmt.Errorf("packs.unpin was removed before v1; use integrations.unpin")
 	default:
 		return fmt.Errorf("unknown key: %s\nRun 'hazmat config set --help' for available keys.", key)
 	}

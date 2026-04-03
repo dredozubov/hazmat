@@ -38,7 +38,7 @@
 \*  13: configAgent (credentials)
 \*
 \* Explicit non-init harness commands like "hazmat bootstrap opencode",
-\* curated harness import flows, and session-only stack pack activation are
+\* curated harness import flows, and session-only integration activation are
 \* intentionally out of model here.
 
 EXTENDS Naturals, FiniteSets

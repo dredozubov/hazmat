@@ -142,19 +142,47 @@ block-beta
 
 **Excludes are for common web/Python/Rust/Node projects.** Default excludes: `node_modules/`, `.venv/`, `__pycache__/`, `.next/`, `dist/`, `build/`, `target/`. Add more via `hazmat config set backup.excludes.add PATTERN` or edit `config.yaml`.
 
-**Packs can extend snapshot excludes per session.** Active stack packs may add more excludes such as `.terraform/` or `.turbo/` for the current session only. They affect what goes into automatic pre-session snapshots, not the seatbelt allow rules.
+**Integrations can extend snapshot excludes per session.** Active integrations
+may add more excludes such as `.terraform/` or `.turbo/` for the current
+session only. They affect what goes into automatic pre-session snapshots, not
+the seatbelt allow rules.
 
 **Cloud credentials are split across two files.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint, bucket, access key, and Kopia encryption password. The S3 secret key lives separately in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var. Both files are owner-read-only because the config contains the access key and encryption password.
 
 **Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
 
-**Stack packs are ergonomic overlays, not policy escapes.** Packs may add read-only paths, snapshot excludes, safe env passthrough, warnings, and command hints. They cannot add write scope, expose denied credential paths, or modify the firewall model.
+**Integrations are ergonomic overlays, not policy escapes.** Integrations may
+add read-only paths, snapshot excludes, safe env passthrough, warnings, and
+command hints. They cannot add write scope, expose denied credential paths, or
+modify the firewall model.
 
-**Repo-recommended packs require explicit host approval.** A `.hazmat/packs.yaml` in the project directory may list pack names, but it is a hint, not authority. Hazmat prompts the user once, then stores approval in `~/.hazmat/approvals.yaml` keyed by canonical project path + SHA-256 of the file. If the file changes, approval is invalidated. This prevents the agent (which can write to the project directory) from silently escalating its own session config — any change to the recommendations file triggers a re-prompt.
+**Repo-recommended integrations require explicit host approval.** A
+`.hazmat/integrations.yaml` in the project directory may list integration
+names, but it is a hint, not authority. Hazmat prompts the user once, then
+stores approval in `~/.hazmat/integration-approvals.yaml` keyed by canonical
+project path + SHA-256 of the file. If the file changes, approval is
+invalidated. This prevents the agent (which can write to the project
+directory) from silently escalating its own session config: any change to the
+recommendations file triggers a re-prompt.
 
-**Pack approval is an informed-consent mechanism, not a security boundary.** The approval prompt protects against the sandboxed agent writing a `.hazmat/packs.yaml` and having it auto-activate on the next session — the agent can modify the file (project dir is writable) but cannot write to `~/.hazmat/approvals.yaml` (different UID, 0600). An attacker with host-user code execution could pre-fill the approvals file, but the blast radius is minimal: even with forged approvals, pack validation still enforces credential deny checks, the safe env allowlist, and the prohibition on executable content. The security boundary is pack validation, not the approval record. See `docs/threat-matrix.md` footnotes 9 and 10 for the full analysis.
+**Integration approval is an informed-consent mechanism, not a security
+boundary.** The approval prompt protects against the sandboxed agent writing a
+`.hazmat/integrations.yaml` and having it auto-activate on the next session:
+the agent can modify the file (project dir is writable) but cannot write to
+`~/.hazmat/integration-approvals.yaml` (different UID, 0600). An attacker
+with host-user code execution could pre-fill the approvals file, but the blast
+radius is minimal: even with forged approvals, integration validation still
+enforces credential deny checks, the safe env allowlist, and the prohibition
+on executable content. The security boundary is integration validation, not
+the approval record. See `docs/threat-matrix.md` footnotes 9 and 10 for the
+full analysis.
 
-**`~/workspace` as a global read dir is a security tradeoff.** If `session.read_dirs` includes `~/workspace`, every hazmat session can read every repo and artifact under that tree. This is appropriate for single-developer machines where all workspace content is at the same trust level. For multi-tenant or mixed-trust workspaces, use per-session `-R` flags or pack-based read dirs instead.
+**`~/workspace` as a global read dir is a security tradeoff.** If
+`session.read_dirs` includes `~/workspace`, every hazmat session can read
+every repo and artifact under that tree. This is appropriate for
+single-developer machines where all workspace content is at the same trust
+level. For multi-tenant or mixed-trust workspaces, use per-session `-R` flags
+or explicit integration read dirs instead.
 
 **Cloud backup encrypts at rest.** Both local and cloud snapshots use Kopia's encrypted repository format. The local repository relies on a fixed local-only password plus filesystem permissions; the cloud repository relies on the configured repository password.
 

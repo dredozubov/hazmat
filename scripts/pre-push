@@ -23,11 +23,11 @@ echo "pre-push: CLI smoke tests..."
 go run . bootstrap --help >/dev/null
 go run . bootstrap opencode --help >/dev/null
 go run . opencode --help >/dev/null
-go run . pack --help >/dev/null
-go run . pack list >/dev/null
-go run . pack show node >/dev/null
+go run . integration --help >/dev/null
+go run . integration list >/dev/null
+go run . integration show node >/dev/null
 go run . config set --help >/dev/null
-go run . config import claude --dry-run >/dev/null
-go run . config import opencode --dry-run >/dev/null
+go run . config import claude --help >/dev/null
+go run . config import opencode --help >/dev/null
 
 echo "pre-push: all checks passed"

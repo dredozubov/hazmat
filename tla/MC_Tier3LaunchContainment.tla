@@ -2,7 +2,7 @@
 \* Tier 3 host-side launch containment for Docker-capable sessions.
 \*
 \* This spec models Hazmat's launch contract in hazmat/sandbox.go:
-\*   1. Reject stack-pack env passthrough
+\*   1. Reject integration env passthrough
 \*   2. Validate backend readiness (support, identity, health, profile)
 \*   3. Reject credential deny paths from project/read-only mounts
 \*   4. Filter covered read-only mounts
@@ -16,7 +16,7 @@
 \*   hazmat/sandbox.go — buildSandboxLaunchSpec(), prepareSandboxLaunch(),
 \*                        loadHealthySandboxLaunchBackend(),
 \*                        dockerSandboxesBackend.PrepareLaunch()
-\*   hazmat/pack.go    — isCredentialDenyPath()
+\*   hazmat/integration_manifest.go — isCredentialDenyPath()
 \*   hazmat/session.go — isWithinDir()
 
 EXTENDS Naturals, FiniteSets
@@ -64,7 +64,7 @@ VARIABLES
     projectDir,
     readDirs,
     agent,
-    packEnvRequested,
+    integrationEnvRequested,
     backendReady,
     approvalGranted,
     shellSupported,
@@ -78,7 +78,7 @@ VARIABLES
     failed
 
 vars ==
-    <<projectDir, readDirs, agent, packEnvRequested,
+    <<projectDir, readDirs, agent, integrationEnvRequested,
       backendReady,
       approvalGranted, shellSupported, extraMountsSupported,
       phase, mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -87,7 +87,7 @@ TypeOK ==
     /\ projectDir \in Paths
     /\ readDirs \subseteq Paths
     /\ agent \in {"claude", "shell"}
-    /\ packEnvRequested \in BOOLEAN
+    /\ integrationEnvRequested \in BOOLEAN
     /\ backendReady \in BOOLEAN
     /\ approvalGranted \in BOOLEAN
     /\ shellSupported \in BOOLEAN
@@ -104,7 +104,7 @@ Init ==
     /\ projectDir \in ProjectChoices
     /\ readDirs \in SUBSET ReadChoices
     /\ agent \in {"claude", "shell"}
-    /\ packEnvRequested \in BOOLEAN
+    /\ integrationEnvRequested \in BOOLEAN
     /\ backendReady \in BOOLEAN
     /\ approvalGranted \in BOOLEAN
     /\ shellSupported \in BOOLEAN
@@ -117,21 +117,21 @@ Init ==
     /\ launched = FALSE
     /\ failed = FALSE
 
-RejectPackEnv ==
+RejectIntegrationEnv ==
     /\ phase = 0
-    /\ packEnvRequested
+    /\ integrationEnvRequested
     /\ failed' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched>>
 
-AcceptNoPackEnv ==
+AcceptNoIntegrationEnv ==
     /\ phase = 0
-    /\ ~packEnvRequested
+    /\ ~integrationEnvRequested
     /\ phase' = 1
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -140,7 +140,7 @@ BackendChecksPass ==
     /\ phase = 1
     /\ backendReady
     /\ phase' = 2
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -150,7 +150,7 @@ BackendChecksFail ==
     /\ ~backendReady
     /\ failed' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched>>
@@ -160,7 +160,7 @@ MountInputsPass ==
     /\ ~IsCredentialDenyPath(projectDir)
     /\ \A d \in readDirs : ~IsCredentialDenyPath(d)
     /\ phase' = 3
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -170,7 +170,7 @@ MountInputsFail ==
     /\ (IsCredentialDenyPath(projectDir) \/ (\E d \in readDirs : IsCredentialDenyPath(d)))
     /\ failed' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched>>
@@ -180,7 +180,7 @@ CompatibilityPass ==
     /\ ~(agent = "shell" /\ ~shellSupported)
     /\ ~(PlannedReadDirs(projectDir, readDirs) # {} /\ ~extraMountsSupported)
     /\ phase' = 4
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -191,7 +191,7 @@ CompatibilityFail ==
          \/ (PlannedReadDirs(projectDir, readDirs) # {} /\ ~extraMountsSupported))
     /\ failed' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched>>
@@ -200,7 +200,7 @@ ApprovalPass ==
     /\ phase = 4
     /\ approvalGranted
     /\ phase' = 5
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched, failed>>
@@ -210,7 +210,7 @@ ApprovalFail ==
     /\ ~approvalGranted
     /\ failed' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, launched>>
@@ -222,7 +222,7 @@ CreateSandbox ==
         {Mount(d, "ro") : d \in PlannedReadDirs(projectDir, readDirs)}
     /\ sandboxCreated' = TRUE
     /\ phase' = 6
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    launchEnv, policyApplied, launched, failed>>
@@ -232,7 +232,7 @@ ApplyPolicy ==
     /\ sandboxCreated
     /\ policyApplied' = TRUE
     /\ phase' = 7
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, launched, failed>>
@@ -242,7 +242,7 @@ LaunchAgent ==
     /\ policyApplied
     /\ launched' = TRUE
     /\ phase' = 8
-    /\ UNCHANGED <<projectDir, readDirs, agent, packEnvRequested,
+    /\ UNCHANGED <<projectDir, readDirs, agent, integrationEnvRequested,
                    backendReady,
                    approvalGranted, shellSupported, extraMountsSupported,
                    mounts, launchEnv, sandboxCreated, policyApplied, failed>>
@@ -252,8 +252,8 @@ Done ==
     /\ UNCHANGED vars
 
 Next ==
-    \/ RejectPackEnv
-    \/ AcceptNoPackEnv
+    \/ RejectIntegrationEnv
+    \/ AcceptNoIntegrationEnv
     \/ BackendChecksPass
     \/ BackendChecksFail
     \/ MountInputsPass
@@ -306,8 +306,8 @@ PolicyBeforeLaunch ==
 ApprovalBeforeLaunch ==
     launched => approvalGranted
 
-PackEnvRejected ==
-    packEnvRequested => ~launched
+IntegrationEnvRejected ==
+    integrationEnvRequested => ~launched
 
 ShellVersionGate ==
     launched /\ agent = "shell" => shellSupported

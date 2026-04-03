@@ -144,8 +144,6 @@ func newShellCmd() *cobra.Command {
 		"Read-write directory to expose to the agent (repeatable)")
 	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
 		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
-		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -154,8 +152,7 @@ func newShellCmd() *cobra.Command {
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
-	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
-	_ = cmd.Flags().MarkHidden("pack")
+	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
@@ -207,8 +204,6 @@ func newExecCmd() *cobra.Command {
 		"Read-write directory to expose to the agent (repeatable)")
 	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
 		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().StringArrayVar(&integrationNames, "pack", nil,
-		"Legacy alias for --integration")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
@@ -217,8 +212,7 @@ func newExecCmd() *cobra.Command {
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Continue without Docker support even if Docker markers are present")
-	_ = cmd.Flags().MarkDeprecated("pack", "use --integration")
-	_ = cmd.Flags().MarkHidden("pack")
+	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
@@ -439,13 +433,27 @@ type claudeOpts = harnessSessionOpts
 var errHarnessHelp = fmt.Errorf("help requested")
 var errClaudeHelp = errHarnessHelp
 
+func legacyIntegrationFlagError(_ *cobra.Command, err error) error {
+	if err != nil && strings.Contains(err.Error(), "--pack") {
+		return fmt.Errorf("--pack was removed before v1; use --integration")
+	}
+	return err
+}
+
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --write, --integration, --pack,
-// --no-backup, --docker, --sandbox, --ignore-docker)
+// Hazmat flags (--project, --read, --write, --integration, --no-backup,
+// --docker, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
 	var forwarded []string
+	nextValue := func(i *int, flag, want string) (string, error) {
+		if *i+1 >= len(args) {
+			return "", fmt.Errorf("%s requires %s", flag, want)
+		}
+		*i++
+		return args[*i], nil
+	}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -462,11 +470,11 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		case arg == "--no-backup":
 			opts.noBackup = true
 		case arg == "--docker":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires a mode (auto, none, sandbox)", arg)
+			value, err := nextValue(&i, arg, "a mode (auto, none, sandbox)")
+			if err != nil {
+				return opts, nil, err
 			}
-			i++
-			opts.dockerMode = args[i]
+			opts.dockerMode = value
 			opts.dockerModeExplicit = true
 		case strings.HasPrefix(arg, "--docker="):
 			opts.dockerMode = arg[len("--docker="):]
@@ -476,45 +484,39 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		case arg == "--ignore-docker":
 			opts.allowDocker = true
 		case arg == "--project" || arg == "-C":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
+			value, err := nextValue(&i, arg, "a directory argument")
+			if err != nil {
+				return opts, nil, err
 			}
-			i++
-			opts.project = args[i]
+			opts.project = value
 		case strings.HasPrefix(arg, "--project="):
 			opts.project = arg[len("--project="):]
 		case arg == "--read" || arg == "-R":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
+			value, err := nextValue(&i, arg, "a directory argument")
+			if err != nil {
+				return opts, nil, err
 			}
-			i++
-			opts.readDirs = append(opts.readDirs, args[i])
+			opts.readDirs = append(opts.readDirs, value)
 		case strings.HasPrefix(arg, "--read="):
 			opts.readDirs = append(opts.readDirs, arg[len("--read="):])
 		case arg == "--write" || arg == "-W":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires a directory argument", arg)
+			value, err := nextValue(&i, arg, "a directory argument")
+			if err != nil {
+				return opts, nil, err
 			}
-			i++
-			opts.writeDirs = append(opts.writeDirs, args[i])
+			opts.writeDirs = append(opts.writeDirs, value)
 		case strings.HasPrefix(arg, "--write="):
 			opts.writeDirs = append(opts.writeDirs, arg[len("--write="):])
 		case arg == "--integration":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires an integration name", arg)
+			value, err := nextValue(&i, arg, "an integration name")
+			if err != nil {
+				return opts, nil, err
 			}
-			i++
-			opts.integrations = append(opts.integrations, args[i])
+			opts.integrations = append(opts.integrations, value)
 		case strings.HasPrefix(arg, "--integration="):
 			opts.integrations = append(opts.integrations, arg[len("--integration="):])
-		case arg == "--pack":
-			if i+1 >= len(args) {
-				return opts, nil, fmt.Errorf("%s requires an integration name", arg)
-			}
-			i++
-			opts.integrations = append(opts.integrations, args[i])
-		case strings.HasPrefix(arg, "--pack="):
-			opts.integrations = append(opts.integrations, arg[len("--pack="):])
+		case arg == "--pack" || strings.HasPrefix(arg, "--pack="):
+			return opts, nil, fmt.Errorf("--pack was removed before v1; use --integration")
 		default:
 			forwarded = append(forwarded, arg)
 		}
@@ -615,35 +617,34 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 }
 
 // applyIntegrations resolves, validates, and merges active integrations into
-// the session config. Pack manifests are still the underlying source of truth
-// during the migration, but the session contract is integration-centric.
+// the session config.
 func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
-	packs, err := resolveActivePacks(integrationFlags, cfg.ProjectDir)
+	integrations, err := resolveActiveIntegrations(integrationFlags, cfg.ProjectDir)
 	if err != nil {
 		return err
 	}
 
 	// Detect and suggest integrations if none are active.
-	activeNames := make(map[string]struct{}, len(packs))
-	for _, p := range packs {
-		activeNames[p.PackMeta.Name] = struct{}{}
+	activeNames := make(map[string]struct{}, len(integrations))
+	for _, spec := range integrations {
+		activeNames[spec.Meta.Name] = struct{}{}
 	}
-	if suggestions := suggestPacks(cfg.ProjectDir, activeNames); len(suggestions) > 0 {
+	if suggestions := suggestIntegrations(cfg.ProjectDir, activeNames); len(suggestions) > 0 {
 		fmt.Fprintf(os.Stderr, "hazmat: suggested integrations: %s (activate with --integration <name>)\n",
 			strings.Join(suggestions, ", "))
 	}
 
-	if len(packs) == 0 {
+	if len(integrations) == 0 {
 		return nil
 	}
 
-	names := make([]string, 0, len(packs))
-	for _, p := range packs {
-		names = append(names, p.PackMeta.Name)
+	names := make([]string, 0, len(integrations))
+	for _, spec := range integrations {
+		names = append(names, spec.Meta.Name)
 	}
 	cfg.ActiveIntegrations = names
 
-	resolved, err := resolveRuntimeIntegrations(cfg.ProjectDir, packs)
+	resolved, err := resolveRuntimeIntegrations(cfg.ProjectDir, integrations)
 	if err != nil {
 		return err
 	}
@@ -1971,7 +1972,7 @@ func agentEnvPairs(cfg sessionConfig) []string {
 
 	// Integration env passthrough: passive path pointers and selectors resolved
 	// from the invoker's environment. Only keys in safeEnvKeys are allowed;
-	// validation happens at pack load time.
+	// validation happens at integration-manifest load time.
 	for key, val := range cfg.IntegrationEnv {
 		pairs = append(pairs, key+"="+val)
 	}

@@ -452,7 +452,7 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 			agentHome + "/.claude",
 			agentHome + "/.claude/projects",
 		} {
-			sudo("mkdir", "-p", dir)                       //nolint:errcheck // best-effort within verified init step
+			sudo("mkdir", "-p", dir)                      //nolint:errcheck // best-effort within verified init step
 			sudo("chown", agentUser+":"+sharedGroup, dir) //nolint:errcheck // best-effort ownership
 			sudo("chmod", "2770", dir)                    //nolint:errcheck // best-effort permissions
 		}

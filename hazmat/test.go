@@ -1238,6 +1238,7 @@ func portInAnchor(rules, port string) bool {
 // to resolve.  Uses the system resolver (CGO on macOS) which respects /etc/hosts.
 // Build with CGO_ENABLED=1 (the default) to ensure /etc/hosts is consulted.
 func checkBlockedDomain(domain string) bool {
+	//nolint:gosec // Test helper resolves operator-controlled domains to verify local DNS blocking behavior.
 	addrs, err := net.LookupHost(domain)
 	if err != nil {
 		return true // NXDOMAIN or error = blocked

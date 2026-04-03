@@ -53,7 +53,7 @@ example, use `localhost:5433` instead of `postgres:5432`.
 - **Localhost is inside the blast radius.** Admin surfaces, dev databases,
   debug endpoints, and local dashboards exposed on allowed ports remain
   reachable from the session.
-- **Tier 2 and Tier 3 are not smooth mode switches today.** Pack env
+- **Tier 2 and Tier 3 are not smooth mode switches today.** Integration env
   passthrough, resume behavior, read-only mount semantics, and network/runtime
   topology differ between native containment and Docker Sandboxes.
 

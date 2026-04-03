@@ -25,4 +25,3 @@ func generateRandomPassword(nBytes int) (string, error) {
 func generateToken() string {
 	return rand.Text()
 }
-

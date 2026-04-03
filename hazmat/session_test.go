@@ -43,6 +43,54 @@ func TestResolveDirRejectsFile(t *testing.T) {
 	}
 }
 
+func TestParseHarnessArgsRejectsLegacyPackFlag(t *testing.T) {
+	_, _, err := parseHarnessArgs([]string{"--pack", "node"})
+	if err == nil {
+		t.Fatal("expected legacy --pack flag to be rejected")
+	}
+	if !strings.Contains(err.Error(), "--pack was removed before v1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunConfigSetRejectsLegacyPackKeys(t *testing.T) {
+	isolateConfig(t)
+
+	tests := []struct {
+		key   string
+		value string
+	}{
+		{key: "packs.pin", value: "~/workspace/example:node"},
+		{key: "packs.unpin", value: "~/workspace/example"},
+	}
+
+	for _, tc := range tests {
+		err := runConfigSet(tc.key, tc.value)
+		if err == nil {
+			t.Fatalf("expected %s to be rejected", tc.key)
+		}
+		if !strings.Contains(err.Error(), "removed before v1") {
+			t.Fatalf("unexpected error for %s: %v", tc.key, err)
+		}
+	}
+}
+
+func TestLoadConfigRejectsLegacyPacksSection(t *testing.T) {
+	isolateConfig(t)
+
+	if err := os.WriteFile(configFilePath, []byte("packs:\n  pinned: []\n"), 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("expected legacy packs config to be rejected")
+	}
+	if !strings.Contains(err.Error(), "config key 'packs' was removed before v1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveReadDirsDeduplicates(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")

@@ -143,12 +143,11 @@ They do not widen write access, expose blocked credentials, or change firewall
 policy. Explicit extra writable scope is handled separately through `-W` or
 `hazmat config access`, not through integrations.
 
-Repos can still ship a `.hazmat/packs.yaml` listing recommended integrations.
+Repos can still ship a `.hazmat/integrations.yaml` listing recommended integrations.
 On first use, hazmat prompts once for approval; after that, the approved
-integrations activate automatically until the file changes. `hazmat pack` and
-`--pack` still work as legacy aliases. Write your own pack manifest in
-`~/.hazmat/packs/` for environments that built-ins do not cover. Full
-reference: [stack-packs.md](stack-packs.md).
+integrations activate automatically until the file changes. Write your own
+integration manifest in `~/.hazmat/integrations/` for environments that
+built-ins do not cover. Full reference: [integrations.md](integrations.md).
 
 ### Docker Projects
 

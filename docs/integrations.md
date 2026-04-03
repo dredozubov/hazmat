@@ -4,9 +4,7 @@ Session integrations are optional ergonomics overlays for common technology
 stacks. They let Hazmat carry a small amount of stack-specific convenience
 into a session without weakening the containment model.
 
-`hazmat integration` is the primary command surface. This file keeps the
-historical `stack-packs.md` name because the repo recommendation file and the
-underlying manifest format still use "pack" terminology during the migration.
+`hazmat integration` is the command surface for this feature.
 
 ## What Integrations Can Do
 
@@ -64,13 +62,11 @@ hazmat integration show node
 ```
 
 `hazmat integration list` shows built-in integrations, user-installed manifests under
-`~/.hazmat/packs/`, and any project pinning currently configured.
+`~/.hazmat/integrations/`, and any project pinning currently configured.
 
 `hazmat integration show <name>` shows the integration's detect files,
 read-only paths, env passthrough keys, snapshot excludes, warnings, and
 command hints.
-
-`hazmat pack list` and `hazmat pack show` still work as legacy aliases.
 
 ## Activating Integrations
 
@@ -117,8 +113,6 @@ the pin. At session start, the session's project path is resolved the same way
 and compared for exact equality. This means `~/workspace/my-app` and
 `/Users/dr/workspace/my-app` both resolve to the same canonical pin. Re-running
 `integrations.pin` for the same project replaces the existing pin set.
-
-`packs.pin` and `packs.unpin` still work as legacy aliases.
 
 ## Built-In Integrations
 
@@ -169,10 +163,10 @@ from.
 
 ## Repo-Recommended Integrations
 
-A repo can declare which integrations it needs in `.hazmat/packs.yaml`:
+A repo can declare which integrations it needs in `.hazmat/integrations.yaml`:
 
 ```yaml
-packs:
+integrations:
   - go
   - tla-java
 ```
@@ -185,10 +179,10 @@ authority.
 
 ```mermaid
 flowchart TD
-    A[Session start] --> B{.hazmat/packs.yaml exists?}
+    A[Session start] --> B{.hazmat/integrations.yaml exists?}
     B -- no --> C[Check --integration flags and config pins]
     B -- yes --> D[Compute SHA-256 of file]
-    D --> E{Approved in ~/.hazmat/approvals.yaml?}
+    D --> E{Approved in ~/.hazmat/integration-approvals.yaml?}
     E -- "yes (path + hash match)" --> F[Activate recommended integrations]
     E -- no --> G[Prompt user: approve these integrations?]
     G -- yes --> H[Record approval] --> F
@@ -202,11 +196,11 @@ On first encounter, it prompts:
 
 ```
 hazmat: this repo recommends integrations: go, tla-java
-hazmat: source: /Users/dr/workspace/hazmat/.hazmat/packs.yaml
+hazmat: source: /Users/dr/workspace/hazmat/.hazmat/integrations.yaml
 hazmat: approve these integrations for this repo? [y/N]
 ```
 
-Approval is stored outside the repo in `~/.hazmat/approvals.yaml`, keyed by
+Approval is stored outside the repo in `~/.hazmat/integration-approvals.yaml`, keyed by
 canonical project path + SHA-256 of the file contents:
 
 - Same repo + same file = no prompt (approved)
@@ -218,10 +212,10 @@ manually.
 
 ## For Project Maintainers
 
-To recommend integrations for your repo, add `.hazmat/packs.yaml`:
+To recommend integrations for your repo, add `.hazmat/integrations.yaml`:
 
 ```yaml
-packs:
+integrations:
   - go
   - node
 ```
@@ -235,7 +229,7 @@ for the first time, they'll see the approval prompt with the exact integration l
 
 If your project needs an integration that doesn't exist as a built-in,
 contributors can create a matching user manifest on their machines (see
-below). The `.hazmat/packs.yaml` should still reference the integration name
+below). The `.hazmat/integrations.yaml` should still reference the integration name
 — it resolves through the same loader.
 
 ## User Manifests
@@ -243,13 +237,13 @@ below). The `.hazmat/packs.yaml` should still reference the integration name
 User-installed manifests live in:
 
 ```text
-~/.hazmat/packs/<name>.yaml
+~/.hazmat/integrations/<name>.yaml
 ```
 
-Under the hood, integrations are still defined by pack manifests. Hazmat
-resolves names by checking built-ins first, then user manifests. This means
-you can extend or replace a built-in by creating a user manifest with the same
-name, or create entirely new integrations for stacks that hazmat doesn't ship.
+Hazmat resolves names by checking built-ins first, then user manifests. This
+means you can extend or replace a built-in by creating a user manifest with
+the same name, or create entirely new integrations for stacks that Hazmat
+doesn't ship.
 
 ### When to create a user manifest
 
@@ -260,11 +254,11 @@ name, or create entirely new integrations for stacks that hazmat doesn't ship.
 
 ### Writing a user manifest
 
-A pack manifest is YAML with strict field validation. Unknown fields are
+An integration manifest is YAML with strict field validation. Unknown fields are
 rejected at load time.
 
 ```yaml
-pack:
+integration:
   name: java-sdkman
   version: 1
   description: Java via SDKMAN (instead of Homebrew)
@@ -296,10 +290,10 @@ commands:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `pack.name` | yes | Lowercase alphanumeric + hyphens |
-| `pack.version` | yes | Must be `1` |
-| `pack.description` | no | One-line description |
-| `detect.files` | no | Filenames (no paths) that suggest this pack |
+| `integration.name` | yes | Lowercase alphanumeric + hyphens |
+| `integration.version` | yes | Must be `1` |
+| `integration.description` | no | One-line description |
+| `detect.files` | no | Filenames (no paths) that suggest this integration |
 | `session.read_dirs` | no | Paths added read-only (`~` expands to invoker home) |
 | `session.env_passthrough` | no | Env var names from the safe allowlist only |
 | `backup.excludes` | no | Glob patterns for snapshot exclusion |
@@ -340,7 +334,7 @@ appears once.
 
 ## Self-Hosting: Developing Hazmat Under Hazmat
 
-Hazmat's own repo includes `.hazmat/packs.yaml` recommending `go` and
+Hazmat's own repo includes `.hazmat/integrations.yaml` recommending `go` and
 `tla-java`. On first `hazmat claude` in this repo, approve the recommended
 integrations and the session gets Go toolchain support plus Java paths for TLC model
 checking.

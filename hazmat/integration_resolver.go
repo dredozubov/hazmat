@@ -16,19 +16,19 @@ import (
 )
 
 type resolvedIntegration struct {
-	Pack                Pack
-	ReplacePackReadDirs bool
-	AdditionalReadDirs  []string
-	ResolvedEnv         map[string]string
-	AdditionalWarnings  []string
-	Source              string
-	Details             []string
+	Spec                    IntegrationSpec
+	ReplaceDeclaredReadDirs bool
+	AdditionalReadDirs      []string
+	ResolvedEnv             map[string]string
+	AdditionalWarnings      []string
+	Source                  string
+	Details                 []string
 }
 
 type integrationResolverSpec struct {
-	Summary              string
-	ReplacesPackReadDirs bool
-	Resolve              func(*integrationResolveContext, Pack) (resolvedIntegration, error)
+	Summary                  string
+	ReplacesDeclaredReadDirs bool
+	Resolve                  func(*integrationResolveContext, IntegrationSpec) (resolvedIntegration, error)
 }
 
 type integrationProbe interface {
@@ -81,19 +81,19 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Resolve: resolveGoIntegration,
 	},
 	"node": {
-		Summary:              "active Node runtime probe with Homebrew node fallback",
-		ReplacesPackReadDirs: true,
-		Resolve:              resolveNodeIntegration,
+		Summary:                  "active Node runtime probe with Homebrew node fallback",
+		ReplacesDeclaredReadDirs: true,
+		Resolve:                  resolveNodeIntegration,
 	},
 	"rust": {
-		Summary:              "rustc sysroot probe with Homebrew rust/rustup fallback",
-		ReplacesPackReadDirs: true,
-		Resolve:              resolveRustIntegration,
+		Summary:                  "rustc sysroot probe with Homebrew rust/rustup fallback",
+		ReplacesDeclaredReadDirs: true,
+		Resolve:                  resolveRustIntegration,
 	},
 	"tla-java": {
-		Summary:              "JAVA_HOME / java runtime probe with Homebrew openjdk fallback",
-		ReplacesPackReadDirs: true,
-		Resolve:              resolveTLAJavaIntegration,
+		Summary:                  "JAVA_HOME / java runtime probe with Homebrew openjdk fallback",
+		ReplacesDeclaredReadDirs: true,
+		Resolve:                  resolveTLAJavaIntegration,
 	},
 }
 
@@ -185,23 +185,23 @@ func integrationTimeoutForCommand(name string) time.Duration {
 	return integrationProbeTimeout
 }
 
-func resolveRuntimeIntegrations(projectDir string, packs []Pack) ([]resolvedIntegration, error) {
+func resolveRuntimeIntegrations(projectDir string, integrations []IntegrationSpec) ([]resolvedIntegration, error) {
 	ctx := &integrationResolveContext{
 		ProjectDir: projectDir,
 		Probe:      integrationProbeFactory(),
 	}
 
-	resolved := make([]resolvedIntegration, 0, len(packs))
-	for _, pack := range packs {
-		r := resolvedIntegration{Pack: pack}
-		if spec, ok := builtinIntegrationResolvers[pack.PackMeta.Name]; ok {
+	resolved := make([]resolvedIntegration, 0, len(integrations))
+	for _, integration := range integrations {
+		r := resolvedIntegration{Spec: integration}
+		if spec, ok := builtinIntegrationResolvers[integration.Meta.Name]; ok {
 			var err error
-			r, err = spec.Resolve(ctx, pack)
+			r, err = spec.Resolve(ctx, integration)
 			if err != nil {
 				return nil, err
 			}
-			r.Pack = pack
-			r.ReplacePackReadDirs = spec.ReplacesPackReadDirs
+			r.Spec = integration
+			r.ReplaceDeclaredReadDirs = spec.ReplacesDeclaredReadDirs
 		}
 		resolved = append(resolved, r)
 	}
@@ -213,8 +213,8 @@ func integrationResolverFor(name string) (integrationResolverSpec, bool) {
 	return spec, ok
 }
 
-func resolveGoIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
-	result := resolvedIntegration{Pack: pack, ResolvedEnv: make(map[string]string)}
+func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
 	if dir, err := probeCanonicalDir(ctx.Probe, "go", "env", "GOROOT"); err == nil && dir != "" {
 		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "go")); err == nil && runtimeDir != "" {
 			result.AdditionalReadDirs = []string{runtimeDir}
@@ -246,8 +246,8 @@ func resolveGoIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIn
 	return result, nil
 }
 
-func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
-	result := resolvedIntegration{Pack: pack}
+func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec}
 	if execPath, err := ctx.Probe.Output("node", "-p", "process.execPath"); err == nil && execPath != "" {
 		prefix := filepath.Dir(filepath.Dir(strings.TrimSpace(execPath)))
 		dir, err := validatedRuntimeDir(prefix, filepath.Join("bin", "node"))
@@ -273,8 +273,8 @@ func resolveNodeIntegration(ctx *integrationResolveContext, pack Pack) (resolved
 	return result, nil
 }
 
-func resolveRustIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
-	result := resolvedIntegration{Pack: pack}
+func resolveRustIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec}
 	if dir, err := probeCanonicalDir(ctx.Probe, "rustc", "--print", "sysroot"); err == nil && dir != "" {
 		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "rustc")); err == nil && runtimeDir != "" {
 			result.AdditionalReadDirs = []string{runtimeDir}
@@ -299,8 +299,8 @@ func resolveRustIntegration(ctx *integrationResolveContext, pack Pack) (resolved
 	return result, nil
 }
 
-func resolveTLAJavaIntegration(ctx *integrationResolveContext, pack Pack) (resolvedIntegration, error) {
-	result := resolvedIntegration{Pack: pack, ResolvedEnv: make(map[string]string)}
+func resolveTLAJavaIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
 	if javaHome, source, err := ctx.resolveJavaHome(); err == nil && javaHome != "" {
 		result.AdditionalReadDirs = []string{javaHome}
 		result.Source = source

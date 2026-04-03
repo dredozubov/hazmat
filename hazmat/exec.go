@@ -95,7 +95,6 @@ func asAgentShellQuiet(script string) error {
 	return asAgentQuiet("bash", "-c", script)
 }
 
-
 // agentTCPConnect tests whether the agent user can reach host:port.
 // It invokes the binary itself as the agent user via "sudo -u agent hazmat _connect",
 // so the actual TCP dial runs under the agent user's UID and is subject to pf rules.

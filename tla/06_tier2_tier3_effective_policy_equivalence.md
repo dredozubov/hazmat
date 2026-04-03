@@ -33,7 +33,7 @@ This spec therefore answers two separate questions:
 |------|-----------|
 | `hazmat/session.go` | `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
 | `hazmat/sandbox.go` | `prepareSandboxLaunch()`, `buildSandboxLaunchSpec()` |
-| `hazmat/pack.go` | `isCredentialDenyPath()` |
+| `hazmat/integration_manifest.go` | `isCredentialDenyPath()` |
 
 ## Status
 

@@ -21,7 +21,7 @@ import (
 // and redraws on SIGWINCH.
 type statusBar struct {
 	integrationNames []string
-	projectDir string
+	projectDir       string
 
 	mu          sync.Mutex
 	active      bool
@@ -141,12 +141,12 @@ func (s *statusBar) writeBar(buf *bytes.Buffer, w int) {
 // writeBarColor renders the bar with 256-color styling on a dark background.
 func (s *statusBar) writeBarColor(buf *bytes.Buffer, w int) {
 	const (
-		bg      = "\033[48;5;236m"  // dark gray
-		amber   = "\033[38;5;214m"  // ☢ symbol
-		white   = "\033[38;5;255m"  // HAZMAT text
-		gray    = "\033[38;5;240m"  // separator
-		green   = "\033[38;5;114m"  // integration names
-		lgray   = "\033[38;5;245m"  // project path
+		bg      = "\033[48;5;236m" // dark gray
+		amber   = "\033[38;5;214m" // ☢ symbol
+		white   = "\033[38;5;255m" // HAZMAT text
+		gray    = "\033[38;5;240m" // separator
+		green   = "\033[38;5;114m" // integration names
+		lgray   = "\033[38;5;245m" // project path
 		bold    = "\033[1m"
 		boldOff = "\033[22m"
 		reset   = "\033[0m"

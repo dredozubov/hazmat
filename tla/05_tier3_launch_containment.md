@@ -17,7 +17,7 @@ That changes where the security argument lives:
 4. **Policy-before-launch** — the network policy must be applied before the
    agent process starts inside the sandbox.
 5. **Minimal env passthrough** — the current Tier 3 path must not forward
-   stack-pack environment variables into the sandbox launch path.
+   integration environment variables into the sandbox launch path.
 
 Unlike Tier 2, these properties are not enforced by SBPL deny rules. They are
 enforced by the host-side launch sequence and mount planner before `docker
@@ -28,7 +28,7 @@ sandbox run` ever starts.
 | File | Functions |
 |------|-----------|
 | `hazmat/sandbox.go` | `buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
-| `hazmat/pack.go` | `isCredentialDenyPath()` |
+| `hazmat/integration_manifest.go` | `isCredentialDenyPath()` |
 | `hazmat/session.go` | `isWithinDir()` |
 
 ## TLA+ Model
@@ -57,7 +57,7 @@ mount if it is either a credential path itself or a proper parent of one
 - `ProjectDir ∈ {projectRoot, projectSub, invokerHome, sshDir}`
 - `ReadDirs ⊆ {workspaceRoot, projectSub, safeRef, safeRefChild, invokerHome}`
 - `Agent ∈ {"claude", "shell"}`
-- `PackEnvRequested ∈ BOOLEAN`
+- `IntegrationEnvRequested ∈ BOOLEAN`
 - `BackendReady ∈ BOOLEAN` — abstracts the conjunction of:
   - configured backend supported
   - detected backend matches configured backend
@@ -72,7 +72,7 @@ mount if it is either a credential path itself or a proper parent of one
 
 The model follows the host-side Tier 3 launch order:
 
-1. Reject stack-pack env passthrough
+1. Reject integration env passthrough
 2. Validate backend readiness (support, identity, health, and policy profile)
 3. Validate mount inputs against credential deny zones
 4. Check compatibility gates (`shell` support, extra read-only workspace support)
@@ -96,7 +96,7 @@ The resulting mount set is:
 
 ### Environment Model
 
-The current Tier 3 implementation rejects stack-pack env passthrough and does
+The current Tier 3 implementation rejects integration env passthrough and does
 not add any explicit extra launch environment variables in `hazmat/sandbox.go`.
 The model therefore treats the Hazmat-controlled launch environment as empty.
 If explicit API-key injection is added later, this spec must be updated first.
@@ -115,7 +115,7 @@ If explicit API-key injection is added later, this spec must be updated first.
 | `BackendValidationBeforeLaunch` | Successful launch implies backend readiness was established before launch |
 | `PolicyBeforeLaunch` | The network policy is applied before the agent launches |
 | `ApprovalBeforeLaunch` | Successful launch requires approval |
-| `PackEnvRejected` | Requesting stack-pack env passthrough prevents launch |
+| `IntegrationEnvRejected` | Requesting integration env passthrough prevents launch |
 | `ShellVersionGate` | Shell launches only succeed when shell sandbox support is present |
 | `ExtraWorkspaceVersionGate` | Extra read-only mounts only succeed when that Docker Desktop capability is present |
 
@@ -125,7 +125,7 @@ This model drove a concrete code change in Tier 3:
 
 1. The initial Docker Sandboxes implementation mounted `ProjectDir` and
    `ReadDirs` directly, without a Tier 3 equivalent of the credential deny-zone
-   check used for packs.
+   check used for integrations.
 2. The initial mount path also did not filter read directories already covered
    by the project or by another broader read-only directory, even though Tier 2
    already applies that filtering in `generateSBPL()`.
@@ -141,7 +141,7 @@ mount set rather than raw `ReadDirs`.
 | Paths | 8 | Project root/child, safe ref root/child, credential parent/leaves |
 | ProjectChoices | 4 | Safe project paths plus adversarial credential parent/leaf |
 | ReadChoices | 5 | Parent-of-project, child-of-project, safe redundant, and credential-parent read dirs |
-| Launch gate booleans | 5 | Pack env, backend readiness, approval, shell support, extra-workspace support |
+| Launch gate booleans | 5 | Integration env, backend readiness, approval, shell support, extra-workspace support |
 
 **Confirmed state space:** 33,876 states generated, 23,580 distinct. Depth: 9.
 Runtime: ~1s.

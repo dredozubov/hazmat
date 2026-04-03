@@ -113,10 +113,10 @@ For the dedicated-user setup in [setup-option-a.md](setup-option-a.md), the key 
 
 That preserves the boundary without forcing the user to live inside `sudo -u agent -i`.
 
-[Session integrations](stack-packs.md) provide per-stack session ergonomics
+[Session integrations](integrations.md) provide per-stack session ergonomics
 (read-only toolchain paths, snapshot excludes, safe env passthrough) without
 weakening Tier 2's containment. Repos can still recommend integrations via
-`.hazmat/packs.yaml`; hazmat prompts once for approval.
+`.hazmat/integrations.yaml`; hazmat prompts once for approval.
 
 ## Claude Code Permission Modes
 

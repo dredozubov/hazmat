@@ -188,9 +188,7 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 	} else {
 		fmt.Fprintf(os.Stderr, "hazmat: creating Docker Sandbox %s (first launch may take a few minutes)\n", spec.Name)
 		args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
-		for _, dir := range spec.MountWriteDirs {
-			args = append(args, dir)
-		}
+		args = append(args, spec.MountWriteDirs...)
 		for _, dir := range spec.MountReadDirs {
 			args = append(args, dir+":ro")
 		}

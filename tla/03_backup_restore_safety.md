@@ -124,7 +124,7 @@ hazmat backup --cloud
    with a helpful error if the config file doesn't exist.
 
 5. **Snapshot contents are out of model.** Config-level exclude rules and
-   session-only stack-pack excludes change what gets snapshotted, but this
+   session-only integration excludes change what gets snapshotted, but this
    spec models only ordering and non-blocking behavior, not exact file sets.
 
 ## What TLC Should Find

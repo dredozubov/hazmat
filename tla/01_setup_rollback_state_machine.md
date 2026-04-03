@@ -87,7 +87,7 @@ and how many setup/rollback attempts have occurred.
 
 3. **Harness/session ergonomics are out of model.** Optional harness-specific
    commands such as `hazmat bootstrap opencode`, curated import flows, and
-   session-only stack pack activation are not part of `runInit()` and are
+   session-only integration activation are not part of `runInit()` and are
    therefore outside this setup/rollback model.
 
 ## What TLC Finds
