@@ -1,0 +1,33 @@
+#!/bin/sh
+# pre-push: mirror CI checks locally before pushing.
+# Runs: vet, unit tests, lint, CLI smoke tests.
+# Skips: e2e (requires full system setup), TLA+ (requires Java + tla2tools).
+#
+# Install: make hooks   (or: cp scripts/pre-push .git/hooks/pre-push)
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/hazmat"
+
+echo "pre-push: go vet..."
+go vet ./...
+
+echo "pre-push: go test..."
+go test ./...
+
+echo "pre-push: golangci-lint..."
+golangci-lint run ./...
+
+echo "pre-push: CLI smoke tests..."
+go run . bootstrap --help >/dev/null
+go run . bootstrap opencode --help >/dev/null
+go run . opencode --help >/dev/null
+go run . pack --help >/dev/null
+go run . pack list >/dev/null
+go run . pack show node >/dev/null
+go run . config set --help >/dev/null
+go run . config import claude --dry-run >/dev/null
+go run . config import opencode --dry-run >/dev/null
+
+echo "pre-push: all checks passed"

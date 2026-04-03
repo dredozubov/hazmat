@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
 LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-vm
+.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-vm hooks
 
 all: hazmat hazmat-launch
 
@@ -41,6 +41,11 @@ e2e: all
 
 e2e-vm: all
 	bash ../scripts/e2e-vm.sh
+
+hooks:
+	cp ../scripts/pre-push ../.git/hooks/pre-push
+	chmod +x ../.git/hooks/pre-push
+	@echo "Installed pre-push hook (vet + test + lint + smoke tests)"
 
 clean:
 	rm -f hazmat hazmat-launch
