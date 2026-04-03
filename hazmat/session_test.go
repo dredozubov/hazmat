@@ -500,6 +500,123 @@ func TestDefaultReadDirsExpandsTilde(t *testing.T) {
 	}
 }
 
+func TestTerminalCapabilitySupportSynthesizesUserTerminfoDir(t *testing.T) {
+	home := t.TempDir()
+	terminfoDir := filepath.Join(home, ".terminfo")
+	if err := os.MkdirAll(terminfoDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", terminfoDir, err)
+	}
+	canonicalTerminfoDir, err := filepath.EvalSymlinks(terminfoDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", terminfoDir, err)
+	}
+
+	pairs, readDirs := terminalCapabilitySupport(home, func(key string) string {
+		switch key {
+		case "TERM":
+			return "xterm-ghostty"
+		case "TERM_PROGRAM":
+			return "Ghostty"
+		default:
+			return ""
+		}
+	})
+
+	values := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		key, value, found := strings.Cut(pair, "=")
+		if !found {
+			t.Fatalf("malformed env pair: %q", pair)
+		}
+		values[key] = value
+	}
+
+	if values["TERM"] != "xterm-ghostty" {
+		t.Fatalf("TERM = %q, want xterm-ghostty", values["TERM"])
+	}
+	if values["TERM_PROGRAM"] != "Ghostty" {
+		t.Fatalf("TERM_PROGRAM = %q, want Ghostty", values["TERM_PROGRAM"])
+	}
+	wantDirsValue := terminfoDir + string(os.PathListSeparator)
+	if values["TERMINFO_DIRS"] != wantDirsValue {
+		t.Fatalf("TERMINFO_DIRS = %q, want %q", values["TERMINFO_DIRS"], wantDirsValue)
+	}
+	if len(readDirs) != 1 || readDirs[0] != canonicalTerminfoDir {
+		t.Fatalf("readDirs = %v, want [%q]", readDirs, canonicalTerminfoDir)
+	}
+}
+
+func TestTerminalCapabilitySupportPreservesExplicitTerminfoEnv(t *testing.T) {
+	home := t.TempDir()
+	explicitTerminfo := filepath.Join(t.TempDir(), "terminfo-explicit")
+	if err := os.MkdirAll(explicitTerminfo, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", explicitTerminfo, err)
+	}
+	canonicalExplicitTerminfo, err := filepath.EvalSymlinks(explicitTerminfo)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", explicitTerminfo, err)
+	}
+	listTerminfoA := filepath.Join(t.TempDir(), "terminfo-a")
+	if err := os.MkdirAll(listTerminfoA, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", listTerminfoA, err)
+	}
+	canonicalListTerminfoA, err := filepath.EvalSymlinks(listTerminfoA)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", listTerminfoA, err)
+	}
+	listTerminfoB := filepath.Join(t.TempDir(), "terminfo-b")
+	if err := os.MkdirAll(listTerminfoB, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", listTerminfoB, err)
+	}
+	canonicalListTerminfoB, err := filepath.EvalSymlinks(listTerminfoB)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", listTerminfoB, err)
+	}
+
+	pairs, readDirs := terminalCapabilitySupport(home, func(key string) string {
+		switch key {
+		case "TERMINFO":
+			return explicitTerminfo
+		case "TERMINFO_DIRS":
+			return listTerminfoA + string(os.PathListSeparator) + listTerminfoB
+		default:
+			return ""
+		}
+	})
+
+	values := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		key, value, found := strings.Cut(pair, "=")
+		if !found {
+			t.Fatalf("malformed env pair: %q", pair)
+		}
+		values[key] = value
+	}
+
+	if values["TERMINFO"] != explicitTerminfo {
+		t.Fatalf("TERMINFO = %q, want %q", values["TERMINFO"], explicitTerminfo)
+	}
+	wantDirsValue := listTerminfoA + string(os.PathListSeparator) + listTerminfoB
+	if values["TERMINFO_DIRS"] != wantDirsValue {
+		t.Fatalf("TERMINFO_DIRS = %q, want %q", values["TERMINFO_DIRS"], wantDirsValue)
+	}
+	if len(readDirs) != 3 {
+		t.Fatalf("readDirs = %v, want 3 entries", readDirs)
+	}
+	for _, want := range []string{canonicalExplicitTerminfo, canonicalListTerminfoA, canonicalListTerminfoB} {
+		found := false
+		for _, dir := range readDirs {
+			if dir == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("readDirs = %v, want to contain %q", readDirs, want)
+		}
+	}
+}
+
 // ── generateSBPL ──────────────────────────────────────────────────────────────
 
 func TestGenerateSBPLProjectOnly(t *testing.T) {
@@ -1327,6 +1444,14 @@ func TestWatchTranscriptForAltScreenActivatesAcrossChunkBoundary(t *testing.T) {
 }
 
 func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	terminfoDir := filepath.Join(home, ".terminfo")
+	if err := os.MkdirAll(terminfoDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", terminfoDir, err)
+	}
+	t.Setenv("TERM", "xterm-ghostty")
+
 	cfg := sessionConfig{
 		ProjectDir: "/Users/dr/workspace/project",
 		ReadDirs: []string{
@@ -1370,6 +1495,13 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 	if values["GOPATH"] != "/Users/dr/go" {
 		t.Fatalf("GOPATH = %q, want /Users/dr/go", values["GOPATH"])
+	}
+	if values["TERM"] != "xterm-ghostty" {
+		t.Fatalf("TERM = %q, want xterm-ghostty", values["TERM"])
+	}
+	wantTerminfoDirs := terminfoDir + string(os.PathListSeparator)
+	if values["TERMINFO_DIRS"] != wantTerminfoDirs {
+		t.Fatalf("TERMINFO_DIRS = %q, want %q", values["TERMINFO_DIRS"], wantTerminfoDirs)
 	}
 }
 

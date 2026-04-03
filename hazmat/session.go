@@ -898,6 +898,87 @@ func expandTilde(path string) string {
 	return path
 }
 
+var terminalEnvPassthroughKeys = []string{
+	"TERM",
+	"COLORTERM",
+	"LANG",
+	"LC_ALL",
+	"LC_CTYPE",
+	"TERM_PROGRAM",
+	"TERM_PROGRAM_VERSION",
+}
+
+func terminalCapabilitySupport(home string, getenv func(string) string) ([]string, []string) {
+	var envPairs []string
+	for _, key := range terminalEnvPassthroughKeys {
+		if value := getenv(key); value != "" {
+			envPairs = append(envPairs, key+"="+value)
+		}
+	}
+
+	terminfo := getenv("TERMINFO")
+	if terminfo != "" {
+		envPairs = append(envPairs, "TERMINFO="+terminfo)
+	}
+
+	terminfoDirs := getenv("TERMINFO_DIRS")
+	if home != "" && terminfo == "" {
+		userTerminfoDir := filepath.Join(home, ".terminfo")
+		if dirExists(userTerminfoDir) && !pathListContains(terminfoDirs, userTerminfoDir) {
+			if terminfoDirs == "" {
+				// Keep the system default search paths available after the custom dir.
+				terminfoDirs = userTerminfoDir + string(os.PathListSeparator)
+			} else {
+				terminfoDirs = userTerminfoDir + string(os.PathListSeparator) + terminfoDirs
+			}
+		}
+	}
+	if terminfoDirs != "" {
+		envPairs = append(envPairs, "TERMINFO_DIRS="+terminfoDirs)
+	}
+
+	var readDirs []string
+	readDirs = appendResolvedDirIfExists(readDirs, terminfo)
+	for _, dir := range filepath.SplitList(terminfoDirs) {
+		readDirs = appendResolvedDirIfExists(readDirs, dir)
+	}
+
+	return envPairs, readDirs
+}
+
+func pathListContains(list, target string) bool {
+	for _, entry := range filepath.SplitList(list) {
+		if entry == target {
+			return true
+		}
+	}
+	return false
+}
+
+func dirExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func appendResolvedDirIfExists(dirs []string, path string) []string {
+	if path == "" {
+		return dirs
+	}
+	resolved, err := resolveDir(path, false)
+	if err != nil {
+		return dirs
+	}
+	for _, existing := range dirs {
+		if existing == resolved {
+			return dirs
+		}
+	}
+	return append(dirs, resolved)
+}
+
 // implicitReadDirs returns toolchain cache directories that are always
 // included as read-only without user configuration. These are the invoking
 // user's package manager caches — sharing them avoids re-downloading the
@@ -907,6 +988,10 @@ func implicitReadDirs() []string {
 	var dirs []string
 	if p := invokerGoModCache(); p != "" {
 		dirs = append(dirs, p)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		_, terminalReadDirs := terminalCapabilitySupport(home, os.Getenv)
+		dirs = append(dirs, terminalReadDirs...)
 	}
 	// Future: Rust (~/.cargo/registry), Maven (~/.m2/repository), etc.
 	return dirs
@@ -1958,10 +2043,9 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
 		"SANDBOX_WRITE_DIRS_JSON=" + string(writeDirsJSON),
 	}
-	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
-		if value := os.Getenv(key); value != "" {
-			pairs = append(pairs, key+"="+value)
-		}
+	if home, err := os.UserHomeDir(); err == nil {
+		terminalPairs, _ := terminalCapabilitySupport(home, os.Getenv)
+		pairs = append(pairs, terminalPairs...)
 	}
 
 	// Go toolchain: share the invoking user's module cache read-only.
