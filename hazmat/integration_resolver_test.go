@@ -244,6 +244,49 @@ func TestIntegrationProbeEnvUsesDefaultAgentPath(t *testing.T) {
 	}
 }
 
+func TestCommandPathFromEnvPrefersProvidedPath(t *testing.T) {
+	hostDir := filepath.Join(t.TempDir(), "host-bin")
+	envDir := filepath.Join(t.TempDir(), "env-bin")
+	for _, dir := range []string{hostDir, envDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	hostTool := filepath.Join(hostDir, "demo-probe")
+	envTool := filepath.Join(envDir, "demo-probe")
+	if err := os.WriteFile(hostTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write host tool: %v", err)
+	}
+	if err := os.WriteFile(envTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write env tool: %v", err)
+	}
+
+	t.Setenv("PATH", hostDir)
+
+	resolved, err := commandPathFromEnv("demo-probe", []string{"PATH=" + envDir})
+	if err != nil {
+		t.Fatalf("commandPathFromEnv: %v", err)
+	}
+	if resolved != envTool {
+		t.Fatalf("resolved = %q, want %q", resolved, envTool)
+	}
+}
+
+func TestCommandPathFromEnvRespectsAbsolutePath(t *testing.T) {
+	tool := filepath.Join(t.TempDir(), "abs-probe")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write tool: %v", err)
+	}
+
+	resolved, err := commandPathFromEnv(tool, nil)
+	if err != nil {
+		t.Fatalf("commandPathFromEnv absolute path: %v", err)
+	}
+	if resolved != tool {
+		t.Fatalf("resolved = %q, want %q", resolved, tool)
+	}
+}
+
 func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")

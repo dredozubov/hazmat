@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,15 +97,21 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
-	return exec.LookPath(name)
+	return commandPathFromEnv(name, integrationProbeEnv())
 }
 
 func (hostIntegrationProbe) Output(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), integrationProbeTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = integrationProbeEnv()
+	env := integrationProbeEnv()
+	resolvedName, err := commandPathFromEnv(name, env)
+	if err != nil {
+		return "", err
+	}
+
+	cmd := exec.CommandContext(ctx, resolvedName, args...)
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("%s timed out after %s", commandLabel(name, args...), integrationProbeTimeout)
@@ -124,6 +131,42 @@ func integrationProbeEnv() []string {
 		}
 	}
 	return env
+}
+
+func commandPathFromEnv(name string, env []string) (string, error) {
+	if name == "" {
+		return "", exec.ErrNotFound
+	}
+	if strings.ContainsRune(name, os.PathSeparator) {
+		return name, nil
+	}
+
+	pathValue := ""
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			pathValue = strings.TrimPrefix(entry, "PATH=")
+			break
+		}
+	}
+	if pathValue == "" {
+		pathValue = os.Getenv("PATH")
+	}
+
+	for _, dir := range filepath.SplitList(pathValue) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("%w: %s", exec.ErrNotFound, name)
 }
 
 func commandLabel(name string, args ...string) string {
@@ -528,6 +571,10 @@ func renderIntegrationDetails(details []string) string {
 func pathExecutableByAgent(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) && os.IsPermission(pathErr) {
+			return false
+		}
 		return false
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
