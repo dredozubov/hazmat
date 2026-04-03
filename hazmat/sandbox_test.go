@@ -443,27 +443,52 @@ func TestBuildSandboxLaunchSpecIncludesWriteDirs(t *testing.T) {
 	}
 }
 
-func TestBuildSandboxLaunchSpecRejectsReadAncestorOfWriteDir(t *testing.T) {
-	root := t.TempDir()
+func TestBuildSandboxLaunchSpecExpandsReadAncestorOfWriteDir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
 	projectDir := filepath.Join(root, "project")
+	sharedDir := filepath.Join(root, "shared")
 	writeDir := filepath.Join(root, "shared", "venv")
+	readSibling := filepath.Join(sharedDir, "docs")
+	topSibling := filepath.Join(root, "reference")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("mkdir projectDir: %v", err)
 	}
-	if err := os.MkdirAll(writeDir, 0o755); err != nil {
-		t.Fatalf("mkdir writeDir: %v", err)
+	for _, dir := range []string{writeDir, readSibling, topSibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
 	}
 
-	_, err := buildSandboxLaunchSpec("claude", sessionConfig{
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
 		ProjectDir: projectDir,
 		ReadDirs:   []string{root},
 		WriteDirs:  []string{writeDir},
 	}, defaultSandboxPolicyProfile())
-	if err == nil {
-		t.Fatal("expected overlapping read/write dirs to be rejected")
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
 	}
-	if !strings.Contains(err.Error(), "read-only parents of writable workspaces") {
-		t.Fatalf("unexpected error: %v", err)
+
+	got := make(map[string]struct{})
+	for _, dir := range spec.MountReadDirs {
+		got[dir] = struct{}{}
+	}
+	if _, ok := got[readSibling]; !ok {
+		t.Fatalf("MountReadDirs missing nested sibling %q; got %v", readSibling, spec.MountReadDirs)
+	}
+	if _, ok := got[topSibling]; !ok {
+		t.Fatalf("MountReadDirs missing top-level sibling %q; got %v", topSibling, spec.MountReadDirs)
+	}
+	if _, ok := got[root]; ok {
+		t.Fatalf("MountReadDirs should not contain ancestor %q", root)
+	}
+	if _, ok := got[sharedDir]; ok {
+		t.Fatalf("MountReadDirs should not contain conflicting ancestor %q", sharedDir)
+	}
+	if _, ok := got[writeDir]; ok {
+		t.Fatalf("MountReadDirs should not contain write dir %q", writeDir)
 	}
 }
 
@@ -576,6 +601,46 @@ func TestExpandAncestorReadDirDeepNesting(t *testing.T) {
 	}
 	if _, ok := got[teamDir]; ok {
 		t.Errorf("should not include intermediate dir %q on path to project", teamDir)
+	}
+}
+
+func TestBuildSandboxLaunchSpecExpandsWriteAncestorOfProjectDir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	projectDir := filepath.Join(root, "project")
+	siblingA := filepath.Join(root, "shared-a")
+	siblingB := filepath.Join(root, "shared-b")
+	for _, dir := range []string{projectDir, siblingA, siblingB} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	spec, err := buildSandboxLaunchSpec("claude", sessionConfig{
+		ProjectDir: projectDir,
+		WriteDirs:  []string{root},
+	}, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpec: %v", err)
+	}
+
+	got := make(map[string]struct{})
+	for _, dir := range spec.MountWriteDirs {
+		got[dir] = struct{}{}
+	}
+	if _, ok := got[siblingA]; !ok {
+		t.Fatalf("MountWriteDirs missing sibling %q; got %v", siblingA, spec.MountWriteDirs)
+	}
+	if _, ok := got[siblingB]; !ok {
+		t.Fatalf("MountWriteDirs missing sibling %q; got %v", siblingB, spec.MountWriteDirs)
+	}
+	if _, ok := got[root]; ok {
+		t.Fatalf("MountWriteDirs should not contain ancestor %q", root)
+	}
+	if _, ok := got[projectDir]; ok {
+		t.Fatalf("MountWriteDirs should not contain project dir %q", projectDir)
 	}
 }
 

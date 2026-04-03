@@ -127,8 +127,9 @@ Known continuity gaps relative to Tier 2:
   host transcript sync used by native containment
 - read-only parent directories may be rewritten into sibling mounts because
   Docker mount semantics differ from seatbelt path rules
-- some overlapping read-only/read-write extension layouts are still rejected
-  rather than remapped automatically
+- overlapping ancestor read/write extension layouts are rewritten into sibling
+  mounts when Hazmat can do so safely; only irreducibly conflicting layouts are
+  still rejected
 - localhost and service topology differ materially between native containment
   and Docker Sandbox mode
 

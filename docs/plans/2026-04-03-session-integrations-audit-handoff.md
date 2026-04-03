@@ -126,6 +126,32 @@ not as:
 
 Unless the base seatbelt rules change, those are not the same thing.
 
+## Resolver Guardrails That Have Converged
+
+The exploration has now converged on a narrower Homebrew model than the
+earliest brainstorming implied:
+
+- Homebrew consent should be one host-owned global setting, not repo-owned
+  state and not a new permission boundary
+- Homebrew resolution should run at launch time, not only at `hazmat init`, so
+  upgrades, relinks, and newly installed toolchains are reflected in the
+  contract that the user sees before launch
+- Hazmat should prefer runtime/toolchain introspection first and use Homebrew as
+  a fallback resolver when a known integration still needs machine-local path
+  discovery
+- Hazmat should probe only canonical Homebrew executables at
+  `/opt/homebrew/bin/brew` and `/usr/local/bin/brew`, not an arbitrary `brew`
+  discovered through `PATH`
+- machine-readable Homebrew access should prefer stable interfaces such as
+  `brew --prefix --installed <formula>` and `brew info --json=v1 --installed
+  <formula>`
+- Hazmat should not parse formula Ruby, enumerate Homebrew recipes generically,
+  or rely on `brew list` output as the primary policy source
+
+These are useful audit points because they constrain the attack surface of the
+resolver itself. Homebrew is treated as a bounded metadata source, not as a new
+authority layer inside Hazmat.
+
 ## Evidence Gathered So Far
 
 The first exploration pass covered the following ecosystem groups:
@@ -252,6 +278,10 @@ An auditor or red team should explicitly try to answer:
    that repo content does not control authority?
 8. Is there any ecosystem where automatic read-only path addition is more
    dangerous than the UX improvement is worth?
+9. Does resolving `brew` from a fixed canonical location materially reduce the
+   chance of resolver spoofing compared to `PATH`-based invocation?
+10. Are the chosen Homebrew query surfaces stable and narrow enough to avoid
+    formula-code execution or brittle output parsing?
 
 ## Tracked Work
 

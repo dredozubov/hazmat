@@ -1082,7 +1082,20 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 			continue
 		}
 		if isWithinDir(dir, cfg.ProjectDir) {
-			return sandboxLaunchSpec{}, fmt.Errorf("write dir %q is an ancestor of project dir %q; --docker=sandbox does not support overlapping writable workspaces", dir, cfg.ProjectDir)
+			for _, s := range expandAncestorDirExcludingPaths(dir, []string{cfg.ProjectDir}) {
+				if isCredentialDenyPath(s) {
+					continue
+				}
+				if sandboxPathCoveredByDirs(s, mountWriteDirs) {
+					continue
+				}
+				if _, dup := writeSeen[s]; dup {
+					continue
+				}
+				writeSeen[s] = struct{}{}
+				mountWriteDirs = append(mountWriteDirs, s)
+			}
+			continue
 		}
 		covered := false
 		for _, other := range cfg.WriteDirs {
@@ -1111,24 +1124,20 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		if isWithinDir(cfg.ProjectDir, dir) {
 			continue
 		}
-		if skip, conflict := sandboxReadDirWriteOverlap(dir, mountWriteDirs); skip {
+		if skip, _ := sandboxReadDirWriteOverlap(dir, mountWriteDirs); skip {
 			continue
-		} else if conflict != "" {
-			return sandboxLaunchSpec{}, fmt.Errorf("read dir %q is an ancestor of write dir %q; --docker=sandbox does not support read-only parents of writable workspaces", dir, conflict)
 		}
-		// Ancestor of project: can't mount the parent read-only because
-		// Docker's sandbox template copies CLAUDE.md from parent dirs
-		// during create, and an ancestor ro mount conflicts with the
-		// writable workspace. Expand into sibling directories instead.
-		if isWithinDir(dir, cfg.ProjectDir) {
-			for _, s := range expandAncestorReadDir(dir, cfg.ProjectDir) {
+
+		excluded := sandboxExcludedDescendants(dir, cfg.ProjectDir, mountWriteDirs)
+		// Ancestors of the project dir or of any writable workspace cannot be
+		// mounted directly. Expand them into non-conflicting siblings instead.
+		if len(excluded) > 0 {
+			for _, s := range expandAncestorDirExcludingPaths(dir, excluded) {
 				if isCredentialDenyPath(s) {
 					continue
 				}
-				if skip, conflict := sandboxReadDirWriteOverlap(s, mountWriteDirs); skip {
+				if skip, _ := sandboxReadDirWriteOverlap(s, mountWriteDirs); skip {
 					continue
-				} else if conflict != "" {
-					return sandboxLaunchSpec{}, fmt.Errorf("read dir %q is an ancestor of write dir %q; --docker=sandbox does not support read-only parents of writable workspaces", s, conflict)
 				}
 				if _, dup := seen[s]; !dup {
 					mountReadDirs = append(mountReadDirs, s)
@@ -1175,47 +1184,112 @@ func sandboxReadDirWriteOverlap(readDir string, writeDirs []string) (skip bool, 
 	return false, ""
 }
 
-// expandAncestorReadDir lists sibling directories at each path level
-// between ancestor and projectDir. When a read_dir is a parent of the
-// project, Docker sandboxes can't mount it read-only (it conflicts with
-// the writable workspace). This function enumerates the directories at
-// each level that don't lie on the path to the project, giving the
-// sandbox access to siblings without the overlapping-mount conflict.
+func sandboxExcludedDescendants(ancestor, projectDir string, writeDirs []string) []string {
+	var excluded []string
+	appendExcluded := func(candidate string) {
+		if !isWithinDir(ancestor, candidate) {
+			return
+		}
+		for i, existing := range excluded {
+			if isWithinDir(existing, candidate) {
+				return
+			}
+			if isWithinDir(candidate, existing) {
+				excluded[i] = candidate
+				return
+			}
+		}
+		excluded = append(excluded, candidate)
+	}
+
+	appendExcluded(projectDir)
+	for _, writeDir := range writeDirs {
+		appendExcluded(writeDir)
+	}
+	return excluded
+}
+
+func sandboxPathCoveredByDirs(target string, dirs []string) bool {
+	for _, dir := range dirs {
+		if isWithinDir(dir, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// expandAncestorReadDir keeps the original project-only helper behavior for
+// tests and call sites that only need to exclude the writable workspace.
 func expandAncestorReadDir(ancestor, projectDir string) []string {
-	rel, err := filepath.Rel(ancestor, projectDir)
+	return expandAncestorDirExcludingPaths(ancestor, []string{projectDir})
+}
+
+// expandAncestorDirExcludingPaths lists sibling directories around one or more
+// excluded descendant paths. Docker sandboxes cannot mount an ancestor
+// read-only or read-write when that ancestor also contains the writable
+// project workspace or another writable mount. This function enumerates the
+// non-conflicting sibling directories instead.
+func expandAncestorDirExcludingPaths(ancestor string, excluded []string) []string {
+	var relParts [][]string
+	for _, excludedPath := range excluded {
+		rel, err := filepath.Rel(ancestor, excludedPath)
+		if err != nil {
+			continue
+		}
+		if rel == "." {
+			return nil
+		}
+		parts := strings.Split(rel, string(os.PathSeparator))
+		if len(parts) == 0 || (len(parts) == 1 && parts[0] == ".") {
+			return nil
+		}
+		relParts = append(relParts, parts)
+	}
+	if len(relParts) == 0 {
+		return nil
+	}
+	return expandAncestorDirLevel(ancestor, relParts)
+}
+
+func expandAncestorDirLevel(current string, excluded [][]string) []string {
+	var result []string
+	entries, err := os.ReadDir(current)
 	if err != nil {
 		return nil
 	}
-	parts := strings.Split(rel, string(os.PathSeparator))
-	if len(parts) == 0 || (len(parts) == 1 && parts[0] == ".") {
-		return nil // ancestor IS the project
+
+	childExcluded := make(map[string][][]string)
+	childTerminal := make(map[string]bool)
+	for _, parts := range excluded {
+		if len(parts) == 0 {
+			return nil
+		}
+		if len(parts) == 1 {
+			childTerminal[parts[0]] = true
+			continue
+		}
+		childExcluded[parts[0]] = append(childExcluded[parts[0]], parts[1:])
 	}
 
-	var result []string
-	current := ancestor
-	for i, part := range parts {
-		entries, err := os.ReadDir(current)
+	for _, e := range entries {
+		child := filepath.Join(current, e.Name())
+		resolved, err := filepath.EvalSymlinks(child)
 		if err != nil {
-			break
+			continue
 		}
-		for _, e := range entries {
-			if e.Name() == part {
-				continue // on the path to project, skip
-			}
-			child := filepath.Join(current, e.Name())
-			resolved, err := filepath.EvalSymlinks(child)
-			if err != nil {
-				continue
-			}
-			info, err := os.Stat(resolved)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-			result = append(result, resolved)
+		info, err := os.Stat(resolved)
+		if err != nil || !info.IsDir() {
+			continue
 		}
-		if i < len(parts)-1 {
-			current = filepath.Join(current, part)
+
+		if childTerminal[e.Name()] {
+			continue
 		}
+		if tails, ok := childExcluded[e.Name()]; ok {
+			result = append(result, expandAncestorDirLevel(resolved, tails)...)
+			continue
+		}
+		result = append(result, resolved)
 	}
 	return result
 }
