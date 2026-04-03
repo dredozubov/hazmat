@@ -672,6 +672,35 @@ func TestApprovalDifferentProjectsIndependent(t *testing.T) {
 	}
 }
 
+func TestResolveActiveIntegrationsSkipsRepoPromptForExplicitCLIIntegrations(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	repoConfigDir := filepath.Join(projectDir, ".hazmat")
+	if err := os.MkdirAll(repoConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir .hazmat: %v", err)
+	}
+	recommendations := "integrations:\n  - tla-java\n"
+	if err := os.WriteFile(filepath.Join(repoConfigDir, "integrations.yaml"), []byte(recommendations), 0o644); err != nil {
+		t.Fatalf("write integrations.yaml: %v", err)
+	}
+
+	savedPrompt := integrationApprovalPrompt
+	integrationApprovalPrompt = func(string, []string) bool {
+		t.Fatal("repo approval prompt should not run for explicit CLI integrations")
+		return false
+	}
+	t.Cleanup(func() { integrationApprovalPrompt = savedPrompt })
+
+	integrations, err := resolveActiveIntegrations([]string{"go"}, projectDir)
+	if err != nil {
+		t.Fatalf("resolveActiveIntegrations: %v", err)
+	}
+	if len(integrations) != 1 || integrations[0].Meta.Name != "go" {
+		t.Fatalf("resolved integrations = %v, want only go", integrations)
+	}
+}
+
 // ── safeEnvKeys coverage ───────────────────────────────────────────────────
 
 func TestSafeEnvKeysExcludesDangerousKeys(t *testing.T) {

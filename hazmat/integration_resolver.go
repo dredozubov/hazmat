@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,7 @@ type resolvedIntegration struct {
 	Spec                    IntegrationSpec
 	ReplaceDeclaredReadDirs bool
 	AdditionalReadDirs      []string
+	PathPrefixes            []string
 	ResolvedEnv             map[string]string
 	AdditionalWarnings      []string
 	Source                  string
@@ -127,7 +129,7 @@ func integrationProbeEnv() []string {
 		"PATH=" + defaultAgentPath,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 	}
-	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE", "TERM"} {
+	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE", "TERM", "GOPATH", "GOMODCACHE"} {
 		if value := os.Getenv(key); value != "" {
 			env = append(env, key+"="+value)
 		}
@@ -215,9 +217,32 @@ func integrationResolverFor(name string) (integrationResolverSpec, bool) {
 
 func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	if modCache := invokerGoModCache(); modCache != "" {
+		result.AdditionalReadDirs = append(result.AdditionalReadDirs, modCache)
+		result.ResolvedEnv["GOMODCACHE"] = modCache
+	}
+	cgoEnabled := os.Getenv("CGO_ENABLED")
+	if os.Getenv("CGO_ENABLED") == "" {
+		if output, err := ctx.Probe.Output("go", "env", "CGO_ENABLED"); err == nil {
+			cgoEnabled = strings.TrimSpace(output)
+			if cgoEnabled == "0" || cgoEnabled == "1" {
+				result.ResolvedEnv["CGO_ENABLED"] = cgoEnabled
+			}
+		}
+	}
+	if cgoEnabled == "1" {
+		if developerDir := ctx.resolveDeveloperDir(); developerDir != "" {
+			result.AdditionalReadDirs = append(result.AdditionalReadDirs, developerDir)
+			if os.Getenv("DEVELOPER_DIR") == "" {
+				result.ResolvedEnv["DEVELOPER_DIR"] = developerDir
+			}
+			result.Details = append(result.Details, fmt.Sprintf("go: resolved developer tools -> %s", developerDir))
+		}
+	}
 	if dir, err := probeCanonicalDir(ctx.Probe, "go", "env", "GOROOT"); err == nil && dir != "" {
 		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "go")); err == nil && runtimeDir != "" {
-			result.AdditionalReadDirs = []string{runtimeDir}
+			result.AdditionalReadDirs = append([]string{runtimeDir}, result.AdditionalReadDirs...)
+			result.PathPrefixes = runtimeBinPrefixes(runtimeDir)
 			result.Source = "go (go env GOROOT)"
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", runtimeDir))
 			if os.Getenv("GOROOT") == "" {
@@ -231,9 +256,18 @@ func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) 
 	brewResult := ctx.brewPrefix("go")
 	if brewResult.Prefix != "" {
 		if dir := goRootFromPrefix(brewResult.Prefix); dir != "" {
-			result.AdditionalReadDirs = []string{dir}
+			result.AdditionalReadDirs = append([]string{dir}, result.AdditionalReadDirs...)
+			result.PathPrefixes = runtimeBinPrefixes(dir)
 			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
+			if os.Getenv("GOROOT") == "" {
+				result.ResolvedEnv["GOROOT"] = dir
+			}
+		} else if dir, detail := goRootFromSiblingCellarPrefix(brewResult.Prefix); dir != "" {
+			result.AdditionalReadDirs = append([]string{dir}, result.AdditionalReadDirs...)
+			result.PathPrefixes = runtimeBinPrefixes(dir)
+			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("go: %s", detail))
 			if os.Getenv("GOROOT") == "" {
 				result.ResolvedEnv["GOROOT"] = dir
 			}
@@ -253,6 +287,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 		dir, err := validatedRuntimeDir(prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
+			result.PathPrefixes = runtimeBinPrefixes(dir)
 			result.Source = "node (active runtime)"
 			result.Details = append(result.Details, fmt.Sprintf("node: resolved active runtime prefix -> %s", dir))
 			return result, nil
@@ -264,6 +299,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
+			result.PathPrefixes = runtimeBinPrefixes(dir)
 			result.Source = fmt.Sprintf("node (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("node: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
 		}
@@ -278,6 +314,7 @@ func resolveRustIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 	if dir, err := probeCanonicalDir(ctx.Probe, "rustc", "--print", "sysroot"); err == nil && dir != "" {
 		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "rustc")); err == nil && runtimeDir != "" {
 			result.AdditionalReadDirs = []string{runtimeDir}
+			result.PathPrefixes = runtimeBinPrefixes(runtimeDir)
 			result.Source = "rust (rustc sysroot)"
 			result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s", runtimeDir))
 			return result, nil
@@ -290,6 +327,7 @@ func resolveRustIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "rustc"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
+			result.PathPrefixes = runtimeBinPrefixes(dir)
 			result.Source = fmt.Sprintf("rust (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("rust: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
 		}
@@ -303,11 +341,13 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, spec IntegrationS
 	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
 	if javaHome, source, err := ctx.resolveJavaHome(); err == nil && javaHome != "" {
 		result.AdditionalReadDirs = []string{javaHome}
+		result.PathPrefixes = runtimeBinPrefixes(javaHome)
 		result.Source = source
 		result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved JDK home -> %s", javaHome))
 		if shouldSetResolvedJavaHomeEnv() {
 			result.ResolvedEnv["JAVA_HOME"] = javaHome
 		}
+		result = appendResolvedTLAJar(result)
 		return result, nil
 	}
 
@@ -315,11 +355,13 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, spec IntegrationS
 	if brewResult.Prefix != "" {
 		if javaHome := javaHomeFromPrefix(brewResult.Prefix); javaHome != "" {
 			result.AdditionalReadDirs = []string{javaHome}
+			result.PathPrefixes = runtimeBinPrefixes(javaHome)
 			result.Source = fmt.Sprintf("tla-java (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved via Homebrew %s -> %s", brewResult.Formula, javaHome))
 			if shouldSetResolvedJavaHomeEnv() {
 				result.ResolvedEnv["JAVA_HOME"] = javaHome
 			}
+			result = appendResolvedTLAJar(result)
 		}
 	} else if brewResult.Detail != "" {
 		result.Details = append(result.Details, "tla-java: "+brewResult.Detail)
@@ -381,6 +423,31 @@ func goRootFromPrefix(prefix string) string {
 		}
 	}
 	return ""
+}
+
+func goRootFromSiblingCellarPrefix(prefix string) (string, string) {
+	formulaDir := filepath.Dir(filepath.Clean(prefix))
+	if formulaDir == "." || formulaDir == "/" {
+		return "", ""
+	}
+	entries, err := os.ReadDir(formulaDir)
+	if err != nil {
+		return "", ""
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() > entries[j].Name()
+	})
+	current := filepath.Base(filepath.Clean(prefix))
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == current {
+			continue
+		}
+		siblingPrefix := filepath.Join(formulaDir, entry.Name())
+		if dir := goRootFromPrefix(siblingPrefix); dir != "" {
+			return dir, fmt.Sprintf("selected agent-executable Homebrew cellar %s -> %s", siblingPrefix, dir)
+		}
+	}
+	return "", ""
 }
 
 func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixResult {
@@ -531,6 +598,38 @@ func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) 
 	return "", "", nil
 }
 
+func (ctx *integrationResolveContext) resolveDeveloperDir() string {
+	candidates := []string{
+		os.Getenv("DEVELOPER_DIR"),
+		"/Library/Developer/CommandLineTools",
+	}
+	if out, err := ctx.Probe.Output("xcode-select", "-p"); err == nil && out != "" {
+		candidates = append(candidates, out)
+	}
+	candidates = append(candidates, "/Applications/Xcode.app/Contents/Developer")
+	for _, candidate := range appendUniqueStrings(nil, candidates...) {
+		candidate = strings.TrimSpace(expandTilde(candidate))
+		if candidate == "" {
+			continue
+		}
+		dir, err := validatedReadDir(candidate)
+		if err != nil || dir == "" {
+			continue
+		}
+		for _, compiler := range []string{
+			filepath.Join(dir, "usr", "bin", "cc"),
+			filepath.Join(dir, "Toolchains", "XcodeDefault.xctoolchain", "usr", "bin", "cc"),
+		} {
+			info, err := os.Stat(compiler)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			return dir
+		}
+	}
+	return ""
+}
+
 func parseJavaHome(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
@@ -631,6 +730,90 @@ func renderIntegrationDetails(details []string) string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func runtimeBinPrefixes(root string) []string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	binDir := filepath.Join(root, "bin")
+	info, err := os.Stat(binDir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return []string{binDir}
+}
+
+func appendResolvedTLAJar(result resolvedIntegration) resolvedIntegration {
+	jarPath, jarDir := resolveTLA2ToolsJar()
+	if jarPath == "" || jarDir == "" {
+		return result
+	}
+	result.AdditionalReadDirs = appendUniqueStrings(result.AdditionalReadDirs, jarDir)
+	result.ResolvedEnv["TLA2TOOLS_JAR"] = jarPath
+	result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved tla2tools.jar -> %s", jarPath))
+	return result
+}
+
+func resolveTLA2ToolsJar() (string, string) {
+	candidates := tla2ToolsJarCandidates()
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(expandTilde(candidate))
+		if candidate == "" {
+			continue
+		}
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		dir, err := validatedReadDir(filepath.Dir(candidate))
+		if err != nil || dir == "" {
+			continue
+		}
+		resolvedPath, err := canonicalizePath(candidate)
+		if err != nil {
+			continue
+		}
+		return resolvedPath, dir
+	}
+	return "", ""
+}
+
+func tla2ToolsJarCandidates() []string {
+	candidates := []string{os.Getenv("TLA2TOOLS_JAR")}
+	if current, err := user.Current(); err == nil && current.HomeDir != "" {
+		candidates = append(candidates,
+			filepath.Join(current.HomeDir, "workspace", "tla2tools.jar"),
+			filepath.Join(current.HomeDir, "tla2tools.jar"),
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, "workspace", "tla2tools.jar"),
+			filepath.Join(home, "tla2tools.jar"),
+		)
+	}
+	return appendUniqueStrings(candidates, "")
+}
+
+func appendUniqueStrings(existing []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	merged := append([]string(nil), existing...)
+	for _, value := range existing {
+		seen[value] = struct{}{}
+	}
+	for _, value := range additions {
+		if value == "" {
+			continue
+		}
+		if _, dup := seen[value]; dup {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	return merged
 }
 
 func pathExecutableByAgent(path string) bool {

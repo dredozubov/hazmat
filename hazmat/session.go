@@ -23,8 +23,10 @@ type sessionConfig struct {
 	WriteDirs               []string
 	UserReadDirs            []string // explicit host-configured or CLI read-only extensions
 	AutoReadDirs            []string // automatically added read-only dirs from integrations/defaults
+	StagedToolDirs          []string // host-staged tool dirs copied into ~/.local/bin at session start
 	BackupExcludes          []string
 	IntegrationEnv          map[string]string // from integration env_passthrough (resolved values)
+	IntegrationPathPrefixes []string          // runtime bin dirs prepended to PATH for active integrations
 	IntegrationRegistryKeys []string          // active registry-redirect env keys (for UX)
 	IntegrationExcludes     []string          // snapshot excludes added by active integrations
 	IntegrationSources      []string          // provenance for runtime-resolved integration inputs
@@ -126,7 +128,7 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "shell", noBackup, false); err != nil {
+			if err := beginPreparedSession(&prepared, "shell", noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -186,7 +188,7 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "exec", noBackup, false); err != nil {
+			if err := beginPreparedSession(&prepared, "exec", noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -267,7 +269,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "claude", opts.noBackup, false); err != nil {
+			if err := beginPreparedSession(&prepared, "claude", opts.noBackup, false); err != nil {
 				return err
 			}
 
@@ -347,7 +349,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "opencode", opts.noBackup, true); err != nil {
+			if err := beginPreparedSession(&prepared, "opencode", opts.noBackup, true); err != nil {
 				return err
 			}
 			return runAgentSeatbeltScript(prepared.Config, openCodeLaunchScript(), forwarded...)
@@ -397,7 +399,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
+			if err := beginPreparedSession(&prepared, "codex", opts.noBackup, true); err != nil {
 				return err
 			}
 
@@ -681,6 +683,7 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 
 	// Apply env passthrough.
 	cfg.IntegrationEnv = merged.EnvPassthrough
+	cfg.IntegrationPathPrefixes = append([]string(nil), merged.PathPrefixes...)
 	cfg.IntegrationRegistryKeys = merged.RegistryKeys
 	cfg.IntegrationWarnings = append([]string(nil), merged.Warnings...)
 	cfg.IntegrationSources = cfg.IntegrationSources[:0]
@@ -826,7 +829,10 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 	return sessionModeNative, nil
 }
 
-func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
+func beginPreparedSession(prepared *preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
+	if err := prepareSessionTools(&prepared.Config); err != nil {
+		return err
+	}
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
 	if prepared.Mode != sessionModeNative {
 		preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
@@ -838,7 +844,6 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 			return err
 		}
 	}
-
 	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 
 	if !preflightBeforeSnapshot {
@@ -1010,6 +1015,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))
 	}
 	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
+	fmt.Fprintf(&b, "  Tool PATH additions:  %s\n", sessionContractList(cfg.IntegrationPathPrefixes))
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
 	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))
 	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
@@ -1585,7 +1591,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(version 1)\n(deny default)\n\n")
 
 	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
-	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", agentHome} {
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer", "/Applications/Xcode.app/Contents/Developer", "/private/var/select", agentHome} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
 	w("(allow process-fork)\n")
@@ -1601,7 +1607,7 @@ func generateSBPL(cfg sessionConfig) string {
 	for _, p := range []string{"/", "/private", "/var", "/tmp", "/etc", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/usr/bin", "/usr/sbin", "/bin", "/sbin", "/System/Library", "/Library/Frameworks", "/private/etc", "/private/var/select"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {
@@ -1842,6 +1848,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		"/usr/bin/env", "-i",
 	}
 	full = append(full, agentEnvPairs(cfg)...)
+	script = wrapAgentSessionScript(cfg, script)
 	full = append(full, "/bin/zsh", "-lc", script, "zsh")
 	full = append(full, args...)
 
@@ -1939,12 +1946,16 @@ func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
 func agentEnvPairs(cfg sessionConfig) []string {
 	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
 	writeDirsJSON, _ := json.Marshal(cfg.WriteDirs)
+	pathValue := defaultAgentPath
+	if len(cfg.IntegrationPathPrefixes) > 0 {
+		pathValue = strings.Join(append([]string(nil), appendUniquePathPrefixes(cfg.IntegrationPathPrefixes)...), ":") + ":" + defaultAgentPath
+	}
 	pairs := []string{
 		"HOME=" + agentHome,
 		"USER=" + agentUser,
 		"LOGNAME=" + agentUser,
 		"SHELL=/bin/zsh",
-		"PATH=" + defaultAgentPath,
+		"PATH=" + pathValue,
 		"TMPDIR=" + defaultAgentTmpDir,
 		"XDG_CACHE_HOME=" + defaultAgentCacheHome,
 		"XDG_CONFIG_HOME=" + defaultAgentConfigHome,
@@ -1955,19 +1966,13 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
 		"SANDBOX_WRITE_DIRS_JSON=" + string(writeDirsJSON),
 	}
+	if len(cfg.StagedToolDirs) > 0 {
+		pairs = append(pairs, "SANDBOX_STAGED_TOOL_DIRS="+strings.Join(cfg.StagedToolDirs, ":"))
+	}
 	for _, key := range []string{"TERM", "COLORTERM", "LANG", "LC_ALL"} {
 		if value := os.Getenv(key); value != "" {
 			pairs = append(pairs, key+"="+value)
 		}
-	}
-
-	// Go toolchain: share the invoking user's module cache read-only.
-	// GOMODCACHE points to the invoker's cache so `go build` uses
-	// pre-downloaded modules instead of re-fetching. The seatbelt enforces
-	// read-only access — if a new dependency is needed, `go mod download`
-	// must be run outside the sandbox first.
-	if modCache := invokerGoModCache(); modCache != "" {
-		pairs = append(pairs, "GOMODCACHE="+modCache)
 	}
 
 	// Integration env passthrough: passive path pointers and selectors resolved
@@ -1978,4 +1983,41 @@ func agentEnvPairs(cfg sessionConfig) []string {
 	}
 
 	return pairs
+}
+
+func wrapAgentSessionScript(cfg sessionConfig, script string) string {
+	if len(cfg.StagedToolDirs) == 0 {
+		return script
+	}
+	bootstrap := `if [ -n "${SANDBOX_STAGED_TOOL_DIRS:-}" ]; then ` +
+		`/usr/bin/install -d -m 0700 "$HOME/.local/bin"; ` +
+		`old_ifs=$IFS; IFS=:; ` +
+		`for staged_dir in $SANDBOX_STAGED_TOOL_DIRS; do ` +
+		`[ -d "$staged_dir" ] || continue; ` +
+		`for tool in "$staged_dir"/*; do ` +
+		`[ -f "$tool" ] || continue; ` +
+		`tool_name=${tool##*/}; ` +
+		`/usr/bin/install -m 0700 "$tool" "$HOME/.local/bin/$tool_name"; ` +
+		`done; ` +
+		`done; ` +
+		`IFS=$old_ifs; ` +
+		`fi; `
+	return bootstrap + script
+}
+
+func appendUniquePathPrefixes(prefixes []string) []string {
+	seen := make(map[string]struct{}, len(prefixes))
+	var merged []string
+	for _, prefix := range prefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" {
+			continue
+		}
+		if _, dup := seen[prefix]; dup {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		merged = append(merged, prefix)
+	}
+	return merged
 }

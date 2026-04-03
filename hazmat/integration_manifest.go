@@ -510,6 +510,8 @@ func promptIntegrationApproval(projectDir string, integrationNames []string) boo
 	return answer == "y" || answer == "yes"
 }
 
+var integrationApprovalPrompt = promptIntegrationApproval
+
 // ── Resolution: CLI flags + config pinning + repo recommendations ────────
 
 // resolveActiveIntegrations determines which integrations to load for a session.
@@ -546,10 +548,10 @@ func resolveActiveIntegrations(integrationFlags []string, projectDir string) ([]
 			for _, n := range recNames {
 				names[n] = struct{}{}
 			}
-		} else {
-			// Not yet approved — prompt regardless of other integration sources.
-			// Approval is a one-time cost that establishes the trust record.
-			if promptIntegrationApproval(projectDir, recNames) {
+		} else if len(integrationFlags) == 0 {
+			// Not yet approved and no explicit CLI choice — prompt once to
+			// establish the trust record for repo-owned recommendations.
+			if integrationApprovalPrompt(projectDir, recNames) {
 				if err := recordApproval(projectDir, fileHash); err != nil {
 					fmt.Fprintf(os.Stderr, "hazmat: warning: could not save approval: %v\n", err)
 				}
@@ -618,6 +620,7 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 // injection into session setup.
 type integrationMergeResult struct {
 	ReadDirs       []string          // canonical paths to add as -R
+	PathPrefixes   []string          // runtime bin dirs prepended to PATH
 	EnvPassthrough map[string]string // key=value pairs resolved from invoker env
 	Excludes       []string          // backup exclude patterns
 	Warnings       []string          // messages to show at session start
@@ -639,6 +642,7 @@ func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationM
 	result.EnvPassthrough = make(map[string]string)
 
 	readDirSeen := make(map[string]struct{})
+	pathPrefixSeen := make(map[string]struct{})
 	excludeSeen := make(map[string]struct{})
 	warnSeen := make(map[string]struct{})
 	registrySeen := make(map[string]struct{})
@@ -662,6 +666,13 @@ func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationM
 				result.ReadDirs = append(result.ReadDirs, d)
 				readDirSeen[d] = struct{}{}
 			}
+		}
+		for _, prefix := range integration.PathPrefixes {
+			if _, dup := pathPrefixSeen[prefix]; dup {
+				continue
+			}
+			result.PathPrefixes = append(result.PathPrefixes, prefix)
+			pathPrefixSeen[prefix] = struct{}{}
 		}
 
 		// Env passthrough: resolve from invoker's environment.
@@ -855,6 +866,9 @@ func runIntegrationShow(name string) error {
 	}
 	if len(merged.ReadDirs) > 0 {
 		fmt.Printf("  Resolved read dirs: %s\n", strings.Join(merged.ReadDirs, ", "))
+	}
+	if len(merged.PathPrefixes) > 0 {
+		fmt.Printf("  PATH additions:  %s\n", strings.Join(merged.PathPrefixes, ", "))
 	}
 	if len(spec.Session.EnvPassthrough) > 0 {
 		fmt.Printf("  Env passthrough: %s\n", strings.Join(spec.Session.EnvPassthrough, ", "))

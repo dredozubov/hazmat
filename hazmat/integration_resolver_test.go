@@ -78,10 +78,15 @@ func TestRunConfigSetIntegrationsHomebrew(t *testing.T) {
 
 func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	allowAllIntegrationExecutables(t)
+	t.Setenv("CGO_ENABLED", "0")
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")
+	modCache := filepath.Join(t.TempDir(), "mod-cache")
 	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir goRoot: %v", err)
+	}
+	if err := os.MkdirAll(modCache, 0o755); err != nil {
+		t.Fatalf("mkdir modCache: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write go binary: %v", err)
@@ -90,12 +95,17 @@ func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalizePath(goRoot): %v", err)
 	}
+	canonicalModCache, err := canonicalizePath(modCache)
+	if err != nil {
+		t.Fatalf("canonicalizePath(modCache): %v", err)
+	}
 
 	savedFactory := integrationProbeFactory
 	integrationProbeFactory = func() integrationProbe {
 		return &fakeIntegrationProbe{
 			outputs: map[string]string{
-				"go env GOROOT": goRoot,
+				"go env GOROOT":     goRoot,
+				"go env GOMODCACHE": modCache,
 			},
 		}
 	}
@@ -114,8 +124,14 @@ func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	if len(resolved) != 1 {
 		t.Fatalf("len(resolved) = %d, want 1", len(resolved))
 	}
-	if len(resolved[0].AdditionalReadDirs) != 1 || resolved[0].AdditionalReadDirs[0] != canonicalGoRoot {
-		t.Fatalf("AdditionalReadDirs = %v, want [%q]", resolved[0].AdditionalReadDirs, canonicalGoRoot)
+	if len(resolved[0].AdditionalReadDirs) != 2 || resolved[0].AdditionalReadDirs[0] != canonicalGoRoot || resolved[0].AdditionalReadDirs[1] != canonicalModCache {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", resolved[0].AdditionalReadDirs, canonicalGoRoot, canonicalModCache)
+	}
+	if len(resolved[0].PathPrefixes) != 1 || resolved[0].PathPrefixes[0] != filepath.Join(canonicalGoRoot, "bin") {
+		t.Fatalf("PathPrefixes = %v, want [%q]", resolved[0].PathPrefixes, filepath.Join(canonicalGoRoot, "bin"))
+	}
+	if resolved[0].ResolvedEnv["GOMODCACHE"] != canonicalModCache {
+		t.Fatalf("ResolvedEnv[GOMODCACHE] = %q, want %q", resolved[0].ResolvedEnv["GOMODCACHE"], canonicalModCache)
 	}
 	if resolved[0].ResolvedEnv["GOROOT"] != canonicalGoRoot {
 		t.Fatalf("ResolvedEnv[GOROOT] = %q, want %q", resolved[0].ResolvedEnv["GOROOT"], canonicalGoRoot)
@@ -160,10 +176,15 @@ func TestMergeResolvedIntegrationsReplacesPackReadDirs(t *testing.T) {
 func TestApplyIntegrationsPopulatesSourcesAndDetails(t *testing.T) {
 	isolateConfig(t)
 	allowAllIntegrationExecutables(t)
+	t.Setenv("CGO_ENABLED", "0")
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")
+	modCache := filepath.Join(t.TempDir(), "mod-cache")
 	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir goRoot: %v", err)
+	}
+	if err := os.MkdirAll(modCache, 0o755); err != nil {
+		t.Fatalf("mkdir modCache: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write go binary: %v", err)
@@ -177,7 +198,8 @@ func TestApplyIntegrationsPopulatesSourcesAndDetails(t *testing.T) {
 	integrationProbeFactory = func() integrationProbe {
 		return &fakeIntegrationProbe{
 			outputs: map[string]string{
-				"go env GOROOT": goRoot,
+				"go env GOROOT":     goRoot,
+				"go env GOMODCACHE": modCache,
 			},
 		}
 	}
@@ -230,17 +252,29 @@ func TestRenderIntegrationDetails(t *testing.T) {
 
 func TestIntegrationProbeEnvUsesDefaultAgentPath(t *testing.T) {
 	t.Setenv("PATH", "/tmp/not-the-agent-path")
+	t.Setenv("GOPATH", "/Users/dr/golang")
+	t.Setenv("GOMODCACHE", "/Users/dr/golang/pkg/mod")
 
 	env := integrationProbeEnv()
 	found := false
+	foundGoPath := false
+	foundGoModCache := false
 	for _, entry := range env {
 		if entry == "PATH="+defaultAgentPath {
 			found = true
-			break
+		}
+		if entry == "GOPATH=/Users/dr/golang" {
+			foundGoPath = true
+		}
+		if entry == "GOMODCACHE=/Users/dr/golang/pkg/mod" {
+			foundGoModCache = true
 		}
 	}
 	if !found {
 		t.Fatalf("integrationProbeEnv() did not use defaultAgentPath: %v", env)
+	}
+	if !foundGoPath || !foundGoModCache {
+		t.Fatalf("integrationProbeEnv() did not preserve Go path selectors: %v", env)
 	}
 }
 
@@ -288,20 +322,30 @@ func TestCommandPathFromEnvRespectsAbsolutePath(t *testing.T) {
 }
 
 func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
+	t.Setenv("CGO_ENABLED", "0")
 	projectDir := t.TempDir()
 	goRoot := filepath.Join(t.TempDir(), "go-root")
+	modCache := filepath.Join(t.TempDir(), "mod-cache")
 	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir goRoot: %v", err)
 	}
+	if err := os.MkdirAll(modCache, 0o755); err != nil {
+		t.Fatalf("mkdir modCache: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write go binary: %v", err)
+	}
+	canonicalModCache, err := canonicalizePath(modCache)
+	if err != nil {
+		t.Fatalf("canonicalizePath(modCache): %v", err)
 	}
 
 	savedFactory := integrationProbeFactory
 	integrationProbeFactory = func() integrationProbe {
 		return &fakeIntegrationProbe{
 			outputs: map[string]string{
-				"go env GOROOT": goRoot,
+				"go env GOROOT":     goRoot,
+				"go env GOMODCACHE": modCache,
 			},
 		}
 	}
@@ -330,8 +374,11 @@ func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 	if len(resolved) != 1 {
 		t.Fatalf("len(resolved) = %d, want 1", len(resolved))
 	}
-	if len(resolved[0].AdditionalReadDirs) != 0 {
-		t.Fatalf("AdditionalReadDirs = %v, want none", resolved[0].AdditionalReadDirs)
+	if len(resolved[0].AdditionalReadDirs) != 1 || resolved[0].AdditionalReadDirs[0] != canonicalModCache {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", resolved[0].AdditionalReadDirs, canonicalModCache)
+	}
+	if resolved[0].ResolvedEnv["GOMODCACHE"] != canonicalModCache {
+		t.Fatalf("ResolvedEnv[GOMODCACHE] = %q, want %q", resolved[0].ResolvedEnv["GOMODCACHE"], canonicalModCache)
 	}
 	if resolved[0].Source != "" {
 		t.Fatalf("Source = %q, want empty", resolved[0].Source)
@@ -339,6 +386,156 @@ func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 	details := strings.Join(resolved[0].Details, "\n")
 	if !strings.Contains(details, "cannot execute") {
 		t.Fatalf("Details = %v, want cannot execute note", resolved[0].Details)
+	}
+}
+
+func TestResolveRuntimeIntegrationsGoFallsBackToAccessibleSiblingCellar(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("CGO_ENABLED", "0")
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	cellarRoot := filepath.Join(t.TempDir(), "Cellar", "go")
+	modCache := filepath.Join(t.TempDir(), "mod-cache")
+	privatePrefix := filepath.Join(cellarRoot, "1.26.1")
+	accessiblePrefix := filepath.Join(cellarRoot, "1.26.0")
+	if err := os.MkdirAll(modCache, 0o755); err != nil {
+		t.Fatalf("mkdir modCache: %v", err)
+	}
+	for _, prefix := range []string{privatePrefix, accessiblePrefix} {
+		if err := os.MkdirAll(filepath.Join(prefix, "libexec", "bin"), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", prefix, err)
+		}
+		if err := os.WriteFile(filepath.Join(prefix, "libexec", "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatalf("write %s go binary: %v", prefix, err)
+		}
+	}
+	wantRoot, err := canonicalizePath(filepath.Join(accessiblePrefix, "libexec"))
+	if err != nil {
+		t.Fatalf("canonicalizePath(accessiblePrefix): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputErrs: map[string]error{
+				"go env GOROOT": fmt.Errorf("go not found"),
+			},
+			outputs: map[string]string{
+				"/bin/echo --prefix --installed go": privatePrefix,
+				"go env GOMODCACHE":                 modCache,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{"/bin/echo"}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	savedExecCheck := integrationAgentExecCheck
+	integrationAgentExecCheck = func(path string) bool {
+		return strings.Contains(path, filepath.Join("1.26.0", "libexec", "bin", "go"))
+	}
+	t.Cleanup(func() { integrationAgentExecCheck = savedExecCheck })
+
+	integration, err := loadBuiltinIntegrationSpec("go")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(go): %v", err)
+	}
+	t.Setenv("GOROOT", "")
+
+	resolved, err := resolveRuntimeIntegrations(t.TempDir(), []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("len(resolved) = %d, want 1", len(resolved))
+	}
+	wantModCache, err := canonicalizePath(modCache)
+	if err != nil {
+		t.Fatalf("canonicalizePath(modCache): %v", err)
+	}
+	if len(resolved[0].AdditionalReadDirs) != 2 || resolved[0].AdditionalReadDirs[0] != wantRoot || resolved[0].AdditionalReadDirs[1] != wantModCache {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", resolved[0].AdditionalReadDirs, wantRoot, wantModCache)
+	}
+	if len(resolved[0].PathPrefixes) != 1 || resolved[0].PathPrefixes[0] != filepath.Join(wantRoot, "bin") {
+		t.Fatalf("PathPrefixes = %v, want [%q]", resolved[0].PathPrefixes, filepath.Join(wantRoot, "bin"))
+	}
+	if resolved[0].ResolvedEnv["GOROOT"] != wantRoot {
+		t.Fatalf("ResolvedEnv[GOROOT] = %q, want %q", resolved[0].ResolvedEnv["GOROOT"], wantRoot)
+	}
+	if resolved[0].ResolvedEnv["GOMODCACHE"] != wantModCache {
+		t.Fatalf("ResolvedEnv[GOMODCACHE] = %q, want %q", resolved[0].ResolvedEnv["GOMODCACHE"], wantModCache)
+	}
+	if !strings.Contains(strings.Join(resolved[0].Details, "\n"), "selected agent-executable Homebrew cellar") {
+		t.Fatalf("Details = %v, want sibling-cellar fallback note", resolved[0].Details)
+	}
+}
+
+func TestResolveRuntimeIntegrationsGoAddsDeveloperDirWhenCGOEnabled(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	goRoot := filepath.Join(t.TempDir(), "go-root")
+	modCache := filepath.Join(t.TempDir(), "mod-cache")
+	devDir := filepath.Join(t.TempDir(), "developer")
+	for _, dir := range []string{filepath.Join(goRoot, "bin"), modCache, filepath.Join(devDir, "usr", "bin")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write go binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(devDir, "usr", "bin", "cc"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write cc binary: %v", err)
+	}
+	canonicalGoRoot, err := canonicalizePath(goRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(goRoot): %v", err)
+	}
+	canonicalModCache, err := canonicalizePath(modCache)
+	if err != nil {
+		t.Fatalf("canonicalizePath(modCache): %v", err)
+	}
+	canonicalDevDir, err := canonicalizePath(devDir)
+	if err != nil {
+		t.Fatalf("canonicalizePath(devDir): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"go env GOROOT":      goRoot,
+				"go env GOMODCACHE":  modCache,
+				"go env CGO_ENABLED": "1",
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("go")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(go): %v", err)
+	}
+	t.Setenv("GOROOT", "")
+	t.Setenv("CGO_ENABLED", "")
+	t.Setenv("DEVELOPER_DIR", devDir)
+
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("len(resolved) = %d, want 1", len(resolved))
+	}
+	if len(resolved[0].AdditionalReadDirs) != 3 || resolved[0].AdditionalReadDirs[0] != canonicalGoRoot || resolved[0].AdditionalReadDirs[1] != canonicalModCache || resolved[0].AdditionalReadDirs[2] != canonicalDevDir {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q %q]", resolved[0].AdditionalReadDirs, canonicalGoRoot, canonicalModCache, canonicalDevDir)
+	}
+	if resolved[0].ResolvedEnv["CGO_ENABLED"] != "1" {
+		t.Fatalf("ResolvedEnv[CGO_ENABLED] = %q, want 1", resolved[0].ResolvedEnv["CGO_ENABLED"])
 	}
 }
 
@@ -480,17 +677,30 @@ func TestBrewPrefixUsesOptPrefixBeforeProbe(t *testing.T) {
 }
 
 func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
+	isolateConfig(t)
 	allowAllIntegrationExecutables(t)
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
 	t.Setenv("JAVA_HOME", "/usr")
 
 	prefix := filepath.Join(t.TempDir(), "openjdk-prefix")
 	javaHome := filepath.Join(prefix, "libexec", "openjdk.jdk", "Contents", "Home")
+	jarDir := filepath.Join(t.TempDir(), "workspace")
+	jarPath := filepath.Join(jarDir, "tla2tools.jar")
 	if err := os.MkdirAll(filepath.Join(javaHome, "bin"), 0o755); err != nil {
 		t.Fatalf("mkdir javaHome: %v", err)
+	}
+	if err := os.MkdirAll(jarDir, 0o755); err != nil {
+		t.Fatalf("mkdir jarDir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write java binary: %v", err)
 	}
+	if err := os.WriteFile(jarPath, []byte("jar"), 0o644); err != nil {
+		t.Fatalf("write tla2tools.jar: %v", err)
+	}
+	t.Setenv("TLA2TOOLS_JAR", jarPath)
 
 	savedCandidates := integrationBrewCandidates
 	integrationBrewCandidates = []string{"/bin/echo"}
@@ -519,5 +729,22 @@ func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
 	}
 	if resolved.ResolvedEnv["JAVA_HOME"] != want {
 		t.Fatalf("ResolvedEnv[JAVA_HOME] = %q, want %q", resolved.ResolvedEnv["JAVA_HOME"], want)
+	}
+	wantJar, err := canonicalizePath(jarPath)
+	if err != nil {
+		t.Fatalf("canonicalizePath(jarPath): %v", err)
+	}
+	if resolved.ResolvedEnv["TLA2TOOLS_JAR"] != wantJar {
+		t.Fatalf("ResolvedEnv[TLA2TOOLS_JAR] = %q, want %q", resolved.ResolvedEnv["TLA2TOOLS_JAR"], wantJar)
+	}
+	wantJarDir, err := canonicalizePath(jarDir)
+	if err != nil {
+		t.Fatalf("canonicalizePath(jarDir): %v", err)
+	}
+	if len(resolved.AdditionalReadDirs) != 2 || resolved.AdditionalReadDirs[0] != want || resolved.AdditionalReadDirs[1] != wantJarDir {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", resolved.AdditionalReadDirs, want, wantJarDir)
+	}
+	if len(resolved.PathPrefixes) != 1 || resolved.PathPrefixes[0] != filepath.Join(want, "bin") {
+		t.Fatalf("PathPrefixes = %v, want [%q]", resolved.PathPrefixes, filepath.Join(want, "bin"))
 	}
 }

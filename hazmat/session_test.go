@@ -568,6 +568,20 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 	}
 }
 
+func TestGenerateSBPLAllowsMacOSShellSelector(t *testing.T) {
+	cfg := sessionConfig{ProjectDir: "/tmp/myproject"}
+	policy := generateSBPL(cfg)
+
+	for _, want := range []string{
+		`(allow process-exec (subpath "/private/var/select"))`,
+		`(allow file-read* (subpath "/private/var/select"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("expected %q in policy:\n%s", want, policy)
+		}
+	}
+}
+
 func TestGenerateSBPLWithReadDirs(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/tmp/myproject",
@@ -713,6 +727,60 @@ func TestGenerateSBPLProjectWriteReasserted(t *testing.T) {
 	}
 	if reassertIdx > denyIdx {
 		t.Error("project write re-assertion must appear before credential denies")
+	}
+}
+
+func TestPrepareSessionToolsStagesBeadsBinary(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".beads"), 0o755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "bd")
+	if err := os.WriteFile(sourcePath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write bd source: %v", err)
+	}
+
+	savedLookup := sessionToolCommandPath
+	savedExecCheck := sessionToolExecutableByAgent
+	savedStagingRoot := sessionToolStagingRoot
+	t.Cleanup(func() {
+		sessionToolCommandPath = savedLookup
+		sessionToolExecutableByAgent = savedExecCheck
+		sessionToolStagingRoot = savedStagingRoot
+	})
+
+	sessionToolCommandPath = func(name string) (string, error) {
+		if name != "bd" {
+			t.Fatalf("unexpected tool lookup %q", name)
+		}
+		return sourcePath, nil
+	}
+	sessionToolExecutableByAgent = func(string) bool { return false }
+	sessionToolStagingRoot = t.TempDir()
+
+	cfg := sessionConfig{ProjectDir: projectDir}
+	if err := prepareSessionTools(&cfg); err != nil {
+		t.Fatalf("prepareSessionTools: %v", err)
+	}
+	if len(cfg.StagedToolDirs) != 1 {
+		t.Fatalf("StagedToolDirs = %v, want one staged dir", cfg.StagedToolDirs)
+	}
+	stagedPath := filepath.Join(cfg.StagedToolDirs[0], "bd")
+	data, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatalf("read staged bd: %v", err)
+	}
+	if string(data) != "#!/bin/sh\n" {
+		t.Fatalf("staged bd contents = %q", string(data))
+	}
+	info, err := os.Stat(stagedPath)
+	if err != nil {
+		t.Fatalf("stat staged bd: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("staged bd mode = %v, want executable", info.Mode())
 	}
 }
 
@@ -1374,6 +1442,13 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 		WriteDirs: []string{
 			"/Users/dr/.venvs/project",
 		},
+		StagedToolDirs: []string{
+			"/private/tmp/hazmat-session-tools/abc123/bin",
+		},
+		IntegrationPathPrefixes: []string{
+			"/opt/homebrew/Cellar/go/1.26.0/libexec/bin",
+			"/opt/homebrew/Cellar/openjdk/25.0.2/libexec/openjdk.jdk/Contents/Home/bin",
+		},
 		IntegrationEnv: map[string]string{
 			"GOPATH": "/Users/dr/go",
 		},
@@ -1408,6 +1483,13 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 	if values["GOPATH"] != "/Users/dr/go" {
 		t.Fatalf("GOPATH = %q, want /Users/dr/go", values["GOPATH"])
+	}
+	if values["SANDBOX_STAGED_TOOL_DIRS"] != "/private/tmp/hazmat-session-tools/abc123/bin" {
+		t.Fatalf("SANDBOX_STAGED_TOOL_DIRS = %q", values["SANDBOX_STAGED_TOOL_DIRS"])
+	}
+	wantPathPrefix := strings.Join(cfg.IntegrationPathPrefixes, ":") + ":"
+	if !strings.HasPrefix(values["PATH"], wantPathPrefix) {
+		t.Fatalf("PATH = %q, want prefix %q", values["PATH"], wantPathPrefix)
 	}
 }
 
