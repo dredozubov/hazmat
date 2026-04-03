@@ -56,12 +56,13 @@ type brewPrefixResult struct {
 }
 
 var (
-	integrationProbeFactory   = func() integrationProbe { return hostIntegrationProbe{} }
-	integrationProbeTimeout   = 2 * time.Second
-	integrationBrewCandidates = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
-	integrationJavaHomePath   = "/usr/libexec/java_home"
-	integrationAgentExecCheck = func(path string) bool { return pathExecutableByAgent(path) }
-	homebrewConsentPrompt     = func() (bool, bool) {
+	integrationProbeFactory    = func() integrationProbe { return hostIntegrationProbe{} }
+	integrationProbeTimeout    = 2 * time.Second
+	integrationHomebrewTimeout = 10 * time.Second
+	integrationBrewCandidates  = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
+	integrationJavaHomePath    = "/usr/libexec/java_home"
+	integrationAgentExecCheck  = func(path string) bool { return pathExecutableByAgent(path) }
+	homebrewConsentPrompt      = func() (bool, bool) {
 		if flagDryRun {
 			return false, false
 		}
@@ -101,7 +102,8 @@ func (hostIntegrationProbe) LookPath(name string) (string, error) {
 }
 
 func (hostIntegrationProbe) Output(name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), integrationProbeTimeout)
+	timeout := integrationTimeoutForCommand(name)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	env := integrationProbeEnv()
@@ -114,7 +116,7 @@ func (hostIntegrationProbe) Output(name string, args ...string) (string, error) 
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("%s timed out after %s", commandLabel(name, args...), integrationProbeTimeout)
+		return "", fmt.Errorf("%s timed out after %s", commandLabel(name, args...), timeout)
 	}
 	return strings.TrimSpace(string(out)), err
 }
@@ -174,6 +176,13 @@ func commandLabel(name string, args ...string) string {
 		return name
 	}
 	return name + " " + strings.Join(args, " ")
+}
+
+func integrationTimeoutForCommand(name string) time.Duration {
+	if filepath.Base(name) == "brew" {
+		return integrationHomebrewTimeout
+	}
+	return integrationProbeTimeout
 }
 
 func resolveRuntimeIntegrations(projectDir string, packs []Pack) ([]resolvedIntegration, error) {
@@ -296,7 +305,7 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, pack Pack) (resol
 		result.AdditionalReadDirs = []string{javaHome}
 		result.Source = source
 		result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved JDK home -> %s", javaHome))
-		if os.Getenv("JAVA_HOME") == "" {
+		if shouldSetResolvedJavaHomeEnv() {
 			result.ResolvedEnv["JAVA_HOME"] = javaHome
 		}
 		return result, nil
@@ -308,7 +317,7 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, pack Pack) (resol
 			result.AdditionalReadDirs = []string{javaHome}
 			result.Source = fmt.Sprintf("tla-java (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved via Homebrew %s -> %s", brewResult.Formula, javaHome))
-			if os.Getenv("JAVA_HOME") == "" {
+			if shouldSetResolvedJavaHomeEnv() {
 				result.ResolvedEnv["JAVA_HOME"] = javaHome
 			}
 		}
@@ -385,9 +394,21 @@ func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixR
 		return brewPrefixResult{Detail: detail}
 	}
 
+	var probeError error
 	for _, formula := range formulas {
+		if dir := resolver.optPrefix(formula); dir != "" {
+			return brewPrefixResult{
+				Prefix:  dir,
+				Formula: formula,
+				Detail:  fmt.Sprintf("resolved via Homebrew opt/%s -> %s", formula, dir),
+			}
+		}
+
 		out, err := ctx.Probe.Output(resolver.brewPath(), "--prefix", "--installed", formula)
 		if err != nil || out == "" {
+			if err != nil && probeError == nil {
+				probeError = err
+			}
 			continue
 		}
 		dir, err := validatedReadDir(out)
@@ -401,6 +422,9 @@ func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixR
 		}
 	}
 
+	if probeError != nil {
+		return brewPrefixResult{Detail: probeError.Error()}
+	}
 	return brewPrefixResult{Detail: "Homebrew fallback found no installed matching formula"}
 }
 
@@ -429,6 +453,26 @@ func (r *integrationHomebrewResolver) brewPath() string {
 		return candidate
 	}
 	return ""
+}
+
+func (r *integrationHomebrewResolver) rootPrefix() string {
+	brewPath := r.brewPath()
+	if brewPath == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(brewPath), ".."))
+}
+
+func (r *integrationHomebrewResolver) optPrefix(formula string) string {
+	root := r.rootPrefix()
+	if root == "" {
+		return ""
+	}
+	dir, err := validatedReadDir(filepath.Join(root, "opt", formula))
+	if err != nil || dir == "" {
+		return ""
+	}
+	return dir
 }
 
 func (r *integrationHomebrewResolver) allowed() (bool, string) {
@@ -503,6 +547,9 @@ func validatedJavaHome(path string) (string, error) {
 	if err != nil || dir == "" {
 		return "", err
 	}
+	if javaLauncherStubHome(dir) {
+		return "", fmt.Errorf("%q is the macOS launcher stub, not a real Java home", dir)
+	}
 	javaBin := filepath.Join(dir, "bin", "java")
 	info, err := os.Stat(javaBin)
 	if err != nil || info.IsDir() {
@@ -512,6 +559,24 @@ func validatedJavaHome(path string) (string, error) {
 		return "", fmt.Errorf("%q is not executable by %s", javaBin, agentUser)
 	}
 	return dir, nil
+}
+
+func javaLauncherStubHome(dir string) bool {
+	switch filepath.Clean(dir) {
+	case "/usr", "/usr/bin":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSetResolvedJavaHomeEnv() bool {
+	javaHome := os.Getenv("JAVA_HOME")
+	if javaHome == "" {
+		return true
+	}
+	_, err := validatedJavaHome(javaHome)
+	return err != nil
 }
 
 func javaHomeFromPrefix(prefix string) string {

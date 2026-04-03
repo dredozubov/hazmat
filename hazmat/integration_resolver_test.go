@@ -341,3 +341,183 @@ func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 		t.Fatalf("Details = %v, want cannot execute note", resolved[0].Details)
 	}
 }
+
+func TestValidatedJavaHomeRejectsLauncherStub(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/java"); err != nil {
+		t.Skip("/usr/bin/java not present on this platform")
+	}
+	if _, err := validatedJavaHome("/usr"); err == nil {
+		t.Fatal("validatedJavaHome(/usr) should reject the macOS launcher stub")
+	}
+}
+
+func TestValidatedJavaHomeAcceptsRealHome(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	javaHome := filepath.Join(t.TempDir(), "jdk")
+	if err := os.MkdirAll(filepath.Join(javaHome, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir javaHome: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write java binary: %v", err)
+	}
+	got, err := validatedJavaHome(javaHome)
+	if err != nil {
+		t.Fatalf("validatedJavaHome(real home): %v", err)
+	}
+	want, err := canonicalizePath(javaHome)
+	if err != nil {
+		t.Fatalf("canonicalizePath(javaHome): %v", err)
+	}
+	if got != want {
+		t.Fatalf("validatedJavaHome(real home) = %q, want %q", got, want)
+	}
+}
+
+func TestJavaHomeFromInstalledOpenJDKPrefix(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	if _, err := os.Stat("/opt/homebrew/opt/openjdk"); err != nil {
+		t.Skip("installed openjdk prefix not present")
+	}
+	if got := javaHomeFromPrefix("/opt/homebrew/opt/openjdk"); got == "" {
+		t.Fatal("javaHomeFromPrefix(/opt/homebrew/opt/openjdk) returned empty")
+	}
+}
+
+func TestBrewPrefixFindsInstalledOpenJDK(t *testing.T) {
+	isolateConfig(t)
+	if _, err := os.Stat("/opt/homebrew/opt/openjdk"); err != nil {
+		t.Skip("installed openjdk prefix not present")
+	}
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe:      hostIntegrationProbe{},
+	}
+	result := ctx.brewPrefix("openjdk")
+	if result.Prefix == "" {
+		t.Fatalf("brewPrefix(openjdk) returned no prefix: %+v", result)
+	}
+}
+
+func TestIntegrationTimeoutForCommandUsesLongerTimeoutForBrew(t *testing.T) {
+	if got := integrationTimeoutForCommand("/opt/homebrew/bin/brew"); got != integrationHomebrewTimeout {
+		t.Fatalf("integrationTimeoutForCommand(brew) = %s, want %s", got, integrationHomebrewTimeout)
+	}
+	if got := integrationTimeoutForCommand("go"); got != integrationProbeTimeout {
+		t.Fatalf("integrationTimeoutForCommand(go) = %s, want %s", got, integrationProbeTimeout)
+	}
+}
+
+func TestBrewPrefixSurfacesProbeError(t *testing.T) {
+	isolateConfig(t)
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{"/bin/echo"}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			outputErrs: map[string]error{
+				"/bin/echo --prefix --installed openjdk": fmt.Errorf("brew timed out after 10s"),
+			},
+		},
+	}
+	result := ctx.brewPrefix("openjdk")
+	if !strings.Contains(result.Detail, "timed out") {
+		t.Fatalf("brewPrefix probe error detail = %q, want timeout note", result.Detail)
+	}
+}
+
+func TestBrewPrefixUsesOptPrefixBeforeProbe(t *testing.T) {
+	isolateConfig(t)
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	brewRoot := filepath.Join(t.TempDir(), "homebrew")
+	brewBin := filepath.Join(brewRoot, "bin", "brew")
+	optPrefix := filepath.Join(brewRoot, "opt", "openjdk")
+	if err := os.MkdirAll(filepath.Dir(brewBin), 0o755); err != nil {
+		t.Fatalf("mkdir brew bin: %v", err)
+	}
+	if err := os.WriteFile(brewBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write brew bin: %v", err)
+	}
+	if err := os.MkdirAll(optPrefix, 0o755); err != nil {
+		t.Fatalf("mkdir opt prefix: %v", err)
+	}
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{brewBin}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			outputErrs: map[string]error{
+				brewBin + " --prefix --installed openjdk": fmt.Errorf("probe should not run when opt prefix exists"),
+			},
+		},
+	}
+	result := ctx.brewPrefix("openjdk")
+	want, err := canonicalizePath(optPrefix)
+	if err != nil {
+		t.Fatalf("canonicalizePath(optPrefix): %v", err)
+	}
+	if result.Prefix != want {
+		t.Fatalf("brewPrefix(openjdk) Prefix = %q, want %q", result.Prefix, want)
+	}
+	if result.Formula != "openjdk" {
+		t.Fatalf("brewPrefix(openjdk) Formula = %q, want openjdk", result.Formula)
+	}
+}
+
+func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	t.Setenv("JAVA_HOME", "/usr")
+
+	prefix := filepath.Join(t.TempDir(), "openjdk-prefix")
+	javaHome := filepath.Join(prefix, "libexec", "openjdk.jdk", "Contents", "Home")
+	if err := os.MkdirAll(filepath.Join(javaHome, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir javaHome: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write java binary: %v", err)
+	}
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{"/bin/echo"}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"/bin/echo --prefix --installed openjdk": prefix,
+			},
+		},
+	}
+	pack, err := loadBuiltinPack("tla-java")
+	if err != nil {
+		t.Fatalf("loadBuiltinPack(tla-java): %v", err)
+	}
+
+	resolved, err := resolveTLAJavaIntegration(ctx, pack)
+	if err != nil {
+		t.Fatalf("resolveTLAJavaIntegration: %v", err)
+	}
+	want, err := canonicalizePath(javaHome)
+	if err != nil {
+		t.Fatalf("canonicalizePath(javaHome): %v", err)
+	}
+	if resolved.ResolvedEnv["JAVA_HOME"] != want {
+		t.Fatalf("ResolvedEnv[JAVA_HOME] = %q, want %q", resolved.ResolvedEnv["JAVA_HOME"], want)
+	}
+}
