@@ -44,6 +44,12 @@ func currentUserCanReadPath(path string) bool {
 	return f.Close() == nil
 }
 
+// pathWritableByCurrentUser reports whether the calling user has write
+// access to path, considering Unix permissions and macOS ACLs.
+func pathWritableByCurrentUser(path string) bool {
+	return syscall.Access(path, 0x2) == nil // W_OK
+}
+
 func pathWritableByAgent(path string, requireInherit bool) bool {
 	if requireInherit {
 		return pathHasDevACL(path, true)
@@ -92,6 +98,9 @@ func collectGitPermissionProblems(gitDir string) []string {
 		if !currentUserCanReadPath(req.path) {
 			problems = append(problems, fmt.Sprintf("host user cannot read %s", req.path))
 		}
+		if !pathWritableByCurrentUser(req.path) {
+			problems = append(problems, fmt.Sprintf("host user cannot write %s", req.path))
+		}
 		if !pathWritableByAgent(req.path, req.requireInherit) {
 			want := "write"
 			if req.requireInherit {
@@ -110,6 +119,28 @@ func gitRepairCommand(gitDir string) string {
 		fmt.Sprintf("find %s -type d -exec chmod +a '%s' {} +", quotedDir, devGroupACLEntry()),
 		fmt.Sprintf("find %s -type f -exec chmod +a '%s' {} +", quotedDir, devGroupACLEntryNoInherit()),
 	}, " && ")
+}
+
+// repairGitAfterSession re-checks .git/ permissions after an agent session
+// and attempts to repair any files that became agent-owned during the session.
+// This is best-effort: if the inherited dev group ACL is intact, chmod +a
+// succeeds silently. If it isn't, we print a manual repair command.
+func repairGitAfterSession(projectDir string) {
+	gitDir := gitMetadataDir(projectDir)
+	if gitDir == "" {
+		return
+	}
+
+	if len(collectGitPermissionProblems(gitDir)) == 0 {
+		return
+	}
+
+	_ = applyDevACLTree(gitDir)
+
+	if problems := collectGitPermissionProblems(gitDir); len(problems) > 0 {
+		fmt.Fprintf(os.Stderr, "\nhazmat: .git metadata needs repair (agent-owned files)\n")
+		fmt.Fprintf(os.Stderr, "  Run: %s\n", gitRepairCommand(gitDir))
+	}
 }
 
 func ensureGitMetadataHealthy(projectDir string) (bool, error) {

@@ -1318,6 +1318,10 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 			notes = append(notes, fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)))
 		}
 		return reason, notes
+	case dockerModeSandbox:
+		// Sandbox was requested but we ended up in native mode (e.g.
+		// resolved via resolvePreparedSessionMode before this point).
+		// Fall through to the default reason below.
 	case dockerModeAuto:
 		if len(detection.HardMarkers) > 0 {
 			return "using native containment because Docker Sandbox approval was declined", []string{
@@ -1704,7 +1708,15 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		fmt.Fprint(os.Stderr, "\033[2J\033[H")
 	}
 
-	return cmd.Run()
+	err := cmd.Run()
+
+	// Post-session: repair .git/ permissions that may have been altered
+	// by agent git operations. New files created by the agent are owned
+	// by the agent user; re-applying the dev group ACL restores
+	// collaborative access for the host user.
+	repairGitAfterSession(cfg.ProjectDir)
+
+	return err
 }
 
 // preSessionSnapshot takes an automatic snapshot before a session starts.

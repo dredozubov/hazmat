@@ -46,6 +46,7 @@ func TestCollectGitPermissionProblemsFlagsBrokenPaths(t *testing.T) {
 	joined := strings.Join(problems, "\n")
 	for _, want := range []string{
 		"host user cannot read " + indexPath,
+		"host user cannot write " + indexPath,
 		"agent user cannot write with inheritable dev ACL " + gitDir,
 		"agent user cannot write with inheritable dev ACL " + filepath.Join(gitDir, "objects"),
 		"agent user cannot write with inheritable dev ACL " + filepath.Join(gitDir, "refs"),
@@ -54,6 +55,51 @@ func TestCollectGitPermissionProblemsFlagsBrokenPaths(t *testing.T) {
 			t.Fatalf("collectGitPermissionProblems() missing %q in:\n%s", want, joined)
 		}
 	}
+}
+
+func TestCollectGitPermissionProblemsDetectsReadOnlyForHost(t *testing.T) {
+	projectDir := t.TempDir()
+	gitDir := filepath.Join(projectDir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	headPath := filepath.Join(gitDir, "HEAD")
+	if err := os.WriteFile(headPath, []byte("ref: refs/heads/main\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	problems := collectGitPermissionProblems(gitDir)
+	joined := strings.Join(problems, "\n")
+	if !strings.Contains(joined, "host user cannot write "+headPath) {
+		t.Fatalf("expected host write problem for read-only HEAD, got:\n%s", joined)
+	}
+}
+
+func TestRepairGitAfterSessionNoGitDir(t *testing.T) {
+	// Should not panic on a project without .git.
+	repairGitAfterSession(t.TempDir())
+}
+
+func TestRepairGitAfterSessionHealthyGitDir(t *testing.T) {
+	projectDir := t.TempDir()
+	gitDir := filepath.Join(projectDir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not panic or error on a healthy .git tree (ACL checks will
+	// report problems in CI since the dev group doesn't exist, but the
+	// function must not crash).
+	repairGitAfterSession(projectDir)
 }
 
 func TestCollectGitPermissionProblemsSkipsOptionalMissingPaths(t *testing.T) {
