@@ -114,6 +114,114 @@ The implementation should separate four concerns that are currently mixed by
 This keeps the runtime honest. Resolution may use Homebrew, but validation and
 contract rendering should only see resolved directories and env keys.
 
+## Migration Plan
+
+The migration should separate current pack behavior into three buckets rather
+than replacing the word "pack" everywhere and calling the job done.
+
+### 1. Keep as integrations
+
+These behaviors remain appropriate as bounded, non-secret, mostly read-only
+ergonomics:
+
+| Current built-in | Destination | Notes |
+|------------------|-------------|-------|
+| `go` | integration | project marker + `go env` / shared module cache story |
+| `node` | integration | project marker + runtime/Homebrew path resolution |
+| `python-poetry` | integration | likely split into a broader Python story over time, but still an integration |
+| `rust` | integration | stable toolchain roots, explicit mutable caches where needed |
+| `terraform-plan` | integration | mostly snapshot excludes plus small read-only story |
+| `tla-java` | integration | transitional JVM/tooling integration, likely folded into broader JVM rules later |
+
+Integration-owned behavior should stay limited to:
+
+- auto-resolved read-only directories
+- session-scoped snapshot excludes
+- safe passive env selectors
+- warnings and command hints
+
+### 2. Move to explicit extensions
+
+These behaviors should not hide behind named profiles:
+
+- machine-specific reference trees
+- writable virtualenv directories
+- mutable package stores and caches
+- shared sibling repos or worktrees
+- any path that is valuable mainly because of this developer's local layout
+
+The explicit UX should stay path-based:
+
+- per-session `-R` / `-W`
+- project-scoped `hazmat config access add/remove`
+- session contract showing these paths separately from auto-integrations
+
+### 3. Move to first-class capabilities
+
+Anything that widens authority beyond passive filesystem ergonomics should not
+be modeled as an integration at all. Examples:
+
+- GitHub or other credential-backed service access
+- future package-publish or cloud-deploy authority
+- any token- or credential-bearing env passthrough beyond the safe selector set
+
+These should use separate CLI/config surfaces and stronger session-contract
+language than integrations. The GitHub follow-up (`sandboxing-9lz`) is the
+model for this direction.
+
+## CLI and Config Migration
+
+Recommended staged migration:
+
+### Phase 1: dual-surface, integration-first
+
+This phase is now implemented:
+
+- `hazmat integration` is the primary inspect command
+- `--integration` is the primary session flag
+- `hazmat pack` and `--pack` remain legacy aliases
+- project-scoped path extensions use `hazmat config access add/remove`
+- the session contract separates integrations from explicit read/write
+  extensions
+
+### Phase 2: keep compatibility, narrow semantics
+
+- keep `.hazmat/packs.yaml` as the repo recommendation file for now
+- document it as recommending **integrations only**
+- keep `packs.pin` / `packs.unpin` as compatibility aliases for
+  `integrations.pin` / `integrations.unpin`
+- ensure integrations never request write dirs or credential capabilities
+
+### Phase 3: optional cleanup after ecosystem/resolver work stabilizes
+
+- decide whether the repo recommendation filename should stay `.hazmat/packs.yaml`
+  for compatibility or move to a clearer name
+- remove `pack` wording from default docs/help once the alias has had a full
+  transition window
+- collapse legacy internal names where doing so no longer adds migration risk
+
+## Repo Recommendation Implications
+
+Repo recommendations should survive the migration, but with tighter semantics:
+
+- they may recommend only known integrations
+- they may not request explicit write dirs
+- they may not request credential capabilities
+- approval remains host-owned and hash-bound
+
+This preserves the useful current workflow while keeping the security boundary
+where it belongs: the resolved path/env contract, not the repo-controlled hint.
+
+## Documentation Implications
+
+The docs should teach the new model in this order:
+
+1. exact read/write directories are the real session contract
+2. integrations are a bounded convenience layer on top
+3. explicit extensions handle machine-specific or writable state
+4. capabilities are separate when authority, credentials, or external service
+   access are involved
+
 ## Research Scope
 
 Hazmat needs a focused exploration pass across major macOS/Homebrew ecosystems:

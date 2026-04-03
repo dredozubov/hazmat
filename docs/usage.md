@@ -26,7 +26,7 @@ flowchart LR
     subgraph daily ["Every session (hazmat claude)"]
         direction TB
         D1[Snapshot project] --> D2[Generate seatbelt policy]
-        D2 --> D3[Resolve packs]
+        D2 --> D3[Resolve integrations and path extensions]
         D3 --> D4[Print session contract]
         D4 --> D5[Launch agent in containment]
     end
@@ -64,8 +64,10 @@ hazmat: session
   Mode:                 Native containment
   Why this mode:        using native containment because no Docker requirement was detected
   Project (read-write): /Users/dr/workspace/my-app
-  Extra read-only:      /Users/dr/go/pkg/mod
-  Packs:                go
+  Integrations:         go
+  Auto read-only:       /Users/dr/go/pkg/mod
+  Read-only extensions: /Users/dr/reference-docs
+  Read-write extensions: /Users/dr/.venvs/my-app
   Service access:       none
   Pre-session snapshot: on
   Snapshot excludes:    vendor/
@@ -76,11 +78,13 @@ Each line maps to a concrete boundary:
 - **Mode** — Native containment (kernel sandbox + user isolation) or Docker Sandbox (private Docker daemon in an isolated runtime)
 - **Why this mode** — what triggered the mode selection (`--docker=sandbox`, project config, private-daemon Docker detection, or default)
 - **Project (read-write)** — the only directory the agent can modify
-- **Extra read-only** — additional directories visible to the agent (via `-R` or config)
-- **Packs** — active stack packs and what they add
+- **Integrations** — active stack integrations and what they add automatically
+- **Auto read-only** — read-only directories that Hazmat resolved on your behalf
+- **Read-only extensions** — explicit additional read-only directories from `-R` or config
+- **Read-write extensions** — explicit additional writable directories from `-W` or config
 - **Service access** — external services the agent can authenticate to
 - **Pre-session snapshot** — whether a rollback point was created
-- **Snapshot excludes** — patterns skipped by the snapshot (from packs)
+- **Snapshot excludes** — patterns skipped by the snapshot (often from integrations)
 
 Preview any session without running it:
 
@@ -88,7 +92,7 @@ Preview any session without running it:
 hazmat explain                      # preview current project
 hazmat explain --docker=sandbox     # preview Docker Sandbox mode
 hazmat explain --docker=none        # preview code-only native mode
-hazmat explain --pack node          # preview with a pack
+hazmat explain --integration node   # preview with an integration
 ```
 
 ## Daily Usage
@@ -101,42 +105,50 @@ hazmat opencode
 
 This generates a per-session security policy, switches to the agent user, and launches the agent inside containment. When you exit, the session is cleaned up.
 
-### Giving the Agent Read Access to Other Directories
+### Giving the Agent Access to Other Directories
 
-By default, the agent can only write to the project directory (your current directory). To let it *read* other directories:
+By default, the agent can only write to the project directory (your current
+directory). To let it read or write other directories explicitly:
 
 ```bash
 hazmat claude -R ~/workspace              # read all of ~/workspace
 hazmat claude -R ~/code/lib -R ~/docs     # cherry-pick specific dirs
+hazmat claude -W ~/.venvs/my-app          # add another writable root
+hazmat config access add -C ~/workspace/my-project --read ~/docs --write ~/.venvs/my-app
 ```
 
-Read directories are strictly read-only — the agent cannot modify them.
+Read directories are strictly read-only. Write directories are explicit
+extensions to the writable contract and show up separately in the session
+summary.
 
-### Stack Packs
+### Session Integrations
 
-Packs let you carry stack-specific ergonomics into a session without weakening
-Hazmat's trust boundaries:
+Integrations let you carry stack-specific ergonomics into a session without
+weakening Hazmat's trust boundaries:
 
 ```bash
-hazmat pack list
-hazmat pack show node
-hazmat claude --pack node
-hazmat config set packs.pin "~/workspace/my-project:node,go"
+hazmat integration list
+hazmat integration show node
+hazmat claude --integration node
+hazmat config set integrations.pin "~/workspace/my-project:node,go"
 ```
 
-Today packs can:
+Today integrations can:
 
-- add read-only toolchain or cache directories
+- add auto-resolved read-only toolchain or cache directories
 - add snapshot excludes for reproducible build artifacts
 - pass through a small safe set of environment selectors such as `GOPATH` or `VIRTUAL_ENV`
 
-They cannot widen write access, expose blocked credentials, or change firewall
-policy.
+They do not widen write access, expose blocked credentials, or change firewall
+policy. Explicit extra writable scope is handled separately through `-W` or
+`hazmat config access`, not through integrations.
 
-Repos can ship a `.hazmat/packs.yaml` listing recommended packs. On first use,
-hazmat prompts once for approval; after that, packs activate automatically.
-Write your own packs in `~/.hazmat/packs/` for stacks or environments that
-built-ins don't cover. Full reference: [stack-packs.md](stack-packs.md).
+Repos can still ship a `.hazmat/packs.yaml` listing recommended integrations.
+On first use, hazmat prompts once for approval; after that, the approved
+integrations activate automatically until the file changes. `hazmat pack` and
+`--pack` still work as legacy aliases. Write your own pack manifest in
+`~/.hazmat/packs/` for environments that built-ins do not cover. Full
+reference: [stack-packs.md](stack-packs.md).
 
 ### Docker Projects
 
@@ -267,7 +279,7 @@ hazmat restore --session=2
 These snapshots cover only the selected project directory, not the entire
 workspace and not the extra read-only directories you pass via `-R`.
 
-Default excludes live in `hazmat config`, and packs can add stack-specific
+Default excludes live in `hazmat config`, and integrations can add stack-specific
 snapshot excludes such as `node_modules/` or `target/` for the active session.
 
 ### Cloud backup (encrypted, incremental)

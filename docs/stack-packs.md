@@ -1,17 +1,21 @@
-# Stack Packs
+# Session Integrations
 
-Stack packs are optional ergonomics overlays for common technology stacks.
-They let Hazmat carry a small amount of stack-specific convenience into a
-session without weakening the containment model.
+Session integrations are optional ergonomics overlays for common technology
+stacks. They let Hazmat carry a small amount of stack-specific convenience
+into a session without weakening the containment model.
 
-## What Packs Can Do
+`hazmat integration` is the primary command surface. This file keeps the
+historical `stack-packs.md` name because the repo recommendation file and the
+underlying manifest format still use "pack" terminology during the migration.
+
+## What Integrations Can Do
 
 - Add read-only directories that are useful for a stack, such as toolchains or caches
 - Add snapshot exclude patterns for reproducible build artifacts
 - Pass through a small safe set of environment selectors and path pointers from the invoker environment
 - Show warnings or suggested commands for the stack
 
-## What Packs Cannot Do
+## What Integrations Cannot Do
 
 - Widen project write scope
 - Bypass the seatbelt credential deny list
@@ -22,14 +26,14 @@ session without weakening the containment model.
 ```mermaid
 block-beta
     columns 2
-    block:allowed["Packs CAN"]
+    block:allowed["Integrations CAN"]
         columns 1
         a1["Add read-only dirs"]
         a2["Add snapshot excludes"]
         a3["Pass safe env selectors"]
         a4["Show warnings"]
     end
-    block:denied["Packs CANNOT"]
+    block:denied["Integrations CANNOT"]
         columns 1
         d1["Widen write scope"]
         d2["Expose denied credentials"]
@@ -49,54 +53,76 @@ block-beta
     style d4 fill:#fcc,stroke:#c33,color:#000
 ```
 
-This is the core design rule: packs may reduce friction, but they may not
+This is the core design rule: integrations may reduce friction, but they may not
 weaken Hazmat's trust boundary.
 
-## Inspecting Packs
+## Inspecting Integrations
 
 ```bash
-hazmat pack list
-hazmat pack show node
+hazmat integration list
+hazmat integration show node
 ```
 
-`hazmat pack list` shows built-in packs, user-installed packs under
+`hazmat integration list` shows built-in integrations, user-installed manifests under
 `~/.hazmat/packs/`, and any project pinning currently configured.
 
-`hazmat pack show <name>` shows the pack's detect files, read-only paths,
-env passthrough keys, snapshot excludes, warnings, and command hints.
+`hazmat integration show <name>` shows the integration's detect files,
+read-only paths, env passthrough keys, snapshot excludes, warnings, and
+command hints.
 
-## Activating Packs
+`hazmat pack list` and `hazmat pack show` still work as legacy aliases.
 
-Activate a pack for a single session:
+## Activating Integrations
+
+Activate an integration for a single session:
 
 ```bash
-hazmat claude --pack node
-hazmat opencode --pack go
-hazmat shell --pack rust
-hazmat exec --pack python-poetry poetry run pytest
+hazmat claude --integration node
+hazmat opencode --integration go
+hazmat shell --integration rust
+hazmat exec --integration python-poetry poetry run pytest
 ```
 
-If no packs are active, Hazmat may suggest built-in packs based on files in the
-project directory, such as `go.mod`, `package.json`, or `Cargo.toml`.
+If no integrations are active, Hazmat may suggest built-in integrations based
+on files in the project directory, such as `go.mod`, `package.json`, or
+`Cargo.toml`.
+
+## Explicit Project Access Extensions
+
+Integrations are not the only way to shape a session. If you need additional
+directories, declare them directly:
+
+```bash
+hazmat claude -R ~/reference-docs
+hazmat claude -W ~/.venvs/my-app
+hazmat config access add -C ~/workspace/my-app --read ~/reference-docs --write ~/.venvs/my-app
+hazmat config access remove -C ~/workspace/my-app --write ~/.venvs/my-app
+```
+
+Use this path-based access model when the directory is specific to your
+machine, writable, or too environment-specific to belong in a reusable
+integration.
 
 ## Project Pinning
 
-Pin packs so they auto-activate for a specific project:
+Pin integrations so they auto-activate for a specific project:
 
 ```bash
-hazmat config set packs.pin "~/workspace/my-app:node,go"
-hazmat config set packs.unpin ~/workspace/my-app
+hazmat config set integrations.pin "~/workspace/my-app:node,go"
+hazmat config set integrations.unpin ~/workspace/my-app
 ```
 
 Hazmat canonicalizes the project path (`Abs` + `EvalSymlinks`) before storing
 the pin. At session start, the session's project path is resolved the same way
 and compared for exact equality. This means `~/workspace/my-app` and
 `/Users/dr/workspace/my-app` both resolve to the same canonical pin. Re-running
-`packs.pin` for the same project replaces the existing pin set.
+`integrations.pin` for the same project replaces the existing pin set.
 
-## Built-In Packs
+`packs.pin` and `packs.unpin` still work as legacy aliases.
 
-| Pack | Detects | Read dirs | Env passthrough | Snapshot excludes |
+## Built-In Integrations
+
+| Integration | Detects | Read dirs | Env passthrough | Snapshot excludes |
 |------|---------|-----------|-----------------|-------------------|
 | `go` | `go.mod` | — | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
 | `node` | `package.json` | `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
@@ -105,18 +131,18 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `terraform-plan` | `main.tf`, `terraform.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `tla-java` | `MC_*.cfg` files | `/opt/homebrew/opt/openjdk`, `/Library/Java` | `JAVA_HOME` | `tla/states/`, `*.dot` |
 
-Packs influence three parts of session setup:
+Integrations influence three parts of session setup:
 
 1. **Read-only access** — toolchain and cache directories
 2. **Pre-session snapshot excludes** — reproducible build artifacts
 3. **Safe environment passthrough** — passive selectors from the invoker's environment
 
-Hazmat prints pack-derived read-only paths, snapshot excludes, registry redirect
+Hazmat prints integration-derived paths, snapshot excludes, registry redirect
 keys, and warnings at session start so the behavior stays visible.
 
 ## Safe Environment Passthrough
 
-Packs may only request env keys from Hazmat's allowlist. The intent is to allow
+Integrations may only request env keys from Hazmat's allowlist. The intent is to allow
 passive selectors and path pointers, not code-injection knobs.
 
 Examples of allowed keys:
@@ -141,9 +167,9 @@ Registry redirect keys like `GOPROXY` and `NPM_CONFIG_REGISTRY` are allowed but
 surfaced explicitly at session start because they change where downloads come
 from.
 
-## Repo-Recommended Packs
+## Repo-Recommended Integrations
 
-A repo can declare which packs it needs in `.hazmat/packs.yaml`:
+A repo can declare which integrations it needs in `.hazmat/packs.yaml`:
 
 ```yaml
 packs:
@@ -151,8 +177,8 @@ packs:
   - tla-java
 ```
 
-This file is pure data: a list of existing pack names. No inline definitions,
-no custom paths, no env keys, no executable hooks.
+This file is pure data: a list of existing integration names. No inline
+definitions, no custom paths, no env keys, no executable hooks.
 
 **Repo owns intent; host owns trust.** Hazmat reads the file as a hint, not
 authority.
@@ -160,14 +186,14 @@ authority.
 ```mermaid
 flowchart TD
     A[Session start] --> B{.hazmat/packs.yaml exists?}
-    B -- no --> C[Check --pack flags and config pins]
+    B -- no --> C[Check --integration flags and config pins]
     B -- yes --> D[Compute SHA-256 of file]
     D --> E{Approved in ~/.hazmat/approvals.yaml?}
-    E -- "yes (path + hash match)" --> F[Activate recommended packs]
-    E -- no --> G[Prompt user: approve these packs?]
+    E -- "yes (path + hash match)" --> F[Activate recommended integrations]
+    E -- no --> G[Prompt user: approve these integrations?]
     G -- yes --> H[Record approval] --> F
-    G -- no --> I["Skip (print --pack hint)"]
-    C --> J[Resolve and merge all active packs]
+    G -- no --> I["Skip (print --integration hint)"]
+    C --> J[Resolve and merge all active integrations]
     F --> J
     I --> J
 ```
@@ -175,24 +201,24 @@ flowchart TD
 On first encounter, it prompts:
 
 ```
-hazmat: this repo recommends packs: go, tla-java
+hazmat: this repo recommends integrations: go, tla-java
 hazmat: source: /Users/dr/workspace/hazmat/.hazmat/packs.yaml
-hazmat: approve these packs for this repo? [y/N]
+hazmat: approve these integrations for this repo? [y/N]
 ```
 
 Approval is stored outside the repo in `~/.hazmat/approvals.yaml`, keyed by
 canonical project path + SHA-256 of the file contents:
 
 - Same repo + same file = no prompt (approved)
-- File changes (pack added or removed) = re-approve
+- File changes (integration added or removed) = re-approve
 - Repo cloned to a different path = re-approve
 
-If the user declines, packs are not activated. They can still use `--pack`
+If the user declines, integrations are not activated. They can still use `--integration`
 manually.
 
 ## For Project Maintainers
 
-To recommend packs for your repo, add `.hazmat/packs.yaml`:
+To recommend integrations for your repo, add `.hazmat/packs.yaml`:
 
 ```yaml
 packs:
@@ -200,38 +226,39 @@ packs:
   - node
 ```
 
-The file only lists names of existing built-in or user-installed packs. It
-cannot define custom packs, paths, env vars, or any session config inline.
+The file only lists names of existing built-in or user-installed manifests. It
+cannot define custom paths, env vars, or any session config inline.
 
-Tell your contributors which packs the repo needs, and note any prerequisites
+Tell your contributors which integrations the repo needs, and note any prerequisites
 (runtimes, tools) in the project README. When a contributor runs `hazmat claude`
-for the first time, they'll see the approval prompt with the exact pack list.
+for the first time, they'll see the approval prompt with the exact integration list.
 
-If your project needs a pack that doesn't exist as a built-in, contributors
-can create a matching user pack on their machines (see below). The `.hazmat/packs.yaml`
-should still reference the pack name — it will resolve through the user pack
-loader.
+If your project needs an integration that doesn't exist as a built-in,
+contributors can create a matching user manifest on their machines (see
+below). The `.hazmat/packs.yaml` should still reference the integration name
+— it resolves through the same loader.
 
-## User Packs
+## User Manifests
 
-User-installed packs live in:
+User-installed manifests live in:
 
 ```text
 ~/.hazmat/packs/<name>.yaml
 ```
 
-Hazmat resolves pack names by checking built-ins first, then user packs. This
-means you can extend or replace a built-in by creating a user pack with the
-same name, or create entirely new packs for stacks that hazmat doesn't ship.
+Under the hood, integrations are still defined by pack manifests. Hazmat
+resolves names by checking built-ins first, then user manifests. This means
+you can extend or replace a built-in by creating a user manifest with the same
+name, or create entirely new integrations for stacks that hazmat doesn't ship.
 
-### When to create a user pack
+### When to create a user manifest
 
-- A built-in pack is close but your environment differs (e.g., SDKMAN Java
+- A built-in integration is close but your environment differs (e.g., SDKMAN Java
   instead of Homebrew, or a custom Cargo registry)
-- Your project uses a stack that has no built-in pack
+- Your project uses a stack that has no built-in integration
 - You need read-only access to a toolchain path specific to your machine
 
-### Writing a user pack
+### Writing a user manifest
 
 A pack manifest is YAML with strict field validation. Unknown fields are
 rejected at load time.
@@ -290,32 +317,32 @@ commands:
 - No negation in exclude patterns.
 - Manifest size limit: 8KB.
 
-If any validation fails, hazmat rejects the entire pack rather than partially
+If any validation fails, hazmat rejects the entire manifest rather than partially
 applying it.
 
-### Combining multiple packs
+### Combining multiple integrations
 
-Activate multiple packs in one session:
+Activate multiple integrations in one session:
 
 ```bash
-hazmat claude --pack node --pack python-poetry
+hazmat claude --integration node --integration python-poetry
 ```
 
 Or pin a combination:
 
 ```bash
-hazmat config set packs.pin "~/workspace/fullstack:node,python-poetry"
+hazmat config set integrations.pin "~/workspace/fullstack:node,python-poetry"
 ```
 
-Packs merge additively. Read dirs, excludes, env passthrough, and warnings are
-unioned and deduplicated. If two packs add the same read dir or exclude, it
+Integrations merge additively. Read dirs, excludes, env passthrough, and warnings are
+unioned and deduplicated. If two integrations add the same read dir or exclude, it
 appears once.
 
 ## Self-Hosting: Developing Hazmat Under Hazmat
 
 Hazmat's own repo includes `.hazmat/packs.yaml` recommending `go` and
 `tla-java`. On first `hazmat claude` in this repo, approve the recommended
-packs and the session gets Go toolchain support plus Java paths for TLC model
+integrations and the session gets Go toolchain support plus Java paths for TLC model
 checking.
 
 Prerequisites:
@@ -326,7 +353,7 @@ Prerequisites:
 
 ## Further Reading
 
-- [design-assumptions.md](design-assumptions.md) — credential storage zones, pack trust model, approval trust boundaries
-- [threat-matrix.md](threat-matrix.md) — footnotes 9 and 10 cover pack approval threat analysis
-- [usage.md](usage.md) — daily workflow including packs
-- [overview.md](overview.md) — tier selection and where packs fit in the containment model
+- [design-assumptions.md](design-assumptions.md) — credential storage zones, integration trust model, approval trust boundaries
+- [threat-matrix.md](threat-matrix.md) — footnotes 9 and 10 cover repo recommendation approval threat analysis
+- [usage.md](usage.md) — daily workflow including integrations
+- [overview.md](overview.md) — tier selection and where integrations fit in the containment model
