@@ -91,6 +91,15 @@ func TestLoadConfigRejectsLegacyPacksSection(t *testing.T) {
 	}
 }
 
+func TestCodexSkipPermissionsArgs(t *testing.T) {
+	got := codexSkipPermissionsArgs()
+	if len(got) != 1 {
+		t.Fatalf("codexSkipPermissionsArgs() returned %d args, want 1: %v", len(got), got)
+	}
+	if got[0] != "--dangerously-bypass-approvals-and-sandbox" {
+		t.Fatalf("codexSkipPermissionsArgs() = %v, want --dangerously-bypass-approvals-and-sandbox", got)
+	}
+}
 func TestResolveReadDirsDeduplicates(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")

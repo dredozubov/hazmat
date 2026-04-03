@@ -401,17 +401,21 @@ Examples:
 				return err
 			}
 
-			// --approval-mode full-auto is the Codex equivalent of Claude's
-			// --dangerously-skip-permissions. The containment is OS-level;
-			// Codex's own permission prompts are redundant inside hazmat.
+			// Hazmat provides the primary containment boundary here, so when
+			// session.skip_permissions is enabled we bypass Codex's own
+			// approval prompts and sandbox layer.
 			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-				forwarded = append([]string{"--approval-mode", "full-auto"}, forwarded...)
+				forwarded = append(codexSkipPermissionsArgs(), forwarded...)
 			}
 
 			return runAgentSeatbeltScript(prepared.Config, codexLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
+}
+
+func codexSkipPermissionsArgs() []string {
+	return []string{"--dangerously-bypass-approvals-and-sandbox"}
 }
 
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
