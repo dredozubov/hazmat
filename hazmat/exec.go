@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+func commandStdout(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
 // dscl runs a read-only dscl query without sudo.
 // Directory Service reads for UIDs, GIDs, and group membership are
 // world-readable on macOS and do not require elevated privileges.
@@ -20,8 +25,7 @@ func dscl(args ...string) (string, error) {
 
 // execOutput runs a command as the current user and returns stdout.
 func execOutput(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
-	return strings.TrimSpace(string(out)), err
+	return commandStdout(name, args...)
 }
 
 // sudo runs a command with sudo, discarding stdout/stderr.
@@ -77,11 +81,12 @@ func asAgentQuiet(args ...string) error {
 	return cmd.Run()
 }
 
-// asAgentOutput runs args as the agent user and returns combined output.
+// asAgentOutput runs args as the agent user and returns stdout only.
+// This prevents stderr from failed reads like "cat missing-file" from being
+// mistaken for file content by callers that ignore the returned error.
 func asAgentOutput(args ...string) (string, error) {
 	full := append([]string{"-u", agentUser}, args...)
-	out, err := exec.Command("sudo", full...).CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	return commandStdout("sudo", full...)
 }
 
 // asAgentShellQuiet runs a bash command string as the agent user.
