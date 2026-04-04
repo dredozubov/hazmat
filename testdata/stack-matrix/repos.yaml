@@ -7,14 +7,14 @@ repos:
     default_check: smoke
     repo: https://github.com/vercel/next.js
     ref: f65b10a54d9abb2ceb3890bcadc22e372f635f88
-    stack: node-typescript
+    stack: node-typescript-rust
     project_subdir: .
-    expected_suggestions: [node]
-    activate: [node]
-    required_formulas: [node, pnpm]
+    expected_suggestions: [node, rust]
+    activate: [node, rust]
+    required_formulas: [node, pnpm, rust]
     smoke_commands:
       - pnpm lint
-    notes: High-signal Node and TypeScript target with nested packages and .next output.
+    notes: High-signal mixed Node, TypeScript, and Rust target with nested packages, Rust crates, and .next output.
 
   - id: pydantic-ai
     wave: 1

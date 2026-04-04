@@ -370,7 +370,7 @@ The checked-in source of truth for automation is
 
 | Repo | Stack | Expected integration(s) | Key markers | Relevant Homebrew formulas | Validation notes |
 |------|-------|-------------------------|-------------|----------------------------|------------------|
-| [vercel/next.js](https://github.com/vercel/next.js) | Node / TypeScript | `node` | `package.json` | `node`, `pnpm` | High-signal Node target with nested packages and `.next` output |
+| [vercel/next.js](https://github.com/vercel/next.js) | Node / TypeScript / Rust | `node`, `rust` | `package.json`, nested `Cargo.toml` | `node`, `pnpm`, local Rust toolchain | High-signal mixed-stack target with `.next` output and real Rust crates in the build graph |
 | [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) | Python / uv | `python-uv` | `uv.lock` | `uv` | Exercises `uv run`, virtualenv resolution, and Python toolchain traversal |
 | [python-poetry/poetry](https://github.com/python-poetry/poetry) | Python / Poetry | `python-poetry` | `poetry.lock` | `poetry` | Validates Poetry-specific detection stays narrow |
 | [ollama/ollama](https://github.com/ollama/ollama) | Go | `go` | `go.mod` | `go` | Good Go regression repo for `go env GOROOT` resolution |
