@@ -63,6 +63,15 @@ jobs:
           go run . config import claude --dry-run >/dev/null
           go run . config import opencode --dry-run >/dev/null
 
+  test-entrypoint-guards:
+    name: Test entrypoint guards
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify non-destructive test-entrypoint guards
+        run: bash scripts/test-entrypoint-guards.sh
+
   repo-matrix-contract:
     name: Repo matrix contract
     runs-on: macos-latest
@@ -160,7 +169,7 @@ jobs:
   e2e:
     name: E2E lifecycle
     runs-on: macos-14
-    needs: [go-test, go-build, repo-matrix-contract]
+    needs: [go-test, go-build, test-entrypoint-guards, repo-matrix-contract]
     steps:
       - uses: actions/checkout@v4
 
@@ -171,6 +180,49 @@ jobs:
 
       - name: E2E lifecycle test
         run: bash scripts/e2e.sh --quick
+
+  e2e-bootstrap:
+    name: E2E bootstrap
+    runs-on: macos-14
+    needs: [go-test, go-build, test-entrypoint-guards, repo-matrix-contract]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install bootstrap toolchains
+        run: brew install golangci-lint
+
+      - name: Build Hazmat
+        working-directory: hazmat
+        run: make all
+
+      - name: Install launch helper
+        working-directory: hazmat
+        run: sudo make install-helper
+
+      - name: Initialize Hazmat
+        run: ./hazmat/hazmat init --yes
+
+      - name: Run bootstrap self-hosting checks
+        run: bash scripts/e2e-bootstrap.sh --skip-tla | tee e2e-bootstrap.log
+
+      - name: Upload bootstrap artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-bootstrap
+          path: e2e-bootstrap.log
+          if-no-files-found: ignore
+
+      - name: Roll back Hazmat
+        if: always()
+        run: ./hazmat/hazmat rollback --delete-user --delete-group --yes || true
 
   repo-matrix-smoke:
     name: Repo matrix smoke

@@ -9,6 +9,7 @@ are not interchangeable.
 | --- | --- | --- | --- |
 | `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
+| `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
@@ -28,6 +29,18 @@ bash ../scripts/pre-push
 ```
 
 This intentionally skips the expensive or environment-heavy checks.
+
+### Harness guardrails
+
+Use this when changing the test harness itself, especially destructive gating
+or the shared host-side lock:
+
+```bash
+bash scripts/test-entrypoint-guards.sh
+cd hazmat && make test-entrypoint-guards
+```
+
+This is non-destructive. It only checks refusal paths.
 
 ### Self-hosting
 
@@ -96,6 +109,8 @@ Current GitHub Actions coverage:
 - `.github/workflows/ci.yml`
   - lint
   - Go vet and unit tests
+  - test-entrypoint guard regression checks
+  - self-hosting bootstrap on macOS (`--skip-tla`)
   - repo-matrix required-track contract checks
   - TLA+ model checking
   - host-side lifecycle e2e on macOS
