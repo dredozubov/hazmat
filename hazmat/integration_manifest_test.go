@@ -471,6 +471,104 @@ func TestSuggestIntegrationsMatchesNestedDetectFiles(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsSkipsAuxiliaryDocsSiteMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "uv.lock"), []byte("version = 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docsSiteDir := filepath.Join(dir, "docs-site")
+	if err := os.MkdirAll(docsSiteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsSiteDir, "package.json"), []byte(`{"name":"docs-site"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "node" {
+			t.Fatalf("did not expect node suggestion from auxiliary docs-site/package.json, got %v", suggestions)
+		}
+	}
+	found := false
+	for _, s := range suggestions {
+		if s == "python-uv" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected python-uv suggestion from root uv.lock, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsSkipsAuxiliaryPlaygroundAndScriptsMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[workspace]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	playgroundDir := filepath.Join(dir, "playground")
+	if err := os.MkdirAll(playgroundDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(playgroundDir, "package.json"), []byte(`{"name":"playground"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptsDir := filepath.Join(dir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptsDir, "uv.lock"), []byte("version = 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "node" || s == "python-uv" {
+			t.Fatalf("did not expect auxiliary suggestions from playground/scripts markers, got %v", suggestions)
+		}
+	}
+	found := false
+	for _, s := range suggestions {
+		if s == "rust" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected rust suggestion from root Cargo.toml, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsMatchesPreferredNestedRustDirs(t *testing.T) {
+	dir := t.TempDir()
+	cratesDir := filepath.Join(dir, "crates", "core")
+	if err := os.MkdirAll(cratesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cratesDir, "Cargo.toml"), []byte("[package]\nname = \"core\""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"root"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundNode := false
+	foundRust := false
+	for _, s := range suggestions {
+		if s == "node" {
+			foundNode = true
+		}
+		if s == "rust" {
+			foundRust = true
+		}
+	}
+	if !foundNode || !foundRust {
+		t.Fatalf("expected node and rust suggestions for root package.json plus crates/* Cargo.toml, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsMatchesWildcardDetectFiles(t *testing.T) {
 	dir := t.TempDir()
 	tlaDir := filepath.Join(dir, "tla")

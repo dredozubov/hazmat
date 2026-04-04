@@ -604,6 +604,57 @@ var integrationDetectIgnoredDirs = map[string]struct{}{
 	"venv":         {},
 }
 
+var integrationDetectAuxiliaryTopLevelDirs = map[string]struct{}{
+	".github":    {},
+	"benchmarks": {},
+	"docs":       {},
+	"docs-site":  {},
+	"examples":   {},
+	"fixtures":   {},
+	"fuzz":       {},
+	"playground": {},
+	"scripts":    {},
+	"test":       {},
+	"tests":      {},
+}
+
+var integrationDetectPreferredTopLevelDirs = map[string]map[string]struct{}{
+	"node": {
+		"app":      {},
+		"apps":     {},
+		"client":   {},
+		"frontend": {},
+		"site":     {},
+		"ui":       {},
+		"web":      {},
+	},
+	"python-poetry": {
+		"api":     {},
+		"app":     {},
+		"apps":    {},
+		"backend": {},
+		"server":  {},
+		"service": {},
+		"worker":  {},
+	},
+	"python-uv": {
+		"api":     {},
+		"app":     {},
+		"apps":    {},
+		"backend": {},
+		"server":  {},
+		"service": {},
+		"worker":  {},
+	},
+	"rust": {
+		"compiler": {},
+		"crates":   {},
+		"engine":   {},
+		"native":   {},
+		"rust":     {},
+	},
+}
+
 const integrationDetectMaxDepth = 4
 
 func detectPatternHasWildcard(pattern string) bool {
@@ -618,7 +669,23 @@ func detectFileMatches(pattern, name string) bool {
 	return err == nil && matched
 }
 
-func projectMatchesDetectFile(projectDir, pattern string) bool {
+func integrationSuggestsFromNestedPath(integrationName, rel string) bool {
+	if rel == "" {
+		return false
+	}
+	topLevel := strings.Split(rel, string(os.PathSeparator))[0]
+	if _, skip := integrationDetectAuxiliaryTopLevelDirs[topLevel]; skip {
+		return false
+	}
+	preferred, ok := integrationDetectPreferredTopLevelDirs[integrationName]
+	if !ok {
+		return true
+	}
+	_, allowed := preferred[topLevel]
+	return allowed
+}
+
+func projectMatchesDetectFile(projectDir, integrationName, pattern string) bool {
 	if pattern == "" {
 		return false
 	}
@@ -656,6 +723,9 @@ func projectMatchesDetectFile(projectDir, pattern string) bool {
 			return nil
 		}
 		if detectFileMatches(pattern, d.Name()) {
+			if depth > 1 && !integrationSuggestsFromNestedPath(integrationName, rel) {
+				return nil
+			}
 			matched = true
 		}
 		return nil
@@ -745,7 +815,7 @@ func integrationSuggestionMatches(projectDir string, spec IntegrationSpec) bool 
 		return projectHasFileWithSiblingPattern(projectDir, "*.cfg", "*.tla")
 	default:
 		for _, f := range spec.Detect.Files {
-			if projectMatchesDetectFile(projectDir, f) {
+			if projectMatchesDetectFile(projectDir, spec.Meta.Name, f) {
 				return true
 			}
 		}
