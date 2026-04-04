@@ -128,6 +128,18 @@ block-beta
 
 **No special workspace read shortcut exists.** If you want broad read access, you must pass that path explicitly with `-R`. Hazmat does not reserve a separate workspace flag anymore.
 
+**Some sessions make persistent host-side permission repairs.** Before launch,
+Hazmat may repair collaborative ACLs on the project tree, `.git` metadata, or
+ancestor paths needed to traverse explicitly exposed directories. With
+Homebrew-backed integration resolution enabled, Hazmat may also plan a narrow
+toolchain permission repair under a Homebrew Cellar path when local mode bits
+would otherwise block the agent user. These repairs are shown in the session
+contract under `Host permission changes`.
+
+**`hazmat explain` is a pure preview for these repairs.** It computes and shows
+the same planned host permission changes that a real launch may apply, but it
+does not execute them.
+
 ## Claude Code Coupling
 
 **Harnesses are explicit, but Claude is still the default path.** `hazmat init` still bootstraps Claude Code by default and the seatbelt explicitly allows Claude state in `~/.claude/`. Other harnesses, like the current OpenCode prototype, are installed and configured explicitly via harness-specific commands such as `hazmat bootstrap opencode`, `hazmat opencode`, and `hazmat config import opencode`.
@@ -141,6 +153,11 @@ block-beta
 **Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for offsite workspace backup. Both configured via `~/.config/hazmat/config.yaml`.
 
 **Snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project directory before launching. The snapshot covers only the write-target directory — not the whole workspace, not read-only dirs. Skip with `--no-backup`.
+
+**Project snapshots do not roll back host permission repairs.** The automatic
+pre-session snapshot protects project contents, not host permission metadata
+outside the snapshot boundary. Session-time ACL or Homebrew permission repairs
+are persistent host changes.
 
 **Retention is configurable.** Default: 20 latest, 7 daily, 4 weekly per project. Change via `hazmat config set backup.retention.keep_latest N` or edit `config.yaml` directly.
 
@@ -193,6 +210,11 @@ or explicit integration read dirs instead.
 ## Rollback
 
 **Rollback does not delete your files.** `hazmat rollback` removes system configuration (users, firewall, sudoers, wrappers) but does not delete any project files the agent created or modified. Back up first if needed.
+
+**Rollback does not revert session-time permission repairs.** `hazmat rollback`
+does not remove collaborative ACLs added to project trees, `.git`, or exposed
+ancestor paths during later sessions, and it does not revert Homebrew toolchain
+permission repairs. Those are outside the current rollback scope.
 
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents, including harness state such as Claude and OpenCode config, auth, and imported basics, survive rollback.
 

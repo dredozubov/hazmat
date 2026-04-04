@@ -65,6 +65,7 @@ hazmat: session
   Why this mode:        using native containment because no Docker requirement was detected
   Project (read-write): /Users/dr/workspace/my-app
   Integrations:         go
+  Host permission changes: project ACL repair
   Auto read-only:       /Users/dr/go/pkg/mod
   Read-only extensions: /Users/dr/reference-docs
   Read-write extensions: /Users/dr/.venvs/my-app
@@ -79,6 +80,7 @@ Each line maps to a concrete boundary:
 - **Why this mode** — what triggered the mode selection (`--docker=sandbox`, project config, private-daemon Docker detection, or default)
 - **Project (read-write)** — the only directory the agent can modify
 - **Integrations** — active stack integrations and what they add automatically
+- **Host permission changes** — persistent permission repairs Hazmat may apply before launch, such as project ACL repair or a bounded toolchain permission fix
 - **Auto read-only** — read-only directories that Hazmat resolved on your behalf
 - **Read-only extensions** — explicit additional read-only directories from `-R` or config
 - **Read-write extensions** — explicit additional writable directories from `-W` or config
@@ -94,6 +96,10 @@ hazmat explain --docker=sandbox     # preview Docker Sandbox mode
 hazmat explain --docker=none        # preview code-only native mode
 hazmat explain --integration node   # preview with an integration
 ```
+
+`hazmat explain` previews these changes but does not apply them. A real session
+may execute the listed permission repairs before launch if they are still
+needed at that point.
 
 ## Daily Usage
 
@@ -143,6 +149,11 @@ Today integrations can:
 They do not widen write access, expose blocked credentials, or change firewall
 policy. Explicit extra writable scope is handled separately through `-W` or
 `hazmat config access`, not through integrations.
+
+Built-in integrations may also plan narrowly-scoped host permission repairs for
+known local toolchains when the current host permissions would otherwise block
+the agent user. These changes are shown under `Host permission changes` before
+launch and are never applied by `hazmat explain`.
 
 Repos can still ship a `.hazmat/integrations.yaml` listing recommended integrations.
 On first use, hazmat prompts once for approval; after that, the approved

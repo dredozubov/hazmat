@@ -72,7 +72,7 @@ var (
 		if !ui.IsInteractive() && !flagYesAll {
 			return false, false
 		}
-		allowed := ui.Ask("Allow Homebrew-backed path resolution for session integrations? This does not itself grant new filesystem access; Hazmat will still show the resolved directories before launch.")
+		allowed := ui.Ask("Allow Homebrew-backed path resolution for session integrations? Hazmat may inspect Homebrew metadata and, when a known toolchain is blocked by local permissions, plan a narrow host-side permission repair before launch. Hazmat will show the resolved directories and any planned permission changes before launch.")
 		return allowed, true
 	}
 )

@@ -142,6 +142,17 @@ Integrations influence three parts of session setup:
 Hazmat prints integration-derived paths, snapshot excludes, registry redirect
 keys, and warnings at session start so the behavior stays visible.
 
+For some built-in integrations, Hazmat may also show a `Host permission
+changes` section in the session contract. This is used for narrowly-scoped,
+host-owned repairs such as a Homebrew toolchain permission fix that is required
+to make an already-approved read-only toolchain path executable by the agent.
+`hazmat explain` previews these repairs; it does not execute them.
+
+Homebrew-backed resolution is therefore no longer purely observational. With
+host consent enabled, it may plan a persistent permission repair outside the
+project tree. Those repairs are visible in the contract before launch and are
+governed by tests and documentation rather than the current TLA+ suite.
+
 ## Safe Environment Passthrough
 
 Integrations may only request env keys from Hazmat's allowlist. The intent is to allow

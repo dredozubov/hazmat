@@ -24,6 +24,13 @@ core containment equivalence and disproves exact backend identity. The suite
 does **not** claim that Seatbelt policy and Docker Sandbox runtime behavior are
 identical implementations.
 
+Important session-mutation boundary: the current suite does **not** model
+session-time host permission repairs such as project ACL repair, `.git`
+metadata ACL repair, exposed-directory traverse ACL repair, or Homebrew
+toolchain permission repair. Hazmat now surfaces these operations explicitly in
+the session contract with proof scope metadata, but they remain governed by
+tests and documentation rather than the current TLA+ specs.
+
 ---
 
 ## Governance Rules
@@ -368,6 +375,7 @@ generated, depth 1, 13s).
 - Per-harness metadata stored in `~/.hazmat/state.json`
 - Harness-specific rollback semantics beyond the agent-home coarse model
 - Integration activation, project pinning, and integration-specific snapshot ignore rules
+- Session-time host permission repairs and their rollback semantics
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
 - Explicit Tier 3 API-key or other model-credential injection mechanisms, which are not yet implemented in `hazmat/sandbox.go`
 
