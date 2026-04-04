@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
 LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-vm hooks
+.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-bootstrap e2e-vm hooks
 
 all: hazmat hazmat-launch
 
@@ -38,6 +38,9 @@ lint:
 
 e2e: all
 	bash ../scripts/e2e.sh
+
+e2e-bootstrap: all
+	bash ../scripts/e2e-bootstrap.sh
 
 e2e-vm: all
 	bash ../scripts/e2e-vm.sh

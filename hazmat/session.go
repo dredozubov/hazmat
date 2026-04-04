@@ -1710,7 +1710,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
 	w(";; Path traversal literals for realpath() and symlink resolution.\n")
 	w(";; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.\n")
-	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library"} {
+	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library", "/Library/Developer"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/private/etc", "/private/var/select"} {
@@ -1720,7 +1720,9 @@ func generateSBPL(cfg sessionConfig) string {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	w("(allow file-write* (literal \"/dev/null\"))\n")
-	for _, p := range []string{"/usr/local", "/opt/homebrew"} {
+	// /usr/bin and /bin: already in process-exec; file-read is needed so
+	// exec.LookPath can scan the directory (e.g., CGO looking for "cc").
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
 	w("\n")
@@ -1830,10 +1832,16 @@ func generateSBPL(cfg sessionConfig) string {
 	w(";; ── Temp and cache directories ──────────────────────────────────────────────\n")
 	w(";; ── DNS resolver + system state ───────────────────────────────────────────\n")
 	w(";; resolv.conf is a symlink to /private/var/run/resolv.conf.\n")
-	w("(allow file-read* (subpath \"/private/var/run\"))\n\n")
+	w("(allow file-read* (subpath \"/private/var/run\"))\n")
+	w(";; xcode-select stores the active developer dir as a symlink here.\n")
+	w(";; CGO and clang read it to locate the SDK.\n")
+	w("(allow file-read* (literal \"/private/var/db/xcode_select_link\"))\n\n")
 
 	for _, p := range []string{"/private/tmp", "/private/var/folders"} {
 		w("(allow file-read* file-write* (subpath %q))\n", p)
+		// process-exec: compilers (go test, rustc, gcc) build artifacts to
+		// temp dirs and exec them. The agent already has write access here.
+		w("(allow process-exec (subpath %q))\n", p)
 	}
 	w("\n")
 
@@ -2063,6 +2071,14 @@ func agentEnvPairs(cfg sessionConfig) []string {
 		"XDG_CONFIG_HOME=" + defaultAgentConfigHome,
 		"XDG_DATA_HOME=" + defaultAgentDataHome,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
+		// CGO compilation: the /usr/bin/cc shim dispatches through xcode-select
+		// which may resolve to Xcode.app (outside the seatbelt). Set CC/CXX
+		// directly to CommandLineTools compilers and SDKROOT so clang can find
+		// system headers without probing restricted paths.
+		"DEVELOPER_DIR=/Library/Developer/CommandLineTools",
+		"SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+		"CC=/Library/Developer/CommandLineTools/usr/bin/cc",
+		"CXX=/Library/Developer/CommandLineTools/usr/bin/c++",
 		"SANDBOX_ACTIVE=1",
 		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
 		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),

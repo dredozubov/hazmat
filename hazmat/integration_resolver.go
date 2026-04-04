@@ -1031,32 +1031,22 @@ func repairHomebrewToolAccessImpl(dir string) bool {
 		return false
 	}
 
-	fixed := false
-	for _, target := range homebrewACLRepairTargets(cellarRoot, dir) {
-		info, err := os.Lstat(target)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-
-		aclEntry := devGroupReadOnlyACLEntryNoInherit()
-		requireInherit := false
-		if info.IsDir() {
-			aclEntry = devGroupReadOnlyACLEntry()
-			requireInherit = true
-		}
-		if pathHasDevACL(target, requireInherit) {
-			continue
-		}
-		if err := exec.Command("chmod", "+a", aclEntry, target).Run(); err != nil {
-			return false
-		}
-		fixed = true
+	// Use chmod o+rX on the formula parent (e.g., .../Cellar/go/) and
+	// chmod -R o+rX on the version root (e.g., .../Cellar/go/1.26.1/).
+	// Adds world-readable and world-executable (where owner already has +x).
+	// This matches what Homebrew applies for most formulae; Go and
+	// golangci-lint are outliers with 0700/0600. pathExecutableByAgent
+	// checks Unix mode bits (not ACLs), so mode-bit repair is required.
+	formulaDir := filepath.Dir(cellarRoot)
+	if err := exec.Command("chmod", "o+rX", formulaDir).Run(); err != nil {
+		return false
+	}
+	if err := exec.Command("chmod", "-R", "o+rX", cellarRoot).Run(); err != nil {
+		return false
 	}
 
-	if fixed {
-		fmt.Fprintf(os.Stderr, "hazmat: fixed Homebrew tool permissions: %s\n", dir)
-	}
-	return fixed
+	fmt.Fprintf(os.Stderr, "hazmat: fixed Homebrew tool permissions: %s\n", cellarRoot)
+	return true
 }
 
 // homebrewCellarRoot returns the Cellar version root for a Homebrew path.
