@@ -1013,15 +1013,31 @@ func setupUserExperience(ui *UI, r *Runner) error {
 func setupLaunchHelper(ui *UI, r *Runner) error {
 	ui.Step("Verify sandbox-launch helper")
 
+	// If not at the final path, try to install from brew.
+	if _, err := os.Stat(launchHelper); err != nil {
+		src := findBrewLaunchHelper()
+		if src == "" {
+			return fmt.Errorf("%s not found.\n\n"+
+				"Build and install the helper before running setup:\n\n"+
+				"  cd hazmat\n"+
+				"  make hazmat-launch\n"+
+				"  sudo make install-helper\n\n"+
+				"Then re-run: hazmat init", launchHelper)
+		}
+		ui.WarnMsg(fmt.Sprintf("Installing %s from %s", launchHelper, src))
+		if err := r.Sudo("create "+filepath.Dir(launchHelper),
+			"mkdir", "-p", filepath.Dir(launchHelper)); err != nil {
+			return fmt.Errorf("create %s: %w", filepath.Dir(launchHelper), err)
+		}
+		if err := r.Sudo("install hazmat-launch to "+launchHelper,
+			"install", "-m", "0755", "-o", "root", src, launchHelper); err != nil {
+			return fmt.Errorf("install hazmat-launch: %w", err)
+		}
+	}
+
 	info, err := os.Stat(launchHelper)
 	if err != nil {
-		// Helper not installed — print build instructions and fail.
-		return fmt.Errorf("%s not found.\n\n"+
-			"Build and install the helper before running setup:\n\n"+
-			"  cd hazmat\n"+
-			"  make hazmat-launch\n"+
-			"  sudo make install-helper\n\n"+
-			"Then re-run: hazmat init", launchHelper)
+		return fmt.Errorf("%s not found after install attempt", launchHelper)
 	}
 
 	// Must be a regular executable file owned by root.
@@ -1037,12 +1053,24 @@ func setupLaunchHelper(ui *UI, r *Runner) error {
 	}
 
 	ui.Ok(fmt.Sprintf("%s present (root-owned, executable)", launchHelper))
-
-	// Validate syntax: run 'sandbox-launch --help' would exit non-zero since
-	// it does not recognise that flag, but the binary must at least exec.
-	// Cheapest check: just verify exit code is non-zero but the binary runs.
-	_ = r // no runtime action needed; presence + metadata is sufficient
 	return nil
+}
+
+// brewLaunchHelperPaths lists known locations where Homebrew may place hazmat-launch.
+var brewLaunchHelperPaths = []string{
+	"/opt/homebrew/opt/hazmat/libexec/hazmat-launch", // Apple Silicon
+	"/usr/local/opt/hazmat/libexec/hazmat-launch",    // Intel
+}
+
+// findBrewLaunchHelper returns the path to hazmat-launch inside a Homebrew
+// installation, or "" if not found.
+func findBrewLaunchHelper() string {
+	for _, p := range brewLaunchHelperPaths {
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 // ── Step 6: Passwordless sudo ─────────────────────────────────────────────────
@@ -1288,18 +1316,21 @@ func preflightChecks(currentUser string) error {
 	checks := []check{
 		{"macOS detected", checkPlatform},
 		{"hazmat-launch installed", func() error {
-			info, err := os.Stat(launchHelper)
-			if err != nil {
-				return fmt.Errorf("%s not found\n\n"+
-					"Build and install the helper before running setup:\n\n"+
-					"  cd hazmat\n"+
-					"  make hazmat-launch\n"+
-					"  sudo make install-helper", launchHelper)
+			if info, err := os.Stat(launchHelper); err == nil {
+				if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+					return fmt.Errorf("%s is not an executable file", launchHelper)
+				}
+				return nil
 			}
-			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-				return fmt.Errorf("%s is not an executable file", launchHelper)
+			// Not at the final path — check if brew has it.
+			if p := findBrewLaunchHelper(); p != "" {
+				return nil // setupLaunchHelper will install it
 			}
-			return nil
+			return fmt.Errorf("%s not found\n\n"+
+				"Build and install the helper before running setup:\n\n"+
+				"  cd hazmat\n"+
+				"  make hazmat-launch\n"+
+				"  sudo make install-helper", launchHelper)
 		}},
 		{"UID " + agentUID + " available", func() error {
 			if _, err := user.Lookup(agentUser); err == nil {
