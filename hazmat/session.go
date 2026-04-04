@@ -1690,7 +1690,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w("(version 1)\n(deny default)\n\n")
 
 	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
-	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", agentHome} {
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools", agentHome} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
 	for _, dir := range cfg.ReadDirs {
@@ -1713,7 +1713,7 @@ func generateSBPL(cfg sessionConfig) string {
 	for _, p := range []string{"/", "/private", "/var", "/tmp", "/etc", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc", "/private/var/select"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/private/etc", "/private/var/select"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {

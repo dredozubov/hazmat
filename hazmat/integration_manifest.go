@@ -114,8 +114,9 @@ var safeEnvKeys = map[string]bool{
 	// Python — mode flag and venv pointer
 	"VIRTUAL_ENV": true,
 
-	// Java — path pointer only
-	"JAVA_HOME": true,
+	// Java / TLA+ — path pointers only
+	"JAVA_HOME":     true,
+	"TLA2TOOLS_JAR": true, // path to tla2tools.jar for TLC model checking
 
 	// Ruby — path pointer only
 	"GEM_HOME": true,
@@ -662,6 +663,96 @@ func projectMatchesDetectFile(projectDir, pattern string) bool {
 	return matched
 }
 
+func projectHasFileWithSiblingPattern(projectDir, pattern, siblingPattern string) bool {
+	if pattern == "" || siblingPattern == "" {
+		return false
+	}
+
+	matched := false
+	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort suggestion probe
+		if matched || err != nil {
+			return nil
+		}
+		if path == projectDir {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := strings.Count(rel, string(os.PathSeparator)) + 1
+		if d.IsDir() {
+			if depth > integrationDetectMaxDepth {
+				return filepath.SkipDir
+			}
+			if _, skip := integrationDetectIgnoredDirs[d.Name()]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if depth > integrationDetectMaxDepth || !detectFileMatches(pattern, d.Name()) {
+			return nil
+		}
+
+		entries, readErr := os.ReadDir(filepath.Dir(path))
+		if readErr != nil {
+			return nil
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			if detectFileMatches(siblingPattern, entry.Name()) {
+				matched = true
+				break
+			}
+		}
+		return nil
+	})
+	return matched
+}
+
+func projectRootMatchesDetectFile(projectDir, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if detectFileMatches(pattern, entry.Name()) {
+			return true
+		}
+	}
+	return false
+}
+
+func integrationSuggestionMatches(projectDir string, spec IntegrationSpec) bool {
+	switch spec.Meta.Name {
+	case "java-gradle", "java-maven":
+		for _, f := range spec.Detect.Files {
+			if projectRootMatchesDetectFile(projectDir, f) {
+				return true
+			}
+		}
+		return false
+	case "tla-java":
+		return projectHasFileWithSiblingPattern(projectDir, "*.cfg", "*.tla")
+	default:
+		for _, f := range spec.Detect.Files {
+			if projectMatchesDetectFile(projectDir, f) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // suggestIntegrations checks detect.files against the project directory and returns
 // names of built-in integrations that match but are not already active.
 func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []string {
@@ -677,11 +768,8 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 		if len(p.Detect.Files) == 0 {
 			continue
 		}
-		for _, f := range p.Detect.Files {
-			if projectMatchesDetectFile(projectDir, f) {
-				suggestions = append(suggestions, name)
-				break
-			}
+		if integrationSuggestionMatches(projectDir, p) {
+			suggestions = append(suggestions, name)
 		}
 	}
 	return suggestions

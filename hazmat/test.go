@@ -64,6 +64,7 @@ func runTest(quick bool) error {
 	testAgentTools(ui)
 	testCommandSurface(ui)
 	testSeatbelt(ui)
+	testProjectToolchain(ui)
 	testLocalSnapshot(ui)
 	testCloudBackup(ui)
 	testCloudRestore(ui)
@@ -688,6 +689,148 @@ func testSeatbelt(ui *UI) {
 	} else {
 		ui.TestSkip("~/.claude does not exist for agent — skipping Claude auth read test")
 	}
+}
+
+// ── Step 12b: Project toolchain ──────────────────────────────────────────────
+
+func testProjectToolchain(ui *UI) {
+	ui.Step("Project development toolchain")
+
+	projectDir, err := os.Getwd()
+	if err != nil {
+		ui.TestSkip("Cannot determine working directory")
+		return
+	}
+
+	integrations, err := resolveActiveIntegrations(nil, projectDir)
+	if err != nil {
+		ui.TestSkip(fmt.Sprintf("Cannot resolve integrations: %v", err))
+		return
+	}
+
+	if len(integrations) == 0 {
+		ui.TestSkip("No integrations detected for project directory")
+		return
+	}
+
+	names := make([]string, len(integrations))
+	for i, spec := range integrations {
+		names[i] = spec.Meta.Name
+	}
+	ui.TestPass(fmt.Sprintf("Active integrations: %s", strings.Join(names, ", ")))
+
+	// Run integration resolution (includes Homebrew ACL repair).
+	resolved, err := resolveRuntimeIntegrations(projectDir, integrations)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Integration resolution failed: %v", err))
+		return
+	}
+
+	for _, r := range resolved {
+		for _, detail := range r.Details {
+			if strings.Contains(detail, "cannot execute") || strings.Contains(detail, "not executable") {
+				ui.TestWarn(detail)
+			}
+		}
+		if len(r.AdditionalReadDirs) > 0 {
+			ui.TestPass(fmt.Sprintf("%s: resolved toolchain at %s", r.Spec.Meta.Name, strings.Join(r.AdditionalReadDirs, ", ")))
+		} else if r.Source == "" {
+			ui.TestWarn(fmt.Sprintf("%s: no toolchain path resolved — agent may not be able to use this tool", r.Spec.Meta.Name))
+		}
+	}
+
+	// Check specific tools by running them as agent to verify end-to-end access.
+	if _, err := user.Lookup(agentUser); err != nil {
+		ui.TestSkip("Agent user not found — skipping agent-level tool checks")
+		return
+	}
+
+	for _, spec := range integrations {
+		for cmdName, cmdLine := range spec.Commands {
+			tool := strings.Fields(cmdLine)[0]
+			if out, err := asAgentOutput("bash", "-c", "command -v "+tool+" 2>/dev/null"); err == nil && out != "" {
+				ui.TestPass(fmt.Sprintf("%s/%s: %s found at %s", spec.Meta.Name, cmdName, tool, out))
+			} else {
+				ui.TestFail(fmt.Sprintf("%s/%s: %s not found in agent PATH", spec.Meta.Name, cmdName, tool))
+			}
+		}
+	}
+
+	// Check golangci-lint if a Go project (Makefile lint target).
+	for _, spec := range integrations {
+		if spec.Meta.Name != "go" {
+			continue
+		}
+		if out, err := asAgentOutput("bash", "-c", "command -v golangci-lint 2>/dev/null"); err == nil && out != "" {
+			ui.TestPass(fmt.Sprintf("golangci-lint: found at %s", out))
+		} else {
+			// Try to resolve and repair via Homebrew path.
+			lintPath := resolveAndRepairHomebrewTool("golangci-lint")
+			if lintPath != "" {
+				ui.TestPass(fmt.Sprintf("golangci-lint: repaired Homebrew access at %s", lintPath))
+			} else {
+				ui.TestWarn("golangci-lint: not accessible by agent (install via Homebrew or fix permissions)")
+			}
+		}
+	}
+
+	// Check CGO compilation prerequisites.
+	for _, spec := range integrations {
+		if spec.Meta.Name != "go" {
+			continue
+		}
+		for _, key := range spec.Session.EnvPassthrough {
+			if key != "CGO_ENABLED" {
+				continue
+			}
+			sdkPath := "/Library/Developer/CommandLineTools/SDKs"
+			if _, err := os.Stat(sdkPath); err == nil {
+				ui.TestPass(fmt.Sprintf("CGO SDK: Command Line Tools found at %s", sdkPath))
+			} else {
+				ui.TestFail("CGO SDK: /Library/Developer/CommandLineTools not found — install Xcode Command Line Tools: xcode-select --install")
+			}
+		}
+	}
+
+	// Check tla2tools.jar accessibility for TLA+ integration.
+	for _, spec := range integrations {
+		if spec.Meta.Name != "tla-java" {
+			continue
+		}
+		jarPath := os.Getenv("TLA2TOOLS_JAR")
+		if jarPath == "" {
+			home, _ := os.UserHomeDir()
+			jarPath = filepath.Join(home, "workspace", "tla2tools.jar")
+		}
+		if _, err := os.Stat(jarPath); err == nil {
+			ui.TestPass(fmt.Sprintf("tla2tools.jar: found at %s", jarPath))
+		} else {
+			ui.TestWarn(fmt.Sprintf("tla2tools.jar: not found at %s — set TLA2TOOLS_JAR env var", jarPath))
+		}
+	}
+}
+
+// resolveAndRepairHomebrewTool tries to find a tool binary via Homebrew's opt/
+// prefix and apply ACL repair if needed.
+func resolveAndRepairHomebrewTool(tool string) string {
+	for _, prefix := range []string{"/opt/homebrew", "/usr/local"} {
+		optPath := filepath.Join(prefix, "opt", tool)
+		resolved, err := filepath.EvalSymlinks(optPath)
+		if err != nil {
+			continue
+		}
+		binPath := filepath.Join(resolved, "bin", tool)
+		if _, err := os.Stat(binPath); err != nil {
+			continue
+		}
+		if pathExecutableByAgent(binPath) {
+			return binPath
+		}
+		if repairHomebrewToolAccess(resolved) && pathExecutableByAgent(binPath) {
+			return binPath
+		}
+	}
+	return ""
 }
 
 // ── Step 13: Local Snapshot ──────────────────────────────────────────────────

@@ -109,6 +109,8 @@ block-beta
 
 **Mach services are broadly allowed.** The policy permits `mach-host*` (all host-level mach services), plus `logger`, `coreservicesd`, `notification_center`, `mDNSResponder`. These are necessary for normal operation but expand the attack surface. We allow them because blocking them breaks basic tooling (git, node, python).
 
+**Command Line Tools SDK is readable.** The seatbelt allows file-read and process-exec from `/Library/Developer/CommandLineTools`. This is required for CGO compilation (clang needs SDK headers at `.../SDKs/MacOSX.sdk/usr/include/`). The directory contains only the compiler toolchain and system headers — no credentials, no user data. Without this, any Go project using cgo (including hazmat's own `hazmat-launch` binary) cannot compile within containment.
+
 **Per-session policies with literal paths.** Each session generates a fresh SBPL file with absolute paths embedded as string literals. This means:
 - Symlink resolution happens once at session start
 - If the filesystem changes during a session, the policy doesn't update

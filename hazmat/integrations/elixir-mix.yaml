@@ -1,0 +1,23 @@
+integration:
+  name: elixir-mix
+  version: 1
+  description: Elixir project with Mix
+
+detect:
+  files:
+    - mix.exs
+    - mix.lock
+
+backup:
+  excludes:
+    - _build/
+    - deps/
+    - erl_crash.dump
+
+warnings:
+  - "Mix deps and caches stay in the agent home unless you add explicit host extensions."
+
+commands:
+  build: mix compile
+  test: mix test
+  check: mix format --check-formatted

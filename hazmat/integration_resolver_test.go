@@ -17,6 +17,7 @@ func allowAllIntegrationExecutables(t *testing.T) {
 
 type fakeIntegrationProbe struct {
 	outputs      map[string]string
+	lookPaths    map[string]string
 	lookPathErrs map[string]error
 	outputErrs   map[string]error
 }
@@ -24,6 +25,9 @@ type fakeIntegrationProbe struct {
 func (p *fakeIntegrationProbe) LookPath(name string) (string, error) {
 	if err := p.lookPathErrs[name]; err != nil {
 		return "", err
+	}
+	if path, ok := p.lookPaths[name]; ok {
+		return path, nil
 	}
 	return "/usr/bin/" + name, nil
 }
@@ -37,6 +41,19 @@ func (p *fakeIntegrationProbe) Output(name string, args ...string) (string, erro
 		return value, nil
 	}
 	return "", fmt.Errorf("unexpected command: %s", key)
+}
+
+func writeExecutable(t *testing.T, root, name string) string {
+	t.Helper()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", binDir, err)
+	}
+	path := filepath.Join(binDir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	return path
 }
 
 func TestRunConfigSetIntegrationsHomebrew(t *testing.T) {
@@ -125,6 +142,236 @@ func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	}
 	if len(resolved[0].Details) == 0 || !strings.Contains(resolved[0].Details[0], canonicalGoRoot) {
 		t.Fatalf("Details = %v, want entry containing %q", resolved[0].Details, canonicalGoRoot)
+	}
+}
+
+func TestResolveRuntimeIntegrationsHaskellCabalUsesRuntimeProbe(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	ghcRoot := filepath.Join(t.TempDir(), "ghc-root")
+	cabalRoot := filepath.Join(t.TempDir(), "cabal-root")
+	ghcPath := writeExecutable(t, ghcRoot, "ghc")
+	cabalPath := writeExecutable(t, cabalRoot, "cabal")
+	canonicalGHC, err := canonicalizePath(ghcRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(ghcRoot): %v", err)
+	}
+	canonicalCabal, err := canonicalizePath(cabalRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(cabalRoot): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{
+				"ghc":   ghcPath,
+				"cabal": cabalPath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("haskell-cabal")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(haskell-cabal): %v", err)
+	}
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 2 || got[0] != canonicalGHC || got[1] != canonicalCabal {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", got, canonicalGHC, canonicalCabal)
+	}
+	if resolved[0].Source != "haskell-cabal (ghc runtime, cabal runtime)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsJavaGradleUsesJavaAndGradleRuntime(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	javaHome := filepath.Join(t.TempDir(), "jdk")
+	gradleRoot := filepath.Join(t.TempDir(), "gradle-root")
+	gradlePath := writeExecutable(t, gradleRoot, "gradle")
+	if err := os.MkdirAll(filepath.Join(javaHome, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir javaHome/bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	canonicalJavaHome, err := canonicalizePath(javaHome)
+	if err != nil {
+		t.Fatalf("canonicalizePath(javaHome): %v", err)
+	}
+	canonicalGradleRoot, err := canonicalizePath(gradleRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(gradleRoot): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{
+				"gradle": gradlePath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+	t.Setenv("JAVA_HOME", javaHome)
+
+	integration, err := loadBuiltinIntegrationSpec("java-gradle")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(java-gradle): %v", err)
+	}
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 2 || got[0] != canonicalJavaHome || got[1] != canonicalGradleRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", got, canonicalJavaHome, canonicalGradleRoot)
+	}
+	if resolved[0].ResolvedEnv["JAVA_HOME"] != "" {
+		t.Fatalf("ResolvedEnv[JAVA_HOME] = %q, want empty because valid JAVA_HOME should pass through unchanged", resolved[0].ResolvedEnv["JAVA_HOME"])
+	}
+}
+
+func TestResolveRuntimeIntegrationsRubyBundlerUsesHomebrewFallback(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	rubyRoot := filepath.Join(t.TempDir(), "ruby-root")
+	writeExecutable(t, rubyRoot, "ruby")
+	canonicalRubyRoot, err := canonicalizePath(rubyRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(rubyRoot): %v", err)
+	}
+
+	brewBin := filepath.Join(t.TempDir(), "brew")
+	if err := os.WriteFile(brewBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write brewBin: %v", err)
+	}
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{brewBin}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPathErrs: map[string]error{
+				"ruby": fmt.Errorf("missing ruby in PATH"),
+			},
+			outputs: map[string]string{
+				commandLabel(brewBin, "--prefix", "--installed", "ruby"): rubyRoot,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("ruby-bundler")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(ruby-bundler): %v", err)
+	}
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalRubyRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalRubyRoot)
+	}
+	if resolved[0].Source != "ruby-bundler (Homebrew ruby)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsElixirMixUsesRuntimeProbe(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	elixirRoot := filepath.Join(t.TempDir(), "elixir-root")
+	erlangRoot := filepath.Join(t.TempDir(), "erlang-root")
+	elixirPath := writeExecutable(t, elixirRoot, "elixir")
+	erlPath := writeExecutable(t, erlangRoot, "erl")
+	canonicalElixirRoot, err := canonicalizePath(elixirRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(elixirRoot): %v", err)
+	}
+	canonicalErlangRoot, err := canonicalizePath(erlangRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(erlangRoot): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{
+				"elixir": elixirPath,
+				"erl":    erlPath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("elixir-mix")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(elixir-mix): %v", err)
+	}
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 2 || got[0] != canonicalElixirRoot || got[1] != canonicalErlangRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q %q]", got, canonicalElixirRoot, canonicalErlangRoot)
+	}
+}
+
+func TestResolveRuntimeIntegrationsOpenTofuUsesHomebrewFallback(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	tofuRoot := filepath.Join(t.TempDir(), "tofu-root")
+	writeExecutable(t, tofuRoot, "tofu")
+	canonicalTofuRoot, err := canonicalizePath(tofuRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(tofuRoot): %v", err)
+	}
+
+	brewBin := filepath.Join(t.TempDir(), "brew")
+	if err := os.WriteFile(brewBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write brewBin: %v", err)
+	}
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{brewBin}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPathErrs: map[string]error{
+				"tofu": fmt.Errorf("missing tofu in PATH"),
+			},
+			outputs: map[string]string{
+				commandLabel(brewBin, "--prefix", "--installed", "opentofu"): tofuRoot,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("opentofu-plan")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(opentofu-plan): %v", err)
+	}
+	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalTofuRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalTofuRoot)
 	}
 }
 
@@ -519,5 +766,61 @@ func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
 	}
 	if resolved.ResolvedEnv["JAVA_HOME"] != want {
 		t.Fatalf("ResolvedEnv[JAVA_HOME] = %q, want %q", resolved.ResolvedEnv["JAVA_HOME"], want)
+	}
+}
+
+func TestHomebrewCellarRoot(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/opt/homebrew/Cellar/go/1.26.1/libexec", "/opt/homebrew/Cellar/go/1.26.1"},
+		{"/opt/homebrew/Cellar/go/1.26.1", "/opt/homebrew/Cellar/go/1.26.1"},
+		{"/opt/homebrew/Cellar/golangci-lint/2.11.4/bin", "/opt/homebrew/Cellar/golangci-lint/2.11.4"},
+		{"/usr/local/Cellar/node/22.0.0/lib", "/usr/local/Cellar/node/22.0.0"},
+		{"/opt/homebrew/opt/go", ""},           // not a Cellar path
+		{"/usr/local/bin/go", ""},               // not a Cellar path
+		{"/opt/homebrew/Cellar/go", ""},         // incomplete — no version
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			// homebrewCellarRoot also stats the dir; for tests with non-existent paths
+			// it returns "" which is correct.
+			got := homebrewCellarRoot(tt.input)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("homebrewCellarRoot(%q) = %q, want empty", tt.input, got)
+				}
+				return
+			}
+			// For paths that exist on this machine, check the result
+			if _, err := os.Stat(tt.want); err != nil {
+				t.Skipf("test path %q does not exist on this machine", tt.want)
+			}
+			if got != tt.want {
+				t.Errorf("homebrewCellarRoot(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepairHomebrewToolAccessSkipsNonHomebrew(t *testing.T) {
+	// Ensure repair does nothing for non-Homebrew paths.
+	saved := repairHomebrewToolAccess
+	called := false
+	repairHomebrewToolAccess = func(dir string) bool {
+		// The impl calls homebrewCellarRoot which returns "" for non-Cellar paths.
+		called = true
+		return repairHomebrewToolAccessImpl(dir)
+	}
+	t.Cleanup(func() { repairHomebrewToolAccess = saved })
+
+	// A non-Homebrew path should not be repaired.
+	result := repairHomebrewToolAccess("/tmp/some-tool")
+	if result {
+		t.Error("repairHomebrewToolAccess should return false for non-Homebrew paths")
+	}
+	if !called {
+		t.Error("expected repairHomebrewToolAccess to be called")
 	}
 }

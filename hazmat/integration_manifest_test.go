@@ -477,7 +477,10 @@ func TestSuggestIntegrationsMatchesWildcardDetectFiles(t *testing.T) {
 	if err := os.MkdirAll(tlaDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tlaDir, "MC_ClusterAggregation.cfg"), []byte("SPECIFICATION Spec"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tlaDir, "ClusterAggregation.cfg"), []byte("SPECIFICATION Spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tlaDir, "ClusterAggregation.tla"), []byte("---- MODULE ClusterAggregation ----"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -490,7 +493,71 @@ func TestSuggestIntegrationsMatchesWildcardDetectFiles(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected 'tla-java' integration suggestion for nested MC_*.cfg, got %v", suggestions)
+		t.Errorf("expected 'tla-java' integration suggestion for nested .cfg/.tla pair, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsJavaBuildMarkersMustBeAtProjectRoot(t *testing.T) {
+	dir := t.TempDir()
+	fixtureDir := filepath.Join(dir, "subprojects", "fixtures")
+	if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtureDir, "pom.xml"), []byte("<project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtureDir, "build.gradle.kts"), []byte("plugins {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "java-gradle" || s == "java-maven" {
+			t.Fatalf("did not expect Java build integration suggestion from nested fixture files, got %v", suggestions)
+		}
+	}
+}
+
+func TestSuggestIntegrationsJavaBuildMarkersMatchAtProjectRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"), []byte("rootProject.name = \"demo\""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte("<project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundGradle := false
+	foundMaven := false
+	for _, s := range suggestions {
+		if s == "java-gradle" {
+			foundGradle = true
+		}
+		if s == "java-maven" {
+			foundMaven = true
+		}
+	}
+	if !foundGradle || !foundMaven {
+		t.Fatalf("expected both Java build integrations from project-root markers, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsSkipsGenericCfgWithoutTLA(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "app.cfg"), []byte("debug=true"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "tla-java" {
+			t.Fatalf("did not expect tla-java suggestion from generic cfg without sibling TLA spec, got %v", suggestions)
+		}
 	}
 }
 
@@ -757,7 +824,7 @@ func TestSafeEnvKeysIncludesExpected(t *testing.T) {
 	expected := []string{
 		"GOPATH", "GOROOT", "GOPROXY", "CGO_ENABLED",
 		"RUSTUP_HOME", "CARGO_HOME", "NODE_ENV",
-		"VIRTUAL_ENV", "JAVA_HOME", "GEM_HOME",
+		"VIRTUAL_ENV", "JAVA_HOME", "TLA2TOOLS_JAR", "GEM_HOME",
 		"EDITOR", "VISUAL",
 	}
 	for _, key := range expected {

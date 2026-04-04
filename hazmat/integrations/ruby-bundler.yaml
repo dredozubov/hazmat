@@ -1,0 +1,24 @@
+integration:
+  name: ruby-bundler
+  version: 1
+  description: Ruby project with Bundler
+
+detect:
+  files:
+    - Gemfile
+    - Gemfile.lock
+
+backup:
+  excludes:
+    - vendor/bundle/
+    - .bundle/
+    - tmp/
+    - log/
+
+warnings:
+  - "Bundle paths outside the repo stay explicit host extensions."
+
+commands:
+  install: bundle install
+  test: bundle exec rake test
+  console: bundle exec irb

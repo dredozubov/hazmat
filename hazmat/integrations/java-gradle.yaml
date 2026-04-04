@@ -1,0 +1,27 @@
+integration:
+  name: java-gradle
+  version: 1
+  description: JVM project with Gradle
+
+detect:
+  files:
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+
+session:
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - .gradle/
+    - build/
+    - out/
+    - target/
+    - "*.class"
+
+commands:
+  build: ./gradlew build
+  test: ./gradlew test
+  check: ./gradlew check

@@ -26,6 +26,21 @@ func devGroupACLEntryNoInherit() string {
 		"readattr,writeattr,readextattr,writeextattr,readsecurity"
 }
 
+// devGroupReadOnlyACLEntry returns the macOS ACL entry string that grants the
+// agent group read and execute access without granting write permissions.
+func devGroupReadOnlyACLEntry() string {
+	return "group:" + sharedGroup +
+		" allow read,execute,readattr,readextattr,readsecurity," +
+		"file_inherit,directory_inherit"
+}
+
+// devGroupReadOnlyACLEntryNoInherit returns the read-only ACL without
+// file_inherit and directory_inherit.
+func devGroupReadOnlyACLEntryNoInherit() string {
+	return "group:" + sharedGroup +
+		" allow read,execute,readattr,readextattr,readsecurity"
+}
+
 func aclOutputHasDevACL(output string, requireInherit bool) bool {
 	for _, line := range strings.Split(output, "\n") {
 		if !strings.Contains(line, "group:"+sharedGroup) {
@@ -213,13 +228,12 @@ func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, 
 	return fixed, failures
 }
 
-func applyDevACLTree(root string) []string {
-	aclEntry := devGroupACLEntry()
-	noInherit := devGroupACLEntryNoInherit()
-
+func applyACLTree(root, dirACLEntry, fileACLEntry string) []string {
 	var failures []string
-	if err := exec.Command("chmod", "+a", aclEntry, root).Run(); err != nil {
-		failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+	if !pathHasDevACL(root, true) {
+		if err := exec.Command("chmod", "+a", dirACLEntry, root).Run(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+		}
 	}
 
 	for _, p := range collectACLTargets(root) {
@@ -232,16 +246,25 @@ func applyDevACLTree(root string) []string {
 			continue
 		}
 
-		args := []string{"+a", noInherit, p}
+		aclEntry := fileACLEntry
+		requireInherit := false
 		if info.IsDir() {
-			args = []string{"+a", aclEntry, p}
+			aclEntry = dirACLEntry
+			requireInherit = true
 		}
-		if err := exec.Command("chmod", args...).Run(); err != nil {
+		if pathHasDevACL(p, requireInherit) {
+			continue
+		}
+		if err := exec.Command("chmod", "+a", aclEntry, p).Run(); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
 		}
 	}
 
 	return failures
+}
+
+func applyDevACLTree(root string) []string {
+	return applyACLTree(root, devGroupACLEntry(), devGroupACLEntryNoInherit())
 }
 
 // ensureProjectWritable checks if the agent user can write to the project

@@ -4,13 +4,13 @@ integration:
   description: Java runtime for TLA+/TLC model checking (macOS Homebrew)
 
 detect:
-  files: [MC_*.cfg]
+  files: ["*.cfg"]
 
 session:
   read_dirs:
     - /opt/homebrew/opt/openjdk
     - /Library/Java
-  env_passthrough: [JAVA_HOME]
+  env_passthrough: [JAVA_HOME, TLA2TOOLS_JAR]
 
 backup:
   excludes:

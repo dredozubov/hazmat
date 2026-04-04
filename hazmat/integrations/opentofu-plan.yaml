@@ -1,0 +1,20 @@
+integration:
+  name: opentofu-plan
+  version: 1
+  description: OpenTofu plan/validate only — no apply, no cloud creds
+
+backup:
+  excludes:
+    - .terraform/
+    - "*.tfstate"
+    - "*.tfstate.backup"
+
+warnings:
+  - "Plan and validate only. Cloud credentials are not exposed."
+  - "Activate this integration explicitly for OpenTofu-based workflows."
+  - "tofu apply requires execution outside the sandbox."
+
+commands:
+  plan: tofu plan
+  validate: tofu validate
+  fmt: tofu fmt -check

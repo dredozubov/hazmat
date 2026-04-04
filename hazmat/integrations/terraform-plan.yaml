@@ -4,7 +4,7 @@ integration:
   description: Terraform plan/validate only — no apply, no cloud creds
 
 detect:
-  files: [main.tf, terraform.tf]
+  files: ["*.tf"]
 
 backup:
   excludes:

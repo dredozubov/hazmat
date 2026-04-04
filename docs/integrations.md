@@ -82,7 +82,7 @@ hazmat exec --integration python-uv -- uv run pytest
 
 If no integrations are active, Hazmat may suggest built-in integrations based
 on files in the project tree, such as `go.mod`, a nested `frontend/package.json`,
-or `tla/MC_*.cfg`.
+or a `*.cfg` model file beside its `.tla` spec.
 
 ## Explicit Project Access Extensions
 
@@ -119,13 +119,19 @@ and compared for exact equality. This means `~/workspace/my-app` and
 
 | Integration | Detects | Read dirs | Env passthrough | Snapshot excludes |
 |------|---------|-----------|-----------------|-------------------|
-| `go` | `go.mod` | — | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
-| `node` | `package.json` | `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
+| `go` | `go.mod` | resolved `GOROOT` | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
+| `haskell-cabal` | `cabal.project`, `*.cabal`, `stack.yaml` | resolved GHC and Cabal prefixes | — | `dist-newstyle/`, `.stack-work/` |
+| `node` | `package.json` | resolved Node prefix | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
 | `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `python-uv` | `uv.lock` | `~/.local/share/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
-| `rust` | `Cargo.toml` | `~/.cargo/registry`, `~/.rustup/toolchains` | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
-| `terraform-plan` | `main.tf`, `terraform.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
-| `tla-java` | `MC_*.cfg` files | `/opt/homebrew/opt/openjdk`, `/Library/Java` | `JAVA_HOME` | `tla/states/`, `*.dot` |
+| `rust` | `Cargo.toml` | resolved Rust sysroot | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
+| `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | resolved JDK home and Gradle prefix | `JAVA_HOME` | `.gradle/`, `build/`, `out/`, `target/`, `*.class` |
+| `java-maven` | `pom.xml` | resolved JDK home and Maven prefix | `JAVA_HOME` | `target/`, `*.class` |
+| `ruby-bundler` | `Gemfile`, `Gemfile.lock` | resolved Ruby prefix | — | `vendor/bundle/`, `.bundle/`, `tmp/`, `log/` |
+| `elixir-mix` | `mix.exs`, `mix.lock` | resolved Elixir and Erlang prefixes | — | `_build/`, `deps/`, `erl_crash.dump` |
+| `terraform-plan` | `*.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
+| `opentofu-plan` | manual activation | resolved OpenTofu prefix | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
+| `tla-java` | `*.cfg` files with sibling `*.tla` | resolved JDK home, `/Library/Java` | `JAVA_HOME`, `TLA2TOOLS_JAR` | `tla/states/`, `*.dot` |
 
 Integrations influence three parts of session setup:
 
@@ -336,69 +342,48 @@ Integrations merge additively. Read dirs, excludes, env passthrough, and warning
 unioned and deduplicated. If two integrations add the same read dir or exclude, it
 appears once.
 
-## Validation And Expansion Matrix
+## Validation Matrix
 
-The table below is the current public-repo comparison matrix for Hazmat session
-integrations. It serves two purposes:
+The table below is the public-repo regression matrix for built-in session
+integrations. Use it when changing detection, runtime resolution, or
+Homebrew-backed read-only path derivation.
 
-- regression-test built-in integrations against repos we realistically expect users to bring
-- choose the next integrations to add based on popular, active repos with clear Homebrew-backed toolchains
+This is still a point-in-time snapshot as of April 4, 2026. Refresh it when
+repo layouts, popularity, or Homebrew formula availability shift.
 
-This is a point-in-time prioritization snapshot as of April 4, 2026. Repo
-layouts, popularity, and Homebrew formula availability change over time, so
-refresh the list periodically rather than treating it as permanent truth.
+| Repo | Stack | Expected integration(s) | Key markers | Relevant Homebrew formulas | Validation notes |
+|------|-------|-------------------------|-------------|----------------------------|------------------|
+| [vercel/next.js](https://github.com/vercel/next.js) | Node / TypeScript | `node` | `package.json` | `node`, `pnpm` | High-signal Node target with nested packages and `.next` output |
+| [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) | Python / uv | `python-uv` | `uv.lock` | `uv` | Exercises `uv run`, virtualenv resolution, and Python toolchain traversal |
+| [python-poetry/poetry](https://github.com/python-poetry/poetry) | Python / Poetry | `python-poetry` | `poetry.lock` | `poetry` | Validates Poetry-specific detection stays narrow |
+| [ollama/ollama](https://github.com/ollama/ollama) | Go | `go` | `go.mod` | `go` | Good Go regression repo for `go env GOROOT` resolution |
+| [astral-sh/ruff](https://github.com/astral-sh/ruff) | Rust | `rust` | `Cargo.toml` | local Rust toolchain | Fast Rust smoke-test target |
+| [jgm/pandoc](https://github.com/jgm/pandoc) | Haskell / Cabal | `haskell-cabal` | `cabal.project`, `*.cabal` | `ghc`, `cabal-install` | Canonical Haskell repo for Cabal detection and toolchain path derivation |
+| [PostgREST/postgrest](https://github.com/PostgREST/postgrest) | Haskell service | `haskell-cabal` | `cabal.project`, `*.cabal` | `ghc`, `cabal-install`, `libpq` | Second Haskell shape with a service footprint rather than a CLI |
+| [spring-projects/spring-boot](https://github.com/spring-projects/spring-boot) | Java / Gradle | `java-gradle`, `node` | `build.gradle(.kts)`, `settings.gradle(.kts)`, `package.json` | `openjdk`, `gradle` | Primary Gradle validation target |
+| [apache/maven](https://github.com/apache/maven) | Java / Maven | `java-maven` | `pom.xml` | `openjdk`, `maven` | Canonical Maven validation target |
+| [rails/rails](https://github.com/rails/rails) | Ruby / Bundler | `ruby-bundler`, `node` | `Gemfile`, `Gemfile.lock`, `package.json` | `ruby` | Canonical Bundler repo with a common mixed-stack layout |
+| [phoenixframework/phoenix](https://github.com/phoenixframework/phoenix) | Elixir / Mix | `elixir-mix`, `node` | `mix.exs`, `mix.lock`, `package.json` | `elixir`, `erlang` | Canonical Phoenix target for Mix detection |
+| [terraform-aws-modules/terraform-aws-vpc](https://github.com/terraform-aws-modules/terraform-aws-vpc) | Terraform / HCL | `terraform-plan` | `*.tf` | `terraform` or `opentofu` | Useful Terraform-module shape for passive detection and formatter/validate flows |
+| [opentofu/opentofu](https://github.com/opentofu/opentofu) | OpenTofu / IaC | `opentofu-plan` | explicit `--integration opentofu-plan` | `opentofu` | Manual-activation target that reflects current Homebrew reality better than Terraform core |
+| [tlaplus/Examples](https://github.com/tlaplus/Examples) | TLA+ corpus | `tla-java` | `*.cfg` with sibling `*.tla` | `openjdk` | Canonical corpus for the broadened TLA+ detector |
+| [Hazmat itself](https://github.com/dredozubov/hazmat) | Go + TLA+ | `go`, `tla-java` | `go.mod`, `*.cfg` with sibling `*.tla` | `go`, `openjdk` | Self-hosting target that should stay green |
 
-### Current built-ins: regression targets
+Suggested smoke tests:
 
-| Repo | Selection signal | Stack | Expected integration | Key markers | Relevant Homebrew formulas | Why this repo matters |
-|------|------------------|-------|----------------------|-------------|----------------------------|-----------------------|
-| [vercel/next.js](https://github.com/vercel/next.js) | flagship framework repo | Node / TypeScript | `node` | `package.json` | `node`, `pnpm` | Strong real-world Node target with `.next` output, package-manager wrappers, and modern frontend build behavior |
-| [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) | active popular `uv` project | Python / uv | `python-uv` | `uv.lock` | `uv` | Good `uv` target for native containment because it exercises `uv run`, virtualenv resolution, and Python toolchain traversal |
-| [python-poetry/poetry](https://github.com/python-poetry/poetry) | canonical Poetry repo | Python / Poetry | `python-poetry` | `poetry.lock` | `poetry` | Canonical Poetry repo for validating that Poetry-specific detection is neither too broad nor too narrow |
-| [ollama/ollama](https://github.com/ollama/ollama) | very high-traffic Go target | Go | `go` | `go.mod` | `go` | High-signal Go target with enough popularity and activity to catch resolver and cache assumptions early |
-| [astral-sh/ruff](https://github.com/astral-sh/ruff) | popular fast-moving Rust repo | Rust | `rust` | `Cargo.toml` | none required beyond local Rust toolchain | Fast, popular Rust repo for repeated detection and native-session smoke tests |
-| [terraform-aws-modules/terraform-aws-vpc](https://github.com/terraform-aws-modules/terraform-aws-vpc) | common Terraform module shape | Terraform / HCL | `terraform-plan` | `*.tf` | `terraform` or `opentofu` | Useful real Terraform-module shape for detection and no-surprises session contract checks, even when full plan/apply requires external credentials |
-| [Hazmat itself](https://github.com/dredozubov/hazmat) | always-available self-host target | Go + TLA+ | `go`, `tla-java` | `go.mod`, `MC_*.cfg` | `go`, `openjdk` | Self-hosting target that should always stay green because it validates the exact contract Hazmat advertises |
+- Node repos: dependency install plus the repo's main build command
+- Python repos: `pytest` through the repo's package manager
+- Haskell repos: `cabal build` or a narrower package-level target
+- Java repos: wrapper-based build or test commands where present
+- Ruby repos: `bundle exec` test or console entrypoints
+- Elixir repos: `mix test` or `mix compile`
+- Terraform / OpenTofu repos: detection plus `fmt` or `validate` first; avoid apply in sandboxed runs
+- TLA+ repos: `java -jar ... tla2tools.jar` against a small model
 
-Suggested smoke-test commands per row:
-
-- `vercel/next.js`: dependency install + `next build`
-- `pydantic/pydantic-ai`: `uv run pytest ...`
-- `python-poetry/poetry`: `poetry run pytest ...`
-- `ollama/ollama`: `go test ./...`
-- `astral-sh/ruff`: `cargo test` or a narrower crate-level check
-- Terraform modules: detection + formatter/validate paths first, full plan only with intentionally provided local credentials
-
-### Expansion targets: widen the integration surface
-
-| Repo | Selection signal | Candidate stack | Likely markers | Relevant Homebrew formulas | Why this repo matters | Follow-up |
-|------|------------------|-----------------|----------------|----------------------------|-----------------------|-----------|
-| [jgm/pandoc](https://github.com/jgm/pandoc) | canonical Haskell target | Haskell / Cabal | `*.cabal`, `cabal.project` | `ghc`, `cabal-install`, `pandoc` | Canonical Haskell repo with broad community usage and a clear Cabal workflow | `sandboxing-gw2` |
-| [PostgREST/postgrest](https://github.com/PostgREST/postgrest) | popular Haskell service | Haskell service | `*.cabal`, `cabal.project` | `ghc`, `cabal-install`, `postgrest`, `libpq` | Strong Haskell service target that also pressures future service-aware local workflows | `sandboxing-gw2` |
-| [koalaman/shellcheck](https://github.com/koalaman/shellcheck) | popular Haskell CLI | Haskell / Cabal | `*.cabal` | `ghc`, `cabal-install`, `shellcheck` | Smaller Haskell CLI target for faster iteration than Pandoc or PostgREST | `sandboxing-gw2` |
-| [hadolint/hadolint](https://github.com/hadolint/hadolint) | widely used Haskell linter | Haskell / Cabal | `*.cabal` | `ghc`, `cabal-install`, `hadolint` | Another Haskell CLI shape with a distinct packaging footprint | `sandboxing-gw2` |
-| [spring-projects/spring-boot](https://github.com/spring-projects/spring-boot) | flagship Java framework | Java / Gradle | `build.gradle`, `build.gradle.kts`, `settings.gradle` | `openjdk`, `gradle` | Best high-signal Java repo for a future Gradle-oriented integration | `sandboxing-8j7` |
-| [gradle/gradle](https://github.com/gradle/gradle) | canonical Gradle repo | Java / Gradle | `build.gradle.kts`, `settings.gradle.kts` | `openjdk`, `gradle` | Good second Java target because it is the build tool itself, not just an app using it | `sandboxing-8j7` |
-| [rails/rails](https://github.com/rails/rails) | flagship Ruby framework | Ruby / Bundler | `Gemfile`, `Gemfile.lock` | `ruby` | Canonical Bundler repo and the right anchor for a future Ruby integration | `sandboxing-bm3` |
-| [phoenixframework/phoenix](https://github.com/phoenixframework/phoenix) | flagship Elixir framework | Elixir / Mix | `mix.exs`, `mix.lock` | `elixir`, `erlang` | Canonical Phoenix target for a future Elixir/Mix integration | `sandboxing-6sl` |
-| [opentofu/opentofu](https://github.com/opentofu/opentofu) | current Homebrew-friendly IaC tool | OpenTofu / IaC | `*.tf` plus repo-owned OpenTofu workflow files | `opentofu` | Important because Homebrew core has a current `opentofu` formula while `terraform` is frozen at 1.5.7 | `sandboxing-48p` |
-| [tlaplus/Examples](https://github.com/tlaplus/Examples) | canonical public TLA+ corpus | TLA+ corpus | generic `*.cfg` files, `.tla` specs | `openjdk` | Canonical public TLA+ corpus that exposes the current `MC_*.cfg` detection bias | `sandboxing-qt8` |
-
-### Follow-up Work Seeded By This Matrix
-
-The matrix above generated these concrete backlog items:
-
-- `sandboxing-gw2` — implement a Haskell/Cabal integration and validate it against Pandoc, PostgREST, ShellCheck, and Hadolint
-- `sandboxing-8j7` — implement Java build integrations for Gradle and Maven-style repos
-- `sandboxing-bm3` — implement a Ruby/Bundler integration for Rails-style repos
-- `sandboxing-6sl` — implement an Elixir/Mix integration for Phoenix-style repos
-- `sandboxing-48p` — add an OpenTofu-aware IaC integration path alongside or instead of Terraform-only assumptions
-- `sandboxing-qt8` — broaden TLA+ auto-detection so `tlaplus/Examples`-style repos are suggested correctly
-
-Known adjacent work:
-
-- `sandboxing-5nk` already tracks optional Bun bootstrap for Node repos that advertise Bun-specific workflows
-- the research tasks under `sandboxing-06s`, `sandboxing-8ji`, and `sandboxing-nwz` remain useful inputs, but the follow-up issues above are the implementation-oriented slices to prefer next
+The April 4, 2026 expansion items for Haskell, Java, Ruby, Elixir, OpenTofu,
+and broader TLA+ detection are now part of the built-in regression set. The
+next unsupported stacks worth evaluating are Bun-specific Node flows, Deno,
+SwiftPM, and OCaml/Dune.
 
 ## Self-Hosting: Developing Hazmat Under Hazmat
 

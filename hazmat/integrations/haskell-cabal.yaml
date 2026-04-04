@@ -1,0 +1,23 @@
+integration:
+  name: haskell-cabal
+  version: 1
+  description: Haskell project with Cabal
+
+detect:
+  files:
+    - cabal.project
+    - "*.cabal"
+    - stack.yaml
+
+backup:
+  excludes:
+    - dist-newstyle/
+    - .stack-work/
+
+warnings:
+  - "Package stores such as ~/.cabal and ~/.stack stay in the agent home or require explicit host extensions."
+
+commands:
+  build: cabal build
+  test: cabal test
+  repl: cabal repl

@@ -1,0 +1,20 @@
+integration:
+  name: java-maven
+  version: 1
+  description: JVM project with Maven
+
+detect:
+  files: [pom.xml]
+
+session:
+  env_passthrough: [JAVA_HOME]
+
+backup:
+  excludes:
+    - target/
+    - "*.class"
+
+commands:
+  build: mvn package
+  test: mvn test
+  verify: mvn verify
