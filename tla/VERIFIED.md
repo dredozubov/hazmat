@@ -27,8 +27,9 @@ identical implementations.
 Important concrete-IO boundary: the current suite models which repair classes
 and harness-state transitions Hazmat may plan, apply, preserve, or delete. It
 does **not** model the exact `chmod`/ACL syscall effects, concrete filesystem
-walk details, imported file contents, or timestamp values. Those remain
-governed by tests and documentation.
+walk details, agent Git `safe.directory` config mutations, imported file
+contents, or timestamp values. Those remain governed by tests and
+documentation.
 
 ---
 

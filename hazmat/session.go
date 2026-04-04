@@ -1108,7 +1108,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))
 	}
 	if len(cfg.PlannedHostMutations) > 0 {
-		fmt.Fprintf(&b, "  Host permission changes: %s\n", sessionMutationList(cfg.PlannedHostMutations))
+		fmt.Fprintf(&b, "  Host changes:          %s\n", sessionMutationList(cfg.PlannedHostMutations))
 	}
 	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))

@@ -95,3 +95,84 @@ func TestSyncHazmatSafeDirectoryConfigNoopWhenAlreadyMatches(t *testing.T) {
 		t.Fatalf("expected no change, got:\n%s", updated)
 	}
 }
+
+func TestSafeDirectoryCoversExactAndWildcardEntries(t *testing.T) {
+	repoDir := "/Users/dr/workspace/stack-matrix/pydantic-ai"
+	for _, tc := range []struct {
+		name    string
+		entries []string
+		want    bool
+	}{
+		{
+			name:    "exact match",
+			entries: []string{repoDir},
+			want:    true,
+		},
+		{
+			name:    "workspace wildcard",
+			entries: []string{"/Users/dr/workspace/*"},
+			want:    true,
+		},
+		{
+			name:    "global wildcard",
+			entries: []string{"*"},
+			want:    true,
+		},
+		{
+			name:    "unrelated path",
+			entries: []string{"/tmp/elsewhere/*"},
+			want:    false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := safeDirectoryCovers(tc.entries, repoDir); got != tc.want {
+				t.Fatalf("safeDirectoryCovers(%v, %q) = %v, want %v", tc.entries, repoDir, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnsureAgentGitSafeDirectoryAddsExactRepoTrust(t *testing.T) {
+	savedDetect := detectGitRepoTopLevel
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	savedAppend := appendAgentGlobalSafeDirectoryEntry
+	t.Cleanup(func() {
+		detectGitRepoTopLevel = savedDetect
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+		appendAgentGlobalSafeDirectoryEntry = savedAppend
+	})
+
+	repoDir := "/Users/dr/workspace/stack-matrix/pydantic-ai"
+	detectGitRepoTopLevel = func(projectDir string) (string, bool) {
+		return repoDir, true
+	}
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		return nil, nil
+	}
+	agentEntries := []string(nil)
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		return append([]string(nil), agentEntries...), nil
+	}
+	appendCalls := 0
+	appendAgentGlobalSafeDirectoryEntry = func(entry string) error {
+		appendCalls++
+		agentEntries = append(agentEntries, entry)
+		return nil
+	}
+
+	changed, err := ensureAgentGitSafeDirectory("/tmp/project")
+	if err != nil {
+		t.Fatalf("ensureAgentGitSafeDirectory() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("ensureAgentGitSafeDirectory() = false, want true")
+	}
+	if appendCalls != 1 {
+		t.Fatalf("appendAgentGlobalSafeDirectoryEntry called %d times, want 1", appendCalls)
+	}
+	if len(agentEntries) != 1 || agentEntries[0] != repoDir {
+		t.Fatalf("agentEntries = %v, want [%q]", agentEntries, repoDir)
+	}
+}

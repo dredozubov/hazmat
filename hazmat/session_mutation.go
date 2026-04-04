@@ -7,6 +7,7 @@ import (
 )
 
 const sessionMutationProofScopeTLAModel = "TLA+ model + tests/docs"
+const sessionMutationProofScopeTestsDocs = "tests/docs"
 
 type sessionMutation struct {
 	Summary     string
@@ -138,6 +139,30 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 		})
 	}
 
+	if repoDir := plannedProjectGitSafeDirectory(cfg.ProjectDir); repoDir != "" {
+		projectDir := cfg.ProjectDir
+		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
+			Metadata: sessionMutation{
+				Summary:     "git safe.directory trust",
+				Detail:      fmt.Sprintf("may add %s to the agent user's Git safe.directory list so agent-side tools can read repository metadata", repoDir),
+				Persistence: "persistent in agent home",
+				ProofScope:  sessionMutationProofScopeTestsDocs,
+			},
+			Apply: func() (sessionMutationExecution, error) {
+				fixed, err := ensureAgentGitSafeDirectory(projectDir)
+				if err != nil {
+					return sessionMutationExecution{}, err
+				}
+				if fixed {
+					return sessionMutationExecution{
+						AppliedMessage: "  Trusted project repo for agent-side Git metadata access",
+					}, nil
+				}
+				return sessionMutationExecution{}, nil
+			},
+		})
+	}
+
 	return plan
 }
 
@@ -174,7 +199,7 @@ func renderSessionMutationDetails(mutations []sessionMutation) string {
 	}
 
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "hazmat: planned host permission changes")
+	fmt.Fprintln(&b, "hazmat: planned host changes")
 	for _, mutation := range mutations {
 		fmt.Fprintf(&b, "  - %s: %s (%s; proof scope: %s)\n",
 			mutation.Summary,

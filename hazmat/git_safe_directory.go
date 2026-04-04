@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +12,11 @@ import (
 )
 
 const hazmatSafeDirMarker = " # hazmat-managed"
+
+var detectGitRepoTopLevel = detectGitRepoTopLevelImpl
+var readSystemGitSafeDirectoryEntries = systemSafeDirectoryEntries
+var readAgentGlobalGitSafeDirectoryEntries = agentGlobalSafeDirectoryEntries
+var appendAgentGlobalSafeDirectoryEntry = appendAgentGlobalSafeDirectoryEntryImpl
 
 func managedSafeDirectoryEntries(readDirs []string) []string {
 	seen := make(map[string]struct{}, len(readDirs))
@@ -38,6 +45,173 @@ func parseSystemGitConfigOrigin(output string) string {
 		return strings.TrimPrefix(origin, "file:")
 	}
 	return ""
+}
+
+func normalizeSafeDirectoryEntry(entry string) string {
+	entry = strings.TrimSpace(expandTilde(entry))
+	if entry == "" || entry == "*" {
+		return entry
+	}
+	if strings.HasSuffix(entry, "/*") {
+		return filepath.Clean(strings.TrimSuffix(entry, "/*")) + "/*"
+	}
+	return filepath.Clean(entry)
+}
+
+func dedupeSafeDirectoryEntries(entries []string) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	var deduped []string
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		normalized := normalizeSafeDirectoryEntry(entry)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		deduped = append(deduped, normalized)
+	}
+	return deduped
+}
+
+func safeDirectoryCovers(entries []string, repoDir string) bool {
+	repoDir = normalizeSafeDirectoryEntry(repoDir)
+	if repoDir == "" {
+		return false
+	}
+	for _, entry := range entries {
+		switch normalized := normalizeSafeDirectoryEntry(entry); {
+		case normalized == "":
+			continue
+		case normalized == "*":
+			return true
+		case normalized == repoDir:
+			return true
+		case strings.HasSuffix(normalized, "/*"):
+			base := strings.TrimSuffix(normalized, "/*")
+			if repoDir != base && isWithinDir(base, repoDir) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func detectGitRepoTopLevelImpl(projectDir string) (string, bool) {
+	if projectDir == "" {
+		return "", false
+	}
+	out, err := exec.Command("git", "-C", projectDir, "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+	repoDir := normalizeSafeDirectoryEntry(string(bytes.TrimSpace(out)))
+	if repoDir == "" {
+		return "", false
+	}
+	return repoDir, true
+}
+
+func readGitSafeDirectoryEntriesCommand(cmd *exec.Cmd) ([]string, error) {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %s", err, msg)
+	}
+	return dedupeSafeDirectoryEntries(strings.Split(strings.TrimSpace(string(out)), "\n")), nil
+}
+
+func systemSafeDirectoryEntries() ([]string, error) {
+	return readGitSafeDirectoryEntriesCommand(exec.Command("git", "config", "--system", "--get-all", "safe.directory"))
+}
+
+func agentGlobalSafeDirectoryEntries() ([]string, error) {
+	return readGitSafeDirectoryEntriesCommand(exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--get-all", "safe.directory"))
+}
+
+func currentGitSafeDirectoryEntries() ([]string, error) {
+	systemEntries, err := readSystemGitSafeDirectoryEntries()
+	if err != nil {
+		return nil, err
+	}
+	agentEntries, err := readAgentGlobalGitSafeDirectoryEntries()
+	if err != nil {
+		return nil, err
+	}
+	return dedupeSafeDirectoryEntries(append(systemEntries, agentEntries...)), nil
+}
+
+func gitSafeDirectoryTrustedForAgent(repoDir string) (bool, error) {
+	entries, err := currentGitSafeDirectoryEntries()
+	if err != nil {
+		return false, err
+	}
+	return safeDirectoryCovers(entries, repoDir), nil
+}
+
+func plannedProjectGitSafeDirectory(projectDir string) string {
+	repoDir, ok := detectGitRepoTopLevel(projectDir)
+	if !ok {
+		return ""
+	}
+	trusted, err := gitSafeDirectoryTrustedForAgent(repoDir)
+	if err == nil && trusted {
+		return ""
+	}
+	return repoDir
+}
+
+func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
+	repoDir = normalizeSafeDirectoryEntry(repoDir)
+	if repoDir == "" {
+		return nil
+	}
+	cmd := exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return nil
+}
+
+func ensureAgentGitSafeDirectory(projectDir string) (bool, error) {
+	repoDir, ok := detectGitRepoTopLevel(projectDir)
+	if !ok {
+		return false, nil
+	}
+
+	trusted, err := gitSafeDirectoryTrustedForAgent(repoDir)
+	if err == nil && trusted {
+		return false, nil
+	}
+
+	if err := appendAgentGlobalSafeDirectoryEntry(repoDir); err != nil {
+		return false, fmt.Errorf("add agent git safe.directory %s: %w", repoDir, err)
+	}
+
+	trusted, err = gitSafeDirectoryTrustedForAgent(repoDir)
+	if err != nil {
+		return false, fmt.Errorf("verify agent git safe.directory %s: %w", repoDir, err)
+	}
+	if !trusted {
+		return false, fmt.Errorf("agent git still does not trust %s after updating safe.directory", repoDir)
+	}
+	return true, nil
 }
 
 func fallbackSystemGitConfigPath() string {

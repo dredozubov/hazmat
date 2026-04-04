@@ -1686,8 +1686,8 @@ func TestRenderSessionContractShowsPlannedHostPermissionChanges(t *testing.T) {
 	}
 
 	got := renderSessionContract(cfg, sessionModeNative, false)
-	if !strings.Contains(got, "Host permission changes: project ACL repair, git metadata ACL repair") {
-		t.Fatalf("renderSessionContract missing host permission changes in:\n%s", got)
+	if !strings.Contains(got, "Host changes:          project ACL repair, git metadata ACL repair") {
+		t.Fatalf("renderSessionContract missing host changes in:\n%s", got)
 	}
 }
 
@@ -1702,7 +1702,7 @@ func TestRenderSessionMutationDetails(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"hazmat: planned host permission changes",
+		"hazmat: planned host changes",
 		"project ACL repair: may add collaborative ACLs under /tmp/project (persistent in project; proof scope: TLA+ model + tests/docs)",
 	} {
 		if !strings.Contains(got, want) {
@@ -1724,6 +1724,47 @@ func TestBuildNativeSessionMutationPlanIncludesProjectRepair(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Describe() = %+v, want project ACL repair", plan.Describe())
+	}
+}
+
+func TestBuildNativeSessionMutationPlanIncludesGitSafeDirectoryTrust(t *testing.T) {
+	savedDetect := detectGitRepoTopLevel
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		detectGitRepoTopLevel = savedDetect
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	repoDir := "/Users/dr/workspace/stack-matrix/pydantic-ai"
+	detectGitRepoTopLevel = func(projectDir string) (string, bool) {
+		return repoDir, true
+	}
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		return nil, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		return nil, nil
+	}
+
+	plan := buildNativeSessionMutationPlan(sessionConfig{ProjectDir: t.TempDir()})
+
+	found := false
+	for _, mutation := range plan.Describe() {
+		if mutation.Summary != "git safe.directory trust" {
+			continue
+		}
+		found = true
+		if !strings.Contains(mutation.Detail, repoDir) {
+			t.Fatalf("mutation.Detail = %q, want repo path %q", mutation.Detail, repoDir)
+		}
+		if mutation.ProofScope != sessionMutationProofScopeTestsDocs {
+			t.Fatalf("mutation.ProofScope = %q, want %q", mutation.ProofScope, sessionMutationProofScopeTestsDocs)
+		}
+	}
+	if !found {
+		t.Fatalf("Describe() = %+v, want git safe.directory trust", plan.Describe())
 	}
 }
 

@@ -128,19 +128,22 @@ block-beta
 
 **No special workspace read shortcut exists.** If you want broad read access, you must pass that path explicitly with `-R`. Hazmat does not reserve a separate workspace flag anymore.
 
-**Some sessions make persistent host-side permission repairs.** Before launch,
-Hazmat may repair collaborative ACLs on the project tree, `.git` metadata, or
-ancestor paths needed to traverse explicitly exposed directories. With
-Homebrew-backed integration resolution enabled, Hazmat may also plan a narrow
-toolchain permission repair under a Homebrew Cellar path when local mode bits
-would otherwise block the agent user. These repairs are shown in the session
-contract under `Host permission changes`. The verified TLA+ suite now models
-the repair classes, preview-vs-launch behavior, and rollback persistence of
-that contract.
+**Some sessions make persistent host-side changes.** Before launch, Hazmat may
+repair collaborative ACLs on the project tree, `.git` metadata, or ancestor
+paths needed to traverse explicitly exposed directories. With Homebrew-backed
+integration resolution enabled, Hazmat may also plan a narrow toolchain
+permission repair under a Homebrew Cellar path when local mode bits would
+otherwise block the agent user. For external repos, Hazmat may also add the
+active repository root to the agent user's Git `safe.directory` list so
+agent-side build tools can read version metadata. These changes are shown in
+the session contract under `Host changes`. The verified TLA+ suite models the
+permission-repair classes, preview-vs-launch behavior, and rollback
+persistence for that subset of the contract; agent Git trust remains governed
+by tests and documentation.
 
-**`hazmat explain` is a pure preview for these repairs.** It computes and shows
-the same planned host permission changes that a real launch may apply, but it
-does not execute them.
+**`hazmat explain` is a pure preview for these mutations.** It computes and
+shows the same planned host changes that a real launch may apply, but it does
+not execute them.
 
 ## Claude Code Coupling
 

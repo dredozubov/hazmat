@@ -2,9 +2,8 @@
 
 ## Problem Statement
 
-Hazmat now surfaces persistent host-side permission mutations in the session
-contract under `Host permission changes`, but that only helps if the contract
-itself is precise:
+Hazmat now surfaces persistent host-side changes in the session contract, but
+the permission-repair subset still needs a precise modeled contract:
 
 1. `hazmat explain` must preview the same repair classes a real session may
    execute without mutating the host.

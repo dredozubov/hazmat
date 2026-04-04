@@ -24,7 +24,7 @@ func newExplainCmd() *cobra.Command {
 		Short: "Preview the session contract without launching an agent",
 		Long: `Show what Hazmat would do for a session without launching the agent.
 
-This prints the same session contract, planned host-permission changes, and
+This prints the same session contract, planned host changes, and
 mode explanation that a real launch would show, but stops before snapshots,
 sandbox setup, permission repair, or process execution.
 
