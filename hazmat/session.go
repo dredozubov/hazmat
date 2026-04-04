@@ -86,11 +86,17 @@ func (m sessionMode) label() string {
 	}
 }
 
-func runProjectPreflight(projectDir string) error {
-	if ensureProjectWritable(projectDir) {
+func runSessionPreflight(cfg sessionConfig) error {
+	if ensureProjectWritable(cfg.ProjectDir) {
 		fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
 	}
-	if fixed, err := ensureGitMetadataHealthy(projectDir); err != nil {
+	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
+	if fixed, failures := ensureAgentCanTraverseExposedDirs(cfg.ProjectDir, exposedDirs); len(failures) > 0 {
+		fmt.Fprintf(os.Stderr, "  Warning: could not fully prepare exposed directories: %s\n", failures[0])
+	} else if fixed {
+		fmt.Fprintln(os.Stderr, "  Fixed exposed directory traversal for agent access")
+	}
+	if fixed, err := ensureGitMetadataHealthy(cfg.ProjectDir); err != nil {
 		return err
 	} else if fixed {
 		fmt.Fprintln(os.Stderr, "  Fixed Git metadata permissions for collaborative access")
@@ -170,7 +176,17 @@ func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Run a command in containment as the agent user.
+
+Use -- before the command when the command itself takes flags. Without the
+separator, Cobra may try to parse the forwarded flags as hazmat flags.
+
+Examples:
+  hazmat exec make test
+  hazmat exec -- npm test
+  hazmat exec -C ~/workspace/app -- /bin/zsh -lc 'uv run pytest -q'
+  hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prepared, err := resolvePreparedSession("exec", harnessSessionOpts{
 				project:            project,
@@ -838,7 +854,7 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	}
 
 	if preflightBeforeSnapshot {
-		if err := runProjectPreflight(prepared.Config.ProjectDir); err != nil {
+		if err := runSessionPreflight(prepared.Config); err != nil {
 			return err
 		}
 	}
@@ -846,7 +862,7 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 
 	if !preflightBeforeSnapshot {
-		if err := runProjectPreflight(prepared.Config.ProjectDir); err != nil {
+		if err := runSessionPreflight(prepared.Config); err != nil {
 			return err
 		}
 	}
@@ -1677,6 +1693,13 @@ func generateSBPL(cfg sessionConfig) string {
 	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", agentHome} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
+	for _, dir := range cfg.ReadDirs {
+		w("(allow process-exec (subpath %q))\n", dir)
+	}
+	for _, dir := range cfg.WriteDirs {
+		w("(allow process-exec (subpath %q))\n", dir)
+	}
+	w("(allow process-exec (subpath %q))\n", cfg.ProjectDir)
 	w("(allow process-fork)\n")
 	w("(allow process-info* (target same-sandbox))\n")
 	w("(allow signal (target same-sandbox))\n\n")
@@ -1690,7 +1713,7 @@ func generateSBPL(cfg sessionConfig) string {
 	for _, p := range []string{"/", "/private", "/var", "/tmp", "/etc", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/private/etc", "/private/var/select"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {

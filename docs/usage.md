@@ -130,6 +130,7 @@ weakening Hazmat's trust boundaries:
 hazmat integration list
 hazmat integration show node
 hazmat claude --integration node
+hazmat claude --integration python-uv
 hazmat config set integrations.pin "~/workspace/my-project:node,go"
 ```
 
@@ -148,6 +149,15 @@ On first use, hazmat prompts once for approval; after that, the approved
 integrations activate automatically until the file changes. Write your own
 integration manifest in `~/.hazmat/integrations/` for environments that
 built-ins do not cover. Full reference: [integrations.md](integrations.md).
+
+For mixed-stack repos, prefer declaring the full set explicitly. Example:
+
+```yaml
+integrations:
+  - python-uv
+  - node
+  - tla-java
+```
 
 ### Docker Projects
 
@@ -189,6 +199,17 @@ projects and the code-only fallback, see
 
 ```bash
 hazmat claude -C ~/workspace/other-project
+```
+
+### Running Commands With Flags
+
+`hazmat exec` forwards the command after Hazmat parses its own flags. When the
+forwarded command has flags of its own, insert `--` before it:
+
+```bash
+hazmat exec -- make test
+hazmat exec -- /bin/zsh -lc 'uv run pytest -q'
+hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'
 ```
 
 ### Resuming a Conversation Inside Native Containment

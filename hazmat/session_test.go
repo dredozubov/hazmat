@@ -679,6 +679,9 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 	if !strings.Contains(policy, `(allow file-write* (subpath "/tmp/myproject"))`) {
 		t.Error("expected file-write* rule for PROJECT_DIR")
 	}
+	if !strings.Contains(policy, `(allow process-exec (subpath "/tmp/myproject"))`) {
+		t.Error("expected process-exec rule for PROJECT_DIR")
+	}
 
 	// No read-only section when ReadDirs is empty.
 	if strings.Contains(policy, "Read-only directories") {
@@ -717,6 +720,10 @@ func TestGenerateSBPLWithReadDirs(t *testing.T) {
 		if !strings.Contains(policy, want) {
 			t.Errorf("expected file-read* rule for read dir %s", dir)
 		}
+		execWant := `(allow process-exec (subpath "` + dir + `"))`
+		if !strings.Contains(policy, execWant) {
+			t.Errorf("expected process-exec rule for read dir %s", dir)
+		}
 	}
 
 	// Read dirs must NOT have a write rule.
@@ -738,6 +745,9 @@ func TestGenerateSBPLWithWriteDirs(t *testing.T) {
 	want := `(allow file-read* file-write* (subpath "/tmp/venvs/project"))`
 	if !strings.Contains(policy, want) {
 		t.Fatalf("expected read-write rule for write dir in policy:\n%s", policy)
+	}
+	if !strings.Contains(policy, `(allow process-exec (subpath "/tmp/venvs/project"))`) {
+		t.Fatalf("expected process-exec rule for write dir in policy:\n%s", policy)
 	}
 }
 

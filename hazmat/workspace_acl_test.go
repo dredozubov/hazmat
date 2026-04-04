@@ -87,7 +87,7 @@ func TestWritableByAgentMode(t *testing.T) {
 	}
 }
 
-func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
+func TestCollectACLTargetsSkipsSymlinksAndTopLevelNodeModules(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
@@ -135,6 +135,24 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 		t.Fatalf("write node_modules file: %v", err)
 	}
 
+	nextNodeModulesDir := filepath.Join(projectDir, ".next", "standalone", "node_modules", "pkg")
+	if err := os.MkdirAll(nextNodeModulesDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested node_modules: %v", err)
+	}
+	nextNodeModulesFile := filepath.Join(nextNodeModulesDir, "index.js")
+	if err := os.WriteFile(nextNodeModulesFile, []byte("module.exports = {}"), 0o644); err != nil {
+		t.Fatalf("write nested node_modules file: %v", err)
+	}
+
+	venvBinDir := filepath.Join(projectDir, ".venv", "bin")
+	if err := os.MkdirAll(venvBinDir, 0o755); err != nil {
+		t.Fatalf("mkdir .venv/bin: %v", err)
+	}
+	venvPython := filepath.Join(venvBinDir, "python")
+	if err := os.WriteFile(venvPython, []byte("#!/usr/bin/env python3"), 0o755); err != nil {
+		t.Fatalf("write .venv python: %v", err)
+	}
+
 	linkPath := filepath.Join(projectDir, "outside-link")
 	if err := os.Symlink(outsideTarget, linkPath); err != nil {
 		t.Fatalf("create symlink: %v", err)
@@ -146,7 +164,22 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 		got[target] = true
 	}
 
-	for _, want := range []string{keepFile, subdir, nestedFile, gitDir, gitHead, gitObjectDir, gitObject} {
+	for _, want := range []string{
+		keepFile,
+		subdir,
+		nestedFile,
+		gitDir,
+		gitHead,
+		gitObjectDir,
+		gitObject,
+		filepath.Join(projectDir, ".next"),
+		filepath.Join(projectDir, ".next", "standalone"),
+		filepath.Join(projectDir, ".next", "standalone", "node_modules"),
+		nextNodeModulesFile,
+		filepath.Join(projectDir, ".venv"),
+		venvBinDir,
+		venvPython,
+	} {
 		if !got[want] {
 			t.Fatalf("collectACLTargets() missing %s", want)
 		}
@@ -154,11 +187,39 @@ func TestCollectACLTargetsSkipsSymlinksAndDependencyDirs(t *testing.T) {
 
 	for _, forbidden := range []string{
 		linkPath,
-		filepath.Join(nodeModulesDir, "index.js"),
 		filepath.Join(projectDir, "node_modules"),
+		filepath.Join(nodeModulesDir, "index.js"),
 	} {
 		if got[forbidden] {
 			t.Fatalf("collectACLTargets() unexpectedly included %s", forbidden)
+		}
+	}
+}
+
+func TestCollectAgentTraverseTargets(t *testing.T) {
+	t.Parallel()
+
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "dr")
+	projectDir := filepath.Join(homeDir, "workspace", "niche-sieve")
+
+	got := collectAgentTraverseTargets(homeDir, projectDir, []string{
+		filepath.Join(homeDir, ".local", "share", "uv"),
+		filepath.Join(homeDir, "workspace", "niche-sieve", ".venv"),
+		"/opt/homebrew",
+		filepath.Join(homeDir, ".local", "share", "uv"),
+	})
+
+	want := []string{
+		filepath.Join(homeDir, ".local"),
+		filepath.Join(homeDir, ".local", "share"),
+		filepath.Join(homeDir, ".local", "share", "uv"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collectAgentTraverseTargets() count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i, path := range want {
+		if got[i] != path {
+			t.Fatalf("collectAgentTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
 		}
 	}
 }

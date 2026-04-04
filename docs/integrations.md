@@ -76,12 +76,13 @@ Activate an integration for a single session:
 hazmat claude --integration node
 hazmat opencode --integration go
 hazmat shell --integration rust
-hazmat exec --integration python-poetry poetry run pytest
+hazmat exec --integration python-poetry -- poetry run pytest
+hazmat exec --integration python-uv -- uv run pytest
 ```
 
 If no integrations are active, Hazmat may suggest built-in integrations based
-on files in the project directory, such as `go.mod`, `package.json`, or
-`Cargo.toml`.
+on files in the project tree, such as `go.mod`, a nested `frontend/package.json`,
+or `tla/MC_*.cfg`.
 
 ## Explicit Project Access Extensions
 
@@ -120,7 +121,8 @@ and compared for exact equality. This means `~/workspace/my-app` and
 |------|---------|-----------|-----------------|-------------------|
 | `go` | `go.mod` | — | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
 | `node` | `package.json` | `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
-| `python-poetry` | `pyproject.toml`, `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
+| `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
+| `python-uv` | `uv.lock` | `~/.local/share/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `rust` | `Cargo.toml` | `~/.cargo/registry`, `~/.rustup/toolchains` | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
 | `terraform-plan` | `main.tf`, `terraform.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `tla-java` | `MC_*.cfg` files | `/opt/homebrew/opt/openjdk`, `/Library/Java` | `JAVA_HOME` | `tla/states/`, `*.dot` |
@@ -216,8 +218,10 @@ To recommend integrations for your repo, add `.hazmat/integrations.yaml`:
 
 ```yaml
 integrations:
+  - python-uv
   - go
   - node
+  - tla-java
 ```
 
 The file only lists names of existing built-in or user-installed manifests. It
@@ -319,13 +323,13 @@ applying it.
 Activate multiple integrations in one session:
 
 ```bash
-hazmat claude --integration node --integration python-poetry
+hazmat claude --integration node --integration python-uv
 ```
 
 Or pin a combination:
 
 ```bash
-hazmat config set integrations.pin "~/workspace/fullstack:node,python-poetry"
+hazmat config set integrations.pin "~/workspace/fullstack:node,python-uv"
 ```
 
 Integrations merge additively. Read dirs, excludes, env passthrough, and warnings are

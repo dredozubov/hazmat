@@ -35,9 +35,21 @@ hazmat config docker none -C ~/workspace/my-project
 
 This is a fallback, not a full replacement for agent-managed Docker workflows.
 
+For mixed-stack repos, pair `--docker=none` with repo-recommended integrations
+so users still get the right native toolchain hints:
+
+```yaml
+integrations:
+  - python-uv
+  - node
+  - tla-java
+```
+
 ## What Changes In `--docker=none`
 
 - The agent can still read and write project files.
+- The agent can still execute project-local scripts and binaries inside the
+  writable project or explicitly exposed directories.
 - The agent can still reach host-published services on allowed ports.
 - The agent cannot run `docker`, `docker compose`, `docker exec`, or restart
   containers.

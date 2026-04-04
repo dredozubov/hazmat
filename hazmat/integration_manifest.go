@@ -207,7 +207,7 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 		}
 	}
 
-	// V5: detect files must be filenames, no path separators.
+	// V5: detect files must be basenames or basename globs, no path separators.
 	for _, f := range p.Detect.Files {
 		if strings.Contains(f, "/") {
 			return fmt.Errorf("integration %q: detect file %q must be a filename, not a path", p.Meta.Name, f)
@@ -587,6 +587,81 @@ func resolveActiveIntegrations(integrationFlags []string, projectDir string) ([]
 
 // ── Detection / suggestion ─────────────────────────────────────────────────
 
+var integrationDetectIgnoredDirs = map[string]struct{}{
+	".beads":       {},
+	".git":         {},
+	".next":        {},
+	".nuxt":        {},
+	".terraform":   {},
+	".turbo":       {},
+	".venv":        {},
+	"build":        {},
+	"dist":         {},
+	"node_modules": {},
+	"target":       {},
+	"vendor":       {},
+	"venv":         {},
+}
+
+const integrationDetectMaxDepth = 4
+
+func detectPatternHasWildcard(pattern string) bool {
+	return strings.ContainsAny(pattern, "*?[")
+}
+
+func detectFileMatches(pattern, name string) bool {
+	if !detectPatternHasWildcard(pattern) {
+		return pattern == name
+	}
+	matched, err := filepath.Match(pattern, name)
+	return err == nil && matched
+}
+
+func projectMatchesDetectFile(projectDir, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	if !detectPatternHasWildcard(pattern) {
+		if _, err := os.Stat(filepath.Join(projectDir, pattern)); err == nil {
+			return true
+		}
+	}
+
+	matched := false
+	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort suggestion probe
+		if matched || err != nil {
+			return nil
+		}
+		if path == projectDir {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := strings.Count(rel, string(os.PathSeparator)) + 1
+		if d.IsDir() {
+			if depth > integrationDetectMaxDepth {
+				return filepath.SkipDir
+			}
+			if _, skip := integrationDetectIgnoredDirs[d.Name()]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if depth > integrationDetectMaxDepth {
+			return nil
+		}
+		if detectFileMatches(pattern, d.Name()) {
+			matched = true
+		}
+		return nil
+	})
+	return matched
+}
+
 // suggestIntegrations checks detect.files against the project directory and returns
 // names of built-in integrations that match but are not already active.
 func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []string {
@@ -603,7 +678,7 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 			continue
 		}
 		for _, f := range p.Detect.Files {
-			if _, err := os.Stat(filepath.Join(projectDir, f)); err == nil {
+			if projectMatchesDetectFile(projectDir, f) {
 				suggestions = append(suggestions, name)
 				break
 			}

@@ -4,7 +4,7 @@ integration:
   description: Java runtime for TLA+/TLC model checking (macOS Homebrew)
 
 detect:
-  files: [MC_SetupRollback.cfg, MC_SeatbeltPolicy.cfg, MC_Migration.cfg, MC_BackupSafety.cfg]
+  files: [MC_*.cfg]
 
 session:
   read_dirs:

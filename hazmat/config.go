@@ -614,7 +614,7 @@ Examples:
   hazmat config set session.status_bar true
   hazmat config set session.read_dirs.add ~/other-code
   hazmat config set integrations.homebrew enabled
-  hazmat config set integrations.pin "~/workspace/my-app:node,python-poetry"
+  hazmat config set integrations.pin "~/workspace/my-app:node,python-uv"
   hazmat config set integrations.unpin ~/workspace/my-app`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {

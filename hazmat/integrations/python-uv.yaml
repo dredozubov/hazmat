@@ -1,14 +1,14 @@
 integration:
-  name: python-poetry
+  name: python-uv
   version: 1
-  description: Python project with Poetry
+  description: Python project with uv
 
 detect:
-  files: [poetry.lock]
+  files: [uv.lock]
 
 session:
   read_dirs:
-    - ~/.local/share/pypoetry
+    - ~/.local/share/uv
   env_passthrough: [VIRTUAL_ENV]
 
 backup:
@@ -23,6 +23,6 @@ backup:
     - "*.egg-info/"
 
 commands:
-  test: poetry run pytest
-  lint: poetry run ruff check .
-  format: poetry run ruff format .
+  test: uv run pytest
+  lint: uv run ruff check .
+  format: uv run ruff format .

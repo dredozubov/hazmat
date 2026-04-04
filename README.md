@@ -169,6 +169,7 @@ project or session. Both are enforced by the kernel sandbox — not advisory.
 hazmat integration list
 hazmat integration show node
 hazmat claude --integration node
+hazmat claude --integration python-uv
 hazmat config set integrations.pin "~/workspace/my-app:node,go"
 ```
 
@@ -177,6 +178,10 @@ auto-resolved read-only toolchain paths, extend snapshot excludes, and pass
 through safe environment selectors like `GOPATH` or `VIRTUAL_ENV`. They do
 not widen write access, relax the credential deny list, or change the network
 policy.
+
+If a repo mixes stacks across subdirectories, add `.hazmat/integrations.yaml`
+to the repo so users do not have to discover nested frontend or TLA+
+integrations manually.
 
 Repos can declare recommended integrations in `.hazmat/integrations.yaml`;
 Hazmat prompts once for approval, then reuses that approval until the file

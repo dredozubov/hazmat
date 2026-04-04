@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -85,13 +86,131 @@ func collectACLTargets(projectDir string) []string {
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".venv" || d.Name() == "venv") {
-			return filepath.SkipDir // skip large dependency dirs
+		if d.IsDir() && shouldSkipACLWalkDir(path, d.Name()) {
+			return filepath.SkipDir
 		}
 		paths = append(paths, path)
 		return nil
 	})
 	return paths
+}
+
+func shouldSkipACLWalkDir(path, name string) bool {
+	if name != "node_modules" {
+		return false
+	}
+	for _, keepAncestor := range []string{
+		string(os.PathSeparator) + ".next" + string(os.PathSeparator),
+		string(os.PathSeparator) + "dist" + string(os.PathSeparator),
+		string(os.PathSeparator) + "build" + string(os.PathSeparator),
+		string(os.PathSeparator) + "target" + string(os.PathSeparator),
+	} {
+		if strings.Contains(path, keepAncestor) {
+			return false
+		}
+	}
+	return true
+}
+
+var aclRepairProbeDirNames = map[string]struct{}{
+	".next":  {},
+	".venv":  {},
+	"build":  {},
+	"dist":   {},
+	"target": {},
+	"venv":   {},
+}
+
+const aclRepairProbeMaxDepth = 4
+
+func projectNeedsACLRepair(projectDir string) bool {
+	if !projectRootWritableByAgent(projectDir) {
+		return true
+	}
+
+	needsRepair := false
+	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort probe
+		if needsRepair || err != nil || path == projectDir {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if shouldSkipACLWalkDir(path, d.Name()) {
+			return filepath.SkipDir
+		}
+
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := strings.Count(rel, string(os.PathSeparator)) + 1
+		if depth > aclRepairProbeMaxDepth {
+			return filepath.SkipDir
+		}
+		if _, tracked := aclRepairProbeDirNames[d.Name()]; tracked && !pathHasDevACL(path, true) {
+			needsRepair = true
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return needsRepair
+}
+
+func collectAgentTraverseTargets(homeDir, projectDir string, dirs []string) []string {
+	seen := make(map[string]struct{})
+	var targets []string
+
+	for _, dir := range dirs {
+		if dir == "" || dir == homeDir {
+			continue
+		}
+		if !isWithinDir(homeDir, dir) || isWithinDir(projectDir, dir) {
+			continue
+		}
+		for path := dir; path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
+			if _, dup := seen[path]; dup {
+				continue
+			}
+			seen[path] = struct{}{}
+			targets = append(targets, path)
+		}
+	}
+
+	sort.Slice(targets, func(i, j int) bool {
+		depthI := strings.Count(targets[i], string(os.PathSeparator))
+		depthJ := strings.Count(targets[j], string(os.PathSeparator))
+		if depthI == depthJ {
+			return targets[i] < targets[j]
+		}
+		return depthI < depthJ
+	})
+
+	return targets
+}
+
+func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, []string) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false, nil
+	}
+
+	var (
+		fixed    bool
+		failures []string
+	)
+	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
+		if homeAllowsAgentTraverse(path) {
+			continue
+		}
+		if err := exec.Command("chmod", "+a", homeTraverseACLEntry(), path).Run(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		fixed = true
+	}
+
+	return fixed, failures
 }
 
 func applyDevACLTree(root string) []string {
@@ -138,12 +257,13 @@ func applyDevACLTree(root string) []string {
 //
 // Returns true if a fix was applied (for UI messaging).
 func ensureProjectWritable(projectDir string) bool {
-	// Fast path: project already has the inheritable dev ACL we need.
-	if projectRootWritableByAgent(projectDir) {
+	// Fast path: project already has the inheritable dev ACL we need and
+	// known mutable dependency/build directories are healthy.
+	if !projectNeedsACLRepair(projectDir) {
 		return false
 	}
 
-	fmt.Fprintf(os.Stderr, "  Setting up project for agent access (one-time)...\n")
+	fmt.Fprintf(os.Stderr, "  Setting up project for agent access...\n")
 
 	if failures := applyDevACLTree(projectDir); len(failures) > 0 {
 		fmt.Fprintf(os.Stderr, "  Warning: could not fully set project ACL: %s\n", failures[0])

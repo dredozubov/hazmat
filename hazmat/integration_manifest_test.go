@@ -448,6 +448,70 @@ func TestSuggestIntegrationsMatchesDetectFiles(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsMatchesNestedDetectFiles(t *testing.T) {
+	dir := t.TempDir()
+	frontendDir := filepath.Join(dir, "frontend")
+	if err := os.MkdirAll(frontendDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(frontendDir, "package.json"), []byte(`{"name":"ui"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "node" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'node' integration suggestion for nested frontend/package.json, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsMatchesWildcardDetectFiles(t *testing.T) {
+	dir := t.TempDir()
+	tlaDir := filepath.Join(dir, "tla")
+	if err := os.MkdirAll(tlaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tlaDir, "MC_ClusterAggregation.cfg"), []byte("SPECIFICATION Spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "tla-java" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'tla-java' integration suggestion for nested MC_*.cfg, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsSkipsIgnoredDirectories(t *testing.T) {
+	dir := t.TempDir()
+	nodeModulesDir := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(nodeModulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModulesDir, "package.json"), []byte(`{"name":"ignored"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "node" {
+			t.Fatalf("did not expect node suggestion from ignored node_modules dir, got %v", suggestions)
+		}
+	}
+}
+
 func TestSuggestIntegrationsSkipsActive(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0o644); err != nil {
