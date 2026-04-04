@@ -71,6 +71,8 @@ type stackcheckCommandOutcome struct {
 	duration time.Duration
 }
 
+var stackcheckMissingRequiredFormulas = stackcheckMissingRequiredFormulasImpl
+
 func newStackCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "stackcheck",
@@ -200,6 +202,13 @@ func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, 
 		Track:  repo.Track,
 		Status: stackcheckStatusPass,
 	}
+	if failureClass, message := validateStackcheckSmokeRepoPrereqs(mode, repo); failureClass != "" {
+		result.Status = stackcheckStatusFail
+		result.FailureClass = failureClass
+		result.Message = message
+		result.DurationMS = time.Since(start).Milliseconds()
+		return result
+	}
 	repoDir, err := ensureStackcheckRepoCheckout(workspaceRoot, repo)
 	if err != nil {
 		result.Status = stackcheckStatusFail
@@ -282,6 +291,62 @@ func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, 
 
 	result.DurationMS = time.Since(start).Milliseconds()
 	return result
+}
+
+func validateStackcheckSmokeRepoPrereqs(mode string, repo stackMatrixRepo) (string, string) {
+	if mode != stackcheckModeSmoke || len(repo.RequiredFormulas) == 0 {
+		return "", ""
+	}
+
+	missing, err := stackcheckMissingRequiredFormulas(repo.RequiredFormulas)
+	if err != nil {
+		return "toolchain_missing", err.Error()
+	}
+	if len(missing) > 0 {
+		return "toolchain_missing", fmt.Sprintf("missing required Homebrew formulas: %s", strings.Join(missing, ", "))
+	}
+	return "", ""
+}
+
+func stackcheckMissingRequiredFormulasImpl(formulas []string) ([]string, error) {
+	brewPath, err := stackcheckBrewBinary()
+	if err != nil {
+		return nil, fmt.Errorf("Homebrew is required for stackcheck smoke prerequisites, but brew was not found")
+	}
+
+	seen := make(map[string]struct{}, len(formulas))
+	var missing []string
+	for _, formula := range formulas {
+		if formula == "" {
+			continue
+		}
+		if _, ok := seen[formula]; ok {
+			continue
+		}
+		seen[formula] = struct{}{}
+
+		outcome, err := runStackcheckProcess("", brewPath, "--prefix", "--installed", formula)
+		if err != nil || strings.TrimSpace(outcome.stdout) == "" {
+			missing = append(missing, formula)
+		}
+	}
+
+	sort.Strings(missing)
+	return missing, nil
+}
+
+func stackcheckBrewBinary() (string, error) {
+	for _, candidate := range integrationBrewCandidates {
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	if path, err := exec.LookPath("brew"); err == nil {
+		return path, nil
+	}
+	return "", exec.ErrNotFound
 }
 
 func validateStackcheckDetect(repo stackMatrixRepo, preview explainJSONPreview) (string, string) {

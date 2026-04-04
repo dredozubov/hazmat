@@ -130,3 +130,38 @@ func TestValidateStackcheckModePrereqs(t *testing.T) {
 		t.Fatalf("smoke prereq err = %v, want nil", err)
 	}
 }
+
+func TestValidateStackcheckSmokeRepoPrereqs(t *testing.T) {
+	originalCheck := stackcheckMissingRequiredFormulas
+	t.Cleanup(func() {
+		stackcheckMissingRequiredFormulas = originalCheck
+	})
+
+	repo := stackMatrixRepo{
+		ID:               "apache-maven",
+		RequiredFormulas: []string{"openjdk", "maven"},
+	}
+
+	if failureClass, message := validateStackcheckSmokeRepoPrereqs(stackcheckModeContract, repo); failureClass != "" || message != "" {
+		t.Fatalf("contract smoke prereq failure = (%q, %q), want empty", failureClass, message)
+	}
+
+	stackcheckMissingRequiredFormulas = func(formulas []string) ([]string, error) {
+		if len(formulas) != 2 {
+			t.Fatalf("formulas = %v, want two formulas", formulas)
+		}
+		return []string{"maven"}, nil
+	}
+
+	failureClass, message := validateStackcheckSmokeRepoPrereqs(stackcheckModeSmoke, repo)
+	if failureClass != "toolchain_missing" || !strings.Contains(message, "missing required Homebrew formulas: maven") {
+		t.Fatalf("failure = (%q, %q)", failureClass, message)
+	}
+
+	stackcheckMissingRequiredFormulas = func(formulas []string) ([]string, error) {
+		return nil, nil
+	}
+	if failureClass, message := validateStackcheckSmokeRepoPrereqs(stackcheckModeSmoke, repo); failureClass != "" || message != "" {
+		t.Fatalf("smoke prereq failure = (%q, %q), want empty", failureClass, message)
+	}
+}
