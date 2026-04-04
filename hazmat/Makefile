@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
 LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-bootstrap e2e-vm hooks
+.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke hooks
 
 all: hazmat hazmat-launch
 
@@ -44,6 +44,15 @@ e2e-bootstrap: all
 
 e2e-vm: all
 	bash ../scripts/e2e-vm.sh
+
+e2e-stack-matrix: all
+	bash ../scripts/e2e-stack-matrix.sh --skip-build $(STACKCHECK_ARGS)
+
+e2e-stack-matrix-detect: all
+	bash ../scripts/e2e-stack-matrix.sh --skip-build --detect $(STACKCHECK_ARGS)
+
+e2e-stack-matrix-smoke: all
+	bash ../scripts/e2e-stack-matrix.sh --skip-build --smoke $(STACKCHECK_ARGS)
 
 hooks:
 	cp ../scripts/pre-push ../.git/hooks/pre-push
