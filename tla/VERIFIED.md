@@ -438,7 +438,7 @@ TLC passes across all 6,634 reachable states (15,663 generated, depth 7, ~2s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
-TLC passes across all 1,564 reachable states (16,064 generated, depth 10, ~2s).
+TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define

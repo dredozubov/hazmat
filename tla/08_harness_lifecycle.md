@@ -87,7 +87,7 @@ Observed result:
 - `Model checking completed. No error has been found.`
 - `16,064 states generated`
 - `1,564 distinct states found`
-- `depth 10`
+- `depth 9`
 - `Finished in 2s`
 
 ## Interpretation
