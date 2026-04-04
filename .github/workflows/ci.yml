@@ -53,8 +53,12 @@ jobs:
       - name: CLI smoke tests
         working-directory: hazmat
         run: |
+          go run . init --help >/dev/null
           go run . bootstrap --help >/dev/null
+          go run . bootstrap claude --help >/dev/null
+          go run . bootstrap codex --help >/dev/null
           go run . bootstrap opencode --help >/dev/null
+          go run . codex --help >/dev/null
           go run . opencode --help >/dev/null
           go run . integration --help >/dev/null
           go run . integration list >/dev/null
@@ -207,7 +211,7 @@ jobs:
         run: sudo make install-helper
 
       - name: Initialize Hazmat
-        run: ./hazmat/hazmat init --yes
+        run: ./hazmat/hazmat init --yes --bootstrap-agent skip
 
       - name: Run bootstrap self-hosting checks
         run: bash scripts/e2e-bootstrap.sh --skip-tla | tee e2e-bootstrap.log
@@ -251,7 +255,7 @@ jobs:
         run: sudo make install-helper
 
       - name: Initialize Hazmat
-        run: ./hazmat/hazmat init --yes
+        run: ./hazmat/hazmat init --yes --bootstrap-agent skip
 
       - name: Run smoke checks for wave 1
         run: >

@@ -94,10 +94,13 @@ anchor "agent"
 load anchor "agent" from "/etc/pf.anchors/agent"
 `
 
-// seatbeltWrapperContent is the launch wrapper installed at seatbeltWrapperPath.
-// It is aliased to `claude` inside agent-shell sessions. The outer sandbox-exec
-// confinement applied by `hazmat shell/exec/claude` already covers the session,
-// so this wrapper simply execs the claude binary directly.
+// seatbeltWrapperContent is the Claude launch wrapper installed at
+// seatbeltWrapperPath. Hazmat prepares it during init so the Claude harness can
+// be added later without rewriting the base shell environment.
+//
+// It is aliased to `claude` inside agent-shell sessions. The outer
+// sandbox-exec confinement applied by `hazmat shell/exec/claude` already
+// covers the session, so this wrapper simply execs the claude binary directly.
 const seatbeltWrapperContent = `#!/bin/bash
 # claude-sandboxed — launch Claude Code inside the agent sandbox.
 # Installed by hazmat init — do not edit manually.
@@ -871,7 +874,7 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 // ── Step 5: Seatbelt wrapper ──────────────────────────────────────────────────
 
 func setupSeatbelt(ui *UI, r *Runner) error {
-	ui.Step("Install seatbelt wrapper for Claude runtime")
+	ui.Step("Install Claude compatibility wrapper")
 
 	// Create the config dir (used by agentEnvPath) and the bin dir.
 	if err := r.AsAgent("create seatbelt config directory", "mkdir", "-p", seatbeltProfileDir); err != nil {

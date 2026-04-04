@@ -117,14 +117,14 @@ Use `hazmat config docker none -C /path/to/project` to persist code-only routing
 brew install dredozubov/tap/hazmat
 
 # One-time setup (~10 min)
-hazmat init
+hazmat init --bootstrap-agent claude
 
 # Start working
 cd your-project
 hazmat claude
 ```
 
-`hazmat init` creates the agent user, configures containment, installs Claude Code, and sets up automatic snapshots. It can also seed the agent with portable conveniences from an existing agent setup while keeping Hazmat in control of runtime and safety settings. Every step is explained and confirmed. Preview first with `hazmat init --dry-run`.
+`hazmat init` creates the agent user, configures containment, and sets up automatic snapshots. During interactive setup you can choose to bootstrap Claude Code, Codex, OpenCode, or skip agent installation and add one later with `hazmat bootstrap ...`. It can also seed Claude with portable conveniences from an existing setup while keeping Hazmat in control of runtime and safety settings. Preview first with `hazmat init --dry-run`.
 
 ## Daily Workflow
 
@@ -207,6 +207,8 @@ hazmat config                                        # view everything
 hazmat config edit                                   # open config in $EDITOR
 hazmat config agent                                  # set API key + git identity
 hazmat config import claude                          # import portable basics from an existing setup
+hazmat bootstrap claude                              # install Claude Code for the agent user
+hazmat bootstrap codex                               # install Codex for the agent user
 hazmat config import opencode                        # import portable OpenCode basics from an existing setup
 hazmat bootstrap opencode                            # install OpenCode for the agent user
 hazmat opencode                                      # launch OpenCode in containment

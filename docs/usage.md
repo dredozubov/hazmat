@@ -7,11 +7,11 @@ Hazmat runs AI agents on your Mac with full permissions — inside containment. 
 Two commands:
 
 ```bash
-hazmat init       # one-time setup (~10 min, needs sudo)
+hazmat init --bootstrap-agent claude   # one-time setup (~10 min, needs sudo)
 hazmat claude     # launch Claude Code in containment
 ```
 
-That's it. `init` creates a contained environment, installs Claude Code, asks for your API key and git credentials, and can optionally import portable basics from your existing Claude setup. After that, you just use `hazmat claude` every day.
+That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, or skip agent installation for now. When you bootstrap Claude during init, Hazmat can also ask for your API key, git credentials, and optionally import portable Claude basics from your existing setup.
 
 ```mermaid
 flowchart LR
@@ -20,8 +20,8 @@ flowchart LR
         I1[Create agent user] --> I2[Set up workspace ACLs]
         I2 --> I3[Init snapshot repo]
         I3 --> I4[Install firewall + DNS blocklist]
-        I4 --> I5[Install Claude Code]
-        I5 --> I6[Configure API key + git creds]
+        I4 --> I5["Optional: bootstrap Claude, Codex, or OpenCode"]
+        I5 --> I6["Optional: configure Claude API key + git creds"]
     end
     subgraph daily ["Every session (hazmat claude)"]
         direction TB
@@ -45,9 +45,9 @@ When you run `hazmat init`, it:
 3. Initializes the local Kopia repository for automatic pre-session snapshots
 4. Installs a firewall that blocks the agent from SMTP, IRC, FTP, Tor, and other exfiltration protocols
 5. Adds a DNS blocklist for tunnel and paste services (ngrok, pastebin, etc.)
-6. Installs Claude Code for the agent user
-7. Asks for your Anthropic API key and git credentials
-8. Optionally imports portable Claude basics such as sign-in state, commands, and skills
+6. Optionally bootstraps a supported AI coding agent for the agent user
+7. If you choose Claude, offers to configure your Anthropic API key and git credentials
+8. If you choose Claude, can optionally import portable Claude basics such as sign-in state, commands, and skills
 
 Everything is interactive — it explains each step and asks for confirmation. To preview without making changes:
 
@@ -336,7 +336,7 @@ hazmat restore --cloud         # restore latest snapshot
 ## Updating Credentials
 
 ```bash
-hazmat config agent            # re-enter API key, git name/email
+hazmat config agent            # re-enter Claude API key, git name/email
 ```
 
 ## Importing Portable Claude Basics
@@ -361,6 +361,17 @@ hazmat opencode -p "summarize this repo"
 ```
 
 This is a prototype harness path alongside Claude. It uses the same containment, project preflight, and snapshot flow, but OpenCode keeps its own config and session state.
+
+## Running Codex
+
+```bash
+hazmat bootstrap codex
+hazmat codex
+hazmat codex -p "review the recent changes"
+```
+
+Codex uses the same containment and project preflight model. It keeps its own
+auth and runtime state under the agent user's home directory.
 
 ## Importing Portable OpenCode Basics
 

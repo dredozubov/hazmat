@@ -144,7 +144,7 @@ does not execute them.
 
 ## Claude Code Coupling
 
-**Harnesses are explicit, but Claude is still the default path.** `hazmat init` still bootstraps Claude Code by default and the seatbelt explicitly allows Claude state in `~/.claude/`. Other harnesses, like the current OpenCode prototype, are installed and configured explicitly via harness-specific commands such as `hazmat bootstrap opencode`, `hazmat opencode`, and `hazmat config import opencode`.
+**Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, or OpenCode when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
 
 **Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Cursor, aider, or OpenAI's tools, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
 

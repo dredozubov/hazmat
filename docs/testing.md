@@ -52,7 +52,8 @@ bash scripts/e2e-bootstrap.sh
 ```
 
 This script assumes `hazmat init` has already been run on the host and that the
-required host toolchains are available.
+required host toolchains are available. It does not require any specific AI
+coding agent harness to be installed.
 
 ### Repo-matrix validation
 
@@ -109,6 +110,7 @@ Current GitHub Actions coverage:
 - `.github/workflows/ci.yml`
   - lint
   - Go vet and unit tests
+  - CLI help/smoke checks including `hazmat init --help`
   - test-entrypoint guard regression checks
   - self-hosting bootstrap on macOS (`--skip-tla`)
   - repo-matrix required-track contract checks
@@ -123,6 +125,8 @@ Current GitHub Actions coverage:
 - Host-side test entrypoints take a shared local lock and are intended to run
   one at a time. If another host-side test is already running, they should
   fail fast instead of racing on local build outputs or Hazmat state.
+- CI initializes Hazmat with `--bootstrap-agent skip` for containment-only
+  jobs, so those lanes do not depend on vendor-specific agent downloads.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
 - Do not use `scripts/e2e.sh` casually on a machine where you want to preserve
