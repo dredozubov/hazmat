@@ -6,17 +6,19 @@
 
 <p align="center">
   <strong>Full autonomy. Controlled environment.</strong><br>
-  The missing runtime for <code>--dangerously-skip-permissions</code>
+  OS-level containment for AI coding agents on macOS
 </p>
 
 ---
 
-Claude Code is most useful when you let it work autonomously. But `--dangerously-skip-permissions` means exactly what it says — the agent runs with your full privileges, your credentials, your files.
+AI coding agents are most useful when you let them work autonomously. But full autonomy means the agent runs with your full privileges, your credentials, your files.
 
 Hazmat makes that safe.
 
 ```bash
-hazmat claude    # full autonomy, OS-level containment, automatic snapshots
+hazmat claude                     # Claude Code with full containment
+hazmat opencode                   # OpenCode with full containment
+hazmat exec ./my-agent-loop.sh    # any agent, any script
 ```
 
 One command. The agent gets its own macOS user, a kernel-enforced sandbox, a firewall, and automatic pre-session backups. You get full productivity without the risk.
