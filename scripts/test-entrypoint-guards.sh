@@ -49,7 +49,7 @@ phase "Destructive guards"
 assert_fails_with \
     "scripts/e2e.sh requires destructive ack" \
     "scripts/e2e.sh is destructive to the local Hazmat setup." \
-    bash "$REPO_ROOT/scripts/e2e.sh" --quick
+    env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --quick
 
 assert_fails_with \
     "make e2e requires E2E_ACK=1" \
