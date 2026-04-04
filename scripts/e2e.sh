@@ -21,12 +21,53 @@
 
 set -euo pipefail
 
-QUICK="${1:-}"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+usage() {
+    cat <<EOF
+Usage:
+  HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh
+  HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+
+This host-side lifecycle test is destructive to the current Hazmat setup.
+Prefer scripts/e2e-vm.sh for isolated local verification.
+EOF
+}
+
+QUICK=""
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
 PASS=0
 FAIL=0
 TOTAL=0
+
+# shellcheck source=scripts/lib/test_lock.sh
+. "$REPO_ROOT/scripts/lib/test_lock.sh"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --quick)
+            QUICK="1"
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ -z "${CI:-}" ] && [ "${HAZMAT_E2E_ACK_DESTRUCTIVE:-}" != "1" ]; then
+    echo "error: scripts/e2e.sh is destructive to the local Hazmat setup." >&2
+    echo "Run with HAZMAT_E2E_ACK_DESTRUCTIVE=1, or prefer scripts/e2e-vm.sh for isolated verification." >&2
+    exit 1
+fi
+
+acquire_hazmat_test_suite_lock "scripts/e2e.sh"
 
 pass() { PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[32m✓\033[0m %s\n" "$1"; }
 fail() { FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[31m✗\033[0m %s\n" "$1"; }
@@ -73,7 +114,7 @@ go test ./... && pass "go test ./... passed" || fail "go test ./... failed"
 phase "Phase 1: Fresh install"
 "$HAZMAT" init --yes && pass "hazmat init completed" || fail "hazmat init failed"
 
-if [ "$QUICK" = "--quick" ]; then
+if [ -n "$QUICK" ]; then
     "$HAZMAT" check && pass "hazmat check passed" \
         || printf "  \033[33m!\033[0m hazmat check reported issues (non-fatal — some checks are environment-dependent)\n"
 else
@@ -249,7 +290,7 @@ phase "Phase 6: Rollback"
 phase "Phase 7: Idempotency (rollback → reinit → check)"
 "$HAZMAT" init --yes && pass "reinit completed" || fail "reinit failed"
 
-if [ "$QUICK" = "--quick" ]; then
+if [ -n "$QUICK" ]; then
     "$HAZMAT" check && pass "reinit check passed" \
         || printf "  \033[33m!\033[0m reinit check reported issues (non-fatal)\n"
 else

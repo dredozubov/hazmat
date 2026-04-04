@@ -29,6 +29,11 @@ pass() { PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[32m✓\033[0m 
 fail() { FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[31m✗\033[0m %s\n" "$1"; }
 phase() { printf "\n\033[1m── %s ──\033[0m\n\n" "$1"; }
 
+# shellcheck source=scripts/lib/test_lock.sh
+. "$REPO_ROOT/scripts/lib/test_lock.sh"
+
+acquire_hazmat_test_suite_lock "scripts/e2e-bootstrap.sh"
+
 if ! id agent >/dev/null 2>&1; then
     echo "error: agent user does not exist — run 'hazmat init' first" >&2
     exit 1

@@ -61,6 +61,7 @@ Use this only on a disposable host setup, or prefer the VM wrapper below:
 
 ```bash
 HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+cd hazmat && make e2e E2E_ACK=1
 ```
 
 This script runs `hazmat init`, exercises containment and restore behavior,
@@ -104,8 +105,9 @@ Current GitHub Actions coverage:
 
 ## Important Warnings
 
-- Do not run the host-side test scripts in parallel. They share local build
-  outputs and local Hazmat state.
+- Host-side test entrypoints take a shared local lock and are intended to run
+  one at a time. If another host-side test is already running, they should
+  fail fast instead of racing on local build outputs or Hazmat state.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
 - Do not use `scripts/e2e.sh` casually on a machine where you want to preserve

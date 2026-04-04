@@ -36,23 +36,28 @@ test:
 lint:
 	golangci-lint run ./...
 
-e2e: all
-	bash ../scripts/e2e.sh
+e2e:
+	@if [ "$(E2E_ACK)" != "1" ]; then \
+		echo "Refusing to run destructive host lifecycle test." >&2; \
+		echo "Use 'make e2e E2E_ACK=1' or prefer 'bash ../scripts/e2e-vm.sh --quick'." >&2; \
+		exit 1; \
+	fi
+	HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash ../scripts/e2e.sh
 
-e2e-bootstrap: all
+e2e-bootstrap:
 	bash ../scripts/e2e-bootstrap.sh
 
 e2e-vm: all
 	bash ../scripts/e2e-vm.sh
 
-e2e-stack-matrix: all
-	bash ../scripts/e2e-stack-matrix.sh --skip-build $(STACKCHECK_ARGS)
+e2e-stack-matrix:
+	bash ../scripts/e2e-stack-matrix.sh $(STACKCHECK_ARGS)
 
-e2e-stack-matrix-detect: all
-	bash ../scripts/e2e-stack-matrix.sh --skip-build --detect $(STACKCHECK_ARGS)
+e2e-stack-matrix-detect:
+	bash ../scripts/e2e-stack-matrix.sh --detect $(STACKCHECK_ARGS)
 
-e2e-stack-matrix-smoke: all
-	bash ../scripts/e2e-stack-matrix.sh --skip-build --smoke $(STACKCHECK_ARGS)
+e2e-stack-matrix-smoke:
+	bash ../scripts/e2e-stack-matrix.sh --smoke $(STACKCHECK_ARGS)
 
 hooks:
 	cp ../scripts/pre-push ../.git/hooks/pre-push

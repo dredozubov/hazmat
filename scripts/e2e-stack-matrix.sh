@@ -23,6 +23,9 @@ SKIP_BUILD=""
 UPSTREAM_HEAD=""
 IDS=()
 
+# shellcheck source=scripts/lib/test_lock.sh
+. "$REPO_ROOT/scripts/lib/test_lock.sh"
+
 usage() {
     cat <<EOF
 Usage: bash scripts/e2e-stack-matrix.sh [options]
@@ -104,6 +107,8 @@ while [ "$#" -gt 0 ]; do
     esac
     shift
 done
+
+acquire_hazmat_test_suite_lock "scripts/e2e-stack-matrix.sh"
 
 if [ -z "$SKIP_BUILD" ] || [ ! -x "$HAZMAT" ]; then
     echo "Building Hazmat binaries..."
