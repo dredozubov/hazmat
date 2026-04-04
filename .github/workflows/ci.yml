@@ -63,6 +63,32 @@ jobs:
           go run . config import claude --dry-run >/dev/null
           go run . config import opencode --dry-run >/dev/null
 
+  repo-matrix-contract:
+    name: Repo matrix contract
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Build Hazmat
+        working-directory: hazmat
+        run: make all
+
+      - name: Run required-track contract checks
+        run: bash scripts/e2e-stack-matrix.sh --skip-build --contract > stack-matrix-contract.json
+
+      - name: Upload contract artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-matrix-contract
+          path: stack-matrix-contract.json
+          if-no-files-found: ignore
+
   go-build:
     name: Build (${{ matrix.goarch }})
     runs-on: macos-latest
@@ -154,7 +180,7 @@ jobs:
   e2e:
     name: E2E lifecycle
     runs-on: macos-14
-    needs: [go-test, go-build]
+    needs: [go-test, go-build, repo-matrix-contract]
     steps:
       - uses: actions/checkout@v4
 
@@ -165,3 +191,51 @@ jobs:
 
       - name: E2E lifecycle test
         run: bash scripts/e2e.sh --quick
+
+  repo-matrix-smoke:
+    name: Repo matrix smoke
+    if: github.event_name == 'push'
+    runs-on: macos-14
+    needs: [go-test, go-build, repo-matrix-contract]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install stackcheck toolchains
+        run: brew install node pnpm rust uv
+
+      - name: Build Hazmat
+        working-directory: hazmat
+        run: make all
+
+      - name: Install launch helper
+        working-directory: hazmat
+        run: sudo make install-helper
+
+      - name: Initialize Hazmat
+        run: ./hazmat/hazmat init --yes
+
+      - name: Run smoke checks for wave 1
+        run: >
+          bash scripts/e2e-stack-matrix.sh --skip-build --smoke
+          --id next-js
+          --id pydantic-ai
+          > stack-matrix-smoke.json
+
+      - name: Upload smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-matrix-smoke
+          path: stack-matrix-smoke.json
+          if-no-files-found: ignore
+
+      - name: Roll back Hazmat
+        if: always()
+        run: ./hazmat/hazmat rollback --delete-user --delete-group --yes || true

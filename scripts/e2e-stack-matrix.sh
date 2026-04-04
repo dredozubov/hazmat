@@ -122,15 +122,15 @@ for id in "${IDS[@]}"; do
     cmd+=(--id "$id")
 done
 
-printf 'hazmat: repo-matrix %s (track=%s)\n' "$MODE" "$TRACK"
-printf '  manifest: %s\n' "$MANIFEST"
-printf '  workspace: %s\n' "$WORKSPACE_ROOT"
+printf 'hazmat: repo-matrix %s (track=%s)\n' "$MODE" "$TRACK" >&2
+printf '  manifest: %s\n' "$MANIFEST" >&2
+printf '  workspace: %s\n' "$WORKSPACE_ROOT" >&2
 if [ -n "$WAVE" ]; then
-    printf '  wave: %s\n' "$WAVE"
+    printf '  wave: %s\n' "$WAVE" >&2
 fi
 if [ "${#IDS[@]}" -gt 0 ]; then
-    printf '  ids: %s\n' "${IDS[*]}"
+    printf '  ids: %s\n' "${IDS[*]}" >&2
 fi
-printf '\n'
+printf '\n' >&2
 
 "${cmd[@]}"
