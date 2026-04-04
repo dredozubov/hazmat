@@ -10,15 +10,18 @@ rollback can be partial or full, and re-running setup must recover from any
 prior state. These ordering and state-machine properties are exactly what TLA+
 and TLC's exhaustive state exploration are designed to verify.
 
-## Problems
+## Verified Specs
 
-| # | File | Hazard | Priority |
-|---|------|--------|----------|
-| 1 | `01_setup_rollback_state_machine.md` | Security window: agent launchable without firewall after partial setup/rollback | **Critical** |
-| 2 | `02_seatbelt_policy_structure.md` | Credential write exposure via project dir or static config allows | **Medium** |
-| 3 | `03_backup_restore_safety.md` | Cloud restore overwrites workspace without pre-restore snapshot (data loss) | **High** |
-| 5 | `05_tier3_launch_containment.md` | Tier 3 host-side launch can expose credential paths or launch before policy if mount planning/gating is wrong | **High** |
-| 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Tier 2 and Tier 3 could diverge on effective read/write scope even when Hazmat presents one session contract | **High** |
+| # | File | What it covers | Priority |
+|---|------|----------------|----------|
+| 1 | `01_setup_rollback_state_machine.md` | Setup/rollback ordering, privilege-before-containment hazards, and reversibility | **Critical** |
+| 2 | `02_seatbelt_policy_structure.md` | Seatbelt rule ordering, credential denies, project write re-assertion, and resume-path safety | **High** |
+| 3 | `03_backup_restore_safety.md` | Snapshot/restore ordering and overwrite safety | **High** |
+| 4 | `04_version_migration.md` | Version migration, rollback from any state, and migration recovery | **High** |
+| 5 | `05_tier3_launch_containment.md` | Tier 3 host-side mount planning, gating, and policy-before-launch ordering | **High** |
+| 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Canonical Tier 2/Tier 3 core containment equivalence and intentional exact-identity breaks | **High** |
+
+See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 
 ## What TLA+ Adds Here
 

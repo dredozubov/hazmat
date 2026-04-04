@@ -6,7 +6,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 
 ## Before you change anything
 
-**Read `tla/VERIFIED.md` first.** Four subsystems are under formal verification with TLA+. Changes to these areas MUST update the TLA+ spec and pass TLC before the Go implementation changes. This is not optional — CI enforces it.
+**Read `tla/VERIFIED.md` first.** `tla/VERIFIED.md` is the authoritative record of Hazmat's formal verification scope and proof boundaries. Changes in verified areas MUST update the TLA+ spec and pass TLC before the Go implementation changes. This is not optional.
 
 | Spec | What it governs | Key invariant |
 |------|----------------|---------------|
@@ -14,6 +14,8 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_SeatbeltPolicy` | Seatbelt policy structure, credential denies | `CredentialReadDenied` — credential dirs always denied |
 | `MC_BackupSafety` | Snapshot/restore lifecycle | `RestoreReversible` — every overwrite has a prior snapshot |
 | `MC_Migration` | Version upgrades, rollback from any state | `AgentContained` across 44,795 states including partial migrations |
+| `MC_Tier3LaunchContainment` | Tier 3 host-side launch boundary | `CredentialPathsNeverMounted` — Tier 3 never mounts credential zones |
+| `MC_TierPolicyEquivalence` | Tier 2 vs Tier 3 core policy contract | `CanonicalCoreContainmentEquivalent` — canonical core containment matches across both backends |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -44,12 +46,7 @@ flowchart TD
 Running TLC:
 ```bash
 cd tla
-java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
-  -lncheck final -config MC_SetupRollback.cfg MC_SetupRollback.tla
-java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
-  -config MC_SeatbeltPolicy.cfg MC_SeatbeltPolicy.tla
-java -XX:+UseParallelGC -jar ~/workspace/tla2tools.jar -workers auto \
-  -lncheck final -config MC_Migration.cfg MC_Migration.tla
+bash check_suite.sh
 ```
 
 ## Repository layout
@@ -66,6 +63,9 @@ tla/                     TLA+ formal verification specs
   MC_SeatbeltPolicy.*    Seatbelt policy structure
   MC_BackupSafety.*      Backup/restore safety
   MC_Migration.*         Version migration + rollback from any state
+  MC_Tier3LaunchContainment.* Tier 3 launch boundary
+  MC_TierPolicyEquivalence.* Tier 2 vs Tier 3 effective-policy contract
+  check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
   usage.md               Complete user guide
@@ -104,6 +104,12 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Adding or changing backup/restore paths
 → Update `MC_BackupSafety.tla` first, run TLC, then implement.
+
+### Changing Tier 3 launch planning, gating, or env passthrough
+→ Update `MC_Tier3LaunchContainment.tla` first, run TLC, then implement.
+
+### Changing Tier 2/Tier 3 path normalization or cross-backend contract claims
+→ Update `MC_TierPolicyEquivalence.tla` first, run TLC, then implement.
 
 ## Key conventions
 

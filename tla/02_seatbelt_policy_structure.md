@@ -16,9 +16,9 @@ The correctness questions:
 2. **Read dir write isolation** — can read-only directories accidentally
    receive write access?
 
-3. **Credential write exposure** — can user inputs or static config rules
-   allow writes to credential directories? (Design tradeoff, not necessarily
-   a bug, but important to understand.)
+3. **Credential write protection** — do the final deny rules also prevent
+   writes to credential directories, even when earlier project or static allow
+   sections would otherwise cover them?
 
 4. **Read dir subsumption** — are redundant read dir rules correctly elided?
 
@@ -34,11 +34,13 @@ The correctness questions:
 Section 0: System library allows (static — /usr/lib, /System/Library, etc.)
 Section 1: Read-only directory allows (user input, filtered for subsumption)
 Section 2: Project directory read+write (user input)
-Section 3: Agent home config allows (static — .claude, .local, .config, etc.)
-Section 4: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
+Section 3: Resume directory read+write (optional, invoking user's session dir)
+Section 4: Agent home config allows (static — .claude, .local, .config, etc.)
+Section 5: Project write re-assertion (if a read dir is a parent of the project)
+Section 6: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
 ```
 
-Credential denies are ALWAYS last (section 4). Since SBPL is last-match-wins,
+Credential denies are ALWAYS last (section 6). Since SBPL is last-match-wins,
 any earlier allow for the same path is overridden by the deny.
 
 ## TLA+ Model
@@ -64,7 +66,7 @@ Six abstract paths with a containment relation:
 ### Variables
 
 - `rules` — set of emitted policy rules `[section, action, path]`
-- `section` — current policy generation phase (0..5)
+- `section` — current policy generation phase (0..7)
 
 ### Evaluation: Last-Match-Wins
 
@@ -73,37 +75,22 @@ the highest section number determines the outcome. This models SBPL semantics.
 
 ## What TLC Finds
 
-### Invariants That Pass (192 states, <1s)
+### Invariants That Pass (768 states, <1s)
 
 | Invariant | Meaning |
 |-----------|---------|
-| `CredentialReadDenied` | Credential file-read* is always denied — section 4 deny always wins |
+| `CredentialReadDenied` | Credential file-read* is always denied — section 6 deny always wins |
+| `CredentialWriteDenied` | Credential file-write* is always denied — section 6 deny always wins |
 | `ReadDirsNoWrite` | Read-only dirs never get file-write* rules |
 | `ProjectDirWritable` | Project directory always has write access |
 | `ReadDirSubsumption` | Read dirs within project dir correctly elided |
+| `ResumeDirNotCredential` | Optional resume dir cannot overlap credential paths |
 
-### Finding: CredentialWriteDenied VIOLATED
+### Result
 
-**Invariant:** For all credential paths, `file-write*` access should be denied.
-
-**Violation 1 — user input:** `ProjectDir = agentHome` grants `(allow file-write*
-(subpath "/Users/agent"))` in section 2, covering `.ssh` and `.config/gcloud`.
-
-**Violation 2 — static config:** `AgentHomeSubs` includes `configDir`
-(`/Users/agent/.config`), which grants `(allow file-write*)` in section 3.
-This covers `gcloudDir` (`/Users/agent/.config/gcloud`) even with a normal
-project directory.
-
-**Assessment:** This is a known design tradeoff, not a bug:
-- The agent needs `~/.config` write access for toolchain state (git, npm, etc.)
-- The credential deny only covers `file-read*` (preventing exfiltration)
-- Writing to credential dirs is corruption, not exfiltration — lower priority
-  in the threat model
-- `hazmat-launch` validates project paths, making `projectDir = ~/.ssh` unlikely
-
-**Possible hardening:** Add `(deny file-write*)` rules for credential paths
-that are NOT under `~/.config` (like `.ssh`, `.aws`, `.gnupg`). This would
-prevent the `projectDir = agentHome` vector without breaking toolchain state.
+`CredentialWriteDenied` is part of the checked suite now. The current policy
+model proves that the final credential deny section overrides both project
+write access and earlier static config allows for all modeled credential paths.
 
 ## Model Bounds
 
@@ -113,4 +100,4 @@ prevent the `projectDir = agentHome` vector without breaking toolchain state.
 | ProjectChoices | 4 | Includes adversarial choices: agentHome, sshDir, configDir |
 | ReadChoices | 3 | Includes broad choice: agentHome |
 
-**Confirmed state space:** 224 states generated, 192 distinct. Runtime: <1s.
+**Confirmed state space:** 864 states generated, 768 distinct. Runtime: <1s.

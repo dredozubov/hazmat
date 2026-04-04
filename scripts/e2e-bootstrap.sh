@@ -151,19 +151,12 @@ else
     if [ ! -f "$TLA2TOOLS_JAR" ]; then
         printf "  \033[33m!\033[0m tla2tools.jar not found at %s — skipping TLC specs\n" "$TLA2TOOLS_JAR"
     else
-        for spec in MC_SeatbeltPolicy MC_SetupRollback MC_BackupSafety MC_Migration; do
-            cfg="tla/${spec}.cfg"
-            if [ ! -f "$REPO_ROOT/$cfg" ]; then
-                printf "  \033[33m!\033[0m %s: spec not found, skipping\n" "$spec"
-                continue
-            fi
-            # Use 'bash run_tlc.sh' to avoid shebang exec restrictions under seatbelt.
-            # Pass TLA2TOOLS_JAR explicitly since the agent's HOME differs.
-            # Use -metadir in /tmp to avoid permission issues on tla/states/.
-            contained bash -c "cd tla && TLA2TOOLS_JAR='$TLA2TOOLS_JAR' bash run_tlc.sh -workers auto -metadir /private/tmp/tlc-${spec} -config ${spec}.cfg ${spec}.tla" \
-                && pass "TLC $spec" \
-                || fail "TLC $spec"
-        done
+        # Use 'bash check_suite.sh' to avoid shebang exec restrictions under seatbelt.
+        # Pass TLA2TOOLS_JAR explicitly since the agent's HOME differs.
+        # Use TLC_METADIR_ROOT in /tmp to avoid permission issues on tla/states/.
+        contained bash -c "cd tla && TLA2TOOLS_JAR='$TLA2TOOLS_JAR' TLC_METADIR_ROOT=/private/tmp/tlc-suite bash check_suite.sh" \
+            && pass "TLC verified suite" \
+            || fail "TLC verified suite"
     fi
 fi
 

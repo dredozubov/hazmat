@@ -3,6 +3,7 @@
 # Runs: vet, unit tests, lint, CLI smoke tests.
 # Skips: repo-matrix, e2e lifecycle, self-hosting bootstrap, and TLA+.
 # CI is broader than this hook.
+# If you touch a verified area, run 'bash tla/check_suite.sh' separately before pushing.
 #
 # Install: make hooks   (or: cp scripts/pre-push .git/hooks/pre-push)
 

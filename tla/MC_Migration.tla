@@ -224,6 +224,12 @@ Next ==
 \* Invariants (safety)
 \* ═══════════════════════════════════════════════════════════════════════════════
 
+TypeOK ==
+    /\ initVersion \in Versions
+    /\ artifacts \subseteq AllArtifacts
+    /\ phase \in {"idle", "migrating", "initializing", "done", "failed", "rolling_back", "clean"}
+    /\ migrateFrom \in Versions
+
 \* Agent must never be launchable without firewall — in ANY state.
 AgentContained ==
     "sudoers" \in artifacts => "pfAnchor" \in artifacts

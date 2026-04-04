@@ -46,7 +46,13 @@ tla/
 
 ## Running TLC
 
-### Check invariants (safety)
+### Run the verified suite
+```bash
+cd tla/
+bash check_suite.sh
+```
+
+### Check one spec (safety)
 ```bash
 cd tla/
 ./run_tlc.sh \
@@ -55,7 +61,7 @@ cd tla/
   MC_SetupRollback.tla
 ```
 
-### Check liveness properties (temporal)
+### Check one spec with liveness properties
 ```bash
 cd tla/
 ./run_tlc.sh \
@@ -123,13 +129,14 @@ CONSTANTS
     MaxRollbackAttempts = 2
 INVARIANTS
     TypeOK
+    AgentContained
     NoOrphanedArtifacts
     SudoersRequiresHelper
     AgentDepsRequireUser
-\* INVARIANTS
-\*   AgentContained          \* KNOWN VIOLATION — uncomment to see counterexample
+PROPERTIES
+    CanAlwaysReachClean
 ```
-Expected: No error has been found (1887 distinct states, <1s).
+Expected: No error has been found.
 
 ---
 
@@ -154,9 +161,10 @@ fi
 
 | Problem | Model Bounds | Expected States | Runtime |
 |---------|-------------|-----------------|---------|
-| 01 Setup/Rollback | 2 setup, 2 rollback | 26,905 distinct | <1s |
-| 02 Seatbelt Policy | 6 paths, 4 project choices | 192 distinct | <1s |
+| 01 Setup/Rollback | 2 setup, 2 rollback | 29,518 distinct | ~7s with `-lncheck final` |
+| 02 Seatbelt Policy | 7 paths, 4 project choices, resume choices | 768 distinct | <1s |
 | 03 Backup Safety | 3 snapshots, 2 sessions, 2 restores | 395 distinct | <1s |
+| 04 Version Migration | 3 versions, rollback from any state | 44,795 distinct | ~6s with `-lncheck final` |
 | 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
 | 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
 

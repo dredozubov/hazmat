@@ -246,9 +246,9 @@ Three OS-level enforcement layers:
 2. **Seatbelt** — kernel-level filesystem policy. Default deny, explicit allows for project and toolchain paths.
 3. **pf firewall** — packet filter rules scoped to `user agent`. Blocks dangerous protocols.
 
-Setup ordering, seatbelt policy structure, backup safety, Tier 3 launch
-containment, and Tier 2/Tier 3 core policy equivalence are [formally verified
-with TLA+](tla/VERIFIED.md).
+Setup ordering, seatbelt policy structure, backup safety, version migration,
+Tier 3 launch containment, and Tier 2/Tier 3 core policy equivalence are
+[formally verified with TLA+](tla/VERIFIED.md).
 
 ## Undo Everything
 

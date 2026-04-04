@@ -153,29 +153,9 @@ jobs:
           https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
           -o ~/tla2tools.jar
 
-      - name: Check MC_SetupRollback (safety + liveness)
+      - name: Run verified TLA+ suite
         working-directory: tla
-        run: >
-          java -XX:+UseParallelGC -jar ~/tla2tools.jar
-          -workers auto -lncheck final
-          -config MC_SetupRollback.cfg
-          MC_SetupRollback.tla
-
-      - name: Check MC_SeatbeltPolicy (safety)
-        working-directory: tla
-        run: >
-          java -XX:+UseParallelGC -jar ~/tla2tools.jar
-          -workers auto
-          -config MC_SeatbeltPolicy.cfg
-          MC_SeatbeltPolicy.tla
-
-      - name: Check MC_Migration (safety + liveness)
-        working-directory: tla
-        run: >
-          java -XX:+UseParallelGC -jar ~/tla2tools.jar
-          -workers auto -lncheck final
-          -config MC_Migration.cfg
-          MC_Migration.tla
+        run: TLA2TOOLS_JAR=~/tla2tools.jar bash check_suite.sh
 
   e2e:
     name: E2E lifecycle

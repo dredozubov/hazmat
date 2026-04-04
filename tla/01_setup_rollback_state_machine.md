@@ -104,11 +104,12 @@ launchable with no network containment.
 launchHelper verification and sudoers (steps 10-11). The firewall's
 `user agent` rules only require the agent user to exist (step 0).
 
-**TLC confirmation:** After fix, AgentContained passes across all 1887 distinct
-states. The agent is never launchable without firewall containment in any
-reachable state.
+**TLC confirmation:** After fix, `AgentContained` and `CanAlwaysReachClean`
+pass across all 29,518 distinct states (55,726 generated). The agent is never
+launchable without firewall containment in any reachable state, and the bounded
+model still guarantees a path back to a clean state.
 
-### Invariants That Pass
+### Checked Properties That Pass
 
 | Invariant | Meaning |
 |-----------|---------|
@@ -117,6 +118,14 @@ reachable state.
 | `AgentDepsRequireUser` | Agent-owned resources require agent user |
 | `CanAlwaysReachClean` | System can always return to clean state (liveness) |
 
+### Important Scope Boundary
+
+The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
+With `MaxSetupAttempts = 2` and `MaxRollbackAttempts = 2`, TLC can exhaust both
+attempt counters after repeated failures and stutter in a partially configured
+idle state. The verified liveness claim for this model is recoverable clean
+exit, not eventual successful completion after arbitrary bounded failures.
+
 ## Model Bounds
 
 | Parameter | Value | Rationale |
@@ -124,5 +133,6 @@ reachable state.
 | `MaxSetupAttempts` | 2 | Covers: first setup fails, re-run succeeds |
 | `MaxRollbackAttempts` | 2 | Covers: rollback after first setup, then after re-setup |
 
-**Confirmed state space:** 3372 states generated, 1887 distinct. Runtime: <1 second.
-All 5 safety invariants + liveness pass after the fix.
+**Confirmed state space:** 55,726 states generated, 29,518 distinct. Runtime: ~7 seconds
+with `-lncheck final`. All checked safety invariants plus `CanAlwaysReachClean`
+pass after the fix.

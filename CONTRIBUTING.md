@@ -45,14 +45,13 @@ TLA+ model checking (requires Java + [tla2tools.jar](https://github.com/tlaplus/
 
 ```bash
 cd tla
-java -jar ~/workspace/tla2tools.jar -workers auto \
-  -config MC_SetupRollback.cfg MC_SetupRollback.tla
+bash check_suite.sh
 ```
 
 ## Pull requests
 
 - Unit tests must pass
-- TLA+ specs are checked in CI — if you change setup or rollback steps, update the spec first (see `tla/VERIFIED.md`)
+- `tla/VERIFIED.md` is the authoritative proof-scope document. If you change verified behavior, update the spec first and re-run TLC.
 - Follow the commit convention: `<area>: <what changed>` (areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `test`)
 - One logical change per commit
 

@@ -81,7 +81,7 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `AgentDepsRequireUser` |
-| Key liveness | `CanAlwaysReachClean`, `SetupEventuallyCompletes` |
+| Key liveness | `CanAlwaysReachClean` |
 | Status | **Fixed** — containment before privilege in both setup and rollback |
 
 **What was found:**
@@ -100,7 +100,14 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 2. **Rollback:** Reordered so sudoers is removed first, before firewall/dns/daemon.
 
 The principle: **grant privilege last, revoke privilege first.**
-`AgentContained` now passes across all 26,905 reachable states (<1s).
+`AgentContained` and `CanAlwaysReachClean` now pass across all 29,518 reachable
+states (55,726 generated, ~7s with liveness enabled).
+
+The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
+If setup and rollback attempts are both exhausted after repeated failures, TLC
+can stutter in a partially configured idle state. Hazmat's current checked
+liveness bar for this model is recoverable clean exit, not guaranteed eventual
+successful completion after arbitrary bounded failures.
 
 **Change rules:**
 - Any change to setup step ordering must be modeled and proved against
