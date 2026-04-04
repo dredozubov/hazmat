@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-const sessionMutationProofScopeTestsDocs = "tests/docs only"
+const sessionMutationProofScopeTLAModel = "TLA+ model + tests/docs"
 
 type sessionMutation struct {
 	Summary     string
@@ -66,7 +66,7 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 				Summary:     "project ACL repair",
 				Detail:      fmt.Sprintf("may add collaborative ACLs under %s so the agent can edit existing files", projectDir),
 				Persistence: "persistent in project",
-				ProofScope:  sessionMutationProofScopeTestsDocs,
+				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
 			Apply: func() (sessionMutationExecution, error) {
 				fixed, err := ensureProjectWritable(projectDir)
@@ -94,7 +94,7 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 				Summary:     "exposed-directory traverse ACL repair",
 				Detail:      fmt.Sprintf("may add traverse ACLs on %d host-home ancestor path(s) outside %s so the agent can reach exposed directories", pendingCount, projectDir),
 				Persistence: "persistent outside project",
-				ProofScope:  sessionMutationProofScopeTestsDocs,
+				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
 			Apply: func() (sessionMutationExecution, error) {
 				fixed, failures := ensureAgentCanTraverseExposedDirs(projectDir, exposedDirs)
@@ -121,7 +121,7 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 				Summary:     "git metadata ACL repair",
 				Detail:      fmt.Sprintf("may add collaborative ACLs under %s before launch if current metadata permissions are broken", gitDir),
 				Persistence: "persistent in project",
-				ProofScope:  sessionMutationProofScopeTestsDocs,
+				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
 			Apply: func() (sessionMutationExecution, error) {
 				fixed, err := ensureGitMetadataHealthy(projectDir)

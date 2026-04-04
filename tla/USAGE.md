@@ -167,5 +167,7 @@ fi
 | 04 Version Migration | 3 versions, rollback from any state | 44,795 distinct | ~6s with `-lncheck final` |
 | 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
 | 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
+| 07 Session Permission Repairs | 4 repair classes, native/docker planning, preview/launch/rollback phases | 6,634 distinct | ~2s |
+| 08 Harness Lifecycle | 3 harnesses, 2 importable harnesses, dry-run/save/rollback variants | 1,564 distinct | ~2s |
 
 If TLC runs for more than 60 seconds, reduce your model bounds.

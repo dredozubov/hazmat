@@ -30,3 +30,5 @@ run_spec MC_BackupSafety yes
 run_spec MC_Migration yes
 run_spec MC_Tier3LaunchContainment no
 run_spec MC_TierPolicyEquivalence no
+run_spec MC_SessionPermissionRepairs no
+run_spec MC_HarnessLifecycle no

@@ -1013,7 +1013,7 @@ func (ctx *integrationResolveContext) planHomebrewToolAccessRepair(dir, binaryPa
 			Summary:     "Homebrew tool permission repair",
 			Detail:      fmt.Sprintf("may adjust permissions under %s so the agent can execute %s", cellarRoot, binaryPath),
 			Persistence: "persistent outside project",
-			ProofScope:  sessionMutationProofScopeTestsDocs,
+			ProofScope:  sessionMutationProofScopeTLAModel,
 		},
 		Apply: func() (sessionMutationExecution, error) {
 			if repairHomebrewToolAccess(dir) && integrationAgentExecCheck(binaryPath) {

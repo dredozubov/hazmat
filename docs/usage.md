@@ -80,7 +80,7 @@ Each line maps to a concrete boundary:
 - **Why this mode** — what triggered the mode selection (`--docker=sandbox`, project config, private-daemon Docker detection, or default)
 - **Project (read-write)** — the only directory the agent can modify
 - **Integrations** — active stack integrations and what they add automatically
-- **Host permission changes** — persistent permission repairs Hazmat may apply before launch, such as project ACL repair or a bounded toolchain permission fix
+- **Host permission changes** — persistent permission repairs Hazmat may apply before launch, such as project ACL repair or a bounded toolchain permission fix; the repair classes and rollback persistence contract are now modeled in TLA+
 - **Auto read-only** — read-only directories that Hazmat resolved on your behalf
 - **Read-only extensions** — explicit additional read-only directories from `-R` or config
 - **Read-write extensions** — explicit additional writable directories from `-W` or config
@@ -100,7 +100,8 @@ hazmat explain --integration node   # preview with an integration
 
 `hazmat explain` previews these changes but does not apply them. A real session
 may execute the listed permission repairs before launch if they are still
-needed at that point.
+needed at that point. The verified TLA+ model covers that preview-vs-launch
+split and the current non-reverting rollback contract for these repairs.
 
 `hazmat explain --json` emits the same prepared session state in a stable
 machine-readable form, including suggested integrations, active integrations,
@@ -159,7 +160,8 @@ policy. Explicit extra writable scope is handled separately through `-W` or
 Built-in integrations may also plan narrowly-scoped host permission repairs for
 known local toolchains when the current host permissions would otherwise block
 the agent user. These changes are shown under `Host permission changes` before
-launch and are never applied by `hazmat explain`.
+launch, are never applied by `hazmat explain`, and now share the same TLA+
+state-machine coverage as the other session mutation classes.
 
 Repos can still ship a `.hazmat/integrations.yaml` listing recommended integrations.
 On first use, hazmat prompts once for approval; after that, the approved

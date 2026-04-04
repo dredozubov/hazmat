@@ -134,7 +134,9 @@ ancestor paths needed to traverse explicitly exposed directories. With
 Homebrew-backed integration resolution enabled, Hazmat may also plan a narrow
 toolchain permission repair under a Homebrew Cellar path when local mode bits
 would otherwise block the agent user. These repairs are shown in the session
-contract under `Host permission changes`.
+contract under `Host permission changes`. The verified TLA+ suite now models
+the repair classes, preview-vs-launch behavior, and rollback persistence of
+that contract.
 
 **`hazmat explain` is a pure preview for these repairs.** It computes and shows
 the same planned host permission changes that a real launch may apply, but it
@@ -214,7 +216,9 @@ or explicit integration read dirs instead.
 **Rollback does not revert session-time permission repairs.** `hazmat rollback`
 does not remove collaborative ACLs added to project trees, `.git`, or exposed
 ancestor paths during later sessions, and it does not revert Homebrew toolchain
-permission repairs. Those are outside the current rollback scope.
+permission repairs. That non-reversion is now an explicit part of the TLA+
+proof bar for session mutation behavior, even though the exact ACL/chmod
+filesystem operations are still covered by tests and docs rather than the model.
 
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents, including harness state such as Claude and OpenCode config, auth, and imported basics, survive rollback.
 

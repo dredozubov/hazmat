@@ -20,6 +20,8 @@ and TLC's exhaustive state exploration are designed to verify.
 | 4 | `04_version_migration.md` | Version migration, rollback from any state, and migration recovery | **High** |
 | 5 | `05_tier3_launch_containment.md` | Tier 3 host-side mount planning, gating, and policy-before-launch ordering | **High** |
 | 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Canonical Tier 2/Tier 3 core containment equivalence and intentional exact-identity breaks | **High** |
+| 7 | `07_session_permission_repairs.md` | Session-time host permission repair planning, preview/launch semantics, and rollback persistence | **High** |
+| 8 | `08_harness_lifecycle.md` | Built-in harness bootstrap/import state recording and rollback cleanup semantics | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

@@ -8,12 +8,13 @@
 \*
 \* Governed code:
 \*   hazmat/init.go       — runInit(), migration dispatch
-\*   hazmat/migrate.go    — migration functions (to be created)
+\*   hazmat/migrate.go    — migration functions
 \*   hazmat/rollback.go   — runRollback()
 \*   ~/.hazmat/state.json — core version tracking file
 \*
-\* Extra per-harness metadata may exist under state.json, but it is intentionally
-\* out of model until harness-specific migration tracks are formalized.
+\* Extra per-harness metadata may also exist under state.json. That lifecycle is
+\* modeled separately in MC_HarnessLifecycle; this spec covers only the core
+\* init-version migration chain.
 
 EXTENDS Naturals, Sequences, FiniteSets
 

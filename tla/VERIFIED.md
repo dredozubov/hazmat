@@ -5,11 +5,11 @@ verification, what was proved or disproved, and the governance rules that apply
 to future changes in those areas.
 
 Important scope boundary: the current TLA+ suite governs Hazmat's core
-containment, rollback, seatbelt, backup, and core version-migration logic. It
-does **not** yet model harness-specific lifecycle and import state such as
-Claude/OpenCode curated imports, per-harness metadata under `~/.hazmat/state.json`,
-or session-only integration activation/pinning. That work is tracked separately
-and should not be implied by the existing proofs.
+containment, rollback, seatbelt, backup, core version-migration logic,
+session-time host permission repair planning/persistence, and built-in harness
+state recording/rollback cleanup. It still does **not** model curated import
+file contents, session-only integration activation/pinning, or future harness
+plugin systems. Those should not be implied by the existing proofs.
 
 Important additional scope boundary: the current TLA+ suite now includes the
 host-side Tier 3 launch boundary for Docker-capable sessions: mount-planner
@@ -24,12 +24,11 @@ core containment equivalence and disproves exact backend identity. The suite
 does **not** claim that Seatbelt policy and Docker Sandbox runtime behavior are
 identical implementations.
 
-Important session-mutation boundary: the current suite does **not** model
-session-time host permission repairs such as project ACL repair, `.git`
-metadata ACL repair, exposed-directory traverse ACL repair, or Homebrew
-toolchain permission repair. Hazmat now surfaces these operations explicitly in
-the session contract with proof scope metadata, but they remain governed by
-tests and documentation rather than the current TLA+ specs.
+Important concrete-IO boundary: the current suite models which repair classes
+and harness-state transitions Hazmat may plan, apply, preserve, or delete. It
+does **not** model the exact `chmod`/ACL syscall effects, concrete filesystem
+walk details, imported file contents, or timestamp values. Those remain
+governed by tests and documentation.
 
 ---
 
@@ -214,7 +213,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
-| Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is currently out of model) |
+| Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
 | Status | **Proved** — 44,795 states, 140,535 transitions, 0 errors (3s) |
@@ -363,6 +362,97 @@ generated, depth 1, 13s).
 
 ---
 
+### 7 — Session-Time Permission Repairs
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/07_session_permission_repairs.md` |
+| TLA+ files | `tla/MC_SessionPermissionRepairs.tla`, `tla/MC_SessionPermissionRepairs.cfg` |
+| Governed code | `hazmat/session_mutation.go` — native mutation planning/execution |
+| Governed code | `hazmat/workspace_acl.go` — project/traverse ACL repair detection and repair |
+| Governed code | `hazmat/git_preflight.go` — `.git` metadata repair checks |
+| Governed code | `hazmat/integration_resolver.go` — Homebrew tool permission repair planning |
+| Governed code | `hazmat/session.go`, `hazmat/explain.go` — preview vs launch mutation behavior |
+| Key invariants | `PlannedRepairsMatchSnapshot`, `PreviewIsReadOnly`, `DockerSkipsNativeACLRepairs`, `HomebrewRepairRequiresEligibleCellar`, `LaunchClearsFatalRepairNeeds`, `RollbackPreservesSessionRepairs` |
+| Status | **Proved** — explicit host permission repair classes, preview semantics, and non-reverting rollback behavior are now modeled |
+
+**What this verifies:**
+
+1. **Preview is pure:** `hazmat explain` shows the same repair classes a real
+   session may need, but it does not mutate host permissions.
+
+2. **Mode-specific planning is explicit:** native sessions may plan project,
+   traverse, and `.git` ACL repairs; Docker Sandbox sessions do not silently
+   inherit those native-only repair classes.
+
+3. **Homebrew repair stays narrow:** the Homebrew toolchain repair path is only
+   planned when an eligible Homebrew Cellar path is both in scope and still
+   blocked.
+
+4. **Rollback preserves these repairs:** core rollback does not claim to undo
+   any already-applied session repair. That persistence is now part of the
+   proved contract instead of documentation-only behavior.
+
+TLC passes across all 6,634 reachable states (15,663 generated, depth 7, ~2s).
+
+**Change rules:**
+- Adding a new host permission repair class requires updating this spec first:
+  define when it is planned, whether preview may show it, whether launch must
+  block on it, and whether rollback preserves it.
+- Changing native vs Docker mutation planning requires re-running this spec
+  before implementation. The current proof intentionally keeps
+  project/traverse/git ACL repair native-only.
+- Changing whether rollback reverts any of these repairs requires updating this
+  spec first. The current proof bar is explicit non-reversion.
+- Changing `hazmat explain` so it mutates or omits planned repairs requires
+  updating this model first.
+
+---
+
+### 8 — Harness Lifecycle
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/08_harness_lifecycle.md` |
+| TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
+| Governed code | `hazmat/harness.go` — harness state recording |
+| Governed code | `hazmat/state.go` — `saveState()`, `updateHarnessState()`, `writeState()` |
+| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go` — bootstrap flows |
+| Governed code | `hazmat/config_import.go`, `hazmat/config_import_opencode.go` — curated import flows |
+| Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
+| Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
+| Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
+
+**What this verifies:**
+
+1. **Known-version recording only:** successful harness recording writes only
+   the declared built-in harness state version.
+
+2. **Dry runs are read-only:** dry-run bootstrap/import paths do not mutate
+   either `~/.hazmat/state.json` or the agent-home artifact state.
+
+3. **Core state saves preserve harness metadata:** `saveState()` for init and
+   migration does not erase or rewrite existing harness metadata.
+
+4. **Rollback cleanup is split correctly:** rollback removes the host-owned
+   harness metadata record, but agent-home harness artifacts survive unless the
+   user chooses destructive rollback with `--delete-user`.
+
+TLC passes across all 1,564 reachable states (16,064 generated, depth 10, ~2s).
+
+**Change rules:**
+- Adding a new built-in harness requires updating this spec first: define
+  whether it supports curated import, how it records state, and what rollback
+  removes.
+- Changing harness dry-run behavior requires updating this spec first. The
+  current proof requires dry runs to be read-only.
+- Changing how `saveState()` preserves or rewrites harness metadata requires
+  updating this spec first.
+- Changing rollback semantics for `~/.hazmat/state.json` or agent-home harness
+  files requires updating this spec first.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -373,21 +463,22 @@ generated, depth 1, 13s).
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/integration_manifest.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/integration_manifest.go:isCredentialDenyPath()` |
+| `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
+| `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 
 ---
 
 ## Not Yet Formally Modeled
 
-- Harness-specific bootstrap/import lifecycle for Claude/OpenCode
-- Per-harness metadata stored in `~/.hazmat/state.json`
-- Harness-specific rollback semantics beyond the agent-home coarse model
+- Exact curated import file contents, conflict-resolution behavior, and merged JSON/file payload semantics
 - Integration activation, project pinning, and integration-specific snapshot ignore rules
-- Session-time host permission repairs and their rollback semantics
+- Exact ACL/chmod filesystem walk semantics for session-time permission repairs
+- Reworked setup-completion liveness under the current bounded setup/rollback retry model
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
 - Explicit Tier 3 API-key or other model-credential injection mechanisms, which are not yet implemented in `hazmat/sandbox.go`
 
-Until a harness-specific spec exists, these areas are governed by tests and
-documentation rather than the current TLC proofs.
+These areas remain governed by tests and documentation rather than the current
+TLC proofs.
 
 ---
 

@@ -16,6 +16,8 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_Migration` | Version upgrades, rollback from any state | `AgentContained` across 44,795 states including partial migrations |
 | `MC_Tier3LaunchContainment` | Tier 3 host-side launch boundary | `CredentialPathsNeverMounted` — Tier 3 never mounts credential zones |
 | `MC_TierPolicyEquivalence` | Tier 2 vs Tier 3 core policy contract | `CanonicalCoreContainmentEquivalent` — canonical core containment matches across both backends |
+| `MC_SessionPermissionRepairs` | Session-time host permission repair planning and rollback persistence | `RollbackPreservesSessionRepairs` — core rollback never reverts an applied session repair |
+| `MC_HarnessLifecycle` | Built-in harness state recording and rollback cleanup | `RollbackClearsMetadata` — rollback removes the host-owned harness metadata record |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -65,6 +67,8 @@ tla/                     TLA+ formal verification specs
   MC_Migration.*         Version migration + rollback from any state
   MC_Tier3LaunchContainment.* Tier 3 launch boundary
   MC_TierPolicyEquivalence.* Tier 2 vs Tier 3 effective-policy contract
+  MC_SessionPermissionRepairs.* Session-time permission repair contract
+  MC_HarnessLifecycle.* Harness state recording + rollback cleanup
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
@@ -110,6 +114,12 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Changing Tier 2/Tier 3 path normalization or cross-backend contract claims
 → Update `MC_TierPolicyEquivalence.tla` first, run TLC, then implement.
+
+### Changing session-time host permission repair planning or rollback persistence
+→ Update `MC_SessionPermissionRepairs.tla` first, run TLC, then implement.
+
+### Changing harness bootstrap/import state recording or rollback cleanup
+→ Update `MC_HarnessLifecycle.tla` first, run TLC, then implement.
 
 ## Key conventions
 

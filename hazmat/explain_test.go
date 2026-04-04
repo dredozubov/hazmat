@@ -31,7 +31,7 @@ func TestBuildExplainJSON(t *testing.T) {
 				Summary:     "project ACL repair",
 				Detail:      "may add collaborative ACLs under /tmp/project",
 				Persistence: "persistent in project",
-				ProofScope:  sessionMutationProofScopeTestsDocs,
+				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
 		},
 		IntegrationExcludes: []string{".venv/"},

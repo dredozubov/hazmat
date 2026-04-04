@@ -123,12 +123,11 @@ cd tla/
 
 ## Known spec-vs-implementation divergences
 
-**Harness metadata in `state.json` is intentionally out of model.** The Go
-implementation now persists per-harness metadata under `state.harnesses`.
-`MC_Migration.tla` models only the core init-version migration chain because
-that metadata does not yet participate in Hazmat's versioned host-artifact
-migration logic. A future harness-specific migration track should model it
-explicitly rather than overloading the current core migration model.
+**Harness metadata is modeled separately, not here.** The Go implementation
+persists per-harness metadata under `state.harnesses`, and that lifecycle now
+has its own spec in `MC_HarnessLifecycle.tla`. `MC_Migration.tla` continues to
+model only the core init-version migration chain because harness metadata does
+not currently participate in Hazmat's versioned host-artifact migration logic.
 
 **Detection heuristic for v0.1.0 installs.** The spec models `Init` as
 starting from `Expected(v)` for any version — a complete, consistent artifact

@@ -247,7 +247,8 @@ Three OS-level enforcement layers:
 3. **pf firewall** — packet filter rules scoped to `user agent`. Blocks dangerous protocols.
 
 Setup ordering, seatbelt policy structure, backup safety, version migration,
-Tier 3 launch containment, and Tier 2/Tier 3 core policy equivalence are
+session-time host permission repairs, harness lifecycle state, Tier 3 launch
+containment, and Tier 2/Tier 3 core policy equivalence are
 [formally verified with TLA+](tla/VERIFIED.md).
 
 ## Undo Everything

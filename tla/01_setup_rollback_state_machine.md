@@ -85,10 +85,11 @@ and how many setup/rollback attempts have occurred.
    Modeling them as one atomic step is safe because the real code always
    completes all steps.
 
-3. **Harness/session ergonomics are out of model.** Optional harness-specific
-   commands such as `hazmat bootstrap opencode`, curated import flows, and
-   session-only integration activation are not part of `runInit()` and are
-   therefore outside this setup/rollback model.
+3. **Harness/session ergonomics are outside this setup model.** Optional
+   harness-specific commands such as `hazmat bootstrap opencode`, curated
+   import flows, and session-only integration activation are not part of
+   `runInit()`. They are modeled separately where applicable and are still
+   intentionally outside this setup/rollback state machine.
 
 ## What TLC Finds
 

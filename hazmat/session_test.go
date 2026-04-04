@@ -1697,13 +1697,13 @@ func TestRenderSessionMutationDetails(t *testing.T) {
 			Summary:     "project ACL repair",
 			Detail:      "may add collaborative ACLs under /tmp/project",
 			Persistence: "persistent in project",
-			ProofScope:  "tests/docs only",
+			ProofScope:  "TLA+ model + tests/docs",
 		},
 	})
 
 	for _, want := range []string{
 		"hazmat: planned host permission changes",
-		"project ACL repair: may add collaborative ACLs under /tmp/project (persistent in project; proof scope: tests/docs only)",
+		"project ACL repair: may add collaborative ACLs under /tmp/project (persistent in project; proof scope: TLA+ model + tests/docs)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderSessionMutationDetails missing %q in:\n%s", want, got)
