@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"os/user"
 	"strings"
 	"testing"
 )
@@ -99,5 +101,32 @@ func TestSummarizeStackcheckResults(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q in:\n%s", want, summary)
 		}
+	}
+}
+
+func TestValidateStackcheckModePrereqs(t *testing.T) {
+	originalLookup := lookupAgentUser
+	t.Cleanup(func() {
+		lookupAgentUser = originalLookup
+	})
+
+	lookupAgentUser = func() (*user.User, error) {
+		return nil, errors.New("missing")
+	}
+
+	if err := validateStackcheckModePrereqs(stackcheckModeDetect); err != nil {
+		t.Fatalf("detect prereq err = %v, want nil", err)
+	}
+
+	err := validateStackcheckModePrereqs(stackcheckModeSmoke)
+	if err == nil || !strings.Contains(err.Error(), "stackcheck smoke requires local Hazmat initialization") {
+		t.Fatalf("smoke prereq err = %v, want init guidance", err)
+	}
+
+	lookupAgentUser = func() (*user.User, error) {
+		return &user.User{Username: agentUser, HomeDir: agentHome}, nil
+	}
+	if err := validateStackcheckModePrereqs(stackcheckModeSmoke); err != nil {
+		t.Fatalf("smoke prereq err = %v, want nil", err)
 	}
 }

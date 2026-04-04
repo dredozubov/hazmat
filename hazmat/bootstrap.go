@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/user"
 
 	"github.com/spf13/cobra"
 )
@@ -129,8 +128,8 @@ This command is idempotent: steps already completed are skipped.`,
 func runBootstrap(ui *UI, r *Runner) error {
 	// ── Step 1: verify agent user ─────────────────────────────────────────────
 	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("agent user %q not found — run 'hazmat init' first", agentUser)
+	if _, err := requireAgentUser(); err != nil {
+		return err
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/user"
 	"strings"
 	"time"
 
@@ -149,8 +148,8 @@ for the agent user. Codex keeps its own auth and runtime state under ~/.codex.`,
 
 func runCodexBootstrap(ui *UI, r *Runner) error {
 	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("agent user %q not found — run 'hazmat init' first", agentUser)
+	if _, err := requireAgentUser(); err != nil {
+		return err
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 

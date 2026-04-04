@@ -133,6 +133,10 @@ func newStackCheckRunCmd(mode string) *cobra.Command {
 }
 
 func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, error) {
+	if err := validateStackcheckModePrereqs(mode); err != nil {
+		return stackcheckResultSet{}, err
+	}
+
 	manifest, err := loadStackMatrixManifest(opts.ManifestPath)
 	if err != nil {
 		return stackcheckResultSet{}, err
@@ -174,6 +178,16 @@ func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, er
 	}
 
 	return resultSet, nil
+}
+
+func validateStackcheckModePrereqs(mode string) error {
+	if mode != stackcheckModeSmoke {
+		return nil
+	}
+	if _, err := requireAgentUser(); err != nil {
+		return fmt.Errorf("stackcheck smoke requires local Hazmat initialization: %w", err)
+	}
+	return nil
 }
 
 func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, mode string) stackcheckRepoResult {

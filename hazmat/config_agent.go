@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/user"
 	"strings"
 	"syscall"
 
@@ -46,8 +45,8 @@ func runConfigAgent(ui *UI) error {
 		return fmt.Errorf("config agent requires an interactive terminal")
 	}
 
-	if _, err := user.Lookup(agentUser); err != nil {
-		return fmt.Errorf("agent user %q not found — run 'hazmat init' first", agentUser)
+	if _, err := requireAgentUser(); err != nil {
+		return err
 	}
 
 	reader := bufio.NewReader(os.Stdin)
