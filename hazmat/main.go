@@ -153,7 +153,7 @@ func main() {
 		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
-		newConnectCmd(),
+		newConnectCmd(), newStackCheckCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
 
