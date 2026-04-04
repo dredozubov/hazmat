@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ func newExplainCmd() *cobra.Command {
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
+	var outputJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "explain",
@@ -28,6 +30,7 @@ sandbox setup, permission repair, or process execution.
 
 Examples:
   hazmat explain
+  hazmat explain --json
   hazmat explain -C ~/workspace/my-project --integration node
   hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
   hazmat explain --for opencode --docker=none -C ~/workspace/repo`,
@@ -48,7 +51,16 @@ Examples:
 				return err
 			}
 
+			if outputJSON {
+				preview := buildExplainJSON(target, cfg, mode, noBackup)
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				enc.SetEscapeHTML(false)
+				return enc.Encode(preview)
+			}
+
 			printSessionContract(cfg, mode, noBackup)
+			printSuggestedIntegrations(cfg.SuggestedIntegrations)
 			printSessionMutationDetails(cfg.PlannedHostMutations)
 			fmt.Fprint(cmd.ErrOrStderr(), renderIntegrationDetails(cfg.IntegrationDetails))
 			return nil
@@ -73,6 +85,8 @@ Examples:
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Preview native containment even if Docker markers are present")
+	cmd.Flags().BoolVar(&outputJSON, "json", false,
+		"Emit a machine-readable JSON preview instead of human-oriented text")
 	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")

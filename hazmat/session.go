@@ -25,6 +25,7 @@ type sessionConfig struct {
 	AutoReadDirs            []string // automatically added read-only dirs from integrations/defaults
 	BackupExcludes          []string
 	PlannedHostMutations    []sessionMutation
+	SuggestedIntegrations   []string          // auto-detected built-in integrations not currently active
 	IntegrationEnv          map[string]string // from integration env_passthrough (resolved values)
 	IntegrationRegistryKeys []string          // active registry-redirect env keys (for UX)
 	IntegrationExcludes     []string          // snapshot excludes added by active integrations
@@ -633,10 +634,7 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) (sessionMu
 	for _, spec := range integrations {
 		activeNames[spec.Meta.Name] = struct{}{}
 	}
-	if suggestions := suggestIntegrations(cfg.ProjectDir, activeNames); len(suggestions) > 0 {
-		fmt.Fprintf(os.Stderr, "hazmat: suggested integrations: %s (activate with --integration <name>)\n",
-			strings.Join(suggestions, ", "))
-	}
+	cfg.SuggestedIntegrations = suggestIntegrations(cfg.ProjectDir, activeNames)
 
 	if len(integrations) == 0 {
 		return sessionMutationPlan{}, nil
@@ -838,6 +836,7 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 
 func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
+	printSuggestedIntegrations(prepared.Config.SuggestedIntegrations)
 	printSessionMutationDetails(prepared.Config.PlannedHostMutations)
 	if prepared.Mode != sessionModeNative {
 		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
@@ -1156,6 +1155,18 @@ func printSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool
 
 func printSessionMutationDetails(mutations []sessionMutation) {
 	fmt.Fprint(os.Stderr, renderSessionMutationDetails(mutations))
+}
+
+func renderSuggestedIntegrations(suggestions []string) string {
+	if len(suggestions) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("hazmat: suggested integrations: %s (activate with --integration <name>)\n",
+		strings.Join(suggestions, ", "))
+}
+
+func printSuggestedIntegrations(suggestions []string) {
+	fmt.Fprint(os.Stderr, renderSuggestedIntegrations(suggestions))
 }
 
 func resolveReadDirs(paths []string) ([]string, error) {

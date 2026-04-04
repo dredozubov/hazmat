@@ -92,6 +92,7 @@ Preview any session without running it:
 
 ```bash
 hazmat explain                      # preview current project
+hazmat explain --json               # machine-readable preview for automation
 hazmat explain --docker=sandbox     # preview Docker Sandbox mode
 hazmat explain --docker=none        # preview code-only native mode
 hazmat explain --integration node   # preview with an integration
@@ -100,6 +101,11 @@ hazmat explain --integration node   # preview with an integration
 `hazmat explain` previews these changes but does not apply them. A real session
 may execute the listed permission repairs before launch if they are still
 needed at that point.
+
+`hazmat explain --json` emits the same prepared session state in a stable
+machine-readable form, including suggested integrations, active integrations,
+resolved integration sources and details, planned host permission changes,
+read-only access, snapshot excludes, and routing notes.
 
 ## Daily Usage
 

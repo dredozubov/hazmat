@@ -142,6 +142,10 @@ Integrations influence three parts of session setup:
 Hazmat prints integration-derived paths, snapshot excludes, registry redirect
 keys, and warnings at session start so the behavior stays visible.
 
+For automation and compatibility checks, `hazmat explain --json` exposes the
+same integration state in machine-readable form. Use that instead of parsing
+the human-oriented contract text.
+
 For some built-in integrations, Hazmat may also show a `Host permission
 changes` section in the session contract. This is used for narrowly-scoped,
 host-owned repairs such as a Homebrew toolchain permission fix that is required
