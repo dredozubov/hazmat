@@ -200,6 +200,116 @@ func TestResolveRuntimeIntegrationsHaskellCabalUsesRuntimeProbe(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeIntegrationsPythonUVUsesRuntimeProbe(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	pythonRoot := filepath.Join(t.TempDir(), "python-root")
+	pythonPath := writeExecutable(t, pythonRoot, "python3")
+	canonicalPythonRoot, err := canonicalizePath(pythonRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(pythonRoot): %v", err)
+	}
+	canonicalPythonPath, err := canonicalizePath(pythonPath)
+	if err != nil {
+		t.Fatalf("canonicalizePath(pythonPath): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"python3 -c import os, sys; print(os.path.realpath(sys.executable))": pythonPath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("python-uv")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(python-uv): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalPythonRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalPythonRoot)
+	}
+	if resolved[0].ResolvedEnv["UV_PYTHON"] != canonicalPythonPath {
+		t.Fatalf("ResolvedEnv[UV_PYTHON] = %q, want %q", resolved[0].ResolvedEnv["UV_PYTHON"], canonicalPythonPath)
+	}
+	wantPath := filepath.Join(canonicalPythonRoot, "bin") + string(os.PathListSeparator) + defaultAgentPath
+	if resolved[0].ResolvedEnv["PATH"] != wantPath {
+		t.Fatalf("ResolvedEnv[PATH] = %q, want %q", resolved[0].ResolvedEnv["PATH"], wantPath)
+	}
+	if resolved[0].Source != "python-uv (python runtime)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsPythonPoetryFallsBackToHomebrewPython(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	pythonRoot := filepath.Join(t.TempDir(), "python-root")
+	pythonPath := writeExecutable(t, pythonRoot, "python3")
+	canonicalPythonRoot, err := canonicalizePath(pythonRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(pythonRoot): %v", err)
+	}
+	canonicalPythonPath, err := canonicalizePath(pythonPath)
+	if err != nil {
+		t.Fatalf("canonicalizePath(pythonPath): %v", err)
+	}
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{"/bin/echo"}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputErrs: map[string]error{
+				"python3 -c import os, sys; print(os.path.realpath(sys.executable))": fmt.Errorf("missing python3"),
+				"python -c import os, sys; print(os.path.realpath(sys.executable))":  fmt.Errorf("missing python"),
+			},
+			outputs: map[string]string{
+				"/bin/echo --prefix --installed python@3.14": pythonRoot,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("python-poetry")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(python-poetry): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalPythonRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalPythonRoot)
+	}
+	if got := resolved[0].ResolvedEnv["UV_PYTHON"]; got != "" {
+		t.Fatalf("ResolvedEnv[UV_PYTHON] = %q, want empty for python-poetry", got)
+	}
+	wantPath := filepath.Join(canonicalPythonRoot, "bin") + string(os.PathListSeparator) + defaultAgentPath
+	if resolved[0].ResolvedEnv["PATH"] != wantPath {
+		t.Fatalf("ResolvedEnv[PATH] = %q, want %q", resolved[0].ResolvedEnv["PATH"], wantPath)
+	}
+	if resolved[0].Source != "python-poetry (Homebrew python@3.14)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+	if details := strings.Join(resolved[0].Details, "\n"); !strings.Contains(details, canonicalPythonPath) {
+		t.Fatalf("Details = %v, want entry containing %q", resolved[0].Details, canonicalPythonPath)
+	}
+}
+
 func TestResolveRuntimeIntegrationsJavaGradleUsesJavaAndGradleRuntime(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

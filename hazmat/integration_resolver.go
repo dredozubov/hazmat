@@ -87,6 +87,20 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "ghc/cabal runtime probe with Homebrew ghc and cabal-install fallback",
 		Resolve: resolveHaskellCabalIntegration,
 	},
+	"python-poetry": {
+		Summary:                  "python runtime probe with Homebrew python fallback",
+		ReplacesDeclaredReadDirs: true,
+		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+			return resolvePythonIntegration(ctx, spec, "python-poetry")
+		},
+	},
+	"python-uv": {
+		Summary:                  "python runtime probe with Homebrew python fallback",
+		ReplacesDeclaredReadDirs: true,
+		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+			return resolvePythonIntegration(ctx, spec, "python-uv")
+		},
+	},
 	"java-gradle": {
 		Summary: "JDK runtime probe with Homebrew openjdk and gradle fallback",
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
@@ -332,6 +346,28 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 	return result, nil
 }
 
+func resolvePythonIntegration(ctx *integrationResolveContext, spec IntegrationSpec, integrationName string) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	if runtimeDir, execPath, err := probePythonRuntime(ctx); err == nil && runtimeDir != "" && execPath != "" {
+		configurePythonIntegration(&result, integrationName, runtimeDir, execPath, "python runtime")
+		return result, nil
+	}
+
+	brewResult := ctx.brewPrefix("python@3.14", "python@3.13", "python@3.12", "python")
+	if brewResult.Prefix != "" {
+		runtimeDir, execPath, err := pythonRuntimeFromPrefix(ctx, brewResult.Prefix)
+		if err == nil && runtimeDir != "" && execPath != "" {
+			configurePythonIntegration(&result, integrationName, runtimeDir, execPath, "Homebrew "+brewResult.Formula)
+			result.Details = append(result.Details, fmt.Sprintf("%s: resolved via Homebrew %s -> %s", integrationName, brewResult.Formula, runtimeDir))
+			return result, nil
+		}
+	} else if brewResult.Detail != "" {
+		result.Details = append(result.Details, integrationName+": python "+brewResult.Detail)
+	}
+
+	return result, nil
+}
+
 func resolveHaskellCabalIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec}
 	var sourceParts []string
@@ -552,6 +588,58 @@ func resolveOpenTofuIntegration(ctx *integrationResolveContext, spec Integration
 		result.Details = append(result.Details, "opentofu-plan: "+brewResult.Detail)
 	}
 	return result, nil
+}
+
+func probePythonRuntime(ctx *integrationResolveContext) (string, string, error) {
+	for _, candidate := range []string{"python3", "python"} {
+		execPath, err := ctx.Probe.Output(candidate, "-c", "import os, sys; print(os.path.realpath(sys.executable))")
+		if err != nil || strings.TrimSpace(execPath) == "" {
+			continue
+		}
+		runtimeDir, resolvedExec, err := pythonRuntimeFromExecutable(ctx, execPath)
+		if err == nil && runtimeDir != "" && resolvedExec != "" {
+			return runtimeDir, resolvedExec, nil
+		}
+	}
+	return "", "", fmt.Errorf("no usable python runtime found")
+}
+
+func pythonRuntimeFromPrefix(ctx *integrationResolveContext, prefix string) (string, string, error) {
+	for _, executableName := range []string{"python3", "python"} {
+		runtimeDir, err := validatedRuntimeDir(ctx, prefix, filepath.Join("bin", executableName))
+		if err != nil || runtimeDir == "" {
+			continue
+		}
+		execPath := filepath.Join(runtimeDir, "bin", executableName)
+		return runtimeDir, execPath, nil
+	}
+	return "", "", fmt.Errorf("no python executable found under %s", prefix)
+}
+
+func pythonRuntimeFromExecutable(ctx *integrationResolveContext, execPath string) (string, string, error) {
+	execPath = strings.TrimSpace(execPath)
+	if execPath == "" {
+		return "", "", fmt.Errorf("empty python executable path")
+	}
+	resolvedExec, err := canonicalizePath(execPath)
+	if err != nil {
+		return "", "", err
+	}
+	runtimeDir, err := validatedRuntimeDir(ctx, filepath.Dir(filepath.Dir(resolvedExec)), filepath.Join("bin", filepath.Base(resolvedExec)))
+	if err != nil {
+		return "", "", err
+	}
+	return runtimeDir, resolvedExec, nil
+}
+
+func configurePythonIntegration(result *resolvedIntegration, integrationName, runtimeDir, execPath, sourcePart string) {
+	result.AdditionalReadDirs = []string{runtimeDir}
+	result.Source = fmt.Sprintf("%s (%s)", integrationName, sourcePart)
+	result.Details = append(result.Details, fmt.Sprintf("%s: resolved interpreter -> %s", integrationName, execPath))
+	result.ResolvedEnv["PATH"] = filepath.Join(runtimeDir, "bin") + string(os.PathListSeparator) + defaultAgentPath
+	if integrationName == "python-uv" {
+		result.ResolvedEnv["UV_PYTHON"] = execPath
+	}
 }
 
 func probeCanonicalDir(probe integrationProbe, name string, args ...string) (string, error) {
