@@ -49,6 +49,7 @@ Examples:
 			}
 
 			printSessionContract(cfg, mode, noBackup)
+			printSessionMutationDetails(cfg.PlannedHostMutations)
 			fmt.Fprint(cmd.ErrOrStderr(), renderIntegrationDetails(cfg.IntegrationDetails))
 			return nil
 		},

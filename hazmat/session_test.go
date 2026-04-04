@@ -1676,6 +1676,57 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 	}
 }
 
+func TestRenderSessionContractShowsPlannedHostPermissionChanges(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/project",
+		PlannedHostMutations: []sessionMutation{
+			{Summary: "project ACL repair"},
+			{Summary: "git metadata ACL repair"},
+		},
+	}
+
+	got := renderSessionContract(cfg, sessionModeNative, false)
+	if !strings.Contains(got, "Host permission changes: project ACL repair, git metadata ACL repair") {
+		t.Fatalf("renderSessionContract missing host permission changes in:\n%s", got)
+	}
+}
+
+func TestRenderSessionMutationDetails(t *testing.T) {
+	got := renderSessionMutationDetails([]sessionMutation{
+		{
+			Summary:     "project ACL repair",
+			Detail:      "may add collaborative ACLs under /tmp/project",
+			Persistence: "persistent in project",
+			ProofScope:  "tests/docs only",
+		},
+	})
+
+	for _, want := range []string{
+		"hazmat: planned host permission changes",
+		"project ACL repair: may add collaborative ACLs under /tmp/project (persistent in project; proof scope: tests/docs only)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderSessionMutationDetails missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildNativeSessionMutationPlanIncludesProjectRepair(t *testing.T) {
+	projectDir := t.TempDir()
+	plan := buildNativeSessionMutationPlan(sessionConfig{ProjectDir: projectDir})
+
+	found := false
+	for _, mutation := range plan.Describe() {
+		if mutation.Summary == "project ACL repair" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Describe() = %+v, want project ACL repair", plan.Describe())
+	}
+}
+
 func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 	got := renderSessionContract(sessionConfig{ProjectDir: "/tmp/project"}, sessionModeNative, true)
 

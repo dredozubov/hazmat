@@ -205,16 +205,11 @@ func collectAgentTraverseTargets(homeDir, projectDir string, dirs []string) []st
 }
 
 func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, []string) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, nil
-	}
-
 	var (
 		fixed    bool
 		failures []string
 	)
-	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
+	for _, path := range pendingAgentTraverseTargets(projectDir, dirs) {
 		if homeAllowsAgentTraverse(path) {
 			continue
 		}
@@ -226,6 +221,22 @@ func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, 
 	}
 
 	return fixed, failures
+}
+
+func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	var pending []string
+	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
+		if homeAllowsAgentTraverse(path) {
+			continue
+		}
+		pending = append(pending, path)
+	}
+	return pending
 }
 
 func applyACLTree(root, dirACLEntry, fileACLEntry string) []string {
@@ -278,20 +289,17 @@ func applyDevACLTree(root string) []string {
 // This replaces the old workspace-wide ACL scan during init. Instead of
 // fixing everything upfront, we fix per-project on first use.
 //
-// Returns true if a fix was applied (for UI messaging).
-func ensureProjectWritable(projectDir string) bool {
+// Returns true if a fix was applied.
+func ensureProjectWritable(projectDir string) (bool, error) {
 	// Fast path: project already has the inheritable dev ACL we need and
 	// known mutable dependency/build directories are healthy.
 	if !projectNeedsACLRepair(projectDir) {
-		return false
+		return false, nil
 	}
-
-	fmt.Fprintf(os.Stderr, "  Setting up project for agent access...\n")
 
 	if failures := applyDevACLTree(projectDir); len(failures) > 0 {
-		fmt.Fprintf(os.Stderr, "  Warning: could not fully set project ACL: %s\n", failures[0])
-		return false
+		return false, fmt.Errorf("%s", failures[0])
 	}
 
-	return true
+	return true, nil
 }

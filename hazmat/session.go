@@ -24,6 +24,7 @@ type sessionConfig struct {
 	UserReadDirs            []string // explicit host-configured or CLI read-only extensions
 	AutoReadDirs            []string // automatically added read-only dirs from integrations/defaults
 	BackupExcludes          []string
+	PlannedHostMutations    []sessionMutation
 	IntegrationEnv          map[string]string // from integration env_passthrough (resolved values)
 	IntegrationRegistryKeys []string          // active registry-redirect env keys (for UX)
 	IntegrationExcludes     []string          // snapshot excludes added by active integrations
@@ -73,8 +74,9 @@ const (
 )
 
 type preparedSession struct {
-	Config sessionConfig
-	Mode   sessionMode
+	Config             sessionConfig
+	Mode               sessionMode
+	NativeMutationPlan sessionMutationPlan
 }
 
 func (m sessionMode) label() string {
@@ -84,24 +86,6 @@ func (m sessionMode) label() string {
 	default:
 		return "Native containment"
 	}
-}
-
-func runSessionPreflight(cfg sessionConfig) error {
-	if ensureProjectWritable(cfg.ProjectDir) {
-		fmt.Fprintln(os.Stderr, "  Fixed project permissions for agent access")
-	}
-	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
-	if fixed, failures := ensureAgentCanTraverseExposedDirs(cfg.ProjectDir, exposedDirs); len(failures) > 0 {
-		fmt.Fprintf(os.Stderr, "  Warning: could not fully prepare exposed directories: %s\n", failures[0])
-	} else if fixed {
-		fmt.Fprintln(os.Stderr, "  Fixed exposed directory traversal for agent access")
-	}
-	if fixed, err := ensureGitMetadataHealthy(cfg.ProjectDir); err != nil {
-		return err
-	} else if fixed {
-		fmt.Fprintln(os.Stderr, "  Fixed Git metadata permissions for collaborative access")
-	}
-	return nil
 }
 
 func newShellCmd() *cobra.Command {
@@ -822,7 +806,12 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
-	return preparedSession{Config: cfg, Mode: mode}, nil
+	prepared := preparedSession{Config: cfg, Mode: mode}
+	if mode == sessionModeNative {
+		prepared.NativeMutationPlan = buildNativeSessionMutationPlan(cfg)
+		prepared.Config.PlannedHostMutations = prepared.NativeMutationPlan.Describe()
+	}
+	return prepared, nil
 }
 
 func resolvePreparedSessionMode(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, supportsSandbox bool) (sessionMode, error) {
@@ -848,13 +837,14 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 
 func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
+	printSessionMutationDetails(prepared.Config.PlannedHostMutations)
 	if prepared.Mode != sessionModeNative {
 		preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 		return nil
 	}
 
 	if preflightBeforeSnapshot {
-		if err := runSessionPreflight(prepared.Config); err != nil {
+		if err := executeSessionMutationPlan(prepared.NativeMutationPlan); err != nil {
 			return err
 		}
 	}
@@ -862,7 +852,7 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 
 	if !preflightBeforeSnapshot {
-		if err := runSessionPreflight(prepared.Config); err != nil {
+		if err := executeSessionMutationPlan(prepared.NativeMutationPlan); err != nil {
 			return err
 		}
 	}
@@ -1114,6 +1104,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	if len(cfg.IntegrationSources) > 0 {
 		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))
 	}
+	if len(cfg.PlannedHostMutations) > 0 {
+		fmt.Fprintf(&b, "  Host permission changes: %s\n", sessionMutationList(cfg.PlannedHostMutations))
+	}
 	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
 	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))
@@ -1155,6 +1148,10 @@ func sessionContractList(values []string) string {
 
 func printSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool) {
 	fmt.Fprint(os.Stderr, renderSessionContract(cfg, mode, skipSnapshot))
+}
+
+func printSessionMutationDetails(mutations []sessionMutation) {
+	fmt.Fprint(os.Stderr, renderSessionMutationDetails(mutations))
 }
 
 func resolveReadDirs(paths []string) ([]string, error) {
