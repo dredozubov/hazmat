@@ -29,6 +29,22 @@ type sessionMutationPlan struct {
 	Mutations []plannedSessionMutation
 }
 
+func mergeSessionMutationPlans(plans ...sessionMutationPlan) sessionMutationPlan {
+	merged := sessionMutationPlan{}
+	seen := make(map[string]struct{})
+	for _, plan := range plans {
+		for _, mutation := range plan.Mutations {
+			key := mutation.Metadata.Summary + "\x00" + mutation.Metadata.Detail
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged.Mutations = append(merged.Mutations, mutation)
+		}
+	}
+	return merged
+}
+
 func (p sessionMutationPlan) Describe() []sessionMutation {
 	if len(p.Mutations) == 0 {
 		return nil

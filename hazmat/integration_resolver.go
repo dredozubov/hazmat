@@ -42,6 +42,8 @@ type integrationResolveContext struct {
 	ProjectDir string
 	Probe      integrationProbe
 	homebrew   *integrationHomebrewResolver
+	mutations  sessionMutationPlan
+	mutationID map[string]struct{}
 }
 
 type integrationHomebrewResolver struct {
@@ -217,7 +219,7 @@ func integrationTimeoutForCommand(name string) time.Duration {
 	return integrationProbeTimeout
 }
 
-func resolveRuntimeIntegrations(projectDir string, integrations []IntegrationSpec) ([]resolvedIntegration, error) {
+func resolveRuntimeIntegrations(projectDir string, integrations []IntegrationSpec) ([]resolvedIntegration, sessionMutationPlan, error) {
 	ctx := &integrationResolveContext{
 		ProjectDir: projectDir,
 		Probe:      integrationProbeFactory(),
@@ -230,14 +232,14 @@ func resolveRuntimeIntegrations(projectDir string, integrations []IntegrationSpe
 			var err error
 			r, err = spec.Resolve(ctx, integration)
 			if err != nil {
-				return nil, err
+				return nil, sessionMutationPlan{}, err
 			}
 			r.Spec = integration
 			r.ReplaceDeclaredReadDirs = spec.ReplacesDeclaredReadDirs
 		}
 		resolved = append(resolved, r)
 	}
-	return resolved, nil
+	return resolved, ctx.mutations, nil
 }
 
 func integrationResolverFor(name string) (integrationResolverSpec, bool) {
@@ -248,7 +250,7 @@ func integrationResolverFor(name string) (integrationResolverSpec, bool) {
 func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
 	if dir, err := probeCanonicalDir(ctx.Probe, "go", "env", "GOROOT"); err == nil && dir != "" {
-		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "go")); err == nil && runtimeDir != "" {
+		if runtimeDir, err := validatedRuntimeDir(ctx, dir, filepath.Join("bin", "go")); err == nil && runtimeDir != "" {
 			result.AdditionalReadDirs = []string{runtimeDir}
 			result.Source = "go (go env GOROOT)"
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", runtimeDir))
@@ -263,7 +265,7 @@ func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) 
 
 	brewResult := ctx.brewPrefix("go")
 	if brewResult.Prefix != "" {
-		if dir := goRootFromPrefix(brewResult.Prefix); dir != "" {
+		if dir := goRootFromPrefix(ctx, brewResult.Prefix); dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
@@ -296,8 +298,8 @@ func repairGoCompanionTools(ctx *integrationResolveContext, result *resolvedInte
 		if integrationAgentExecCheck(binPath) {
 			continue
 		}
-		if repairHomebrewToolAccess(brewResult.Prefix) {
-			result.Details = append(result.Details, fmt.Sprintf("go: repaired %s Homebrew access at %s", tool, brewResult.Prefix))
+		if ctx.planHomebrewToolAccessRepair(brewResult.Prefix, binPath) {
+			result.Details = append(result.Details, fmt.Sprintf("go: planned %s Homebrew permission repair at %s", tool, brewResult.Prefix))
 		}
 	}
 }
@@ -306,7 +308,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 	result := resolvedIntegration{Spec: spec}
 	if execPath, err := ctx.Probe.Output("node", "-p", "process.execPath"); err == nil && execPath != "" {
 		prefix := filepath.Dir(filepath.Dir(strings.TrimSpace(execPath)))
-		dir, err := validatedRuntimeDir(prefix, filepath.Join("bin", "node"))
+		dir, err := validatedRuntimeDir(ctx, prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = "node (active runtime)"
@@ -317,7 +319,7 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 
 	brewResult := ctx.brewPrefix("node")
 	if brewResult.Prefix != "" {
-		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "node"))
+		dir, err := validatedRuntimeDir(ctx, brewResult.Prefix, filepath.Join("bin", "node"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("node (Homebrew %s)", brewResult.Formula)
@@ -343,7 +345,7 @@ func resolveHaskellCabalIntegration(ctx *integrationResolveContext, spec Integra
 		result.Details = append(result.Details, detail)
 	}
 
-	if dir, err := probeCommandPrefix(ctx.Probe, "ghc"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "ghc"); err == nil && dir != "" {
 		addDir(dir, "ghc runtime", fmt.Sprintf("haskell-cabal: resolved ghc runtime prefix -> %s", dir))
 	} else {
 		brewResult := ctx.brewPrefix("ghc")
@@ -354,7 +356,7 @@ func resolveHaskellCabalIntegration(ctx *integrationResolveContext, spec Integra
 		}
 	}
 
-	if dir, err := probeCommandPrefix(ctx.Probe, "cabal"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "cabal"); err == nil && dir != "" {
 		addDir(dir, "cabal runtime", fmt.Sprintf("haskell-cabal: resolved cabal runtime prefix -> %s", dir))
 	} else {
 		brewResult := ctx.brewPrefix("cabal-install")
@@ -372,7 +374,7 @@ func resolveHaskellCabalIntegration(ctx *integrationResolveContext, spec Integra
 func resolveRustIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec}
 	if dir, err := probeCanonicalDir(ctx.Probe, "rustc", "--print", "sysroot"); err == nil && dir != "" {
-		if runtimeDir, err := validatedRuntimeDir(dir, filepath.Join("bin", "rustc")); err == nil && runtimeDir != "" {
+		if runtimeDir, err := validatedRuntimeDir(ctx, dir, filepath.Join("bin", "rustc")); err == nil && runtimeDir != "" {
 			result.AdditionalReadDirs = []string{runtimeDir}
 			result.Source = "rust (rustc sysroot)"
 			result.Details = append(result.Details, fmt.Sprintf("rust: resolved sysroot via rustc -> %s", runtimeDir))
@@ -383,7 +385,7 @@ func resolveRustIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 
 	brewResult := ctx.brewPrefix("rust", "rustup")
 	if brewResult.Prefix != "" {
-		dir, err := validatedRuntimeDir(brewResult.Prefix, filepath.Join("bin", "rustc"))
+		dir, err := validatedRuntimeDir(ctx, brewResult.Prefix, filepath.Join("bin", "rustc"))
 		if err == nil && dir != "" {
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("rust (Homebrew %s)", brewResult.Formula)
@@ -417,7 +419,7 @@ func resolveJavaBuildIntegration(ctx *integrationResolveContext, spec Integratio
 	} else {
 		brewResult := ctx.brewPrefix("openjdk", "openjdk@21", "openjdk@17")
 		if brewResult.Prefix != "" {
-			if javaHome := javaHomeFromPrefix(brewResult.Prefix); javaHome != "" {
+			if javaHome := javaHomeFromPrefix(ctx, brewResult.Prefix); javaHome != "" {
 				addDir(javaHome, "Homebrew "+brewResult.Formula, fmt.Sprintf("%s: resolved JDK via Homebrew %s -> %s", integrationName, brewResult.Formula, javaHome))
 				if shouldSetResolvedJavaHomeEnv() {
 					result.ResolvedEnv["JAVA_HOME"] = javaHome
@@ -428,7 +430,7 @@ func resolveJavaBuildIntegration(ctx *integrationResolveContext, spec Integratio
 		}
 	}
 
-	if dir, err := probeCommandPrefix(ctx.Probe, toolCommand); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, toolCommand); err == nil && dir != "" {
 		addDir(dir, toolCommand+" runtime", fmt.Sprintf("%s: resolved %s runtime prefix -> %s", integrationName, toolCommand, dir))
 	} else {
 		brewResult := ctx.brewPrefix(brewFormulas...)
@@ -457,7 +459,7 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, spec IntegrationS
 
 	brewResult := ctx.brewPrefix("openjdk", "openjdk@21", "openjdk@17")
 	if brewResult.Prefix != "" {
-		if javaHome := javaHomeFromPrefix(brewResult.Prefix); javaHome != "" {
+		if javaHome := javaHomeFromPrefix(ctx, brewResult.Prefix); javaHome != "" {
 			result.AdditionalReadDirs = []string{javaHome}
 			result.Source = fmt.Sprintf("tla-java (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("tla-java: resolved via Homebrew %s -> %s", brewResult.Formula, javaHome))
@@ -473,7 +475,7 @@ func resolveTLAJavaIntegration(ctx *integrationResolveContext, spec IntegrationS
 
 func resolveRubyBundlerIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec}
-	if dir, err := probeCommandPrefix(ctx.Probe, "ruby"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "ruby"); err == nil && dir != "" {
 		result.AdditionalReadDirs = []string{dir}
 		result.Source = "ruby-bundler (ruby runtime)"
 		result.Details = append(result.Details, fmt.Sprintf("ruby-bundler: resolved ruby runtime prefix -> %s", dir))
@@ -505,7 +507,7 @@ func resolveElixirMixIntegration(ctx *integrationResolveContext, spec Integratio
 		result.Details = append(result.Details, detail)
 	}
 
-	if dir, err := probeCommandPrefix(ctx.Probe, "elixir"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "elixir"); err == nil && dir != "" {
 		addDir(dir, "elixir runtime", fmt.Sprintf("elixir-mix: resolved elixir runtime prefix -> %s", dir))
 	} else {
 		brewResult := ctx.brewPrefix("elixir")
@@ -516,7 +518,7 @@ func resolveElixirMixIntegration(ctx *integrationResolveContext, spec Integratio
 		}
 	}
 
-	if dir, err := probeCommandPrefix(ctx.Probe, "erl"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "erl"); err == nil && dir != "" {
 		addDir(dir, "erlang runtime", fmt.Sprintf("elixir-mix: resolved erlang runtime prefix -> %s", dir))
 	} else {
 		brewResult := ctx.brewPrefix("erlang")
@@ -533,7 +535,7 @@ func resolveElixirMixIntegration(ctx *integrationResolveContext, spec Integratio
 
 func resolveOpenTofuIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec}
-	if dir, err := probeCommandPrefix(ctx.Probe, "tofu"); err == nil && dir != "" {
+	if dir, err := probeCommandPrefix(ctx, ctx.Probe, "tofu"); err == nil && dir != "" {
 		result.AdditionalReadDirs = []string{dir}
 		result.Source = "opentofu-plan (tofu runtime)"
 		result.Details = append(result.Details, fmt.Sprintf("opentofu-plan: resolved tofu runtime prefix -> %s", dir))
@@ -580,7 +582,7 @@ func validatedReadDir(path string) (string, error) {
 	return resolved, nil
 }
 
-func probeCommandPrefix(probe integrationProbe, name string) (string, error) {
+func probeCommandPrefix(ctx *integrationResolveContext, probe integrationProbe, name string) (string, error) {
 	execPath, err := probe.LookPath(name)
 	if err != nil {
 		return "", err
@@ -593,11 +595,11 @@ func probeCommandPrefix(probe integrationProbe, name string) (string, error) {
 		execPath = resolvedPath
 	}
 	prefix := filepath.Dir(filepath.Dir(execPath))
-	return validatedToolchainPrefix(prefix, filepath.Join("bin", filepath.Base(execPath)))
+	return validatedToolchainPrefix(ctx, prefix, filepath.Join("bin", filepath.Base(execPath)))
 }
 
-func validatedToolchainPrefix(path, executableRel string) (string, error) {
-	dir, err := validatedRuntimeDir(path, executableRel)
+func validatedToolchainPrefix(ctx *integrationResolveContext, path, executableRel string) (string, error) {
+	dir, err := validatedRuntimeDir(ctx, path, executableRel)
 	if err != nil || dir == "" {
 		return "", err
 	}
@@ -636,7 +638,7 @@ func javaIntegrationSourcePart(source string) string {
 	}
 }
 
-func validatedRuntimeDir(path, executableRel string) (string, error) {
+func validatedRuntimeDir(ctx *integrationResolveContext, path, executableRel string) (string, error) {
 	dir, err := validatedReadDir(path)
 	if err != nil || dir == "" {
 		return "", err
@@ -646,10 +648,7 @@ func validatedRuntimeDir(path, executableRel string) (string, error) {
 	}
 	binaryPath := filepath.Join(dir, executableRel)
 	if !integrationAgentExecCheck(binaryPath) {
-		// Attempt to fix Homebrew tool permissions: some formulae install
-		// with 0700/0600 which blocks the agent user. The invoker owns
-		// these files and can grant read+execute via ACL without sudo.
-		if repairHomebrewToolAccess(dir) && integrationAgentExecCheck(binaryPath) {
+		if ctx != nil && ctx.planHomebrewToolAccessRepair(dir, binaryPath) {
 			return dir, nil
 		}
 		return "", fmt.Errorf("%q is not executable by %s", binaryPath, agentUser)
@@ -657,12 +656,12 @@ func validatedRuntimeDir(path, executableRel string) (string, error) {
 	return dir, nil
 }
 
-func goRootFromPrefix(prefix string) string {
+func goRootFromPrefix(ctx *integrationResolveContext, prefix string) string {
 	for _, candidate := range []string{
 		filepath.Join(prefix, "libexec"),
 		prefix,
 	} {
-		if dir, err := validatedRuntimeDir(candidate, filepath.Join("bin", "go")); err == nil && dir != "" {
+		if dir, err := validatedRuntimeDir(ctx, candidate, filepath.Join("bin", "go")); err == nil && dir != "" {
 			return dir
 		}
 	}
@@ -790,7 +789,7 @@ func (r *integrationHomebrewResolver) allowed() (bool, string) {
 
 func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) {
 	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
-		dir, err := validatedJavaHome(javaHome)
+		dir, err := validatedJavaHome(ctx, javaHome)
 		if err == nil && dir != "" {
 			return dir, "tla-java (JAVA_HOME)", nil
 		}
@@ -798,7 +797,7 @@ func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) 
 
 	if output, err := ctx.Probe.Output("java", "-XshowSettings:properties", "-version"); err == nil && output != "" {
 		if javaHome := parseJavaHome(output); javaHome != "" {
-			dir, err := validatedJavaHome(javaHome)
+			dir, err := validatedJavaHome(ctx, javaHome)
 			if err == nil && dir != "" {
 				return dir, "tla-java (java runtime)", nil
 			}
@@ -807,7 +806,7 @@ func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) 
 
 	if info, err := os.Stat(integrationJavaHomePath); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 		if out, err := ctx.Probe.Output(integrationJavaHomePath); err == nil && out != "" {
-			dir, err := validatedJavaHome(out)
+			dir, err := validatedJavaHome(ctx, out)
 			if err == nil && dir != "" {
 				return dir, "tla-java (java_home)", nil
 			}
@@ -828,7 +827,7 @@ func parseJavaHome(output string) string {
 	return ""
 }
 
-func validatedJavaHome(path string) (string, error) {
+func validatedJavaHome(ctx *integrationResolveContext, path string) (string, error) {
 	dir, err := validatedReadDir(path)
 	if err != nil || dir == "" {
 		return "", err
@@ -842,7 +841,7 @@ func validatedJavaHome(path string) (string, error) {
 		return "", fmt.Errorf("%q is not a Java home", dir)
 	}
 	if !integrationAgentExecCheck(javaBin) {
-		if repairHomebrewToolAccess(dir) && integrationAgentExecCheck(javaBin) {
+		if ctx != nil && ctx.planHomebrewToolAccessRepair(dir, javaBin) {
 			return dir, nil
 		}
 		return "", fmt.Errorf("%q is not executable by %s", javaBin, agentUser)
@@ -864,17 +863,17 @@ func shouldSetResolvedJavaHomeEnv() bool {
 	if javaHome == "" {
 		return true
 	}
-	_, err := validatedJavaHome(javaHome)
+	_, err := validatedJavaHome(nil, javaHome)
 	return err != nil
 }
 
-func javaHomeFromPrefix(prefix string) string {
+func javaHomeFromPrefix(ctx *integrationResolveContext, prefix string) string {
 	candidates := []string{
 		filepath.Join(prefix, "libexec", "openjdk.jdk", "Contents", "Home"),
 		prefix,
 	}
 	for _, candidate := range candidates {
-		if dir, err := validatedJavaHome(candidate); err == nil && dir != "" {
+		if dir, err := validatedJavaHome(ctx, candidate); err == nil && dir != "" {
 			return dir
 		}
 	}
@@ -996,38 +995,48 @@ func executableByAgentMode(mode os.FileMode, ownerUID, agentUID uint32, groupHas
 	return perm&0o001 != 0
 }
 
-// ── Homebrew tool ACL repair ──────────────────────────────────────────────────
-
-// repairHomebrewToolAccess grants the dev group read + execute access to a
-// Homebrew Cellar directory tree. Some formulae (Go, golangci-lint) install
-// with 0700/0600 permissions, blocking the agent user.
-//
-// The invoker owns these files, so no sudo is required for ACL modification.
-// Only acts on paths under a known Homebrew prefix. Returns true if a fix
-// was applied.
-var repairHomebrewToolAccess = repairHomebrewToolAccessImpl
-
-func repairHomebrewToolAccessImpl(dir string) bool {
-	cellarRoot := homebrewCellarRoot(dir)
+func (ctx *integrationResolveContext) planHomebrewToolAccessRepair(dir, binaryPath string) bool {
+	cellarRoot := homebrewRepairCellarRoot(dir)
 	if cellarRoot == "" {
 		return false
 	}
+	if ctx.mutationID == nil {
+		ctx.mutationID = make(map[string]struct{})
+	}
+	key := "homebrew:" + cellarRoot
+	if _, dup := ctx.mutationID[key]; dup {
+		return true
+	}
+	ctx.mutationID[key] = struct{}{}
+	ctx.mutations.Mutations = append(ctx.mutations.Mutations, plannedSessionMutation{
+		Metadata: sessionMutation{
+			Summary:     "Homebrew tool permission repair",
+			Detail:      fmt.Sprintf("may adjust permissions under %s so the agent can execute %s", cellarRoot, binaryPath),
+			Persistence: "persistent outside project",
+			ProofScope:  sessionMutationProofScopeTestsDocs,
+		},
+		Apply: func() (sessionMutationExecution, error) {
+			if repairHomebrewToolAccess(dir) && integrationAgentExecCheck(binaryPath) {
+				return sessionMutationExecution{
+					AppliedMessage: fmt.Sprintf("  Fixed Homebrew tool permissions for agent access: %s", cellarRoot),
+				}, nil
+			}
+			return sessionMutationExecution{}, fmt.Errorf("%q is still not executable by %s after attempting Homebrew permission repair", binaryPath, agentUser)
+		},
+	})
+	return true
+}
 
-	// Only fix paths the invoker owns.
-	info, err := os.Stat(cellarRoot)
-	if err != nil {
-		return false
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false
-	}
-	cu, err := user.Current()
-	if err != nil {
-		return false
-	}
-	uid, _ := strconv.ParseUint(cu.Uid, 10, 32)
-	if stat.Uid != uint32(uid) {
+// ── Homebrew tool permission repair ───────────────────────────────────────────
+
+// repairHomebrewToolAccess adjusts a Homebrew Cellar directory tree so the
+// agent user can execute the target toolchain. Only acts on invoker-owned
+// paths under a known Homebrew prefix. Returns true if a fix was applied.
+var repairHomebrewToolAccess = repairHomebrewToolAccessImpl
+
+func repairHomebrewToolAccessImpl(dir string) bool {
+	cellarRoot := homebrewRepairCellarRoot(dir)
+	if cellarRoot == "" {
 		return false
 	}
 
@@ -1044,9 +1053,32 @@ func repairHomebrewToolAccessImpl(dir string) bool {
 	if err := exec.Command("chmod", "-R", "o+rX", cellarRoot).Run(); err != nil {
 		return false
 	}
-
-	fmt.Fprintf(os.Stderr, "hazmat: fixed Homebrew tool permissions: %s\n", cellarRoot)
 	return true
+}
+
+func homebrewRepairCellarRoot(dir string) string {
+	cellarRoot := homebrewCellarRoot(dir)
+	if cellarRoot == "" {
+		return ""
+	}
+
+	info, err := os.Stat(cellarRoot)
+	if err != nil {
+		return ""
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	cu, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	uid, _ := strconv.ParseUint(cu.Uid, 10, 32)
+	if stat.Uid != uint32(uid) {
+		return ""
+	}
+	return cellarRoot
 }
 
 // homebrewCellarRoot returns the Cellar version root for a Homebrew path.

@@ -720,7 +720,7 @@ func testProjectToolchain(ui *UI) {
 	ui.TestPass(fmt.Sprintf("Active integrations: %s", strings.Join(names, ", ")))
 
 	// Run integration resolution (includes Homebrew ACL repair).
-	resolved, err := resolveRuntimeIntegrations(projectDir, integrations)
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, integrations)
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("Integration resolution failed: %v", err))
 		return

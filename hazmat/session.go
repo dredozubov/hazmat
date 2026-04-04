@@ -74,9 +74,9 @@ const (
 )
 
 type preparedSession struct {
-	Config             sessionConfig
-	Mode               sessionMode
-	NativeMutationPlan sessionMutationPlan
+	Config           sessionConfig
+	Mode             sessionMode
+	HostMutationPlan sessionMutationPlan
 }
 
 func (m sessionMode) label() string {
@@ -622,10 +622,10 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 
 // applyIntegrations resolves, validates, and merges active integrations into
 // the session config.
-func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
+func applyIntegrations(cfg *sessionConfig, integrationFlags []string) (sessionMutationPlan, error) {
 	integrations, err := resolveActiveIntegrations(integrationFlags, cfg.ProjectDir)
 	if err != nil {
-		return err
+		return sessionMutationPlan{}, err
 	}
 
 	// Detect and suggest integrations if none are active.
@@ -639,7 +639,7 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 	}
 
 	if len(integrations) == 0 {
-		return nil
+		return sessionMutationPlan{}, nil
 	}
 
 	names := make([]string, 0, len(integrations))
@@ -648,15 +648,15 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 	}
 	cfg.ActiveIntegrations = names
 
-	resolved, err := resolveRuntimeIntegrations(cfg.ProjectDir, integrations)
+	resolved, mutationPlan, err := resolveRuntimeIntegrations(cfg.ProjectDir, integrations)
 	if err != nil {
-		return err
+		return sessionMutationPlan{}, err
 	}
 
 	// Merge all integrations.
 	merged, err := mergeResolvedIntegrations(resolved)
 	if err != nil {
-		return err
+		return sessionMutationPlan{}, err
 	}
 
 	// Apply merged read dirs.
@@ -707,7 +707,7 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) error {
 		}
 	}
 
-	return nil
+	return mutationPlan, nil
 }
 
 func appendUniqueDirs(existing, additions []string) ([]string, []string) {
@@ -790,7 +790,8 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	if err != nil {
 		return preparedSession{}, err
 	}
-	if err := applyIntegrations(&cfg, opts.integrations); err != nil {
+	integrationMutationPlan, err := applyIntegrations(&cfg, opts.integrations)
+	if err != nil {
 		return preparedSession{}, err
 	}
 
@@ -806,11 +807,11 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
-	prepared := preparedSession{Config: cfg, Mode: mode}
+	prepared := preparedSession{Config: cfg, Mode: mode, HostMutationPlan: integrationMutationPlan}
 	if mode == sessionModeNative {
-		prepared.NativeMutationPlan = buildNativeSessionMutationPlan(cfg)
-		prepared.Config.PlannedHostMutations = prepared.NativeMutationPlan.Describe()
+		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
 	}
+	prepared.Config.PlannedHostMutations = prepared.HostMutationPlan.Describe()
 	return prepared, nil
 }
 
@@ -839,12 +840,15 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
 	printSessionMutationDetails(prepared.Config.PlannedHostMutations)
 	if prepared.Mode != sessionModeNative {
+		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
+			return err
+		}
 		preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 		return nil
 	}
 
 	if preflightBeforeSnapshot {
-		if err := executeSessionMutationPlan(prepared.NativeMutationPlan); err != nil {
+		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
 			return err
 		}
 	}
@@ -852,7 +856,7 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
 
 	if !preflightBeforeSnapshot {
-		if err := executeSessionMutationPlan(prepared.NativeMutationPlan); err != nil {
+		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
 			return err
 		}
 	}

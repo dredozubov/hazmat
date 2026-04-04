@@ -1580,7 +1580,7 @@ func TestApplyIntegrationsMergesSnapshotExcludes(t *testing.T) {
 		BackupExcludes: []string{"node_modules/"},
 	}
 
-	if err := applyIntegrations(&cfg, []string{"node"}); err != nil {
+	if _, err := applyIntegrations(&cfg, []string{"node"}); err != nil {
 		t.Fatalf("applyIntegrations: %v", err)
 	}
 
@@ -1611,7 +1611,7 @@ func TestApplyIntegrationsPopulatesSessionContractFields(t *testing.T) {
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}
 
-	if err := applyIntegrations(&cfg, []string{"go"}); err != nil {
+	if _, err := applyIntegrations(&cfg, []string{"go"}); err != nil {
 		t.Fatalf("applyIntegrations: %v", err)
 	}
 

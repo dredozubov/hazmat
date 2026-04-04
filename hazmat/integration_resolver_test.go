@@ -124,7 +124,7 @@ func TestResolveRuntimeIntegrationsGoUsesRuntimeProbe(t *testing.T) {
 	}
 	t.Setenv("GOROOT", "")
 
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestResolveRuntimeIntegrationsHaskellCabalUsesRuntimeProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadBuiltinIntegrationSpec(haskell-cabal): %v", err)
 	}
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestResolveRuntimeIntegrationsJavaGradleUsesJavaAndGradleRuntime(t *testing
 	if err != nil {
 		t.Fatalf("loadBuiltinIntegrationSpec(java-gradle): %v", err)
 	}
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestResolveRuntimeIntegrationsRubyBundlerUsesHomebrewFallback(t *testing.T)
 	if err != nil {
 		t.Fatalf("loadBuiltinIntegrationSpec(ruby-bundler): %v", err)
 	}
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestResolveRuntimeIntegrationsElixirMixUsesRuntimeProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadBuiltinIntegrationSpec(elixir-mix): %v", err)
 	}
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestResolveRuntimeIntegrationsOpenTofuUsesHomebrewFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadBuiltinIntegrationSpec(opentofu-plan): %v", err)
 	}
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestApplyIntegrationsPopulatesSourcesAndDetails(t *testing.T) {
 	}
 	t.Setenv("GOROOT", "")
 
-	if err := applyIntegrations(&cfg, []string{"go"}); err != nil {
+	if _, err := applyIntegrations(&cfg, []string{"go"}); err != nil {
 		t.Fatalf("applyIntegrations: %v", err)
 	}
 
@@ -570,7 +570,7 @@ func TestResolveRuntimeIntegrationsGoSkipsInaccessibleRuntime(t *testing.T) {
 	}
 	t.Setenv("GOROOT", "")
 
-	resolved, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
 	if err != nil {
 		t.Fatalf("resolveRuntimeIntegrations: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestValidatedJavaHomeRejectsLauncherStub(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/java"); err != nil {
 		t.Skip("/usr/bin/java not present on this platform")
 	}
-	if _, err := validatedJavaHome("/usr"); err == nil {
+	if _, err := validatedJavaHome(nil, "/usr"); err == nil {
 		t.Fatal("validatedJavaHome(/usr) should reject the macOS launcher stub")
 	}
 }
@@ -607,7 +607,7 @@ func TestValidatedJavaHomeAcceptsRealHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write java binary: %v", err)
 	}
-	got, err := validatedJavaHome(javaHome)
+	got, err := validatedJavaHome(nil, javaHome)
 	if err != nil {
 		t.Fatalf("validatedJavaHome(real home): %v", err)
 	}
@@ -625,7 +625,7 @@ func TestJavaHomeFromInstalledOpenJDKPrefix(t *testing.T) {
 	if _, err := os.Stat("/opt/homebrew/opt/openjdk"); err != nil {
 		t.Skip("installed openjdk prefix not present")
 	}
-	if got := javaHomeFromPrefix("/opt/homebrew/opt/openjdk"); got == "" {
+	if got := javaHomeFromPrefix(nil, "/opt/homebrew/opt/openjdk"); got == "" {
 		t.Fatal("javaHomeFromPrefix(/opt/homebrew/opt/openjdk) returned empty")
 	}
 }
@@ -778,9 +778,9 @@ func TestHomebrewCellarRoot(t *testing.T) {
 		{"/opt/homebrew/Cellar/go/1.26.1", "/opt/homebrew/Cellar/go/1.26.1"},
 		{"/opt/homebrew/Cellar/golangci-lint/2.11.4/bin", "/opt/homebrew/Cellar/golangci-lint/2.11.4"},
 		{"/usr/local/Cellar/node/22.0.0/lib", "/usr/local/Cellar/node/22.0.0"},
-		{"/opt/homebrew/opt/go", ""},           // not a Cellar path
-		{"/usr/local/bin/go", ""},               // not a Cellar path
-		{"/opt/homebrew/Cellar/go", ""},         // incomplete — no version
+		{"/opt/homebrew/opt/go", ""},    // not a Cellar path
+		{"/usr/local/bin/go", ""},       // not a Cellar path
+		{"/opt/homebrew/Cellar/go", ""}, // incomplete — no version
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

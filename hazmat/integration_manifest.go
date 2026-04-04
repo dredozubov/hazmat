@@ -992,7 +992,7 @@ func runIntegrationShow(name string) error {
 		projectDir = "."
 	}
 	resolved := resolvedIntegration{Spec: spec}
-	if resolvedSet, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{spec}); err == nil && len(resolvedSet) == 1 {
+	if resolvedSet, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{spec}); err == nil && len(resolvedSet) == 1 {
 		resolved = resolvedSet[0]
 	}
 	merged, err := mergeResolvedIntegrations([]resolvedIntegration{resolved})
