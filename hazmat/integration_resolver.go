@@ -64,6 +64,7 @@ var (
 	integrationBrewCandidates  = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
 	integrationJavaHomePath    = "/usr/libexec/java_home"
 	integrationAgentExecCheck  = func(path string) bool { return pathExecutableByAgent(path) }
+	integrationGetenv          = os.Getenv
 	homebrewConsentPrompt      = func() (bool, bool) {
 		if flagDryRun {
 			return false, false
@@ -153,7 +154,7 @@ func (hostIntegrationProbe) Output(name string, args ...string) (string, error) 
 
 func integrationProbeEnv() []string {
 	env := []string{
-		"HOME=" + os.Getenv("HOME"),
+		"HOME=" + integrationGetenv("HOME"),
 		"PATH=" + defaultAgentPath,
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 	}
@@ -162,7 +163,7 @@ func integrationProbeEnv() []string {
 	// non-default GOPATH, CARGO_HOME, etc.
 	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE", "TERM",
 		"GOPATH", "GOMODCACHE", "RUSTUP_HOME", "CARGO_HOME", "JAVA_HOME"} {
-		if value := os.Getenv(key); value != "" {
+		if value := integrationGetenv(key); value != "" {
 			env = append(env, key+"="+value)
 		}
 	}
@@ -185,7 +186,7 @@ func commandPathFromEnv(name string, env []string) (string, error) {
 		}
 	}
 	if pathValue == "" {
-		pathValue = os.Getenv("PATH")
+		pathValue = integrationGetenv("PATH")
 	}
 
 	for _, dir := range filepath.SplitList(pathValue) {
@@ -254,7 +255,7 @@ func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) 
 			result.AdditionalReadDirs = []string{runtimeDir}
 			result.Source = "go (go env GOROOT)"
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved GOROOT via go env -> %s", runtimeDir))
-			if os.Getenv("GOROOT") == "" {
+			if integrationGetenv("GOROOT") == "" {
 				result.ResolvedEnv["GOROOT"] = runtimeDir
 			}
 			repairGoCompanionTools(ctx, &result)
@@ -269,7 +270,7 @@ func resolveGoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) 
 			result.AdditionalReadDirs = []string{dir}
 			result.Source = fmt.Sprintf("go (Homebrew %s)", brewResult.Formula)
 			result.Details = append(result.Details, fmt.Sprintf("go: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
-			if os.Getenv("GOROOT") == "" {
+			if integrationGetenv("GOROOT") == "" {
 				result.ResolvedEnv["GOROOT"] = dir
 			}
 			repairGoCompanionTools(ctx, &result)
@@ -788,7 +789,7 @@ func (r *integrationHomebrewResolver) allowed() (bool, string) {
 }
 
 func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) {
-	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
+	if javaHome := integrationGetenv("JAVA_HOME"); javaHome != "" {
 		dir, err := validatedJavaHome(ctx, javaHome)
 		if err == nil && dir != "" {
 			return dir, "tla-java (JAVA_HOME)", nil
@@ -859,7 +860,7 @@ func javaLauncherStubHome(dir string) bool {
 }
 
 func shouldSetResolvedJavaHomeEnv() bool {
-	javaHome := os.Getenv("JAVA_HOME")
+	javaHome := integrationGetenv("JAVA_HOME")
 	if javaHome == "" {
 		return true
 	}
@@ -962,7 +963,7 @@ func agentHasPathExecute(path string, agentUID uint32) bool {
 		return false
 	}
 	for current := path; current != "/" && current != "."; current = filepath.Dir(current) {
-		if current == os.Getenv("HOME") && homeAllowsAgentTraverse(current) {
+		if current == integrationGetenv("HOME") && homeAllowsAgentTraverse(current) {
 			continue
 		}
 		info, err := os.Stat(current)
@@ -1099,41 +1100,4 @@ func homebrewCellarRoot(path string) string {
 		return ""
 	}
 	return root
-}
-
-func homebrewACLRepairTargets(cellarRoot, dir string) []string {
-	seen := make(map[string]struct{})
-	var targets []string
-	add := func(path string) {
-		path = filepath.Clean(path)
-		if path == "" {
-			return
-		}
-		if _, ok := seen[path]; ok {
-			return
-		}
-		seen[path] = struct{}{}
-		targets = append(targets, path)
-	}
-
-	cleanDir := filepath.Clean(dir)
-	add(cellarRoot)
-	for path := cleanDir; ; path = filepath.Dir(path) {
-		add(path)
-		if path == cellarRoot || path == "/" || path == "." {
-			break
-		}
-	}
-
-	binDir := filepath.Join(cleanDir, "bin")
-	if info, err := os.Stat(binDir); err == nil && info.IsDir() {
-		add(binDir)
-		if entries, err := os.ReadDir(binDir); err == nil {
-			for _, entry := range entries {
-				add(filepath.Join(binDir, entry.Name()))
-			}
-		}
-	}
-
-	return targets
 }

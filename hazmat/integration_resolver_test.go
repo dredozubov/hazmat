@@ -15,6 +15,18 @@ func allowAllIntegrationExecutables(t *testing.T) {
 	t.Cleanup(func() { integrationAgentExecCheck = saved })
 }
 
+func stubIntegrationEnv(t *testing.T, values map[string]string) {
+	t.Helper()
+	saved := integrationGetenv
+	integrationGetenv = func(key string) string {
+		if value, ok := values[key]; ok {
+			return value
+		}
+		return os.Getenv(key)
+	}
+	t.Cleanup(func() { integrationGetenv = saved })
+}
+
 type fakeIntegrationProbe struct {
 	outputs      map[string]string
 	lookPaths    map[string]string
@@ -218,7 +230,7 @@ func TestResolveRuntimeIntegrationsJavaGradleUsesJavaAndGradleRuntime(t *testing
 		}
 	}
 	t.Cleanup(func() { integrationProbeFactory = savedFactory })
-	t.Setenv("JAVA_HOME", javaHome)
+	stubIntegrationEnv(t, map[string]string{"JAVA_HOME": javaHome})
 
 	integration, err := loadBuiltinIntegrationSpec("java-gradle")
 	if err != nil {
@@ -727,8 +739,25 @@ func TestBrewPrefixUsesOptPrefixBeforeProbe(t *testing.T) {
 }
 
 func TestResolveTLAJavaIntegrationOverridesInvalidJavaHome(t *testing.T) {
+	isolateConfig(t)
 	allowAllIntegrationExecutables(t)
-	t.Setenv("JAVA_HOME", "/usr")
+	invalidJavaHome := filepath.Join(t.TempDir(), "invalid-java-home")
+	if err := os.MkdirAll(invalidJavaHome, 0o755); err != nil {
+		t.Fatalf("mkdir invalidJavaHome: %v", err)
+	}
+	stubIntegrationEnv(t, map[string]string{"JAVA_HOME": invalidJavaHome})
+	if got := integrationGetenv("JAVA_HOME"); got != invalidJavaHome {
+		t.Fatalf("integrationGetenv(JAVA_HOME) = %q, want %q", got, invalidJavaHome)
+	}
+	if _, err := validatedJavaHome(nil, invalidJavaHome); err == nil {
+		t.Fatalf("validatedJavaHome(%q) unexpectedly succeeded", invalidJavaHome)
+	}
+	if !shouldSetResolvedJavaHomeEnv() {
+		t.Fatal("shouldSetResolvedJavaHomeEnv() = false, want true for invalid JAVA_HOME")
+	}
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
 
 	prefix := filepath.Join(t.TempDir(), "openjdk-prefix")
 	javaHome := filepath.Join(prefix, "libexec", "openjdk.jdk", "Contents", "Home")

@@ -26,21 +26,6 @@ func devGroupACLEntryNoInherit() string {
 		"readattr,writeattr,readextattr,writeextattr,readsecurity"
 }
 
-// devGroupReadOnlyACLEntry returns the macOS ACL entry string that grants the
-// agent group read and execute access without granting write permissions.
-func devGroupReadOnlyACLEntry() string {
-	return "group:" + sharedGroup +
-		" allow read,execute,readattr,readextattr,readsecurity," +
-		"file_inherit,directory_inherit"
-}
-
-// devGroupReadOnlyACLEntryNoInherit returns the read-only ACL without
-// file_inherit and directory_inherit.
-func devGroupReadOnlyACLEntryNoInherit() string {
-	return "group:" + sharedGroup +
-		" allow read,execute,readattr,readextattr,readsecurity"
-}
-
 func aclOutputHasDevACL(output string, requireInherit bool) bool {
 	for _, line := range strings.Split(output, "\n") {
 		if !strings.Contains(line, "group:"+sharedGroup) {
