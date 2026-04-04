@@ -1,0 +1,71 @@
+name: Stack Matrix Drift
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: stack-matrix-drift
+  cancel-in-progress: true
+
+env:
+  GO_VERSION_FILE: hazmat/go.mod
+  GO_CACHE_DEP: hazmat/go.sum
+
+jobs:
+  drift:
+    name: Drift check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Build Hazmat
+        working-directory: hazmat
+        run: make all
+
+      - name: Drift required contract
+        id: required_contract
+        continue-on-error: true
+        run: >
+          bash scripts/e2e-stack-matrix.sh --skip-build --contract
+          --track required
+          --upstream-head
+          > stack-matrix-drift-required.json
+
+      - name: Drift informational detect
+        id: informational_detect
+        continue-on-error: true
+        run: >
+          bash scripts/e2e-stack-matrix.sh --skip-build --detect
+          --track informational
+          --upstream-head
+          > stack-matrix-drift-informational.json
+
+      - name: Upload drift artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-matrix-drift
+          path: |
+            stack-matrix-drift-required.json
+            stack-matrix-drift-informational.json
+          if-no-files-found: ignore
+
+      - name: Summarize drift
+        if: always()
+        run: |
+          {
+            echo "## Stack Matrix Drift"
+            echo "- required contract: ${{ steps.required_contract.outcome }}"
+            echo "- informational detect: ${{ steps.informational_detect.outcome }}"
+            echo
+            echo "Artifacts:"
+            echo "- stack-matrix-drift-required.json"
+            echo "- stack-matrix-drift-informational.json"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -28,12 +28,14 @@ type stackcheckOptions struct {
 	Track         string
 	Wave          int
 	IDs           []string
+	UpstreamHead  bool
 }
 
 type stackcheckResultSet struct {
 	ManifestPath  string                 `json:"manifest_path"`
 	WorkspaceRoot string                 `json:"workspace_root"`
 	Mode          string                 `json:"mode"`
+	RefMode       string                 `json:"ref_mode,omitempty"`
 	Track         string                 `json:"track,omitempty"`
 	Wave          int                    `json:"wave,omitempty"`
 	Results       []stackcheckRepoResult `json:"results"`
@@ -43,6 +45,8 @@ type stackcheckRepoResult struct {
 	ID              string                    `json:"id"`
 	Repo            string                    `json:"repo"`
 	Ref             string                    `json:"ref"`
+	ResolvedRef     string                    `json:"resolved_ref,omitempty"`
+	RefSource       string                    `json:"ref_source,omitempty"`
 	Wave            int                       `json:"wave"`
 	Track           string                    `json:"track"`
 	Status          string                    `json:"status"`
@@ -72,6 +76,13 @@ type stackcheckCommandOutcome struct {
 }
 
 var stackcheckMissingRequiredFormulas = stackcheckMissingRequiredFormulasImpl
+var stackcheckResolveUpstreamHead = stackcheckResolveUpstreamHeadImpl
+
+type stackcheckCheckoutTarget struct {
+	ref      string
+	dirLabel string
+	source   string
+}
 
 func newStackCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -131,6 +142,8 @@ func newStackCheckRunCmd(mode string) *cobra.Command {
 		"Only run repos from a specific wave (0 means all waves)")
 	cmd.Flags().StringArrayVar(&opts.IDs, "id", nil,
 		"Run only the named repo id(s) from the manifest")
+	cmd.Flags().BoolVar(&opts.UpstreamHead, "upstream-head", false,
+		"Resolve each repo to its current upstream HEAD instead of the pinned manifest SHA")
 	return cmd
 }
 
@@ -170,13 +183,14 @@ func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, er
 		ManifestPath:  opts.ManifestPath,
 		WorkspaceRoot: opts.WorkspaceRoot,
 		Mode:          mode,
+		RefMode:       stackcheckRefModeLabel(opts.UpstreamHead),
 		Track:         opts.Track,
 		Wave:          opts.Wave,
 		Results:       make([]stackcheckRepoResult, 0, len(repos)),
 	}
 
 	for _, repo := range repos {
-		resultSet.Results = append(resultSet.Results, runStackCheckForRepo(selfPath, opts.WorkspaceRoot, repo, mode))
+		resultSet.Results = append(resultSet.Results, runStackCheckForRepo(selfPath, opts.WorkspaceRoot, repo, mode, opts.UpstreamHead))
 	}
 
 	return resultSet, nil
@@ -192,7 +206,35 @@ func validateStackcheckModePrereqs(mode string) error {
 	return nil
 }
 
-func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, mode string) stackcheckRepoResult {
+func stackcheckRefModeLabel(upstreamHead bool) string {
+	if upstreamHead {
+		return "upstream_head"
+	}
+	return "pinned"
+}
+
+func resolveStackcheckCheckoutTarget(repo stackMatrixRepo, upstreamHead bool) (stackcheckCheckoutTarget, error) {
+	target := stackcheckCheckoutTarget{
+		ref:      repo.Ref,
+		dirLabel: repo.Ref[:12],
+		source:   "pinned",
+	}
+	if !upstreamHead {
+		return target, nil
+	}
+
+	ref, err := stackcheckResolveUpstreamHead(repo.Repo)
+	if err != nil {
+		return stackcheckCheckoutTarget{}, err
+	}
+	return stackcheckCheckoutTarget{
+		ref:      ref,
+		dirLabel: "head-" + ref[:12],
+		source:   "upstream_head",
+	}, nil
+}
+
+func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, mode string, upstreamHead bool) stackcheckRepoResult {
 	start := time.Now()
 	result := stackcheckRepoResult{
 		ID:     repo.ID,
@@ -209,7 +251,18 @@ func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, 
 		result.DurationMS = time.Since(start).Milliseconds()
 		return result
 	}
-	repoDir, err := ensureStackcheckRepoCheckout(workspaceRoot, repo)
+	target, err := resolveStackcheckCheckoutTarget(repo, upstreamHead)
+	if err != nil {
+		result.Status = stackcheckStatusFail
+		result.FailureClass = "repo_setup_failure"
+		result.Message = err.Error()
+		result.DurationMS = time.Since(start).Milliseconds()
+		return result
+	}
+	result.ResolvedRef = target.ref
+	result.RefSource = target.source
+
+	repoDir, err := ensureStackcheckRepoCheckout(workspaceRoot, repo, target)
 	if err != nil {
 		result.Status = stackcheckStatusFail
 		result.FailureClass = "repo_setup_failure"
@@ -512,7 +565,11 @@ func stackcheckTrimOutput(s string) string {
 
 func summarizeStackcheckResults(results stackcheckResultSet) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "hazmat: stackcheck %s\n", results.Mode)
+	if results.RefMode != "" && results.RefMode != "pinned" {
+		fmt.Fprintf(&b, "hazmat: stackcheck %s (%s)\n", results.Mode, results.RefMode)
+	} else {
+		fmt.Fprintf(&b, "hazmat: stackcheck %s\n", results.Mode)
+	}
 	passed := 0
 	failed := 0
 	for _, result := range results.Results {
@@ -538,8 +595,8 @@ func stackcheckFailureCount(results stackcheckResultSet) int {
 	return failures
 }
 
-func ensureStackcheckRepoCheckout(workspaceRoot string, repo stackMatrixRepo) (string, error) {
-	targetDir := filepath.Join(workspaceRoot, repo.ID+"-"+repo.Ref[:12])
+func ensureStackcheckRepoCheckout(workspaceRoot string, repo stackMatrixRepo, target stackcheckCheckoutTarget) (string, error) {
+	targetDir := filepath.Join(workspaceRoot, repo.ID+"-"+target.dirLabel)
 	projectDir := filepath.Join(targetDir, repo.ProjectSubdir)
 	if info, err := os.Stat(projectDir); err == nil && info.IsDir() {
 		return projectDir, nil
@@ -556,11 +613,11 @@ func ensureStackcheckRepoCheckout(workspaceRoot string, repo stackMatrixRepo) (s
 	if _, err := runStackcheckProcess("", "git", "clone", "--filter=blob:none", "--single-branch", "--no-checkout", repo.Repo, cloneDir); err != nil {
 		return "", fmt.Errorf("clone %s: %w", repo.Repo, err)
 	}
-	if _, err := runStackcheckProcess("", "git", "-C", cloneDir, "fetch", "--depth", "1", "origin", repo.Ref); err != nil {
-		return "", fmt.Errorf("fetch %s@%s: %w", repo.ID, repo.Ref, err)
+	if _, err := runStackcheckProcess("", "git", "-C", cloneDir, "fetch", "--depth", "1", "origin", target.ref); err != nil {
+		return "", fmt.Errorf("fetch %s@%s: %w", repo.ID, target.ref, err)
 	}
-	if _, err := runStackcheckProcess("", "git", "-C", cloneDir, "checkout", "--detach", repo.Ref); err != nil {
-		return "", fmt.Errorf("checkout %s@%s: %w", repo.ID, repo.Ref, err)
+	if _, err := runStackcheckProcess("", "git", "-C", cloneDir, "checkout", "--detach", target.ref); err != nil {
+		return "", fmt.Errorf("checkout %s@%s: %w", repo.ID, target.ref, err)
 	}
 	if err := os.Rename(cloneDir, targetDir); err != nil {
 		if info, statErr := os.Stat(projectDir); statErr == nil && info.IsDir() {
@@ -578,6 +635,28 @@ func ensureStackcheckRepoCheckout(workspaceRoot string, repo stackMatrixRepo) (s
 		return "", fmt.Errorf("project subdir %s is not a directory", projectDir)
 	}
 	return projectDir, nil
+}
+
+func stackcheckResolveUpstreamHeadImpl(repoURL string) (string, error) {
+	outcome, err := runStackcheckProcess("", "git", "ls-remote", repoURL, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve upstream HEAD for %s: %w", repoURL, err)
+	}
+	ref, err := parseStackcheckLSRemoteHead(outcome.stdout)
+	if err != nil {
+		return "", fmt.Errorf("resolve upstream HEAD for %s: %w", repoURL, err)
+	}
+	return ref, nil
+}
+
+func parseStackcheckLSRemoteHead(output string) (string, error) {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) >= 2 && fields[1] == "HEAD" && len(fields[0]) == 40 {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("git ls-remote output did not include a HEAD SHA")
 }
 
 func defaultStackcheckWorkspaceRoot() string {

@@ -165,3 +165,52 @@ func TestValidateStackcheckSmokeRepoPrereqs(t *testing.T) {
 		t.Fatalf("smoke prereq failure = (%q, %q), want empty", failureClass, message)
 	}
 }
+
+func TestResolveStackcheckCheckoutTarget(t *testing.T) {
+	repo := stackMatrixRepo{
+		ID:   "next-js",
+		Repo: "https://github.com/vercel/next.js",
+		Ref:  strings.Repeat("a", 40),
+	}
+
+	target, err := resolveStackcheckCheckoutTarget(repo, false)
+	if err != nil {
+		t.Fatalf("resolve pinned target returned error: %v", err)
+	}
+	if target.ref != repo.Ref || target.source != "pinned" || target.dirLabel != repo.Ref[:12] {
+		t.Fatalf("pinned target = %+v", target)
+	}
+
+	originalResolve := stackcheckResolveUpstreamHead
+	t.Cleanup(func() {
+		stackcheckResolveUpstreamHead = originalResolve
+	})
+	stackcheckResolveUpstreamHead = func(repoURL string) (string, error) {
+		if repoURL != repo.Repo {
+			t.Fatalf("repoURL = %q, want %q", repoURL, repo.Repo)
+		}
+		return strings.Repeat("b", 40), nil
+	}
+
+	target, err = resolveStackcheckCheckoutTarget(repo, true)
+	if err != nil {
+		t.Fatalf("resolve upstream target returned error: %v", err)
+	}
+	if target.ref != strings.Repeat("b", 40) || target.source != "upstream_head" || target.dirLabel != "head-"+strings.Repeat("b", 12) {
+		t.Fatalf("upstream target = %+v", target)
+	}
+}
+
+func TestParseStackcheckLSRemoteHead(t *testing.T) {
+	ref, err := parseStackcheckLSRemoteHead(strings.Repeat("c", 40) + "\tHEAD\n")
+	if err != nil {
+		t.Fatalf("parseStackcheckLSRemoteHead returned error: %v", err)
+	}
+	if ref != strings.Repeat("c", 40) {
+		t.Fatalf("ref = %q", ref)
+	}
+
+	if _, err := parseStackcheckLSRemoteHead("HEAD\n"); err == nil {
+		t.Fatal("expected parse error for malformed ls-remote output")
+	}
+}

@@ -20,6 +20,7 @@ WAVE=""
 MANIFEST="${STACKCHECK_MANIFEST:-$REPO_ROOT/testdata/stack-matrix/repos.yaml}"
 WORKSPACE_ROOT="${STACKCHECK_WORKSPACE_ROOT:-$HOME/workspace/stack-matrix}"
 SKIP_BUILD=""
+UPSTREAM_HEAD=""
 IDS=()
 
 usage() {
@@ -40,6 +41,7 @@ Paths:
   --manifest <path>        repo corpus manifest
   --workspace-root <path>  checkout/cache root for pinned repos
   --skip-build             trust the existing Hazmat binary instead of rebuilding
+  --upstream-head          resolve repos to current upstream HEAD instead of pinned SHAs
 
 Examples:
   bash scripts/e2e-stack-matrix.sh
@@ -87,6 +89,9 @@ while [ "$#" -gt 0 ]; do
         --skip-build)
             SKIP_BUILD="1"
             ;;
+        --upstream-head)
+            UPSTREAM_HEAD="1"
+            ;;
         --help|-h)
             usage
             exit 0
@@ -117,6 +122,9 @@ cmd=(
 if [ -n "$WAVE" ]; then
     cmd+=(--wave "$WAVE")
 fi
+if [ -n "$UPSTREAM_HEAD" ]; then
+    cmd+=(--upstream-head)
+fi
 
 for id in "${IDS[@]}"; do
     cmd+=(--id "$id")
@@ -130,6 +138,9 @@ if [ -n "$WAVE" ]; then
 fi
 if [ "${#IDS[@]}" -gt 0 ]; then
     printf '  ids: %s\n' "${IDS[*]}" >&2
+fi
+if [ -n "$UPSTREAM_HEAD" ]; then
+    printf '  ref mode: upstream_head\n' >&2
 fi
 printf '\n' >&2
 
