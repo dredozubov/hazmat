@@ -103,3 +103,4 @@
 {"id":"int-06277b68","kind":"field_change","created_at":"2026-04-04T14:33:51.453804Z","actor":"Denis Redozubov","issue_id":"sandboxing-qrz","extra":{"field":"status","new_value":"blocked","old_value":"in_progress"}}
 {"id":"int-94ff7b97","kind":"field_change","created_at":"2026-04-04T15:10:52.299288Z","actor":"Denis Redozubov","issue_id":"sandboxing-qrz","extra":{"field":"status","new_value":"closed","old_value":"blocked","reason":"Completed"}}
 {"id":"int-2acbbd70","kind":"field_change","created_at":"2026-04-04T15:10:52.333508Z","actor":"Denis Redozubov","issue_id":"sandboxing-zz0","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
+{"id":"int-a90fe275","kind":"field_change","created_at":"2026-04-04T15:41:42.190435Z","actor":"Denis Redozubov","issue_id":"sandboxing-89f","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
