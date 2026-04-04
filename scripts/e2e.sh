@@ -7,8 +7,13 @@
 # Works anywhere: local Mac, Lume VM guest, GHA macOS runner, Cirrus CI.
 #
 # Usage:
-#   bash scripts/e2e.sh              # from repo root
-#   bash scripts/e2e.sh --quick      # skip live network probes
+#   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh
+#   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+#
+# Warning:
+#   This script is destructive to the local Hazmat setup. It runs init,
+#   rollback --delete-user --delete-group, and then re-inits again. Prefer
+#   scripts/e2e-vm.sh for isolated local verification.
 #
 # Prerequisites:
 #   - macOS with sudo access
@@ -167,8 +172,8 @@ assert_file_content "$PROJECT/file.txt" "CORRUPTED BY AGENT" "damage: file.txt o
 assert_file_absent "$PROJECT/subdir/nested.txt" "damage: nested.txt deleted"
 assert_file_absent "$PROJECT/binary.dat" "damage: binary.dat deleted"
 
-# Restore from the most recent pre-session snapshot (session=2 because
-# the second exec created snapshot #2 of the original state before
+# Restore from the most recent pre-session snapshot (session=1 because
+# the second exec created the newest snapshot of the original state before
 # the agent damage happened outside containment).
 RESTORE_EXIT=0
 "$HAZMAT" --yes restore --session=1 2>&1 || RESTORE_EXIT=$?

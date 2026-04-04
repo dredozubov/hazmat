@@ -12,6 +12,9 @@
 # Usage:
 #   bash scripts/e2e-bootstrap.sh
 #   bash scripts/e2e-bootstrap.sh --skip-tla   # skip TLC (no Java/tla2tools)
+#
+# This is a host-side self-hosting test, not a VM wrapper. It assumes the host
+# is already initialized with hazmat init.
 
 set -euo pipefail
 

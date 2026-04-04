@@ -1,7 +1,8 @@
 #!/bin/sh
-# pre-push: mirror CI checks locally before pushing.
+# pre-push: fast local developer gate before pushing.
 # Runs: vet, unit tests, lint, CLI smoke tests.
-# Skips: e2e (requires full system setup), TLA+ (requires Java + tla2tools).
+# Skips: repo-matrix, e2e lifecycle, self-hosting bootstrap, and TLA+.
+# CI is broader than this hook.
 #
 # Install: make hooks   (or: cp scripts/pre-push .git/hooks/pre-push)
 

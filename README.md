@@ -276,6 +276,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
 | [integrations.md](docs/integrations.md) | Session integrations: activation, project extensions, repo recommendations, trust model |
+| [testing.md](docs/testing.md) | Test suite map: local loops, e2e scripts, CI, and VM-backed verification |
 | [tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) | Docker Sandbox mode: setup, network policy, Compose hardening |
 | [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
 | [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |

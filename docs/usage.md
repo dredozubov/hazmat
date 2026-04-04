@@ -299,6 +299,10 @@ hazmat check               # run full verification suite
 hazmat check --full        # include live network probes
 ```
 
+`hazmat check` validates the current local Hazmat install and containment
+behavior. It is not the full repo test suite. For lifecycle e2e, self-hosting,
+repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
+
 ## Backup and Restore
 
 ### Local project snapshots
