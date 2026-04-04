@@ -6,16 +6,8 @@ Output assets/demo.webm
 
 Require hazmat
 
-Set Shell "zsh"
-Set FontSize 16
-Set FontFamily "JetBrains Mono"
-Set Width 900
-Set Height 500
-Set Padding 15
-Set Theme "Catppuccin Mocha"
+Source assets/config.tape
 Set TypingSpeed 60ms
-Set WindowBar Colorful
-Set BorderRadius 8
 
 # Scene 1: Enter containment
 Type "cd ~/workspace/demo-project"

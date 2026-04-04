@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 HAZMAT_BIN    ?= /usr/local/bin/hazmat
 LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards hooks
+.PHONY: all hazmat hazmat-launch install install-helper uninstall clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards hooks
 
 all: hazmat hazmat-launch
 
@@ -29,6 +29,11 @@ install-helper: hazmat-launch
 	sudo install -d -m 0755 $$(dirname $(LAUNCH_HELPER))
 	sudo install -m 0755 hazmat-launch $(LAUNCH_HELPER)
 	@echo "Installed $(LAUNCH_HELPER)"
+
+uninstall:
+	sudo rm -f $(HAZMAT_BIN)
+	sudo rm -f $(LAUNCH_HELPER)
+	@echo "Uninstalled hazmat and hazmat-launch"
 
 test:
 	go test ./...
