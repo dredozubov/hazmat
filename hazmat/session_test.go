@@ -1518,6 +1518,7 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 		t.Fatalf("mkdir %s: %v", terminfoDir, err)
 	}
 	t.Setenv("TERM", "xterm-ghostty")
+	t.Setenv("TERMINFO_DIRS", "")
 
 	cfg := sessionConfig{
 		ProjectDir: "/Users/dr/workspace/project",
