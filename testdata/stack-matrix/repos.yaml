@@ -1,0 +1,212 @@
+schema_version: 1
+
+repos:
+  - id: next-js
+    wave: 1
+    track: required
+    default_check: smoke
+    repo: https://github.com/vercel/next.js
+    ref: f65b10a54d9abb2ceb3890bcadc22e372f635f88
+    stack: node-typescript
+    project_subdir: .
+    expected_suggestions: [node]
+    activate: [node]
+    required_formulas: [node, pnpm]
+    smoke_commands:
+      - pnpm lint
+    notes: High-signal Node and TypeScript target with nested packages and .next output.
+
+  - id: pydantic-ai
+    wave: 1
+    track: required
+    default_check: smoke
+    repo: https://github.com/pydantic/pydantic-ai
+    ref: a282bcade2c2a75847806bbba9cf511dd0623019
+    stack: python-uv
+    project_subdir: .
+    expected_suggestions: [python-uv]
+    activate: [python-uv]
+    required_formulas: [uv]
+    smoke_commands:
+      - uv run pytest tests -q
+    notes: Exercises uv workspace detection, VIRTUAL_ENV passthrough, and toolchain traversal.
+
+  - id: poetry
+    wave: 1
+    track: required
+    default_check: smoke
+    repo: https://github.com/python-poetry/poetry
+    ref: bfce5118814fa95445e823cb07a59bd77ffe1474
+    stack: python-poetry
+    project_subdir: .
+    expected_suggestions: [python-poetry]
+    activate: [python-poetry]
+    required_formulas: [poetry]
+    smoke_commands:
+      - poetry run pytest tests -q
+    notes: Canonical Poetry target that keeps poetry.lock detection narrow.
+
+  - id: ruff
+    wave: 2
+    track: required
+    default_check: smoke
+    repo: https://github.com/astral-sh/ruff
+    ref: af9ae49e84daf09f74e654ba3e6d87fe94f6d1ca
+    stack: rust
+    project_subdir: .
+    expected_suggestions: [rust]
+    activate: [rust]
+    required_formulas: [rust]
+    smoke_commands:
+      - cargo test -p ruff_python_parser
+    notes: Fast Rust regression target for sysroot detection and contained cargo workflows.
+
+  - id: ollama
+    wave: 3
+    track: informational
+    default_check: detect
+    repo: https://github.com/ollama/ollama
+    ref: 4589fa2cf5afd15fb19aca96c15b5fbf885d11cf
+    stack: go
+    project_subdir: .
+    expected_suggestions: [go]
+    activate: [go]
+    required_formulas: [go]
+    smoke_commands:
+      - go test ./...
+    notes: Good Go regression target once the fast-path corpus is stable.
+
+  - id: spring-boot
+    wave: 3
+    track: informational
+    default_check: detect
+    repo: https://github.com/spring-projects/spring-boot
+    ref: ccfb36cc99a19b622809685c5406b24c7b2bfb0e
+    stack: java-gradle-node
+    project_subdir: .
+    expected_suggestions: [java-gradle, node]
+    activate: [java-gradle, node]
+    required_formulas: [openjdk, gradle, node]
+    smoke_commands:
+      - ./gradlew help
+    notes: Primary Gradle target with a mixed Java and Node repo shape.
+
+  - id: apache-maven
+    wave: 3
+    track: informational
+    default_check: detect
+    repo: https://github.com/apache/maven
+    ref: b44e444fa10916db6467faf33be36b7d9fca31f7
+    stack: java-maven
+    project_subdir: .
+    expected_suggestions: [java-maven]
+    activate: [java-maven]
+    required_formulas: [openjdk, maven]
+    smoke_commands:
+      - ./mvnw -q -version
+    notes: Canonical Maven target for root-only pom.xml detection.
+
+  - id: rails
+    wave: 4
+    track: informational
+    default_check: detect
+    repo: https://github.com/rails/rails
+    ref: 3ee5e2dcf836224605e1cc2bbdfc4afa741dcd0e
+    stack: ruby-bundler-node
+    project_subdir: .
+    expected_suggestions: [ruby-bundler, node]
+    activate: [ruby-bundler, node]
+    required_formulas: [ruby, node]
+    smoke_commands:
+      - bundle exec rake test
+    notes: Canonical Bundler repo with a common mixed Ruby and JS layout.
+
+  - id: opentofu
+    wave: 4
+    track: informational
+    default_check: detect
+    repo: https://github.com/opentofu/opentofu
+    ref: 8a7ba57fef580e67adeb2823a160d3686c35c9ce
+    stack: opentofu
+    project_subdir: .
+    expected_suggestions: []
+    activate: [opentofu-plan]
+    required_formulas: [opentofu]
+    smoke_commands:
+      - tofu fmt -check
+    notes: Manual-activation OpenTofu target that matches current Homebrew reality better than Terraform core.
+
+  - id: terraform-aws-vpc
+    wave: 4
+    track: informational
+    default_check: detect
+    repo: https://github.com/terraform-aws-modules/terraform-aws-vpc
+    ref: 3ffbd46fb1c7733e1b34d8666893280454e27436
+    stack: terraform
+    project_subdir: .
+    expected_suggestions: [terraform-plan]
+    activate: [terraform-plan]
+    required_formulas: [opentofu]
+    smoke_commands:
+      - tofu fmt -check
+    notes: Useful Terraform module shape for detection and formatter-first validation.
+
+  - id: phoenix
+    wave: 5
+    track: informational
+    default_check: detect
+    repo: https://github.com/phoenixframework/phoenix
+    ref: 4cde2eac493be446d3f5b2db56f0daf22f139265
+    stack: elixir-mix-node
+    project_subdir: .
+    expected_suggestions: [elixir-mix, node]
+    activate: [elixir-mix, node]
+    required_formulas: [elixir, erlang, node]
+    smoke_commands:
+      - mix test
+    notes: Canonical Phoenix target for Mix detection once the higher-priority waves are stable.
+
+  - id: tlaplus-examples
+    wave: 5
+    track: informational
+    default_check: detect
+    repo: https://github.com/tlaplus/Examples
+    ref: dc6470ac55fe7f4f395ac62dba60ec6fd5d87c24
+    stack: tla-plus
+    project_subdir: .
+    expected_suggestions: [tla-java]
+    activate: [tla-java]
+    required_formulas: [openjdk]
+    smoke_commands:
+      - java -jar ~/workspace/tla2tools.jar -workers auto -config DieHard/DieHard.cfg DieHard/DieHard.tla
+    notes: Canonical TLA+ corpus for cfg-plus-tla sibling detection.
+
+  - id: pandoc
+    wave: 5
+    track: informational
+    default_check: detect
+    repo: https://github.com/jgm/pandoc
+    ref: 1a8d44b0c320927a3c3961ef4308dba6f1076723
+    stack: haskell-cabal
+    project_subdir: .
+    expected_suggestions: [haskell-cabal]
+    activate: [haskell-cabal]
+    required_formulas: [ghc, cabal-install]
+    smoke_commands:
+      - cabal build pandoc
+    notes: Canonical Cabal CLI target for later-wave Haskell validation.
+
+  - id: postgrest
+    wave: 5
+    track: informational
+    default_check: detect
+    repo: https://github.com/PostgREST/postgrest
+    ref: b610b1ea5199ed97107043a40b324724cefd67dd
+    stack: haskell-cabal-service
+    project_subdir: .
+    expected_suggestions: [haskell-cabal]
+    activate: [haskell-cabal]
+    required_formulas: [ghc, cabal-install, libpq]
+    smoke_commands:
+      - cabal build postgrest
+    notes: Service-shaped Haskell repo that broadens the Cabal coverage beyond CLI tools.

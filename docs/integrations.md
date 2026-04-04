@@ -365,6 +365,8 @@ Homebrew-backed read-only path derivation.
 
 This is still a point-in-time snapshot as of April 4, 2026. Refresh it when
 repo layouts, popularity, or Homebrew formula availability shift.
+The checked-in source of truth for automation is
+`testdata/stack-matrix/repos.yaml`; keep this table and that manifest aligned.
 
 | Repo | Stack | Expected integration(s) | Key markers | Relevant Homebrew formulas | Validation notes |
 |------|-------|-------------------------|-------------|----------------------------|------------------|
