@@ -27,6 +27,14 @@ type HarnessState struct {
 	LastImportRunAt string `json:"last_import_run_at,omitempty"`
 }
 
+type ManagedHarness struct {
+	Spec             HarnessSpec
+	LaunchCommand    string
+	BootstrapCommand string
+	Installed        func() bool
+	Bootstrap        func(ui *UI, r *Runner) error
+}
+
 type ClaudeHarness struct{}
 type CodexHarness struct{}
 type OpenCodeHarness struct{}
@@ -34,6 +42,45 @@ type OpenCodeHarness struct{}
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
+
+var managedHarnessRegistry = []ManagedHarness{
+	{
+		Spec:             claudeCodeHarness.Spec(),
+		LaunchCommand:    "hazmat claude",
+		BootstrapCommand: "hazmat bootstrap claude",
+		Installed: func() bool {
+			_, ok := findInstalledClaudeBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return claudeCodeHarness.Bootstrap(ui, r)
+		},
+	},
+	{
+		Spec:             codexHarness.Spec(),
+		LaunchCommand:    "hazmat codex",
+		BootstrapCommand: "hazmat bootstrap codex",
+		Installed: func() bool {
+			_, ok := findInstalledCodexBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return codexHarness.Bootstrap(ui, r)
+		},
+	},
+	{
+		Spec:             openCodeHarness.Spec(),
+		LaunchCommand:    "hazmat opencode",
+		BootstrapCommand: "hazmat bootstrap opencode",
+		Installed: func() bool {
+			_, ok := findInstalledOpenCodeBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return openCodeHarness.Bootstrap(ui, r)
+		},
+	},
+}
 
 func (ClaudeHarness) Spec() HarnessSpec {
 	return HarnessSpec{
@@ -137,6 +184,36 @@ func (h OpenCodeHarness) RecordInstalled() error {
 
 func (h OpenCodeHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
+}
+
+func managedHarnesses() []ManagedHarness {
+	harnesses := make([]ManagedHarness, len(managedHarnessRegistry))
+	copy(harnesses, managedHarnessRegistry)
+	return harnesses
+}
+
+func managedHarnessByID(id HarnessID) (ManagedHarness, bool) {
+	for _, harness := range managedHarnessRegistry {
+		if harness.Spec.ID == id {
+			return harness, true
+		}
+	}
+	return ManagedHarness{}, false
+}
+
+func isManagedHarnessInstalled(id HarnessID) bool {
+	harness, ok := managedHarnessByID(id)
+	return ok && harness.Installed()
+}
+
+func installedManagedHarnesses() []ManagedHarness {
+	var installed []ManagedHarness
+	for _, harness := range managedHarnessRegistry {
+		if harness.Installed() {
+			installed = append(installed, harness)
+		}
+	}
+	return installed
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {

@@ -449,24 +449,14 @@ func testPersistence(ui *UI) {
 func testAgentTools(ui *UI) {
 	ui.Step("Agent user tools")
 
-	// Claude Code
-	if asAgentQuiet("test", "-f", agentHome+"/.local/bin/claude") == nil {
-		ui.TestPass(fmt.Sprintf("Claude Code installed: %s/.local/bin/claude", agentHome))
-	} else if _, out, _ := func() (bool, string, error) {
-		out, err := asAgentOutput("bash", "-c", "command -v claude 2>/dev/null")
-		return err == nil && out != "", out, err
-	}(); out != "" {
-		ui.TestPass(fmt.Sprintf("Claude Code is in agent's PATH: %s", out))
+	if len(installedManagedHarnesses()) == 0 {
+		ui.TestSkip("No AI coding agent harness installed yet (optional — run 'hazmat bootstrap claude|codex|opencode')")
 	} else {
-		ui.TestWarn(fmt.Sprintf("Claude Code not found for agent user — run 'hazmat bootstrap' or verify %s", claudeInstallerURL))
-	}
-
-	// API key
-	if out, _ := asAgentOutput("bash", "-c",
-		"grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo yes || echo no"); strings.TrimSpace(out) == "yes" {
-		ui.TestPass("ANTHROPIC_API_KEY is configured for agent user")
-	} else {
-		ui.TestWarn("ANTHROPIC_API_KEY not found in agent's .zshrc — Claude Code will not authenticate")
+		var installed []string
+		for _, harness := range installedManagedHarnesses() {
+			installed = append(installed, harness.Spec.DisplayName)
+		}
+		ui.TestPass(fmt.Sprintf("Installed harnesses: %s", strings.Join(installed, ", ")))
 	}
 
 	// Git identity
@@ -487,11 +477,33 @@ func testAgentTools(ui *UI) {
 		ui.TestWarn(fmt.Sprintf("No SSH key found for agent user — run: sudo -u %s -i, then: ssh-keygen -t ed25519", agentUser))
 	}
 
-	// Claude settings
-	if asAgentQuiet("test", "-f", agentHome+"/.claude/settings.json") == nil {
-		ui.TestPass("~/.claude/settings.json exists for agent user")
+	if isManagedHarnessInstalled(HarnessClaude) {
+		// Claude Code
+		if path, ok := findInstalledClaudeBinary(); ok {
+			ui.TestPass(fmt.Sprintf("Claude Code installed: %s", path))
+		} else if _, out, _ := func() (bool, string, error) {
+			out, err := asAgentOutput("bash", "-c", "command -v claude 2>/dev/null")
+			return err == nil && out != "", out, err
+		}(); out != "" {
+			ui.TestPass(fmt.Sprintf("Claude Code is in agent's PATH: %s", out))
+		} else {
+			ui.TestWarn(fmt.Sprintf("Claude Code expected but not found for agent user — run 'hazmat bootstrap claude' or verify %s", claudeInstallerURL))
+		}
+
+		if out, _ := asAgentOutput("bash", "-c",
+			"grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo yes || echo no"); strings.TrimSpace(out) == "yes" {
+			ui.TestPass("ANTHROPIC_API_KEY is configured for agent user")
+		} else {
+			ui.TestWarn("ANTHROPIC_API_KEY not found in agent's .zshrc — hazmat claude will need /login")
+		}
+
+		if asAgentQuiet("test", "-f", agentHome+"/.claude/settings.json") == nil {
+			ui.TestPass("~/.claude/settings.json exists for agent user")
+		} else {
+			ui.TestWarn("No ~/.claude/settings.json for agent user — Claude deny rules are not configured")
+		}
 	} else {
-		ui.TestWarn("No ~/.claude/settings.json for agent user — permissions and deny rules not configured")
+		ui.TestSkip("Claude Code not installed for agent user (optional — run 'hazmat bootstrap claude' to test it)")
 	}
 
 	// OpenCode

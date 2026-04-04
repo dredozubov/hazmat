@@ -170,27 +170,32 @@ const hostsBlocklistContent = `
 
 // ── Command ───────────────────────────────────────────────────────────────────
 
+const initBootstrapSkip = "skip"
+
 func newInitCmd() *cobra.Command {
-	var agentUIDFlag, sharedGIDFlag string
+	var agentUIDFlag, sharedGIDFlag, bootstrapAgentFlag string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Set up containment, install Claude Code, configure credentials",
-		Long: `One command to go from fresh macOS to a running contained Claude session.
+		Short: "Set up containment and optionally bootstrap an AI coding agent",
+		Long: `One command to go from fresh macOS to contained agent execution on your Mac.
 
 Creates a dedicated agent user, workspace ACLs, pf port blocklist, DNS
-blocklist, seatbelt profile, installs Claude Code, and prompts for API key
-and git credentials.
+blocklist, seatbelt profile, and automatic snapshots. You can optionally
+bootstrap a supported AI coding agent during setup, or skip that step and
+install one later.
 
-After init completes:   cd your-project && hazmat claude
+After init completes:   cd your-project && hazmat shell
 
 Interactive by default — prompts for confirmation before making changes.
 
-  hazmat init                     # Interactive (recommended)
-  hazmat init --yes               # Non-interactive, auto-confirm
-  hazmat check               # Verify the setup
-  hazmat rollback            # Undo everything
-  hazmat config agent              # Re-configure credentials
-  hazmat init cloud               # Configure S3 cloud backup
+  hazmat init                                 # Interactive (recommended)
+  hazmat init --bootstrap-agent claude        # Also install Claude Code
+  hazmat init --bootstrap-agent codex         # Also install Codex
+  hazmat init --yes                           # Non-interactive; skip harness install
+  hazmat check                                # Verify the setup
+  hazmat rollback                             # Undo everything
+  hazmat config agent                         # Configure Claude credentials
+  hazmat init cloud                           # Configure S3 cloud backup
 
 Use --dry-run to preview all commands without executing anything.`,
 	}
@@ -198,6 +203,8 @@ Use --dry-run to preview all commands without executing anything.`,
 		"Override UID for the agent user (default: 599; use when 599 is already taken)")
 	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
 		"Override GID for the dev group (default: 599; use when 599 is already taken)")
+	cmd.Flags().StringVar(&bootstrapAgentFlag, "bootstrap-agent", "",
+		"Optional AI coding agent to install during init: skip, claude, codex, opencode")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if agentUIDFlag != "" {
 			agentUID = agentUIDFlag
@@ -205,7 +212,7 @@ Use --dry-run to preview all commands without executing anything.`,
 		if sharedGIDFlag != "" {
 			sharedGID = sharedGIDFlag
 		}
-		return runInit(c, args)
+		return runInit(c, args, bootstrapAgentFlag)
 	}
 	return cmd
 }
@@ -256,61 +263,70 @@ func runStatus(full bool) error {
 	cBold.Println("  Hazmat — AI agent containment for macOS")
 	fmt.Println()
 
-	type phase struct {
-		label   string
-		command string
-		check   func() bool
-	}
-
-	phases := []phase{
-		{"Containment configured", "hazmat init", func() bool {
-			if _, err := user.Lookup(agentUser); err != nil {
-				return false
-			}
-			if _, err := os.Stat(sudoersFile); err != nil {
-				return false
-			}
-			if _, err := os.Stat(pfAnchorFile); err != nil {
-				return false
-			}
-			return true
-		}},
-		{"Claude Code installed", "hazmat init", func() bool {
-			info, err := os.Stat(agentHome + "/.local/bin/claude")
-			return err == nil && info.Mode()&0o111 != 0
-		}},
-		{"Credentials set", "hazmat config agent", func() bool {
-			data, err := os.ReadFile(agentHome + "/.zshrc")
-			if err != nil {
-				return false
-			}
-			return strings.Contains(string(data), "ANTHROPIC_API_KEY")
-		}},
-	}
-
-	allDone := true
-	nextHint := ""
-	for _, p := range phases {
-		ok := p.check()
-		if ok {
-			cGreen.Printf("  [✓] %-24s %s\n", p.label, p.command)
-		} else {
-			if nextHint == "" {
-				cYellow.Printf("  [→] %-24s %s   ◀ next\n", p.label, p.command)
-				nextHint = p.command
-			} else {
-				cDim.Printf("  [ ] %-24s %s\n", p.label, p.command)
-			}
-			allDone = false
+	containmentConfigured := func() bool {
+		if _, err := user.Lookup(agentUser); err != nil {
+			return false
 		}
+		if _, err := os.Stat(sudoersFile); err != nil {
+			return false
+		}
+		if _, err := os.Stat(pfAnchorFile); err != nil {
+			return false
+		}
+		return true
+	}
+	installedHarnesses := installedManagedHarnesses()
+	claudeConfigured := func() bool {
+		data, err := os.ReadFile(agentHome + "/.zshrc")
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(data), "ANTHROPIC_API_KEY")
+	}
+
+	allDone := containmentConfigured()
+	if allDone {
+		cGreen.Printf("  [✓] %-24s %s\n", "Containment configured", "hazmat init")
+	} else {
+		cYellow.Printf("  [→] %-24s %s   ◀ next\n", "Containment configured", "hazmat init")
+	}
+
+	if len(installedHarnesses) == 0 {
+		cDim.Printf("  [ ] %-24s %s\n", "Agent harness installed", "hazmat bootstrap claude|codex|opencode")
+	} else {
+		var names []string
+		for _, harness := range installedHarnesses {
+			names = append(names, harness.Spec.DisplayName)
+		}
+		cGreen.Printf("  [✓] %-24s %s\n", "Agent harness installed", strings.Join(names, ", "))
+	}
+
+	if isManagedHarnessInstalled(HarnessClaude) {
+		if claudeConfigured() {
+			cGreen.Printf("  [✓] %-24s %s\n", "Claude credentials set", "hazmat config agent")
+		} else {
+			cYellow.Printf("  [→] %-24s %s\n", "Claude credentials set", "hazmat config agent")
+		}
+	} else {
+		cDim.Printf("  [ ] %-24s %s\n", "Claude credentials set", "optional; needed only for hazmat claude")
 	}
 
 	fmt.Println()
 	if allDone {
-		fmt.Println("  Quick start:")
-		fmt.Println("    cd your-project && hazmat claude")
+		if len(installedHarnesses) > 0 {
+			fmt.Println("  Quick start:")
+			fmt.Printf("    cd your-project && %s\n", installedHarnesses[0].LaunchCommand)
+		} else {
+			fmt.Println("  Core containment is ready.")
+			fmt.Println("  Install a harness when needed:")
+			fmt.Println("    hazmat bootstrap claude")
+			fmt.Println("    hazmat bootstrap codex")
+			fmt.Println("    hazmat bootstrap opencode")
+			fmt.Println("  Or run contained commands directly:")
+			fmt.Println("    cd your-project && hazmat shell")
+		}
 	} else {
-		fmt.Printf("  Next step: %s\n", nextHint)
+		fmt.Println("  Next step: hazmat init")
 	}
 	fmt.Println()
 
@@ -327,7 +343,67 @@ func runStatus(full bool) error {
 
 // runInit is the top-level entry point.  Named return so defer can inspect
 // retErr and print the rollback hint — equivalent to shell's "trap ... ERR".
-func runInit(_ *cobra.Command, _ []string) (retErr error) {
+func initBootstrapChoices() []UIChoice {
+	choices := []UIChoice{
+		{
+			Key:         initBootstrapSkip,
+			Label:       "Skip harness install",
+			Description: "Set up containment only. Install a coding agent later with 'hazmat bootstrap ...'.",
+		},
+	}
+	for _, harness := range managedHarnesses() {
+		choices = append(choices, UIChoice{
+			Key:         string(harness.Spec.ID),
+			Label:       "Install " + harness.Spec.DisplayName,
+			Description: fmt.Sprintf("Bootstrap %s during init and make it ready for 'cd your-project && %s'.", harness.Spec.DisplayName, harness.LaunchCommand),
+		})
+	}
+	return choices
+}
+
+func normalizeInitBootstrapAgent(selection string) (string, error) {
+	normalized := strings.TrimSpace(strings.ToLower(selection))
+	switch normalized {
+	case "", initBootstrapSkip:
+		return initBootstrapSkip, nil
+	}
+	if _, ok := managedHarnessByID(HarnessID(normalized)); ok {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, or opencode)", selection)
+}
+
+func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
+	if flagValue != "" {
+		return normalizeInitBootstrapAgent(flagValue)
+	}
+	if !ui.IsInteractive() {
+		return initBootstrapSkip, nil
+	}
+	fmt.Println()
+	cBold.Println("  Optional AI coding agent bootstrap")
+	fmt.Println("  Pick a harness to install now, or skip and install one later.")
+	selection, err := ui.Choose("Select a harness [1-4, Enter for default]:", initBootstrapChoices(), initBootstrapSkip)
+	if err != nil {
+		return "", err
+	}
+	return selection, nil
+}
+
+func runInitSelectedBootstrap(ui *UI, r *Runner, selection string) error {
+	if selection == initBootstrapSkip {
+		fmt.Println()
+		cDim.Println("  Skipping optional AI coding agent bootstrap.")
+		return nil
+	}
+	harness, ok := managedHarnessByID(HarnessID(selection))
+	if !ok {
+		return fmt.Errorf("unsupported harness %q", selection)
+	}
+	return harness.Bootstrap(ui, r)
+}
+
+func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr error) {
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
 
@@ -359,6 +435,11 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	} else if !ui.Ask("Proceed with setup?") {
 		fmt.Println("  Aborted.")
 		return nil
+	}
+
+	bootstrapSelection, err := resolveInitBootstrapAgent(ui, bootstrapAgentFlag)
+	if err != nil {
+		return err
 	}
 
 	defer func() {
@@ -425,8 +506,8 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 		return err
 	}
 
-	// ── Bootstrap: install Claude Code ──────────────────────────────────────
-	if err := claudeCodeHarness.Bootstrap(ui, r); err != nil {
+	// ── Bootstrap: install selected AI coding agent ─────────────────────────
+	if err := runInitSelectedBootstrap(ui, r, bootstrapSelection); err != nil {
 		return err
 	}
 
@@ -447,19 +528,19 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 			sudo("chmod", "0660", path)                    //nolint:errcheck // best-effort permissions
 		}
 		// Directories: agent:dev 2770 (setgid so new content inherits dev group)
-		for _, dir := range []string{
-			agentHome + "/.config/git",
-			agentHome + "/.claude",
-			agentHome + "/.claude/projects",
-		} {
+		dirs := []string{agentHome + "/.config/git"}
+		if bootstrapSelection == string(HarnessClaude) {
+			dirs = append(dirs, agentHome+"/.claude", agentHome+"/.claude/projects")
+		}
+		for _, dir := range dirs {
 			sudo("mkdir", "-p", dir)                      //nolint:errcheck // best-effort within verified init step
 			sudo("chown", agentUser+":"+sharedGroup, dir) //nolint:errcheck // best-effort ownership
 			sudo("chmod", "2770", dir)                    //nolint:errcheck // best-effort permissions
 		}
 	}
 
-	// ── Agent credentials: API key + git identity ───────────────────────────
-	if !flagDryRun && ui.IsInteractive() {
+	// ── Agent credentials: Claude API key + git identity ────────────────────
+	if !flagDryRun && ui.IsInteractive() && bootstrapSelection == string(HarnessClaude) {
 		if err := runConfigAgent(ui); err != nil {
 			cYellow.Printf("\n  Agent config skipped: %v\n", err)
 			fmt.Println("  Run 'hazmat config agent' later to set credentials.")
@@ -467,14 +548,17 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	}
 
 	// ── Optional import: portable Claude basics ─────────────────────────────
-	if env, err := defaultClaudeImportEnv(); err == nil {
-		if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
-			PromptBeforeImport: true,
-			ConflictPolicy:     claudeConflictPrompt,
-			AllowNoopMessage:   false,
-		}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
-			cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
-			fmt.Println("  Run 'hazmat config import claude' later to retry.")
+	if bootstrapSelection == string(HarnessClaude) {
+		env, err := defaultClaudeImportEnv()
+		if err == nil {
+			if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
+				PromptBeforeImport: true,
+				ConflictPolicy:     claudeConflictPrompt,
+				AllowNoopMessage:   false,
+			}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
+				cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
+				fmt.Println("  Run 'hazmat config import claude' later to retry.")
+			}
 		}
 	}
 
@@ -506,11 +590,21 @@ func runInit(_ *cobra.Command, _ []string) (retErr error) {
 	cGreen.Println("━━━ Setup complete ━━━")
 	fmt.Println()
 	fmt.Println("  Ready to use:")
-	fmt.Println("    cd your-project && hazmat claude")
+	switch bootstrapSelection {
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode):
+		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
+	default:
+		fmt.Println("    cd your-project && hazmat shell")
+		fmt.Println("    hazmat bootstrap claude|codex|opencode")
+	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
-	fmt.Println("  Update creds:   hazmat config agent")
-	fmt.Println("  Import basics:  hazmat config import claude")
+	if bootstrapSelection == string(HarnessClaude) {
+		fmt.Println("  Update creds:   hazmat config agent")
+		fmt.Println("  Import basics:  hazmat config import claude")
+	} else {
+		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode")
+	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")
 	fmt.Println()

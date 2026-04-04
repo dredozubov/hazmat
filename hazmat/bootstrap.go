@@ -12,6 +12,18 @@ const (
 	claudeInstallerSHA256 = "431889ac7d056f636aaf5b71524666d04c89c45560f80329940846479d484778"
 )
 
+func findInstalledClaudeBinary() (string, bool) {
+	return findInstalledClaudeBinaryWith(sudoOutput)
+}
+
+func findInstalledClaudeBinaryWith(read func(args ...string) (string, error)) (string, bool) {
+	path := agentHome + "/.local/bin/claude"
+	if _, err := read("test", "-x", path); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
 // agentSettingsJSON is the default Claude Code settings written to the agent
 // user's ~/.claude/settings.json during bootstrap.
 //

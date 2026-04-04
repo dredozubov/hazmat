@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -24,6 +26,12 @@ type UI struct {
 	// YesAll causes Ask to assume yes without prompting (--yes / -y flag).
 	// Unlike DryRun, commands are still executed.
 	YesAll bool
+}
+
+type UIChoice struct {
+	Key         string
+	Label       string
+	Description string
 }
 
 var (
@@ -115,9 +123,9 @@ func (u *UI) Summary() bool {
 
 	switch {
 	case u.Fail > 0:
-		cRed.Println("  Hazmat is NOT fully operational. Fix failures before running Claude in auto mode.")
+		cRed.Println("  Hazmat is NOT fully operational. Fix failures before running an agent autonomously.")
 	case u.Warn > 0:
-		cYellow.Println("  Hazmat is operational with warnings. Review warnings before running autonomously.")
+		cYellow.Println("  Hazmat is operational with warnings. Review warnings before running an agent autonomously.")
 	default:
 		cGreen.Println("  All checks passed. Hazmat is ready.")
 	}
@@ -187,6 +195,56 @@ func (u *UI) Ask(prompt string) bool {
 	return ans == "y" || ans == "Y"
 }
 
+func (u *UI) Choose(prompt string, choices []UIChoice, defaultKey string) (string, error) {
+	if len(choices) == 0 {
+		return "", fmt.Errorf("no choices provided")
+	}
+	if defaultKey == "" {
+		defaultKey = choices[0].Key
+	}
+	valid := make(map[string]struct{}, len(choices))
+	for i, choice := range choices {
+		valid[choice.Key] = struct{}{}
+		label := fmt.Sprintf("%d) %s", i+1, choice.Label)
+		if choice.Key == defaultKey {
+			label += " [default]"
+		}
+		fmt.Printf("  %s\n", label)
+		if choice.Description != "" {
+			cDim.Printf("     %s\n", choice.Description)
+		}
+	}
+	if u.DryRun {
+		faint.Printf("    [dry-run] Would ask: %s → assuming %s for preview\n", prompt, defaultKey)
+		return defaultKey, nil
+	}
+	if u.YesAll || !term.IsTerminal(int(os.Stdin.Fd())) {
+		cBold.Printf("  %s ", prompt)
+		fmt.Printf("%s\n", defaultKey)
+		return defaultKey, nil
+	}
+
+	cBold.Printf("  %s ", prompt)
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	selection := strings.TrimSpace(strings.ToLower(input))
+	if selection == "" {
+		return defaultKey, nil
+	}
+	if idx, err := strconv.Atoi(selection); err == nil {
+		if idx >= 1 && idx <= len(choices) {
+			return choices[idx-1].Key, nil
+		}
+	}
+	if _, ok := valid[selection]; ok {
+		return selection, nil
+	}
+	return "", fmt.Errorf("invalid choice %q", strings.TrimSpace(input))
+}
+
 // Logo prints the Homer-in-hazmat / Claude-logo ANSI art header.
 // Called after setup completes (reward, not gate).
 func (u *UI) Logo() {
@@ -210,6 +268,7 @@ func (u *UI) Banner(currentUser string) {
 	cDim.Println("  Preview first:  hazmat init --dry-run")
 	fmt.Println()
 	fmt.Println("  After setup:")
-	fmt.Printf("    cd your-project && hazmat claude\n")
+	fmt.Println("    cd your-project && hazmat shell")
+	fmt.Println("    hazmat bootstrap claude|codex|opencode")
 	fmt.Println()
 }
