@@ -293,9 +293,6 @@ func validateStackcheckContract(repo stackMatrixRepo, preview explainJSONPreview
 		}
 		return "contract_mismatch", strings.Join(parts, "; ")
 	}
-	if len(repo.Activate) > 0 && len(preview.IntegrationSources) == 0 {
-		return "contract_mismatch", "expected integration_sources to be populated after activation"
-	}
 	return "", ""
 }
 

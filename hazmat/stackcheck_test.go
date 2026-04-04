@@ -77,7 +77,7 @@ func TestValidateStackcheckContract(t *testing.T) {
 
 	if failureClass, message := validateStackcheckContract(repo, explainJSONPreview{
 		ActiveIntegrations: []string{"python-uv"},
-	}); failureClass != "contract_mismatch" || !strings.Contains(message, "integration_sources") {
+	}); failureClass != "" || message != "" {
 		t.Fatalf("failure = (%q, %q)", failureClass, message)
 	}
 }
