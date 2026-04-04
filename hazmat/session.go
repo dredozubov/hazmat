@@ -1710,7 +1710,7 @@ func generateSBPL(cfg sessionConfig) string {
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
 	w(";; Path traversal literals for realpath() and symlink resolution.\n")
 	w(";; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.\n")
-	for _, p := range []string{"/", "/private", "/var", "/tmp", "/etc", "/usr", "/System", "/Library"} {
+	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/private/etc", "/private/var/select"} {
