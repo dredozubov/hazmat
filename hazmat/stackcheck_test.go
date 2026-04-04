@@ -166,6 +166,13 @@ func TestValidateStackcheckSmokeRepoPrereqs(t *testing.T) {
 	}
 }
 
+func TestClassifyStackcheckProcessFailureTreatsSetupAsWorkflow(t *testing.T) {
+	result := stackcheckCommandResult{Stderr: "command exited 1"}
+	if got := classifyStackcheckProcessFailure("setup", result); got != "workflow_failure" {
+		t.Fatalf("classifyStackcheckProcessFailure(setup) = %q, want workflow_failure", got)
+	}
+}
+
 func TestResolveStackcheckCheckoutTarget(t *testing.T) {
 	repo := stackMatrixRepo{
 		ID:   "next-js",

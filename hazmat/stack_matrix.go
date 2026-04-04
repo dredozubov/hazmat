@@ -35,6 +35,7 @@ type stackMatrixRepo struct {
 	ExpectedSuggestions []string `yaml:"expected_suggestions"`
 	Activate            []string `yaml:"activate"`
 	RequiredFormulas    []string `yaml:"required_formulas"`
+	SetupCommands       []string `yaml:"setup_commands"`
 	SmokeCommands       []string `yaml:"smoke_commands"`
 	Notes               string   `yaml:"notes"`
 }
@@ -118,6 +119,16 @@ func validateStackMatrixManifest(manifest stackMatrixManifest) error {
 		}
 		if len(repo.RequiredFormulas) == 0 {
 			return fmt.Errorf("%s: required_formulas must not be empty", repo.ID)
+		}
+		for _, command := range repo.SetupCommands {
+			if strings.TrimSpace(command) == "" {
+				return fmt.Errorf("%s: setup_commands must not contain empty entries", repo.ID)
+			}
+		}
+		for _, command := range repo.SmokeCommands {
+			if strings.TrimSpace(command) == "" {
+				return fmt.Errorf("%s: smoke_commands must not contain empty entries", repo.ID)
+			}
 		}
 		if repo.Track == stackMatrixTrackRequired && len(repo.SmokeCommands) == 0 {
 			return fmt.Errorf("%s: required repo must include smoke_commands", repo.ID)

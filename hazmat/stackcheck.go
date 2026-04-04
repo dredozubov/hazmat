@@ -330,20 +330,45 @@ func runStackCheckForRepo(selfPath, workspaceRoot string, repo stackMatrixRepo, 
 		return result
 	}
 
+	if ok := runStackcheckSetupCommands(selfPath, repoDir, repo, &result, start); !ok {
+		return result
+	}
+	if ok := runStackcheckWorkflowCommands(selfPath, repoDir, repo, &result, start); !ok {
+		return result
+	}
+
+	result.DurationMS = time.Since(start).Milliseconds()
+	return result
+}
+
+func runStackcheckSetupCommands(selfPath, repoDir string, repo stackMatrixRepo, result *stackcheckRepoResult, start time.Time) bool {
+	for _, setupCommand := range repo.SetupCommands {
+		cmdResult, err := runStackcheckExec(selfPath, repoDir, repo.Activate, setupCommand, "setup")
+		result.Commands = append(result.Commands, cmdResult)
+		if err != nil {
+			result.Status = stackcheckStatusFail
+			result.FailureClass = classifyStackcheckProcessFailure("setup", cmdResult)
+			result.Message = stackcheckFailureMessage(cmdResult, err)
+			result.DurationMS = time.Since(start).Milliseconds()
+			return false
+		}
+	}
+	return true
+}
+
+func runStackcheckWorkflowCommands(selfPath, repoDir string, repo stackMatrixRepo, result *stackcheckRepoResult, start time.Time) bool {
 	for _, smokeCommand := range repo.SmokeCommands {
-		cmdResult, err = runStackcheckExec(selfPath, repoDir, repo.Activate, smokeCommand, "workflow")
+		cmdResult, err := runStackcheckExec(selfPath, repoDir, repo.Activate, smokeCommand, "workflow")
 		result.Commands = append(result.Commands, cmdResult)
 		if err != nil {
 			result.Status = stackcheckStatusFail
 			result.FailureClass = classifyStackcheckProcessFailure("workflow", cmdResult)
 			result.Message = stackcheckFailureMessage(cmdResult, err)
 			result.DurationMS = time.Since(start).Milliseconds()
-			return result
+			return false
 		}
 	}
-
-	result.DurationMS = time.Since(start).Milliseconds()
-	return result
+	return true
 }
 
 func validateStackcheckSmokeRepoPrereqs(mode string, repo stackMatrixRepo) (string, string) {
@@ -480,7 +505,7 @@ func runStackcheckExec(selfPath, repoDir string, integrations []string, script s
 	for _, integration := range integrations {
 		args = append(args, "--integration", integration)
 	}
-	args = append(args, "--", "/bin/zsh", "-lc", script)
+	args = append(args, "--", "/bin/sh", "-c", script)
 	outcome, err := runStackcheckProcess("", selfPath, args...)
 	return stackcheckCommandResultFromOutcome(step, append([]string{selfPath}, args...), outcome), err
 }
@@ -535,7 +560,7 @@ func classifyStackcheckProcessFailure(layer string, result stackcheckCommandResu
 		strings.Contains(combined, "no such file"),
 		strings.Contains(combined, "timed out"):
 		return "toolchain_missing"
-	case layer == "workflow":
+	case layer == "workflow" || layer == "setup":
 		return "workflow_failure"
 	case layer == "contract":
 		return "contract_mismatch"

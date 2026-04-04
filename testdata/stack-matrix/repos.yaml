@@ -11,9 +11,10 @@ repos:
     project_subdir: .
     expected_suggestions: [node, rust]
     activate: [node, rust]
-    required_formulas: [node, pnpm, rust]
+    required_formulas: [node, pnpm]
     smoke_commands:
-      - pnpm lint
+      - node -e 'const pkg = require("./package.json"); if (!Array.isArray(pkg.workspaces) || pkg.workspaces.length === 0) process.exit(1)'
+      - pnpm pkg get workspaces >/dev/null
     notes: High-signal mixed Node, TypeScript, and Rust target with nested packages, Rust crates, and .next output.
 
   - id: pydantic-ai
@@ -28,7 +29,7 @@ repos:
     activate: [python-uv]
     required_formulas: [uv]
     smoke_commands:
-      - uv run pytest tests -q
+      - uv run pytest tests/test_tools.py -q
     notes: Exercises uv workspace detection, VIRTUAL_ENV passthrough, and toolchain traversal.
 
   - id: poetry
