@@ -116,6 +116,9 @@ Use `hazmat config docker none -C /path/to/project` to persist code-only routing
 # Install via Homebrew
 brew install dredozubov/tap/hazmat
 
+# Or install from GitHub releases
+curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash
+
 # One-time setup (~10 min)
 hazmat init --bootstrap-agent claude
 

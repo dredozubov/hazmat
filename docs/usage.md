@@ -4,7 +4,17 @@ Hazmat runs AI agents on your Mac with full permissions — inside containment. 
 
 ## Quick Start
 
-Two commands:
+Install:
+
+```bash
+# Homebrew
+brew install dredozubov/tap/hazmat
+
+# Or GitHub releases (downloads, verifies checksum, installs)
+curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash
+```
+
+Then two commands:
 
 ```bash
 hazmat init --bootstrap-agent claude   # one-time setup (~10 min, needs sudo)
@@ -393,6 +403,10 @@ Detailed scope, symlink behavior, and migration guidance live in [opencode-impor
 ```bash
 hazmat rollback                              # remove all system config
 hazmat rollback --delete-user --delete-group  # also delete agent account
+
+# Remove binaries (choose one):
+brew uninstall hazmat                        # if installed via Homebrew
+sudo rm /usr/local/bin/hazmat /usr/local/libexec/hazmat-launch  # if installed via script
 ```
 
 Your project files are not deleted. Back them up first if needed.
