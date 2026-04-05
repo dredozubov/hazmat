@@ -21,7 +21,7 @@ func requireAgentUser() (*user.User, error) {
 // requireInit verifies that hazmat init has been completed before allowing
 // a session to start. Checks the three essential artifacts: agent user,
 // sudoers rule (for passwordless hazmat-launch), and launch helper binary.
-func requireInit() error {
+var requireInit = func() error {
 	if _, err := lookupAgentUser(); err != nil {
 		return fmt.Errorf("hazmat is not initialized — run 'hazmat init' first")
 	}

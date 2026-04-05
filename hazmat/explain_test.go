@@ -72,6 +72,7 @@ func TestBuildExplainJSON(t *testing.T) {
 
 func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
 	isolateConfig(t)
+	skipInitCheck(t)
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {

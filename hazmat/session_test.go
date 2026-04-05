@@ -292,6 +292,13 @@ func autoApprove(t *testing.T) {
 	t.Cleanup(func() { flagYesAll = saved })
 }
 
+func skipInitCheck(t *testing.T) {
+	t.Helper()
+	saved := requireInit
+	requireInit = func() error { return nil }
+	t.Cleanup(func() { requireInit = saved })
+}
+
 func autoDockerRequest() dockerRoutingRequest {
 	return dockerRoutingRequest{Mode: dockerModeAuto, Source: dockerRequestDefaultAuto}
 }
@@ -1838,6 +1845,7 @@ func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
 	isolateConfig(t)
 	isolateApprovals(t)
 	autoApprove(t)
+	skipInitCheck(t)
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
@@ -1862,6 +1870,7 @@ func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
 
 func TestResolveExplainSessionUsesProjectDockerModeNone(t *testing.T) {
 	isolateConfig(t)
+	skipInitCheck(t)
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
@@ -1887,6 +1896,7 @@ func TestResolveExplainSessionUsesProjectDockerModeNone(t *testing.T) {
 }
 
 func TestResolvePreparedSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+	skipInitCheck(t)
 	dir := t.TempDir()
 	_, err := resolvePreparedSession("opencode", harnessSessionOpts{
 		project:            dir,
@@ -1902,6 +1912,7 @@ func TestResolvePreparedSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
 }
 
 func TestResolveExplainSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+	skipInitCheck(t)
 	dir := t.TempDir()
 	_, _, err := resolveExplainSession("opencode", harnessSessionOpts{
 		project:            dir,
