@@ -521,6 +521,29 @@ func testAgentTools(ui *UI) {
 				ui.TestFail(fmt.Sprintf("%s is not group-accessible — export/resume will fail (mode %04o)", dir, info.Mode().Perm()))
 			}
 		}
+
+		// Verify project subdirectories under .claude/projects/ are
+		// group-writable so that session sync (resume/export) can
+		// create temp files.  Claude Code may recreate these with a
+		// restrictive mode during sessions.
+		projectsDir := agentHome + "/.claude/projects"
+		if entries, err := os.ReadDir(projectsDir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				subdir := filepath.Join(projectsDir, e.Name())
+				info, err := os.Stat(subdir)
+				if err != nil {
+					continue
+				}
+				if pathHasDevACL(subdir, true) || info.Mode().Perm()&0o020 != 0 {
+					ui.TestPass(fmt.Sprintf("%s is group-writable", subdir))
+				} else {
+					ui.TestWarn(fmt.Sprintf("%s is not group-writable — resume sync will fail (mode %04o); fix with: sudo chmod 2770 %s", subdir, info.Mode().Perm(), subdir))
+				}
+			}
+		}
 	} else {
 		ui.TestSkip("Claude Code not installed for agent user (optional — run 'hazmat bootstrap claude' to test it)")
 	}

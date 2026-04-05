@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -179,6 +180,211 @@ func TestSyncResumeSessionFilesContinueCopiesOnlyLatest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(destDir, "old.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("old.jsonl should not be copied, got err=%v", err)
+	}
+}
+
+func TestCopyResumeSessionFileAtomicCopy(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	destPath := filepath.Join(destDir, "session.jsonl")
+	content := []byte(`{"role":"user","content":"hello"}` + "\n")
+
+	if err := os.WriteFile(srcPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyResumeSessionFile(srcPath, destPath); err != nil {
+		t.Fatalf("copyResumeSessionFile: %v", err)
+	}
+
+	// Content is faithfully copied.
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("dest content = %q, want %q", got, content)
+	}
+
+	// Destination gets mode 0600.
+	info, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("dest mode = %04o, want 0600", perm)
+	}
+
+	// Source is untouched.
+	srcData, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(srcData) != string(content) {
+		t.Fatalf("source was modified: %q", srcData)
+	}
+}
+
+func TestCopyResumeSessionFileCleansTempOnError(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	if err := os.WriteFile(srcPath, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make dest directory read-only so CreateTemp fails.
+	if err := os.Chmod(destDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(destDir, 0o700) })
+
+	err := copyResumeSessionFile(srcPath, filepath.Join(destDir, "session.jsonl"))
+	if err == nil {
+		t.Fatal("expected error when dest dir is read-only")
+	}
+
+	// No temp files left behind.
+	os.Chmod(destDir, 0o700)
+	entries, _ := os.ReadDir(destDir)
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".jsonl" {
+			t.Fatalf("temp file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestListResumeSessionFilesIgnoresNonJsonl(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a mix: .jsonl files, .json, directory, dotfile.
+	for _, name := range []string{"b.jsonl", "a.jsonl", "c.json", ".hidden"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "subdir.jsonl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := listResumeSessionFiles(dir)
+	if err != nil {
+		t.Fatalf("listResumeSessionFiles: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("got %d files, want 2", len(files))
+	}
+	// Sorted by name.
+	if files[0].name != "a.jsonl" || files[1].name != "b.jsonl" {
+		t.Fatalf("files = %v, want [a.jsonl, b.jsonl]", []string{files[0].name, files[1].name})
+	}
+}
+
+func TestListResumeSessionFilesEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+
+	files, err := listResumeSessionFiles(dir)
+	if err != nil {
+		t.Fatalf("listResumeSessionFiles: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("got %d files, want 0", len(files))
+	}
+}
+
+func TestInvokerSessionDirExactMatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	projectDir := "/Users/dr/workspace/foo"
+	sanitized := sanitizePathForClaude(projectDir)
+	dir := filepath.Join(home, ".claude", "projects", sanitized)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := invokerSessionDir(projectDir)
+	if got != dir {
+		t.Fatalf("invokerSessionDir = %q, want %q", got, dir)
+	}
+}
+
+func TestInvokerSessionDirPrefixMatchForLongPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Build a project path whose sanitized form exceeds 200 chars.
+	long := "/Users/dr/workspace/" + strings.Repeat("abcdefghij", 25)
+	sanitized := sanitizePathForClaude(long)
+	if len(sanitized) <= maxSanitizedLength {
+		t.Fatalf("test setup: sanitized path should exceed %d chars, got %d", maxSanitizedLength, len(sanitized))
+	}
+
+	prefix := sanitized[:maxSanitizedLength]
+	dirName := prefix + "-somehash123"
+	dir := filepath.Join(home, ".claude", "projects", dirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := invokerSessionDir(long)
+	if got != dir {
+		t.Fatalf("invokerSessionDir = %q, want %q", got, dir)
+	}
+}
+
+func TestInvokerSessionDirReturnsEmptyWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got := invokerSessionDir("/nonexistent/project")
+	if got != "" {
+		t.Fatalf("invokerSessionDir = %q, want empty", got)
+	}
+}
+
+func TestSyncResumeSessionFilesReplacesSymlinks(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	content := []byte("real content")
+	if err := os.WriteFile(filepath.Join(srcDir, "session.jsonl"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink in dest pointing to a non-existent target.
+	symPath := filepath.Join(destDir, "session.jsonl")
+	if err := os.Symlink("/nonexistent/target", symPath); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "session", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+
+	// Symlink replaced with real file.
+	info, err := os.Lstat(symPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("symlink was not replaced")
+	}
+
+	got, err := os.ReadFile(symPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("content = %q, want %q", got, content)
 	}
 }
 

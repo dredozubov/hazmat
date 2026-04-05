@@ -72,14 +72,22 @@ func invokerSessionDir(projectDir string) string {
 // the invoker's so that Claude Code's sanitizePath produces the same key
 // for the same absolute project path.
 //
-// No sudo needed — init sets .claude/projects/ to agent:dev 2770 (setgid),
-// so the host user can create subdirectories that inherit the dev group.
+// Uses sudo to ensure the directory has setgid + group-write (2770).
+// Init sets .claude/projects/ to agent:dev 2770 (setgid), but Claude Code
+// may recreate subdirectories with a restrictive mode during sessions.
 func agentSessionDir(invokerDir string) (string, error) {
 	dirName := filepath.Base(invokerDir)
 	dest := filepath.Join(agentHome, ".claude", "projects", dirName)
 
-	if err := os.MkdirAll(dest, 0o770); err != nil {
+	// Create via sudo and enforce setgid + group-write.  Claude Code
+	// (running as agent) may have created this subdirectory with a
+	// restrictive mode (e.g. 0700) during a prior session, blocking
+	// the host user from creating temp files for session sync.
+	if err := sudo("mkdir", "-p", dest); err != nil {
 		return "", fmt.Errorf("create %s: %w (run 'hazmat init' to fix permissions)", dest, err)
+	}
+	if err := sudo("chmod", "2770", dest); err != nil {
+		return "", fmt.Errorf("chmod %s: %w", dest, err)
 	}
 	return dest, nil
 }
