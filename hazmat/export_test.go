@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -199,6 +200,220 @@ func TestUpsertClaudeSessionsIndexReplacesExistingEntry(t *testing.T) {
 		if sessionIDFromIndexEntry(existing) == "replace" && existing["fullPath"] != "new.jsonl" {
 			t.Fatalf("replaced entry fullPath = %v, want new.jsonl", existing["fullPath"])
 		}
+	}
+}
+
+func TestCleanClaudeBundleRelativePath(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{input: ".", want: ""},                                        // skipped
+		{input: "..", wantErr: true},                                  // escape
+		{input: "../escape", wantErr: true},                           // escape
+		{input: "/absolute/path", wantErr: true},                      // absolute
+		{input: "session/tool-results/foo.txt", want: "session/tool-results/foo.txt"},
+		{input: "session", want: "session"},
+		{input: "session/..", want: ""},                                // cleans to "." — skipped
+		{input: "./session", want: "session"},                         // cleaned
+		{input: "", want: ""},                                         // cleans to "." — skipped
+	}
+
+	for _, tt := range tests {
+		got, err := cleanClaudeBundleRelativePath(tt.input)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("cleanClaudeBundleRelativePath(%q): expected error", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("cleanClaudeBundleRelativePath(%q): %v", tt.input, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("cleanClaudeBundleRelativePath(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestClaudeProjectDirExactMatch(t *testing.T) {
+	home := t.TempDir()
+	projectDir := "/Users/dr/workspace/foo"
+	sanitized := sanitizePathForClaude(projectDir)
+	dir := filepath.Join(home, ".claude", "projects", sanitized)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := claudeProjectDir(home, projectDir)
+	if got != dir {
+		t.Fatalf("claudeProjectDir = %q, want %q", got, dir)
+	}
+}
+
+func TestClaudeProjectDirLongPathPrefix(t *testing.T) {
+	home := t.TempDir()
+	long := "/Users/dr/workspace/" + strings.Repeat("abcdefghij", 25)
+	sanitized := sanitizePathForClaude(long)
+	prefix := sanitized[:maxSanitizedLength]
+	dirName := prefix + "-bun123hash"
+	dir := filepath.Join(home, ".claude", "projects", dirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := claudeProjectDir(home, long)
+	if got != dir {
+		t.Fatalf("claudeProjectDir = %q, want %q", got, dir)
+	}
+}
+
+func TestClaudeProjectDirReturnsEmptyWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	got := claudeProjectDir(home, "/nonexistent/project")
+	if got != "" {
+		t.Fatalf("claudeProjectDir = %q, want empty", got)
+	}
+
+	got = claudeProjectDir("", "/any/project")
+	if got != "" {
+		t.Fatalf("claudeProjectDir with empty home = %q, want empty", got)
+	}
+}
+
+func TestCopyDirTree(t *testing.T) {
+	src := t.TempDir()
+	dest := t.TempDir()
+
+	// Build nested tree: src/a.txt, src/sub/b.txt, src/sub/deep/c.txt
+	if err := os.MkdirAll(filepath.Join(src, "sub", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"a.txt":          "content-a",
+		"sub/b.txt":      "content-b",
+		"sub/deep/c.txt": "content-c",
+	}
+	for rel, content := range files {
+		if err := os.WriteFile(filepath.Join(src, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	destTarget := filepath.Join(dest, "copied")
+	if err := copyDirTree(src, destTarget); err != nil {
+		t.Fatalf("copyDirTree: %v", err)
+	}
+
+	for rel, want := range files {
+		got, err := os.ReadFile(filepath.Join(destTarget, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s content = %q, want %q", rel, got, want)
+		}
+		info, err := os.Stat(filepath.Join(destTarget, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("%s mode = %04o, want 0600", rel, perm)
+		}
+	}
+}
+
+func TestRewriteClaudeSessionIndexEntry(t *testing.T) {
+	original := map[string]any{
+		"sessionId":   "abc",
+		"fullPath":    "/old/path.jsonl",
+		"fileMtime":   int64(1000),
+		"projectPath": "/original/project",
+		"created":     "2024-01-01T00:00:00Z",
+		"summary":     "keep this",
+		"customField": 42,
+	}
+
+	modTime := time.Unix(2000, 0)
+	got := rewriteClaudeSessionIndexEntry(original, "abc", "/new/path.jsonl", "/fallback", modTime)
+
+	// Overwritten fields.
+	if got["fullPath"] != "/new/path.jsonl" {
+		t.Fatalf("fullPath = %v, want /new/path.jsonl", got["fullPath"])
+	}
+	if got["fileMtime"] != modTime.UnixMilli() {
+		t.Fatalf("fileMtime = %v, want %d", got["fileMtime"], modTime.UnixMilli())
+	}
+
+	// Preserved fields.
+	if got["projectPath"] != "/original/project" {
+		t.Fatalf("projectPath = %v, want /original/project (should preserve non-empty)", got["projectPath"])
+	}
+	if got["created"] != "2024-01-01T00:00:00Z" {
+		t.Fatalf("created = %v, should be preserved", got["created"])
+	}
+	if got["summary"] != "keep this" {
+		t.Fatalf("summary = %v, should be carried through", got["summary"])
+	}
+	if got["customField"] != 42 {
+		t.Fatalf("customField = %v, should be carried through", got["customField"])
+	}
+
+	// Original map must not be mutated.
+	if original["fullPath"] != "/old/path.jsonl" {
+		t.Fatal("original map was mutated")
+	}
+}
+
+func TestRewriteClaudeSessionIndexEntryFallbackProjectPath(t *testing.T) {
+	original := map[string]any{
+		"sessionId":   "abc",
+		"projectPath": "",
+	}
+
+	got := rewriteClaudeSessionIndexEntry(original, "abc", "/dest.jsonl", "/fallback/project", time.Unix(1, 0))
+	if got["projectPath"] != "/fallback/project" {
+		t.Fatalf("projectPath = %v, want /fallback/project (should use fallback when empty)", got["projectPath"])
+	}
+}
+
+func TestSynthesizeClaudeSessionIndexEntry(t *testing.T) {
+	modTime := time.Unix(1700000000, 0)
+	got := synthesizeClaudeSessionIndexEntry("sess-1", "/dest/sess-1.jsonl", "/proj", modTime)
+
+	if got["sessionId"] != "sess-1" {
+		t.Fatalf("sessionId = %v", got["sessionId"])
+	}
+	if got["fullPath"] != "/dest/sess-1.jsonl" {
+		t.Fatalf("fullPath = %v", got["fullPath"])
+	}
+	if got["fileMtime"] != modTime.UnixMilli() {
+		t.Fatalf("fileMtime = %v, want %d", got["fileMtime"], modTime.UnixMilli())
+	}
+	if got["projectPath"] != "/proj" {
+		t.Fatalf("projectPath = %v", got["projectPath"])
+	}
+	// Timestamps are UTC RFC3339Nano.
+	ts := modTime.UTC().Format(time.RFC3339Nano)
+	if got["created"] != ts {
+		t.Fatalf("created = %v, want %s", got["created"], ts)
+	}
+	if got["modified"] != ts {
+		t.Fatalf("modified = %v, want %s", got["modified"], ts)
+	}
+}
+
+func TestSessionIDFromIndexEntry(t *testing.T) {
+	if got := sessionIDFromIndexEntry(map[string]any{"sessionId": "abc"}); got != "abc" {
+		t.Fatalf("got %q, want abc", got)
+	}
+	if got := sessionIDFromIndexEntry(map[string]any{}); got != "" {
+		t.Fatalf("missing key: got %q, want empty", got)
+	}
+	if got := sessionIDFromIndexEntry(map[string]any{"sessionId": 123}); got != "" {
+		t.Fatalf("wrong type: got %q, want empty", got)
 	}
 }
 
