@@ -34,9 +34,10 @@ if git rev-parse "${TAG}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Check working tree is clean
-if [ -n "$(git status --porcelain)" ]; then
-    echo "error: working tree is not clean — commit or stash changes first" >&2
+# Check tracked files are clean (untracked files are fine)
+if [ -n "$(git status --porcelain -uno)" ]; then
+    echo "error: working tree has uncommitted changes — commit or stash first" >&2
+    git status --porcelain -uno >&2
     exit 1
 fi
 
