@@ -854,16 +854,16 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	agentZshrc := agentHome + "/.zshrc"
 	agentZshrcData, _ := r.AgentOutput("cat", agentZshrc)
 	if strings.Contains(agentZshrcData, umaskBlockStart) {
-		ui.SkipDone("umask 077 already set in agent's .zshrc")
+		ui.SkipDone("umask 007 already set in agent's .zshrc")
 	} else {
-		updated := upsertManagedBlock(agentZshrcData, umaskBlockStart, umaskBlockEnd, "umask 077")
+		updated := upsertManagedBlock(agentZshrcData, umaskBlockStart, umaskBlockEnd, "umask 007")
 		if err := r.SudoWriteFile("write agent umask to .zshrc", agentZshrc, updated); err != nil {
 			return fmt.Errorf("set umask in agent .zshrc: %w", err)
 		}
 		if err := r.Sudo("set agent .zshrc ownership", "chown", agentUser+":staff", agentZshrc); err != nil {
 			return fmt.Errorf("chown agent .zshrc: %w", err)
 		}
-		ui.Ok("Set umask 077 in agent's .zshrc")
+		ui.Ok("Set umask 007 in agent's .zshrc")
 	}
 
 	// Restrictive umask for current user — leave the host shell untouched.

@@ -182,7 +182,7 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	}
 
 	// Bidirectional access: agent-created file must be readable/writable by controlling user.
-	// This verifies that the inheritable ACL overrides the agent's umask 077.
+	// This verifies that the inheritable ACL overrides the agent's umask 007.
 	tmpAgentRW := fmt.Sprintf("%s/.test_agent_rw_%d", testWorkspaceDir(), os.Getpid())
 	if err := asAgentShellQuiet(fmt.Sprintf("echo test > %q", tmpAgentRW)); err == nil {
 		defer sudo("rm", "-f", tmpAgentRW) //nolint:errcheck
@@ -280,10 +280,10 @@ func testHardeningGaps(ui *UI) {
 		ui.TestSkip("Docker socket not present")
 	}
 
-	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "umask 077") {
-		ui.TestPass("umask 077 set in agent's .zshrc")
+	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "umask 007") {
+		ui.TestPass("umask 007 set in agent's .zshrc")
 	} else {
-		ui.TestWarn("umask 077 not found in agent's .zshrc — new files will have permissive defaults")
+		ui.TestWarn("umask 007 not found in agent's .zshrc — new files will have permissive defaults")
 	}
 }
 
@@ -972,11 +972,11 @@ func testDecommission(ui *UI) {
 	// Verify that removeManagedBlock removes only the managed umask block and
 	// leaves surrounding content intact.
 	fixture := "# shell config\n" +
-		managedBlock(umaskBlockStart, umaskBlockEnd, "umask 077") +
+		managedBlock(umaskBlockStart, umaskBlockEnd, "umask 007") +
 		"export PATH=$HOME/.local/bin:$PATH\n"
 	cleaned := removeManagedBlock(fixture, umaskBlockStart, umaskBlockEnd)
-	if strings.Contains(cleaned, "umask 077") {
-		ui.TestFail("umask rollback: 'umask 077' still present after managed block removal")
+	if strings.Contains(cleaned, "umask 007") {
+		ui.TestFail("umask rollback: 'umask 007' still present after managed block removal")
 	} else if strings.Contains(cleaned, umaskBlockStart) {
 		ui.TestFail("umask rollback: block start marker still present after removal")
 	} else if !strings.Contains(cleaned, "export PATH") {

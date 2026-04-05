@@ -25,7 +25,7 @@ func newRollbackCmd() *cobra.Command {
   - Agent shell env + host wrapper commands
   - Workspace access helpers (/Users/agent/workspace, home-directory ACL)
   - Workspace ACLs applied to existing project directories
-  - umask 077 lines from managed shell rc files
+  - umask lines from managed shell rc files
   - Backup scope file (.backup-excludes)
 
 User and group deletion require explicit flags because they are destructive:

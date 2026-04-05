@@ -209,7 +209,7 @@ test -x "$HOME%s"
 
 	ui.Step("Create Codex state directory")
 	stateDir := agentHome + codexStateDirRel
-	if err := r.Sudo("create agent Codex state directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", stateDir); err != nil {
+	if err := r.Sudo("create agent Codex state directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", stateDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", stateDir, err)
 	}
 	ui.Ok(fmt.Sprintf("Prepared %s", stateDir))

@@ -68,7 +68,7 @@ func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 	}
 
 	shimDir := agentHome + "/.local/bin"
-	if err := r.Sudo("create agent OpenCode PATH directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", shimDir); err != nil {
+	if err := r.Sudo("create agent OpenCode PATH directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", shimDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", shimDir, err)
 	}
 	if _, err := r.SudoOutput("test", "-L", shimPath); err == nil {
@@ -167,7 +167,7 @@ test -x "$HOME%s" || test -x "$HOME%s"
 	ui.Step("Write agent OpenCode config")
 	configDir := agentHome + "/.config/opencode"
 	configPath := configDir + "/opencode.json"
-	if err := r.Sudo("create agent OpenCode config directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", configDir); err != nil {
+	if err := r.Sudo("create agent OpenCode config directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", configDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", configDir, err)
 	}
 	if _, err := sudoOutput("test", "-f", configPath); err == nil {
@@ -176,10 +176,10 @@ test -x "$HOME%s" || test -x "$HOME%s"
 		if err := r.SudoWriteFile("write agent OpenCode config", configPath, agentOpenCodeConfigJSON); err != nil {
 			return fmt.Errorf("write OpenCode config: %w", err)
 		}
-		if err := r.Sudo("set OpenCode config ownership", "chown", agentUser+":staff", configPath); err != nil {
+		if err := r.Sudo("set OpenCode config ownership", "chown", agentUser+":"+sharedGroup, configPath); err != nil {
 			return fmt.Errorf("chown OpenCode config: %w", err)
 		}
-		if err := r.Sudo("set OpenCode config permissions", "chmod", "0600", configPath); err != nil {
+		if err := r.Sudo("set OpenCode config permissions", "chmod", "0660", configPath); err != nil {
 			return fmt.Errorf("chmod OpenCode config: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Wrote %s (0600)", configPath))
@@ -187,7 +187,7 @@ test -x "$HOME%s" || test -x "$HOME%s"
 
 	ui.Step("Create OpenCode data directory")
 	dataDir := agentHome + "/.local/share/opencode"
-	if err := r.Sudo("create agent OpenCode data directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", dataDir); err != nil {
+	if err := r.Sudo("create agent OpenCode data directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", dataDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", dataDir, err)
 	}
 	ui.Ok(fmt.Sprintf("Prepared %s", dataDir))

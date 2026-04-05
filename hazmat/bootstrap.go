@@ -197,8 +197,12 @@ bash "$installer"
 	// Always ensure .claude is agent-owned so the agent process can write
 	// to it at runtime.  'install -d' is idempotent: it creates the
 	// directory if absent and applies the given owner/mode unconditionally.
-	if err := r.Sudo("create agent .claude config directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", claudeDir); err != nil {
+	if err := r.Sudo("create agent .claude config directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", claudeDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", claudeDir, err)
+	}
+	projectsDir := claudeDir + "/projects"
+	if err := r.Sudo("create agent .claude/projects directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", projectsDir); err != nil {
+		return fmt.Errorf("ensure %s: %w", projectsDir, err)
 	}
 
 	if _, err := sudoOutput("test", "-f", settingsPath); err == nil {
@@ -207,13 +211,13 @@ bash "$installer"
 		if err := r.SudoWriteFile("write agent Claude settings", settingsPath, agentSettingsJSON); err != nil {
 			return fmt.Errorf("write settings.json: %w", err)
 		}
-		if err := r.Sudo("set agent settings ownership", "chown", agentUser+":staff", settingsPath); err != nil {
+		if err := r.Sudo("set agent settings ownership", "chown", agentUser+":"+sharedGroup, settingsPath); err != nil {
 			return fmt.Errorf("chown settings.json: %w", err)
 		}
-		if err := r.Sudo("set agent settings permissions", "chmod", "0600", settingsPath); err != nil {
+		if err := r.Sudo("set agent settings permissions", "chmod", "0660", settingsPath); err != nil {
 			return fmt.Errorf("chmod settings.json: %w", err)
 		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0600)", settingsPath))
+		ui.Ok(fmt.Sprintf("Wrote %s (0660)", settingsPath))
 	}
 
 	// ── Step 4: create hooks skeleton ─────────────────────────────────────────
@@ -223,7 +227,7 @@ bash "$installer"
 
 	// Always ensure hooks/ is agent-owned (same idempotent install -d logic
 	// as .claude above).
-	if err := r.Sudo("create agent hooks directory", "install", "-d", "-o", agentUser, "-g", "staff", "-m", "0700", hooksDir); err != nil {
+	if err := r.Sudo("create agent hooks directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", hooksDir); err != nil {
 		return fmt.Errorf("ensure %s: %w", hooksDir, err)
 	}
 
@@ -236,13 +240,13 @@ bash "$installer"
 		if err := r.SudoWriteFile("write agent pre-tool-use hook", hookScript, agentPreToolUseHook); err != nil {
 			return fmt.Errorf("write hook script: %w", err)
 		}
-		if err := r.Sudo("set hook script ownership", "chown", agentUser+":staff", hookScript); err != nil {
+		if err := r.Sudo("set hook script ownership", "chown", agentUser+":"+sharedGroup, hookScript); err != nil {
 			return fmt.Errorf("chown hook script: %w", err)
 		}
-		if err := r.Sudo("make hook script executable", "chmod", "0700", hookScript); err != nil {
+		if err := r.Sudo("make hook script executable", "chmod", "0770", hookScript); err != nil {
 			return fmt.Errorf("chmod hook script: %w", err)
 		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0700)", hookScript))
+		ui.Ok(fmt.Sprintf("Wrote %s (0770)", hookScript))
 	}
 
 	// ── Step 5: supply chain hardening ───────────────────────────────────────
