@@ -137,7 +137,10 @@ func systemSafeDirectoryEntries() ([]string, error) {
 }
 
 func agentGlobalSafeDirectoryEntries() ([]string, error) {
-	return readGitSafeDirectoryEntriesCommand(exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--get-all", "safe.directory"))
+	// Read the agent's gitconfig directly instead of using sudo -u agent.
+	// The file is group-readable by dev, which both users belong to.
+	agentGitconfig := agentHome + "/.gitconfig"
+	return readGitSafeDirectoryEntriesCommand(exec.Command("git", "config", "--file", agentGitconfig, "--get-all", "safe.directory"))
 }
 
 func currentGitSafeDirectoryEntries() ([]string, error) {
@@ -177,7 +180,10 @@ func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
-	cmd := exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
+	// Write to the agent's gitconfig directly instead of using sudo -u agent.
+	// The file is group-writable by dev (0660), which both users belong to.
+	agentGitconfig := agentHome + "/.gitconfig"
+	cmd := exec.Command("git", "config", "--file", agentGitconfig, "--add", "safe.directory", repoDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

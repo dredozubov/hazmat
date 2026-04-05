@@ -300,7 +300,7 @@ Examples:
 			return runAgentSeatbeltScriptWithUI(prepared.Config, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
-					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat init" >&2; exit 1; }; }; `+
+					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap claude" >&2; exit 1; }; }; `+
 					`exec "$HOME/.local/bin/claude" `+skipFlag+`"$@"`, forwarded...)
 		},
 	}
@@ -764,6 +764,10 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 }
 
 func resolvePreparedSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
+	if err := requireInit(); err != nil {
+		return preparedSession{}, err
+	}
+
 	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {
 		return preparedSession{}, err
