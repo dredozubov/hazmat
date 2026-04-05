@@ -168,17 +168,15 @@ func TestCollectACLTargetsSkipsSymlinksAndTopLevelNodeModules(t *testing.T) {
 		keepFile,
 		subdir,
 		nestedFile,
+		// Skipped dirs are included (for inheritable ACL) but not their contents.
 		gitDir,
-		gitHead,
-		gitObjectDir,
-		gitObject,
+		filepath.Join(projectDir, ".venv"),
+		filepath.Join(projectDir, "node_modules"),
+		// node_modules inside build output dirs is still recursed into.
 		filepath.Join(projectDir, ".next"),
 		filepath.Join(projectDir, ".next", "standalone"),
 		filepath.Join(projectDir, ".next", "standalone", "node_modules"),
 		nextNodeModulesFile,
-		filepath.Join(projectDir, ".venv"),
-		venvBinDir,
-		venvPython,
 	} {
 		if !got[want] {
 			t.Fatalf("collectACLTargets() missing %s", want)
@@ -187,8 +185,14 @@ func TestCollectACLTargetsSkipsSymlinksAndTopLevelNodeModules(t *testing.T) {
 
 	for _, forbidden := range []string{
 		linkPath,
-		filepath.Join(projectDir, "node_modules"),
+		// Top-level node_modules is skipped entirely (dir included, contents not).
 		filepath.Join(nodeModulesDir, "index.js"),
+		// Contents inside skipped dirs are not collected.
+		gitHead,
+		gitObjectDir,
+		gitObject,
+		venvBinDir,
+		venvPython,
 	} {
 		if got[forbidden] {
 			t.Fatalf("collectACLTargets() unexpectedly included %s", forbidden)

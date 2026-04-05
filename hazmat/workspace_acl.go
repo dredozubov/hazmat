@@ -87,7 +87,8 @@ func collectACLTargets(projectDir string) []string {
 			return nil
 		}
 		if d.IsDir() && shouldSkipACLWalkDir(path, d.Name()) {
-			return filepath.SkipDir
+			paths = append(paths, path) // include dir for inheritable ACL
+			return filepath.SkipDir     // skip contents
 		}
 		paths = append(paths, path)
 		return nil
@@ -95,18 +96,30 @@ func collectACLTargets(projectDir string) []string {
 	return paths
 }
 
+var aclWalkSkipDirs = map[string]struct{}{
+	".git":         {},
+	".venv":        {},
+	"__pycache__":  {},
+	"node_modules": {},
+	"vendor":       {},
+	"venv":         {},
+}
+
 func shouldSkipACLWalkDir(path, name string) bool {
-	if name != "node_modules" {
+	if _, skip := aclWalkSkipDirs[name]; !skip {
 		return false
 	}
-	for _, keepAncestor := range []string{
-		string(os.PathSeparator) + ".next" + string(os.PathSeparator),
-		string(os.PathSeparator) + "dist" + string(os.PathSeparator),
-		string(os.PathSeparator) + "build" + string(os.PathSeparator),
-		string(os.PathSeparator) + "target" + string(os.PathSeparator),
-	} {
-		if strings.Contains(path, keepAncestor) {
-			return false
+	// Preserve node_modules inside build output dirs (e.g. .next/server/node_modules).
+	if name == "node_modules" {
+		for _, keepAncestor := range []string{
+			string(os.PathSeparator) + ".next" + string(os.PathSeparator),
+			string(os.PathSeparator) + "dist" + string(os.PathSeparator),
+			string(os.PathSeparator) + "build" + string(os.PathSeparator),
+			string(os.PathSeparator) + "target" + string(os.PathSeparator),
+		} {
+			if strings.Contains(path, keepAncestor) {
+				return false
+			}
 		}
 	}
 	return true
@@ -136,6 +149,16 @@ func projectNeedsACLRepair(projectDir string) bool {
 		if !d.IsDir() {
 			return nil
 		}
+
+		// Probe tracked dirs before the skip check — some probe
+		// targets (e.g. .venv) are also in the ACL walk skip list.
+		if _, tracked := aclRepairProbeDirNames[d.Name()]; tracked {
+			if !pathHasDevACL(path, true) {
+				needsRepair = true
+			}
+			return filepath.SkipDir
+		}
+
 		if shouldSkipACLWalkDir(path, d.Name()) {
 			return filepath.SkipDir
 		}
@@ -146,10 +169,6 @@ func projectNeedsACLRepair(projectDir string) bool {
 		}
 		depth := strings.Count(rel, string(os.PathSeparator)) + 1
 		if depth > aclRepairProbeMaxDepth {
-			return filepath.SkipDir
-		}
-		if _, tracked := aclRepairProbeDirNames[d.Name()]; tracked && !pathHasDevACL(path, true) {
-			needsRepair = true
 			return filepath.SkipDir
 		}
 		return nil
