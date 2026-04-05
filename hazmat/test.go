@@ -502,6 +502,25 @@ func testAgentTools(ui *UI) {
 		} else {
 			ui.TestWarn("No ~/.claude/settings.json for agent user — Claude deny rules are not configured")
 		}
+
+		// Verify .claude and .claude/projects are group-accessible by dev
+		// so that export and resume work from the host user.
+		for _, dir := range []string{agentHome + "/.claude", agentHome + "/.claude/projects"} {
+			info, err := os.Stat(dir)
+			if err != nil {
+				ui.TestFail(fmt.Sprintf("%s not accessible from host user — export/resume will fail", dir))
+				continue
+			}
+			if !info.IsDir() {
+				ui.TestFail(fmt.Sprintf("%s is not a directory", dir))
+				continue
+			}
+			if pathHasDevACL(dir, true) || info.Mode().Perm()&0o070 != 0 {
+				ui.TestPass(fmt.Sprintf("%s is group-accessible", dir))
+			} else {
+				ui.TestFail(fmt.Sprintf("%s is not group-accessible — export/resume will fail (mode %04o)", dir, info.Mode().Perm()))
+			}
+		}
 	} else {
 		ui.TestSkip("Claude Code not installed for agent user (optional — run 'hazmat bootstrap claude' to test it)")
 	}

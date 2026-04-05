@@ -285,6 +285,17 @@ phase "Phase 6: Rollback"
     && pass "LaunchDaemon plist removed" \
     || fail "LaunchDaemon plist still exists"
 
+# ── Phase 6b: requireInit guard ──────────────────────────────────────────────
+# After rollback, session commands must fail with a clear error instead of
+# prompting for a sudo password.
+
+ERR_OUTPUT=$("$HAZMAT" claude -p "hello" 2>&1 || true)
+if echo "$ERR_OUTPUT" | grep -q "not initialized"; then
+    pass "requireInit guard: 'hazmat claude' fails with init message after rollback"
+else
+    fail "requireInit guard: expected 'not initialized' error, got: $ERR_OUTPUT"
+fi
+
 # ── Phase 7: Idempotency ────────────────────────────────────────────────────
 
 phase "Phase 7: Idempotency (rollback → reinit → check)"
