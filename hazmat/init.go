@@ -542,8 +542,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		}
 	}
 
-	// ── Agent credentials: Claude API key + git identity ────────────────────
-	if !flagDryRun && ui.IsInteractive() && bootstrapSelection == string(HarnessClaude) {
+	// ── Agent credentials: API key + git identity ──────────────────────────
+	// Git identity is needed for any harness, not just Claude.
+	if !flagDryRun && ui.IsInteractive() && bootstrapSelection != "" {
 		if err := runConfigAgent(ui); err != nil {
 			cYellow.Printf("\n  Agent config skipped: %v\n", err)
 			fmt.Println("  Run 'hazmat config agent' later to set credentials.")
