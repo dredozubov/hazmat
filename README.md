@@ -292,6 +292,10 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | [brief-supply-chain-hardening.md](docs/brief-supply-chain-hardening.md) | Supply chain attack analysis and mitigations |
 | [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification specs |
 
+## Blog Post
+
+[How I Made --dangerously-skip-permissions Safe in Claude Code](https://codeofchange.io/how-i-made-dangerously-skip-permissions-safe-in-claude-code/)
+
 ## Contributing
 
 Hazmat is early. The UX, security model, and documentation are all actively evolving. Feedback is the most valuable contribution right now.
