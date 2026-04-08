@@ -4,9 +4,20 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-08
+
 ### Added
-- Zsh completion support during `hazmat init` with managed fpath block
+- Zsh completion support during `hazmat init` with system fpath installation
+- AI-assisted release script with CHANGELOG management
 - Blog post link in README
+
+### Fixed
+- Shell permission denied on fresh installs (#3)
+- Zsh completion file permissions set to 644 after sudo write
+- Release script quoting by writing prompt to temp file
+
+### Tests
+- Strengthen shell permission denied regressions
 
 ## [0.4.3] - 2026-04-05
 
@@ -69,7 +80,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dredozubov/hazmat/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/dredozubov/hazmat/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/dredozubov/hazmat/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/dredozubov/hazmat/compare/v0.4.0...v0.4.1
