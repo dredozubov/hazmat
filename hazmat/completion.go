@@ -81,6 +81,9 @@ func setupZshCompletions(ui *UI, r *Runner) error {
 	if err := r.SudoWriteFile("install zsh completions", dest, string(out)); err != nil {
 		return fmt.Errorf("write completion file: %w", err)
 	}
+	if err := r.Sudo("set completion file permissions", "chmod", "644", dest); err != nil {
+		return fmt.Errorf("chmod %s: %w", dest, err)
+	}
 	ui.Ok(fmt.Sprintf("Wrote %s", dest))
 
 	// Clean up legacy user-local completion file and fpath block if present.
