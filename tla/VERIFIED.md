@@ -217,14 +217,14 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
-| Status | **Proved** — 44,795 states, 140,535 transitions, 0 errors (3s) |
+| Status | **Proved** — 70,393 states, 221,299 transitions, 0 errors (5s) |
 
 **What this verifies:**
 
 1. **Forward migration:** Upgrading from any previous init version (v0.1.0,
-   v0.2.0) to the current binary version (v0.3.0) produces a consistent
-   system with exactly the expected artifacts. Migrations are sequential —
-   no version is skipped.
+   v0.2.0, v0.3.0) to the current binary version (v0.4.0) produces a
+   consistent system with exactly the expected artifacts. Migrations are
+   sequential — no version is skipped.
 
 2. **Rollback from any state:** The system can reach a clean state (zero
    artifacts) via rollback from any intermediate state: fully initialized,
@@ -232,7 +232,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
    constraints — sudoers is removed before pfAnchor (revoke privilege
    before removing containment).
 
-3. **AgentContained everywhere:** Across all 44,795 reachable states —
+3. **AgentContained everywhere:** Across all 70,393 reachable states —
    including partial migrations, failed states, and partial rollbacks — the
    agent is never launchable without firewall containment.
 

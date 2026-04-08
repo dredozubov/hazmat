@@ -25,14 +25,16 @@ EXTENDS Naturals, Sequences, FiniteSets
 V1 == "v0.1.0"   \* Initial release: workspace concept
 V2 == "v0.2.0"   \* Workspace removed, lazy per-project ACL
 V3 == "v0.3.0"   \* Supply chain hardening (npmrc, pip.conf)
+V4 == "v0.4.0"   \* Zsh completions for host user
 
-Versions == {V1, V2, V3}
-BinaryVersion == V3
+Versions == {V1, V2, V3, V4}
+BinaryVersion == V4
 
 VersionOrd(v) ==
     IF v = V1 THEN 1
     ELSE IF v = V2 THEN 2
-    ELSE 3
+    ELSE IF v = V3 THEN 3
+    ELSE 4
 
 VersionLT(a, b) == VersionOrd(a) < VersionOrd(b)
 
@@ -48,11 +50,16 @@ Expected(v) ==
          "umask", "seatbelt", "wrappers",
          "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
          "launchDaemon", "localRepo"}
-    ELSE \* V3
+    ELSE IF v = V3 THEN
         {"agentUser", "devGroup", "homeDirTraverse",
          "umask", "seatbelt", "wrappers",
          "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
          "launchDaemon", "localRepo", "npmrc"}
+    ELSE \* V4
+        {"agentUser", "devGroup", "homeDirTraverse",
+         "umask", "seatbelt", "wrappers",
+         "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
+         "launchDaemon", "localRepo", "npmrc", "zshCompletions"}
 
 \* The union of ALL artifacts across ALL versions. Rollback must know how
 \* to remove everything, including artifacts from older versions that the
@@ -64,11 +71,13 @@ AllArtifacts ==
 HasMigration(from, to) ==
     \/ (from = V1 /\ to = V2)
     \/ (from = V2 /\ to = V3)
+    \/ (from = V3 /\ to = V4)
 
 \* Successor version.
 NextVersion(v) ==
     IF v = V1 THEN V2
     ELSE IF v = V2 THEN V3
+    ELSE IF v = V3 THEN V4
     ELSE v
 
 \* ═══════════════════════════════════════════════════════════════════════════════

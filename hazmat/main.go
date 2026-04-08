@@ -56,6 +56,8 @@ const (
 	agentShellBlockEnd   = "# <<< hazmat agent shell <<<"
 	userPathBlockStart   = "# >>> hazmat user path >>>"
 	userPathBlockEnd     = "# <<< hazmat user path <<<"
+	completionBlockStart = "# >>> hazmat completions >>>"
+	completionBlockEnd   = "# <<< hazmat completions <<<"
 	umaskBlockStart      = "# >>> hazmat umask >>>"
 	umaskBlockEnd        = "# <<< hazmat umask <<<"
 
@@ -153,7 +155,7 @@ func main() {
 		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
-		newConnectCmd(), newStackCheckCmd(),
+		newConnectCmd(), newStackCheckCmd(), newCompletionCmd(root),
 	)
 	root.SetHelpCommandGroupID("ws")
 

@@ -128,7 +128,7 @@ func parseSemver(s string) []int {
 
 // knownVersions is the ordered list of versions with migration functions.
 // Must match the TLA+ spec's Versions / NextVersion / HasMigration.
-var knownVersions = []string{"0.1.0", "0.2.0", "0.3.0"}
+var knownVersions = []string{"0.1.0", "0.2.0", "0.3.0", "0.4.0"}
 
 // pendingMigrations returns the chain of migrations needed to go from
 // fromVer to toVer. Returns nil if no migration is needed.

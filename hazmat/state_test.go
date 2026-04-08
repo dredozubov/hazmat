@@ -40,32 +40,48 @@ func TestPendingMigrations(t *testing.T) {
 	})
 
 	t.Run("already current", func(t *testing.T) {
-		chain := pendingMigrations("0.3.0", "0.3.0")
+		chain := pendingMigrations("0.4.0", "0.4.0")
 		if chain != nil {
 			t.Errorf("expected nil for current version, got %d migrations", len(chain))
 		}
 	})
 
 	t.Run("one step", func(t *testing.T) {
-		chain := pendingMigrations("0.2.0", "0.3.0")
+		chain := pendingMigrations("0.3.0", "0.4.0")
 		if len(chain) != 1 {
 			t.Fatalf("expected 1 migration, got %d", len(chain))
 		}
-		if chain[0].From != "0.2.0" || chain[0].To != "0.3.0" {
+		if chain[0].From != "0.3.0" || chain[0].To != "0.4.0" {
 			t.Errorf("wrong migration: %s→%s", chain[0].From, chain[0].To)
 		}
 	})
 
 	t.Run("two steps", func(t *testing.T) {
-		chain := pendingMigrations("0.1.0", "0.3.0")
+		chain := pendingMigrations("0.2.0", "0.4.0")
 		if len(chain) != 2 {
 			t.Fatalf("expected 2 migrations, got %d", len(chain))
+		}
+		if chain[0].From != "0.2.0" || chain[0].To != "0.3.0" {
+			t.Errorf("first: %s→%s", chain[0].From, chain[0].To)
+		}
+		if chain[1].From != "0.3.0" || chain[1].To != "0.4.0" {
+			t.Errorf("second: %s→%s", chain[1].From, chain[1].To)
+		}
+	})
+
+	t.Run("three steps", func(t *testing.T) {
+		chain := pendingMigrations("0.1.0", "0.4.0")
+		if len(chain) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(chain))
 		}
 		if chain[0].From != "0.1.0" || chain[0].To != "0.2.0" {
 			t.Errorf("first: %s→%s", chain[0].From, chain[0].To)
 		}
 		if chain[1].From != "0.2.0" || chain[1].To != "0.3.0" {
 			t.Errorf("second: %s→%s", chain[1].From, chain[1].To)
+		}
+		if chain[2].From != "0.3.0" || chain[2].To != "0.4.0" {
+			t.Errorf("third: %s→%s", chain[2].From, chain[2].To)
 		}
 	})
 

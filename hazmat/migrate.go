@@ -36,6 +36,12 @@ var migrations = map[string]migration{
 		Up:   migrateUp_0_2_0_to_0_3_0,
 		Down: migrateDown_0_3_0_to_0_2_0,
 	},
+	"0.3.0→0.4.0": {
+		From: "0.3.0",
+		To:   "0.4.0",
+		Up:   migrateUp_0_3_0_to_0_4_0,
+		Down: migrateDown_0_4_0_to_0_3_0,
+	},
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -163,6 +169,29 @@ func migrateDown_0_3_0_to_0_2_0(ui *UI, r *Runner) error {
 		}
 	}
 
+	return nil
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v0.3.0 → v0.4.0: Add zsh completions for host user
+//
+// TLA+ Expected(V4) \ Expected(V3) = {zshCompletions}
+// TLA+ Expected(V3) \ Expected(V4) = {} (nothing removed)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func migrateUp_0_3_0_to_0_4_0(ui *UI, _ *Runner) error {
+	ui.Step("Migration: v0.3.0 → v0.4.0 (zsh completions)")
+
+	// Zsh completions are installed by setupZshCompletions in the normal
+	// init flow. No migration action needed — the idempotent init step
+	// will create the completion file and fpath block if missing.
+	ui.Ok("Zsh completions will be applied by init")
+	return nil
+}
+
+func migrateDown_0_4_0_to_0_3_0(ui *UI, r *Runner) error {
+	ui.Step("Reverse migration: v0.4.0 → v0.3.0")
+	rollbackZshCompletions(ui, r)
 	return nil
 }
 

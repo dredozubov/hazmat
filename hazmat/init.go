@@ -490,6 +490,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	if err := setupUserExperience(ui, r); err != nil {
 		return err
 	}
+	if err := setupZshCompletions(ui, r); err != nil {
+		return err
+	}
 	if err := setupGitSafeDirectory(ui, r); err != nil {
 		return err
 	}
