@@ -63,12 +63,15 @@ echo "Changes since ${PREV_TAG}:"
 echo "${CHANGES}"
 echo ""
 
-# Use hazmat claude to update CHANGELOG.md and determine version
-PROMPT="$(cat <<PROMPT_EOF
+# Build prompt in a temp file to avoid nested quoting issues
+PROMPT_FILE="$(mktemp)"
+trap 'rm -f "${PROMPT_FILE}"' EXIT
+
+cat > "${PROMPT_FILE}" <<PROMPT_EOF
 You are updating CHANGELOG.md for a new release of Hazmat.
 
 Previous version tag: ${PREV_TAG}
-Explicit version requested: ${VERSION:-"(none — determine from changes)"}
+Explicit version requested: ${VERSION:-(none — determine from changes)}
 
 Commits since last tag:
 ${CHANGES}
@@ -87,11 +90,10 @@ Rules:
 Only edit CHANGELOG.md. Do not create or modify any other files.
 Print the chosen version number as the LAST line of your response, formatted exactly as: VERSION=X.Y.Z
 PROMPT_EOF
-)"
 
 echo "Asking hazmat claude to update CHANGELOG.md..."
 echo ""
-CLAUDE_OUTPUT="$(hazmat claude --no-backup -p "${PROMPT}" 2>&1)" || {
+CLAUDE_OUTPUT="$(hazmat claude --no-backup -p "$(cat "${PROMPT_FILE}")" 2>&1)" || {
     echo "error: hazmat claude failed" >&2
     echo "${CLAUDE_OUTPUT}" >&2
     exit 1
@@ -107,6 +109,8 @@ if [ -z "${VERSION}" ]; then
         echo "error: could not determine version from claude output" >&2
         exit 1
     fi
+    echo "Determined version: ${VERSION}"
+    echo ""
 fi
 
 # Normalize: strip leading v if user passes it
