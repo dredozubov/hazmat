@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+var currentUserHomeDir = os.UserHomeDir
+var pathAllowsAgentTraverse = homeAllowsAgentTraverse
+
 // devGroupACLEntry returns the macOS ACL entry string that grants the dev
 // group full collaborative access with file and directory inheritance.
 func devGroupACLEntry() string {
@@ -228,14 +231,23 @@ func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, 
 }
 
 func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := currentUserHomeDir()
 	if err != nil {
 		return nil
 	}
 
 	var pending []string
+
+	// Safety net: ensure home directory itself is still traversable.
+	// init sets this ACL, but permissions can change (macOS updates,
+	// privacy settings, manual chmod). Without home traversal the
+	// agent cannot reach any project directory.
+	if !pathAllowsAgentTraverse(homeDir) {
+		pending = append(pending, homeDir)
+	}
+
 	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
-		if homeAllowsAgentTraverse(path) {
+		if pathAllowsAgentTraverse(path) {
 			continue
 		}
 		pending = append(pending, path)
