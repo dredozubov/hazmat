@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const sessionMutationProofScopeTLAModel = "TLA+ model + tests/docs"
@@ -87,6 +88,11 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	}
 
 	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
+	// Include project dir's parent so the full path from home to the project
+	// is traversable — not just paths to extra read/write dirs.
+	if parent := filepath.Dir(cfg.ProjectDir); parent != cfg.ProjectDir {
+		exposedDirs = append(exposedDirs, parent)
+	}
 	if pending := pendingAgentTraverseTargets(cfg.ProjectDir, exposedDirs); len(pending) > 0 {
 		projectDir := cfg.ProjectDir
 		pendingCount := len(pending)

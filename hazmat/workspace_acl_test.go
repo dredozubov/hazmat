@@ -227,3 +227,50 @@ func TestCollectAgentTraverseTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectAgentTraverseTargetsIncludesProjectParent(t *testing.T) {
+	t.Parallel()
+
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "rv")
+	projectDir := filepath.Join(homeDir, "workspace", "test-hz")
+
+	// Simulate what buildNativeSessionMutationPlan does: add filepath.Dir(projectDir)
+	parentDir := filepath.Dir(projectDir)
+	got := collectAgentTraverseTargets(homeDir, projectDir, []string{parentDir})
+
+	want := []string{
+		filepath.Join(homeDir, "workspace"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collectAgentTraverseTargets() with project parent: count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i, path := range want {
+		if got[i] != path {
+			t.Fatalf("collectAgentTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
+		}
+	}
+}
+
+func TestCollectAgentTraverseTargetsDeeplyNested(t *testing.T) {
+	t.Parallel()
+
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "rv")
+	projectDir := filepath.Join(homeDir, "code", "work", "api", "myproject")
+
+	parentDir := filepath.Dir(projectDir)
+	got := collectAgentTraverseTargets(homeDir, projectDir, []string{parentDir})
+
+	want := []string{
+		filepath.Join(homeDir, "code"),
+		filepath.Join(homeDir, "code", "work"),
+		filepath.Join(homeDir, "code", "work", "api"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collectAgentTraverseTargets() deeply nested: count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i, path := range want {
+		if got[i] != path {
+			t.Fatalf("collectAgentTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
+		}
+	}
+}

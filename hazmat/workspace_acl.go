@@ -234,6 +234,15 @@ func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
 	}
 
 	var pending []string
+
+	// Safety net: ensure home directory itself is still traversable.
+	// init sets this ACL, but permissions can change (macOS updates,
+	// privacy settings, manual chmod). Without home traversal the
+	// agent cannot reach any project directory.
+	if !homeAllowsAgentTraverse(homeDir) {
+		pending = append(pending, homeDir)
+	}
+
 	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
 		if homeAllowsAgentTraverse(path) {
 			continue
