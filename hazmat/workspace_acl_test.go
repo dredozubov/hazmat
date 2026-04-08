@@ -274,3 +274,37 @@ func TestCollectAgentTraverseTargetsDeeplyNested(t *testing.T) {
 		}
 	}
 }
+
+func TestPendingAgentTraverseTargetsIncludesHomeSafetyNet(t *testing.T) {
+	savedUserHomeDir := currentUserHomeDir
+	savedPathAllows := pathAllowsAgentTraverse
+	t.Cleanup(func() {
+		currentUserHomeDir = savedUserHomeDir
+		pathAllowsAgentTraverse = savedPathAllows
+	})
+
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "rv")
+	projectDir := filepath.Join(homeDir, "workspace", "test-hz")
+	parentDir := filepath.Dir(projectDir)
+
+	currentUserHomeDir = func() (string, error) {
+		return homeDir, nil
+	}
+	pathAllowsAgentTraverse = func(path string) bool {
+		return false
+	}
+
+	got := pendingAgentTraverseTargets(projectDir, []string{parentDir})
+	want := []string{
+		homeDir,
+		parentDir,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("pendingAgentTraverseTargets() count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i, path := range want {
+		if got[i] != path {
+			t.Fatalf("pendingAgentTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
+		}
+	}
+}

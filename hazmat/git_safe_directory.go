@@ -175,6 +175,12 @@ func plannedProjectGitSafeDirectory(projectDir string) string {
 	return repoDir
 }
 
+func appendAgentGlobalSafeDirectoryCommand(repoDir string) *exec.Cmd {
+	cmd := exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
+	cmd.Dir = "/"
+	return cmd
+}
+
 func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
 	repoDir = normalizeSafeDirectoryEntry(repoDir)
 	if repoDir == "" {
@@ -185,8 +191,7 @@ func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
 	// This sudo call is covered by the NOPASSWD rule (runs after init).
 	// Use / as cwd so git doesn't fail when the host's cwd is inaccessible
 	// to the agent user (the traverse ACL may not have been applied yet).
-	cmd := exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
-	cmd.Dir = "/"
+	cmd := appendAgentGlobalSafeDirectoryCommand(repoDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

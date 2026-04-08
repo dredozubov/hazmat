@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -174,5 +175,31 @@ func TestEnsureAgentGitSafeDirectoryAddsExactRepoTrust(t *testing.T) {
 	}
 	if len(agentEntries) != 1 || agentEntries[0] != repoDir {
 		t.Fatalf("agentEntries = %v, want [%q]", agentEntries, repoDir)
+	}
+}
+
+func TestAppendAgentGlobalSafeDirectoryCommandUsesRootWorkingDir(t *testing.T) {
+	repoDir := "/Users/dr/workspace/stack-matrix/pydantic-ai"
+
+	cmd := appendAgentGlobalSafeDirectoryCommand(repoDir)
+
+	if cmd.Dir != "/" {
+		t.Fatalf("appendAgentGlobalSafeDirectoryCommand().Dir = %q, want %q", cmd.Dir, "/")
+	}
+
+	wantArgs := []string{
+		"sudo",
+		"-u",
+		agentUser,
+		"-H",
+		"git",
+		"config",
+		"--global",
+		"--add",
+		"safe.directory",
+		repoDir,
+	}
+	if !reflect.DeepEqual(cmd.Args, wantArgs) {
+		t.Fatalf("appendAgentGlobalSafeDirectoryCommand().Args = %v, want %v", cmd.Args, wantArgs)
 	}
 }
