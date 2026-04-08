@@ -10,14 +10,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const zshCompletionDirRel = ".local/share/zsh/site-functions"
-
-func zshCompletionDir() string {
-	return filepath.Join(os.Getenv("HOME"), zshCompletionDirRel)
-}
+// zshSystemCompletionDir is already in zsh's default fpath on macOS,
+// so no .zshrc modifications are needed. Matches where Homebrew and
+// other system tools install completions.
+const zshSystemCompletionDir = "/usr/local/share/zsh/site-functions"
 
 func zshCompletionFile() string {
-	return filepath.Join(zshCompletionDir(), "_hazmat")
+	return filepath.Join(zshSystemCompletionDir, "_hazmat")
+}
+
+// legacyZshCompletionDir is the old user-local location. Kept only for
+// rollback cleanup of installs that used the previous approach.
+func legacyZshCompletionDir() string {
+	return filepath.Join(os.Getenv("HOME"), ".local/share/zsh/site-functions")
 }
 
 func newCompletionCmd(root *cobra.Command) *cobra.Command {
@@ -43,8 +48,8 @@ func newCompletionCmd(root *cobra.Command) *cobra.Command {
 }
 
 // setupZshCompletions generates a zsh completion script and installs it to
-// ~/.local/share/zsh/site-functions/_hazmat. A managed fpath block is added
-// to ~/.zshrc so the completions directory is on the search path.
+// /usr/local/share/zsh/site-functions/_hazmat, which is already in zsh's
+// default fpath on macOS. No .zshrc modifications needed.
 func setupZshCompletions(ui *UI, r *Runner) error {
 	ui.Step("Install zsh completions")
 
@@ -67,50 +72,43 @@ func setupZshCompletions(ui *UI, r *Runner) error {
 		return fmt.Errorf("generate zsh completions: %w", err)
 	}
 
-	dir := zshCompletionDir()
-	if err := r.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+	if err := r.Sudo("create zsh completions directory",
+		"mkdir", "-p", zshSystemCompletionDir); err != nil {
+		return fmt.Errorf("mkdir %s: %w", zshSystemCompletionDir, err)
 	}
 
 	dest := zshCompletionFile()
-	if err := r.UserWriteFile(dest, string(out)); err != nil {
+	if err := r.SudoWriteFile("install zsh completions", dest, string(out)); err != nil {
 		return fmt.Errorf("write completion file: %w", err)
 	}
 	ui.Ok(fmt.Sprintf("Wrote %s", dest))
 
-	// Add fpath to .zshrc so zsh can find the completion file.
-	profile, ok := currentUserShellProfile()
-	if !ok {
-		return nil
+	// Clean up legacy user-local completion file and fpath block if present.
+	legacyFile := filepath.Join(legacyZshCompletionDir(), "_hazmat")
+	if _, err := os.Stat(legacyFile); err == nil {
+		os.Remove(legacyFile) //nolint:errcheck // best-effort legacy cleanup
 	}
-	userRCData, _ := os.ReadFile(profile.rcPath)
-	rc := string(userRCData)
-	if strings.Contains(rc, completionBlockStart) {
-		ui.SkipDone(fmt.Sprintf("%s already has a hazmat completions block", profile.rcPath))
-		return nil
+	for _, profile := range supportedUserShellProfiles() {
+		if data, err := os.ReadFile(profile.rcPath); err == nil &&
+			strings.Contains(string(data), completionBlockStart) {
+			cleaned := removeManagedBlock(string(data), completionBlockStart, completionBlockEnd)
+			if err := r.UserWriteFile(profile.rcPath, cleaned); err == nil {
+				ui.Ok(fmt.Sprintf("Removed legacy completions block from %s", profile.rcPath))
+			}
+		}
 	}
-
-	updatedRC := upsertManagedBlock(rc,
-		completionBlockStart,
-		completionBlockEnd,
-		fmt.Sprintf(`fpath=(%s $fpath)`, zshCompletionDir()),
-	)
-	if err := r.UserWriteFile(profile.rcPath, updatedRC); err != nil {
-		return fmt.Errorf("update %s: %w", profile.rcPath, err)
-	}
-	ui.Ok(fmt.Sprintf("Added completions fpath to %s", profile.rcPath))
 
 	return nil
 }
 
-// rollbackZshCompletions removes the completion file and the fpath managed
-// block from all supported shell profiles.
+// rollbackZshCompletions removes the completion file from the system
+// directory and cleans up any legacy user-local files or .zshrc blocks.
 func rollbackZshCompletions(ui *UI, r *Runner) {
 	ui.Step("Remove zsh completions")
 
 	dest := zshCompletionFile()
 	if _, err := os.Stat(dest); err == nil {
-		if err := os.Remove(dest); err != nil {
+		if err := r.Sudo("remove zsh completions", "rm", "-f", dest); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", dest, err))
 		} else {
 			ui.Ok(fmt.Sprintf("Removed %s", dest))
@@ -119,6 +117,13 @@ func rollbackZshCompletions(ui *UI, r *Runner) {
 		ui.SkipDone("Completion file not present")
 	}
 
+	// Clean up legacy user-local file.
+	legacyFile := filepath.Join(legacyZshCompletionDir(), "_hazmat")
+	if _, err := os.Stat(legacyFile); err == nil {
+		os.Remove(legacyFile) //nolint:errcheck // best-effort legacy cleanup
+	}
+
+	// Clean up legacy fpath managed blocks from shell profiles.
 	for _, profile := range supportedUserShellProfiles() {
 		if data, err := os.ReadFile(profile.rcPath); err == nil &&
 			strings.Contains(string(data), completionBlockStart) {
