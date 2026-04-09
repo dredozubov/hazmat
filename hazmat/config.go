@@ -1227,15 +1227,17 @@ func runConfigSSHTest(project, host string) error {
 	fmt.Printf("Target host: %s\n\n", host)
 
 	output, err := probeGitSSHHost(*cfg.GitSSH, host)
+	if err == nil {
+		fmt.Println(summarizeGitSSHProbeSuccess(output))
+		fmt.Println()
+		fmt.Println("SSH test succeeded.")
+		return nil
+	}
 	if output != "" {
 		fmt.Println(strings.TrimSpace(output))
 		fmt.Println()
 	}
-	if err != nil {
-		return err
-	}
-	fmt.Println("SSH test succeeded.")
-	return nil
+	return err
 }
 
 func runConfigSSHUnset(project, keyName string) error {
