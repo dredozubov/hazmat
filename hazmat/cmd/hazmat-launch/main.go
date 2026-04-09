@@ -47,11 +47,14 @@ import "C"
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // policyFilePattern enforces that the policy file lives under /private/tmp
@@ -65,6 +68,10 @@ var policyFilePattern = regexp.MustCompile(`^/private/tmp/hazmat-\d+\.sb$`)
 const denyDefaultMarker = "(deny default)"
 
 func main() {
+	if err := closeInheritedFDs(); err != nil {
+		die("hazmat-launch: close inherited fds: %v", err)
+	}
+
 	if len(os.Args) < 3 {
 		die("usage: hazmat-launch <policy-file> <cmd> [args...]")
 	}
@@ -110,6 +117,22 @@ func sandboxInit(policy string) error {
 		msg := C.GoString(errBuf)
 		C.sandbox_free_error(errBuf)
 		return fmt.Errorf("sandbox_init: %s", msg)
+	}
+	return nil
+}
+
+// closeInheritedFDs drops every non-stdio descriptor before any helper logic
+// runs. sandbox_init() cannot revoke access granted by an already-open handle.
+func closeInheritedFDs() error {
+	var limit unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &limit); err != nil {
+		return fmt.Errorf("getrlimit RLIMIT_NOFILE: %w", err)
+	}
+
+	for fd := 3; fd < int(limit.Cur); fd++ {
+		if err := unix.Close(fd); err != nil && err != unix.EBADF {
+			return fmt.Errorf("close fd %d: %w", fd, err)
+		}
 	}
 	return nil
 }
@@ -183,7 +206,7 @@ func validateAndReadPolicy(path string) (string, error) {
 	}
 
 	// ── Content ──────────────────────────────────────────────────────────────
-	data, err := os.ReadFile(path)
+	data, err := readFileCloexec(path)
 	if err != nil {
 		return "", fmt.Errorf("read %q: %w", path, err)
 	}
@@ -192,6 +215,22 @@ func validateAndReadPolicy(path string) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+func readFileCloexec(path string) ([]byte, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("wrap fd %d for %q", fd, path)
+	}
+	defer f.Close()
+
+	return io.ReadAll(f)
 }
 
 // validatePolicyFile checks the policy file without reading its full contents.

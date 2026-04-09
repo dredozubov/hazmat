@@ -1,10 +1,16 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"reflect"
 	"sync/atomic"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // testFileSeq generates unique numeric suffixes so concurrent/sequential
@@ -38,11 +44,11 @@ func TestValidatePolicyFile_PathPattern(t *testing.T) {
 	}{
 		{"/private/tmp/hazmat-1234.sb", false},
 		{"/private/tmp/hazmat-99999.sb", false},
-		{"/private/tmp/hazmat-abc.sb", true},              // non-numeric
-		{"/tmp/hazmat-1234.sb", true},                     // wrong dir (symlink target)
-		{"/private/tmp/evil/../hazmat-1234.sb", true},     // traversal
-		{"/private/tmp/hazmat-.sb", true},                 // empty PID component
-		{"/private/tmp/xhazmat-1234.sb", true},            // wrong prefix
+		{"/private/tmp/hazmat-abc.sb", true},          // non-numeric
+		{"/tmp/hazmat-1234.sb", true},                 // wrong dir (symlink target)
+		{"/private/tmp/evil/../hazmat-1234.sb", true}, // traversal
+		{"/private/tmp/hazmat-.sb", true},             // empty PID component
+		{"/private/tmp/xhazmat-1234.sb", true},        // wrong prefix
 	}
 	for _, tc := range tests {
 		got := policyFilePattern.MatchString(tc.path)
@@ -133,4 +139,67 @@ func TestValidatePolicyFile_OwnershipCheck(t *testing.T) {
 			t.Error("expected error for SUDO_UID=0, got nil")
 		}
 	})
+}
+
+func TestCloseInheritedFDs_ClosesExtraFiles(t *testing.T) {
+	const childEnv = "HAZMAT_LAUNCH_TEST_CHILD"
+
+	if os.Getenv(childEnv) == "1" {
+		if err := closeInheritedFDs(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		openFDs, err := listOpenFDs(6)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(3)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(openFDs); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(4)
+		}
+		os.Exit(0)
+	}
+
+	sentinel, err := os.CreateTemp(t.TempDir(), "hazmat-launch-fd-*")
+	if err != nil {
+		t.Fatalf("create sentinel file: %v", err)
+	}
+	defer sentinel.Close()
+
+	if _, err := unix.FcntlInt(sentinel.Fd(), unix.F_SETFD, 0); err != nil {
+		t.Fatalf("clear FD_CLOEXEC on sentinel: %v", err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCloseInheritedFDs_ClosesExtraFiles$")
+	cmd.Env = append(os.Environ(), childEnv+"=1")
+	cmd.ExtraFiles = []*os.File{sentinel}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run helper child: %v\n%s", err, out)
+	}
+
+	var openFDs []int
+	if err := json.Unmarshal(out, &openFDs); err != nil {
+		t.Fatalf("decode open fds %q: %v", out, err)
+	}
+
+	if want := []int{0, 1, 2}; !reflect.DeepEqual(openFDs, want) {
+		t.Fatalf("open fds after cleanup = %v, want %v", openFDs, want)
+	}
+}
+
+func listOpenFDs(maxFD int) ([]int, error) {
+	openFDs := make([]int, 0, maxFD+1)
+	for fd := 0; fd <= maxFD; fd++ {
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != nil {
+			if errors.Is(err, unix.EBADF) {
+				continue
+			}
+			return nil, fmt.Errorf("inspect fd %d: %w", fd, err)
+		}
+		openFDs = append(openFDs, fd)
+	}
+	return openFDs, nil
 }

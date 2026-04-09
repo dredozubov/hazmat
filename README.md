@@ -255,7 +255,8 @@ Three OS-level enforcement layers:
 
 Setup ordering, seatbelt policy structure, backup safety, version migration,
 session-time host permission repairs, harness lifecycle state, Tier 3 launch
-containment, and Tier 2/Tier 3 core policy equivalence are
+containment, Tier 2/Tier 3 core policy equivalence, and native launch fd
+isolation are
 [formally verified with TLA+](tla/VERIFIED.md).
 
 ## Undo Everything

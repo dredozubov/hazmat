@@ -116,6 +116,15 @@ block-beta
 - If the filesystem changes during a session, the policy doesn't update
 - Policy files are written to `/private/tmp/hazmat-<pid>.sb` and cleaned up on exit
 
+**Seatbelt path denies assume a clean helper fd table.** `hazmat-launch`
+closes every inherited fd `>= 3` before calling `sandbox_init()`, then opens
+its own policy file with `CLOEXEC` before the final `exec`. This matters
+because SBPL rules do not revoke access granted by an already-open file
+descriptor. The path-based credential-deny story therefore depends on two
+layers together: helper-side fd cleanup before sandboxing, then Seatbelt path
+enforcement after sandboxing. That precondition is now part of the verified
+TLA+ suite, not just an implementation assumption.
+
 **/tmp is shared.** The agent can read and write `/private/tmp` and `/private/var/folders`. These are shared with all users on the system. Sensitive temp files from other processes are accessible.
 
 ## Workspace Model

@@ -24,6 +24,13 @@ core containment equivalence and disproves exact backend identity. The suite
 does **not** claim that Seatbelt policy and Docker Sandbox runtime behavior are
 identical implementations.
 
+Important launch-boundary addition: the current suite now also models the
+native helper's launch-time fd table. It proves Hazmat's native path reaches
+`sandbox_init()` with only stdio plus helper-opened policy state, and that the
+final agent exec keeps only stdio. The suite still does **not** model `sudo`
+internals, Go runtime internals, or kernel behavior beyond that abstract fd
+contract.
+
 Important concrete-IO boundary: the current suite models which repair classes
 and harness-state transitions Hazmat may plan, apply, preserve, or delete. It
 does **not** model the exact `chmod`/ACL syscall effects, concrete filesystem
@@ -152,6 +159,12 @@ successful completion after arbitrary bounded failures.
 
 Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
 4=agent home, 5=project write re-assert, 6=credential denies.
+
+Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
+reason about SBPL path matching, not already-open inherited kernel handles. The
+native launch path now proves that precondition separately in
+`MC_LaunchFDIsolation`: `hazmat-launch` must reach `sandbox_init()` with no
+inherited credential-bearing fd still alive.
 
 **Change rules:**
 - Do not reorder the sections in `generateSBPL()` — credential denies MUST be
@@ -454,6 +467,54 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 
 ---
 
+### 9 — Launch FD Isolation
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/09_launch_fd_isolation.md` |
+| TLA+ files | `tla/MC_LaunchFDIsolation.tla`, `tla/MC_LaunchFDIsolation.cfg` |
+| Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
+| Governed code | `hazmat/session.go` — `runAgentSeatbeltScriptWithUI()`, policy-file generation |
+| Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
+| Key invariants | `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent` |
+| Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only |
+
+**What this verifies:**
+
+1. **Helper-side cleanup is mandatory:** the checked design does not rely on
+   Go's current `exec` behavior or `sudo`'s current fd cleanup to keep
+   inherited descriptors out of the helper.
+
+2. **Sandboxing starts from a curated fd table:** once `sandbox_init()` is
+   called, the helper holds only stdio plus its helper-opened policy file.
+
+3. **Credential-bearing inherited fds are gone before Seatbelt matters:** path
+   denies are only meaningful if no already-open credential handle survived
+   into the helper.
+
+4. **The final agent exec is stdio-only:** helper-opened policy state is
+   `CLOEXEC`, so it cannot leak into the actual agent process.
+
+TLC passes across all 112 reachable states (128 generated, depth 7, <1s).
+
+During design, a temporary negative config with
+`HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
+an inherited non-stdio fd survived into `sandbox_init()`. That is why helper-
+side cleanup is now a proved design rule instead of an implementation detail.
+
+**Change rules:**
+- Any change to the native `sudo -> hazmat-launch -> sandbox_init() -> exec`
+  chain must preserve both boundaries: no inherited non-stdio fd at
+  `sandbox_init()`, and stdio-only final agent exec.
+- Replacing helper-side fd cleanup with reliance on upstream `sudo` or Go
+  behavior requires updating this spec first. The current proof assumes Hazmat
+  owns that boundary itself.
+- Any helper-opened fd that may remain live across the final `exec` must be
+  modeled here first. The current proof assumes helper-opened policy state is
+  explicitly `CLOEXEC`.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -466,6 +527,7 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/integration_manifest.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
+| `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 
 ---
 

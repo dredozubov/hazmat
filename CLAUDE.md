@@ -18,6 +18,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_TierPolicyEquivalence` | Tier 2 vs Tier 3 core policy contract | `CanonicalCoreContainmentEquivalent` — canonical core containment matches across both backends |
 | `MC_SessionPermissionRepairs` | Session-time host permission repair planning and rollback persistence | `RollbackPreservesSessionRepairs` — core rollback never reverts an applied session repair |
 | `MC_HarnessLifecycle` | Built-in harness state recording and rollback cleanup | `RollbackClearsMetadata` — rollback removes the host-owned harness metadata record |
+| `MC_LaunchFDIsolation` | Native helper fd-table hygiene before `sandbox_init()` | `AgentFDTableAllowlisted` — final agent exec sees stdio only |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -69,6 +70,7 @@ tla/                     TLA+ formal verification specs
   MC_TierPolicyEquivalence.* Tier 2 vs Tier 3 effective-policy contract
   MC_SessionPermissionRepairs.* Session-time permission repair contract
   MC_HarnessLifecycle.* Harness state recording + rollback cleanup
+  MC_LaunchFDIsolation.* Native helper fd isolation contract
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
@@ -120,6 +122,9 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Changing harness bootstrap/import state recording or rollback cleanup
 → Update `MC_HarnessLifecycle.tla` first, run TLC, then implement.
+
+### Changing native helper fd cleanup, policy-file fd handling, or pre-sandbox exec hygiene
+→ Update `MC_LaunchFDIsolation.tla` first, run TLC, then implement.
 
 ## Key conventions
 

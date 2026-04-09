@@ -22,6 +22,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Canonical Tier 2/Tier 3 core containment equivalence and intentional exact-identity breaks | **High** |
 | 7 | `07_session_permission_repairs.md` | Session-time host permission repair planning, preview/launch semantics, and rollback persistence | **High** |
 | 8 | `08_harness_lifecycle.md` | Built-in harness bootstrap/import state recording and rollback cleanup semantics | **High** |
+| 9 | `09_launch_fd_isolation.md` | Native helper fd-table cleanup before `sandbox_init()` and stdio-only agent exec | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

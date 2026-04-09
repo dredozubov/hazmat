@@ -7,8 +7,10 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,6 +25,7 @@ import (
 	"github.com/kopia/kopia/snapshot/restore"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/upload"
+	"golang.org/x/sys/unix"
 )
 
 func runTest(quick bool) error {
@@ -660,7 +663,7 @@ func testSeatbelt(ui *UI) {
 		ReadDirs:   []string{readDir},
 	}
 	policyContent := generateSBPL(cfg)
-	policyFile := fmt.Sprintf("/private/tmp/hazmat-test-%d.sb", os.Getpid())
+	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policyContent), 0o644); err != nil {
 		ui.TestWarn(fmt.Sprintf("Could not write test seatbelt policy: %v", err))
 		return
@@ -742,6 +745,52 @@ func testSeatbelt(ui *UI) {
 		}
 	} else {
 		ui.TestSkip("~/.claude does not exist for agent — skipping Claude auth read test")
+	}
+
+	fdProbeScript := `for n in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
+if eval ": <&$n" 2>/dev/null; then
+printf '%s\n' "$n"
+fi
+done
+exit 0`
+	fdProbeCmd := []string{
+		"-u", agentUser,
+		launchHelper, policyFile,
+		"/usr/bin/env", "-i",
+	}
+	fdProbeCmd = append(fdProbeCmd, agentEnvPairs(cfg)...)
+	fdProbeCmd = append(fdProbeCmd, "/bin/sh", "-c", fdProbeScript)
+
+	sentinelA, err := os.Open("/etc/hosts")
+	if err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not open sentinel fd /etc/hosts: %v", err))
+		return
+	}
+	defer sentinelA.Close()
+	sentinelB, err := os.Open("/bin/sh")
+	if err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not open sentinel fd /bin/sh: %v", err))
+		return
+	}
+	defer sentinelB.Close()
+
+	for _, f := range []*os.File{sentinelA, sentinelB} {
+		if _, err := unix.FcntlInt(f.Fd(), unix.F_SETFD, 0); err != nil {
+			ui.TestWarn(fmt.Sprintf("Could not clear FD_CLOEXEC on sentinel fd %d: %v", f.Fd(), err))
+			return
+		}
+	}
+
+	out, err := exec.Command("sudo", fdProbeCmd...).CombinedOutput()
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("hazmat-launch fd probe failed: %v (%s)", err, strings.TrimSpace(string(out))))
+		return
+	}
+
+	if got := strings.Fields(strings.TrimSpace(string(out))); reflect.DeepEqual(got, []string{"0", "1", "2"}) {
+		ui.TestPass("hazmat-launch strips inherited non-stdio fds before sandboxing")
+	} else {
+		ui.TestFail(fmt.Sprintf("CONFINEMENT BREACH: launched agent inherited unexpected fds: %s", strings.Join(got, " ")))
 	}
 }
 
