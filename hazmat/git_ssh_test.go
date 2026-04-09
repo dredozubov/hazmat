@@ -84,7 +84,7 @@ func TestRunConfigSSHSetPersistsProjectConfigAndUnsetRemovesItWithoutTouchingKey
 		t.Fatalf("ProjectSSH.KnownHostsPath = %q, want %q", got.KnownHostsPath, knownHostsPath)
 	}
 
-	if err := runConfigSSHUnset(projectDir); err != nil {
+	if err := runConfigSSHUnset(projectDir, ""); err != nil {
 		t.Fatalf("runConfigSSHUnset: %v", err)
 	}
 	cfg, err = loadConfig()
@@ -169,6 +169,24 @@ func TestConfigSSHUnsetCommandRemovesOnlyProjectConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(knownHostsPath); err != nil {
 		t.Fatalf("known_hosts should still exist after unset command: %v", err)
+	}
+}
+
+func TestRunConfigSSHUnsetRejectsMismatchedKey(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeSSHKeyDirectory(t, true)
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
+	}
+
+	err := runConfigSSHUnset(projectDir, "other_key")
+	if err == nil {
+		t.Fatal("expected mismatched unset key to be rejected")
+	}
+	if !strings.Contains(err.Error(), "does not match the current project assignment") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -278,6 +296,63 @@ func TestCompleteSSHSetKeyArgsSuggestsPathScopedKeys(t *testing.T) {
 	want := []string{filepath.Join(keyDir, "deploy_key")}
 	if !slices.Equal(got, want) {
 		t.Fatalf("completeSSHSetKeyArgs = %v, want %v", got, want)
+	}
+}
+
+func TestCompleteSSHUnsetKeyArgsSuggestsCurrentProjectKey(t *testing.T) {
+	isolateConfig(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "id_ed25519"), []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "id_ed25519.pub"), []byte("ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write public key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	if err := runConfigSSHSet(projectDir, filepath.Join(sshDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
+	}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("project", projectDir, "")
+	got, directive := completeSSHUnsetKeyArgs(cmd, nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+	}
+	if !slices.Equal(got, []string{"id_ed25519"}) {
+		t.Fatalf("completeSSHUnsetKeyArgs = %v, want [id_ed25519]", got)
+	}
+}
+
+func TestCompleteSSHUnsetKeyArgsSuggestsConfiguredPathForPathPrefix(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "deploy_key", true)
+	keyPath := filepath.Join(keyDir, "deploy_key")
+	canonicalKeyPath, err := canonicalizeConfiguredFile(keyPath)
+	if err != nil {
+		t.Fatalf("canonicalizeConfiguredFile key: %v", err)
+	}
+	if err := runConfigSSHSet(projectDir, keyPath); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
+	}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("project", projectDir, "")
+	got, _ := completeSSHUnsetKeyArgs(cmd, nil, filepath.Join(keyDir, "dep"))
+	if !slices.Equal(got, []string{canonicalKeyPath}) {
+		t.Fatalf("completeSSHUnsetKeyArgs = %v, want [%s]", got, canonicalKeyPath)
 	}
 }
 

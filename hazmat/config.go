@@ -692,11 +692,16 @@ func newConfigSSHCmd() *cobra.Command {
 		"Git SSH host to probe (for example github.com)")
 
 	unsetCmd := &cobra.Command{
-		Use:   "unset",
-		Short: "Remove the SSH assignment from a project",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHUnset(project)
+		Use:               "unset [key]",
+		Short:             "Remove the SSH assignment from a project",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeSSHUnsetKeyArgs,
+		RunE: func(_ *cobra.Command, args []string) error {
+			selectedKey := ""
+			if len(args) == 1 {
+				selectedKey = args[0]
+			}
+			return runConfigSSHUnset(project, selectedKey)
 		},
 	}
 	unsetCmd.Flags().StringVarP(&project, "project", "C", "",
@@ -705,10 +710,14 @@ func newConfigSSHCmd() *cobra.Command {
 	clearCmd := &cobra.Command{
 		Use:    "clear",
 		Short:  "Deprecated alias for unset",
-		Args:   cobra.NoArgs,
+		Args:   cobra.MaximumNArgs(1),
 		Hidden: true,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHUnset(project)
+		RunE: func(_ *cobra.Command, args []string) error {
+			selectedKey := ""
+			if len(args) == 1 {
+				selectedKey = args[0]
+			}
+			return runConfigSSHUnset(project, selectedKey)
 		},
 	}
 	clearCmd.Flags().StringVarP(&project, "project", "C", "",
@@ -1229,26 +1238,29 @@ func runConfigSSHTest(project, host string) error {
 	return nil
 }
 
-func runConfigSSHUnset(project string) error {
-	projectDir, err := resolveDir(project, true)
+func runConfigSSHUnset(project, keyName string) error {
+	projectDir, projectCfg, err := loadProjectSSHConfig(project)
 	if err != nil {
-		return fmt.Errorf("project: %w", err)
+		return err
+	}
+	if projectCfg == nil {
+		fmt.Printf("No SSH key assigned to %s\n", projectDir)
+		return nil
+	}
+
+	if err := validateSSHUnsetSelection(projectCfg, keyName); err != nil {
+		return err
 	}
 
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	if cfg.Projects == nil {
-		fmt.Printf("No SSH key assigned to %s\n", projectDir)
-		return nil
-	}
-
-	projectCfg := cfg.Projects[projectDir]
-	projectCfg.SSH = nil
-	projectCfg.GitSSH = nil
-	if projectHasOverrides(projectCfg) {
-		cfg.Projects[projectDir] = projectCfg
+	projectCfgValue := cfg.Projects[projectDir]
+	projectCfgValue.SSH = nil
+	projectCfgValue.GitSSH = nil
+	if projectHasOverrides(projectCfgValue) {
+		cfg.Projects[projectDir] = projectCfgValue
 	} else {
 		delete(cfg.Projects, projectDir)
 	}
@@ -1261,6 +1273,46 @@ func runConfigSSHUnset(project string) error {
 
 	fmt.Printf("Unset SSH configuration for %s\n", projectDir)
 	return nil
+}
+
+func loadProjectSSHConfig(project string) (string, *ProjectConfig, error) {
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return "", nil, fmt.Errorf("project: %w", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return "", nil, err
+	}
+	if cfg.Projects == nil {
+		return projectDir, nil, nil
+	}
+	projectCfg, ok := cfg.Projects[projectDir]
+	if !ok || (projectCfg.SSH == nil && projectCfg.GitSSH == nil) {
+		return projectDir, nil, nil
+	}
+	return projectDir, &projectCfg, nil
+}
+
+func validateSSHUnsetSelection(projectCfg *ProjectConfig, selection string) error {
+	selection = strings.TrimSpace(selection)
+	if selection == "" {
+		return nil
+	}
+
+	suggestions := projectSSHUnsetSuggestions(*projectCfg)
+	for _, suggestion := range suggestions {
+		if selection == suggestion {
+			return nil
+		}
+	}
+
+	assigned := "(unknown)"
+	if len(suggestions) > 0 {
+		assigned = suggestions[0]
+	}
+	return fmt.Errorf("SSH key %q does not match the current project assignment %q", selection, assigned)
 }
 
 func runConfigSSHListKeys(keyDir string) error {
@@ -1341,6 +1393,87 @@ func completeSSHSetKeyArgs(_ *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return suggestions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeSSHUnsetKeyArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	project, _ := cmd.Flags().GetString("project")
+	_, projectCfg, err := loadProjectSSHConfig(project)
+	if err != nil || projectCfg == nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	suggestions := filterSSHUnsetSuggestions(projectSSHUnsetSuggestions(*projectCfg), toComplete)
+	return suggestions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func projectSSHUnsetSuggestions(projectCfg ProjectConfig) []string {
+	if projectCfg.SSH != nil && strings.TrimSpace(projectCfg.SSH.PrivateKeyPath) != "" {
+		privateKeyPath := strings.TrimSpace(projectCfg.SSH.PrivateKeyPath)
+		basename := filepath.Base(privateKeyPath)
+		defaultDir, err := resolveSSHKeyDirectory("")
+		if err == nil && filepath.Dir(privateKeyPath) == defaultDir {
+			return []string{basename, privateKeyPath}
+		}
+		return []string{privateKeyPath, basename}
+	}
+	if projectCfg.GitSSH != nil && strings.TrimSpace(projectCfg.GitSSH.PrivateKeyPath) != "" {
+		privateKeyPath := strings.TrimSpace(projectCfg.GitSSH.PrivateKeyPath)
+		return []string{privateKeyPath, filepath.Base(privateKeyPath)}
+	}
+	return nil
+}
+
+func filterSSHUnsetSuggestions(suggestions []string, toComplete string) []string {
+	toComplete = strings.TrimSpace(toComplete)
+	if toComplete == "" {
+		if len(suggestions) == 0 {
+			return nil
+		}
+		return []string{suggestions[0]}
+	}
+
+	filtered := make([]string, 0, len(suggestions))
+	seen := make(map[string]struct{}, len(suggestions))
+	canonicalPrefix := canonicalizeSSHCompletionPrefix(toComplete)
+	for _, suggestion := range suggestions {
+		if !strings.HasPrefix(suggestion, toComplete) && (canonicalPrefix == "" || !strings.HasPrefix(suggestion, canonicalPrefix)) {
+			continue
+		}
+		if _, ok := seen[suggestion]; ok {
+			continue
+		}
+		seen[suggestion] = struct{}{}
+		filtered = append(filtered, suggestion)
+	}
+	sort.Strings(filtered)
+	return filtered
+}
+
+func canonicalizeSSHCompletionPrefix(prefix string) string {
+	if !strings.Contains(prefix, string(os.PathSeparator)) {
+		return ""
+	}
+
+	expanded := expandTilde(prefix)
+	if !filepath.IsAbs(expanded) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return ""
+		}
+		expanded = filepath.Join(wd, expanded)
+	}
+
+	dir := filepath.Dir(expanded)
+	base := filepath.Base(expanded)
+	resolvedDir, err := resolveDir(dir, false)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(resolvedDir, base)
 }
 
 func completeSSHKeyCandidates(toComplete string) ([]string, error) {
