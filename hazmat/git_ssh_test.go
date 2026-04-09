@@ -183,6 +183,20 @@ func TestRunConfigSSHSetRejectsUnknownKey(t *testing.T) {
 	}
 }
 
+func TestRunConfigSSHSetRejectsPublicKeyPath(t *testing.T) {
+	isolateConfig(t)
+
+	keyDir := writeSSHKeyDirectory(t, true)
+
+	err := runConfigSSHSet(t.TempDir(), filepath.Join(keyDir, "id_ed25519.pub"))
+	if err == nil {
+		t.Fatal("expected public key path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "looks like a public key") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunConfigSSHSetAcceptsNonDefaultKeyNames(t *testing.T) {
 	isolateConfig(t)
 
@@ -207,6 +221,24 @@ func TestRunConfigSSHSetAcceptsNonDefaultKeyNames(t *testing.T) {
 	}
 	if filepath.Base(projectCfg.PrivateKeyPath) != "deploy_key" {
 		t.Fatalf("PrivateKeyPath = %q, want deploy_key", projectCfg.PrivateKeyPath)
+	}
+}
+
+func TestConfigSSHSetCommandRejectsPublicKeyPath(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeSSHKeyDirectory(t, true)
+	t.Chdir(projectDir)
+
+	cmd := newConfigSSHCmd()
+	cmd.SetArgs([]string{"set", filepath.Join(keyDir, "id_ed25519.pub")})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected public key path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "looks like a public key") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

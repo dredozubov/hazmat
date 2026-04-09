@@ -481,6 +481,9 @@ func findSSHKeyCandidate(keys []sshKeyCandidate, selection string) (sshKeyCandid
 	if selection == "" {
 		return sshKeyCandidate{}, fmt.Errorf("SSH key selection is required")
 	}
+	if looksLikeSSHPublicKeySelection(selection) {
+		return sshKeyCandidate{}, fmt.Errorf("SSH key %q looks like a public key; pass the private key path instead", selection)
+	}
 
 	if strings.Contains(selection, string(os.PathSeparator)) || filepath.IsAbs(selection) {
 		canonical, err := canonicalizeConfiguredFile(selection)
@@ -502,6 +505,10 @@ func findSSHKeyCandidate(keys []sshKeyCandidate, selection string) (sshKeyCandid
 		return sshKeyCandidate{}, fmt.Errorf("SSH key %q was not found", selection)
 	}
 	return sshKeyCandidate{}, fmt.Errorf("SSH key %q was not found in %s", selection, keys[0].DirectoryPath)
+}
+
+func looksLikeSSHPublicKeySelection(selection string) bool {
+	return strings.HasSuffix(strings.TrimSpace(selection), ".pub")
 }
 
 func sessionPathExposesFile(cfg sessionConfig, path string) bool {
