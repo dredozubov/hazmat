@@ -55,7 +55,7 @@ func TestRunConfigSSHSetPersistsProjectConfigAndClearRemovesIt(t *testing.T) {
 		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
 	}
 
-	if err := runConfigSSHSet(projectDir, keyDir, "id_ed25519"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestRunConfigSSHSetRejectsUnknownKey(t *testing.T) {
 
 	keyDir := writeSSHKeyDirectory(t, true)
 
-	err := runConfigSSHSet(t.TempDir(), keyDir, "missing-key")
+	err := runConfigSSHSet(t.TempDir(), filepath.Join(keyDir, "missing-key"))
 	if err == nil {
 		t.Fatal("expected unknown key to be rejected")
 	}
@@ -113,7 +113,7 @@ func TestRunConfigSSHSetAcceptsNonDefaultKeyNames(t *testing.T) {
 	projectDir := t.TempDir()
 	keyDir := writeNamedSSHKeyDirectory(t, "deploy_key", true)
 
-	if err := runConfigSSHSet(projectDir, keyDir, "deploy_key"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "deploy_key")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
@@ -147,7 +147,7 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
 	}
-	if err := runConfigSSHSet(projectDir, keyDir, "id_ed25519"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestResolveManagedGitSSHRejectsVisibleSelectedPrivateKey(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, keyDir, "id_ed25519"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
@@ -259,7 +259,7 @@ func TestResolvePreparedSessionAddsManagedGitSSHNotes(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, keyDir, "id_ed25519"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestResolvePreparedSessionRejectsManagedGitSSHForSandboxMode(t *testing.T) 
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, keyDir, "id_ed25519"); err != nil {
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 

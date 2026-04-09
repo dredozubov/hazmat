@@ -649,23 +649,21 @@ Examples:
 func newConfigSSHCmd() *cobra.Command {
 	var project string
 	var keyName string
-	var keyDir string
 	var host string
+	var listKeyDir string
 
 	setCmd := &cobra.Command{
 		Use:   "set",
-		Short: "Assign an SSH key from a directory to a project",
+		Short: "Assign an SSH key to a project",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHSet(project, keyDir, keyName)
+			return runConfigSSHSet(project, keyName)
 		},
 	}
 	setCmd.Flags().StringVarP(&project, "project", "C", "",
 		"Project directory (defaults to current directory)")
-	setCmd.Flags().StringVar(&keyDir, "dir", "",
-		"Directory containing SSH keys (defaults to ~/.ssh)")
 	setCmd.Flags().StringVar(&keyName, "key", "",
-		"SSH key file name or absolute path (omit to choose interactively)")
+		"SSH key path, or a key name resolved from ~/.ssh (omit to choose interactively)")
 
 	showCmd := &cobra.Command{
 		Use:   "show",
@@ -707,10 +705,10 @@ func newConfigSSHCmd() *cobra.Command {
 		Short: "List SSH keys in a directory",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHListKeys(keyDir)
+			return runConfigSSHListKeys(listKeyDir)
 		},
 	}
-	listCmd.Flags().StringVar(&keyDir, "dir", "",
+	listCmd.Flags().StringVar(&listKeyDir, "dir", "",
 		"Directory containing SSH keys (defaults to ~/.ssh)")
 
 	cmd := &cobra.Command{
@@ -723,13 +721,13 @@ session-local ssh-agent at launch time, and still restricts the session to
 Git SSH transports rather than arbitrary remote shells.
 
 By default Hazmat looks for keys in ~/.ssh and uses known_hosts from the same
-directory. You can point it at another key directory with --dir.
+directory. To use a different directory, pass the full key path with --key.
 
 Examples:
   hazmat config ssh list-keys
   hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
   hazmat config ssh set -C ~/workspace/my-app --key id_ed25519
-  hazmat config ssh set -C ~/workspace/my-app --dir ~/.config/hazmat/ssh --key deploy_key
+  hazmat config ssh set -C ~/workspace/my-app --key ~/.config/hazmat/ssh/deploy_key
   hazmat config ssh show -C ~/workspace/my-app
   hazmat config ssh test -C ~/workspace/my-app --host github.com
   hazmat config ssh clear -C ~/workspace/my-app`,
@@ -1025,22 +1023,23 @@ func runConfigAccess(project string, readDirs, writeDirs []string, remove bool) 
 	return nil
 }
 
-func runConfigSSHSet(project, keyDir, keyName string) error {
+func runConfigSSHSet(project, keyName string) error {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return fmt.Errorf("project: %w", err)
 	}
 
-	if strings.TrimSpace(keyDir) == "" && strings.TrimSpace(keyName) != "" {
-		expandedKeyName := expandTilde(strings.TrimSpace(keyName))
-		if filepath.IsAbs(expandedKeyName) || strings.Contains(expandedKeyName, string(os.PathSeparator)) {
-			keyDir = filepath.Dir(expandedKeyName)
-		}
-	}
-	if strings.TrimSpace(keyDir) == "" && strings.TrimSpace(keyName) == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+	keyDir := ""
+	if strings.TrimSpace(keyName) == "" && term.IsTerminal(int(os.Stdin.Fd())) {
 		keyDir, err = promptSSHKeyDirectory(defaultSSHKeyDirectory())
 		if err != nil {
 			return err
+		}
+	}
+	if strings.TrimSpace(keyName) != "" {
+		expandedKeyName := expandTilde(strings.TrimSpace(keyName))
+		if filepath.IsAbs(expandedKeyName) || strings.Contains(expandedKeyName, string(os.PathSeparator)) {
+			keyDir = filepath.Dir(expandedKeyName)
 		}
 	}
 	canonicalKeyDir, err := resolveSSHKeyDirectory(keyDir)
