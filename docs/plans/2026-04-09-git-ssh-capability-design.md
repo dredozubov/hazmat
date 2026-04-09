@@ -98,9 +98,18 @@ silently dropping the capability.
 ## Implementation Slice
 
 1. Discover keys from a chosen directory, defaulting to `~/.ssh`.
-2. Add `hazmat config ssh set|show|test|clear|list-keys`.
+2. Add `hazmat config ssh set|show|test|unset|list-keys`.
 3. Store the selected private-key path plus `known_hosts` path in config and surface it in the session contract.
 4. Prepare the ephemeral Git SSH runtime before native session launch.
 5. Inject `GIT_SSH_COMMAND` for the session.
 6. Add focused unit coverage for discovery, config persistence, session resolution, and wrapper generation.
 7. Update the key SSH docs so they describe the managed Git exception instead of an unconditional "SSH unsupported" claim.
+
+## Shipped Clarification
+
+The final `hazmat config ssh test` behavior is intentionally broader than the
+session-time Git wrapper. The test command runs as the invoking host user so it
+can validate a selected key against the user's real SSH topology, including
+alias and jump-host routing from `~/.ssh/config`. The runtime Git wrapper still
+stays in charge of the actual session boundary and does not yet support
+alias-based Git remotes from the host user's SSH config.
