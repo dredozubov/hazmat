@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,9 +143,29 @@ func normalizeGitSSHTestHost(host string) (string, error) {
 	if host == "" {
 		return "", fmt.Errorf("--host is required\nexample:\n  hazmat config ssh test -C ~/workspace/my-project --host github.com")
 	}
-	if at := strings.LastIndex(host, "@"); at >= 0 {
-		host = host[at+1:]
+
+	switch {
+	case strings.Contains(host, "://"):
+		parsed, err := url.Parse(host)
+		if err != nil {
+			return "", fmt.Errorf("invalid host %q", host)
+		}
+		if parsed.Hostname() == "" {
+			return "", fmt.Errorf("invalid host %q", host)
+		}
+		host = parsed.Hostname()
+	default:
+		if colon := strings.Index(host, ":"); colon >= 0 {
+			slash := strings.Index(host, "/")
+			if slash == -1 || colon < slash {
+				host = host[:colon]
+			}
+		}
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
+		}
 	}
+
 	host = strings.ToLower(strings.TrimSpace(host))
 	if !gitSSHHostPattern.MatchString(host) {
 		return "", fmt.Errorf("invalid host %q (expected bare hostname)", host)
@@ -682,9 +703,14 @@ func probeGitSSHHost(cfg sessionGitSSHConfig, host string) (string, error) {
 	return runGitSSHProbe(identityRuntime.SocketPath, identityRuntime.KnownHostsPath, host)
 }
 
-func runGitSSHProbe(socketPath, knownHostsPath, host string) (string, error) {
+func newGitSSHProbeCommand(socketPath, knownHostsPath, host string) *exec.Cmd {
 	target := "git@" + host
-	cmd := exec.Command("/usr/bin/ssh",
+	return newSudoCommand("-u", agentUser, "env",
+		"HOME="+agentHome,
+		"USER="+agentUser,
+		"LOGNAME="+agentUser,
+		"SSH_ASKPASS_REQUIRE=never",
+		"/usr/bin/ssh",
 		"-F", "none",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
@@ -704,6 +730,10 @@ func runGitSSHProbe(socketPath, knownHostsPath, host string) (string, error) {
 		"git-upload-pack",
 		"/__hazmat_ssh_probe__",
 	)
+}
+
+func runGitSSHProbe(socketPath, knownHostsPath, host string) (string, error) {
+	cmd := newGitSSHProbeCommand(socketPath, knownHostsPath, host)
 	output, err := cmd.CombinedOutput()
 	trimmed := strings.TrimSpace(string(output))
 	if probeErr := interpretGitSSHProbeResult(host, trimmed, err); probeErr != nil {

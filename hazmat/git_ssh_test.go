@@ -432,8 +432,50 @@ func TestNormalizeGitSSHTestHost(t *testing.T) {
 		t.Fatalf("normalizeGitSSHTestHost = %q, want github.com", got)
 	}
 
-	if _, err := normalizeGitSSHTestHost("github.com:2222"); err == nil {
-		t.Fatal("expected host with port to be rejected")
+	got, err = normalizeGitSSHTestHost("git@github.com:dredozubov/hazmat.git")
+	if err != nil {
+		t.Fatalf("normalizeGitSSHTestHost scp remote: %v", err)
+	}
+	if got != "github.com" {
+		t.Fatalf("normalizeGitSSHTestHost scp remote = %q, want github.com", got)
+	}
+
+	got, err = normalizeGitSSHTestHost("ssh://git@github.com/dredozubov/hazmat.git")
+	if err != nil {
+		t.Fatalf("normalizeGitSSHTestHost ssh url: %v", err)
+	}
+	if got != "github.com" {
+		t.Fatalf("normalizeGitSSHTestHost ssh url = %q, want github.com", got)
+	}
+
+	if _, err := normalizeGitSSHTestHost("bad host value"); err == nil {
+		t.Fatal("expected invalid host to be rejected")
+	}
+}
+
+func TestNewGitSSHProbeCommandRunsAsAgentUser(t *testing.T) {
+	cmd := newGitSSHProbeCommand("/tmp/agent.sock", "/tmp/known_hosts", "github.com")
+
+	wantFragments := []string{
+		"sudo",
+		"-u",
+		agentUser,
+		"env",
+		"HOME=" + agentHome,
+		"USER=" + agentUser,
+		"LOGNAME=" + agentUser,
+		"SSH_ASKPASS_REQUIRE=never",
+		"/usr/bin/ssh",
+		"-o",
+		"IdentityAgent=/tmp/agent.sock",
+		"-o",
+		"UserKnownHostsFile=/tmp/known_hosts",
+		"git@github.com",
+	}
+	for _, fragment := range wantFragments {
+		if !slices.Contains(cmd.Args, fragment) {
+			t.Fatalf("probe command args = %v, want fragment %q", cmd.Args, fragment)
+		}
 	}
 }
 
