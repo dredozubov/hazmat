@@ -7,6 +7,7 @@ are not interchangeable.
 
 | Surface | What it answers | Runs where | Destructive? |
 | --- | --- | --- | --- |
+| `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
 | `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
@@ -22,6 +23,7 @@ are not interchangeable.
 Use this during normal development:
 
 ```bash
+git diff --cached --check
 cd hazmat
 go test ./...
 golangci-lint run ./...
@@ -29,6 +31,13 @@ bash ../scripts/pre-push
 ```
 
 This intentionally skips the expensive or environment-heavy checks.
+
+If you install the git hooks with `make hooks`, Hazmat also adds:
+
+- `pre-commit`: staged diff sanity, `gofmt` on staged Go files, and shell syntax
+  checks for staged scripts
+- `pre-push`: the shared fast gate (`go vet`, `go test`, `golangci-lint`, and
+  CLI smoke tests)
 
 ### Harness guardrails
 
@@ -110,7 +119,7 @@ Current GitHub Actions coverage:
 - `.github/workflows/ci.yml`
   - lint
   - Go vet and unit tests
-  - CLI help/smoke checks including `hazmat init --help`
+  - CLI help/smoke checks via `scripts/check-cli-smoke.sh`
   - test-entrypoint guard regression checks
   - self-hosting bootstrap on macOS (`--skip-tla`)
   - repo-matrix required-track contract checks
