@@ -690,12 +690,24 @@ func newConfigSSHCmd() *cobra.Command {
 	testCmd.Flags().StringVar(&host, "host", "",
 		"Git SSH host to probe (for example github.com)")
 
-	clearCmd := &cobra.Command{
-		Use:   "clear",
+	unsetCmd := &cobra.Command{
+		Use:   "unset",
 		Short: "Remove the SSH assignment from a project",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHClear(project)
+			return runConfigSSHUnset(project)
+		},
+	}
+	unsetCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+
+	clearCmd := &cobra.Command{
+		Use:    "clear",
+		Short:  "Deprecated alias for unset",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runConfigSSHUnset(project)
 		},
 	}
 	clearCmd.Flags().StringVarP(&project, "project", "C", "",
@@ -732,13 +744,13 @@ Examples:
   hazmat config ssh set -C ~/workspace/my-app ~/.config/hazmat/ssh/deploy_key
   hazmat config ssh show -C ~/workspace/my-app
   hazmat config ssh test -C ~/workspace/my-app --host github.com
-  hazmat config ssh clear -C ~/workspace/my-app`,
+  hazmat config ssh unset -C ~/workspace/my-app`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(setCmd, showCmd, testCmd, clearCmd, listCmd)
+	cmd.AddCommand(setCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd)
 	return cmd
 }
 
@@ -1216,7 +1228,7 @@ func runConfigSSHTest(project, host string) error {
 	return nil
 }
 
-func runConfigSSHClear(project string) error {
+func runConfigSSHUnset(project string) error {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return fmt.Errorf("project: %w", err)
@@ -1246,7 +1258,7 @@ func runConfigSSHClear(project string) error {
 		return err
 	}
 
-	fmt.Printf("Cleared SSH configuration for %s\n", projectDir)
+	fmt.Printf("Unset SSH configuration for %s\n", projectDir)
 	return nil
 }
 

@@ -360,7 +360,7 @@ hazmat config ssh set id_ed25519
 hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
 hazmat config ssh set -C ~/workspace/my-project ~/.config/hazmat/ssh/deploy_key
 hazmat config ssh test -C ~/workspace/my-project --host github.com
-hazmat config ssh clear -C ~/workspace/my-project
+hazmat config ssh unset -C ~/workspace/my-project
 ```
 
 This is an explicit per-project capability for Git transport only. Hazmat

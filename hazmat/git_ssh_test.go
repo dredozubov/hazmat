@@ -41,7 +41,7 @@ func TestDiscoverSSHKeyCandidatesReportsBrokenEntriesWithoutKnownHosts(t *testin
 	}
 }
 
-func TestRunConfigSSHSetPersistsProjectConfigAndClearRemovesIt(t *testing.T) {
+func TestRunConfigSSHSetPersistsProjectConfigAndUnsetRemovesItWithoutTouchingKeyFile(t *testing.T) {
 	isolateConfig(t)
 
 	projectDir := t.TempDir()
@@ -81,15 +81,21 @@ func TestRunConfigSSHSetPersistsProjectConfigAndClearRemovesIt(t *testing.T) {
 		t.Fatalf("ProjectSSH.KnownHostsPath = %q, want %q", got.KnownHostsPath, knownHostsPath)
 	}
 
-	if err := runConfigSSHClear(projectDir); err != nil {
-		t.Fatalf("runConfigSSHClear: %v", err)
+	if err := runConfigSSHUnset(projectDir); err != nil {
+		t.Fatalf("runConfigSSHUnset: %v", err)
 	}
 	cfg, err = loadConfig()
 	if err != nil {
-		t.Fatalf("loadConfig after clear: %v", err)
+		t.Fatalf("loadConfig after unset: %v", err)
 	}
 	if got := cfg.ProjectSSH(canonicalProjectDir); got != nil {
-		t.Fatalf("ProjectSSH after clear = %+v, want nil", got)
+		t.Fatalf("ProjectSSH after unset = %+v, want nil", got)
+	}
+	if _, err := os.Stat(privateKeyPath); err != nil {
+		t.Fatalf("private key should still exist after unset: %v", err)
+	}
+	if _, err := os.Stat(knownHostsPath); err != nil {
+		t.Fatalf("known_hosts should still exist after unset: %v", err)
 	}
 }
 
@@ -120,6 +126,46 @@ func TestConfigSSHSetCommandUsesPositionalKeyPathInCurrentProject(t *testing.T) 
 	}
 	if filepath.Base(projectCfg.PrivateKeyPath) != "id_ed25519" {
 		t.Fatalf("PrivateKeyPath = %q, want id_ed25519", projectCfg.PrivateKeyPath)
+	}
+}
+
+func TestConfigSSHUnsetCommandRemovesOnlyProjectConfig(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeSSHKeyDirectory(t, true)
+	keyPath := filepath.Join(keyDir, "id_ed25519")
+	knownHostsPath := filepath.Join(keyDir, "known_hosts")
+	t.Chdir(projectDir)
+
+	setCmd := newConfigSSHCmd()
+	setCmd.SetArgs([]string{"set", keyPath})
+	if err := setCmd.Execute(); err != nil {
+		t.Fatalf("set cmd.Execute: %v", err)
+	}
+
+	unsetCmd := newConfigSSHCmd()
+	unsetCmd.SetArgs([]string{"unset"})
+	if err := unsetCmd.Execute(); err != nil {
+		t.Fatalf("unset cmd.Execute: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	canonicalProjectDir, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir project: %v", err)
+	}
+	if projectCfg := cfg.ProjectSSH(canonicalProjectDir); projectCfg != nil {
+		t.Fatalf("ProjectSSH after unset = %+v, want nil", projectCfg)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("private key should still exist after unset command: %v", err)
+	}
+	if _, err := os.Stat(knownHostsPath); err != nil {
+		t.Fatalf("known_hosts should still exist after unset command: %v", err)
 	}
 }
 
