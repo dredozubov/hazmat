@@ -7,102 +7,131 @@ import (
 	"testing"
 )
 
-func TestRunConfigGitSSHPersistsProjectConfig(t *testing.T) {
+func TestDiscoverProvisionedSSHKeysReportsUsableAndBrokenEntries(t *testing.T) {
+	isolateConfig(t)
+
+	writeProvisionedSSHKey(t, "github-work", true)
+	writeProvisionedSSHKey(t, "broken", false)
+
+	keys, err := discoverProvisionedSSHKeys()
+	if err != nil {
+		t.Fatalf("discoverProvisionedSSHKeys: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("discoverProvisionedSSHKeys len = %d, want 2", len(keys))
+	}
+	if keys[0].Name != "broken" || keys[0].Status != "missing known_hosts" {
+		t.Fatalf("broken key = %+v, want missing known_hosts", keys[0])
+	}
+	if keys[1].Name != "github-work" || !keys[1].Usable() {
+		t.Fatalf("usable key = %+v, want usable github-work", keys[1])
+	}
+}
+
+func TestRunConfigSSHSetPersistsProjectConfigAndClearRemovesIt(t *testing.T) {
 	isolateConfig(t)
 
 	projectDir := t.TempDir()
-	keyPath := filepath.Join(t.TempDir(), "repo_ed25519")
-	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
-	}
-	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
-	}
+	writeProvisionedSSHKey(t, "github-work", true)
 
-	if err := runConfigGitSSH(projectDir, keyPath, knownHostsPath, []string{"GitHub.com", "github.com"}, false); err != nil {
-		t.Fatalf("runConfigGitSSH enable: %v", err)
+	if err := runConfigSSHSet(projectDir, "github-work"); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
 	cfg, err := loadConfig()
 	if err != nil {
-		t.Fatalf("loadConfig after enable: %v", err)
+		t.Fatalf("loadConfig after set: %v", err)
 	}
 	canonicalProjectDir, err := resolveDir(projectDir, false)
 	if err != nil {
 		t.Fatalf("resolveDir project: %v", err)
 	}
-	got := cfg.ProjectGitSSH(canonicalProjectDir)
+	got := cfg.ProjectSSH(canonicalProjectDir)
 	if got == nil {
-		t.Fatal("ProjectGitSSH should be configured")
+		t.Fatal("ProjectSSH should be configured")
 	}
-	canonicalKeyPath, err := canonicalizeConfiguredFile(keyPath)
-	if err != nil {
-		t.Fatalf("canonicalizeConfiguredFile key: %v", err)
-	}
-	canonicalKnownHostsPath, err := canonicalizeConfiguredFile(knownHostsPath)
-	if err != nil {
-		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
-	}
-	if got.PrivateKeyPath != canonicalKeyPath {
-		t.Fatalf("PrivateKeyPath = %q, want %q", got.PrivateKeyPath, canonicalKeyPath)
-	}
-	if got.KnownHostsPath != canonicalKnownHostsPath {
-		t.Fatalf("KnownHostsPath = %q, want %q", got.KnownHostsPath, canonicalKnownHostsPath)
-	}
-	if len(got.AllowedHosts) != 1 || got.AllowedHosts[0] != "github.com" {
-		t.Fatalf("AllowedHosts = %v, want [github.com]", got.AllowedHosts)
+	if got.Key != "github-work" {
+		t.Fatalf("ProjectSSH.Key = %q, want github-work", got.Key)
 	}
 
-	if err := runConfigGitSSH(projectDir, "", "", nil, true); err != nil {
-		t.Fatalf("runConfigGitSSH disable: %v", err)
+	if err := runConfigSSHClear(projectDir); err != nil {
+		t.Fatalf("runConfigSSHClear: %v", err)
 	}
 	cfg, err = loadConfig()
 	if err != nil {
-		t.Fatalf("loadConfig after disable: %v", err)
+		t.Fatalf("loadConfig after clear: %v", err)
 	}
-	if got := cfg.ProjectGitSSH(canonicalProjectDir); got != nil {
-		t.Fatalf("ProjectGitSSH after disable = %+v, want nil", got)
+	if got := cfg.ProjectSSH(canonicalProjectDir); got != nil {
+		t.Fatalf("ProjectSSH after clear = %+v, want nil", got)
 	}
 }
 
-func TestRunConfigGitSSHRejectsPrivateKeyInsideProject(t *testing.T) {
+func TestRunConfigSSHSetRejectsUnknownKey(t *testing.T) {
 	isolateConfig(t)
 
-	projectDir := t.TempDir()
-	keyPath := filepath.Join(projectDir, "repo_ed25519")
-	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
-	}
-	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
-	}
+	writeProvisionedSSHKey(t, "github-work", true)
 
-	err := runConfigGitSSH(projectDir, keyPath, knownHostsPath, []string{"github.com"}, false)
+	err := runConfigSSHSet(t.TempDir(), "missing-key")
 	if err == nil {
-		t.Fatal("expected key inside project to be rejected")
+		t.Fatal("expected unknown key to be rejected")
 	}
-	if !strings.Contains(err.Error(), "outside the project directory") {
+	if !strings.Contains(err.Error(), "was not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestResolveManagedGitSSHRejectsPrivateKeyVisibleViaReadDir(t *testing.T) {
+func TestResolveManagedGitSSHUsesSelectedProvisionedKey(t *testing.T) {
 	isolateConfig(t)
 
 	projectDir := t.TempDir()
-	keyDir := t.TempDir()
-	keyPath := filepath.Join(keyDir, "repo_ed25519")
-	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
+	keyDir := writeProvisionedSSHKey(t, "github-work", true)
+	keyPath, err := canonicalizeConfiguredFile(filepath.Join(keyDir, "id_ed25519"))
+	if err != nil {
+		t.Fatalf("canonicalizeConfiguredFile key: %v", err)
 	}
-	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
+	knownHostsPath, err := canonicalizeConfiguredFile(filepath.Join(keyDir, "known_hosts"))
+	if err != nil {
+		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
 	}
-	if err := runConfigGitSSH(projectDir, keyPath, knownHostsPath, []string{"github.com"}, false); err != nil {
-		t.Fatalf("runConfigGitSSH enable: %v", err)
+	if err := runConfigSSHSet(projectDir, "github-work"); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
+	}
+
+	cfg, err := resolveSessionConfig(projectDir, nil, nil)
+	if err != nil {
+		t.Fatalf("resolveSessionConfig: %v", err)
+	}
+	got, err := resolveManagedGitSSH(cfg)
+	if err != nil {
+		t.Fatalf("resolveManagedGitSSH: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected managed Git SSH config")
+	}
+	if got.DisplayName != "github-work" {
+		t.Fatalf("DisplayName = %q, want github-work", got.DisplayName)
+	}
+	if got.PrivateKeyPath != keyPath {
+		t.Fatalf("PrivateKeyPath = %q, want %q", got.PrivateKeyPath, keyPath)
+	}
+	if got.KnownHostsPath != knownHostsPath {
+		t.Fatalf("KnownHostsPath = %q, want %q", got.KnownHostsPath, knownHostsPath)
+	}
+	if len(got.AllowedHosts) != 0 {
+		t.Fatalf("AllowedHosts = %v, want none", got.AllowedHosts)
+	}
+	if !strings.Contains(got.SessionNote, "provisioned key") {
+		t.Fatalf("SessionNote = %q, want provisioned key note", got.SessionNote)
+	}
+}
+
+func TestResolveManagedGitSSHRejectsVisibleSelectedPrivateKey(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeProvisionedSSHKey(t, "github-work", true)
+	if err := runConfigSSHSet(projectDir, "github-work"); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
 	cfg, err := resolveSessionConfig(projectDir, []string{keyDir}, nil)
@@ -118,30 +147,33 @@ func TestResolveManagedGitSSHRejectsPrivateKeyVisibleViaReadDir(t *testing.T) {
 	}
 }
 
-func TestNormalizeGitSSHHosts(t *testing.T) {
-	got, err := normalizeGitSSHHosts([]string{"GitHub.com", "github.com", "gitlab.com"})
+func TestNormalizeGitSSHTestHost(t *testing.T) {
+	got, err := normalizeGitSSHTestHost("git@GitHub.com")
 	if err != nil {
-		t.Fatalf("normalizeGitSSHHosts: %v", err)
+		t.Fatalf("normalizeGitSSHTestHost: %v", err)
 	}
-	want := []string{"github.com", "gitlab.com"}
-	if len(got) != len(want) {
-		t.Fatalf("normalizeGitSSHHosts len = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("normalizeGitSSHHosts = %v, want %v", got, want)
-		}
+	if got != "github.com" {
+		t.Fatalf("normalizeGitSSHTestHost = %q, want github.com", got)
 	}
 
-	if _, err := normalizeGitSSHHosts([]string{"github.com:2222"}); err == nil {
+	if _, err := normalizeGitSSHTestHost("github.com:2222"); err == nil {
 		t.Fatal("expected host with port to be rejected")
 	}
 }
 
-func TestBuildGitSSHWrapperScriptIncludesConstraints(t *testing.T) {
-	script := buildGitSSHWrapperScript("/tmp/agent.sock", "/tmp/known_hosts", []string{"github.com"})
+func TestInterpretGitSSHProbeResultRecognizesAuthenticatedGitErrors(t *testing.T) {
+	if err := interpretGitSSHProbeResult("github.com", "ERROR: Repository not found.", assertErr{}); err != nil {
+		t.Fatalf("authenticated git error should count as success: %v", err)
+	}
+	err := interpretGitSSHProbeResult("github.com", "Permission denied (publickey).", assertErr{})
+	if err == nil {
+		t.Fatal("expected permission denied to fail")
+	}
+}
+
+func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing.T) {
+	script := buildGitSSHWrapperScript("/tmp/agent.sock", "/tmp/known_hosts", nil)
 	for _, fragment := range []string{
-		"destination host not allowed",
 		"interactive ssh is not allowed",
 		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
 		"-o IdentityAgent=/tmp/agent.sock",
@@ -151,6 +183,9 @@ func TestBuildGitSSHWrapperScriptIncludesConstraints(t *testing.T) {
 		if !strings.Contains(script, fragment) {
 			t.Fatalf("wrapper script missing %q:\n%s", fragment, script)
 		}
+	}
+	if strings.Contains(script, "destination host not allowed") {
+		t.Fatalf("wrapper script should not enforce host allowlist:\n%s", script)
 	}
 }
 
@@ -169,16 +204,9 @@ func TestResolvePreparedSessionAddsManagedGitSSHNotes(t *testing.T) {
 	skipInitCheck(t)
 
 	projectDir := t.TempDir()
-	keyPath := filepath.Join(t.TempDir(), "repo_ed25519")
-	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
-	}
-	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
-	}
-	if err := runConfigGitSSH(projectDir, keyPath, knownHostsPath, []string{"github.com"}, false); err != nil {
-		t.Fatalf("runConfigGitSSH enable: %v", err)
+	writeProvisionedSSHKey(t, "github-work", true)
+	if err := runConfigSSHSet(projectDir, "github-work"); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
 	prepared, err := resolvePreparedSession("shell", harnessSessionOpts{project: projectDir}, true)
@@ -193,7 +221,7 @@ func TestResolvePreparedSessionAddsManagedGitSSHNotes(t *testing.T) {
 	}
 	found := false
 	for _, note := range prepared.Config.SessionNotes {
-		if strings.Contains(note, "Managed Git SSH enabled") {
+		if strings.Contains(note, "provisioned key") && strings.Contains(note, "github-work") {
 			found = true
 			break
 		}
@@ -208,16 +236,9 @@ func TestResolvePreparedSessionRejectsManagedGitSSHForSandboxMode(t *testing.T) 
 	skipInitCheck(t)
 
 	projectDir := t.TempDir()
-	keyPath := filepath.Join(t.TempDir(), "repo_ed25519")
-	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
-	}
-	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
-	}
-	if err := runConfigGitSSH(projectDir, keyPath, knownHostsPath, []string{"github.com"}, false); err != nil {
-		t.Fatalf("runConfigGitSSH enable: %v", err)
+	writeProvisionedSSHKey(t, "github-work", true)
+	if err := runConfigSSHSet(projectDir, "github-work"); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
 	}
 
 	_, err := resolvePreparedSession("claude", harnessSessionOpts{
@@ -231,4 +252,28 @@ func TestResolvePreparedSessionRejectsManagedGitSSHForSandboxMode(t *testing.T) 
 	if !strings.Contains(err.Error(), "managed Git SSH is not supported for Docker Sandbox sessions yet") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func writeProvisionedSSHKey(t *testing.T, name string, includeKnownHosts bool) string {
+	t.Helper()
+
+	dir := filepath.Join(provisionedSSHKeysRootDir(), name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "id_ed25519"), []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if includeKnownHosts {
+		if err := os.WriteFile(filepath.Join(dir, "known_hosts"), []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
+			t.Fatalf("write known_hosts: %v", err)
+		}
+	}
+	return dir
+}
+
+type assertErr struct{}
+
+func (assertErr) Error() string {
+	return "probe failed"
 }

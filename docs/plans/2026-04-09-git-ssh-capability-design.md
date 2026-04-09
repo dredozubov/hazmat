@@ -2,7 +2,7 @@
 
 Status: In progress
 Date: 2026-04-09
-Related issue: `sandboxing-gc3`
+Related issue: `sandboxing-oyi`
 
 ## Position
 
@@ -38,18 +38,16 @@ repo-scoped credentials.
 
 ## Recommended Model
 
-### 1. Host-owned per-project config
+### 1. Host-owned provisioned key inventory plus project assignment
 
-Each project may opt into a dedicated Git SSH configuration in
-`~/.hazmat/config.yaml`.
+Hazmat should treat SSH setup as a project setting:
 
-The initial shape is project-local instead of introducing reusable profiles in
-v1. That keeps the UX small and the implementation honest:
+- ops or the user provisions key bundles under `~/.hazmat/ssh/keys/<name>/`
+- each bundle contains one private key file plus `known_hosts`
+- the project config stores only the selected key name
 
-- project path
-- host-owned private-key path
-- host-owned `known_hosts` path
-- allowed host list
+That keeps the main UX close to how developers think about repos:
+"this project uses SSH key X."
 
 ### 2. Ephemeral session runtime preparation
 
@@ -76,8 +74,9 @@ The first implementation targets Git transport only:
 - pin `UserKnownHostsFile`
 - use the session-local `ssh-agent` socket via `IdentityAgent`
 
-The wrapper should also reject destinations outside the configured host
-allowlist and reject non-Git remote commands where practical.
+The wrapper should reject non-Git remote commands. Host allowlists are out of
+scope for this slice; the remote-side scope of the provisioned key remains the
+primary authority boundary.
 
 ## Security Notes
 
@@ -98,12 +97,10 @@ silently dropping the capability.
 
 ## Implementation Slice
 
-1. Add host-owned per-project config plus `hazmat config git-ssh`.
-2. Extend session resolution to detect the project capability and show it in
-   the session contract.
-3. Prepare the ephemeral Git SSH runtime before native session launch.
-4. Inject `GIT_SSH_COMMAND` for the session.
-5. Add focused unit coverage for config persistence, session resolution, env
-   injection, and wrapper generation.
-6. Update the key SSH docs so they describe the managed Git exception instead
-   of an unconditional "SSH unsupported" claim.
+1. Discover provisioned keys from `~/.hazmat/ssh/keys/`.
+2. Add `hazmat config ssh set|show|test|clear|list-keys`.
+3. Store project -> key selection in config and surface it in the session contract.
+4. Prepare the ephemeral Git SSH runtime before native session launch.
+5. Inject `GIT_SSH_COMMAND` for the session.
+6. Add focused unit coverage for discovery, config persistence, session resolution, and wrapper generation.
+7. Update the key SSH docs so they describe the managed Git exception instead of an unconditional "SSH unsupported" claim.

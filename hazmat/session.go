@@ -814,7 +814,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		return preparedSession{}, err
 	}
 	if cfg.GitSSH != nil && mode != sessionModeNative {
-		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported for Docker Sandbox sessions yet\nuse %s for a native code session, or disable the project capability with: hazmat config git-ssh disable -C %s",
+		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported for Docker Sandbox sessions yet\nuse %s for a native code session, or clear the project capability with: hazmat config ssh clear -C %s",
 			dockerSessionExample(commandName, cfg.ProjectDir, dockerModeNone),
 			cfg.ProjectDir,
 		)
@@ -823,10 +823,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
-		cfg.SessionNotes = append(cfg.SessionNotes, fmt.Sprintf(
-			"Managed Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent for Git only.",
-			strings.Join(cfg.GitSSH.AllowedHosts, ", "),
-		))
+		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
 	}
 	prepared := preparedSession{Config: cfg, Mode: mode, HostMutationPlan: integrationMutationPlan}
 	if mode == sessionModeNative {
