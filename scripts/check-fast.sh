@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/hazmat"
+
+echo "fast-check: go vet..."
+go vet ./...
+
+echo "fast-check: go test..."
+go test ./...
+
+echo "fast-check: golangci-lint..."
+golangci-lint run ./...
+
+echo "fast-check: CLI smoke tests..."
+bash "$REPO_ROOT/scripts/check-cli-smoke.sh"
+
+echo "fast-check: all checks passed"

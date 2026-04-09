@@ -5,31 +5,11 @@
 # CI is broader than this hook.
 # If you touch a verified area, run 'bash tla/check_suite.sh' separately before pushing.
 #
-# Install: make hooks   (or: cp scripts/pre-push .git/hooks/pre-push)
+# Install: make hooks   (or: cp -f scripts/pre-push .git/hooks/pre-push)
 
-set -e
+set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT/hazmat"
-
-echo "pre-push: go vet..."
-go vet ./...
-
-echo "pre-push: go test..."
-go test ./...
-
-echo "pre-push: golangci-lint..."
-golangci-lint run ./...
-
-echo "pre-push: CLI smoke tests..."
-go run . bootstrap --help >/dev/null
-go run . bootstrap opencode --help >/dev/null
-go run . opencode --help >/dev/null
-go run . integration --help >/dev/null
-go run . integration list >/dev/null
-go run . integration show node >/dev/null
-go run . config set --help >/dev/null
-go run . config import claude --help >/dev/null
-go run . config import opencode --help >/dev/null
+bash "$REPO_ROOT/scripts/check-fast.sh"
 
 echo "pre-push: all checks passed"

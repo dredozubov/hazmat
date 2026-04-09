@@ -52,20 +52,7 @@ jobs:
 
       - name: CLI smoke tests
         working-directory: hazmat
-        run: |
-          go run . init --help >/dev/null
-          go run . bootstrap --help >/dev/null
-          go run . bootstrap claude --help >/dev/null
-          go run . bootstrap codex --help >/dev/null
-          go run . bootstrap opencode --help >/dev/null
-          go run . codex --help >/dev/null
-          go run . opencode --help >/dev/null
-          go run . integration --help >/dev/null
-          go run . integration list >/dev/null
-          go run . integration show node >/dev/null
-          go run . config set --help >/dev/null
-          go run . config import claude --dry-run >/dev/null
-          go run . config import opencode --help >/dev/null
+        run: bash ../scripts/check-cli-smoke.sh
 
   test-entrypoint-guards:
     name: Test entrypoint guards

@@ -68,9 +68,9 @@ test-entrypoint-guards:
 	bash ../scripts/test-entrypoint-guards.sh
 
 hooks:
-	cp ../scripts/pre-push ../.git/hooks/pre-push
-	chmod +x ../.git/hooks/pre-push
-	@echo "Installed pre-push hook (vet + test + lint + smoke tests)"
+	install -m 0755 ../scripts/pre-commit ../.git/hooks/pre-commit
+	install -m 0755 ../scripts/pre-push ../.git/hooks/pre-push
+	@echo "Installed pre-commit and pre-push hooks"
 
 clean:
 	rm -f hazmat hazmat-launch
