@@ -354,7 +354,7 @@ Examples:
   hazmat config docker none -C ~/workspace/my-project
   hazmat config access add -C ~/workspace/my-project --read ~/other-code
   hazmat config ssh list-keys
-  hazmat config ssh set -C ~/workspace/my-project --key github-work
+  hazmat config ssh set ~/.ssh/id_ed25519
   hazmat config agent
   hazmat config import claude --dry-run
   hazmat config import opencode --dry-run
@@ -648,22 +648,23 @@ Examples:
 
 func newConfigSSHCmd() *cobra.Command {
 	var project string
-	var keyName string
 	var host string
 	var listKeyDir string
 
 	setCmd := &cobra.Command{
-		Use:   "set",
+		Use:   "set [key]",
 		Short: "Assign an SSH key to a project",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHSet(project, keyName)
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			selectedKey := ""
+			if len(args) == 1 {
+				selectedKey = args[0]
+			}
+			return runConfigSSHSet(project, selectedKey)
 		},
 	}
 	setCmd.Flags().StringVarP(&project, "project", "C", "",
 		"Project directory (defaults to current directory)")
-	setCmd.Flags().StringVar(&keyName, "key", "",
-		"SSH key path, or a key name resolved from ~/.ssh (omit to choose interactively)")
 
 	showCmd := &cobra.Command{
 		Use:   "show",
@@ -726,8 +727,9 @@ directory. To use a different directory, pass the full key path with --key.
 Examples:
   hazmat config ssh list-keys
   hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
-  hazmat config ssh set -C ~/workspace/my-app --key id_ed25519
-  hazmat config ssh set -C ~/workspace/my-app --key ~/.config/hazmat/ssh/deploy_key
+  hazmat config ssh set id_ed25519
+  hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
+  hazmat config ssh set -C ~/workspace/my-app ~/.config/hazmat/ssh/deploy_key
   hazmat config ssh show -C ~/workspace/my-app
   hazmat config ssh test -C ~/workspace/my-app --host github.com
   hazmat config ssh clear -C ~/workspace/my-app`,
@@ -1061,7 +1063,7 @@ func runConfigSSHSet(project, keyName string) error {
 			return fmt.Errorf("no usable SSH keys found in %s (run 'hazmat config ssh list-keys --dir %s' to inspect them)", canonicalKeyDir, canonicalKeyDir)
 		}
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return fmt.Errorf("--key is required when stdin is not a terminal")
+			return fmt.Errorf("key path argument is required when stdin is not a terminal")
 		}
 		chosen, err := chooseSSHKeyCandidate(usable)
 		if err != nil {

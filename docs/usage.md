@@ -356,8 +356,9 @@ hazmat config agent            # re-enter Claude API key, git name/email
 ```bash
 hazmat config ssh list-keys
 hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
-hazmat config ssh set -C ~/workspace/my-project --key id_ed25519
-hazmat config ssh set -C ~/workspace/my-project --key ~/.config/hazmat/ssh/deploy_key
+hazmat config ssh set id_ed25519
+hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
+hazmat config ssh set -C ~/workspace/my-project ~/.config/hazmat/ssh/deploy_key
 hazmat config ssh test -C ~/workspace/my-project --host github.com
 hazmat config ssh clear -C ~/workspace/my-project
 ```

@@ -93,6 +93,36 @@ func TestRunConfigSSHSetPersistsProjectConfigAndClearRemovesIt(t *testing.T) {
 	}
 }
 
+func TestConfigSSHSetCommandUsesPositionalKeyPathInCurrentProject(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeSSHKeyDirectory(t, true)
+	t.Chdir(projectDir)
+
+	cmd := newConfigSSHCmd()
+	cmd.SetArgs([]string{"set", filepath.Join(keyDir, "id_ed25519")})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	canonicalProjectDir, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir project: %v", err)
+	}
+	projectCfg := cfg.ProjectSSH(canonicalProjectDir)
+	if projectCfg == nil {
+		t.Fatal("expected project SSH config")
+	}
+	if filepath.Base(projectCfg.PrivateKeyPath) != "id_ed25519" {
+		t.Fatalf("PrivateKeyPath = %q, want id_ed25519", projectCfg.PrivateKeyPath)
+	}
+}
+
 func TestRunConfigSSHSetRejectsUnknownKey(t *testing.T) {
 	isolateConfig(t)
 
