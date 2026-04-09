@@ -34,5 +34,5 @@ func newAgentSeatbeltCommand(cfg sessionConfig, script string, args ...string) (
 		_ = os.Remove(policyFile)
 	}
 
-	return exec.Command("sudo", full...), cleanup, nil
+	return newSudoCommand(full...), cleanup, nil
 }

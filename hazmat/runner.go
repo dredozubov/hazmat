@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/fatih/color"
@@ -67,7 +66,7 @@ func (r *Runner) SudoVisible(reason string, args ...string) error {
 	if r.DryRun {
 		return nil
 	}
-	cmd := exec.Command("sudo", args...)
+	cmd := newSudoCommand(args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
