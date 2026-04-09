@@ -32,9 +32,16 @@ type HazmatConfig struct {
 }
 
 type ProjectConfig struct {
-	Docker    dockerMode `yaml:"docker,omitempty"`
-	ReadDirs  []string   `yaml:"read_dirs,omitempty"`
-	WriteDirs []string   `yaml:"write_dirs,omitempty"`
+	Docker    dockerMode           `yaml:"docker,omitempty"`
+	ReadDirs  []string             `yaml:"read_dirs,omitempty"`
+	WriteDirs []string             `yaml:"write_dirs,omitempty"`
+	GitSSH    *ProjectGitSSHConfig `yaml:"git_ssh,omitempty"`
+}
+
+type ProjectGitSSHConfig struct {
+	PrivateKeyPath string   `yaml:"private_key,omitempty"`
+	KnownHostsPath string   `yaml:"known_hosts,omitempty"`
+	AllowedHosts   []string `yaml:"allowed_hosts,omitempty"`
 }
 
 type SessionConfig struct {
@@ -204,6 +211,19 @@ func (c HazmatConfig) ProjectWriteDirs(projectDir string) []string {
 	return append([]string(nil), project.WriteDirs...)
 }
 
+func (c HazmatConfig) ProjectGitSSH(projectDir string) *ProjectGitSSHConfig {
+	if len(c.Projects) == 0 {
+		return nil
+	}
+	project, ok := c.Projects[projectDir]
+	if !ok || project.GitSSH == nil {
+		return nil
+	}
+	cloned := *project.GitSSH
+	cloned.AllowedHosts = append([]string(nil), project.GitSSH.AllowedHosts...)
+	return &cloned
+}
+
 func defaultConfig() HazmatConfig {
 	return HazmatConfig{
 		Backup: BackupConfig{
@@ -299,6 +319,7 @@ Subcommands:
   hazmat config              Show current configuration
   hazmat config docker       Configure per-project Docker routing
   hazmat config access       Configure per-project read/write extensions
+  hazmat config git-ssh      Configure per-project Git-over-SSH access
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
@@ -310,6 +331,7 @@ Examples:
   hazmat config
   hazmat config docker none -C ~/workspace/my-project
   hazmat config access add -C ~/workspace/my-project --read ~/other-code
+  hazmat config git-ssh enable -C ~/workspace/my-project --key ~/.hazmat/keys/repo_ed25519 --known-hosts ~/.hazmat/known_hosts/github --host github.com
   hazmat config agent
   hazmat config import claude --dry-run
   hazmat config import opencode --dry-run
@@ -324,6 +346,7 @@ Examples:
 	cmd.AddCommand(newConfigEditCmd())
 	cmd.AddCommand(newConfigDockerCmd())
 	cmd.AddCommand(newConfigAccessCmd())
+	cmd.AddCommand(newConfigGitSSHCmd())
 	cmd.AddCommand(newConfigAgentCmd())
 	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
@@ -422,6 +445,11 @@ func runConfigShow() error {
 				}
 				if len(projectCfg.WriteDirs) > 0 {
 					fmt.Printf("        Read-write: %s\n", strings.Join(projectCfg.WriteDirs, ", "))
+				}
+				if projectCfg.GitSSH != nil {
+					fmt.Printf("        Git SSH hosts: %s\n", strings.Join(projectCfg.GitSSH.AllowedHosts, ", "))
+					fmt.Printf("        Git SSH key: %s\n", projectCfg.GitSSH.PrivateKeyPath)
+					fmt.Printf("        Git SSH known_hosts: %s\n", projectCfg.GitSSH.KnownHostsPath)
 				}
 			}
 		} else {
@@ -581,6 +609,67 @@ Examples:
 		newActionCmd("add", false),
 		newActionCmd("remove", true),
 	)
+	return cmd
+}
+
+func newConfigGitSSHCmd() *cobra.Command {
+	var project string
+
+	enableCmd := &cobra.Command{
+		Use:   "enable",
+		Short: "Enable managed Git-over-SSH for a project",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("enable requires flags")
+		},
+	}
+	var keyPath string
+	var knownHostsPath string
+	var allowedHosts []string
+	enableCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+	enableCmd.Flags().StringVar(&keyPath, "key", "",
+		"Host-owned private key path to load into the session-local ssh-agent")
+	enableCmd.Flags().StringVar(&knownHostsPath, "known-hosts", "",
+		"Host-owned known_hosts file path to pin host keys for Git SSH")
+	enableCmd.Flags().StringArrayVar(&allowedHosts, "host", nil,
+		"Allowed Git SSH destination host (repeatable)")
+	_ = enableCmd.MarkFlagRequired("key")
+	_ = enableCmd.MarkFlagRequired("known-hosts")
+	_ = enableCmd.MarkFlagRequired("host")
+	enableCmd.RunE = func(_ *cobra.Command, _ []string) error {
+		return runConfigGitSSH(project, keyPath, knownHostsPath, allowedHosts, false)
+	}
+
+	disableCmd := &cobra.Command{
+		Use:   "disable",
+		Short: "Disable managed Git-over-SSH for a project",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runConfigGitSSH(project, "", "", nil, true)
+		},
+	}
+	disableCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+
+	cmd := &cobra.Command{
+		Use:   "git-ssh",
+		Short: "Configure per-project Git-over-SSH access",
+		Long: `Configure managed Git-over-SSH for a project.
+
+This is a host-owned capability. Hazmat keeps the private key outside the
+contained session, loads it into a fresh session-local ssh-agent at launch
+time, and forces Git through a constrained SSH wrapper.
+
+Examples:
+  hazmat config git-ssh enable -C ~/workspace/my-app --key ~/.hazmat/keys/my-app_ed25519 --known-hosts ~/.hazmat/known_hosts/github --host github.com
+  hazmat config git-ssh disable -C ~/workspace/my-app`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(enableCmd, disableCmd)
 	return cmd
 }
 
@@ -867,6 +956,69 @@ func runConfigAccess(project string, readDirs, writeDirs []string, remove bool) 
 	return nil
 }
 
+func runConfigGitSSH(project, keyPath, knownHostsPath string, allowedHosts []string, disable bool) error {
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return fmt.Errorf("project: %w", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Projects == nil {
+		cfg.Projects = make(map[string]ProjectConfig)
+	}
+
+	projectCfg := cfg.Projects[projectDir]
+	if disable {
+		projectCfg.GitSSH = nil
+	} else {
+		privateKeyPath, err := canonicalizeConfiguredFile(keyPath)
+		if err != nil {
+			return fmt.Errorf("key: %w", err)
+		}
+		if isWithinDir(projectDir, privateKeyPath) {
+			return fmt.Errorf("key: private key must stay outside the project directory")
+		}
+		if isWithinDir(agentHome, privateKeyPath) {
+			return fmt.Errorf("key: private key must stay outside %s", agentHome)
+		}
+		knownHostsCanonical, err := canonicalizeConfiguredFile(knownHostsPath)
+		if err != nil {
+			return fmt.Errorf("known-hosts: %w", err)
+		}
+		normalizedHosts, err := normalizeGitSSHHosts(allowedHosts)
+		if err != nil {
+			return fmt.Errorf("host: %w", err)
+		}
+		projectCfg.GitSSH = &ProjectGitSSHConfig{
+			PrivateKeyPath: privateKeyPath,
+			KnownHostsPath: knownHostsCanonical,
+			AllowedHosts:   normalizedHosts,
+		}
+	}
+
+	if projectHasOverrides(projectCfg) {
+		cfg.Projects[projectDir] = projectCfg
+	} else {
+		delete(cfg.Projects, projectDir)
+	}
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = nil
+	}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	if disable {
+		fmt.Printf("Disabled managed Git SSH for %s\n", projectDir)
+		return nil
+	}
+	fmt.Printf("Enabled managed Git SSH for %s\n", projectDir)
+	return nil
+}
+
 func ensureCloudConfig(cfg *HazmatConfig) {
 	if cfg.Backup.Cloud == nil {
 		cfg.Backup.Cloud = &CloudBackup{}
@@ -928,7 +1080,8 @@ func mergeConfiguredDirs(existing, values []string, remove bool) []string {
 func projectHasOverrides(projectCfg ProjectConfig) bool {
 	return (validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto) ||
 		len(projectCfg.ReadDirs) > 0 ||
-		len(projectCfg.WriteDirs) > 0
+		len(projectCfg.WriteDirs) > 0 ||
+		projectCfg.GitSSH != nil
 }
 
 func parseInt(s string) (int, error) {

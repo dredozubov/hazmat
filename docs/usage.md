@@ -351,6 +351,21 @@ hazmat restore --cloud         # restore latest snapshot
 hazmat config agent            # re-enter Claude API key, git name/email
 ```
 
+## Managed Git SSH
+
+```bash
+hazmat config git-ssh enable -C ~/workspace/my-project \
+  --key ~/.hazmat/keys/my-project_ed25519 \
+  --known-hosts ~/.hazmat/known_hosts/github \
+  --host github.com
+hazmat config git-ssh disable -C ~/workspace/my-project
+```
+
+This is an explicit per-project capability for Git transport only. Hazmat
+keeps the private key in host-owned storage, loads it into a fresh
+session-local `ssh-agent`, and forces Git through a constrained wrapper.
+General SSH shells remain unsupported.
+
 ## Importing Portable Claude Basics
 
 ```bash

@@ -607,7 +607,7 @@ Use HTTPS remotes with credentials stored in the agent user's git credential sto
 - **Separate GitHub account** for maximum isolation
 - **Repo-specific HTTPS tokens** on platforms that support them
 
-SSH is intentionally unsupported inside hazmat sessions: the seatbelt denies `~/.ssh`, and forwarding `SSH_AUTH_SOCK` would reintroduce a signing oracle into the stripped agent environment.
+General SSH is intentionally unsupported inside hazmat sessions: the seatbelt denies `~/.ssh`, and forwarding `SSH_AUTH_SOCK` would reintroduce a signing oracle into the stripped agent environment. If you need Git-over-SSH, prefer Hazmat's managed per-project capability with a dedicated low-privilege key rather than agent forwarding.
 
 ---
 
@@ -826,7 +826,7 @@ sudo -u agent git config --global --get credential.helper
 sudo -u agent ls -l /Users/agent/.config/git/credentials
 ```
 
-Use `https://` remotes inside hazmat. `git@github.com:...` remotes will fail because the seatbelt denies `~/.ssh` and hazmat does not expose `SSH_AUTH_SOCK`.
+Use `https://` remotes inside hazmat by default. `git@github.com:...` remotes only work when you explicitly configure a managed project key with `hazmat config git-ssh enable ...`; Hazmat still does not expose the host user's `SSH_AUTH_SOCK`, and arbitrary SSH shells remain unsupported.
 
 ### npm install fails for specific packages
 

@@ -93,7 +93,7 @@ block-beta
 
 **Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="sk-ant-..."` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
 
-**SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Use HTTPS remotes with a fine-grained PAT in git's credential store instead.
+**General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by loading a host-owned key into a fresh session-local `ssh-agent` and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 
 **Seatbelt protects the host user's credentials.** The deny list blocks: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`. The agent cannot read the host user's SSH keys, AWS tokens, or GitHub CLI tokens.
 

@@ -33,9 +33,10 @@ type sessionConfig struct {
 	IntegrationDetails      []string          // detailed runtime resolution notes for explain/show flows
 	IntegrationWarnings     []string          // warnings surfaced by active integrations
 	ActiveIntegrations      []string          // integration names, for status bar
-	ServiceAccess           []string          // explicit external-service access granted to session
-	RoutingReason           string            // plain-language explanation for the chosen mode
-	SessionNotes            []string          // plain-language notes about session behavior
+	GitSSH                  *sessionGitSSHConfig
+	ServiceAccess           []string // explicit external-service access granted to session
+	RoutingReason           string   // plain-language explanation for the chosen mode
+	SessionNotes            []string // plain-language notes about session behavior
 }
 
 type sessionLaunchUI struct {
@@ -808,7 +809,25 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		return preparedSession{}, err
 	}
 
+	cfg.GitSSH, err = resolveManagedGitSSH(cfg)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	if cfg.GitSSH != nil && mode != sessionModeNative {
+		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported for Docker Sandbox sessions yet\nuse %s for a native code session, or disable the project capability with: hazmat config git-ssh disable -C %s",
+			dockerSessionExample(commandName, cfg.ProjectDir, dockerModeNone),
+			cfg.ProjectDir,
+		)
+	}
+
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
+	if cfg.GitSSH != nil {
+		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
+		cfg.SessionNotes = append(cfg.SessionNotes, fmt.Sprintf(
+			"Managed Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent for Git only.",
+			strings.Join(cfg.GitSSH.AllowedHosts, ", "),
+		))
+	}
 	prepared := preparedSession{Config: cfg, Mode: mode, HostMutationPlan: integrationMutationPlan}
 	if mode == sessionModeNative {
 		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
@@ -1954,6 +1973,12 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		ui = applyStatusBarConfig(ui, hcfg)
 	}
 
+	runtime, err := prepareSessionRuntime(cfg)
+	if err != nil {
+		return err
+	}
+	defer runtime.Cleanup()
+
 	pid := os.Getpid()
 
 	policy := generateSBPL(cfg)
@@ -1979,6 +2004,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		"/usr/bin/env", "-i",
 	}
 	full = append(full, agentEnvPairs(cfg)...)
+	full = append(full, runtime.EnvPairs...)
 	full = append(full, "/bin/zsh", "-lc", script, "zsh")
 	full = append(full, args...)
 
@@ -2046,7 +2072,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		fmt.Fprint(os.Stderr, "\033[2J\033[H")
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	// Post-session: repair .git/ permissions that may have been altered
 	// by agent git operations. New files created by the agent are owned
