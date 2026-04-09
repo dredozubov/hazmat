@@ -367,7 +367,10 @@ This is an explicit per-project capability for Git transport only. Hazmat
 lists candidate keys from a chosen directory, defaulting to `~/.ssh`, uses
 `known_hosts` from that same directory, keeps the selected private key in
 host-owned storage, loads it into a fresh session-local `ssh-agent`, and
-forces Git through a constrained wrapper. General SSH shells remain unsupported.
+forces Git through a constrained wrapper. `hazmat config ssh test` honors the
+host user's real SSH routing config such as aliases and `ProxyJump`, but
+session-time alias-based Git remotes are still a separate limitation. General
+SSH shells remain unsupported.
 
 ## Importing Portable Claude Basics
 

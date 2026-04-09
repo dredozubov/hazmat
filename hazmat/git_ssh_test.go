@@ -453,34 +453,214 @@ func TestNormalizeGitSSHTestHost(t *testing.T) {
 	}
 }
 
-func TestNewGitSSHProbeCommandRunsAsAgentUser(t *testing.T) {
-	cmd := newGitSSHProbeCommand("/tmp/agent.sock", "/tmp/known_hosts", "github.com")
+func TestNewGitSSHProbeCommandUsesHostUserSSH(t *testing.T) {
+	cmd := newGitSSHProbeCommand("/tmp/id_rsa", "/tmp/known_hosts", gitSSHTestTarget{
+		RequestedHost: "github.com",
+	})
 
 	wantFragments := []string{
-		"sudo",
-		"-u",
-		agentUser,
-		"env",
-		"HOME=" + agentHome,
-		"USER=" + agentUser,
-		"LOGNAME=" + agentUser,
-		"SSH_ASKPASS_REQUIRE=never",
 		"/usr/bin/ssh",
 		"-o",
-		"IdentityFile=none",
+		"IdentitiesOnly=yes",
 		"-o",
-		"IdentityAgent=/tmp/agent.sock",
+		"IdentityAgent=none",
 		"-o",
 		"UserKnownHostsFile=/tmp/known_hosts",
-		"git@github.com",
+		"-i",
+		"/tmp/id_rsa",
+		"github.com",
 	}
 	for _, fragment := range wantFragments {
 		if !slices.Contains(cmd.Args, fragment) {
 			t.Fatalf("probe command args = %v, want fragment %q", cmd.Args, fragment)
 		}
 	}
-	if slices.Contains(cmd.Args, "IdentitiesOnly=yes") {
-		t.Fatalf("probe command args = %v, should not force IdentitiesOnly=yes", cmd.Args)
+	if slices.Contains(cmd.Args, "sudo") {
+		t.Fatalf("probe command args = %v, should not run through sudo", cmd.Args)
+	}
+}
+
+func TestNewGitSSHProbeCommandUsesExplicitUserAndPortFromInput(t *testing.T) {
+	cmd := newGitSSHProbeCommand("/tmp/id_rsa", "/tmp/known_hosts", gitSSHTestTarget{
+		RequestedHost: "openclaw-1",
+		InputUser:     "deploy",
+		InputPort:     "2222",
+	})
+
+	wantFragments := []string{
+		"-l",
+		"deploy",
+		"-p",
+		"2222",
+		"openclaw-1",
+	}
+	for _, fragment := range wantFragments {
+		if !slices.Contains(cmd.Args, fragment) {
+			t.Fatalf("probe command args = %v, want fragment %q", cmd.Args, fragment)
+		}
+	}
+}
+
+func TestResolveGitSSHTestTargetUsesSSHConfigAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  User deploy\n  Port 2222\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("openclaw-1")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if target.RequestedHost != "openclaw-1" {
+		t.Fatalf("RequestedHost = %q, want openclaw-1", target.RequestedHost)
+	}
+	if target.Host != "bastion.example.com" {
+		t.Fatalf("Host = %q, want bastion.example.com", target.Host)
+	}
+	if target.User != "deploy" {
+		t.Fatalf("User = %q, want deploy", target.User)
+	}
+	if target.Port != "2222" {
+		t.Fatalf("Port = %q, want 2222", target.Port)
+	}
+	if target.HostKeyAlias != "openclaw-1" {
+		t.Fatalf("HostKeyAlias = %q, want openclaw-1", target.HostKeyAlias)
+	}
+	if !target.ResolvedFromSSHConfig {
+		t.Fatal("expected target to be resolved from ssh config")
+	}
+}
+
+func TestResolveGitSSHTestTargetUsesSSHConfigAliasForScpRemote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  User deploy\n  Port 2222\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("git@openclaw-1:owner/repo.git")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if target.Host != "bastion.example.com" {
+		t.Fatalf("Host = %q, want bastion.example.com", target.Host)
+	}
+	if target.User != "git" {
+		t.Fatalf("User = %q, want git", target.User)
+	}
+	if target.Port != "2222" {
+		t.Fatalf("Port = %q, want 2222", target.Port)
+	}
+}
+
+func TestResolveGitSSHTestTargetFollowsSSHConfigInclude(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	includeDir := filepath.Join(sshDir, "conf.d")
+	if err := os.MkdirAll(includeDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", includeDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte("Include conf.d/*.conf\n"), 0o600); err != nil {
+		t.Fatalf("write root config: %v", err)
+	}
+	include := "Host openclaw-1\n  HostName included.example.com\n  User ops\n"
+	if err := os.WriteFile(filepath.Join(includeDir, "openclaw.conf"), []byte(include), 0o600); err != nil {
+		t.Fatalf("write include config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("openclaw-1")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if target.Host != "included.example.com" {
+		t.Fatalf("Host = %q, want included.example.com", target.Host)
+	}
+	if target.User != "ops" {
+		t.Fatalf("User = %q, want ops", target.User)
+	}
+}
+
+func TestResolveGitSSHTestTargetResolvesProxyJumpAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  ProxyJump jumpbox\n\nHost jumpbox\n  HostName gateway.example.com\n  User ops\n  Port 2222\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("openclaw-1")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if len(target.JumpTargets) != 1 {
+		t.Fatalf("JumpTargets = %+v, want one resolved jump target", target.JumpTargets)
+	}
+	if target.JumpTargets[0].Host != "gateway.example.com" {
+		t.Fatalf("JumpTargets[0].Host = %q, want gateway.example.com", target.JumpTargets[0].Host)
+	}
+	if target.JumpTargets[0].User != "ops" {
+		t.Fatalf("JumpTargets[0].User = %q, want ops", target.JumpTargets[0].User)
+	}
+	if target.JumpTargets[0].Port != "2222" {
+		t.Fatalf("JumpTargets[0].Port = %q, want 2222", target.JumpTargets[0].Port)
+	}
+}
+
+func TestResolveGitSSHTestTargetUsesExplicitHostKeyAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  HostKeyAlias cluster-primary\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("openclaw-1")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if target.HostKeyAlias != "cluster-primary" {
+		t.Fatalf("HostKeyAlias = %q, want cluster-primary", target.HostKeyAlias)
+	}
+}
+
+func TestResolveGitSSHTestTargetIgnoresUnsupportedProxyCommandForDisplay(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  ProxyCommand ssh jumpbox nc %h %p\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	target, err := resolveGitSSHTestTarget("openclaw-1")
+	if err != nil {
+		t.Fatalf("resolveGitSSHTestTarget: %v", err)
+	}
+	if target.Host != "bastion.example.com" {
+		t.Fatalf("Host = %q, want bastion.example.com", target.Host)
 	}
 }
 

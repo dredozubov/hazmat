@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -68,7 +70,66 @@ func (k provisionedSSHKey) Usable() bool {
 }
 
 var gitSSHHostPattern = regexp.MustCompile(`^[a-z0-9.-]+$`)
+var gitSSHPortPattern = regexp.MustCompile(`^[0-9]+$`)
 var sshAgentPIDPattern = regexp.MustCompile(`SSH_AGENT_PID=([0-9]+);`)
+
+type gitSSHTestTarget struct {
+	RequestedHost         string
+	InputUser             string
+	InputPort             string
+	Host                  string
+	User                  string
+	Port                  string
+	HostKeyAlias          string
+	ResolvedFromSSHConfig bool
+	JumpTargets           []gitSSHJumpTarget
+}
+
+type gitSSHJumpTarget struct {
+	Host string
+	User string
+	Port string
+}
+
+func formatGitSSHAuthority(host, user, defaultUser string) string {
+	if user == "" {
+		user = defaultUser
+	}
+	summary := host
+	if user != "" {
+		summary = user + "@" + summary
+	}
+	return summary
+}
+
+func formatGitSSHEndpoint(host, user, port, defaultUser string) string {
+	summary := formatGitSSHAuthority(host, user, defaultUser)
+	if port != "" {
+		summary += ":" + port
+	}
+	return summary
+}
+
+func (t gitSSHTestTarget) destination() string {
+	return formatGitSSHAuthority(t.Host, t.User, "git")
+}
+
+func (t gitSSHTestTarget) resolutionSummary() string {
+	return formatGitSSHEndpoint(t.Host, t.User, t.Port, "git")
+}
+
+func (t gitSSHJumpTarget) summary() string {
+	return formatGitSSHEndpoint(t.Host, t.User, t.Port, "")
+}
+
+type sshConfigAliasResolution struct {
+	HostName             string
+	User                 string
+	Port                 string
+	ProxyJump            string
+	HostKeyAlias         string
+	UnsupportedDirective string
+}
 
 func configuredProjectSSH(projectDir string) *ProjectSSHConfig {
 	cfg, _ := loadConfig()
@@ -139,22 +200,43 @@ func normalizeGitSSHHosts(hosts []string) ([]string, error) {
 }
 
 func normalizeGitSSHTestHost(host string) (string, error) {
+	target, err := parseGitSSHTestTarget(host)
+	if err != nil {
+		return "", err
+	}
+	return target.Host, nil
+}
+
+func parseGitSSHTestTarget(host string) (gitSSHTestTarget, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return "", fmt.Errorf("--host is required\nexample:\n  hazmat config ssh test -C ~/workspace/my-project --host github.com")
+		return gitSSHTestTarget{}, fmt.Errorf("--host is required\nexample:\n  hazmat config ssh test -C ~/workspace/my-project --host github.com")
 	}
+
+	target := gitSSHTestTarget{}
 
 	switch {
 	case strings.Contains(host, "://"):
 		parsed, err := url.Parse(host)
 		if err != nil {
-			return "", fmt.Errorf("invalid host %q", host)
+			return gitSSHTestTarget{}, fmt.Errorf("invalid host %q", host)
 		}
 		if parsed.Hostname() == "" {
-			return "", fmt.Errorf("invalid host %q", host)
+			return gitSSHTestTarget{}, fmt.Errorf("invalid host %q", host)
 		}
-		host = parsed.Hostname()
+		target.Host = parsed.Hostname()
+		target.User = parsed.User.Username()
+		target.InputUser = target.User
+		target.Port = parsed.Port()
+		target.InputPort = target.Port
 	default:
+		if colon := strings.Index(host, ":"); colon >= 0 {
+			suffix := host[colon+1:]
+			slash := strings.Index(host, "/")
+			if (slash == -1 || colon < slash) && gitSSHPortPattern.MatchString(suffix) {
+				return gitSSHTestTarget{}, fmt.Errorf("invalid host %q (use ssh://host:%s or configure Port in ~/.ssh/config)", host, suffix)
+			}
+		}
 		if colon := strings.Index(host, ":"); colon >= 0 {
 			slash := strings.Index(host, "/")
 			if slash == -1 || colon < slash {
@@ -162,15 +244,295 @@ func normalizeGitSSHTestHost(host string) (string, error) {
 			}
 		}
 		if at := strings.LastIndex(host, "@"); at >= 0 {
+			target.User = host[:at]
+			target.InputUser = target.User
 			host = host[at+1:]
+		}
+		target.Host = host
+	}
+
+	target.Host = strings.ToLower(strings.TrimSpace(target.Host))
+	if !gitSSHHostPattern.MatchString(target.Host) {
+		return gitSSHTestTarget{}, fmt.Errorf("invalid host %q (expected bare hostname)", target.Host)
+	}
+	if target.Port != "" && !gitSSHPortPattern.MatchString(target.Port) {
+		return gitSSHTestTarget{}, fmt.Errorf("invalid port %q", target.Port)
+	}
+	target.RequestedHost = target.Host
+	return target, nil
+}
+
+func resolveGitSSHTestTarget(host string) (gitSSHTestTarget, error) {
+	target, err := parseGitSSHTestTarget(host)
+	if err != nil {
+		return gitSSHTestTarget{}, err
+	}
+	return resolveGitSSHTestTargetWithSeen(target, make(map[string]struct{}))
+}
+
+func resolveGitSSHTestTargetWithSeen(target gitSSHTestTarget, seen map[string]struct{}) (gitSSHTestTarget, error) {
+	if _, ok := seen[target.RequestedHost]; ok {
+		return gitSSHTestTarget{}, fmt.Errorf("ssh config host resolution cycle detected for %q", target.RequestedHost)
+	}
+	seen[target.RequestedHost] = struct{}{}
+	defer delete(seen, target.RequestedHost)
+
+	resolved, err := resolveSSHConfigAlias(target.Host)
+	if err != nil {
+		return gitSSHTestTarget{}, err
+	}
+	if target.User == "" && resolved.User != "" {
+		target.User = resolved.User
+		target.ResolvedFromSSHConfig = true
+	}
+	if target.Port == "" && resolved.Port != "" {
+		target.Port = resolved.Port
+		target.ResolvedFromSSHConfig = true
+	}
+	if resolved.HostName != "" {
+		normalizedHost := strings.ToLower(strings.TrimSpace(resolved.HostName))
+		if !gitSSHHostPattern.MatchString(normalizedHost) {
+			return gitSSHTestTarget{}, fmt.Errorf("ssh config host %q resolved to invalid HostName %q", target.RequestedHost, resolved.HostName)
+		}
+		if normalizedHost != target.Host {
+			target.ResolvedFromSSHConfig = true
+		}
+		target.Host = normalizedHost
+	}
+	if resolved.HostKeyAlias != "" {
+		target.HostKeyAlias = resolved.HostKeyAlias
+		target.ResolvedFromSSHConfig = true
+	} else if target.Host != target.RequestedHost {
+		target.HostKeyAlias = target.RequestedHost
+	}
+	if resolved.ProxyJump != "" && !strings.EqualFold(strings.TrimSpace(resolved.ProxyJump), "none") {
+		jumpTargets, err := resolveSSHConfigProxyJump(resolved.ProxyJump, seen)
+		if err != nil {
+			return gitSSHTestTarget{}, err
+		}
+		target.JumpTargets = jumpTargets
+		target.ResolvedFromSSHConfig = true
+	}
+
+	return target, nil
+}
+
+func resolveSSHConfigAlias(host string) (sshConfigAliasResolution, error) {
+	configPath := filepath.Join(defaultSSHKeyDirectory(), "config")
+	if _, err := os.Stat(configPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return sshConfigAliasResolution{}, nil
+		}
+		return sshConfigAliasResolution{}, fmt.Errorf("read ssh config %s: %w", configPath, err)
+	}
+
+	resolution := sshConfigAliasResolution{}
+	visited := make(map[string]struct{})
+	if err := applySSHConfigFile(host, configPath, &resolution, visited); err != nil {
+		return sshConfigAliasResolution{}, err
+	}
+	return resolution, nil
+}
+
+func applySSHConfigFile(host, configPath string, resolution *sshConfigAliasResolution, visited map[string]struct{}) error {
+	configPath = expandTilde(configPath)
+	if !filepath.IsAbs(configPath) {
+		configPath = filepath.Clean(configPath)
+	}
+	canonicalPath, err := canonicalizePath(configPath)
+	if err != nil {
+		return fmt.Errorf("ssh config %s: %w", configPath, err)
+	}
+	if _, seen := visited[canonicalPath]; seen {
+		return nil
+	}
+	visited[canonicalPath] = struct{}{}
+
+	file, err := os.Open(canonicalPath)
+	if err != nil {
+		return fmt.Errorf("open ssh config %s: %w", canonicalPath, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	active := true
+	for scanner.Scan() {
+		line := stripSSHConfigComment(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := splitSSHConfigFields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := strings.ToLower(fields[0])
+		values := fields[1:]
+
+		switch key {
+		case "host":
+			active = sshConfigHostMatches(host, values)
+		case "match":
+			active = false
+		case "include":
+			if !active {
+				continue
+			}
+			for _, pattern := range values {
+				includePaths, err := resolveSSHConfigIncludePaths(pattern, filepath.Dir(canonicalPath))
+				if err != nil {
+					return err
+				}
+				for _, includePath := range includePaths {
+					if err := applySSHConfigFile(host, includePath, resolution, visited); err != nil {
+						return err
+					}
+				}
+			}
+		case "hostname":
+			if active && resolution.HostName == "" {
+				resolution.HostName = values[0]
+			}
+		case "user":
+			if active && resolution.User == "" {
+				resolution.User = values[0]
+			}
+		case "port":
+			if active && resolution.Port == "" {
+				if !gitSSHPortPattern.MatchString(values[0]) {
+					return fmt.Errorf("ssh config host %q has invalid Port %q", host, values[0])
+				}
+				resolution.Port = values[0]
+			}
+		case "proxyjump":
+			if active && resolution.ProxyJump == "" {
+				resolution.ProxyJump = values[0]
+			}
+		case "hostkeyalias":
+			if active && resolution.HostKeyAlias == "" {
+				resolution.HostKeyAlias = values[0]
+			}
+		case "proxycommand":
+			if active && resolution.UnsupportedDirective == "" {
+				resolution.UnsupportedDirective = key
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scan ssh config %s: %w", canonicalPath, err)
+	}
+	return nil
+}
+
+func stripSSHConfigComment(line string) string {
+	if idx := strings.Index(line, "#"); idx >= 0 {
+		line = line[:idx]
+	}
+	return strings.TrimSpace(line)
+}
+
+func splitSSHConfigFields(line string) []string {
+	fields := strings.Fields(line)
+	for i := range fields {
+		fields[i] = strings.Trim(fields[i], `"'`)
+	}
+	return fields
+}
+
+func sshConfigHostMatches(host string, patterns []string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	matched := false
+	for _, raw := range patterns {
+		pattern := strings.ToLower(strings.TrimSpace(raw))
+		if pattern == "" {
+			continue
+		}
+		negated := strings.HasPrefix(pattern, "!")
+		if negated {
+			pattern = strings.TrimPrefix(pattern, "!")
+		}
+		ok, err := path.Match(pattern, host)
+		if err != nil {
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if negated {
+			return false
+		}
+		matched = true
+	}
+	return matched
+}
+
+func resolveSSHConfigIncludePaths(pattern, baseDir string) ([]string, error) {
+	pattern = expandTilde(strings.TrimSpace(pattern))
+	if pattern == "" {
+		return nil, nil
+	}
+	if !filepath.IsAbs(pattern) {
+		pattern = filepath.Join(baseDir, pattern)
+	}
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("ssh config Include %q: %w", pattern, err)
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+func parseSSHConfigJumpTarget(value string) (gitSSHJumpTarget, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return gitSSHJumpTarget{}, fmt.Errorf("empty ProxyJump entry")
+	}
+
+	target := gitSSHJumpTarget{}
+	if at := strings.LastIndex(value, "@"); at >= 0 {
+		target.User = value[:at]
+		value = value[at+1:]
+	}
+	if colon := strings.LastIndex(value, ":"); colon >= 0 {
+		port := value[colon+1:]
+		if gitSSHPortPattern.MatchString(port) {
+			target.Port = port
+			value = value[:colon]
 		}
 	}
 
-	host = strings.ToLower(strings.TrimSpace(host))
-	if !gitSSHHostPattern.MatchString(host) {
-		return "", fmt.Errorf("invalid host %q (expected bare hostname)", host)
+	target.Host = strings.ToLower(strings.TrimSpace(value))
+	if !gitSSHHostPattern.MatchString(target.Host) {
+		return gitSSHJumpTarget{}, fmt.Errorf("invalid ProxyJump host %q", value)
 	}
-	return host, nil
+	return target, nil
+}
+
+func resolveSSHConfigProxyJump(value string, seen map[string]struct{}) ([]gitSSHJumpTarget, error) {
+	parts := strings.Split(value, ",")
+	targets := make([]gitSSHJumpTarget, 0, len(parts))
+	for _, part := range parts {
+		target, err := parseSSHConfigJumpTarget(part)
+		if err != nil {
+			return nil, err
+		}
+
+		resolvedTarget, err := resolveGitSSHTestTargetWithSeen(gitSSHTestTarget{
+			RequestedHost: target.Host,
+			Host:          target.Host,
+			User:          target.User,
+			Port:          target.Port,
+		}, seen)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, resolvedTarget.JumpTargets...)
+		targets = append(targets, gitSSHJumpTarget{
+			Host: resolvedTarget.Host,
+			User: resolvedTarget.User,
+			Port: resolvedTarget.Port,
+		})
+	}
+	return targets, nil
 }
 
 func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
@@ -694,28 +1056,18 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 	return nil
 }
 
-func probeGitSSHHost(cfg sessionGitSSHConfig, host string) (string, error) {
-	identityRuntime, err := prepareSSHIdentityRuntime(cfg)
-	if err != nil {
-		return "", err
-	}
-	defer identityRuntime.Cleanup()
-	return runGitSSHProbe(identityRuntime.SocketPath, identityRuntime.KnownHostsPath, host)
+func probeGitSSHHost(cfg sessionGitSSHConfig, target gitSSHTestTarget) (string, error) {
+	return runGitSSHProbe(cfg.PrivateKeyPath, cfg.KnownHostsPath, target)
 }
 
-func newGitSSHProbeCommand(socketPath, knownHostsPath, host string) *exec.Cmd {
-	target := "git@" + host
-	return newSudoCommand("-u", agentUser, "env",
-		"HOME="+agentHome,
-		"USER="+agentUser,
-		"LOGNAME="+agentUser,
-		"SSH_ASKPASS_REQUIRE=never",
-		"/usr/bin/ssh",
-		"-F", "none",
+func newGitSSHProbeCommand(privateKeyPath, knownHostsPath string, target gitSSHTestTarget) *exec.Cmd {
+	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
-		"-o", "IdentityFile=none",
+		"-o", "IdentitiesOnly=yes",
+		"-o", "IdentityAgent=none",
 		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UserKnownHostsFile=" + knownHostsPath,
 		"-o", "GlobalKnownHostsFile=/dev/null",
 		"-o", "ForwardAgent=no",
 		"-o", "ClearAllForwardings=yes",
@@ -723,20 +1075,28 @@ func newGitSSHProbeCommand(socketPath, knownHostsPath, host string) *exec.Cmd {
 		"-o", "PasswordAuthentication=no",
 		"-o", "NumberOfPasswordPrompts=0",
 		"-o", "RequestTTY=no",
-		"-o", "IdentityAgent="+socketPath,
-		"-o", "UserKnownHostsFile="+knownHostsPath,
+		"-i", privateKeyPath,
+	}
+	if target.InputUser != "" {
+		args = append(args, "-l", target.InputUser)
+	}
+	if target.InputPort != "" {
+		args = append(args, "-p", target.InputPort)
+	}
+	args = append(args,
 		"-T",
-		target,
+		target.RequestedHost,
 		"git-upload-pack",
 		"/__hazmat_ssh_probe__",
 	)
+	return exec.Command("/usr/bin/ssh", args...)
 }
 
-func runGitSSHProbe(socketPath, knownHostsPath, host string) (string, error) {
-	cmd := newGitSSHProbeCommand(socketPath, knownHostsPath, host)
+func runGitSSHProbe(privateKeyPath, knownHostsPath string, target gitSSHTestTarget) (string, error) {
+	cmd := newGitSSHProbeCommand(privateKeyPath, knownHostsPath, target)
 	output, err := cmd.CombinedOutput()
 	trimmed := strings.TrimSpace(string(output))
-	if probeErr := interpretGitSSHProbeResult(host, trimmed, err); probeErr != nil {
+	if probeErr := interpretGitSSHProbeResult(target.RequestedHost, trimmed, err); probeErr != nil {
 		if trimmed == "" {
 			return "", probeErr
 		}

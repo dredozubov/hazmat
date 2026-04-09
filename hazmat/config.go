@@ -1203,7 +1203,7 @@ func runConfigSSHTest(project, host string) error {
 		return fmt.Errorf("project: %w", err)
 	}
 
-	host, err = normalizeGitSSHTestHost(host)
+	target, err := resolveGitSSHTestTarget(host)
 	if err != nil {
 		return err
 	}
@@ -1224,9 +1224,20 @@ func runConfigSSHTest(project, host string) error {
 	if cfg.GitSSH.DisplayName != "" {
 		fmt.Printf("Using key: %s\n", cfg.GitSSH.DisplayName)
 	}
-	fmt.Printf("Target host: %s\n\n", host)
+	fmt.Printf("Target host: %s\n", target.RequestedHost)
+	if target.ResolvedFromSSHConfig {
+		fmt.Printf("Resolved via ~/.ssh/config: %s\n", target.resolutionSummary())
+	}
+	if len(target.JumpTargets) > 0 {
+		jumps := make([]string, 0, len(target.JumpTargets))
+		for _, jump := range target.JumpTargets {
+			jumps = append(jumps, jump.summary())
+		}
+		fmt.Printf("ProxyJump via ~/.ssh/config: %s\n", strings.Join(jumps, ","))
+	}
+	fmt.Println()
 
-	output, err := probeGitSSHHost(*cfg.GitSSH, host)
+	output, err := probeGitSSHHost(*cfg.GitSSH, target)
 	if err == nil {
 		fmt.Println(summarizeGitSSHProbeSuccess(output))
 		fmt.Println()
