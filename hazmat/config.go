@@ -43,7 +43,9 @@ type ProjectConfig struct {
 }
 
 type ProjectSSHConfig struct {
-	Key string `yaml:"key,omitempty"`
+	Key            string `yaml:"key,omitempty"` // legacy inventory-based selection
+	PrivateKeyPath string `yaml:"private_key,omitempty"`
+	KnownHostsPath string `yaml:"known_hosts,omitempty"`
 }
 
 type ProjectGitSSHConfig struct {
@@ -468,7 +470,15 @@ func runConfigShow() error {
 					fmt.Printf("        Read-write: %s\n", strings.Join(projectCfg.WriteDirs, ", "))
 				}
 				if projectCfg.SSH != nil {
-					fmt.Printf("        SSH key: %s\n", projectCfg.SSH.Key)
+					switch {
+					case projectCfg.SSH.PrivateKeyPath != "":
+						fmt.Printf("        SSH key: %s\n", projectCfg.SSH.PrivateKeyPath)
+						if projectCfg.SSH.KnownHostsPath != "" {
+							fmt.Printf("        SSH known_hosts: %s\n", projectCfg.SSH.KnownHostsPath)
+						}
+					case projectCfg.SSH.Key != "":
+						fmt.Printf("        SSH key: %s\n", projectCfg.SSH.Key)
+					}
 				}
 				if projectCfg.GitSSH != nil {
 					fmt.Printf("        Legacy Git SSH hosts: %s\n", strings.Join(projectCfg.GitSSH.AllowedHosts, ", "))
@@ -639,20 +649,23 @@ Examples:
 func newConfigSSHCmd() *cobra.Command {
 	var project string
 	var keyName string
+	var keyDir string
 	var host string
 
 	setCmd := &cobra.Command{
 		Use:   "set",
-		Short: "Assign a provisioned SSH key to a project",
+		Short: "Assign an SSH key from a directory to a project",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHSet(project, keyName)
+			return runConfigSSHSet(project, keyDir, keyName)
 		},
 	}
 	setCmd.Flags().StringVarP(&project, "project", "C", "",
 		"Project directory (defaults to current directory)")
+	setCmd.Flags().StringVar(&keyDir, "dir", "",
+		"Directory containing SSH keys (defaults to ~/.ssh)")
 	setCmd.Flags().StringVar(&keyName, "key", "",
-		"Provisioned SSH key name (omit to choose interactively)")
+		"SSH key file name or absolute path (omit to choose interactively)")
 
 	showCmd := &cobra.Command{
 		Use:   "show",
@@ -691,30 +704,32 @@ func newConfigSSHCmd() *cobra.Command {
 
 	listCmd := &cobra.Command{
 		Use:   "list-keys",
-		Short: "List provisioned SSH keys available to Hazmat",
+		Short: "List SSH keys in a directory",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runConfigSSHListKeys()
+			return runConfigSSHListKeys(keyDir)
 		},
 	}
+	listCmd.Flags().StringVar(&keyDir, "dir", "",
+		"Directory containing SSH keys (defaults to ~/.ssh)")
 
 	cmd := &cobra.Command{
 		Use:   "ssh",
 		Short: "Configure per-project Git-over-SSH key selection",
-		Long: `Assign a provisioned SSH key to a project for Git-over-SSH use.
+		Long: `Assign an SSH key from a chosen directory to a project for Git-over-SSH use.
 
 Hazmat keeps the private key in host-owned storage, loads it into a fresh
 session-local ssh-agent at launch time, and still restricts the session to
 Git SSH transports rather than arbitrary remote shells.
 
-Provisioned keys live under ~/.hazmat/ssh/keys/<name>/ and should contain:
-  - one private key file (for example id_ed25519)
-  - optional matching public key (.pub)
-  - known_hosts
+By default Hazmat looks for keys in ~/.ssh and uses known_hosts from the same
+directory. You can point it at another key directory with --dir.
 
 Examples:
   hazmat config ssh list-keys
-  hazmat config ssh set -C ~/workspace/my-app --key github-work
+  hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
+  hazmat config ssh set -C ~/workspace/my-app --key id_ed25519
+  hazmat config ssh set -C ~/workspace/my-app --dir ~/.config/hazmat/ssh --key deploy_key
   hazmat config ssh show -C ~/workspace/my-app
   hazmat config ssh test -C ~/workspace/my-app --host github.com
   hazmat config ssh clear -C ~/workspace/my-app`,
@@ -1010,42 +1025,58 @@ func runConfigAccess(project string, readDirs, writeDirs []string, remove bool) 
 	return nil
 }
 
-func runConfigSSHSet(project, keyName string) error {
+func runConfigSSHSet(project, keyDir, keyName string) error {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return fmt.Errorf("project: %w", err)
 	}
 
-	keys, err := discoverProvisionedSSHKeys()
+	if strings.TrimSpace(keyDir) == "" && strings.TrimSpace(keyName) != "" {
+		expandedKeyName := expandTilde(strings.TrimSpace(keyName))
+		if filepath.IsAbs(expandedKeyName) || strings.Contains(expandedKeyName, string(os.PathSeparator)) {
+			keyDir = filepath.Dir(expandedKeyName)
+		}
+	}
+	if strings.TrimSpace(keyDir) == "" && strings.TrimSpace(keyName) == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+		keyDir, err = promptSSHKeyDirectory(defaultSSHKeyDirectory())
+		if err != nil {
+			return err
+		}
+	}
+	canonicalKeyDir, err := resolveSSHKeyDirectory(keyDir)
+	if err != nil {
+		return err
+	}
+	keys, err := discoverSSHKeyCandidates(canonicalKeyDir)
 	if err != nil {
 		return err
 	}
 	if len(keys) == 0 {
-		return fmt.Errorf("no provisioned SSH keys found under %s", provisionedSSHKeysRootDir())
+		return fmt.Errorf("no SSH keys found in %s", canonicalKeyDir)
 	}
 
 	selectedName := strings.TrimSpace(keyName)
 	if selectedName == "" {
-		usable := usableProvisionedSSHKeys(keys)
+		usable := usableSSHKeyCandidates(keys)
 		if len(usable) == 0 {
-			return fmt.Errorf("no usable provisioned SSH keys found under %s (run 'hazmat config ssh list-keys' to inspect them)", provisionedSSHKeysRootDir())
+			return fmt.Errorf("no usable SSH keys found in %s (run 'hazmat config ssh list-keys --dir %s' to inspect them)", canonicalKeyDir, canonicalKeyDir)
 		}
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			return fmt.Errorf("--key is required when stdin is not a terminal")
 		}
-		chosen, err := chooseProvisionedSSHKey(usable)
+		chosen, err := chooseSSHKeyCandidate(usable)
 		if err != nil {
 			return err
 		}
 		selectedName = chosen
 	}
 
-	selected, err := findProvisionedSSHKeyByName(keys, selectedName)
+	selected, err := findSSHKeyCandidate(keys, selectedName)
 	if err != nil {
 		return err
 	}
 	if !selected.Usable() {
-		return fmt.Errorf("SSH key %q is not usable: %s", selected.Name, selected.Status)
+		return fmt.Errorf("SSH key %q is not usable: %s", selected.DisplayName(), selected.Status)
 	}
 
 	cfg, err := loadConfig()
@@ -1057,7 +1088,10 @@ func runConfigSSHSet(project, keyName string) error {
 	}
 
 	projectCfg := cfg.Projects[projectDir]
-	projectCfg.SSH = &ProjectSSHConfig{Key: selected.Name}
+	projectCfg.SSH = &ProjectSSHConfig{
+		PrivateKeyPath: selected.PrivateKeyPath,
+		KnownHostsPath: selected.KnownHostsPath,
+	}
 	projectCfg.GitSSH = nil
 	if projectHasOverrides(projectCfg) {
 		cfg.Projects[projectDir] = projectCfg
@@ -1071,7 +1105,7 @@ func runConfigSSHSet(project, keyName string) error {
 		return err
 	}
 
-	fmt.Printf("Assigned SSH key %q to %s\n", selected.Name, projectDir)
+	fmt.Printf("Assigned SSH key %q to %s\n", selected.DisplayName(), projectDir)
 	fmt.Printf("Next step: hazmat config ssh test -C %s --host github.com\n", projectDir)
 	return nil
 }
@@ -1095,6 +1129,25 @@ func runConfigSSHShow(project string) error {
 
 	fmt.Printf("SSH configuration for %s\n\n", projectDir)
 	if projectCfg.SSH != nil {
+		if strings.TrimSpace(projectCfg.SSH.PrivateKeyPath) != "" {
+			status := "usable"
+			if _, err := canonicalizeConfiguredFile(projectCfg.SSH.PrivateKeyPath); err != nil {
+				status = "broken (private key not found)"
+			}
+			if _, err := canonicalizeConfiguredFile(projectCfg.SSH.KnownHostsPath); err != nil {
+				status = "broken (known_hosts not found)"
+			}
+			fmt.Printf("  Assigned key:  %s\n", filepath.Base(projectCfg.SSH.PrivateKeyPath))
+			fmt.Printf("  Private key:   %s\n", projectCfg.SSH.PrivateKeyPath)
+			fmt.Printf("  Known hosts:   %s\n", projectCfg.SSH.KnownHostsPath)
+			fingerprint := sshKeyFingerprint(resolveConfiguredPublicKeyPath(projectCfg.SSH.PrivateKeyPath))
+			if fingerprint != "" {
+				fmt.Printf("  Fingerprint:   %s\n", fingerprint)
+			}
+			fmt.Printf("  Status:        %s\n", status)
+			fmt.Printf("\nTest with:\n  hazmat config ssh test -C %s --host github.com\n", projectDir)
+			return nil
+		}
 		key, err := findProvisionedSSHKey(projectCfg.SSH.Key)
 		if err != nil {
 			fmt.Printf("  Assigned key:  %s\n", projectCfg.SSH.Key)
@@ -1196,19 +1249,23 @@ func runConfigSSHClear(project string) error {
 	return nil
 }
 
-func runConfigSSHListKeys() error {
-	keys, err := discoverProvisionedSSHKeys()
+func runConfigSSHListKeys(keyDir string) error {
+	canonicalKeyDir, err := resolveSSHKeyDirectory(keyDir)
+	if err != nil {
+		return err
+	}
+	keys, err := discoverSSHKeyCandidates(canonicalKeyDir)
 	if err != nil {
 		return err
 	}
 	if len(keys) == 0 {
-		fmt.Printf("No provisioned SSH keys found under %s\n", provisionedSSHKeysRootDir())
+		fmt.Printf("No SSH keys found in %s\n", canonicalKeyDir)
 		return nil
 	}
 
-	fmt.Println("Available SSH keys")
+	fmt.Printf("Available SSH keys in %s\n", canonicalKeyDir)
 	for _, key := range keys {
-		fmt.Printf("\n  %s\n", key.Name)
+		fmt.Printf("\n  %s\n", key.DisplayName())
 		if key.PrivateKeyPath != "" {
 			fmt.Printf("    Private key:  %s\n", key.PrivateKeyPath)
 		}
@@ -1226,11 +1283,11 @@ func runConfigSSHListKeys() error {
 	return nil
 }
 
-func chooseProvisionedSSHKey(keys []provisionedSSHKey) (string, error) {
+func chooseSSHKeyCandidate(keys []sshKeyCandidate) (string, error) {
 	fmt.Println()
-	fmt.Println("Available provisioned keys:")
+	fmt.Println("Available SSH keys:")
 	for i, key := range keys {
-		fmt.Printf("  %d. %s\n", i+1, key.Name)
+		fmt.Printf("  %d. %s\n", i+1, key.DisplayName())
 	}
 	fmt.Print("\nSelect a key for this project: ")
 
@@ -1243,7 +1300,21 @@ func chooseProvisionedSSHKey(keys []provisionedSSHKey) (string, error) {
 	if err != nil || index < 1 || index > len(keys) {
 		return "", fmt.Errorf("invalid selection %q", strings.TrimSpace(line))
 	}
-	return keys[index-1].Name, nil
+	return keys[index-1].PrivateKeyPath, nil
+}
+
+func promptSSHKeyDirectory(defaultDir string) (string, error) {
+	fmt.Printf("\nSSH key directory [%s]: ", defaultDir)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("read key directory: %w", err)
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultDir, nil
+	}
+	return line, nil
 }
 
 func runConfigGitSSH(project, keyPath, knownHostsPath string, allowedHosts []string, disable bool) error {

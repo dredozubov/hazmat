@@ -64,7 +64,7 @@ Currently every MCP child inherits the full parent environment. A compromised np
 
 Everything else (`GITHUB_PERSONAL_ACCESS_TOKEN`, `OPENROUTER_API_KEY`, `SSH_AUTH_SOCK`, etc.) should be opt-in per session or per MCP server, not inherited by default.
 
-**SSH_AUTH_SOCK specifically:** Unset it in the agent environment. If a project needs git-over-ssh, prefer a Hazmat-managed per-project selection of a provisioned key that stays in host-owned storage and is loaded into a fresh session-local `ssh-agent` at launch time, rather than forwarding the main user's agent socket.
+**SSH_AUTH_SOCK specifically:** Unset it in the agent environment. If a project needs git-over-ssh, prefer a Hazmat-managed per-project selection of a dedicated key from a chosen host-owned directory that stays in host-owned storage and is loaded into a fresh session-local `ssh-agent` at launch time, rather than forwarding the main user's agent socket.
 
 ### 4. Pin MCP server versions
 

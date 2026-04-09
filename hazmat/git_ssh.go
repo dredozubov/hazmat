@@ -33,6 +33,26 @@ type preparedSSHIdentityRuntime struct {
 	Cleanup        func()
 }
 
+type sshKeyCandidate struct {
+	DirectoryPath  string
+	PrivateKeyPath string
+	PublicKeyPath  string
+	KnownHostsPath string
+	Fingerprint    string
+	Status         string
+}
+
+func (k sshKeyCandidate) Usable() bool {
+	return k.Status == "usable"
+}
+
+func (k sshKeyCandidate) DisplayName() string {
+	if k.PrivateKeyPath == "" {
+		return "(missing private key)"
+	}
+	return filepath.Base(k.PrivateKeyPath)
+}
+
 type provisionedSSHKey struct {
 	Name           string
 	PrivateKeyPath string
@@ -61,6 +81,18 @@ func configuredProjectGitSSH(projectDir string) *ProjectGitSSHConfig {
 
 func provisionedSSHKeysRootDir() string {
 	return filepath.Join(filepath.Dir(configFilePath), "ssh", "keys")
+}
+
+func defaultSSHKeyDirectory() string {
+	return filepath.Join(os.Getenv("HOME"), ".ssh")
+}
+
+func resolveSSHKeyDirectory(dir string) (string, error) {
+	dir = strings.TrimSpace(expandTilde(dir))
+	if dir == "" {
+		dir = defaultSSHKeyDirectory()
+	}
+	return resolveDir(dir, false)
 }
 
 func canonicalizeConfiguredFile(path string) (string, error) {
@@ -122,15 +154,50 @@ func normalizeGitSSHTestHost(host string) (string, error) {
 
 func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
 	if raw := configuredProjectSSH(cfg.ProjectDir); raw != nil {
+		if strings.TrimSpace(raw.PrivateKeyPath) != "" {
+			return resolveConfiguredManagedGitSSH(cfg, raw)
+		}
 		return resolveProvisionedManagedGitSSH(cfg, raw)
 	}
 	return resolveLegacyManagedGitSSH(cfg)
 }
 
+func resolveConfiguredManagedGitSSH(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
+	privateKeyPath, err := canonicalizeConfiguredFile(raw.PrivateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("project ssh.private_key: %w", err)
+	}
+	if isWithinDir(agentHome, privateKeyPath) {
+		return nil, fmt.Errorf("managed git ssh private key %q must stay outside %s", privateKeyPath, agentHome)
+	}
+	if sessionPathExposesFile(cfg, privateKeyPath) {
+		return nil, fmt.Errorf("managed git ssh private key %q is visible inside the session contract; move it outside the project/read/write paths", privateKeyPath)
+	}
+
+	knownHostsRaw := raw.KnownHostsPath
+	if strings.TrimSpace(knownHostsRaw) == "" {
+		knownHostsRaw = filepath.Join(filepath.Dir(privateKeyPath), "known_hosts")
+	}
+	knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("project ssh.known_hosts: %w", err)
+	}
+
+	return &sessionGitSSHConfig{
+		DisplayName:    filepath.Base(privateKeyPath),
+		PrivateKeyPath: privateKeyPath,
+		KnownHostsPath: knownHostsPath,
+		SessionNote: fmt.Sprintf(
+			"Git-over-SSH enabled for this project via selected key %q. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
+			filepath.Base(privateKeyPath),
+		),
+	}, nil
+}
+
 func resolveProvisionedManagedGitSSH(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
 	keyName := strings.TrimSpace(raw.Key)
 	if keyName == "" {
-		return nil, fmt.Errorf("project ssh.key: value is required")
+		return nil, fmt.Errorf("project ssh: private_key or key is required")
 	}
 
 	key, err := findProvisionedSSHKey(keyName)
@@ -195,6 +262,74 @@ func resolveLegacyManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error)
 			strings.Join(allowedHosts, ", "),
 		),
 	}, nil
+}
+
+func discoverSSHKeyCandidates(dir string) ([]sshKeyCandidate, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read SSH keys in %s: %w", dir, err)
+	}
+
+	keys := make([]sshKeyCandidate, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !looksLikeSSHPrivateKeyCandidate(name) {
+			continue
+		}
+		keys = append(keys, inspectSSHKeyCandidate(filepath.Join(dir, name)))
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].DisplayName() < keys[j].DisplayName()
+	})
+	return keys, nil
+}
+
+func looksLikeSSHPrivateKeyCandidate(name string) bool {
+	if strings.HasSuffix(name, ".pub") {
+		return false
+	}
+	switch name {
+	case "known_hosts", "known_hosts.old", "config", "authorized_keys":
+		return false
+	}
+	return !strings.HasPrefix(name, ".")
+}
+
+func inspectSSHKeyCandidate(path string) sshKeyCandidate {
+	key := sshKeyCandidate{}
+
+	privateKeyPath, err := canonicalizeConfiguredFile(path)
+	if err != nil {
+		key.Status = err.Error()
+		return key
+	}
+	key.PrivateKeyPath = privateKeyPath
+	key.DirectoryPath = filepath.Dir(privateKeyPath)
+
+	knownHostsPath, err := canonicalizeConfiguredFile(filepath.Join(key.DirectoryPath, "known_hosts"))
+	if err != nil {
+		key.Status = "missing known_hosts"
+	} else {
+		key.KnownHostsPath = knownHostsPath
+		key.Status = "usable"
+	}
+
+	key.PublicKeyPath = resolveConfiguredPublicKeyPath(privateKeyPath)
+	key.Fingerprint = sshKeyFingerprint(key.PublicKeyPath)
+	return key
+}
+
+func resolveConfiguredPublicKeyPath(privateKeyPath string) string {
+	if path, err := canonicalizeConfiguredFile(privateKeyPath + ".pub"); err == nil {
+		return path
+	}
+	return ""
 }
 
 func discoverProvisionedSSHKeys() ([]provisionedSSHKey, error) {
@@ -303,6 +438,16 @@ func sshKeyFingerprint(publicKeyPath string) string {
 	return strings.TrimSpace(out)
 }
 
+func usableSSHKeyCandidates(keys []sshKeyCandidate) []sshKeyCandidate {
+	usable := make([]sshKeyCandidate, 0, len(keys))
+	for _, key := range keys {
+		if key.Usable() {
+			usable = append(usable, key)
+		}
+	}
+	return usable
+}
+
 func usableProvisionedSSHKeys(keys []provisionedSSHKey) []provisionedSSHKey {
 	usable := make([]provisionedSSHKey, 0, len(keys))
 	for _, key := range keys {
@@ -329,6 +474,34 @@ func findProvisionedSSHKeyByName(keys []provisionedSSHKey, name string) (provisi
 		}
 	}
 	return provisionedSSHKey{}, fmt.Errorf("SSH key %q was not found under %s", name, provisionedSSHKeysRootDir())
+}
+
+func findSSHKeyCandidate(keys []sshKeyCandidate, selection string) (sshKeyCandidate, error) {
+	selection = strings.TrimSpace(selection)
+	if selection == "" {
+		return sshKeyCandidate{}, fmt.Errorf("SSH key selection is required")
+	}
+
+	if strings.Contains(selection, string(os.PathSeparator)) || filepath.IsAbs(selection) {
+		canonical, err := canonicalizeConfiguredFile(selection)
+		if err == nil {
+			for _, key := range keys {
+				if key.PrivateKeyPath == canonical {
+					return key, nil
+				}
+			}
+		}
+	}
+
+	for _, key := range keys {
+		if key.DisplayName() == selection || key.PrivateKeyPath == selection {
+			return key, nil
+		}
+	}
+	if len(keys) == 0 {
+		return sshKeyCandidate{}, fmt.Errorf("SSH key %q was not found", selection)
+	}
+	return sshKeyCandidate{}, fmt.Errorf("SSH key %q was not found in %s", selection, keys[0].DirectoryPath)
 }
 
 func sessionPathExposesFile(cfg sessionConfig, path string) bool {

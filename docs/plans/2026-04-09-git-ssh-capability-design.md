@@ -38,13 +38,13 @@ repo-scoped credentials.
 
 ## Recommended Model
 
-### 1. Host-owned provisioned key inventory plus project assignment
+### 1. Host-owned key directory plus project assignment
 
 Hazmat should treat SSH setup as a project setting:
 
-- ops or the user provisions key bundles under `~/.hazmat/ssh/keys/<name>/`
-- each bundle contains one private key file plus `known_hosts`
-- the project config stores only the selected key name
+- ops or the user points Hazmat at a directory containing SSH keys
+- the default key directory is `~/.ssh`
+- the project config stores the selected private-key path and `known_hosts` path
 
 That keeps the main UX close to how developers think about repos:
 "this project uses SSH key X."
@@ -75,7 +75,7 @@ The first implementation targets Git transport only:
 - use the session-local `ssh-agent` socket via `IdentityAgent`
 
 The wrapper should reject non-Git remote commands. Host allowlists are out of
-scope for this slice; the remote-side scope of the provisioned key remains the
+scope for this slice; the remote-side scope of the selected key remains the
 primary authority boundary.
 
 ## Security Notes
@@ -97,9 +97,9 @@ silently dropping the capability.
 
 ## Implementation Slice
 
-1. Discover provisioned keys from `~/.hazmat/ssh/keys/`.
+1. Discover keys from a chosen directory, defaulting to `~/.ssh`.
 2. Add `hazmat config ssh set|show|test|clear|list-keys`.
-3. Store project -> key selection in config and surface it in the session contract.
+3. Store the selected private-key path plus `known_hosts` path in config and surface it in the session contract.
 4. Prepare the ephemeral Git SSH runtime before native session launch.
 5. Inject `GIT_SSH_COMMAND` for the session.
 6. Add focused unit coverage for discovery, config persistence, session resolution, and wrapper generation.

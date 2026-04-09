@@ -826,7 +826,7 @@ sudo -u agent git config --global --get credential.helper
 sudo -u agent ls -l /Users/agent/.config/git/credentials
 ```
 
-Use `https://` remotes inside hazmat by default. `git@github.com:...` remotes only work when you explicitly assign a provisioned project key with `hazmat config ssh set ...`; Hazmat still does not expose the host user's `SSH_AUTH_SOCK`, and arbitrary SSH shells remain unsupported.
+Use `https://` remotes inside hazmat by default. `git@github.com:...` remotes only work when you explicitly assign a project key with `hazmat config ssh set ...`; Hazmat still does not expose the host user's `SSH_AUTH_SOCK`, and arbitrary SSH shells remain unsupported.
 
 ### npm install fails for specific packages
 
