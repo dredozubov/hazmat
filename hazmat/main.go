@@ -37,16 +37,17 @@ var cloudBackupDir = filepath.Join(os.Getenv("HOME"), "workspace")
 
 // Hazmat configuration shared by the Go-based setup, test, and rollback flows.
 const (
-	agentUser     = "agent"
-	agentHome     = "/Users/agent"
-	launchHelper  = "/usr/local/libexec/hazmat-launch"
-	sharedGroup   = "dev"
-	pfAnchorName  = "agent"
-	pfAnchorFile  = "/etc/pf.anchors/agent"
-	pfDaemonLabel = "com.local.pf-agent"
-	pfDaemonPlist = "/Library/LaunchDaemons/com.local.pf-agent.plist"
-	sudoersFile   = "/etc/sudoers.d/agent"
-	hostsMarker   = "# === AI Agent Blocklist ==="
+	agentUser                   = "agent"
+	agentHome                   = "/Users/agent"
+	launchHelper                = "/usr/local/libexec/hazmat-launch"
+	sharedGroup                 = "dev"
+	pfAnchorName                = "agent"
+	pfAnchorFile                = "/etc/pf.anchors/agent"
+	pfDaemonLabel               = "com.local.pf-agent"
+	pfDaemonPlist               = "/Library/LaunchDaemons/com.local.pf-agent.plist"
+	sudoersFile                 = "/etc/sudoers.d/agent"
+	agentMaintenanceSudoersFile = "/etc/sudoers.d/agent-maintenance"
+	hostsMarker                 = "# === AI Agent Blocklist ==="
 
 	seatbeltProfileDir  = agentHome + "/.config/hazmat"
 	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"

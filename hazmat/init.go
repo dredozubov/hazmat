@@ -475,6 +475,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	if err := setupDevGroup(ui, r, cu.Username); err != nil {
 		return err
 	}
+	if err := maybeSetupOptionalAgentMaintenanceSudoers(ui, r, cu.Username); err != nil {
+		return err
+	}
 	if err := setupHomeDirTraverse(ui, r); err != nil {
 		return err
 	}
@@ -1080,39 +1083,9 @@ func findBrewLaunchHelper() string {
 // ── Step 6: Passwordless sudo ─────────────────────────────────────────────────
 
 func setupSudoers(ui *UI, r *Runner, currentUser string) error {
-	ui.Step(fmt.Sprintf("Configure passwordless sudo (%s → %s)", currentUser, agentUser))
-
-	entry := fmt.Sprintf("%s ALL=(%s) NOPASSWD: %s\n", currentUser, agentUser, launchHelper)
-	if data, err := r.SudoOutput("cat", sudoersFile); err == nil &&
-		strings.Contains(data, launchHelper) {
-		// The correct narrow rule is already present — nothing to do.
-		ui.SkipDone(fmt.Sprintf("Sudoers entry already targets %s", launchHelper))
-	} else {
-		// Either the file is absent or it contains a broader rule (e.g. the
-		// old "NOPASSWD: ALL" from a previous setup run).  Overwrite it with
-		// the narrow entry.  This is the upgrade path for existing installs.
-		if err == nil && strings.Contains(data, currentUser) {
-			ui.WarnMsg(fmt.Sprintf("Existing sudoers entry does not target %s — replacing with narrow rule", launchHelper))
-		}
-		// Grant passwordless access to exactly sandbox-launch — the narrow
-		// helper that validates policy files before calling sandbox-exec.
-		// It refuses deny-bypassing policies and checks SUDO_UID ownership.
-		// Install and bootstrap steps run under normal sudo (password required).
-		if err := r.SudoWriteFile("write sudoers entry for passwordless agent access", sudoersFile, entry); err != nil {
-			return fmt.Errorf("write sudoers: %w", err)
-		}
-		if err := r.Sudo("set sudoers file permissions", "chmod", "440", sudoersFile); err != nil {
-			return fmt.Errorf("chmod sudoers: %w", err)
-		}
-		if err := r.Sudo("validate sudoers syntax", "visudo", "-c", "-f", sudoersFile); err != nil {
-			// Validation failed: clean up the invalid file and bail.
-			// Direct sudo() here because this is error recovery, not
-			// a primary operation — we never want to skip or preview it.
-			sudo("rm", "-f", sudoersFile) //nolint:errcheck
-			return fmt.Errorf("sudoers syntax invalid — entry removed. Configure manually: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Sudoers entry written: %s can run %s as %s without password",
-			currentUser, launchHelper, agentUser))
+	ui.Step(fmt.Sprintf("Configure passwordless sudo for launch helper (%s → %s)", currentUser, agentUser))
+	if err := installLaunchSudoers(ui, r, currentUser); err != nil {
+		return err
 	}
 
 	// Live smoke-test is skipped: 'sandbox-launch' with no args exits 1 (usage

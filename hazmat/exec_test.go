@@ -41,3 +41,18 @@ func TestNewAgentCommandUsesRootWorkingDir(t *testing.T) {
 		t.Fatalf("newAgentCommand().Args = %v, want %v", cmd.Args, wantArgs)
 	}
 }
+
+func TestNewSudoNoPromptCommandUsesNoPromptFlag(t *testing.T) {
+	cmd := newSudoNoPromptCommand("-u", agentUser, "whoami")
+
+	wantArgs := []string{
+		"sudo",
+		"-n",
+		"-u",
+		agentUser,
+		"whoami",
+	}
+	if !reflect.DeepEqual(cmd.Args, wantArgs) {
+		t.Fatalf("newSudoNoPromptCommand().Args = %v, want %v", cmd.Args, wantArgs)
+	}
+}

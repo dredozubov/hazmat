@@ -292,18 +292,29 @@ func testHardeningGaps(ui *UI) {
 // ── Step 5: Passwordless sudo ─────────────────────────────────────────────────
 
 func testPasswordlessSudo(ui *UI) {
-	ui.Step("Passwordless sudo")
+	ui.Step("Passwordless sudoers")
 
-	if _, err := os.Stat(sudoersFile); err == nil {
-		ui.TestPass(fmt.Sprintf("Sudoers file exists: %s", sudoersFile))
+	if launchSudoersInstalled() {
+		ui.TestPass(fmt.Sprintf("Launch-helper sudoers file exists: %s", sudoersFile))
+		out, err := newSudoNoPromptCommand("-u", agentUser, launchHelper).CombinedOutput()
+		if strings.Contains(strings.TrimSpace(string(out)), "usage: hazmat-launch") && err != nil {
+			ui.TestPass("Launch-helper sudoers rule works without password")
+		} else {
+			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s", launchHelper))
+		}
 	} else {
-		ui.TestFail(fmt.Sprintf("Sudoers file missing: %s", sudoersFile))
+		ui.TestFail(fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile))
 	}
 
-	if err := sudo("-u", agentUser, "whoami"); err == nil {
-		ui.TestPass(fmt.Sprintf("sudo -u %s works without password", agentUser))
+	if agentMaintenanceSudoersInstalled() {
+		ui.TestPass(fmt.Sprintf("Optional agent-maintenance sudoers file exists: %s", agentMaintenanceSudoersFile))
+		if genericAgentPasswordlessAvailable() {
+			ui.TestPass(fmt.Sprintf("sudo -u %s works without password", agentUser))
+		} else {
+			ui.TestFail(fmt.Sprintf("sudo -u %s still prompts or fails — check %s", agentUser, agentMaintenanceSudoersFile))
+		}
 	} else {
-		ui.TestFail(fmt.Sprintf("sudo -u %s failed — check %s", agentUser, sudoersFile))
+		ui.TestWarn("Optional agent-maintenance passwordless sudo is disabled — bootstrap and other generic agent-user commands may still prompt")
 	}
 }
 

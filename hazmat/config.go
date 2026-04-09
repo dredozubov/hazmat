@@ -342,6 +342,7 @@ Subcommands:
   hazmat config docker       Configure per-project Docker routing
   hazmat config access       Configure per-project read/write extensions
   hazmat config ssh          Configure per-project Git-over-SSH key selection
+  hazmat config sudoers      Show or manage Hazmat's sudoers rules
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
@@ -355,6 +356,7 @@ Examples:
   hazmat config access add -C ~/workspace/my-project --read ~/other-code
   hazmat config ssh list-keys
   hazmat config ssh set ~/.ssh/id_ed25519
+  hazmat config sudoers --enable-agent-maintenance
   hazmat config agent
   hazmat config import claude --dry-run
   hazmat config import opencode --dry-run
@@ -370,6 +372,7 @@ Examples:
 	cmd.AddCommand(newConfigDockerCmd())
 	cmd.AddCommand(newConfigAccessCmd())
 	cmd.AddCommand(newConfigSSHCmd())
+	cmd.AddCommand(newConfigSudoersCmd())
 	cmd.AddCommand(newConfigAgentCmd())
 	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
@@ -492,6 +495,21 @@ func runConfigShow() error {
 	} else {
 		fmt.Printf("    Project overrides: (none)\n")
 	}
+	fmt.Println()
+
+	cBold.Println("  Privilege")
+	fmt.Println()
+	if launchSudoersInstalled() {
+		fmt.Printf("    Launch helper sudo:      installed (%s)\n", sudoersFile)
+	} else {
+		fmt.Printf("    Launch helper sudo:      missing (%s)\n", sudoersFile)
+	}
+	if agentMaintenanceSudoersInstalled() {
+		fmt.Printf("    Agent maintenance sudo:  enabled (%s)\n", agentMaintenanceSudoersFile)
+	} else {
+		fmt.Printf("    Agent maintenance sudo:  disabled\n")
+	}
+	fmt.Printf("    sudo -u %s no prompt:    %v\n", agentUser, genericAgentPasswordlessAvailable())
 	fmt.Println()
 
 	cBold.Println("  Integrations")

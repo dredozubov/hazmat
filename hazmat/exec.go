@@ -28,6 +28,11 @@ func newSudoCommand(args ...string) *exec.Cmd {
 	return cmd
 }
 
+func newSudoNoPromptCommand(args ...string) *exec.Cmd {
+	full := append([]string{"-n"}, args...)
+	return newSudoCommand(full...)
+}
+
 func newAgentCommand(args ...string) *exec.Cmd {
 	full := append([]string{"-u", agentUser}, args...)
 	return newSudoCommand(full...)
@@ -51,6 +56,10 @@ func execOutput(name string, args ...string) (string, error) {
 func sudo(args ...string) error {
 	cmd := newSudoCommand(args...)
 	return cmd.Run()
+}
+
+func sudoNoPrompt(args ...string) error {
+	return newSudoNoPromptCommand(args...).Run()
 }
 
 // sudoOutput runs a command with sudo and returns combined stdout+stderr.

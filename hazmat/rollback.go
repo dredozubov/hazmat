@@ -20,7 +20,7 @@ func newRollbackCmd() *cobra.Command {
   - pf anchor file and /etc/pf.conf additions
   - LaunchDaemon for pf persistence
   - DNS blocklist from /etc/hosts
-  - Sudoers entry (/etc/sudoers.d/agent)
+  - Sudoers entries (/etc/sudoers.d/agent, /etc/sudoers.d/agent-maintenance)
   - Seatbelt profile and wrapper
   - Agent shell env + host wrapper commands
   - Workspace access helpers (/Users/agent/workspace, home-directory ACL)
@@ -249,17 +249,22 @@ func rollbackDNSBlocklist(ui *UI, r *Runner) {
 }
 
 func rollbackSudoers(ui *UI, r *Runner) {
-	ui.Step("Remove sudoers entry")
+	ui.Step("Remove sudoers entries")
 
-	if _, err := os.Stat(sudoersFile); os.IsNotExist(err) {
-		ui.SkipDone("Sudoers file not present")
-		return
+	removedAny := false
+	for _, path := range []string{sudoersFile, agentMaintenanceSudoersFile} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+		if err := r.Sudo("remove sudoers entry", "rm", "-f", path); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
+			continue
+		}
+		ui.Ok(fmt.Sprintf("Removed %s", path))
+		removedAny = true
 	}
-
-	if err := r.Sudo("remove sudoers entry", "rm", "-f", sudoersFile); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", sudoersFile, err))
-	} else {
-		ui.Ok(fmt.Sprintf("Removed %s", sudoersFile))
+	if !removedAny {
+		ui.SkipDone("Sudoers files not present")
 	}
 }
 

@@ -119,7 +119,10 @@ func newBootstrapClaudeCmd() *cobra.Command {
 allow/deny rules, and create a PreToolUse hook skeleton.
 
 Run once after 'hazmat init'. Uses the passwordless sudo rule configured
-during init — no password prompt.
+during init for the launch helper. Generic installer steps that run directly
+as the agent user are passwordless only if you enabled the optional
+agent-maintenance sudoers rule (via the init prompt or
+'hazmat config sudoers --enable-agent-maintenance').
 
 Steps:
   1. Verify the agent user exists (run 'hazmat init' first if not)
