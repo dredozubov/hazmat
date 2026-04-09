@@ -110,10 +110,6 @@ func formatGitSSHEndpoint(host, user, port, defaultUser string) string {
 	return summary
 }
 
-func (t gitSSHTestTarget) destination() string {
-	return formatGitSSHAuthority(t.Host, t.User, "git")
-}
-
 func (t gitSSHTestTarget) resolutionSummary() string {
 	return formatGitSSHEndpoint(t.Host, t.User, t.Port, "git")
 }
@@ -823,16 +819,6 @@ func sshKeyFingerprint(publicKeyPath string) string {
 
 func usableSSHKeyCandidates(keys []sshKeyCandidate) []sshKeyCandidate {
 	usable := make([]sshKeyCandidate, 0, len(keys))
-	for _, key := range keys {
-		if key.Usable() {
-			usable = append(usable, key)
-		}
-	}
-	return usable
-}
-
-func usableProvisionedSSHKeys(keys []provisionedSSHKey) []provisionedSSHKey {
-	usable := make([]provisionedSSHKey, 0, len(keys))
 	for _, key := range keys {
 		if key.Usable() {
 			usable = append(usable, key)

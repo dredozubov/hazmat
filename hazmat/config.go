@@ -1553,69 +1553,6 @@ func resolveSSHCompletionDir(raw string) (string, error) {
 	return resolveDir(filepath.Join(wd, expanded), false)
 }
 
-func runConfigGitSSH(project, keyPath, knownHostsPath string, allowedHosts []string, disable bool) error {
-	projectDir, err := resolveDir(project, true)
-	if err != nil {
-		return fmt.Errorf("project: %w", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if cfg.Projects == nil {
-		cfg.Projects = make(map[string]ProjectConfig)
-	}
-
-	projectCfg := cfg.Projects[projectDir]
-	if disable {
-		projectCfg.GitSSH = nil
-	} else {
-		privateKeyPath, err := canonicalizeConfiguredFile(keyPath)
-		if err != nil {
-			return fmt.Errorf("key: %w", err)
-		}
-		if isWithinDir(projectDir, privateKeyPath) {
-			return fmt.Errorf("key: private key must stay outside the project directory")
-		}
-		if isWithinDir(agentHome, privateKeyPath) {
-			return fmt.Errorf("key: private key must stay outside %s", agentHome)
-		}
-		knownHostsCanonical, err := canonicalizeConfiguredFile(knownHostsPath)
-		if err != nil {
-			return fmt.Errorf("known-hosts: %w", err)
-		}
-		normalizedHosts, err := normalizeGitSSHHosts(allowedHosts)
-		if err != nil {
-			return fmt.Errorf("host: %w", err)
-		}
-		projectCfg.GitSSH = &ProjectGitSSHConfig{
-			PrivateKeyPath: privateKeyPath,
-			KnownHostsPath: knownHostsCanonical,
-			AllowedHosts:   normalizedHosts,
-		}
-	}
-
-	if projectHasOverrides(projectCfg) {
-		cfg.Projects[projectDir] = projectCfg
-	} else {
-		delete(cfg.Projects, projectDir)
-	}
-	if len(cfg.Projects) == 0 {
-		cfg.Projects = nil
-	}
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-
-	if disable {
-		fmt.Printf("Disabled managed Git SSH for %s\n", projectDir)
-		return nil
-	}
-	fmt.Printf("Enabled managed Git SSH for %s\n", projectDir)
-	return nil
-}
-
 func ensureCloudConfig(cfg *HazmatConfig) {
 	if cfg.Backup.Cloud == nil {
 		cfg.Backup.Cloud = &CloudBackup{}
