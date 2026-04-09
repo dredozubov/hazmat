@@ -1239,8 +1239,6 @@ func runConfigSSHTest(project, host string) error {
 
 	output, err := probeGitSSHHost(*cfg.GitSSH, target)
 	if err == nil {
-		fmt.Println(summarizeGitSSHProbeSuccess(output))
-		fmt.Println()
 		fmt.Println("SSH test succeeded.")
 		return nil
 	}

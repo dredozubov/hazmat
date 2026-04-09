@@ -674,38 +674,6 @@ func TestInterpretGitSSHProbeResultRecognizesAuthenticatedGitErrors(t *testing.T
 	}
 }
 
-func TestSummarizeGitSSHProbeSuccess(t *testing.T) {
-	tests := []struct {
-		name   string
-		output string
-		want   string
-	}{
-		{
-			name:   "fake repo rejected",
-			output: "ERROR: Repository not found.",
-			want:   "SSH authentication succeeded. The fake probe repository was rejected as expected.",
-		},
-		{
-			name:   "github auth banner",
-			output: "Hi dredozubov! You've successfully authenticated, but GitHub does not provide shell access.",
-			want:   "SSH authentication succeeded.",
-		},
-		{
-			name:   "empty output",
-			output: "",
-			want:   "SSH authentication succeeded.",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := summarizeGitSSHProbeSuccess(tt.output); got != tt.want {
-				t.Fatalf("summarizeGitSSHProbeSuccess(%q) = %q, want %q", tt.output, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing.T) {
 	script := buildGitSSHWrapperScript("/tmp/agent.sock", "/tmp/known_hosts", nil)
 	for _, fragment := range []string{

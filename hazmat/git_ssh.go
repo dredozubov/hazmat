@@ -1105,24 +1105,6 @@ func runGitSSHProbe(privateKeyPath, knownHostsPath string, target gitSSHTestTarg
 	return trimmed, nil
 }
 
-func summarizeGitSSHProbeSuccess(output string) string {
-	lower := strings.ToLower(strings.TrimSpace(output))
-	switch {
-	case lower == "":
-		return "SSH authentication succeeded."
-	case strings.Contains(lower, "repository not found"),
-		strings.Contains(lower, "does not appear to be a git repository"),
-		strings.Contains(lower, "not a git repository"),
-		strings.Contains(lower, "project could not be found"):
-		return "SSH authentication succeeded. The fake probe repository was rejected as expected."
-	case strings.Contains(lower, "successfully authenticated"),
-		strings.Contains(lower, "welcome to gitlab"):
-		return "SSH authentication succeeded."
-	default:
-		return "SSH authentication succeeded."
-	}
-}
-
 func interpretGitSSHProbeResult(host, output string, err error) error {
 	if err == nil {
 		return nil
