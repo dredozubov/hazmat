@@ -467,6 +467,8 @@ func TestNewGitSSHProbeCommandRunsAsAgentUser(t *testing.T) {
 		"SSH_ASKPASS_REQUIRE=never",
 		"/usr/bin/ssh",
 		"-o",
+		"IdentityFile=none",
+		"-o",
 		"IdentityAgent=/tmp/agent.sock",
 		"-o",
 		"UserKnownHostsFile=/tmp/known_hosts",
@@ -476,6 +478,9 @@ func TestNewGitSSHProbeCommandRunsAsAgentUser(t *testing.T) {
 		if !slices.Contains(cmd.Args, fragment) {
 			t.Fatalf("probe command args = %v, want fragment %q", cmd.Args, fragment)
 		}
+	}
+	if slices.Contains(cmd.Args, "IdentitiesOnly=yes") {
+		t.Fatalf("probe command args = %v, should not force IdentitiesOnly=yes", cmd.Args)
 	}
 }
 
@@ -494,6 +499,7 @@ func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing
 	for _, fragment := range []string{
 		"interactive ssh is not allowed",
 		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
+		"-o IdentityFile=none",
 		"-o IdentityAgent=/tmp/agent.sock",
 		"-o UserKnownHostsFile=/tmp/known_hosts",
 		"-o StrictHostKeyChecking=yes",
@@ -504,6 +510,9 @@ func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing
 	}
 	if strings.Contains(script, "destination host not allowed") {
 		t.Fatalf("wrapper script should not enforce host allowlist:\n%s", script)
+	}
+	if strings.Contains(script, "IdentitiesOnly=yes") {
+		t.Fatalf("wrapper script should not force IdentitiesOnly=yes:\n%s", script)
 	}
 }
 

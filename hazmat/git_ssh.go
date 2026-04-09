@@ -714,7 +714,7 @@ func newGitSSHProbeCommand(socketPath, knownHostsPath, host string) *exec.Cmd {
 		"-F", "none",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
-		"-o", "IdentitiesOnly=yes",
+		"-o", "IdentityFile=none",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "GlobalKnownHostsFile=/dev/null",
 		"-o", "ForwardAgent=no",
@@ -878,7 +878,7 @@ func buildGitSSHWrapperScript(socketPath, knownHostsPath string, allowedHosts []
 	b.WriteString("exec /usr/bin/ssh \\\n")
 	b.WriteString("  -F none \\\n")
 	b.WriteString("  -o BatchMode=yes \\\n")
-	b.WriteString("  -o IdentitiesOnly=yes \\\n")
+	b.WriteString("  -o IdentityFile=none \\\n")
 	b.WriteString("  -o StrictHostKeyChecking=yes \\\n")
 	fmt.Fprintf(&b, "  -o UserKnownHostsFile=%s \\\n", knownHostsQuoted)
 	b.WriteString("  -o GlobalKnownHostsFile=/dev/null \\\n")
