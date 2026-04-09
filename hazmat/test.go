@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -781,7 +780,7 @@ exit 0`
 		}
 	}
 
-	out, err := exec.Command("sudo", fdProbeCmd...).CombinedOutput()
+	out, err := newSudoCommand(fdProbeCmd...).CombinedOutput()
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("hazmat-launch fd probe failed: %v (%s)", err, strings.TrimSpace(string(out))))
 		return

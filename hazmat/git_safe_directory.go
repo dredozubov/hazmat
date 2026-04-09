@@ -176,9 +176,7 @@ func plannedProjectGitSafeDirectory(projectDir string) string {
 }
 
 func appendAgentGlobalSafeDirectoryCommand(repoDir string) *exec.Cmd {
-	cmd := exec.Command("sudo", "-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
-	cmd.Dir = "/"
-	return cmd
+	return newSudoCommand("-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
 }
 
 func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
