@@ -2017,7 +2017,6 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	if transcriptPath != "" {
 		scriptArgs := append([]string{"-q", transcriptPath, "sudo"}, full...)
 		cmd = exec.Command("script", scriptArgs...)
-		cmd.Dir = "/"
 		watchStop = make(chan struct{})
 		watchDone = make(chan struct{})
 		go func() {
@@ -2025,7 +2024,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 			watchTranscriptForAltScreen(transcriptPath, startBar, watchStop)
 		}()
 	} else {
-		cmd = newSudoCommand(full...)
+		cmd = exec.Command("sudo", full...)
 	}
 
 	defer func() {
