@@ -93,7 +93,9 @@ block-beta
 
 **Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="sk-ant-..."` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
 
-**SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Use HTTPS remotes with a fine-grained PAT in git's credential store instead.
+**General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
+
+**`hazmat config ssh test` is a host-side helper, not a session capability.** The test command deliberately runs as the invoking host user, not inside the contained agent environment. That lets it reuse the host user's real OpenSSH routing semantics from `~/.ssh/config` such as aliases, `HostName`, `Port`, `Include`, and `ProxyJump`, while still forcing the Hazmat-selected private key and `known_hosts` for authentication. This is a UX aid for validating that a selected project key works against the user's existing SSH topology; it does not widen the session-time capability boundary, and the in-session Git wrapper remains stricter than the test helper.
 
 **Seatbelt protects the host user's credentials.** The deny list blocks: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`. The agent cannot read the host user's SSH keys, AWS tokens, or GitHub CLI tokens.
 

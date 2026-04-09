@@ -56,7 +56,7 @@ func migrateUp_0_1_0_to_0_2_0(ui *UI, r *Runner) error {
 
 	// Remove agent workspace symlink.
 	agentLink := agentHome + "/workspace"
-	if out, _ := exec.Command("sudo", "test", "-L", agentLink).CombinedOutput(); len(out) == 0 {
+	if out, _ := newSudoCommand("test", "-L", agentLink).CombinedOutput(); len(out) == 0 {
 		if err := r.Sudo("remove agent workspace symlink", "rm", "-f", agentLink); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", agentLink, err))
 		} else {
@@ -83,8 +83,8 @@ func migrateUp_0_1_0_to_0_2_0(ui *UI, r *Runner) error {
 	// Only if it's currently 770 dr:dev (as set by old init).
 	if info, err := os.Stat(workspaceDir); err == nil {
 		if info.Mode().Perm() == 0o770 {
-			exec.Command("sudo", "chmod", "755", workspaceDir).Run()                      //nolint:errcheck // best-effort migration cleanup
-			exec.Command("sudo", "chown", os.Getenv("USER")+":staff", workspaceDir).Run() //nolint:errcheck // best-effort migration cleanup
+			newSudoCommand("chmod", "755", workspaceDir).Run()                      //nolint:errcheck // best-effort migration cleanup
+			newSudoCommand("chown", os.Getenv("USER")+":staff", workspaceDir).Run() //nolint:errcheck // best-effort migration cleanup
 			ui.Ok("Restored ~/workspace to 755 dr:staff")
 		}
 	}

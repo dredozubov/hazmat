@@ -351,6 +351,34 @@ hazmat restore --cloud         # restore latest snapshot
 hazmat config agent            # re-enter Claude API key, git name/email
 ```
 
+## Managed Git SSH
+
+```bash
+hazmat config ssh list-keys
+hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
+hazmat config ssh set id_ed25519
+hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
+hazmat config ssh set -C ~/workspace/my-project ~/.config/hazmat/ssh/deploy_key
+hazmat config ssh test -C ~/workspace/my-project --host github.com
+hazmat config ssh test -C ~/workspace/my-project --host openclaw-1
+hazmat config ssh unset -C ~/workspace/my-project
+```
+
+This is an explicit per-project capability for Git transport only. Hazmat
+lists candidate keys from a chosen directory, defaulting to `~/.ssh`, uses
+`known_hosts` from that same directory, keeps the selected private key in
+host-owned storage, loads it into a fresh session-local `ssh-agent`, and
+forces Git through a constrained wrapper.
+
+`hazmat config ssh test` is a host-side validation helper. It uses the selected
+Hazmat key and `known_hosts`, but it also honors the host user's real OpenSSH
+config for routing, so aliases and jump-host flows from `~/.ssh/config`
+continue to work during the test. This includes common directives such as
+`Host`, `HostName`, `User`, `Port`, `Include`, and `ProxyJump`.
+
+Session-time alias-based Git remotes are still a separate limitation. General
+SSH shells remain unsupported.
+
 ## Importing Portable Claude Basics
 
 ```bash

@@ -607,7 +607,7 @@ Use HTTPS remotes with credentials stored in the agent user's git credential sto
 - **Separate GitHub account** for maximum isolation
 - **Repo-specific HTTPS tokens** on platforms that support them
 
-SSH is intentionally unsupported inside hazmat sessions: the seatbelt denies `~/.ssh`, and forwarding `SSH_AUTH_SOCK` would reintroduce a signing oracle into the stripped agent environment.
+General SSH is intentionally unsupported inside hazmat sessions: the seatbelt denies `~/.ssh`, and forwarding `SSH_AUTH_SOCK` would reintroduce a signing oracle into the stripped agent environment. If you need Git-over-SSH, prefer Hazmat's managed per-project capability with a dedicated low-privilege key rather than agent forwarding.
 
 ---
 
@@ -826,7 +826,14 @@ sudo -u agent git config --global --get credential.helper
 sudo -u agent ls -l /Users/agent/.config/git/credentials
 ```
 
-Use `https://` remotes inside hazmat. `git@github.com:...` remotes will fail because the seatbelt denies `~/.ssh` and hazmat does not expose `SSH_AUTH_SOCK`.
+Use `https://` remotes inside hazmat by default. `git@github.com:...` remotes only work when you explicitly assign a project key with `hazmat config ssh set ...`; Hazmat still does not expose the host user's `SSH_AUTH_SOCK`, and arbitrary SSH shells remain unsupported.
+
+`hazmat config ssh test` is more permissive than the in-session Git wrapper:
+it uses the selected project key and `known_hosts`, but it also honors the host
+user's `~/.ssh/config` for routing, including aliases and `ProxyJump`. If an
+alias works in `hazmat config ssh test` but a session still cannot use the same
+alias-based remote, that is a current limitation of the runtime wrapper rather
+than a key-selection problem.
 
 ### npm install fails for specific packages
 
