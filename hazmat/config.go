@@ -652,9 +652,10 @@ func newConfigSSHCmd() *cobra.Command {
 	var listKeyDir string
 
 	setCmd := &cobra.Command{
-		Use:   "set [key]",
-		Short: "Assign an SSH key to a project",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "set [key]",
+		Short:             "Assign an SSH key to a project",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeSSHSetKeyArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
 			selectedKey := ""
 			if len(args) == 1 {
@@ -1328,6 +1329,84 @@ func promptSSHKeyDirectory(defaultDir string) (string, error) {
 		return defaultDir, nil
 	}
 	return line, nil
+}
+
+func completeSSHSetKeyArgs(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	suggestions, err := completeSSHKeyCandidates(toComplete)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return suggestions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeSSHKeyCandidates(toComplete string) ([]string, error) {
+	dir, prefix, suggestionPrefix, err := resolveSSHCompletionScope(toComplete)
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err := discoverSSHKeyCandidates(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	suggestions := make([]string, 0, len(keys))
+	for _, key := range keys {
+		name := key.DisplayName()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		suggestions = append(suggestions, suggestionPrefix+name)
+	}
+	sort.Strings(suggestions)
+	return suggestions, nil
+}
+
+func resolveSSHCompletionScope(toComplete string) (dir, prefix, suggestionPrefix string, err error) {
+	toComplete = strings.TrimSpace(toComplete)
+	if toComplete == "" {
+		dir, err = resolveSSHKeyDirectory("")
+		return dir, "", "", err
+	}
+
+	if strings.Contains(toComplete, string(os.PathSeparator)) {
+		rawDir := filepath.Dir(toComplete)
+		prefix = filepath.Base(toComplete)
+		dir, err = resolveSSHCompletionDir(rawDir)
+		if err != nil {
+			return "", "", "", err
+		}
+		if rawDir == "." {
+			return dir, prefix, "./", nil
+		}
+		return dir, prefix, rawDir + string(os.PathSeparator), nil
+	}
+
+	dir, err = resolveSSHKeyDirectory("")
+	if err != nil {
+		return "", "", "", err
+	}
+	return dir, toComplete, "", nil
+}
+
+func resolveSSHCompletionDir(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return resolveSSHKeyDirectory("")
+	}
+	expanded := expandTilde(raw)
+	if filepath.IsAbs(expanded) {
+		return resolveDir(expanded, false)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return resolveDir(filepath.Join(wd, expanded), false)
 }
 
 func runConfigGitSSH(project, keyPath, knownHostsPath string, allowedHosts []string, disable bool) error {

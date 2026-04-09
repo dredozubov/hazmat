@@ -3,8 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestDiscoverSSHKeyCandidatesReportsUsableEntries(t *testing.T) {
@@ -239,6 +242,42 @@ func TestConfigSSHSetCommandRejectsPublicKeyPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "looks like a public key") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompleteSSHSetKeyArgsSuggestsPrivateKeysFromDefaultSSHDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "github_rsa"), []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "github_rsa.pub"), []byte("ssh-rsa AAAA"), 0o600); err != nil {
+		t.Fatalf("write public key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	got, directive := completeSSHSetKeyArgs(nil, nil, "git")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+	}
+	if !slices.Equal(got, []string{"github_rsa"}) {
+		t.Fatalf("completeSSHSetKeyArgs = %v, want [github_rsa]", got)
+	}
+}
+
+func TestCompleteSSHSetKeyArgsSuggestsPathScopedKeys(t *testing.T) {
+	keyDir := writeNamedSSHKeyDirectory(t, "deploy_key", true)
+
+	got, _ := completeSSHSetKeyArgs(nil, nil, filepath.Join(keyDir, "dep"))
+	want := []string{filepath.Join(keyDir, "deploy_key")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("completeSSHSetKeyArgs = %v, want %v", got, want)
 	}
 }
 
