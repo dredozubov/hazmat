@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -160,7 +159,7 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 	}
 
 	runtime.Cleanup = func() {
-		cmd := exec.Command("sudo", "-u", agentUser, "env",
+		cmd := newSudoCommand("-u", agentUser, "env",
 			"SSH_AGENT_PID="+pid,
 			"SSH_AUTH_SOCK="+socketPath,
 			"/usr/bin/ssh-agent", "-k")
@@ -201,7 +200,7 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 }
 
 func startAgentSSHAgent(socketPath string) (string, error) {
-	cmd := exec.Command("sudo", "-u", agentUser, "/usr/bin/ssh-agent", "-s", "-a", socketPath)
+	cmd := newSudoCommand("-u", agentUser, "/usr/bin/ssh-agent", "-s", "-a", socketPath)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -234,7 +233,7 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 		return fmt.Errorf("read managed git ssh private key: %w", err)
 	}
 
-	cmd := exec.Command("sudo", "-u", agentUser, "env",
+	cmd := newSudoCommand("-u", agentUser, "env",
 		"SSH_AUTH_SOCK="+socketPath,
 		"SSH_ASKPASS_REQUIRE=never",
 		"/usr/bin/ssh-add", "-q", "-")
@@ -253,7 +252,7 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 }
 
 func asAgentMkdirAll(path string, mode os.FileMode) error {
-	cmd := exec.Command("sudo", "-u", agentUser, "/usr/bin/install", "-d", "-m", fmt.Sprintf("%03o", mode.Perm()), path)
+	cmd := newSudoCommand("-u", agentUser, "/usr/bin/install", "-d", "-m", fmt.Sprintf("%03o", mode.Perm()), path)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -263,7 +262,7 @@ func asAgentMkdirAll(path string, mode os.FileMode) error {
 }
 
 func asAgentWriteFile(path string, content []byte, mode os.FileMode) error {
-	cmd := exec.Command("sudo", "-u", agentUser, "/usr/bin/tee", path)
+	cmd := newSudoCommand("-u", agentUser, "/usr/bin/tee", path)
 	cmd.Stdin = bytes.NewReader(content)
 	cmd.Stdout = io.Discard
 	var stderr bytes.Buffer
