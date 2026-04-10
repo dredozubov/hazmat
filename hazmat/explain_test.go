@@ -36,6 +36,9 @@ func TestBuildExplainJSON(t *testing.T) {
 		},
 		IntegrationExcludes: []string{".venv/"},
 		ServiceAccess:       []string{"docker"},
+		GitSSH: &sessionGitSSHConfig{
+			DisplayName: "id_ed25519",
+		},
 		RoutingReason:       "staying in native containment because docker: none is configured",
 		SessionNotes:        []string{"Docker files detected but disabled by config"},
 	}
@@ -67,6 +70,9 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if len(got.PlannedHostMutations) != 1 || got.PlannedHostMutations[0].Summary != "project ACL repair" {
 		t.Fatalf("PlannedHostMutations = %v", got.PlannedHostMutations)
+	}
+	if got.GitSSHKey != "id_ed25519" {
+		t.Fatalf("GitSSHKey = %q, want id_ed25519", got.GitSSHKey)
 	}
 }
 

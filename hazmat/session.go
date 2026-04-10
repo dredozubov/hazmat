@@ -1134,6 +1134,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
 	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))
 	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
+	if cfg.GitSSH != nil && strings.TrimSpace(cfg.GitSSH.DisplayName) != "" {
+		fmt.Fprintf(&b, "  Git SSH key:          %s\n", cfg.GitSSH.DisplayName)
+	}
 	if skipSnapshot {
 		fmt.Fprintln(&b, "  Pre-session snapshot: skipped (--no-backup)")
 	} else {

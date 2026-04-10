@@ -1,6 +1,9 @@
 package main
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 const explainJSONFormatVersion = 1
 
@@ -24,6 +27,7 @@ type explainJSONPreview struct {
 	UserReadOnlyDirs      []string          `json:"user_read_only_dirs,omitempty"`
 	ReadWriteExtensions   []string          `json:"read_write_extensions,omitempty"`
 	ServiceAccess         []string          `json:"service_access,omitempty"`
+	GitSSHKey             string            `json:"git_ssh_key,omitempty"`
 	Snapshot              explainJSONBackup `json:"snapshot"`
 	SessionNotes          []string          `json:"session_notes,omitempty"`
 }
@@ -54,12 +58,20 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		UserReadOnlyDirs:      append([]string(nil), cfg.UserReadDirs...),
 		ReadWriteExtensions:   append([]string(nil), cfg.WriteDirs...),
 		ServiceAccess:         append([]string(nil), cfg.ServiceAccess...),
+		GitSSHKey:             explainGitSSHKey(cfg.GitSSH),
 		Snapshot: explainJSONBackup{
 			Enabled:  !skipSnapshot,
 			Excludes: append([]string(nil), cfg.IntegrationExcludes...),
 		},
 		SessionNotes: append([]string(nil), cfg.SessionNotes...),
 	}
+}
+
+func explainGitSSHKey(cfg *sessionGitSSHConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.DisplayName)
 }
 
 func integrationEnvKeys(values map[string]string) []string {

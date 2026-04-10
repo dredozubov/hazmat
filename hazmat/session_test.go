@@ -1653,6 +1653,9 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		IntegrationWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
 		ActiveIntegrations:      []string{"go", "node"},
 		ServiceAccess:           []string{"github"},
+		GitSSH: &sessionGitSSHConfig{
+			DisplayName: "id_rsa",
+		},
 		RoutingReason:           "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
 		SessionNotes:            []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
 	}
@@ -1670,6 +1673,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Read-only extensions: /Users/dr/workspace/shared-ref",
 		"Read-write extensions: /Users/dr/.venvs/project",
 		"Service access:       github",
+		"Git SSH key:          id_rsa",
 		"Pre-session snapshot: on",
 		"Snapshot excludes:    vendor/, .next/",
 		"Invoker env passthrough: registry URLs via GOPROXY",
