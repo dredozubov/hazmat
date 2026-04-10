@@ -107,7 +107,9 @@ pass "hazmat + hazmat-launch built"
 # ── Unit tests ───────────────────────────────────────────────────────────────
 
 phase "Unit tests"
-go test ./... && pass "go test ./... passed" || fail "go test ./... failed"
+(cd "$REPO_ROOT/hazmat" && go test ./...) \
+    && pass "go test ./... passed" \
+    || fail "go test ./... failed"
 
 # ── Phase 1: Fresh install ───────────────────────────────────────────────────
 
