@@ -52,6 +52,13 @@ echo "Running tests..."
 (cd hazmat && go test ./...)
 echo ""
 
+# Build the CLI from the current checkout so the release flow does not depend
+# on whichever hazmat install happens to be first on PATH.
+echo "Building release CLI..."
+make hazmat >/dev/null
+RELEASE_HAZMAT_BIN="$(pwd)/hazmat/hazmat"
+echo ""
+
 # Gather changes since last tag
 CHANGES="$(git log --format='- %s' "${PREV_TAG}..HEAD")"
 if [ -z "${CHANGES}" ]; then
@@ -93,7 +100,7 @@ PROMPT_EOF
 
 echo "Asking hazmat claude to update CHANGELOG.md..."
 echo ""
-CLAUDE_OUTPUT="$(hazmat claude --no-backup -p "$(cat "${PROMPT_FILE}")" 2>&1)" || {
+CLAUDE_OUTPUT="$("${RELEASE_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMPT_FILE}")" 2>&1)" || {
     echo "error: hazmat claude failed" >&2
     echo "${CLAUDE_OUTPUT}" >&2
     exit 1

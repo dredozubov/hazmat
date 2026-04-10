@@ -255,6 +255,50 @@ func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
 	return pending
 }
 
+func pendingLaunchHelperTraverseTargets(helperPath string) []string {
+	homeDir, err := currentUserHomeDir()
+	if err != nil || homeDir == "" || !isWithinDir(homeDir, helperPath) {
+		return nil
+	}
+
+	var pending []string
+	if !pathAllowsAgentTraverse(homeDir) {
+		pending = append(pending, homeDir)
+	}
+
+	var ancestors []string
+	for path := filepath.Dir(helperPath); path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
+		ancestors = append([]string{path}, ancestors...)
+	}
+	for _, path := range ancestors {
+		if pathAllowsAgentTraverse(path) {
+			continue
+		}
+		pending = append(pending, path)
+	}
+
+	return pending
+}
+
+func ensureAgentCanTraverseLaunchHelperPath(helperPath string) (bool, []string) {
+	var (
+		fixed    bool
+		failures []string
+	)
+	for _, path := range pendingLaunchHelperTraverseTargets(helperPath) {
+		if pathAllowsAgentTraverse(path) {
+			continue
+		}
+		if err := exec.Command("chmod", "+a", homeTraverseACLEntry(), path).Run(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		fixed = true
+	}
+
+	return fixed, failures
+}
+
 func applyACLTree(root, dirACLEntry, fileACLEntry string) []string {
 	var failures []string
 	if !pathHasDevACL(root, true) {

@@ -1656,8 +1656,8 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		GitSSH: &sessionGitSSHConfig{
 			DisplayName: "id_rsa",
 		},
-		RoutingReason:           "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
-		SessionNotes:            []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
+		RoutingReason: "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
+		SessionNotes:  []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
 	}
 
 	got := renderSessionContract(cfg, sessionModeDockerSandbox, false)
@@ -1777,6 +1777,49 @@ func TestBuildNativeSessionMutationPlanIncludesGitSafeDirectoryTrust(t *testing.
 	}
 	if !found {
 		t.Fatalf("Describe() = %+v, want git safe.directory trust", plan.Describe())
+	}
+}
+
+func TestBuildNativeSessionMutationPlanIncludesLaunchHelperTraverseRepair(t *testing.T) {
+	savedExecutable := currentExecutablePath
+	savedUserHomeDir := currentUserHomeDir
+	savedPathAllows := pathAllowsAgentTraverse
+	t.Cleanup(func() {
+		currentExecutablePath = savedExecutable
+		currentUserHomeDir = savedUserHomeDir
+		pathAllowsAgentTraverse = savedPathAllows
+	})
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	currentExecutablePath = func() (string, error) {
+		return filepath.Join(homeDir, ".local", "bin", "hazmat"), nil
+	}
+	currentUserHomeDir = func() (string, error) {
+		return homeDir, nil
+	}
+	pathAllowsAgentTraverse = func(path string) bool {
+		return false
+	}
+
+	plan := buildNativeSessionMutationPlan(sessionConfig{ProjectDir: t.TempDir()})
+	helperPath := filepath.Join(homeDir, ".local", "libexec", "hazmat-launch")
+
+	found := false
+	for _, mutation := range plan.Describe() {
+		if mutation.Summary != "launch-helper traverse ACL repair" {
+			continue
+		}
+		found = true
+		if !strings.Contains(mutation.Detail, helperPath) {
+			t.Fatalf("mutation.Detail = %q, want helper path %q", mutation.Detail, helperPath)
+		}
+		if mutation.ProofScope != sessionMutationProofScopeTLAModel {
+			t.Fatalf("mutation.ProofScope = %q, want %q", mutation.ProofScope, sessionMutationProofScopeTLAModel)
+		}
+	}
+	if !found {
+		t.Fatalf("Describe() = %+v, want launch-helper traverse ACL repair", plan.Describe())
 	}
 }
 

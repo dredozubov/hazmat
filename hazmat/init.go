@@ -1407,21 +1407,8 @@ func homeTraverseACLEntry() string {
 	return "user:" + agentUser + " allow execute,readattr,readextattr,readsecurity"
 }
 
-func launchHelperTraverseTargets(helperPath string) []string {
-	homeDir := os.Getenv("HOME")
-	if homeDir == "" || !isWithinDir(homeDir, helperPath) {
-		return nil
-	}
-
-	var targets []string
-	for path := filepath.Dir(helperPath); path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
-		targets = append([]string{path}, targets...)
-	}
-	return targets
-}
-
 func ensureAgentCanTraverseLaunchHelper(r *Runner, helperPath string) error {
-	for _, path := range launchHelperTraverseTargets(helperPath) {
+	for _, path := range pendingLaunchHelperTraverseTargets(helperPath) {
 		if homeAllowsAgentTraverse(path) {
 			continue
 		}

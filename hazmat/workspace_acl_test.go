@@ -308,3 +308,37 @@ func TestPendingAgentTraverseTargetsIncludesHomeSafetyNet(t *testing.T) {
 		}
 	}
 }
+
+func TestPendingLaunchHelperTraverseTargetsIncludesHomeAndParents(t *testing.T) {
+	savedUserHomeDir := currentUserHomeDir
+	savedPathAllows := pathAllowsAgentTraverse
+	t.Cleanup(func() {
+		currentUserHomeDir = savedUserHomeDir
+		pathAllowsAgentTraverse = savedPathAllows
+	})
+
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "rv")
+	helperPath := filepath.Join(homeDir, ".local", "libexec", "hazmat-launch")
+
+	currentUserHomeDir = func() (string, error) {
+		return homeDir, nil
+	}
+	pathAllowsAgentTraverse = func(path string) bool {
+		return false
+	}
+
+	got := pendingLaunchHelperTraverseTargets(helperPath)
+	want := []string{
+		homeDir,
+		filepath.Join(homeDir, ".local"),
+		filepath.Join(homeDir, ".local", "libexec"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("pendingLaunchHelperTraverseTargets() count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i, path := range want {
+		if got[i] != path {
+			t.Fatalf("pendingLaunchHelperTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
+		}
+	}
+}

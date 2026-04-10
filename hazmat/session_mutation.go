@@ -87,6 +87,34 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 		})
 	}
 
+	if helperPath := launchHelperPath(); helperPath != "" {
+		if pending := pendingLaunchHelperTraverseTargets(helperPath); len(pending) > 0 {
+			pendingCount := len(pending)
+			plan.Mutations = append(plan.Mutations, plannedSessionMutation{
+				Metadata: sessionMutation{
+					Summary:     "launch-helper traverse ACL repair",
+					Detail:      fmt.Sprintf("may add traverse ACLs on %d host-home path(s) so the agent can execute the user-local launch helper at %s", pendingCount, helperPath),
+					Persistence: "persistent outside project",
+					ProofScope:  sessionMutationProofScopeTLAModel,
+				},
+				Apply: func() (sessionMutationExecution, error) {
+					fixed, failures := ensureAgentCanTraverseLaunchHelperPath(helperPath)
+					if len(failures) > 0 {
+						return sessionMutationExecution{
+							Warning: fmt.Sprintf("could not fully prepare the launch helper path: %s", failures[0]),
+						}, nil
+					}
+					if fixed {
+						return sessionMutationExecution{
+							AppliedMessage: "  Fixed launch-helper traversal for agent access",
+						}, nil
+					}
+					return sessionMutationExecution{}, nil
+				},
+			})
+		}
+	}
+
 	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
 	// Include project dir's parent so the full path from home to the project
 	// is traversable — not just paths to extra read/write dirs.
