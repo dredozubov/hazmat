@@ -19,13 +19,14 @@
 EXTENDS Naturals, Sequences, FiniteSets
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Concrete model: 3 hazmat versions
+\* Concrete model: 4 hazmat versions
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 V1 == "v0.1.0"   \* Initial release: workspace concept
 V2 == "v0.2.0"   \* Workspace removed, lazy per-project ACL
 V3 == "v0.3.0"   \* Supply chain hardening (npmrc, pip.conf)
 V4 == "v0.4.0"   \* Zsh completions for host user
+OptionalMaintenanceSudoers == "agentMaintenanceSudoers"
 
 Versions == {V1, V2, V3, V4}
 BinaryVersion == V4
@@ -61,11 +62,14 @@ Expected(v) ==
          "launchHelper", "sudoers", "pfAnchor", "dnsBlocklist",
          "launchDaemon", "localRepo", "npmrc", "zshCompletions"}
 
+OptionalArtifacts(v) ==
+    IF v = V4 THEN {OptionalMaintenanceSudoers} ELSE {}
+
 \* The union of ALL artifacts across ALL versions. Rollback must know how
 \* to remove everything, including artifacts from older versions that the
 \* current binary didn't create.
 AllArtifacts ==
-    UNION {Expected(v) : v \in Versions}
+    UNION {(Expected(v) \cup OptionalArtifacts(v)) : v \in Versions}
 
 \* Which adjacent migration functions exist.
 HasMigration(from, to) ==
@@ -91,10 +95,10 @@ NextVersion(v) ==
 \* Can this artifact be removed given what's currently present?
 \* Encodes the ordering constraint: sudoers before pfAnchor.
 CanRemove(a, arts) ==
-    IF a = "pfAnchor" THEN "sudoers" \notin arts  \* pf only after sudoers gone
-    ELSE IF a = "dnsBlocklist" THEN "sudoers" \notin arts  \* dns only after sudoers
-    ELSE IF a = "launchDaemon" THEN "sudoers" \notin arts  \* daemon only after sudoers
-    ELSE IF a = "agentUser" THEN "sudoers" \notin arts     \* user only after sudoers
+    IF a = "pfAnchor" THEN /\ "sudoers" \notin arts /\ OptionalMaintenanceSudoers \notin arts
+    ELSE IF a = "dnsBlocklist" THEN /\ "sudoers" \notin arts /\ OptionalMaintenanceSudoers \notin arts
+    ELSE IF a = "launchDaemon" THEN /\ "sudoers" \notin arts /\ OptionalMaintenanceSudoers \notin arts
+    ELSE IF a = "agentUser" THEN /\ "sudoers" \notin arts /\ OptionalMaintenanceSudoers \notin arts
     ELSE IF a = "devGroup" THEN "agentUser" \notin arts    \* group only after user
     ELSE TRUE  \* everything else can be removed in any order
 
@@ -119,7 +123,8 @@ Init ==
     \E v \in Versions:
         /\ VersionOrd(v) <= VersionOrd(BinaryVersion)
         /\ initVersion = v
-        /\ artifacts = Expected(v)
+        /\ LET optional == OptionalArtifacts(v)
+           IN artifacts \in {Expected(v), Expected(v) \cup optional}
         /\ phase = "idle"
         /\ migrateFrom = v
 
@@ -164,7 +169,9 @@ MigrateFail ==
 \* Idempotent init — ensures all expected artifacts are present.
 RunInit ==
     /\ phase = "initializing"
-    /\ artifacts' = Expected(BinaryVersion)
+    /\ LET expected == Expected(BinaryVersion)
+          optional == OptionalArtifacts(BinaryVersion)
+       IN artifacts' \in {expected, expected \cup optional}
     /\ initVersion' = BinaryVersion
     /\ phase' = "done"
     /\ UNCHANGED migrateFrom
@@ -242,11 +249,14 @@ TypeOK ==
 
 \* Agent must never be launchable without firewall — in ANY state.
 AgentContained ==
-    "sudoers" \in artifacts => "pfAnchor" \in artifacts
+    ("sudoers" \in artifacts \/ OptionalMaintenanceSudoers \in artifacts)
+        => "pfAnchor" \in artifacts
 
 \* After init completes, all expected artifacts are present.
 InitComplete ==
-    phase = "done" => artifacts = Expected(BinaryVersion)
+    phase = "done"
+        => artifacts \in {Expected(BinaryVersion),
+                          Expected(BinaryVersion) \cup OptionalArtifacts(BinaryVersion)}
 
 \* After init completes, recorded version matches binary.
 VersionConsistent ==

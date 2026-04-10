@@ -32,6 +32,7 @@ setup/interrupt/rollback/re-setup sequences:
 | File | Functions |
 |------|-----------|
 | `hazmat/init.go` | `runInit()`, `setupAgentUser()`, `setupDevGroup()`, `setupHomeDirTraverse()`, `setupLocalRepo()`, `setupHardeningGaps()`, `setupSeatbelt()`, `setupUserExperience()`, `setupPfFirewall()`, `setupDNSBlocklist()`, `setupLaunchDaemon()`, `setupLaunchHelper()`, `setupSudoers()` |
+| `hazmat/sudoers.go` | `maybeSetupOptionalAgentMaintenanceSudoers()`, `installLaunchSudoers()`, `installAgentMaintenanceSudoers()` |
 | `hazmat/bootstrap.go` | `runBootstrap()` |
 | `hazmat/config_agent.go` | `runConfigAgent()` |
 | `hazmat/rollback.go` | `runRollback()`, `rollbackSudoers()`, `rollbackLaunchDaemon()`, `rollbackPfFirewall()`, `rollbackDNSBlocklist()`, `rollbackSeatbelt()`, `rollbackUserExperience()`, `rollbackHomeDirTraverse()`, `rollbackUmask()`, `rollbackLocalRepo()`, `rollbackAgentUser()`, `rollbackDevGroup()` |
@@ -50,9 +51,10 @@ Step  7: setupPfFirewall       → pfAnchor      ← firewall activates
 Step  8: setupDNSBlocklist     → dnsBlocklist
 Step  9: setupLaunchDaemon     → launchDaemon
 Step 10: setupLaunchHelper     → (verify only — fails if absent)
-Step 11: setupSudoers          → sudoers       ← agent becomes launchable (AFTER firewall)
-Step 12: runBootstrap          → claudeCode
-Step 13: runConfigAgent        → credentials
+Step 11: setupSudoers          → sudoers       ← narrow launch-helper privilege (AFTER firewall)
+Step 12: maybeSetupOptionalAgentMaintenanceSudoers → maintenanceSudoers? (optional, still AFTER firewall)
+Step 13: runBootstrap          → claudeCode
+Step 14: runConfigAgent        → credentials
 ```
 
 ## TLA+ Model
@@ -68,7 +70,7 @@ and how many setup/rollback attempts have occurred.
 - `BeginSetup` — start a setup attempt from idle
 - `SetupStepSucceed` — current step succeeds, resource becomes present
 - `SetupStepFail` — current step fails, setup aborts (resources from earlier steps remain)
-- `SetupComplete` — all 14 steps succeeded, return to idle
+- `SetupComplete` — all 15 steps succeeded, return to idle
 - `BeginRollback` — start rollback from idle
 - `RollbackCore` — remove all non-destructive resources (preserves user, group, workspace)
 - `RollbackDestructive` — also removes user and group (models `--delete-user --delete-group`)
@@ -76,16 +78,20 @@ and how many setup/rollback attempts have occurred.
 
 ### Key Design Choices
 
-1. **Step 7 (launchHelper) is verify-only.** It does not create the helper — it
+1. **Step 10 (launchHelper) is verify-only.** It does not create the helper — it
    checks that it exists. If absent, setup MUST fail. This prevents sudoers
-   (step 8) from referencing a nonexistent binary.
+   from referencing a nonexistent binary.
 
-2. **Rollback is atomic in the model.** The real code runs ~9 rollbackX()
+2. **The broader maintenance sudoers rule is modeled as optional.** Step 12 can
+   either install `maintenanceSudoers` or skip it. Both branches are valid, but
+   both still occur only after firewall containment is already active.
+
+3. **Rollback is atomic in the model.** The real code runs ~9 rollbackX()
    functions sequentially, but none abort on failure (they warn and continue).
    Modeling them as one atomic step is safe because the real code always
    completes all steps.
 
-3. **Harness/session ergonomics are outside this setup model.** Optional
+4. **Harness/session ergonomics are outside this setup model.** Optional
    harness-specific commands such as `hazmat bootstrap opencode`, curated
    import flows, and session-only integration activation are not part of
    `runInit()`. They are modeled separately where applicable and are still
@@ -102,20 +108,23 @@ and how many setup/rollback attempts have occurred.
 launchable with no network containment.
 
 **Fix applied:** Reordered setup so pf/dns/daemon (steps 7-9) run before
-launchHelper verification and sudoers (steps 10-11). The firewall's
+launchHelper verification and sudoers (steps 10-11), and kept the optional
+broader maintenance sudoers rule at step 12 behind the same containment gate. The firewall's
 `user agent` rules only require the agent user to exist (step 0).
 
 **TLC confirmation:** After fix, `AgentContained` and `CanAlwaysReachClean`
-pass across all 29,518 distinct states (55,726 generated). The agent is never
-launchable without firewall containment in any reachable state, and the bounded
-model still guarantees a path back to a clean state.
+pass across all 33,135 distinct states (62,148 generated). The agent is never
+launchable without firewall containment in any reachable state, even when the
+optional broader maintenance sudoers rule is present, and the bounded model
+still guarantees a path back to a clean state.
 
 ### Checked Properties That Pass
 
 | Invariant | Meaning |
 |-----------|---------|
-| `NoOrphanedArtifacts` | Destructive rollback leaves no hazmat artifacts |
-| `SudoersRequiresHelper` | Sudoers only exists when launch helper is present |
+| `NoOrphanedArtifacts` | Destructive rollback leaves no hazmat artifacts, including optional maintenance sudoers |
+| `SudoersRequiresHelper` | The narrow launch-helper sudoers rule only exists when launch helper is present |
+| `PrivilegeRequiresAgentUser` | Any passwordless sudoers rule requires the agent user |
 | `AgentDepsRequireUser` | Agent-owned resources require agent user |
 | `CanAlwaysReachClean` | System can always return to clean state (liveness) |
 
@@ -134,6 +143,6 @@ exit, not eventual successful completion after arbitrary bounded failures.
 | `MaxSetupAttempts` | 2 | Covers: first setup fails, re-run succeeds |
 | `MaxRollbackAttempts` | 2 | Covers: rollback after first setup, then after re-setup |
 
-**Confirmed state space:** 55,726 states generated, 29,518 distinct. Runtime: ~7 seconds
+**Confirmed state space:** 62,148 states generated, 33,135 distinct. Runtime: ~1 second
 with `-lncheck final`. All checked safety invariants plus `CanAlwaysReachClean`
 pass after the fix.

@@ -86,10 +86,11 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
 | Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
+| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers opt-in |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
-| Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `AgentDepsRequireUser` |
+| Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean` |
-| Status | **Fixed** — containment before privilege in both setup and rollback |
+| Status | **Fixed and Re-Proved** — containment before privilege in both setup and rollback, including the optional broader maintenance sudoers rule |
 
 **What was found:**
 
@@ -104,11 +105,12 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 **Fixes applied:**
 
 1. **Setup:** Reordered so pf/dns/daemon run before launchHelper and sudoers.
-2. **Rollback:** Reordered so sudoers is removed first, before firewall/dns/daemon.
+2. **Optional maintenance privilege:** The broader `agent-maintenance` sudoers rule is modeled explicitly and may only appear after firewall containment is already active.
+3. **Rollback:** Reordered so all sudoers privilege is removed first, before firewall/dns/daemon.
 
 The principle: **grant privilege last, revoke privilege first.**
-`AgentContained` and `CanAlwaysReachClean` now pass across all 29,518 reachable
-states (55,726 generated, ~7s with liveness enabled).
+`AgentContained` and `CanAlwaysReachClean` now pass across all 33,135 reachable
+states (62,148 generated, ~1s with liveness enabled).
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -121,6 +123,8 @@ successful completion after arbitrary bounded failures.
   `AgentContained` before committing.
 - Adding a new setup step requires adding the corresponding resource variable
   and updating `SetupStepSucceed` / `RollbackCore` / `RollbackDestructive`.
+- Adding a new privilege-granting artifact requires extending `AgentContained`
+  and the rollback-first privilege revocation logic, not just the setup path.
 - Adding a new rollback step (e.g., a new `--delete-X` flag) requires a new
   rollback action in the spec.
 - Changes to which resources rollback preserves vs. removes must be reflected
@@ -225,12 +229,13 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Spec | `tla/04_version_migration.md` |
 | TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
+| Governed code | `hazmat/sudoers.go` — optional current-version sudoers artifact |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
 | Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
-| Status | **Proved** — 70,393 states, 221,299 transitions, 0 errors (5s) |
+| Status | **Re-Proved** — 72,442 states, 234,101 transitions, 0 errors (3s) |
 
 **What this verifies:**
 
@@ -242,10 +247,10 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 2. **Rollback from any state:** The system can reach a clean state (zero
    artifacts) via rollback from any intermediate state: fully initialized,
    mid-migration, or after a migration failure. Rollback respects ordering
-   constraints — sudoers is removed before pfAnchor (revoke privilege
-   before removing containment).
+   constraints — both sudoers artifacts are removed before pfAnchor (revoke
+   privilege before removing containment).
 
-3. **AgentContained everywhere:** Across all 70,393 reachable states —
+3. **AgentContained everywhere:** Across all 72,442 reachable states —
    including partial migrations, failed states, and partial rollbacks — the
    agent is never launchable without firewall containment.
 
@@ -264,6 +269,9 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
   new `V4` constant, `Expected(V4)` definition, `HasMigration(V3, V4)`,
   and `NextVersion(V3) == V4`. Run TLC — it checks all paths from every
   older version through the new migration, including rollback.
+- Adding an optional artifact to the current binary without a version bump
+  requires updating `OptionalArtifacts(v)`, `RunInit`, and `InitComplete` so
+  the model accepts both the present and absent cases explicitly.
 - The `CanRemove` function defines rollback ordering constraints. If a new
   artifact depends on another (like sudoers depends on pfAnchor), add the
   constraint there and re-verify.

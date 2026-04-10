@@ -475,9 +475,6 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	if err := setupDevGroup(ui, r, cu.Username); err != nil {
 		return err
 	}
-	if err := maybeSetupOptionalAgentMaintenanceSudoers(ui, r, cu.Username); err != nil {
-		return err
-	}
 	if err := setupHomeDirTraverse(ui, r); err != nil {
 		return err
 	}
@@ -512,6 +509,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		return err
 	}
 	if err := setupSudoers(ui, r, cu.Username); err != nil {
+		return err
+	}
+	if err := maybeSetupOptionalAgentMaintenanceSudoers(ui, r, cu.Username); err != nil {
 		return err
 	}
 
@@ -858,7 +858,7 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 
 	// Restrictive umask for agent user — use a managed block so rollback is precise.
 	agentZshrc := agentHome + "/.zshrc"
-	agentZshrcData, _ := r.AgentOutput("cat", agentZshrc)
+	agentZshrcData, _ := r.SudoOutput("cat", agentZshrc)
 	if strings.Contains(agentZshrcData, umaskBlockStart) {
 		ui.SkipDone("umask 007 already set in agent's .zshrc")
 	} else {
@@ -884,13 +884,15 @@ func setupSeatbelt(ui *UI, r *Runner) error {
 	ui.Step("Install Claude compatibility wrapper")
 
 	// Create the config dir (used by agentEnvPath) and the bin dir.
-	if err := r.AsAgent("create seatbelt config directory", "mkdir", "-p", seatbeltProfileDir); err != nil {
-		return fmt.Errorf("mkdir %s: %w", seatbeltProfileDir, err)
+	if err := r.Sudo("create seatbelt config directory",
+		"install", "-d", "-o", agentUser, "-g", "staff", "-m", "755", seatbeltProfileDir); err != nil {
+		return fmt.Errorf("ensure %s: %w", seatbeltProfileDir, err)
 	}
 
 	wrapperDir := agentHome + "/.local/bin"
-	if err := r.AsAgent("create agent bin directory", "mkdir", "-p", wrapperDir); err != nil {
-		return fmt.Errorf("mkdir %s: %w", wrapperDir, err)
+	if err := r.Sudo("create agent bin directory",
+		"install", "-d", "-o", agentUser, "-g", "staff", "-m", "755", wrapperDir); err != nil {
+		return fmt.Errorf("ensure %s: %w", wrapperDir, err)
 	}
 
 	// The wrapper is a managed artifact; re-write on every run so setup
@@ -917,8 +919,9 @@ func setupUserExperience(ui *UI, r *Runner) error {
 		defaultAgentDataHome,
 		agentHome + "/.npm",
 	} {
-		if err := r.AsAgent("create agent directory", "mkdir", "-p", dir); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
+		if err := r.Sudo("create agent directory",
+			"install", "-d", "-o", agentUser, "-g", "staff", "-m", "755", dir); err != nil {
+			return fmt.Errorf("ensure %s: %w", dir, err)
 		}
 	}
 
@@ -934,7 +937,7 @@ func setupUserExperience(ui *UI, r *Runner) error {
 	ui.Ok(fmt.Sprintf("Agent toolchain env written to %s", agentEnvPath))
 
 	agentZshrc := agentHome + "/.zshrc"
-	agentZshrcData, _ := r.AgentOutput("cat", agentZshrc)
+	agentZshrcData, _ := r.SudoOutput("cat", agentZshrc)
 	updatedAgentZshrc := upsertManagedBlock(agentZshrcData,
 		agentShellBlockStart,
 		agentShellBlockEnd,

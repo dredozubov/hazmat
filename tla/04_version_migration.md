@@ -41,10 +41,11 @@ normal idempotent init:
 ```
 v0.1.0 → v0.2.0: remove workspace artifacts, add home dir traverse
 v0.2.0 → v0.3.0: add npmrc, pip.conf
+v0.3.0 → v0.4.0: add zsh completions
 ```
 
-Skipping a version is NOT allowed. A user upgrading from v0.1.0 to v0.3.0
-runs both migrations in sequence.
+Skipping a version is NOT allowed. A user upgrading from v0.1.0 to v0.4.0
+runs each adjacent migration in sequence.
 
 ### Failure handling
 
@@ -73,24 +74,25 @@ reaches either "done" (fully initialized) or "clean" (fully rolled back).
 ## Rollback from any state
 
 Rollback is modeled as removing one artifact at a time, respecting ordering
-constraints encoded in `CanRemove`. The critical constraint: sudoers must be
-removed before pfAnchor (revoke privilege before removing containment). TLC
+constraints encoded in `CanRemove`. The critical constraint: both Hazmat
+sudoers artifacts (`sudoers` and the optional `agentMaintenanceSudoers`) must
+be removed before pfAnchor (revoke privilege before removing containment). TLC
 checks that `AgentContained` holds at every intermediate rollback state,
 including rollback of a partially migrated system.
 
 ## TLC results
 
-- **44,795 distinct states** explored
-- **140,535 state transitions** checked
+- **72,442 distinct states** explored
+- **234,101 state transitions** checked
 - **0 errors** found
 - **3 seconds** runtime
 - Graph depth: 18 (longest path from any initial state to terminal)
 
 ## Model bounds
 
-- 3 versions: v0.1.0, v0.2.0, v0.3.0
-- Binary version: v0.3.0
-- Init from any previous version (including v0.3.0 = already current)
+- 4 versions: v0.1.0, v0.2.0, v0.3.0, v0.4.0
+- Binary version: v0.4.0
+- Init from any previous version (including v0.4.0 = already current)
 - Failure at any migration step
 - Rollback from any state (idle, done, failed, mid-migration)
 - Rollback failure and retry
@@ -105,20 +107,23 @@ cd tla/
 
 ## Change rules
 
-1. **Adding a new version**: add `V4` constant, `Expected(V4)`,
-   `HasMigration(V3, V4)`, update `NextVersion(V3) == V4`. Run TLC.
+1. **Adding a new version**: add the next version constant, `Expected(Vn)`,
+   `HasMigration(Vn-1, Vn)`, and update `NextVersion`. Run TLC.
    It checks all paths from every older version through the new migration,
    AND rollback from every intermediate state.
 
 2. **Changing expected artifacts for a version**: update `Expected(v)`.
    If the change affects an existing version, you need a migration step.
+   If the current binary gains an optional artifact without a version bump,
+   model it in `OptionalArtifacts(v)` and keep `RunInit`/`InitComplete`
+   consistent with both outcomes.
 
 3. **Adding rollback ordering constraints**: update `CanRemove`. If a new
    artifact depends on another for safety, encode the dependency. TLC
    verifies `AgentContained` across all removal orderings.
 
 4. **The `AgentContained` invariant must hold everywhere** — init, migration,
-   failure, rollback, partial rollback after partial migration. 44,795 states
+   failure, rollback, partial rollback after partial migration. 72,442 states
    is a lot of "everywhere."
 
 ## Known spec-vs-implementation divergences
