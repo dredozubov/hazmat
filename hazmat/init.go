@@ -1012,57 +1012,78 @@ func setupUserExperience(ui *UI, r *Runner) error {
 
 // ── Step 5b: Install sandbox-launch helper ────────────────────────────────────
 
-// setupLaunchHelper verifies that the sandbox-launch helper is installed at
-// launchHelper and has the expected ownership and mode.
+// setupLaunchHelper verifies that the sandbox-launch helper is installed and
+// accessible at the path Hazmat will invoke at runtime.
 //
-// The helper is built separately via 'make sandbox-launch && sudo make install-helper'
-// (or 'make install').  Setup does not build it automatically — the user must
-// have run make install before 'hazmat init'.  If the helper is absent, setup
-// prints clear instructions and fails so the sudoers step is never reached with
-// an incorrect path.
+// The helper is built separately via 'make install' (user-local) or
+// 'sudo make install-system' (system-wide). Setup does not build it
+// automatically — the user must have installed Hazmat before 'hazmat init'.
+// If the helper is absent, setup prints clear instructions and fails so the
+// sudoers step is never reached with an incorrect path.
 func setupLaunchHelper(ui *UI, r *Runner) error {
 	ui.Step("Verify sandbox-launch helper")
 
+	helperPath := launchHelperPath()
+
 	// If not at the final path, try to install from brew.
-	if _, err := os.Stat(launchHelper); err != nil {
+	if _, err := os.Stat(helperPath); err != nil {
+		if helperPath != systemLaunchHelper {
+			return fmt.Errorf("%s not found.\n\n"+
+				"Install Hazmat before running setup:\n\n"+
+				"  cd hazmat\n"+
+				"  make install\n\n"+
+				"Or install system-wide:\n\n"+
+				"  sudo make install-system\n\n"+
+				"Then re-run: hazmat init", helperPath)
+		}
 		src := findBrewLaunchHelper()
 		if src == "" {
 			return fmt.Errorf("%s not found.\n\n"+
-				"Build and install the helper before running setup:\n\n"+
+				"Install Hazmat before running setup:\n\n"+
 				"  cd hazmat\n"+
-				"  make hazmat-launch\n"+
-				"  sudo make install-helper\n\n"+
-				"Then re-run: hazmat init", launchHelper)
+				"  make install\n\n"+
+				"Or install system-wide:\n\n"+
+				"  sudo make install-system\n\n"+
+				"Then re-run: hazmat init", helperPath)
 		}
-		ui.WarnMsg(fmt.Sprintf("Installing %s from %s", launchHelper, src))
-		if err := r.Sudo("create "+filepath.Dir(launchHelper),
-			"mkdir", "-p", filepath.Dir(launchHelper)); err != nil {
-			return fmt.Errorf("create %s: %w", filepath.Dir(launchHelper), err)
+		ui.WarnMsg(fmt.Sprintf("Installing %s from %s", helperPath, src))
+		if err := r.Sudo("create "+filepath.Dir(helperPath),
+			"mkdir", "-p", filepath.Dir(helperPath)); err != nil {
+			return fmt.Errorf("create %s: %w", filepath.Dir(helperPath), err)
 		}
-		if err := r.Sudo("install hazmat-launch to "+launchHelper,
-			"install", "-m", "0755", "-o", "root", src, launchHelper); err != nil {
+		if err := r.Sudo("install hazmat-launch to "+helperPath,
+			"install", "-m", "0755", "-o", "root", src, helperPath); err != nil {
 			return fmt.Errorf("install hazmat-launch: %w", err)
 		}
 	}
 
-	info, err := os.Stat(launchHelper)
+	info, err := os.Stat(helperPath)
 	if err != nil {
-		return fmt.Errorf("%s not found after install attempt", launchHelper)
+		return fmt.Errorf("%s not found after install attempt", helperPath)
 	}
 
-	// Must be a regular executable file owned by root.
+	// Must be a regular executable file.
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", launchHelper)
+		return fmt.Errorf("%s is not a regular file", helperPath)
 	}
 	if info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("%s is not executable", launchHelper)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != 0 {
-		return fmt.Errorf("%s must be owned by root (uid 0), got uid %d", launchHelper, stat.Uid)
+		return fmt.Errorf("%s is not executable", helperPath)
 	}
 
-	ui.Ok(fmt.Sprintf("%s present (root-owned, executable)", launchHelper))
+	if helperPath == systemLaunchHelper {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 {
+			return fmt.Errorf("%s must be owned by root (uid 0), got uid %d", helperPath, stat.Uid)
+		}
+		ui.Ok(fmt.Sprintf("%s present (root-owned, executable)", helperPath))
+		return nil
+	}
+
+	if err := ensureAgentCanTraverseLaunchHelper(r, helperPath); err != nil {
+		return err
+	}
+
+	ui.Ok(fmt.Sprintf("%s present (user-local, executable)", helperPath))
 	return nil
 }
 
@@ -1296,21 +1317,23 @@ func preflightChecks(currentUser string) error {
 	checks := []check{
 		{"macOS detected", checkPlatform},
 		{"hazmat-launch installed", func() error {
-			if info, err := os.Stat(launchHelper); err == nil {
+			helperPath := launchHelperPath()
+			if info, err := os.Stat(helperPath); err == nil {
 				if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-					return fmt.Errorf("%s is not an executable file", launchHelper)
+					return fmt.Errorf("%s is not an executable file", helperPath)
 				}
 				return nil
 			}
 			// Not at the final path — check if brew has it.
-			if p := findBrewLaunchHelper(); p != "" {
+			if helperPath == systemLaunchHelper && findBrewLaunchHelper() != "" {
 				return nil // setupLaunchHelper will install it
 			}
 			return fmt.Errorf("%s not found\n\n"+
-				"Build and install the helper before running setup:\n\n"+
+				"Install Hazmat before running setup:\n\n"+
 				"  cd hazmat\n"+
-				"  make hazmat-launch\n"+
-				"  sudo make install-helper", launchHelper)
+				"  make install\n\n"+
+				"Or install system-wide:\n\n"+
+				"  sudo make install-system", helperPath)
 		}},
 		{"UID " + agentUID + " available", func() error {
 			if _, err := user.Lookup(agentUser); err == nil {
@@ -1385,6 +1408,32 @@ func gidTaken(gid string) (bool, error) {
 
 func homeTraverseACLEntry() string {
 	return "user:" + agentUser + " allow execute,readattr,readextattr,readsecurity"
+}
+
+func launchHelperTraverseTargets(helperPath string) []string {
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" || !isWithinDir(homeDir, helperPath) {
+		return nil
+	}
+
+	var targets []string
+	for path := filepath.Dir(helperPath); path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
+		targets = append([]string{path}, targets...)
+	}
+	return targets
+}
+
+func ensureAgentCanTraverseLaunchHelper(r *Runner, helperPath string) error {
+	for _, path := range launchHelperTraverseTargets(helperPath) {
+		if homeAllowsAgentTraverse(path) {
+			continue
+		}
+		if err := r.Sudo("allow agent to traverse launch-helper directory",
+			"chmod", "+a", homeTraverseACLEntry(), path); err != nil {
+			return fmt.Errorf("set launch-helper traversal ACL on %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func homeHasAgentTraverseACL(homeDir string) bool {

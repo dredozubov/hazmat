@@ -23,7 +23,7 @@ func newAgentSeatbeltCommand(cfg sessionConfig, script string, args ...string) (
 
 	full := []string{
 		"-u", agentUser,
-		launchHelper, policyFile,
+		launchHelperPath(), policyFile,
 		"/usr/bin/env", "-i",
 	}
 	full = append(full, agentEnvPairs(cfg)...)

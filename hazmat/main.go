@@ -39,7 +39,7 @@ var cloudBackupDir = filepath.Join(os.Getenv("HOME"), "workspace")
 const (
 	agentUser                   = "agent"
 	agentHome                   = "/Users/agent"
-	launchHelper                = "/usr/local/libexec/hazmat-launch"
+	systemLaunchHelper          = "/usr/local/libexec/hazmat-launch"
 	sharedGroup                 = "dev"
 	pfAnchorName                = "agent"
 	pfAnchorFile                = "/etc/pf.anchors/agent"

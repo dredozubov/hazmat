@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/user"
@@ -18,8 +20,20 @@ func currentUsername() (string, error) {
 	return cu.Username, nil
 }
 
-func launchSudoersEntry(currentUser string) string {
-	return fmt.Sprintf("%s ALL=(%s) NOPASSWD: %s\n", currentUser, agentUser, launchHelper)
+func launchSudoersEntry(currentUser string) (string, error) {
+	helperPath := launchHelperPath()
+	commandSpec := helperPath
+
+	if launchHelperUsesDigest(helperPath) {
+		data, err := os.ReadFile(helperPath)
+		if err != nil {
+			return "", fmt.Errorf("read %s for sudoers digest: %w", helperPath, err)
+		}
+		sum := sha256.Sum256(data)
+		commandSpec = fmt.Sprintf("sha256:%s %s", hex.EncodeToString(sum[:]), helperPath)
+	}
+
+	return fmt.Sprintf("%s ALL=(%s) NOPASSWD: %s\n", currentUser, agentUser, commandSpec), nil
 }
 
 func agentMaintenanceSudoersEntry(currentUser string) string {
@@ -61,13 +75,17 @@ func writeManagedSudoersFile(r *Runner, reason, path, content string) error {
 }
 
 func installLaunchSudoers(ui *UI, r *Runner, currentUser string) error {
-	entry := launchSudoersEntry(currentUser)
+	helperPath := launchHelperPath()
+	entry, err := launchSudoersEntry(currentUser)
+	if err != nil {
+		return err
+	}
 	if data, err := r.SudoOutput("cat", sudoersFile); err == nil &&
-		strings.Contains(data, launchHelper) {
-		ui.SkipDone(fmt.Sprintf("Sudoers entry already targets %s", launchHelper))
+		strings.Contains(data, strings.TrimSpace(entry)) {
+		ui.SkipDone(fmt.Sprintf("Sudoers entry already targets %s", helperPath))
 		return nil
 	} else if err == nil && strings.Contains(data, currentUser) {
-		ui.WarnMsg(fmt.Sprintf("Existing sudoers entry does not target %s — replacing with narrow rule", launchHelper))
+		ui.WarnMsg(fmt.Sprintf("Existing sudoers entry does not target %s — replacing with narrow rule", helperPath))
 	}
 
 	if err := writeManagedSudoersFile(r,
@@ -79,7 +97,7 @@ func installLaunchSudoers(ui *UI, r *Runner, currentUser string) error {
 	}
 
 	ui.Ok(fmt.Sprintf("Sudoers entry written: %s can run %s as %s without password",
-		currentUser, launchHelper, agentUser))
+		currentUser, helperPath, agentUser))
 	return nil
 }
 

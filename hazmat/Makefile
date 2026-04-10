@@ -2,11 +2,18 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 GOFLAGS  ?= -trimpath
 LDFLAGS  := -X main.version=$(VERSION)
 
-# Installed paths (must match constants in main.go)
-HAZMAT_BIN    ?= /usr/local/bin/hazmat
-LAUNCH_HELPER ?= /usr/local/libexec/hazmat-launch
+USER_PREFIX          ?= $(HOME)/.local
+USER_BINDIR          ?= $(USER_PREFIX)/bin
+USER_LIBEXECDIR      ?= $(USER_PREFIX)/libexec
+SYSTEM_PREFIX        ?= /usr/local
+SYSTEM_BINDIR        ?= $(SYSTEM_PREFIX)/bin
+SYSTEM_LIBEXECDIR    ?= $(SYSTEM_PREFIX)/libexec
+USER_HAZMAT_BIN      ?= $(USER_BINDIR)/hazmat
+USER_LAUNCH_HELPER   ?= $(USER_LIBEXECDIR)/hazmat-launch
+SYSTEM_HAZMAT_BIN    ?= $(SYSTEM_BINDIR)/hazmat
+SYSTEM_LAUNCH_HELPER ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-helper uninstall clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards hooks
+.PHONY: all hazmat hazmat-launch install install-system install-helper uninstall uninstall-system clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards hooks
 
 all: hazmat hazmat-launch
 
@@ -18,22 +25,39 @@ hazmat-launch:
 	@rm -f hazmat-launch
 	CGO_ENABLED=1 go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
 
-# Install both binaries.  Run 'sudo make install' or install each separately.
-# hazmat-launch must be installed before 'hazmat setup' is run so the
-# setup step can narrow the sudoers rule to the helper's path.
-install: install-helper
-	install -m 0755 hazmat $(HAZMAT_BIN)
-	@echo "Installed $(HAZMAT_BIN)"
+# Install both binaries under ~/.local without sudo.
+install: hazmat hazmat-launch
+	install -d -m 0755 $(USER_BINDIR)
+	install -d -m 0755 $(USER_LIBEXECDIR)
+	install -m 0755 hazmat $(USER_HAZMAT_BIN)
+	install -m 0755 hazmat-launch $(USER_LAUNCH_HELPER)
+	@echo "Installed $(USER_HAZMAT_BIN)"
+	@echo "Installed $(USER_LAUNCH_HELPER)"
 
+# Install both binaries under /usr/local. Run with sudo when needed.
+install-system: hazmat hazmat-launch
+	install -d -m 0755 $(SYSTEM_BINDIR)
+	install -d -m 0755 $(SYSTEM_LIBEXECDIR)
+	install -m 0755 hazmat $(SYSTEM_HAZMAT_BIN)
+	install -m 0755 hazmat-launch $(SYSTEM_LAUNCH_HELPER)
+	@echo "Installed $(SYSTEM_HAZMAT_BIN)"
+	@echo "Installed $(SYSTEM_LAUNCH_HELPER)"
+
+# Backward-compatible helper-only system install for setup workflows.
 install-helper: hazmat-launch
-	sudo install -d -m 0755 $$(dirname $(LAUNCH_HELPER))
-	sudo install -m 0755 hazmat-launch $(LAUNCH_HELPER)
-	@echo "Installed $(LAUNCH_HELPER)"
+	install -d -m 0755 $(SYSTEM_LIBEXECDIR)
+	install -m 0755 hazmat-launch $(SYSTEM_LAUNCH_HELPER)
+	@echo "Installed $(SYSTEM_LAUNCH_HELPER)"
 
 uninstall:
-	sudo rm -f $(HAZMAT_BIN)
-	sudo rm -f $(LAUNCH_HELPER)
-	@echo "Uninstalled hazmat and hazmat-launch"
+	rm -f $(USER_HAZMAT_BIN)
+	rm -f $(USER_LAUNCH_HELPER)
+	@echo "Uninstalled $(USER_HAZMAT_BIN) and $(USER_LAUNCH_HELPER)"
+
+uninstall-system:
+	rm -f $(SYSTEM_HAZMAT_BIN)
+	rm -f $(SYSTEM_LAUNCH_HELPER)
+	@echo "Uninstalled $(SYSTEM_HAZMAT_BIN) and $(SYSTEM_LAUNCH_HELPER)"
 
 test:
 	go test ./...

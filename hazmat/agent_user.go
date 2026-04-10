@@ -28,7 +28,7 @@ var requireInit = func() error {
 	if _, err := os.Stat(sudoersFile); err != nil {
 		return fmt.Errorf("hazmat is not initialized — sudoers rule missing, run 'hazmat init' first")
 	}
-	if _, err := os.Stat(launchHelper); err != nil {
+	if _, err := os.Stat(launchHelperPath()); err != nil {
 		return fmt.Errorf("hazmat is not initialized — launch helper missing, run 'hazmat init' first")
 	}
 	return nil

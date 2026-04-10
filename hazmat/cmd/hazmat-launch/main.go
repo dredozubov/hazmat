@@ -4,6 +4,7 @@
 // It is the sole binary covered by the NOPASSWD sudoers rule:
 //
 //	dr ALL = (agent) NOPASSWD: /usr/local/libexec/hazmat-launch
+//	dr ALL = (agent) NOPASSWD: sha256:<digest> /Users/dr/.local/libexec/hazmat-launch
 //
 // Unlike granting NOPASSWD to /usr/bin/sandbox-exec directly, this helper:
 //   - Accepts only a policy file path (no inline policies)
@@ -33,7 +34,7 @@
 //
 // Usage (called by runAgentSeatbeltScript):
 //
-//	sudo -u agent /usr/local/libexec/hazmat-launch <policy-file> <cmd> [args...]
+//	sudo -u agent <hazmat-launch> <policy-file> <cmd> [args...]
 
 package main
 

@@ -296,11 +296,12 @@ func testPasswordlessSudo(ui *UI) {
 
 	if launchSudoersInstalled() {
 		ui.TestPass(fmt.Sprintf("Launch-helper sudoers file exists: %s", sudoersFile))
-		out, err := newSudoNoPromptCommand("-u", agentUser, launchHelper).CombinedOutput()
+		helperPath := launchHelperPath()
+		out, err := newSudoNoPromptCommand("-u", agentUser, helperPath).CombinedOutput()
 		if strings.Contains(strings.TrimSpace(string(out)), "usage: hazmat-launch") && err != nil {
 			ui.TestPass("Launch-helper sudoers rule works without password")
 		} else {
-			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s", launchHelper))
+			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s", helperPath))
 		}
 	} else {
 		ui.TestFail(fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile))
@@ -765,7 +766,7 @@ done
 exit 0`
 	fdProbeCmd := []string{
 		"-u", agentUser,
-		launchHelper, policyFile,
+		launchHelperPath(), policyFile,
 		"/usr/bin/env", "-i",
 	}
 	fdProbeCmd = append(fdProbeCmd, agentEnvPairs(cfg)...)
