@@ -4,6 +4,35 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-10
+
+### Added
+- Managed per-project git SSH key selection (`hazmat config ssh set`, `unset`, `test`)
+- SSH key shell completions
+- SSH test support for host aliases
+- Show selected SSH key in session contract
+- Opt-in agent maintenance sudoers rule (`hazmat config sudoers --enable-agent-maintenance`)
+- Default maintenance sudoers on `init --yes`
+- User-level Hazmat install targets in Makefile
+- TLA+ formal verification of native helper fd isolation (`MC_LaunchFDIsolation`)
+
+### Changed
+- Reject public keys in `hazmat config ssh set` (must be private key)
+- Harden native launch fd isolation before `sandbox_init()`
+- Move Makefile to repo root
+- Simplify SSH key selection UX with positional key-path argument
+
+### Fixed
+- Managed git SSH agent auth
+- SSH test probe host parsing
+- User-local launch helper startup
+- Keep optional sudoers within verified containment
+- Sudo cwd for agent bootstrap
+
+### Tests
+- Run e2e unit tests from hazmat module
+- Document and test SSH test alias behavior and security boundary
+
 ## [0.5.0] - 2026-04-08
 
 ### Added
@@ -80,7 +109,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dredozubov/hazmat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dredozubov/hazmat/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/dredozubov/hazmat/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/dredozubov/hazmat/compare/v0.4.1...v0.4.2
