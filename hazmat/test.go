@@ -297,11 +297,11 @@ func testPasswordlessSudo(ui *UI) {
 	if launchSudoersInstalled() {
 		ui.TestPass(fmt.Sprintf("Launch-helper sudoers file exists: %s", sudoersFile))
 		helperPath := launchHelperPath()
-		out, err := newSudoNoPromptCommand("-u", agentUser, helperPath).CombinedOutput()
-		if strings.Contains(strings.TrimSpace(string(out)), "usage: hazmat-launch") && err != nil {
-			ui.TestPass("Launch-helper sudoers rule works without password")
+		out, err := newSudoNoPromptCommand("-u", agentUser, helperPath, "exec", "/usr/bin/id", "-un").CombinedOutput()
+		if strings.TrimSpace(string(out)) == agentUser && err == nil {
+			ui.TestPass("Hazmat helper maintenance path works without password")
 		} else {
-			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s", helperPath))
+			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s in maintenance mode", helperPath))
 		}
 	} else {
 		ui.TestFail(fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile))
@@ -315,7 +315,7 @@ func testPasswordlessSudo(ui *UI) {
 			ui.TestFail(fmt.Sprintf("sudo -u %s still prompts or fails — check %s", agentUser, agentMaintenanceSudoersFile))
 		}
 	} else {
-		ui.TestWarn("Optional agent-maintenance passwordless sudo is disabled — bootstrap and other generic agent-user commands may still prompt")
+		ui.TestSkip("Optional agent-maintenance passwordless sudo is disabled — manual generic 'sudo -u agent ...' commands will still prompt")
 	}
 }
 

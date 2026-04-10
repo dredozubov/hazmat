@@ -33,9 +33,13 @@ func newSudoNoPromptCommand(args ...string) *exec.Cmd {
 	return newSudoCommand(full...)
 }
 
+func agentCommandArgs(args ...string) []string {
+	full := []string{"-u", agentUser, "-H", launchHelperPath(), "exec"}
+	return append(full, args...)
+}
+
 func newAgentCommand(args ...string) *exec.Cmd {
-	full := append([]string{"-u", agentUser}, args...)
-	return newSudoCommand(full...)
+	return newSudoCommand(agentCommandArgs(args...)...)
 }
 
 // dscl runs a read-only dscl query without sudo.
@@ -95,12 +99,8 @@ func sudoAppendFile(path, content string) error {
 	return nil
 }
 
-// asAgentQuiet runs args as the agent user via "sudo -u agent <args>",
-// discarding stdout/stderr.  Returns exit code only.
-//
-// Requires the full sudoers rule (NOPASSWD: ALL or the specific command).
-// For operations covered by the narrow NOPASSWD rule (sandbox-exec only),
-// use agentSandboxExecQuiet instead.
+// asAgentQuiet runs args as the agent user via Hazmat's helper-backed
+// maintenance path, discarding stdout/stderr. Returns exit code only.
 func asAgentQuiet(args ...string) error {
 	cmd := newAgentCommand(args...)
 	cmd.Stdout = nil
@@ -115,6 +115,13 @@ func asAgentOutput(args ...string) (string, error) {
 	return commandStdoutCmd(newAgentCommand(args...))
 }
 
+// asAgentCombinedOutput runs args as the agent user and returns combined
+// stdout/stderr. Callers should surface stderr intentionally.
+func asAgentCombinedOutput(args ...string) (string, error) {
+	out, err := newAgentCommand(args...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // asAgentShellQuiet runs a bash command string as the agent user.
 // Use only with hardcoded scripts — never interpolate user input.
 func asAgentShellQuiet(script string) error {
@@ -122,8 +129,9 @@ func asAgentShellQuiet(script string) error {
 }
 
 // agentTCPConnect tests whether the agent user can reach host:port.
-// It invokes the binary itself as the agent user via "sudo -u agent hazmat _connect",
-// so the actual TCP dial runs under the agent user's UID and is subject to pf rules.
+// It invokes the binary itself as the agent user via Hazmat's helper-backed
+// maintenance path, so the actual TCP dial runs under the agent user's UID
+// and is subject to pf rules.
 // Falls back to bash /dev/tcp if os.Executable() fails (e.g. go run).
 func agentTCPConnect(selfPath, host, port string) bool {
 	if selfPath != "" {

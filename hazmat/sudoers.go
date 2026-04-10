@@ -153,8 +153,8 @@ func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser st
 	}
 
 	fmt.Println("  Hazmat can also install a broader optional sudoers rule for day-to-day")
-	fmt.Println("  agent maintenance commands such as bootstrap and other generic")
-	fmt.Println("  'sudo -u agent ...' flows.")
+	fmt.Println("  manual agent-user commands that bypass Hazmat's helper-backed")
+	fmt.Println("  maintenance path and use raw 'sudo -u agent ...' instead.")
 	fmt.Println()
 	cDim.Println("  This is broader than the default launch-helper rule.")
 	cDim.Println("  Only enable it if you want to stop repeated password prompts for")
@@ -170,7 +170,7 @@ func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser st
 			{
 				Key:         "install",
 				Label:       "Install opt-in rule",
-				Description: "Lets Hazmat run generic 'sudo -u agent ...' commands without repeated password prompts.",
+				Description: "Lets you run raw generic 'sudo -u agent ...' commands without repeated password prompts.",
 			},
 			{
 				Key:         "skip",
@@ -203,7 +203,7 @@ func newConfigSudoersCmd() *cobra.Command {
 Hazmat always needs the narrow launch-helper rule for session starts.
 You can also opt into a broader passwordless rule for generic
 'sudo -u agent ...' maintenance commands if you prefer fewer password
-prompts during bootstrap and other agent-user flows.
+prompts during manual agent-user work outside Hazmat's helper path.
 
 Examples:
   hazmat config sudoers
@@ -216,9 +216,9 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&enableAgentMaintenance, "enable-agent-maintenance", false,
-		"Install the optional passwordless sudoers rule for generic 'sudo -u agent ...' commands")
+		"Install the optional passwordless sudoers rule for manual generic 'sudo -u agent ...' commands")
 	cmd.Flags().BoolVar(&disableAgentMaintenance, "disable-agent-maintenance", false,
-		"Remove the optional passwordless sudoers rule for generic 'sudo -u agent ...' commands")
+		"Remove the optional passwordless sudoers rule for manual generic 'sudo -u agent ...' commands")
 	return cmd
 }
 

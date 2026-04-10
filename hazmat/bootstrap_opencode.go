@@ -28,7 +28,7 @@ func openCodeBinaryCandidates() []string {
 }
 
 func findInstalledOpenCodeBinary() (string, bool) {
-	return findInstalledOpenCodeBinaryWith(sudoOutput)
+	return findInstalledOpenCodeBinaryWith(asAgentOutput)
 }
 
 func findInstalledOpenCodeBinaryWith(read func(args ...string) (string, error)) (string, bool) {
@@ -53,7 +53,7 @@ func openCodeLaunchScript() string {
 func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 	ui.Step("Ensure OpenCode is on agent PATH")
 
-	installedPath, ok := findInstalledOpenCodeBinaryWith(r.SudoOutput)
+	installedPath, ok := findInstalledOpenCodeBinaryWith(r.AgentOutput)
 	if !ok {
 		if !r.DryRun {
 			return fmt.Errorf("OpenCode binary not found after install")
@@ -68,21 +68,21 @@ func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 	}
 
 	shimDir := agentHome + "/.local/bin"
-	if err := r.Sudo("create agent OpenCode PATH directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", shimDir); err != nil {
+	if err := agentEnsureSharedDir(shimDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", shimDir, err)
 	}
-	if _, err := r.SudoOutput("test", "-L", shimPath); err == nil {
-		if err := r.Sudo("refresh OpenCode PATH shim", "ln", "-sfn", installedPath, shimPath); err != nil {
+	if _, err := r.AgentOutput("test", "-L", shimPath); err == nil {
+		if err := r.AsAgent("refresh OpenCode PATH shim", "ln", "-sfn", installedPath, shimPath); err != nil {
 			return fmt.Errorf("refresh OpenCode PATH shim: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Linked %s -> %s", shimPath, installedPath))
 		return nil
 	}
-	if _, err := r.SudoOutput("test", "-e", shimPath); err == nil {
+	if _, err := r.AgentOutput("test", "-e", shimPath); err == nil {
 		ui.SkipDone(shimPath + " already present (not overwritten)")
 		return nil
 	}
-	if err := r.Sudo("link OpenCode into agent PATH", "ln", "-s", installedPath, shimPath); err != nil {
+	if err := r.AsAgent("link OpenCode into agent PATH", "ln", "-s", installedPath, shimPath); err != nil {
 		return fmt.Errorf("link OpenCode PATH shim: %w", err)
 	}
 	ui.Ok(fmt.Sprintf("Linked %s -> %s", shimPath, installedPath))
@@ -115,7 +115,7 @@ func runOpenCodeBootstrap(ui *UI, r *Runner) error {
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	ui.Step("Install OpenCode for agent user")
-	if opencodeBin, ok := findInstalledOpenCodeBinaryWith(r.SudoOutput); ok {
+	if opencodeBin, ok := findInstalledOpenCodeBinaryWith(r.AgentOutput); ok {
 		ui.SkipDone(fmt.Sprintf("OpenCode already installed at %s", opencodeBin))
 	} else {
 		installScript := fmt.Sprintf(`#!/bin/bash
@@ -153,8 +153,8 @@ test -x "$HOME%s" || test -x "$HOME%s"
 			return fmt.Errorf("chmod OpenCode bootstrap script: %w", err)
 		}
 
-		if err := r.SudoVisible("download and install OpenCode as agent user",
-			"-u", agentUser, "-H", "bash", scriptFile.Name()); err != nil {
+		if err := r.AsAgentVisible("download and install OpenCode as agent user",
+			"/bin/bash", scriptFile.Name()); err != nil {
 			return fmt.Errorf("install OpenCode: %w", err)
 		}
 		ui.Ok("OpenCode installed")
@@ -167,27 +167,21 @@ test -x "$HOME%s" || test -x "$HOME%s"
 	ui.Step("Write agent OpenCode config")
 	configDir := agentHome + "/.config/opencode"
 	configPath := configDir + "/opencode.json"
-	if err := r.Sudo("create agent OpenCode config directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", configDir); err != nil {
+	if err := agentEnsureSharedDir(configDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", configDir, err)
 	}
-	if _, err := sudoOutput("test", "-f", configPath); err == nil {
+	if _, err := r.AgentOutput("test", "-f", configPath); err == nil {
 		ui.SkipDone(configPath + " already present (not overwritten)")
 	} else {
-		if err := r.SudoWriteFile("write agent OpenCode config", configPath, agentOpenCodeConfigJSON); err != nil {
+		if err := agentWriteSharedFile(configPath, []byte(agentOpenCodeConfigJSON), 0o660); err != nil {
 			return fmt.Errorf("write OpenCode config: %w", err)
 		}
-		if err := r.Sudo("set OpenCode config ownership", "chown", agentUser+":"+sharedGroup, configPath); err != nil {
-			return fmt.Errorf("chown OpenCode config: %w", err)
-		}
-		if err := r.Sudo("set OpenCode config permissions", "chmod", "0660", configPath); err != nil {
-			return fmt.Errorf("chmod OpenCode config: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0600)", configPath))
+		ui.Ok(fmt.Sprintf("Wrote %s (0660)", configPath))
 	}
 
 	ui.Step("Create OpenCode data directory")
 	dataDir := agentHome + "/.local/share/opencode"
-	if err := r.Sudo("create agent OpenCode data directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", dataDir); err != nil {
+	if err := agentEnsureSharedDir(dataDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", dataDir, err)
 	}
 	ui.Ok(fmt.Sprintf("Prepared %s", dataDir))

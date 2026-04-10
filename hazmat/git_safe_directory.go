@@ -176,7 +176,7 @@ func plannedProjectGitSafeDirectory(projectDir string) string {
 }
 
 func appendAgentGlobalSafeDirectoryCommand(repoDir string) *exec.Cmd {
-	return newSudoCommand("-u", agentUser, "-H", "git", "config", "--global", "--add", "safe.directory", repoDir)
+	return newAgentCommand("git", "config", "--global", "--add", "safe.directory", repoDir)
 }
 
 func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
@@ -184,9 +184,8 @@ func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
-	// Write via sudo -u agent because git config needs to create a lock file
-	// in the agent's home directory, which is only writable by agent.
-	// This sudo call is covered by the NOPASSWD rule (runs after init).
+	// Write through Hazmat's helper-backed agent maintenance path because
+	// git config needs to create a lock file in the agent's home directory.
 	// Use / as cwd so git doesn't fail when the host's cwd is inaccessible
 	// to the agent user (the traverse ACL may not have been applied yet).
 	cmd := appendAgentGlobalSafeDirectoryCommand(repoDir)

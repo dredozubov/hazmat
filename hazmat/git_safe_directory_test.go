@@ -192,6 +192,8 @@ func TestAppendAgentGlobalSafeDirectoryCommandUsesRootWorkingDir(t *testing.T) {
 		"-u",
 		agentUser,
 		"-H",
+		launchHelperPath(),
+		"exec",
 		"git",
 		"config",
 		"--global",

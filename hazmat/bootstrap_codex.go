@@ -36,7 +36,7 @@ type codexGitHubAsset struct {
 }
 
 func findInstalledCodexBinary() (string, bool) {
-	return findInstalledCodexBinaryWith(sudoOutput)
+	return findInstalledCodexBinaryWith(asAgentOutput)
 }
 
 func findInstalledCodexBinaryWith(read func(args ...string) (string, error)) (string, bool) {
@@ -154,7 +154,7 @@ func runCodexBootstrap(ui *UI, r *Runner) error {
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	ui.Step("Install Codex for agent user")
-	if codexBin, ok := findInstalledCodexBinaryWith(r.SudoOutput); ok {
+	if codexBin, ok := findInstalledCodexBinaryWith(r.AgentOutput); ok {
 		ui.SkipDone(fmt.Sprintf("Codex already installed at %s", codexBin))
 	} else {
 		installerURL := codexLatestInstallerURL
@@ -200,8 +200,8 @@ test -x "$HOME%s"
 			return fmt.Errorf("chmod Codex bootstrap script: %w", err)
 		}
 
-		if err := r.SudoVisible("download, verify, and install Codex as agent user",
-			"-u", agentUser, "-H", "bash", scriptFile.Name()); err != nil {
+		if err := r.AsAgentVisible("download, verify, and install Codex as agent user",
+			"/bin/bash", scriptFile.Name()); err != nil {
 			return fmt.Errorf("install Codex: %w", err)
 		}
 		ui.Ok("Codex installed")
@@ -209,7 +209,7 @@ test -x "$HOME%s"
 
 	ui.Step("Create Codex state directory")
 	stateDir := agentHome + codexStateDirRel
-	if err := r.Sudo("create agent Codex state directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", stateDir); err != nil {
+	if err := agentEnsureSharedDir(stateDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", stateDir, err)
 	}
 	ui.Ok(fmt.Sprintf("Prepared %s", stateDir))

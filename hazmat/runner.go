@@ -85,14 +85,29 @@ func (r *Runner) Interactive(reason, name string, args ...string) error {
 	return runInteractive(name, args...)
 }
 
-// AsAgent shows why, then optionally executes: sudo -u agent <args>.
+// AsAgent shows why, then optionally executes an agent-user maintenance
+// command through Hazmat's helper-backed path.
 func (r *Runner) AsAgent(reason string, args ...string) error {
 	r.showReason(reason)
-	r.showCmd("sudo -u " + agentUser + " " + strings.Join(shellQuote(args), " "))
+	r.showCmd("sudo " + strings.Join(shellQuote(agentCommandArgs(args...)), " "))
 	if r.DryRun {
 		return nil
 	}
 	return asAgentQuiet(args...)
+}
+
+// AsAgentVisible runs an agent-user maintenance command with stdout/stderr
+// attached to the terminal.
+func (r *Runner) AsAgentVisible(reason string, args ...string) error {
+	r.showReason(reason)
+	r.showCmd("sudo " + strings.Join(shellQuote(agentCommandArgs(args...)), " "))
+	if r.DryRun {
+		return nil
+	}
+	cmd := newAgentCommand(args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // ── Filesystem writes ─────────────────────────────────────────────────────────

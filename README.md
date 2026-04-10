@@ -131,7 +131,7 @@ cd your-project
 hazmat claude
 ```
 
-`hazmat init` creates the agent user, configures containment, and sets up automatic snapshots. During interactive setup you can choose to bootstrap Claude Code, Codex, OpenCode, or skip agent installation and add one later with `hazmat bootstrap ...`. It can also seed Claude with portable conveniences from an existing setup while keeping Hazmat in control of runtime and safety settings. Interactive setup now also offers an explicit opt-in for a broader passwordless `sudo -u agent` rule if you want bootstrap and other maintenance commands to stop re-prompting for your password. Preview first with `hazmat init --dry-run`.
+`hazmat init` creates the agent user, configures containment, and sets up automatic snapshots. During interactive setup you can choose to bootstrap Claude Code, Codex, OpenCode, or skip agent installation and add one later with `hazmat bootstrap ...`. It can also seed Claude with portable conveniences from an existing setup while keeping Hazmat in control of runtime and safety settings. Interactive setup also offers an explicit opt-in for a broader passwordless `sudo -u agent` rule if you want manual generic agent-user commands to stop re-prompting for your password. Preview first with `hazmat init --dry-run`.
 
 ## Daily Workflow
 
@@ -252,9 +252,10 @@ Session integrations are documented in [docs/integrations.md](docs/integrations.
        └── exec claude --dangerously-skip-permissions
 ```
 
-The default passwordless sudoers rule stays narrow and only covers
-`hazmat-launch`. A separate optional rule can allow generic
-`sudo -u agent ...` maintenance commands without repeated password prompts.
+The default passwordless sudoers rule stays narrow and covers
+`hazmat-launch`, which Hazmat uses for both session launch and helper-routed
+agent maintenance. A separate optional rule can allow manual generic
+`sudo -u agent ...` commands without repeated password prompts.
 Interactive `hazmat init` leaves that broader rule opt-in; `hazmat init --yes`
 installs it by default.
 

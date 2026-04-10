@@ -34,6 +34,9 @@ func TestNewAgentCommandUsesRootWorkingDir(t *testing.T) {
 		"sudo",
 		"-u",
 		agentUser,
+		"-H",
+		launchHelperPath(),
+		"exec",
 		"bash",
 		"/tmp/bootstrap.sh",
 	}

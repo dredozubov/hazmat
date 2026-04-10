@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -13,7 +14,7 @@ const (
 )
 
 func findInstalledClaudeBinary() (string, bool) {
-	return findInstalledClaudeBinaryWith(sudoOutput)
+	return findInstalledClaudeBinaryWith(asAgentOutput)
 }
 
 func findInstalledClaudeBinaryWith(read func(args ...string) (string, error)) (string, bool) {
@@ -119,11 +120,9 @@ func newBootstrapClaudeCmd() *cobra.Command {
 allow/deny rules, and create a PreToolUse hook skeleton.
 
 Run once after 'hazmat init'. Uses the passwordless sudo rule configured
-during init for the launch helper. Generic installer steps that run directly
-as the agent user are passwordless only if you enabled the optional
-agent-maintenance sudoers rule (via the interactive init prompt,
-'hazmat init --yes', or
-'hazmat config sudoers --enable-agent-maintenance').
+during init for the Hazmat helper. Hazmat-owned bootstrap steps run through
+that narrow helper path; the broader optional agent-maintenance sudoers rule
+is only for manual generic 'sudo -u agent ...' commands.
 
 Steps:
   1. Verify the agent user exists (run 'hazmat init' first if not)
@@ -152,8 +151,7 @@ func runBootstrap(ui *UI, r *Runner) error {
 	// ── Step 2: install Claude Code ───────────────────────────────────────────
 	ui.Step("Install Claude Code for agent user")
 	claudeBin := agentHome + "/.local/bin/claude"
-	// Check via root stat (dr cannot read /Users/agent directly).
-	if _, err := sudoOutput("test", "-x", claudeBin); err == nil {
+	if _, err := r.AgentOutput("test", "-x", claudeBin); err == nil {
 		ui.SkipDone("Claude Code already installed")
 	} else {
 		// Write the installer script to a temp file rather than passing it
@@ -186,8 +184,8 @@ bash "$installer"
 		scriptFile.Close()                 //nolint:errcheck // close-to-flush; exec below catches problems
 		os.Chmod(scriptFile.Name(), 0o755) //nolint:errcheck // exec below fails if not executable
 
-		if err := r.SudoVisible("download, verify, and install Claude Code as agent user",
-			"-u", agentUser, "-H", "bash", scriptFile.Name()); err != nil {
+		if err := r.AsAgentVisible("download, verify, and install Claude Code as agent user",
+			"/bin/bash", scriptFile.Name()); err != nil {
 			return fmt.Errorf("install Claude Code: %w", err)
 		}
 		ui.Ok("Claude Code installed")
@@ -198,28 +196,19 @@ bash "$installer"
 	claudeDir := agentHome + "/.claude"
 	settingsPath := claudeDir + "/settings.json"
 
-	// Always ensure .claude is agent-owned so the agent process can write
-	// to it at runtime.  'install -d' is idempotent: it creates the
-	// directory if absent and applies the given owner/mode unconditionally.
-	if err := r.Sudo("create agent .claude config directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", claudeDir); err != nil {
+	if err := agentEnsureSharedDir(claudeDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", claudeDir, err)
 	}
 	projectsDir := claudeDir + "/projects"
-	if err := r.Sudo("create agent .claude/projects directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", projectsDir); err != nil {
+	if err := agentEnsureSharedDir(projectsDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", projectsDir, err)
 	}
 
-	if _, err := sudoOutput("test", "-f", settingsPath); err == nil {
+	if _, err := r.AgentOutput("test", "-f", settingsPath); err == nil {
 		ui.SkipDone(settingsPath + " already present (not overwritten)")
 	} else {
-		if err := r.SudoWriteFile("write agent Claude settings", settingsPath, agentSettingsJSON); err != nil {
+		if err := agentWriteSharedFile(settingsPath, []byte(agentSettingsJSON), 0o660); err != nil {
 			return fmt.Errorf("write settings.json: %w", err)
-		}
-		if err := r.Sudo("set agent settings ownership", "chown", agentUser+":"+sharedGroup, settingsPath); err != nil {
-			return fmt.Errorf("chown settings.json: %w", err)
-		}
-		if err := r.Sudo("set agent settings permissions", "chmod", "0660", settingsPath); err != nil {
-			return fmt.Errorf("chmod settings.json: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Wrote %s (0660)", settingsPath))
 	}
@@ -229,26 +218,18 @@ bash "$installer"
 	hooksDir := claudeDir + "/hooks"
 	hookScript := hooksDir + "/pre-tool-use.sh"
 
-	// Always ensure hooks/ is agent-owned (same idempotent install -d logic
-	// as .claude above).
-	if err := r.Sudo("create agent hooks directory", "install", "-d", "-o", agentUser, "-g", sharedGroup, "-m", "2770", hooksDir); err != nil {
+	if err := agentEnsureSharedDir(hooksDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", hooksDir, err)
 	}
 
 	// Check the hook script specifically — not just the directory.  This
 	// handles the case where the directory exists but the script was never
 	// written (partial run) or was deleted by the user.
-	if _, err := sudoOutput("test", "-f", hookScript); err == nil {
+	if _, err := r.AgentOutput("test", "-f", hookScript); err == nil {
 		ui.SkipDone(hookScript + " already present (not overwritten)")
 	} else {
-		if err := r.SudoWriteFile("write agent pre-tool-use hook", hookScript, agentPreToolUseHook); err != nil {
+		if err := agentWriteSharedFile(hookScript, []byte(agentPreToolUseHook), 0o770); err != nil {
 			return fmt.Errorf("write hook script: %w", err)
-		}
-		if err := r.Sudo("set hook script ownership", "chown", agentUser+":"+sharedGroup, hookScript); err != nil {
-			return fmt.Errorf("chown hook script: %w", err)
-		}
-		if err := r.Sudo("make hook script executable", "chmod", "0770", hookScript); err != nil {
-			return fmt.Errorf("chmod hook script: %w", err)
 		}
 		ui.Ok(fmt.Sprintf("Wrote %s (0770)", hookScript))
 	}
@@ -260,13 +241,17 @@ bash "$installer"
 	ui.Step("Supply chain hardening (package manager scripts)")
 
 	npmrc := agentHome + "/.npmrc"
-	if _, err := sudoOutput("test", "-f", npmrc); err == nil {
+	if current, err := r.AgentOutput("cat", npmrc); err == nil {
 		// Check if ignore-scripts is already set.
-		if out, _ := sudoOutput("grep", "ignore-scripts", npmrc); out != "" {
+		if strings.Contains(current, "ignore-scripts") {
 			ui.SkipDone("npm ignore-scripts already configured")
 		} else {
-			if err := r.Sudo("append ignore-scripts to npmrc",
-				"bash", "-c", fmt.Sprintf("echo 'ignore-scripts=true' >> %s", npmrc)); err != nil {
+			updated := current
+			if updated != "" && !strings.HasSuffix(updated, "\n") {
+				updated += "\n"
+			}
+			updated += "ignore-scripts=true\n"
+			if err := agentWriteFile(npmrc, []byte(updated), 0o644); err != nil {
 				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", npmrc, err))
 			} else {
 				ui.Ok("npm: ignore-scripts=true appended to " + npmrc)
@@ -286,10 +271,9 @@ bash "$installer"
 # CVE references: axios/axios#10604, ua-parser-js (2021), event-stream (2018)
 ignore-scripts=true
 `
-		if err := r.SudoWriteFile("write agent .npmrc with ignore-scripts", npmrc, npmrcContent); err != nil {
+		if err := agentWriteFile(npmrc, []byte(npmrcContent), 0o644); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", npmrc, err))
 		} else {
-			r.Sudo("set npmrc ownership", "chown", agentUser+":staff", npmrc) //nolint:errcheck // auxiliary to successful write above
 			ui.Ok("npm: ignore-scripts=true (blocks postinstall supply chain attacks)")
 		}
 	}
@@ -299,7 +283,7 @@ ignore-scripts=true
 	// as npm postinstall. Unlike npm, pip has no global ignore-scripts flag,
 	// but we can set safer defaults.
 	pipConf := agentHome + "/.config/pip/pip.conf"
-	if _, err := sudoOutput("test", "-f", pipConf); err == nil {
+	if _, err := r.AgentOutput("test", "-f", pipConf); err == nil {
 		ui.SkipDone("pip.conf already configured")
 	} else {
 		pipConfContent := `# Managed by hazmat — supply chain hardening.
@@ -312,11 +296,11 @@ no-input = true
 disable-pip-version-check = true
 `
 		pipConfDir := agentHome + "/.config/pip"
-		r.Sudo("create pip config directory", "mkdir", "-p", pipConfDir) //nolint:errcheck // SudoWriteFile below handles the critical path
-		if err := r.SudoWriteFile("write agent pip.conf", pipConf, pipConfContent); err != nil {
+		if err := agentEnsureDir(pipConfDir, 0o755); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not create %s: %v", pipConfDir, err))
+		} else if err := agentWriteFile(pipConf, []byte(pipConfContent), 0o644); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not write %s: %v", pipConf, err))
 		} else {
-			r.Sudo("set pip config ownership", "chown", "-R", agentUser+":staff", pipConfDir) //nolint:errcheck // auxiliary to successful write above
 			ui.Ok("pip: safer defaults configured")
 		}
 	}
@@ -327,19 +311,14 @@ disable-pip-version-check = true
 	fmt.Println()
 	fmt.Println("  Next steps:")
 	fmt.Println()
-	cBold.Println("  1. Set the Anthropic API key for the agent user:")
-	fmt.Printf("       sudo -u %s -i\n", agentUser)
-	fmt.Println(`       echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc`)
+	cBold.Println("  1. Configure agent credentials:")
+	fmt.Println("       hazmat config agent")
 	fmt.Println()
-	cBold.Println("  2. Configure git for the agent user:")
-	fmt.Printf(`       sudo -u %s git config --global user.name "Agent"`+"\n", agentUser)
-	fmt.Printf(`       sudo -u %s git config --global user.email "agent@localhost"`+"\n", agentUser)
-	fmt.Println()
-	cBold.Println("  3. (Optional) Review and customize:")
+	cBold.Println("  2. (Optional) Review and customize:")
 	fmt.Println("       " + settingsPath + "  — allow/deny rules")
 	fmt.Println("       " + hookScript + "  — PreToolUse guard")
 	fmt.Println()
-	cBold.Println("  4. Test a session:")
+	cBold.Println("  3. Test a session:")
 	fmt.Println("       cd your-project")
 	fmt.Println("       hazmat claude")
 	fmt.Println()

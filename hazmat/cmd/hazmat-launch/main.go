@@ -1,5 +1,5 @@
 // hazmat-launch is the narrow privileged helper that bridges the dr→agent
-// privilege gap for 'hazmat claude', 'hazmat shell', and 'hazmat exec'.
+// privilege gap for Hazmat-owned agent operations.
 //
 // It is the sole binary covered by the NOPASSWD sudoers rule:
 //
@@ -32,9 +32,10 @@
 // the build will fail with a link error and we will have to revert to exec'ing
 // sandbox-exec, losing correct signal forwarding and PTY handling.
 //
-// Usage (called by runAgentSeatbeltScript):
+// Usage:
 //
 //	sudo -u agent <hazmat-launch> <policy-file> <cmd> [args...]
+//	sudo -u agent <hazmat-launch> exec <cmd> [args...]
 
 package main
 
@@ -73,13 +74,26 @@ func main() {
 		die("hazmat-launch: close inherited fds: %v", err)
 	}
 
-	if len(os.Args) < 3 {
-		die("usage: hazmat-launch <policy-file> <cmd> [args...]")
+	if len(os.Args) < 2 {
+		dieUsage()
 	}
 
-	policyFile := os.Args[1]
-	cmdArgs := os.Args[2:]
+	if os.Args[1] == "exec" {
+		if len(os.Args) < 3 {
+			dieUsage()
+		}
+		execCommand(os.Args[2:])
+		return
+	}
 
+	if len(os.Args) < 3 {
+		dieUsage()
+	}
+
+	runLaunchMode(os.Args[1], os.Args[2:])
+}
+
+func runLaunchMode(policyFile string, cmdArgs []string) {
 	policy, err := validateAndReadPolicy(policyFile)
 	if err != nil {
 		die("hazmat-launch: %v", err)
@@ -92,6 +106,10 @@ func main() {
 		die("hazmat-launch: %v", err)
 	}
 
+	execCommand(cmdArgs)
+}
+
+func execCommand(cmdArgs []string) {
 	// Exec the target command. Since sandbox_init() was called in this
 	// process, the sandbox is inherited by the exec'd program.
 	// This is a direct exec (no fork) — signals, PTY, and exit codes
@@ -104,6 +122,10 @@ func main() {
 	if err := syscall.Exec(bin, cmdArgs, os.Environ()); err != nil {
 		die("hazmat-launch: exec %s: %v", bin, err)
 	}
+}
+
+func dieUsage() {
+	die("usage: hazmat-launch <policy-file> <cmd> [args...]\n       hazmat-launch exec <cmd> [args...]")
 }
 
 // sandboxInit calls macOS sandbox_init() with the given SBPL policy string.

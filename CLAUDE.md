@@ -133,7 +133,7 @@ migration from every older version AND during rollback from any intermediate sta
 - **Pre-flight checks run before any mutations.** `preflightChecks()` validates prerequisites before the first `dscl` call.
 - **Seatbelt policies are per-session.** Generated in `generateSBPL()`, written to `/private/tmp/hazmat-<pid>.sb`, cleaned up on exit.
 - **hazmat-launch uses sandbox_init() via cgo.** Not `sandbox-exec`. Direct kernel sandbox API, one fewer process in the chain.
-- **Daily session launches stay on the narrow sudoers rule.** `hazmat claude/exec/shell` use the NOPASSWD launch-helper rule for `hazmat-launch`. Generic `sudo -u agent` flows are a separate, broader opt-in via `hazmat config sudoers --enable-agent-maintenance`.
+- **Hazmat-owned agent maintenance stays on the narrow sudoers rule.** Session launches and helper-routed maintenance use the NOPASSWD rule for `hazmat-launch`. Generic manual `sudo -u agent` flows are a separate, broader opt-in via `hazmat config sudoers --enable-agent-maintenance`.
 - **Integrations are pure data, never executable.** Integration manifests are YAML with strict field validation (`KnownFields`). They may add read-only dirs, env passthrough from a fixed safe set, backup excludes, and warnings. They cannot widen write scope, expose credentials, or change network policy. See [docs/integrations.md](docs/integrations.md).
 - **Repo-recommended integrations require host approval.** `.hazmat/integrations.yaml` in a repo declares integration names; hazmat prompts once for approval, keyed by canonical path + file hash. Approval is stored outside the repo in `~/.hazmat/integration-approvals.yaml`.
 

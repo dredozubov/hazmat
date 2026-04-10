@@ -1039,6 +1039,13 @@ func readMaybePrivilegedFile(path string, r *Runner) ([]byte, error) {
 	if r.DryRun {
 		return nil, fs.ErrPermission
 	}
+	if path == agentHome || isWithinDir(agentHome, path) {
+		out, agentErr := asAgentCombinedOutput("cat", path)
+		if agentErr != nil {
+			return nil, agentErr
+		}
+		return []byte(out), nil
+	}
 	out, sudoErr := r.SudoOutput("cat", path)
 	if sudoErr != nil {
 		return nil, sudoErr
@@ -1058,6 +1065,18 @@ func writeMaybePrivilegedFile(path string, raw []byte, mode os.FileMode, owner s
 
 	if r == nil {
 		return fmt.Errorf("write %s: permission denied", path)
+	}
+	if path == agentHome || isWithinDir(agentHome, path) {
+		if r.DryRun {
+			return nil
+		}
+		if err := agentMkdirAll(filepath.Dir(path)); err != nil {
+			return err
+		}
+		if strings.Contains(owner, sharedGroup) {
+			return agentWriteSharedFile(path, raw, mode)
+		}
+		return agentWriteFile(path, raw, mode)
 	}
 	if err := r.SudoWriteFile("write imported Claude file", path, string(raw)); err != nil {
 		return err

@@ -167,9 +167,10 @@ func main() {
 }
 
 // newConnectCmd is a hidden internal subcommand that dials host:port and exits
-// 0 on success, 1 on failure.  Invoked as: sudo -u agent hazmat _connect host port
-// This lets the test command probe network reachability as the agent user using
-// Go's net.Dial rather than bash's /dev/tcp, without requiring any special setup.
+// 0 on success, 1 on failure. Invoked through Hazmat's helper-backed
+// agent-maintenance path so the TCP dial runs as the agent user. This lets the
+// test command probe network reachability using Go's net.Dial rather than
+// bash's /dev/tcp, without requiring any special setup.
 func newConnectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "_connect <host> <port>",

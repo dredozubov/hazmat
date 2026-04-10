@@ -959,7 +959,7 @@ func prepareSSHIdentityRuntime(cfg sessionGitSSHConfig) (preparedSSHIdentityRunt
 	}
 
 	runtime.Cleanup = func() {
-		cmd := newSudoCommand("-u", agentUser, "env",
+		cmd := newAgentCommand("env",
 			"SSH_AGENT_PID="+pid,
 			"SSH_AUTH_SOCK="+socketPath,
 			"/usr/bin/ssh-agent", "-k")
@@ -991,7 +991,7 @@ func prepareSSHIdentityRuntime(cfg sessionGitSSHConfig) (preparedSSHIdentityRunt
 }
 
 func startAgentSSHAgent(socketPath string) (string, error) {
-	cmd := newSudoCommand("-u", agentUser, "/usr/bin/ssh-agent", "-s", "-a", socketPath)
+	cmd := newAgentCommand("/usr/bin/ssh-agent", "-s", "-a", socketPath)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1024,7 +1024,7 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 		return fmt.Errorf("read managed git ssh private key: %w", err)
 	}
 
-	cmd := newSudoCommand("-u", agentUser, "env",
+	cmd := newAgentCommand("env",
 		"SSH_AUTH_SOCK="+socketPath,
 		"SSH_ASKPASS_REQUIRE=never",
 		"/usr/bin/ssh-add", "-q", "-")
@@ -1128,28 +1128,11 @@ func interpretGitSSHProbeResult(host, output string, err error) error {
 }
 
 func asAgentMkdirAll(path string, mode os.FileMode) error {
-	cmd := newSudoCommand("-u", agentUser, "/usr/bin/install", "-d", "-m", fmt.Sprintf("%03o", mode.Perm()), path)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
+	return agentEnsureDir(path, mode)
 }
 
 func asAgentWriteFile(path string, content []byte, mode os.FileMode) error {
-	cmd := newSudoCommand("-u", agentUser, "/usr/bin/tee", path)
-	cmd.Stdin = bytes.NewReader(content)
-	cmd.Stdout = io.Discard
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	if err := asAgentQuiet("/bin/chmod", fmt.Sprintf("%03o", mode.Perm()), path); err != nil {
-		return err
-	}
-	return nil
+	return agentWriteFile(path, content, mode)
 }
 
 func buildGitSSHWrapperScript(socketPath, knownHostsPath string, allowedHosts []string) string {
