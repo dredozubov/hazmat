@@ -370,6 +370,10 @@ lists candidate keys from a chosen directory, defaulting to `~/.ssh`, uses
 host-owned storage, loads it into a fresh session-local `ssh-agent`, and
 forces Git through a constrained wrapper.
 
+For guidance on how to choose and scope keys for GitHub, remote servers,
+deploy keys, machine users, SSH certificates, and per-target `known_hosts`
+layouts, see [ssh-key-hygiene.md](ssh-key-hygiene.md).
+
 `hazmat config ssh test` is a host-side validation helper. It uses the selected
 Hazmat key and `known_hosts`, but it also honors the host user's real OpenSSH
 config for routing, so aliases and jump-host flows from `~/.ssh/config`

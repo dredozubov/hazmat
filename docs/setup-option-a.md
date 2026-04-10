@@ -828,6 +828,11 @@ sudo -u agent ls -l /Users/agent/.config/git/credentials
 
 Use `https://` remotes inside hazmat by default. `git@github.com:...` remotes only work when you explicitly assign a project key with `hazmat config ssh set ...`; Hazmat still does not expose the host user's `SSH_AUTH_SOCK`, and arbitrary SSH shells remain unsupported.
 
+If you do use managed Git-over-SSH, keep the key dedicated and low-privilege.
+See [ssh-key-hygiene.md](ssh-key-hygiene.md) for recommended patterns for
+GitHub deploy keys, machine users, remote servers, SSH certificates, and
+per-target `known_hosts` layout.
+
 `hazmat config ssh test` is more permissive than the in-session Git wrapper:
 it uses the selected project key and `known_hosts`, but it also honors the host
 user's `~/.ssh/config` for routing, including aliases and `ProxyJump`. If an
