@@ -112,7 +112,7 @@ acquire_hazmat_test_suite_lock "scripts/e2e-stack-matrix.sh"
 
 if [ -z "$SKIP_BUILD" ] || [ ! -x "$HAZMAT" ]; then
     echo "Building Hazmat binaries..."
-    (cd "$REPO_ROOT/hazmat" && make all)
+    (cd "$REPO_ROOT" && make all)
 fi
 
 cmd=(

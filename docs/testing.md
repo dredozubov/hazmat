@@ -24,10 +24,9 @@ Use this during normal development:
 
 ```bash
 git diff --cached --check
-cd hazmat
-go test ./...
-golangci-lint run ./...
-bash ../scripts/pre-push
+make test
+make lint
+bash scripts/pre-push
 ```
 
 This intentionally skips the expensive or environment-heavy checks.
@@ -46,7 +45,7 @@ or the shared host-side lock:
 
 ```bash
 bash scripts/test-entrypoint-guards.sh
-cd hazmat && make test-entrypoint-guards
+make test-entrypoint-guards
 ```
 
 This is non-destructive. It only checks refusal paths.
@@ -84,7 +83,7 @@ Use this only on a disposable host setup, or prefer the VM wrapper below:
 
 ```bash
 HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
-cd hazmat && make e2e E2E_ACK=1
+make e2e E2E_ACK=1
 ```
 
 This script runs `hazmat init`, exercises containment and restore behavior,

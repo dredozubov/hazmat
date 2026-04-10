@@ -25,17 +25,16 @@ If you find a containment bypass — a way for the agent to read host credential
 ## Building
 
 ```bash
-cd hazmat
 make all           # builds hazmat + hazmat-launch (requires Xcode CLI tools for cgo)
 make test          # unit tests
-make e2e           # full lifecycle test (needs sudo, modifies system)
+make e2e E2E_ACK=1 # full lifecycle test (needs sudo, modifies system)
 make e2e-vm        # same test inside an isolated Lume VM (no system changes)
 ```
 
 ## Testing
 
 ```bash
-make test                    # unit tests + go vet
+make test                    # unit tests
 hazmat check                 # integration: verify setup
 hazmat check --full          # include live network probes
 ./scripts/e2e.sh             # full lifecycle: init → containment → snapshot → restore → rollback

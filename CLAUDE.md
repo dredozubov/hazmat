@@ -87,11 +87,10 @@ assets/                  Brand images
 ## Build and test
 
 ```bash
-cd hazmat
 make all                 # builds hazmat + hazmat-launch (cgo) with version from git
-go test ./...            # unit tests
-./hazmat check           # integration tests
-./hazmat check --full    # include live network probes
+make test                # unit tests
+./hazmat/hazmat check    # integration tests
+./hazmat/hazmat check --full    # include live network probes
 ```
 
 ## When to update TLA+ specs

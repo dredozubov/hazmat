@@ -42,7 +42,7 @@ fi
 # ── Build ───────────────────────────────────────────────────────────────────
 
 phase "Build (host)"
-cd "$REPO_ROOT/hazmat"
+cd "$REPO_ROOT"
 make all 2>&1
 pass "hazmat + hazmat-launch built from source"
 cd "$REPO_ROOT"

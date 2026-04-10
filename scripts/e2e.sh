@@ -99,7 +99,7 @@ assert_file_absent() {
 # ── Build ────────────────────────────────────────────────────────────────────
 
 phase "Build"
-cd "$REPO_ROOT/hazmat"
+cd "$REPO_ROOT"
 make clean && make all
 sudo make install-helper
 pass "hazmat + hazmat-launch built"

@@ -1030,7 +1030,6 @@ func setupLaunchHelper(ui *UI, r *Runner) error {
 		if helperPath != systemLaunchHelper {
 			return fmt.Errorf("%s not found.\n\n"+
 				"Install Hazmat before running setup:\n\n"+
-				"  cd hazmat\n"+
 				"  make install\n\n"+
 				"Or install system-wide:\n\n"+
 				"  sudo make install-system\n\n"+
@@ -1040,7 +1039,6 @@ func setupLaunchHelper(ui *UI, r *Runner) error {
 		if src == "" {
 			return fmt.Errorf("%s not found.\n\n"+
 				"Install Hazmat before running setup:\n\n"+
-				"  cd hazmat\n"+
 				"  make install\n\n"+
 				"Or install system-wide:\n\n"+
 				"  sudo make install-system\n\n"+
@@ -1330,7 +1328,6 @@ func preflightChecks(currentUser string) error {
 			}
 			return fmt.Errorf("%s not found\n\n"+
 				"Install Hazmat before running setup:\n\n"+
-				"  cd hazmat\n"+
 				"  make install\n\n"+
 				"Or install system-wide:\n\n"+
 				"  sudo make install-system", helperPath)
