@@ -106,6 +106,10 @@ Use `hazmat config docker none -C /path/to/project` to persist code-only routing
 | Network firewall (pf) | — | — | — | — | ✓ | ✓ |
 | DNS blocklist | — | — | — | — | — | ✓ |
 | Supply chain hardening | — | — | — | — | — | ✓ |
+| Private-daemon Docker workflows | — | — | — | — | ✓ | ✓ |
+| Shared-daemon Docker guardrails | — | — | — | — | — | ✓ |
+| Session integrations | — | — | — | — | — | ✓ |
+| Managed per-project Git SSH | — | — | — | — | — | ✓ |
 | Backup / rollback | — | — | — | ✓ | — | ✓ |
 | Agent-agnostic | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | macOS native | ✓ | ✓ | ✓ | ✓ | — | ✓ |
