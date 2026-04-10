@@ -119,6 +119,13 @@ func uninstallAgentMaintenanceSudoers(ui *UI, r *Runner) error {
 	return nil
 }
 
+func agentMaintenanceSudoersDefaultChoice(ui *UI) string {
+	if ui != nil && ui.YesAll {
+		return "install"
+	}
+	return "skip"
+}
+
 func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser string) error {
 	ui.Step("Optional passwordless sudo for agent maintenance")
 
@@ -134,8 +141,11 @@ func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser st
 	cDim.Println("  This is broader than the default launch-helper rule.")
 	cDim.Println("  Only enable it if you want to stop repeated password prompts for")
 	cDim.Println("  generic agent-user commands.")
+	cDim.Println("  Interactive init leaves this opt-in; 'hazmat init --yes' installs")
+	cDim.Println("  it by default for smoother non-interactive use.")
 	fmt.Println()
 
+	defaultChoice := agentMaintenanceSudoersDefaultChoice(ui)
 	choice, err := ui.Choose(
 		"Optional agent-maintenance passwordless sudo:",
 		[]UIChoice{
@@ -150,7 +160,7 @@ func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser st
 				Description: "Leaves generic agent-user commands on normal sudo prompts.",
 			},
 		},
-		"skip",
+		defaultChoice,
 	)
 	if err != nil {
 		return err

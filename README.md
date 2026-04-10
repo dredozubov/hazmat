@@ -251,6 +251,8 @@ Session integrations are documented in [docs/integrations.md](docs/integrations.
 The default passwordless sudoers rule stays narrow and only covers
 `hazmat-launch`. A separate optional rule can allow generic
 `sudo -u agent ...` maintenance commands without repeated password prompts.
+Interactive `hazmat init` leaves that broader rule opt-in; `hazmat init --yes`
+installs it by default.
 
 Three OS-level enforcement layers:
 1. **Unix user** — the agent runs as a different user. Your home directory is structurally inaccessible.

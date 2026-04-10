@@ -86,7 +86,7 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
 | Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
-| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers opt-in |
+| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean` |
@@ -105,7 +105,7 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 **Fixes applied:**
 
 1. **Setup:** Reordered so pf/dns/daemon run before launchHelper and sudoers.
-2. **Optional maintenance privilege:** The broader `agent-maintenance` sudoers rule is modeled explicitly and may only appear after firewall containment is already active.
+2. **Optional maintenance privilege:** The broader `agent-maintenance` sudoers rule is modeled explicitly and may only appear after firewall containment is already active. Interactive init may skip it; `hazmat init --yes` installs it by default.
 3. **Rollback:** Reordered so all sudoers privilege is removed first, before firewall/dns/daemon.
 
 The principle: **grant privilege last, revoke privilege first.**

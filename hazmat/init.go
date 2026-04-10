@@ -194,7 +194,7 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init                                 # Interactive (recommended)
   hazmat init --bootstrap-agent claude        # Also install Claude Code
   hazmat init --bootstrap-agent codex         # Also install Codex
-  hazmat init --yes                           # Non-interactive; skip harness install
+  hazmat init --yes                           # Non-interactive; install maintenance sudoers by default
   hazmat check                                # Verify the setup
   hazmat rollback                             # Undo everything
   hazmat config agent                         # Configure Claude credentials

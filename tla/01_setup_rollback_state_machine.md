@@ -83,8 +83,10 @@ and how many setup/rollback attempts have occurred.
    from referencing a nonexistent binary.
 
 2. **The broader maintenance sudoers rule is modeled as optional.** Step 12 can
-   either install `maintenanceSudoers` or skip it. Both branches are valid, but
-   both still occur only after firewall containment is already active.
+   either install `maintenanceSudoers` or skip it. Both branches are valid:
+   interactive init can skip it, while `hazmat init --yes` now takes the
+   install branch by default. In every case, the rule still appears only after
+   firewall containment is already active.
 
 3. **Rollback is atomic in the model.** The real code runs ~9 rollbackX()
    functions sequentially, but none abort on failure (they warn and continue).

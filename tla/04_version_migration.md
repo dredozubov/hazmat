@@ -116,7 +116,9 @@ cd tla/
    If the change affects an existing version, you need a migration step.
    If the current binary gains an optional artifact without a version bump,
    model it in `OptionalArtifacts(v)` and keep `RunInit`/`InitComplete`
-   consistent with both outcomes.
+   consistent with both outcomes. This covers real CLI branches such as
+   interactive init skipping an optional artifact while `hazmat init --yes`
+   installs it by default.
 
 3. **Adding rollback ordering constraints**: update `CanRemove`. If a new
    artifact depends on another for safety, encode the dependency. TLC
