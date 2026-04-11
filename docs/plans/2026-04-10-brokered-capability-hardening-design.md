@@ -4,6 +4,7 @@ Status: Proposed
 Date: 2026-04-10
 Owner: Hazmat
 Primary issue: `sandboxing-cl2p`
+Revision task: `sandboxing-zosf`
 
 ## Purpose
 
@@ -123,6 +124,41 @@ This keeps the UX goal intact:
    not.
 7. The design should degrade safely even before every harness has a perfect
    adapter.
+8. First-run and post-session workflows such as `/login`, `--resume`,
+   `--continue`, and `hazmat export claude session` are compatibility bars, not
+   optional polish.
+9. Existing working Git SSH topology such as ProxyJump or Git protocol v2 must
+   be preserved during migration unless Hazmat ships an explicit deprecation
+   path first.
+10. Seatbelt tightening and `HOME` relocation are separate rollout concerns and
+    should not ship as one indivisible step.
+
+## UX Regression Corrections
+
+The follow-up UX audit changed the rollout posture in one important way:
+
+- most of the real regression risk is not in brokered capabilities themselves
+- it is in the interaction between secret migration and `HOME` relocation
+
+Three user workflows are now treated as hard requirements for the roadmap:
+
+1. `hazmat claude` plus `/login` must continue to produce durable auth state
+   across sessions
+2. `--resume`, `--continue`, and `hazmat export claude session` must continue
+   to work after session end, not only while a session is live
+3. existing working Git-over-SSH flows must not silently lose ProxyJump or Git
+   protocol negotiation behavior during the broker migration
+
+This means the original Feature 3 needs to be split:
+
+- a **safe seatbelt-tightening slice** that removes the blanket agent-home allow
+  while keeping `HOME=/Users/agent`
+- a separately gated **session-local HOME move** that only lands after auth
+  adapters, persistence manifests, and resume/export ordering are verified
+
+That split keeps most of the filesystem-hardening benefit while avoiding an
+upgrade cliff for first-run auth, shell setup, transcripts, or XDG-backed
+state.
 
 ## Feature 1: Brokered Git SSH Transport
 
@@ -191,6 +227,17 @@ V1 broker enforcement should validate:
 - no PTY
 - no arbitrary `-o` escape hatches from the session side
 
+The current implementation's compatibility floor must also be preserved during
+the migration:
+
+- Git protocol negotiation via `SetEnv=GIT_PROTOCOL=*`
+- working ProxyJump-based Git flows that native managed Git SSH already
+  supports today
+
+General host `~/.ssh/config` alias semantics can remain a follow-up slice, but
+that follow-up scope must not be used to silently drop already-working
+ProxyJump behavior.
+
 V1 does **not** need to solve every SSH routing feature on day one.
 Specifically:
 
@@ -216,6 +263,8 @@ Expected daily UX should remain unchanged:
 - `git fetch`, `git pull`, `git push`, and `git clone` continue to work
 - no new prompts on the happy path
 - existing project-level SSH config continues to be the operator's entry point
+- startup failures must remain concrete and actionable, at least matching the
+  specificity of the current wrapper/runtime errors
 
 Session contract language should change from a note about a session-local
 `ssh-agent` to a note about a brokered Git transport capability.
@@ -227,6 +276,8 @@ Session contract language should change from a note about a session-local
 3. Keep existing config schema for selected key and `known_hosts`.
 4. Remove session-local `ssh-agent` and generated wrapper from native mode.
 5. Update docs and tests to assert the absence of raw session SSH sockets.
+6. Preserve or explicitly gate ProxyJump support before rollout.
+7. Preserve Git protocol v2 negotiation through the broker path.
 
 ### External Audit Questions
 
@@ -300,6 +351,11 @@ The delivery rule should be:
 - never copy long-lived refresh tokens or master credential files into the
   persistent `agent` home
 
+Adapters should fail closed for malformed or unusable state, but they must not
+create an upgrade cliff for already-working installs. First post-upgrade launch
+must either migrate legacy state automatically or read it through a temporary
+compatibility path with a deprecation warning.
+
 This leads to two concrete subfeatures.
 
 ### 2A. Git HTTPS Credential Brokering
@@ -357,8 +413,45 @@ Current commands should change as follows:
 Existing agent-home secrets should be treated as migration candidates:
 
 - detect them during launch, `hazmat check`, or import
-- offer a one-time migration path
-- deny them inside sessions once the corresponding adapter exists
+- migrate them automatically on first post-upgrade launch when possible
+- fall back to legacy agent-home locations with a clear deprecation warning if
+  automatic migration cannot complete yet
+- deny legacy paths inside sessions only after the corresponding adapter and
+  migration path have been verified
+
+### Upgrade and `/login` Requirements
+
+The UX audit identified two hard requirements for this feature track.
+
+#### 1. No upgrade cliff
+
+When an adapter exists but a user still has durable credentials under
+`/Users/agent`, the first `hazmat claude` after upgrade must not fail just
+because migration has not been run manually.
+
+Required behavior:
+
+- launch detects legacy auth state automatically
+- Hazmat migrates it into `~/.hazmat/secrets/` during the launch path when
+  possible
+- if migration cannot complete automatically, Hazmat uses a temporary
+  compatibility read path and emits a one-time deprecation warning with a clear
+  fix
+
+#### 2. `/login` must remain durable
+
+Today `/login` writes auth state relative to `HOME`. Once `HOME` becomes
+session-local, that write must not be lost on exit.
+
+Required behavior for the Claude adapter before any `HOME` move:
+
+- either intercept auth-file writes during the live session and route them into
+  host-owned Hazmat storage
+- or harvest the resulting auth file during clean session teardown and migrate
+  it before ephemeral cleanup runs
+
+Feature 3B, the actual `HOME` move, is blocked on this behavior being verified
+end-to-end.
 
 ### UX Impact
 
@@ -379,6 +472,8 @@ This feature intentionally changes several existing assumptions:
 - `ANTHROPIC_API_KEY` in `.zshrc` is no longer the recommended setup path
 - Git HTTPS access is no longer backed by Git's built-in plaintext store in the
   agent home
+- legacy agent-home auth files remain part of the compatibility story until the
+  migration path has been exercised for existing installs
 
 ### External Audit Questions
 
@@ -387,7 +482,7 @@ This feature intentionally changes several existing assumptions:
 - Should the canonical v1 secret store be host-owned files only, or should
   Keychain-backed storage be part of the first implementation slice?
 
-## Feature 3: Session-Local Home Assembly
+## Feature 3: Agent-Home Tightening and Session-Local Home Move
 
 ### Problem
 
@@ -400,109 +495,145 @@ means:
 - the seatbelt policy has to rely on ever-growing deny exceptions
 
 This is the wrong long-term shape if the goal is to remove ambient session
-authority.
+authority. The UX audit also showed that one part of the originally proposed
+fix is much safer than the other:
 
-### Proposed Model
+- narrowing the seatbelt over `agent` home is low-risk
+- moving `HOME` and all XDG roots into `/private/tmp/...` is high-risk unless
+  auth adapters, transcripts, shell setup, and persistent XDG state have
+  already been audited
 
-Replace the blanket `agent` home allowance with **session-local home assembly**
-plus a curated set of explicit persistent subpaths.
+This feature is therefore split into two rollout slices.
 
-At launch time Hazmat should build a session home such as:
+### Feature 3A: Narrow the Persistent Agent Home Without Moving `HOME`
+
+Feature 3A keeps:
+
+- `HOME=/Users/agent`
+- the current stable transcript/export locations
+- current shell startup and XDG roots
+
+But it removes the blanket seatbelt rule:
+
+- `allow file-read* file-write* (subpath "/Users/agent")`
+
+and replaces it with explicit allow rules for the persistent agent-home
+subpaths Hazmat actually intends to support.
+
+This is the safe first slice because it tightens the policy boundary without
+changing where current tools expect their durable state to live.
+
+#### Scope of persistent allowlist
+
+Before Feature 3A lands, Hazmat needs an explicit manifest of currently
+supported persistent paths under `/Users/agent`, including at least:
+
+- shell RC files such as `.zshrc` and `.profile`
+- `.gitconfig`
+- harness commands and skills
+- `.claude/projects` and any other durable transcript/export paths
+- `.local/bin` and other intentionally persistent installed binaries
+- XDG-backed persistent config/data roots that Hazmat already supports today
+
+No path should be treated as "implicitly ephemeral" in Feature 3A. The burden
+is on the manifest to classify it explicitly.
+
+#### UX Impact
+
+Feature 3A should be nearly invisible to users:
+
+- same `HOME`
+- same XDG roots
+- same transcripts and export behavior
+- same shell customization paths
+
+The change is in seatbelt precision, not in user-visible path layout.
+
+### Feature 3B: Move `HOME` to a Session-Local Assembly
+
+Only after Feature 2 is complete should Hazmat move `HOME` to a session-local
+tree such as:
 
 - `/private/tmp/hazmat-home/<session-id>/home`
 
-The session receives:
+At that point the session would receive:
 
 - `HOME=<session-home>`
 - `XDG_CACHE_HOME=<session-home>/.cache`
 - `XDG_CONFIG_HOME=<session-home>/.config`
 - `XDG_DATA_HOME=<session-home>/.local/share`
 
-Hazmat then assembles the home from three state classes.
+Feature 3B is intentionally blocked on several compatibility prerequisites.
 
-### State Classes
+#### Gating requirements
 
-#### 1. Persistent safe state
+1. Feature 2 adapters must preserve durable auth across sessions, including the
+   `/login` flow.
+2. A persistent-state manifest must classify each currently used agent-home
+   path before assembly code lands.
+3. Session transcripts and exported conversation state must remain on a durable
+   persistent path outside the ephemeral home.
+4. Resume sync ordering must be explicitly integrated with home assembly.
+5. Crash cleanup of orphaned temp homes must exist before rollout.
 
-Examples:
+#### Persistent-state manifest requirements
 
-- imported commands and skills
-- non-secret harness settings owned by Hazmat
-- selected transcript/session history paths that are intentionally persistent
-- installed harness binaries under `.local/bin`
-- Git identity config
+The first deliverable of Feature 3B should be a persistence manifest covering
+at least:
 
-This state should live in curated persistent directories that the session home
-references explicitly.
+- shell RC files
+- `.gitconfig`
+- `.claude/commands`, `.claude/skills`, `.claude/projects`
+- XDG-backed config/data paths used by harnesses, MCP registrations, extensions,
+  npm globals, pip user installs, or similar durable tooling state
+- `.local/bin`
 
-#### 2. Ephemeral session state
+This audit is needed because moving `HOME` changes a very large compatibility
+surface. Anything currently persistent through `HOME` or XDG paths becomes
+ephemeral unless the manifest says otherwise.
 
-Examples:
+#### Resume/export requirements
 
-- temp files
-- harness caches that do not need to survive session end
-- adapter scratch space
-- short-lived auth artifacts
-- temporary lock files and runtime logs
-
-This state should live entirely under the session home and be deleted on exit.
-
-#### 3. Denied or absent state
-
-Examples:
-
-- long-lived auth files
-- Git credential stores
-- SSH runtime sockets
-- future provider tokens copied into persistent home directories
-
-This state should not be present as readable persistent session files at all.
-
-### Assembly Mechanism
-
-Hazmat does not need a kernel overlay filesystem to get value here.
-
-V1 can use:
-
-- directory creation
-- symlinks to curated persistent subtrees
-- small copied config stubs where symlinks are awkward
-
-The critical change is in the seatbelt:
-
-- remove the blanket `allow file-read* file-write* (subpath "/Users/agent")`
-- replace it with explicit allow rules for the session home and explicit
-  persistent subpaths that Hazmat assembled deliberately
-
-### Compatibility Responsibilities
-
-This feature must preserve:
+The following behaviors must remain true after Feature 3B lands:
 
 - Claude `--resume` / `--continue` and `hazmat export claude session`
-- portable commands and skills
-- installed harness executables
-- Git identity behavior
+- post-session export after the session has already exited
+- crash survival for durable transcript state
 
-That means the home assembler needs a manifest or adapter layer describing
-which persistent subpaths each harness still needs.
+Required assembly order:
 
-### UX Impact
+1. generate or resolve the session identity
+2. assemble the session-local home view
+3. sync resume data into the assembled view
+4. launch the harness
 
-The happy path should remain unchanged:
+Transcript state itself should remain on a durable path, not inside the
+ephemeral session home.
 
-- the same session commands
-- the same tools available in `PATH`
-- the same visible commands/skills/history where those are part of the product
+#### Temp-home cleanup
 
-The operator should not need to think about the assembled home unless they are
-debugging. `hazmat explain --json` can expose the detailed assembly map.
+If a session crashes, cleanup will not run. Feature 3B therefore also needs a
+startup sweeper or similar mechanism that removes orphaned session-home trees
+older than a bounded age.
+
+#### UX Impact
+
+Feature 3B should not ship until the operator-visible result is still:
+
+- same `/login` durability
+- same transcript/export behavior
+- same durable shell setup
+- same durable tool/harness state that users already rely on
+
+`hazmat explain --json` may expose the assembly map once the feature is active,
+but should not imply an assembly layout exists before rollout.
 
 ### External Audit Questions
 
-- Which existing harness state paths are genuinely safe to persist long-term,
-  and which should move to explicit export/sync flows instead?
-- Should transcript history remain directly writable during the session or be
-  synced in and out as a post-session step?
+- Is the persistent-state manifest complete enough to cover all currently
+  durable shell, XDG, transcript, and harness paths before `HOME` moves?
+- Which state should stay on durable paths permanently versus move to explicit
+  export/sync flows?
 
 ## Feature 4: Passive Egress Telemetry and Audit-Install Mode
 
@@ -567,7 +698,9 @@ Candidate mechanisms:
 - optional pf logging for the agent anchor with a Hazmat parser
 
 LuLu remains a useful optional operator layer, but it should not be Hazmat's
-only story for external audit.
+only story for external audit. If user-space polling is used, it should run as
+the host user outside the sandbox so it does not change the session's own
+process view.
 
 ### Why This Is Deliberately Not a Full Allowlist
 
@@ -615,18 +748,42 @@ This is the cleanest first move because:
 - it closes a concrete demonstrated bypass
 - it preserves the existing user-facing Git SSH workflow
 - it does not depend on harness-specific auth work
+- it is only safe to ship once ProxyJump compatibility, Git protocol v2
+  negotiation, and concrete startup error quality are verified
 
 ### Phase 2: Host-owned secret store plus Git HTTPS broker
 
 This removes the easiest non-SSH credential exfil paths and lays the storage
 foundation for harness adapters.
 
-### Phase 3: Harness auth adapters and session-home assembly
+Required gate for phase completion:
 
-These two should be designed together:
+- first post-upgrade launch auto-migrates or compat-reads legacy agent-home
+  credentials
+- `/login`-produced auth survives session end and appears in the next session
 
-- adapters define what must remain accessible
-- home assembly defines where and for how long it remains accessible
+### Phase 3A: Narrow agent-home seatbelt rules, keep current `HOME`
+
+This phase delivers the low-regression part of the filesystem hardening story:
+
+- replace the blanket agent-home seatbelt allow with explicit persistent-path
+  rules
+- keep `HOME=/Users/agent`
+- keep current transcript/export and shell/XDG behavior
+
+### Phase 3B: Move `HOME` to a session-local assembled home
+
+This phase is blocked on Feature 2 and should not ship independently.
+
+Required gates:
+
+- durable `/login` capture verified
+- persistent-state manifest completed
+- durable transcript/export path preserved
+- resume ordering integrated with assembly
+- orphaned temp-home cleanup implemented
+- `hazmat check` and `hazmat explain --json` gated on the feature actually
+  being active
 
 ### Phase 4: Egress telemetry and audit-install
 
@@ -642,21 +799,36 @@ security claims.
 
 - managed Git SSH cannot be bypassed via raw `/usr/bin/ssh`
 - no generic `ssh-agent` socket is present in the session runtime
+- ProxyJump-based Git flows continue to work, or rollout remains blocked
+- Git protocol v2 negotiation continues to work through the broker path
 - Git HTTPS works without a readable plaintext credential file under
   `/Users/agent`
+- first launch after upgrade migrates or compat-reads existing durable
+  credentials automatically
+- `/login` during one session produces auth that survives into the next session
 - Claude/OpenCode imports preserve commands and skills while no longer copying
   long-lived auth files into persistent agent-home locations
-- assembled session homes preserve `--resume`, export, and harness startup
+- Feature 3A preserves current shell RC, XDG, transcript, and export behavior
+- Feature 3B preserves `--resume`, export, harness startup, and post-session
+  transcript availability after the session has already exited
+- orphaned temp homes are cleaned up on later startup
 - session launch fails closed when a required broker or adapter is unavailable
+  after the migration window has been handled
 
 ### Product Checks
 
 `hazmat check` should evolve to assert the new target state:
 
 - brokered Git SSH present when configured
-- no ambient long-lived harness secrets in persistent session home
-- session-home assembly active
+- no ambient long-lived harness secrets in persistent session home once the
+  corresponding adapter and migration path are active
+- no blanket agent-home seatbelt allow once Feature 3A is active
+- session-home assembly active only when Feature 3B is active
 - egress telemetry plumbing healthy when enabled
+
+Checks should be gated on the actual feature state, not only the binary
+version, so phased rollouts do not create false positives in mixed-state
+installs.
 
 ### Audit Documentation
 
@@ -693,7 +865,9 @@ remain directly reachable inside the contained session.
   capability
 - `sandboxing-gg16` — move harness and Git credentials to host-owned secret
   storage
-- `sandboxing-93r8` — assemble a session-local home and remove blanket
-  agent-home allowance
+- `sandboxing-93r8` — narrow agent-home seatbelt rules while keeping the
+  current durable home layout
+- `sandboxing-eyqk` — move `HOME` to a session-local assembled home once
+  adapter and persistence gates are satisfied
 - `sandboxing-suhu` — add native-session egress telemetry and audit-install
   mode
