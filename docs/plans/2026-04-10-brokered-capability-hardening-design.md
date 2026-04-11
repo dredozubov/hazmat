@@ -236,7 +236,9 @@ the migration:
 
 General host `~/.ssh/config` alias semantics can remain a follow-up slice, but
 that follow-up scope must not be used to silently drop already-working
-ProxyJump behavior.
+ProxyJump behavior. If a rollout ever cannot preserve current ProxyJump-based
+Git flows, Hazmat should ship a separate blocking deprecation path before
+removal rather than letting the behavior disappear implicitly.
 
 V1 does **not** need to solve every SSH routing feature on day one.
 Specifically:
@@ -538,6 +540,9 @@ supported persistent paths under `/Users/agent`, including at least:
 No path should be treated as "implicitly ephemeral" in Feature 3A. The burden
 is on the manifest to classify it explicitly.
 
+Once Feature 3A is active, `hazmat check` can and should assert the absence of
+the blanket broad agent-home allow rule.
+
 #### UX Impact
 
 Feature 3A should be nearly invisible to users:
@@ -615,6 +620,21 @@ ephemeral session home.
 If a session crashes, cleanup will not run. Feature 3B therefore also needs a
 startup sweeper or similar mechanism that removes orphaned session-home trees
 older than a bounded age.
+
+#### Coverage requirements
+
+The session-local home and its narrow seatbelt/path rules must be exercised
+against the full supported tool set before rollout, including at least:
+
+- `go`
+- `npm`
+- `pip`
+- `cargo`
+- `git`
+- harness startup flows
+
+The current blanket rule hides path coverage gaps. Feature 3B must not ship on
+assumption; it needs explicit coverage.
 
 #### UX Impact
 
