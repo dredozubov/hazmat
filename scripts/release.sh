@@ -52,11 +52,19 @@ echo "Running tests..."
 (cd hazmat && go test ./...)
 echo ""
 
-# Build the CLI from the current checkout so the release flow does not depend
-# on whichever hazmat install happens to be first on PATH.
-echo "Building release CLI..."
-make hazmat >/dev/null
-RELEASE_HAZMAT_BIN="$(pwd)/hazmat/hazmat"
+# Build the release binaries from the current checkout, but use the installed
+# Hazmat pair for the changelog session. Native sessions depend on the helper
+# path registered with sudoers, so a checkout-built CLI can drift from the
+# installed helper and fail during session prep.
+echo "Building release binaries..."
+make all >/dev/null
+
+CHANGELOG_HAZMAT_BIN="$(command -v hazmat || true)"
+if [ -z "${CHANGELOG_HAZMAT_BIN}" ]; then
+    echo "error: installed hazmat binary not found on PATH" >&2
+    echo "Run 'make install' and 'hazmat init' before releasing." >&2
+    exit 1
+fi
 echo ""
 
 # Gather changes since last tag
@@ -100,7 +108,7 @@ PROMPT_EOF
 
 echo "Asking hazmat claude to update CHANGELOG.md..."
 echo ""
-CLAUDE_OUTPUT="$("${RELEASE_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMPT_FILE}")" 2>&1)" || {
+CLAUDE_OUTPUT="$("${CHANGELOG_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMPT_FILE}")" 2>&1)" || {
     echo "error: hazmat claude failed" >&2
     echo "${CLAUDE_OUTPUT}" >&2
     exit 1

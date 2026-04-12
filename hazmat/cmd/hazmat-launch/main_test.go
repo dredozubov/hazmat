@@ -190,6 +190,27 @@ func TestCloseInheritedFDs_ClosesExtraFiles(t *testing.T) {
 	}
 }
 
+func TestExecModeBypassesPolicyValidation(t *testing.T) {
+	const childEnv = "HAZMAT_LAUNCH_EXEC_CHILD"
+
+	if os.Getenv(childEnv) == "1" {
+		os.Args = []string{"hazmat-launch", "exec", "/usr/bin/true"}
+		main()
+		os.Exit(99)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestExecModeBypassesPolicyValidation$")
+	cmd.Env = append(os.Environ(), childEnv+"=1")
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run exec-mode child: %v\n%s", err, out)
+	}
+	if got := string(out); got != "" {
+		t.Fatalf("exec-mode child output = %q, want empty output", got)
+	}
+}
+
 func listOpenFDs(maxFD int) ([]int, error) {
 	openFDs := make([]int, 0, maxFD+1)
 	for fd := 0; fd <= maxFD; fd++ {
