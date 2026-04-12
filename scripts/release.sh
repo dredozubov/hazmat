@@ -244,7 +244,12 @@ echo "Edit VERSION in ${RELEASE_PLAN_FILE} and revise CHANGELOG.md as needed."
 echo ""
 
 while true; do
-    run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}" CHANGELOG.md
+    if ! run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}" CHANGELOG.md; then
+        echo "Editor exited non-zero. Restoring CHANGELOG.md..."
+        restore_changelog
+        echo "Aborted."
+        exit 1
+    fi
 
     VERSION="$(extract_version_from_plan "${RELEASE_PLAN_FILE}")"
     if [ -z "${VERSION}" ]; then
