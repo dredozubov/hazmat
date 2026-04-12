@@ -52,13 +52,9 @@ echo "Running tests..."
 (cd hazmat && go test ./...)
 echo ""
 
-# Build the release binaries from the current checkout, but use the installed
-# Hazmat pair for the changelog session. Native sessions depend on the helper
-# path registered with sudoers, so a checkout-built CLI can drift from the
-# installed helper and fail during session prep.
-echo "Building release binaries..."
-make all >/dev/null
-
+# Use the installed Hazmat pair for the changelog session. Native sessions
+# depend on the helper path registered with sudoers, so a checkout-built CLI
+# can drift from the installed helper and fail during session prep.
 CHANGELOG_HAZMAT_BIN="$(command -v hazmat || true)"
 if [ -z "${CHANGELOG_HAZMAT_BIN}" ]; then
     echo "error: installed hazmat binary not found on PATH" >&2
@@ -143,9 +139,18 @@ if git rev-parse "${TAG}" >/dev/null 2>&1; then
     exit 1
 fi
 
+echo "Building release binaries for ${TAG}..."
+make VERSION="${TAG}" all >/dev/null
+LOCAL_BUILD_VERSION="$("$(pwd)/hazmat/hazmat" --version 2>/dev/null || true)"
+if [ "${LOCAL_BUILD_VERSION}" != "hazmat version ${TAG}" ]; then
+    echo "error: local hazmat build reports '${LOCAL_BUILD_VERSION}', expected 'hazmat version ${TAG}'" >&2
+    exit 1
+fi
+echo ""
+
 echo "Release: ${TAG}"
 echo "  Previous tag:    ${PREV_TAG}"
-echo "  Binary version:  ${TAG} (embedded via ldflags)"
+echo "  Local build:     ${LOCAL_BUILD_VERSION}"
 echo "  GitHub release:  https://github.com/dredozubov/hazmat/releases/tag/${TAG}"
 echo "  Homebrew:        brew install dredozubov/tap/hazmat"
 echo ""
