@@ -22,9 +22,31 @@
 
 set -euo pipefail
 
+PROMPT_FILE=""
+RELEASE_PLAN_FILE=""
+RESTORE_CHANGELOG_ON_EXIT=0
+
 restore_changelog() {
-    git restore --worktree --source=HEAD -- CHANGELOG.md
+    git restore --staged --worktree --source=HEAD -- CHANGELOG.md
 }
+
+discard_changelog_draft() {
+    if [ "${RESTORE_CHANGELOG_ON_EXIT}" = "1" ]; then
+        restore_changelog
+        RESTORE_CHANGELOG_ON_EXIT=0
+    fi
+}
+
+cleanup_release_run() {
+    local exit_code=$?
+
+    if [ "${RESTORE_CHANGELOG_ON_EXIT}" = "1" ] && [ "${exit_code}" -ne 0 ]; then
+        restore_changelog >/dev/null 2>&1 || true
+    fi
+    rm -f "${PROMPT_FILE}" "${RELEASE_PLAN_FILE}"
+}
+
+trap cleanup_release_run EXIT
 
 resolve_editor() {
     local editor=""
@@ -185,7 +207,6 @@ echo ""
 # Build prompt in a temp file to avoid nested quoting issues
 PROMPT_FILE="$(mktemp)"
 RELEASE_PLAN_FILE="$(mktemp)"
-trap 'rm -f "${PROMPT_FILE}" "${RELEASE_PLAN_FILE}"' EXIT
 
 cat > "${PROMPT_FILE}" <<PROMPT_EOF
 You are drafting CHANGELOG.md for a new release of Hazmat.
@@ -224,11 +245,12 @@ CLAUDE_OUTPUT="$("${CHANGELOG_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMP
 
 echo "${CLAUDE_OUTPUT}"
 echo ""
+RESTORE_CHANGELOG_ON_EXIT=1
 
 # Extract draft version from claude output if not explicitly given
 DRAFT_VERSION="${REQUESTED_VERSION}"
 if [ -z "${DRAFT_VERSION}" ]; then
-    DRAFT_VERSION="$(echo "${CLAUDE_OUTPUT}" | grep -oE 'VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | tail -1 | cut -d= -f2)"
+    DRAFT_VERSION="$(printf '%s\n' "${CLAUDE_OUTPUT}" | sed -nE 's/.*VERSION=([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?).*/\1/p' | tail -1)"
     if [ -z "${DRAFT_VERSION}" ]; then
         echo "error: could not determine draft version from claude output" >&2
         exit 1
@@ -246,7 +268,7 @@ echo ""
 while true; do
     if ! run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}" CHANGELOG.md; then
         echo "Editor exited non-zero. Restoring CHANGELOG.md..."
-        restore_changelog
+        discard_changelog_draft
         echo "Aborted."
         exit 1
     fi
@@ -270,7 +292,7 @@ while true; do
     read -rp "Re-open editor to fix release metadata? [Y/n] " retry
     if [[ "${retry}" =~ ^[Nn]$ ]]; then
         echo "Restoring CHANGELOG.md..."
-        restore_changelog
+        discard_changelog_draft
         echo "Aborted."
         exit 1
     fi
@@ -306,14 +328,14 @@ if [ "${DRY}" = "--dry" ]; then
     echo "  git commit -m \"docs: update CHANGELOG for ${TAG}\""
     echo "  git tag -a ${TAG} -m \"Release ${TAG}\""
     echo "  git push origin master ${TAG}"
-    restore_changelog
+    discard_changelog_draft
     exit 0
 fi
 
 read -rp "Commit changelog, tag ${TAG}, and push? [y/N] " confirm
 if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
     echo "Restoring CHANGELOG.md..."
-    restore_changelog
+    discard_changelog_draft
     echo "Aborted."
     exit 0
 fi
@@ -322,6 +344,7 @@ git add CHANGELOG.md
 git commit -m "docs: update CHANGELOG for ${TAG}"
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push origin master "${TAG}"
+RESTORE_CHANGELOG_ON_EXIT=0
 
 echo ""
 echo "Done. Watch the release workflow:"
