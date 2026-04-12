@@ -219,17 +219,22 @@ ${CHANGES}
 
 Rules:
 1. Read the current CHANGELOG.md
-2. Draft release notes for shipped, user-relevant changes only.
-3. Ignore docs-only, planning, CI-only, and internal refactor commits unless they materially changed shipped release behavior.
-4. If no explicit version was given, determine the next semver version conservatively:
-   - PATCH (0.x.Y+1) for bug fixes, tooling fixes, and internal changes
-   - MINOR (0.X+1.0) only for clearly shipped new user-facing behavior
-5. Move the [Unreleased] section contents into a new version section with today's date
-6. Categorize entries under Added/Changed/Fixed/Tests as appropriate
-7. Update the comparison links at the bottom
-8. Keep [Unreleased] as an empty section at the top
-9. Write the updated CHANGELOG.md
-10. This is a draft only. The human reviewer will edit both VERSION and CHANGELOG.md before release.
+2. Treat commit subjects as hints, not as changelog entries.
+3. Inspect git diffs or `git show --stat` for any commit that looks user-facing or ambiguous before deciding whether it belongs in the release notes.
+4. Draft release notes only for shipped, user-facing or operator-visible behavior changes.
+5. Ignore docs-only, plans, CI, tests, internal refactors, release-script work, and maintenance unless they materially changed what users or operators can actually do in this release.
+6. Aggregate by release theme, not by commit. If several commits are parts of the same shipped feature or fix, write a single bullet for the resulting user-facing outcome.
+7. Prefer omission over speculation. If you cannot confidently explain the shipped effect in user terms, leave it out.
+8. Keep the changelog concise and high-signal. Usually 1-4 bullets total. Do not create multiple bullets for the same feature.
+9. Use Added only for genuinely new shipped capabilities, Changed only for material behavior changes users or operators will notice, and Fixed only for real user-visible bug fixes. Do not create a Tests section unless test changes are themselves release-worthy, which should be rare.
+10. If no explicit version was given, determine the next semver version conservatively:
+   - PATCH (0.x.Y+1) for bug fixes, tooling fixes, narrow operator-visible improvements, and internal changes
+   - MINOR (0.X+1.0) only for clearly shipped new user-facing or broadly operator-facing capability
+11. Move the [Unreleased] section contents into a new version section with today's date
+12. Update the comparison links at the bottom
+13. Keep [Unreleased] as an empty section at the top
+14. Write the updated CHANGELOG.md
+15. This is a draft only. The human reviewer will edit both VERSION and CHANGELOG.md before release.
 
 Only edit CHANGELOG.md. Do not create or modify any other files.
 Print the chosen version number as the LAST line of your response, formatted exactly as: VERSION=X.Y.Z
