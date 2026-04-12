@@ -79,6 +79,181 @@ extract_version_from_plan() {
     sed -nE 's/^[[:space:]]*VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${plan_file}" | tail -1
 }
 
+format_commit_files() {
+    local files="$1"
+    local formatted=""
+    local count=0
+    local extra=0
+
+    while IFS= read -r file; do
+        if [ -z "${file}" ]; then
+            continue
+        fi
+        count=$((count + 1))
+        if [ "${count}" -le 6 ]; then
+            if [ -n "${formatted}" ]; then
+                formatted="${formatted}, "
+            fi
+            formatted="${formatted}${file}"
+        else
+            extra=$((extra + 1))
+        fi
+    done <<< "${files}"
+
+    if [ -z "${formatted}" ]; then
+        formatted="(none)"
+    fi
+    if [ "${extra}" -gt 0 ]; then
+        formatted="${formatted}, +${extra} more"
+    fi
+
+    printf '%s' "${formatted}"
+}
+
+all_files_match_prefixes() {
+    local files="$1"
+    local saw_file=0
+
+    while IFS= read -r file; do
+        local matched=0
+
+        if [ -z "${file}" ]; then
+            continue
+        fi
+        saw_file=1
+        for prefix in "${@:2}"; do
+            case "${file}" in
+                "${prefix}"*)
+                    matched=1
+                    break
+                    ;;
+            esac
+        done
+        if [ "${matched}" -ne 1 ]; then
+            return 1
+        fi
+    done <<< "${files}"
+
+    [ "${saw_file}" -eq 1 ]
+}
+
+classify_release_commit() {
+    local subject="$1"
+    local files="$2"
+
+    if all_files_match_prefixes "${files}" "docs/" "README.md" "CLAUDE.md"; then
+        printf '%s' "docs"
+        return
+    fi
+
+    case "${subject}" in
+        docs:*|*" design"*|*" design")
+            printf '%s' "docs"
+            return
+            ;;
+    esac
+
+    if all_files_match_prefixes "${files}" "scripts/release.sh" "CHANGELOG.md" "hazmat/cmd/hazmat-launch/main_test.go"; then
+        printf '%s' "release_tooling"
+        return
+    fi
+
+    case "${subject}" in
+        *release*|*changelog*|*editor-driven*|*drafting\ prompt*|*local\ builds*)
+            printf '%s' "release_tooling"
+            return
+            ;;
+    esac
+
+    printf '%s' "candidate"
+}
+
+release_commit_hint() {
+    local subject="$1"
+    local bucket="$2"
+
+    case "${bucket}" in
+        docs)
+            printf '%s' "Ignore by default: docs or design work, not shipped behavior."
+            return
+            ;;
+        release_tooling)
+            printf '%s' "Ignore by default: release tooling or maintainer workflow, not product behavior."
+            return
+            ;;
+    esac
+
+    case "${subject}" in
+        "Fix CI lint failures")
+            printf '%s' "Likely cleanup or stabilization for another feature commit. Fold into that feature or omit."
+            ;;
+        refactor*)
+            printf '%s' "Internal wording may hide an operator-visible change. Include only if the resulting behavior change is clear."
+            ;;
+    esac
+}
+
+build_release_evidence() {
+    local prev_tag="$1"
+    local raw_commits="$2"
+    local candidates=""
+    local tooling=""
+    local docs=""
+    local commit_hash=""
+    local commit_subject=""
+    local commit_files=""
+    local commit_entry=""
+    local commit_hint=""
+    local commit_bucket=""
+
+    while IFS=$'\x1f' read -r commit_hash commit_subject; do
+        if [ -z "${commit_hash}" ]; then
+            continue
+        fi
+        commit_files="$(git diff-tree --no-commit-id --name-only -r "${commit_hash}")"
+        commit_bucket="$(classify_release_commit "${commit_subject}" "${commit_files}")"
+        commit_hint="$(release_commit_hint "${commit_subject}" "${commit_bucket}")"
+        commit_entry="- ${commit_hash:0:7} ${commit_subject}"$'\n'"  Files: $(format_commit_files "${commit_files}")"
+        if [ -n "${commit_hint}" ]; then
+            commit_entry="${commit_entry}"$'\n'"  Hint: ${commit_hint}"
+        fi
+        commit_entry="${commit_entry}"$'\n'
+
+        case "${commit_bucket}" in
+            candidate)
+                candidates="${candidates}${commit_entry}"
+                ;;
+            release_tooling)
+                tooling="${tooling}${commit_entry}"
+                ;;
+            docs)
+                docs="${docs}${commit_entry}"
+                ;;
+        esac
+    done <<< "${raw_commits}"
+
+    if [ -z "${candidates}" ]; then
+        candidates="- none"$'\n'
+    fi
+    if [ -z "${tooling}" ]; then
+        tooling="- none"$'\n'
+    fi
+    if [ -z "${docs}" ]; then
+        docs="- none"$'\n'
+    fi
+
+    cat <<EOF
+Primary release candidates since ${prev_tag} (focus here):
+${candidates%$'\n'}
+
+Release tooling / maintainer workflow since ${prev_tag} (ignore by default):
+${tooling%$'\n'}
+
+Docs / design only since ${prev_tag} (ignore by default):
+${docs%$'\n'}
+EOF
+}
+
 validate_release_plan() {
     local version="$1"
     local prev_tag="$2"
@@ -126,7 +301,8 @@ write_release_plan() {
     local version="$2"
     local prev_tag="$3"
     local requested_version="$4"
-    local changes="$5"
+    local release_evidence="$5"
+    local raw_changes="$6"
 
     cat > "${plan_file}" <<EOF
 # Review this release plan, then save and exit.
@@ -145,8 +321,11 @@ write_release_plan() {
 # Previous tag: ${prev_tag}
 # Requested on CLI: ${requested_version:-(none)}
 #
-# Commits since ${prev_tag}:
-$(printf '%s\n' "${changes}" | sed 's/^/# /')
+# Release evidence since ${prev_tag}:
+$(printf '%s\n' "${release_evidence}" | sed 's/^/# /')
+#
+# Raw commit subjects since ${prev_tag} (cross-check only):
+$(printf '%s\n' "${raw_changes}" | sed 's/^/# /')
 
 VERSION=${version}
 EOF
@@ -194,11 +373,13 @@ fi
 echo ""
 
 # Gather changes since last tag
-CHANGES="$(git log --format='- %s' "${PREV_TAG}..HEAD")"
-if [ -z "${CHANGES}" ]; then
+RAW_COMMITS="$(git log --reverse --format='%H%x1f%s' "${PREV_TAG}..HEAD")"
+if [ -z "${RAW_COMMITS}" ]; then
     echo "error: no changes since ${PREV_TAG}" >&2
     exit 1
 fi
+CHANGES="$(printf '%s\n' "${RAW_COMMITS}" | sed -E $'s/^[^\x1f]+\x1f/- /')"
+RELEASE_EVIDENCE="$(build_release_evidence "${PREV_TAG}" "${RAW_COMMITS}")"
 
 echo "Changes since ${PREV_TAG}:"
 echo "${CHANGES}"
@@ -214,27 +395,33 @@ You are drafting CHANGELOG.md for a new release of Hazmat.
 Previous version tag: ${PREV_TAG}
 Explicit version requested: ${REQUESTED_VERSION:-(none — determine from changes)}
 
-Commits since last tag:
+Release evidence since last tag:
+${RELEASE_EVIDENCE}
+
+Raw commit subjects since last tag:
 ${CHANGES}
 
 Rules:
 1. Read the current CHANGELOG.md
-2. Treat commit subjects as hints, not as changelog entries.
-3. Inspect git diffs or `git show --stat` for any commit that looks user-facing or ambiguous before deciding whether it belongs in the release notes.
-4. Draft release notes only for shipped, user-facing or operator-visible behavior changes.
-5. Ignore docs-only, plans, CI, tests, internal refactors, release-script work, and maintenance unless they materially changed what users or operators can actually do in this release.
-6. Aggregate by release theme, not by commit. If several commits are parts of the same shipped feature or fix, write a single bullet for the resulting user-facing outcome.
-7. Prefer omission over speculation. If you cannot confidently explain the shipped effect in user terms, leave it out.
-8. Keep the changelog concise and high-signal. Usually 1-4 bullets total. Do not create multiple bullets for the same feature.
-9. Use Added only for genuinely new shipped capabilities, Changed only for material behavior changes users or operators will notice, and Fixed only for real user-visible bug fixes. Do not create a Tests section unless test changes are themselves release-worthy, which should be rare.
-10. If no explicit version was given, determine the next semver version conservatively:
+2. Use the "Primary release candidates" section as your main evidence. Use the other sections only as ignore-by-default context.
+3. Treat commit subjects as hints, not as changelog entries.
+4. Inspect 'git show --stat <commit>' or the full diff for any primary candidate that looks user-facing or ambiguous before deciding whether it belongs in the release notes.
+5. Draft release notes only for shipped, user-facing or operator-visible behavior changes.
+6. Ignore docs-only, plans, CI, tests, internal refactors, release-script work, and maintenance unless they materially changed what users or operators can actually do in this release.
+7. Aggregate by release theme, not by commit. If several commits are parts of the same shipped feature or fix, write a single bullet for the resulting user-facing outcome.
+8. Follow-up commits, cleanups, lint fixes, and refactors are not standalone bullets. Fold them into the underlying shipped feature if they materially affect it; otherwise omit them.
+9. Prefer omission over speculation. If you cannot confidently explain the shipped effect in user terms, leave it out.
+10. Keep the changelog concise and high-signal. Usually 1-3 bullets total. Do not create multiple bullets for the same feature.
+11. Use Added only for genuinely new shipped capabilities, Changed only for material behavior changes users or operators will notice, and Fixed only for real user-visible bug fixes. Do not create a Tests section unless test changes are themselves release-worthy, which should be rare.
+12. If no explicit version was given, determine the next semver version conservatively:
    - PATCH (0.x.Y+1) for bug fixes, tooling fixes, narrow operator-visible improvements, and internal changes
    - MINOR (0.X+1.0) only for clearly shipped new user-facing or broadly operator-facing capability
-11. Move the [Unreleased] section contents into a new version section with today's date
-12. Update the comparison links at the bottom
-13. Keep [Unreleased] as an empty section at the top
-14. Write the updated CHANGELOG.md
-15. This is a draft only. The human reviewer will edit both VERSION and CHANGELOG.md before release.
+13. Prefer wording that describes the resulting feature or fix, not the implementation details. Example: do not write "refactor agent maintenance through helper"; write the operator-visible effect if there is one.
+14. Move the [Unreleased] section contents into a new version section with today's date
+15. Update the comparison links at the bottom
+16. Keep [Unreleased] as an empty section at the top
+17. Write the updated CHANGELOG.md
+18. This is a draft only. The human reviewer will edit both VERSION and CHANGELOG.md before release.
 
 Only edit CHANGELOG.md. Do not create or modify any other files.
 Print the chosen version number as the LAST line of your response, formatted exactly as: VERSION=X.Y.Z
@@ -263,7 +450,7 @@ if [ -z "${DRAFT_VERSION}" ]; then
 fi
 DRAFT_VERSION="${DRAFT_VERSION#v}"
 
-write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${CHANGES}"
+write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${RELEASE_EVIDENCE}" "${CHANGES}"
 
 EDITOR_CMD="$(resolve_editor)"
 echo "Opening release review in ${EDITOR_CMD}..."
