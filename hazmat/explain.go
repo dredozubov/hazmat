@@ -13,6 +13,7 @@ func newExplainCmd() *cobra.Command {
 	var readDirs []string
 	var writeDirs []string
 	var integrationNames []string
+	var skipHarnessAssetsSync bool
 	var noBackup bool
 	var useSandbox bool
 	var allowDocker bool
@@ -37,15 +38,16 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, mode, err := resolveExplainSession(target, harnessSessionOpts{
-				project:            project,
-				readDirs:           readDirs,
-				writeDirs:          writeDirs,
-				integrations:       integrationNames,
-				noBackup:           noBackup,
-				useSandbox:         useSandbox,
-				allowDocker:        allowDocker,
-				dockerMode:         dockerModeValue,
-				dockerModeExplicit: cmd.Flags().Changed("docker"),
+				project:               project,
+				readDirs:              readDirs,
+				writeDirs:             writeDirs,
+				integrations:          integrationNames,
+				skipHarnessAssetsSync: skipHarnessAssetsSync,
+				noBackup:              noBackup,
+				useSandbox:            useSandbox,
+				allowDocker:           allowDocker,
+				dockerMode:            dockerModeValue,
+				dockerModeExplicit:    cmd.Flags().Changed("docker"),
 			})
 			if err != nil {
 				return err
@@ -77,6 +79,8 @@ Examples:
 		"Read-write directory to expose to the agent (repeatable)")
 	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
 		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().BoolVar(&skipHarnessAssetsSync, "skip-harness-assets-sync", false,
+		"Preview without managed harness prompt-asset sync")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),

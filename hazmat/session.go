@@ -231,6 +231,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   -W, --write <dir>      Read-write directory (repeatable)
   --integration <name>   Activate a session integration (repeatable)
+  --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --sandbox              Alias for --docker=sandbox
@@ -319,6 +320,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   -W, --write <dir>      Read-write directory (repeatable)
   --integration <name>   Activate a session integration (repeatable)
+  --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
@@ -369,6 +371,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   -R, --read <dir>       Read-only directory (repeatable)
   -W, --write <dir>      Read-write directory (repeatable)
   --integration <name>   Activate a session integration (repeatable)
+  --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
   --docker <mode>        Docker routing: auto, none, or sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
@@ -423,15 +426,16 @@ func codexSkipPermissionsArgs() []string {
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
-	project            string
-	readDirs           []string
-	writeDirs          []string
-	integrations       []string
-	noBackup           bool
-	useSandbox         bool
-	allowDocker        bool
-	dockerMode         string
-	dockerModeExplicit bool
+	project               string
+	readDirs              []string
+	writeDirs             []string
+	integrations          []string
+	skipHarnessAssetsSync bool
+	noBackup              bool
+	useSandbox            bool
+	allowDocker           bool
+	dockerMode            string
+	dockerModeExplicit    bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -447,7 +451,8 @@ func legacyIntegrationFlagError(_ *cobra.Command, err error) error {
 }
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
-// Hazmat flags (--project, --read, --write, --integration, --no-backup,
+// Hazmat flags (--project, --read, --write, --integration,
+// --skip-harness-assets-sync, --no-backup,
 // --docker, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
@@ -473,6 +478,8 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			return opts, nil, errHarnessHelp
+		case arg == "--skip-harness-assets-sync":
+			opts.skipHarnessAssetsSync = true
 		case arg == "--no-backup":
 			opts.noBackup = true
 		case arg == "--docker":
@@ -825,7 +832,15 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
 	}
-	prepared := preparedSession{Config: cfg, Mode: mode, HostMutationPlan: integrationMutationPlan}
+	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	prepared := preparedSession{
+		Config:           cfg,
+		Mode:             mode,
+		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessAssetMutationPlan),
+	}
 	if mode == sessionModeNative {
 		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
 	}

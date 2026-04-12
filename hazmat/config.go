@@ -72,6 +72,10 @@ type SessionConfig struct {
 	// every session. Default: empty. Visible in `hazmat config`, configurable
 	// via `hazmat config set session.read_dirs.add <dir>`.
 	ReadDirs *[]string `yaml:"read_dirs,omitempty"`
+
+	// HarnessAssets enables managed sync of supported user-global prompt assets
+	// for built-in harness commands. Default: true.
+	HarnessAssets *bool `yaml:"harness_assets,omitempty"`
 }
 
 type IntegrationsConfig struct {
@@ -168,6 +172,13 @@ func (c HazmatConfig) SessionReadDirs() []string {
 		return *c.Session.ReadDirs
 	}
 	return nil
+}
+
+func (c HazmatConfig) HarnessAssets() bool {
+	if c.Session.HarnessAssets == nil {
+		return true
+	}
+	return *c.Session.HarnessAssets
 }
 
 func (c HazmatConfig) HomebrewIntegrationConsent() (bool, bool) {
@@ -444,6 +455,7 @@ func runConfigShow() error {
 	fmt.Println()
 	fmt.Printf("    Skip permissions: %v (bypass Claude/Codex app prompts)\n", cfg.SkipPermissions())
 	fmt.Printf("    Status bar:       %v (opt-in)\n", cfg.StatusBar())
+	fmt.Printf("    Harness assets:   %v (managed prompt-asset sync)\n", cfg.HarnessAssets())
 	readDirs := cfg.SessionReadDirs()
 	if len(readDirs) > 0 {
 		fmt.Printf("    Read dirs:        %s\n", strings.Join(readDirs, ", "))
@@ -799,6 +811,7 @@ Keys:
   backup.cloud.access_key        S3 access key
   session.skip_permissions       Bypass Claude/Codex app-level permission prompts (default: true)
   session.status_bar             Enable Hazmat's terminal status bar (default: false)
+  session.harness_assets         Enable managed harness prompt-asset sync (default: true)
   session.read_dirs.add          Add a read-only directory to auto-include in sessions
   session.read_dirs.remove       Remove a read-only directory from auto-include
   integrations.homebrew          Homebrew-backed integration resolution: enabled, disabled, or ask
@@ -810,6 +823,7 @@ Examples:
   hazmat config set backup.excludes.add .idea/
   hazmat config set session.skip_permissions false
   hazmat config set session.status_bar true
+  hazmat config set session.harness_assets false
   hazmat config set session.read_dirs.add ~/other-code
   hazmat config set integrations.homebrew enabled
   hazmat config set integrations.pin "~/workspace/my-app:node,python-uv"
@@ -871,6 +885,9 @@ func runConfigSet(key, value string) error {
 	case "session.status_bar":
 		b := value == "true" || value == "1" || value == "yes"
 		cfg.Session.StatusBar = &b
+	case "session.harness_assets":
+		b := value == "true" || value == "1" || value == "yes"
+		cfg.Session.HarnessAssets = &b
 	case "session.read_dirs.add":
 		dirs := cfg.SessionReadDirs()
 		for _, d := range dirs {
