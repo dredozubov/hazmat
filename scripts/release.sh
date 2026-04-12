@@ -22,14 +22,122 @@
 
 set -euo pipefail
 
+restore_changelog() {
+    git restore --worktree --source=HEAD -- CHANGELOG.md
+}
+
+resolve_editor() {
+    local editor=""
+    if editor="$(git var GIT_EDITOR 2>/dev/null)"; then
+        :
+    elif [ -n "${VISUAL:-}" ]; then
+        editor="${VISUAL}"
+    elif [ -n "${EDITOR:-}" ]; then
+        editor="${EDITOR}"
+    else
+        editor="vi"
+    fi
+
+    printf '%s' "${editor}"
+}
+
+run_editor() {
+    local editor_cmd="$1"
+    shift
+
+    EDITOR_CMD="${editor_cmd}" /bin/sh -c '
+        eval "set -- ${EDITOR_CMD} \"\$@\""
+        exec "$@"
+    ' sh "$@"
+}
+
+extract_version_from_plan() {
+    local plan_file="$1"
+
+    sed -nE 's/^[[:space:]]*VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${plan_file}" | tail -1
+}
+
+validate_release_plan() {
+    local version="$1"
+    local prev_tag="$2"
+    local errors=()
+    local tag=""
+    local version_header_pattern=""
+    local unreleased_link_pattern=""
+    local release_link_pattern=""
+
+    version="${version#v}"
+    if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+        errors+=("VERSION must look like semver (expected X.Y.Z or X.Y.Z-suffix).")
+    fi
+
+    tag="v${version}"
+    if git rev-parse "${tag}" >/dev/null 2>&1; then
+        errors+=("Tag ${tag} already exists.")
+    fi
+
+    version_header_pattern="^## \\[${version//./\\.}\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    if ! grep -Eq "${version_header_pattern}" CHANGELOG.md; then
+        errors+=("CHANGELOG.md must contain a section header like '## [${version}] - YYYY-MM-DD'.")
+    fi
+
+    unreleased_link_pattern="^\\[Unreleased\\]: .*compare/${tag//./\\.}\\.\\.\\.HEAD$"
+    if ! grep -Eq "${unreleased_link_pattern}" CHANGELOG.md; then
+        errors+=("CHANGELOG.md must update the [Unreleased] link to compare ${tag}...HEAD.")
+    fi
+
+    release_link_pattern="^\\[${version//./\\.}\\]: .*compare/${prev_tag//./\\.}\\.\\.\\.${tag//./\\.}$"
+    if ! grep -Eq "${release_link_pattern}" CHANGELOG.md; then
+        errors+=("CHANGELOG.md must include a [${version}] link comparing ${prev_tag}...${tag}.")
+    fi
+
+    if [ "${#errors[@]}" -gt 0 ]; then
+        printf '%s\n' "${errors[@]}"
+        return 1
+    fi
+
+    return 0
+}
+
+write_release_plan() {
+    local plan_file="$1"
+    local version="$2"
+    local prev_tag="$3"
+    local requested_version="$4"
+    local changes="$5"
+
+    cat > "${plan_file}" <<EOF
+# Review this release plan, then save and exit.
+# Edit VERSION as needed. Edit CHANGELOG.md to match before continuing.
+# Only include shipped, release-relevant changes in the changelog.
+# Exclude docs-only, planning, CI-only, and internal refactor entries unless they
+# materially changed the release itself.
+#
+# Validation rules:
+# - VERSION must be semver: X.Y.Z or X.Y.Z-suffix
+# - CHANGELOG.md must contain: ## [VERSION] - YYYY-MM-DD
+# - [Unreleased] must compare VERSION...HEAD
+# - [VERSION] must compare ${prev_tag}...vVERSION
+#
+# Context:
+# Previous tag: ${prev_tag}
+# Requested on CLI: ${requested_version:-(none)}
+#
+# Commits since ${prev_tag}:
+$(printf '%s\n' "${changes}" | sed 's/^/# /')
+
+VERSION=${version}
+EOF
+}
+
 # Parse arguments: [version] [--dry]
-VERSION=""
+REQUESTED_VERSION=""
 DRY=""
 for arg in "$@"; do
     if [ "$arg" = "--dry" ]; then
         DRY="--dry"
-    elif [ -z "$VERSION" ]; then
-        VERSION="$arg"
+    elif [ -z "$REQUESTED_VERSION" ]; then
+        REQUESTED_VERSION="$arg"
     fi
 done
 
@@ -76,27 +184,31 @@ echo ""
 
 # Build prompt in a temp file to avoid nested quoting issues
 PROMPT_FILE="$(mktemp)"
-trap 'rm -f "${PROMPT_FILE}"' EXIT
+RELEASE_PLAN_FILE="$(mktemp)"
+trap 'rm -f "${PROMPT_FILE}" "${RELEASE_PLAN_FILE}"' EXIT
 
 cat > "${PROMPT_FILE}" <<PROMPT_EOF
-You are updating CHANGELOG.md for a new release of Hazmat.
+You are drafting CHANGELOG.md for a new release of Hazmat.
 
 Previous version tag: ${PREV_TAG}
-Explicit version requested: ${VERSION:-(none — determine from changes)}
+Explicit version requested: ${REQUESTED_VERSION:-(none — determine from changes)}
 
 Commits since last tag:
 ${CHANGES}
 
 Rules:
 1. Read the current CHANGELOG.md
-2. If no explicit version was given, determine the next semver version:
-   - PATCH (0.x.Y+1) for bug fixes and test-only changes
-   - MINOR (0.X+1.0) for new features or breaking changes
-3. Move the [Unreleased] section contents into a new version section with today's date
-4. Categorize commits under Added/Changed/Fixed/Tests as appropriate
-5. Update the comparison links at the bottom
-6. Keep [Unreleased] as an empty section at the top
-7. Write the updated CHANGELOG.md
+2. Draft release notes for shipped, user-relevant changes only.
+3. Ignore docs-only, planning, CI-only, and internal refactor commits unless they materially changed shipped release behavior.
+4. If no explicit version was given, determine the next semver version conservatively:
+   - PATCH (0.x.Y+1) for bug fixes, tooling fixes, and internal changes
+   - MINOR (0.X+1.0) only for clearly shipped new user-facing behavior
+5. Move the [Unreleased] section contents into a new version section with today's date
+6. Categorize entries under Added/Changed/Fixed/Tests as appropriate
+7. Update the comparison links at the bottom
+8. Keep [Unreleased] as an empty section at the top
+9. Write the updated CHANGELOG.md
+10. This is a draft only. The human reviewer will edit both VERSION and CHANGELOG.md before release.
 
 Only edit CHANGELOG.md. Do not create or modify any other files.
 Print the chosen version number as the LAST line of your response, formatted exactly as: VERSION=X.Y.Z
@@ -113,31 +225,54 @@ CLAUDE_OUTPUT="$("${CHANGELOG_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMP
 echo "${CLAUDE_OUTPUT}"
 echo ""
 
-# Extract version from claude output if not explicitly given
-if [ -z "${VERSION}" ]; then
-    VERSION="$(echo "${CLAUDE_OUTPUT}" | grep -oE 'VERSION=[0-9]+\.[0-9]+\.[0-9]+' | tail -1 | cut -d= -f2)"
-    if [ -z "${VERSION}" ]; then
-        echo "error: could not determine version from claude output" >&2
+# Extract draft version from claude output if not explicitly given
+DRAFT_VERSION="${REQUESTED_VERSION}"
+if [ -z "${DRAFT_VERSION}" ]; then
+    DRAFT_VERSION="$(echo "${CLAUDE_OUTPUT}" | grep -oE 'VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | tail -1 | cut -d= -f2)"
+    if [ -z "${DRAFT_VERSION}" ]; then
+        echo "error: could not determine draft version from claude output" >&2
         exit 1
     fi
-    echo "Determined version: ${VERSION}"
-    echo ""
 fi
+DRAFT_VERSION="${DRAFT_VERSION#v}"
 
-# Normalize: strip leading v if user passes it
+write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${CHANGES}"
+
+EDITOR_CMD="$(resolve_editor)"
+echo "Opening release review in ${EDITOR_CMD}..."
+echo "Edit VERSION in ${RELEASE_PLAN_FILE} and revise CHANGELOG.md as needed."
+echo ""
+
+while true; do
+    run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}" CHANGELOG.md
+
+    VERSION="$(extract_version_from_plan "${RELEASE_PLAN_FILE}")"
+    if [ -z "${VERSION}" ]; then
+        echo "Release plan is invalid:"
+        echo "  - Add a line like VERSION=0.6.1 to ${RELEASE_PLAN_FILE}"
+        echo ""
+    else
+        if validation_errors="$(validate_release_plan "${VERSION}" "${PREV_TAG}")"; then
+            break
+        fi
+        echo "Release plan validation failed:"
+        while IFS= read -r validation_error; do
+            echo "  - ${validation_error}"
+        done <<< "${validation_errors}"
+        echo ""
+    fi
+
+    read -rp "Re-open editor to fix release metadata? [Y/n] " retry
+    if [[ "${retry}" =~ ^[Nn]$ ]]; then
+        echo "Restoring CHANGELOG.md..."
+        restore_changelog
+        echo "Aborted."
+        exit 1
+    fi
+done
+
 VERSION="${VERSION#v}"
 TAG="v${VERSION}"
-
-# Sanity checks
-if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-    echo "error: version '${VERSION}' doesn't look like semver (expected X.Y.Z)" >&2
-    exit 1
-fi
-
-if git rev-parse "${TAG}" >/dev/null 2>&1; then
-    echo "error: tag ${TAG} already exists" >&2
-    exit 1
-fi
 
 echo "Building release binaries for ${TAG}..."
 make VERSION="${TAG}" all >/dev/null
@@ -166,14 +301,14 @@ if [ "${DRY}" = "--dry" ]; then
     echo "  git commit -m \"docs: update CHANGELOG for ${TAG}\""
     echo "  git tag -a ${TAG} -m \"Release ${TAG}\""
     echo "  git push origin master ${TAG}"
-    git checkout CHANGELOG.md
+    restore_changelog
     exit 0
 fi
 
 read -rp "Commit changelog, tag ${TAG}, and push? [y/N] " confirm
 if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
     echo "Restoring CHANGELOG.md..."
-    git checkout CHANGELOG.md
+    restore_changelog
     echo "Aborted."
     exit 0
 fi
