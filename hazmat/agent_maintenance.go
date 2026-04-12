@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -68,8 +67,4 @@ func agentWriteSharedFile(path string, content []byte, mode os.FileMode) error {
 		return err
 	}
 	return agentSetSharedGroup(path, mode)
-}
-
-func agentMkdirAllForFile(path string, mode os.FileMode) error {
-	return agentEnsureDir(filepath.Dir(path), mode)
 }

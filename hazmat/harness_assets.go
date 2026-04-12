@@ -733,15 +733,15 @@ func writeHarnessAssetsState(state harnessAssetsState) error {
 	defer os.Remove(tmpPath)
 
 	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -768,7 +768,9 @@ func withHarnessAssetLock(fn func() error) error {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	defer func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	}()
 
 	return fn()
 }
@@ -806,7 +808,7 @@ func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {
 			return err
 		}
 		if err := copyHarnessAssetDirStrict(entry.SourcePath, tempPath); err != nil {
-			os.RemoveAll(tempPath)
+			_ = os.RemoveAll(tempPath)
 			return err
 		}
 	} else {
@@ -815,18 +817,21 @@ func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {
 			return err
 		}
 		tempPath = tempFile.Name()
-		tempFile.Close()
+		if err := tempFile.Close(); err != nil {
+			_ = os.Remove(tempPath)
+			return err
+		}
 		if err := copyHarnessAssetFileStrict(entry.SourcePath, tempPath); err != nil {
-			os.Remove(tempPath)
+			_ = os.Remove(tempPath)
 			return err
 		}
 	}
 
 	if err := replaceHarnessAssetPath(tempPath, entry.DestPath); err != nil {
 		if info.IsDir() {
-			os.RemoveAll(tempPath)
+			_ = os.RemoveAll(tempPath)
 		} else {
-			os.Remove(tempPath)
+			_ = os.Remove(tempPath)
 		}
 		return err
 	}
