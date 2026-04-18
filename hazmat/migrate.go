@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 // migration defines a version transition with forward (up) and reverse (down)
@@ -71,8 +70,7 @@ func migrateUp_0_1_0_to_0_2_0(ui *UI, r *Runner) error {
 	if _, err := os.Stat(workspaceDir); err == nil {
 		// Remove the dev group ACL. Errors are non-fatal — the ACL may
 		// already be gone or the user may have removed ~/workspace.
-		aclEntry := devGroupACLEntry()
-		if err := exec.Command("chmod", "-a", aclEntry, workspaceDir).Run(); err != nil {
+		if err := removeACL(directACLInvoker{}, workspaceDir, devGroupInheritableGrant); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove workspace ACL (non-fatal): %v", err))
 		} else {
 			ui.Ok("Removed dev group ACL from ~/workspace")
@@ -115,8 +113,8 @@ func migrateDown_0_2_0_to_0_1_0(ui *UI, r *Runner) error {
 	// Remove homeDirTraverse ACL (added by v0.2.0).
 	homeDir := os.Getenv("HOME")
 	if homeHasAgentTraverseACL(homeDir) {
-		if err := r.Sudo("remove home dir traverse ACL",
-			"chmod", "-a", homeTraverseACLEntry(), homeDir); err != nil {
+		inv := sudoACLInvoker{runner: r, reason: "remove home dir traverse ACL"}
+		if err := removeACL(inv, homeDir, agentTraverseGrant); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove home traverse ACL: %v", err))
 		} else {
 			ui.Ok("Removed home directory traverse ACL")

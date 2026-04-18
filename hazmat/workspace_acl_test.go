@@ -3,110 +3,219 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestAclOutputHasDevACL(t *testing.T) {
+// rowFromLine is a test helper that parses a single ls -leOd row. Fails the
+// test if the line does not parse — shared by all row-level tests below.
+func rowFromLine(t *testing.T, line string) ACLRow {
+	t.Helper()
+	row, ok := parseACLRow(line)
+	if !ok {
+		t.Fatalf("parseACLRow(%q) returned ok=false", line)
+	}
+	return row
+}
+
+func TestACLRowSatisfiesDevGroupGrant(t *testing.T) {
 	t.Parallel()
 
-	// Directory rendering: macOS normalizes execute to search and splits
-	// read/write into directory-specific verbs (list, add_file, add_subdirectory,
-	// delete_child). Files render with the original tokens (read, execute).
-	dirInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
-	dirNoInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity"
-	fileRendered := "0: group:dev allow read,write,execute,append,delete,readattr,writeattr,readextattr,writeextattr,readsecurity"
-
-	// macOS displays deny entries as "deny" (not "allow"). A deny entry on the
-	// dev group with inherit flags must not be mistaken for our allow grant.
-	dirDenyInherit := "0: group:dev deny list,add_file,search,file_inherit,directory_inherit"
-
-	// Unrelated group with inherit flags must not match.
-	otherGroup := "0: group:staff allow list,add_file,search,file_inherit,directory_inherit"
-
-	// A user-principal entry with the agent's name must not match a dev-group
-	// query (principal scoping).
-	userPrincipal := "0: user:agent allow execute"
-
-	// Empty ls -led output (no ACL block on the path).
-	emptyOutput := "drwxr-xr-x  8 dr  staff  256 Apr 18 10:00 .\n"
+	// Directory rendering: macOS normalizes execute→search and splits
+	// read/write into directory-specific verbs (list, add_file,
+	// add_subdirectory, delete_child). Files render with the original
+	// chmod-input tokens (read, execute).
+	dirInherit := " 0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
+	dirNoInherit := " 0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity"
+	fileRendered := " 0: group:dev allow read,write,execute,append,delete,readattr,writeattr,readextattr,writeextattr,readsecurity"
+	dirDenyInherit := " 0: group:dev deny list,add_file,search,file_inherit,directory_inherit"
+	otherGroup := " 0: group:staff allow list,add_file,search,file_inherit,directory_inherit"
+	userPrincipal := " 0: user:agent allow execute"
 
 	cases := []struct {
-		name           string
-		output         string
-		requireInherit bool
-		want           bool
+		name              string
+		line              string
+		wantInheritable   bool // Satisfies(devGroupInheritableGrant)
+		wantNonInherit    bool // Satisfies(devGroupGrant)
 	}{
-		{"dir-inherit-required-present", dirInherit, true, true},
-		{"dir-inherit-not-required-present", dirInherit, false, true},
-		{"dir-no-inherit-required", dirNoInherit, true, false},
-		{"dir-no-inherit-not-required", dirNoInherit, false, true},
-		{"file-rendered-not-required", fileRendered, false, true},
-		{"deny-entry-not-required", dirDenyInherit, false, false},
-		{"deny-entry-required", dirDenyInherit, true, false},
-		{"other-group-required", otherGroup, true, false},
+		{"dir-inherit", dirInherit, true, true},
+		{"dir-no-inherit", dirNoInherit, false, true},
+		{"file-rendered", fileRendered, false, true},
+		{"deny-entry", dirDenyInherit, false, false},
+		{"other-group", otherGroup, false, false},
 		{"user-principal-not-dev-group", userPrincipal, false, false},
-		{"empty-output", emptyOutput, false, false},
 	}
 
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := aclOutputHasDevACL(tc.output, tc.requireInherit); got != tc.want {
-				t.Fatalf("aclOutputHasDevACL(..., requireInherit=%t) = %t, want %t", tc.requireInherit, got, tc.want)
+			row := rowFromLine(t, tc.line)
+			if got := row.Satisfies(devGroupInheritableGrant); got != tc.wantInheritable {
+				t.Errorf("Satisfies(inheritable) = %t, want %t", got, tc.wantInheritable)
+			}
+			if got := row.Satisfies(devGroupGrant); got != tc.wantNonInherit {
+				t.Errorf("Satisfies(non-inherit) = %t, want %t", got, tc.wantNonInherit)
 			}
 		})
 	}
 }
 
-func TestAclOutputHasAgentTraverse(t *testing.T) {
+func TestACLRowSatisfiesAgentTraverseGrant(t *testing.T) {
 	t.Parallel()
 
-	// Home directory renders the traverse ACL with "search" (directory
-	// normalization). File rendering shows "execute". Both must match.
-	homeRenderedSearch := "0: user:agent allow search,readattr,readextattr,readsecurity"
-	fileRenderedExecute := "0: user:agent allow execute,readattr,readextattr,readsecurity"
-
-	// Deny entry must not be mistaken for allow.
-	denyEntry := "0: user:agent deny search"
-
-	// Principal mismatch: traverse for a different user must not match.
-	differentUser := "0: user:other allow search"
-
-	// Group-principal entry with search must not match: the traverse ACL is
-	// user-scoped, and homeAllowsAgentTraverse has a separate group-membership
-	// fallback for mode bits.
-	groupPrincipal := "0: group:dev allow search,file_inherit,directory_inherit"
-
-	// Multi-line output: unrelated allow line must not bleed into the agent
-	// principal check. Without line-scoping, substring matching the whole
-	// blob for "user:agent" + " allow search" would return true even though
-	// the agent line carries "deny" and the allow line is a different user.
-	multiLineMasked := "0: user:agent deny search\n1: user:other allow search\n"
-
-	// Empty output (no ACL).
-	emptyOutput := "drwxr-xr-x  10 dr  staff  320 Apr 18 10:00 .\n"
+	// Home directory renders traverse as "search" (directory normalization);
+	// files render as "execute". Both must satisfy the grant.
+	dirRendered := " 0: user:agent allow search,readattr,readextattr,readsecurity"
+	fileRendered := " 0: user:agent allow execute,readattr,readextattr,readsecurity"
+	denyEntry := " 0: user:agent deny search"
+	differentUser := " 0: user:other allow search"
+	groupPrincipal := " 0: group:dev allow search,file_inherit,directory_inherit"
 
 	cases := []struct {
-		name   string
-		output string
-		want   bool
+		name          string
+		line          string
+		wantSatisfies bool
+		wantTraverse  bool // GrantsPerm("execute")
 	}{
-		{"dir-rendered-search", homeRenderedSearch, true},
-		{"file-rendered-execute", fileRenderedExecute, true},
-		{"deny-entry", denyEntry, false},
-		{"different-user", differentUser, false},
-		{"group-principal-not-user", groupPrincipal, false},
-		{"multi-line-deny-masks-allow", multiLineMasked, false},
-		{"empty-output", emptyOutput, false},
+		{"dir-rendered-search", dirRendered, true, true},
+		{"file-rendered-execute", fileRendered, true, true},
+		{"deny-entry", denyEntry, false, true}, // GrantsPerm sees the token regardless of kind
+		{"different-user", differentUser, false, true},
+		{"group-principal-not-user", groupPrincipal, false, true},
 	}
 
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := aclOutputHasAgentTraverse(tc.output); got != tc.want {
-				t.Fatalf("aclOutputHasAgentTraverse(...) = %t, want %t", got, tc.want)
+			row := rowFromLine(t, tc.line)
+			if got := row.Satisfies(agentTraverseGrant); got != tc.wantSatisfies {
+				t.Errorf("Satisfies(agentTraverse) = %t, want %t", got, tc.wantSatisfies)
+			}
+			if got := row.GrantsPerm("execute"); got != tc.wantTraverse {
+				t.Errorf("GrantsPerm(\"execute\") = %t, want %t", got, tc.wantTraverse)
+			}
+		})
+	}
+}
+
+func TestParseACLRowRejectsNonACLLines(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		"",
+		"drwxr-xr-x  10 dr  staff  320 Apr 18 10:00 .",
+		"total 0",
+		"garbage line without colon",
+		" X: group:dev allow search",   // non-numeric index
+		" 0: group:dev unknownkind x",  // unknown kind token
+		" 0: group:dev allow",          // missing perms field
+	}
+
+	for _, line := range cases {
+		line := line
+		t.Run(strings.ReplaceAll(line, " ", "_"), func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseACLRow(line); ok {
+				t.Fatalf("parseACLRow(%q) should have returned ok=false", line)
+			}
+		})
+	}
+}
+
+func TestParseACLRowHandlesInheritedFlag(t *testing.T) {
+	t.Parallel()
+
+	// Entries propagated from a parent's inheritable ACL carry an
+	// "inherited" token between principal and kind. It must not confuse
+	// the parser or alter Satisfies.
+	line := " 1: user:agent inherited allow search,readattr,readextattr,readsecurity"
+	row := rowFromLine(t, line)
+	if row.Kind != ACLAllow {
+		t.Fatalf("Kind = %v, want ACLAllow", row.Kind)
+	}
+	if row.Principal != "user:agent" {
+		t.Fatalf("Principal = %q, want user:agent", row.Principal)
+	}
+	if !row.Satisfies(agentTraverseGrant) {
+		t.Fatal("inherited allow row should satisfy agent traverse grant")
+	}
+}
+
+func TestHasACLSatisfyingMultiLine(t *testing.T) {
+	t.Parallel()
+
+	// A deny line for the agent principal followed by an unrelated allow
+	// line must not be mistaken for an agent allow entry. This is the
+	// line-scoping invariant that the pre-refactor substring parser lacked.
+	output := "drwxr-xr-x+ 10 dr  staff  320 Apr 18 10:00 .\n" +
+		" 0: user:agent deny search\n" +
+		" 1: user:other allow search\n"
+
+	var rows []ACLRow
+	for _, line := range strings.Split(output, "\n") {
+		if row, ok := parseACLRow(line); ok {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) != 2 {
+		t.Fatalf("parsed %d rows, want 2", len(rows))
+	}
+	for _, r := range rows {
+		if r.Satisfies(agentTraverseGrant) {
+			t.Fatalf("row %+v must not satisfy agent traverse grant", r)
+		}
+	}
+}
+
+func TestACLGrantString(t *testing.T) {
+	t.Parallel()
+
+	want := "user:agent allow execute,readattr,readextattr,readsecurity"
+	if got := agentTraverseGrant.String(); got != want {
+		t.Errorf("agentTraverseGrant.String() = %q, want %q", got, want)
+	}
+
+	inheritSuffix := ",file_inherit,directory_inherit"
+	if got := devGroupInheritableGrant.String(); !strings.HasSuffix(got, inheritSuffix) {
+		t.Errorf("devGroupInheritableGrant.String() = %q, should end with %q", got, inheritSuffix)
+	}
+	if got := devGroupGrant.String(); strings.HasSuffix(got, inheritSuffix) {
+		t.Errorf("devGroupGrant.String() = %q, must not end with inherit flags", got)
+	}
+}
+
+func TestACLPermAliases(t *testing.T) {
+	t.Parallel()
+
+	// The normalization table is the single reviewable place for macOS
+	// directory ACL rendering. Lock down the mappings that matter for
+	// traverse and collaborative-write semantics.
+	cases := []struct {
+		input string
+		want  []string
+	}{
+		{"execute", []string{"execute", "search"}},
+		{"read", []string{"read", "list"}},
+		{"write", []string{"write", "add_file", "add_subdirectory"}},
+		{"append", []string{"append", "add_subdirectory"}},
+		{"delete", []string{"delete"}},
+		{"readattr", []string{"readattr"}},
+		{"unknown_perm", []string{"unknown_perm"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+			got := aclPermAliases(tc.input)
+			if len(got) != len(tc.want) {
+				t.Fatalf("aclPermAliases(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("aclPermAliases(%q)[%d] = %q, want %q", tc.input, i, got[i], tc.want[i])
+				}
 			}
 		})
 	}

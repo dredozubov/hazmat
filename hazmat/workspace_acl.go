@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,48 +11,15 @@ import (
 var currentUserHomeDir = os.UserHomeDir
 var pathAllowsAgentTraverse = homeAllowsAgentTraverse
 
-// devGroupACLEntry returns the macOS ACL entry string that grants the dev
-// group full collaborative access with file and directory inheritance.
-func devGroupACLEntry() string {
-	return "group:" + sharedGroup +
-		" allow read,write,execute,append,delete,delete_child," +
-		"readattr,writeattr,readextattr,writeextattr,readsecurity," +
-		"file_inherit,directory_inherit"
-}
-
-// devGroupACLEntryNoInherit returns the same permissions as devGroupACLEntry
-// but without file_inherit and directory_inherit.
-func devGroupACLEntryNoInherit() string {
-	return "group:" + sharedGroup +
-		" allow read,write,execute,append,delete,delete_child," +
-		"readattr,writeattr,readextattr,writeextattr,readsecurity"
-}
-
-func aclOutputHasDevACL(output string, requireInherit bool) bool {
-	for _, line := range strings.Split(output, "\n") {
-		if !strings.Contains(line, "group:"+sharedGroup) {
-			continue
-		}
-		if !strings.Contains(line, " allow ") {
-			continue
-		}
-		if !requireInherit || (strings.Contains(line, "file_inherit") && strings.Contains(line, "directory_inherit")) {
-			return true
-		}
-	}
-	return false
-}
-
-// pathHasDevACL checks whether a path already has a dev group ACL entry.
-// Uses `ls -led` so the directory's own ACL is inspected rather than its
-// children — without -d, ls renders the ACLs of the directory's contents
-// instead, which silently returned the wrong answer for directory arguments.
+// pathHasDevACL reports whether a path carries the dev-group collaborative
+// ACL. requireInherit selects devGroupInheritableGrant (directories) vs
+// devGroupGrant (files or any entry regardless of inheritance).
 func pathHasDevACL(path string, requireInherit bool) bool {
-	out, err := exec.Command("ls", "-led", path).CombinedOutput()
-	if err != nil {
-		return false
+	grant := devGroupGrant
+	if requireInherit {
+		grant = devGroupInheritableGrant
 	}
-	return aclOutputHasDevACL(string(out), requireInherit)
+	return hasACLSatisfying(path, grant)
 }
 
 // writableByAgentMode reports whether Unix ownership + mode bits alone are
@@ -222,11 +188,12 @@ func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, 
 		fixed    bool
 		failures []string
 	)
+	inv := directACLInvoker{}
 	for _, path := range pendingAgentTraverseTargets(projectDir, dirs) {
 		if homeAllowsAgentTraverse(path) {
 			continue
 		}
-		if err := exec.Command("chmod", "+a", homeTraverseACLEntry(), path).Run(); err != nil {
+		if err := ensureACL(inv, path, agentTraverseGrant); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}
@@ -291,11 +258,12 @@ func ensureAgentCanTraverseLaunchHelperPath(helperPath string) (bool, []string) 
 		fixed    bool
 		failures []string
 	)
+	inv := directACLInvoker{}
 	for _, path := range pendingLaunchHelperTraverseTargets(helperPath) {
 		if pathAllowsAgentTraverse(path) {
 			continue
 		}
-		if err := exec.Command("chmod", "+a", homeTraverseACLEntry(), path).Run(); err != nil {
+		if err := ensureACL(inv, path, agentTraverseGrant); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}
@@ -305,12 +273,17 @@ func ensureAgentCanTraverseLaunchHelperPath(helperPath string) (bool, []string) 
 	return fixed, failures
 }
 
-func applyACLTree(root, dirACLEntry, fileACLEntry string) []string {
+// applyDevACLTree stamps the collaborative dev-group ACL across a project:
+// an inheritable grant on the root, then a non-inheritable grant on each
+// existing entry so pre-existing files become writable by the agent. The
+// inheritable root grant is what macOS propagates to anything created
+// after the walk.
+func applyDevACLTree(root string) []string {
 	var failures []string
-	if !pathHasDevACL(root, true) {
-		if err := exec.Command("chmod", "+a", dirACLEntry, root).Run(); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
-		}
+	inv := directACLInvoker{}
+
+	if err := ensureACL(inv, root, devGroupInheritableGrant); err != nil {
+		failures = append(failures, fmt.Sprintf("%s: %v", root, err))
 	}
 
 	for _, p := range collectACLTargets(root) {
@@ -322,26 +295,16 @@ func applyACLTree(root, dirACLEntry, fileACLEntry string) []string {
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
-
-		aclEntry := fileACLEntry
-		requireInherit := false
+		grant := devGroupGrant
 		if info.IsDir() {
-			aclEntry = dirACLEntry
-			requireInherit = true
+			grant = devGroupInheritableGrant
 		}
-		if pathHasDevACL(p, requireInherit) {
-			continue
-		}
-		if err := exec.Command("chmod", "+a", aclEntry, p).Run(); err != nil {
+		if err := ensureACL(inv, p, grant); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
 		}
 	}
 
 	return failures
-}
-
-func applyDevACLTree(root string) []string {
-	return applyACLTree(root, devGroupACLEntry(), devGroupACLEntryNoInherit())
 }
 
 // ensureProjectWritable checks if the agent user can write to the project

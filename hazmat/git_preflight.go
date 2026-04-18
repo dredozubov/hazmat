@@ -116,8 +116,8 @@ func gitRepairCommand(gitDir string) string {
 	quotedDir := shellQuote([]string{gitDir})[0]
 	return strings.Join([]string{
 		fmt.Sprintf("sudo chown -R \"$(id -un)\":staff %s", quotedDir),
-		fmt.Sprintf("find %s -type d -exec chmod +a '%s' {} +", quotedDir, devGroupACLEntry()),
-		fmt.Sprintf("find %s -type f -exec chmod +a '%s' {} +", quotedDir, devGroupACLEntryNoInherit()),
+		fmt.Sprintf("find %s -type d -exec chmod +a '%s' {} +", quotedDir, devGroupInheritableGrant.String()),
+		fmt.Sprintf("find %s -type f -exec chmod +a '%s' {} +", quotedDir, devGroupGrant.String()),
 	}, " && ")
 }
 

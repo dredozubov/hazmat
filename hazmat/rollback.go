@@ -344,7 +344,8 @@ func rollbackHomeDirTraverse(ui *UI, r *Runner) {
 
 	homeDir := os.Getenv("HOME")
 	if homeHasAgentTraverseACL(homeDir) {
-		if err := r.Sudo("remove home directory traverse ACL", "chmod", "-a", homeTraverseACLEntry(), homeDir); err != nil {
+		inv := sudoACLInvoker{runner: r, reason: "remove home directory traverse ACL"}
+		if err := removeACL(inv, homeDir, agentTraverseGrant); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL: %v", err))
 		} else {
 			ui.Ok("Removed home traversal ACL")

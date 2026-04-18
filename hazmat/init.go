@@ -764,8 +764,8 @@ func setupHomeDirTraverse(ui *UI, r *Runner) error {
 			ui.SkipDone("Home directory permissions already allow agent traversal")
 		}
 	} else {
-		if err := r.Sudo("allow agent to traverse home directory",
-			"chmod", "+a", homeTraverseACLEntry(), homeDir); err != nil {
+		inv := sudoACLInvoker{runner: r, reason: "allow agent to traverse home directory"}
+		if err := ensureACL(inv, homeDir, agentTraverseGrant); err != nil {
 			return fmt.Errorf("set home traversal ACL: %w", err)
 		}
 		ui.Ok("Home directory ACL set — agent can reach project directories")
@@ -1403,46 +1403,30 @@ func gidTaken(gid string) (bool, error) {
 	return false, nil
 }
 
-func homeTraverseACLEntry() string {
-	return "user:" + agentUser + " allow execute,readattr,readextattr,readsecurity"
-}
-
 func ensureAgentCanTraverseLaunchHelper(r *Runner, helperPath string) error {
+	inv := sudoACLInvoker{runner: r, reason: "allow agent to traverse launch-helper directory"}
 	for _, path := range pendingLaunchHelperTraverseTargets(helperPath) {
 		if homeAllowsAgentTraverse(path) {
 			continue
 		}
-		if err := r.Sudo("allow agent to traverse launch-helper directory",
-			"chmod", "+a", homeTraverseACLEntry(), path); err != nil {
+		if err := ensureACL(inv, path, agentTraverseGrant); err != nil {
 			return fmt.Errorf("set launch-helper traversal ACL on %s: %w", path, err)
 		}
 	}
 	return nil
 }
 
+// homeHasAgentTraverseACL reports whether the home directory carries an
+// agent-traverse ACL. A row for the agent user must both satisfy the
+// grant's principal/kind/inherit contract and grant the execute permission
+// (macOS renders this as "search" on directory ACLs).
 func homeHasAgentTraverseACL(homeDir string) bool {
-	out, err := exec.Command("ls", "-led", homeDir).CombinedOutput()
+	rows, err := readACLs(homeDir)
 	if err != nil {
 		return false
 	}
-	return aclOutputHasAgentTraverse(string(out))
-}
-
-// aclOutputHasAgentTraverse reports whether `ls -led` output grants the agent
-// user traverse access. macOS renders the "execute" permission as "search" on
-// directory ACLs, so either token on the agent's allow line satisfies the
-// check. Matching is line-scoped so an unrelated allow line cannot mask a
-// missing agent entry.
-func aclOutputHasAgentTraverse(output string) bool {
-	principal := "user:" + agentUser
-	for _, line := range strings.Split(output, "\n") {
-		if !strings.Contains(line, principal) {
-			continue
-		}
-		if !strings.Contains(line, " allow ") {
-			continue
-		}
-		if strings.Contains(line, "execute") || strings.Contains(line, "search") {
+	for _, r := range rows {
+		if r.Satisfies(agentTraverseGrant) && r.GrantsPerm("execute") {
 			return true
 		}
 	}
