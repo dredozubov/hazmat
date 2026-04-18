@@ -4,6 +4,18 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-18
+
+### Added
+- Managed harness prompt-asset sync for built-in harness commands, toggled via `session.harness_assets` (default on) with a per-launch `--skip-harness-assets-sync` escape hatch
+
+### Changed
+- Route Hazmat-owned agent maintenance (bootstrap, config import, git safe-directory, SSH setup) through `hazmat-launch` under the narrow NOPASSWD rule; the broader opt-in sudoers rule is now only needed for manual `sudo -u agent` commands
+- Resolve macOS system utilities (`chmod`, `sudo`, `ls`, `dscl`, `pfctl`, `launchctl`, `git`, etc.) by absolute path so Homebrew coreutils on `PATH` can no longer shadow `/bin/chmod` and break ACL repair (#7)
+
+### Fixed
+- ACL detection on directories: `pathHasDevACL` now inspects the directory itself, and the agent traverse-ACL check accepts macOS's normalized `search` token, so rollback and down-migration reliably remove the traverse ACL
+
 ## [0.6.0] - 2026-04-10
 
 ### Added
@@ -109,7 +121,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/dredozubov/hazmat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dredozubov/hazmat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dredozubov/hazmat/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/dredozubov/hazmat/compare/v0.4.2...v0.4.3
