@@ -99,8 +99,8 @@ func hostGitCommand(args ...string) (*exec.Cmd, error) {
 }
 
 // hostGitOutput runs an allowlisted git command and returns stdout with
-// trailing whitespace trimmed. Mirrors the semantics of execOutput("git", ...)
-// so callers migrate 1:1.
+// trailing whitespace trimmed. Mirrors the semantics of the prior
+// execOutput("git", ...) pattern so callers migrate 1:1.
 func hostGitOutput(args ...string) (string, error) {
 	cmd, err := hostGitCommand(args...)
 	if err != nil {

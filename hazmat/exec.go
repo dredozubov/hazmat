@@ -54,11 +54,6 @@ func dscl(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// execOutput runs a command as the current user and returns stdout.
-func execOutput(name string, args ...string) (string, error) {
-	return commandStdout(name, args...)
-}
-
 // sudo runs a command with sudo, discarding stdout/stderr.
 func sudo(args ...string) error {
 	cmd := newSudoCommand(args...)

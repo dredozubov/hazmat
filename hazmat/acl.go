@@ -135,9 +135,10 @@ func parseACLRow(line string) (ACLRow, bool) {
 	hasFileInherit := false
 	hasDirInherit := false
 	for _, p := range row.Perms {
-		if p == "file_inherit" {
+		switch p {
+		case "file_inherit":
 			hasFileInherit = true
-		} else if p == "directory_inherit" {
+		case "directory_inherit":
 			hasDirInherit = true
 		}
 	}
