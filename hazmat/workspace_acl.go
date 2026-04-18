@@ -34,6 +34,9 @@ func aclOutputHasDevACL(output string, requireInherit bool) bool {
 		if !strings.Contains(line, "group:"+sharedGroup) {
 			continue
 		}
+		if !strings.Contains(line, " allow ") {
+			continue
+		}
 		if !requireInherit || (strings.Contains(line, "file_inherit") && strings.Contains(line, "directory_inherit")) {
 			return true
 		}
@@ -42,8 +45,11 @@ func aclOutputHasDevACL(output string, requireInherit bool) bool {
 }
 
 // pathHasDevACL checks whether a path already has a dev group ACL entry.
+// Uses `ls -led` so the directory's own ACL is inspected rather than its
+// children — without -d, ls renders the ACLs of the directory's contents
+// instead, which silently returned the wrong answer for directory arguments.
 func pathHasDevACL(path string, requireInherit bool) bool {
-	out, err := exec.Command("ls", "-le", path).CombinedOutput()
+	out, err := exec.Command("ls", "-led", path).CombinedOutput()
 	if err != nil {
 		return false
 	}

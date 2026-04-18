@@ -6,20 +6,109 @@ import (
 	"testing"
 )
 
-func TestACLTagOutputHasDevACL(t *testing.T) {
+func TestAclOutputHasDevACL(t *testing.T) {
 	t.Parallel()
 
-	withInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
-	if !aclOutputHasDevACL(withInherit, true) {
-		t.Fatal("expected inheritable ACL to match")
+	// Directory rendering: macOS normalizes execute to search and splits
+	// read/write into directory-specific verbs (list, add_file, add_subdirectory,
+	// delete_child). Files render with the original tokens (read, execute).
+	dirInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
+	dirNoInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity"
+	fileRendered := "0: group:dev allow read,write,execute,append,delete,readattr,writeattr,readextattr,writeextattr,readsecurity"
+
+	// macOS displays deny entries as "deny" (not "allow"). A deny entry on the
+	// dev group with inherit flags must not be mistaken for our allow grant.
+	dirDenyInherit := "0: group:dev deny list,add_file,search,file_inherit,directory_inherit"
+
+	// Unrelated group with inherit flags must not match.
+	otherGroup := "0: group:staff allow list,add_file,search,file_inherit,directory_inherit"
+
+	// A user-principal entry with the agent's name must not match a dev-group
+	// query (principal scoping).
+	userPrincipal := "0: user:agent allow execute"
+
+	// Empty ls -led output (no ACL block on the path).
+	emptyOutput := "drwxr-xr-x  8 dr  staff  256 Apr 18 10:00 .\n"
+
+	cases := []struct {
+		name           string
+		output         string
+		requireInherit bool
+		want           bool
+	}{
+		{"dir-inherit-required-present", dirInherit, true, true},
+		{"dir-inherit-not-required-present", dirInherit, false, true},
+		{"dir-no-inherit-required", dirNoInherit, true, false},
+		{"dir-no-inherit-not-required", dirNoInherit, false, true},
+		{"file-rendered-not-required", fileRendered, false, true},
+		{"deny-entry-not-required", dirDenyInherit, false, false},
+		{"deny-entry-required", dirDenyInherit, true, false},
+		{"other-group-required", otherGroup, true, false},
+		{"user-principal-not-dev-group", userPrincipal, false, false},
+		{"empty-output", emptyOutput, false, false},
 	}
 
-	withoutInherit := "0: group:dev allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity"
-	if aclOutputHasDevACL(withoutInherit, true) {
-		t.Fatal("expected non-inheritable ACL to fail inherit check")
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := aclOutputHasDevACL(tc.output, tc.requireInherit); got != tc.want {
+				t.Fatalf("aclOutputHasDevACL(..., requireInherit=%t) = %t, want %t", tc.requireInherit, got, tc.want)
+			}
+		})
 	}
-	if !aclOutputHasDevACL(withoutInherit, false) {
-		t.Fatal("expected non-inheritable ACL to match when inherit is not required")
+}
+
+func TestAclOutputHasAgentTraverse(t *testing.T) {
+	t.Parallel()
+
+	// Home directory renders the traverse ACL with "search" (directory
+	// normalization). File rendering shows "execute". Both must match.
+	homeRenderedSearch := "0: user:agent allow search,readattr,readextattr,readsecurity"
+	fileRenderedExecute := "0: user:agent allow execute,readattr,readextattr,readsecurity"
+
+	// Deny entry must not be mistaken for allow.
+	denyEntry := "0: user:agent deny search"
+
+	// Principal mismatch: traverse for a different user must not match.
+	differentUser := "0: user:other allow search"
+
+	// Group-principal entry with search must not match: the traverse ACL is
+	// user-scoped, and homeAllowsAgentTraverse has a separate group-membership
+	// fallback for mode bits.
+	groupPrincipal := "0: group:dev allow search,file_inherit,directory_inherit"
+
+	// Multi-line output: unrelated allow line must not bleed into the agent
+	// principal check. Without line-scoping, substring matching the whole
+	// blob for "user:agent" + " allow search" would return true even though
+	// the agent line carries "deny" and the allow line is a different user.
+	multiLineMasked := "0: user:agent deny search\n1: user:other allow search\n"
+
+	// Empty output (no ACL).
+	emptyOutput := "drwxr-xr-x  10 dr  staff  320 Apr 18 10:00 .\n"
+
+	cases := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{"dir-rendered-search", homeRenderedSearch, true},
+		{"file-rendered-execute", fileRenderedExecute, true},
+		{"deny-entry", denyEntry, false},
+		{"different-user", differentUser, false},
+		{"group-principal-not-user", groupPrincipal, false},
+		{"multi-line-deny-masks-allow", multiLineMasked, false},
+		{"empty-output", emptyOutput, false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := aclOutputHasAgentTraverse(tc.output); got != tc.want {
+				t.Fatalf("aclOutputHasAgentTraverse(...) = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }
 

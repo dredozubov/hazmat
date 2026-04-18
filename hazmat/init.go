@@ -1425,8 +1425,28 @@ func homeHasAgentTraverseACL(homeDir string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), "user:"+agentUser) &&
-		strings.Contains(string(out), " allow execute")
+	return aclOutputHasAgentTraverse(string(out))
+}
+
+// aclOutputHasAgentTraverse reports whether `ls -led` output grants the agent
+// user traverse access. macOS renders the "execute" permission as "search" on
+// directory ACLs, so either token on the agent's allow line satisfies the
+// check. Matching is line-scoped so an unrelated allow line cannot mask a
+// missing agent entry.
+func aclOutputHasAgentTraverse(output string) bool {
+	principal := "user:" + agentUser
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.Contains(line, principal) {
+			continue
+		}
+		if !strings.Contains(line, " allow ") {
+			continue
+		}
+		if strings.Contains(line, "execute") || strings.Contains(line, "search") {
+			return true
+		}
+	}
+	return false
 }
 
 func homeAllowsAgentTraverse(homeDir string) bool {
