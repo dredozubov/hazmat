@@ -300,33 +300,12 @@ write_release_plan() {
     local plan_file="$1"
     local version="$2"
     local prev_tag="$3"
-    local requested_version="$4"
-    local release_evidence="$5"
-    local raw_changes="$6"
-    local draft_body="$7"
+    local draft_body="$4"
 
     cat > "${plan_file}" <<EOF
 # Release review — edit VERSION and the changelog entry below, then save + exit.
-#
-# The changelog entry is spliced into CHANGELOG.md under
-#   ## [VERSION] - YYYY-MM-DD
-# and [Unreleased] / [VERSION] link refs are regenerated from VERSION and
-# ${prev_tag}. Do not edit CHANGELOG.md directly — the script rebuilds it
-# from this plan on save.
-#
-# Include only shipped, release-relevant changes. Exclude docs-only,
-# planning, CI-only, and internal refactor entries unless they materially
-# changed the release itself.
-#
-# Context:
+# CHANGELOG.md is rebuilt from this plan on save; do not edit it directly.
 # Previous tag: ${prev_tag}
-# Requested on CLI: ${requested_version:-(none)}
-#
-# Release evidence since ${prev_tag}:
-$(printf '%s\n' "${release_evidence}" | sed 's/^/# /')
-#
-# Raw commit subjects since ${prev_tag} (cross-check only):
-$(printf '%s\n' "${raw_changes}" | sed 's/^/# /')
 
 VERSION=${version}
 
@@ -554,7 +533,7 @@ if [ -z "${DRAFT_BODY}" ]; then
 fi
 restore_changelog
 
-write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${RELEASE_EVIDENCE}" "${CHANGES}" "${DRAFT_BODY}"
+write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${DRAFT_BODY}"
 
 EDITOR_CMD="$(resolve_editor)"
 echo "Opening release review in ${EDITOR_CMD}..."
