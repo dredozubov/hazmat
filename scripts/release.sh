@@ -303,19 +303,20 @@ write_release_plan() {
     local requested_version="$4"
     local release_evidence="$5"
     local raw_changes="$6"
+    local draft_body="$7"
 
     cat > "${plan_file}" <<EOF
-# Review this release plan, then save and exit.
-# Edit VERSION as needed. Edit CHANGELOG.md to match before continuing.
-# Only include shipped, release-relevant changes in the changelog.
-# Exclude docs-only, planning, CI-only, and internal refactor entries unless they
-# materially changed the release itself.
+# Release review — edit VERSION and the changelog entry below, then save + exit.
 #
-# Validation rules:
-# - VERSION must be semver: X.Y.Z or X.Y.Z-suffix
-# - CHANGELOG.md must contain: ## [VERSION] - YYYY-MM-DD
-# - [Unreleased] must compare VERSION...HEAD
-# - [VERSION] must compare ${prev_tag}...vVERSION
+# The changelog entry is spliced into CHANGELOG.md under
+#   ## [VERSION] - YYYY-MM-DD
+# and [Unreleased] / [VERSION] link refs are regenerated from VERSION and
+# ${prev_tag}. Do not edit CHANGELOG.md directly — the script rebuilds it
+# from this plan on save.
+#
+# Include only shipped, release-relevant changes. Exclude docs-only,
+# planning, CI-only, and internal refactor entries unless they materially
+# changed the release itself.
 #
 # Context:
 # Previous tag: ${prev_tag}
@@ -328,7 +329,100 @@ $(printf '%s\n' "${release_evidence}" | sed 's/^/# /')
 $(printf '%s\n' "${raw_changes}" | sed 's/^/# /')
 
 VERSION=${version}
+
+--- CHANGELOG ENTRY (edit below; splice markers delimit what ships) ---
+
+${draft_body}
 EOF
+}
+
+# extract_changelog_body prints the body of "## [<version>]" from a changelog,
+# stripped of the header and of leading/trailing blank lines. Stops at the
+# next "## [" section header or the first [Unreleased]: link ref.
+extract_changelog_body() {
+    local changelog_file="$1"
+    local version="$2"
+
+    awk -v ver="${version}" '
+        BEGIN { hdr = "^## \\[" ver "\\]"; in_section = 0 }
+        $0 ~ hdr { in_section = 1; next }
+        in_section && /^## \[/ { exit }
+        in_section && /^\[Unreleased\]:/ { exit }
+        in_section { lines[++n] = $0 }
+        END {
+            first = 1
+            while (first <= n && lines[first] == "") first++
+            last = n
+            while (last >= first && lines[last] == "") last--
+            for (i = first; i <= last; i++) print lines[i]
+        }
+    ' "${changelog_file}"
+}
+
+# extract_body_from_plan prints the changelog body the user edited in the
+# release plan — everything after the "--- CHANGELOG ENTRY" marker line,
+# with leading/trailing blank lines stripped.
+extract_body_from_plan() {
+    local plan_file="$1"
+
+    awk '
+        /^--- CHANGELOG ENTRY/ { in_body = 1; next }
+        in_body { lines[++n] = $0 }
+        END {
+            first = 1
+            while (first <= n && lines[first] == "") first++
+            last = n
+            while (last >= first && lines[last] == "") last--
+            for (i = first; i <= last; i++) print lines[i]
+        }
+    ' "${plan_file}"
+}
+
+# insert_changelog_section rebuilds CHANGELOG.md by inserting a new release
+# section immediately after "## [Unreleased]", with today's date, and
+# regenerating the [Unreleased] and [VERSION] link refs against prev_tag.
+# Assumes CHANGELOG.md is currently at a state without the draft section
+# (the caller git-restored it after extracting the AI draft body).
+insert_changelog_section() {
+    local changelog_file="$1"
+    local version="$2"
+    local body="$3"
+    local prev_tag="$4"
+    local today
+    today="$(date -u +%F)"
+
+    local tmp
+    tmp="$(mktemp)"
+
+    SECTION_HEADER="## [${version}] - ${today}" \
+    BODY_TEXT="${body}" \
+    UNREL_REF="[Unreleased]: https://github.com/dredozubov/hazmat/compare/v${version}...HEAD" \
+    NEW_REF="[${version}]: https://github.com/dredozubov/hazmat/compare/${prev_tag}...v${version}" \
+    awk '
+        BEGIN { inserted_section = 0; inserted_ref = 0 }
+        /^## \[Unreleased\]/ && !inserted_section {
+            print
+            print ""
+            print ENVIRON["SECTION_HEADER"]
+            print ""
+            print ENVIRON["BODY_TEXT"]
+            inserted_section = 1
+            next
+        }
+        /^\[Unreleased\]:/ {
+            print ENVIRON["UNREL_REF"]
+            next
+        }
+        /^\[[0-9]/ && !inserted_ref {
+            print ENVIRON["NEW_REF"]
+            inserted_ref = 1
+            print
+            next
+        }
+        { print }
+    ' "${changelog_file}" > "${tmp}"
+
+    mv "${tmp}" "${changelog_file}"
 }
 
 # Parse arguments: [version] [--dry]
@@ -437,7 +531,6 @@ CLAUDE_OUTPUT="$("${CHANGELOG_HAZMAT_BIN}" claude --no-backup -p "$(cat "${PROMP
 
 echo "${CLAUDE_OUTPUT}"
 echo ""
-RESTORE_CHANGELOG_ON_EXIT=1
 
 # Extract draft version from claude output if not explicitly given
 DRAFT_VERSION="${REQUESTED_VERSION}"
@@ -450,15 +543,27 @@ if [ -z "${DRAFT_VERSION}" ]; then
 fi
 DRAFT_VERSION="${DRAFT_VERSION#v}"
 
-write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${RELEASE_EVIDENCE}" "${CHANGES}"
+# Extract the drafted body, then roll CHANGELOG.md back to HEAD. The plan
+# file becomes the single editable surface; we rebuild CHANGELOG.md from
+# HEAD + the plan body on save.
+DRAFT_BODY="$(extract_changelog_body CHANGELOG.md "${DRAFT_VERSION}")"
+if [ -z "${DRAFT_BODY}" ]; then
+    echo "error: AI produced no changelog body for ${DRAFT_VERSION}" >&2
+    restore_changelog >/dev/null 2>&1 || true
+    exit 1
+fi
+restore_changelog
+
+write_release_plan "${RELEASE_PLAN_FILE}" "${DRAFT_VERSION}" "${PREV_TAG}" "${REQUESTED_VERSION}" "${RELEASE_EVIDENCE}" "${CHANGES}" "${DRAFT_BODY}"
 
 EDITOR_CMD="$(resolve_editor)"
 echo "Opening release review in ${EDITOR_CMD}..."
-echo "Edit VERSION in ${RELEASE_PLAN_FILE} and revise CHANGELOG.md as needed."
+echo "Edit VERSION and the changelog entry in ${RELEASE_PLAN_FILE}."
+echo "CHANGELOG.md is rebuilt from the plan on save — do not edit it directly."
 echo ""
 
 while true; do
-    if ! run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}" CHANGELOG.md; then
+    if ! run_editor "${EDITOR_CMD}" "${RELEASE_PLAN_FILE}"; then
         echo "Editor exited non-zero. Restoring CHANGELOG.md..."
         discard_changelog_draft
         echo "Aborted."
@@ -466,11 +571,27 @@ while true; do
     fi
 
     VERSION="$(extract_version_from_plan "${RELEASE_PLAN_FILE}")"
+    BODY="$(extract_body_from_plan "${RELEASE_PLAN_FILE}")"
+
+    plan_errors=""
     if [ -z "${VERSION}" ]; then
+        plan_errors="${plan_errors}- Missing VERSION line (expected 'VERSION=X.Y.Z')\n"
+    fi
+    if [ -z "${BODY}" ]; then
+        plan_errors="${plan_errors}- Changelog entry is empty below the --- CHANGELOG ENTRY --- marker\n"
+    fi
+
+    if [ -n "${plan_errors}" ]; then
         echo "Release plan is invalid:"
-        echo "  - Add a line like VERSION=0.6.1 to ${RELEASE_PLAN_FILE}"
+        printf "  %b" "${plan_errors}"
         echo ""
     else
+        # Build the final CHANGELOG.md from HEAD + plan. If validation fails
+        # we restore and let the user fix the plan; on success we keep the
+        # built file for the commit step.
+        insert_changelog_section CHANGELOG.md "${VERSION}" "${BODY}" "${PREV_TAG}"
+        RESTORE_CHANGELOG_ON_EXIT=1
+
         if validation_errors="$(validate_release_plan "${VERSION}" "${PREV_TAG}")"; then
             break
         fi
@@ -479,6 +600,8 @@ while true; do
             echo "  - ${validation_error}"
         done <<< "${validation_errors}"
         echo ""
+        restore_changelog
+        RESTORE_CHANGELOG_ON_EXIT=0
     fi
 
     read -rp "Re-open editor to fix release metadata? [Y/n] " retry
