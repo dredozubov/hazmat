@@ -16,7 +16,7 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch install install-system install-helper uninstall uninstall-system clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards hooks
+.PHONY: all hazmat hazmat-launch install install-system install-helper uninstall uninstall-system clean test lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
@@ -93,6 +93,9 @@ e2e-stack-matrix-smoke:
 
 test-entrypoint-guards:
 	bash scripts/test-entrypoint-guards.sh
+
+check-hostexec:
+	bash scripts/check-hostexec.sh
 
 hooks:
 	install -m 0755 scripts/pre-commit .git/hooks/pre-commit

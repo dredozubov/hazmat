@@ -2057,7 +2057,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	}
 	if transcriptPath != "" {
 		scriptArgs := append([]string{"-q", transcriptPath, "sudo"}, full...)
-		cmd = exec.Command("script", scriptArgs...)
+		cmd = exec.Command(hostScriptPath, scriptArgs...)
 		cmd.Dir = "/"
 		watchStop = make(chan struct{})
 		watchDone = make(chan struct{})

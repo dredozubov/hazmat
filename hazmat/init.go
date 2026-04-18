@@ -1369,7 +1369,7 @@ func preflightChecks(currentUser string) error {
 }
 
 func checkPlatform() error {
-	cmd := exec.Command("uname")
+	cmd := exec.Command(hostUnamePath)
 	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "Darwin" {
 		return fmt.Errorf("this tool is for macOS only")

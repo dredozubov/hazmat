@@ -63,6 +63,9 @@ jobs:
       - name: Verify non-destructive test-entrypoint guards
         run: bash scripts/test-entrypoint-guards.sh
 
+      - name: Verify hostexec absolute-path guard
+        run: bash scripts/check-hostexec.sh
+
   repo-matrix-contract:
     name: Repo matrix contract
     runs-on: macos-latest

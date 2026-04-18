@@ -188,7 +188,7 @@ func TestAppendAgentGlobalSafeDirectoryCommandUsesRootWorkingDir(t *testing.T) {
 	}
 
 	wantArgs := []string{
-		"sudo",
+		hostSudoPath,
 		"-u",
 		agentUser,
 		"-H",

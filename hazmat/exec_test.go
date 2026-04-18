@@ -13,7 +13,7 @@ func TestNewSudoCommandUsesRootWorkingDir(t *testing.T) {
 	}
 
 	wantArgs := []string{
-		"sudo",
+		hostSudoPath,
 		"test",
 		"-x",
 		"/Users/agent/.local/bin/claude",
@@ -31,7 +31,7 @@ func TestNewAgentCommandUsesRootWorkingDir(t *testing.T) {
 	}
 
 	wantArgs := []string{
-		"sudo",
+		hostSudoPath,
 		"-u",
 		agentUser,
 		"-H",
@@ -49,7 +49,7 @@ func TestNewSudoNoPromptCommandUsesNoPromptFlag(t *testing.T) {
 	cmd := newSudoNoPromptCommand("-u", agentUser, "whoami")
 
 	wantArgs := []string{
-		"sudo",
+		hostSudoPath,
 		"-n",
 		"-u",
 		agentUser,

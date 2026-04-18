@@ -212,7 +212,7 @@ func aclPermAliases(chmodInputPerm string) []string {
 // -d keeps directory arguments referring to the directory itself rather
 // than its contents. -O surfaces the "inherited" flag on propagated rows.
 func readACLs(path string) ([]ACLRow, error) {
-	out, err := exec.Command("ls", "-leOd", path).CombinedOutput()
+	out, err := exec.Command(hostLsPath, "-leOd", path).CombinedOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ type aclInvoker interface {
 type directACLInvoker struct{}
 
 func (directACLInvoker) Chmod(args ...string) error {
-	return exec.Command("chmod", args...).Run()
+	return exec.Command(hostChmodPath, args...).Run()
 }
 
 // sudoACLInvoker runs chmod as root via the Runner's sudo wrapper. Use

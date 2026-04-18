@@ -108,10 +108,8 @@ func runConfigAgent(ui *UI) error {
 
 	agentName := gitConfigValue(agentHome+"/.gitconfig", "name")
 	agentEmail := gitConfigValue(agentHome+"/.gitconfig", "email")
-	hostName, _ := execOutput("git", "config", "--global", "user.name")
-	hostName = strings.TrimSpace(hostName)
-	hostEmail, _ := execOutput("git", "config", "--global", "user.email")
-	hostEmail = strings.TrimSpace(hostEmail)
+	hostName, _ := hostGitOutput("config", "--global", "user.name")
+	hostEmail, _ := hostGitOutput("config", "--global", "user.email")
 
 	defaultName := agentName
 	if defaultName == "" {

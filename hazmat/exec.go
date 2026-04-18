@@ -21,9 +21,12 @@ func commandStdoutCmd(cmd *exec.Cmd) (string, error) {
 
 // newSudoCommand forces sudo to start from / so the target user never inherits
 // a host cwd it cannot traverse yet (for example during bootstrap before ACL
-// repair has happened).
+// repair has happened). sudo itself is resolved to /usr/bin/sudo absolutely
+// so an attacker-controlled early-PATH sudo binary cannot intercept the
+// privilege elevation — once sudo is entered, its secure_path takes over for
+// the invoked command.
 func newSudoCommand(args ...string) *exec.Cmd {
-	cmd := exec.Command("sudo", args...)
+	cmd := exec.Command(hostSudoPath, args...)
 	cmd.Dir = "/"
 	return cmd
 }
@@ -47,7 +50,7 @@ func newAgentCommand(args ...string) *exec.Cmd {
 // world-readable on macOS and do not require elevated privileges.
 func dscl(args ...string) (string, error) {
 	full := append([]string{"."}, args...)
-	out, err := exec.Command("dscl", full...).CombinedOutput()
+	out, err := exec.Command(hostDsclPath, full...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -75,7 +78,7 @@ func sudoOutput(args ...string) (string, error) {
 // sudoWriteFile writes content to path as root using "sudo /usr/bin/tee path".
 // Stdout from tee is discarded so the content is not echoed to the terminal.
 func sudoWriteFile(path, content string) error {
-	cmd := newSudoCommand("/usr/bin/tee", path)
+	cmd := newSudoCommand(hostTeePath, path)
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Stdout = io.Discard
 	var stderr bytes.Buffer
@@ -88,7 +91,7 @@ func sudoWriteFile(path, content string) error {
 
 // sudoAppendFile appends content to path as root using "sudo /usr/bin/tee -a path".
 func sudoAppendFile(path, content string) error {
-	cmd := newSudoCommand("/usr/bin/tee", "-a", path)
+	cmd := newSudoCommand(hostTeePath, "-a", path)
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Stdout = io.Discard
 	var stderr bytes.Buffer
@@ -159,7 +162,7 @@ func runInteractive(name string, args ...string) error {
 // pfctlLoadRules runs "sudo pfctl -f /etc/pf.conf", capturing stderr so
 // parse errors are surfaced rather than silently swallowed.
 func pfctlLoadRules() error {
-	cmd := newSudoCommand("pfctl", "-f", "/etc/pf.conf")
+	cmd := newSudoCommand(hostPfctlPath, "-f", "/etc/pf.conf")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -175,7 +178,7 @@ func pfctlLoadRules() error {
 // launchctlBootstrap runs "sudo launchctl bootstrap system <plist>".
 // Treats "already loaded" as success so the step stays idempotent.
 func launchctlBootstrap(plist string) error {
-	cmd := newSudoCommand("launchctl", "bootstrap", "system", plist)
+	cmd := newSudoCommand(hostLaunchctlPath, "bootstrap", "system", plist)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

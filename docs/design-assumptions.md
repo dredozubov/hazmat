@@ -8,7 +8,19 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **No minimum version specified.** Works on Sequoia. Probably works on Ventura+. Untested on older. We don't check `sw_vers` — if the required binaries exist, it runs.
 
-**Both Intel and Apple Silicon.** PATH includes `/opt/homebrew` (ARM) and `/usr/local` (x86). Both are always present; the wrong one is harmless dead entries.
+**Both Intel and Apple Silicon.** PATH includes `/opt/homebrew` (ARM) and `/usr/local` (x86). Both are always present; the wrong one is harmless dead entries. This PATH block refers to the **agent-side** `.zshrc` that `hazmat init` writes, not to hazmat's own tool resolution — see "Tool resolution" below.
+
+## Tool resolution
+
+**Hazmat resolves macOS system utilities by absolute path, not through PATH.** `chmod`, `chown`, `ls`, `sudo`, `dscl`, `pfctl`, `launchctl`, `uname`, `script`, `diff`, `tee` — every invocation goes through path constants defined in `hazmat/hostexec.go` (`/bin/chmod`, `/usr/bin/sudo`, etc.). The guard script `scripts/check-hostexec.sh` (run in CI) forbids bare `exec.Command("chmod"/"sudo"/...)` anywhere else in the source.
+
+**Why absolute paths and not a sanitized PATH.** Process-wide `os.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")` would silently break intentional PATH-dependent behavior: `$EDITOR` for config editing, `docker` lookup for sandbox mode, `brew` fallback for stack detection, and the host user's preferred `git`. Absolute-path resolution at each call site makes the trust boundary visible in every diff and keeps the PATH-dependent paths authentically PATH-dependent.
+
+**Git uses a fixed allowlist, not `/usr/bin/git`.** On macOS Sequoia, `/usr/bin/git` is the Xcode Command Line Tools shim, which routes to Apple-shipped Git — *not* to a Homebrew installation. Apple Git lags Homebrew git by several minor versions, and features like protocol v2 defaults differ. Hazmat picks the first existing executable from `[ /opt/homebrew/bin/git, /usr/local/bin/git, /usr/bin/git ]` and caches that choice for the process lifetime. The Xcode shim is a fallback, not the preferred path.
+
+**The `secure_path` contract does the rest.** Once `/usr/bin/sudo` is entered, macOS's default `/etc/sudoers` sets `secure_path="/usr/bin:/bin:/usr/sbin:/sbin"` for the elevated command. Tools invoked as `sudo <tool>` therefore resolve under sudo's secure PATH, not the controlling user's. Fixing `/usr/bin/sudo` absolutely is the only load-bearing fix for the sudo-wrapped call sites.
+
+**Agent-side PATH is separate.** The PATH block that `hazmat init` writes into the agent's `.zshrc` is about what commands the agent can run inside a contained session. That is a session-policy decision and is deliberately permissive of Homebrew installations. Hazmat's own tool-resolution PATH (governed by `hostexec.go`) is about what binaries hazmat itself trusts when running with the controlling user's privileges.
 
 ## The Agent User
 

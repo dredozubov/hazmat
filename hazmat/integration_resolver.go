@@ -1136,10 +1136,10 @@ func repairHomebrewToolAccessImpl(dir string) bool {
 	// golangci-lint are outliers with 0700/0600. pathExecutableByAgent
 	// checks Unix mode bits (not ACLs), so mode-bit repair is required.
 	formulaDir := filepath.Dir(cellarRoot)
-	if err := exec.Command("chmod", "o+rX", formulaDir).Run(); err != nil {
+	if err := exec.Command(hostChmodPath, "o+rX", formulaDir).Run(); err != nil {
 		return false
 	}
-	if err := exec.Command("chmod", "-R", "o+rX", cellarRoot).Run(); err != nil {
+	if err := exec.Command(hostChmodPath, "-R", "o+rX", cellarRoot).Run(); err != nil {
 		return false
 	}
 	return true

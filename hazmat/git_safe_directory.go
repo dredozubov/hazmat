@@ -105,7 +105,7 @@ func detectGitRepoTopLevelImpl(projectDir string) (string, bool) {
 	if projectDir == "" {
 		return "", false
 	}
-	out, err := exec.Command("git", "-C", projectDir, "rev-parse", "--show-toplevel").CombinedOutput()
+	out, err := hostGitCombinedOutput("-C", projectDir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", false
 	}
@@ -133,14 +133,22 @@ func readGitSafeDirectoryEntriesCommand(cmd *exec.Cmd) ([]string, error) {
 }
 
 func systemSafeDirectoryEntries() ([]string, error) {
-	return readGitSafeDirectoryEntriesCommand(exec.Command("git", "config", "--system", "--get-all", "safe.directory"))
+	cmd, err := hostGitCommand("config", "--system", "--get-all", "safe.directory")
+	if err != nil {
+		return nil, err
+	}
+	return readGitSafeDirectoryEntriesCommand(cmd)
 }
 
 func agentGlobalSafeDirectoryEntries() ([]string, error) {
 	// Read the agent's gitconfig directly instead of using sudo -u agent.
 	// The file is group-readable by dev, which both users belong to.
 	agentGitconfig := agentHome + "/.gitconfig"
-	return readGitSafeDirectoryEntriesCommand(exec.Command("git", "config", "--file", agentGitconfig, "--get-all", "safe.directory"))
+	cmd, err := hostGitCommand("config", "--file", agentGitconfig, "--get-all", "safe.directory")
+	if err != nil {
+		return nil, err
+	}
+	return readGitSafeDirectoryEntriesCommand(cmd)
 }
 
 func currentGitSafeDirectoryEntries() ([]string, error) {
@@ -226,12 +234,8 @@ func ensureAgentGitSafeDirectory(projectDir string) (bool, error) {
 }
 
 func fallbackSystemGitConfigPath() string {
-	out, err := exec.Command("git", "--exec-path").Output()
-	if err != nil {
-		return ""
-	}
-	execPath := strings.TrimSpace(string(out))
-	if execPath == "" {
+	execPath, err := hostGitOutput("--exec-path")
+	if err != nil || execPath == "" {
 		return ""
 	}
 	prefix := filepath.Dir(filepath.Dir(execPath))
@@ -240,7 +244,7 @@ func fallbackSystemGitConfigPath() string {
 
 // systemGitConfigPath returns the path to git's system-level config file.
 func systemGitConfigPath() string {
-	out, _ := exec.Command("git", "config", "--system", "--show-origin", "--list").CombinedOutput()
+	out, _ := hostGitCombinedOutput("config", "--system", "--show-origin", "--list")
 	if path := parseSystemGitConfigOrigin(string(out)); path != "" {
 		return path
 	}

@@ -116,7 +116,7 @@ func runDiffSnapshot() error {
 	}
 
 	// Use system diff for readable output.
-	cmd := exec.Command("diff", "-rq",
+	cmd := exec.Command(hostDiffPath, "-rq",
 		"--exclude=.git",
 		"--exclude=node_modules",
 		"--exclude=.venv",
