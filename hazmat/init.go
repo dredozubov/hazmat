@@ -468,92 +468,13 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		}
 	}
 
-	if err := setupAgentUser(ui, r); err != nil {
+	if err := runInitSetupSteps(initStepContext{
+		ui:                 ui,
+		runner:             r,
+		currentUser:        cu.Username,
+		bootstrapSelection: bootstrapSelection,
+	}); err != nil {
 		return err
-	}
-	if err := setupDevGroup(ui, r, cu.Username); err != nil {
-		return err
-	}
-	if err := setupHomeDirTraverse(ui, r); err != nil {
-		return err
-	}
-	if err := setupLocalRepo(ui); err != nil {
-		return err
-	}
-	if err := setupHardeningGaps(ui, r); err != nil {
-		return err
-	}
-	if err := setupSeatbelt(ui, r); err != nil {
-		return err
-	}
-	if err := setupUserExperience(ui, r); err != nil {
-		return err
-	}
-	if err := setupZshCompletions(ui, r); err != nil {
-		return err
-	}
-	if err := setupGitSafeDirectory(ui, r); err != nil {
-		return err
-	}
-	if err := setupPfFirewall(ui, r); err != nil {
-		return err
-	}
-	if err := setupDNSBlocklist(ui, r); err != nil {
-		return err
-	}
-	if err := setupLaunchDaemon(ui, r); err != nil {
-		return err
-	}
-	if err := setupLaunchHelper(ui, r); err != nil {
-		return err
-	}
-	if err := setupSudoers(ui, r, cu.Username); err != nil {
-		return err
-	}
-	if err := maybeSetupOptionalAgentMaintenanceSudoers(ui, r, cu.Username); err != nil {
-		return err
-	}
-
-	// ── Bootstrap: install selected AI coding agent ─────────────────────────
-	if err := runInitSelectedBootstrap(ui, r, bootstrapSelection); err != nil {
-		return err
-	}
-
-	// Make agent config files and directories group-writable by dev so
-	// hazmat commands (config agent, resume, etc.) can modify them without
-	// sudo. Both dr and agent are in the dev group. Setgid on directories
-	// ensures new content inherits the dev group.
-	if !flagDryRun {
-		// Files: agent:dev 0660
-		for _, path := range []string{
-			agentHome + "/.zshrc",
-			agentHome + "/.gitconfig",
-		} {
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				sudo("touch", path) //nolint:errcheck // best-effort within verified init step; step-level errors handled by MC_SetupRollback
-			}
-			sudo("chown", agentUser+":"+sharedGroup, path) //nolint:errcheck // best-effort ownership
-			sudo("chmod", "0660", path)                    //nolint:errcheck // best-effort permissions
-		}
-		// Directories: agent:dev 2770 (setgid so new content inherits dev group)
-		dirs := []string{agentHome + "/.config/git"}
-		if bootstrapSelection == string(HarnessClaude) {
-			dirs = append(dirs, agentHome+"/.claude", agentHome+"/.claude/projects")
-		}
-		for _, dir := range dirs {
-			sudo("mkdir", "-p", dir)                      //nolint:errcheck // best-effort within verified init step
-			sudo("chown", agentUser+":"+sharedGroup, dir) //nolint:errcheck // best-effort ownership
-			sudo("chmod", "2770", dir)                    //nolint:errcheck // best-effort permissions
-		}
-	}
-
-	// ── Agent credentials: API key + git identity ──────────────────────────
-	// Git identity is needed for any harness, not just Claude.
-	if !flagDryRun && ui.IsInteractive() && bootstrapSelection != "" {
-		if err := runConfigAgent(ui); err != nil {
-			cYellow.Printf("\n  Agent config skipped: %v\n", err)
-			fmt.Println("  Run 'hazmat config agent' later to set credentials.")
-		}
 	}
 
 	// ── Optional import: portable Claude basics ─────────────────────────────

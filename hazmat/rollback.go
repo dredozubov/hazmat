@@ -75,29 +75,12 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	// (MC_Migration) proves AgentContained holds during this process.
 	runDownMigrations(ui, r)
 
-	rollbackSudoers(ui, r)
-	rollbackLaunchDaemon(ui, r)
-	rollbackPfFirewall(ui, r)
-	rollbackDNSBlocklist(ui, r)
-	rollbackSeatbelt(ui, r)
-	rollbackUserExperience(ui, r)
-	rollbackZshCompletions(ui, r)
-	rollbackGitSafeDirectory(ui, r)
-	rollbackHomeDirTraverse(ui, r)
-	rollbackUmask(ui, r)
-	rollbackLocalRepo(ui)
-
-	if deleteUser {
-		rollbackAgentUser(ui, r)
-	} else {
-		ui.WarnMsg(fmt.Sprintf("Agent user '%s' not removed. Use --delete-user to delete the account and %s.", agentUser, agentHome))
-	}
-
-	if deleteGroup {
-		rollbackDevGroup(ui, r)
-	} else {
-		ui.WarnMsg(fmt.Sprintf("Group '%s' not removed. Use --delete-group to delete it.", sharedGroup))
-	}
+	runRollbackSteps(rollbackStepContext{
+		ui:          ui,
+		runner:      r,
+		deleteUser:  deleteUser,
+		deleteGroup: deleteGroup,
+	})
 
 	fmt.Println()
 	cGreen.Println("  Rollback complete.")

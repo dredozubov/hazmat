@@ -16,27 +16,30 @@
 \* Expected TLC result: No error has been found.
 \*
 \* Governed code:
-\*   hazmat/init.go     — runInit(), all setupX() functions
-\*   hazmat/rollback.go — runRollback(), all rollbackX() functions
+\*   hazmat/init.go                  — runInit()
+\*   hazmat/init_steps.go            — initSetupSteps() formal resource order
+\*   hazmat/rollback.go              — runRollback()
+\*   hazmat/rollback_steps.go        — rollback step formal resource order
+\*   hazmat/setup_rollback_formal.go — shared resource names
 \*
 \* Model bounds: 2 setup attempts, 2 rollback attempts, failure at any step.
 \*
-\* Current init.go step order (must match exactly):
-\*   0: setupAgentUser
-\*   1: setupDevGroup
-\*   2: setupHomeDirTraverse
-\*   3: setupLocalRepo
-\*   4: setupHardeningGaps (umask)
-\*   5: setupSeatbelt
-\*   6: setupUserExperience (wrappers)
-\*   7: setupPfFirewall           ← containment before privilege
-\*   8: setupDNSBlocklist
-\*   9: setupLaunchDaemon
-\*  10: setupLaunchHelper (verify, not create)
-\*  11: setupSudoers              ← narrow launch-helper privilege granted LAST
-\*  12: maybeSetupOptionalAgentMaintenanceSudoers
-\*  13: runBootstrap (default Claude bootstrap + package-manager hardening)
-\*  14: configAgent (credentials)
+\* Current modeled init resource order (asserted by setup_rollback_formal_test.go):
+\*   0: agentUser          setupAgentUser
+\*   1: devGroup           setupDevGroup
+\*   2: homeDirTraverse    setupHomeDirTraverse
+\*   3: localRepo          setupLocalRepo
+\*   4: umask              setupHardeningGaps
+\*   5: seatbelt           setupSeatbelt
+\*   6: wrappers           setupUserExperience + zsh completions + git safe.directory
+\*   7: pfAnchor           setupPfFirewall           ← containment before privilege
+\*   8: dnsBlocklist       setupDNSBlocklist
+\*   9: launchDaemon       setupLaunchDaemon
+\*  10: launchHelper       setupLaunchHelper (verify, not create)
+\*  11: sudoers            setupSudoers              ← narrow launch-helper privilege
+\*  12: maintenanceSudoers maybeSetupOptionalAgentMaintenanceSudoers
+\*  13: claudeCode         selected harness bootstrap + agent config permissions
+\*  14: credentials        setupAgentCredentials
 \*
 \* Explicit non-init harness commands like "hazmat bootstrap opencode",
 \* curated harness import flows, and session-only integration activation are
@@ -237,18 +240,18 @@ SetupStepFail ==
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Rollback actions — mirrors rollback.go
 \*
-\* Current rollback.go step order:
-\*   Step 0: rollbackSudoers          ← REVOKE PRIVILEGE FIRST
-\*   Step 1: rollbackLaunchDaemon
-\*   Step 2: rollbackPfFirewall
-\*   Step 3: rollbackDNSBlocklist
-\*   Step 4: rollbackSeatbelt
-\*   Step 5: rollbackUserExperience (wrappers)
-\*   Step 6: rollbackHomeDirTraverse
-\*   Step 7: rollbackUmask
-\*   Step 8: rollbackLocalRepo
-\*   Step 9: (optional) rollbackAgentUser  — only with --delete-user
-\*  Step 10: (optional) rollbackDevGroup   — only with --delete-group
+\* Current modeled rollback resource order (asserted by setup_rollback_formal_test.go):
+\*   Step 0: sudoers          rollbackSudoers          ← REVOKE PRIVILEGE FIRST
+\*   Step 1: launchDaemon     rollbackLaunchDaemon
+\*   Step 2: pfAnchor         rollbackPfFirewall
+\*   Step 3: dnsBlocklist     rollbackDNSBlocklist
+\*   Step 4: seatbelt         rollbackSeatbelt
+\*   Step 5: wrappers         rollbackUserExperience + zsh completions + git safe.directory
+\*   Step 6: homeDirTraverse  rollbackHomeDirTraverse
+\*   Step 7: umask            rollbackUmask
+\*   Step 8: localRepo        rollbackLocalRepo
+\*   Step 9: agentUser        optional rollbackAgentUser  — only with --delete-user
+\*  Step 10: devGroup         optional rollbackDevGroup   — only with --delete-group
 \*
 \* Does NOT remove: launchHelper (external binary).
 \* Does NOT remove: claudeCode/credentials (removed only with --delete-user).
