@@ -117,6 +117,30 @@ and runs `scripts/e2e.sh` there.
 
 If you want the strongest local release signal, prefer the VM path plus CI.
 
+## Linux Support Test Plan
+
+Until `sandboxing-pk5x` implements Linux setup and rollback resources, Linux
+testing stays compile-only plus unit coverage for platform dispatch. Do not
+enable Linux install or release artifacts from a compile-only result.
+
+The first Linux implementation should land behind four gates:
+
+1. **Model first:** extend `MC_SetupRollback` or add a scoped Linux setup /
+   rollback model for Linux-owned resources such as users, groups, systemd
+   units, firewall/DNS policy, sudoers, helper installation, and rollback
+   cleanup.
+2. **Linux unit lane:** run normal Go unit tests on `ubuntu-latest`, including
+   mocked platform backend tests for Linux account, service, ACL, launch, and
+   integration resolver behavior.
+3. **Privileged disposable lifecycle:** run a destructive Linux e2e lane only
+   in a disposable VM or disposable CI runner with the required service-manager
+   and firewall capabilities. Container-only smoke tests are not enough for the
+   setup/rollback contract.
+4. **Artifact/install smoke:** enable Linux release artifacts and installer
+   paths only after the model, Linux unit lane, and privileged lifecycle lane
+   pass. The installer smoke must verify platform-specific artifact names,
+   checksum validation, install layout, and rollback cleanup.
+
 ## CI Mapping
 
 Current GitHub Actions coverage:

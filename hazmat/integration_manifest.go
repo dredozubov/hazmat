@@ -155,6 +155,12 @@ type IntegrationDetect struct {
 }
 
 type IntegrationSession struct {
+	ReadDirs       []string                              `yaml:"read_dirs"`
+	EnvPassthrough []string                              `yaml:"env_passthrough"`
+	Platforms      map[string]IntegrationPlatformSession `yaml:"platforms"`
+}
+
+type IntegrationPlatformSession struct {
 	ReadDirs       []string `yaml:"read_dirs"`
 	EnvPassthrough []string `yaml:"env_passthrough"`
 }
@@ -177,6 +183,11 @@ const (
 
 var integrationNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+var integrationManifestPlatforms = map[string]struct{}{
+	"darwin": {},
+	"linux":  {},
+}
+
 // validateIntegrationSchema checks structural validity (V1, V3, V4, V5, V6).
 // This runs at load time before paths are resolved.
 func validateIntegrationSchema(p IntegrationSpec) error {
@@ -192,9 +203,15 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 	}
 
 	// V3: env passthrough keys must be in safe set.
-	for _, key := range p.Session.EnvPassthrough {
-		if !safeEnvKeys[key] {
-			return fmt.Errorf("integration %q: env key %q not in safe passthrough set", p.Meta.Name, key)
+	if err := validateIntegrationEnvKeys(p.Meta.Name, "session.env_passthrough", p.Session.EnvPassthrough); err != nil {
+		return err
+	}
+	for platform, session := range p.Session.Platforms {
+		if _, ok := integrationManifestPlatforms[platform]; !ok {
+			return fmt.Errorf("integration %q: unsupported session platform %q", p.Meta.Name, platform)
+		}
+		if err := validateIntegrationEnvKeys(p.Meta.Name, "session.platforms."+platform+".env_passthrough", session.EnvPassthrough); err != nil {
+			return err
 		}
 	}
 
@@ -222,6 +239,15 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 	if len(p.Session.EnvPassthrough) > integrationMaxEnvKeys {
 		return fmt.Errorf("integration %q: too many env_passthrough keys (%d, max %d)", p.Meta.Name, len(p.Session.EnvPassthrough), integrationMaxEnvKeys)
 	}
+	for platform := range p.Session.Platforms {
+		effective := integrationSessionForPlatform(p.Session, platform)
+		if len(effective.ReadDirs) > integrationMaxReadDirs {
+			return fmt.Errorf("integration %q: too many %s read_dirs (%d, max %d)", p.Meta.Name, platform, len(effective.ReadDirs), integrationMaxReadDirs)
+		}
+		if len(effective.EnvPassthrough) > integrationMaxEnvKeys {
+			return fmt.Errorf("integration %q: too many %s env_passthrough keys (%d, max %d)", p.Meta.Name, platform, len(effective.EnvPassthrough), integrationMaxEnvKeys)
+		}
+	}
 	if len(p.Backup.Excludes) > integrationMaxExcludes {
 		return fmt.Errorf("integration %q: too many excludes (%d, max %d)", p.Meta.Name, len(p.Backup.Excludes), integrationMaxExcludes)
 	}
@@ -238,12 +264,47 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 	return nil
 }
 
+func validateIntegrationEnvKeys(integrationName, field string, keys []string) error {
+	for _, key := range keys {
+		if !safeEnvKeys[key] {
+			return fmt.Errorf("integration %q: env key %q in %s not in safe passthrough set", integrationName, key, field)
+		}
+	}
+	return nil
+}
+
+func integrationSessionForCurrentPlatform(session IntegrationSession) IntegrationPlatformSession {
+	return integrationSessionForPlatform(session, currentIntegrationPlatform())
+}
+
+func integrationSessionForPlatform(session IntegrationSession, platform string) IntegrationPlatformSession {
+	effective := IntegrationPlatformSession{
+		ReadDirs:       append([]string(nil), session.ReadDirs...),
+		EnvPassthrough: append([]string(nil), session.EnvPassthrough...),
+	}
+	if session.Platforms == nil {
+		return effective
+	}
+	overlay, ok := session.Platforms[platform]
+	if !ok {
+		return effective
+	}
+	effective.ReadDirs = append(effective.ReadDirs, overlay.ReadDirs...)
+	effective.EnvPassthrough = append(effective.EnvPassthrough, overlay.EnvPassthrough...)
+	return effective
+}
+
 // validateIntegrationPaths checks read_dirs against credential deny zones (V2).
 // This runs at session start after tilde expansion and canonicalization.
 // Returns the canonical paths for use in session merge.
 func validateIntegrationPaths(p IntegrationSpec) ([]string, error) {
+	return validateIntegrationPathsForPlatform(p, currentIntegrationPlatform())
+}
+
+func validateIntegrationPathsForPlatform(p IntegrationSpec, platform string) ([]string, error) {
 	var canonical []string
-	for _, dir := range p.Session.ReadDirs {
+	session := integrationSessionForPlatform(p.Session, platform)
+	for _, dir := range session.ReadDirs {
 		expanded := expandTilde(dir)
 
 		// Path must exist (skip silently if it doesn't — same as defaultReadDirs).
@@ -868,6 +929,10 @@ func mergeIntegrations(integrations []IntegrationSpec) (integrationMergeResult, 
 }
 
 func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationMergeResult, error) {
+	return mergeResolvedIntegrationsForPlatform(integrations, currentIntegrationPlatform())
+}
+
+func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, platform string) (integrationMergeResult, error) {
 	var result integrationMergeResult
 	result.EnvPassthrough = make(map[string]string)
 
@@ -877,8 +942,9 @@ func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationM
 	registrySeen := make(map[string]struct{})
 
 	for _, integration := range integrations {
+		session := integrationSessionForPlatform(integration.Spec.Session, platform)
 		if !integration.ReplaceDeclaredReadDirs {
-			dirs, err := validateIntegrationPaths(integration.Spec)
+			dirs, err := validateIntegrationPathsForPlatform(integration.Spec, platform)
 			if err != nil {
 				return integrationMergeResult{}, err
 			}
@@ -898,7 +964,7 @@ func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationM
 		}
 
 		// Env passthrough: resolve from invoker's environment.
-		for _, key := range integration.Spec.Session.EnvPassthrough {
+		for _, key := range session.EnvPassthrough {
 			if _, set := result.EnvPassthrough[key]; set {
 				continue
 			}
@@ -1083,14 +1149,16 @@ func runIntegrationShow(name string) error {
 	if spec, ok := integrationResolverFor(name); ok {
 		fmt.Printf("  Resolver:        %s\n", spec.Summary)
 	}
-	if len(spec.Session.ReadDirs) > 0 {
-		fmt.Printf("  Declared read dirs: %s\n", strings.Join(spec.Session.ReadDirs, ", "))
+	effectiveSession := integrationSessionForCurrentPlatform(spec.Session)
+	platform := currentIntegrationPlatform()
+	if len(effectiveSession.ReadDirs) > 0 {
+		fmt.Printf("  Declared read dirs (%s): %s\n", platform, strings.Join(effectiveSession.ReadDirs, ", "))
 	}
 	if len(merged.ReadDirs) > 0 {
 		fmt.Printf("  Resolved read dirs: %s\n", strings.Join(merged.ReadDirs, ", "))
 	}
-	if len(spec.Session.EnvPassthrough) > 0 {
-		fmt.Printf("  Env passthrough: %s\n", strings.Join(spec.Session.EnvPassthrough, ", "))
+	if len(effectiveSession.EnvPassthrough) > 0 {
+		fmt.Printf("  Env passthrough (%s): %s\n", platform, strings.Join(effectiveSession.EnvPassthrough, ", "))
 	}
 	if len(merged.EnvPassthrough) > 0 {
 		var envPairs []string

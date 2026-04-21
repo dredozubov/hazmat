@@ -68,6 +68,12 @@ hazmat integration show node
 read-only paths, env passthrough keys, snapshot excludes, warnings, and
 command hints.
 
+Manifest `session.read_dirs` and `session.env_passthrough` are common to every
+platform. Platform-owned entries live under `session.platforms.<platform>`, so
+Darwin-specific Homebrew, Command Line Tools, `java_home`, `/opt/homebrew`, and
+`/Library` paths stay out of future Linux FHS or distro-package-manager rules.
+Only the current platform's overlay is merged into a session.
+
 ## Activating Integrations
 
 Activate an integration for a single session:
@@ -121,7 +127,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 |------|---------|-----------|-----------------|-------------------|
 | `go` | `go.mod` | resolved `GOROOT` | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
 | `haskell-cabal` | `cabal.project`, `*.cabal`, `stack.yaml` | resolved GHC and Cabal prefixes | — | `dist-newstyle/`, `.stack-work/` |
-| `node` | `package.json` | resolved Node prefix | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
+| `node` | `package.json` | resolved Node prefix; Darwin declares `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
 | `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `python-uv` | `uv.lock` | `~/.local/share/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `rust` | `Cargo.toml` | resolved Rust sysroot | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
@@ -131,7 +137,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `elixir-mix` | `mix.exs`, `mix.lock` | resolved Elixir and Erlang prefixes | — | `_build/`, `deps/`, `erl_crash.dump` |
 | `terraform-plan` | `*.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `opentofu-plan` | manual activation | resolved OpenTofu prefix | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
-| `tla-java` | `*.cfg` files with sibling `*.tla` | resolved JDK home, `/Library/Java` | `JAVA_HOME`, `TLA2TOOLS_JAR` | `tla/states/`, `*.dot` |
+| `tla-java` | `*.cfg` files with sibling `*.tla` | resolved JDK home; Darwin declares `/Library/Java` and `/opt/homebrew/opt/openjdk` | `JAVA_HOME`, `TLA2TOOLS_JAR` | `tla/states/`, `*.dot` |
 
 Integrations influence three parts of session setup:
 
@@ -295,6 +301,10 @@ session:
   read_dirs:
     - ~/.sdkman/candidates/java
   env_passthrough: [JAVA_HOME]
+  platforms:
+    darwin:
+      read_dirs:
+        - /Library/Java
 
 backup:
   excludes:
@@ -321,6 +331,9 @@ commands:
 | `detect.files` | no | Filenames (no paths) that suggest this integration |
 | `session.read_dirs` | no | Paths added read-only (`~` expands to invoker home) |
 | `session.env_passthrough` | no | Env var names from the safe allowlist only |
+| `session.platforms.darwin.read_dirs` | no | Darwin-only read dirs merged after common `session.read_dirs` |
+| `session.platforms.linux.read_dirs` | no | Linux-only read dirs for future Linux support |
+| `session.platforms.<platform>.env_passthrough` | no | Platform-only env var names from the same safe allowlist |
 | `backup.excludes` | no | Glob patterns for snapshot exclusion |
 | `warnings` | no | Messages shown at session start |
 | `commands` | no | Name-to-command hints (informational, not executed) |
@@ -333,6 +346,9 @@ commands:
 - Env passthrough keys must be in the safe set (passive pointers like `GOPATH`,
   `JAVA_HOME`, `VIRTUAL_ENV`). Keys that accept arbitrary flags or preload code
   (`NODE_OPTIONS`, `PYTHONPATH`, `GOFLAGS`, `LD_PRELOAD`) are rejected.
+- Platform overlays are fail-closed. The schema currently accepts only
+  `darwin` and `linux`, and Linux overlays remain inert until Linux sessions are
+  implemented.
 - No negation in exclude patterns.
 - Manifest size limit: 8KB.
 

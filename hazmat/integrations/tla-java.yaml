@@ -1,16 +1,18 @@
 integration:
   name: tla-java
   version: 1
-  description: Java runtime for TLA+/TLC model checking (macOS Homebrew)
+  description: Java runtime for TLA+/TLC model checking
 
 detect:
   files: ["*.cfg"]
 
 session:
-  read_dirs:
-    - /opt/homebrew/opt/openjdk
-    - /Library/Java
   env_passthrough: [JAVA_HOME, TLA2TOOLS_JAR]
+  platforms:
+    darwin:
+      read_dirs:
+        - /opt/homebrew/opt/openjdk
+        - /Library/Java
 
 backup:
   excludes:

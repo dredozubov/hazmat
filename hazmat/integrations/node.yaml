@@ -7,9 +7,11 @@ detect:
   files: [package.json]
 
 session:
-  read_dirs:
-    - /opt/homebrew/lib/node_modules
   env_passthrough: [NODE_ENV]
+  platforms:
+    darwin:
+      read_dirs:
+        - /opt/homebrew/lib/node_modules
 
 backup:
   excludes:

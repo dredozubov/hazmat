@@ -58,14 +58,16 @@ type brewPrefixResult struct {
 }
 
 var (
-	integrationProbeFactory    = func() integrationProbe { return hostIntegrationProbe{} }
-	integrationProbeTimeout    = 2 * time.Second
-	integrationHomebrewTimeout = 10 * time.Second
-	integrationBrewCandidates  = []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"}
-	integrationJavaHomePath    = "/usr/libexec/java_home"
-	integrationAgentExecCheck  = func(path string) bool { return pathExecutableByAgent(path) }
-	integrationGetenv          = os.Getenv
-	homebrewConsentPrompt      = func() (bool, bool) {
+	integrationProbeFactory          = func() integrationProbe { return hostIntegrationProbe{} }
+	integrationProbeTimeout          = 2 * time.Second
+	integrationHomebrewTimeout       = 10 * time.Second
+	integrationBrewCandidates        = append([]string(nil), integrationPlatform.HomebrewCandidates...)
+	integrationJavaHomePath          = integrationPlatform.JavaHomePath
+	integrationGenericToolchainRoots = append([]string(nil), integrationPlatform.GenericToolchainRoots...)
+	integrationProbeExtraEnv         = append([]string(nil), integrationPlatform.ProbeEnv...)
+	integrationAgentExecCheck        = func(path string) bool { return pathExecutableByAgent(path) }
+	integrationGetenv                = os.Getenv
+	homebrewConsentPrompt            = func() (bool, bool) {
 		if flagDryRun {
 			return false, false
 		}
@@ -80,63 +82,63 @@ var (
 
 var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 	"go": {
-		Summary: "runtime go env probe with Homebrew go fallback",
+		Summary: "runtime go env probe with Darwin Homebrew go fallback",
 		Resolve: resolveGoIntegration,
 	},
 	"haskell-cabal": {
-		Summary: "ghc/cabal runtime probe with Homebrew ghc and cabal-install fallback",
+		Summary: "ghc/cabal runtime probe with Darwin Homebrew ghc and cabal-install fallback",
 		Resolve: resolveHaskellCabalIntegration,
 	},
 	"python-poetry": {
-		Summary:                  "python runtime probe with Homebrew python fallback",
+		Summary:                  "python runtime probe with Darwin Homebrew python fallback",
 		ReplacesDeclaredReadDirs: true,
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 			return resolvePythonIntegration(ctx, spec, "python-poetry")
 		},
 	},
 	"python-uv": {
-		Summary:                  "python runtime probe with Homebrew python fallback",
+		Summary:                  "python runtime probe with Darwin Homebrew python fallback",
 		ReplacesDeclaredReadDirs: true,
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 			return resolvePythonIntegration(ctx, spec, "python-uv")
 		},
 	},
 	"java-gradle": {
-		Summary: "JDK runtime probe with Homebrew openjdk and gradle fallback",
+		Summary: "JDK runtime probe with Darwin java_home and Homebrew openjdk/gradle fallback",
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 			return resolveJavaBuildIntegration(ctx, spec, "java-gradle", "gradle", "gradle")
 		},
 	},
 	"java-maven": {
-		Summary: "JDK runtime probe with Homebrew openjdk and maven fallback",
+		Summary: "JDK runtime probe with Darwin java_home and Homebrew openjdk/maven fallback",
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 			return resolveJavaBuildIntegration(ctx, spec, "java-maven", "mvn", "maven")
 		},
 	},
 	"node": {
-		Summary:                  "active Node runtime probe with Homebrew node fallback",
+		Summary:                  "active Node runtime probe with Darwin Homebrew node fallback",
 		ReplacesDeclaredReadDirs: true,
 		Resolve:                  resolveNodeIntegration,
 	},
 	"opentofu-plan": {
-		Summary: "tofu runtime probe with Homebrew opentofu fallback",
+		Summary: "tofu runtime probe with Darwin Homebrew opentofu fallback",
 		Resolve: resolveOpenTofuIntegration,
 	},
 	"ruby-bundler": {
-		Summary: "ruby runtime probe with Homebrew ruby fallback",
+		Summary: "ruby runtime probe with Darwin Homebrew ruby fallback",
 		Resolve: resolveRubyBundlerIntegration,
 	},
 	"rust": {
-		Summary:                  "rustc sysroot probe with Homebrew rust/rustup fallback",
+		Summary:                  "rustc sysroot probe with Darwin Homebrew rust/rustup fallback",
 		ReplacesDeclaredReadDirs: true,
 		Resolve:                  resolveRustIntegration,
 	},
 	"elixir-mix": {
-		Summary: "elixir/erl runtime probe with Homebrew elixir and erlang fallback",
+		Summary: "elixir/erl runtime probe with Darwin Homebrew elixir and erlang fallback",
 		Resolve: resolveElixirMixIntegration,
 	},
 	"tla-java": {
-		Summary:                  "JAVA_HOME / java runtime probe with Homebrew openjdk fallback",
+		Summary:                  "JAVA_HOME / java runtime probe with Darwin java_home and Homebrew openjdk fallback",
 		ReplacesDeclaredReadDirs: true,
 		Resolve:                  resolveTLAJavaIntegration,
 	},
@@ -170,8 +172,8 @@ func integrationProbeEnv() []string {
 	env := []string{
 		"HOME=" + integrationGetenv("HOME"),
 		"PATH=" + defaultAgentPath,
-		"HOMEBREW_NO_AUTO_UPDATE=1",
 	}
+	env = append(env, integrationProbeExtraEnv...)
 	// Include safe path pointers from the invoker's environment so probes
 	// like "go env GOMODCACHE" resolve correctly when the invoker has a
 	// non-default GOPATH, CARGO_HOME, etc.
@@ -699,12 +701,7 @@ func validatedToolchainPrefix(ctx *integrationResolveContext, path, executableRe
 }
 
 func genericToolchainRoot(dir string) bool {
-	switch filepath.Clean(dir) {
-	case "/", "/System", "/Library", "/bin", "/sbin", "/usr", "/usr/local", "/opt", "/opt/homebrew":
-		return true
-	default:
-		return false
-	}
+	return platformGenericToolchainRoot(dir)
 }
 
 func integrationSource(name string, parts []string) string {
@@ -758,6 +755,9 @@ func goRootFromPrefix(ctx *integrationResolveContext, prefix string) string {
 }
 
 func (ctx *integrationResolveContext) brewPrefix(formulas ...string) brewPrefixResult {
+	if len(integrationBrewCandidates) == 0 {
+		return brewPrefixResult{Detail: fmt.Sprintf("Homebrew fallback is not configured for %s", currentIntegrationPlatform())}
+	}
 	resolver := ctx.homebrewResolver()
 	if resolver == nil {
 		return brewPrefixResult{Detail: "Homebrew not found at canonical locations"}
@@ -893,11 +893,13 @@ func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) 
 		}
 	}
 
-	if info, err := os.Stat(integrationJavaHomePath); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-		if out, err := ctx.Probe.Output(integrationJavaHomePath); err == nil && out != "" {
-			dir, err := validatedJavaHome(ctx, out)
-			if err == nil && dir != "" {
-				return dir, "tla-java (java_home)", nil
+	if integrationJavaHomePath != "" {
+		if info, err := os.Stat(integrationJavaHomePath); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			if out, err := ctx.Probe.Output(integrationJavaHomePath); err == nil && out != "" {
+				dir, err := validatedJavaHome(ctx, out)
+				if err == nil && dir != "" {
+					return dir, "tla-java (java_home)", nil
+				}
 			}
 		}
 	}

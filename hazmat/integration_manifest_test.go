@@ -160,6 +160,41 @@ func TestValidateIntegrationSchemaSafeEnvKey(t *testing.T) {
 	}
 }
 
+func TestValidateIntegrationSchemaPlatformOverlay(t *testing.T) {
+	p := IntegrationSpec{
+		Meta: IntegrationMeta{Name: "test", Version: 1},
+		Session: IntegrationSession{
+			EnvPassthrough: []string{"JAVA_HOME"},
+			Platforms: map[string]IntegrationPlatformSession{
+				"darwin": {
+					ReadDirs:       []string{"/Library/Java"},
+					EnvPassthrough: []string{"TLA2TOOLS_JAR"},
+				},
+				"linux": {
+					ReadDirs: []string{"/usr/lib/jvm"},
+				},
+			},
+		},
+	}
+	if err := validateIntegrationSchema(p); err != nil {
+		t.Fatalf("platform overlay rejected: %v", err)
+	}
+}
+
+func TestValidateIntegrationSchemaRejectsUnsupportedPlatform(t *testing.T) {
+	p := IntegrationSpec{
+		Meta: IntegrationMeta{Name: "test", Version: 1},
+		Session: IntegrationSession{
+			Platforms: map[string]IntegrationPlatformSession{
+				"windows": {ReadDirs: []string{`C:\Tools`}},
+			},
+		},
+	}
+	if err := validateIntegrationSchema(p); err == nil {
+		t.Fatal("expected unsupported platform overlay to be rejected")
+	}
+}
+
 func TestValidateIntegrationSchemaNegationExclude(t *testing.T) {
 	p := IntegrationSpec{
 		Meta:   IntegrationMeta{Name: "test", Version: 1},
@@ -241,6 +276,56 @@ func TestValidateIntegrationPathsSafeDirAccepted(t *testing.T) {
 	}
 }
 
+func TestValidateIntegrationPathsUsesPlatformOverlay(t *testing.T) {
+	commonDir := filepath.Join(t.TempDir(), "common")
+	darwinDir := filepath.Join(t.TempDir(), "darwin")
+	linuxDir := filepath.Join(t.TempDir(), "linux")
+	for _, dir := range []string{commonDir, darwinDir, linuxDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	commonCanonical, err := canonicalizePath(commonDir)
+	if err != nil {
+		t.Fatalf("canonicalize common: %v", err)
+	}
+	darwinCanonical, err := canonicalizePath(darwinDir)
+	if err != nil {
+		t.Fatalf("canonicalize darwin: %v", err)
+	}
+	linuxCanonical, err := canonicalizePath(linuxDir)
+	if err != nil {
+		t.Fatalf("canonicalize linux: %v", err)
+	}
+
+	p := IntegrationSpec{
+		Meta: IntegrationMeta{Name: "ok", Version: 1},
+		Session: IntegrationSession{
+			ReadDirs: []string{commonDir},
+			Platforms: map[string]IntegrationPlatformSession{
+				"darwin": {ReadDirs: []string{darwinDir}},
+				"linux":  {ReadDirs: []string{linuxDir}},
+			},
+		},
+	}
+
+	darwinPaths, err := validateIntegrationPathsForPlatform(p, "darwin")
+	if err != nil {
+		t.Fatalf("validate darwin paths: %v", err)
+	}
+	if len(darwinPaths) != 2 || darwinPaths[0] != commonCanonical || darwinPaths[1] != darwinCanonical {
+		t.Fatalf("darwin paths = %v, want [%q %q]", darwinPaths, commonCanonical, darwinCanonical)
+	}
+
+	linuxPaths, err := validateIntegrationPathsForPlatform(p, "linux")
+	if err != nil {
+		t.Fatalf("validate linux paths: %v", err)
+	}
+	if len(linuxPaths) != 2 || linuxPaths[0] != commonCanonical || linuxPaths[1] != linuxCanonical {
+		t.Fatalf("linux paths = %v, want [%q %q]", linuxPaths, commonCanonical, linuxCanonical)
+	}
+}
+
 func TestValidateIntegrationPathsNonExistentSkipped(t *testing.T) {
 	p := IntegrationSpec{
 		Meta:    IntegrationMeta{Name: "ok", Version: 1},
@@ -268,6 +353,9 @@ detect:
 session:
   read_dirs: [/tmp]
   env_passthrough: [GOPATH]
+  platforms:
+    darwin:
+      read_dirs: [/Library/Java]
 backup:
   excludes: [vendor/]
 warnings:
@@ -284,6 +372,9 @@ commands:
 	}
 	if len(p.Session.ReadDirs) != 1 || p.Session.ReadDirs[0] != "/tmp" {
 		t.Fatalf("read_dirs = %v, want [/tmp]", p.Session.ReadDirs)
+	}
+	if got := p.Session.Platforms["darwin"].ReadDirs; len(got) != 1 || got[0] != "/Library/Java" {
+		t.Fatalf("darwin read_dirs = %v, want [/Library/Java]", got)
 	}
 }
 
@@ -407,6 +498,54 @@ func TestMergeIntegrationsResolvesEnv(t *testing.T) {
 	}
 	if _, set := result.EnvPassthrough["GOPRIVATE"]; set {
 		t.Error("GOPRIVATE should not be set (not in invoker env)")
+	}
+}
+
+func TestMergeResolvedIntegrationsUsesPlatformEnvOverlay(t *testing.T) {
+	t.Setenv("JAVA_HOME", "/tmp/jdk")
+	t.Setenv("TLA2TOOLS_JAR", "/tmp/tla2tools.jar")
+
+	result, err := mergeResolvedIntegrationsForPlatform([]resolvedIntegration{
+		{
+			Spec: IntegrationSpec{
+				Meta: IntegrationMeta{Name: "tla-java", Version: 1},
+				Session: IntegrationSession{
+					EnvPassthrough: []string{"JAVA_HOME"},
+					Platforms: map[string]IntegrationPlatformSession{
+						"darwin": {EnvPassthrough: []string{"TLA2TOOLS_JAR"}},
+					},
+				},
+			},
+		},
+	}, "darwin")
+	if err != nil {
+		t.Fatalf("mergeResolvedIntegrationsForPlatform: %v", err)
+	}
+	if result.EnvPassthrough["JAVA_HOME"] != "/tmp/jdk" {
+		t.Fatalf("JAVA_HOME = %q", result.EnvPassthrough["JAVA_HOME"])
+	}
+	if result.EnvPassthrough["TLA2TOOLS_JAR"] != "/tmp/tla2tools.jar" {
+		t.Fatalf("TLA2TOOLS_JAR = %q", result.EnvPassthrough["TLA2TOOLS_JAR"])
+	}
+
+	result, err = mergeResolvedIntegrationsForPlatform([]resolvedIntegration{
+		{
+			Spec: IntegrationSpec{
+				Meta: IntegrationMeta{Name: "tla-java", Version: 1},
+				Session: IntegrationSession{
+					EnvPassthrough: []string{"JAVA_HOME"},
+					Platforms: map[string]IntegrationPlatformSession{
+						"darwin": {EnvPassthrough: []string{"TLA2TOOLS_JAR"}},
+					},
+				},
+			},
+		},
+	}, "linux")
+	if err != nil {
+		t.Fatalf("mergeResolvedIntegrationsForPlatform linux: %v", err)
+	}
+	if _, ok := result.EnvPassthrough["TLA2TOOLS_JAR"]; ok {
+		t.Fatalf("linux env should not include darwin overlay: %v", result.EnvPassthrough)
 	}
 }
 
