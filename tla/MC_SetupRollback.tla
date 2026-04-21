@@ -18,9 +18,11 @@
 \* Governed code:
 \*   hazmat/init.go                  — runInit()
 \*   hazmat/init_steps.go            — initSetupSteps() formal resource order
+\*   hazmat/setup_verification.go    — read-only verification checks by resource
 \*   hazmat/rollback.go              — runRollback()
 \*   hazmat/rollback_steps.go        — rollback step formal resource order
 \*   hazmat/setup_rollback_formal.go — shared resource names
+\*   hazmat/hostexec_*.go            — platform utility tables used by steps
 \*
 \* Model bounds: 2 setup attempts, 2 rollback attempts, failure at any step.
 \*
@@ -44,6 +46,15 @@
 \* Explicit non-init harness commands like "hazmat bootstrap opencode",
 \* curated harness import flows, and session-only integration activation are
 \* intentionally out of model here.
+\*
+\* Setup verification is read-only and does not transition this state machine.
+\* setupVerificationSteps() maps current health probes to the same resources
+\* so platform backends can change probe mechanics without changing the
+\* verified setup/rollback order.
+\* Host utility resolution is an implementation detail of those resource
+\* actions: changing dscl/pfctl/launchctl/etc. paths cannot reorder setup or
+\* rollback, and future Linux utilities must stay behind the same resource
+\* boundaries before being enabled.
 
 EXTENDS Naturals, FiniteSets
 

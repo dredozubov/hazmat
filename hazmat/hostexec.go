@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// hostexec.go resolves macOS system utilities to absolute paths.
+// hostexec.go resolves host system utilities to absolute paths.
 //
 // Hazmat is a security tool, so it cannot trust the controlling user's
 // ambient PATH to resolve chmod, sudo, ls, pfctl, etc. A hostile early
@@ -29,34 +29,42 @@ import (
 // break those; typed absolute-path resolution at each call site makes the
 // trust boundary visible and auditable.
 
-// Absolute paths to macOS base-system utilities. Paths are stable across
-// every supported macOS version and match /etc/sudoers' secure_path.
-const (
-	hostSudoPath      = "/usr/bin/sudo"
-	hostChmodPath     = "/bin/chmod"
-	hostChownPath     = "/usr/sbin/chown"
-	hostLsPath        = "/bin/ls"
-	hostDsclPath      = "/usr/bin/dscl"
-	hostPfctlPath     = "/sbin/pfctl"
-	hostLaunchctlPath = "/bin/launchctl"
-	hostUnamePath     = "/usr/bin/uname"
-	hostScriptPath    = "/usr/bin/script"
-	hostDiffPath      = "/usr/bin/diff"
-	hostTeePath       = "/usr/bin/tee"
+type hostToolPaths struct {
+	sudo      string
+	chmod     string
+	chown     string
+	ls        string
+	dscl      string
+	pfctl     string
+	launchctl string
+	uname     string
+	script    string
+	diff      string
+	tee       string
+
+	gitAllowlistCandidates []string
+}
+
+var hostTools = platformHostToolPaths()
+
+var (
+	hostSudoPath      = hostTools.sudo
+	hostChmodPath     = hostTools.chmod
+	hostChownPath     = hostTools.chown
+	hostLsPath        = hostTools.ls
+	hostDsclPath      = hostTools.dscl
+	hostPfctlPath     = hostTools.pfctl
+	hostLaunchctlPath = hostTools.launchctl
+	hostUnamePath     = hostTools.uname
+	hostScriptPath    = hostTools.script
+	hostDiffPath      = hostTools.diff
+	hostTeePath       = hostTools.tee
 )
 
 // gitAllowlistCandidates is the fixed set of git binary paths hazmat will
-// accept, in preference order. Homebrew installations win over Xcode
-// Command Line Tools at /usr/bin/git because the Xcode shim routes to
-// Apple-shipped Git, not to the user's Homebrew git. On macOS Sequoia,
-// /usr/bin/git is Apple Git ~2.50 while Homebrew git is ~2.53 — features
-// like protocol v2 defaults differ, so naive /usr/bin/git substitution
-// would silently downgrade functionality.
-var gitAllowlistCandidates = []string{
-	"/opt/homebrew/bin/git", // Apple Silicon Homebrew
-	"/usr/local/bin/git",    // Intel Homebrew
-	"/usr/bin/git",          // Xcode Command Line Tools shim (fallback)
-}
+// accept, in preference order. The platform backend owns the candidates
+// because Homebrew, Xcode shims, and future Linux FHS paths differ.
+var gitAllowlistCandidates = append([]string(nil), hostTools.gitAllowlistCandidates...)
 
 var (
 	gitPathOnce  sync.Once

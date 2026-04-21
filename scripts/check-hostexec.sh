@@ -22,9 +22,9 @@ cd "$REPO_ROOT"
 FORBIDDEN_UTILS='chmod|chown|ls|sudo|dscl|pfctl|launchctl|uname|script|diff|tee|git'
 
 # Allowlist files where the absolute-path constants are defined.
-# hostexec.go holds the path constants and the git allowlist resolver;
+# hostexec*.go holds the platform path tables and git allowlist resolver;
 # the comments there intentionally describe the forbidden pattern.
-ALLOWED_FILES='^hazmat/hostexec\.go:'
+ALLOWED_FILES='^hazmat/hostexec(_[a-z]+)?\.go:'
 
 # grep for bare exec.Command("<util>", ...) and execOutput("<util>", ...).
 # We intentionally scan both Go sources and test files: allowlisted paths

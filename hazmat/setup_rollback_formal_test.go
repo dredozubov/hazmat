@@ -80,3 +80,31 @@ func TestRollbackStepsMatchMCSetupRollbackResources(t *testing.T) {
 		t.Fatalf("destructive rollback names = %v, want %d entries", gotDestructiveNames, len(wantDestructive))
 	}
 }
+
+func TestSetupVerificationStepsReferenceMCSetupRollbackResources(t *testing.T) {
+	got := make([]setupRollbackTLAResource, 0, len(setupVerificationSteps()))
+	gotNames := make([]string, 0, len(setupVerificationSteps()))
+	for _, step := range setupVerificationSteps() {
+		got = append(got, step.tlaResource)
+		gotNames = append(gotNames, step.name)
+	}
+
+	want := []setupRollbackTLAResource{
+		tlaResourceAgentUser,
+		tlaResourceAgentUser,
+		tlaResourceHomeDirTraverse,
+		tlaResourcePfAnchor,
+		tlaResourcePfAnchor,
+		tlaResourceSudoers,
+		tlaResourceDNSBlocklist,
+		tlaResourceSeatbelt,
+		tlaResourceWrappers,
+		tlaResourceWrappers,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("setup verification TLA resources = %v, want %v", got, want)
+	}
+	if len(gotNames) != len(want) {
+		t.Fatalf("setup verification names = %v, want %d entries", gotNames, len(want))
+	}
+}
