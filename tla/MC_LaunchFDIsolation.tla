@@ -18,8 +18,10 @@
 \*   - any fd the helper opens itself for policy validation is CLOEXEC
 \*
 \* Governed code:
-\*   hazmat/agent_launch.go — native sudo + helper launch path
-\*   hazmat/session.go — runAgentSeatbeltScriptWithUI(), policy-file generation
+\*   hazmat/native_launch.go — backend-neutral native launch contract
+\*   hazmat/native_launch_darwin.go — Darwin sudo + helper command shape
+\*   hazmat/agent_launch.go — fixed-script native launch wrapper
+\*   hazmat/session.go — runAgentSeatbeltScriptWithUI()
 \*   hazmat/cmd/hazmat-launch/main.go — helper-side fd sanitization, policy read, sandbox_init, exec
 
 EXTENDS Naturals, FiniteSets

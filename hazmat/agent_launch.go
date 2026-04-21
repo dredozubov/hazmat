@@ -12,14 +12,6 @@ func newAgentSeatbeltCommand(cfg sessionConfig, script string, args ...string) (
 		return nil, nil, err
 	}
 
-	full := []string{
-		"-u", agentUser,
-		launchHelperPath(), policy.Path,
-		"/usr/bin/env", "-i",
-	}
-	full = append(full, agentEnvPairs(cfg)...)
-	full = append(full, "/bin/zsh", "-lc", script, "zsh")
-	full = append(full, args...)
-
+	full := nativeLaunchSudoArgs(cfg, policy, nil, script, args...)
 	return newSudoCommand(full...), policy.Cleanup, nil
 }

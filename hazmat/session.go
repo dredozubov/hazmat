@@ -1752,22 +1752,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	}
 	defer policy.Cleanup()
 
-	// The NOPASSWD sudoers rule covers exactly:
-	//   sudo -u agent /usr/local/libexec/hazmat-launch <policy-file> ...
-	//
-	// hazmat-launch validates the policy file path and SUDO_UID ownership
-	// before applying the platform sandbox. It refuses inline policies.
-	// env -i runs *inside* the sandbox so the environment is set after the
-	// privilege boundary is crossed.
-	full := []string{
-		"-u", agentUser,
-		launchHelperPath(), policy.Path,
-		"/usr/bin/env", "-i",
-	}
-	full = append(full, agentEnvPairs(cfg)...)
-	full = append(full, runtime.EnvPairs...)
-	full = append(full, "/bin/zsh", "-lc", script, "zsh")
-	full = append(full, args...)
+	full := nativeLaunchSudoArgs(cfg, policy, runtime.EnvPairs, script, args...)
 
 	var (
 		barOnce     sync.Once
@@ -1859,55 +1844,4 @@ func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "done (%.1fs)\n", time.Since(start).Seconds())
-}
-
-func agentEnvPairs(cfg sessionConfig) []string {
-	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
-	writeDirsJSON, _ := json.Marshal(cfg.WriteDirs)
-	pairs := []string{
-		"HOME=" + agentHome,
-		"USER=" + agentUser,
-		"LOGNAME=" + agentUser,
-		"SHELL=/bin/zsh",
-		"PATH=" + defaultAgentPath,
-		"TMPDIR=" + defaultAgentTmpDir,
-		"XDG_CACHE_HOME=" + defaultAgentCacheHome,
-		"XDG_CONFIG_HOME=" + defaultAgentConfigHome,
-		"XDG_DATA_HOME=" + defaultAgentDataHome,
-		"HOMEBREW_NO_AUTO_UPDATE=1",
-		// CGO compilation: the /usr/bin/cc shim dispatches through xcode-select
-		// which may resolve to Xcode.app (outside the seatbelt). Set CC/CXX
-		// directly to CommandLineTools compilers and SDKROOT so clang can find
-		// system headers without probing restricted paths.
-		"DEVELOPER_DIR=/Library/Developer/CommandLineTools",
-		"SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
-		"CC=/Library/Developer/CommandLineTools/usr/bin/cc",
-		"CXX=/Library/Developer/CommandLineTools/usr/bin/c++",
-		"SANDBOX_ACTIVE=1",
-		"SANDBOX_PROJECT_DIR=" + cfg.ProjectDir,
-		"SANDBOX_READ_DIRS_JSON=" + string(readDirsJSON),
-		"SANDBOX_WRITE_DIRS_JSON=" + string(writeDirsJSON),
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		terminalPairs, _ := terminalCapabilitySupport(home, os.Getenv)
-		pairs = append(pairs, terminalPairs...)
-	}
-
-	// Go toolchain: share the invoking user's module cache read-only.
-	// GOMODCACHE points to the invoker's cache so `go build` uses
-	// pre-downloaded modules instead of re-fetching. The seatbelt enforces
-	// read-only access — if a new dependency is needed, `go mod download`
-	// must be run outside the sandbox first.
-	if modCache := invokerGoModCache(); modCache != "" {
-		pairs = append(pairs, "GOMODCACHE="+modCache)
-	}
-
-	// Integration env passthrough: passive path pointers and selectors resolved
-	// from the invoker's environment. Only keys in safeEnvKeys are allowed;
-	// validation happens at integration-manifest load time.
-	for key, val := range cfg.IntegrationEnv {
-		pairs = append(pairs, key+"="+val)
-	}
-
-	return pairs
 }
