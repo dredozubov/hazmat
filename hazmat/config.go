@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
+)
+
+var (
+	projectSSHKeyNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	projectSSHHostPattern    = regexp.MustCompile(`^(?:\*(?:\.[A-Za-z0-9-]+)+|[A-Za-z0-9*?\[\]]+(?:[.\-][A-Za-z0-9*?\[\]]+)*)$`)
 )
 
 // ── Config file path ────────────────────────────────────────────────────────
@@ -43,9 +49,28 @@ type ProjectConfig struct {
 }
 
 type ProjectSSHConfig struct {
-	Key            string `yaml:"key,omitempty"` // legacy inventory-based selection
+	// Legacy single-key fields — preserved for backward compatibility.
+	// Parsed as a one-entry Keys list (named "default") with empty Hosts,
+	// which the TLA spec (MC_GitSSHRouting) admits as the legacy any-host
+	// fallback only when Keys is empty at parse time.
+	Key            string `yaml:"key,omitempty"`
 	PrivateKeyPath string `yaml:"private_key,omitempty"`
 	KnownHostsPath string `yaml:"known_hosts,omitempty"`
+
+	// Keys is the multi-key form. When non-empty, the legacy fields above
+	// must be empty. Each key carries an explicit host list.
+	Keys []ProjectSSHKey `yaml:"keys,omitempty"`
+}
+
+// ProjectSSHKey is one named SSH identity within a project's SSH config.
+// Exactly one of Key (provisioned inventory reference) or PrivateKeyPath
+// (filesystem path) must be set.
+type ProjectSSHKey struct {
+	Name           string   `yaml:"name"`
+	Key            string   `yaml:"key,omitempty"`
+	PrivateKeyPath string   `yaml:"private_key,omitempty"`
+	KnownHostsPath string   `yaml:"known_hosts,omitempty"`
+	Hosts          []string `yaml:"hosts,omitempty"`
 }
 
 type ProjectGitSSHConfig struct {
@@ -241,7 +266,161 @@ func (c HazmatConfig) ProjectSSH(projectDir string) *ProjectSSHConfig {
 		return nil
 	}
 	cloned := *project.SSH
+	if len(project.SSH.Keys) > 0 {
+		cloned.Keys = make([]ProjectSSHKey, len(project.SSH.Keys))
+		for i, key := range project.SSH.Keys {
+			cloned.Keys[i] = key
+			cloned.Keys[i].Hosts = append([]string(nil), key.Hosts...)
+		}
+	}
 	return &cloned
+}
+
+// NormalizedKeys returns the effective per-key view of a project SSH config.
+// Legacy single-key configs (no Keys list, populated PrivateKeyPath or Key)
+// are rewritten into a single entry named "default" with empty Hosts — the
+// TLA spec's legacy any-host fallback. Multi-key configs are returned as-is.
+// Returns nil when the config carries no identity at all.
+func (c ProjectSSHConfig) NormalizedKeys() []ProjectSSHKey {
+	if len(c.Keys) > 0 {
+		out := make([]ProjectSSHKey, len(c.Keys))
+		for i, key := range c.Keys {
+			out[i] = key
+			out[i].Hosts = append([]string(nil), key.Hosts...)
+		}
+		return out
+	}
+	if strings.TrimSpace(c.PrivateKeyPath) == "" && strings.TrimSpace(c.Key) == "" {
+		return nil
+	}
+	return []ProjectSSHKey{{
+		Name:           "default",
+		Key:            c.Key,
+		PrivateKeyPath: c.PrivateKeyPath,
+		KnownHostsPath: c.KnownHostsPath,
+	}}
+}
+
+// ValidateProjectSSHConfig enforces the config-set-time invariants from
+// tla/MC_GitSSHRouting.tla:
+//   - Names are non-empty, unique, and well-formed.
+//   - Exactly one of Key or PrivateKeyPath is set per entry.
+//   - An empty Hosts list is only permitted when there is exactly one key
+//     (the legacy any-host fallback).
+//   - Hosts are non-empty bare hostnames (plus "*" wildcards), normalized,
+//     and pairwise disjoint across keys.
+//
+// Mixing legacy flat fields with a non-empty Keys list is rejected.
+//
+// Socket-collision checks are out of scope here — sockets are session-time
+// runtime artifacts owned by git_ssh.go, not values stored in the config.
+func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
+	hasLegacy := strings.TrimSpace(c.PrivateKeyPath) != "" || strings.TrimSpace(c.Key) != ""
+	if len(c.Keys) > 0 && hasLegacy {
+		return fmt.Errorf("ssh: cannot combine 'keys' list with legacy 'key' or 'private_key'")
+	}
+	if len(c.Keys) == 0 {
+		return nil
+	}
+
+	seenName := make(map[string]struct{}, len(c.Keys))
+	keyHostSets := make([]map[string]struct{}, len(c.Keys))
+	emptyCount := 0
+
+	for i, key := range c.Keys {
+		name := strings.TrimSpace(key.Name)
+		if name == "" {
+			return fmt.Errorf("ssh.keys[%d]: name is required", i)
+		}
+		if !projectSSHKeyNamePattern.MatchString(name) {
+			return fmt.Errorf("ssh.keys[%d]: invalid name %q (use letters, digits, '-', '_', '.')", i, name)
+		}
+		if _, dup := seenName[name]; dup {
+			return fmt.Errorf("ssh.keys: duplicate name %q", name)
+		}
+		seenName[name] = struct{}{}
+
+		hasPath := strings.TrimSpace(key.PrivateKeyPath) != ""
+		hasRef := strings.TrimSpace(key.Key) != ""
+		switch {
+		case hasPath && hasRef:
+			return fmt.Errorf("ssh.keys[%q]: set either 'private_key' or 'key', not both", name)
+		case !hasPath && !hasRef:
+			return fmt.Errorf("ssh.keys[%q]: one of 'private_key' or 'key' is required", name)
+		}
+
+		hostSet, err := normalizeProjectSSHHosts(key.Hosts)
+		if err != nil {
+			return fmt.Errorf("ssh.keys[%q].hosts: %w", name, err)
+		}
+		if len(hostSet) == 0 {
+			emptyCount++
+		}
+		keyHostSets[i] = hostSet
+	}
+
+	if emptyCount > 0 && len(c.Keys) > 1 {
+		return fmt.Errorf("ssh.keys: an empty 'hosts' list (legacy any-host fallback) is only allowed with exactly one key")
+	}
+
+	for i := 0; i < len(c.Keys); i++ {
+		for j := i + 1; j < len(c.Keys); j++ {
+			if overlap := firstHostOverlap(keyHostSets[i], keyHostSets[j]); overlap != "" {
+				return fmt.Errorf("ssh.keys: %q and %q both match host %q", c.Keys[i].Name, c.Keys[j].Name, overlap)
+			}
+		}
+	}
+
+	return nil
+}
+
+func normalizeProjectSSHHosts(hosts []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(hosts))
+	for _, raw := range hosts {
+		host := strings.ToLower(strings.TrimSpace(raw))
+		if host == "" {
+			continue
+		}
+		if !projectSSHHostPattern.MatchString(host) {
+			return nil, fmt.Errorf("invalid host %q (expected bare hostname or wildcard like '*.example.com')", raw)
+		}
+		out[host] = struct{}{}
+	}
+	return out, nil
+}
+
+func firstHostOverlap(a, b map[string]struct{}) string {
+	for host := range a {
+		if _, ok := b[host]; ok {
+			return host
+		}
+		if wildcardHostOverlap(host, b) {
+			return host
+		}
+	}
+	for host := range b {
+		if wildcardHostOverlap(host, a) {
+			return host
+		}
+	}
+	return ""
+}
+
+// wildcardHostOverlap reports whether `pattern` (which may contain '*' /
+// '?' / character classes per filepath.Match) matches any host literal in
+// `set`. Two wildcards that both match some unseen third host will NOT be
+// caught here — but in practice two overlapping wildcards fail the
+// stricter check at session-resolve time when we know the concrete host.
+func wildcardHostOverlap(pattern string, set map[string]struct{}) bool {
+	if !strings.ContainsAny(pattern, "*?[") {
+		return false
+	}
+	for host := range set {
+		if ok, _ := filepath.Match(pattern, host); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (c HazmatConfig) ProjectGitSSH(projectDir string) *ProjectGitSSHConfig {
@@ -297,6 +476,15 @@ func loadConfig() (HazmatConfig, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
+	}
+
+	for projectDir, project := range cfg.Projects {
+		if project.SSH == nil {
+			continue
+		}
+		if err := ValidateProjectSSHConfig(*project.SSH); err != nil {
+			return cfg, fmt.Errorf("project %s: %w", projectDir, err)
+		}
 	}
 
 	return cfg, nil

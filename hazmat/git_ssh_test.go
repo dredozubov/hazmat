@@ -788,3 +788,168 @@ type assertErr struct{}
 func (assertErr) Error() string {
 	return "probe failed"
 }
+
+func TestProjectSSHConfigNormalizedKeysLegacySingleKey(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		PrivateKeyPath: "/keys/id",
+		KnownHostsPath: "/keys/known_hosts",
+	}
+	got := cfg.NormalizedKeys()
+	if len(got) != 1 {
+		t.Fatalf("NormalizedKeys len = %d, want 1", len(got))
+	}
+	if got[0].Name != "default" {
+		t.Fatalf("Name = %q, want default", got[0].Name)
+	}
+	if got[0].PrivateKeyPath != "/keys/id" || got[0].KnownHostsPath != "/keys/known_hosts" {
+		t.Fatalf("legacy paths not preserved: %+v", got[0])
+	}
+	if len(got[0].Hosts) != 0 {
+		t.Fatalf("Hosts = %v, want empty (any-host fallback)", got[0].Hosts)
+	}
+}
+
+func TestProjectSSHConfigNormalizedKeysMultiKey(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "github", PrivateKeyPath: "/g", KnownHostsPath: "/g.kh", Hosts: []string{"github.com"}},
+			{Name: "prod", PrivateKeyPath: "/p", KnownHostsPath: "/p.kh", Hosts: []string{"prod.example.com"}},
+		},
+	}
+	got := cfg.NormalizedKeys()
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Name != "github" || got[1].Name != "prod" {
+		t.Fatalf("names = %q,%q, want github,prod", got[0].Name, got[1].Name)
+	}
+	got[0].Hosts[0] = "mutated"
+	if cfg.Keys[0].Hosts[0] == "mutated" {
+		t.Fatal("NormalizedKeys should deep-copy Hosts slice")
+	}
+}
+
+func TestProjectSSHConfigNormalizedKeysEmpty(t *testing.T) {
+	if got := (ProjectSSHConfig{}).NormalizedKeys(); got != nil {
+		t.Fatalf("NormalizedKeys on empty config = %v, want nil", got)
+	}
+}
+
+func TestValidateProjectSSHConfigAcceptsLegacyFlat(t *testing.T) {
+	cfg := ProjectSSHConfig{PrivateKeyPath: "/k", KnownHostsPath: "/k.kh"}
+	if err := ValidateProjectSSHConfig(cfg); err != nil {
+		t.Fatalf("legacy flat should validate: %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsMixedShapes(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		PrivateKeyPath: "/k",
+		Keys:           []ProjectSSHKey{{Name: "github", PrivateKeyPath: "/g", Hosts: []string{"github.com"}}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "cannot combine") {
+		t.Fatalf("want mixed-shape rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsOverlap(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "a", PrivateKeyPath: "/a", Hosts: []string{"github.com"}},
+			{Name: "b", PrivateKeyPath: "/b", Hosts: []string{"github.com", "gitlab.com"}},
+		},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Fatalf("want overlap rejection on github.com, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsWildcardOverlap(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "a", PrivateKeyPath: "/a", Hosts: []string{"*.prod.example.com"}},
+			{Name: "b", PrivateKeyPath: "/b", Hosts: []string{"api.prod.example.com"}},
+		},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "both match host") {
+		t.Fatalf("want wildcard overlap rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsMultiKeyWithEmptyHosts(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "a", PrivateKeyPath: "/a", Hosts: []string{"github.com"}},
+			{Name: "b", PrivateKeyPath: "/b"},
+		},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "legacy any-host fallback") {
+		t.Fatalf("want legacy-multi rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigAcceptsSingleKeyWithEmptyHosts(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "only", PrivateKeyPath: "/k"}},
+	}
+	if err := ValidateProjectSSHConfig(cfg); err != nil {
+		t.Fatalf("single-key any-host should validate: %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsDuplicateName(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "dup", PrivateKeyPath: "/a", Hosts: []string{"a.example"}},
+			{Name: "dup", PrivateKeyPath: "/b", Hosts: []string{"b.example"}},
+		},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "duplicate name") {
+		t.Fatalf("want duplicate-name rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsMissingIdentity(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", Hosts: []string{"a.example"}}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "one of 'private_key' or 'key' is required") {
+		t.Fatalf("want missing-identity rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsBothIdentities(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", Key: "inv", PrivateKeyPath: "/p", Hosts: []string{"a.example"}}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("want both-identities rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsInvalidHost(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", PrivateKeyPath: "/p", Hosts: []string{"git@evil"}}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "invalid host") {
+		t.Fatalf("want invalid-host rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsInvalidName(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "bad name", PrivateKeyPath: "/p", Hosts: []string{"a.example"}}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "invalid name") {
+		t.Fatalf("want invalid-name rejection, got %v", err)
+	}
+}
