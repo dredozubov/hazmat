@@ -544,127 +544,13 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 // ── Step 1: Agent user ────────────────────────────────────────────────────────
 
 func setupAgentUser(ui *UI, r *Runner) error {
-	ui.Step(fmt.Sprintf("Create '%s' user", agentUser))
-
-	if u, err := user.Lookup(agentUser); err == nil {
-		ui.SkipDone(fmt.Sprintf("User '%s' already exists (uid=%s)", agentUser, u.Uid))
-		return nil
-	}
-
-	if taken, err := uidTaken(agentUID); err != nil {
-		return fmt.Errorf("check UID: %w", err)
-	} else if taken {
-		return fmt.Errorf("UID %s is already taken — use: hazmat init --agent-uid <different-uid>", agentUID)
-	}
-
-	record := "/Users/" + agentUser
-	type reasonedCmd struct {
-		reason string
-		args   []string
-	}
-	for _, rc := range []reasonedCmd{
-		{"create agent user record", []string{"dscl", ".", "-create", record}},
-		{"set agent user shell", []string{"dscl", ".", "-create", record, "UserShell", "/bin/zsh"}},
-		{"set agent user UID", []string{"dscl", ".", "-create", record, "UniqueID", agentUID}},
-		{"set agent user primary group", []string{"dscl", ".", "-create", record, "PrimaryGroupID", "20"}},
-		{"set agent user home directory", []string{"dscl", ".", "-create", record, "NFSHomeDirectory", agentHome}},
-	} {
-		if err := r.Sudo(rc.reason, rc.args...); err != nil {
-			return fmt.Errorf("dscl %v: %w", rc.args[2:], err)
-		}
-	}
-	ui.Ok("User record created")
-
-	if err := r.Sudo("create agent home directory", "mkdir", "-p", agentHome); err != nil {
-		return fmt.Errorf("mkdir %s: %w", agentHome, err)
-	}
-	if err := r.Sudo("set agent home directory ownership", "chown", agentUser+":staff", agentHome); err != nil {
-		return fmt.Errorf("chown %s: %w", agentHome, err)
-	}
-	// createhomedir may exit non-zero even on success; ignore the error.
-	r.Sudo("populate agent home directory", "createhomedir", "-c", "-u", agentUser) //nolint:errcheck
-	ui.Ok(fmt.Sprintf("Home directory created at %s", agentHome))
-
-	if err := r.Sudo("hide agent from login screen", "dscl", ".", "-create", record, "IsHidden", "1"); err != nil {
-		return fmt.Errorf("hide user: %w", err)
-	}
-	ui.Ok("Hidden from login screen")
-
-	// Auto-generate the agent user password. The account is hidden and
-	// only accessed via sudo — the password exists solely because macOS
-	// requires every account to have a password hash.
-	{
-		var password string
-		if r.DryRun {
-			password = "<random-192bit-base64>"
-		} else {
-			var err error
-			password, err = generateRandomPassword(24) // 192 bits
-			if err != nil {
-				return fmt.Errorf("generate agent password: %w", err)
-			}
-		}
-		if err := r.Sudo("set agent password", "dscl", ".", "-passwd", "/Users/"+agentUser, password); err != nil {
-			return fmt.Errorf("set agent password: %w", err)
-		}
-		ui.Ok("Password set (auto-generated, login is disabled)")
-	}
-
-	if !r.DryRun {
-		if _, err := user.Lookup(agentUser); err != nil {
-			return fmt.Errorf("user '%s' not found after creation: %w", agentUser, err)
-		}
-	}
-	return nil
+	return nativeAccountBackendForHost().SetupAgentUser(ui, r)
 }
 
 // ── Step 2: Dev group ─────────────────────────────────────────────────────────
 
 func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
-	ui.Step(fmt.Sprintf("Create '%s' group", sharedGroup))
-
-	if g, err := user.LookupGroup(sharedGroup); err == nil {
-		ui.SkipDone(fmt.Sprintf("Group '%s' already exists (gid=%s)", sharedGroup, g.Gid))
-	} else {
-		if taken, err := gidTaken(sharedGID); err != nil {
-			return fmt.Errorf("check GID: %w", err)
-		} else if taken {
-			return fmt.Errorf("GID %s is already taken — use: hazmat init --group-gid <different-gid>", sharedGID)
-		}
-
-		record := "/Groups/" + sharedGroup
-		type reasonedCmd struct {
-			reason string
-			args   []string
-		}
-		for _, rc := range []reasonedCmd{
-			{"create dev group", []string{"dscl", ".", "-create", record}},
-			{"set dev group GID", []string{"dscl", ".", "-create", record, "PrimaryGroupID", sharedGID}},
-			{"set dev group description", []string{"dscl", ".", "-create", record, "RealName", "Shared dev workspace"}},
-		} {
-			if err := r.Sudo(rc.reason, rc.args...); err != nil {
-				return fmt.Errorf("dscl %v: %w", rc.args[2:], err)
-			}
-		}
-		ui.Ok(fmt.Sprintf("Group '%s' created (gid=%s)", sharedGroup, sharedGID))
-	}
-
-	for _, u := range []string{currentUser, agentUser} {
-		member, err := groupMembershipContains(sharedGroup, u)
-		if err != nil {
-			return err
-		}
-		if member {
-			ui.SkipDone(fmt.Sprintf("%s is already a member of '%s'", u, sharedGroup))
-		} else {
-			if err := r.Sudo("add "+u+" to dev group", "dscl", ".", "-append",
-				"/Groups/"+sharedGroup, "GroupMembership", u); err != nil {
-				return fmt.Errorf("add %s to %s: %w", u, sharedGroup, err)
-			}
-			ui.Ok(fmt.Sprintf("Added %s to '%s'", u, sharedGroup))
-		}
-	}
-	return nil
+	return nativeAccountBackendForHost().SetupDevGroup(ui, r, currentUser)
 }
 
 // ── Step 3: Workspace root ────────────────────────────────────────────────────
@@ -1206,29 +1092,11 @@ func preflightChecks(currentUser string) error {
 }
 
 func uidTaken(uid string) (bool, error) {
-	out, err := dscl("-list", "/Users", "UniqueID")
-	if err != nil {
-		return false, fmt.Errorf("dscl list UIDs: %w", err)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if fields := strings.Fields(line); len(fields) >= 2 && fields[1] == uid {
-			return true, nil
-		}
-	}
-	return false, nil
+	return nativeAccountBackendForHost().UIDTaken(uid)
 }
 
 func gidTaken(gid string) (bool, error) {
-	out, err := dscl("-list", "/Groups", "PrimaryGroupID")
-	if err != nil {
-		return false, fmt.Errorf("dscl list GIDs: %w", err)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if fields := strings.Fields(line); len(fields) >= 2 && fields[1] == gid {
-			return true, nil
-		}
-	}
-	return false, nil
+	return nativeAccountBackendForHost().GIDTaken(gid)
 }
 
 func ensureAgentCanTraverseLaunchHelper(r *Runner, helperPath string) error {
@@ -1293,14 +1161,5 @@ func homeAllowsAgentTraverse(homeDir string) bool {
 }
 
 func groupMembershipContains(group, username string) (bool, error) {
-	out, err := dscl("-read", "/Groups/"+group, "GroupMembership")
-	if err != nil {
-		return false, nil // group exists but has no members yet
-	}
-	for _, field := range strings.Fields(out) {
-		if field == username {
-			return true, nil
-		}
-	}
-	return false, nil
+	return nativeAccountBackendForHost().GroupMembershipContains(group, username)
 }

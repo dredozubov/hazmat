@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -388,40 +387,9 @@ func rollbackLocalRepo(ui *UI) {
 }
 
 func rollbackAgentUser(ui *UI, r *Runner) {
-	ui.Step(fmt.Sprintf("Delete '%s' user and home directory", agentUser))
-
-	if _, err := user.Lookup(agentUser); err != nil {
-		ui.SkipDone(fmt.Sprintf("User '%s' does not exist", agentUser))
-	} else {
-		if err := r.Sudo("delete agent user account", "dscl", ".", "-delete", "/Users/"+agentUser); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not delete user record for '%s': %v", agentUser, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Deleted user record for '%s'", agentUser))
-		}
-	}
-
-	if _, err := os.Stat(agentHome); err == nil {
-		if err := r.Sudo("delete agent home directory", "rm", "-rf", agentHome); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove home directory %s: %v", agentHome, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed home directory %s", agentHome))
-		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Home directory %s does not exist", agentHome))
-	}
+	nativeAccountBackendForHost().RollbackAgentUser(ui, r)
 }
 
 func rollbackDevGroup(ui *UI, r *Runner) {
-	ui.Step(fmt.Sprintf("Delete '%s' group", sharedGroup))
-
-	if _, err := user.LookupGroup(sharedGroup); err != nil {
-		ui.SkipDone(fmt.Sprintf("Group '%s' does not exist", sharedGroup))
-		return
-	}
-
-	if err := r.Sudo("delete dev group", "dscl", ".", "-delete", "/Groups/"+sharedGroup); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not delete group '%s': %v", sharedGroup, err))
-	} else {
-		ui.Ok(fmt.Sprintf("Deleted group '%s'", sharedGroup))
-	}
+	nativeAccountBackendForHost().RollbackDevGroup(ui, r)
 }
