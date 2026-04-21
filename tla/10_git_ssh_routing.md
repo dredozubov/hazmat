@@ -1,6 +1,6 @@
 # Git-SSH Routing — Multi-Key Per-Project
 
-**Status: DRAFT (model-checked, not yet wired into `check_suite.sh` or `VERIFIED.md`)**
+**Status: Proved and wired into `check_suite.sh`; governed code in `hazmat/config.go` and `hazmat/git_ssh.go`.**
 
 ## What this governs
 
@@ -68,5 +68,4 @@ cd tla
 bash run_tlc.sh MC_GitSSHRouting
 ```
 
-`check_suite.sh` and `VERIFIED.md` will be updated once the Go implementation
-is in flight.
+Both `check_suite.sh` and `VERIFIED.md` include this spec.

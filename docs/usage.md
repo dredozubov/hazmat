@@ -357,22 +357,37 @@ hazmat config agent            # re-enter Claude API key, git name/email
 
 ## Managed Git SSH
 
+A single-key project config (legacy shape):
+
 ```bash
 hazmat config ssh list-keys
-hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
 hazmat config ssh set id_ed25519
-hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
 hazmat config ssh set -C ~/workspace/my-project ~/.config/hazmat/ssh/deploy_key
 hazmat config ssh test -C ~/workspace/my-project --host github.com
-hazmat config ssh test -C ~/workspace/my-project --host openclaw-1
 hazmat config ssh unset -C ~/workspace/my-project
 ```
 
+Multi-key per project — one key for GitHub, a separate key for a remote
+server:
+
+```bash
+hazmat config ssh add -C ~/workspace/my-project \
+    --name github --host github.com ~/.ssh/id_ed25519
+hazmat config ssh add -C ~/workspace/my-project \
+    --name prod --host prod.example.com --host '*.prod.example.com' ~/.ssh/prod_key
+hazmat config ssh test -C ~/workspace/my-project --host prod.example.com
+hazmat config ssh remove -C ~/workspace/my-project --name prod
+```
+
+Every destination host resolves to exactly one configured key. Two keys
+whose host lists overlap are rejected at config-save time. A single-key
+project can omit the host list (any-host fallback); adding a second key
+requires migrating the first to an explicit host list.
+
 This is an explicit per-project capability for Git transport only. Hazmat
-lists candidate keys from a chosen directory, defaulting to `~/.ssh`, uses
-`known_hosts` from that same directory, keeps the selected private key in
-host-owned storage, loads it into a fresh session-local `ssh-agent`, and
-forces Git through a constrained wrapper.
+keeps each private key in host-owned storage, loads it into its own fresh
+session-local `ssh-agent`, and forces Git through a constrained wrapper
+that routes the destination host to the matching socket.
 
 For guidance on how to choose and scope keys for GitHub, remote servers,
 deploy keys, machine users, SSH certificates, and per-target `known_hosts`

@@ -4,6 +4,10 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Multi-key per-project Git SSH routing. `hazmat config ssh add --name <n> --host <h>... <path>` appends a named, host-scoped key; `hazmat config ssh remove --name <n>` removes one. Each destination host resolves to exactly one configured key; overlap and mixed legacy/new configs are rejected at config-save time.
+- TLA+ formal verification of the multi-key routing contract (`MC_GitSSHRouting`). 193,536 distinct states checked for determinism, overlap rejection, legacy single-key fallback, and per-key socket distinctness.
+
 ## [0.7.0] - 2026-04-18
 
 ### Added

@@ -475,6 +475,63 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 
 ---
 
+### 10 — Git-SSH Routing (Multi-Key)
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/10_git_ssh_routing.md` |
+| TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
+| Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
+| Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
+| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `LegacyFallbackSingleOnly`, `SocketsDistinctForPresent`, `NoCrossKey` |
+| Status | **Proved and Implemented** — config-set-time overlap and legacy rejection live in `config.go`; session-time socket allocation and host-based wrapper routing live in `git_ssh.go` |
+
+**What this verifies:**
+
+1. **Deterministic routing:** for any destination host, a ready config
+   admits at most one configured key. The wrapper's `case` dispatch in
+   `buildGitSSHWrapperScript` matches this one-to-one structure.
+
+2. **Overlap is a config-set error:** a config where two keys match the
+   same host is refused at config save time, not at session time.
+   `ValidateProjectSSHConfig` enforces the spec's
+   `OverlapRejectedAtConfigTime` invariant.
+
+3. **Legacy single-key fallback is preserved:** exactly one configured key
+   with no declared hosts acts as the any-host legacy shape. Two or more
+   keys where any one has an empty host list is rejected. This matches
+   `LegacyFallbackSingleOnly`.
+
+4. **Per-key identity-agent sockets are distinct:** session-time socket
+   allocation derives paths from validated key names and asserts pairwise
+   distinctness before entering the wrapper. The socket-to-key binding is
+   owned by `git_ssh.go` because sockets are per-session runtime artifacts,
+   not values stored in the config file.
+
+TLC passes across 193,536 distinct states (290,304 generated, depth 2, ~2s).
+
+**Scope boundary:**
+
+The spec models the routing relation after glob expansion and the
+socket-to-key binding. Glob syntax, shell quoting, signal handling,
+ssh-agent liveness, and concrete `IdentityAgent` emission in the wrapper
+script remain governed by unit tests rather than TLC.
+
+**Change rules:**
+- Changes to overlap detection, legacy normalization, or the keys schema
+  must update `MC_GitSSHRouting.tla` first and re-run TLC before the Go
+  implementation changes.
+- Adding a precedence / override semantics on overlapping host patterns
+  requires a spec change; the current proof assumes overlap is rejected,
+  not resolved.
+- Replacing the wrapper-based routing with a host-side broker (see
+  `sandboxing-n1xy`) reuses this spec as-is: the routing relation is
+  transport-agnostic. New socket-collision checks or identity-binding
+  mechanisms must still preserve `SocketsDistinctForPresent` and
+  `NoCrossKey`.
+
+---
+
 ### 9 — Launch FD Isolation
 
 | Field | Value |
@@ -536,6 +593,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
+| `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
 
 ---
 
