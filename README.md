@@ -122,7 +122,13 @@ brew install dredozubov/tap/hazmat
 
 # Or install from GitHub releases
 curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash
+```
 
+Release artifacts are currently published for `darwin/arm64` and
+`darwin/amd64`. Linux is kept compile-only until its setup and rollback
+resources are implemented against the verified model.
+
+```bash
 # One-time setup (~10 min)
 hazmat init --bootstrap-agent claude
 

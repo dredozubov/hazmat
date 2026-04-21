@@ -20,6 +20,8 @@
 \*   hazmat/init_steps.go            — initSetupSteps() formal resource order
 \*   hazmat/native_account_*.go      — account/group provisioning mechanics
 \*   hazmat/native_service_*.go      — network/service/sudoers mechanics
+\*   Makefile, scripts/install.sh,
+\*   .github/workflows/release.yml   — Darwin-only install/release guards
 \*   hazmat/setup_verification.go    — read-only verification checks by resource
 \*   hazmat/rollback.go              — runRollback()
 \*   hazmat/rollback_steps.go        — rollback step formal resource order
@@ -69,6 +71,9 @@
 \* launchDaemon, launchHelper, sudoers, and maintenanceSudoers resources:
 \* Darwin pf/hosts/launchctl/sudoers behavior can be replaced by Linux
 \* nftables/systemd/resolver behavior only behind those resources.
+\* Linux install/release artifacts remain disabled until those Linux resource
+\* actions are implemented behind the native backends and checked against this
+\* model.
 
 EXTENDS Naturals, FiniteSets
 

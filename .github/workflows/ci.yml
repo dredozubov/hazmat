@@ -54,6 +54,20 @@ jobs:
         working-directory: hazmat
         run: bash ../scripts/check-cli-smoke.sh
 
+  linux-compile:
+    name: Linux compile-only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Compile unsupported Linux backend
+        run: bash scripts/check-linux-compile.sh
+
   test-entrypoint-guards:
     name: Test entrypoint guards
     runs-on: macos-latest
@@ -93,11 +107,19 @@ jobs:
           if-no-files-found: ignore
 
   go-build:
-    name: Build (${{ matrix.goarch }})
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: macos-latest
     strategy:
       matrix:
-        goarch: [arm64, amd64]
+        include:
+          # Linux release artifacts stay disabled until setup/rollback resources
+          # are modeled in MC_SetupRollback and implemented.
+          - goos: darwin
+            goarch: arm64
+            cc_arch: arm64
+          - goos: darwin
+            goarch: amd64
+            cc_arch: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -109,27 +131,27 @@ jobs:
       - name: Build hazmat
         working-directory: hazmat
         env:
-          GOOS: darwin
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
-        run: go build -trimpath -o hazmat-darwin-${{ matrix.goarch }} .
+        run: go build -trimpath -o hazmat-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Build hazmat-launch (CGO required for sandbox_init)
         working-directory: hazmat
         env:
-          GOOS: darwin
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '1'
-          CC: clang -arch ${{ matrix.goarch == 'amd64' && 'x86_64' || 'arm64' }}
-        run: go build -trimpath -o hazmat-launch-darwin-${{ matrix.goarch }} ./cmd/hazmat-launch
+          CC: clang -arch ${{ matrix.cc_arch }}
+        run: go build -trimpath -o hazmat-launch-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/hazmat-launch
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: hazmat-darwin-${{ matrix.goarch }}
+          name: hazmat-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            hazmat/hazmat-darwin-${{ matrix.goarch }}
-            hazmat/hazmat-launch-darwin-${{ matrix.goarch }}
+            hazmat/hazmat-${{ matrix.goos }}-${{ matrix.goarch }}
+            hazmat/hazmat-launch-${{ matrix.goos }}-${{ matrix.goarch }}
 
   tla-model-check:
     name: TLA+ model checking
@@ -163,7 +185,7 @@ jobs:
   e2e:
     name: E2E lifecycle
     runs-on: macos-14
-    needs: [go-test, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test, linux-compile, go-build, test-entrypoint-guards, repo-matrix-contract]
     steps:
       - uses: actions/checkout@v4
 
@@ -178,7 +200,7 @@ jobs:
   e2e-bootstrap:
     name: E2E bootstrap
     runs-on: macos-14
-    needs: [go-test, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test, linux-compile, go-build, test-entrypoint-guards, repo-matrix-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
@@ -222,7 +244,7 @@ jobs:
     name: Repo matrix smoke
     if: github.event_name == 'push'
     runs-on: macos-14
-    needs: [go-test, go-build, repo-matrix-contract]
+    needs: [go-test, linux-compile, go-build, repo-matrix-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:

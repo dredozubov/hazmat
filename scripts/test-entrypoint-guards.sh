@@ -5,6 +5,7 @@
 # Verifies that:
 #   - scripts/e2e.sh refuses to run without an explicit destructive ack
 #   - make e2e refuses to run without E2E_ACK=1
+#   - release installer refuses unsupported platforms before download/install
 #   - host-side test entrypoints fail fast when another host-side test holds
 #     the shared lock
 
@@ -55,6 +56,13 @@ assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e
+
+phase "Platform guards"
+
+assert_fails_with \
+    "install.sh refuses linux release artifacts" \
+    "release/install artifacts are only published for darwin" \
+    bash "$REPO_ROOT/scripts/install.sh" --platform linux --version 0.0.0
 
 phase "Shared host lock"
 

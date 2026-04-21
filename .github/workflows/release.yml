@@ -9,11 +9,19 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.goarch }})
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: macos-latest
     strategy:
       matrix:
-        goarch: [arm64, amd64]
+        include:
+          # Linux artifacts are intentionally not published until Linux
+          # setup/rollback resources are modeled in MC_SetupRollback and implemented.
+          - goos: darwin
+            goarch: arm64
+            cc_arch: arm64
+          - goos: darwin
+            goarch: amd64
+            cc_arch: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +33,7 @@ jobs:
       - name: Build hazmat
         working-directory: hazmat
         env:
-          GOOS: darwin
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
           VERSION: ${{ github.ref_name }}
@@ -34,10 +42,10 @@ jobs:
       - name: Build hazmat-launch (CGO required for sandbox_init)
         working-directory: hazmat
         env:
-          GOOS: darwin
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '1'
-          CC: clang -arch ${{ matrix.goarch == 'amd64' && 'x86_64' || 'arm64' }}
+          CC: clang -arch ${{ matrix.cc_arch }}
           VERSION: ${{ github.ref_name }}
         run: go build -trimpath -ldflags "-X main.version=${VERSION}" -o hazmat-launch ./cmd/hazmat-launch
 
@@ -45,13 +53,14 @@ jobs:
         working-directory: hazmat
         env:
           VERSION: ${{ github.ref_name }}
+          GOOS: ${{ matrix.goos }}
           ARCH: ${{ matrix.goarch }}
-        run: tar czf "hazmat-${VERSION}-darwin-${ARCH}.tar.gz" hazmat hazmat-launch
+        run: tar czf "hazmat-${VERSION}-${GOOS}-${ARCH}.tar.gz" hazmat hazmat-launch
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hazmat-darwin-${{ matrix.goarch }}
+          name: hazmat-${{ matrix.goos }}-${{ matrix.goarch }}
           path: hazmat/hazmat-*.tar.gz
 
   release:

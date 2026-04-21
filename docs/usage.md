@@ -14,6 +14,10 @@ brew install dredozubov/tap/hazmat
 curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash
 ```
 
+The release installer targets the current host by default and currently
+publishes only `darwin/arm64` and `darwin/amd64` artifacts. Linux is
+compile-only until its setup and rollback resources are modeled and implemented.
+
 Then two commands:
 
 ```bash

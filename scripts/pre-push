@@ -1,6 +1,6 @@
 #!/bin/sh
 # pre-push: fast local developer gate before pushing.
-# Runs: vet, unit tests, lint, CLI smoke tests.
+# Runs: vet, unit tests, Linux compile-only, lint, CLI smoke tests.
 # Skips: repo-matrix, e2e lifecycle, self-hosting bootstrap, and TLA+.
 # CI is broader than this hook.
 # If you touch a verified area, run 'bash tla/check_suite.sh' separately before pushing.

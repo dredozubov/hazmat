@@ -7,8 +7,11 @@
 #   # Or with a specific version:
 #   curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash -s -- --version 0.4.2
 #
+#   # Platform is explicit, but only darwin is published today:
+#   curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash -s -- --platform darwin
+#
 # What this does:
-#   1. Detects your architecture (arm64 or amd64)
+#   1. Detects your target platform and architecture (darwin/arm64 or darwin/amd64)
 #   2. Downloads the latest release from GitHub
 #   3. Verifies the SHA-256 checksum
 #   4. Installs hazmat to /usr/local/bin
@@ -26,23 +29,60 @@ HELPER_STAGING_DIR="/usr/local/libexec"
 # ── Parse flags ─────────────────────────────────────────────────────────────
 
 VERSION=""
-for arg in "$@"; do
-    case "$arg" in
-        --version) shift; VERSION="${1:-}"; shift ;;
-        --version=*) VERSION="${arg#--version=}" ;;
+TARGET_PLATFORM=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --version)
+            shift
+            VERSION="${1:-}"
+            if [ -z "$VERSION" ]; then
+                echo "Error: --version requires a value." >&2
+                exit 1
+            fi
+            ;;
+        --version=*) VERSION="${1#--version=}" ;;
+        --platform|--os)
+            shift
+            TARGET_PLATFORM="${1:-}"
+            if [ -z "$TARGET_PLATFORM" ]; then
+                echo "Error: --platform requires a value." >&2
+                exit 1
+            fi
+            ;;
+        --platform=*|--os=*) TARGET_PLATFORM="${1#*=}" ;;
         --help|-h)
-            echo "Usage: install.sh [--version X.Y.Z]"
+            echo "Usage: install.sh [--version X.Y.Z] [--platform darwin]"
             echo "  Downloads and installs hazmat from GitHub releases."
             echo "  Defaults to the latest release."
+            echo "  Platform defaults to the current host. Only darwin is published today."
             exit 0
             ;;
+        *)
+            echo "Error: unknown argument: $1" >&2
+            exit 1
+            ;;
     esac
+    shift
 done
 
 # ── Preflight ───────────────────────────────────────────────────────────────
 
-if [ "$(uname -s)" != "Darwin" ]; then
-    echo "Error: hazmat is macOS-only." >&2
+normalize_platform() {
+    case "$1" in
+        Darwin|darwin|macos|macOS) printf "darwin" ;;
+        Linux|linux)               printf "linux" ;;
+        *)                         printf "%s" "$1" | tr '[:upper:]' '[:lower:]' ;;
+    esac
+}
+
+if [ -z "$TARGET_PLATFORM" ]; then
+    TARGET_PLATFORM="$(uname -s)"
+fi
+TARGET_PLATFORM="$(normalize_platform "$TARGET_PLATFORM")"
+
+if [ "$TARGET_PLATFORM" != "darwin" ]; then
+    echo "Error: hazmat release/install artifacts are only published for darwin today." >&2
+    echo "Linux support is intentionally compile-only until setup/rollback resources are modeled in MC_SetupRollback and implemented." >&2
     exit 1
 fi
 
@@ -81,11 +121,11 @@ fi
 VERSION="${VERSION#v}"  # strip leading v if present
 TAG="v${VERSION}"
 
-echo "Installing hazmat ${TAG} (darwin/${ARCH})..."
+echo "Installing hazmat ${TAG} (${TARGET_PLATFORM}/${ARCH})..."
 
 # ── Download and verify ─────────────────────────────────────────────────────
 
-TARBALL="hazmat-${TAG}-darwin-${ARCH}.tar.gz"
+TARBALL="hazmat-${TAG}-${TARGET_PLATFORM}-${ARCH}.tar.gz"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 TMPDIR_INSTALL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_INSTALL"' EXIT

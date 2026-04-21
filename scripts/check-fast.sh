@@ -11,6 +11,9 @@ go vet ./...
 echo "fast-check: go test..."
 go test ./...
 
+echo "fast-check: linux compile-only..."
+bash "$REPO_ROOT/scripts/check-linux-compile.sh"
+
 echo "fast-check: golangci-lint..."
 golangci-lint run ./...
 

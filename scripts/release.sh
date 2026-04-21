@@ -15,6 +15,10 @@
 #   5. Creates a GitHub release with tarballs and checksums
 #   6. Updates the Homebrew tap formula at dredozubov/homebrew-tap
 #
+# Linux artifacts are intentionally not published yet. The Linux backend is
+# compile-only until setup/rollback resources are modeled in MC_SetupRollback
+# and implemented behind the native platform backends.
+#
 # Prerequisites:
 #   - hazmat init has been run (for hazmat claude -p)
 #   - TAP_TOKEN secret set in dredozubov/hazmat repo settings
@@ -596,6 +600,8 @@ VERSION="${VERSION#v}"
 TAG="v${VERSION}"
 
 echo "Building release binaries for ${TAG}..."
+echo "Release platforms: darwin/arm64 darwin/amd64"
+echo "Linux artifacts: compile-only, not published until MC_SetupRollback-backed setup/rollback support exists."
 make VERSION="${TAG}" all >/dev/null
 LOCAL_BUILD_VERSION="$("$(pwd)/hazmat/hazmat" --version 2>/dev/null || true)"
 if [ "${LOCAL_BUILD_VERSION}" != "hazmat version ${TAG}" ]; then

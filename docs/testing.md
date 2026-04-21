@@ -10,6 +10,7 @@ are not interchangeable.
 | `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
 | `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
+| `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
@@ -29,7 +30,9 @@ make lint
 bash scripts/pre-push
 ```
 
-This intentionally skips the expensive or environment-heavy checks.
+This intentionally skips the expensive or environment-heavy checks. It does run
+the Linux compile-only probe, which cross-compiles test binaries into a temporary
+directory and removes them before exiting.
 
 If you install the git hooks with `make hooks`, Hazmat also adds:
 
@@ -108,6 +111,9 @@ and runs `scripts/e2e.sh` there.
 - `scripts/e2e.sh` is also host-side, but destructive.
 - `scripts/e2e-vm.sh` is the isolated wrapper for the destructive lifecycle
   test.
+- `scripts/check-linux-compile.sh` is compile-only. It proves the current
+  unsupported Linux backend still builds; it does not claim Linux setup,
+  rollback, launch, firewall, ACL, account, or service behavior is implemented.
 
 If you want the strongest local release signal, prefer the VM path plus CI.
 
@@ -118,6 +124,7 @@ Current GitHub Actions coverage:
 - `.github/workflows/ci.yml`
   - lint
   - Go vet and unit tests
+  - Linux compile-only gate for the unsupported backend
   - CLI help/smoke checks via `scripts/check-cli-smoke.sh`
   - test-entrypoint guard regression checks
   - self-hosting bootstrap on macOS (`--skip-tla`)
@@ -135,6 +142,8 @@ Current GitHub Actions coverage:
   fail fast instead of racing on local build outputs or Hazmat state.
 - CI initializes Hazmat with `--bootstrap-agent skip` for containment-only
   jobs, so those lanes do not depend on vendor-specific agent downloads.
+- Linux CI is intentionally compile-only until Linux setup/rollback resources
+  are implemented and mapped to the verified TLA+ setup/rollback model.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
 - Do not use `scripts/e2e.sh` casually on a machine where you want to preserve
