@@ -14,23 +14,12 @@
 //   - Validates the policy file has mode 0644
 //   - Validates the policy contains (deny default)
 //
-// Instead of exec'ing sandbox-exec, this helper calls sandbox_init()
-// directly via cgo and then execs the target command. This eliminates
-// the sandbox-exec process from the chain, giving:
+// Instead of exec'ing sandbox-exec, the Darwin sandbox backend calls
+// sandbox_init() directly via cgo and then execs the target command. This
+// eliminates the sandbox-exec process from the chain, giving:
 //   - Correct signal forwarding (the process IS the target)
 //   - Proper PTY handling for interactive TUI applications
 //   - One fewer process in the sudo → sandbox → target chain
-//
-// Intentional use of deprecated API: sandbox_init() and sandbox_free_error()
-// have been deprecated since macOS 10.8. There is no public, non-deprecated
-// replacement for applying an SBPL policy string to the current process at
-// runtime. Apple's recommended replacement is App Sandbox (entitlements
-// declared at build time), which cannot generate per-session policies.
-// The private alternatives (sandbox_compile_string, sandbox_apply) are absent
-// from all public SDK headers and are worse to depend on. sandbox-exec(1) is
-// also deprecated and wraps the same functions. If Apple removes sandbox_init,
-// the build will fail with a link error and we will have to revert to exec'ing
-// sandbox-exec, losing correct signal forwarding and PTY handling.
 //
 // Usage:
 //
@@ -38,13 +27,6 @@
 //	sudo -u agent <hazmat-launch> exec <cmd> [args...]
 
 package main
-
-/*
-#cgo CFLAGS: -Wno-deprecated-declarations
-#include <sandbox.h>
-#include <stdlib.h>
-*/
-import "C"
 
 import (
 	"bytes"
@@ -54,7 +36,6 @@ import (
 	"regexp"
 	"strconv"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -126,22 +107,6 @@ func execCommand(cmdArgs []string) {
 
 func dieUsage() {
 	die("usage: hazmat-launch <policy-file> <cmd> [args...]\n       hazmat-launch exec <cmd> [args...]")
-}
-
-// sandboxInit calls macOS sandbox_init() with the given SBPL policy string.
-// The sandbox applies to this process and is inherited across exec.
-func sandboxInit(policy string) error {
-	cPolicy := C.CString(policy)
-	defer C.free(unsafe.Pointer(cPolicy))
-
-	var errBuf *C.char
-	ret := C.sandbox_init(cPolicy, 0, &errBuf)
-	if ret != 0 {
-		msg := C.GoString(errBuf)
-		C.sandbox_free_error(errBuf)
-		return fmt.Errorf("sandbox_init: %s", msg)
-	}
-	return nil
 }
 
 // closeInheritedFDs drops every non-stdio descriptor before any helper logic

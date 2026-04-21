@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -1365,15 +1364,6 @@ func preflightChecks(currentUser string) error {
 		cGreen.Printf("  ✓ %s\n", c.label)
 	}
 	fmt.Println()
-	return nil
-}
-
-func checkPlatform() error {
-	cmd := exec.Command(hostUnamePath)
-	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "Darwin" {
-		return fmt.Errorf("this tool is for macOS only")
-	}
 	return nil
 }
 
