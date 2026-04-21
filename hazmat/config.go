@@ -876,6 +876,10 @@ func newConfigSSHCmd() *cobra.Command {
 	var project string
 	var host string
 	var listKeyDir string
+	var addName string
+	var addHosts []string
+	var addInventory string
+	var removeName string
 
 	setCmd := &cobra.Command{
 		Use:               "set [key]",
@@ -892,6 +896,50 @@ func newConfigSSHCmd() *cobra.Command {
 	}
 	setCmd.Flags().StringVarP(&project, "project", "C", "",
 		"Project directory (defaults to current directory)")
+
+	addCmd := &cobra.Command{
+		Use:   "add [key]",
+		Short: "Add a named SSH key with host scoping to a project",
+		Long: `Append a named SSH key to a project's SSH configuration. When two or
+more keys are configured, each must declare its own --host list; the wrapper
+routes destination hosts to exactly one key.
+
+Examples:
+  hazmat config ssh add --name github --host github.com ~/.ssh/id_ed25519
+  hazmat config ssh add --name prod --host prod.example.com --host '*.prod.example.com' ~/.ssh/prod_key
+  hazmat config ssh add --name github --host github.com --inventory github-bot`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			keyArg := ""
+			if len(args) == 1 {
+				keyArg = args[0]
+			}
+			return runConfigSSHAdd(project, addName, addHosts, addInventory, keyArg)
+		},
+	}
+	addCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+	addCmd.Flags().StringVar(&addName, "name", "",
+		"Name for this key (used for routing and display)")
+	addCmd.Flags().StringArrayVar(&addHosts, "host", nil,
+		"Destination host this key serves (repeatable, supports glob)")
+	addCmd.Flags().StringVar(&addInventory, "inventory", "",
+		"Reference a provisioned key from ~/.hazmat/ssh/keys/<name>/ instead of a path")
+
+	removeCmd := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove a named SSH key from a project",
+		Long: `Remove a single named SSH key from a project's Keys list. When the
+last key is removed, the project's SSH configuration is cleared.`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runConfigSSHRemove(project, removeName)
+		},
+	}
+	removeCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory (defaults to current directory)")
+	removeCmd.Flags().StringVar(&removeName, "name", "",
+		"Name of the key to remove (required)")
 
 	showCmd := &cobra.Command{
 		Use:   "show",
@@ -986,7 +1034,7 @@ Examples:
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(setCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd)
+	cmd.AddCommand(setCmd, addCmd, removeCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd)
 	return cmd
 }
 
@@ -1362,6 +1410,186 @@ func runConfigSSHSet(project, keyName string) error {
 	fmt.Printf("Assigned SSH key %q to %s\n", selected.DisplayName(), projectDir)
 	fmt.Printf("Next step: hazmat config ssh test -C %s --host github.com\n", projectDir)
 	return nil
+}
+
+func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg string) error {
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return fmt.Errorf("project: %w", err)
+	}
+
+	name = strings.TrimSpace(name)
+	inventory = strings.TrimSpace(inventory)
+	keyArg = strings.TrimSpace(keyArg)
+
+	if name == "" {
+		return fmt.Errorf("--name is required")
+	}
+	if inventory != "" && keyArg != "" {
+		return fmt.Errorf("provide either --inventory or a private key path, not both")
+	}
+	if inventory == "" && keyArg == "" {
+		return fmt.Errorf("pass a private key path or --inventory <name>")
+	}
+
+	newKey := ProjectSSHKey{Name: name, Hosts: hosts}
+	if inventory != "" {
+		provisioned, err := findProvisionedSSHKey(inventory)
+		if err != nil {
+			return fmt.Errorf("--inventory: %w", err)
+		}
+		if !provisioned.Usable() {
+			return fmt.Errorf("--inventory %q is not usable: %s", provisioned.Name, provisioned.Status)
+		}
+		newKey.Key = provisioned.Name
+	} else {
+		selected, err := resolveSSHKeyPathArg(keyArg)
+		if err != nil {
+			return err
+		}
+		newKey.PrivateKeyPath = selected.PrivateKeyPath
+		newKey.KnownHostsPath = selected.KnownHostsPath
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Projects == nil {
+		cfg.Projects = make(map[string]ProjectConfig)
+	}
+	projectCfg := cfg.Projects[projectDir]
+
+	// Fold any legacy flat form into the Keys list before appending.
+	mergedKeys := append([]ProjectSSHKey(nil), projectCfg.SSH.normalizedForMerge()...)
+	for _, existing := range mergedKeys {
+		if existing.Name == name {
+			return fmt.Errorf("ssh key %q already exists; remove it first with 'hazmat config ssh remove --name %s'", name, name)
+		}
+	}
+	// A legacy single-key entry with empty hosts cannot coexist with a new
+	// host-scoped key (the TLA LegacyFallbackSingleOnly invariant forbids
+	// it). Tell the user explicitly how to migrate.
+	for _, existing := range mergedKeys {
+		if len(existing.Hosts) == 0 {
+			return fmt.Errorf(
+				"cannot add a second key while %q is configured as an any-host legacy key;\nmigrate it first with:\n  hazmat config ssh remove --name %s\n  hazmat config ssh add --name %s --host <host> <path>",
+				existing.Name, existing.Name, existing.Name)
+		}
+	}
+	mergedKeys = append(mergedKeys, newKey)
+
+	newSSH := &ProjectSSHConfig{Keys: mergedKeys}
+	if err := ValidateProjectSSHConfig(*newSSH); err != nil {
+		return err
+	}
+
+	projectCfg.SSH = newSSH
+	projectCfg.GitSSH = nil
+	cfg.Projects[projectDir] = projectCfg
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Added SSH key %q to %s\n", name, projectDir)
+	if len(hosts) > 0 {
+		fmt.Printf("  Hosts: %s\n", strings.Join(hosts, ", "))
+	} else {
+		fmt.Printf("  Hosts: (any — legacy fallback, only valid with one key)\n")
+	}
+	return nil
+}
+
+func runConfigSSHRemove(project, name string) error {
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return fmt.Errorf("project: %w", err)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("--name is required")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	projectCfg, ok := cfg.Projects[projectDir]
+	if !ok || projectCfg.SSH == nil {
+		return fmt.Errorf("no SSH configuration for %s", projectDir)
+	}
+
+	keys := projectCfg.SSH.normalizedForMerge()
+	filtered := make([]ProjectSSHKey, 0, len(keys))
+	removed := false
+	for _, key := range keys {
+		if key.Name == name {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, key)
+	}
+	if !removed {
+		return fmt.Errorf("ssh key %q is not configured for %s", name, projectDir)
+	}
+
+	if len(filtered) == 0 {
+		projectCfg.SSH = nil
+	} else {
+		projectCfg.SSH = &ProjectSSHConfig{Keys: filtered}
+		if err := ValidateProjectSSHConfig(*projectCfg.SSH); err != nil {
+			return err
+		}
+	}
+	if projectHasOverrides(projectCfg) {
+		cfg.Projects[projectDir] = projectCfg
+	} else {
+		delete(cfg.Projects, projectDir)
+	}
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = nil
+	}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("Removed SSH key %q from %s\n", name, projectDir)
+	return nil
+}
+
+func resolveSSHKeyPathArg(keyArg string) (sshKeyCandidate, error) {
+	keyDir := defaultSSHKeyDirectory()
+	if strings.Contains(keyArg, string(os.PathSeparator)) || filepath.IsAbs(keyArg) {
+		if expanded := expandTilde(keyArg); expanded != "" {
+			keyDir = filepath.Dir(expanded)
+		}
+	}
+	canonicalKeyDir, err := resolveSSHKeyDirectory(keyDir)
+	if err != nil {
+		return sshKeyCandidate{}, err
+	}
+	keys, err := discoverSSHKeyCandidates(canonicalKeyDir)
+	if err != nil {
+		return sshKeyCandidate{}, err
+	}
+	selected, err := findSSHKeyCandidate(keys, keyArg)
+	if err != nil {
+		return sshKeyCandidate{}, err
+	}
+	if !selected.Usable() {
+		return sshKeyCandidate{}, fmt.Errorf("SSH key %q is not usable: %s", selected.DisplayName(), selected.Status)
+	}
+	return selected, nil
+}
+
+// normalizedForMerge returns the existing project SSH config as a Keys list,
+// suitable for appending with 'ssh add'. Nil and empty configs return an
+// empty slice; legacy flat configs expand to a single entry whose Name is
+// derived from the private-key basename.
+func (c *ProjectSSHConfig) normalizedForMerge() []ProjectSSHKey {
+	if c == nil {
+		return nil
+	}
+	return c.NormalizedKeys()
 }
 
 func runConfigSSHShow(project string) error {

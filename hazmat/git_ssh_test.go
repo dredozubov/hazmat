@@ -827,6 +827,116 @@ func (assertErr) Error() string {
 	return "probe failed"
 }
 
+func TestRunConfigSSHAddAppendsNamedKey(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "github_key", true)
+	if err := runConfigSSHAdd(projectDir, "github", []string{"github.com"}, "", filepath.Join(keyDir, "github_key")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	canonical, _ := resolveDir(projectDir, false)
+	got := cfg.ProjectSSH(canonical)
+	if got == nil {
+		t.Fatal("ProjectSSH nil after add")
+	}
+	if len(got.Keys) != 1 {
+		t.Fatalf("Keys len = %d, want 1", len(got.Keys))
+	}
+	if got.Keys[0].Name != "github" || !slices.Equal(got.Keys[0].Hosts, []string{"github.com"}) {
+		t.Fatalf("first key = %+v", got.Keys[0])
+	}
+}
+
+func TestRunConfigSSHAddRejectsOverlap(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDirA := writeNamedSSHKeyDirectory(t, "key_a", true)
+	keyDirB := writeNamedSSHKeyDirectory(t, "key_b", true)
+
+	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", filepath.Join(keyDirA, "key_a")); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	err := runConfigSSHAdd(projectDir, "b", []string{"github.com", "gitlab.com"}, "", filepath.Join(keyDirB, "key_b"))
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Fatalf("want overlap rejection, got %v", err)
+	}
+}
+
+func TestRunConfigSSHAddRejectsSecondKeyWithEmptyHosts(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDirA := writeNamedSSHKeyDirectory(t, "key_a", true)
+	keyDirB := writeNamedSSHKeyDirectory(t, "key_b", true)
+
+	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", filepath.Join(keyDirA, "key_a")); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	err := runConfigSSHAdd(projectDir, "b", nil, "", filepath.Join(keyDirB, "key_b"))
+	if err == nil || !strings.Contains(err.Error(), "legacy any-host fallback") {
+		t.Fatalf("want empty-hosts rejection, got %v", err)
+	}
+}
+
+func TestRunConfigSSHAddRejectsMixingLegacyWithNewKey(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDirA := writeNamedSSHKeyDirectory(t, "legacy_key", true)
+	keyDirB := writeNamedSSHKeyDirectory(t, "second_key", true)
+
+	if err := runConfigSSHSet(projectDir, filepath.Join(keyDirA, "legacy_key")); err != nil {
+		t.Fatalf("runConfigSSHSet: %v", err)
+	}
+	err := runConfigSSHAdd(projectDir, "second", []string{"prod.example.com"}, "", filepath.Join(keyDirB, "second_key"))
+	if err == nil || !strings.Contains(err.Error(), "any-host legacy key") {
+		t.Fatalf("want legacy-migration hint, got %v", err)
+	}
+}
+
+func TestRunConfigSSHRemoveClearsLastKey(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "only_key", true)
+	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", filepath.Join(keyDir, "only_key")); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := runConfigSSHRemove(projectDir, "only"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	canonical, _ := resolveDir(projectDir, false)
+	if got := cfg.ProjectSSH(canonical); got != nil {
+		t.Fatalf("ProjectSSH = %+v, want nil after removing last key", got)
+	}
+}
+
+func TestRunConfigSSHRemoveUnknownName(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "only_key", true)
+	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", filepath.Join(keyDir, "only_key")); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	err := runConfigSSHRemove(projectDir, "ghost")
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("want unknown-name rejection, got %v", err)
+	}
+}
+
 func TestProjectSSHConfigNormalizedKeysLegacySingleKey(t *testing.T) {
 	cfg := ProjectSSHConfig{
 		PrivateKeyPath: "/keys/id_ed25519",
