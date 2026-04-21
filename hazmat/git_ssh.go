@@ -18,11 +18,29 @@ import (
 )
 
 type sessionGitSSHConfig struct {
-	DisplayName    string
+	DisplayName string
+	SessionNote string
+	Keys        []sessionGitSSHKey
+}
+
+// sessionGitSSHKey is one resolved identity within a session Git-SSH config.
+// AllowedHosts is empty only for the legacy single-key any-host fallback;
+// that case is exercised only when len(Keys) == 1.
+type sessionGitSSHKey struct {
+	Name           string
 	PrivateKeyPath string
 	KnownHostsPath string
 	AllowedHosts   []string
-	SessionNote    string
+}
+
+// PrimaryKey returns the first configured key, or nil when the config has no
+// keys. Legacy callers that only care about a single key can use this shortcut
+// instead of indexing; multi-key aware callers should iterate Keys directly.
+func (c *sessionGitSSHConfig) PrimaryKey() *sessionGitSSHKey {
+	if c == nil || len(c.Keys) == 0 {
+		return nil
+	}
+	return &c.Keys[0]
 }
 
 type preparedSessionRuntime struct {
@@ -31,9 +49,15 @@ type preparedSessionRuntime struct {
 }
 
 type preparedSSHIdentityRuntime struct {
+	Cleanup func()
+	Keys    []preparedSSHIdentityKey
+}
+
+type preparedSSHIdentityKey struct {
+	Name           string
 	SocketPath     string
 	KnownHostsPath string
-	Cleanup        func()
+	AllowedHosts   []string
 }
 
 type sshKeyCandidate struct {
@@ -533,75 +557,134 @@ func resolveSSHConfigProxyJump(value string, seen map[string]struct{}) ([]gitSSH
 
 func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
 	if raw := configuredProjectSSH(cfg.ProjectDir); raw != nil {
-		if strings.TrimSpace(raw.PrivateKeyPath) != "" {
-			return resolveConfiguredManagedGitSSH(cfg, raw)
-		}
-		return resolveProvisionedManagedGitSSH(cfg, raw)
+		return resolveProjectSSHKeys(cfg, raw)
 	}
 	return resolveLegacyManagedGitSSH(cfg)
 }
 
-func resolveConfiguredManagedGitSSH(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
-	privateKeyPath, err := canonicalizeConfiguredFile(raw.PrivateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("project ssh.private_key: %w", err)
+// resolveProjectSSHKeys walks the normalized key list for a project SSH
+// config and produces a sessionGitSSHConfig with one sessionGitSSHKey per
+// entry. Each key's identity is resolved through the configured file path
+// or the provisioned inventory; visibility and containment checks run
+// per-key so a single stray identity blocks the whole session.
+func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
+	if err := ValidateProjectSSHConfig(*raw); err != nil {
+		return nil, fmt.Errorf("project ssh: %w", err)
 	}
-	if isWithinDir(agentHome, privateKeyPath) {
-		return nil, fmt.Errorf("managed git ssh private key %q must stay outside %s", privateKeyPath, agentHome)
-	}
-	if sessionPathExposesFile(cfg, privateKeyPath) {
-		return nil, fmt.Errorf("managed git ssh private key %q is visible inside the session contract; move it outside the project/read/write paths", privateKeyPath)
-	}
-
-	knownHostsRaw := raw.KnownHostsPath
-	if strings.TrimSpace(knownHostsRaw) == "" {
-		knownHostsRaw = filepath.Join(filepath.Dir(privateKeyPath), "known_hosts")
-	}
-	knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
-	if err != nil {
-		return nil, fmt.Errorf("project ssh.known_hosts: %w", err)
+	entries := raw.NormalizedKeys()
+	if len(entries) == 0 {
+		return nil, nil
 	}
 
+	resolved := make([]sessionGitSSHKey, 0, len(entries))
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		key, err := resolveProjectSSHKeyEntry(cfg, entry)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, key)
+		names = append(names, key.Name)
+	}
+
+	displayName := names[0]
+	if len(names) > 1 {
+		displayName = strings.Join(names, "+")
+	}
 	return &sessionGitSSHConfig{
-		DisplayName:    filepath.Base(privateKeyPath),
-		PrivateKeyPath: privateKeyPath,
-		KnownHostsPath: knownHostsPath,
-		SessionNote: fmt.Sprintf(
-			"Git-over-SSH enabled for this project via selected key %q. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
-			filepath.Base(privateKeyPath),
-		),
+		DisplayName: displayName,
+		SessionNote: sessionNoteForKeys(resolved),
+		Keys:        resolved,
 	}, nil
 }
 
-func resolveProvisionedManagedGitSSH(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
-	keyName := strings.TrimSpace(raw.Key)
-	if keyName == "" {
-		return nil, fmt.Errorf("project ssh: private_key or key is required")
+func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey) (sessionGitSSHKey, error) {
+	name := strings.TrimSpace(entry.Name)
+	if name == "" {
+		name = "default"
 	}
 
-	key, err := findProvisionedSSHKey(keyName)
+	privateKeyPath, knownHostsPath, err := resolveProjectSSHKeyIdentity(entry)
 	if err != nil {
-		return nil, fmt.Errorf("project ssh.key: %w", err)
+		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: %w", name, err)
 	}
-	if !key.Usable() {
-		return nil, fmt.Errorf("project ssh.key %q is not usable: %s", key.Name, key.Status)
+	if isWithinDir(agentHome, privateKeyPath) {
+		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: private key %q must stay outside %s", name, privateKeyPath, agentHome)
 	}
-	if isWithinDir(agentHome, key.PrivateKeyPath) {
-		return nil, fmt.Errorf("managed git ssh private key %q must stay outside %s", key.PrivateKeyPath, agentHome)
-	}
-	if sessionPathExposesFile(cfg, key.PrivateKeyPath) {
-		return nil, fmt.Errorf("managed git ssh private key %q is visible inside the session contract; move it outside the project/read/write paths", key.PrivateKeyPath)
+	if sessionPathExposesFile(cfg, privateKeyPath) {
+		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: private key %q is visible inside the session contract; move it outside the project/read/write paths", name, privateKeyPath)
 	}
 
-	return &sessionGitSSHConfig{
-		DisplayName:    key.Name,
-		PrivateKeyPath: key.PrivateKeyPath,
-		KnownHostsPath: key.KnownHostsPath,
-		SessionNote: fmt.Sprintf(
-			"Git-over-SSH enabled for this project via provisioned key %q. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
-			key.Name,
-		),
+	allowedHosts, err := normalizeGitSSHHosts(entry.Hosts)
+	if err != nil && len(entry.Hosts) > 0 {
+		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: %w", name, err)
+	}
+	if len(entry.Hosts) == 0 {
+		allowedHosts = nil
+	}
+
+	return sessionGitSSHKey{
+		Name:           name,
+		PrivateKeyPath: privateKeyPath,
+		KnownHostsPath: knownHostsPath,
+		AllowedHosts:   allowedHosts,
 	}, nil
+}
+
+func resolveProjectSSHKeyIdentity(entry ProjectSSHKey) (string, string, error) {
+	if strings.TrimSpace(entry.PrivateKeyPath) != "" {
+		privateKeyPath, err := canonicalizeConfiguredFile(entry.PrivateKeyPath)
+		if err != nil {
+			return "", "", fmt.Errorf("private_key: %w", err)
+		}
+		knownHostsRaw := entry.KnownHostsPath
+		if strings.TrimSpace(knownHostsRaw) == "" {
+			knownHostsRaw = filepath.Join(filepath.Dir(privateKeyPath), "known_hosts")
+		}
+		knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
+		if err != nil {
+			return "", "", fmt.Errorf("known_hosts: %w", err)
+		}
+		return privateKeyPath, knownHostsPath, nil
+	}
+
+	keyName := strings.TrimSpace(entry.Key)
+	if keyName == "" {
+		return "", "", fmt.Errorf("private_key or key is required")
+	}
+	provisioned, err := findProvisionedSSHKey(keyName)
+	if err != nil {
+		return "", "", fmt.Errorf("key: %w", err)
+	}
+	if !provisioned.Usable() {
+		return "", "", fmt.Errorf("key %q is not usable: %s", provisioned.Name, provisioned.Status)
+	}
+	return provisioned.PrivateKeyPath, provisioned.KnownHostsPath, nil
+}
+
+func sessionNoteForKeys(keys []sessionGitSSHKey) string {
+	if len(keys) == 1 {
+		key := keys[0]
+		if len(key.AllowedHosts) == 0 {
+			return fmt.Sprintf(
+				"Git-over-SSH enabled for this project via selected key %q. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
+				key.Name,
+			)
+		}
+		return fmt.Sprintf(
+			"Git-over-SSH enabled for this project via selected key %q (hosts: %s). Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
+			key.Name,
+			strings.Join(key.AllowedHosts, ", "),
+		)
+	}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s → %s", key.Name, strings.Join(key.AllowedHosts, ", ")))
+	}
+	return fmt.Sprintf(
+		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and loads each into its own session-local ssh-agent.",
+		strings.Join(parts, "; "),
+	)
 }
 
 func resolveLegacyManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
@@ -631,15 +714,19 @@ func resolveLegacyManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error)
 		return nil, fmt.Errorf("project git_ssh.allowed_hosts: %w", err)
 	}
 
+	displayName := filepath.Base(privateKeyPath)
 	return &sessionGitSSHConfig{
-		DisplayName:    filepath.Base(privateKeyPath),
-		PrivateKeyPath: privateKeyPath,
-		KnownHostsPath: knownHostsPath,
-		AllowedHosts:   allowedHosts,
+		DisplayName: displayName,
 		SessionNote: fmt.Sprintf(
 			"Legacy host-scoped Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent for Git only.",
 			strings.Join(allowedHosts, ", "),
 		),
+		Keys: []sessionGitSSHKey{{
+			Name:           displayName,
+			PrivateKeyPath: privateKeyPath,
+			KnownHostsPath: knownHostsPath,
+			AllowedHosts:   allowedHosts,
+		}},
 	}, nil
 }
 
@@ -916,15 +1003,18 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 	runtime := preparedSessionRuntime{
 		Cleanup: func() {},
 	}
+	if len(cfg.Keys) == 0 {
+		return runtime, nil
+	}
 
 	identityRuntime, err := prepareSSHIdentityRuntime(cfg)
 	if err != nil {
 		return runtime, err
 	}
 
-	wrapperDir := filepath.Dir(identityRuntime.SocketPath)
+	wrapperDir := identityRuntime.runtimeDir()
 	wrapperPath := filepath.Join(wrapperDir, "git-ssh")
-	wrapperScript := buildGitSSHWrapperScript(identityRuntime.SocketPath, identityRuntime.KnownHostsPath, cfg.AllowedHosts)
+	wrapperScript := buildGitSSHWrapperScript(identityRuntime.Keys)
 	if err := asAgentWriteFile(wrapperPath, []byte(wrapperScript), 0o700); err != nil {
 		identityRuntime.Cleanup()
 		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("write managed git ssh wrapper: %w", err)
@@ -936,6 +1026,16 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 		"GIT_SSH_VARIANT=ssh",
 	}
 	return runtime, nil
+}
+
+// runtimeDir recovers the runtime directory containing all per-key sockets
+// and known_hosts files. Every preparedSSHIdentityKey lives under the same
+// directory by construction, so we return the parent of the first socket.
+func (r preparedSSHIdentityRuntime) runtimeDir() string {
+	if len(r.Keys) == 0 {
+		return ""
+	}
+	return filepath.Dir(r.Keys[0].SocketPath)
 }
 
 func prepareSSHIdentityRuntime(cfg sessionGitSSHConfig) (preparedSSHIdentityRuntime, error) {
@@ -951,42 +1051,75 @@ func prepareSSHIdentityRuntime(cfg sessionGitSSHConfig) (preparedSSHIdentityRunt
 		_ = asAgentQuiet("rm", "-rf", runtimeDir)
 	}
 
-	socketPath := filepath.Join(runtimeDir, "agent.sock")
-	pid, err := startAgentSSHAgent(socketPath)
-	if err != nil {
-		runtime.Cleanup()
-		return preparedSSHIdentityRuntime{Cleanup: func() {}}, err
+	agentTeardowns := make([]func(), 0, len(cfg.Keys))
+	appendTeardown := func(fn func()) {
+		agentTeardowns = append(agentTeardowns, fn)
 	}
-
-	runtime.Cleanup = func() {
-		cmd := newAgentCommand("env",
-			"SSH_AGENT_PID="+pid,
-			"SSH_AUTH_SOCK="+socketPath,
-			"/usr/bin/ssh-agent", "-k")
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		_ = cmd.Run()
+	rollback := func() {
+		for i := len(agentTeardowns) - 1; i >= 0; i-- {
+			agentTeardowns[i]()
+		}
 		_ = asAgentQuiet("rm", "-rf", runtimeDir)
 	}
 
-	if err := loadKeyIntoSSHAgent(socketPath, cfg.PrivateKeyPath); err != nil {
-		runtime.Cleanup()
-		return preparedSSHIdentityRuntime{Cleanup: func() {}}, err
+	// Derive socket paths from validated key names, then assert pairwise
+	// distinctness at session time. Names are already unique at config-set
+	// time (ValidateProjectSSHConfig), so this is a defensive check for the
+	// TLA invariant SocketsDistinctForPresent.
+	seenSocket := make(map[string]string, len(cfg.Keys))
+	preparedKeys := make([]preparedSSHIdentityKey, 0, len(cfg.Keys))
+
+	for _, key := range cfg.Keys {
+		socketPath := filepath.Join(runtimeDir, "agent-"+key.Name+".sock")
+		if prior, dup := seenSocket[socketPath]; dup {
+			rollback()
+			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh keys %q and %q resolve to the same session socket %q", prior, key.Name, socketPath)
+		}
+		seenSocket[socketPath] = key.Name
+
+		pid, err := startAgentSSHAgent(socketPath)
+		if err != nil {
+			rollback()
+			return preparedSSHIdentityRuntime{Cleanup: func() {}}, err
+		}
+		killSocket := socketPath
+		killPID := pid
+		appendTeardown(func() {
+			cmd := newAgentCommand("env",
+				"SSH_AGENT_PID="+killPID,
+				"SSH_AUTH_SOCK="+killSocket,
+				"/usr/bin/ssh-agent", "-k")
+			cmd.Stdout = io.Discard
+			cmd.Stderr = io.Discard
+			_ = cmd.Run()
+		})
+
+		if err := loadKeyIntoSSHAgent(socketPath, key.PrivateKeyPath); err != nil {
+			rollback()
+			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: %w", key.Name, err)
+		}
+
+		knownHostsData, err := os.ReadFile(key.KnownHostsPath)
+		if err != nil {
+			rollback()
+			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: read known_hosts: %w", key.Name, err)
+		}
+		runtimeKnownHostsPath := filepath.Join(runtimeDir, "known_hosts-"+key.Name)
+		if err := asAgentWriteFile(runtimeKnownHostsPath, knownHostsData, 0o600); err != nil {
+			rollback()
+			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: write known_hosts: %w", key.Name, err)
+		}
+
+		preparedKeys = append(preparedKeys, preparedSSHIdentityKey{
+			Name:           key.Name,
+			SocketPath:     socketPath,
+			KnownHostsPath: runtimeKnownHostsPath,
+			AllowedHosts:   append([]string(nil), key.AllowedHosts...),
+		})
 	}
 
-	knownHostsData, err := os.ReadFile(cfg.KnownHostsPath)
-	if err != nil {
-		runtime.Cleanup()
-		return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("read managed git ssh known_hosts: %w", err)
-	}
-	runtimeKnownHostsPath := filepath.Join(runtimeDir, "known_hosts")
-	if err := asAgentWriteFile(runtimeKnownHostsPath, knownHostsData, 0o600); err != nil {
-		runtime.Cleanup()
-		return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("write managed git ssh known_hosts: %w", err)
-	}
-
-	runtime.SocketPath = socketPath
-	runtime.KnownHostsPath = runtimeKnownHostsPath
+	runtime.Cleanup = rollback
+	runtime.Keys = preparedKeys
 	return runtime, nil
 }
 
@@ -1042,8 +1175,44 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 	return nil
 }
 
-func probeGitSSHHost(cfg sessionGitSSHConfig, target gitSSHTestTarget) (string, error) {
-	return runGitSSHProbe(cfg.PrivateKeyPath, cfg.KnownHostsPath, target)
+func probeGitSSHHost(key sessionGitSSHKey, target gitSSHTestTarget) (string, error) {
+	return runGitSSHProbe(key.PrivateKeyPath, key.KnownHostsPath, target)
+}
+
+// selectSessionGitSSHKey picks the session key that matches the destination
+// host per the TLA MC_GitSSHRouting contract: exactly one match for a ready
+// config, or a reject when nothing matches. The legacy single-key any-host
+// fallback (len(Keys)==1, empty AllowedHosts) matches every host.
+func selectSessionGitSSHKey(cfg *sessionGitSSHConfig, host string) (*sessionGitSSHKey, error) {
+	if cfg == nil || len(cfg.Keys) == 0 {
+		return nil, fmt.Errorf("no SSH keys configured")
+	}
+	normalized := strings.ToLower(strings.TrimSpace(host))
+	var matches []*sessionGitSSHKey
+	for i := range cfg.Keys {
+		key := &cfg.Keys[i]
+		if len(key.AllowedHosts) == 0 && len(cfg.Keys) == 1 {
+			return key, nil
+		}
+		for _, pattern := range key.AllowedHosts {
+			if ok, _ := filepath.Match(pattern, normalized); ok {
+				matches = append(matches, key)
+				break
+			}
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("no SSH key configured for host %q", host)
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, 0, len(matches))
+		for _, key := range matches {
+			names = append(names, key.Name)
+		}
+		return nil, fmt.Errorf("host %q matches multiple SSH keys: %s", host, strings.Join(names, ", "))
+	}
 }
 
 func newGitSSHProbeCommand(privateKeyPath, knownHostsPath string, target gitSSHTestTarget) *exec.Cmd {
@@ -1135,10 +1304,19 @@ func asAgentWriteFile(path string, content []byte, mode os.FileMode) error {
 	return agentWriteFile(path, content, mode)
 }
 
-func buildGitSSHWrapperScript(socketPath, knownHostsPath string, allowedHosts []string) string {
-	socketQuoted := shellQuote([]string{socketPath})[0]
-	knownHostsQuoted := shellQuote([]string{knownHostsPath})[0]
-
+// buildGitSSHWrapperScript renders the shell wrapper that routes a Git-over-SSH
+// invocation to exactly one prepared key's identity-agent socket.
+//
+// The routing contract matches tla/MC_GitSSHRouting.tla:
+//   - A single prepared key with no AllowedHosts is the legacy any-host
+//     fallback and serves every destination host.
+//   - Otherwise, the destination host must match exactly one key's
+//     AllowedHosts patterns (shell glob semantics via `case`); anything
+//     else is rejected.
+//
+// The wrapper passes only protocol handshake options to ssh and rejects
+// interactive shells or unknown remote commands.
+func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString("set -eu\n\n")
@@ -1182,18 +1360,30 @@ func buildGitSSHWrapperScript(socketPath, knownHostsPath string, allowedHosts []
 	b.WriteString("[ \"$#\" -ge 1 ] || reject \"missing destination host\"\n")
 	b.WriteString("host=\"$1\"\n")
 	b.WriteString("shift\n")
-	if len(allowedHosts) > 0 {
-		b.WriteString("normalized_host=\"$host\"\n")
+	b.WriteString("normalized_host=\"$host\"\n")
+	b.WriteString("case \"$normalized_host\" in\n")
+	b.WriteString("  *@*) normalized_host=${normalized_host#*@} ;;\n")
+	b.WriteString("esac\n")
+	b.WriteString("sock=\"\"\n")
+	b.WriteString("kh=\"\"\n")
+
+	if legacy := legacyAnyHostKey(keys); legacy != nil {
+		sock := shellQuote([]string{legacy.SocketPath})[0]
+		kh := shellQuote([]string{legacy.KnownHostsPath})[0]
+		fmt.Fprintf(&b, "sock=%s\n", sock)
+		fmt.Fprintf(&b, "kh=%s\n", kh)
+	} else {
 		b.WriteString("case \"$normalized_host\" in\n")
-		b.WriteString("  *@*) normalized_host=${normalized_host#*@} ;;\n")
-		b.WriteString("esac\n")
-		b.WriteString("case \"$normalized_host\" in\n")
-		for _, host := range allowedHosts {
-			fmt.Fprintf(&b, "  %s) ;;\n", host)
+		for _, key := range keys {
+			sock := shellQuote([]string{key.SocketPath})[0]
+			kh := shellQuote([]string{key.KnownHostsPath})[0]
+			patterns := strings.Join(key.AllowedHosts, "|")
+			fmt.Fprintf(&b, "  %s) sock=%s; kh=%s ;;\n", patterns, sock, kh)
 		}
 		b.WriteString("  *) reject \"destination host not allowed: $normalized_host\" ;;\n")
 		b.WriteString("esac\n")
 	}
+
 	b.WriteString("[ \"$#\" -gt 0 ] || reject \"interactive ssh is not allowed for this profile\"\n")
 	b.WriteString("case \"$1\" in\n")
 	b.WriteString("  git-upload-pack*|git-receive-pack*|git-upload-archive*) ;;\n")
@@ -1209,11 +1399,24 @@ func buildGitSSHWrapperScript(socketPath, knownHostsPath string, allowedHosts []
 	b.WriteString("  -o BatchMode=yes \\\n")
 	b.WriteString("  -o IdentityFile=none \\\n")
 	b.WriteString("  -o StrictHostKeyChecking=yes \\\n")
-	fmt.Fprintf(&b, "  -o UserKnownHostsFile=%s \\\n", knownHostsQuoted)
+	b.WriteString("  -o UserKnownHostsFile=\"$kh\" \\\n")
 	b.WriteString("  -o GlobalKnownHostsFile=/dev/null \\\n")
 	b.WriteString("  -o ForwardAgent=no \\\n")
 	b.WriteString("  -o ClearAllForwardings=yes \\\n")
-	fmt.Fprintf(&b, "  -o IdentityAgent=%s \\\n", socketQuoted)
+	b.WriteString("  -o IdentityAgent=\"$sock\" \\\n")
 	b.WriteString("  \"$@\"\n")
 	return b.String()
+}
+
+// legacyAnyHostKey returns the lone key that represents the legacy
+// single-key any-host fallback, or nil when the config is multi-key or
+// host-scoped. Matches the TLA LegacyFallbackSingleOnly invariant.
+func legacyAnyHostKey(keys []preparedSSHIdentityKey) *preparedSSHIdentityKey {
+	if len(keys) != 1 {
+		return nil
+	}
+	if len(keys[0].AllowedHosts) > 0 {
+		return nil
+	}
+	return &keys[0]
 }

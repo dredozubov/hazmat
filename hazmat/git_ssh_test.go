@@ -387,14 +387,20 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if got.DisplayName != "id_ed25519" {
 		t.Fatalf("DisplayName = %q, want id_ed25519", got.DisplayName)
 	}
-	if got.PrivateKeyPath != keyPath {
-		t.Fatalf("PrivateKeyPath = %q, want %q", got.PrivateKeyPath, keyPath)
+	if len(got.Keys) != 1 {
+		t.Fatalf("Keys len = %d, want 1", len(got.Keys))
 	}
-	if got.KnownHostsPath != knownHostsPath {
-		t.Fatalf("KnownHostsPath = %q, want %q", got.KnownHostsPath, knownHostsPath)
+	if got.Keys[0].Name != "id_ed25519" {
+		t.Fatalf("Keys[0].Name = %q, want id_ed25519", got.Keys[0].Name)
 	}
-	if len(got.AllowedHosts) != 0 {
-		t.Fatalf("AllowedHosts = %v, want none", got.AllowedHosts)
+	if got.Keys[0].PrivateKeyPath != keyPath {
+		t.Fatalf("Keys[0].PrivateKeyPath = %q, want %q", got.Keys[0].PrivateKeyPath, keyPath)
+	}
+	if got.Keys[0].KnownHostsPath != knownHostsPath {
+		t.Fatalf("Keys[0].KnownHostsPath = %q, want %q", got.Keys[0].KnownHostsPath, knownHostsPath)
+	}
+	if len(got.Keys[0].AllowedHosts) != 0 {
+		t.Fatalf("Keys[0].AllowedHosts = %v, want none (legacy any-host fallback)", got.Keys[0].AllowedHosts)
 	}
 	if !strings.Contains(got.SessionNote, "selected key") {
 		t.Fatalf("SessionNote = %q, want selected key note", got.SessionNote)
@@ -675,13 +681,19 @@ func TestInterpretGitSSHProbeResultRecognizesAuthenticatedGitErrors(t *testing.T
 }
 
 func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing.T) {
-	script := buildGitSSHWrapperScript("/tmp/agent.sock", "/tmp/known_hosts", nil)
+	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{{
+		Name:           "default",
+		SocketPath:     "/tmp/agent.sock",
+		KnownHostsPath: "/tmp/known_hosts",
+	}})
 	for _, fragment := range []string{
 		"interactive ssh is not allowed",
 		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
 		"-o IdentityFile=none",
-		"-o IdentityAgent=/tmp/agent.sock",
-		"-o UserKnownHostsFile=/tmp/known_hosts",
+		"sock=/tmp/agent.sock",
+		"kh=/tmp/known_hosts",
+		"-o UserKnownHostsFile=\"$kh\"",
+		"-o IdentityAgent=\"$sock\"",
 		"-o StrictHostKeyChecking=yes",
 	} {
 		if !strings.Contains(script, fragment) {
@@ -689,10 +701,36 @@ func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing
 		}
 	}
 	if strings.Contains(script, "destination host not allowed") {
-		t.Fatalf("wrapper script should not enforce host allowlist:\n%s", script)
+		t.Fatalf("legacy single-key wrapper should not enforce host allowlist:\n%s", script)
 	}
 	if strings.Contains(script, "IdentitiesOnly=yes") {
 		t.Fatalf("wrapper script should not force IdentitiesOnly=yes:\n%s", script)
+	}
+}
+
+func TestBuildGitSSHWrapperScriptMultiKeyRoutesByHost(t *testing.T) {
+	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{
+		{
+			Name:           "github",
+			SocketPath:     "/tmp/agent-github.sock",
+			KnownHostsPath: "/tmp/kh-github",
+			AllowedHosts:   []string{"github.com"},
+		},
+		{
+			Name:           "prod",
+			SocketPath:     "/tmp/agent-prod.sock",
+			KnownHostsPath: "/tmp/kh-prod",
+			AllowedHosts:   []string{"prod.example.com", "*.prod.example.com"},
+		},
+	})
+	for _, fragment := range []string{
+		"github.com) sock=/tmp/agent-github.sock; kh=/tmp/kh-github ;;",
+		"prod.example.com|*.prod.example.com) sock=/tmp/agent-prod.sock; kh=/tmp/kh-prod ;;",
+		"*) reject \"destination host not allowed: $normalized_host\" ;;",
+	} {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("multi-key wrapper missing %q:\n%s", fragment, script)
+		}
 	}
 }
 
@@ -791,7 +829,27 @@ func (assertErr) Error() string {
 
 func TestProjectSSHConfigNormalizedKeysLegacySingleKey(t *testing.T) {
 	cfg := ProjectSSHConfig{
-		PrivateKeyPath: "/keys/id",
+		PrivateKeyPath: "/keys/id_ed25519",
+		KnownHostsPath: "/keys/known_hosts",
+	}
+	got := cfg.NormalizedKeys()
+	if len(got) != 1 {
+		t.Fatalf("NormalizedKeys len = %d, want 1", len(got))
+	}
+	if got[0].Name != "id_ed25519" {
+		t.Fatalf("Name = %q, want id_ed25519 (basename of PrivateKeyPath)", got[0].Name)
+	}
+	if got[0].PrivateKeyPath != "/keys/id_ed25519" || got[0].KnownHostsPath != "/keys/known_hosts" {
+		t.Fatalf("legacy paths not preserved: %+v", got[0])
+	}
+	if len(got[0].Hosts) != 0 {
+		t.Fatalf("Hosts = %v, want empty (any-host fallback)", got[0].Hosts)
+	}
+}
+
+func TestProjectSSHConfigNormalizedKeysLegacyUnparseableBasenameFallsBackToDefault(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		PrivateKeyPath: "/keys/my key!",
 		KnownHostsPath: "/keys/known_hosts",
 	}
 	got := cfg.NormalizedKeys()
@@ -799,13 +857,7 @@ func TestProjectSSHConfigNormalizedKeysLegacySingleKey(t *testing.T) {
 		t.Fatalf("NormalizedKeys len = %d, want 1", len(got))
 	}
 	if got[0].Name != "default" {
-		t.Fatalf("Name = %q, want default", got[0].Name)
-	}
-	if got[0].PrivateKeyPath != "/keys/id" || got[0].KnownHostsPath != "/keys/known_hosts" {
-		t.Fatalf("legacy paths not preserved: %+v", got[0])
-	}
-	if len(got[0].Hosts) != 0 {
-		t.Fatalf("Hosts = %v, want empty (any-host fallback)", got[0].Hosts)
+		t.Fatalf("Name = %q, want default (basename has invalid chars)", got[0].Name)
 	}
 }
 
@@ -941,6 +993,57 @@ func TestValidateProjectSSHConfigRejectsInvalidHost(t *testing.T) {
 	err := ValidateProjectSSHConfig(cfg)
 	if err == nil || !strings.Contains(err.Error(), "invalid host") {
 		t.Fatalf("want invalid-host rejection, got %v", err)
+	}
+}
+
+func TestSelectSessionGitSSHKeyLegacyAnyHostServesAny(t *testing.T) {
+	cfg := &sessionGitSSHConfig{
+		Keys: []sessionGitSSHKey{{Name: "default", PrivateKeyPath: "/k", KnownHostsPath: "/kh"}},
+	}
+	for _, host := range []string{"github.com", "prod.example.com", "anything.else"} {
+		got, err := selectSessionGitSSHKey(cfg, host)
+		if err != nil {
+			t.Fatalf("select(%q): %v", host, err)
+		}
+		if got.Name != "default" {
+			t.Fatalf("select(%q) = %q, want default", host, got.Name)
+		}
+	}
+}
+
+func TestSelectSessionGitSSHKeyMultiKeyRoutesByHost(t *testing.T) {
+	cfg := &sessionGitSSHConfig{
+		Keys: []sessionGitSSHKey{
+			{Name: "github", AllowedHosts: []string{"github.com"}},
+			{Name: "prod", AllowedHosts: []string{"prod.example.com", "*.prod.example.com"}},
+		},
+	}
+	cases := map[string]string{
+		"github.com":             "github",
+		"prod.example.com":       "prod",
+		"api.prod.example.com":   "prod",
+		"cache.prod.example.com": "prod",
+	}
+	for host, want := range cases {
+		got, err := selectSessionGitSSHKey(cfg, host)
+		if err != nil {
+			t.Fatalf("select(%q): %v", host, err)
+		}
+		if got.Name != want {
+			t.Fatalf("select(%q) = %q, want %q", host, got.Name, want)
+		}
+	}
+}
+
+func TestSelectSessionGitSSHKeyRejectsUnknownHost(t *testing.T) {
+	cfg := &sessionGitSSHConfig{
+		Keys: []sessionGitSSHKey{
+			{Name: "github", AllowedHosts: []string{"github.com"}},
+		},
+	}
+	_, err := selectSessionGitSSHKey(cfg, "gitlab.com")
+	if err == nil || !strings.Contains(err.Error(), "no SSH key configured for host") {
+		t.Fatalf("want unknown-host rejection, got %v", err)
 	}
 }
 

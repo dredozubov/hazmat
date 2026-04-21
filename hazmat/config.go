@@ -293,8 +293,15 @@ func (c ProjectSSHConfig) NormalizedKeys() []ProjectSSHKey {
 	if strings.TrimSpace(c.PrivateKeyPath) == "" && strings.TrimSpace(c.Key) == "" {
 		return nil
 	}
+	name := strings.TrimSpace(c.Key)
+	if name == "" {
+		name = filepath.Base(strings.TrimSpace(c.PrivateKeyPath))
+	}
+	if !projectSSHKeyNamePattern.MatchString(name) {
+		name = "default"
+	}
 	return []ProjectSSHKey{{
-		Name:           "default",
+		Name:           name,
 		Key:            c.Key,
 		PrivateKeyPath: c.PrivateKeyPath,
 		KnownHostsPath: c.KnownHostsPath,
@@ -1375,6 +1382,50 @@ func runConfigSSHShow(project string) error {
 	}
 
 	fmt.Printf("SSH configuration for %s\n\n", projectDir)
+	if projectCfg.SSH != nil && len(projectCfg.SSH.Keys) > 0 {
+		for i, key := range projectCfg.SSH.Keys {
+			if i > 0 {
+				fmt.Println()
+			}
+			fmt.Printf("  Name:          %s\n", key.Name)
+			switch {
+			case strings.TrimSpace(key.PrivateKeyPath) != "":
+				status := "usable"
+				if _, err := canonicalizeConfiguredFile(key.PrivateKeyPath); err != nil {
+					status = "broken (private key not found)"
+				}
+				fmt.Printf("  Private key:   %s\n", key.PrivateKeyPath)
+				if key.KnownHostsPath != "" {
+					fmt.Printf("  Known hosts:   %s\n", key.KnownHostsPath)
+				}
+				if fingerprint := sshKeyFingerprint(resolveConfiguredPublicKeyPath(key.PrivateKeyPath)); fingerprint != "" {
+					fmt.Printf("  Fingerprint:   %s\n", fingerprint)
+				}
+				fmt.Printf("  Status:        %s\n", status)
+			case strings.TrimSpace(key.Key) != "":
+				provisioned, err := findProvisionedSSHKey(key.Key)
+				if err != nil {
+					fmt.Printf("  Inventory ref: %s\n", key.Key)
+					fmt.Printf("  Status:        broken (%v)\n", err)
+				} else {
+					fmt.Printf("  Inventory ref: %s\n", provisioned.Name)
+					fmt.Printf("  Private key:   %s\n", provisioned.PrivateKeyPath)
+					fmt.Printf("  Known hosts:   %s\n", provisioned.KnownHostsPath)
+					if provisioned.Fingerprint != "" {
+						fmt.Printf("  Fingerprint:   %s\n", provisioned.Fingerprint)
+					}
+					fmt.Printf("  Status:        %s\n", provisioned.Status)
+				}
+			}
+			if len(key.Hosts) > 0 {
+				fmt.Printf("  Hosts:         %s\n", strings.Join(key.Hosts, ", "))
+			} else {
+				fmt.Printf("  Hosts:         (any — legacy fallback)\n")
+			}
+		}
+		fmt.Printf("\nTest with:\n  hazmat config ssh test -C %s --host github.com\n", projectDir)
+		return nil
+	}
 	if projectCfg.SSH != nil {
 		if strings.TrimSpace(projectCfg.SSH.PrivateKeyPath) != "" {
 			status := "usable"
@@ -1444,10 +1495,13 @@ func runConfigSSHTest(project, host string) error {
 		return fmt.Errorf("no SSH key assigned to %s\nrun:\n  hazmat config ssh set -C %s", projectDir, projectDir)
 	}
 
-	fmt.Printf("Testing SSH for %s\n", projectDir)
-	if cfg.GitSSH.DisplayName != "" {
-		fmt.Printf("Using key: %s\n", cfg.GitSSH.DisplayName)
+	selected, err := selectSessionGitSSHKey(cfg.GitSSH, target.RequestedHost)
+	if err != nil {
+		return err
 	}
+
+	fmt.Printf("Testing SSH for %s\n", projectDir)
+	fmt.Printf("Using key: %s\n", selected.Name)
 	fmt.Printf("Target host: %s\n", target.RequestedHost)
 	if target.ResolvedFromSSHConfig {
 		fmt.Printf("Resolved via ~/.ssh/config: %s\n", target.resolutionSummary())
@@ -1461,7 +1515,7 @@ func runConfigSSHTest(project, host string) error {
 	}
 	fmt.Println()
 
-	output, err := probeGitSSHHost(*cfg.GitSSH, target)
+	output, err := probeGitSSHHost(*selected, target)
 	if err == nil {
 		fmt.Println("SSH test succeeded.")
 		return nil
