@@ -36,23 +36,8 @@ var (
 var cloudBackupDir = filepath.Join(os.Getenv("HOME"), "workspace")
 
 // Hazmat configuration shared by the Go-based setup, test, and rollback flows.
+// Native platform paths and host integration defaults live in platform_paths_*.go.
 const (
-	agentUser                   = "agent"
-	agentHome                   = "/Users/agent"
-	systemLaunchHelper          = "/usr/local/libexec/hazmat-launch"
-	sharedGroup                 = "dev"
-	pfAnchorName                = "agent"
-	pfAnchorFile                = "/etc/pf.anchors/agent"
-	pfDaemonLabel               = "com.local.pf-agent"
-	pfDaemonPlist               = "/Library/LaunchDaemons/com.local.pf-agent.plist"
-	sudoersFile                 = "/etc/sudoers.d/agent"
-	agentMaintenanceSudoersFile = "/etc/sudoers.d/agent-maintenance"
-	hostsMarker                 = "# === AI Agent Blocklist ==="
-
-	seatbeltProfileDir  = agentHome + "/.config/hazmat"
-	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
-	agentEnvPath        = seatbeltProfileDir + "/agent-env.zsh"
-
 	agentShellBlockStart = "# >>> hazmat agent shell >>>"
 	agentShellBlockEnd   = "# <<< hazmat agent shell <<<"
 	userPathBlockStart   = "# >>> hazmat user path >>>"
@@ -62,15 +47,10 @@ const (
 	umaskBlockStart      = "# >>> hazmat umask >>>"
 	umaskBlockEnd        = "# <<< hazmat umask <<<"
 
-	hostWrapperDirRel      = ".local/bin"
-	hostClaudeWrapperName  = "claude-hazmat"
-	hostExecWrapperName    = "agent-exec"
-	hostShellWrapperName   = "agent-shell"
-	defaultAgentPath       = agentHome + "/.opencode/bin:" + agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-	defaultAgentCacheHome  = agentHome + "/.cache"
-	defaultAgentConfigHome = agentHome + "/.config"
-	defaultAgentDataHome   = agentHome + "/.local/share"
-	defaultAgentTmpDir     = "/private/tmp"
+	hostWrapperDirRel     = ".local/bin"
+	hostClaudeWrapperName = "claude-hazmat"
+	hostExecWrapperName   = "agent-exec"
+	hostShellWrapperName  = "agent-shell"
 )
 
 func main() {
