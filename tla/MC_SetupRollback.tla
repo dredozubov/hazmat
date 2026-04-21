@@ -22,6 +22,7 @@
 \*   hazmat/rollback.go              — runRollback()
 \*   hazmat/rollback_steps.go        — rollback step formal resource order
 \*   hazmat/setup_rollback_formal.go — shared resource names
+\*   hazmat/acl_*.go                 — platform ACL mechanics for resources
 \*   hazmat/hostexec_*.go            — platform utility tables used by steps
 \*
 \* Model bounds: 2 setup attempts, 2 rollback attempts, failure at any step.
@@ -55,6 +56,10 @@
 \* actions: changing dscl/pfctl/launchctl/etc. paths cannot reorder setup or
 \* rollback, and future Linux utilities must stay behind the same resource
 \* boundaries before being enabled.
+\* ACL mechanics are likewise scoped to resource actions: Darwin chmod +a and
+\* ls -leOd live behind the ACL backend for homeDirTraverse and session repair
+\* checks, while future Linux POSIX ACLs must preserve the same resource
+\* boundaries.
 
 EXTENDS Naturals, FiniteSets
 

@@ -6,6 +6,11 @@ EXTENDS TLC
 \* previewed by `hazmat explain`, optionally applied before launch, and never
 \* reverted by core rollback. This model abstracts the four currently
 \* user-visible repair classes and the native-vs-Tier-3 split.
+\*
+\* Governed code:
+\*   hazmat/session_mutation.go — repair planning and preview/apply flow
+\*   hazmat/workspace_acl.go — project/traverse ACL detection and repair
+\*   hazmat/acl_*.go — platform ACL mechanics used by repair actions
 
 ProjectACL == "projectACL"
 TraverseACL == "traverseACL"

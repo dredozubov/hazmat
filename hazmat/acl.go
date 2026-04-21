@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -209,21 +208,20 @@ func aclPermAliases(chmodInputPerm string) []string {
 	}
 }
 
-// readACLs parses `ls -leOd` output for path and returns the ACL rows.
-// -d keeps directory arguments referring to the directory itself rather
-// than its contents. -O surfaces the "inherited" flag on propagated rows.
+type platformACLBackend interface {
+	ReadACLs(path string) ([]ACLRow, error)
+	Chmod(args ...string) error
+	SudoChmod(runner *Runner, reason string, args ...string) error
+}
+
+var platformACLBackendFactory = newPlatformACLBackend
+
+func platformACLBackendForHost() platformACLBackend {
+	return platformACLBackendFactory()
+}
+
 func readACLs(path string) ([]ACLRow, error) {
-	out, err := exec.Command(hostLsPath, "-leOd", path).CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	var rows []ACLRow
-	for _, line := range strings.Split(string(out), "\n") {
-		if row, ok := parseACLRow(line); ok {
-			rows = append(rows, row)
-		}
-	}
-	return rows, nil
+	return platformACLBackendForHost().ReadACLs(path)
 }
 
 // hasACLSatisfying reports whether any row at path satisfies grant.
@@ -258,7 +256,7 @@ type aclInvoker interface {
 type directACLInvoker struct{}
 
 func (directACLInvoker) Chmod(args ...string) error {
-	return exec.Command(hostChmodPath, args...).Run()
+	return platformACLBackendForHost().Chmod(args...)
 }
 
 // sudoACLInvoker runs chmod as root via the Runner's sudo wrapper. Use
@@ -270,7 +268,7 @@ type sudoACLInvoker struct {
 }
 
 func (s sudoACLInvoker) Chmod(args ...string) error {
-	return s.runner.Sudo(s.reason, append([]string{"chmod"}, args...)...)
+	return platformACLBackendForHost().SudoChmod(s.runner, s.reason, args...)
 }
 
 // ensureACL adds grant to path via chmod +a if no existing row at path
