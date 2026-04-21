@@ -145,50 +145,7 @@ func agentMaintenanceSudoersDefaultChoice(ui *UI) string {
 }
 
 func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser string) error {
-	ui.Step("Optional passwordless sudo for agent maintenance")
-
-	if agentMaintenanceSudoersInstalled() {
-		ui.SkipDone(fmt.Sprintf("Optional agent-maintenance sudoers entry already present at %s", agentMaintenanceSudoersFile))
-		return nil
-	}
-
-	fmt.Println("  Hazmat can also install a broader optional sudoers rule for day-to-day")
-	fmt.Println("  manual agent-user commands that bypass Hazmat's helper-backed")
-	fmt.Println("  maintenance path and use raw 'sudo -u agent ...' instead.")
-	fmt.Println()
-	cDim.Println("  This is broader than the default launch-helper rule.")
-	cDim.Println("  Only enable it if you want to stop repeated password prompts for")
-	cDim.Println("  generic agent-user commands.")
-	cDim.Println("  Interactive init leaves this opt-in; 'hazmat init --yes' installs")
-	cDim.Println("  it by default for smoother non-interactive use.")
-	fmt.Println()
-
-	defaultChoice := agentMaintenanceSudoersDefaultChoice(ui)
-	choice, err := ui.Choose(
-		"Optional agent-maintenance passwordless sudo:",
-		[]UIChoice{
-			{
-				Key:         "install",
-				Label:       "Install opt-in rule",
-				Description: "Lets you run raw generic 'sudo -u agent ...' commands without repeated password prompts.",
-			},
-			{
-				Key:         "skip",
-				Label:       "Keep narrow default",
-				Description: "Leaves generic agent-user commands on normal sudo prompts.",
-			},
-		},
-		defaultChoice,
-	)
-	if err != nil {
-		return err
-	}
-	if choice != "install" {
-		ui.WarnMsg("Leaving generic agent-user commands on standard sudo prompts")
-		return nil
-	}
-
-	return installAgentMaintenanceSudoers(ui, r, currentUser)
+	return nativeServiceBackendForHost().MaybeSetupOptionalAgentMaintenanceSudoers(ui, r, currentUser)
 }
 
 func newConfigSudoersCmd() *cobra.Command {
@@ -236,30 +193,31 @@ func runConfigSudoers(enableAgentMaintenance, disableAgentMaintenance bool) erro
 			return err
 		}
 		ui.Step("Enable optional passwordless sudo for agent maintenance")
-		return installAgentMaintenanceSudoers(ui, r, currentUser)
+		return nativeServiceBackendForHost().InstallAgentMaintenanceSudoers(ui, r, currentUser)
 	}
 
 	if disableAgentMaintenance {
 		ui.Step("Disable optional passwordless sudo for agent maintenance")
-		return uninstallAgentMaintenanceSudoers(ui, r)
+		return nativeServiceBackendForHost().UninstallAgentMaintenanceSudoers(ui, r)
 	}
 
+	backend := nativeServiceBackendForHost()
 	fmt.Println()
 	cBold.Println("  Passwordless sudo")
 	fmt.Println()
-	if launchSudoersInstalled() {
+	if backend.LaunchSudoersInstalled() {
 		fmt.Printf("    Launch helper:        installed (%s)\n", sudoersFile)
 	} else {
 		fmt.Printf("    Launch helper:        missing (%s)\n", sudoersFile)
 	}
-	if agentMaintenanceSudoersInstalled() {
+	if backend.AgentMaintenanceSudoersInstalled() {
 		fmt.Printf("    Agent maintenance:    enabled (%s)\n", agentMaintenanceSudoersFile)
 	} else {
 		fmt.Printf("    Agent maintenance:    disabled\n")
 	}
-	fmt.Printf("    sudo -u %s no prompt: %v\n", agentUser, genericAgentPasswordlessAvailable())
+	fmt.Printf("    sudo -u %s no prompt: %v\n", agentUser, backend.GenericAgentPasswordlessAvailable())
 	fmt.Println()
-	if !agentMaintenanceSudoersInstalled() {
+	if !backend.AgentMaintenanceSudoersInstalled() {
 		fmt.Println("  Enable with: hazmat config sudoers --enable-agent-maintenance")
 		fmt.Println()
 	}

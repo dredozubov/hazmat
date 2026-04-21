@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -90,164 +89,19 @@ func runRollback(deleteUser, deleteGroup bool) error {
 // ── Rollback steps ────────────────────────────────────────────────────────────
 
 func rollbackLaunchDaemon(ui *UI, r *Runner) {
-	ui.Step("Remove LaunchDaemon")
-
-	if _, err := os.Stat(pfDaemonPlist); os.IsNotExist(err) {
-		ui.SkipDone("LaunchDaemon plist not present")
-		return
-	}
-
-	// bootout may fail if the daemon was never loaded; ignore the error.
-	r.Sudo("unload firewall persistence daemon", "launchctl", "bootout", "system", pfDaemonPlist) //nolint:errcheck
-	ui.Ok("LaunchDaemon unloaded (or was not loaded)")
-
-	if err := r.Sudo("remove firewall persistence plist", "rm", "-f", pfDaemonPlist); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", pfDaemonPlist, err))
-	} else {
-		ui.Ok(fmt.Sprintf("Removed %s", pfDaemonPlist))
-	}
+	nativeServiceBackendForHost().RollbackLaunchDaemon(ui, r)
 }
 
 func rollbackPfFirewall(ui *UI, r *Runner) {
-	ui.Step("Remove pf anchor")
-
-	if _, err := os.Stat(pfAnchorFile); os.IsNotExist(err) {
-		ui.SkipDone("pf anchor file not present")
-	} else {
-		if err := r.Sudo("remove pf anchor file", "rm", "-f", pfAnchorFile); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", pfAnchorFile, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed pf anchor file %s", pfAnchorFile))
-		}
-	}
-
-	pfConf := "/etc/pf.conf"
-	data, err := os.ReadFile(pfConf)
-	if err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not read %s: %v", pfConf, err))
-		return
-	}
-
-	if !strings.Contains(string(data), `anchor "agent"`) {
-		ui.SkipDone("/etc/pf.conf does not reference the agent anchor")
-		return
-	}
-
-	// Prefer restoring from the timestamped backup made during setup.
-	backup := latestPfConfBackup()
-	if backup != "" {
-		if err := r.Sudo("restore original pf.conf from backup", "cp", "-f", backup, pfConf); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not restore %s from backup %s: %v — stripping lines in place", pfConf, backup, err))
-			stripPfAnchorLines(ui, r, pfConf, data)
-		} else {
-			ui.Ok(fmt.Sprintf("Restored %s from backup %s", pfConf, backup))
-		}
-	} else {
-		ui.WarnMsg("No timestamped backup of /etc/pf.conf found — stripping anchor lines in place")
-		stripPfAnchorLines(ui, r, pfConf, data)
-	}
-
-	if err := r.PfctlLoad("reload pf rules after anchor removal"); err != nil {
-		ui.WarnMsg(fmt.Sprintf("pfctl reload failed: %v", err))
-	} else {
-		ui.Ok("pf rules reloaded")
-	}
-}
-
-// latestPfConfBackup returns the most-recent /etc/pf.conf.backup.YYYYMMDDHHMMSS, or "".
-func latestPfConfBackup() string {
-	entries, err := filepath.Glob("/etc/pf.conf.backup.*")
-	if err != nil || len(entries) == 0 {
-		return ""
-	}
-	// filepath.Glob returns lexicographically sorted entries; the last has the
-	// highest timestamp (YYYYMMDDHHMMSS sorts correctly as a string).
-	return entries[len(entries)-1]
-}
-
-// stripPfAnchorLines rewrites pfConf with the agent anchor stanza removed.
-func stripPfAnchorLines(ui *UI, r *Runner, pfConf string, data []byte) {
-	var kept []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, `anchor "agent"`) ||
-			strings.Contains(line, `load anchor "agent"`) ||
-			strings.TrimSpace(line) == "# Claude Code sandbox user blocklist" {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	cleaned := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	if err := r.SudoWriteFile("strip agent anchor lines from pf.conf", pfConf, cleaned); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", pfConf, err))
-	} else {
-		ui.Ok("Removed agent anchor lines from /etc/pf.conf")
-	}
+	nativeServiceBackendForHost().RollbackPfFirewall(ui, r)
 }
 
 func rollbackDNSBlocklist(ui *UI, r *Runner) {
-	ui.Step("Remove DNS blocklist")
-
-	data, err := os.ReadFile("/etc/hosts")
-	if err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not read /etc/hosts: %v", err))
-		return
-	}
-
-	if !strings.Contains(string(data), hostsMarker) {
-		ui.SkipDone("DNS blocklist not present in /etc/hosts")
-		return
-	}
-
-	// Remove lines from hostsMarker through hostsEndMarker, inclusive.
-	// The block was appended with a leading \n — trim trailing blank lines after removal.
-	const endMarker = "# === End AI Agent Blocklist ==="
-	var kept []string
-	inside := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == hostsMarker {
-			inside = true
-			continue
-		}
-		if inside {
-			if strings.TrimSpace(line) == endMarker {
-				inside = false
-			}
-			continue
-		}
-		kept = append(kept, line)
-	}
-
-	cleaned := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	if err := r.SudoWriteFile("remove DNS blocklist from /etc/hosts", "/etc/hosts", cleaned); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not update /etc/hosts: %v", err))
-		return
-	}
-	ui.Ok("Removed DNS blocklist from /etc/hosts")
-
-	// Flush DNS cache — fire-and-forget.
-	r.Sudo("flush DNS cache after blocklist removal", "dscacheutil", "-flushcache")             //nolint:errcheck
-	r.Sudo("restart mDNSResponder after blocklist removal", "killall", "-HUP", "mDNSResponder") //nolint:errcheck
-	ui.Ok("DNS cache flushed")
+	nativeServiceBackendForHost().RollbackDNSBlocklist(ui, r)
 }
 
 func rollbackSudoers(ui *UI, r *Runner) {
-	ui.Step("Remove sudoers entries")
-
-	removedAny := false
-	for _, path := range []string{sudoersFile, agentMaintenanceSudoersFile} {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			continue
-		}
-		if err := r.Sudo("remove sudoers entry", "rm", "-f", path); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
-			continue
-		}
-		ui.Ok(fmt.Sprintf("Removed %s", path))
-		removedAny = true
-	}
-	if !removedAny {
-		ui.SkipDone("Sudoers files not present")
-	}
+	nativeServiceBackendForHost().RollbackSudoers(ui, r)
 }
 
 func rollbackSeatbelt(ui *UI, r *Runner) {

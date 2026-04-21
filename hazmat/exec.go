@@ -144,38 +144,3 @@ func runInteractive(name string, args ...string) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-
-// pfctlLoadRules runs "sudo pfctl -f /etc/pf.conf", capturing stderr so
-// parse errors are surfaced rather than silently swallowed.
-func pfctlLoadRules() error {
-	cmd := newSudoCommand(hostPfctlPath, "-f", "/etc/pf.conf")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return err
-		}
-		return fmt.Errorf("%s", msg)
-	}
-	return nil
-}
-
-// launchctlBootstrap runs "sudo launchctl bootstrap system <plist>".
-// Treats "already loaded" as success so the step stays idempotent.
-func launchctlBootstrap(plist string) error {
-	cmd := newSudoCommand(hostLaunchctlPath, "bootstrap", "system", plist)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := stderr.String()
-		// "Bootstrap failed: 5: Input/output error" = service already loaded
-		if strings.Contains(msg, "Bootstrap failed: 5") ||
-			strings.Contains(msg, "already loaded") ||
-			strings.Contains(msg, "service already exists") {
-			return nil
-		}
-		return fmt.Errorf("launchctl bootstrap: %s", strings.TrimSpace(msg))
-	}
-	return nil
-}

@@ -19,6 +19,7 @@
 \*   hazmat/init.go                  — runInit()
 \*   hazmat/init_steps.go            — initSetupSteps() formal resource order
 \*   hazmat/native_account_*.go      — account/group provisioning mechanics
+\*   hazmat/native_service_*.go      — network/service/sudoers mechanics
 \*   hazmat/setup_verification.go    — read-only verification checks by resource
 \*   hazmat/rollback.go              — runRollback()
 \*   hazmat/rollback_steps.go        — rollback step formal resource order
@@ -64,6 +65,10 @@
 \* Account mechanics are scoped to agentUser and devGroup resource actions:
 \* Darwin dscl/createhomedir behavior can be replaced by Linux useradd/groupadd
 \* only behind those resources, preserving the verified order.
+\* Network and service mechanics are scoped to pfAnchor, dnsBlocklist,
+\* launchDaemon, launchHelper, sudoers, and maintenanceSudoers resources:
+\* Darwin pf/hosts/launchctl/sudoers behavior can be replaced by Linux
+\* nftables/systemd/resolver behavior only behind those resources.
 
 EXTENDS Naturals, FiniteSets
 

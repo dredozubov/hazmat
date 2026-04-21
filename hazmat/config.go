@@ -511,17 +511,18 @@ func runConfigShow() error {
 
 	cBold.Println("  Privilege")
 	fmt.Println()
-	if launchSudoersInstalled() {
+	serviceBackend := nativeServiceBackendForHost()
+	if serviceBackend.LaunchSudoersInstalled() {
 		fmt.Printf("    Launch helper sudo:      installed (%s)\n", sudoersFile)
 	} else {
 		fmt.Printf("    Launch helper sudo:      missing (%s)\n", sudoersFile)
 	}
-	if agentMaintenanceSudoersInstalled() {
+	if serviceBackend.AgentMaintenanceSudoersInstalled() {
 		fmt.Printf("    Agent maintenance sudo:  enabled (%s)\n", agentMaintenanceSudoersFile)
 	} else {
 		fmt.Printf("    Agent maintenance sudo:  disabled\n")
 	}
-	fmt.Printf("    sudo -u %s no prompt:    %v\n", agentUser, genericAgentPasswordlessAvailable())
+	fmt.Printf("    sudo -u %s no prompt:    %v\n", agentUser, serviceBackend.GenericAgentPasswordlessAvailable())
 	fmt.Println()
 
 	cBold.Println("  Integrations")

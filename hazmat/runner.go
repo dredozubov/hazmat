@@ -202,7 +202,7 @@ func (r *Runner) MkdirAll(path string, mode os.FileMode) error {
 // Captures stderr so syntax errors are never silently swallowed.
 func (r *Runner) PfctlLoad(reason string) error {
 	r.showReason(reason)
-	r.showCmd("sudo pfctl -f /etc/pf.conf")
+	r.showCmd(fmt.Sprintf("sudo %s -f /etc/pf.conf", hostPfctlPath))
 	if r.DryRun {
 		return nil
 	}
@@ -212,7 +212,7 @@ func (r *Runner) PfctlLoad(reason string) error {
 // LaunchctlBootstrap shows and optionally bootstraps a system LaunchDaemon.
 func (r *Runner) LaunchctlBootstrap(reason, plist string) error {
 	r.showReason(reason)
-	r.showCmd(fmt.Sprintf("sudo launchctl bootstrap system %s", plist))
+	r.showCmd(fmt.Sprintf("sudo %s bootstrap system %s", hostLaunchctlPath, plist))
 	if r.DryRun {
 		return nil
 	}
