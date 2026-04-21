@@ -935,10 +935,9 @@ func TestSafeEnvKeysIncludesExpected(t *testing.T) {
 // ── credentialDenySubs sync check ──────────────────────────────────────────
 
 func TestCredentialDenySubsMatchSBPL(t *testing.T) {
-	// Verify that credentialDenySubs matches what generateSBPL uses.
-	// If someone updates the seatbelt deny list without updating
-	// integration_manifest.go,
-	// this test catches it.
+	// Verify that credentialDenySubs matches the deny rules emitted by the
+	// current Darwin compiler. If someone updates the policy model without
+	// updating integration_manifest.go, this test catches it.
 	cfg := sessionConfig{ProjectDir: "/tmp/test"}
 	policy := generateSBPL(cfg)
 

@@ -17,7 +17,7 @@ import (
 )
 
 // ── Credential deny paths ──────────────────────────────────────────────────
-// These must match the seatbelt deny list in generateSBPL() exactly.
+// These must match the native session policy's credential deny list exactly.
 
 var credentialDenySubs = []string{
 	"/.ssh",
