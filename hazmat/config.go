@@ -552,6 +552,7 @@ Subcommands:
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
   hazmat config import claude Import portable Claude basics
+  hazmat config import codex Import portable Codex basics
   hazmat config import opencode Import portable OpenCode basics
   hazmat config cloud        Configure S3 cloud backup credentials
   hazmat config set K V      Set a configuration value
@@ -565,6 +566,7 @@ Examples:
   hazmat config sudoers --enable-agent-maintenance
   hazmat config agent
   hazmat config import claude --dry-run
+  hazmat config import codex --dry-run
   hazmat config import opencode --dry-run
   hazmat config cloud --endpoint s3.fr-par.scw.cloud --bucket my-backups
   hazmat config set backup.retention.keep_latest 30`,

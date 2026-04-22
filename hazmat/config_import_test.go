@@ -54,6 +54,28 @@ func testOpenCodeImportEnv(t *testing.T) opencodeImportEnv {
 	}
 }
 
+func testCodexImportEnv(t *testing.T) codexImportEnv {
+	t.Helper()
+
+	hostHome := filepath.Join(t.TempDir(), "host")
+	agentHome := filepath.Join(t.TempDir(), "agent")
+	for _, dir := range []string{
+		hostHome,
+		agentHome,
+		filepath.Join(hostHome, ".codex"),
+		filepath.Join(agentHome, ".codex"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	return codexImportEnv{
+		hostHome:  hostHome,
+		agentHome: agentHome,
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -450,6 +472,105 @@ func TestApplyOpenCodeImportPlanCopiesPortableContent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.agentSkillsDir(), "brainstorming", "SKILL.md")); err != nil {
 		t.Fatalf("expected copied skill file: %v", err)
+	}
+}
+
+func TestScanCodexImportPlanIncludesAuthAndGitIdentity(t *testing.T) {
+	env := testCodexImportEnv(t)
+
+	writeTestFile(t, env.hostAuthFile(), `{"OPENAI_API_KEY":"sk-test-123"}`)
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	// config.toml should NOT be picked up — it's runtime config, mirroring opencode.json policy.
+	writeTestFile(t, filepath.Join(env.hostCodexDir(), "config.toml"), `model = "gpt-5"`+"\n")
+
+	plan, err := scanCodexImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanCodexImportPlan: %v", err)
+	}
+
+	if !plan.hasCategory("sign-in") {
+		t.Fatal("expected sign-in item in import plan")
+	}
+	if !plan.hasCategory("git identity") {
+		t.Fatal("expected git identity item in import plan")
+	}
+
+	for _, item := range plan.Items {
+		if strings.Contains(item.Name, "config.toml") {
+			t.Fatal("config.toml should not be part of portable import scope")
+		}
+	}
+}
+
+func TestApplyCodexImportPlanCopiesAuthAndIdentity(t *testing.T) {
+	env := testCodexImportEnv(t)
+
+	writeTestFile(t, env.hostAuthFile(), `{"OPENAI_API_KEY":"sk-test-456"}`)
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	plan, err := scanCodexImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanCodexImportPlan: %v", err)
+	}
+	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+		t.Fatalf("resolveConflicts: %v", err)
+	}
+	if _, err := applyCodexImportPlan(plan, env, nil); err != nil {
+		t.Fatalf("applyCodexImportPlan: %v", err)
+	}
+
+	authRaw, err := os.ReadFile(env.agentAuthFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(authRaw) != `{"OPENAI_API_KEY":"sk-test-456"}` {
+		t.Fatalf("agent auth file = %q", authRaw)
+	}
+
+	gitConfigRaw, err := os.ReadFile(env.agentGitConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitConfig := string(gitConfigRaw)
+	if !containsAll(gitConfig, "name = Denis", "email = denis@example.com") {
+		t.Fatalf("agent gitconfig missing imported identity:\n%s", gitConfig)
+	}
+}
+
+func TestScanCodexImportPlanDetectsConflict(t *testing.T) {
+	env := testCodexImportEnv(t)
+
+	writeTestFile(t, env.hostAuthFile(), `{"OPENAI_API_KEY":"sk-host"}`)
+	writeTestFile(t, env.agentAuthFile(), `{"OPENAI_API_KEY":"sk-agent"}`)
+
+	plan, err := scanCodexImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanCodexImportPlan: %v", err)
+	}
+	if plan.conflictCount() != 1 {
+		t.Fatalf("expected 1 conflict, got %d", plan.conflictCount())
+	}
+
+	err = plan.resolveConflicts(claudeConflictFail)
+	if err == nil {
+		t.Fatal("expected conflict resolution to fail without explicit policy")
+	}
+}
+
+func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
+	env := testCodexImportEnv(t)
+
+	body := `{"OPENAI_API_KEY":"sk-same"}`
+	writeTestFile(t, env.hostAuthFile(), body)
+	writeTestFile(t, env.agentAuthFile(), body)
+
+	plan, err := scanCodexImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanCodexImportPlan: %v", err)
+	}
+	if plan.hasActionableChanges() {
+		t.Fatal("expected matching auth file to be unchanged, not actionable")
 	}
 }
 

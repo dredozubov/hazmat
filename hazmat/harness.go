@@ -150,8 +150,24 @@ func (h CodexHarness) Bootstrap(ui *UI, r *Runner) error {
 	return nil
 }
 
+func (h CodexHarness) ImportBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
+	if err := runCodexBasicsImport(ui, r, env, opts); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordBasicsImported(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
 func (h CodexHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
+}
+
+func (h CodexHarness) RecordBasicsImported() error {
+	return recordHarnessImportRun(h.Spec())
 }
 
 func (h OpenCodeHarness) Bootstrap(ui *UI, r *Runner) error {

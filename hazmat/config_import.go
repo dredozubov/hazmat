@@ -168,6 +168,7 @@ and skills.`,
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(newConfigImportClaudeCmd())
+	cmd.AddCommand(newConfigImportCodexCmd())
 	cmd.AddCommand(newConfigImportOpenCodeCmd())
 	return cmd
 }
