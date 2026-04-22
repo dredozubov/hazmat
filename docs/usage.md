@@ -389,6 +389,36 @@ keeps each private key in host-owned storage, loads it into its own fresh
 session-local `ssh-agent`, and forces Git through a constrained wrapper
 that routes the destination host to the matching socket.
 
+### Reusable SSH profiles
+
+Define one SSH identity that many projects share. Each profile carries
+the private key, an optional known_hosts override, and an optional
+`default_hosts` list that referring projects inherit unless they override:
+
+```bash
+hazmat config ssh profile add github ~/.ssh/keys/github/id_ed25519 \
+    --default-host github.com --description "personal github"
+hazmat config ssh profile add prod ~/.ssh/keys/prod/id_ed25519 \
+    --default-host prod.example.com --default-host '*.prod.example.com'
+
+# Attach a profile to a project. Inherits default_hosts:
+hazmat config ssh add -C ~/workspace/my-project --name work --profile github
+
+# Or override default_hosts for this project only:
+hazmat config ssh add -C ~/workspace/my-project \
+    --name enterprise --profile github --host enterprise.internal
+
+hazmat config ssh profile list
+hazmat config ssh profile show github
+hazmat config ssh profile rename github personal-github
+hazmat config ssh profile remove personal-github --force   # detaches referrers
+```
+
+A profile reference that points to an undefined profile is rejected at
+config load, not at session launch. Two project keys may safely reference
+the same profile; they each allocate their own session-local `ssh-agent`
+socket, so routing and cleanup remain per-key.
+
 For guidance on how to choose and scope keys for GitHub, remote servers,
 deploy keys, machine users, SSH certificates, and per-target `known_hosts`
 layouts, see [ssh-key-hygiene.md](ssh-key-hygiene.md).

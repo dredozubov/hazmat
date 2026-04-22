@@ -6,7 +6,8 @@ All notable changes to Hazmat are documented in this file.
 
 ### Added
 - Multi-key per-project Git SSH routing. `hazmat config ssh add --name <n> --host <h>... <path>` appends a named, host-scoped key; `hazmat config ssh remove --name <n>` removes one. Each destination host resolves to exactly one configured key; overlap and mixed legacy/new configs are rejected at config-save time.
-- TLA+ formal verification of the multi-key routing contract (`MC_GitSSHRouting`). 193,536 distinct states checked for determinism, overlap rejection, legacy single-key fallback, and per-key socket distinctness.
+- Reusable SSH profiles. `ssh_profiles:` in `~/.hazmat/config.yaml` defines a named identity (private key + optional known_hosts + optional default_hosts) usable from any project via `hazmat config ssh add --profile <name>`. Project keys inherit `default_hosts` when they declare no hosts of their own; declared `--host` always overrides. Full CLI: `hazmat config ssh profile add | list | show | remove | rename`. Removal refuses while any project references the profile; `--force` detaches and removes atomically. Rename updates every referrer in one save.
+- TLA+ formal verification of the multi-key routing and profile resolution contract (`MC_GitSSHRouting`). 884,736 distinct states checked for determinism, overlap rejection, legacy single-key fallback, per-key socket distinctness, dangling-reference rejection, profile+inline identity conflict rejection, and orphan-key rejection.
 
 ## [0.7.0] - 2026-04-18
 
