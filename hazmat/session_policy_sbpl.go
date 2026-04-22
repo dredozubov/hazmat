@@ -159,7 +159,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; SCDynamicStore's data channel (after the com.apple.SystemConfiguration\n")
 	w(";; mach-lookup handshake) uses AF_SYSTEM sockets. Rust reqwest's proxy\n")
 	w(";; detection blocks indefinitely without this; codex chat never round-trips.\n")
-	w("(allow system-socket (require-all (socket-domain \"AF_SYSTEM\") (socket-protocol 2)))\n\n")
+	w("(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))\n\n")
 
 	w(";; ── Network: outbound for API calls ──────────────────────────────────────\n")
 	w("(allow network-outbound)\n")
