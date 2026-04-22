@@ -214,5 +214,12 @@ test -x "$HOME%s"
 	}
 	ui.Ok(fmt.Sprintf("Prepared %s", stateDir))
 
+	ui.Step("Create shared agents skills directory")
+	agentsDir := agentHome + "/.agents"
+	if err := agentEnsureSharedDir(agentsDir, 0o2770); err != nil {
+		return fmt.Errorf("ensure %s: %w", agentsDir, err)
+	}
+	ui.Ok(fmt.Sprintf("Prepared %s", agentsDir))
+
 	return nil
 }
