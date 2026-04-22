@@ -1055,6 +1055,23 @@ func readMaybePrivilegedFile(path string, r *Runner) ([]byte, error) {
 }
 
 func writeMaybePrivilegedFile(path string, raw []byte, mode os.FileMode, owner string, r *Runner) error {
+	// Files inside agent home must end up owned by the agent — even when
+	// the host can write directly via a dev-group setgid'd parent dir,
+	// because a host-owned 0600 credential is unreadable by the agent.
+	// Route through the agent write path so ownership matches `owner`.
+	if path == agentHome || isWithinDir(agentHome, path) {
+		if r != nil && r.DryRun {
+			return nil
+		}
+		if err := agentMkdirAll(filepath.Dir(path)); err != nil {
+			return err
+		}
+		if strings.Contains(owner, sharedGroup) {
+			return agentWriteSharedFile(path, raw, mode)
+		}
+		return agentWriteFile(path, raw, mode)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil && !errors.Is(err, fs.ErrPermission) {
 		return err
 	}
@@ -1066,18 +1083,6 @@ func writeMaybePrivilegedFile(path string, raw []byte, mode os.FileMode, owner s
 
 	if r == nil {
 		return fmt.Errorf("write %s: permission denied", path)
-	}
-	if path == agentHome || isWithinDir(agentHome, path) {
-		if r.DryRun {
-			return nil
-		}
-		if err := agentMkdirAll(filepath.Dir(path)); err != nil {
-			return err
-		}
-		if strings.Contains(owner, sharedGroup) {
-			return agentWriteSharedFile(path, raw, mode)
-		}
-		return agentWriteFile(path, raw, mode)
 	}
 	if err := r.SudoWriteFile("write imported Claude file", path, string(raw)); err != nil {
 		return err
