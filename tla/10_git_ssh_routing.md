@@ -26,15 +26,13 @@ Empty configs (`present = {}`) are out of scope — they represent "no SSH
 capability for this project" and never enter the routing path. The Init
 clause excludes them.
 
-## Legacy single-key fallback
+## Inline keys must declare hosts
 
-Exactly one present **inline** key with an empty declared host set
-normalizes to "any host," preserving today's single-key behavior. Two or
-more present keys where any inline key has an empty declared set is
-rejected at config-set time. The legacy fallback never applies to a key
-that references a profile — that case inherits the profile's
-`default_hosts` instead (which may itself be empty, leaving the key
-unrouted).
+Every inline key must declare at least one host. An inline key with no
+declared hosts is rejected at config load with a migration snippet. The
+legacy any-host fallback that previously admitted such a config has been
+retired. Profile-referencing keys are unchanged — they inherit the
+profile's `default_hosts` when their own declared host list is empty.
 
 ## Profile resolution
 
@@ -56,7 +54,7 @@ they still allocate distinct per-session identity-agent sockets, so
 | `DeterministicRouting` | No destination host resolves to two configured keys in a ready config. |
 | `OverlapRejectedAtConfigTime` | A config with two keys whose effective host sets intersect is refused before it reaches a session. |
 | `HostsOutsideAllowlistRejected` | A destination host not matched by any configured key is rejected by the wrapper. |
-| `LegacyFallbackSingleOnly` | The any-host fallback is only reachable with exactly one present inline key. Profile-referencing keys never trigger it. |
+| `InlineKeysHaveDeclaredHosts` | Every present inline key declares at least one host; inline keys with empty declared hosts are rejected at config load. |
 | `SocketsDistinctForPresent` | No two present keys share an identity-agent socket, even when both reference the same profile. |
 | `NoDanglingProfileRefs` | Every profile reference in a ready config resolves to a defined profile; dangling references are rejected at config load. |
 | `NoProfileInlineConflict` | No present key declares both a profile reference and inline identity material. |

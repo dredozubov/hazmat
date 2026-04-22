@@ -483,8 +483,8 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
 | Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
 | Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
-| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `LegacyFallbackSingleOnly`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `NoCrossKey` |
-| Status | **Spec proved; Go in progress** — multi-key routing (sandboxing-vmg1) is fully implemented; reusable profile layer (sandboxing-nm5o) is modeled and passing TLC, Go resolver and CLI follow |
+| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `NoCrossKey` |
+| Status | **Spec proved; Go in progress** — multi-key routing (sandboxing-vmg1) shipped; reusable profile layer (sandboxing-nm5o) shipped; any-host fallback retirement (sandboxing-qq9b) is modeled and passing TLC, Go changes follow |
 
 **What this verifies:**
 
@@ -497,14 +497,15 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
    `ValidateProjectSSHConfig` enforces the spec's
    `OverlapRejectedAtConfigTime` invariant.
 
-3. **Legacy single-key fallback is preserved:** exactly one configured
-   inline key with no declared hosts acts as the any-host legacy shape.
-   Two or more keys where any inline one has an empty host list is
-   rejected. Profile-referencing keys never trigger the legacy fallback —
-   a single profile-referencing key with no declared hosts inherits the
-   profile's `default_hosts` and may resolve to an empty effective set
-   (routing nothing) rather than expanding to all hosts. Proved by
-   `LegacyFallbackSingleOnly` on the narrowed inline-only condition.
+3. **Inline keys must declare hosts (legacy fallback retired):** every
+   present inline key declares at least one host. The any-host fallback
+   that previously admitted a single inline key with empty declared
+   hosts has been removed; pre-migration configs are rejected at load
+   with a copy-paste YAML snippet. Profile-referencing keys are
+   unaffected — they inherit the profile's `default_hosts` when their
+   own declared host list is empty (and may resolve to an empty
+   effective set, routing nothing, rather than expanding to all hosts).
+   Proved by `InlineKeysHaveDeclaredHosts`.
 
 4. **Per-key identity-agent sockets are distinct:** session-time socket
    allocation derives paths from validated key names and asserts pairwise

@@ -79,11 +79,17 @@ vars == <<assignment, socket, present, keyProfile, inlineMaterial,
           profileDefaultHosts, definedProfiles, effective, configValid, phase>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Profile and legacy classification
-\*   InlineKey(k)        — k is a present key with no profile reference
-\*   ProfileKey(k)       — k is a present key referencing a defined profile
-\*   LegacySingle        — exactly one present inline key with empty hosts
-\*   LegacyMultiInvalid  — 2+ present keys, at least one inline with empty hosts
+\* Key classification
+\*   InlineKey(k)                — k is a present key with no profile reference
+\*   ProfileKey(k)               — k is a present key referencing a defined profile
+\*   HasProfileInlineConflict(k) — k declares both profile and inline material
+\*   IsOrphanKey(k)              — k has no identity source
+\*   InlineKeyEmptyHosts(k)      — k is inline and declares no hosts (now illegal)
+\*
+\* The legacy any-host fallback that previously admitted a single inline key
+\* with empty declared hosts has been retired — every inline key must declare
+\* at least one host. Profile-referencing keys still inherit `default_hosts`
+\* from the profile when their own declared host list is empty.
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 InlineKey(k) ==
@@ -109,27 +115,22 @@ IsOrphanKey(k) ==
     /\ keyProfile[k] = NoProfile
     /\ ~inlineMaterial[k]
 
-LegacySingle ==
-    /\ Cardinality(present) = 1
-    /\ \E k \in present : InlineKey(k) /\ assignment[k] = {}
-
-LegacyMultiInvalid ==
-    /\ Cardinality(present) >= 2
-    /\ \E k \in present : InlineKey(k) /\ assignment[k] = {}
+\* An inline key that declares no hosts would previously have been expanded
+\* to the any-host fallback. After force-migration (sandboxing-qq9b) this is
+\* a config-load failure.
+InlineKeyEmptyHosts(k) ==
+    /\ InlineKey(k)
+    /\ inlineMaterial[k]
+    /\ assignment[k] = {}
 
 \* Normalize(k) computes the effective host set for key k after profile
-\* inheritance and legacy fallback are applied. A key that references a
-\* profile inherits the profile's default hosts when its own host list is
-\* empty. A lone inline key with empty hosts expands to all hosts (legacy
-\* any-host fallback). Otherwise the declared hosts apply as-is.
+\* inheritance. A key that references a profile inherits the profile's
+\* default hosts when its own host list is empty; otherwise the declared
+\* hosts apply as-is. No legacy any-host expansion.
 Normalize(k) ==
-    IF k \in present /\ keyProfile[k] \in definedProfiles
-    THEN IF assignment[k] = {}
-         THEN profileDefaultHosts[keyProfile[k]]
-         ELSE assignment[k]
-    ELSE IF LegacySingle /\ k \in present /\ assignment[k] = {}
-         THEN Hosts
-         ELSE assignment[k]
+    IF k \in present /\ keyProfile[k] \in definedProfiles /\ assignment[k] = {}
+    THEN profileDefaultHosts[keyProfile[k]]
+    ELSE assignment[k]
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Init — nondeterministic choice of config
@@ -149,11 +150,12 @@ Init ==
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Validation — checks performed before a config is allowed to reach "ready."
-\*   1. Legacy multi-key ambiguity        — owned by config.go at config-set time
-\*   2. Effective host-set overlap        — owned by config.go at config-set time
-\*   3. Dangling profile reference        — owned by config.go at config-load time
-\*   4. Profile + inline identity clash   — owned by config.go at config-load time
-\*   5. Orphan key (no identity source)   — owned by config.go at config-load time
+\*   1. Effective host-set overlap        — owned by config.go at config-set time
+\*   2. Dangling profile reference        — owned by config.go at config-load time
+\*   3. Profile + inline identity clash   — owned by config.go at config-load time
+\*   4. Orphan key (no identity source)   — owned by config.go at config-load time
+\*   5. Inline key with empty hosts       — owned by config.go at config-load time
+\*                                          (legacy any-host fallback retired)
 \*   6. Identity-agent socket collision   — owned by git_ssh.go during session
 \*                                          preparation; sockets are runtime
 \*                                          artifacts allocated per session, not
@@ -179,12 +181,14 @@ Validate ==
                \E k \in present : HasProfileInlineConflict(k)
            HasOrphan ==
                \E k \in present : IsOrphanKey(k)
-       IN  IF \/ LegacyMultiInvalid
-              \/ HasOverlap
+           HasInlineEmpty ==
+               \E k \in present : InlineKeyEmptyHosts(k)
+       IN  IF \/ HasOverlap
               \/ SocketCollision
               \/ HasDanglingProfile
               \/ HasInlineConflict
               \/ HasOrphan
+              \/ HasInlineEmpty
            THEN /\ configValid' = FALSE
                 /\ phase'       = "rejected"
            ELSE /\ configValid' = TRUE
@@ -251,15 +255,15 @@ HostsOutsideAllowlistRejected ==
         \A h \in Hosts :
             (Matching(h) = {}) => (Lookup(h).outcome = "reject")
 
-\* --- LegacyFallbackSingleOnly ---
-\* The legacy any-host fallback is only safe with exactly one present key,
-\* and it only applies to inline keys (keys with no profile reference). A
-\* profile-referencing key inherits its hosts from profile defaults rather
-\* than expanding to "any host."
-LegacyFallbackSingleOnly ==
+\* --- InlineKeysHaveDeclaredHosts ---
+\* After retiring the any-host fallback (sandboxing-qq9b), every inline key
+\* must declare at least one host. An inline key with empty declared hosts
+\* never reaches "ready." Profile-referencing keys are unaffected: they may
+\* omit declared hosts and inherit the profile's default_hosts.
+InlineKeysHaveDeclaredHosts ==
     phase = "ready" =>
-        ((\E k \in present : InlineKey(k) /\ assignment[k] = {})
-            => Cardinality(present) = 1)
+        \A k \in present :
+            InlineKey(k) => assignment[k] /= {}
 
 \* --- SocketsDistinctForPresent ---
 \* No two present keys share an identity-agent socket. Two project keys that
