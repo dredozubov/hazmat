@@ -51,8 +51,11 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library", "/Library/Developer"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/System/Cryptexes", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/Library/Keychains", "/private/etc", "/private/var/select"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/System/Cryptexes", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/Library/Keychains", "/private/etc", "/private/var/select", "/private/var/db/timezone"} {
 		w("(allow file-read* (subpath %q))\n", p)
+	}
+	for _, p := range []string{"/Library/Preferences/com.apple.security.plist"} {
+		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {
 		w("(allow file-read* (literal %q))\n", p)
@@ -131,6 +134,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		"com.apple.system.notification_center",
 		"com.apple.mDNSResponder",
 		"com.apple.trustd",                                // TLS certificate verification (Go, curl, Python, etc.)
+		"com.apple.trustd.agent",                          // per-user trust agent (Rust security-framework SecTrustEvaluate)
 		"com.apple.system.opendirectoryd.api",             // user/group directory lookups
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
