@@ -60,16 +60,16 @@ type ProjectConfig struct {
 }
 
 type ProjectSSHConfig struct {
-	// Legacy single-key fields — preserved for backward compatibility.
-	// Parsed as a one-entry Keys list (named "default") with empty Hosts,
-	// which the TLA spec (MC_GitSSHRouting) admits as the legacy any-host
-	// fallback only when Keys is empty at parse time.
+	// Legacy single-key fields from the pre-multi-key config shape. This shape
+	// is rejected at config load with a migration snippet; new config must use
+	// Keys.
 	Key            string `yaml:"key,omitempty"`
 	PrivateKeyPath string `yaml:"private_key,omitempty"`
 	KnownHostsPath string `yaml:"known_hosts,omitempty"`
 
 	// Keys is the multi-key form. When non-empty, the legacy fields above
-	// must be empty. Each key carries an explicit host list.
+	// must be empty. Each inline key carries an explicit host list; profile
+	// keys may inherit default_hosts.
 	Keys []ProjectSSHKey `yaml:"keys,omitempty"`
 }
 
@@ -353,8 +353,7 @@ func detectLegacyFlatSSH(projectDir string, c ProjectSSHConfig) error {
 //   - Names are non-empty, unique, and well-formed.
 //   - Exactly one identity source (Profile | PrivateKeyPath | Key) per entry
 //     (the NoProfileInlineConflict + PresentKeysHaveIdentity invariants).
-//   - An empty Hosts list on an inline key is only permitted when there is
-//     exactly one key (LegacyFallbackSingleOnly).
+//   - Every inline key declares at least one host (InlineKeysHaveDeclaredHosts).
 //   - Hosts are non-empty bare hostnames (plus "*" wildcards) and are
 //     pairwise disjoint on declared values.
 //
@@ -736,7 +735,7 @@ Examples:
   hazmat config docker none -C ~/workspace/my-project
   hazmat config access add -C ~/workspace/my-project --read ~/other-code
   hazmat config ssh list-keys
-  hazmat config ssh set ~/.ssh/id_ed25519
+  hazmat config ssh add --name github --host github.com ~/.ssh/id_ed25519
   hazmat config sudoers --enable-agent-maintenance
   hazmat config agent
   hazmat config import claude --dry-run
@@ -1187,14 +1186,15 @@ session-local ssh-agent at launch time, and still restricts the session to
 Git SSH transports rather than arbitrary remote shells.
 
 By default Hazmat looks for keys in ~/.ssh and uses known_hosts from the same
-directory. To use a different directory, pass the full key path with --key.
+directory. To use a different directory, pass the full key path as the key
+argument.
 
 Examples:
   hazmat config ssh list-keys
   hazmat config ssh list-keys --dir ~/.config/hazmat/ssh
-  hazmat config ssh set id_ed25519
-  hazmat config ssh set ~/.config/hazmat/ssh/deploy_key
-  hazmat config ssh set -C ~/workspace/my-app ~/.config/hazmat/ssh/deploy_key
+  hazmat config ssh add --name github --host github.com ~/.ssh/id_ed25519
+  hazmat config ssh add -C ~/workspace/my-app --name github --host github.com ~/.config/hazmat/ssh/deploy_key
+  hazmat config ssh add -C ~/workspace/my-app --name work --profile github-work
   hazmat config ssh show -C ~/workspace/my-app
   hazmat config ssh test -C ~/workspace/my-app --host github.com
   hazmat config ssh unset -C ~/workspace/my-app`,
@@ -1209,10 +1209,10 @@ Examples:
 
 func newConfigSSHProfileCmd() *cobra.Command {
 	var (
-		addKnownHosts    string
-		addDefaultHosts  []string
-		addDescription   string
-		removeForce      bool
+		addKnownHosts   string
+		addDefaultHosts []string
+		addDescription  string
+		removeForce     bool
 	)
 
 	addCmd := &cobra.Command{
@@ -1692,7 +1692,11 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, profile, k
 	case len(inheritedHosts) > 0:
 		fmt.Printf("  Hosts: %s (inherited from profile default_hosts)\n", strings.Join(inheritedHosts, ", "))
 	default:
-		fmt.Printf("  Hosts: (any — legacy fallback, only valid with one inline key)\n")
+		if profile != "" {
+			fmt.Printf("  Hosts: (none - profile has no default_hosts; this key routes nothing until hosts are added)\n")
+		} else {
+			fmt.Printf("  Hosts: (none)\n")
+		}
 	}
 	return nil
 }
@@ -1780,8 +1784,8 @@ func resolveSSHKeyPathArg(keyArg string) (sshKeyCandidate, error) {
 
 // normalizedForMerge returns the existing project SSH config as a Keys list,
 // suitable for appending with 'ssh add'. Nil and empty configs return an
-// empty slice; legacy flat configs expand to a single entry whose Name is
-// derived from the private-key basename.
+// empty slice; legacy flat configs are rejected at config load before this
+// helper runs.
 func (c *ProjectSSHConfig) normalizedForMerge() []ProjectSSHKey {
 	if c == nil {
 		return nil
@@ -2088,7 +2092,7 @@ func runConfigSSHShow(project string) error {
 	projectCfg, ok := cfg.Projects[projectDir]
 	if !ok || (projectCfg.SSH == nil && projectCfg.GitSSH == nil) {
 		fmt.Printf("No SSH key assigned to %s\n", projectDir)
-		fmt.Printf("Set one with:\n  hazmat config ssh set -C %s\n", projectDir)
+		fmt.Printf("Set one with:\n  hazmat config ssh add -C %s --name github --host github.com <private-key>\n", projectDir)
 		return nil
 	}
 
@@ -2127,11 +2131,38 @@ func runConfigSSHShow(project string) error {
 					}
 					fmt.Printf("  Status:        %s\n", provisioned.Status)
 				}
+			case strings.TrimSpace(key.Profile) != "":
+				profileName := strings.TrimSpace(key.Profile)
+				profile, ok := cfg.SSHProfiles[profileName]
+				fmt.Printf("  Profile:       %s\n", profileName)
+				if !ok {
+					fmt.Printf("  Status:        broken (profile not defined)\n")
+					break
+				}
+				status := "usable"
+				if _, err := canonicalizeConfiguredFile(profile.PrivateKeyPath); err != nil {
+					status = fmt.Sprintf("broken (profile private_key: %v)", err)
+				}
+				fmt.Printf("  Private key:   %s\n", profile.PrivateKeyPath)
+				if profile.KnownHostsPath != "" {
+					fmt.Printf("  Known hosts:   %s\n", profile.KnownHostsPath)
+				}
+				if fingerprint := sshKeyFingerprint(resolveConfiguredPublicKeyPath(profile.PrivateKeyPath)); fingerprint != "" {
+					fmt.Printf("  Fingerprint:   %s\n", fingerprint)
+				}
+				fmt.Printf("  Status:        %s\n", status)
 			}
 			if len(key.Hosts) > 0 {
 				fmt.Printf("  Hosts:         %s\n", strings.Join(key.Hosts, ", "))
+			} else if strings.TrimSpace(key.Profile) != "" {
+				effectiveHosts := key.EffectiveHosts(cfg.SSHProfiles)
+				if len(effectiveHosts) > 0 {
+					fmt.Printf("  Hosts:         %s (inherited from profile default_hosts)\n", strings.Join(effectiveHosts, ", "))
+				} else {
+					fmt.Printf("  Hosts:         (none - profile has no default_hosts; this key routes nothing)\n")
+				}
 			} else {
-				fmt.Printf("  Hosts:         (any — legacy fallback)\n")
+				fmt.Printf("  Hosts:         (none)\n")
 			}
 		}
 		fmt.Printf("\nTest with:\n  hazmat config ssh test -C %s --host github.com\n", projectDir)
@@ -2203,7 +2234,7 @@ func runConfigSSHTest(project, host string) error {
 		return err
 	}
 	if cfg.GitSSH == nil {
-		return fmt.Errorf("no SSH key assigned to %s\nrun:\n  hazmat config ssh set -C %s", projectDir, projectDir)
+		return fmt.Errorf("no SSH key assigned to %s\nrun:\n  hazmat config ssh add -C %s --name github --host github.com <private-key>", projectDir, projectDir)
 	}
 
 	selected, err := selectSessionGitSSHKey(cfg.GitSSH, target.RequestedHost)

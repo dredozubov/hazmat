@@ -484,7 +484,7 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 | Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
 | Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
 | Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `NoCrossKey` |
-| Status | **Spec proved; Go in progress** — multi-key routing (sandboxing-vmg1) shipped; reusable profile layer (sandboxing-nm5o) shipped; any-host fallback retirement (sandboxing-qq9b) is modeled and passing TLC, Go changes follow |
+| Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), and any-host fallback retirement (sandboxing-qq9b) are implemented and covered by the routing model |
 
 **What this verifies:**
 

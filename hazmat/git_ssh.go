@@ -24,8 +24,9 @@ type sessionGitSSHConfig struct {
 }
 
 // sessionGitSSHKey is one resolved identity within a session Git-SSH config.
-// AllowedHosts is empty only for the legacy single-key any-host fallback;
-// that case is exercised only when len(Keys) == 1.
+// AllowedHosts may be empty for a profile-backed key whose profile has no
+// default_hosts and whose project key declares no override; such a key matches
+// no destination host.
 type sessionGitSSHKey struct {
 	Name           string
 	PrivateKeyPath string
@@ -149,16 +150,6 @@ type sshConfigAliasResolution struct {
 	ProxyJump            string
 	HostKeyAlias         string
 	UnsupportedDirective string
-}
-
-func configuredProjectSSH(projectDir string) *ProjectSSHConfig {
-	cfg, _ := loadConfig()
-	return cfg.ProjectSSH(projectDir)
-}
-
-func configuredProjectGitSSH(projectDir string) *ProjectGitSSHConfig {
-	cfg, _ := loadConfig()
-	return cfg.ProjectGitSSH(projectDir)
 }
 
 func provisionedSSHKeysRootDir() string {
@@ -556,11 +547,17 @@ func resolveSSHConfigProxyJump(value string, seen map[string]struct{}) ([]gitSSH
 }
 
 func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
-	fullCfg, _ := loadConfig()
-	if raw := configuredProjectSSH(cfg.ProjectDir); raw != nil {
+	fullCfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if raw := fullCfg.ProjectSSH(cfg.ProjectDir); raw != nil {
 		return resolveProjectSSHKeys(cfg, raw, fullCfg.SSHProfiles)
 	}
-	return resolveLegacyManagedGitSSH(cfg)
+	if raw := fullCfg.ProjectGitSSH(cfg.ProjectDir); raw != nil {
+		return resolveLegacyManagedGitSSH(cfg, raw)
+	}
+	return nil, nil
 }
 
 // resolveProjectSSHKeys walks the normalized key list for a project SSH
@@ -621,9 +618,8 @@ func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey, profiles 
 	}
 
 	// Declared Hosts take precedence; otherwise inherit the referenced
-	// profile's DefaultHosts. A key without either ends up with no
-	// allowed hosts (the caller treats this as any-host only in the
-	// single-inline-key legacy case).
+	// profile's DefaultHosts. A profile-backed key without either ends up
+	// with no allowed hosts and routes nothing.
 	hostInput := entry.Hosts
 	if len(hostInput) == 0 && strings.TrimSpace(entry.Profile) != "" {
 		if profile, ok := profiles[strings.TrimSpace(entry.Profile)]; ok {
@@ -703,7 +699,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 		key := keys[0]
 		if len(key.AllowedHosts) == 0 {
 			return fmt.Sprintf(
-				"Git-over-SSH enabled for this project via selected key %q. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
+				"Git-over-SSH configured for this project via selected key %q, but it has no effective hosts. Hazmat will reject every destination until hosts are declared or inherited.",
 				key.Name,
 			)
 		}
@@ -715,7 +711,11 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 	}
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s → %s", key.Name, strings.Join(key.AllowedHosts, ", ")))
+		hosts := strings.Join(key.AllowedHosts, ", ")
+		if hosts == "" {
+			hosts = "(no hosts)"
+		}
+		parts = append(parts, fmt.Sprintf("%s → %s", key.Name, hosts))
 	}
 	return fmt.Sprintf(
 		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and loads each into its own session-local ssh-agent.",
@@ -723,12 +723,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 	)
 }
 
-func resolveLegacyManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
-	raw := configuredProjectGitSSH(cfg.ProjectDir)
-	if raw == nil {
-		return nil, nil
-	}
-
+func resolveLegacyManagedGitSSH(cfg sessionConfig, raw *ProjectGitSSHConfig) (*sessionGitSSHConfig, error) {
 	privateKeyPath, err := canonicalizeConfiguredFile(raw.PrivateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("project git_ssh.private_key: %w", err)
@@ -1217,8 +1212,8 @@ func probeGitSSHHost(key sessionGitSSHKey, target gitSSHTestTarget) (string, err
 
 // selectSessionGitSSHKey picks the session key that matches the destination
 // host per the TLA MC_GitSSHRouting contract: exactly one match for a ready
-// config, or a reject when nothing matches. Every key declares an explicit
-// AllowedHosts list after sandboxing-qq9b retired the any-host fallback.
+// config, or a reject when nothing matches. Keys with no effective
+// AllowedHosts match nothing.
 func selectSessionGitSSHKey(cfg *sessionGitSSHConfig, host string) (*sessionGitSSHKey, error) {
 	if cfg == nil || len(cfg.Keys) == 0 {
 		return nil, fmt.Errorf("no SSH keys configured")
@@ -1341,11 +1336,10 @@ func asAgentWriteFile(path string, content []byte, mode os.FileMode) error {
 // invocation to exactly one prepared key's identity-agent socket.
 //
 // The routing contract matches tla/MC_GitSSHRouting.tla:
-//   - A single prepared key with no AllowedHosts is the legacy any-host
-//     fallback and serves every destination host.
-//   - Otherwise, the destination host must match exactly one key's
-//     AllowedHosts patterns (shell glob semantics via `case`); anything
-//     else is rejected.
+//   - The destination host must match exactly one key's AllowedHosts patterns
+//     (shell glob semantics via `case`); anything else is rejected.
+//   - Prepared keys with no effective AllowedHosts are omitted from the case
+//     arms and therefore match no destination host.
 //
 // The wrapper passes only protocol handshake options to ssh and rejects
 // interactive shells or unknown remote commands.
@@ -1401,6 +1395,9 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	b.WriteString("kh=\"\"\n")
 	b.WriteString("case \"$normalized_host\" in\n")
 	for _, key := range keys {
+		if len(key.AllowedHosts) == 0 {
+			continue
+		}
 		sock := shellQuote([]string{key.SocketPath})[0]
 		kh := shellQuote([]string{key.KnownHostsPath})[0]
 		patterns := strings.Join(key.AllowedHosts, "|")
@@ -1432,4 +1429,3 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	b.WriteString("  \"$@\"\n")
 	return b.String()
 }
-

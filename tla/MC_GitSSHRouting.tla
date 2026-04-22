@@ -14,12 +14,10 @@
 \*   apply. Profile references that point to undefined profiles are a
 \*   config-load failure.
 \*
-\*   A project may also be in "legacy single-key" mode: exactly one present
-\*   inline key with an empty declared host set, which normalizes to "any
-\*   host." With two or more present keys, any inline key with an empty
-\*   declared set is an error. The legacy fallback never applies to a key
-\*   that references a profile — that case inherits the profile's default
-\*   hosts instead (which may itself be empty, leaving the key unrouted).
+\*   Inline keys must declare at least one host. The legacy single-key
+\*   any-host fallback has been retired. A key that references a profile may
+\*   omit declared hosts and inherit the profile's default hosts instead
+\*   (which may itself be empty, leaving the key unrouted).
 \*
 \*   The wrapper lookup on host h returns:
 \*     - reject                           — no configured key matches h
@@ -28,7 +26,7 @@
 \*   must be the unique socket bound to the selected key.
 \*
 \* Governed code:
-\*   hazmat/config.go  — config-set-time overlap check, legacy-multi
+\*   hazmat/config.go  — config-set-time overlap check, inline-empty-host
 \*                       rejection, profile/inline mutual-exclusion check,
 \*                       dangling-profile rejection, profile default-host
 \*                       inheritance.

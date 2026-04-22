@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,26 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+func captureStdout(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	runErr := fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	os.Stdout = old
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(data), runErr
+}
 
 func TestDiscoverSSHKeyCandidatesReportsUsableEntries(t *testing.T) {
 	isolateConfig(t)
@@ -626,6 +647,37 @@ func TestBuildGitSSHWrapperScriptAlwaysEmitsHostRoutedCase(t *testing.T) {
 	}
 }
 
+func TestBuildGitSSHWrapperScriptSkipsEmptyAllowedHosts(t *testing.T) {
+	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{
+		{
+			Name:           "empty",
+			SocketPath:     "/tmp/agent-empty.sock",
+			KnownHostsPath: "/tmp/kh-empty",
+		},
+		{
+			Name:           "github",
+			SocketPath:     "/tmp/agent-github.sock",
+			KnownHostsPath: "/tmp/kh-github",
+			AllowedHosts:   []string{"github.com"},
+		},
+	})
+	for _, forbidden := range []string{
+		"\n  ) sock=",
+		"/tmp/agent-empty.sock",
+		"/tmp/kh-empty",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("wrapper script included empty-host arm %q:\n%s", forbidden, script)
+		}
+	}
+	if !strings.Contains(script, "github.com) sock=/tmp/agent-github.sock; kh=/tmp/kh-github ;;") {
+		t.Fatalf("wrapper script should still include routed hosts:\n%s", script)
+	}
+	if !strings.Contains(script, "*) reject \"destination host not allowed: $normalized_host\" ;;") {
+		t.Fatalf("wrapper script should retain default rejection:\n%s", script)
+	}
+}
+
 func TestBuildGitSSHWrapperScriptMultiKeyRoutesByHost(t *testing.T) {
 	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{
 		{
@@ -972,6 +1024,42 @@ func TestRunConfigSSHAddProfileInheritsDefaultHosts(t *testing.T) {
 	}
 }
 
+func TestRunConfigSSHShowDisplaysProfileBackedKey(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	keyPath := filepath.Join(keyDir, "shared_key")
+	canonicalKeyPath, err := canonicalizeConfiguredFile(keyPath)
+	if err != nil {
+		t.Fatalf("canonicalize key: %v", err)
+	}
+	if err := runConfigSSHProfileAdd("github", keyPath, "", []string{"github.com"}, ""); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+	if err := runConfigSSHAdd(projectDir, "work", nil, "", "github", ""); err != nil {
+		t.Fatalf("project add --profile without --host: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runConfigSSHShow(projectDir)
+	})
+	if err != nil {
+		t.Fatalf("show profile-backed key: %v", err)
+	}
+	for _, fragment := range []string{
+		"Profile:       github",
+		"Private key:   " + canonicalKeyPath,
+		"Hosts:         github.com (inherited from profile default_hosts)",
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Fatalf("show output missing %q:\n%s", fragment, out)
+		}
+	}
+	if strings.Contains(out, "legacy fallback") {
+		t.Fatalf("show output should not mention legacy fallback:\n%s", out)
+	}
+}
+
 func TestProjectSSHConfigNormalizedKeysFlatLegacyReturnsNil(t *testing.T) {
 	// The pre-migration flat shape no longer synthesizes a Keys entry.
 	// loadConfig (via detectLegacyFlatSSH) rejects such configs before
@@ -1017,6 +1105,28 @@ func TestDetectLegacyFlatSSHPassesWhenKeysListPresent(t *testing.T) {
 	}
 	if err := detectLegacyFlatSSH("/tmp/proj", cfg); err != nil {
 		t.Fatalf("multi-key config should not trigger legacy detection: %v", err)
+	}
+}
+
+func TestResolveManagedGitSSHPropagatesLegacyFlatLoadError(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Projects = map[string]ProjectConfig{
+		projectDir: {
+			SSH: &ProjectSSHConfig{
+				PrivateKeyPath: "/keys/id_ed25519",
+				KnownHostsPath: "/keys/known_hosts",
+			},
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("save flat legacy config: %v", err)
+	}
+
+	_, err := resolveManagedGitSSH(sessionConfig{ProjectDir: projectDir})
+	if err == nil || !strings.Contains(err.Error(), "retired single-key SSH shape") {
+		t.Fatalf("want flat legacy migration error, got %v", err)
 	}
 }
 
