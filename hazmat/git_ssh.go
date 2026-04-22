@@ -556,19 +556,24 @@ func resolveSSHConfigProxyJump(value string, seen map[string]struct{}) ([]gitSSH
 }
 
 func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
+	fullCfg, _ := loadConfig()
 	if raw := configuredProjectSSH(cfg.ProjectDir); raw != nil {
-		return resolveProjectSSHKeys(cfg, raw)
+		return resolveProjectSSHKeys(cfg, raw, fullCfg.SSHProfiles)
 	}
 	return resolveLegacyManagedGitSSH(cfg)
 }
 
 // resolveProjectSSHKeys walks the normalized key list for a project SSH
 // config and produces a sessionGitSSHConfig with one sessionGitSSHKey per
-// entry. Each key's identity is resolved through the configured file path
-// or the provisioned inventory; visibility and containment checks run
-// per-key so a single stray identity blocks the whole session.
-func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGitSSHConfig, error) {
+// entry. Each key's identity resolves through a profile reference, an
+// inline PrivateKeyPath, or the provisioned inventory; visibility and
+// containment checks run per-key so a single stray identity blocks the
+// whole session.
+func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles map[string]SSHProfile) (*sessionGitSSHConfig, error) {
 	if err := ValidateProjectSSHConfig(*raw); err != nil {
+		return nil, fmt.Errorf("project ssh: %w", err)
+	}
+	if err := ValidateProjectSSHProfileRefs(*raw, profiles); err != nil {
 		return nil, fmt.Errorf("project ssh: %w", err)
 	}
 	entries := raw.NormalizedKeys()
@@ -579,7 +584,7 @@ func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGi
 	resolved := make([]sessionGitSSHKey, 0, len(entries))
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		key, err := resolveProjectSSHKeyEntry(cfg, entry)
+		key, err := resolveProjectSSHKeyEntry(cfg, entry, profiles)
 		if err != nil {
 			return nil, err
 		}
@@ -598,13 +603,13 @@ func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig) (*sessionGi
 	}, nil
 }
 
-func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey) (sessionGitSSHKey, error) {
+func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey, profiles map[string]SSHProfile) (sessionGitSSHKey, error) {
 	name := strings.TrimSpace(entry.Name)
 	if name == "" {
 		name = "default"
 	}
 
-	privateKeyPath, knownHostsPath, err := resolveProjectSSHKeyIdentity(entry)
+	privateKeyPath, knownHostsPath, err := resolveProjectSSHKeyIdentity(entry, profiles)
 	if err != nil {
 		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: %w", name, err)
 	}
@@ -615,11 +620,21 @@ func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey) (sessionG
 		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: private key %q is visible inside the session contract; move it outside the project/read/write paths", name, privateKeyPath)
 	}
 
-	allowedHosts, err := normalizeGitSSHHosts(entry.Hosts)
-	if err != nil && len(entry.Hosts) > 0 {
+	// Declared Hosts take precedence; otherwise inherit the referenced
+	// profile's DefaultHosts. A key without either ends up with no
+	// allowed hosts (the caller treats this as any-host only in the
+	// single-inline-key legacy case).
+	hostInput := entry.Hosts
+	if len(hostInput) == 0 && strings.TrimSpace(entry.Profile) != "" {
+		if profile, ok := profiles[strings.TrimSpace(entry.Profile)]; ok {
+			hostInput = profile.DefaultHosts
+		}
+	}
+	allowedHosts, err := normalizeGitSSHHosts(hostInput)
+	if err != nil && len(hostInput) > 0 {
 		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: %w", name, err)
 	}
-	if len(entry.Hosts) == 0 {
+	if len(hostInput) == 0 {
 		allowedHosts = nil
 	}
 
@@ -631,7 +646,28 @@ func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey) (sessionG
 	}, nil
 }
 
-func resolveProjectSSHKeyIdentity(entry ProjectSSHKey) (string, string, error) {
+func resolveProjectSSHKeyIdentity(entry ProjectSSHKey, profiles map[string]SSHProfile) (string, string, error) {
+	profileName := strings.TrimSpace(entry.Profile)
+	if profileName != "" {
+		profile, ok := profiles[profileName]
+		if !ok {
+			return "", "", fmt.Errorf("profile %q is not defined in ssh_profiles", profileName)
+		}
+		privateKeyPath, err := canonicalizeConfiguredFile(profile.PrivateKeyPath)
+		if err != nil {
+			return "", "", fmt.Errorf("profile %q private_key: %w", profileName, err)
+		}
+		knownHostsRaw := profile.KnownHostsPath
+		if strings.TrimSpace(knownHostsRaw) == "" {
+			knownHostsRaw = filepath.Join(filepath.Dir(privateKeyPath), "known_hosts")
+		}
+		knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
+		if err != nil {
+			return "", "", fmt.Errorf("profile %q known_hosts: %w", profileName, err)
+		}
+		return privateKeyPath, knownHostsPath, nil
+	}
+
 	if strings.TrimSpace(entry.PrivateKeyPath) != "" {
 		privateKeyPath, err := canonicalizeConfiguredFile(entry.PrivateKeyPath)
 		if err != nil {
@@ -650,7 +686,7 @@ func resolveProjectSSHKeyIdentity(entry ProjectSSHKey) (string, string, error) {
 
 	keyName := strings.TrimSpace(entry.Key)
 	if keyName == "" {
-		return "", "", fmt.Errorf("private_key or key is required")
+		return "", "", fmt.Errorf("profile, private_key, or key is required")
 	}
 	provisioned, err := findProvisionedSSHKey(keyName)
 	if err != nil {

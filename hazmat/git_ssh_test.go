@@ -407,6 +407,122 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	}
 }
 
+func TestResolveManagedGitSSHUsesProfileIdentityAndInheritsDefaultHosts(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	canonicalKey, _ := canonicalizeConfiguredFile(filepath.Join(keyDir, "shared_key"))
+
+	cfg := HazmatConfig{
+		SSHProfiles: map[string]SSHProfile{
+			"shared": {
+				PrivateKeyPath: filepath.Join(keyDir, "shared_key"),
+				KnownHostsPath: filepath.Join(keyDir, "known_hosts"),
+				DefaultHosts:   []string{"github.com"},
+			},
+		},
+		Projects: map[string]ProjectConfig{},
+	}
+	canonicalProjectDir, _ := resolveDir(projectDir, false)
+	cfg.Projects[canonicalProjectDir] = ProjectConfig{
+		SSH: &ProjectSSHConfig{
+			Keys: []ProjectSSHKey{{Name: "via_shared", Profile: "shared"}}, // no declared hosts
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	sess, err := resolveSessionConfig(projectDir, nil, nil)
+	if err != nil {
+		t.Fatalf("resolveSessionConfig: %v", err)
+	}
+	got, err := resolveManagedGitSSH(sess)
+	if err != nil {
+		t.Fatalf("resolveManagedGitSSH: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected managed Git SSH config")
+	}
+	if len(got.Keys) != 1 {
+		t.Fatalf("Keys len = %d, want 1", len(got.Keys))
+	}
+	if got.Keys[0].PrivateKeyPath != canonicalKey {
+		t.Fatalf("Keys[0].PrivateKeyPath = %q, want %q (profile identity)", got.Keys[0].PrivateKeyPath, canonicalKey)
+	}
+	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"github.com"}) {
+		t.Fatalf("Keys[0].AllowedHosts = %v, want [github.com] (inherited from profile)", got.Keys[0].AllowedHosts)
+	}
+}
+
+func TestResolveManagedGitSSHRejectsDanglingProfile(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+
+	cfg := HazmatConfig{
+		Projects: map[string]ProjectConfig{},
+	}
+	canonicalProjectDir, _ := resolveDir(projectDir, false)
+	cfg.Projects[canonicalProjectDir] = ProjectConfig{
+		SSH: &ProjectSSHConfig{
+			Keys: []ProjectSSHKey{{Name: "x", Profile: "ghost", Hosts: []string{"github.com"}}},
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	// loadConfig itself should reject the dangling reference.
+	if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "not defined in ssh_profiles") {
+		t.Fatalf("loadConfig should reject dangling ref, got %v", err)
+	}
+}
+
+func TestResolveManagedGitSSHProjectDeclaredHostsOverrideProfileDefaults(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+
+	cfg := HazmatConfig{
+		SSHProfiles: map[string]SSHProfile{
+			"shared": {
+				PrivateKeyPath: filepath.Join(keyDir, "shared_key"),
+				KnownHostsPath: filepath.Join(keyDir, "known_hosts"),
+				DefaultHosts:   []string{"github.com"},
+			},
+		},
+		Projects: map[string]ProjectConfig{},
+	}
+	canonicalProjectDir, _ := resolveDir(projectDir, false)
+	cfg.Projects[canonicalProjectDir] = ProjectConfig{
+		SSH: &ProjectSSHConfig{
+			Keys: []ProjectSSHKey{{
+				Name:    "scoped",
+				Profile: "shared",
+				Hosts:   []string{"enterprise.internal"}, // overrides profile's default github.com
+			}},
+		},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	sess, err := resolveSessionConfig(projectDir, nil, nil)
+	if err != nil {
+		t.Fatalf("resolveSessionConfig: %v", err)
+	}
+	got, err := resolveManagedGitSSH(sess)
+	if err != nil {
+		t.Fatalf("resolveManagedGitSSH: %v", err)
+	}
+	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"enterprise.internal"}) {
+		t.Fatalf("Keys[0].AllowedHosts = %v, want [enterprise.internal] (declared override)", got.Keys[0].AllowedHosts)
+	}
+}
+
 func TestResolveManagedGitSSHRejectsVisibleSelectedPrivateKey(t *testing.T) {
 	isolateConfig(t)
 
