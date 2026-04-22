@@ -7,7 +7,10 @@ All notable changes to Hazmat are documented in this file.
 ### Added
 - Multi-key per-project Git SSH routing. `hazmat config ssh add --name <n> --host <h>... <path>` appends a named, host-scoped key; `hazmat config ssh remove --name <n>` removes one. Each destination host resolves to exactly one configured key; overlap and mixed legacy/new configs are rejected at config-save time.
 - Reusable SSH profiles. `ssh_profiles:` in `~/.hazmat/config.yaml` defines a named identity (private key + optional known_hosts + optional default_hosts) usable from any project via `hazmat config ssh add --profile <name>`. Project keys inherit `default_hosts` when they declare no hosts of their own; declared `--host` always overrides. Full CLI: `hazmat config ssh profile add | list | show | remove | rename`. Removal refuses while any project references the profile; `--force` detaches and removes atomically. Rename updates every referrer in one save.
-- TLA+ formal verification of the multi-key routing and profile resolution contract (`MC_GitSSHRouting`). 884,736 distinct states checked for determinism, overlap rejection, legacy single-key fallback, per-key socket distinctness, dangling-reference rejection, profile+inline identity conflict rejection, and orphan-key rejection.
+- TLA+ formal verification of the routing + profile resolution contract (`MC_GitSSHRouting`). Nine invariants checked across 884,736 distinct states: determinism, overlap rejection, host-outside-allowlist rejection, inline-key-has-declared-hosts, per-key socket distinctness, dangling-reference rejection, profile+inline identity conflict rejection, orphan-key rejection, and binding integrity.
+
+### Changed (breaking)
+- Retired the legacy any-host SSH fallback. Every inline project SSH key must now declare at least one `--host`. The `hazmat config ssh set <path>` subcommand has been removed — use `hazmat config ssh add --name <n> --host <h> <path>` instead. Configs that still use the pre-migration flat shape (`ssh: {private_key, known_hosts}` with no `keys:` list) are rejected at load with a copy-paste YAML snippet showing the replacement.
 
 ## [0.7.0] - 2026-04-18
 

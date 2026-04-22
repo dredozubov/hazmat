@@ -1217,8 +1217,8 @@ func probeGitSSHHost(key sessionGitSSHKey, target gitSSHTestTarget) (string, err
 
 // selectSessionGitSSHKey picks the session key that matches the destination
 // host per the TLA MC_GitSSHRouting contract: exactly one match for a ready
-// config, or a reject when nothing matches. The legacy single-key any-host
-// fallback (len(Keys)==1, empty AllowedHosts) matches every host.
+// config, or a reject when nothing matches. Every key declares an explicit
+// AllowedHosts list after sandboxing-qq9b retired the any-host fallback.
 func selectSessionGitSSHKey(cfg *sessionGitSSHConfig, host string) (*sessionGitSSHKey, error) {
 	if cfg == nil || len(cfg.Keys) == 0 {
 		return nil, fmt.Errorf("no SSH keys configured")
@@ -1227,9 +1227,6 @@ func selectSessionGitSSHKey(cfg *sessionGitSSHConfig, host string) (*sessionGitS
 	var matches []*sessionGitSSHKey
 	for i := range cfg.Keys {
 		key := &cfg.Keys[i]
-		if len(key.AllowedHosts) == 0 && len(cfg.Keys) == 1 {
-			return key, nil
-		}
 		for _, pattern := range key.AllowedHosts {
 			if ok, _ := filepath.Match(pattern, normalized); ok {
 				matches = append(matches, key)
@@ -1402,23 +1399,15 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	b.WriteString("esac\n")
 	b.WriteString("sock=\"\"\n")
 	b.WriteString("kh=\"\"\n")
-
-	if legacy := legacyAnyHostKey(keys); legacy != nil {
-		sock := shellQuote([]string{legacy.SocketPath})[0]
-		kh := shellQuote([]string{legacy.KnownHostsPath})[0]
-		fmt.Fprintf(&b, "sock=%s\n", sock)
-		fmt.Fprintf(&b, "kh=%s\n", kh)
-	} else {
-		b.WriteString("case \"$normalized_host\" in\n")
-		for _, key := range keys {
-			sock := shellQuote([]string{key.SocketPath})[0]
-			kh := shellQuote([]string{key.KnownHostsPath})[0]
-			patterns := strings.Join(key.AllowedHosts, "|")
-			fmt.Fprintf(&b, "  %s) sock=%s; kh=%s ;;\n", patterns, sock, kh)
-		}
-		b.WriteString("  *) reject \"destination host not allowed: $normalized_host\" ;;\n")
-		b.WriteString("esac\n")
+	b.WriteString("case \"$normalized_host\" in\n")
+	for _, key := range keys {
+		sock := shellQuote([]string{key.SocketPath})[0]
+		kh := shellQuote([]string{key.KnownHostsPath})[0]
+		patterns := strings.Join(key.AllowedHosts, "|")
+		fmt.Fprintf(&b, "  %s) sock=%s; kh=%s ;;\n", patterns, sock, kh)
 	}
+	b.WriteString("  *) reject \"destination host not allowed: $normalized_host\" ;;\n")
+	b.WriteString("esac\n")
 
 	b.WriteString("[ \"$#\" -gt 0 ] || reject \"interactive ssh is not allowed for this profile\"\n")
 	b.WriteString("case \"$1\" in\n")
@@ -1444,15 +1433,3 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	return b.String()
 }
 
-// legacyAnyHostKey returns the lone key that represents the legacy
-// single-key any-host fallback, or nil when the config is multi-key or
-// host-scoped. Matches the TLA LegacyFallbackSingleOnly invariant.
-func legacyAnyHostKey(keys []preparedSSHIdentityKey) *preparedSSHIdentityKey {
-	if len(keys) != 1 {
-		return nil
-	}
-	if len(keys[0].AllowedHosts) > 0 {
-		return nil
-	}
-	return &keys[0]
-}

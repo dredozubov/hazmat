@@ -1,18 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -297,36 +294,57 @@ func (c HazmatConfig) ProjectSSH(projectDir string) *ProjectSSHConfig {
 	return &cloned
 }
 
-// NormalizedKeys returns the effective per-key view of a project SSH config.
-// Legacy single-key configs (no Keys list, populated PrivateKeyPath or Key)
-// are rewritten into a single entry named "default" with empty Hosts — the
-// TLA spec's legacy any-host fallback. Multi-key configs are returned as-is.
-// Returns nil when the config carries no identity at all.
+// NormalizedKeys returns the Keys list of a project SSH config. Returns
+// nil when no keys are declared. The pre-migration flat shape
+// (PrivateKeyPath / Key / KnownHostsPath at the ProjectSSHConfig level
+// with no Keys list) is rejected at config load by detectLegacyFlatSSH,
+// so it never reaches this function.
 func (c ProjectSSHConfig) NormalizedKeys() []ProjectSSHKey {
-	if len(c.Keys) > 0 {
-		out := make([]ProjectSSHKey, len(c.Keys))
-		for i, key := range c.Keys {
-			out[i] = key
-			out[i].Hosts = append([]string(nil), key.Hosts...)
-		}
-		return out
-	}
-	if strings.TrimSpace(c.PrivateKeyPath) == "" && strings.TrimSpace(c.Key) == "" {
+	if len(c.Keys) == 0 {
 		return nil
 	}
-	name := strings.TrimSpace(c.Key)
-	if name == "" {
-		name = filepath.Base(strings.TrimSpace(c.PrivateKeyPath))
+	out := make([]ProjectSSHKey, len(c.Keys))
+	for i, key := range c.Keys {
+		out[i] = key
+		out[i].Hosts = append([]string(nil), key.Hosts...)
 	}
-	if !projectSSHKeyNamePattern.MatchString(name) {
-		name = "default"
+	return out
+}
+
+// detectLegacyFlatSSH recognises the pre-multi-key single-key shape and
+// emits a copy-paste migration snippet. The any-host fallback that
+// previously admitted this shape has been retired — inline keys must
+// declare at least one host (TLA: InlineKeysHaveDeclaredHosts). Called
+// from loadConfig before ValidateProjectSSHConfig so the user sees a
+// specific migration message rather than a generic rejection.
+func detectLegacyFlatSSH(projectDir string, c ProjectSSHConfig) error {
+	hasFlat := strings.TrimSpace(c.PrivateKeyPath) != "" ||
+		strings.TrimSpace(c.Key) != "" ||
+		strings.TrimSpace(c.KnownHostsPath) != ""
+	if !hasFlat || len(c.Keys) > 0 {
+		return nil
 	}
-	return []ProjectSSHKey{{
-		Name:           name,
-		Key:            c.Key,
-		PrivateKeyPath: c.PrivateKeyPath,
-		KnownHostsPath: c.KnownHostsPath,
-	}}
+
+	var snippet strings.Builder
+	snippet.WriteString("\n\n  projects:\n")
+	fmt.Fprintf(&snippet, "    %s:\n", projectDir)
+	snippet.WriteString("      ssh:\n")
+	snippet.WriteString("        keys:\n")
+	snippet.WriteString("          - name: default\n")
+	if c.PrivateKeyPath != "" {
+		fmt.Fprintf(&snippet, "            private_key: %s\n", c.PrivateKeyPath)
+	}
+	if c.Key != "" {
+		fmt.Fprintf(&snippet, "            key: %s\n", c.Key)
+	}
+	if c.KnownHostsPath != "" {
+		fmt.Fprintf(&snippet, "            known_hosts: %s\n", c.KnownHostsPath)
+	}
+	snippet.WriteString("            hosts: [github.com]   # replace with your host(s)\n")
+
+	return fmt.Errorf(
+		"project %s uses the retired single-key SSH shape. The any-host fallback was removed; edit ~/.hazmat/config.yaml to use the multi-key form:%s",
+		projectDir, snippet.String())
 }
 
 // ValidateProjectSSHConfig enforces format-level invariants from
@@ -385,8 +403,8 @@ func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
 		keyHostSets[i] = hostSet
 	}
 
-	if inlineEmptyCount > 0 && len(c.Keys) > 1 {
-		return fmt.Errorf("ssh.keys: an empty 'hosts' list on an inline key (legacy any-host fallback) is only allowed with exactly one configured key")
+	if inlineEmptyCount > 0 {
+		return fmt.Errorf("ssh.keys: inline key has no declared hosts; every inline key must declare at least one --host (any-host fallback was retired)")
 	}
 
 	for i := 0; i < len(c.Keys); i++ {
@@ -638,6 +656,9 @@ func loadConfig() (HazmatConfig, error) {
 	for projectDir, project := range cfg.Projects {
 		if project.SSH == nil {
 			continue
+		}
+		if err := detectLegacyFlatSSH(projectDir, *project.SSH); err != nil {
+			return cfg, err
 		}
 		if err := ValidateProjectSSHConfig(*project.SSH); err != nil {
 			return cfg, fmt.Errorf("project %s: %w", projectDir, err)
@@ -1037,22 +1058,6 @@ func newConfigSSHCmd() *cobra.Command {
 	var addProfile string
 	var removeName string
 
-	setCmd := &cobra.Command{
-		Use:               "set [key]",
-		Short:             "Assign an SSH key to a project",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeSSHSetKeyArgs,
-		RunE: func(_ *cobra.Command, args []string) error {
-			selectedKey := ""
-			if len(args) == 1 {
-				selectedKey = args[0]
-			}
-			return runConfigSSHSet(project, selectedKey)
-		},
-	}
-	setCmd.Flags().StringVarP(&project, "project", "C", "",
-		"Project directory (defaults to current directory)")
-
 	addCmd := &cobra.Command{
 		Use:   "add [key]",
 		Short: "Add a named SSH key with host scoping to a project",
@@ -1198,7 +1203,7 @@ Examples:
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(setCmd, addCmd, removeCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd, newConfigSSHProfileCmd())
+	cmd.AddCommand(addCmd, removeCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd, newConfigSSHProfileCmd())
 	return cmd
 }
 
@@ -1583,92 +1588,6 @@ func runConfigAccess(project string, readDirs, writeDirs []string, remove bool) 
 	return nil
 }
 
-func runConfigSSHSet(project, keyName string) error {
-	projectDir, err := resolveDir(project, true)
-	if err != nil {
-		return fmt.Errorf("project: %w", err)
-	}
-
-	keyDir := ""
-	if strings.TrimSpace(keyName) == "" && term.IsTerminal(int(os.Stdin.Fd())) {
-		keyDir, err = promptSSHKeyDirectory(defaultSSHKeyDirectory())
-		if err != nil {
-			return err
-		}
-	}
-	if strings.TrimSpace(keyName) != "" {
-		expandedKeyName := expandTilde(strings.TrimSpace(keyName))
-		if filepath.IsAbs(expandedKeyName) || strings.Contains(expandedKeyName, string(os.PathSeparator)) {
-			keyDir = filepath.Dir(expandedKeyName)
-		}
-	}
-	canonicalKeyDir, err := resolveSSHKeyDirectory(keyDir)
-	if err != nil {
-		return err
-	}
-	keys, err := discoverSSHKeyCandidates(canonicalKeyDir)
-	if err != nil {
-		return err
-	}
-	if len(keys) == 0 {
-		return fmt.Errorf("no SSH keys found in %s", canonicalKeyDir)
-	}
-
-	selectedName := strings.TrimSpace(keyName)
-	if selectedName == "" {
-		usable := usableSSHKeyCandidates(keys)
-		if len(usable) == 0 {
-			return fmt.Errorf("no usable SSH keys found in %s (run 'hazmat config ssh list-keys --dir %s' to inspect them)", canonicalKeyDir, canonicalKeyDir)
-		}
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return fmt.Errorf("key path argument is required when stdin is not a terminal")
-		}
-		chosen, err := chooseSSHKeyCandidate(usable)
-		if err != nil {
-			return err
-		}
-		selectedName = chosen
-	}
-
-	selected, err := findSSHKeyCandidate(keys, selectedName)
-	if err != nil {
-		return err
-	}
-	if !selected.Usable() {
-		return fmt.Errorf("SSH key %q is not usable: %s", selected.DisplayName(), selected.Status)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if cfg.Projects == nil {
-		cfg.Projects = make(map[string]ProjectConfig)
-	}
-
-	projectCfg := cfg.Projects[projectDir]
-	projectCfg.SSH = &ProjectSSHConfig{
-		PrivateKeyPath: selected.PrivateKeyPath,
-		KnownHostsPath: selected.KnownHostsPath,
-	}
-	projectCfg.GitSSH = nil
-	if projectHasOverrides(projectCfg) {
-		cfg.Projects[projectDir] = projectCfg
-	} else {
-		delete(cfg.Projects, projectDir)
-	}
-	if len(cfg.Projects) == 0 {
-		cfg.Projects = nil
-	}
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-
-	fmt.Printf("Assigned SSH key %q to %s\n", selected.DisplayName(), projectDir)
-	fmt.Printf("Next step: hazmat config ssh test -C %s --host github.com\n", projectDir)
-	return nil
-}
-
 func runConfigSSHAdd(project, name string, hosts []string, inventory, profile, keyArg string) error {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
@@ -1740,22 +1659,10 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, profile, k
 		newKey.KnownHostsPath = selected.KnownHostsPath
 	}
 
-	// Fold any legacy flat form into the Keys list before appending.
 	mergedKeys := append([]ProjectSSHKey(nil), projectCfg.SSH.normalizedForMerge()...)
 	for _, existing := range mergedKeys {
 		if existing.Name == name {
 			return fmt.Errorf("ssh key %q already exists; remove it first with 'hazmat config ssh remove --name %s'", name, name)
-		}
-	}
-	// A legacy single-key inline entry with empty hosts cannot coexist with
-	// a new host-scoped key (the TLA LegacyFallbackSingleOnly invariant
-	// forbids it). Profile-referencing keys without declared hosts inherit
-	// from the profile, so they're fine alongside other keys.
-	for _, existing := range mergedKeys {
-		if len(existing.Hosts) == 0 && strings.TrimSpace(existing.Profile) == "" {
-			return fmt.Errorf(
-				"cannot add a second key while %q is configured as an any-host legacy key;\nmigrate it first with:\n  hazmat config ssh remove --name %s\n  hazmat config ssh add --name %s --host <host> <path>",
-				existing.Name, existing.Name, existing.Name)
 		}
 	}
 	mergedKeys = append(mergedKeys, newKey)
@@ -2442,52 +2349,6 @@ func runConfigSSHListKeys(keyDir string) error {
 	return nil
 }
 
-func chooseSSHKeyCandidate(keys []sshKeyCandidate) (string, error) {
-	fmt.Println()
-	fmt.Println("Available SSH keys:")
-	for i, key := range keys {
-		fmt.Printf("  %d. %s\n", i+1, key.DisplayName())
-	}
-	fmt.Print("\nSelect a key for this project: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("read selection: %w", err)
-	}
-	index, err := strconv.Atoi(strings.TrimSpace(line))
-	if err != nil || index < 1 || index > len(keys) {
-		return "", fmt.Errorf("invalid selection %q", strings.TrimSpace(line))
-	}
-	return keys[index-1].PrivateKeyPath, nil
-}
-
-func promptSSHKeyDirectory(defaultDir string) (string, error) {
-	fmt.Printf("\nSSH key directory [%s]: ", defaultDir)
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("read key directory: %w", err)
-	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return defaultDir, nil
-	}
-	return line, nil
-}
-
-func completeSSHSetKeyArgs(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	suggestions, err := completeSSHKeyCandidates(toComplete)
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	return suggestions, cobra.ShellCompDirectiveNoFileComp
-}
-
 func completeSSHUnsetKeyArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -2504,14 +2365,16 @@ func completeSSHUnsetKeyArgs(cmd *cobra.Command, args []string, toComplete strin
 }
 
 func projectSSHUnsetSuggestions(projectCfg ProjectConfig) []string {
-	if projectCfg.SSH != nil && strings.TrimSpace(projectCfg.SSH.PrivateKeyPath) != "" {
-		privateKeyPath := strings.TrimSpace(projectCfg.SSH.PrivateKeyPath)
-		basename := filepath.Base(privateKeyPath)
-		defaultDir, err := resolveSSHKeyDirectory("")
-		if err == nil && filepath.Dir(privateKeyPath) == defaultDir {
-			return []string{basename, privateKeyPath}
+	if projectCfg.SSH != nil && len(projectCfg.SSH.Keys) > 0 {
+		first := projectCfg.SSH.Keys[0]
+		if privateKeyPath := strings.TrimSpace(first.PrivateKeyPath); privateKeyPath != "" {
+			basename := filepath.Base(privateKeyPath)
+			defaultDir, err := resolveSSHKeyDirectory("")
+			if err == nil && filepath.Dir(privateKeyPath) == defaultDir {
+				return []string{basename, privateKeyPath}
+			}
+			return []string{privateKeyPath, basename}
 		}
-		return []string{privateKeyPath, basename}
 	}
 	if projectCfg.GitSSH != nil && strings.TrimSpace(projectCfg.GitSSH.PrivateKeyPath) != "" {
 		privateKeyPath := strings.TrimSpace(projectCfg.GitSSH.PrivateKeyPath)

@@ -357,12 +357,12 @@ hazmat config agent            # re-enter Claude API key, git name/email
 
 ## Managed Git SSH
 
-A single-key project config (legacy shape):
+A single-key project config (explicit host required):
 
 ```bash
 hazmat config ssh list-keys
-hazmat config ssh set id_ed25519
-hazmat config ssh set -C ~/workspace/my-project ~/.config/hazmat/ssh/deploy_key
+hazmat config ssh add -C ~/workspace/my-project \
+    --name default --host github.com ~/.ssh/id_ed25519
 hazmat config ssh test -C ~/workspace/my-project --host github.com
 hazmat config ssh unset -C ~/workspace/my-project
 ```
@@ -380,9 +380,10 @@ hazmat config ssh remove -C ~/workspace/my-project --name prod
 ```
 
 Every destination host resolves to exactly one configured key. Two keys
-whose host lists overlap are rejected at config-save time. A single-key
-project can omit the host list (any-host fallback); adding a second key
-requires migrating the first to an explicit host list.
+whose host lists overlap are rejected at config-save time. Every inline
+key must declare at least one `--host` — the legacy any-host fallback
+has been retired. Profile-referencing keys still inherit `default_hosts`
+from the profile when they declare no hosts of their own.
 
 This is an explicit per-project capability for Git transport only. Hazmat
 keeps each private key in host-owned storage, loads it into its own fresh

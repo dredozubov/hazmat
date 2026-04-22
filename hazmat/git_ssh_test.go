@@ -44,94 +44,6 @@ func TestDiscoverSSHKeyCandidatesReportsBrokenEntriesWithoutKnownHosts(t *testin
 	}
 }
 
-func TestRunConfigSSHSetPersistsProjectConfigAndUnsetRemovesItWithoutTouchingKeyFile(t *testing.T) {
-	isolateConfig(t)
-
-	projectDir := t.TempDir()
-	keyDir := writeSSHKeyDirectory(t, true)
-	privateKeyPath, err := canonicalizeConfiguredFile(filepath.Join(keyDir, "id_ed25519"))
-	if err != nil {
-		t.Fatalf("canonicalizeConfiguredFile private key: %v", err)
-	}
-	knownHostsPath, err := canonicalizeConfiguredFile(filepath.Join(keyDir, "known_hosts"))
-	if err != nil {
-		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
-	}
-
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig after set: %v", err)
-	}
-	canonicalProjectDir, err := resolveDir(projectDir, false)
-	if err != nil {
-		t.Fatalf("resolveDir project: %v", err)
-	}
-	got := cfg.ProjectSSH(canonicalProjectDir)
-	if got == nil {
-		t.Fatal("ProjectSSH should be configured")
-	}
-	if got.Key != "" {
-		t.Fatalf("ProjectSSH.Key = %q, want empty", got.Key)
-	}
-	if got.PrivateKeyPath != privateKeyPath {
-		t.Fatalf("ProjectSSH.PrivateKeyPath = %q, want %q", got.PrivateKeyPath, privateKeyPath)
-	}
-	if got.KnownHostsPath != knownHostsPath {
-		t.Fatalf("ProjectSSH.KnownHostsPath = %q, want %q", got.KnownHostsPath, knownHostsPath)
-	}
-
-	if err := runConfigSSHUnset(projectDir, ""); err != nil {
-		t.Fatalf("runConfigSSHUnset: %v", err)
-	}
-	cfg, err = loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig after unset: %v", err)
-	}
-	if got := cfg.ProjectSSH(canonicalProjectDir); got != nil {
-		t.Fatalf("ProjectSSH after unset = %+v, want nil", got)
-	}
-	if _, err := os.Stat(privateKeyPath); err != nil {
-		t.Fatalf("private key should still exist after unset: %v", err)
-	}
-	if _, err := os.Stat(knownHostsPath); err != nil {
-		t.Fatalf("known_hosts should still exist after unset: %v", err)
-	}
-}
-
-func TestConfigSSHSetCommandUsesPositionalKeyPathInCurrentProject(t *testing.T) {
-	isolateConfig(t)
-
-	projectDir := t.TempDir()
-	keyDir := writeSSHKeyDirectory(t, true)
-	t.Chdir(projectDir)
-
-	cmd := newConfigSSHCmd()
-	cmd.SetArgs([]string{"set", filepath.Join(keyDir, "id_ed25519")})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("cmd.Execute: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
-	}
-	canonicalProjectDir, err := resolveDir(projectDir, false)
-	if err != nil {
-		t.Fatalf("resolveDir project: %v", err)
-	}
-	projectCfg := cfg.ProjectSSH(canonicalProjectDir)
-	if projectCfg == nil {
-		t.Fatal("expected project SSH config")
-	}
-	if filepath.Base(projectCfg.PrivateKeyPath) != "id_ed25519" {
-		t.Fatalf("PrivateKeyPath = %q, want id_ed25519", projectCfg.PrivateKeyPath)
-	}
-}
-
 func TestConfigSSHUnsetCommandRemovesOnlyProjectConfig(t *testing.T) {
 	isolateConfig(t)
 
@@ -141,10 +53,8 @@ func TestConfigSSHUnsetCommandRemovesOnlyProjectConfig(t *testing.T) {
 	knownHostsPath := filepath.Join(keyDir, "known_hosts")
 	t.Chdir(projectDir)
 
-	setCmd := newConfigSSHCmd()
-	setCmd.SetArgs([]string{"set", keyPath})
-	if err := setCmd.Execute(); err != nil {
-		t.Fatalf("set cmd.Execute: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", keyPath); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	unsetCmd := newConfigSSHCmd()
@@ -177,8 +87,8 @@ func TestRunConfigSSHUnsetRejectsMismatchedKey(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	err := runConfigSSHUnset(projectDir, "other_key")
@@ -187,115 +97,6 @@ func TestRunConfigSSHUnsetRejectsMismatchedKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not match the current project assignment") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunConfigSSHSetRejectsUnknownKey(t *testing.T) {
-	isolateConfig(t)
-
-	keyDir := writeSSHKeyDirectory(t, true)
-
-	err := runConfigSSHSet(t.TempDir(), filepath.Join(keyDir, "missing-key"))
-	if err == nil {
-		t.Fatal("expected unknown key to be rejected")
-	}
-	if !strings.Contains(err.Error(), "was not found") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunConfigSSHSetRejectsPublicKeyPath(t *testing.T) {
-	isolateConfig(t)
-
-	keyDir := writeSSHKeyDirectory(t, true)
-
-	err := runConfigSSHSet(t.TempDir(), filepath.Join(keyDir, "id_ed25519.pub"))
-	if err == nil {
-		t.Fatal("expected public key path to be rejected")
-	}
-	if !strings.Contains(err.Error(), "looks like a public key") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunConfigSSHSetAcceptsNonDefaultKeyNames(t *testing.T) {
-	isolateConfig(t)
-
-	projectDir := t.TempDir()
-	keyDir := writeNamedSSHKeyDirectory(t, "deploy_key", true)
-
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "deploy_key")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
-	}
-	canonicalProjectDir, err := resolveDir(projectDir, false)
-	if err != nil {
-		t.Fatalf("resolveDir project: %v", err)
-	}
-	projectCfg := cfg.ProjectSSH(canonicalProjectDir)
-	if projectCfg == nil {
-		t.Fatal("expected project SSH config")
-	}
-	if filepath.Base(projectCfg.PrivateKeyPath) != "deploy_key" {
-		t.Fatalf("PrivateKeyPath = %q, want deploy_key", projectCfg.PrivateKeyPath)
-	}
-}
-
-func TestConfigSSHSetCommandRejectsPublicKeyPath(t *testing.T) {
-	isolateConfig(t)
-
-	projectDir := t.TempDir()
-	keyDir := writeSSHKeyDirectory(t, true)
-	t.Chdir(projectDir)
-
-	cmd := newConfigSSHCmd()
-	cmd.SetArgs([]string{"set", filepath.Join(keyDir, "id_ed25519.pub")})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected public key path to be rejected")
-	}
-	if !strings.Contains(err.Error(), "looks like a public key") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestCompleteSSHSetKeyArgsSuggestsPrivateKeysFromDefaultSSHDir(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	sshDir := filepath.Join(home, ".ssh")
-	if err := os.MkdirAll(sshDir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", sshDir, err)
-	}
-	if err := os.WriteFile(filepath.Join(sshDir, "github_rsa"), []byte("PRIVATE KEY"), 0o600); err != nil {
-		t.Fatalf("write private key: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sshDir, "github_rsa.pub"), []byte("ssh-rsa AAAA"), 0o600); err != nil {
-		t.Fatalf("write public key: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
-		t.Fatalf("write known_hosts: %v", err)
-	}
-
-	got, directive := completeSSHSetKeyArgs(nil, nil, "git")
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Fatalf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
-	}
-	if !slices.Equal(got, []string{"github_rsa"}) {
-		t.Fatalf("completeSSHSetKeyArgs = %v, want [github_rsa]", got)
-	}
-}
-
-func TestCompleteSSHSetKeyArgsSuggestsPathScopedKeys(t *testing.T) {
-	keyDir := writeNamedSSHKeyDirectory(t, "deploy_key", true)
-
-	got, _ := completeSSHSetKeyArgs(nil, nil, filepath.Join(keyDir, "dep"))
-	want := []string{filepath.Join(keyDir, "deploy_key")}
-	if !slices.Equal(got, want) {
-		t.Fatalf("completeSSHSetKeyArgs = %v, want %v", got, want)
 	}
 }
 
@@ -319,8 +120,8 @@ func TestCompleteSSHUnsetKeyArgsSuggestsCurrentProjectKey(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
-	if err := runConfigSSHSet(projectDir, filepath.Join(sshDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(sshDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	cmd := &cobra.Command{}
@@ -344,8 +145,8 @@ func TestCompleteSSHUnsetKeyArgsSuggestsConfiguredPathForPathPrefix(t *testing.T
 	if err != nil {
 		t.Fatalf("canonicalizeConfiguredFile key: %v", err)
 	}
-	if err := runConfigSSHSet(projectDir, keyPath); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "deploy_key", []string{"github.com"}, "", "", keyPath); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	cmd := &cobra.Command{}
@@ -369,8 +170,8 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalizeConfiguredFile known_hosts: %v", err)
 	}
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	cfg, err := resolveSessionConfig(projectDir, nil, nil)
@@ -399,8 +200,8 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if got.Keys[0].KnownHostsPath != knownHostsPath {
 		t.Fatalf("Keys[0].KnownHostsPath = %q, want %q", got.Keys[0].KnownHostsPath, knownHostsPath)
 	}
-	if len(got.Keys[0].AllowedHosts) != 0 {
-		t.Fatalf("Keys[0].AllowedHosts = %v, want none (legacy any-host fallback)", got.Keys[0].AllowedHosts)
+	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"github.com"}) {
+		t.Fatalf("Keys[0].AllowedHosts = %v, want [github.com]", got.Keys[0].AllowedHosts)
 	}
 	if !strings.Contains(got.SessionNote, "selected key") {
 		t.Fatalf("SessionNote = %q, want selected key note", got.SessionNote)
@@ -528,8 +329,8 @@ func TestResolveManagedGitSSHRejectsVisibleSelectedPrivateKey(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	cfg, err := resolveSessionConfig(projectDir, []string{keyDir}, nil)
@@ -796,18 +597,22 @@ func TestInterpretGitSSHProbeResultRecognizesAuthenticatedGitErrors(t *testing.T
 	}
 }
 
-func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing.T) {
+func TestBuildGitSSHWrapperScriptAlwaysEmitsHostRoutedCase(t *testing.T) {
+	// After the any-host fallback retirement, every wrapper emits a case
+	// statement that routes matched hosts and rejects others. There's no
+	// bare legacy path.
 	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{{
-		Name:           "default",
+		Name:           "only",
 		SocketPath:     "/tmp/agent.sock",
 		KnownHostsPath: "/tmp/known_hosts",
+		AllowedHosts:   []string{"github.com"},
 	}})
 	for _, fragment := range []string{
 		"interactive ssh is not allowed",
 		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
 		"-o IdentityFile=none",
-		"sock=/tmp/agent.sock",
-		"kh=/tmp/known_hosts",
+		"github.com) sock=/tmp/agent.sock; kh=/tmp/known_hosts ;;",
+		"*) reject \"destination host not allowed: $normalized_host\" ;;",
 		"-o UserKnownHostsFile=\"$kh\"",
 		"-o IdentityAgent=\"$sock\"",
 		"-o StrictHostKeyChecking=yes",
@@ -815,9 +620,6 @@ func TestBuildGitSSHWrapperScriptWithoutAllowlistSkipsHostRestriction(t *testing
 		if !strings.Contains(script, fragment) {
 			t.Fatalf("wrapper script missing %q:\n%s", fragment, script)
 		}
-	}
-	if strings.Contains(script, "destination host not allowed") {
-		t.Fatalf("legacy single-key wrapper should not enforce host allowlist:\n%s", script)
 	}
 	if strings.Contains(script, "IdentitiesOnly=yes") {
 		t.Fatalf("wrapper script should not force IdentitiesOnly=yes:\n%s", script)
@@ -866,8 +668,8 @@ func TestResolvePreparedSessionAddsManagedGitSSHNotes(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	prepared, err := resolvePreparedSession("shell", harnessSessionOpts{project: projectDir}, true)
@@ -898,8 +700,8 @@ func TestResolvePreparedSessionRejectsManagedGitSSHForSandboxMode(t *testing.T) 
 
 	projectDir := t.TempDir()
 	keyDir := writeSSHKeyDirectory(t, true)
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDir, "id_ed25519")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
+	if err := runConfigSSHAdd(projectDir, "id_ed25519", []string{"github.com"}, "", "", filepath.Join(keyDir, "id_ed25519")); err != nil {
+		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
 	_, err := resolvePreparedSession("claude", harnessSessionOpts{
@@ -985,35 +787,17 @@ func TestRunConfigSSHAddRejectsOverlap(t *testing.T) {
 	}
 }
 
-func TestRunConfigSSHAddRejectsSecondKeyWithEmptyHosts(t *testing.T) {
+func TestRunConfigSSHAddRejectsInlineKeyWithEmptyHosts(t *testing.T) {
 	isolateConfig(t)
 
 	projectDir := t.TempDir()
 	keyDirA := writeNamedSSHKeyDirectory(t, "key_a", true)
-	keyDirB := writeNamedSSHKeyDirectory(t, "key_b", true)
 
-	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", "", filepath.Join(keyDirA, "key_a")); err != nil {
-		t.Fatalf("first add: %v", err)
-	}
-	err := runConfigSSHAdd(projectDir, "b", nil, "", "", filepath.Join(keyDirB, "key_b"))
-	if err == nil || !strings.Contains(err.Error(), "legacy any-host fallback") {
-		t.Fatalf("want empty-hosts rejection, got %v", err)
-	}
-}
-
-func TestRunConfigSSHAddRejectsMixingLegacyWithNewKey(t *testing.T) {
-	isolateConfig(t)
-
-	projectDir := t.TempDir()
-	keyDirA := writeNamedSSHKeyDirectory(t, "legacy_key", true)
-	keyDirB := writeNamedSSHKeyDirectory(t, "second_key", true)
-
-	if err := runConfigSSHSet(projectDir, filepath.Join(keyDirA, "legacy_key")); err != nil {
-		t.Fatalf("runConfigSSHSet: %v", err)
-	}
-	err := runConfigSSHAdd(projectDir, "second", []string{"prod.example.com"}, "", "", filepath.Join(keyDirB, "second_key"))
-	if err == nil || !strings.Contains(err.Error(), "any-host legacy key") {
-		t.Fatalf("want legacy-migration hint, got %v", err)
+	// An inline key with no declared hosts is rejected regardless of
+	// how many other keys are configured.
+	err := runConfigSSHAdd(projectDir, "a", nil, "", "", filepath.Join(keyDirA, "key_a"))
+	if err == nil || !strings.Contains(err.Error(), "inline key has no declared hosts") {
+		t.Fatalf("want inline-empty-hosts rejection, got %v", err)
 	}
 }
 
@@ -1188,37 +972,51 @@ func TestRunConfigSSHAddProfileInheritsDefaultHosts(t *testing.T) {
 	}
 }
 
-func TestProjectSSHConfigNormalizedKeysLegacySingleKey(t *testing.T) {
+func TestProjectSSHConfigNormalizedKeysFlatLegacyReturnsNil(t *testing.T) {
+	// The pre-migration flat shape no longer synthesizes a Keys entry.
+	// loadConfig (via detectLegacyFlatSSH) rejects such configs before
+	// they reach NormalizedKeys; if one somehow does, the function
+	// returns nil rather than fabricating a key.
 	cfg := ProjectSSHConfig{
 		PrivateKeyPath: "/keys/id_ed25519",
 		KnownHostsPath: "/keys/known_hosts",
 	}
-	got := cfg.NormalizedKeys()
-	if len(got) != 1 {
-		t.Fatalf("NormalizedKeys len = %d, want 1", len(got))
-	}
-	if got[0].Name != "id_ed25519" {
-		t.Fatalf("Name = %q, want id_ed25519 (basename of PrivateKeyPath)", got[0].Name)
-	}
-	if got[0].PrivateKeyPath != "/keys/id_ed25519" || got[0].KnownHostsPath != "/keys/known_hosts" {
-		t.Fatalf("legacy paths not preserved: %+v", got[0])
-	}
-	if len(got[0].Hosts) != 0 {
-		t.Fatalf("Hosts = %v, want empty (any-host fallback)", got[0].Hosts)
+	if got := cfg.NormalizedKeys(); got != nil {
+		t.Fatalf("NormalizedKeys on flat legacy = %+v, want nil", got)
 	}
 }
 
-func TestProjectSSHConfigNormalizedKeysLegacyUnparseableBasenameFallsBackToDefault(t *testing.T) {
+func TestDetectLegacyFlatSSHEmitsMigrationSnippet(t *testing.T) {
 	cfg := ProjectSSHConfig{
-		PrivateKeyPath: "/keys/my key!",
+		PrivateKeyPath: "/keys/id_ed25519",
 		KnownHostsPath: "/keys/known_hosts",
 	}
-	got := cfg.NormalizedKeys()
-	if len(got) != 1 {
-		t.Fatalf("NormalizedKeys len = %d, want 1", len(got))
+	err := detectLegacyFlatSSH("/tmp/proj", cfg)
+	if err == nil {
+		t.Fatal("want rejection for flat legacy shape")
 	}
-	if got[0].Name != "default" {
-		t.Fatalf("Name = %q, want default (basename has invalid chars)", got[0].Name)
+	for _, fragment := range []string{
+		"retired single-key SSH shape",
+		"/tmp/proj",
+		"ssh:",
+		"keys:",
+		"- name: default",
+		"private_key: /keys/id_ed25519",
+		"known_hosts: /keys/known_hosts",
+		"hosts: [github.com]",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("migration snippet missing %q:\n%s", fragment, err.Error())
+		}
+	}
+}
+
+func TestDetectLegacyFlatSSHPassesWhenKeysListPresent(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", PrivateKeyPath: "/p", Hosts: []string{"github.com"}}},
+	}
+	if err := detectLegacyFlatSSH("/tmp/proj", cfg); err != nil {
+		t.Fatalf("multi-key config should not trigger legacy detection: %v", err)
 	}
 }
 
@@ -1245,13 +1043,6 @@ func TestProjectSSHConfigNormalizedKeysMultiKey(t *testing.T) {
 func TestProjectSSHConfigNormalizedKeysEmpty(t *testing.T) {
 	if got := (ProjectSSHConfig{}).NormalizedKeys(); got != nil {
 		t.Fatalf("NormalizedKeys on empty config = %v, want nil", got)
-	}
-}
-
-func TestValidateProjectSSHConfigAcceptsLegacyFlat(t *testing.T) {
-	cfg := ProjectSSHConfig{PrivateKeyPath: "/k", KnownHostsPath: "/k.kh"}
-	if err := ValidateProjectSSHConfig(cfg); err != nil {
-		t.Fatalf("legacy flat should validate: %v", err)
 	}
 }
 
@@ -1292,25 +1083,27 @@ func TestValidateProjectSSHConfigRejectsWildcardOverlap(t *testing.T) {
 	}
 }
 
-func TestValidateProjectSSHConfigRejectsMultiKeyWithEmptyHosts(t *testing.T) {
-	cfg := ProjectSSHConfig{
-		Keys: []ProjectSSHKey{
-			{Name: "a", PrivateKeyPath: "/a", Hosts: []string{"github.com"}},
-			{Name: "b", PrivateKeyPath: "/b"},
-		},
-	}
-	err := ValidateProjectSSHConfig(cfg)
-	if err == nil || !strings.Contains(err.Error(), "legacy any-host fallback") {
-		t.Fatalf("want legacy-multi rejection, got %v", err)
-	}
-}
-
-func TestValidateProjectSSHConfigAcceptsSingleKeyWithEmptyHosts(t *testing.T) {
+func TestValidateProjectSSHConfigRejectsInlineKeyWithEmptyHostsEvenSingle(t *testing.T) {
+	// After the any-host fallback retirement (sandboxing-qq9b), an inline
+	// key with no declared hosts is rejected regardless of how many keys
+	// are configured.
 	cfg := ProjectSSHConfig{
 		Keys: []ProjectSSHKey{{Name: "only", PrivateKeyPath: "/k"}},
 	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "inline key has no declared hosts") {
+		t.Fatalf("want inline-empty-hosts rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigAcceptsProfileKeyWithEmptyHosts(t *testing.T) {
+	// Profile-referencing keys with empty declared hosts remain valid —
+	// they inherit default_hosts from the profile.
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "shared", Profile: "github"}},
+	}
 	if err := ValidateProjectSSHConfig(cfg); err != nil {
-		t.Fatalf("single-key any-host should validate: %v", err)
+		t.Fatalf("profile-referencing key with empty hosts should still pass format check: %v", err)
 	}
 }
 
@@ -1396,18 +1189,17 @@ func TestValidateProjectSSHConfigRejectsInvalidHost(t *testing.T) {
 	}
 }
 
-func TestSelectSessionGitSSHKeyLegacyAnyHostServesAny(t *testing.T) {
+func TestSelectSessionGitSSHKeyRejectsEmptyAllowedHosts(t *testing.T) {
+	// After the any-host fallback retirement, a single key with empty
+	// AllowedHosts cannot reach selectSessionGitSSHKey (ValidateProjectSSHConfig
+	// and detectLegacyFlatSSH reject it at config load). If it somehow
+	// did, no host would match and the lookup would reject.
 	cfg := &sessionGitSSHConfig{
-		Keys: []sessionGitSSHKey{{Name: "default", PrivateKeyPath: "/k", KnownHostsPath: "/kh"}},
+		Keys: []sessionGitSSHKey{{Name: "only", PrivateKeyPath: "/k", KnownHostsPath: "/kh"}},
 	}
-	for _, host := range []string{"github.com", "prod.example.com", "anything.else"} {
-		got, err := selectSessionGitSSHKey(cfg, host)
-		if err != nil {
-			t.Fatalf("select(%q): %v", host, err)
-		}
-		if got.Name != "default" {
-			t.Fatalf("select(%q) = %q, want default", host, got.Name)
-		}
+	_, err := selectSessionGitSSHKey(cfg, "github.com")
+	if err == nil || !strings.Contains(err.Error(), "no SSH key configured for host") {
+		t.Fatalf("want rejection for empty AllowedHosts, got %v", err)
 	}
 }
 
