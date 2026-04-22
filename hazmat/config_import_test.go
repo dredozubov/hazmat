@@ -54,6 +54,28 @@ func testOpenCodeImportEnv(t *testing.T) opencodeImportEnv {
 	}
 }
 
+func testGeminiImportEnv(t *testing.T) geminiImportEnv {
+	t.Helper()
+
+	hostHome := filepath.Join(t.TempDir(), "host")
+	agentHome := filepath.Join(t.TempDir(), "agent")
+	for _, dir := range []string{
+		hostHome,
+		agentHome,
+		filepath.Join(hostHome, ".gemini"),
+		filepath.Join(agentHome, ".gemini"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	return geminiImportEnv{
+		hostHome:  hostHome,
+		agentHome: agentHome,
+	}
+}
+
 func testCodexImportEnv(t *testing.T) codexImportEnv {
 	t.Helper()
 
@@ -571,6 +593,109 @@ func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
 	}
 	if plan.hasActionableChanges() {
 		t.Fatal("expected matching auth file to be unchanged, not actionable")
+	}
+}
+
+func TestScanGeminiImportPlanIncludesAuthSettingsAndIdentity(t *testing.T) {
+	env := testGeminiImportEnv(t)
+
+	writeTestFile(t, env.hostOAuthFile(), `{"refresh_token":"r","access_token":"a"}`)
+	writeTestFile(t, env.hostAccountsFile(), `{"active":"user@example.com"}`)
+	writeTestFile(t, env.hostSettingsFile(), `{"model":"gemini-3"}`)
+	writeTestFile(t, env.hostGeminiMDFile(), "# my preferences\n")
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	plan, err := scanGeminiImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanGeminiImportPlan: %v", err)
+	}
+
+	for _, expected := range []string{"sign-in", "git identity", "settings", "memory"} {
+		if !plan.hasCategory(expected) {
+			t.Fatalf("missing category %q in plan", expected)
+		}
+	}
+}
+
+func TestApplyGeminiImportPlanCopiesAllPortableArtifacts(t *testing.T) {
+	env := testGeminiImportEnv(t)
+
+	oauth := `{"refresh_token":"rrr","access_token":"aaa"}`
+	settings := `{"model":"gemini-3"}`
+	memory := "# remember this\n"
+	writeTestFile(t, env.hostOAuthFile(), oauth)
+	writeTestFile(t, env.hostSettingsFile(), settings)
+	writeTestFile(t, env.hostGeminiMDFile(), memory)
+	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
+
+	plan, err := scanGeminiImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanGeminiImportPlan: %v", err)
+	}
+	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+		t.Fatalf("resolveConflicts: %v", err)
+	}
+	if _, err := applyGeminiImportPlan(plan, env, nil); err != nil {
+		t.Fatalf("applyGeminiImportPlan: %v", err)
+	}
+
+	for path, want := range map[string]string{
+		env.agentOAuthFile():    oauth,
+		env.agentSettingsFile(): settings,
+		env.agentGeminiMDFile(): memory,
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if string(raw) != want {
+			t.Fatalf("agent %s = %q, want %q", path, raw, want)
+		}
+	}
+
+	gitConfig, err := os.ReadFile(env.agentGitConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(gitConfig), "name = Denis", "email = denis@example.com") {
+		t.Fatalf("agent gitconfig missing imported identity:\n%s", gitConfig)
+	}
+}
+
+func TestScanGeminiImportPlanSkipsAbsentArtifacts(t *testing.T) {
+	env := testGeminiImportEnv(t)
+
+	// Only OAuth + settings present; memory + accounts absent.
+	writeTestFile(t, env.hostOAuthFile(), `{"refresh_token":"r"}`)
+	writeTestFile(t, env.hostSettingsFile(), `{}`)
+
+	plan, err := scanGeminiImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanGeminiImportPlan: %v", err)
+	}
+
+	for _, item := range plan.Items {
+		if item.Kind == geminiImportAccountsFile || item.Kind == geminiImportGeminiMD {
+			t.Fatalf("expected absent artifact %s to be skipped, found in plan", item.Kind)
+		}
+	}
+}
+
+func TestScanGeminiImportPlanDetectsConflict(t *testing.T) {
+	env := testGeminiImportEnv(t)
+
+	writeTestFile(t, env.hostOAuthFile(), `{"refresh_token":"host"}`)
+	writeTestFile(t, env.agentOAuthFile(), `{"refresh_token":"agent"}`)
+
+	plan, err := scanGeminiImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanGeminiImportPlan: %v", err)
+	}
+	if plan.conflictCount() != 1 {
+		t.Fatalf("expected 1 conflict, got %d", plan.conflictCount())
+	}
+	if err := plan.resolveConflicts(claudeConflictFail); err == nil {
+		t.Fatal("expected conflict resolution to fail without explicit policy")
 	}
 }
 

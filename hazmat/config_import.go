@@ -170,6 +170,7 @@ and skills.`,
 	cmd.AddCommand(newConfigImportClaudeCmd())
 	cmd.AddCommand(newConfigImportCodexCmd())
 	cmd.AddCommand(newConfigImportOpenCodeCmd())
+	cmd.AddCommand(newConfigImportGeminiCmd())
 	return cmd
 }
 

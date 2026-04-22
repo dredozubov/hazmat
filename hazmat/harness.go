@@ -238,8 +238,24 @@ func (h GeminiHarness) Bootstrap(ui *UI, r *Runner) error {
 	return nil
 }
 
+func (h GeminiHarness) ImportBasics(ui *UI, r *Runner, env geminiImportEnv, opts geminiImportOptions) error {
+	if err := runGeminiBasicsImport(ui, r, env, opts); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordBasicsImported(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
 func (h GeminiHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
+}
+
+func (h GeminiHarness) RecordBasicsImported() error {
+	return recordHarnessImportRun(h.Spec())
 }
 
 func managedHarnesses() []ManagedHarness {
