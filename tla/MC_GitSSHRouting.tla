@@ -1,16 +1,25 @@
 ---- MODULE MC_GitSSHRouting ----
 \* Multi-key Git-SSH routing — verifies that every destination host maps to
 \* exactly one configured SSH key (bound to a unique identity-agent socket)
-\* or is rejected, and that an ambiguous or socket-colliding config cannot
-\* reach a session.
+\* or is rejected, and that an ambiguous, socket-colliding, or
+\* dangling-profile config cannot reach a session.
 \*
 \* Abstraction:
 \*   A project SSH config is a finite set of named keys. Each key carries:
 \*     - a declared host set (after glob expansion, before normalization)
 \*     - an identity-agent socket it binds to at runtime
-\*   A project may be in "legacy single-key" mode: exactly one present key
-\*   with an empty declared host set, which normalizes to "any host." With
-\*   two or more present keys, any empty declared host set is an error.
+\*     - an optional reference to a named profile (NoProfile when inline)
+\*   A profile, when defined, contributes default host inheritance: if the
+\*   project key declares no hosts of its own, the profile's default hosts
+\*   apply. Profile references that point to undefined profiles are a
+\*   config-load failure.
+\*
+\*   A project may also be in "legacy single-key" mode: exactly one present
+\*   inline key with an empty declared host set, which normalizes to "any
+\*   host." With two or more present keys, any inline key with an empty
+\*   declared set is an error. The legacy fallback never applies to a key
+\*   that references a profile — that case inherits the profile's default
+\*   hosts instead (which may itself be empty, leaving the key unrouted).
 \*
 \*   The wrapper lookup on host h returns:
 \*     - reject                           — no configured key matches h
@@ -18,17 +27,22 @@
 \*   The lookup must never return two candidates, and the returned socket
 \*   must be the unique socket bound to the selected key.
 \*
-\* Governed code (planned):
-\*   hazmat/config.go  — config-set-time overlap + socket-collision checks,
-\*                       legacy single-key normalization.
-\*   hazmat/git_ssh.go — wrapper socket selection, host allowlist enforcement,
-\*                       IdentityAgent emission.
+\* Governed code:
+\*   hazmat/config.go  — config-set-time overlap check, legacy-multi
+\*                       rejection, profile/inline mutual-exclusion check,
+\*                       dangling-profile rejection, profile default-host
+\*                       inheritance.
+\*   hazmat/git_ssh.go — wrapper socket selection, host allowlist
+\*                       enforcement, IdentityAgent emission, session-time
+\*                       socket-collision check.
 \*
 \* Scope boundary:
 \*   This spec models the routing relation after glob expansion and the
-\*   socket-to-key binding. It does not model glob syntax, shell quoting,
-\*   signal handling, or ssh-agent liveness. Those are governed by unit
-\*   tests against the wrapper script and runtime code.
+\*   socket-to-key binding, including the profile resolution layer above
+\*   that. It does not model glob syntax, shell quoting, signal handling,
+\*   ssh-agent liveness, or profile rename / removal cascade semantics.
+\*   Those are governed by unit tests against the wrapper script and the
+\*   CLI surface in config.go.
 
 EXTENDS Naturals, FiniteSets
 
@@ -37,64 +51,114 @@ EXTENDS Naturals, FiniteSets
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 CONSTANTS
-    Hosts,      \* finite set of candidate destination hosts
-    KeyNames,   \* finite set of candidate key identifiers
-    Sockets     \* finite set of identity-agent socket identifiers
+    Hosts,        \* finite set of candidate destination hosts
+    KeyNames,     \* finite set of candidate key identifiers
+    Sockets,      \* finite set of identity-agent socket identifiers
+    ProfileNames, \* finite set of candidate profile identifiers
+    NoProfile     \* sentinel meaning "no profile reference" (inline key)
+
+ASSUME NoProfile \notin ProfileNames
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Variables
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 VARIABLES
-    assignment,   \* KeyNames -> SUBSET Hosts  (declared hosts per key)
-    socket,       \* KeyNames -> Sockets       (identity-agent socket binding)
-    present,      \* SUBSET KeyNames           (keys actually configured)
-    effective,    \* KeyNames -> SUBSET Hosts  (hosts after normalization)
-    configValid,  \* BOOLEAN                   (passed config-set validation)
-    phase         \* "init" | "ready" | "rejected"
+    assignment,            \* KeyNames -> SUBSET Hosts (declared per-key hosts)
+    socket,                \* KeyNames -> Sockets (per-key socket binding)
+    present,               \* SUBSET KeyNames (keys actually configured)
+    keyProfile,            \* KeyNames -> ProfileNames \cup {NoProfile}
+    inlineMaterial,        \* KeyNames -> BOOLEAN (key declares 'private_key:' or 'key:')
+    profileDefaultHosts,   \* ProfileNames -> SUBSET Hosts
+    definedProfiles,       \* SUBSET ProfileNames (profiles in ssh_profiles:)
+    effective,             \* KeyNames -> SUBSET Hosts (after normalization)
+    configValid,           \* BOOLEAN (passed config-set validation)
+    phase                  \* "init" | "ready" | "rejected"
 
-vars == <<assignment, socket, present, effective, configValid, phase>>
+vars == <<assignment, socket, present, keyProfile, inlineMaterial,
+          profileDefaultHosts, definedProfiles, effective, configValid, phase>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Legacy fallback — exactly one present key with empty declared hosts
-\* normalizes to "any host." Two or more present keys with any empty
-\* declared set is an error.
+\* Profile and legacy classification
+\*   InlineKey(k)        — k is a present key with no profile reference
+\*   ProfileKey(k)       — k is a present key referencing a defined profile
+\*   LegacySingle        — exactly one present inline key with empty hosts
+\*   LegacyMultiInvalid  — 2+ present keys, at least one inline with empty hosts
 \* ═══════════════════════════════════════════════════════════════════════════════
+
+InlineKey(k) ==
+    /\ k \in present
+    /\ keyProfile[k] = NoProfile
+
+ProfileKey(k) ==
+    /\ k \in present
+    /\ keyProfile[k] \in definedProfiles
+
+\* A key that declares both a profile reference AND inline identity
+\* material (private_key: / key:) is a schema-level conflict. The Go
+\* validator must reject it at config-load time.
+HasProfileInlineConflict(k) ==
+    /\ k \in present
+    /\ keyProfile[k] /= NoProfile
+    /\ inlineMaterial[k]
+
+\* A present key with no profile reference AND no inline material has no
+\* identity source at all. The Go validator must reject it.
+IsOrphanKey(k) ==
+    /\ k \in present
+    /\ keyProfile[k] = NoProfile
+    /\ ~inlineMaterial[k]
 
 LegacySingle ==
     /\ Cardinality(present) = 1
-    /\ \E k \in present : assignment[k] = {}
+    /\ \E k \in present : InlineKey(k) /\ assignment[k] = {}
 
 LegacyMultiInvalid ==
     /\ Cardinality(present) >= 2
-    /\ \E k \in present : assignment[k] = {}
+    /\ \E k \in present : InlineKey(k) /\ assignment[k] = {}
 
+\* Normalize(k) computes the effective host set for key k after profile
+\* inheritance and legacy fallback are applied. A key that references a
+\* profile inherits the profile's default hosts when its own host list is
+\* empty. A lone inline key with empty hosts expands to all hosts (legacy
+\* any-host fallback). Otherwise the declared hosts apply as-is.
 Normalize(k) ==
-    IF LegacySingle /\ k \in present /\ assignment[k] = {}
-    THEN Hosts
-    ELSE assignment[k]
+    IF k \in present /\ keyProfile[k] \in definedProfiles
+    THEN IF assignment[k] = {}
+         THEN profileDefaultHosts[keyProfile[k]]
+         ELSE assignment[k]
+    ELSE IF LegacySingle /\ k \in present /\ assignment[k] = {}
+         THEN Hosts
+         ELSE assignment[k]
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Init — nondeterministic choice of config
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 Init ==
-    /\ assignment  \in [KeyNames -> SUBSET Hosts]
-    /\ socket      \in [KeyNames -> Sockets]
-    /\ present     \in (SUBSET KeyNames) \ {{}}   \* empty configs are out of scope
-    /\ effective   = [k \in KeyNames |-> {}]
-    /\ configValid = FALSE
-    /\ phase       = "init"
+    /\ assignment          \in [KeyNames -> SUBSET Hosts]
+    /\ socket              \in [KeyNames -> Sockets]
+    /\ present             \in (SUBSET KeyNames) \ {{}}
+    /\ keyProfile          \in [KeyNames -> ProfileNames \cup {NoProfile}]
+    /\ inlineMaterial      \in [KeyNames -> BOOLEAN]
+    /\ profileDefaultHosts \in [ProfileNames -> SUBSET Hosts]
+    /\ definedProfiles     \in SUBSET ProfileNames
+    /\ effective           = [k \in KeyNames |-> {}]
+    /\ configValid         = FALSE
+    /\ phase               = "init"
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Validation — checks performed before a config is allowed to reach "ready."
 \*   1. Legacy multi-key ambiguity        — owned by config.go at config-set time
 \*   2. Effective host-set overlap        — owned by config.go at config-set time
-\*   3. Identity-agent socket collision   — owned by git_ssh.go during session
+\*   3. Dangling profile reference        — owned by config.go at config-load time
+\*   4. Profile + inline identity clash   — owned by config.go at config-load time
+\*   5. Orphan key (no identity source)   — owned by config.go at config-load time
+\*   6. Identity-agent socket collision   — owned by git_ssh.go during session
 \*                                          preparation; sockets are runtime
 \*                                          artifacts allocated per session, not
 \*                                          values stored in the config file.
-\* The spec checks all three together because the union is what every wrapper
+\* The spec checks all six together because the union is what every wrapper
 \* invocation actually relies on.
 \* ═══════════════════════════════════════════════════════════════════════════════
 
@@ -108,12 +172,25 @@ Validate ==
            SocketCollision ==
                \E k1, k2 \in present :
                    k1 /= k2 /\ socket[k1] = socket[k2]
-       IN  IF LegacyMultiInvalid \/ HasOverlap \/ SocketCollision
+           HasDanglingProfile ==
+               \E k \in present :
+                   keyProfile[k] /= NoProfile /\ keyProfile[k] \notin definedProfiles
+           HasInlineConflict ==
+               \E k \in present : HasProfileInlineConflict(k)
+           HasOrphan ==
+               \E k \in present : IsOrphanKey(k)
+       IN  IF \/ LegacyMultiInvalid
+              \/ HasOverlap
+              \/ SocketCollision
+              \/ HasDanglingProfile
+              \/ HasInlineConflict
+              \/ HasOrphan
            THEN /\ configValid' = FALSE
                 /\ phase'       = "rejected"
            ELSE /\ configValid' = TRUE
                 /\ phase'       = "ready"
-    /\ UNCHANGED <<assignment, socket, present>>
+    /\ UNCHANGED <<assignment, socket, present, keyProfile, inlineMaterial,
+                   profileDefaultHosts, definedProfiles>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Routing — wrapper lookup on a destination host
@@ -121,10 +198,6 @@ Validate ==
 
 Matching(h) == {k \in present : h \in effective[k]}
 
-\* Lookup is only defined once the config has been accepted. Callers assert
-\* phase = "ready" before invoking the wrapper. When a unique key matches,
-\* the returned record carries both the key name and the socket that the
-\* wrapper must pass as IdentityAgent.
 Lookup(h) ==
     IF Matching(h) = {}
     THEN [outcome |-> "reject", name |-> "none", socket |-> "none"]
@@ -143,12 +216,16 @@ Spec == Init /\ [][Next]_vars
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 TypeOK ==
-    /\ assignment  \in [KeyNames -> SUBSET Hosts]
-    /\ socket      \in [KeyNames -> Sockets]
-    /\ present     \subseteq KeyNames
-    /\ effective   \in [KeyNames -> SUBSET Hosts]
-    /\ configValid \in BOOLEAN
-    /\ phase       \in {"init", "ready", "rejected"}
+    /\ assignment          \in [KeyNames -> SUBSET Hosts]
+    /\ socket              \in [KeyNames -> Sockets]
+    /\ present             \subseteq KeyNames
+    /\ keyProfile          \in [KeyNames -> ProfileNames \cup {NoProfile}]
+    /\ inlineMaterial      \in [KeyNames -> BOOLEAN]
+    /\ profileDefaultHosts \in [ProfileNames -> SUBSET Hosts]
+    /\ definedProfiles     \subseteq ProfileNames
+    /\ effective           \in [KeyNames -> SUBSET Hosts]
+    /\ configValid         \in BOOLEAN
+    /\ phase               \in {"init", "ready", "rejected"}
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Safety invariants
@@ -175,25 +252,52 @@ HostsOutsideAllowlistRejected ==
             (Matching(h) = {}) => (Lookup(h).outcome = "reject")
 
 \* --- LegacyFallbackSingleOnly ---
-\* The legacy any-host fallback is only safe with exactly one present key.
-\* Any config with 2+ present keys where any key has an empty declared host
-\* set must be rejected.
+\* The legacy any-host fallback is only safe with exactly one present key,
+\* and it only applies to inline keys (keys with no profile reference). A
+\* profile-referencing key inherits its hosts from profile defaults rather
+\* than expanding to "any host."
 LegacyFallbackSingleOnly ==
     phase = "ready" =>
-        ((\E k \in present : assignment[k] = {}) => Cardinality(present) = 1)
+        ((\E k \in present : InlineKey(k) /\ assignment[k] = {})
+            => Cardinality(present) = 1)
 
 \* --- SocketsDistinctForPresent ---
-\* No two present keys share an identity-agent socket. Config-set validation
-\* must reject collisions.
+\* No two present keys share an identity-agent socket. Two project keys that
+\* reference the same profile still allocate distinct per-session sockets,
+\* so this invariant is unchanged by profile resolution.
 SocketsDistinctForPresent ==
     phase = "ready" =>
         \A k1, k2 \in present :
             k1 /= k2 => socket[k1] /= socket[k2]
 
+\* --- NoDanglingProfileRefs ---
+\* Every profile reference resolves to a defined profile. Dangling references
+\* are a config-load failure, not a session-launch failure.
+NoDanglingProfileRefs ==
+    phase = "ready" =>
+        \A k \in present :
+            \/ keyProfile[k] = NoProfile
+            \/ keyProfile[k] \in definedProfiles
+
+\* --- NoProfileInlineConflict ---
+\* A key that declares both a profile reference and inline identity
+\* material (private_key: / key:) is a schema-level conflict. The Go
+\* validator must catch it at config-load; the spec checks that no such
+\* key reaches a ready config.
+NoProfileInlineConflict ==
+    phase = "ready" =>
+        \A k \in present : ~HasProfileInlineConflict(k)
+
+\* --- PresentKeysHaveIdentity ---
+\* Every present key has either a profile reference or inline identity
+\* material. An orphan key (neither) must never reach a ready config.
+PresentKeysHaveIdentity ==
+    phase = "ready" =>
+        \A k \in present : ~IsOrphanKey(k)
+
 \* --- NoCrossKey ---
 \* When exactly one key matches the host, the lookup's socket is the
-\* binding of that key and no other present key shares it. This is the
-\* routing-plus-binding half of the per-key socket contract.
+\* binding of that key and no other present key shares it.
 NoCrossKey ==
     phase = "ready" =>
         \A h \in Hosts :

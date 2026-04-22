@@ -483,8 +483,8 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
 | Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
 | Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
-| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `LegacyFallbackSingleOnly`, `SocketsDistinctForPresent`, `NoCrossKey` |
-| Status | **Proved and Implemented** — config-set-time overlap and legacy rejection live in `config.go`; session-time socket allocation and host-based wrapper routing live in `git_ssh.go` |
+| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `LegacyFallbackSingleOnly`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `NoCrossKey` |
+| Status | **Spec proved; Go in progress** — multi-key routing (sandboxing-vmg1) is fully implemented; reusable profile layer (sandboxing-nm5o) is modeled and passing TLC, Go resolver and CLI follow |
 
 **What this verifies:**
 
@@ -497,18 +497,36 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
    `ValidateProjectSSHConfig` enforces the spec's
    `OverlapRejectedAtConfigTime` invariant.
 
-3. **Legacy single-key fallback is preserved:** exactly one configured key
-   with no declared hosts acts as the any-host legacy shape. Two or more
-   keys where any one has an empty host list is rejected. This matches
-   `LegacyFallbackSingleOnly`.
+3. **Legacy single-key fallback is preserved:** exactly one configured
+   inline key with no declared hosts acts as the any-host legacy shape.
+   Two or more keys where any inline one has an empty host list is
+   rejected. Profile-referencing keys never trigger the legacy fallback —
+   a single profile-referencing key with no declared hosts inherits the
+   profile's `default_hosts` and may resolve to an empty effective set
+   (routing nothing) rather than expanding to all hosts. Proved by
+   `LegacyFallbackSingleOnly` on the narrowed inline-only condition.
 
 4. **Per-key identity-agent sockets are distinct:** session-time socket
    allocation derives paths from validated key names and asserts pairwise
-   distinctness before entering the wrapper. The socket-to-key binding is
-   owned by `git_ssh.go` because sockets are per-session runtime artifacts,
-   not values stored in the config file.
+   distinctness before entering the wrapper. Two project keys that
+   reference the same profile still allocate separate sockets.
 
-TLC passes across 193,536 distinct states (290,304 generated, depth 2, ~2s).
+5. **Profile references cannot dangle:** every profile name used by a
+   project key must exist in `ssh_profiles:`. Dangling references are
+   rejected at config load, not session launch. Proved by
+   `NoDanglingProfileRefs`.
+
+6. **Profile and inline identity are mutually exclusive:** a key that
+   declares both a profile reference and inline `private_key:` is a
+   schema-level conflict. The spec models `inlineMaterial` explicitly so
+   TLC can reach the conflict state and witness the rejection. Proved by
+   `NoProfileInlineConflict`.
+
+7. **No orphan keys:** every present key has an identity source (a profile
+   reference or inline material). A present key with neither is rejected.
+   Proved by `PresentKeysHaveIdentity`.
+
+TLC passes across 884,736 distinct states (1,327,104 generated, depth 2, ~1 min).
 
 **Scope boundary:**
 
