@@ -111,13 +111,22 @@ func dieUsage() {
 
 // closeInheritedFDs drops every non-stdio descriptor before any helper logic
 // runs. sandbox_init() cannot revoke access granted by an already-open handle.
+//
+// Enumerates actually-open fds via /dev/fd/ (always present on Darwin) instead
+// of iterating from 3 to RLIMIT_NOFILE. RLIMIT_NOFILE can be RLIM_INFINITY
+// (~9 quintillion on macOS when the parent shell has 'ulimit -n unlimited'),
+// which would hang the loop forever.
 func closeInheritedFDs() error {
-	var limit unix.Rlimit
-	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &limit); err != nil {
-		return fmt.Errorf("getrlimit RLIMIT_NOFILE: %w", err)
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		return fmt.Errorf("read /dev/fd: %w", err)
 	}
 
-	for fd := 3; fd < int(limit.Cur); fd++ {
+	for _, entry := range entries {
+		fd, parseErr := strconv.Atoi(entry.Name())
+		if parseErr != nil || fd < 3 {
+			continue
+		}
 		if err := unix.Close(fd); err != nil && err != unix.EBADF {
 			return fmt.Errorf("close fd %d: %w", fd, err)
 		}
