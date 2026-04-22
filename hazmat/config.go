@@ -1034,6 +1034,7 @@ func newConfigSSHCmd() *cobra.Command {
 	var addName string
 	var addHosts []string
 	var addInventory string
+	var addProfile string
 	var removeName string
 
 	setCmd := &cobra.Command{
@@ -1059,17 +1060,23 @@ func newConfigSSHCmd() *cobra.Command {
 more keys are configured, each must declare its own --host list; the wrapper
 routes destination hosts to exactly one key.
 
+Provide exactly one identity source per key: a private-key path, --inventory
+for a provisioned inventory key, or --profile to reference a shared profile
+from ssh_profiles.
+
 Examples:
   hazmat config ssh add --name github --host github.com ~/.ssh/id_ed25519
   hazmat config ssh add --name prod --host prod.example.com --host '*.prod.example.com' ~/.ssh/prod_key
-  hazmat config ssh add --name github --host github.com --inventory github-bot`,
+  hazmat config ssh add --name github --host github.com --inventory github-bot
+  hazmat config ssh add --name work --profile github-work
+  hazmat config ssh add --name enterprise --profile github-work --host enterprise.internal`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			keyArg := ""
 			if len(args) == 1 {
 				keyArg = args[0]
 			}
-			return runConfigSSHAdd(project, addName, addHosts, addInventory, keyArg)
+			return runConfigSSHAdd(project, addName, addHosts, addInventory, addProfile, keyArg)
 		},
 	}
 	addCmd.Flags().StringVarP(&project, "project", "C", "",
@@ -1080,6 +1087,8 @@ Examples:
 		"Destination host this key serves (repeatable, supports glob)")
 	addCmd.Flags().StringVar(&addInventory, "inventory", "",
 		"Reference a provisioned key from ~/.hazmat/ssh/keys/<name>/ instead of a path")
+	addCmd.Flags().StringVar(&addProfile, "profile", "",
+		"Reference a shared SSH profile defined in ssh_profiles")
 
 	removeCmd := &cobra.Command{
 		Use:   "remove",
@@ -1189,7 +1198,100 @@ Examples:
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(setCmd, addCmd, removeCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd)
+	cmd.AddCommand(setCmd, addCmd, removeCmd, showCmd, testCmd, unsetCmd, clearCmd, listCmd, newConfigSSHProfileCmd())
+	return cmd
+}
+
+func newConfigSSHProfileCmd() *cobra.Command {
+	var (
+		addKnownHosts    string
+		addDefaultHosts  []string
+		addDescription   string
+		removeForce      bool
+	)
+
+	addCmd := &cobra.Command{
+		Use:   "add <name> <private_key_path>",
+		Short: "Define a reusable SSH profile",
+		Long: `Create a named SSH profile usable from any project via
+'hazmat config ssh add --profile <name>'. The profile holds the private
+key identity, optional known_hosts override, and an optional
+default_hosts list that projects inherit unless they override with --host.
+
+Examples:
+  hazmat config ssh profile add github ~/.ssh/keys/github/id_ed25519 \
+      --default-host github.com --description "personal github"
+  hazmat config ssh profile add prod ~/.ssh/keys/prod/id_ed25519 \
+      --known-hosts ~/.ssh/keys/prod/known_hosts \
+      --default-host prod.example.com --default-host '*.prod.example.com'`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runConfigSSHProfileAdd(args[0], args[1], addKnownHosts, addDefaultHosts, addDescription)
+		},
+	}
+	addCmd.Flags().StringVar(&addKnownHosts, "known-hosts", "",
+		"known_hosts file for this profile (defaults to <private_key_dir>/known_hosts)")
+	addCmd.Flags().StringArrayVar(&addDefaultHosts, "default-host", nil,
+		"Default destination host for projects that reference this profile (repeatable)")
+	addCmd.Flags().StringVar(&addDescription, "description", "",
+		"Human-readable description for ssh profile list")
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List defined SSH profiles and their project referrers",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runConfigSSHProfileList()
+		},
+	}
+
+	showCmd := &cobra.Command{
+		Use:   "show <name>",
+		Short: "Show one SSH profile in detail",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runConfigSSHProfileShow(args[0])
+		},
+	}
+
+	removeCmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove an SSH profile (refuses while projects reference it)",
+		Long: `Remove a profile from ssh_profiles. If any project keys still
+reference the profile, the command refuses and lists the referrers. Pass
+--force to detach every project reference AND remove the profile in one
+operation.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runConfigSSHProfileRemove(args[0], removeForce)
+		},
+	}
+	removeCmd.Flags().BoolVar(&removeForce, "force", false,
+		"Detach project references and remove the profile")
+
+	renameCmd := &cobra.Command{
+		Use:   "rename <old> <new>",
+		Short: "Rename an SSH profile and update all project references",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runConfigSSHProfileRename(args[0], args[1])
+		},
+	}
+
+	cmd := &cobra.Command{
+		Use:   "profile",
+		Short: "Manage reusable SSH profiles shared across projects",
+		Long: `Reusable SSH profiles let one identity serve many projects.
+Create a profile with 'profile add', then reference it from any project
+with 'hazmat config ssh add --profile <name>'. A profile's default_hosts
+are inherited by referring project keys that declare no hosts of their
+own; declared --host lists always override.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			return c.Help()
+		},
+	}
+	cmd.AddCommand(addCmd, listCmd, showCmd, removeCmd, renameCmd)
 	return cmd
 }
 
@@ -1567,7 +1669,7 @@ func runConfigSSHSet(project, keyName string) error {
 	return nil
 }
 
-func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg string) error {
+func runConfigSSHAdd(project, name string, hosts []string, inventory, profile, keyArg string) error {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return fmt.Errorf("project: %w", err)
@@ -1575,35 +1677,28 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg str
 
 	name = strings.TrimSpace(name)
 	inventory = strings.TrimSpace(inventory)
+	profile = strings.TrimSpace(profile)
 	keyArg = strings.TrimSpace(keyArg)
 
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	if inventory != "" && keyArg != "" {
-		return fmt.Errorf("provide either --inventory or a private key path, not both")
-	}
-	if inventory == "" && keyArg == "" {
-		return fmt.Errorf("pass a private key path or --inventory <name>")
-	}
-
-	newKey := ProjectSSHKey{Name: name, Hosts: hosts}
+	sources := 0
 	if inventory != "" {
-		provisioned, err := findProvisionedSSHKey(inventory)
-		if err != nil {
-			return fmt.Errorf("--inventory: %w", err)
-		}
-		if !provisioned.Usable() {
-			return fmt.Errorf("--inventory %q is not usable: %s", provisioned.Name, provisioned.Status)
-		}
-		newKey.Key = provisioned.Name
-	} else {
-		selected, err := resolveSSHKeyPathArg(keyArg)
-		if err != nil {
-			return err
-		}
-		newKey.PrivateKeyPath = selected.PrivateKeyPath
-		newKey.KnownHostsPath = selected.KnownHostsPath
+		sources++
+	}
+	if profile != "" {
+		sources++
+	}
+	if keyArg != "" {
+		sources++
+	}
+	switch sources {
+	case 0:
+		return fmt.Errorf("pass one of: a private key path, --inventory <name>, or --profile <name>")
+	case 1:
+	default:
+		return fmt.Errorf("pass exactly one of: private key path, --inventory, --profile (got %d)", sources)
 	}
 
 	cfg, err := loadConfig()
@@ -1615,6 +1710,36 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg str
 	}
 	projectCfg := cfg.Projects[projectDir]
 
+	newKey := ProjectSSHKey{Name: name, Hosts: hosts}
+	inheritedHosts := []string(nil)
+	switch {
+	case profile != "":
+		prof, ok := cfg.SSHProfiles[profile]
+		if !ok {
+			return fmt.Errorf("--profile: %q is not defined in ssh_profiles (run 'hazmat config ssh profile add')", profile)
+		}
+		newKey.Profile = profile
+		if len(hosts) == 0 {
+			inheritedHosts = append([]string(nil), prof.DefaultHosts...)
+		}
+	case inventory != "":
+		provisioned, err := findProvisionedSSHKey(inventory)
+		if err != nil {
+			return fmt.Errorf("--inventory: %w", err)
+		}
+		if !provisioned.Usable() {
+			return fmt.Errorf("--inventory %q is not usable: %s", provisioned.Name, provisioned.Status)
+		}
+		newKey.Key = provisioned.Name
+	default:
+		selected, err := resolveSSHKeyPathArg(keyArg)
+		if err != nil {
+			return err
+		}
+		newKey.PrivateKeyPath = selected.PrivateKeyPath
+		newKey.KnownHostsPath = selected.KnownHostsPath
+	}
+
 	// Fold any legacy flat form into the Keys list before appending.
 	mergedKeys := append([]ProjectSSHKey(nil), projectCfg.SSH.normalizedForMerge()...)
 	for _, existing := range mergedKeys {
@@ -1622,11 +1747,12 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg str
 			return fmt.Errorf("ssh key %q already exists; remove it first with 'hazmat config ssh remove --name %s'", name, name)
 		}
 	}
-	// A legacy single-key entry with empty hosts cannot coexist with a new
-	// host-scoped key (the TLA LegacyFallbackSingleOnly invariant forbids
-	// it). Tell the user explicitly how to migrate.
+	// A legacy single-key inline entry with empty hosts cannot coexist with
+	// a new host-scoped key (the TLA LegacyFallbackSingleOnly invariant
+	// forbids it). Profile-referencing keys without declared hosts inherit
+	// from the profile, so they're fine alongside other keys.
 	for _, existing := range mergedKeys {
-		if len(existing.Hosts) == 0 {
+		if len(existing.Hosts) == 0 && strings.TrimSpace(existing.Profile) == "" {
 			return fmt.Errorf(
 				"cannot add a second key while %q is configured as an any-host legacy key;\nmigrate it first with:\n  hazmat config ssh remove --name %s\n  hazmat config ssh add --name %s --host <host> <path>",
 				existing.Name, existing.Name, existing.Name)
@@ -1638,6 +1764,9 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg str
 	if err := ValidateProjectSSHConfig(*newSSH); err != nil {
 		return err
 	}
+	if err := ValidateProjectSSHProfileRefs(*newSSH, cfg.SSHProfiles); err != nil {
+		return err
+	}
 
 	projectCfg.SSH = newSSH
 	projectCfg.GitSSH = nil
@@ -1647,10 +1776,16 @@ func runConfigSSHAdd(project, name string, hosts []string, inventory, keyArg str
 	}
 
 	fmt.Printf("Added SSH key %q to %s\n", name, projectDir)
-	if len(hosts) > 0 {
+	if profile != "" {
+		fmt.Printf("  Profile: %s\n", profile)
+	}
+	switch {
+	case len(hosts) > 0:
 		fmt.Printf("  Hosts: %s\n", strings.Join(hosts, ", "))
-	} else {
-		fmt.Printf("  Hosts: (any — legacy fallback, only valid with one key)\n")
+	case len(inheritedHosts) > 0:
+		fmt.Printf("  Hosts: %s (inherited from profile default_hosts)\n", strings.Join(inheritedHosts, ", "))
+	default:
+		fmt.Printf("  Hosts: (any — legacy fallback, only valid with one inline key)\n")
 	}
 	return nil
 }
@@ -1745,6 +1880,292 @@ func (c *ProjectSSHConfig) normalizedForMerge() []ProjectSSHKey {
 		return nil
 	}
 	return c.NormalizedKeys()
+}
+
+func runConfigSSHProfileAdd(name, privateKeyArg, knownHosts string, defaultHosts []string, description string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("profile name is required")
+	}
+	if !projectSSHKeyNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid profile name %q (use letters, digits, '-', '_', '.')", name)
+	}
+	if strings.TrimSpace(privateKeyArg) == "" {
+		return fmt.Errorf("private key path is required")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if _, exists := cfg.SSHProfiles[name]; exists {
+		return fmt.Errorf("profile %q already exists; remove it first with 'hazmat config ssh profile remove %s'", name, name)
+	}
+
+	privateKeyPath, err := canonicalizeConfiguredFile(privateKeyArg)
+	if err != nil {
+		return fmt.Errorf("private_key: %w", err)
+	}
+
+	profile := SSHProfile{
+		PrivateKeyPath: privateKeyPath,
+		DefaultHosts:   append([]string(nil), defaultHosts...),
+		Description:    strings.TrimSpace(description),
+	}
+	if strings.TrimSpace(knownHosts) != "" {
+		resolved, err := canonicalizeConfiguredFile(knownHosts)
+		if err != nil {
+			return fmt.Errorf("known_hosts: %w", err)
+		}
+		profile.KnownHostsPath = resolved
+	}
+
+	if cfg.SSHProfiles == nil {
+		cfg.SSHProfiles = make(map[string]SSHProfile)
+	}
+	cfg.SSHProfiles[name] = profile
+
+	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
+		return err
+	}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Added SSH profile %q\n", name)
+	fmt.Printf("  Private key: %s\n", privateKeyPath)
+	if profile.KnownHostsPath != "" {
+		fmt.Printf("  Known hosts: %s\n", profile.KnownHostsPath)
+	}
+	if len(profile.DefaultHosts) > 0 {
+		fmt.Printf("  Default hosts: %s\n", strings.Join(profile.DefaultHosts, ", "))
+	}
+	if profile.Description != "" {
+		fmt.Printf("  Description: %s\n", profile.Description)
+	}
+	return nil
+}
+
+func runConfigSSHProfileList() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if len(cfg.SSHProfiles) == 0 {
+		fmt.Println("No SSH profiles defined.")
+		fmt.Println("Create one with: hazmat config ssh profile add <name> <private_key_path>")
+		return nil
+	}
+	names := make([]string, 0, len(cfg.SSHProfiles))
+	for name := range cfg.SSHProfiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	fmt.Println("Defined SSH profiles:")
+	for _, name := range names {
+		profile := cfg.SSHProfiles[name]
+		referrers := findProfileReferrers(cfg, name)
+		fmt.Printf("\n  %s\n", name)
+		fmt.Printf("    Private key:    %s\n", profile.PrivateKeyPath)
+		if len(profile.DefaultHosts) > 0 {
+			fmt.Printf("    Default hosts:  %s\n", strings.Join(profile.DefaultHosts, ", "))
+		}
+		if profile.Description != "" {
+			fmt.Printf("    Description:    %s\n", profile.Description)
+		}
+		if len(referrers) == 0 {
+			fmt.Printf("    Referrers:      (none)\n")
+		} else {
+			fmt.Printf("    Referrers:      %d project(s)\n", len(referrers))
+			for _, r := range referrers {
+				fmt.Printf("      - %s\n", r)
+			}
+		}
+	}
+	return nil
+}
+
+func runConfigSSHProfileShow(name string) error {
+	name = strings.TrimSpace(name)
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	profile, ok := cfg.SSHProfiles[name]
+	if !ok {
+		return fmt.Errorf("profile %q is not defined", name)
+	}
+
+	status := "usable"
+	if _, err := canonicalizeConfiguredFile(profile.PrivateKeyPath); err != nil {
+		status = fmt.Sprintf("broken (private_key: %v)", err)
+	}
+
+	fmt.Printf("Profile: %s\n", name)
+	fmt.Printf("  Private key:   %s\n", profile.PrivateKeyPath)
+	if profile.KnownHostsPath != "" {
+		fmt.Printf("  Known hosts:   %s\n", profile.KnownHostsPath)
+	}
+	if len(profile.DefaultHosts) > 0 {
+		fmt.Printf("  Default hosts: %s\n", strings.Join(profile.DefaultHosts, ", "))
+	}
+	if profile.Description != "" {
+		fmt.Printf("  Description:   %s\n", profile.Description)
+	}
+	fmt.Printf("  Status:        %s\n", status)
+
+	referrers := findProfileReferrers(cfg, name)
+	if len(referrers) == 0 {
+		fmt.Printf("  Referrers:     (none)\n")
+	} else {
+		fmt.Printf("  Referrers:\n")
+		for _, r := range referrers {
+			fmt.Printf("    - %s\n", r)
+		}
+	}
+	return nil
+}
+
+func runConfigSSHProfileRemove(name string, force bool) error {
+	name = strings.TrimSpace(name)
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.SSHProfiles[name]; !ok {
+		return fmt.Errorf("profile %q is not defined", name)
+	}
+
+	referrers := findProfileReferrers(cfg, name)
+	if len(referrers) > 0 && !force {
+		msg := fmt.Sprintf("profile %q is referenced by %d project(s):", name, len(referrers))
+		for _, r := range referrers {
+			msg += "\n  - " + r
+		}
+		msg += "\nrerun with --force to detach every reference and remove the profile,"
+		msg += "\nor remove each project's reference first with 'hazmat config ssh remove --name <key>'."
+		return fmt.Errorf("%s", msg)
+	}
+
+	detached := 0
+	for _, projectDir := range referrers {
+		project := cfg.Projects[projectDir]
+		if project.SSH == nil {
+			continue
+		}
+		filtered := make([]ProjectSSHKey, 0, len(project.SSH.Keys))
+		for _, key := range project.SSH.Keys {
+			if strings.TrimSpace(key.Profile) == name {
+				detached++
+				continue
+			}
+			filtered = append(filtered, key)
+		}
+		if len(filtered) == 0 {
+			project.SSH = nil
+		} else {
+			project.SSH = &ProjectSSHConfig{Keys: filtered}
+		}
+		if projectHasOverrides(project) {
+			cfg.Projects[projectDir] = project
+		} else {
+			delete(cfg.Projects, projectDir)
+		}
+	}
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = nil
+	}
+	delete(cfg.SSHProfiles, name)
+	if len(cfg.SSHProfiles) == 0 {
+		cfg.SSHProfiles = nil
+	}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Removed SSH profile %q", name)
+	if detached > 0 {
+		fmt.Printf(" (detached %d project reference(s))", detached)
+	}
+	fmt.Println()
+	return nil
+}
+
+func runConfigSSHProfileRename(oldName, newName string) error {
+	oldName = strings.TrimSpace(oldName)
+	newName = strings.TrimSpace(newName)
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("both old and new names are required")
+	}
+	if oldName == newName {
+		return fmt.Errorf("new name matches old name")
+	}
+	if !projectSSHKeyNamePattern.MatchString(newName) {
+		return fmt.Errorf("invalid new name %q", newName)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	profile, ok := cfg.SSHProfiles[oldName]
+	if !ok {
+		return fmt.Errorf("profile %q is not defined", oldName)
+	}
+	if _, exists := cfg.SSHProfiles[newName]; exists {
+		return fmt.Errorf("profile %q already exists", newName)
+	}
+
+	delete(cfg.SSHProfiles, oldName)
+	cfg.SSHProfiles[newName] = profile
+
+	referrers := findProfileReferrers(cfg, oldName) // recompute with OLD name (projects still point at oldName)
+	for _, projectDir := range referrers {
+		project := cfg.Projects[projectDir]
+		if project.SSH == nil {
+			continue
+		}
+		for i, key := range project.SSH.Keys {
+			if strings.TrimSpace(key.Profile) == oldName {
+				project.SSH.Keys[i].Profile = newName
+			}
+		}
+		cfg.Projects[projectDir] = project
+	}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Renamed SSH profile %q to %q", oldName, newName)
+	if len(referrers) > 0 {
+		fmt.Printf(" (updated %d project reference(s))", len(referrers))
+	}
+	fmt.Println()
+	return nil
+}
+
+// findProfileReferrers returns the sorted list of project directories
+// whose SSH config references the named profile.
+func findProfileReferrers(cfg HazmatConfig, profileName string) []string {
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" {
+		return nil
+	}
+	var referrers []string
+	for projectDir, project := range cfg.Projects {
+		if project.SSH == nil {
+			continue
+		}
+		for _, key := range project.SSH.Keys {
+			if strings.TrimSpace(key.Profile) == profileName {
+				referrers = append(referrers, projectDir)
+				break
+			}
+		}
+	}
+	sort.Strings(referrers)
+	return referrers
 }
 
 func runConfigSSHShow(project string) error {

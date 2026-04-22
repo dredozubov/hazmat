@@ -948,7 +948,7 @@ func TestRunConfigSSHAddAppendsNamedKey(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeNamedSSHKeyDirectory(t, "github_key", true)
-	if err := runConfigSSHAdd(projectDir, "github", []string{"github.com"}, "", filepath.Join(keyDir, "github_key")); err != nil {
+	if err := runConfigSSHAdd(projectDir, "github", []string{"github.com"}, "", "", filepath.Join(keyDir, "github_key")); err != nil {
 		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
@@ -976,10 +976,10 @@ func TestRunConfigSSHAddRejectsOverlap(t *testing.T) {
 	keyDirA := writeNamedSSHKeyDirectory(t, "key_a", true)
 	keyDirB := writeNamedSSHKeyDirectory(t, "key_b", true)
 
-	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", filepath.Join(keyDirA, "key_a")); err != nil {
+	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", "", filepath.Join(keyDirA, "key_a")); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	err := runConfigSSHAdd(projectDir, "b", []string{"github.com", "gitlab.com"}, "", filepath.Join(keyDirB, "key_b"))
+	err := runConfigSSHAdd(projectDir, "b", []string{"github.com", "gitlab.com"}, "", "", filepath.Join(keyDirB, "key_b"))
 	if err == nil || !strings.Contains(err.Error(), "github.com") {
 		t.Fatalf("want overlap rejection, got %v", err)
 	}
@@ -992,10 +992,10 @@ func TestRunConfigSSHAddRejectsSecondKeyWithEmptyHosts(t *testing.T) {
 	keyDirA := writeNamedSSHKeyDirectory(t, "key_a", true)
 	keyDirB := writeNamedSSHKeyDirectory(t, "key_b", true)
 
-	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", filepath.Join(keyDirA, "key_a")); err != nil {
+	if err := runConfigSSHAdd(projectDir, "a", []string{"github.com"}, "", "", filepath.Join(keyDirA, "key_a")); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	err := runConfigSSHAdd(projectDir, "b", nil, "", filepath.Join(keyDirB, "key_b"))
+	err := runConfigSSHAdd(projectDir, "b", nil, "", "", filepath.Join(keyDirB, "key_b"))
 	if err == nil || !strings.Contains(err.Error(), "legacy any-host fallback") {
 		t.Fatalf("want empty-hosts rejection, got %v", err)
 	}
@@ -1011,7 +1011,7 @@ func TestRunConfigSSHAddRejectsMixingLegacyWithNewKey(t *testing.T) {
 	if err := runConfigSSHSet(projectDir, filepath.Join(keyDirA, "legacy_key")); err != nil {
 		t.Fatalf("runConfigSSHSet: %v", err)
 	}
-	err := runConfigSSHAdd(projectDir, "second", []string{"prod.example.com"}, "", filepath.Join(keyDirB, "second_key"))
+	err := runConfigSSHAdd(projectDir, "second", []string{"prod.example.com"}, "", "", filepath.Join(keyDirB, "second_key"))
 	if err == nil || !strings.Contains(err.Error(), "any-host legacy key") {
 		t.Fatalf("want legacy-migration hint, got %v", err)
 	}
@@ -1022,7 +1022,7 @@ func TestRunConfigSSHRemoveClearsLastKey(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeNamedSSHKeyDirectory(t, "only_key", true)
-	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", filepath.Join(keyDir, "only_key")); err != nil {
+	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", "", filepath.Join(keyDir, "only_key")); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	if err := runConfigSSHRemove(projectDir, "only"); err != nil {
@@ -1044,12 +1044,147 @@ func TestRunConfigSSHRemoveUnknownName(t *testing.T) {
 
 	projectDir := t.TempDir()
 	keyDir := writeNamedSSHKeyDirectory(t, "only_key", true)
-	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", filepath.Join(keyDir, "only_key")); err != nil {
+	if err := runConfigSSHAdd(projectDir, "only", []string{"github.com"}, "", "", filepath.Join(keyDir, "only_key")); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	err := runConfigSSHRemove(projectDir, "ghost")
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("want unknown-name rejection, got %v", err)
+	}
+}
+
+func TestRunConfigSSHProfileAddAndList(t *testing.T) {
+	isolateConfig(t)
+
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", []string{"github.com"}, "personal"); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	profile, ok := cfg.SSHProfiles["github"]
+	if !ok {
+		t.Fatal("SSHProfiles[github] missing after add")
+	}
+	if !slices.Equal(profile.DefaultHosts, []string{"github.com"}) || profile.Description != "personal" {
+		t.Fatalf("profile after add = %+v", profile)
+	}
+
+	if err := runConfigSSHProfileList(); err != nil {
+		t.Fatalf("profile list: %v", err)
+	}
+}
+
+func TestRunConfigSSHProfileAddRejectsDuplicate(t *testing.T) {
+	isolateConfig(t)
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", nil, ""); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("want duplicate rejection, got %v", err)
+	}
+}
+
+func TestRunConfigSSHProfileRemoveRefusesWithReferrers(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", []string{"github.com"}, ""); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+	if err := runConfigSSHAdd(projectDir, "gh", nil, "", "github", ""); err != nil {
+		t.Fatalf("project add --profile: %v", err)
+	}
+	err := runConfigSSHProfileRemove("github", false)
+	if err == nil || !strings.Contains(err.Error(), "referenced by") {
+		t.Fatalf("want referrer-safe rejection, got %v", err)
+	}
+}
+
+func TestRunConfigSSHProfileRemoveForceDetaches(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", []string{"github.com"}, ""); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+	if err := runConfigSSHAdd(projectDir, "gh", nil, "", "github", ""); err != nil {
+		t.Fatalf("project add --profile: %v", err)
+	}
+	if err := runConfigSSHProfileRemove("github", true); err != nil {
+		t.Fatalf("profile remove --force: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if _, exists := cfg.SSHProfiles["github"]; exists {
+		t.Fatal("profile should be removed")
+	}
+	canonical, _ := resolveDir(projectDir, false)
+	if got := cfg.ProjectSSH(canonical); got != nil {
+		t.Fatalf("project SSH should be cleared after last key detach, got %+v", got)
+	}
+}
+
+func TestRunConfigSSHProfileRenameUpdatesReferrers(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", []string{"github.com"}, ""); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+	if err := runConfigSSHAdd(projectDir, "gh", nil, "", "github", ""); err != nil {
+		t.Fatalf("project add --profile: %v", err)
+	}
+	if err := runConfigSSHProfileRename("github", "work_github"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if _, exists := cfg.SSHProfiles["github"]; exists {
+		t.Fatal("old name should be gone")
+	}
+	if _, exists := cfg.SSHProfiles["work_github"]; !exists {
+		t.Fatal("new name should exist")
+	}
+	canonical, _ := resolveDir(projectDir, false)
+	projectSSH := cfg.ProjectSSH(canonical)
+	if projectSSH == nil || len(projectSSH.Keys) != 1 || projectSSH.Keys[0].Profile != "work_github" {
+		t.Fatalf("project reference not updated: %+v", projectSSH)
+	}
+}
+
+func TestRunConfigSSHAddProfileInheritsDefaultHosts(t *testing.T) {
+	isolateConfig(t)
+	projectDir := t.TempDir()
+	keyDir := writeNamedSSHKeyDirectory(t, "shared_key", true)
+	if err := runConfigSSHProfileAdd("github", filepath.Join(keyDir, "shared_key"), "", []string{"github.com"}, ""); err != nil {
+		t.Fatalf("profile add: %v", err)
+	}
+	// --host not passed — should inherit from profile.default_hosts
+	if err := runConfigSSHAdd(projectDir, "work", nil, "", "github", ""); err != nil {
+		t.Fatalf("project add --profile without --host: %v", err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	canonical, _ := resolveDir(projectDir, false)
+	got := cfg.ProjectSSH(canonical)
+	if got == nil || len(got.Keys) != 1 {
+		t.Fatalf("project SSH not set correctly: %+v", got)
+	}
+	if got.Keys[0].Profile != "github" || len(got.Keys[0].Hosts) != 0 {
+		t.Fatalf("project key should reference profile with empty declared Hosts (inherits), got %+v", got.Keys[0])
 	}
 }
 
