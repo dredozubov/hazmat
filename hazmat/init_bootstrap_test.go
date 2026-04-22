@@ -55,14 +55,15 @@ func TestResolveInitBootstrapAgentHonorsExplicitFlag(t *testing.T) {
 
 func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 	harnesses := managedHarnesses()
-	if len(harnesses) != 3 {
-		t.Fatalf("managedHarnesses length = %d, want 3", len(harnesses))
+	if len(harnesses) != 4 {
+		t.Fatalf("managedHarnesses length = %d, want 4", len(harnesses))
 	}
 
 	want := map[HarnessID]string{
 		HarnessClaude:   "hazmat claude",
 		HarnessCodex:    "hazmat codex",
 		HarnessOpenCode: "hazmat opencode",
+		HarnessGemini:   "hazmat gemini",
 	}
 
 	for _, harness := range harnesses {

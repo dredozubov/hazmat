@@ -423,6 +423,52 @@ func codexSkipPermissionsArgs() []string {
 	return []string{"--dangerously-bypass-approvals-and-sandbox"}
 }
 
+func newGeminiCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gemini [hazmat-flags] [gemini-flags] [gemini-args...]",
+		Short: "Launch Gemini CLI in containment",
+		Long: `Launch Gemini CLI in a sandboxed environment.
+
+Hazmat flags (parsed first, may appear anywhere before --):
+  -C, --project <dir>    Writable project directory (defaults to cwd)
+  -R, --read <dir>       Read-only directory (repeatable)
+  -W, --write <dir>      Read-write directory (repeatable)
+  --integration <name>   Activate a session integration (repeatable)
+  --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
+  --no-backup            Skip pre-session snapshot
+
+All other flags and arguments are forwarded to Gemini.
+Directory arguments are forwarded unchanged; use -C/--project to change
+the writable project root.
+
+Examples:
+  hazmat gemini
+  hazmat gemini -p "explain this repo"
+  hazmat gemini -C /proj
+  hazmat gemini --no-backup`,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts, forwarded, err := parseHarnessArgs(args)
+			if err != nil {
+				if err == errHarnessHelp {
+					return cmd.Help()
+				}
+				return err
+			}
+
+			prepared, err := resolvePreparedSession("gemini", opts, false)
+			if err != nil {
+				return err
+			}
+			if err := beginPreparedSession(prepared, "gemini", opts.noBackup, true); err != nil {
+				return err
+			}
+			return runAgentSeatbeltScript(prepared.Config, geminiLaunchScript(), forwarded...)
+		},
+	}
+	return cmd
+}
+
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
@@ -1503,6 +1549,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 			return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 		}
 		return fmt.Sprintf("hazmat codex %s -C %s", flag, projectDir)
+	case "gemini":
+		return fmt.Sprintf("hazmat gemini %s -C %s", flag, projectDir)
 	default:
 		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	}

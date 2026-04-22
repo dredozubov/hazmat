@@ -109,6 +109,7 @@ Subcommands:
 	cmd.AddCommand(newBootstrapClaudeCmd())
 	cmd.AddCommand(newBootstrapCodexCmd())
 	cmd.AddCommand(newBootstrapOpenCodeCmd())
+	cmd.AddCommand(newBootstrapGeminiCmd())
 	return cmd
 }
 

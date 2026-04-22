@@ -91,6 +91,10 @@ var (
 			{Harness: HarnessOpenCode, Key: "agents", Kind: harnessAssetDirRoot, HostPath: "~/.config/opencode/agents", AgentPath: agentHome + "/.config/opencode/agents"},
 			{Harness: HarnessOpenCode, Key: "skills", Kind: harnessAssetDirRoot, HostPath: "~/.config/opencode/skills", AgentPath: agentHome + "/.config/opencode/skills"},
 		},
+		HarnessGemini: {
+			{Harness: HarnessGemini, Key: "gemini-md", Kind: harnessAssetFileRoot, HostPath: "~/.gemini/GEMINI.md", AgentPath: agentHome + "/.gemini/GEMINI.md"},
+			{Harness: HarnessGemini, Key: "extensions", Kind: harnessAssetDirRoot, HostPath: "~/.gemini/extensions", AgentPath: agentHome + "/.gemini/extensions"},
+		},
 	}
 )
 
@@ -134,6 +138,8 @@ func harnessIDForCommand(commandName string) (HarnessID, bool) {
 		return HarnessCodex, true
 	case string(HarnessOpenCode):
 		return HarnessOpenCode, true
+	case string(HarnessGemini):
+		return HarnessGemini, true
 	default:
 		return "", false
 	}

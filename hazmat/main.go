@@ -98,6 +98,8 @@ func main() {
 	codexCmd.GroupID = "run"
 	opencodeCmd := newOpenCodeCmd()
 	opencodeCmd.GroupID = "run"
+	geminiCmd := newGeminiCmd()
+	geminiCmd.GroupID = "run"
 	shellCmd := newShellCmd()
 	shellCmd.GroupID = "run"
 	execCmd := newExecCmd()
@@ -133,7 +135,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, codexCmd, opencodeCmd, shellCmd, execCmd, explainCmd,
+		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(), newStackCheckCmd(), newCompletionCmd(root),
