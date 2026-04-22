@@ -135,6 +135,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		"com.apple.mDNSResponder",
 		"com.apple.trustd",                                // TLS certificate verification (Go, curl, Python, etc.)
 		"com.apple.trustd.agent",                          // per-user trust agent (Rust security-framework SecTrustEvaluate)
+		"com.apple.SecurityServer",                        // Security framework XPC engine — does the actual SecTrust* evaluation
 		"com.apple.system.opendirectoryd.api",             // user/group directory lookups
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
