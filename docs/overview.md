@@ -64,9 +64,9 @@ Docker is a separate design branch because a shared daemon is effectively a priv
 
 That produces three practical rules:
 
-- Tier 2 is the right default only when the project does not need Docker.
-- If the project needs Docker and can live inside a private daemon, move to Tier 3.
-- If the project depends on the host Docker daemon, do not punch a hole through Tier 2. Use Tier 4, or accept a code-only Tier 2 session with `--docker=none`.
+- Tier 2 native containment is the default for code editing, with Docker disabled.
+- If the session needs Docker and the repo can live inside a private daemon, opt into Tier 3 with `--docker=sandbox`, `--docker=auto`, or project config.
+- If the project depends on the host Docker daemon, do not punch a hole through Tier 2. Use Tier 4, or accept the default code-only Tier 2 session.
 
 Read [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) for the
 private-daemon path and [shared-daemon-projects.md](shared-daemon-projects.md)

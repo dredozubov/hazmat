@@ -244,11 +244,11 @@ func (c HazmatConfig) ManagedSandboxes() []ManagedSandboxConfig {
 
 func (c HazmatConfig) ProjectDockerMode(projectDir string) (dockerMode, bool) {
 	if len(c.Projects) == 0 {
-		return dockerModeAuto, false
+		return defaultDockerMode, false
 	}
 	project, ok := c.Projects[projectDir]
-	if !ok || !validDockerMode(project.Docker) || project.Docker == dockerModeAuto {
-		return dockerModeAuto, false
+	if !ok || !validDockerMode(project.Docker) {
+		return defaultDockerMode, false
 	}
 	return project.Docker, true
 }
@@ -845,7 +845,7 @@ func runConfigShow() error {
 			for _, projectDir := range projectKeys {
 				projectCfg := cfg.Projects[projectDir]
 				fmt.Printf("      - %s\n", projectDir)
-				if validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto {
+				if validDockerMode(projectCfg.Docker) {
 					fmt.Printf("        Docker: %s\n", projectCfg.Docker)
 				}
 				if len(projectCfg.ReadDirs) > 0 {
@@ -968,19 +968,19 @@ func newConfigDockerCmd() *cobra.Command {
 	var project string
 
 	cmd := &cobra.Command{
-		Use:   "docker <auto|none|sandbox>",
+		Use:   "docker <none|sandbox|auto>",
 		Short: "Configure per-project Docker routing",
 		Long: `Set the preferred Docker routing mode for a project.
 
 Modes:
-  auto     Use Hazmat's default Docker detection and routing
-  none     Keep sessions in native containment for code-only work
+  none     Keep sessions in native containment for code-only work (default)
   sandbox  Force Docker Sandbox mode for private-daemon Docker workflows
+  auto     Opt this project into Docker marker detection and routing
 
 Examples:
   hazmat config docker none -C ~/workspace/my-project
   hazmat config docker sandbox -C ~/workspace/docker-app
-  hazmat config docker auto -C ~/workspace/my-project`,
+  hazmat config docker auto -C ~/workspace/docker-app`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runConfigDocker(project, args[0])
@@ -1521,11 +1521,9 @@ func runConfigDocker(project, rawMode string) error {
 		cfg.Projects = make(map[string]ProjectConfig)
 	}
 
-	if mode == dockerModeAuto {
-		delete(cfg.Projects, projectDir)
-	} else {
-		cfg.Projects[projectDir] = ProjectConfig{Docker: mode}
-	}
+	projectCfg := cfg.Projects[projectDir]
+	projectCfg.Docker = mode
+	cfg.Projects[projectDir] = projectCfg
 	if len(cfg.Projects) == 0 {
 		cfg.Projects = nil
 	}
@@ -2588,7 +2586,7 @@ func mergeConfiguredDirs(existing, values []string, remove bool) []string {
 }
 
 func projectHasOverrides(projectCfg ProjectConfig) bool {
-	return (validDockerMode(projectCfg.Docker) && projectCfg.Docker != dockerModeAuto) ||
+	return validDockerMode(projectCfg.Docker) ||
 		len(projectCfg.ReadDirs) > 0 ||
 		len(projectCfg.WriteDirs) > 0 ||
 		projectCfg.SSH != nil ||

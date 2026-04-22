@@ -19,13 +19,13 @@ constraints.
 ## Background
 
 Hazmat's current default runtime is a dedicated macOS user plus host-side
-containment. That design is the right default for non-Docker work because it
+containment, with Docker disabled unless the operator opts in. That design
 meaningfully reduces host credential exposure without requiring a VM. It is
 also intentionally incompatible with host Docker daemon access.
 
-Today, Docker-oriented repositories are detected early and blocked unless the
-operator opts into `--ignore-docker`. That behavior avoids a bad security
-compromise, but it also creates a product gap: users with `Dockerfile`,
+Previously, Docker-oriented repositories were detected early and blocked unless
+the operator opted into `--ignore-docker`. That behavior avoided a bad security
+compromise, but it also created a product gap: users with `Dockerfile`,
 `compose.yaml`, or `.devcontainer/` workflows hit a dead end instead of a
 native Hazmat path.
 
@@ -64,8 +64,7 @@ An auditor reviewing this proposal should also inspect:
 - `docs/overview.md` for the current tier-selection model
 - `docs/threat-matrix.md` for the attack-by-attack comparison
 - `docs/tier3-docker-sandboxes.md` for the current Docker guidance
-- `hazmat/session.go` for the current Docker artifact gate and `--ignore-docker`
-  behavior
+- `hazmat/session.go` for the current Docker routing behavior
 - `tla/VERIFIED.md` for the current formal-verification scope boundary
 
 ## Problem Statement
@@ -75,7 +74,7 @@ without encouraging unsafe workarounds such as:
 
 - exposing the host Docker socket to the existing agent user
 - bypassing Hazmat entirely for Docker-based projects
-- using `--ignore-docker` on sessions that actually need Docker
+- using native code-only mode on sessions that actually need Docker
 - treating devcontainer workflows as a documentation-only escape hatch
 
 The product goal is to make the secure path the low-friction path.
@@ -108,20 +107,23 @@ This proposal does not attempt to:
 
 Hazmat should ship a first-class Tier 3 sandbox mode for Docker-capable
 sessions. The operator continues to use `hazmat claude`, `hazmat exec`, and
-`hazmat shell` as the primary entrypoints. Hazmat detects whether the current
-project requires Tier 3 and routes the session to the correct runtime.
+`hazmat shell` as the primary entrypoints. Hazmat only inspects Docker markers
+for routing when the operator opts into `--docker=auto` or project-level
+`docker: auto`.
 
 Recommended behavior:
 
 - Non-Docker repository: launch the current Tier 2 runtime.
-- Docker-oriented repository with a healthy Docker backend configured: launch
-  Tier 3 automatically.
-- Docker-oriented repository with no Docker backend configured: show a setup
-  path that keeps the user inside Hazmat instead of pushing them to external
-  docs.
+- Docker-oriented repository with no explicit Docker routing: launch Tier 2
+  code-only mode and show Docker notes.
+- Docker-oriented repository with `--docker=auto` and a healthy Docker backend
+  configured: launch Tier 3.
+- Docker-oriented repository with `--docker=auto` and no Docker backend
+  configured: show a setup path that keeps the user inside Hazmat instead of
+  pushing them to external docs.
 - Docker-oriented repository where the user only wants code editing:
-  `--ignore-docker` remains available as an explicit override.
-- Operator override: `--sandbox` forces the canonical command to use Tier 3
+  default native mode, or `--docker=none`, keeps Docker disabled.
+- Operator override: `--docker=sandbox` forces the canonical command to use Tier 3
   rather than introducing a parallel session command surface.
 
 ## Recommendation for v1 Backend
@@ -173,9 +175,9 @@ Canonical session commands:
 
 Explicit Tier 3 selection:
 
-- `hazmat claude --sandbox`
-- `hazmat exec --sandbox`
-- `hazmat shell --sandbox`
+- `hazmat claude --docker=sandbox`
+- `hazmat exec --docker=sandbox`
+- `hazmat shell --docker=sandbox`
 
 Tier 3 management commands:
 
@@ -211,14 +213,15 @@ Inputs:
 - hard Docker markers such as `Dockerfile`, `compose.yaml`,
   `docker-compose.yml`, and `Containerfile`
 - soft container-workflow markers such as `.devcontainer/`
-- explicit user override such as `--ignore-docker` or `--sandbox`
+- explicit user routing such as `--docker=none`, `--docker=sandbox`, or
+  `--docker=auto`
 - backend readiness state from `hazmat sandbox doctor`
 
 Routing rule for v1:
 
-- hard Docker markers are sufficient to auto-route into Tier 3 when the backend
-  is configured
-- `.devcontainer/` alone is not sufficient to auto-route by itself
+- hard Docker markers are sufficient to route into Tier 3 when `--docker=auto`
+  or `hazmat config docker auto` is active and the backend is configured
+- `.devcontainer/` alone is not sufficient to route by itself
 - `.devcontainer/` alone should produce an advisory unless Hazmat positively
   determines that the devcontainer config itself requires Docker or Compose
 
@@ -336,7 +339,7 @@ instance before starting the agent process.
 Hazmat launches the requested tool within the Tier 3 runtime using the prepared
 mounts and environment. The operator should not need to invoke raw Docker
 commands, and the canonical `hazmat claude|exec|shell` commands remain the
-entrypoint even when Tier 3 is selected explicitly with `--sandbox`.
+entrypoint even when Tier 3 is selected explicitly with `--docker=sandbox`.
 
 ### 5. Active session
 
@@ -417,7 +420,7 @@ These invariants are non-negotiable:
 9. Model API credentials are delivered only as explicit launch-time env
    injection and are not persisted inside the sandbox by default.
 10. The chosen credential-delivery mechanism is verified against the actual
-    backend launch semantics before auto-routing ships.
+    backend launch semantics before `--docker=auto` ships.
 
 If any one of these invariants cannot be enforced, Docker mode should not ship.
 
@@ -490,8 +493,8 @@ Required UX properties:
 
 - single mental model: "run Hazmat, not raw Docker"
 - clear routing: Hazmat explains why a repo is using Tier 2 or Tier 3
-- explicit override for code-only sessions on Docker repos
-- explicit Tier 3 selection on the canonical commands via `--sandbox`
+- default code-only sessions on Docker repos, with explicit Docker notes
+- explicit Tier 3 selection on the canonical commands via `--docker=sandbox`
 - clear diagnostics when backend setup is missing
 - no suggestion that exposing host Docker is an acceptable shortcut
 
@@ -520,7 +523,8 @@ Hazmat should log enough information for an operator or auditor to answer:
 - which backend was used
 - which network profile was applied
 - which paths were mounted read-write and read-only
-- whether the session was launched via auto-routing or explicit `--sandbox`
+- whether the session was launched via `--docker=auto` or explicit
+  `--docker=sandbox`
 
 The logs should avoid storing secret values but should preserve enough structure
 to reconstruct policy decisions.
@@ -544,23 +548,24 @@ Ship:
 - backend identity checks
 - policy validation checks
 
-Do not auto-route sessions yet.
+Do not enable `--docker=auto` sessions yet.
 
 ### Phase 2: Explicit Tier 3 selection
 
 Ship:
 
-- `--sandbox` flag on `hazmat claude`
-- `--sandbox` flag on `hazmat exec`
-- `--sandbox` flag on `hazmat shell`
+- `--docker=sandbox` flag on `hazmat claude`
+- `--docker=sandbox` flag on `hazmat exec`
+- `--docker=sandbox` flag on `hazmat shell`
 
 This gives auditors and early adopters a concrete path to test without creating
 two parallel session command surfaces.
 
-### Phase 3: Auto-routing
+### Phase 3: Explicit Auto Mode
 
 Teach `hazmat claude`, `hazmat exec`, and `hazmat shell` to route Docker
-projects into Tier 3 when setup is complete and approval exists.
+projects into Tier 3 when `--docker=auto` or project-level `docker: auto` is
+active, setup is complete, and approval exists.
 
 ### Phase 4: Hardening and backend abstraction
 
@@ -607,8 +612,8 @@ are true:
 - the design preserves the current Tier 2 boundary
 - the Docker-capable runtime is private to the agent session
 - network policy is automatic and auditable
-- canonical session commands remain the primary UX, with `--sandbox` as the
-  explicit Tier 3 override
+- canonical session commands remain the primary UX, with `--docker=sandbox` as
+  the explicit Tier 3 override
 - model API credentials are passed only at launch time and are not stored in
   the sandbox by default
 - the operator can use Docker workflows through Hazmat without touching raw host

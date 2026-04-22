@@ -212,13 +212,13 @@ This keeps repo intent advisory and keeps authority with the host user.
 
 ### Backend parity
 
-The capability must not be silently dropped for `--sandbox`.
+The capability must not be silently dropped for `--docker=sandbox`.
 
 If Docker Sandbox support cannot yet inject the token with equivalent
 semantics, Hazmat should fail closed with an explicit message such as:
 
 ```text
-hazmat: --github is not supported with --sandbox yet
+hazmat: --github is not supported with --docker=sandbox yet
 ```
 
 That is preferable to pretending GitHub access is available when it is not.
@@ -232,7 +232,7 @@ Add tests for:
 - project grant activation with and without `GH_TOKEN`
 - session-start warnings for active GitHub access
 - `.hazmat/packs.yaml` remaining unable to activate GitHub access
-- `--sandbox` fail-closed behavior if parity is not yet implemented
+- `--docker=sandbox` fail-closed behavior if parity is not yet implemented
 
 ## Migration Plan
 

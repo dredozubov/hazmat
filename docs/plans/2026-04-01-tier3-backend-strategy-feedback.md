@@ -72,7 +72,7 @@ not equivalent for Hazmat's threat model.
 
 Hazmat should ship with Docker Sandboxes as the **only** supported Tier 3
 backend in v1, but the architecture should be backend-oriented from day one.
-The abstraction layer should not be deferred until after auto-routing ships.
+The abstraction layer should not be deferred until after `--docker=auto` ships.
 
 The correct message is:
 

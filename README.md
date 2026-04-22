@@ -30,7 +30,7 @@ Every session starts with a contract — a plain-language summary of what the ag
 ```
 hazmat: session
   Mode:                 Native containment
-  Why this mode:        using native containment because no Docker requirement was detected
+  Why this mode:        using native containment by default (Docker routing: none)
   Project (read-write): /Users/dr/workspace/my-app
   Integrations:         go
   Auto read-only:       /Users/dr/go/pkg/mod
@@ -41,17 +41,21 @@ hazmat: session
   Snapshot excludes:    vendor/
 ```
 
-If the project looks compatible with a private Docker daemon, Hazmat switches modes automatically:
+Docker-marked repos still start in native containment by default. The contract
+shows the marker and the explicit Docker command to use if the session needs it:
 
 ```
 hazmat: session
-  Mode:                 Docker Sandbox
-  Why this mode:        using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)
+  Mode:                 Native containment
+  Why this mode:        using native containment by default (Docker routing: none)
   Project (read-write): /Users/dr/workspace/api-service
   Integrations:         node
   Auto read-only:       none
   Read-only extensions: none
   Read-write extensions: none
+  Notes:
+    - Docker files detected: Dockerfile. Docker commands will not work in native containment.
+    - If this session needs Docker, use: hazmat claude --docker=sandbox -C /Users/dr/workspace/api-service
   ...
 ```
 
@@ -91,10 +95,10 @@ hazmat shell                      # interactive contained shell
 
 Hazmat distinguishes between two Docker shapes:
 
-- **Private-daemon Docker projects** auto-route into Docker Sandbox mode. The agent runs inside an isolated sandbox with its own private Docker daemon.
-- **Shared-daemon Docker projects** do not. If the repo appears to depend on the host Docker daemon, Hazmat stops and asks you to choose an explicit code-only session (`--docker=none`) or move the workflow to Tier 4.
+- **Private-daemon Docker projects** can run in Docker Sandbox mode with `--docker=sandbox`, `--docker=auto`, or `hazmat config docker auto`. The agent runs inside an isolated sandbox with its own private Docker daemon.
+- **Shared-daemon Docker projects** stay in code-only native containment by default. If you opt into Docker auto mode and Hazmat sees host-daemon signals, it stops and asks you to use native code-only mode or move the workflow to Tier 4.
 
-Use `hazmat config docker none -C /path/to/project` to persist code-only routing for a shared-daemon repo. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
+Use `hazmat config docker auto -C /path/to/project` to persist automatic Docker routing for a known private-daemon repo. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 
 ### Comparison
 
@@ -228,7 +232,7 @@ hazmat opencode                                      # launch OpenCode in contai
 hazmat integration list                              # inspect built-in and user integrations
 hazmat config set integrations.pin "~/workspace/app:node,go" # auto-activate integrations for a project
 hazmat config access add -C ~/workspace/app --write ~/.venvs/app # persist project read/write extensions
-hazmat config docker none -C ~/workspace/app         # persist code-only mode for a shared-daemon repo
+hazmat config docker auto -C ~/workspace/app         # persist automatic private-daemon Docker routing
 hazmat config cloud                                  # set up S3 backup
 hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
 hazmat config set backup.retention.keep_latest 30     # change snapshot retention

@@ -10,6 +10,7 @@ All notable changes to Hazmat are documented in this file.
 - TLA+ formal verification of the routing + profile resolution contract (`MC_GitSSHRouting`). Nine invariants checked across 884,736 distinct states: determinism, overlap rejection, host-outside-allowlist rejection, inline-key-has-declared-hosts, per-key socket distinctness, dangling-reference rejection, profile+inline identity conflict rejection, orphan-key rejection, and binding integrity.
 
 ### Changed (breaking)
+- Docker routing now defaults to native code-only containment (`--docker=none`). Use `--docker=sandbox`, `--docker=auto`, or `hazmat config docker auto` to opt into Docker Sandbox routing for private-daemon Docker workflows.
 - Retired the legacy any-host SSH fallback. Every inline project SSH key must now declare at least one `--host`. The `hazmat config ssh set <path>` subcommand has been removed — use `hazmat config ssh add --name <n> --host <h> <path>` instead. Configs that still use the pre-migration flat shape (`ssh: {private_key, known_hosts}` with no `keys:` list) are rejected at load with a copy-paste YAML snippet showing the replacement.
 
 ## [0.7.0] - 2026-04-18

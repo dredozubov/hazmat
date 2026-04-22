@@ -56,13 +56,14 @@ separation.
 
 ### Using Docker Sandboxes with Hazmat
 
-Hazmat manages Docker Sandbox lifecycle automatically. Use `--docker=sandbox`
-or let Hazmat auto-route when Docker artifacts are detected **and** the repo
-looks compatible with a private daemon:
+Hazmat manages Docker Sandbox lifecycle automatically when you opt into Docker
+mode. Use `--docker=sandbox` to force Docker Sandbox mode, or `--docker=auto`
+when you want Hazmat to inspect Docker artifacts and route only private-daemon
+fits:
 
 ```bash
 hazmat claude --docker=sandbox       # explicit Docker Sandbox mode
-hazmat claude                        # auto-routes for private-daemon fits
+hazmat claude --docker=auto          # marker-based routing for private-daemon fits
 hazmat explain --docker=sandbox      # preview what the session will do
 ```
 
@@ -70,9 +71,9 @@ Hazmat creates the sandbox, applies network policy, and prints a session
 contract showing the mode, routing reason, project boundaries, and active
 integrations before launching the agent.
 
-If Hazmat thinks the repo depends on the **host** daemon instead, it stops and
-asks you to choose `--docker=none` for a code-only session or to move the
-workflow to Tier 4.
+Plain `hazmat claude` stays in native code-only containment. If auto mode thinks
+the repo depends on the **host** daemon, it stops and asks you to use native
+code-only mode or move the workflow to Tier 4.
 
 ### Manual Setup (without Hazmat)
 

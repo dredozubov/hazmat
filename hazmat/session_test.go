@@ -300,7 +300,11 @@ func skipInitCheck(t *testing.T) {
 }
 
 func autoDockerRequest() dockerRoutingRequest {
-	return dockerRoutingRequest{Mode: dockerModeAuto, Source: dockerRequestDefaultAuto}
+	return dockerRoutingRequest{Mode: dockerModeAuto, Source: dockerRequestFlag}
+}
+
+func defaultDockerRequest() dockerRoutingRequest {
+	return dockerRoutingRequest{Mode: defaultDockerMode, Source: dockerRequestDefault}
 }
 
 func noneDockerRequest(source dockerRequestSource) dockerRoutingRequest {
@@ -394,8 +398,12 @@ func TestRunConfigDockerPersistsProjectMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadConfig after auto: %v", err)
 	}
-	if _, ok := cfg.ProjectDockerMode(canonicalProjectDir); ok {
-		t.Fatal("ProjectDockerMode should be cleared after auto")
+	mode, ok = cfg.ProjectDockerMode(canonicalProjectDir)
+	if !ok {
+		t.Fatal("ProjectDockerMode should be configured after auto")
+	}
+	if mode != dockerModeAuto {
+		t.Fatalf("ProjectDockerMode = %q, want %q", mode, dockerModeAuto)
 	}
 }
 
@@ -1079,7 +1087,7 @@ func TestResolveSessionSandboxModeHardMarkersNeedHealthyBackend(t *testing.T) {
 	}
 }
 
-func TestResolveSessionSandboxModeAutoRoutesHealthyDockerProjectWithoutConfiguredBackend(t *testing.T) {
+func TestResolveSessionSandboxModeExplicitAutoRoutesHealthyDockerProjectWithoutConfiguredBackend(t *testing.T) {
 	isolateConfig(t)
 	isolateApprovals(t)
 	autoApprove(t)
@@ -1099,11 +1107,11 @@ func TestResolveSessionSandboxModeAutoRoutesHealthyDockerProjectWithoutConfigure
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if !useSandbox {
-		t.Fatal("expected healthy Docker project to auto-route into Docker Sandboxes without prior setup")
+		t.Fatal("expected --docker=auto on a healthy Docker project to route into Docker Sandboxes without prior setup")
 	}
 }
 
-func TestResolveSessionSandboxModeAutoRoutesConfiguredDockerProject(t *testing.T) {
+func TestResolveSessionSandboxModeExplicitAutoRoutesConfiguredDockerProject(t *testing.T) {
 	savedCfg := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")
 	t.Cleanup(func() { configFilePath = savedCfg })
@@ -1130,7 +1138,7 @@ func TestResolveSessionSandboxModeAutoRoutesConfiguredDockerProject(t *testing.T
 		t.Fatalf("resolveSessionSandboxMode: %v", err)
 	}
 	if !useSandbox {
-		t.Fatal("expected configured Docker project to auto-route into Docker Sandboxes")
+		t.Fatal("expected --docker=auto on a configured Docker project to route into Docker Sandboxes")
 	}
 }
 
@@ -1251,7 +1259,7 @@ func TestResolveSessionSandboxModeSharedDaemonSignalsFailBeforeBackendRouting(t 
 		t.Fatal("expected shared-daemon project to fail in auto mode")
 	}
 	if useSandbox {
-		t.Fatal("shared-daemon project should not auto-route into Docker Sandboxes")
+		t.Fatal("shared-daemon project should not route into Docker Sandboxes in auto mode")
 	}
 	if !strings.Contains(err.Error(), "shared-daemon Docker access") {
 		t.Fatalf("unexpected error: %v", err)
@@ -1656,7 +1664,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		GitSSH: &sessionGitSSHConfig{
 			DisplayName: "id_rsa",
 		},
-		RoutingReason: "using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
+		RoutingReason: "using Docker Sandbox because --docker=auto detected a private-daemon Docker fit (Dockerfile)",
 		SessionNotes:  []string{"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project"},
 	}
 
@@ -1665,7 +1673,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 	for _, want := range []string{
 		"hazmat: session",
 		"Mode:                 Docker Sandbox",
-		"Why this mode:        using Docker Sandbox because this project appears compatible with a private Docker daemon (Dockerfile)",
+		"Why this mode:        using Docker Sandbox because --docker=auto detected a private-daemon Docker fit (Dockerfile)",
 		"Project (read-write): /tmp/project",
 		"Integrations:         go, node",
 		"Integration sources: go (go env GOROOT), node (active runtime)",
@@ -1873,6 +1881,27 @@ func TestSessionRoutingExplanationDockerNone(t *testing.T) {
 	}
 }
 
+func TestSessionRoutingExplanationDefaultDockerNone(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	detection := detectDockerProject(dir)
+	reason, notes := sessionRoutingExplanation("claude", dir, defaultDockerRequest(), detection, sessionModeNative)
+	if reason != "using native containment by default (Docker routing: none)" {
+		t.Fatalf("reason = %q", reason)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notes = %v, want 2 entries", notes)
+	}
+	if !strings.Contains(notes[0], "Docker files detected: Dockerfile") {
+		t.Fatalf("notes[0] = %q", notes[0])
+	}
+	if !strings.Contains(notes[1], "hazmat claude --docker=sandbox") {
+		t.Fatalf("notes[1] = %q", notes[1])
+	}
+}
+
 func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".devcontainer"), 0o755); err != nil {
@@ -1888,7 +1917,31 @@ func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 	}
 }
 
-func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
+func TestResolveExplainSessionDefaultsToNativeForDockerProject(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+
+	cfg, mode, err := resolveExplainSession("claude", harnessSessionOpts{project: dir})
+	if err != nil {
+		t.Fatalf("resolveExplainSession: %v", err)
+	}
+	if mode != sessionModeNative {
+		t.Fatalf("mode = %q, want Native containment", mode)
+	}
+	if cfg.RoutingReason != "using native containment by default (Docker routing: none)" {
+		t.Fatalf("RoutingReason = %q", cfg.RoutingReason)
+	}
+	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Docker files detected") {
+		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
+func TestResolveExplainSessionAutoFlagRoutesDockerProject(t *testing.T) {
 	isolateConfig(t)
 	isolateApprovals(t)
 	autoApprove(t)
@@ -1903,14 +1956,18 @@ func TestResolveExplainSessionAutoRoutesDockerProject(t *testing.T) {
 	sandboxProbeFactory = func() sandboxProbe { return healthySandboxProbe() }
 	t.Cleanup(func() { sandboxProbeFactory = savedProbeFactory })
 
-	cfg, mode, err := resolveExplainSession("claude", harnessSessionOpts{project: dir})
+	cfg, mode, err := resolveExplainSession("claude", harnessSessionOpts{
+		project:            dir,
+		dockerMode:         "auto",
+		dockerModeExplicit: true,
+	})
 	if err != nil {
 		t.Fatalf("resolveExplainSession: %v", err)
 	}
 	if mode != sessionModeDockerSandbox {
 		t.Fatalf("mode = %q, want Docker Sandbox", mode)
 	}
-	if !strings.Contains(cfg.RoutingReason, "private Docker daemon") {
+	if !strings.Contains(cfg.RoutingReason, "--docker=auto") {
 		t.Fatalf("RoutingReason = %q", cfg.RoutingReason)
 	}
 }
@@ -1939,6 +1996,36 @@ func TestResolveExplainSessionUsesProjectDockerModeNone(t *testing.T) {
 	}
 	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Docker files detected") {
 		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
+func TestResolveExplainSessionUsesProjectDockerModeAuto(t *testing.T) {
+	isolateConfig(t)
+	isolateApprovals(t)
+	autoApprove(t)
+	skipInitCheck(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	if err := runConfigDocker(dir, "auto"); err != nil {
+		t.Fatalf("runConfigDocker: %v", err)
+	}
+
+	savedProbeFactory := sandboxProbeFactory
+	sandboxProbeFactory = func() sandboxProbe { return healthySandboxProbe() }
+	t.Cleanup(func() { sandboxProbeFactory = savedProbeFactory })
+
+	cfg, mode, err := resolveExplainSession("claude", harnessSessionOpts{project: dir})
+	if err != nil {
+		t.Fatalf("resolveExplainSession: %v", err)
+	}
+	if mode != sessionModeDockerSandbox {
+		t.Fatalf("mode = %q, want Docker Sandbox", mode)
+	}
+	if !strings.Contains(cfg.RoutingReason, "configured with docker: auto") {
+		t.Fatalf("RoutingReason = %q", cfg.RoutingReason)
 	}
 }
 

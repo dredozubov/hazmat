@@ -224,7 +224,7 @@ is stored separately in `~/.config/hazmat/cloud-credentials` (0600).
 
 1. **SSH is blocked.** The seatbelt denies `~/.ssh` access to prevent credential exfiltration. Use HTTPS + a fine-grained personal access token via git's credential helper for git.
 
-2. **`--ignore-docker` escape hatch.** If Docker files are detected, `hazmat claude` refuses to run. Pass `--ignore-docker` if you have Docker files but don't need Docker support.
+2. **Docker is opt-in.** If Docker files are detected, `hazmat claude` stays in native code-only containment and prints Docker notes. Use `--docker=sandbox` or `--docker=auto` when the session actually needs Docker support.
 
 3. **Read-only vs. read-write.** `-C` (project) = read-write. `-R` (read) = read-only. Only the project directory can be modified.
 

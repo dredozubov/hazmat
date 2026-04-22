@@ -83,8 +83,8 @@ Examples:
 		"Preview without managed harness prompt-asset sync")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
-		"Docker routing: auto, none, or sandbox")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(defaultDockerMode),
+		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,

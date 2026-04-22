@@ -51,12 +51,14 @@ const (
 	dockerModeAuto    dockerMode = "auto"
 	dockerModeNone    dockerMode = "none"
 	dockerModeSandbox dockerMode = "sandbox"
+
+	defaultDockerMode = dockerModeNone
 )
 
 type dockerRequestSource string
 
 const (
-	dockerRequestDefaultAuto   dockerRequestSource = "default-auto"
+	dockerRequestDefault       dockerRequestSource = "default"
 	dockerRequestProjectConfig dockerRequestSource = "project-config"
 	dockerRequestFlag          dockerRequestSource = "flag"
 	dockerRequestLegacyIgnore  dockerRequestSource = "legacy-ignore"
@@ -138,8 +140,8 @@ func newShellCmd() *cobra.Command {
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
-		"Docker routing: auto, none, or sandbox")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(defaultDockerMode),
+		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
@@ -208,8 +210,8 @@ Examples:
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeAuto),
-		"Docker routing: auto, none, or sandbox")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(defaultDockerMode),
+		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
@@ -233,7 +235,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
-  --docker <mode>        Docker routing: auto, none, or sandbox
+  --docker <mode>        Docker routing: none (default), sandbox, or auto
   --sandbox              Alias for --docker=sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -248,8 +250,8 @@ Examples:
   hazmat claude -p "explain this"      Print mode
   hazmat claude --model sonnet         Use specific model
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
-  hazmat claude --docker=sandbox -C /proj  Use Docker Sandboxes
-  hazmat claude --docker=none -C /proj     Code-only session in native containment
+  hazmat claude --docker=sandbox -C /proj  Use Docker Sandbox mode
+  hazmat claude --docker=auto -C /proj     Auto-detect private-daemon Docker mode
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
   hazmat claude --continue             Continue most recent conversation`,
@@ -322,20 +324,20 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
-  --docker <mode>        Docker routing: auto, none, or sandbox
+  --docker <mode>        Docker routing: none (default), sandbox, or auto
   --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to OpenCode.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
-Docker Sandbox sessions are currently available through hazmat claude; use
---docker=none here for code-only sessions in Docker-marked repos.
+Docker Sandbox sessions are currently available through hazmat claude. Use
+--docker=auto only when you want Docker markers to block explicitly.
 
 Examples:
   hazmat opencode
   hazmat opencode -p "explain this"
   hazmat opencode -C /proj -p "hi"
-  hazmat opencode --docker=none -C /proj
+  hazmat opencode --docker=auto -C /proj
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -373,19 +375,19 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
-  --docker <mode>        Docker routing: auto, none, or sandbox
+  --docker <mode>        Docker routing: none (default), sandbox, or auto
   --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Codex.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
-Docker Sandbox sessions are currently available through hazmat claude; use
---docker=none here for code-only sessions in Docker-marked repos.
+Docker Sandbox sessions are currently available through hazmat claude. Use
+--docker=auto only when you want Docker markers to block explicitly.
 
 Examples:
   hazmat codex
   hazmat codex "explain this repo"
-  hazmat codex --docker=none -C /proj
+  hazmat codex --docker=auto -C /proj
   hazmat codex -C /proj --full-auto
   hazmat codex --no-backup`,
 		DisableFlagParsing: true,
@@ -1332,7 +1334,7 @@ func resolveDockerRoutingRequest(projectDir string, opts harnessSessionOpts) (do
 		}
 	}
 
-	return dockerRoutingRequest{Mode: dockerModeAuto, Source: dockerRequestDefaultAuto}, nil
+	return dockerRoutingRequest{Mode: defaultDockerMode, Source: dockerRequestDefault}, nil
 }
 
 func detectDockerProject(projectDir string) dockerProjectDetection {
@@ -1582,19 +1584,29 @@ func dockerProjectBlockedMessage(commandName, projectDir string, detection docke
 
 func sessionRoutingExplanation(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, mode sessionMode) (string, []string) {
 	if mode == sessionModeDockerSandbox {
-		switch request.Source {
-		case dockerRequestFlag:
-			return "using Docker Sandbox because --docker=sandbox was requested", nil
-		case dockerRequestLegacySandbox:
-			return "using Docker Sandbox because --sandbox was requested", nil
-		case dockerRequestProjectConfig:
-			return "using Docker Sandbox because this project is configured with docker: sandbox", nil
-		default:
-			if len(detection.HardMarkers) > 0 {
-				return fmt.Sprintf("using Docker Sandbox because this project appears compatible with a private Docker daemon (%s)", strings.Join(detection.HardMarkers, ", ")), nil
+		switch request.Mode {
+		case dockerModeSandbox:
+			switch request.Source {
+			case dockerRequestFlag:
+				return "using Docker Sandbox because --docker=sandbox was requested", nil
+			case dockerRequestLegacySandbox:
+				return "using Docker Sandbox because --sandbox was requested", nil
+			case dockerRequestProjectConfig:
+				return "using Docker Sandbox because this project is configured with docker: sandbox", nil
 			}
-			return "using Docker Sandbox for this session", nil
+		case dockerModeAuto:
+			if len(detection.HardMarkers) > 0 {
+				markers := strings.Join(detection.HardMarkers, ", ")
+				switch request.Source {
+				case dockerRequestFlag:
+					return fmt.Sprintf("using Docker Sandbox because --docker=auto detected a private-daemon Docker fit (%s)", markers), nil
+				case dockerRequestProjectConfig:
+					return fmt.Sprintf("using Docker Sandbox because this project is configured with docker: auto and appears compatible with a private Docker daemon (%s)", markers), nil
+				}
+				return fmt.Sprintf("using Docker Sandbox because automatic Docker routing detected a private-daemon fit (%s)", markers), nil
+			}
 		}
+		return "using Docker Sandbox for this session", nil
 	}
 
 	switch request.Mode {
@@ -1607,6 +1619,8 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 			reason = "staying in native containment because --ignore-docker was set"
 		case dockerRequestProjectConfig:
 			reason = "staying in native containment because this project is configured with docker: none"
+		case dockerRequestDefault:
+			reason = "using native containment by default (Docker routing: none)"
 		default:
 			reason = "staying in native containment because Docker support was disabled for this session"
 		}
@@ -1618,7 +1632,10 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 		if detection.HasSharedDaemonSignals() {
 			notes = append(notes, fmt.Sprintf("Shared-daemon signals detected: %s.", summarizeList(detection.SharedDaemonSignals, 2)))
 		}
-		if len(detection.HardMarkers) > 0 {
+		if len(detection.SoftMarkers) > 0 {
+			notes = append(notes, fmt.Sprintf("Container metadata detected: %s. Docker mode is not enabled by default.", strings.Join(detection.SoftMarkers, ", ")))
+		}
+		if len(detection.HardMarkers) > 0 || len(detection.SoftMarkers) > 0 {
 			notes = append(notes, fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)))
 		}
 		return reason, notes
@@ -1638,8 +1655,14 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 				fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)),
 			}
 		}
+		if request.Source == dockerRequestProjectConfig {
+			return "using native containment because this project is configured with docker: auto and no Docker requirement was detected", nil
+		}
+		if request.Source == dockerRequestFlag {
+			return "using native containment because --docker=auto found no Docker requirement", nil
+		}
 	}
-	return "using native containment because no Docker requirement was detected", nil
+	return "using native containment for this session", nil
 }
 
 func resolveSessionSandboxMode(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection) (bool, error) {
@@ -1686,7 +1709,7 @@ func resolveSessionSandboxMode(commandName, projectDir string, request dockerRou
 	if err := ensureSandboxApproval(projectDir, backend.Type, profile); err != nil {
 		if errors.Is(err, errSandboxApprovalDeclined) {
 			fmt.Fprintf(os.Stderr, "hazmat: falling back to native containment (Docker commands will not work in session)\n")
-			fmt.Fprintf(os.Stderr, "hazmat: hint: use --docker=none to skip this prompt or hazmat config docker none -C %s to persist code-only mode\n", projectDir)
+			fmt.Fprintf(os.Stderr, "hazmat: hint: omit --docker=auto, use --docker=none, or run hazmat config docker none -C %s to persist code-only mode\n", projectDir)
 			return false, nil
 		}
 		return false, err
@@ -1702,9 +1725,9 @@ func unsupportedSandboxTargetMessage(commandName, projectDir string, request doc
 	return fmt.Sprintf("--docker=sandbox is not supported for hazmat %s yet\nuse %s instead", commandName, dockerSessionExample("claude", projectDir, dockerModeSandbox))
 }
 
-// warnDockerProject checks whether projectDir contains Docker artifacts that
-// require an explicit Docker choice for commands that do not support Docker
-// Sandboxes directly.
+// warnDockerProject checks whether explicit Docker auto/sandbox routing would
+// require a Docker-capable command. The default mode is native code-only
+// containment, so Docker markers are notes rather than blockers by default.
 func warnDockerProject(commandName, projectDir string, request dockerRoutingRequest) error {
 	if request.Mode == dockerModeNone {
 		return nil

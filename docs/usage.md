@@ -76,7 +76,7 @@ Every session starts with a plain-language summary of what the agent can and can
 ```
 hazmat: session
   Mode:                 Native containment
-  Why this mode:        using native containment because no Docker requirement was detected
+  Why this mode:        using native containment by default (Docker routing: none)
   Project (read-write): /Users/dr/workspace/my-app
   Integrations:         go
   Host changes:          project ACL repair
@@ -91,7 +91,7 @@ hazmat: session
 Each line maps to a concrete boundary:
 
 - **Mode** — Native containment (kernel sandbox + user isolation) or Docker Sandbox (private Docker daemon in an isolated runtime)
-- **Why this mode** — what triggered the mode selection (`--docker=sandbox`, project config, private-daemon Docker detection, or default)
+- **Why this mode** — what triggered the mode selection (`--docker=sandbox`, `--docker=auto`, project config, or the default native mode)
 - **Project (read-write)** — the only directory the agent can modify
 - **Integrations** — active stack integrations and what they add automatically
 - **Host changes** — persistent host-side mutations Hazmat may apply before launch, such as project ACL repair, agent Git safe-directory trust, or a bounded toolchain permission fix. Permission-repair classes are modeled in TLA+; non-permission host changes are governed by tests and documentation.
@@ -108,7 +108,7 @@ Preview any session without running it:
 hazmat explain                      # preview current project
 hazmat explain --json               # machine-readable preview for automation
 hazmat explain --docker=sandbox     # preview Docker Sandbox mode
-hazmat explain --docker=none        # preview code-only native mode
+hazmat explain --docker=auto        # preview marker-based Docker routing
 hazmat explain --integration node   # preview with an integration
 ```
 
@@ -196,32 +196,37 @@ integrations:
 
 ### Docker Projects
 
-Hazmat treats Docker routing as a daemon-boundary question, not just "does this
-repo have Docker files?"
+Hazmat treats Docker routing as an explicit daemon-boundary choice, not just
+"does this repo have Docker files?"
 
-- If the repo looks compatible with a **private Docker daemon**, Hazmat
-  auto-routes into Docker Sandbox mode.
-- If the repo appears to depend on a **shared host daemon** (for example via
-  external Docker networks or Traefik Docker labels), Hazmat stops and asks you
-  to make an explicit choice.
+- By default, sessions use native containment with Docker disabled, even when
+  Docker files are present.
+- Use `--docker=sandbox` to force Docker Sandbox mode for a private-daemon
+  workflow.
+- Use `--docker=auto` or `hazmat config docker auto` when you want Hazmat to
+  inspect Docker markers and route private-daemon fits automatically.
+- If auto mode sees **shared host daemon** signals (for example external Docker
+  networks or Traefik Docker labels), Hazmat stops and asks you to use native
+  code-only mode or move the workflow to Tier 4.
 
 ```bash
-hazmat claude                       # auto-route only for private-daemon fits
+hazmat claude                       # native code-only session
 hazmat claude --docker=sandbox      # force Docker Sandbox mode
-hazmat claude --docker=none         # code-only native session
-hazmat config docker none -C ~/workspace/my-project
+hazmat claude --docker=auto         # marker-based Docker routing
+hazmat config docker auto -C ~/workspace/my-project
 ```
 
 Today Docker Sandbox sessions are surfaced through `hazmat claude`,
-`hazmat shell`, and `hazmat exec`. OpenCode and Codex can still use
-`--docker=none` for code-only native sessions in Docker-marked repos.
+`hazmat shell`, and `hazmat exec`. OpenCode and Codex stay in native
+containment; use `hazmat claude --docker=sandbox` when you need a
+Docker-capable agent session.
 
 If `.devcontainer/` is the only Docker-related directory, Hazmat stays in
 native containment unless the devcontainer.json positively indicates Docker
 is needed (e.g., it contains `image`, `dockerFile`, or `dockerComposeFile`).
 
-`--docker=none` is a fallback for code editing against externally managed local
-services. Docker commands still fail inside the session. If the agent must
+Native code-only mode is the default for editing against externally managed
+local services. Docker commands still fail inside the session. If the agent must
 restart containers, inspect logs, run `docker exec`, or debug the live Docker
 topology, Tier 4 is the right fit.
 

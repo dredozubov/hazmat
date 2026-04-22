@@ -18,7 +18,7 @@ Hazmat containment supports two Docker shapes:
 - **Private-daemon Docker**: the agent runs in Docker Sandbox mode with its own
   daemon or microVM. This is Tier 3.
 - **Code-only native sessions**: the agent stays in Tier 2 native containment
-  with `--docker=none`. Docker commands do not work in the session.
+  by default. Docker commands do not work in the session.
 
 Hazmat does **not** support shared-daemon Docker access inside containment. The
 host Docker socket is treated as a full sandbox escape.
@@ -29,14 +29,14 @@ If the repo depends on a shared daemon but you only need the agent to edit code
 and hit already-running local services:
 
 ```bash
-hazmat claude --docker=none -C ~/workspace/my-project
-hazmat config docker none -C ~/workspace/my-project
+hazmat claude -C ~/workspace/my-project
+hazmat config docker none -C ~/workspace/my-project  # override an existing auto/sandbox project setting
 ```
 
 This is a fallback, not a full replacement for agent-managed Docker workflows.
 
-For mixed-stack repos, pair `--docker=none` with repo-recommended integrations
-so users still get the right native toolchain hints:
+For mixed-stack repos, pair native code-only mode with repo-recommended
+integrations so users still get the right native toolchain hints:
 
 ```yaml
 integrations:
@@ -45,7 +45,7 @@ integrations:
   - tla-java
 ```
 
-## What Changes In `--docker=none`
+## What Changes In Native Code-Only Mode
 
 - The agent can still read and write project files.
 - The agent can still execute project-local scripts and binaries inside the
