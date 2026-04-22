@@ -304,7 +304,7 @@ func autoDockerRequest() dockerRoutingRequest {
 }
 
 func defaultDockerRequest() dockerRoutingRequest {
-	return dockerRoutingRequest{Mode: defaultDockerMode, Source: dockerRequestDefault}
+	return dockerRoutingRequest{Mode: dockerModeNone, Source: dockerRequestDefault}
 }
 
 func noneDockerRequest(source dockerRequestSource) dockerRoutingRequest {

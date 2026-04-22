@@ -51,8 +51,6 @@ const (
 	dockerModeAuto    dockerMode = "auto"
 	dockerModeNone    dockerMode = "none"
 	dockerModeSandbox dockerMode = "sandbox"
-
-	defaultDockerMode = dockerModeNone
 )
 
 type dockerRequestSource string
@@ -140,7 +138,7 @@ func newShellCmd() *cobra.Command {
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(defaultDockerMode),
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
@@ -210,7 +208,7 @@ Examples:
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(defaultDockerMode),
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
@@ -1334,7 +1332,7 @@ func resolveDockerRoutingRequest(projectDir string, opts harnessSessionOpts) (do
 		}
 	}
 
-	return dockerRoutingRequest{Mode: defaultDockerMode, Source: dockerRequestDefault}, nil
+	return dockerRoutingRequest{Mode: dockerModeNone, Source: dockerRequestDefault}, nil
 }
 
 func detectDockerProject(projectDir string) dockerProjectDetection {
@@ -1587,6 +1585,8 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 		switch request.Mode {
 		case dockerModeSandbox:
 			switch request.Source {
+			case dockerRequestDefault, dockerRequestLegacyIgnore:
+				return "using Docker Sandbox for this session", nil
 			case dockerRequestFlag:
 				return "using Docker Sandbox because --docker=sandbox was requested", nil
 			case dockerRequestLegacySandbox:
@@ -1598,13 +1598,16 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 			if len(detection.HardMarkers) > 0 {
 				markers := strings.Join(detection.HardMarkers, ", ")
 				switch request.Source {
+				case dockerRequestDefault, dockerRequestLegacyIgnore, dockerRequestLegacySandbox:
+					return fmt.Sprintf("using Docker Sandbox because automatic Docker routing detected a private-daemon fit (%s)", markers), nil
 				case dockerRequestFlag:
 					return fmt.Sprintf("using Docker Sandbox because --docker=auto detected a private-daemon Docker fit (%s)", markers), nil
 				case dockerRequestProjectConfig:
 					return fmt.Sprintf("using Docker Sandbox because this project is configured with docker: auto and appears compatible with a private Docker daemon (%s)", markers), nil
 				}
-				return fmt.Sprintf("using Docker Sandbox because automatic Docker routing detected a private-daemon fit (%s)", markers), nil
 			}
+		case dockerModeNone:
+			return "using Docker Sandbox for this session", nil
 		}
 		return "using Docker Sandbox for this session", nil
 	}

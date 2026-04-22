@@ -244,11 +244,11 @@ func (c HazmatConfig) ManagedSandboxes() []ManagedSandboxConfig {
 
 func (c HazmatConfig) ProjectDockerMode(projectDir string) (dockerMode, bool) {
 	if len(c.Projects) == 0 {
-		return defaultDockerMode, false
+		return dockerModeNone, false
 	}
 	project, ok := c.Projects[projectDir]
 	if !ok || !validDockerMode(project.Docker) {
-		return defaultDockerMode, false
+		return dockerModeNone, false
 	}
 	return project.Docker, true
 }
@@ -1083,6 +1083,7 @@ Examples:
 			return runConfigSSHAdd(project, addName, addHosts, addInventory, addProfile, keyArg)
 		},
 	}
+	addCmd.ValidArgsFunction = completeSSHAddKeyArgs
 	addCmd.Flags().StringVarP(&project, "project", "C", "",
 		"Project directory (defaults to current directory)")
 	addCmd.Flags().StringVar(&addName, "name", "",
@@ -1234,6 +1235,7 @@ Examples:
 			return runConfigSSHProfileAdd(args[0], args[1], addKnownHosts, addDefaultHosts, addDescription)
 		},
 	}
+	addCmd.ValidArgsFunction = completeSSHProfileAddArgs
 	addCmd.Flags().StringVar(&addKnownHosts, "known-hosts", "",
 		"known_hosts file for this profile (defaults to <private_key_dir>/known_hosts)")
 	addCmd.Flags().StringArrayVar(&addDefaultHosts, "default-host", nil,
@@ -2461,6 +2463,28 @@ func canonicalizeSSHCompletionPrefix(prefix string) string {
 	return filepath.Join(resolvedDir, base)
 }
 
+func completeSSHAddKeyArgs(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	suggestions, err := completeSSHKeyCandidates(toComplete)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return suggestions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeSSHProfileAddArgs(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	suggestions, err := completeSSHKeyCandidates(toComplete)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return suggestions, cobra.ShellCompDirectiveNoFileComp
+}
+
 func completeSSHKeyCandidates(toComplete string) ([]string, error) {
 	dir, prefix, suggestionPrefix, err := resolveSSHCompletionScope(toComplete)
 	if err != nil {
@@ -2473,7 +2497,7 @@ func completeSSHKeyCandidates(toComplete string) ([]string, error) {
 	}
 
 	suggestions := make([]string, 0, len(keys))
-	for _, key := range keys {
+	for _, key := range usableSSHKeyCandidates(keys) {
 		name := key.DisplayName()
 		if !strings.HasPrefix(name, prefix) {
 			continue
