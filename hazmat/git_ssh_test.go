@@ -1081,7 +1081,7 @@ func TestValidateProjectSSHConfigRejectsMissingIdentity(t *testing.T) {
 		Keys: []ProjectSSHKey{{Name: "x", Hosts: []string{"a.example"}}},
 	}
 	err := ValidateProjectSSHConfig(cfg)
-	if err == nil || !strings.Contains(err.Error(), "one of 'private_key' or 'key' is required") {
+	if err == nil || !strings.Contains(err.Error(), "one of 'profile', 'private_key', or 'key' is required") {
 		t.Fatalf("want missing-identity rejection, got %v", err)
 	}
 }
@@ -1091,8 +1091,47 @@ func TestValidateProjectSSHConfigRejectsBothIdentities(t *testing.T) {
 		Keys: []ProjectSSHKey{{Name: "x", Key: "inv", PrivateKeyPath: "/p", Hosts: []string{"a.example"}}},
 	}
 	err := ValidateProjectSSHConfig(cfg)
-	if err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Fatalf("want both-identities rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "set exactly one") {
+		t.Fatalf("want multiple-identities rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigRejectsProfilePlusInline(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{
+			Name:           "x",
+			Profile:        "github",
+			PrivateKeyPath: "/p",
+			Hosts:          []string{"a.example"},
+		}},
+	}
+	err := ValidateProjectSSHConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "set exactly one") {
+		t.Fatalf("want profile+inline rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigAcceptsProfileOnly(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", Profile: "github", Hosts: []string{"github.com"}}},
+	}
+	if err := ValidateProjectSSHConfig(cfg); err != nil {
+		t.Fatalf("profile-only key should validate: %v", err)
+	}
+}
+
+func TestValidateProjectSSHConfigAllowsProfileKeyWithEmptyHostsAlongsideInline(t *testing.T) {
+	// A profile-referencing key with empty hosts is NOT the legacy
+	// any-host fallback — it inherits from the profile. So it can coexist
+	// with an inline key that has its own declared hosts.
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "inline", PrivateKeyPath: "/p", Hosts: []string{"github.com"}},
+			{Name: "via_profile", Profile: "prod"}, // no declared hosts; inherits
+		},
+	}
+	if err := ValidateProjectSSHConfig(cfg); err != nil {
+		t.Fatalf("profile-referencing key with empty hosts should pass format check: %v", err)
 	}
 }
 
@@ -1154,6 +1193,132 @@ func TestSelectSessionGitSSHKeyRejectsUnknownHost(t *testing.T) {
 	_, err := selectSessionGitSSHKey(cfg, "gitlab.com")
 	if err == nil || !strings.Contains(err.Error(), "no SSH key configured for host") {
 		t.Fatalf("want unknown-host rejection, got %v", err)
+	}
+}
+
+func TestValidateSSHProfilesAcceptsWellFormed(t *testing.T) {
+	profiles := map[string]SSHProfile{
+		"github": {PrivateKeyPath: "/k/github", DefaultHosts: []string{"github.com"}},
+		"prod":   {PrivateKeyPath: "/k/prod", KnownHostsPath: "/k/prod.kh", DefaultHosts: []string{"prod.example.com", "*.prod.example.com"}, Description: "prod servers"},
+	}
+	if err := ValidateSSHProfiles(profiles); err != nil {
+		t.Fatalf("well-formed profiles should validate: %v", err)
+	}
+}
+
+func TestValidateSSHProfilesRejectsMissingPrivateKey(t *testing.T) {
+	profiles := map[string]SSHProfile{
+		"orphan": {DefaultHosts: []string{"example.com"}},
+	}
+	err := ValidateSSHProfiles(profiles)
+	if err == nil || !strings.Contains(err.Error(), "'private_key' is required") {
+		t.Fatalf("want missing private_key rejection, got %v", err)
+	}
+}
+
+func TestValidateSSHProfilesRejectsInvalidName(t *testing.T) {
+	profiles := map[string]SSHProfile{
+		"bad name!": {PrivateKeyPath: "/p"},
+	}
+	err := ValidateSSHProfiles(profiles)
+	if err == nil || !strings.Contains(err.Error(), "invalid name") {
+		t.Fatalf("want invalid-name rejection, got %v", err)
+	}
+}
+
+func TestValidateSSHProfilesRejectsInvalidDefaultHost(t *testing.T) {
+	profiles := map[string]SSHProfile{
+		"x": {PrivateKeyPath: "/p", DefaultHosts: []string{"git@evil"}},
+	}
+	err := ValidateSSHProfiles(profiles)
+	if err == nil || !strings.Contains(err.Error(), "invalid host") {
+		t.Fatalf("want invalid default host rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHProfileRefsRejectsDangling(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", Profile: "ghost", Hosts: []string{"github.com"}}},
+	}
+	profiles := map[string]SSHProfile{
+		"other": {PrivateKeyPath: "/p"},
+	}
+	err := ValidateProjectSSHProfileRefs(cfg, profiles)
+	if err == nil || !strings.Contains(err.Error(), "not defined in ssh_profiles") {
+		t.Fatalf("want dangling-ref rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHProfileRefsAcceptsValidRef(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{{Name: "x", Profile: "github", Hosts: []string{"github.com"}}},
+	}
+	profiles := map[string]SSHProfile{
+		"github": {PrivateKeyPath: "/p"},
+	}
+	if err := ValidateProjectSSHProfileRefs(cfg, profiles); err != nil {
+		t.Fatalf("valid ref should pass: %v", err)
+	}
+}
+
+func TestValidateProjectSSHProfileRefsRejectsOverlapAfterInheritance(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			// Key a declares hosts directly.
+			{Name: "a", PrivateKeyPath: "/p1", Hosts: []string{"github.com"}},
+			// Key b has no declared hosts; inherits default_hosts from profile.
+			{Name: "b", Profile: "github-bot"},
+		},
+	}
+	profiles := map[string]SSHProfile{
+		"github-bot": {PrivateKeyPath: "/p2", DefaultHosts: []string{"github.com"}},
+	}
+	err := ValidateProjectSSHProfileRefs(cfg, profiles)
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Fatalf("want effective-hosts overlap rejection, got %v", err)
+	}
+}
+
+func TestValidateProjectSSHProfileRefsAcceptsDisjointInheritance(t *testing.T) {
+	cfg := ProjectSSHConfig{
+		Keys: []ProjectSSHKey{
+			{Name: "gh", Profile: "gh"},
+			{Name: "pr", Profile: "pr"},
+		},
+	}
+	profiles := map[string]SSHProfile{
+		"gh": {PrivateKeyPath: "/p1", DefaultHosts: []string{"github.com"}},
+		"pr": {PrivateKeyPath: "/p2", DefaultHosts: []string{"prod.example.com"}},
+	}
+	if err := ValidateProjectSSHProfileRefs(cfg, profiles); err != nil {
+		t.Fatalf("disjoint inherited defaults should pass: %v", err)
+	}
+}
+
+func TestProjectSSHKeyEffectiveHostsDeclaredOverride(t *testing.T) {
+	key := ProjectSSHKey{
+		Name:    "x",
+		Profile: "github",
+		Hosts:   []string{"internal.example.com"}, // declared overrides profile defaults
+	}
+	profiles := map[string]SSHProfile{
+		"github": {PrivateKeyPath: "/p", DefaultHosts: []string{"github.com"}},
+	}
+	got := key.EffectiveHosts(profiles)
+	if len(got) != 1 || got[0] != "internal.example.com" {
+		t.Fatalf("EffectiveHosts = %v, want [internal.example.com]", got)
+	}
+}
+
+func TestProjectSSHKeyEffectiveHostsInheritsDefaults(t *testing.T) {
+	key := ProjectSSHKey{Name: "x", Profile: "github"}
+	profiles := map[string]SSHProfile{
+		"github": {PrivateKeyPath: "/p", DefaultHosts: []string{"github.com", "github.enterprise"}},
+	}
+	got := key.EffectiveHosts(profiles)
+	want := []string{"github.com", "github.enterprise"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("EffectiveHosts = %v, want %v", got, want)
 	}
 }
 

@@ -38,6 +38,20 @@ type HazmatConfig struct {
 	Integrations IntegrationsConfig       `yaml:"integrations,omitempty"`
 	Projects     map[string]ProjectConfig `yaml:"projects,omitempty"`
 	Sandbox      SandboxConfig            `yaml:"sandbox,omitempty"`
+	// SSHProfiles defines reusable SSH identities that can be referenced from
+	// any project via ProjectSSHKey.Profile. See tla/MC_GitSSHRouting.tla for
+	// the formal routing contract.
+	SSHProfiles map[string]SSHProfile `yaml:"ssh_profiles,omitempty"`
+}
+
+// SSHProfile is one reusable SSH identity. The profile carries the key
+// material (private_key + known_hosts) and an optional DefaultHosts list
+// that project keys inherit when they declare no hosts of their own.
+type SSHProfile struct {
+	PrivateKeyPath string   `yaml:"private_key"`
+	KnownHostsPath string   `yaml:"known_hosts,omitempty"`
+	DefaultHosts   []string `yaml:"default_hosts,omitempty"`
+	Description    string   `yaml:"description,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -63,10 +77,17 @@ type ProjectSSHConfig struct {
 }
 
 // ProjectSSHKey is one named SSH identity within a project's SSH config.
-// Exactly one of Key (provisioned inventory reference) or PrivateKeyPath
-// (filesystem path) must be set.
+// Exactly one identity source must be set:
+//   - Profile: reference to a shared identity in HazmatConfig.SSHProfiles
+//   - PrivateKeyPath: filesystem path to a private key (inline)
+//   - Key: reference to the legacy provisioned inventory at
+//     ~/.hazmat/ssh/keys/<name>/ (inline variant, predates profiles)
+//
+// Combining two of these is a config-load error. Hosts overrides any
+// Profile-inherited default_hosts when non-empty.
 type ProjectSSHKey struct {
 	Name           string   `yaml:"name"`
+	Profile        string   `yaml:"profile,omitempty"`
 	Key            string   `yaml:"key,omitempty"`
 	PrivateKeyPath string   `yaml:"private_key,omitempty"`
 	KnownHostsPath string   `yaml:"known_hosts,omitempty"`
@@ -308,19 +329,22 @@ func (c ProjectSSHConfig) NormalizedKeys() []ProjectSSHKey {
 	}}
 }
 
-// ValidateProjectSSHConfig enforces the config-set-time invariants from
-// tla/MC_GitSSHRouting.tla:
+// ValidateProjectSSHConfig enforces format-level invariants from
+// tla/MC_GitSSHRouting.tla that do not require cross-reference to
+// ssh_profiles:
 //   - Names are non-empty, unique, and well-formed.
-//   - Exactly one of Key or PrivateKeyPath is set per entry.
-//   - An empty Hosts list is only permitted when there is exactly one key
-//     (the legacy any-host fallback).
-//   - Hosts are non-empty bare hostnames (plus "*" wildcards), normalized,
-//     and pairwise disjoint across keys.
+//   - Exactly one identity source (Profile | PrivateKeyPath | Key) per entry
+//     (the NoProfileInlineConflict + PresentKeysHaveIdentity invariants).
+//   - An empty Hosts list on an inline key is only permitted when there is
+//     exactly one key (LegacyFallbackSingleOnly).
+//   - Hosts are non-empty bare hostnames (plus "*" wildcards) and are
+//     pairwise disjoint on declared values.
 //
 // Mixing legacy flat fields with a non-empty Keys list is rejected.
 //
-// Socket-collision checks are out of scope here — sockets are session-time
-// runtime artifacts owned by git_ssh.go, not values stored in the config.
+// Cross-reference checks (dangling profile references, overlap on
+// profile-inherited effective hosts) live in ValidateProjectSSHProfileRefs.
+// Socket-collision checks are session-time artifacts owned by git_ssh.go.
 func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
 	hasLegacy := strings.TrimSpace(c.PrivateKeyPath) != "" || strings.TrimSpace(c.Key) != ""
 	if len(c.Keys) > 0 && hasLegacy {
@@ -332,7 +356,7 @@ func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
 
 	seenName := make(map[string]struct{}, len(c.Keys))
 	keyHostSets := make([]map[string]struct{}, len(c.Keys))
-	emptyCount := 0
+	inlineEmptyCount := 0
 
 	for i, key := range c.Keys {
 		name := strings.TrimSpace(key.Name)
@@ -347,27 +371,22 @@ func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
 		}
 		seenName[name] = struct{}{}
 
-		hasPath := strings.TrimSpace(key.PrivateKeyPath) != ""
-		hasRef := strings.TrimSpace(key.Key) != ""
-		switch {
-		case hasPath && hasRef:
-			return fmt.Errorf("ssh.keys[%q]: set either 'private_key' or 'key', not both", name)
-		case !hasPath && !hasRef:
-			return fmt.Errorf("ssh.keys[%q]: one of 'private_key' or 'key' is required", name)
+		if err := validateProjectSSHKeyIdentity(name, key); err != nil {
+			return err
 		}
 
 		hostSet, err := normalizeProjectSSHHosts(key.Hosts)
 		if err != nil {
 			return fmt.Errorf("ssh.keys[%q].hosts: %w", name, err)
 		}
-		if len(hostSet) == 0 {
-			emptyCount++
+		if len(hostSet) == 0 && strings.TrimSpace(key.Profile) == "" {
+			inlineEmptyCount++
 		}
 		keyHostSets[i] = hostSet
 	}
 
-	if emptyCount > 0 && len(c.Keys) > 1 {
-		return fmt.Errorf("ssh.keys: an empty 'hosts' list (legacy any-host fallback) is only allowed with exactly one key")
+	if inlineEmptyCount > 0 && len(c.Keys) > 1 {
+		return fmt.Errorf("ssh.keys: an empty 'hosts' list on an inline key (legacy any-host fallback) is only allowed with exactly one configured key")
 	}
 
 	for i := 0; i < len(c.Keys); i++ {
@@ -379,6 +398,134 @@ func ValidateProjectSSHConfig(c ProjectSSHConfig) error {
 	}
 
 	return nil
+}
+
+// validateProjectSSHKeyIdentity enforces that exactly one identity source
+// is set on a key: profile, inline private key path, or legacy inventory
+// reference. Orphans (no source) and conflicts (two or more sources) are
+// both rejected.
+func validateProjectSSHKeyIdentity(name string, key ProjectSSHKey) error {
+	hasProfile := strings.TrimSpace(key.Profile) != ""
+	hasPath := strings.TrimSpace(key.PrivateKeyPath) != ""
+	hasRef := strings.TrimSpace(key.Key) != ""
+
+	count := 0
+	if hasProfile {
+		count++
+	}
+	if hasPath {
+		count++
+	}
+	if hasRef {
+		count++
+	}
+	switch count {
+	case 0:
+		return fmt.Errorf("ssh.keys[%q]: one of 'profile', 'private_key', or 'key' is required", name)
+	case 1:
+		return nil
+	default:
+		return fmt.Errorf("ssh.keys[%q]: set exactly one of 'profile', 'private_key', or 'key' (not %d)", name, count)
+	}
+}
+
+// ValidateSSHProfiles enforces the ssh_profiles: map invariants:
+//   - Profile names are well-formed.
+//   - Each profile has a PrivateKeyPath.
+//   - Default host patterns are valid.
+func ValidateSSHProfiles(profiles map[string]SSHProfile) error {
+	for name, profile := range profiles {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return fmt.Errorf("ssh_profiles: profile name is required")
+		}
+		if !projectSSHKeyNamePattern.MatchString(trimmed) {
+			return fmt.Errorf("ssh_profiles[%q]: invalid name (use letters, digits, '-', '_', '.')", name)
+		}
+		if strings.TrimSpace(profile.PrivateKeyPath) == "" {
+			return fmt.Errorf("ssh_profiles[%q]: 'private_key' is required", name)
+		}
+		if _, err := normalizeProjectSSHHosts(profile.DefaultHosts); err != nil {
+			return fmt.Errorf("ssh_profiles[%q].default_hosts: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// ValidateProjectSSHProfileRefs runs the cross-reference checks that the
+// format-level ValidateProjectSSHConfig cannot: every Profile reference
+// must point to a defined profile in ssh_profiles:, and the effective
+// host sets (after profile default_hosts inheritance) must be pairwise
+// disjoint across the keys.
+//
+// These map to MC_GitSSHRouting's NoDanglingProfileRefs invariant and the
+// profile-aware portion of OverlapRejectedAtConfigTime.
+func ValidateProjectSSHProfileRefs(c ProjectSSHConfig, profiles map[string]SSHProfile) error {
+	if len(c.Keys) == 0 {
+		return nil
+	}
+
+	effective := make([]map[string]struct{}, len(c.Keys))
+	for i, key := range c.Keys {
+		profileName := strings.TrimSpace(key.Profile)
+		if profileName != "" {
+			if _, ok := profiles[profileName]; !ok {
+				return fmt.Errorf("ssh.keys[%q].profile: %q is not defined in ssh_profiles", key.Name, profileName)
+			}
+		}
+
+		eff, err := effectiveKeyHosts(key, profiles)
+		if err != nil {
+			return err
+		}
+		effective[i] = eff
+	}
+
+	for i := 0; i < len(c.Keys); i++ {
+		for j := i + 1; j < len(c.Keys); j++ {
+			if overlap := firstHostOverlap(effective[i], effective[j]); overlap != "" {
+				return fmt.Errorf("ssh.keys: %q and %q both resolve to host %q after profile inheritance", c.Keys[i].Name, c.Keys[j].Name, overlap)
+			}
+		}
+	}
+	return nil
+}
+
+// effectiveKeyHosts returns the normalized host set for a project key
+// after profile default_hosts inheritance. Declared Hosts override; when
+// a profile-referencing key declares no hosts, the profile's DefaultHosts
+// are used.
+func effectiveKeyHosts(key ProjectSSHKey, profiles map[string]SSHProfile) (map[string]struct{}, error) {
+	if len(key.Hosts) > 0 {
+		return normalizeProjectSSHHosts(key.Hosts)
+	}
+	profileName := strings.TrimSpace(key.Profile)
+	if profileName == "" {
+		return map[string]struct{}{}, nil
+	}
+	profile, ok := profiles[profileName]
+	if !ok {
+		return nil, fmt.Errorf("ssh.keys[%q].profile: %q is not defined in ssh_profiles", key.Name, profileName)
+	}
+	return normalizeProjectSSHHosts(profile.DefaultHosts)
+}
+
+// EffectiveHosts returns the host list a project key routes after profile
+// default_hosts inheritance. Intended for display and resolver use; the
+// result is lowercase, deduplicated, and sorted by the underlying
+// normalizeProjectSSHHosts helper. Returns nil when the key has neither
+// declared hosts nor an inheriting profile with defaults.
+func (key ProjectSSHKey) EffectiveHosts(profiles map[string]SSHProfile) []string {
+	set, err := effectiveKeyHosts(key, profiles)
+	if err != nil || len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for host := range set {
+		out = append(out, host)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func normalizeProjectSSHHosts(hosts []string) (map[string]struct{}, error) {
@@ -485,11 +632,17 @@ func loadConfig() (HazmatConfig, error) {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
+	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
+		return cfg, err
+	}
 	for projectDir, project := range cfg.Projects {
 		if project.SSH == nil {
 			continue
 		}
 		if err := ValidateProjectSSHConfig(*project.SSH); err != nil {
+			return cfg, fmt.Errorf("project %s: %w", projectDir, err)
+		}
+		if err := ValidateProjectSSHProfileRefs(*project.SSH, cfg.SSHProfiles); err != nil {
 			return cfg, fmt.Errorf("project %s: %w", projectDir, err)
 		}
 	}
