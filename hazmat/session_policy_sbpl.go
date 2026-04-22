@@ -136,6 +136,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 		"com.apple.pboard",                                // pasteboard (clipboard read/write — paste into Claude Code and copy out)
+		"com.apple.SystemConfiguration.configd",           // SCDynamicStoreCreate (Rust reqwest proxy detection — codex panics without it)
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
