@@ -51,7 +51,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library", "/Library/Developer"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/Library/Keychains", "/private/etc", "/private/var/select"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/System/Cryptexes", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/Library/Keychains", "/private/etc", "/private/var/select"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {
