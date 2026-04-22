@@ -150,6 +150,17 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w("(allow ipc-posix-shm-write-data   (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n")
 	w("(allow ipc-posix-shm-write-create (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n\n")
 
+	w(";; ── System notification center shared memory (Rust reqwest / Security ────\n")
+	w(";; framework subscribes to libnotify events during TLS trust evaluation;\n")
+	w(";; without apple.shm.notification_center the cert chain load hangs.)\n")
+	w("(allow ipc-posix-shm-read-data (ipc-posix-name %q))\n\n", "apple.shm.notification_center")
+
+	w(";; ── Kernel control socket (AF_SYSTEM / SYSPROTO_CONTROL) ──────────────────\n")
+	w(";; SCDynamicStore's data channel (after the com.apple.SystemConfiguration\n")
+	w(";; mach-lookup handshake) uses AF_SYSTEM sockets. Rust reqwest's proxy\n")
+	w(";; detection blocks indefinitely without this; codex chat never round-trips.\n")
+	w("(allow system-socket (require-all (socket-domain \"AF_SYSTEM\") (socket-protocol 2)))\n\n")
+
 	w(";; ── Network: outbound for API calls ──────────────────────────────────────\n")
 	w("(allow network-outbound)\n")
 	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
