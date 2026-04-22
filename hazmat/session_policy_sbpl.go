@@ -189,5 +189,14 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("(deny file-read* file-write* (subpath %q))\n", home+sub)
 	}
 
+	w(";; ── Re-allow agent's empty login keychain (post-deny override) ────────────\n")
+	w(";; The broader %s/Library/Keychains deny stays. macOS Security framework on\n", home)
+	w(";; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable\n")
+	w(";; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain\n")
+	w(";; lets Rust reqwest's native-tls path complete trust setup using system roots.\n")
+	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db")
+	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-shm")
+	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
+
 	return b.String()
 }
