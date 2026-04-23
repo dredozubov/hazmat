@@ -88,6 +88,10 @@ func newGitHookFallbackCmd() *cobra.Command {
 }
 
 func installProjectHookRuntime(projectDir, hazmatBinPath string) (*projectHookRuntime, error) {
+	return installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath, false)
+}
+
+func installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath string, replaceExisting bool) (*projectHookRuntime, error) {
 	runtime, err := buildProjectHookRuntime(projectDir)
 	if err != nil {
 		return nil, err
@@ -103,7 +107,7 @@ func installProjectHookRuntime(projectDir, hazmatBinPath string) (*projectHookRu
 	if err != nil {
 		return nil, err
 	}
-	if configuredHooksPath != "" && configuredHooksPath != runtime.ManagedDir {
+	if !replaceExisting && configuredHooksPath != "" && configuredHooksPath != runtime.ManagedDir {
 		return nil, fmt.Errorf("git core.hooksPath is already owned by %q; refusing to replace it silently", configuredHooksPath)
 	}
 	if err := refuseUnknownHookEntries(runtime.FallbackDir, runtime.DeclaredHookSet, true); err != nil {

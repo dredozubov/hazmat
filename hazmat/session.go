@@ -34,9 +34,9 @@ type sessionConfig struct {
 	IntegrationWarnings     []string          // warnings surfaced by active integrations
 	ActiveIntegrations      []string          // integration names, for status bar
 	GitSSH                  *sessionGitSSHConfig
-	ServiceAccess           []string // explicit external-service access granted to session
-	RoutingReason           string   // plain-language explanation for the chosen mode
-	SessionNotes            []string // plain-language notes about session behavior
+	ServiceAccess           []string  // explicit external-service access granted to session
+	RoutingReason           string    // plain-language explanation for the chosen mode
+	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
 }
 
@@ -854,6 +854,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	if err != nil {
 		return preparedSession{}, err
 	}
+	maybePromptProjectHooks(cfg.ProjectDir)
 
 	request, err := resolveDockerRoutingRequest(cfg.ProjectDir, opts)
 	if err != nil {

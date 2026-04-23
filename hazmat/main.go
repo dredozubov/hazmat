@@ -126,6 +126,8 @@ func main() {
 	statusCmd.GroupID = "ws"
 	exportCmd := newExportCmd()
 	exportCmd.GroupID = "ws"
+	hooksCmd := newHooksCmd()
+	hooksCmd.GroupID = "ws"
 
 	root.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Setup:"},
@@ -137,7 +139,7 @@ func main() {
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
 		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
-		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
+		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
 		newConnectCmd(), newStackCheckCmd(), newCompletionCmd(root),
 		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)
