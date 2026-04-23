@@ -210,6 +210,11 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
 | [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini |
 | [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |
+| [docs/integration-author-kit.md](docs/integration-author-kit.md) | How to propose integrations without turning them into policy escapes |
+| [docs/community.md](docs/community.md) | Support tiers, ownership model, sponsor lanes, and contribution surfaces |
+| [docs/public-roadmap.md](docs/public-roadmap.md) | Curated public roadmap exported from beads issues |
+| [docs/compatibility.md](docs/compatibility.md) | Compatibility status meanings, matrix shape, and reporting flow |
+| [docs/recipes/README.md](docs/recipes/README.md) | Community-expandable recipes for common harness + stack workflows |
 | [docs/testing.md](docs/testing.md) | What is tested locally, in CI, and in destructive VM-backed flows |
 | [docs/design-assumptions.md](docs/design-assumptions.md) | Non-obvious design decisions and known tradeoffs |
 | [docs/cve-audit.md](docs/cve-audit.md) | How Hazmat maps against known Claude Code CVEs |

@@ -1,0 +1,36 @@
+{
+  "sections": [
+    {
+      "title": "Community contribution surfaces",
+      "intro": "These are the best places for outside contributors to start. They grow the ecosystem without widening Hazmat's trust boundary.",
+      "issues": [
+        "sandboxing-u57l",
+        "sandboxing-jtby",
+        "sandboxing-qj42",
+        "sandboxing-fms6",
+        "sandboxing-4g49",
+        "sandboxing-dtri",
+        "sandboxing-6s13"
+      ]
+    },
+    {
+      "title": "Maintainer-owned trust boundary work",
+      "intro": "These items matter, but they touch containment, rollback, secret handling, or the proof boundary and need deeper maintainer review.",
+      "issues": [
+        "sandboxing-93r8",
+        "sandboxing-gg16",
+        "sandboxing-n1xy",
+        "sandboxing-pk5x",
+        "sandboxing-lksm"
+      ]
+    },
+    {
+      "title": "Evidence and category-building",
+      "intro": "Hazmat's moat is evidence-backed safety. These items turn incidents and open questions into durable public material.",
+      "issues": [
+        "sandboxing-owyu",
+        "sandboxing-n249"
+      ]
+    }
+  ]
+}

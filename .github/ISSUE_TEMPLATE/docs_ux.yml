@@ -1,0 +1,33 @@
+name: Docs / UX Report
+description: Report confusing prompts, onboarding gaps, rough wording, or missing examples
+body:
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      placeholder: "e.g. README quickstart, hazmat init prompt, docs/integrations.md"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What was confusing?
+      description: Be specific about where you got stuck or what wording failed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: false
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Proposed wording, screenshot idea, command example, or flow improvement.
+    validations:
+      required: false

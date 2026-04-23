@@ -14,6 +14,16 @@ Include:
 
 We will acknowledge receipt within 48 hours and aim to provide a fix or mitigation within 7 days for confirmed issues.
 
+Do **not** open a public GitHub issue for:
+
+- sandbox escapes
+- credential leaks
+- firewall bypasses
+- privilege-escalation paths
+- unsafe setup / rollback ordering bugs
+
+Public GitHub issues are still the right place for non-sensitive bugs, docs problems, UX feedback, compatibility reports, and feature requests.
+
 ## What Counts as a Security Issue
 
 - Sandbox escape (agent accessing paths outside the seatbelt policy)

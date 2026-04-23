@@ -378,6 +378,25 @@ commands:
 	}
 }
 
+func TestLoadIntegrationSpecAuthorKitTemplate(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "docs", "examples", "integration-template.yaml"))
+	if err != nil {
+		t.Fatalf("read author-kit template: %v", err)
+	}
+
+	p, err := loadIntegrationSpec(data)
+	if err != nil {
+		t.Fatalf("loadIntegrationSpec failed for author-kit template: %v", err)
+	}
+
+	if p.Meta.Name != "example-stack" {
+		t.Fatalf("name = %q, want example-stack", p.Meta.Name)
+	}
+	if got := p.Commands["test"]; got != "example-tool test" {
+		t.Fatalf("commands.test = %q, want example-tool test", got)
+	}
+}
+
 func TestLoadIntegrationSpecTooLarge(t *testing.T) {
 	data := make([]byte, integrationMaxSize+1)
 	if _, err := loadIntegrationSpec(data); err == nil {

@@ -1,0 +1,96 @@
+name: Compatibility Report
+description: Report what worked, what broke, and what caveats you hit on a specific host and stack
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to add signal to Hazmat's public compatibility program.
+
+        This is for ordinary compatibility and usability reporting, not private security issues.
+
+  - type: input
+    id: hazmat-version
+    attributes:
+      label: Hazmat version
+      placeholder: "e.g. v0.4.3 or dev-bc94ba5"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 15.4 (Sequoia)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      options:
+        - Claude Code
+        - Codex
+        - OpenCode
+        - Gemini
+        - Other / custom command
+    validations:
+      required: true
+
+  - type: input
+    id: stack
+    attributes:
+      label: Stack or recipe
+      placeholder: "e.g. Next.js, python-uv, Go, TLA+"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Session mode
+      options:
+        - Native containment
+        - Docker Sandbox
+        - Native code-only against external Docker/services
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: Outcome
+      options:
+        - Works
+        - Works with caveats
+        - Native only
+        - Needs Tier 4
+        - Unsupported
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: What worked, what failed, and what caveats matter?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List the exact steps someone else could follow.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Integrations used, extra read/write scope, auth path, logs, screenshots, or linked recipe docs.
+    validations:
+      required: false

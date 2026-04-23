@@ -1,0 +1,77 @@
+name: Integration Request
+description: Propose a new built-in integration or an improvement to an existing one
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Integrations are intentionally bounded. They may add read-only toolchain paths, snapshot excludes, and safe env passthrough keys. They may not widen write scope or expose credentials.
+
+        Please read `docs/integration-author-kit.md` before filing.
+
+  - type: input
+    id: integration-name
+    attributes:
+      label: Integration name
+      placeholder: "e.g. swiftpm, bun, deno"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this integration solve?
+      description: Describe the workflow friction or compatibility gap.
+    validations:
+      required: true
+
+  - type: textarea
+    id: detect
+    attributes:
+      label: Detect files or root markers
+      description: "Examples: `Package.swift`, `bun.lockb`, root dir markers, or a reason manual activation is better.`"
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: read-dirs
+    attributes:
+      label: Candidate read-only paths
+      description: Include only paths that are read-only and non-secret.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Candidate env passthrough keys
+      description: Only passive selectors/path pointers belong here.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: backup
+    attributes:
+      label: Candidate snapshot excludes
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: Typical commands
+      description: Common build/test/lint commands this integration should surface.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Link docs, working repos, package-manager docs, or prior compatibility reports.
+    validations:
+      required: true

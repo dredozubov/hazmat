@@ -259,6 +259,8 @@ Tell your contributors which integrations the repo needs, and note any prerequis
 (runtimes, tools) in the project README. When a contributor runs `hazmat claude`
 for the first time, they'll see the approval prompt with the exact integration list.
 
+If you want to add or improve an integration, see [integration-author-kit.md](integration-author-kit.md).
+
 If your project needs an integration that doesn't exist as a built-in,
 contributors can create a matching user manifest on their machines (see
 below). The `.hazmat/integrations.yaml` should still reference the integration name

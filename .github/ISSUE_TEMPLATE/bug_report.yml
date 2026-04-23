@@ -2,6 +2,13 @@ name: Bug Report
 description: Something broke or behaved unexpectedly
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for ordinary bugs, regressions, and UX failures.
+
+        If the issue is a containment bypass, credential leak, sandbox escape, or other security problem, do **not** file it publicly. Use the private contact in `SECURITY.md` instead.
+
   - type: input
     id: hazmat-version
     attributes:

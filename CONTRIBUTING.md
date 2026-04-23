@@ -1,26 +1,46 @@
 # Contributing to Hazmat
 
-Hazmat is early-stage and actively evolving. The most valuable contributions right now are **feedback, bug reports, and UX improvements** — not just code.
+Hazmat is early-stage, but the contribution model is already explicit: community-editable data and compatibility knowledge should grow quickly; the enforcement boundary stays under tighter maintainer review.
 
-## The easiest way to help
+Start with [docs/community.md](docs/community.md). It defines the support tiers, ownership model, and where contributions are easiest to land safely.
 
-1. **Try `hazmat init` and tell us what happened.** Did a step fail? Was a prompt confusing? Did something take longer than expected? [Open an issue](https://github.com/dredozubov/hazmat/issues) with your macOS version and a copy of the output. Rough reports are fine — we'd rather hear about it than not.
+## Best Places to Help
 
-2. **Run `hazmat claude` on a real project.** Did the agent break something? Did a snapshot save you? Was restore seamless or janky? Did the seatbelt block something it shouldn't have? Every real-world session is a test case.
+These are the highest-leverage community surfaces right now:
 
-3. **Read the docs and tell us what's missing.** If you had to guess what a command does, that's a UX bug. If a design decision isn't explained, that's a docs bug.
+1. **Compatibility reports.** Real macOS version + harness + stack reports are extremely useful. Use the compatibility issue template and [docs/compatibility.md](docs/compatibility.md).
+2. **Recipes.** Practical setup guides such as Claude + Next.js or Codex + uv are cheap to contribute and useful immediately. See [docs/recipes/README.md](docs/recipes/README.md).
+3. **Integrations.** Built-in manifests are intentionally bounded. If you want to add or improve one, start with [docs/integration-author-kit.md](docs/integration-author-kit.md).
+4. **Docs and UX.** Confusing prompts, unclear contract output, missing troubleshooting steps, and rough onboarding edges are all good contributions.
+5. **Research and evidence.** Incident writeups, CVE tracking, reproducible repros, and comparative safety analysis all strengthen the project.
 
-## Reporting issues
+## What Needs Deeper Review
 
-- **UX issues:** confusing prompts, unnecessary sudo, unexpected behavior, missing feedback
-- **Containment issues:** something the agent shouldn't be able to do but can, credential leaks, policy gaps
-- **Compatibility issues:** macOS version, shell, toolchain, VPN/proxy, specific npm/pip packages that break under `ignore-scripts`
+These areas are not off-limits, but they are not good first contributions:
 
-Include your macOS version (`sw_vers`) and hazmat version (`hazmat --version`).
+- seatbelt policy structure
+- `pf` firewall behavior
+- setup / rollback ordering
+- credential delivery and capability brokering
+- behavior governed by [tla/VERIFIED.md](tla/VERIFIED.md)
 
-## Security reports
+Linux is important, but it is not the default volunteer onramp. It touches the trust boundary, setup/rollback resources, and the proof story.
 
-If you find a containment bypass — a way for the agent to read host credentials, escape the seatbelt, bypass the firewall, or escalate privileges — please report it via [GitHub Issues](https://github.com/dredozubov/hazmat/issues). We don't have a formal security disclosure process yet; just open an issue.
+## Reporting Issues
+
+Use the GitHub issue templates for:
+
+- bugs and regressions
+- compatibility reports
+- integration requests
+- harness requests
+- docs / UX problems
+
+Include your macOS version (`sw_vers`) and Hazmat version (`hazmat --version`) whenever possible.
+
+## Security Reports
+
+If you find a containment bypass, credential leak, sandbox escape, or other security issue, do **not** open a public GitHub issue. Use the private reporting path in [SECURITY.md](SECURITY.md).
 
 ## Building
 
@@ -53,18 +73,19 @@ bash check_suite.sh
 - `tla/VERIFIED.md` is the authoritative proof-scope document. If you change verified behavior, update the spec first and re-run TLC.
 - Follow the commit convention: `<area>: <what changed>` (areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `test`)
 - One logical change per commit
+- If you change trust-boundary behavior, explain the rationale in the PR description and update the relevant docs.
 
-## High-impact areas
+## Community-Owned Surfaces
 
-These are the areas where contributions would make the biggest difference:
+These are good starting points for outside contributors:
 
 | Area | Why it matters |
 |------|---------------|
-| **Linux port** | Most agent users are on Linux. Same architecture (user isolation + kernel sandbox + firewall), different primitives (namespaces, seccomp, nftables). This is the single biggest unlock for adoption. |
-| **UX polish** | Every unnecessary prompt, confusing message, or unexplained sudo is a reason someone stops using hazmat. The bar is "it should feel like a normal CLI tool." |
-| **Supply chain hardening** | npm `ignore-scripts` is a start. What about pip `setup.py`? Cargo `build.rs`? MCP server pinning? Each one closes a real attack class. |
-| **Observable containment** | What did the agent change? What network connections did it make? Post-session audit logs would make hazmat feel like a debugger for agent behavior. |
-| **Agent presets** | Named configurations for common tools (Codex, Aider, custom loops) that set the right flags, read-only dirs, and env vars. |
+| **Recipes** | Practical examples make Hazmat easier to adopt than abstract safety claims. |
+| **Compatibility matrix** | Community reports turn "supported in theory" into "known to work on this host with these caveats." |
+| **Integrations** | Bounded YAML manifests are a good scaling surface without opening arbitrary plugins. |
+| **Docs / UX polish** | Clearer onboarding, better examples, and sharper troubleshooting reduce drop-off immediately. |
+| **Evidence and incident tracking** | Hazmat's credibility comes from concrete threat models, not generic enthusiasm. |
 
 ## Security-relevant changes
 

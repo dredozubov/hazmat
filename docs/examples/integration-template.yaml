@@ -1,0 +1,26 @@
+integration:
+  name: example-stack
+  version: 1
+  description: Example integration manifest for authoring docs and tests
+
+detect:
+  files:
+    - example.lock
+
+session:
+  read_dirs:
+    - ~/.local/share/example-tool
+  env_passthrough:
+    - VIRTUAL_ENV
+
+backup:
+  excludes:
+    - .example-cache/
+    - build/
+
+warnings:
+  - "Example warning: document sharp edges honestly."
+
+commands:
+  test: example-tool test
+  build: example-tool build

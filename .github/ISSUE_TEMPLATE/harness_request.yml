@@ -1,0 +1,60 @@
+name: Harness Request
+description: Propose support for a new agent CLI or a major harness capability gap
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hazmat supports harnesses through a built-in adapter boundary, not an arbitrary plugin system.
+
+        This template is for concrete harness requests or clear gaps in an existing harness path.
+
+  - type: input
+    id: harness
+    attributes:
+      label: Harness name
+      placeholder: "e.g. Aider, Cursor CLI, vendor-specific wrapper"
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Why does this harness matter?
+      description: Describe the user need, not just the tool name.
+    validations:
+      required: true
+
+  - type: textarea
+    id: install
+    attributes:
+      label: Install / update path
+      description: How is the harness installed and upgraded today?
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: auth
+    attributes:
+      label: Auth and credential model
+      description: OAuth, API key, file-based auth, browser login, device code, etc.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: state-paths
+    attributes:
+      label: Known state paths
+      description: Config dirs, auth files, cache dirs, transcripts, extensions, etc.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Links and evidence
+      description: Official docs, repo links, or working setup notes.
+    validations:
+      required: true
