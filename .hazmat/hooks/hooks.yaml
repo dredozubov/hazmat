@@ -1,0 +1,14 @@
+version: 1
+files:
+  - gitleaks.toml
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: staged secret scan, gofmt, and shell syntax checks before commit
+    interpreter: sh
+    requires: [bash, git, gitleaks, gofmt]
+  - type: pre-push
+    script: pre-push.sh
+    purpose: fast local gate before push with secret scans, vet, tests, lint, and CLI smoke checks
+    interpreter: sh
+    requires: [git, go, gitleaks, golangci-lint]

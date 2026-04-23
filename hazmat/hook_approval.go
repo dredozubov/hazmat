@@ -210,6 +210,15 @@ func writeProjectHookSnapshot(snapshotDir string, bundle *loadedProjectHookBundl
 	if err := os.WriteFile(filepath.Join(snapshotDir, "hooks.yaml"), bundle.ManifestData, 0o600); err != nil {
 		return fmt.Errorf("write hook snapshot manifest: %w", err)
 	}
+	for _, bundleFile := range bundle.Files {
+		target := filepath.Join(snapshotDir, filepath.FromSlash(bundleFile.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return fmt.Errorf("create hook snapshot parent: %w", err)
+		}
+		if err := os.WriteFile(target, bundleFile.Data, 0o600); err != nil {
+			return fmt.Errorf("write hook snapshot file %s: %w", bundleFile.Path, err)
+		}
+	}
 	for _, hook := range bundle.Hooks {
 		target := filepath.Join(snapshotDir, filepath.FromSlash(hook.ScriptPath))
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {

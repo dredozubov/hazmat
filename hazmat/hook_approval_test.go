@@ -11,6 +11,8 @@ func TestRecordProjectHookApprovalStoresSnapshotAndSummary(t *testing.T) {
 
 	projectDir := writeProjectHookBundle(t, projectHookBundleFixture{
 		manifest: `version: 1
+files:
+  - gitleaks.toml
 hooks:
   - type: pre-commit
     script: scripts/pre-commit.sh
@@ -19,6 +21,7 @@ hooks:
     requires: [bash, gitleaks]
 `,
 		files: map[string]string{
+			"gitleaks.toml":         "title = \"test\"\n",
 			"scripts/pre-commit.sh": "#!/usr/bin/env bash\necho pre-commit\n",
 		},
 	})
@@ -65,6 +68,15 @@ hooks:
 	}
 	if string(scriptData) != string(bundle.Hooks[0].ScriptData) {
 		t.Fatalf("snapshot script mismatch:\n%s\nwant:\n%s", scriptData, bundle.Hooks[0].ScriptData)
+	}
+
+	configPath := filepath.Join(record.SnapshotDir, "gitleaks.toml")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(configData) != string(bundle.Files[0].Data) {
+		t.Fatalf("snapshot file mismatch:\n%s\nwant:\n%s", configData, bundle.Files[0].Data)
 	}
 
 	loaded, err := loadProjectHookApproval(projectDir)

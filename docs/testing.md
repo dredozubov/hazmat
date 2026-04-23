@@ -36,20 +36,28 @@ This intentionally skips the expensive or environment-heavy checks. It does run
 the Linux compile-only probe, which cross-compiles test binaries into a temporary
 directory and removes them before exiting.
 
-If you install the git hooks with `make hooks`, Hazmat also adds:
+If you install the repo-local hooks with `hazmat hooks install -C .` (or
+`make hooks`, which now delegates to that command), Hazmat adds:
 
-- `pre-commit`: staged diff sanity, `gofmt` on staged Go files, and shell syntax
+- `pre-commit`: the tracked source lives under `.hazmat/hooks/pre-commit.sh`
+  and runs staged diff sanity, `gofmt` on staged Go files, and shell syntax
   checks for staged scripts, plus two staged secret scans:
   - `scripts/check-secret-patterns.sh --staged` — fast Google `AIza` regex (no
     dependencies)
   - `scripts/check-gitleaks.sh --staged` — broader scanner via
     [`gitleaks`](https://github.com/gitleaks/gitleaks) covering ~100 provider
-    patterns and high-entropy detection (config: `.gitleaks.toml`). Requires
-    `gitleaks` on `PATH`; install with `brew install gitleaks` or
+    patterns and high-entropy detection (config:
+    `.hazmat/hooks/gitleaks.toml`). Requires `gitleaks` on `PATH`; install with
+    `brew install gitleaks` or
     `go install github.com/zricethezav/gitleaks/v8@latest`
-- `pre-push`: the shared fast gate via `scripts/check-fast.sh` (tracked-file
-  Google API key scan, full-tree gitleaks scan, `go vet`, `go test`,
-  `golangci-lint`, and CLI smoke tests)
+- `pre-push`: the tracked source lives under `.hazmat/hooks/pre-push.sh` and
+  runs the fast local gate (tracked-file Google API key scan, full-tree
+  gitleaks scan, `go vet`, `go test`, Linux compile-only, `golangci-lint`, and
+  CLI smoke tests)
+
+The legacy `scripts/pre-commit`, `scripts/pre-push`, and `scripts/check-fast.sh`
+entrypoints remain as compatibility wrappers for manual runs and older docs, but
+they are no longer the source of truth for Git hook installation.
 
 ### Harness guardrails
 

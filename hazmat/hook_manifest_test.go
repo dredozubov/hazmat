@@ -19,6 +19,8 @@ func TestLoadProjectHookBundleMissingManifest(t *testing.T) {
 func TestLoadProjectHookBundleValid(t *testing.T) {
 	projectDir := writeProjectHookBundle(t, projectHookBundleFixture{
 		manifest: `version: 1
+files:
+  - gitleaks.toml
 hooks:
   - type: pre-commit
     script: scripts/pre-commit.sh
@@ -32,6 +34,7 @@ hooks:
     requires: [git, gofmt]
 `,
 		files: map[string]string{
+			"gitleaks.toml":         "title = \"test\"\n",
 			"scripts/pre-commit.sh": "#!/usr/bin/env bash\necho pre-commit\n",
 			"pre-push.sh":           "#!/bin/sh\necho pre-push\n",
 		},
@@ -55,6 +58,12 @@ hooks:
 	}
 	if got, want := bundle.Hooks[0].ScriptPath, "scripts/pre-commit.sh"; got != want {
 		t.Fatalf("ScriptPath = %q, want %q", got, want)
+	}
+	if got, want := len(bundle.Files), 1; got != want {
+		t.Fatalf("len(Files) = %d, want %d", got, want)
+	}
+	if got, want := bundle.Files[0].Path, "gitleaks.toml"; got != want {
+		t.Fatalf("Files[0].Path = %q, want %q", got, want)
 	}
 }
 
@@ -206,9 +215,55 @@ hooks:
 	}
 }
 
+func TestLoadProjectHookBundleRejectsDuplicateBundleFile(t *testing.T) {
+	projectDir := writeProjectHookBundle(t, projectHookBundleFixture{
+		manifest: `version: 1
+files:
+  - config.toml
+  - ./config.toml
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"config.toml":   "title = \"test\"\n",
+			"pre-commit.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	if _, err := loadProjectHookBundle(projectDir); err == nil {
+		t.Fatal("expected duplicate bundle file error")
+	}
+}
+
+func TestLoadProjectHookBundleRejectsBundleFileDuplicatingScript(t *testing.T) {
+	projectDir := writeProjectHookBundle(t, projectHookBundleFixture{
+		manifest: `version: 1
+files:
+  - pre-commit.sh
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-commit.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	if _, err := loadProjectHookBundle(projectDir); err == nil {
+		t.Fatal("expected bundle file/script duplication error")
+	}
+}
+
 func TestLoadProjectHookBundleHashStableAcrossManifestOrder(t *testing.T) {
 	projectA := writeProjectHookBundle(t, projectHookBundleFixture{
 		manifest: `version: 1
+files:
+  - config.toml
 hooks:
   - type: pre-commit
     script: pre-commit.sh
@@ -222,12 +277,15 @@ hooks:
     requires: [git, gofmt]
 `,
 		files: map[string]string{
+			"config.toml":         "title = \"test\"\n",
 			"pre-commit.sh":       "#!/usr/bin/env bash\necho pre-commit\n",
 			"scripts/pre-push.sh": "#!/bin/sh\necho pre-push\n",
 		},
 	})
 	projectB := writeProjectHookBundle(t, projectHookBundleFixture{
 		manifest: `version: 1
+files:
+  - ./config.toml
 hooks:
   - type: pre-push
     script: scripts/pre-push.sh
@@ -241,6 +299,7 @@ hooks:
     requires: [bash, gitleaks]
 `,
 		files: map[string]string{
+			"config.toml":         "title = \"test\"\n",
 			"pre-commit.sh":       "#!/usr/bin/env bash\necho pre-commit\n",
 			"scripts/pre-push.sh": "#!/bin/sh\necho pre-push\n",
 		},
@@ -286,6 +345,39 @@ hooks:
 	}
 	if bundleA.BundleHash == bundleB.BundleHash {
 		t.Fatalf("expected hash change after script mutation, got %s", bundleA.BundleHash)
+	}
+}
+
+func TestLoadProjectHookBundleHashChangesWhenBundleFileChanges(t *testing.T) {
+	projectDir := writeProjectHookBundle(t, projectHookBundleFixture{
+		manifest: `version: 1
+files:
+  - gitleaks.toml
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"gitleaks.toml": "title = \"one\"\n",
+			"pre-commit.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	bundleA, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, projectHooksDirRel, "gitleaks.toml"), []byte("title = \"two\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundleB, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundleA.BundleHash == bundleB.BundleHash {
+		t.Fatalf("expected hash change after bundle file mutation, got %s", bundleA.BundleHash)
 	}
 }
 

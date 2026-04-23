@@ -1,9 +1,9 @@
 title = "Hazmat gitleaks config"
 
 # Extend the built-in gitleaks rules (covers Google, OpenAI, Anthropic, AWS,
-# GitHub, Slack, Stripe, generic high-entropy keys, etc.). The repo's existing
-# scripts/check-secret-patterns.sh remains the fast Google-specific first line;
-# gitleaks runs alongside as the broader scanner.
+# GitHub, Slack, Stripe, generic high-entropy keys, etc.). The repo's staged
+# and pre-push hooks run this config from an approved snapshot under
+# .hazmat/hooks/.
 [extend]
 useDefault = true
 
@@ -19,7 +19,10 @@ paths = [
   # literal regex source. Without this, gitleaks scans the regex itself.
   '''scripts/check-secret-patterns\.sh''',
   # Gitleaks's own config file references token shapes in commentary.
-  '''\.gitleaks\.toml''',
+  '''(^|/)\.hazmat/hooks/gitleaks\.toml$''',
+  # Legacy path — file lived at the repo root before the Hazmat-managed hook
+  # migration. Historical commits at the old path still carry the same content.
+  '''(^|/)\.gitleaks\.toml$''',
   # Legacy path — file lived at the repo root before commit 201bc7c moved the
   # docs tree under docs/research/. Historical commits at the old path contain
   # an exfil-channel example that matches generic-api-key.

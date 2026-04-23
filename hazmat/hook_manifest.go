@@ -38,6 +38,7 @@ const (
 
 type projectHooksManifest struct {
 	Version int                `yaml:"version"`
+	Files   []string           `yaml:"files,omitempty"`
 	Hooks   []projectHookEntry `yaml:"hooks"`
 }
 
@@ -55,8 +56,16 @@ type loadedProjectHookBundle struct {
 	ManifestPath string
 	ManifestData []byte
 	Manifest     projectHooksManifest
+	Files        []loadedProjectHookFile
 	Hooks        []loadedProjectHook
 	BundleHash   string
+}
+
+type loadedProjectHookFile struct {
+	Path string
+	Abs  string
+	Data []byte
+	Hash string
 }
 
 type loadedProjectHook struct {
@@ -117,7 +126,7 @@ func loadProjectHookBundleFromPaths(projectDir, hooksDir, manifestPath string) (
 
 	loadedHooks := make([]loadedProjectHook, 0, len(manifest.Hooks))
 	for _, hook := range manifest.Hooks {
-		scriptPath, scriptAbs, raw, err := resolveProjectHookScript(hooksDir, hook.Script)
+		scriptPath, scriptAbs, raw, err := resolveProjectHookBundleFile(hooksDir, hook.Script, "script")
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", hook.Type, hook.Script, err)
 		}
@@ -139,14 +148,35 @@ func loadProjectHookBundleFromPaths(projectDir, hooksDir, manifestPath string) (
 		return string(loadedHooks[i].Type) < string(loadedHooks[j].Type)
 	})
 
+	loadedFiles := make([]loadedProjectHookFile, 0, len(manifest.Files))
+	for _, bundleFile := range manifest.Files {
+		path, abs, raw, err := resolveProjectHookBundleFile(hooksDir, bundleFile, "file")
+		if err != nil {
+			return nil, fmt.Errorf("bundle file %q: %w", bundleFile, err)
+		}
+
+		sum := sha256.Sum256(raw)
+		loadedFiles = append(loadedFiles, loadedProjectHookFile{
+			Path: path,
+			Abs:  abs,
+			Data: append([]byte(nil), raw...),
+			Hash: "sha256:" + hex.EncodeToString(sum[:]),
+		})
+	}
+
+	sort.Slice(loadedFiles, func(i, j int) bool {
+		return loadedFiles[i].Path < loadedFiles[j].Path
+	})
+
 	return &loadedProjectHookBundle{
 		ProjectDir:   projectDir,
 		HooksDir:     hooksDir,
 		ManifestPath: manifestPath,
 		ManifestData: append([]byte(nil), data...),
 		Manifest:     manifest,
+		Files:        loadedFiles,
 		Hooks:        loadedHooks,
-		BundleHash:   hashProjectHookBundle(manifest, loadedHooks),
+		BundleHash:   hashProjectHookBundle(manifest, loadedFiles, loadedHooks),
 	}, nil
 }
 
@@ -162,13 +192,13 @@ func loadProjectHooksManifest(data []byte) (projectHooksManifest, error) {
 		return projectHooksManifest{}, fmt.Errorf("parse %s: %w", projectHooksManifestRelPath, err)
 	}
 
-	if err := validateProjectHooksManifest(manifest); err != nil {
+	if err := validateProjectHooksManifest(&manifest); err != nil {
 		return projectHooksManifest{}, err
 	}
 	return manifest, nil
 }
 
-func validateProjectHooksManifest(manifest projectHooksManifest) error {
+func validateProjectHooksManifest(manifest *projectHooksManifest) error {
 	if manifest.Version != projectHooksManifestVersion {
 		return fmt.Errorf("%s: version = %d, want %d", projectHooksManifestRelPath, manifest.Version, projectHooksManifestVersion)
 	}
@@ -177,6 +207,7 @@ func validateProjectHooksManifest(manifest projectHooksManifest) error {
 	}
 
 	seenTypes := make(map[hookType]struct{}, len(manifest.Hooks))
+	seenPaths := make(map[string]string, len(manifest.Hooks)+len(manifest.Files))
 	for i := range manifest.Hooks {
 		entry := &manifest.Hooks[i]
 		if _, ok := validProjectHookTypes[entry.Type]; !ok {
@@ -187,16 +218,15 @@ func validateProjectHooksManifest(manifest projectHooksManifest) error {
 		}
 		seenTypes[entry.Type] = struct{}{}
 
-		entry.Script = filepath.ToSlash(filepath.Clean(strings.TrimSpace(entry.Script)))
-		if entry.Script == "." || entry.Script == "" {
-			return fmt.Errorf("%s %q: script is required", projectHooksManifestRelPath, entry.Type)
+		scriptPath, err := normalizeProjectHookRelativePath(entry.Script)
+		if err != nil {
+			return fmt.Errorf("%s %q: %w", projectHooksManifestRelPath, entry.Type, err)
 		}
-		if filepath.IsAbs(entry.Script) {
-			return fmt.Errorf("%s %q: script must be relative to %s", projectHooksManifestRelPath, entry.Type, projectHooksDirRel)
+		entry.Script = scriptPath
+		if previous, dup := seenPaths[entry.Script]; dup {
+			return fmt.Errorf("%s %q: script %q duplicates %s", projectHooksManifestRelPath, entry.Type, entry.Script, previous)
 		}
-		if entry.Script == ".." || strings.HasPrefix(entry.Script, "../") {
-			return fmt.Errorf("%s %q: script %q escapes %s", projectHooksManifestRelPath, entry.Type, entry.Script, projectHooksDirRel)
-		}
+		seenPaths[entry.Script] = fmt.Sprintf("hook %q", entry.Type)
 
 		entry.Purpose = strings.TrimSpace(entry.Purpose)
 		if entry.Purpose == "" {
@@ -214,6 +244,21 @@ func validateProjectHooksManifest(manifest projectHooksManifest) error {
 		}
 		entry.Requires = normalizedRequires
 	}
+
+	normalizedFiles := make([]string, 0, len(manifest.Files))
+	for _, bundleFile := range manifest.Files {
+		normalizedPath, err := normalizeProjectHookRelativePath(bundleFile)
+		if err != nil {
+			return fmt.Errorf("%s: bundle file %q: %w", projectHooksManifestRelPath, bundleFile, err)
+		}
+		if previous, dup := seenPaths[normalizedPath]; dup {
+			return fmt.Errorf("%s: bundle file %q duplicates %s", projectHooksManifestRelPath, normalizedPath, previous)
+		}
+		seenPaths[normalizedPath] = "another bundle file"
+		normalizedFiles = append(normalizedFiles, normalizedPath)
+	}
+	sort.Strings(normalizedFiles)
+	manifest.Files = normalizedFiles
 
 	return nil
 }
@@ -243,48 +288,71 @@ func normalizeProjectHookCommands(commands []string) ([]string, error) {
 	return normalized, nil
 }
 
-func resolveProjectHookScript(hooksDir, script string) (string, string, []byte, error) {
-	if script == "" {
-		return "", "", nil, fmt.Errorf("script is required")
+func normalizeProjectHookRelativePath(path string) (string, error) {
+	path = filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	if path == "." || path == "" {
+		return "", fmt.Errorf("path is required")
 	}
-	scriptPath := filepath.FromSlash(script)
-	scriptAbs := filepath.Join(hooksDir, scriptPath)
-	if !isWithinDir(hooksDir, scriptAbs) {
-		return "", "", nil, fmt.Errorf("script %q escapes %s", script, projectHooksDirRel)
+	if filepath.IsAbs(path) {
+		return "", fmt.Errorf("path must be relative to %s", projectHooksDirRel)
+	}
+	if path == ".." || strings.HasPrefix(path, "../") {
+		return "", fmt.Errorf("path %q escapes %s", path, projectHooksDirRel)
+	}
+	return path, nil
+}
+
+func resolveProjectHookBundleFile(hooksDir, path, label string) (string, string, []byte, error) {
+	normalizedPath, err := normalizeProjectHookRelativePath(path)
+	if err != nil {
+		return "", "", nil, err
+	}
+	pathOnDisk := filepath.FromSlash(normalizedPath)
+	pathAbs := filepath.Join(hooksDir, pathOnDisk)
+	if !isWithinDir(hooksDir, pathAbs) {
+		return "", "", nil, fmt.Errorf("%s %q escapes %s", label, normalizedPath, projectHooksDirRel)
 	}
 	canonicalHooksDir, err := canonicalizePath(hooksDir)
 	if err != nil {
 		return "", "", nil, err
 	}
-	canonicalParentDir, err := canonicalizePath(filepath.Dir(scriptAbs))
+	canonicalParentDir, err := canonicalizePath(filepath.Dir(pathAbs))
 	if err != nil {
 		return "", "", nil, err
 	}
 	if !isWithinDir(canonicalHooksDir, canonicalParentDir) {
-		return "", "", nil, fmt.Errorf("script %q escapes %s via symlinked parent", script, projectHooksDirRel)
+		return "", "", nil, fmt.Errorf("%s %q escapes %s via symlinked parent", label, normalizedPath, projectHooksDirRel)
 	}
 
-	info, err := os.Lstat(scriptAbs)
+	info, err := os.Lstat(pathAbs)
 	if err != nil {
 		return "", "", nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return "", "", nil, fmt.Errorf("top-level symlinks are not supported at %s", script)
+		return "", "", nil, fmt.Errorf("top-level symlinks are not supported at %s", normalizedPath)
 	}
 	if !info.Mode().IsRegular() {
-		return "", "", nil, fmt.Errorf("script %q must be a regular file", script)
+		return "", "", nil, fmt.Errorf("%s %q must be a regular file", label, normalizedPath)
 	}
 
-	raw, err := os.ReadFile(scriptAbs)
+	raw, err := os.ReadFile(pathAbs)
 	if err != nil {
 		return "", "", nil, err
 	}
-	return filepath.ToSlash(scriptPath), scriptAbs, raw, nil
+	return normalizedPath, pathAbs, raw, nil
 }
 
-func hashProjectHookBundle(manifest projectHooksManifest, hooks []loadedProjectHook) string {
+func hashProjectHookBundle(manifest projectHooksManifest, files []loadedProjectHookFile, hooks []loadedProjectHook) string {
 	var payload bytes.Buffer
 	fmt.Fprintf(&payload, "version\x00%d\x00", manifest.Version)
+	for _, bundleFile := range files {
+		payload.WriteString("file\x00")
+		payload.WriteString(bundleFile.Path)
+		payload.WriteByte(0)
+		payload.WriteString("file-hash\x00")
+		payload.WriteString(bundleFile.Hash)
+		payload.WriteByte(0)
+	}
 	for _, hook := range hooks {
 		payload.WriteString("type\x00")
 		payload.WriteString(string(hook.Type))

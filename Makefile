@@ -111,9 +111,9 @@ check-hostexec:
 	bash scripts/check-hostexec.sh
 
 hooks:
-	install -m 0755 scripts/pre-commit .git/hooks/pre-commit
-	install -m 0755 scripts/pre-push .git/hooks/pre-push
-	@echo "Installed pre-commit and pre-push hooks"
+	@command -v hazmat >/dev/null 2>&1 || { echo "hazmat: not found on PATH"; exit 1; }
+	hazmat hooks install -C "$(CURDIR)"
+	@echo "Installed Hazmat-managed repo-local hooks"
 
 clean:
 	rm -f $(HAZMAT_BUILD_BIN) $(HAZMAT_BUILD_HELPER)

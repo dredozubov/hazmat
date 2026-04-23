@@ -10,11 +10,12 @@
 #   --staged   scan only staged changes (used by pre-commit)
 #   detect     scan working tree (used by check-fast.sh and CI)
 #
-# Config: .gitleaks.toml at the repo root.
+# Config: .hazmat/hooks/gitleaks.toml in the repo.
 
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+GITLEAKS_CONFIG="$REPO_ROOT/.hazmat/hooks/gitleaks.toml"
 cd "$REPO_ROOT"
 
 if ! command -v gitleaks >/dev/null 2>&1; then
@@ -28,14 +29,14 @@ MODE="${1:-detect}"
 case "$MODE" in
 	--staged|staged)
 		echo "gitleaks: scanning staged changes..."
-		gitleaks protect --staged --redact -v --no-banner --config "$REPO_ROOT/.gitleaks.toml"
+		gitleaks protect --staged --redact -v --no-banner --config "$GITLEAKS_CONFIG"
 		;;
 	detect|--detect)
 		# Scan via git (tracked files + history), NOT --no-git. The working tree
 		# carries multi-GB untracked artefacts (Dolt DB at .beads/, TLC state files
 		# under tla/states/, built binaries) that --no-git would traverse needlessly.
 		echo "gitleaks: scanning git history..."
-		gitleaks detect --redact -v --no-banner --config "$REPO_ROOT/.gitleaks.toml"
+		gitleaks detect --redact -v --no-banner --config "$GITLEAKS_CONFIG"
 		;;
 	*)
 		echo "usage: $0 [--staged|detect]" >&2

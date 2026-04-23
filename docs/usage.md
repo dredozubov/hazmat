@@ -205,7 +205,10 @@ Hazmat also supports a narrow repo-local Git hook flow for the common cases:
 
 The repo declares intent in tracked files under `.hazmat/hooks/`. The host owns
 activation. Hazmat only runs hook code after approval, and it runs the approved
-snapshot bytes from host-owned storage rather than the live repo copy.
+snapshot bytes from host-owned storage rather than the live repo copy. Hook
+bundles can also include tracked auxiliary files under `.hazmat/hooks/` such as
+scanner config; those files are hashed, approved, and snapshotted alongside the
+declared hook entrypoints.
 
 ```bash
 hazmat hooks status

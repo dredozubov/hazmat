@@ -128,6 +128,50 @@ hooks:
 	}
 }
 
+func TestRunApprovedProjectHookCanReadSnapshotOwnedBundleFile(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+files:
+  - gitleaks.toml
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"gitleaks.toml": "title = \"snapshot\"\n",
+			"pre-commit.sh": "#!/bin/sh\nset -eu\nSCRIPT_DIR=$(CDPATH= cd -- \"$(dirname \"$0\")\" && pwd)\ncat \"$SCRIPT_DIR/gitleaks.toml\" > \"$HOOK_OUTPUT\"\n",
+		},
+	})
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installProjectHookRuntime(projectDir, "/usr/local/bin/hazmat"); err != nil {
+		t.Fatal(err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "hook-output.txt")
+	t.Setenv("HOOK_OUTPUT", outputPath)
+	if err := runApprovedProjectHook(projectDir, hookTypePreCommit, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(raw)), `title = "snapshot"`; got != want {
+		t.Fatalf("hook output = %q, want %q", got, want)
+	}
+}
+
 func TestRunApprovedProjectHookRefusesBundleDrift(t *testing.T) {
 	setProjectHookApprovalTestPaths(t)
 	projectDir := initGitHookProject(t, projectHookBundleFixture{

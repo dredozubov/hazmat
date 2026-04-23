@@ -1,15 +1,7 @@
 #!/bin/sh
-# pre-push: fast local developer gate before pushing.
-# Runs: vet, unit tests, Linux compile-only, lint, CLI smoke tests.
-# Skips: repo-matrix, e2e lifecycle, self-hosting bootstrap, and TLA+.
-# CI is broader than this hook.
-# If you touch a verified area, run 'bash tla/check_suite.sh' separately before pushing.
-#
-# Install: make hooks   (or: cp -f scripts/pre-push .git/hooks/pre-push)
+# Compatibility wrapper for the repo's Hazmat-managed pre-push hook source.
 
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-bash "$REPO_ROOT/scripts/check-fast.sh"
-
-echo "pre-push: all checks passed"
+exec "$REPO_ROOT/.hazmat/hooks/pre-push.sh" "$@"
