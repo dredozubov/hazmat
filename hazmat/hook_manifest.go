@@ -53,6 +53,7 @@ type loadedProjectHookBundle struct {
 	ProjectDir   string
 	HooksDir     string
 	ManifestPath string
+	ManifestData []byte
 	Manifest     projectHooksManifest
 	Hooks        []loadedProjectHook
 	BundleHash   string
@@ -62,6 +63,7 @@ type loadedProjectHook struct {
 	Type        hookType
 	ScriptPath  string
 	ScriptAbs   string
+	ScriptData  []byte
 	Purpose     string
 	Interpreter string
 	Requires    []string
@@ -69,17 +71,17 @@ type loadedProjectHook struct {
 }
 
 type projectHookReviewSummary struct {
-	Kind       hookReviewKind
-	BundleHash string
-	Hooks      []projectHookSummaryEntry
+	Kind       hookReviewKind            `yaml:"kind"`
+	BundleHash string                    `yaml:"bundle_hash"`
+	Hooks      []projectHookSummaryEntry `yaml:"hooks"`
 }
 
 type projectHookSummaryEntry struct {
-	Type        hookType
-	ScriptPath  string
-	Purpose     string
-	Interpreter string
-	Requires    []string
+	Type        hookType `yaml:"type"`
+	ScriptPath  string   `yaml:"script"`
+	Purpose     string   `yaml:"purpose"`
+	Interpreter string   `yaml:"interpreter"`
+	Requires    []string `yaml:"requires,omitempty"`
 }
 
 var (
@@ -119,6 +121,7 @@ func loadProjectHookBundle(projectDir string) (*loadedProjectHookBundle, error) 
 			Type:        hook.Type,
 			ScriptPath:  scriptPath,
 			ScriptAbs:   scriptAbs,
+			ScriptData:  append([]byte(nil), raw...),
 			Purpose:     hook.Purpose,
 			Interpreter: hook.Interpreter,
 			Requires:    append([]string(nil), hook.Requires...),
@@ -134,6 +137,7 @@ func loadProjectHookBundle(projectDir string) (*loadedProjectHookBundle, error) 
 		ProjectDir:   projectDir,
 		HooksDir:     hooksDir,
 		ManifestPath: path,
+		ManifestData: append([]byte(nil), data...),
 		Manifest:     manifest,
 		Hooks:        loadedHooks,
 		BundleHash:   hashProjectHookBundle(manifest, loadedHooks),
