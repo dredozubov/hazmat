@@ -63,10 +63,11 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init                                 # Interactive (recommended)
   hazmat init --bootstrap-agent claude        # Also install Claude Code
   hazmat init --bootstrap-agent codex         # Also install Codex
+  hazmat init --bootstrap-agent gemini        # Also install Gemini CLI
   hazmat init --yes                           # Non-interactive; install maintenance sudoers by default
   hazmat check                                # Verify the setup
   hazmat rollback                             # Undo everything
-  hazmat config agent                         # Configure Claude credentials
+  hazmat config agent                         # Configure agent API keys + git identity
   hazmat init cloud                           # Configure S3 cloud backup
 
 Use --dry-run to preview all commands without executing anything.`,
@@ -242,7 +243,7 @@ func normalizeInitBootstrapAgent(selection string) (string, error) {
 	if _, ok := managedHarnessByID(HarnessID(normalized)); ok {
 		return normalized, nil
 	}
-	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, or opencode)", selection)
+	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, or gemini)", selection)
 }
 
 func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
@@ -347,20 +348,11 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		return err
 	}
 
-	// ── Optional import: portable Claude basics ─────────────────────────────
-	if bootstrapSelection == string(HarnessClaude) {
-		env, err := defaultClaudeImportEnv()
-		if err == nil {
-			if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
-				PromptBeforeImport: true,
-				ConflictPolicy:     claudeConflictPrompt,
-				AllowNoopMessage:   false,
-			}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
-				cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
-				fmt.Println("  Run 'hazmat config import claude' later to retry.")
-			}
-		}
-	}
+	// ── Optional import: portable harness basics ────────────────────────────
+	// Symmetric across all four supported harnesses — whichever one the user
+	// just bootstrapped gets the same one-shot offer to copy their existing
+	// host credentials/settings into the agent home.
+	_ = offerHarnessBasicsImport(ui, r, bootstrapSelection)
 
 	if !flagDryRun {
 		// Record the version so future inits can detect and migrate.
@@ -391,24 +383,111 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	fmt.Println()
 	fmt.Println("  Ready to use:")
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
 		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
 	default:
 		fmt.Println("    cd your-project && hazmat shell")
-		fmt.Println("    hazmat bootstrap claude|codex|opencode")
+		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini")
 	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
-	if bootstrapSelection == string(HarnessClaude) {
+	switch bootstrapSelection {
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
 		fmt.Println("  Update creds:   hazmat config agent")
-		fmt.Println("  Import basics:  hazmat config import claude")
-	} else {
-		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode")
+		fmt.Printf("  Import basics:  hazmat config import %s\n", bootstrapSelection)
+	default:
+		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini")
 	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")
 	fmt.Println()
 	return nil
+}
+
+// offerHarnessBasicsImport runs the per-harness 'config import' interactive
+// flow as part of init, when the user just bootstrapped one of the supported
+// harnesses. Cancellation by the user is non-fatal (init already produced a
+// working harness install); other errors print a yellow advisory but never
+// abort init.
+//
+// Returns true when the harness ID matched a dispatch case (regardless of
+// whether the user accepted or skipped the import). Returns false for
+// "skip" or any unrecognised value — used by tests to assert dispatch
+// coverage across every managed harness.
+//
+// Each harness has its own env / options / cancel-error types, so we dispatch
+// on bootstrapSelection rather than threading a polymorphic interface.
+func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool {
+	switch bootstrapSelection {
+	case string(HarnessClaude):
+		env, err := defaultClaudeImportEnv()
+		if err != nil {
+			return true
+		}
+		if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
+			PromptBeforeImport: true,
+			ConflictPolicy:     claudeConflictPrompt,
+			AllowNoopMessage:   false,
+		}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
+			cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config import claude' later to retry.")
+		}
+		return true
+	case string(HarnessCodex):
+		env, err := defaultCodexImportEnv()
+		if err != nil {
+			return true
+		}
+		if err := codexHarness.ImportBasics(ui, r, env, codexImportOptions{
+			PromptBeforeImport: true,
+			ConflictPolicy:     claudeConflictPrompt,
+			AllowNoopMessage:   false,
+		}); err != nil && !errors.Is(err, errCodexImportCancelled) {
+			cYellow.Printf("\n  Codex basics import skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config import codex' later to retry.")
+		}
+		return true
+	case string(HarnessOpenCode):
+		env, err := defaultOpenCodeImportEnv()
+		if err != nil {
+			return true
+		}
+		if err := openCodeHarness.ImportBasics(ui, r, env, opencodeImportOptions{
+			PromptBeforeImport: true,
+			ConflictPolicy:     claudeConflictPrompt,
+			AllowNoopMessage:   false,
+		}); err != nil && !errors.Is(err, errOpenCodeImportCancelled) {
+			cYellow.Printf("\n  OpenCode basics import skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config import opencode' later to retry.")
+		}
+		return true
+	case string(HarnessGemini):
+		env, err := defaultGeminiImportEnv()
+		if err != nil {
+			return true
+		}
+		if err := geminiHarness.ImportBasics(ui, r, env, geminiImportOptions{
+			PromptBeforeImport: true,
+			ConflictPolicy:     claudeConflictPrompt,
+			AllowNoopMessage:   false,
+		}); err != nil && !errors.Is(err, errGeminiImportCancelled) {
+			cYellow.Printf("\n  Gemini basics import skipped: %v\n", err)
+			fmt.Println("  Run 'hazmat config import gemini' later to retry.")
+		}
+		return true
+	}
+	return false
+}
+
+// offerHarnessBasicsImportCovers reports whether offerHarnessBasicsImport has
+// a dispatch case for the named selection without invoking the import flow.
+// Used for static coverage assertions in tests.
+func offerHarnessBasicsImportCovers(bootstrapSelection string) bool {
+	switch bootstrapSelection {
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
+		return true
+	}
+	return false
 }
 
 // ── Step 1: Agent user ────────────────────────────────────────────────────────

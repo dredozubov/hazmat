@@ -13,6 +13,8 @@ func TestNormalizeInitBootstrapAgent(t *testing.T) {
 		{input: "claude", want: "claude"},
 		{input: "CoDeX", want: "codex"},
 		{input: " opencode ", want: "opencode"},
+		{input: "gemini", want: "gemini"},
+		{input: "GEMINI", want: "gemini"},
 		{input: "none", wantErr: true},
 	}
 
@@ -50,6 +52,26 @@ func TestResolveInitBootstrapAgentHonorsExplicitFlag(t *testing.T) {
 	}
 	if got != "codex" {
 		t.Fatalf("resolveInitBootstrapAgent = %q, want codex", got)
+	}
+}
+
+// TestOfferHarnessBasicsImportCoversEveryManagedHarness asserts that every
+// managed harness has a dispatch case in offerHarnessBasicsImport. Catches
+// the case where someone adds a new harness to managedHarnessRegistry but
+// forgets to wire the post-bootstrap import offer.
+func TestOfferHarnessBasicsImportCoversEveryManagedHarness(t *testing.T) {
+	for _, h := range managedHarnessRegistry {
+		if !offerHarnessBasicsImportCovers(string(h.Spec.ID)) {
+			t.Errorf("managed harness %q has no dispatch case in offerHarnessBasicsImport — 'hazmat init --bootstrap-agent %s' will not offer the basics import", h.Spec.ID, h.Spec.ID)
+		}
+	}
+}
+
+func TestOfferHarnessBasicsImportRejectsUnknownSelections(t *testing.T) {
+	for _, sel := range []string{"", initBootstrapSkip, "unknown", "Claude" /* case-sensitive */} {
+		if offerHarnessBasicsImportCovers(sel) {
+			t.Errorf("offerHarnessBasicsImportCovers(%q) returned true; should only match the four lowercase harness IDs", sel)
+		}
 	}
 }
 
