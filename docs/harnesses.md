@@ -103,4 +103,4 @@ These are managed copies — if you edit them inside the sandbox, the next sessi
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** the import wrote with the wrong ownership in early versions. Fixed in commit `6a466e7`; if you're on an older binary, `sudo -u agent rm /Users/agent/.codex/auth.json` and re-run the import.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.
 
-For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference.
+For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).

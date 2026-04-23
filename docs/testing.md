@@ -3,6 +3,8 @@
 Hazmat has several verification surfaces. They answer different questions and
 are not interchangeable.
 
+> **Looking for the human-driven checklist?** [docs/manual-testing.md](manual-testing.md) is the release-time / post-harness-change verification list — preconditions, per-harness flows (subscription / API key / host import), cross-cutting features, regression scenarios, and recovery moves. Use it for things this automated matrix can't reach (browser OAuth, terminal UI input, real network).
+
 ## Test Matrix
 
 | Surface | What it answers | Runs where | Destructive? |
