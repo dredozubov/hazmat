@@ -338,6 +338,12 @@ func scanOpenCodeAuthFile(env opencodeImportEnv, r *Runner) (opencodeImportItem,
 		return opencodeImportItem{}, false, fmt.Errorf("read agent OpenCode auth: %w", err)
 	}
 
+	// Self-heal: re-import when content matches but ownership is wrong
+	// (e.g. left over from a pre-fix import that wrote as the host user).
+	if status == claudeImportUnchanged && !agentOwnsFile(env.agentAuthFile()) {
+		status = claudeImportNew
+	}
+
 	return opencodeImportItem{
 		Category:   "sign-in",
 		Name:       "OpenCode auth file",

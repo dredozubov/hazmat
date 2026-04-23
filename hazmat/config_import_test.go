@@ -581,6 +581,7 @@ func TestScanCodexImportPlanDetectsConflict(t *testing.T) {
 }
 
 func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
+	withAgentOwnsFileStub(t, true) // simulate correctly-owned agent file
 	env := testCodexImportEnv(t)
 
 	body := `{"OPENAI_API_KEY":"sk-same"}`
@@ -594,6 +595,38 @@ func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
 	if plan.hasActionableChanges() {
 		t.Fatal("expected matching auth file to be unchanged, not actionable")
 	}
+}
+
+func TestScanCodexImportPlanSelfHealsBadOwnership(t *testing.T) {
+	// Same content host-side and agent-side, but the agent file is host-owned
+	// (a previous import wrote it as the host user). Self-heal should mark the
+	// item as actionable so the next apply rewrites it via the agent path.
+	withAgentOwnsFileStub(t, false)
+	env := testCodexImportEnv(t)
+
+	body := `{"OPENAI_API_KEY":"sk-same"}`
+	writeTestFile(t, env.hostAuthFile(), body)
+	writeTestFile(t, env.agentAuthFile(), body)
+
+	plan, err := scanCodexImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanCodexImportPlan: %v", err)
+	}
+	if !plan.hasActionableChanges() {
+		t.Fatal("expected scan to demote 'unchanged' to 'new' when agent doesn't own the file (self-heal)")
+	}
+}
+
+// withAgentOwnsFileStub overrides the agentOwnsFile var for the duration of t
+// and restores it on cleanup. Call once per test that touches the auth-file
+// scan path; tests that don't call this get the production behaviour, which
+// returns false for any test fixture (since fixtures are owned by the test
+// runner, not the agent).
+func withAgentOwnsFileStub(t *testing.T, owns bool) {
+	t.Helper()
+	prev := agentOwnsFile
+	agentOwnsFile = func(string) bool { return owns }
+	t.Cleanup(func() { agentOwnsFile = prev })
 }
 
 func TestScanGeminiImportPlanIncludesAuthSettingsAndIdentity(t *testing.T) {

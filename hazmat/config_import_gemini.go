@@ -291,6 +291,12 @@ func scanGeminiImportPlan(env geminiImportEnv, r *Runner) (geminiImportPlan, err
 		default:
 			return fmt.Errorf("read agent %s: %w", name, err)
 		}
+
+		// Self-heal: re-import when content matches but ownership is wrong.
+		if status == claudeImportUnchanged && !agentOwnsFile(agentPath) {
+			status = claudeImportNew
+		}
+
 		plan.Items = append(plan.Items, geminiImportItem{
 			Category:   category,
 			Name:       name,

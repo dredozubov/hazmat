@@ -273,6 +273,14 @@ func scanCodexAuthFile(env codexImportEnv, r *Runner) (codexImportItem, bool, er
 		return codexImportItem{}, false, fmt.Errorf("read agent Codex auth: %w", err)
 	}
 
+	// Self-heal: if content matches but the file isn't owned by the agent
+	// (e.g. a pre-fix import wrote it as the host user), re-import so the
+	// agent-write path restores correct ownership. Otherwise codex can't
+	// open the file and dies with errSecNoSuchKeychain inside the sandbox.
+	if status == claudeImportUnchanged && !agentOwnsFile(env.agentAuthFile()) {
+		status = claudeImportNew
+	}
+
 	return codexImportItem{
 		Category:   "sign-in",
 		Name:       "Codex auth file",

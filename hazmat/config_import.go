@@ -428,6 +428,12 @@ func scanClaudeCredentialFile(env claudeImportEnv, r *Runner) (claudeImportItem,
 		return claudeImportItem{}, false, fmt.Errorf("read agent Claude credentials: %w", err)
 	}
 
+	// Self-heal: re-import when content matches but ownership is wrong
+	// (e.g. left over from a pre-fix import that wrote as the host user).
+	if status == claudeImportUnchanged && !agentOwnsFile(env.agentCredentialFile()) {
+		status = claudeImportNew
+	}
+
 	return claudeImportItem{
 		Category:   "sign-in",
 		Name:       "Claude credential file",
