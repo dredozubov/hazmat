@@ -38,6 +38,13 @@ walk details, agent Git `safe.directory` config mutations, imported file
 contents, or timestamp values. Those remain governed by tests and
 documentation.
 
+Important hook-activation boundary: the current suite now also models the
+host-side repo-local Git hook approval state machine: manifest-backed approval,
+immutable approved snapshot execution, `core.hooksPath` pinning, and refusal on
+drift or reroute. It still does **not** model exact `hooks.yaml` parsing,
+human-readable diff summarization, shell-script contents, or arbitrary direct
+invocation of foreign `git` binaries outside Hazmat-managed entrypoints.
+
 ---
 
 ## Governance Rules
@@ -551,6 +558,63 @@ script remain governed by unit tests rather than TLC.
 
 ---
 
+### 11 — Git Hook Approval
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/11_git_hook_approval.md` |
+| TLA+ files | `tla/MC_GitHookApproval.tla`, `tla/MC_GitHookApproval.cfg` |
+| Governed boundary | Future Hazmat-managed repo-local hook approval command surface and host-owned wrapper / dispatcher helpers under `hazmat/` for `sandboxing-acjx.*` |
+| Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
+| Status | **Proved as an implementation-governing boundary** — the hook approval feature is not implemented yet, but future Go changes for that feature must preserve this state machine |
+
+**What this verifies:**
+
+1. **Approved execution uses immutable snapshot bytes only:** a host-side hook
+   run that succeeds must execute content from the approved snapshot record,
+   not the live repo copy.
+
+2. **`core.hooksPath` reroute is a refusal path:** the primary wrapper boundary
+   must refuse if the effective `core.hooksPath` drifts away from the
+   Hazmat-managed path.
+
+3. **Managed dispatcher drift is fatal, not advisory:** repo drift, approval
+   drift, snapshot drift, or managed-layout drift all resolve to refusal rather
+   than best-effort execution.
+
+4. **Fallback `.git/hooks` is detection-only:** reaching the default hook path
+   is modeled as a refusal path, not an alternate approved execution channel.
+
+5. **Hook approval does not widen session policy:** the proof boundary for hook
+   activation does not grant future filesystem or network capability beyond the
+   existing session contract.
+
+TLC passes across 2,179,200 distinct states (127,229,656 generated, depth 9,
+~3m).
+
+**Scope boundary:**
+
+The spec models Hazmat-managed host-side entrypoints only: the Git wrapper
+Hazmat installs, the managed dispatcher path, and the fallback `.git/hooks`
+drift detector. It does **not** claim correctness for arbitrary direct
+invocation of a foreign `git` binary outside that managed path.
+
+**Change rules:**
+- Changes to repo-local hook approval semantics, approved snapshot execution,
+  `core.hooksPath` pinning, or fallback-dispatcher refusal behavior must update
+  `MC_GitHookApproval.tla` first and re-run TLC before the Go implementation
+  changes.
+- Expanding v1 scope beyond repo-local `pre-commit`, `pre-push`, and
+  `commit-msg` requires updating this model first.
+- Replacing the wrapper + dual-dispatcher design with a different activation
+  primitive requires a spec update first. The current proof assumes wrapper
+  validation is the primary defense and fallback `.git/hooks` dispatchers are
+  refusal-only.
+- Human-facing prompt text, manifest diff presentation, exact shell quoting,
+  and other UX details remain governed by tests and docs rather than TLC.
+
+---
+
 ### 9 — Launch FD Isolation
 
 | Field | Value |
@@ -613,6 +677,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
+| `11_git_hook_approval` | Future repo-local hook approval command surface and host-owned wrapper / dispatcher helpers under `hazmat/` for `sandboxing-acjx.*` |
 
 ---
 
@@ -620,6 +685,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 
 - Exact curated import file contents, conflict-resolution behavior, and merged JSON/file payload semantics
 - Integration activation, project pinning, and integration-specific snapshot ignore rules
+- Exact `hooks.yaml` parsing behavior, human-readable diff/summary generation, and foreign raw-`git` entrypoints outside Hazmat-managed wrapper paths
 - Exact ACL/chmod filesystem walk semantics for session-time permission repairs
 - Reworked setup-completion liveness under the current bounded setup/rollback retry model
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary

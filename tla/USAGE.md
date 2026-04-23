@@ -169,5 +169,10 @@ fi
 | 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
 | 07 Session Permission Repairs | 4 repair classes, native/docker planning, preview/launch/rollback phases | 6,634 distinct | ~2s |
 | 08 Harness Lifecycle | 3 harnesses, 2 importable harnesses, dry-run/save/rollback variants | 1,564 distinct | ~2s |
+| 09 Launch FD Isolation | 2 inherited-fd classes, helper cleanup toggle, exec boundary phases | 112 distinct | <1s |
+| 10 Git-SSH Routing | 2 hosts, 2 keys, 2 sockets, 2 profiles, profile/inline identity variants | 884,736 distinct | ~1m |
+| 11 Git Hook Approval | 3 hook types, 2 bundle hashes, wrapper/dispatcher/install/drift lifecycle | 2,179,200 distinct | ~1-4m |
 
-If TLC runs for more than 60 seconds, reduce your model bounds.
+If TLC runs materially longer than the expected runtime for the spec you are
+changing, reduce bounds or run that spec in isolation before widening the
+model.

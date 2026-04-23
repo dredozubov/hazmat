@@ -23,6 +23,8 @@ and TLC's exhaustive state exploration are designed to verify.
 | 7 | `07_session_permission_repairs.md` | Session-time host permission repair planning, preview/launch semantics, and rollback persistence | **High** |
 | 8 | `08_harness_lifecycle.md` | Built-in harness bootstrap/import state recording and rollback cleanup semantics | **High** |
 | 9 | `09_launch_fd_isolation.md` | Native helper fd-table cleanup before `sandbox_init()` and stdio-only agent exec | **High** |
+| 10 | `10_git_ssh_routing.md` | Multi-key Git SSH routing, profile resolution, and deterministic host-to-key selection | **High** |
+| 11 | `11_git_hook_approval.md` | Repo-local Git hook approval, immutable approved snapshots, hooksPath pinning, and drift refusal | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

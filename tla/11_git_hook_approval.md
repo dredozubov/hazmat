@@ -1,7 +1,9 @@
 # Problem 11 — Git Hook Approval
 
-**Status:** draft starting point for `sandboxing-kpde`. This model is not yet
-listed in `VERIFIED.md` and is not wired into `check_suite.sh`.
+**Status:** proved implementation-governing boundary for `sandboxing-acjx`.
+This spec is now listed in `VERIFIED.md` and wired into `check_suite.sh`, but
+the Go command surface it governs is still implementation work rather than a
+finished user-facing feature.
 
 ## Problem Statement
 
@@ -25,9 +27,9 @@ changing `core.hooksPath`. A useful model therefore has to include:
 7. fallback dispatcher refusal when Git reaches `.git/hooks`
 8. uninstall / rollback cleanup
 
-## Governed Design
+## Governed Boundary
 
-Target implementation shape:
+This spec governs the future Hazmat-managed host-side hook activation boundary:
 
 - tracked manifest at `.hazmat/hooks/hooks.yaml`
 - tracked repo-local hook bundle under `.hazmat/hooks/`
@@ -40,7 +42,11 @@ Target implementation shape:
 - `hazmat hooks uninstall` and `hazmat rollback` remove approval + snapshot +
   installed dispatchers atomically
 
-## What the Draft TLA+ Model Checks
+It does not yet govern a merged Go implementation because that implementation
+is still to be written under `sandboxing-acjx.*`. Once the command surface and
+helpers land, changes to that boundary must preserve the properties below.
+
+## What the TLA+ Model Checks
 
 | Invariant | Meaning |
 |-----------|---------|
@@ -54,7 +60,7 @@ Target implementation shape:
 
 ## Scope Boundary
 
-This draft model is intentionally narrow. It models Hazmat-managed host-side
+This model is intentionally narrow. It models Hazmat-managed host-side
 entrypoints only:
 
 - the Git wrapper Hazmat installs
@@ -88,10 +94,20 @@ Three hook types are enough for the first cut because v1 scope is limited to
 
 ```bash
 cd tla
-bash run_tlc.sh -config MC_GitHookApproval.cfg MC_GitHookApproval.tla
+bash run_tlc.sh -workers auto -config MC_GitHookApproval.cfg MC_GitHookApproval.tla
 ```
 
-The draft should pass TLC before any Go implementation is allowed to depend on
-it, but it should not be added to `VERIFIED.md` or `check_suite.sh` until the
-design is accepted and the governed code boundary is explicit.
+This spec is also part of the maintained local suite:
 
+```bash
+cd tla
+bash check_suite.sh
+```
+
+Observed TLC result for the promoted model:
+
+- `Model checking completed. No error has been found.`
+- `127,229,656 states generated`
+- `2,179,200 distinct states found`
+- `depth 9`
+- runtime around `1-4m` depending on worker count and host
