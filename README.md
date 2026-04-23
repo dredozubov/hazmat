@@ -223,6 +223,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/compatibility.md](docs/compatibility.md) | Compatibility status meanings, matrix shape, and reporting flow |
 | [docs/recipes/README.md](docs/recipes/README.md) | Community-expandable recipes for common harness + stack workflows |
 | [docs/testing.md](docs/testing.md) | What is tested locally, in CI, and in destructive VM-backed flows |
+| [docs/git-hooks.md](docs/git-hooks.md) | Why Hazmat's repo-local hook flow is stricter than plain Git hooks |
 | [docs/manual-testing.md](docs/manual-testing.md) | Human-driven verification checklist (run before releases / after harness or seatbelt changes) |
 | [docs/design-assumptions.md](docs/design-assumptions.md) | Non-obvious design decisions and known tradeoffs |
 | [docs/cve-audit.md](docs/cve-audit.md) | How Hazmat maps against known Claude Code CVEs |

@@ -234,6 +234,10 @@ V1 scope is intentionally narrow:
 V1 does **not** support global hooks, `init.templateDir`, package-manager
 auto-install, `post-*` hooks, or server-side hooks.
 
+If that flow feels stricter than normal Git hooks, see
+[git-hooks.md](git-hooks.md) for the threat model, attack vectors, and the
+specific risks Hazmat is trying to close.
+
 ### Docker Projects
 
 Hazmat treats Docker routing as an explicit daemon-boundary choice, not just
