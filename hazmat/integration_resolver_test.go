@@ -943,6 +943,146 @@ func TestHomebrewCellarRoot(t *testing.T) {
 	}
 }
 
+// buildFakeCellarBinary creates <root>/Cellar/<formula>/<version>/bin/<exe>
+// as an executable stub and returns its path. The caller may symlink it from
+// elsewhere to simulate the /opt/homebrew/bin/<tool> → Cellar path layout
+// that LookPath normally produces.
+func buildFakeCellarBinary(t *testing.T, root, formula, version, exe string) string {
+	t.Helper()
+	dir := filepath.Join(root, "Cellar", formula, version, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir cellar bin: %v", err)
+	}
+	path := filepath.Join(dir, exe)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write cellar binary: %v", err)
+	}
+	return path
+}
+
+func TestResolveBeadsIntegrationPlansRepairsForBdAndDolt(t *testing.T) {
+	prefix := t.TempDir()
+	bdReal := buildFakeCellarBinary(t, prefix, "beads", "1.0.0", "beads")
+	doltReal := buildFakeCellarBinary(t, prefix, "dolt", "1.85.0", "dolt")
+
+	binDir := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	bdSym := filepath.Join(binDir, "bd")
+	doltSym := filepath.Join(binDir, "dolt")
+	if err := os.Symlink(bdReal, bdSym); err != nil {
+		t.Fatalf("symlink bd: %v", err)
+	}
+	if err := os.Symlink(doltReal, doltSym); err != nil {
+		t.Fatalf("symlink dolt: %v", err)
+	}
+
+	savedExecCheck := integrationAgentExecCheck
+	integrationAgentExecCheck = func(string) bool { return false }
+	t.Cleanup(func() { integrationAgentExecCheck = savedExecCheck })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			lookPaths: map[string]string{"bd": bdSym, "dolt": doltSym},
+		},
+	}
+	spec, err := loadBuiltinIntegrationSpec("beads")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(beads): %v", err)
+	}
+	resolved, err := resolveBeadsIntegration(ctx, spec)
+	if err != nil {
+		t.Fatalf("resolveBeadsIntegration: %v", err)
+	}
+	if got := len(ctx.mutations.Mutations); got != 2 {
+		t.Fatalf("planned mutations = %d, want 2; details: %v", got, resolved.Details)
+	}
+	joined := strings.Join(resolved.Details, "\n")
+	if !strings.Contains(joined, "planned Homebrew permission repair for bd") {
+		t.Errorf("details missing bd repair: %v", resolved.Details)
+	}
+	if !strings.Contains(joined, "planned Homebrew permission repair for dolt") {
+		t.Errorf("details missing dolt repair: %v", resolved.Details)
+	}
+
+	// Verify the repair references the evaluated symlink target (not the bin
+	// symlink). homebrewCellarRoot must see /Cellar/ in the path.
+	wantSubstr := []string{
+		filepath.Join(prefix, "Cellar", "beads", "1.0.0"),
+		filepath.Join(prefix, "Cellar", "dolt", "1.85.0"),
+	}
+	allDetail := ""
+	for _, m := range ctx.mutations.Mutations {
+		allDetail += m.Metadata.Detail + "\n"
+	}
+	for _, sub := range wantSubstr {
+		if !strings.Contains(allDetail, sub) {
+			t.Errorf("mutation details missing Cellar root %q; got %q", sub, allDetail)
+		}
+	}
+}
+
+func TestResolveBeadsIntegrationSkipsWhenToolsAlreadyExecutable(t *testing.T) {
+	prefix := t.TempDir()
+	bdReal := buildFakeCellarBinary(t, prefix, "beads", "1.0.0", "beads")
+	doltReal := buildFakeCellarBinary(t, prefix, "dolt", "1.85.0", "dolt")
+	binDir := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bdSym := filepath.Join(binDir, "bd")
+	doltSym := filepath.Join(binDir, "dolt")
+	if err := os.Symlink(bdReal, bdSym); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(doltReal, doltSym); err != nil {
+		t.Fatal(err)
+	}
+
+	savedExecCheck := integrationAgentExecCheck
+	integrationAgentExecCheck = func(string) bool { return true }
+	t.Cleanup(func() { integrationAgentExecCheck = savedExecCheck })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			lookPaths: map[string]string{"bd": bdSym, "dolt": doltSym},
+		},
+	}
+	spec, _ := loadBuiltinIntegrationSpec("beads")
+	if _, err := resolveBeadsIntegration(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(ctx.mutations.Mutations); got != 0 {
+		t.Fatalf("expected no repair mutations when tools already executable, got %d", got)
+	}
+}
+
+func TestResolveBeadsIntegrationNoFailureWhenToolsMissing(t *testing.T) {
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &fakeIntegrationProbe{
+			lookPathErrs: map[string]error{
+				"bd":   fmt.Errorf("not found"),
+				"dolt": fmt.Errorf("not found"),
+			},
+		},
+	}
+	spec, _ := loadBuiltinIntegrationSpec("beads")
+	r, err := resolveBeadsIntegration(ctx, spec)
+	if err != nil {
+		t.Fatalf("resolveBeadsIntegration should not fail when tools missing: %v", err)
+	}
+	if len(ctx.mutations.Mutations) != 0 {
+		t.Fatalf("expected no mutations when tools not on PATH, got %d", len(ctx.mutations.Mutations))
+	}
+	if r.Source != "" {
+		t.Errorf("Source should be empty when no repair was planned, got %q", r.Source)
+	}
+}
+
 func TestRepairHomebrewToolAccessSkipsNonHomebrew(t *testing.T) {
 	// Ensure repair does nothing for non-Homebrew paths.
 	saved := repairHomebrewToolAccess

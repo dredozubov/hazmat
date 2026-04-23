@@ -125,6 +125,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 
 | Integration | Detects | Read dirs | Env passthrough | Snapshot excludes |
 |------|---------|-----------|-----------------|-------------------|
+| `beads` | `.beads/` (root dir) | — (bd and dolt resolved via `PATH`; Homebrew permission repair on their Cellars when installed 0700) | — | `.beads/dolt/`, `.beads/backup/`, `.beads/dolt-server.*`, `.beads/daemon.*`, `.beads/bd.sock*`, `.beads/*-lock`, `.beads/interactions.jsonl`, `.beads/ephemeral.sqlite3*`, `.beads/sync-state.json`, `.beads/push-state.json`, `.beads/export-state*`, `.beads/last-touched`, `.beads/.beads-credential-key`, `.beads/redirect`, `.beads/.local_version`, `.beads/.env` |
 | `go` | `go.mod` | resolved `GOROOT` | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
 | `haskell-cabal` | `cabal.project`, `*.cabal`, `stack.yaml` | resolved GHC and Cabal prefixes | — | `dist-newstyle/`, `.stack-work/` |
 | `node` | `package.json` | resolved Node prefix; Darwin declares `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
@@ -329,6 +330,7 @@ commands:
 | `integration.version` | yes | Must be `1` |
 | `integration.description` | no | One-line description |
 | `detect.files` | no | Filenames (no paths) that suggest this integration |
+| `detect.root_dirs` | no | Project-root-only directory markers (checked via `os.Stat` at `projectDir/<name>`, never recursed). Single path components only — no `/`, `.`, `..`, or whitespace. Use this for tools that only leave a top-level directory as a marker, such as `.beads/` |
 | `session.read_dirs` | no | Paths added read-only (`~` expands to invoker home) |
 | `session.env_passthrough` | no | Env var names from the safe allowlist only |
 | `session.platforms.darwin.read_dirs` | no | Darwin-only read dirs merged after common `session.read_dirs` |

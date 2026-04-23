@@ -1,3 +1,4 @@
 integrations:
   - go
   - tla-java
+  - beads

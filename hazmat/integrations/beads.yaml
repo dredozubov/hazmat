@@ -1,0 +1,47 @@
+integration:
+  name: beads
+  version: 1
+  description: Beads (bd) issue tracker with local Dolt database
+
+detect:
+  root_dirs: [.beads]
+
+backup:
+  excludes:
+    - .beads/dolt/
+    - .beads/backup/
+    - .beads/dolt-server.pid
+    - .beads/dolt-server.log
+    - .beads/dolt-server.lock
+    - .beads/dolt-server.port
+    - .beads/dolt-server.activity
+    - .beads/bd.sock
+    - .beads/bd.sock.startlock
+    - .beads/.exclusive-lock
+    - .beads/.sync.lock
+    - .beads/daemon.pid
+    - .beads/daemon.log
+    - .beads/daemon.lock
+    - .beads/interactions.jsonl
+    - .beads/last-touched
+    - .beads/.beads-credential-key
+    - .beads/ephemeral.sqlite3
+    - .beads/ephemeral.sqlite3-journal
+    - .beads/ephemeral.sqlite3-wal
+    - .beads/ephemeral.sqlite3-shm
+    - .beads/sync-state.json
+    - .beads/push-state.json
+    - .beads/export-state.json
+    - .beads/export-state/
+    - .beads/redirect
+    - .beads/.local_version
+    - .beads/.env
+
+warnings:
+  - "bd dolt push/pull requires network; hazmat does not widen session network policy for integrations."
+
+commands:
+  ready: bd ready
+  list: bd list --status=open
+  stats: bd stats
+  blocked: bd blocked

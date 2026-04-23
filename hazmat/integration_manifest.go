@@ -151,7 +151,8 @@ type IntegrationMeta struct {
 }
 
 type IntegrationDetect struct {
-	Files []string `yaml:"files"`
+	Files    []string `yaml:"files"`
+	RootDirs []string `yaml:"root_dirs"`
 }
 
 type IntegrationSession struct {
@@ -178,10 +179,13 @@ const (
 	integrationMaxExcludes    = 50
 	integrationMaxWarnings    = 10
 	integrationMaxCommands    = 20
-	integrationMaxDetectFiles = 10
+	integrationMaxDetectFiles    = 10
+	integrationMaxDetectRootDirs = 10
 )
 
 var integrationNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+var integrationRootDirNameRe = regexp.MustCompile(`^[a-z0-9._-]+$`)
 
 var integrationManifestPlatforms = map[string]struct{}{
 	"darwin": {},
@@ -232,6 +236,33 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 		}
 	}
 
+	// V5b: detect.root_dirs are root-only directory markers (checked via os.Stat
+	// at the project root, not walked). Reject anything that could escape the
+	// project root, contain path separators or whitespace, or match "." / "..".
+	for _, d := range p.Detect.RootDirs {
+		if d == "" {
+			return fmt.Errorf("integration %q: empty detect root_dir", p.Meta.Name)
+		}
+		if d == "." || d == ".." {
+			return fmt.Errorf("integration %q: detect root_dir %q is not a valid project marker", p.Meta.Name, d)
+		}
+		if strings.ContainsAny(d, "/\\\x00") {
+			return fmt.Errorf("integration %q: detect root_dir %q must be a single path component", p.Meta.Name, d)
+		}
+		if strings.ContainsFunc(d, func(r rune) bool {
+			switch r {
+			case ' ', '\t', '\n', '\r':
+				return true
+			}
+			return false
+		}) {
+			return fmt.Errorf("integration %q: detect root_dir %q must not contain whitespace", p.Meta.Name, d)
+		}
+		if !integrationRootDirNameRe.MatchString(d) {
+			return fmt.Errorf("integration %q: detect root_dir %q must match %s", p.Meta.Name, d, integrationRootDirNameRe)
+		}
+	}
+
 	// V6: bounds.
 	if len(p.Session.ReadDirs) > integrationMaxReadDirs {
 		return fmt.Errorf("integration %q: too many read_dirs (%d, max %d)", p.Meta.Name, len(p.Session.ReadDirs), integrationMaxReadDirs)
@@ -259,6 +290,9 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 	}
 	if len(p.Detect.Files) > integrationMaxDetectFiles {
 		return fmt.Errorf("integration %q: too many detect files (%d, max %d)", p.Meta.Name, len(p.Detect.Files), integrationMaxDetectFiles)
+	}
+	if len(p.Detect.RootDirs) > integrationMaxDetectRootDirs {
+		return fmt.Errorf("integration %q: too many detect root_dirs (%d, max %d)", p.Meta.Name, len(p.Detect.RootDirs), integrationMaxDetectRootDirs)
 	}
 
 	return nil
@@ -863,7 +897,26 @@ func projectRootMatchesDetectFile(projectDir, pattern string) bool {
 	return false
 }
 
+func projectHasRootDir(projectDir, name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, "/\\\x00") {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(projectDir, name))
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 func integrationSuggestionMatches(projectDir string, spec IntegrationSpec) bool {
+	for _, d := range spec.Detect.RootDirs {
+		if projectHasRootDir(projectDir, d) {
+			return true
+		}
+	}
 	switch spec.Meta.Name {
 	case "java-gradle", "java-maven":
 		for _, f := range spec.Detect.Files {
@@ -896,7 +949,7 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 		if err != nil {
 			continue
 		}
-		if len(p.Detect.Files) == 0 {
+		if len(p.Detect.Files) == 0 && len(p.Detect.RootDirs) == 0 {
 			continue
 		}
 		if integrationSuggestionMatches(projectDir, p) {
@@ -1145,6 +1198,13 @@ func runIntegrationShow(name string) error {
 
 	if len(spec.Detect.Files) > 0 {
 		fmt.Printf("  Detect:          %s\n", strings.Join(spec.Detect.Files, ", "))
+	}
+	if len(spec.Detect.RootDirs) > 0 {
+		var labeled []string
+		for _, d := range spec.Detect.RootDirs {
+			labeled = append(labeled, d+"/")
+		}
+		fmt.Printf("  Detect root dirs: %s\n", strings.Join(labeled, ", "))
 	}
 	if spec, ok := integrationResolverFor(name); ok {
 		fmt.Printf("  Resolver:        %s\n", spec.Summary)

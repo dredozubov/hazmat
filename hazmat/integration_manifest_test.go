@@ -839,6 +839,150 @@ func TestSuggestIntegrationsNoMatchReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsMatchesRootDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "beads" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'beads' suggestion for dir with .beads/, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsRootDirRequiresDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".beads"), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "beads" {
+			t.Fatalf("did not expect beads suggestion when .beads is a regular file, got %v", suggestions)
+		}
+	}
+}
+
+func TestSuggestIntegrationsRootDirSkippedWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "beads" {
+			t.Fatalf("did not expect beads suggestion without .beads/, got %v", suggestions)
+		}
+	}
+}
+
+func TestLoadIntegrationSpecAcceptsRootDir(t *testing.T) {
+	data := []byte(`
+integration:
+  name: test
+  version: 1
+detect:
+  root_dirs: [.beads]
+`)
+	p, err := loadIntegrationSpec(data)
+	if err != nil {
+		t.Fatalf("loadIntegrationSpec: %v", err)
+	}
+	if len(p.Detect.RootDirs) != 1 || p.Detect.RootDirs[0] != ".beads" {
+		t.Fatalf("Detect.RootDirs = %v, want [.beads]", p.Detect.RootDirs)
+	}
+}
+
+func TestLoadIntegrationSpecRejectsRootDirWithSlash(t *testing.T) {
+	cases := []string{".beads/sub", "sub/.beads", "/.beads", "foo\\bar"}
+	for _, v := range cases {
+		data := []byte(`
+integration:
+  name: test
+  version: 1
+detect:
+  root_dirs: ["` + v + `"]
+`)
+		if _, err := loadIntegrationSpec(data); err == nil {
+			t.Errorf("expected error for root_dir %q", v)
+		}
+	}
+}
+
+func TestLoadIntegrationSpecRejectsRootDirDotOrDotDot(t *testing.T) {
+	for _, v := range []string{".", ".."} {
+		data := []byte(`
+integration:
+  name: test
+  version: 1
+detect:
+  root_dirs: ["` + v + `"]
+`)
+		if _, err := loadIntegrationSpec(data); err == nil {
+			t.Errorf("expected error for root_dir %q", v)
+		}
+	}
+}
+
+func TestLoadIntegrationSpecRejectsEmptyRootDir(t *testing.T) {
+	data := []byte(`
+integration:
+  name: test
+  version: 1
+detect:
+  root_dirs: [""]
+`)
+	if _, err := loadIntegrationSpec(data); err == nil {
+		t.Fatal("expected error for empty root_dir")
+	}
+}
+
+func TestLoadIntegrationSpecRejectsRootDirWithWhitespace(t *testing.T) {
+	for _, v := range []string{"hello world", "has\ttab", "trail "} {
+		data := []byte(`
+integration:
+  name: test
+  version: 1
+detect:
+  root_dirs: ["` + v + `"]
+`)
+		if _, err := loadIntegrationSpec(data); err == nil {
+			t.Errorf("expected error for root_dir %q", v)
+		}
+	}
+}
+
+func TestActiveBeadsContributesIntegrationExcludes(t *testing.T) {
+	spec, err := loadBuiltinIntegrationSpec("beads")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(beads): %v", err)
+	}
+	merged, err := mergeIntegrations([]IntegrationSpec{spec})
+	if err != nil {
+		t.Fatalf("mergeIntegrations: %v", err)
+	}
+	wantPatterns := []string{
+		".beads/dolt/",
+		".beads/backup/",
+		".beads/dolt-server.log",
+		".beads/interactions.jsonl",
+		".beads/.beads-credential-key",
+	}
+	have := make(map[string]struct{}, len(merged.Excludes))
+	for _, pat := range merged.Excludes {
+		have[pat] = struct{}{}
+	}
+	for _, want := range wantPatterns {
+		if _, ok := have[want]; !ok {
+			t.Errorf("merged.Excludes missing %q; got %v", want, merged.Excludes)
+		}
+	}
+}
+
 // ── repo recommendations ───────────────────────────────────────────────────
 
 func TestLoadRepoRecommendationsValid(t *testing.T) {
