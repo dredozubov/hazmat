@@ -94,13 +94,20 @@ var (
 )
 
 func loadProjectHookBundle(projectDir string) (*loadedProjectHookBundle, error) {
-	path := filepath.Join(projectDir, projectHooksManifestRelPath)
-	data, err := os.ReadFile(path)
+	return loadProjectHookBundleFromPaths(projectDir, filepath.Join(projectDir, projectHooksDirRel), filepath.Join(projectDir, projectHooksManifestRelPath))
+}
+
+func loadProjectHookSnapshot(snapshotDir string) (*loadedProjectHookBundle, error) {
+	return loadProjectHookBundleFromPaths(snapshotDir, snapshotDir, filepath.Join(snapshotDir, "hooks.yaml"))
+}
+
+func loadProjectHookBundleFromPaths(projectDir, hooksDir, manifestPath string) (*loadedProjectHookBundle, error) {
+	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", projectHooksManifestRelPath, err)
+		return nil, fmt.Errorf("read %s: %w", manifestPath, err)
 	}
 
 	manifest, err := loadProjectHooksManifest(data)
@@ -108,7 +115,6 @@ func loadProjectHookBundle(projectDir string) (*loadedProjectHookBundle, error) 
 		return nil, err
 	}
 
-	hooksDir := filepath.Join(projectDir, projectHooksDirRel)
 	loadedHooks := make([]loadedProjectHook, 0, len(manifest.Hooks))
 	for _, hook := range manifest.Hooks {
 		scriptPath, scriptAbs, raw, err := resolveProjectHookScript(hooksDir, hook.Script)
@@ -136,7 +142,7 @@ func loadProjectHookBundle(projectDir string) (*loadedProjectHookBundle, error) 
 	return &loadedProjectHookBundle{
 		ProjectDir:   projectDir,
 		HooksDir:     hooksDir,
-		ManifestPath: path,
+		ManifestPath: manifestPath,
 		ManifestData: append([]byte(nil), data...),
 		Manifest:     manifest,
 		Hooks:        loadedHooks,

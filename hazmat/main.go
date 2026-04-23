@@ -139,6 +139,7 @@ func main() {
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd,
 		newConnectCmd(), newStackCheckCmd(), newCompletionCmd(root),
+		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
 
