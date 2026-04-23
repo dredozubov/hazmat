@@ -24,6 +24,25 @@ jobs:
       - name: Reject provider-shaped Google API keys
         run: bash scripts/check-secret-patterns.sh
 
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.30.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan working tree
+        run: bash scripts/check-gitleaks.sh detect
+
   lint:
     name: Lint
     runs-on: macos-latest

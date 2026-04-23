@@ -37,10 +37,17 @@ directory and removes them before exiting.
 If you install the git hooks with `make hooks`, Hazmat also adds:
 
 - `pre-commit`: staged diff sanity, `gofmt` on staged Go files, and shell syntax
-  checks for staged scripts, plus a staged scan for provider-shaped Google API
-  keys
-- `pre-push`: the shared fast gate (tracked-file Google API key scan, `go vet`,
-  `go test`, `golangci-lint`, and CLI smoke tests)
+  checks for staged scripts, plus two staged secret scans:
+  - `scripts/check-secret-patterns.sh --staged` — fast Google `AIza` regex (no
+    dependencies)
+  - `scripts/check-gitleaks.sh --staged` — broader scanner via
+    [`gitleaks`](https://github.com/gitleaks/gitleaks) covering ~100 provider
+    patterns and high-entropy detection (config: `.gitleaks.toml`). Requires
+    `gitleaks` on `PATH`; install with `brew install gitleaks` or
+    `go install github.com/zricethezav/gitleaks/v8@latest`
+- `pre-push`: the shared fast gate via `scripts/check-fast.sh` (tracked-file
+  Google API key scan, full-tree gitleaks scan, `go vet`, `go test`,
+  `golangci-lint`, and CLI smoke tests)
 
 ### Harness guardrails
 

@@ -1,0 +1,47 @@
+title = "Hazmat gitleaks config"
+
+# Extend the built-in gitleaks rules (covers Google, OpenAI, Anthropic, AWS,
+# GitHub, Slack, Stripe, generic high-entropy keys, etc.). The repo's existing
+# scripts/check-secret-patterns.sh remains the fast Google-specific first line;
+# gitleaks runs alongside as the broader scanner.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Hazmat repo allowlist"
+
+# Path-based exclusions only. We deliberately do NOT allowlist test fixtures
+# by path or regex content — credential-shaped values in fixtures are exactly
+# the failure mode the 2026-04-23 incident exposed. See
+# docs/2026-04-23-google-api-key-exposure-postmortem.md.
+paths = [
+  # Pattern definitions in our own scanner contain the AIza pattern as a
+  # literal regex source. Without this, gitleaks scans the regex itself.
+  '''scripts/check-secret-patterns\.sh''',
+  # Gitleaks's own config file references token shapes in commentary.
+  '''\.gitleaks\.toml''',
+  # Legacy path — file lived at the repo root before commit 201bc7c moved the
+  # docs tree under docs/research/. Historical commits at the old path contain
+  # an exfil-channel example that matches generic-api-key.
+  '''^attack-surface-deep-dive\.md$''',
+  # Vendored / generated trees if/when added.
+  '''^vendor/''',
+  '''^node_modules/''',
+  # Lockfiles tend to surface false positives on hashes.
+  '''(^|/)go\.sum$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)yarn\.lock$''',
+]
+
+# Stopwords skip a finding when the matched secret contains the substring.
+# Use this for canonical SSH/PGP filenames and test-fixture names that the
+# generic-api-key rule treats as high-entropy strings. Keep this list short
+# and obviously non-secret-shaped.
+stopwords = [
+  "id_ed25519",
+  "id_rsa",
+  "id_ecdsa",
+  "id_dsa",
+  "shared_key",
+  "known_hosts",
+]

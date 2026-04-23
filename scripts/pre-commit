@@ -22,6 +22,7 @@ if [ -z "$STAGED_FILES" ]; then
 fi
 
 bash "$REPO_ROOT/scripts/check-secret-patterns.sh" --staged
+bash "$REPO_ROOT/scripts/check-gitleaks.sh" --staged
 
 GO_FILES=""
 SHELL_FILES=""
