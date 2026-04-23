@@ -3,6 +3,8 @@
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
 > **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, three auth paths (subscription / API key / host import), and verification commands for claude, codex, opencode, and gemini.
+>
+> **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
 ## Quick Start
 
@@ -195,6 +197,39 @@ integrations:
   - node
   - tla-java
 ```
+
+### Repo-local Git Hooks
+
+Hazmat also supports a narrow repo-local Git hook flow for the common cases:
+`pre-commit`, `commit-msg`, and `pre-push`.
+
+The repo declares intent in tracked files under `.hazmat/hooks/`. The host owns
+activation. Hazmat only runs hook code after approval, and it runs the approved
+snapshot bytes from host-owned storage rather than the live repo copy.
+
+```bash
+hazmat hooks status
+hazmat hooks review
+hazmat hooks install
+hazmat hooks install --replace   # only when another local core.hooksPath owner exists
+hazmat hooks uninstall
+```
+
+On the next session launch, Hazmat can also surface the same approval/install
+flow automatically. The prompt is manifest-driven: hook type, purpose,
+interpreter, and required binaries, plus a calm drift summary when the repo
+bundle changes.
+
+V1 scope is intentionally narrow:
+
+- repo-local hooks only
+- `pre-commit`, `commit-msg`, `pre-push` only
+- explicit install / uninstall through Hazmat
+- refusal when another local `core.hooksPath` owner already exists unless you
+  pass `hazmat hooks install --replace`
+
+V1 does **not** support global hooks, `init.templateDir`, package-manager
+auto-install, `post-*` hooks, or server-side hooks.
 
 ### Docker Projects
 
@@ -498,7 +533,9 @@ brew uninstall hazmat                        # if installed via Homebrew
 sudo rm /usr/local/bin/hazmat /usr/local/libexec/hazmat-launch  # if installed via script
 ```
 
-Your project files are not deleted. Back them up first if needed.
+Your project files are not deleted. Back them up first if needed. Rollback does
+remove Hazmat-managed repo-local Git hook state: host approval records,
+approved snapshots, per-repo wrappers, and managed `.git` dispatchers.
 
 ## What the Agent Can and Can't Do
 

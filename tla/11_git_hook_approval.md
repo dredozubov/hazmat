@@ -1,9 +1,8 @@
 # Problem 11 — Git Hook Approval
 
-**Status:** proved implementation-governing boundary for `sandboxing-acjx`.
-This spec is now listed in `VERIFIED.md` and wired into `check_suite.sh`, but
-the Go command surface it governs is still implementation work rather than a
-finished user-facing feature.
+**Status:** proved and implemented boundary for `sandboxing-acjx`.
+This spec is listed in `VERIFIED.md`, wired into `check_suite.sh`, and now
+governs the shipped repo-local Git hook approval command surface.
 
 ## Problem Statement
 
@@ -42,9 +41,15 @@ This spec governs the future Hazmat-managed host-side hook activation boundary:
 - `hazmat hooks uninstall` and `hazmat rollback` remove approval + snapshot +
   installed dispatchers atomically
 
-It does not yet govern a merged Go implementation because that implementation
-is still to be written under `sandboxing-acjx.*`. Once the command surface and
-helpers land, changes to that boundary must preserve the properties below.
+This boundary now governs the current implementation under:
+
+- `hazmat/hook_manifest.go`
+- `hazmat/hook_approval.go`
+- `hazmat/hook_runtime.go`
+- `hazmat/hook_cli.go`
+- rollback cleanup in `hazmat/rollback.go`
+
+Future changes to that boundary must preserve the properties below.
 
 ## What the TLA+ Model Checks
 

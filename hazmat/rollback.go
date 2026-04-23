@@ -30,7 +30,9 @@ User and group deletion require explicit flags because they are destructive:
   --delete-user   Delete the agent user account and home directory
   --delete-group  Delete the dev group
 
-Your project files are NOT modified or removed.
+Your project files are NOT modified or removed. Hazmat-managed repo-local Git
+hook state is cleaned up as part of rollback, including host approvals,
+approved snapshots, per-repo wrappers, and managed .git dispatchers.
 
 Use --dry-run to preview all commands without executing.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -79,6 +81,7 @@ func runRollback(deleteUser, deleteGroup bool) error {
 		deleteUser:  deleteUser,
 		deleteGroup: deleteGroup,
 	})
+	rollbackProjectHooks(ui)
 
 	fmt.Println()
 	cGreen.Println("  Rollback complete.")
@@ -238,6 +241,40 @@ func rollbackLocalRepo(ui *UI) {
 	} else {
 		ui.Ok(fmt.Sprintf("Removed %s", localRepoDir))
 	}
+}
+
+func rollbackProjectHooks(ui *UI) {
+	ui.Step("Remove repo-local git hook approvals and dispatchers")
+
+	approvals := loadProjectHookApprovals()
+	if len(approvals.Approvals) == 0 {
+		if _, err := os.Stat(projectHookSnapshotsRootDir); os.IsNotExist(err) {
+			ui.SkipDone("Repo-local git hook state not present")
+			return
+		}
+	}
+
+	var cleanedProjects int
+	for _, approval := range approvals.Approvals {
+		if err := uninstallProjectHookRuntime(approval.ProjectDir); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not fully remove repo hook state for %s: %v", approval.ProjectDir, err))
+		} else {
+			cleanedProjects++
+		}
+	}
+
+	if err := os.Remove(projectHookApprovalsFilePath); err != nil && !os.IsNotExist(err) {
+		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", projectHookApprovalsFilePath, err))
+	}
+	if err := os.RemoveAll(projectHookSnapshotsRootDir); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", projectHookSnapshotsRootDir, err))
+	}
+
+	if cleanedProjects == 0 && len(approvals.Approvals) == 0 {
+		ui.Ok("Removed repo-local git hook snapshot storage")
+		return
+	}
+	ui.Ok(fmt.Sprintf("Removed repo-local git hook state for %d approved repos", cleanedProjects))
 }
 
 func rollbackAgentUser(ui *UI, r *Runner) {

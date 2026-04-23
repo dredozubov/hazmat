@@ -29,6 +29,13 @@ type projectHookRuntime struct {
 	DeclaredHookSet []hookType
 }
 
+type projectHookRuntimePaths struct {
+	WrapperPath string
+	ManagedDir  string
+	FallbackDir string
+	GitDir      string
+}
+
 func newGitHookWrapperCmd() *cobra.Command {
 	var projectDir string
 	cmd := &cobra.Command{
@@ -149,32 +156,36 @@ func installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath string, repl
 }
 
 func uninstallProjectHookRuntime(projectDir string) error {
-	runtime, err := buildProjectHookRuntime(projectDir)
+	canonicalProjectDir, err := canonicalizePath(projectDir)
 	if err != nil {
 		return err
 	}
-	if runtime.GitDir == "" {
-		return nil
+	approval, err := loadProjectHookApproval(canonicalProjectDir)
+	if err != nil {
+		return err
 	}
 
-	currentHooksPath, err := readLocalGitHooksPath(runtime.ProjectDir)
-	if err != nil {
-		return err
-	}
-	if currentHooksPath == runtime.ManagedDir {
-		if err := unsetLocalGitHooksPath(runtime.ProjectDir); err != nil {
+	paths := projectHookRuntimePathsForProject(canonicalProjectDir)
+	hookTypes := projectHookDeclaredTypes(nil, approval)
+	if paths.GitDir != "" {
+		currentHooksPath, err := readLocalGitHooksPath(canonicalProjectDir)
+		if err != nil {
 			return err
 		}
-	}
+		if currentHooksPath == paths.ManagedDir {
+			if err := unsetLocalGitHooksPath(canonicalProjectDir); err != nil {
+				return err
+			}
+		}
 
-	for _, hook := range runtime.DeclaredHookSet {
-		_ = os.Remove(filepath.Join(runtime.ManagedDir, string(hook)))
-		_ = os.Remove(filepath.Join(runtime.FallbackDir, string(hook)))
+		for _, hook := range hookTypes {
+			_ = os.Remove(filepath.Join(paths.ManagedDir, string(hook)))
+			_ = os.Remove(filepath.Join(paths.FallbackDir, string(hook)))
+		}
+		_ = os.RemoveAll(filepath.Join(paths.GitDir, "hazmat-hooks"))
 	}
-	_ = os.Remove(runtime.WrapperPath)
-	_ = os.RemoveAll(filepath.Join(runtime.GitDir, "hazmat-hooks"))
-	_ = removeProjectHookApproval(runtime.ProjectDir)
-	return nil
+	_ = os.Remove(paths.WrapperPath)
+	return removeProjectHookApproval(canonicalProjectDir)
 }
 
 func validateProjectHookRuntime(projectDir string) (*projectHookRuntime, error) {
@@ -302,6 +313,17 @@ func buildProjectHookRuntime(projectDir string) (*projectHookRuntime, error) {
 		Approval:        approval,
 		DeclaredHookSet: projectHookDeclaredTypes(bundle, approval),
 	}, nil
+}
+
+func projectHookRuntimePathsForProject(projectDir string) projectHookRuntimePaths {
+	projectKey := strings.TrimPrefix(hashProjectHookProject(projectDir), "sha256:")
+	gitDir := gitMetadataDir(projectDir)
+	return projectHookRuntimePaths{
+		WrapperPath: filepath.Join(projectHookSnapshotsRootDir, projectKey, projectHookWrapperName),
+		ManagedDir:  filepath.Join(gitDir, projectHookManagedDirRel),
+		FallbackDir: filepath.Join(gitDir, "hooks"),
+		GitDir:      gitDir,
+	}
 }
 
 func projectHookDeclaredTypes(bundle *loadedProjectHookBundle, approval *projectHookApprovalRecord) []hookType {

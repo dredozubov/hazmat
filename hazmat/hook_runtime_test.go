@@ -220,6 +220,14 @@ hooks:
 	if _, err := recordProjectHookApproval(bundle); err != nil {
 		t.Fatal(err)
 	}
+	approval, err := loadProjectHookApproval(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approval == nil {
+		t.Fatal("expected approval before uninstall")
+	}
+	snapshotPath := approval.SnapshotDir
 	runtime, err := installProjectHookRuntime(projectDir, "/usr/local/bin/hazmat")
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +241,12 @@ hooks:
 	}
 	if hooksPath, err := readLocalGitHooksPath(projectDir); err != nil || hooksPath != "" {
 		t.Fatalf("expected core.hooksPath to be unset, got %q err=%v", hooksPath, err)
+	}
+	if approval, err := loadProjectHookApproval(projectDir); err != nil || approval != nil {
+		t.Fatalf("expected approval removal, got %+v err=%v", approval, err)
+	}
+	if _, err := os.Stat(snapshotPath); !os.IsNotExist(err) {
+		t.Fatalf("expected snapshot removal, stat err=%v", err)
 	}
 }
 

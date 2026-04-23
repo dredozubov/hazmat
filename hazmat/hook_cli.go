@@ -191,6 +191,7 @@ func maybePromptProjectHooks(projectDir string) {
 	}
 
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+	approvedNow := false
 	if status.Approval == nil || status.Approval.BundleHash != status.Bundle.BundleHash {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "hazmat: this repo declares repo-local git hooks")
@@ -205,12 +206,13 @@ func maybePromptProjectHooks(projectDir string) {
 			fmt.Fprintf(os.Stderr, "hazmat: warning: could not record hook approval: %v\n", err)
 			return
 		}
+		approvedNow = true
 	}
 
 	if status.RuntimeErr != "" {
 		fmt.Fprintf(os.Stderr, "hazmat: repo hooks need install/repair: %s\n", status.RuntimeErr)
 	}
-	if !ui.Ask("Install or repair Hazmat-managed git hooks for this repo?") {
+	if !approvedNow && !ui.Ask("Install or repair Hazmat-managed git hooks for this repo?") {
 		return
 	}
 

@@ -564,9 +564,10 @@ script remain governed by unit tests rather than TLC.
 |-------|-------|
 | Spec | `tla/11_git_hook_approval.md` |
 | TLA+ files | `tla/MC_GitHookApproval.tla`, `tla/MC_GitHookApproval.cfg` |
-| Governed boundary | Future Hazmat-managed repo-local hook approval command surface and host-owned wrapper / dispatcher helpers under `hazmat/` for `sandboxing-acjx.*` |
+| Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/hook_cli.go` |
+| Governed code | `hazmat/rollback.go` — repo-local hook cleanup sweep |
 | Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
-| Status | **Proved as an implementation-governing boundary** — the hook approval feature is not implemented yet, but future Go changes for that feature must preserve this state machine |
+| Status | **Proved and implemented** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup now ship behind the current hook command surface |
 
 **What this verifies:**
 
@@ -677,7 +678,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
-| `11_git_hook_approval` | Future repo-local hook approval command surface and host-owned wrapper / dispatcher helpers under `hazmat/` for `sandboxing-acjx.*` |
+| `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
 
 ---
 

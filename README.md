@@ -100,6 +100,7 @@ Current state, not aspirational state:
 - **Four harnesses are supported in containment.** Claude Code, Codex, OpenCode, and Gemini. Details, tested versions, and auth flows live in [docs/harnesses.md](docs/harnesses.md).
 - **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 - **Integrations exist for common stacks.** Hazmat currently ships built-in integrations for Go, Node, Rust, Python, Java, TLA+, Terraform/OpenTofu, Beads, and more. See [docs/integrations.md](docs/integrations.md).
+- **Repo-local Git hooks have a Hazmat-managed approval path.** Repos can declare `pre-commit`, `commit-msg`, and `pre-push` in `.hazmat/hooks/hooks.yaml`; approval, install, drift review, and uninstall flow through `hazmat hooks ...`.
 - **Core behavior is tested and partially formally verified.** The exact proof boundary is explicit in [tla/VERIFIED.md](tla/VERIFIED.md). If something is not listed there, do not assume a proof exists.
 
 ## Limitations I Am Not Hiding
@@ -177,6 +178,12 @@ hazmat integration list
 hazmat integration show node
 hazmat claude --integration node
 hazmat config set integrations.pin "~/workspace/my-app:node,go"
+
+# Repo-local Git hooks
+hazmat hooks status
+hazmat hooks install
+hazmat hooks review
+hazmat hooks uninstall
 ```
 
 ## Architecture In One Screen
@@ -216,6 +223,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/compatibility.md](docs/compatibility.md) | Compatibility status meanings, matrix shape, and reporting flow |
 | [docs/recipes/README.md](docs/recipes/README.md) | Community-expandable recipes for common harness + stack workflows |
 | [docs/testing.md](docs/testing.md) | What is tested locally, in CI, and in destructive VM-backed flows |
+| [docs/manual-testing.md](docs/manual-testing.md) | Human-driven verification checklist (run before releases / after harness or seatbelt changes) |
 | [docs/design-assumptions.md](docs/design-assumptions.md) | Non-obvious design decisions and known tradeoffs |
 | [docs/cve-audit.md](docs/cve-audit.md) | How Hazmat maps against known Claude Code CVEs |
 | [tla/VERIFIED.md](tla/VERIFIED.md) | Exact formal verification scope and governance rules |
