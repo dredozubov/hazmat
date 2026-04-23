@@ -15,6 +15,15 @@ env:
   GO_CACHE_DEP: hazmat/go.sum
 
 jobs:
+  secret-patterns:
+    name: Secret patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject provider-shaped Google API keys
+        run: bash scripts/check-secret-patterns.sh
+
   lint:
     name: Lint
     runs-on: macos-latest

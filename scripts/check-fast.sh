@@ -3,6 +3,10 @@
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "fast-check: secret-pattern scan..."
+bash "$REPO_ROOT/scripts/check-secret-patterns.sh"
+
 cd "$REPO_ROOT/hazmat"
 
 echo "fast-check: go vet..."

@@ -37,9 +37,10 @@ directory and removes them before exiting.
 If you install the git hooks with `make hooks`, Hazmat also adds:
 
 - `pre-commit`: staged diff sanity, `gofmt` on staged Go files, and shell syntax
-  checks for staged scripts
-- `pre-push`: the shared fast gate (`go vet`, `go test`, `golangci-lint`, and
-  CLI smoke tests)
+  checks for staged scripts, plus a staged scan for provider-shaped Google API
+  keys
+- `pre-push`: the shared fast gate (tracked-file Google API key scan, `go vet`,
+  `go test`, `golangci-lint`, and CLI smoke tests)
 
 ### Harness guardrails
 

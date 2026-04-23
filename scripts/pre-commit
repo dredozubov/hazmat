@@ -21,6 +21,8 @@ if [ -z "$STAGED_FILES" ]; then
 	exit 0
 fi
 
+bash "$REPO_ROOT/scripts/check-secret-patterns.sh" --staged
+
 GO_FILES=""
 SHELL_FILES=""
 
