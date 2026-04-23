@@ -1682,6 +1682,65 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 }
 
+// Acceptance check for "session integrations should be implemented for
+// supported harnesses": all four harness IDs (and the generic shell/exec
+// targets) flow through the same applyIntegrations code path with identical
+// effect. The HarnessID field on sessionConfig is metadata only — it does
+// not gate which integrations apply.
+func TestApplyIntegrationsRunsUniformlyForAllHarnesses(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("GOPROXY", "https://proxy.example")
+
+	type result struct {
+		active  []string
+		envKeys []string
+		excl    []string
+	}
+	got := make(map[HarnessID]result)
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini} {
+		cfg := sessionConfig{
+			ProjectDir:     t.TempDir(),
+			BackupExcludes: snapshotIgnoreRules(nil),
+			HarnessID:      harness,
+		}
+		if _, err := applyIntegrations(&cfg, []string{"go"}); err != nil {
+			t.Fatalf("applyIntegrations(%s): %v", harness, err)
+		}
+		got[harness] = result{
+			active:  append([]string{}, cfg.ActiveIntegrations...),
+			envKeys: append([]string{}, cfg.IntegrationRegistryKeys...),
+			excl:    append([]string{}, cfg.IntegrationExcludes...),
+		}
+	}
+
+	// All four harnesses must end up with identical integration effects:
+	// same active list, same env passthrough keys, same excludes.
+	first := got[HarnessClaude]
+	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini} {
+		if !slicesEqualString(first.active, got[harness].active) {
+			t.Errorf("ActiveIntegrations diverged for %s: %v vs %v (claude)", harness, got[harness].active, first.active)
+		}
+		if !slicesEqualString(first.envKeys, got[harness].envKeys) {
+			t.Errorf("IntegrationRegistryKeys diverged for %s: %v vs %v (claude)", harness, got[harness].envKeys, first.envKeys)
+		}
+		if !slicesEqualString(first.excl, got[harness].excl) {
+			t.Errorf("IntegrationExcludes diverged for %s: %v vs %v (claude)", harness, got[harness].excl, first.excl)
+		}
+	}
+}
+
+func slicesEqualString(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestApplyIntegrationsMergesSnapshotExcludes(t *testing.T) {
 	isolateConfig(t)
 

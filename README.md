@@ -303,6 +303,7 @@ For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For st
 | Doc | What it covers |
 |-----|---------------|
 | [usage.md](docs/usage.md) | Complete user guide |
+| [harnesses.md](docs/harnesses.md) | Per-harness setup matrix (claude / codex / opencode / gemini): tested versions, three auth paths, verification commands |
 | [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
 | [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
 | [integrations.md](docs/integrations.md) | Session integrations: activation, project extensions, repo recommendations, trust model |

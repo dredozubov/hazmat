@@ -2,6 +2,8 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, three auth paths (subscription / API key / host import), and verification commands for claude, codex, opencode, and gemini.
+
 ## Quick Start
 
 Install:
