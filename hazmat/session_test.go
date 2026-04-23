@@ -781,6 +781,100 @@ func TestGenerateSBPLReadDirEqualToProjectOmitted(t *testing.T) {
 	}
 }
 
+// codexOnlySBPLRules captures every line that should be emitted ONLY when the
+// session's harness uses macOS native TLS (currently codex). Adding a new
+// harness with the same need? Update harnessUsesMacOSNativeTLS in
+// native_session_policy.go and these tests stay green automatically.
+var codexOnlySBPLRules = []string{
+	`(allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))`,
+	`(allow mach-lookup (global-name "com.apple.trustd.agent"))`,
+	`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
+	`(allow file-read* (subpath "/System/Cryptexes"))`,
+	`(allow file-read* (subpath "/Library/Keychains"))`,
+	`(allow file-read* (literal "/Library/Preferences/com.apple.security.plist"))`,
+	`(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))`,
+	`(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))`,
+	`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
+	`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
+}
+
+func TestGenerateSBPLCodexHarnessGetsNativeTLSRules(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+		HarnessID:  HarnessCodex,
+	}
+	policy := generateSBPL(cfg)
+
+	for _, want := range codexOnlySBPLRules {
+		if !strings.Contains(policy, want) {
+			t.Errorf("codex policy missing macOS-native-TLS rule:\n  %s", want)
+		}
+	}
+}
+
+func TestGenerateSBPLNonRustHarnessesDoNotGetNativeTLSRules(t *testing.T) {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, ""} {
+		cfg := sessionConfig{
+			ProjectDir: "/tmp/myproject",
+			HarnessID:  harness,
+		}
+		policy := generateSBPL(cfg)
+		for _, leaked := range codexOnlySBPLRules {
+			if strings.Contains(policy, leaked) {
+				t.Errorf("harness %q policy includes codex-only rule (least-privilege violation):\n  %s", harness, leaked)
+			}
+		}
+	}
+}
+
+func TestGenerateSBPLClaudePolicyHasFewerAllowsThanCodex(t *testing.T) {
+	// Acceptance criterion for sandboxing-m7f7: a claude session must carry
+	// strictly fewer seatbelt allows than a codex session, since claude is a
+	// Node app shipping its own CA bundle and doesn't need the macOS Security
+	// framework surface codex requires.
+	claudeCfg := sessionConfig{ProjectDir: "/tmp/myproject", HarnessID: HarnessClaude}
+	codexCfg := sessionConfig{ProjectDir: "/tmp/myproject", HarnessID: HarnessCodex}
+
+	claudeAllows := strings.Count(generateSBPL(claudeCfg), "(allow ")
+	codexAllows := strings.Count(generateSBPL(codexCfg), "(allow ")
+
+	if claudeAllows >= codexAllows {
+		t.Fatalf("claude should have FEWER allows than codex (least privilege) — got claude=%d, codex=%d", claudeAllows, codexAllows)
+	}
+
+	delta := codexAllows - claudeAllows
+	// Sanity: this should track len(codexOnlySBPLRules) modulo a small slack
+	// for shared rules that get split or duplicated. As of 2026-04-23 the
+	// gating adds 10 codex-only allows; assert at least 8 to catch accidental
+	// regressions where rules creep back into the base path.
+	if delta < 8 {
+		t.Fatalf("expected codex policy to carry at least 8 more allows than claude, got delta=%d (claude=%d, codex=%d)", delta, claudeAllows, codexAllows)
+	}
+}
+
+func TestGenerateSBPLBaseRulesPresentForEveryHarness(t *testing.T) {
+	// Rules every harness — including generic shell/exec — must always have.
+	baseRules := []string{
+		`(allow mach-lookup (global-name "com.apple.trustd"))`,
+		`(allow mach-lookup (global-name "com.apple.mDNSResponder"))`,
+		`(allow file-read* (subpath "/System/Library"))`,
+		`(allow file-read* file-write* (literal "/dev/tty"))`,
+		`(allow network-outbound)`,
+	}
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, ""} {
+		cfg := sessionConfig{
+			ProjectDir: "/tmp/myproject",
+			HarnessID:  harness,
+		}
+		policy := generateSBPL(cfg)
+		for _, base := range baseRules {
+			if !strings.Contains(policy, base) {
+				t.Errorf("harness %q policy missing base rule:\n  %s", harness, base)
+			}
+		}
+	}
+}
+
 func TestGenerateSBPLReadDirCoveredByBroaderReadDirSkipped(t *testing.T) {
 	// A narrow read dir inside a broader one should not emit a redundant rule.
 	cfg := sessionConfig{

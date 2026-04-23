@@ -37,6 +37,7 @@ type sessionConfig struct {
 	ServiceAccess           []string // explicit external-service access granted to session
 	RoutingReason           string   // plain-language explanation for the chosen mode
 	SessionNotes            []string // plain-language notes about session behavior
+	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
 }
 
 type sessionLaunchUI struct {
@@ -837,6 +838,9 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	cfg, err := resolveSessionConfig(projectDir, allReadPaths, writePaths)
 	if err != nil {
 		return preparedSession{}, err
+	}
+	if id, ok := harnessIDForCommand(commandName); ok {
+		cfg.HarnessID = id
 	}
 	cfg.UserReadDirs, err = resolveReadDirs(userReadPaths)
 	if err != nil {

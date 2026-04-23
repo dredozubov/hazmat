@@ -12,6 +12,29 @@ type nativeSessionPolicy struct {
 	WriteDirs          []string
 	AgentHome          string
 	CredentialDenySubs []string
+	// MacOSNativeTLS is true when the harness running in this session uses the
+	// macOS Security framework directly for TLS trust evaluation (Rust apps
+	// linked against the security-framework crate, e.g. codex). Such harnesses
+	// need a wider Security framework surface than Node-based harnesses that
+	// ship their own CA bundle (claude, gemini) — see compileDarwinSBPL.
+	MacOSNativeTLS bool
+}
+
+// macOSNativeTLSHarnesses is the set of harness IDs that need the wider
+// macOS Security framework surface (configd, /Library/Keychains, trustd.agent,
+// SecurityServer, AF_SYSTEM kernel control sockets, etc.).
+//
+// As of 2026-04: only codex (Rust + reqwest with native-tls). Node-based
+// harnesses (claude, gemini) and Bun-based ones (opencode) ship their own
+// CA bundle and don't touch the Security framework, so they get the smaller
+// base policy.
+func harnessUsesMacOSNativeTLS(id HarnessID) bool {
+	switch id {
+	case HarnessCodex:
+		return true
+	default:
+		return false
+	}
 }
 
 func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
@@ -21,6 +44,7 @@ func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
 		WriteDirs:          cloneStringSlice(cfg.WriteDirs),
 		AgentHome:          agentHome,
 		CredentialDenySubs: cloneStringSlice(credentialDenySubs),
+		MacOSNativeTLS:     harnessUsesMacOSNativeTLS(cfg.HarnessID),
 	}
 }
 

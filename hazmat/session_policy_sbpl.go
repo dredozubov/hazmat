@@ -51,11 +51,16 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library", "/Library/Developer"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
-	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/System/Cryptexes", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/Library/Keychains", "/private/etc", "/private/var/select", "/private/var/db/timezone"} {
+	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/private/etc", "/private/var/select", "/private/var/db/timezone"} {
 		w("(allow file-read* (subpath %q))\n", p)
 	}
-	for _, p := range []string{"/Library/Preferences/com.apple.security.plist"} {
-		w("(allow file-read* (literal %q))\n", p)
+	if policy.MacOSNativeTLS {
+		// Rust + native-tls harnesses (codex) walk the macOS Security framework
+		// trust store; the others ship their own CA bundle and don't need this.
+		for _, p := range []string{"/System/Cryptexes", "/Library/Keychains"} {
+			w("(allow file-read* (subpath %q))\n", p)
+		}
+		w("(allow file-read* (literal \"/Library/Preferences/com.apple.security.plist\"))\n")
 	}
 	for _, p := range []string{"/dev/urandom", "/dev/null", "/dev/zero"} {
 		w("(allow file-read* (literal %q))\n", p)
@@ -127,23 +132,30 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w("(allow file-read* file-write* (literal \"/dev/ptmx\"))\n")
 	w("(allow file-read* file-write* (regex #\"/dev/ttys[0-9]+\"))\n\n")
 
-	w(";; ── Mach services ───────────────────────────────────────────────────────────\n")
+	w(";; ── Mach services (base — needed by every harness) ─────────────────────────\n")
 	for _, svc := range []string{
 		"com.apple.system.logger",
 		"com.apple.CoreServices.coreservicesd",
 		"com.apple.system.notification_center",
 		"com.apple.mDNSResponder",
 		"com.apple.trustd",                                // TLS certificate verification (Go, curl, Python, etc.)
-		"com.apple.trustd.agent",                          // per-user trust agent (Rust security-framework SecTrustEvaluate)
-		"com.apple.SecurityServer",                        // Security framework XPC engine — does the actual SecTrust* evaluation
 		"com.apple.system.opendirectoryd.api",             // user/group directory lookups
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 		"com.apple.pboard",                                // pasteboard (clipboard read/write — paste into Claude Code and copy out)
-		"com.apple.SystemConfiguration.configd",           // SCDynamicStoreCreate (Rust reqwest proxy detection — codex panics without it)
 	} {
 		w("(allow mach-lookup (global-name %q))\n", svc)
+	}
+	if policy.MacOSNativeTLS {
+		w(";; Mach services for harnesses that use macOS Security framework directly:\n")
+		for _, svc := range []string{
+			"com.apple.SystemConfiguration.configd", // SCDynamicStoreCreate (Rust reqwest proxy detection)
+			"com.apple.trustd.agent",                // per-user trust agent (security-framework SecTrustEvaluate)
+			"com.apple.SecurityServer",              // Security framework XPC engine — does the actual SecTrust* evaluation
+		} {
+			w("(allow mach-lookup (global-name %q))\n", svc)
+		}
 	}
 	w("(allow mach-host*)\n\n")
 
@@ -155,16 +167,18 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w("(allow ipc-posix-shm-write-data   (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n")
 	w("(allow ipc-posix-shm-write-create (ipc-posix-name-regex #\"^com\\.apple\\.pasteboard\\.\"))\n\n")
 
-	w(";; ── System notification center shared memory (Rust reqwest / Security ────\n")
-	w(";; framework subscribes to libnotify events during TLS trust evaluation;\n")
-	w(";; without apple.shm.notification_center the cert chain load hangs.)\n")
-	w("(allow ipc-posix-shm-read-data (ipc-posix-name %q))\n\n", "apple.shm.notification_center")
+	if policy.MacOSNativeTLS {
+		w(";; ── System notification center shared memory (Rust reqwest / Security ────\n")
+		w(";; framework subscribes to libnotify events during TLS trust evaluation;\n")
+		w(";; without apple.shm.notification_center the cert chain load hangs.)\n")
+		w("(allow ipc-posix-shm-read-data (ipc-posix-name %q))\n\n", "apple.shm.notification_center")
 
-	w(";; ── Kernel control socket (AF_SYSTEM / SYSPROTO_CONTROL) ──────────────────\n")
-	w(";; SCDynamicStore's data channel (after the com.apple.SystemConfiguration\n")
-	w(";; mach-lookup handshake) uses AF_SYSTEM sockets. Rust reqwest's proxy\n")
-	w(";; detection blocks indefinitely without this; codex chat never round-trips.\n")
-	w("(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))\n\n")
+		w(";; ── Kernel control socket (AF_SYSTEM / SYSPROTO_CONTROL) ──────────────────\n")
+		w(";; SCDynamicStore's data channel (after the com.apple.SystemConfiguration\n")
+		w(";; mach-lookup handshake) uses AF_SYSTEM sockets. Rust reqwest's proxy\n")
+		w(";; detection blocks indefinitely without this; codex chat never round-trips.\n")
+		w("(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))\n\n")
+	}
 
 	w(";; ── Network: outbound for API calls ──────────────────────────────────────\n")
 	w("(allow network-outbound)\n")
@@ -194,17 +208,19 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("(deny file-read* file-write* (subpath %q))\n", home+sub)
 	}
 
-	w(";; ── Re-allow agent's empty login keychain (post-deny override) ────────────\n")
-	w(";; The broader %s/Library/Keychains deny stays. macOS Security framework on\n", home)
-	w(";; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable\n")
-	w(";; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain\n")
-	w(";; lets Rust reqwest's native-tls path complete trust setup using system roots.\n")
-	w(";; The directory metadata allow lets Security stat() the keychain dir before\n")
-	w(";; opening the whitelisted keychain DB files inside it.\n")
-	w("(allow file-read-metadata (literal %q))\n", home+"/Library/Keychains")
-	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db")
-	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-shm")
-	w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
+	if policy.MacOSNativeTLS {
+		w(";; ── Re-allow agent's empty login keychain (post-deny override) ────────────\n")
+		w(";; The broader %s/Library/Keychains deny stays. macOS Security framework on\n", home)
+		w(";; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable\n")
+		w(";; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain\n")
+		w(";; lets Rust reqwest's native-tls path complete trust setup using system roots.\n")
+		w(";; The directory metadata allow lets Security stat() the keychain dir before\n")
+		w(";; opening the whitelisted keychain DB files inside it.\n")
+		w("(allow file-read-metadata (literal %q))\n", home+"/Library/Keychains")
+		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db")
+		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-shm")
+		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
+	}
 
 	return b.String()
 }
