@@ -5,27 +5,44 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Full autonomy. Controlled environment.</strong><br>
-  OS-level containment for AI coding agents on macOS
+  <strong>Run AI coding agents with full autonomy on macOS without giving them your real account.</strong><br>
+  User isolation + kernel sandbox + firewall + rollback
 </p>
 
 ---
 
-AI coding agents are most useful when you let them work autonomously. But full autonomy means the agent runs with your full privileges, your credentials, your files.
+I built Hazmat because manual approval mode was the worst of both worlds. It broke agent flow, and it still was not a real security boundary.
 
-Hazmat makes that safe.
+If an agent gets prompt-injected, runs a poisoned dependency, or follows malicious repo instructions, the important question is not whether it asked politely. The important question is what it can reach.
+
+Hazmat changes that blast radius. The agent runs as a dedicated macOS user inside OS-level containment, not as you.
+
+## Start Here
+
+If you want the shortest path to a first contained session:
 
 ```bash
-hazmat claude                     # Claude Code with full containment
-hazmat opencode                   # OpenCode with full containment
-hazmat exec ./my-agent-loop.sh    # any agent, any script
+brew install dredozubov/tap/hazmat
+hazmat init --bootstrap-agent claude
+cd your-project
+hazmat claude
 ```
 
-One command. The agent gets its own macOS user, a kernel-enforced sandbox, a firewall, and automatic pre-session backups. You get full productivity without the risk.
+That gets you:
 
-## What You See
+- a dedicated `agent` macOS user
+- a per-session seatbelt policy
+- firewall and DNS hardening
+- automatic pre-session snapshot and restore
+- a session contract that tells you exactly what the agent can touch
 
-Every session starts with a contract — a plain-language summary of what the agent can and can't do:
+If you want to preview before changing anything, run `hazmat init --dry-run` or `hazmat explain`.
+
+If you use Codex, OpenCode, or Gemini instead of Claude, start with [docs/harnesses.md](docs/harnesses.md).
+
+## What a Session Looks Like
+
+Every session starts with a contract. No hidden widening, no vague "secure mode" label.
 
 ```
 hazmat: session
@@ -41,296 +58,170 @@ hazmat: session
   Snapshot excludes:    vendor/
 ```
 
-Docker-marked repos still start in native containment by default. The contract
-shows the marker and the explicit Docker command to use if the session needs it:
+That contract is the product. You can inspect it with `hazmat explain` before launch, and you can tell at a glance what changed for the session.
 
-```
-hazmat: session
-  Mode:                 Native containment
-  Why this mode:        using native containment by default (Docker routing: none)
-  Project (read-write): /Users/dr/workspace/api-service
-  Integrations:         node
-  Auto read-only:       none
-  Read-only extensions: none
-  Read-write extensions: none
-  Notes:
-    - Docker files detected: Dockerfile. Docker commands will not work in native containment.
-    - If this session needs Docker, use: hazmat claude --docker=sandbox -C /Users/dr/workspace/api-service
-  ...
-```
+## Why This Exists
 
-Preview any session before running it with `hazmat explain`.
+`--dangerously-skip-permissions` is where the real productivity is. It is also where the real blast radius is.
 
-## The Problem
+The category keeps proving the point:
 
-`--dangerously-skip-permissions` is where the real productivity is. Permission prompts break flow, interrupt agent loops, and make multi-step tasks impractical. Every serious Claude Code user ends up here eventually.
+- **Agents actively reason about escaping.** Ona showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root`, then trying to disable bubblewrap when that path was closed.
+- **The CVEs are not hypothetical.** Hazmat tracks [16 Claude Code CVEs](docs/cve-audit.md), including [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) and [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852).
+- **Supply chain attacks are fast enough to beat human supervision.** The 2026 axios compromise delivered a RAT through a `postinstall` hook in about two seconds.
 
-But the built-in protections aren't enough:
+So the design goal is not "make the agent behave." The design goal is "make autonomous failure less catastrophic."
 
-- **Agents actively reason about escaping.** Ona's research showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root` path traversal, then attempting to disable bubblewrap when that was caught.
-- **[16 Claude Code CVEs](docs/cve-audit.md) and counting.** [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536): RCE through project config files. [CVE-2026-25725](https://advisories.gitlab.com/pkg/npm/@anthropic-ai/claude-code/CVE-2026-25725/): sandbox escape via `settings.json` injection. [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852): API key exfiltration before the trust prompt appeared.
-- **Supply chain attacks execute instantly.** The [axios npm compromise](https://github.com/axios/axios/issues/10604) (2026) delivered a RAT through a `postinstall` hook in 2 seconds — before `npm install` even finished. The [s1ngularity attack](https://www.wiz.io/blog/s1ngularity-supply-chain-attack) weaponized Claude Code itself to steal credentials.
-
-No single layer is enough. A seatbelt profile can block file reads — but not HTTPS exfiltration. A firewall can block protocols — but not credential access. You need all of them working together.
-
-## What Hazmat Does
+## What Hazmat Actually Does
 
 ```bash
-hazmat claude                     # Claude Code with full autonomy
-hazmat exec ./my-agent-loop.sh    # any agent, any script
-hazmat shell                      # interactive contained shell
-```
-
-| Layer | What it protects |
-|-------|-----------------|
-| **User isolation** | Dedicated `agent` macOS user. Your `~/.ssh`, `~/.aws`, Keychain — structurally inaccessible |
-| **Kernel sandbox** | Per-session [seatbelt](https://developer.apple.com/documentation/security) policy. Project gets read-write, everything else denied |
-| **Credential deny** | SSH keys, AWS creds, GPG keys, GitHub tokens — blocked at the kernel level, even inside agent home |
-| **Network firewall** | `pf` rules block SMTP, IRC, FTP, Tor, VPN, and other exfiltration protocols |
-| **DNS blocklist** | Known tunnel/paste/C2 services (ngrok, pastebin, webhook.site) resolve to localhost |
-| **Supply chain hardening** | npm `ignore-scripts=true` by default — blocks the entire class of postinstall attacks |
-| **Automatic snapshots** | Kopia snapshots before every session — roll back if the agent breaks something |
-
-### Docker Projects
-
-Hazmat distinguishes between two Docker shapes:
-
-- **Private-daemon Docker projects** can run in Docker Sandbox mode with `--docker=sandbox`, `--docker=auto`, or `hazmat config docker auto`. The agent runs inside an isolated sandbox with its own private Docker daemon.
-- **Shared-daemon Docker projects** stay in code-only native containment by default. If you opt into Docker auto mode and Hazmat sees host-daemon signals, it stops and asks you to use native code-only mode or move the workflow to Tier 4.
-
-Use `hazmat config docker auto -C /path/to/project` to persist automatic Docker routing for a known private-daemon repo. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
-
-### Comparison
-
-| | [Built-in sandbox](https://github.com/anthropic-experimental/sandbox-runtime) | [Agent Safehouse](https://github.com/eugene1g/agent-safehouse) | [SandVault](https://github.com/webcoyote/sandvault) | [nono](https://github.com/always-further/nono) | [Docker](https://docs.docker.com/ai/sandboxes/) | **Hazmat** |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Separate user account | — | — | ✓ | — | ✓ | ✓ |
-| Seatbelt / kernel sandbox | ✓ | ✓ | ✓ | ✓ | n/a | ✓ |
-| Credential path deny | — | partial | — | — | ✓ | ✓ |
-| Network firewall (pf) | — | — | — | — | ✓ | ✓ |
-| DNS blocklist | — | — | — | — | — | ✓ |
-| Supply chain hardening | — | — | — | — | — | ✓ |
-| Private-daemon Docker workflows | — | — | — | — | ✓ | ✓ |
-| Shared-daemon Docker guardrails | — | — | — | — | — | ✓ |
-| Session integrations | — | — | — | — | — | ✓ |
-| Managed per-project Git SSH | — | — | — | — | — | ✓ |
-| Backup / rollback | — | — | — | ✓ | — | ✓ |
-| Agent-agnostic | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| macOS native | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-
-## Quick Start
-
-```bash
-# Install via Homebrew
-brew install dredozubov/tap/hazmat
-
-# Or install from GitHub releases
-curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash
-```
-
-Release artifacts are currently published for `darwin/arm64` and
-`darwin/amd64`. Linux is kept compile-only until its setup and rollback
-resources are implemented against the verified model.
-
-```bash
-# One-time setup (~10 min)
-hazmat init --bootstrap-agent claude
-
-# Start working
-cd your-project
 hazmat claude
+hazmat codex
+hazmat opencode
+hazmat exec ./my-agent-loop.sh
+hazmat shell
 ```
 
-`hazmat init` creates the agent user, configures containment, and sets up automatic snapshots. During interactive setup you can choose to bootstrap Claude Code, Codex, OpenCode, or skip agent installation and add one later with `hazmat bootstrap ...`. It can also seed Claude with portable conveniences from an existing setup while keeping Hazmat in control of runtime and safety settings. Interactive setup also offers an explicit opt-in for a broader passwordless `sudo -u agent` rule if you want manual generic agent-user commands to stop re-prompting for your password. Preview first with `hazmat init --dry-run`.
+| Layer | What it does |
+|-------|--------------|
+| **User isolation** | Runs the agent as a dedicated `agent` macOS user, so your real home directory is structurally out of reach |
+| **Kernel sandbox** | Generates a per-session [seatbelt](https://developer.apple.com/documentation/security) policy with explicit read-write and read-only scope |
+| **Credential deny** | Blocks common secret paths at the kernel level, including credential paths inside agent home |
+| **Network firewall** | Uses `pf` to block common exfiltration and tunneling protocols |
+| **DNS blocklist** | Redirects known tunnel, paste, and capture domains to localhost |
+| **Supply chain hardening** | Applies conservative defaults such as npm `ignore-scripts=true` |
+| **Snapshots and restore** | Takes a pre-session Kopia snapshot so you can diff or roll back |
 
-## Daily Workflow
+## What Works Today
+
+Current state, not aspirational state:
+
+- **macOS native containment is the default path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
+- **Four harnesses are supported in containment.** Claude Code, Codex, OpenCode, and Gemini. Details, tested versions, and auth flows live in [docs/harnesses.md](docs/harnesses.md).
+- **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
+- **Integrations exist for common stacks.** Hazmat currently ships built-in integrations for Go, Node, Rust, Python, Java, TLA+, Terraform/OpenTofu, Beads, and more. See [docs/integrations.md](docs/integrations.md).
+- **Core behavior is tested and partially formally verified.** The exact proof boundary is explicit in [tla/VERIFIED.md](tla/VERIFIED.md). If something is not listed there, do not assume a proof exists.
+
+## Limitations I Am Not Hiding
+
+Hazmat is useful because the boundaries are concrete. That also means the limitations should be concrete.
+
+- **macOS only today.** Linux is intentionally compile-only until setup and rollback resources are modeled and implemented. See [docs/testing.md](docs/testing.md).
+- **This is not a total network allowlist.** HTTPS exfiltration to a brand-new domain is still not fully solved by Tier 2. See [docs/threat-matrix.md](docs/threat-matrix.md).
+- **The DNS blocklist is exact-domain, not wildcard.** It is based on `/etc/hosts`, not a full DNS filtering stack. See [docs/design-assumptions.md](docs/design-assumptions.md).
+- **Shared `/tmp` stays shared.** Hazmat does not pretend macOS temp space suddenly became private.
+- **MCP env inheritance and `SSH_AUTH_SOCK` abuse are still category-wide problems.** Some of the hardest issues here are operational, not just architectural. They are called out directly in [docs/threat-matrix.md](docs/threat-matrix.md).
+- **Not every harness gets every mode.** Today Docker Sandbox sessions are exposed through the Claude path; Codex, OpenCode, and Gemini stay in native containment.
+
+If you are dealing with hostile repos, long unattended runs, or shared-daemon Docker workflows, the honest answer may be Tier 4, not stretching Tier 2 past what it does well. Start with [docs/overview.md](docs/overview.md).
+
+## Community Map
+
+I want community help here, but I do not want to pretend every part of Hazmat is equally easy or equally safe to crowdsource.
+
+### Best Places to Help
+
+- **Integrations and stack coverage** - new manifests, detection fixes, better snapshot excludes, compatibility reports
+- **Harness usability** - bootstrap friction, auth/import bugs, first-run UX, docs for real setups
+- **Docs and onboarding** - quickstart clarity, explain-mode examples, screenshots, diagrams, troubleshooting
+- **Research and evidence** - CVE tracking, incident writeups, comparative analysis, drift checks
+- **Test matrix expansion** - real repo validation, macOS version coverage, harness regression repros
+
+### Areas That Need Deeper Review
+
+- **Seatbelt policy changes**
+- **`pf` firewall behavior**
+- **setup / rollback ordering**
+- **credential delivery and capability brokering**
+- **anything covered by the TLA+ governance rules**
+
+If you want to contribute, [CONTRIBUTING.md](CONTRIBUTING.md) is the starting point. If you want to understand which claims are modeled versus just tested, read [tla/VERIFIED.md](tla/VERIFIED.md) and [docs/design-assumptions.md](docs/design-assumptions.md) first.
+
+## Daily Use
 
 ```bash
-# Claude Code — full autonomy, contained
+# Claude Code
 hazmat claude
 hazmat claude -p "refactor the auth module"
-hazmat claude -C ~/other-project
+
+# Other supported harnesses
+hazmat codex
+hazmat opencode
+hazmat gemini
 
 # Any command in containment
-hazmat exec npm test
-hazmat exec python train.py
-hazmat exec ./run-agent-loop.sh
-
-# Continue a hazmat Claude session as your normal user
-claude --resume "$(hazmat export claude session)" --fork-session
+hazmat exec -- make test
+hazmat exec -- /bin/zsh -lc 'uv run pytest -q'
 
 # Interactive shell
 hazmat shell
 
-# See what the agent changed
+# Review and recovery
 hazmat diff
 hazmat snapshots
-hazmat restore          # undo last session
+hazmat restore
 ```
 
-### Extra Directories
-
-The agent can only write to the project directory by default. Expose
-additional read-only or read-write paths explicitly:
+You can expose more paths explicitly when you need them:
 
 ```bash
-hazmat claude -R ~/workspace/shared-lib -R ~/reference-docs
+hazmat claude -R ~/reference-docs
 hazmat claude -W ~/.venvs/my-app
 hazmat config access add -C ~/workspace/my-app --read ~/reference-docs --write ~/.venvs/my-app
 ```
 
-`-R` stays read-only. `-W` adds another explicit writable root for that
-project or session. Both are enforced by the kernel sandbox — not advisory.
-
-### Session Integrations
+And if the repo needs integration hints:
 
 ```bash
 hazmat integration list
 hazmat integration show node
 hazmat claude --integration node
-hazmat claude --integration python-uv
 hazmat config set integrations.pin "~/workspace/my-app:node,go"
 ```
 
-Session integrations are ergonomic overlays for common stacks. They may add
-auto-resolved read-only toolchain paths, extend snapshot excludes, and pass
-through safe environment selectors like `GOPATH` or `VIRTUAL_ENV`. They do
-not widen write access, relax the credential deny list, or change the network
-policy.
-
-If a repo mixes stacks across subdirectories, add `.hazmat/integrations.yaml`
-to the repo so users do not have to discover nested frontend or TLA+
-integrations manually.
-
-Repos can declare recommended integrations in `.hazmat/integrations.yaml`;
-Hazmat prompts once for approval, then reuses that approval until the file
-changes. See [docs/integrations.md](docs/integrations.md).
-
-### Handing a Hazmat Session Back to Host Claude
-
-If you start a conversation inside `hazmat claude` and later want to continue it outside containment, export it into your normal Claude session store:
-
-```bash
-claude --resume "$(hazmat export claude session)" --fork-session
-claude --resume "$(hazmat export claude session <session-id>)" --fork-session
-```
-
-`hazmat export claude session` exports the latest hazmat Claude session for the current project by default, or a specific session when you pass an ID. It copies the session bundle into your host `~/.claude/projects/...` directory and prints the resume ID on stdout.
-
-## Configuration
-
-```bash
-hazmat config                                        # view everything
-hazmat config edit                                   # open config in $EDITOR
-hazmat config agent                                  # set API key + git identity
-hazmat config import claude                          # import portable basics from an existing setup
-hazmat bootstrap claude                              # install Claude Code for the agent user
-hazmat bootstrap codex                               # install Codex for the agent user
-hazmat config import opencode                        # import portable OpenCode basics from an existing setup
-hazmat bootstrap opencode                            # install OpenCode for the agent user
-hazmat opencode                                      # launch OpenCode in containment
-hazmat integration list                              # inspect built-in and user integrations
-hazmat config set integrations.pin "~/workspace/app:node,go" # auto-activate integrations for a project
-hazmat config access add -C ~/workspace/app --write ~/.venvs/app # persist project read/write extensions
-hazmat config docker auto -C ~/workspace/app         # persist automatic private-daemon Docker routing
-hazmat config cloud                                  # set up S3 backup
-hazmat config set session.skip_permissions false      # re-enable Claude's permission prompts
-hazmat config set backup.retention.keep_latest 30     # change snapshot retention
-```
-
-All settings live in `~/.hazmat/config.yaml`.
-
-Portable import keeps Hazmat's runtime and safety config separate from whatever you use outside containment. See [docs/claude-import.md](docs/claude-import.md) for the current import rules and non-goals.
-OpenCode follows the same curated story; see [docs/opencode-import.md](docs/opencode-import.md).
-Session integrations are documented in [docs/integrations.md](docs/integrations.md).
-
-## Architecture
+## Architecture In One Screen
 
 ```
   You (dr)                          Agent (agent)
-  ────────                          ─────────────
+  --------                          -------------
   ~/                                /Users/agent/
-  ~/.ssh, ~/.aws  ← denied →       ~/.claude/
-  ~/workspace/    ← shared →        ~/workspace/ (symlink)
+  ~/.ssh, ~/.aws  <- denied ->      ~/.claude/
+  ~/workspace/    <- shared ->      ~/workspace/ (symlink)
 
   hazmat claude
-       │
-       ├── snapshot project (Kopia)
-       ├── generate per-session seatbelt policy
-       ├── sudo -u agent hazmat-launch <policy>
-       ├── sandbox_init() (kernel sandbox)
-       └── exec claude --dangerously-skip-permissions
+       |
+       |- snapshot project (Kopia)
+       |- generate per-session seatbelt policy
+       |- sudo -u agent hazmat-launch <policy>
+       |    |- apply sandbox-exec
+       |    `- exec harness
+       |
+       `- pf firewall already active
 ```
 
-The default passwordless sudoers rule stays narrow and covers
-`hazmat-launch`, which Hazmat uses for both session launch and helper-routed
-agent maintenance. A separate optional rule can allow manual generic
-`sudo -u agent ...` commands without repeated password prompts.
-Interactive `hazmat init` leaves that broader rule opt-in; `hazmat init --yes`
-installs it by default.
+The important property is structural separation. The agent is not "forbidden from reading your SSH key while still running as you." It runs as a different user entirely.
 
-Three OS-level enforcement layers:
-1. **Unix user** — the agent runs as a different user. Your home directory is structurally inaccessible.
-2. **Seatbelt** — kernel-level filesystem policy. Default deny, explicit allows for project and toolchain paths.
-3. **pf firewall** — packet filter rules scoped to `user agent`. Blocks dangerous protocols.
+## Read Next
 
-Setup ordering, seatbelt policy structure, backup safety, version migration,
-session-time host permission repairs, harness lifecycle state, Tier 3 launch
-containment, Tier 2/Tier 3 core policy equivalence, and native launch fd
-isolation are
-[formally verified with TLA+](tla/VERIFIED.md).
+| Doc | Why you would read it |
+|-----|------------------------|
+| [docs/usage.md](docs/usage.md) | Full user guide once you are past the first session |
+| [docs/overview.md](docs/overview.md) | Which tier to use, and when |
+| [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
+| [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini |
+| [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |
+| [docs/testing.md](docs/testing.md) | What is tested locally, in CI, and in destructive VM-backed flows |
+| [docs/design-assumptions.md](docs/design-assumptions.md) | Non-obvious design decisions and known tradeoffs |
+| [docs/cve-audit.md](docs/cve-audit.md) | How Hazmat maps against known Claude Code CVEs |
+| [tla/VERIFIED.md](tla/VERIFIED.md) | Exact formal verification scope and governance rules |
 
-## Undo Everything
-
-```bash
-hazmat rollback                               # remove all system config
-hazmat rollback --delete-user --delete-group   # also delete agent account
-```
-
-Your project files are not touched.
-
-## Honest Limitations
-
-- **Seatbelt is defense-in-depth.** Apple's SBPL is undocumented. It prevents accidents and blocks credential access, but is not a VM-level boundary.
-- **HTTPS exfiltration is not blocked.** The agent can `curl` any URL on port 443. The DNS blocklist catches known-bad domains but not novel ones.
-- **macOS only.** No Linux (yet). The containment primitives are macOS-specific.
-- **Shared `/tmp`.** The agent can read temp files from other processes.
-
-For the full threat model, see [threat-matrix.md](docs/threat-matrix.md). For stronger isolation, see [tier4-vm-isolation.md](docs/tier4-vm-isolation.md).
-
-## Documentation
-
-| Doc | What it covers |
-|-----|---------------|
-| [usage.md](docs/usage.md) | Complete user guide |
-| [harnesses.md](docs/harnesses.md) | Per-harness setup matrix (claude / codex / opencode / gemini): tested versions, three auth paths, verification commands |
-| [claude-import.md](docs/claude-import.md) | Portable Claude basics import: scope, conflicts, and non-goals |
-| [opencode-import.md](docs/opencode-import.md) | Portable OpenCode basics import: scope, conflicts, and non-goals |
-| [integrations.md](docs/integrations.md) | Session integrations: activation, project extensions, repo recommendations, trust model |
-| [testing.md](docs/testing.md) | Test suite map: local loops, e2e scripts, CI, and VM-backed verification |
-| [tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) | Docker Sandbox mode: setup, network policy, Compose hardening |
-| [cve-audit.md](docs/cve-audit.md) | How hazmat defends against every known Claude Code CVE |
-| [threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage analysis |
-| [design-assumptions.md](docs/design-assumptions.md) | Every non-obvious design decision |
-| [brief-supply-chain-hardening.md](docs/brief-supply-chain-hardening.md) | Supply chain attack analysis and mitigations |
-| [tla/VERIFIED.md](tla/VERIFIED.md) | TLA+ formal verification specs |
-
-## Blog Post
+## Background
 
 [How I Made --dangerously-skip-permissions Safe in Claude Code](https://codeofchange.io/how-i-made-dangerously-skip-permissions-safe-in-claude-code/)
 
-## Contributing
+## Security
 
-Hazmat is early. The UX, security model, and documentation are all actively evolving. Feedback is the most valuable contribution right now.
-
-**Ways to help:**
-
-- **Try it and tell us what broke.** [Open an issue](https://github.com/dredozubov/hazmat/issues) with your macOS version and what happened. Rough bug reports are fine.
-- **Tell us what's confusing.** If a prompt didn't make sense, a command did something unexpected, or the docs left you guessing — that's a bug.
-- **Security review.** If you find a containment bypass, credential leak, or policy gap — please report it. We take these seriously.
-- **Linux port.** The architecture is OS-agnostic (user isolation + kernel sandbox + firewall). The primitives are different (namespaces, seccomp, nftables). This is the biggest open project.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions and PR guidelines.
+If you find a containment bypass, credential leak, sandbox escape, or other security issue, please use the private reporting path in [SECURITY.md](SECURITY.md).
 
 ## License
 
