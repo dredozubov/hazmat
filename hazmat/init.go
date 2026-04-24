@@ -366,13 +366,13 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	// If cloud backup was configured during this init, remind the user
 	// to save the encryption password — it's easy to miss mid-flow.
 	cfg, _ := loadConfig()
-	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.Password != "" {
+	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.RecoveryKey != "" {
 		fmt.Println()
 		cYellow.Println("  ┌──────────────────────────────────────────────────┐")
 		cYellow.Println("  │  SAVE YOUR CLOUD BACKUP RECOVERY KEY             │")
 		cYellow.Println("  └──────────────────────────────────────────────────┘")
 		fmt.Println()
-		fmt.Printf("    %s\n", cfg.Backup.Cloud.Password)
+		fmt.Printf("    %s\n", cfg.Backup.Cloud.RecoveryKey)
 		fmt.Println()
 		cYellow.Println("  You need this key to restore from cloud backup.")
 		cYellow.Println("  It cannot be recovered if lost.")

@@ -180,10 +180,13 @@ type RetentionConfig struct {
 }
 
 type CloudBackup struct {
-	Endpoint  string `yaml:"endpoint"`
-	Bucket    string `yaml:"bucket"`
-	AccessKey string `yaml:"access_key"`
-	Password  string `yaml:"password"` // Kopia repo encryption password
+	Endpoint    string `yaml:"endpoint"`
+	Bucket      string `yaml:"bucket"`
+	AccessKey   string `yaml:"access_key"`
+	RecoveryKey string `yaml:"recovery_key,omitempty"` // Kopia repo encryption key
+	// LegacyPassword accepts the pre-rename `password:` YAML key. Migrated to
+	// RecoveryKey on load and dropped on next save.
+	LegacyPassword string `yaml:"password,omitempty"`
 	// SecretKey is NOT stored here — it's in cloudCredentialPath
 }
 
@@ -649,6 +652,11 @@ func loadConfig() (HazmatConfig, error) {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
+	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.RecoveryKey == "" && cfg.Backup.Cloud.LegacyPassword != "" {
+		cfg.Backup.Cloud.RecoveryKey = cfg.Backup.Cloud.LegacyPassword
+		cfg.Backup.Cloud.LegacyPassword = ""
+	}
+
 	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
 		return cfg, err
 	}
@@ -813,7 +821,7 @@ func runConfigShow() error {
 		} else {
 			cYellow.Printf("    Secret key:   not configured\n")
 		}
-		if cfg.Backup.Cloud.Password != "" {
+		if cfg.Backup.Cloud.RecoveryKey != "" {
 			fmt.Printf("    Encryption:   ••••••••\n")
 		}
 		fmt.Println()

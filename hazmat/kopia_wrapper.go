@@ -319,15 +319,15 @@ func openCloudRepo(ctx context.Context) (repo.Repository, error) {
 
 	if _, err := os.Stat(kopiaCloudConfig); os.IsNotExist(err) {
 		fmt.Println("Initializing Kopia repository in S3...")
-		if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, cloud.Password); err != nil {
+		if err := repo.Initialize(ctx, st, &repo.NewRepositoryOptions{}, cloud.RecoveryKey); err != nil {
 			fmt.Printf("Initialization note: %v\n", err)
 		}
-		if err := repo.Connect(ctx, kopiaCloudConfig, st, cloud.Password, &repo.ConnectOptions{}); err != nil {
+		if err := repo.Connect(ctx, kopiaCloudConfig, st, cloud.RecoveryKey, &repo.ConnectOptions{}); err != nil {
 			return nil, fmt.Errorf("connect to cloud repo: %w", err)
 		}
 	}
 
-	r, err := repo.Open(ctx, kopiaCloudConfig, cloud.Password, &repo.Options{})
+	r, err := repo.Open(ctx, kopiaCloudConfig, cloud.RecoveryKey, &repo.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("open cloud repo: %w", err)
 	}

@@ -134,49 +134,45 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 		return fmt.Errorf("use --secret-key-from-env or run interactively for secret key input")
 	}
 
-	// Kopia encryption key — auto-generated unless user provides one via
-	// env var or types one at the prompt. This is a recovery key stored in
-	// config, not a password to memorize.
-	var kopiaPassword string
-	if envPass := os.Getenv("HAZMAT_CLOUD_PASSWORD"); envPass != "" {
-		kopiaPassword = envPass
+	var recoveryKey string
+	if envKey := os.Getenv("HAZMAT_CLOUD_PASSWORD"); envKey != "" {
+		recoveryKey = envKey
 	} else if interactive {
 		fmt.Print("  Recovery Key (press Enter to auto-generate): ")
-		pass, err := term.ReadPassword(int(syscall.Stdin))
+		typed, err := term.ReadPassword(int(syscall.Stdin))
 		if err != nil {
 			return err
 		}
 		fmt.Println()
-		kopiaPassword = string(pass)
+		recoveryKey = string(typed)
 
-		if kopiaPassword == "" {
-			if cfg.Backup.Cloud.Password != "" {
-				kopiaPassword = cfg.Backup.Cloud.Password
+		if recoveryKey == "" {
+			if cfg.Backup.Cloud.RecoveryKey != "" {
+				recoveryKey = cfg.Backup.Cloud.RecoveryKey
 				cDim.Printf("    Reusing existing recovery key\n")
 			} else {
-				kopiaPassword = generateToken() // 128-bit base32
+				recoveryKey = generateToken() // 128-bit base32
 				fmt.Println()
 				cBold.Println("  Recovery key (auto-generated):")
 				fmt.Println()
-				fmt.Printf("    %s\n", kopiaPassword)
+				fmt.Printf("    %s\n", recoveryKey)
 				fmt.Println()
 				cYellow.Println("  Save this key. You need it to restore from cloud backup.")
 				cYellow.Println("  It cannot be recovered if lost.")
 				fmt.Println()
 			}
 		}
-	} else if cfg.Backup.Cloud.Password != "" {
-		kopiaPassword = cfg.Backup.Cloud.Password
+	} else if cfg.Backup.Cloud.RecoveryKey != "" {
+		recoveryKey = cfg.Backup.Cloud.RecoveryKey
 	} else {
-		kopiaPassword = generateToken()
-		fmt.Printf("  Recovery key (auto-generated): %s\n", kopiaPassword)
+		recoveryKey = generateToken()
+		fmt.Printf("  Recovery key (auto-generated): %s\n", recoveryKey)
 	}
 
-	// Save config (endpoint, bucket, access key, kopia password — not secret key)
 	cfg.Backup.Cloud.Endpoint = endpoint
 	cfg.Backup.Cloud.Bucket = bucket
 	cfg.Backup.Cloud.AccessKey = accessKey
-	cfg.Backup.Cloud.Password = kopiaPassword
+	cfg.Backup.Cloud.RecoveryKey = recoveryKey
 
 	if err := saveConfig(cfg); err != nil {
 		return err
