@@ -173,12 +173,12 @@ type IntegrationBackup struct {
 // ── Validation ─────────────────────────────────────────────────────────────
 
 const (
-	integrationMaxSize        = 8192 // 8KB manifest limit
-	integrationMaxReadDirs    = 20
-	integrationMaxEnvKeys     = 20
-	integrationMaxExcludes    = 50
-	integrationMaxWarnings    = 10
-	integrationMaxCommands    = 20
+	integrationMaxSize           = 8192 // 8KB manifest limit
+	integrationMaxReadDirs       = 20
+	integrationMaxEnvKeys        = 20
+	integrationMaxExcludes       = 50
+	integrationMaxWarnings       = 10
+	integrationMaxCommands       = 20
 	integrationMaxDetectFiles    = 10
 	integrationMaxDetectRootDirs = 10
 )
@@ -1166,6 +1166,7 @@ func runIntegrationList() error {
 	fmt.Println()
 	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --integration <name>")
 	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
+	fmt.Println("  Prompt:   interactive harness launches can approve suggested integrations automatically")
 	fmt.Println()
 	return nil
 }

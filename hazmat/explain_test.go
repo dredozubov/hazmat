@@ -39,8 +39,8 @@ func TestBuildExplainJSON(t *testing.T) {
 		GitSSH: &sessionGitSSHConfig{
 			DisplayName: "id_ed25519",
 		},
-		RoutingReason:       "staying in native containment because docker: none is configured",
-		SessionNotes:        []string{"Docker files detected but disabled by config"},
+		RoutingReason: "staying in native containment because docker: none is configured",
+		SessionNotes:  []string{"Docker files detected but disabled by config"},
 	}
 
 	got := buildExplainJSON("shell", cfg, sessionModeNative, true)
@@ -123,7 +123,7 @@ func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
 
 func TestRenderSuggestedIntegrations(t *testing.T) {
 	got := renderSuggestedIntegrations([]string{"node", "python-uv"})
-	want := "hazmat: suggested integrations: node, python-uv (activate with --integration <name>)\n"
+	want := "hazmat: suggested integrations: node, python-uv (activate with --integration <name> or approve them during an interactive launch)\n"
 	if got != want {
 		t.Fatalf("renderSuggestedIntegrations = %q, want %q", got, want)
 	}

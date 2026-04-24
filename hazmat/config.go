@@ -126,7 +126,8 @@ type IntegrationsConfig struct {
 	// Pinned maps canonical project paths to integration names.
 	// Input paths are normalized through Abs + EvalSymlinks before storage,
 	// so matching is stable across different spellings of the same path.
-	Pinned []IntegrationPin `yaml:"pinned,omitempty"`
+	Pinned   []IntegrationPin       `yaml:"pinned,omitempty"`
+	Rejected []IntegrationRejection `yaml:"rejected,omitempty"`
 }
 
 type SandboxConfig struct {
@@ -157,9 +158,38 @@ type IntegrationPin struct {
 	Integrations []string `yaml:"integrations"`
 }
 
+// IntegrationRejection records suggested integrations the user declined for a
+// specific project, so Hazmat does not keep re-prompting on future launches.
+type IntegrationRejection struct {
+	ProjectDir   string   `yaml:"project"`
+	Integrations []string `yaml:"integrations"`
+}
+
 // PinnedIntegrations returns the configured integration pins (nil if none).
 func (c HazmatConfig) PinnedIntegrations() []IntegrationPin {
 	return c.Integrations.Pinned
+}
+
+func (c HazmatConfig) RejectedIntegrations() []IntegrationRejection {
+	return c.Integrations.Rejected
+}
+
+func (c HazmatConfig) ProjectPinnedIntegrations(projectDir string) []string {
+	for _, pin := range c.PinnedIntegrations() {
+		if pin.ProjectDir == projectDir {
+			return append([]string(nil), pin.Integrations...)
+		}
+	}
+	return nil
+}
+
+func (c HazmatConfig) ProjectRejectedIntegrations(projectDir string) []string {
+	for _, rejection := range c.RejectedIntegrations() {
+		if rejection.ProjectDir == projectDir {
+			return append([]string(nil), rejection.Integrations...)
+		}
+	}
+	return nil
 }
 
 type BackupConfig struct {
@@ -915,6 +945,12 @@ func runConfigShow() error {
 		fmt.Printf("    Homebrew metadata: %s\n", state)
 	} else {
 		fmt.Printf("    Homebrew metadata: ask on first use\n")
+	}
+	if len(cfg.PinnedIntegrations()) > 0 {
+		fmt.Printf("    Pinned projects:   %d configured\n", len(cfg.PinnedIntegrations()))
+	}
+	if len(cfg.RejectedIntegrations()) > 0 {
+		fmt.Printf("    Rejected sets:     %d configured\n", len(cfg.RejectedIntegrations()))
 	}
 	fmt.Println()
 

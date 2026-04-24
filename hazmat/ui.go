@@ -35,12 +35,13 @@ type UIChoice struct {
 }
 
 var (
-	cGreen  = color.New(color.FgGreen)
-	cRed    = color.New(color.FgRed)
-	cYellow = color.New(color.FgYellow)
-	cBlue   = color.New(color.FgBlue, color.Bold)
-	cBold   = color.New(color.Bold)
-	cDim    = color.New(color.Faint)
+	cGreen       = color.New(color.FgGreen)
+	cRed         = color.New(color.FgRed)
+	cYellow      = color.New(color.FgYellow)
+	cBlue        = color.New(color.FgBlue, color.Bold)
+	cBold        = color.New(color.Bold)
+	cDim         = color.New(color.Faint)
+	uiIsTerminal = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 )
 
 func (u *UI) Step(label string) {
@@ -138,21 +139,21 @@ func (u *UI) Summary() bool {
 // or dry-run mode so users can audit what goes into system files.
 func (u *UI) ShowFileOp(verb, path, content string) {
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-	faint.Printf("    ─ %s %s (%d lines):\n", verb, path, len(lines))
+	cDim.Printf("    ─ %s %s (%d lines):\n", verb, path, len(lines))
 	const maxPreview = 30
 	for i, line := range lines {
 		if i == maxPreview {
-			faint.Printf("    │ … (%d more lines)\n", len(lines)-maxPreview)
+			cDim.Printf("    │ … (%d more lines)\n", len(lines)-maxPreview)
 			break
 		}
-		faint.Printf("    │ %s\n", line)
+		cDim.Printf("    │ %s\n", line)
 	}
 }
 
 // IsInteractive returns true when the UI should prompt the user: not in
 // dry-run, not in --yes mode, and stdin is a real terminal.
 func (u *UI) IsInteractive() bool {
-	return !u.DryRun && !u.YesAll && term.IsTerminal(int(os.Stdin.Fd()))
+	return !u.DryRun && !u.YesAll && uiIsTerminal()
 }
 
 // Ask prints a [y/N] prompt and reads one line.
@@ -163,7 +164,7 @@ func (u *UI) IsInteractive() bool {
 // (e.g. sudo passwd) that will also read from stdin.
 func (u *UI) Ask(prompt string) bool {
 	if u.DryRun {
-		faint.Printf("    [dry-run] Would ask: %s [y/N]  → assuming yes for preview\n", prompt)
+		cDim.Printf("    [dry-run] Would ask: %s [y/N]  → assuming yes for preview\n", prompt)
 		return true
 	}
 	if u.YesAll {
@@ -171,7 +172,7 @@ func (u *UI) Ask(prompt string) bool {
 		fmt.Println("y  (--yes)")
 		return true
 	}
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !uiIsTerminal() {
 		u.WarnMsg(fmt.Sprintf("Non-interactive: skipping '%s'", prompt))
 		return false
 	}
@@ -215,10 +216,10 @@ func (u *UI) Choose(prompt string, choices []UIChoice, defaultKey string) (strin
 		}
 	}
 	if u.DryRun {
-		faint.Printf("    [dry-run] Would ask: %s → assuming %s for preview\n", prompt, defaultKey)
+		cDim.Printf("    [dry-run] Would ask: %s → assuming %s for preview\n", prompt, defaultKey)
 		return defaultKey, nil
 	}
-	if u.YesAll || !term.IsTerminal(int(os.Stdin.Fd())) {
+	if u.YesAll || !uiIsTerminal() {
 		cBold.Printf("  %s ", prompt)
 		fmt.Printf("%s\n", defaultKey)
 		return defaultKey, nil
@@ -243,6 +244,93 @@ func (u *UI) Choose(prompt string, choices []UIChoice, defaultKey string) (strin
 		return selection, nil
 	}
 	return "", fmt.Errorf("invalid choice %q", strings.TrimSpace(input))
+}
+
+func (u *UI) ChooseMany(prompt string, choices []UIChoice, defaultKeys []string) ([]string, error) {
+	if len(choices) == 0 {
+		return nil, fmt.Errorf("no choices provided")
+	}
+	if len(defaultKeys) == 0 {
+		for _, choice := range choices {
+			defaultKeys = append(defaultKeys, choice.Key)
+		}
+	}
+	defaultKeys = dedupeStrings(defaultKeys)
+
+	choiceByKey := make(map[string]UIChoice, len(choices))
+	choiceByIndex := make(map[string]string, len(choices))
+	defaultSet := make(map[string]struct{}, len(defaultKeys))
+	for _, key := range defaultKeys {
+		defaultSet[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
+	}
+
+	for i, choice := range choices {
+		choiceByKey[strings.ToLower(choice.Key)] = choice
+		choiceByIndex[strconv.Itoa(i+1)] = choice.Key
+
+		label := fmt.Sprintf("%d) %s", i+1, choice.Label)
+		if _, ok := defaultSet[strings.ToLower(choice.Key)]; ok {
+			label += " [default]"
+		}
+		fmt.Printf("  %s\n", label)
+		if choice.Description != "" {
+			cDim.Printf("     %s\n", choice.Description)
+		}
+	}
+
+	defaultLabel := strings.Join(defaultKeys, ", ")
+	if len(defaultKeys) == len(choices) {
+		defaultLabel = "all"
+	}
+	if u.DryRun {
+		cDim.Printf("    [dry-run] Would ask: %s → assuming %s for preview\n", prompt, defaultLabel)
+		return append([]string(nil), defaultKeys...), nil
+	}
+	if u.YesAll {
+		cBold.Printf("  %s ", prompt)
+		fmt.Printf("%s\n", defaultLabel)
+		return append([]string(nil), defaultKeys...), nil
+	}
+	if !uiIsTerminal() {
+		return nil, fmt.Errorf("non-interactive input")
+	}
+
+	cBold.Printf("  %s ", prompt)
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	selection := strings.TrimSpace(strings.ToLower(input))
+	if selection == "" {
+		return append([]string(nil), defaultKeys...), nil
+	}
+	if selection == "0" || selection == "none" {
+		return nil, nil
+	}
+
+	var selected []string
+	selectedSet := make(map[string]struct{})
+	for _, token := range strings.Split(selection, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		key, ok := choiceByIndex[token]
+		if !ok {
+			choice, exists := choiceByKey[token]
+			if !exists {
+				return nil, fmt.Errorf("invalid choice %q", token)
+			}
+			key = choice.Key
+		}
+		if _, dup := selectedSet[key]; dup {
+			continue
+		}
+		selected = append(selected, key)
+		selectedSet[key] = struct{}{}
+	}
+	return selected, nil
 }
 
 // Logo prints the Homer-in-hazmat / Claude-logo ANSI art header.

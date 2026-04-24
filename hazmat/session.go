@@ -105,7 +105,7 @@ func newShellCmd() *cobra.Command {
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			prepared, err := resolvePreparedSession("shell", harnessSessionOpts{
+			prepared, err := prepareLaunchSession("shell", harnessSessionOpts{
 				project:            project,
 				readDirs:           readDirs,
 				writeDirs:          writeDirs,
@@ -175,7 +175,7 @@ Examples:
   hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prepared, err := resolvePreparedSession("exec", harnessSessionOpts{
+			prepared, err := prepareLaunchSession("exec", harnessSessionOpts{
 				project:            project,
 				readDirs:           readDirs,
 				writeDirs:          writeDirs,
@@ -267,7 +267,7 @@ Examples:
 				return err
 			}
 
-			prepared, err := resolvePreparedSession("claude", opts, true)
+			prepared, err := prepareLaunchSession("claude", opts, true)
 			if err != nil {
 				return err
 			}
@@ -348,7 +348,7 @@ Examples:
 				return err
 			}
 
-			prepared, err := resolvePreparedSession("opencode", opts, false)
+			prepared, err := prepareLaunchSession("opencode", opts, false)
 			if err != nil {
 				return err
 			}
@@ -399,7 +399,7 @@ Examples:
 				return err
 			}
 
-			prepared, err := resolvePreparedSession("codex", opts, false)
+			prepared, err := prepareLaunchSession("codex", opts, false)
 			if err != nil {
 				return err
 			}
@@ -457,7 +457,7 @@ Examples:
 				return err
 			}
 
-			prepared, err := resolvePreparedSession("gemini", opts, false)
+			prepared, err := prepareLaunchSession("gemini", opts, false)
 			if err != nil {
 				return err
 			}
@@ -684,12 +684,12 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) (sessionMu
 		return sessionMutationPlan{}, err
 	}
 
-	// Detect and suggest integrations if none are active.
+	// Detect integrations that remain unresolved after active ones are merged.
 	activeNames := make(map[string]struct{}, len(integrations))
 	for _, spec := range integrations {
 		activeNames[spec.Meta.Name] = struct{}{}
 	}
-	cfg.SuggestedIntegrations = suggestIntegrations(cfg.ProjectDir, activeNames)
+	cfg.SuggestedIntegrations = suggestedIntegrationsForProject(cfg.ProjectDir, activeNames)
 
 	if len(integrations) == 0 {
 		return sessionMutationPlan{}, nil
@@ -1250,7 +1250,7 @@ func renderSuggestedIntegrations(suggestions []string) string {
 	if len(suggestions) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("hazmat: suggested integrations: %s (activate with --integration <name>)\n",
+	return fmt.Sprintf("hazmat: suggested integrations: %s (activate with --integration <name> or approve them during an interactive launch)\n",
 		strings.Join(suggestions, ", "))
 }
 
