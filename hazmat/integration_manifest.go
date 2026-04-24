@@ -612,7 +612,7 @@ func promptIntegrationApproval(projectDir string, integrationNames []string) boo
 // Sources (in priority order):
 //  1. --integration CLI flags (always active, no approval needed)
 //  2. Config pinning for the project (always active, user configured)
-//  3. Repo .hazmat/integrations.yaml (requires host approval)
+//  3. Repo .hazmat/integrations.yaml when already approved in host-owned state
 //
 // Returns loaded, validated integration specs.
 func resolveActiveIntegrations(integrationFlags []string, projectDir string) ([]IntegrationSpec, error) {
@@ -637,23 +637,13 @@ func resolveActiveIntegrations(integrationFlags []string, projectDir string) ([]
 	}
 
 	// Add repo-recommended integrations if approved by host.
+	//
+	// Unapproved recommendations are surfaced through repo setup suggestions
+	// instead of a separate integration-name approval prompt.
 	if recNames, fileHash, err := loadRepoRecommendations(projectDir); err == nil && len(recNames) > 0 {
 		if isApproved(projectDir, fileHash) {
 			for _, n := range recNames {
 				names[n] = struct{}{}
-			}
-		} else {
-			// Not yet approved — prompt regardless of other integration sources.
-			// Approval is a one-time cost that establishes the trust record.
-			if promptIntegrationApproval(projectDir, recNames) {
-				if err := recordApproval(projectDir, fileHash); err != nil {
-					fmt.Fprintf(os.Stderr, "hazmat: warning: could not save approval: %v\n", err)
-				}
-				for _, n := range recNames {
-					names[n] = struct{}{}
-				}
-			} else {
-				fmt.Fprintln(os.Stderr, "hazmat: repo integrations declined. Use --integration to activate manually.")
 			}
 		}
 	} else if err != nil {

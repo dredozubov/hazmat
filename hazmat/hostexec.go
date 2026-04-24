@@ -34,6 +34,7 @@ type hostToolPaths struct {
 	chmod     string
 	chown     string
 	ls        string
+	log       string
 	dscl      string
 	pfctl     string
 	launchctl string
@@ -52,6 +53,7 @@ var (
 	hostChmodPath     = hostTools.chmod
 	hostChownPath     = hostTools.chown
 	hostLsPath        = hostTools.ls
+	hostLogPath       = hostTools.log
 	hostDsclPath      = hostTools.dscl
 	hostPfctlPath     = hostTools.pfctl
 	hostLaunchctlPath = hostTools.launchctl

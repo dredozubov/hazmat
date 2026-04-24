@@ -53,60 +53,22 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	if err != nil {
 		return preparedSession{}, err
 	}
+	progress.Step("finalizing repo setup")
+	prepared, err = finalizePreparedRepoSetup(prepared, true, true)
+	if err != nil {
+		return preparedSession{}, err
+	}
 	progress.Done()
 	return prepared, nil
 }
 
 func resolveLaunchIntegrations(projectDir string, integrationFlags []string) (launchIntegrationResolution, error) {
 	baseFlags := dedupeStrings(integrationFlags)
-
 	integrations, err := resolveActiveIntegrationsForSession(baseFlags, projectDir)
 	if err != nil {
 		return launchIntegrationResolution{}, err
 	}
-
-	activeNames := make(map[string]struct{}, len(integrations))
-	for _, spec := range integrations {
-		activeNames[spec.Meta.Name] = struct{}{}
-	}
-
-	suggestions := suggestedIntegrationsForProject(projectDir, activeNames)
-	if len(suggestions) == 0 || !shouldPromptSuggestedIntegrations() {
-		return launchIntegrationResolution{Integrations: integrations}, nil
-	}
-
-	items := buildSuggestedIntegrationPromptItems(suggestions)
-	result, err := promptSuggestedLaunchIntegrations(projectDir, items)
-	if err != nil {
-		return launchIntegrationResolution{}, err
-	}
-
-	selected, err := normalizeSuggestedSelection(suggestions, result.Selected)
-	if err != nil {
-		return launchIntegrationResolution{}, err
-	}
-
-	switch result.Action {
-	case suggestedIntegrationActionUseNow:
-		integrations, err = mergeSelectedLaunchIntegrations(integrations, selected)
-		if err != nil {
-			return launchIntegrationResolution{}, err
-		}
-		return launchIntegrationResolution{Integrations: integrations}, nil
-	case suggestedIntegrationActionAlways:
-		if err := persistSuggestedIntegrationPreferences(projectDir, suggestions, selected); err != nil {
-			return launchIntegrationResolution{}, err
-		}
-		integrations, err = mergeSelectedLaunchIntegrations(integrations, selected)
-		if err != nil {
-			return launchIntegrationResolution{}, err
-		}
-		return launchIntegrationResolution{Integrations: integrations}, nil
-	case suggestedIntegrationActionNotNow:
-		return launchIntegrationResolution{Integrations: integrations}, nil
-	default:
-		return launchIntegrationResolution{}, fmt.Errorf("unknown suggested integration action %q", result.Action)
-	}
+	return launchIntegrationResolution{Integrations: integrations}, nil
 }
 
 func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string) ([]string, error) {
@@ -116,41 +78,15 @@ func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string)
 	if err != nil {
 		return nil, err
 	}
-
-	activeNames := make(map[string]struct{}, len(integrations))
+	if len(integrations) == 0 {
+		return baseFlags, nil
+	}
+	flags := make([]string, 0, len(integrations))
 	for _, spec := range integrations {
-		activeNames[spec.Meta.Name] = struct{}{}
+		flags = append(flags, spec.Meta.Name)
 	}
-
-	suggestions := suggestedIntegrationsForProject(projectDir, activeNames)
-	if len(suggestions) == 0 || !shouldPromptSuggestedIntegrations() {
-		return baseFlags, nil
-	}
-
-	items := buildSuggestedIntegrationPromptItems(suggestions)
-	result, err := promptSuggestedLaunchIntegrations(projectDir, items)
-	if err != nil {
-		return nil, err
-	}
-
-	selected, err := normalizeSuggestedSelection(suggestions, result.Selected)
-	if err != nil {
-		return nil, err
-	}
-
-	switch result.Action {
-	case suggestedIntegrationActionUseNow:
-		return appendUniqueStrings(baseFlags, selected), nil
-	case suggestedIntegrationActionAlways:
-		if err := persistSuggestedIntegrationPreferences(projectDir, suggestions, selected); err != nil {
-			return nil, err
-		}
-		return appendUniqueStrings(baseFlags, selected), nil
-	case suggestedIntegrationActionNotNow:
-		return baseFlags, nil
-	default:
-		return nil, fmt.Errorf("unknown suggested integration action %q", result.Action)
-	}
+	sort.Strings(flags)
+	return flags, nil
 }
 
 func mergeSelectedLaunchIntegrations(existing []IntegrationSpec, selected []string) ([]IntegrationSpec, error) {
@@ -189,7 +125,24 @@ func shouldPromptSuggestedIntegrations() bool {
 }
 
 func suggestedIntegrationsForProject(projectDir string, activeNames map[string]struct{}) []string {
-	return filterRejectedSuggestedIntegrations(projectDir, suggestIntegrations(projectDir, activeNames))
+	suggestions := suggestIntegrations(projectDir, activeNames)
+	suggestions = append(suggestions, unapprovedRepoRecommendedIntegrations(projectDir, activeNames)...)
+	return filterRejectedSuggestedIntegrations(projectDir, dedupeAndSortStrings(suggestions))
+}
+
+func unapprovedRepoRecommendedIntegrations(projectDir string, activeNames map[string]struct{}) []string {
+	names, fileHash, err := loadRepoRecommendations(projectDir)
+	if err != nil || len(names) == 0 || isApproved(projectDir, fileHash) {
+		return nil
+	}
+	var suggestions []string
+	for _, name := range names {
+		if _, active := activeNames[name]; active {
+			continue
+		}
+		suggestions = append(suggestions, name)
+	}
+	return dedupeAndSortStrings(suggestions)
 }
 
 func filterRejectedSuggestedIntegrations(projectDir string, suggestions []string) []string {

@@ -12,6 +12,7 @@ func TestHostToolGlobalsComeFromPlatformResolver(t *testing.T) {
 		chmod:     hostChmodPath,
 		chown:     hostChownPath,
 		ls:        hostLsPath,
+		log:       hostLogPath,
 		dscl:      hostDsclPath,
 		pfctl:     hostPfctlPath,
 		launchctl: hostLaunchctlPath,

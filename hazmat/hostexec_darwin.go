@@ -10,6 +10,7 @@ func platformHostToolPaths() hostToolPaths {
 		chmod:     "/bin/chmod",
 		chown:     "/usr/sbin/chown",
 		ls:        "/bin/ls",
+		log:       "/usr/bin/log",
 		dscl:      "/usr/bin/dscl",
 		pfctl:     "/sbin/pfctl",
 		launchctl: "/bin/launchctl",

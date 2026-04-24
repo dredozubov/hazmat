@@ -63,7 +63,7 @@ Examples:
 			}
 
 			printSessionContract(cfg, mode, noBackup)
-			printSuggestedIntegrations(cfg.SuggestedIntegrations)
+			fmt.Fprint(cmd.ErrOrStderr(), renderRepoSetupDetails(cfg.RepoSetup))
 			printSessionMutationDetails(cfg.PlannedHostMutations)
 			fmt.Fprint(cmd.ErrOrStderr(), renderIntegrationDetails(cfg.IntegrationDetails))
 			return nil

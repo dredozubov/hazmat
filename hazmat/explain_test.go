@@ -10,6 +10,29 @@ import (
 )
 
 func TestBuildExplainJSON(t *testing.T) {
+	repoSetup := &repoSetupState{
+		AppliedSafe: []repoSetupEffect{
+			{
+				ID:      "ro:/tmp/toolchain",
+				Class:   repoSetupEffectClassSafe,
+				Kind:    repoSetupEffectReadOnly,
+				Value:   "/tmp/toolchain",
+				Sources: []string{"Suggested by project files (node)"},
+			},
+		},
+		PendingExplicit: []repoSetupEffect{
+			{
+				ID:      "rw:/tmp/cache",
+				Class:   repoSetupEffectClassExplicit,
+				Kind:    repoSetupEffectWrite,
+				Value:   "/tmp/cache",
+				Sources: []string{"Learned from previous session denial"},
+			},
+		},
+		record: repoProfileRecord{
+			Remembered: repoSetupStoredEffects{ReadOnly: []string{"/tmp/toolchain"}},
+		},
+	}
 	cfg := sessionConfig{
 		ProjectDir:            "/tmp/project",
 		ReadDirs:              []string{"/tmp/auto", "/tmp/user"},
@@ -41,6 +64,7 @@ func TestBuildExplainJSON(t *testing.T) {
 		},
 		RoutingReason: "staying in native containment because docker: none is configured",
 		SessionNotes:  []string{"Docker files detected but disabled by config"},
+		RepoSetup:     repoSetup,
 	}
 
 	got := buildExplainJSON("shell", cfg, sessionModeNative, true)
@@ -58,6 +82,29 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ActiveIntegrations, []string{"python-uv"}) {
 		t.Fatalf("ActiveIntegrations = %v", got.ActiveIntegrations)
+	}
+	if got.RepoSetupSummary != "remembered (1 read-only path); additional approval required (1 write path)" {
+		t.Fatalf("RepoSetupSummary = %q", got.RepoSetupSummary)
+	}
+	if !reflect.DeepEqual(got.RepoSetupApplied, []explainJSONRepoSetupEffect{
+		{
+			Class:   "safe",
+			Kind:    "read_only",
+			Value:   "/tmp/toolchain",
+			Sources: []string{"Suggested by project files (node)"},
+		},
+	}) {
+		t.Fatalf("RepoSetupApplied = %#v", got.RepoSetupApplied)
+	}
+	if !reflect.DeepEqual(got.RepoSetupPending, []explainJSONRepoSetupEffect{
+		{
+			Class:   "explicit",
+			Kind:    "write",
+			Value:   "/tmp/cache",
+			Sources: []string{"Learned from previous session denial"},
+		},
+	}) {
+		t.Fatalf("RepoSetupPending = %#v", got.RepoSetupPending)
 	}
 	if !reflect.DeepEqual(got.IntegrationEnvKeys, []string{"GOROOT", "VIRTUAL_ENV"}) {
 		t.Fatalf("IntegrationEnvKeys = %v", got.IntegrationEnvKeys)
@@ -121,10 +168,40 @@ func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
 	}
 }
 
-func TestRenderSuggestedIntegrations(t *testing.T) {
-	got := renderSuggestedIntegrations([]string{"node", "python-uv"})
-	want := "hazmat: suggested integrations: node, python-uv (activate with --integration <name> or approve them during an interactive launch)\n"
-	if got != want {
-		t.Fatalf("renderSuggestedIntegrations = %q, want %q", got, want)
+func TestRenderRepoSetupDetails(t *testing.T) {
+	got := renderRepoSetupDetails(&repoSetupState{
+		AppliedSafe: []repoSetupEffect{
+			{
+				ID:      "ro:/tmp/toolchain",
+				Class:   repoSetupEffectClassSafe,
+				Kind:    repoSetupEffectReadOnly,
+				Value:   "/tmp/toolchain",
+				Sources: []string{"Suggested by project files (node)"},
+			},
+		},
+		PendingSafe: []repoSetupEffect{
+			{
+				ID:      "exclude:build/",
+				Class:   repoSetupEffectClassSafe,
+				Kind:    repoSetupEffectSnapshotExclude,
+				Value:   "build/",
+				Sources: []string{"Suggested by project files (node)"},
+			},
+		},
+		record: repoProfileRecord{
+			Remembered: repoSetupStoredEffects{ReadOnly: []string{"/tmp/toolchain"}},
+		},
+	})
+
+	for _, want := range []string{
+		"hazmat: repo setup remembered (1 read-only path); additional repo setup available (1 snapshot exclude)",
+		"Applied:",
+		"- read-only: /tmp/toolchain (Suggested by project files (node))",
+		"Available:",
+		"- snapshot exclude: build/ (Suggested by project files (node))",
+	} {
+		if !bytes.Contains([]byte(got), []byte(want)) {
+			t.Fatalf("renderRepoSetupDetails missing %q in:\n%s", want, got)
+		}
 	}
 }

@@ -22,37 +22,18 @@ func TestSuggestedIntegrationActionDefaultChoiceYesAllDefaultsToUseNow(t *testin
 func TestResolveLaunchIntegrationFlagsUseNowAddsSelectedSuggestions(t *testing.T) {
 	isolateConfig(t)
 
-	projectDir := integrationTestProject(t, map[string]string{
-		"package.json": "{}\n",
-		"uv.lock":      "version = 1\n",
-	})
+	projectDir := integrationTestProject(t, nil)
 	canonicalProject, err := resolveDir(projectDir, false)
 	if err != nil {
 		t.Fatalf("resolveDir: %v", err)
 	}
 
-	restorePrompt := stubSuggestedIntegrationPrompt(t, func(projectDir string, items []suggestedIntegrationPromptItem) (suggestedIntegrationPromptResult, error) {
-		if projectDir != canonicalProject {
-			t.Fatalf("projectDir = %q, want %q", projectDir, canonicalProject)
-		}
-		if !sameStringSet(promptItemNames(items), []string{"node", "python-uv"}) {
-			t.Fatalf("prompt items = %v", promptItemNames(items))
-		}
-		return suggestedIntegrationPromptResult{
-			Action:   suggestedIntegrationActionUseNow,
-			Selected: []string{"python-uv"},
-		}, nil
-	})
-	defer restorePrompt()
-	restoreTTY := stubTerminal(t, true)
-	defer restoreTTY()
-
-	flags, err := resolveLaunchIntegrationFlags(canonicalProject, nil)
+	flags, err := resolveLaunchIntegrationFlags(canonicalProject, []string{"python-uv", "node", "python-uv"})
 	if err != nil {
 		t.Fatalf("resolveLaunchIntegrationFlags: %v", err)
 	}
-	if !reflect.DeepEqual(flags, []string{"python-uv"}) {
-		t.Fatalf("flags = %v, want [python-uv]", flags)
+	if !reflect.DeepEqual(flags, []string{"node", "python-uv"}) {
+		t.Fatalf("flags = %v, want [node python-uv]", flags)
 	}
 
 	cfg, err := loadConfig()
@@ -80,13 +61,8 @@ func TestResolveLaunchIntegrationFlagsAlwaysPersistsSelectedAndRejectedSuggestio
 	}
 
 	restorePrompt := stubSuggestedIntegrationPrompt(t, func(_ string, items []suggestedIntegrationPromptItem) (suggestedIntegrationPromptResult, error) {
-		if !sameStringSet(promptItemNames(items), []string{"node", "python-uv"}) {
-			t.Fatalf("prompt items = %v", promptItemNames(items))
-		}
-		return suggestedIntegrationPromptResult{
-			Action:   suggestedIntegrationActionAlways,
-			Selected: []string{"python-uv"},
-		}, nil
+		t.Fatalf("prompt should not be called for launch integration flags, got %v", promptItemNames(items))
+		return suggestedIntegrationPromptResult{}, nil
 	})
 	defer restorePrompt()
 	restoreTTY := stubTerminal(t, true)
@@ -96,19 +72,19 @@ func TestResolveLaunchIntegrationFlagsAlwaysPersistsSelectedAndRejectedSuggestio
 	if err != nil {
 		t.Fatalf("resolveLaunchIntegrationFlags: %v", err)
 	}
-	if !reflect.DeepEqual(flags, []string{"python-uv"}) {
-		t.Fatalf("flags = %v, want [python-uv]", flags)
+	if len(flags) != 0 {
+		t.Fatalf("flags = %v, want empty", flags)
 	}
 
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := cfg.ProjectPinnedIntegrations(canonicalProject); !reflect.DeepEqual(got, []string{"python-uv"}) {
-		t.Fatalf("pinned = %v, want [python-uv]", got)
+	if got := cfg.ProjectPinnedIntegrations(canonicalProject); len(got) != 0 {
+		t.Fatalf("pinned = %v, want empty", got)
 	}
-	if got := cfg.ProjectRejectedIntegrations(canonicalProject); !reflect.DeepEqual(got, []string{"node"}) {
-		t.Fatalf("rejected = %v, want [node]", got)
+	if got := cfg.ProjectRejectedIntegrations(canonicalProject); len(got) != 0 {
+		t.Fatalf("rejected = %v, want empty", got)
 	}
 }
 
@@ -152,6 +128,51 @@ func TestResolveLaunchIntegrationFlagsSkipsRejectedSuggestions(t *testing.T) {
 	}
 	if len(flags) != 0 {
 		t.Fatalf("flags = %v, want empty", flags)
+	}
+}
+
+func TestSuggestedIntegrationsForProjectIncludesUnapprovedRepoRecommendations(t *testing.T) {
+	isolateConfig(t)
+
+	savedApprovals := integrationApprovalsFilePath
+	integrationApprovalsFilePath = filepath.Join(t.TempDir(), "integration-approvals.yaml")
+	t.Cleanup(func() { integrationApprovalsFilePath = savedApprovals })
+
+	projectDir := integrationTestProject(t, map[string]string{
+		".hazmat/integrations.yaml": "integrations:\n  - node\n",
+	})
+	canonicalProject, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+
+	suggestions := suggestedIntegrationsForProject(canonicalProject, map[string]struct{}{})
+	if !reflect.DeepEqual(suggestions, []string{"node"}) {
+		t.Fatalf("suggestions = %v, want [node]", suggestions)
+	}
+
+	flags, err := resolveLaunchIntegrationFlags(canonicalProject, nil)
+	if err != nil {
+		t.Fatalf("resolveLaunchIntegrationFlags: %v", err)
+	}
+	if len(flags) != 0 {
+		t.Fatalf("flags = %v, want empty before approval", flags)
+	}
+
+	_, fileHash, err := loadRepoRecommendations(canonicalProject)
+	if err != nil {
+		t.Fatalf("loadRepoRecommendations: %v", err)
+	}
+	if err := recordApproval(canonicalProject, fileHash); err != nil {
+		t.Fatalf("recordApproval: %v", err)
+	}
+
+	flags, err = resolveLaunchIntegrationFlags(canonicalProject, nil)
+	if err != nil {
+		t.Fatalf("resolveLaunchIntegrationFlags after approval: %v", err)
+	}
+	if !reflect.DeepEqual(flags, []string{"node"}) {
+		t.Fatalf("flags after approval = %v, want [node]", flags)
 	}
 }
 

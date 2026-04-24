@@ -38,6 +38,7 @@ type sessionConfig struct {
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
+	RepoSetup               *repoSetupState
 }
 
 type sessionLaunchUI struct {
@@ -955,6 +956,19 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
 	}
 	prepared.Config.PlannedHostMutations = prepared.HostMutationPlan.Describe()
+	progress.Step("collecting repo setup")
+	repoSetup, err := repoSetupStateForSession(prepared.Config)
+	if err != nil {
+		prepared.Config.RepoSetup = &repoSetupState{
+			Notes: []string{fmt.Sprintf("Could not collect repo setup state: %v", err)},
+		}
+	} else {
+		prepared.Config.RepoSetup = &repoSetup
+	}
+	prepared, err = finalizePreparedRepoSetup(prepared, false, false)
+	if err != nil {
+		return preparedSession{}, err
+	}
 	return prepared, nil
 }
 
@@ -981,7 +995,7 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 
 func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
-	printSuggestedIntegrations(prepared.Config.SuggestedIntegrations)
+	printRepoSetupDetails(prepared.Config.RepoSetup)
 	printSessionMutationDetails(prepared.Config.PlannedHostMutations)
 	if prepared.Mode != sessionModeNative {
 		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
@@ -1262,6 +1276,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	if cfg.GitSSH != nil && strings.TrimSpace(cfg.GitSSH.DisplayName) != "" {
 		fmt.Fprintf(&b, "  Git SSH key:          %s\n", cfg.GitSSH.DisplayName)
 	}
+	if summary := repoSetupSummary(cfg.RepoSetup); summary != "" {
+		fmt.Fprintf(&b, "  Repo setup:           %s\n", summary)
+	}
 	if skipSnapshot {
 		fmt.Fprintln(&b, "  Pre-session snapshot: skipped (--no-backup)")
 	} else {
@@ -1303,6 +1320,10 @@ func printSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool
 
 func printSessionMutationDetails(mutations []sessionMutation) {
 	fmt.Fprint(os.Stderr, renderSessionMutationDetails(mutations))
+}
+
+func printRepoSetupDetails(state *repoSetupState) {
+	fmt.Fprint(os.Stderr, renderRepoSetupLaunchDetails(state))
 }
 
 func renderSuggestedIntegrations(suggestions []string) string {
@@ -1957,13 +1978,18 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		fmt.Fprint(os.Stderr, "\033[2J\033[H")
 	}
 
+	startTime := time.Now()
 	err = cmd.Run()
+	endTime := time.Now()
 
 	// Post-session: repair .git/ permissions that may have been altered
 	// by agent git operations. New files created by the agent are owned
 	// by the agent user; re-applying the dev group ACL restores
 	// collaborative access for the host user.
 	repairGitAfterSession(cfg.ProjectDir)
+	if recordErr := rememberRepoSetupDenials(cfg, startTime, endTime); recordErr != nil {
+		fmt.Fprintf(os.Stderr, "hazmat: warning: could not record repo setup denials: %v\n", recordErr)
+	}
 
 	return err
 }

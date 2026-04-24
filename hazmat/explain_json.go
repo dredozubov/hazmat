@@ -15,6 +15,9 @@ type explainJSONPreview struct {
 	ProjectDir            string            `json:"project_dir"`
 	RoutingReason         string            `json:"routing_reason,omitempty"`
 	SuggestedIntegrations []string          `json:"suggested_integrations,omitempty"`
+	RepoSetupSummary      string            `json:"repo_setup_summary,omitempty"`
+	RepoSetupApplied      []explainJSONRepoSetupEffect `json:"repo_setup_applied,omitempty"`
+	RepoSetupPending      []explainJSONRepoSetupEffect `json:"repo_setup_pending,omitempty"`
 	ActiveIntegrations    []string          `json:"active_integrations,omitempty"`
 	IntegrationSources    []string          `json:"integration_sources,omitempty"`
 	IntegrationDetails    []string          `json:"integration_details,omitempty"`
@@ -32,6 +35,13 @@ type explainJSONPreview struct {
 	SessionNotes          []string          `json:"session_notes,omitempty"`
 }
 
+type explainJSONRepoSetupEffect struct {
+	Class   string   `json:"class"`
+	Kind    string   `json:"kind"`
+	Value   string   `json:"value"`
+	Sources []string `json:"sources,omitempty"`
+}
+
 type explainJSONBackup struct {
 	Enabled  bool     `json:"enabled"`
 	Excludes []string `json:"excludes,omitempty"`
@@ -46,6 +56,9 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		ProjectDir:            cfg.ProjectDir,
 		RoutingReason:         cfg.RoutingReason,
 		SuggestedIntegrations: append([]string(nil), cfg.SuggestedIntegrations...),
+		RepoSetupSummary:      repoSetupSummary(cfg.RepoSetup),
+		RepoSetupApplied:      explainJSONRepoSetupEffects(cfg.RepoSetup, true),
+		RepoSetupPending:      explainJSONRepoSetupEffects(cfg.RepoSetup, false),
 		ActiveIntegrations:    append([]string(nil), cfg.ActiveIntegrations...),
 		IntegrationSources:    append([]string(nil), cfg.IntegrationSources...),
 		IntegrationDetails:    append([]string(nil), cfg.IntegrationDetails...),
@@ -65,6 +78,33 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		},
 		SessionNotes: append([]string(nil), cfg.SessionNotes...),
 	}
+}
+
+func explainJSONRepoSetupEffects(state *repoSetupState, applied bool) []explainJSONRepoSetupEffect {
+	if state == nil {
+		return nil
+	}
+	var effects []repoSetupEffect
+	if applied {
+		effects = append(effects, state.AppliedSafe...)
+		effects = append(effects, state.AppliedExplicit...)
+	} else {
+		effects = append(effects, state.PendingSafe...)
+		effects = append(effects, state.PendingExplicit...)
+	}
+	if len(effects) == 0 {
+		return nil
+	}
+	out := make([]explainJSONRepoSetupEffect, 0, len(effects))
+	for _, effect := range effects {
+		out = append(out, explainJSONRepoSetupEffect{
+			Class:   string(effect.Class),
+			Kind:    string(effect.Kind),
+			Value:   effect.Value,
+			Sources: append([]string(nil), effect.Sources...),
+		})
+	}
+	return out
 }
 
 func explainGitSSHKey(cfg *sessionGitSSHConfig) string {
