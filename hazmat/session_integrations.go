@@ -29,18 +29,26 @@ type suggestedIntegrationPromptResult struct {
 var promptSuggestedLaunchIntegrations = defaultPromptSuggestedLaunchIntegrations
 
 func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
+	progress := newSessionPreparationProgress(os.Stderr)
+	progress.Step("resolving launch context")
 	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {
 		return preparedSession{}, err
 	}
 
+	progress.Step("checking suggested integrations")
 	resolvedIntegrations, err := resolveLaunchIntegrationFlags(projectDir, opts.integrations)
 	if err != nil {
 		return preparedSession{}, err
 	}
 	opts.integrations = resolvedIntegrations
 
-	return resolvePreparedSession(commandName, opts, supportsSandbox)
+	prepared, err := resolvePreparedSessionWithProgress(commandName, opts, supportsSandbox, progress)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	progress.Done()
+	return prepared, nil
 }
 
 func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string) ([]string, error) {

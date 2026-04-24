@@ -82,6 +82,39 @@ type preparedSession struct {
 	HostMutationPlan sessionMutationPlan
 }
 
+type sessionPreparationProgress struct {
+	w       io.Writer
+	now     func() time.Time
+	start   time.Time
+	started bool
+}
+
+func newSessionPreparationProgress(w io.Writer) *sessionPreparationProgress {
+	return &sessionPreparationProgress{
+		w:     w,
+		now:   time.Now,
+		start: time.Now(),
+	}
+}
+
+func (p *sessionPreparationProgress) Step(label string) {
+	if p == nil || p.w == nil {
+		return
+	}
+	if !p.started {
+		fmt.Fprintln(p.w, "hazmat: preparing session startup")
+		p.started = true
+	}
+	fmt.Fprintf(p.w, "  %s...\n", label)
+}
+
+func (p *sessionPreparationProgress) Done() {
+	if p == nil || p.w == nil || !p.started {
+		return
+	}
+	fmt.Fprintf(p.w, "hazmat: session startup preparation complete (%.1fs)\n", p.now().Sub(p.start).Seconds())
+}
+
 func (m sessionMode) label() string {
 	switch m {
 	case sessionModeDockerSandbox:
@@ -819,10 +852,15 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 }
 
 func resolvePreparedSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
+	return resolvePreparedSessionWithProgress(commandName, opts, supportsSandbox, nil)
+}
+
+func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionOpts, supportsSandbox bool, progress *sessionPreparationProgress) (preparedSession, error) {
 	if err := requireInit(); err != nil {
 		return preparedSession{}, err
 	}
 
+	progress.Step("resolving project access")
 	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {
 		return preparedSession{}, err
@@ -850,12 +888,15 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 	if err != nil {
 		return preparedSession{}, err
 	}
+	progress.Step("applying session integrations")
 	integrationMutationPlan, err := applyIntegrations(&cfg, opts.integrations)
 	if err != nil {
 		return preparedSession{}, err
 	}
+	progress.Step("checking repo-local hooks")
 	maybePromptProjectHooks(cfg.ProjectDir)
 
+	progress.Step("checking Docker routing")
 	request, err := resolveDockerRoutingRequest(cfg.ProjectDir, opts)
 	if err != nil {
 		return preparedSession{}, err
@@ -867,6 +908,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		return preparedSession{}, err
 	}
 
+	progress.Step("checking Git SSH access")
 	cfg.GitSSH, err = resolveManagedGitSSH(cfg)
 	if err != nil {
 		return preparedSession{}, err
@@ -883,6 +925,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
 	}
+	progress.Step("planning harness asset sync")
 	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)
 	if err != nil {
 		return preparedSession{}, err
@@ -893,6 +936,7 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
+		progress.Step("planning host repairs")
 		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
 	}
 	prepared.Config.PlannedHostMutations = prepared.HostMutationPlan.Describe()

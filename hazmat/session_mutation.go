@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const sessionMutationProofScopeTLAModel = "TLA+ model + tests/docs"
@@ -201,17 +203,26 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 }
 
 func executeSessionMutationPlan(plan sessionMutationPlan) error {
+	return executeSessionMutationPlanToWriter(os.Stderr, plan)
+}
+
+func executeSessionMutationPlanToWriter(w io.Writer, plan sessionMutationPlan) error {
 	for _, mutation := range plan.Mutations {
+		start := time.Now()
+		fmt.Fprintf(w, "  Running %s...\n", mutation.Metadata.Summary)
 		result, err := mutation.Apply()
 		if err != nil {
+			fmt.Fprintf(w, "  Failed %s after %.1fs\n", mutation.Metadata.Summary, time.Since(start).Seconds())
 			return err
 		}
 		if result.Warning != "" {
-			fmt.Fprintf(os.Stderr, "  Warning: %s\n", result.Warning)
+			fmt.Fprintf(w, "  Warning: %s\n", result.Warning)
 		}
 		if result.AppliedMessage != "" {
-			fmt.Fprintln(os.Stderr, result.AppliedMessage)
+			fmt.Fprintf(w, "%s (%.1fs)\n", result.AppliedMessage, time.Since(start).Seconds())
+			continue
 		}
+		fmt.Fprintf(w, "  Finished %s (%.1fs)\n", mutation.Metadata.Summary, time.Since(start).Seconds())
 	}
 	return nil
 }
