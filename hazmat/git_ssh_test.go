@@ -622,18 +622,19 @@ func TestBuildGitSSHWrapperScriptAlwaysEmitsHostRoutedCase(t *testing.T) {
 	// After the any-host fallback retirement, every wrapper emits a case
 	// statement that routes matched hosts and rejects others. There's no
 	// bare legacy path.
-	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{{
-		Name:           "only",
-		SocketPath:     "/tmp/agent.sock",
-		KnownHostsPath: "/tmp/known_hosts",
-		AllowedHosts:   []string{"github.com"},
+	script := buildGitSSHWrapperScript([]sessionGitSSHKey{{
+		Name:         "only",
+		AllowedHosts: []string{"github.com"},
 	}})
 	for _, fragment := range []string{
 		"interactive ssh is not allowed",
 		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
 		"-o IdentityFile=none",
-		"github.com) sock=/tmp/agent.sock; kh=/tmp/known_hosts ;;",
+		"github.com) key=only ;;",
 		"*) reject \"destination host not allowed: $normalized_host\" ;;",
+		"helper=${HAZMAT_GIT_SSH_BOOTSTRAP_HELPER:-}",
+		"control=${HAZMAT_GIT_SSH_BOOTSTRAP_SOCKET:-}",
+		"bootstrap_output=$(\"$helper\" _git_ssh_bootstrap \"$control\" \"$key\")",
 		"-o UserKnownHostsFile=\"$kh\"",
 		"-o IdentityAgent=\"$sock\"",
 		"-o StrictHostKeyChecking=yes",
@@ -648,29 +649,23 @@ func TestBuildGitSSHWrapperScriptAlwaysEmitsHostRoutedCase(t *testing.T) {
 }
 
 func TestBuildGitSSHWrapperScriptSkipsEmptyAllowedHosts(t *testing.T) {
-	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{
+	script := buildGitSSHWrapperScript([]sessionGitSSHKey{
 		{
-			Name:           "empty",
-			SocketPath:     "/tmp/agent-empty.sock",
-			KnownHostsPath: "/tmp/kh-empty",
+			Name: "empty",
 		},
 		{
-			Name:           "github",
-			SocketPath:     "/tmp/agent-github.sock",
-			KnownHostsPath: "/tmp/kh-github",
-			AllowedHosts:   []string{"github.com"},
+			Name:         "github",
+			AllowedHosts: []string{"github.com"},
 		},
 	})
 	for _, forbidden := range []string{
-		"\n  ) sock=",
-		"/tmp/agent-empty.sock",
-		"/tmp/kh-empty",
+		"\n  ) key=",
 	} {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("wrapper script included empty-host arm %q:\n%s", forbidden, script)
 		}
 	}
-	if !strings.Contains(script, "github.com) sock=/tmp/agent-github.sock; kh=/tmp/kh-github ;;") {
+	if !strings.Contains(script, "github.com) key=github ;;") {
 		t.Fatalf("wrapper script should still include routed hosts:\n%s", script)
 	}
 	if !strings.Contains(script, "*) reject \"destination host not allowed: $normalized_host\" ;;") {
@@ -679,23 +674,19 @@ func TestBuildGitSSHWrapperScriptSkipsEmptyAllowedHosts(t *testing.T) {
 }
 
 func TestBuildGitSSHWrapperScriptMultiKeyRoutesByHost(t *testing.T) {
-	script := buildGitSSHWrapperScript([]preparedSSHIdentityKey{
+	script := buildGitSSHWrapperScript([]sessionGitSSHKey{
 		{
-			Name:           "github",
-			SocketPath:     "/tmp/agent-github.sock",
-			KnownHostsPath: "/tmp/kh-github",
-			AllowedHosts:   []string{"github.com"},
+			Name:         "github",
+			AllowedHosts: []string{"github.com"},
 		},
 		{
-			Name:           "prod",
-			SocketPath:     "/tmp/agent-prod.sock",
-			KnownHostsPath: "/tmp/kh-prod",
-			AllowedHosts:   []string{"prod.example.com", "*.prod.example.com"},
+			Name:         "prod",
+			AllowedHosts: []string{"prod.example.com", "*.prod.example.com"},
 		},
 	})
 	for _, fragment := range []string{
-		"github.com) sock=/tmp/agent-github.sock; kh=/tmp/kh-github ;;",
-		"prod.example.com|*.prod.example.com) sock=/tmp/agent-prod.sock; kh=/tmp/kh-prod ;;",
+		"github.com) key=github ;;",
+		"prod.example.com|*.prod.example.com) key=prod ;;",
 		"*) reject \"destination host not allowed: $normalized_host\" ;;",
 	} {
 		if !strings.Contains(script, fragment) {
@@ -711,6 +702,84 @@ func TestParseSSHAgentPID(t *testing.T) {
 	}
 	if pid != "4242" {
 		t.Fatalf("parseSSHAgentPID = %q, want 4242", pid)
+	}
+}
+
+func TestGitSSHBootstrapServiceBootstrapsOnlyOnFirstRequest(t *testing.T) {
+	runtimeDir, err := os.MkdirTemp("/tmp", "hazmat-git-ssh-")
+	if err != nil {
+		t.Fatalf("MkdirTemp runtimeDir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	oldWrite := gitSSHWriteRuntimeFile
+	oldStart := gitSSHStartAgent
+	oldLoad := gitSSHLoadKey
+	oldStatus := gitSSHStatusWriter
+	t.Cleanup(func() {
+		gitSSHWriteRuntimeFile = oldWrite
+		gitSSHStartAgent = oldStart
+		gitSSHLoadKey = oldLoad
+		gitSSHStatusWriter = oldStatus
+	})
+
+	gitSSHWriteRuntimeFile = func(path string, content []byte, mode os.FileMode) error {
+		if err := os.WriteFile(path, content, mode); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	var startCalls int
+	gitSSHStartAgent = func(socketPath string) (string, error) {
+		startCalls++
+		return "4242", nil
+	}
+	var loadCalls int
+	gitSSHLoadKey = func(socketPath, keyPath string) error {
+		loadCalls++
+		return nil
+	}
+	gitSSHStatusWriter = io.Discard
+
+	service, err := startGitSSHBootstrapService(sessionGitSSHConfig{
+		Keys: []sessionGitSSHKey{{
+			Name:           "github",
+			PrivateKeyPath: "/keys/id_ed25519",
+			KnownHostsPath: knownHostsPath,
+			AllowedHosts:   []string{"github.com"},
+		}},
+	}, runtimeDir)
+	if err != nil {
+		t.Fatalf("startGitSSHBootstrapService: %v", err)
+	}
+	t.Cleanup(service.Close)
+
+	first, err := requestGitSSHBootstrap(service.socketPath, "github")
+	if err != nil {
+		t.Fatalf("first requestGitSSHBootstrap: %v", err)
+	}
+	second, err := requestGitSSHBootstrap(service.socketPath, "github")
+	if err != nil {
+		t.Fatalf("second requestGitSSHBootstrap: %v", err)
+	}
+
+	wantSocket := filepath.Join(runtimeDir, "agent-github.sock")
+	wantKnownHosts := filepath.Join(runtimeDir, "known_hosts-github")
+	if first.SocketPath != wantSocket || first.KnownHostsPath != wantKnownHosts {
+		t.Fatalf("first bootstrap = %+v, want socket %q and known_hosts %q", first, wantSocket, wantKnownHosts)
+	}
+	if second != first {
+		t.Fatalf("cached bootstrap = %+v, want %+v", second, first)
+	}
+	if startCalls != 1 {
+		t.Fatalf("gitSSHStartAgent calls = %d, want 1", startCalls)
+	}
+	if loadCalls != 1 {
+		t.Fatalf("gitSSHLoadKey calls = %d, want 1", loadCalls)
 	}
 }
 

@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -47,11 +50,6 @@ func (c *sessionGitSSHConfig) PrimaryKey() *sessionGitSSHKey {
 type preparedSessionRuntime struct {
 	EnvPairs []string
 	Cleanup  func()
-}
-
-type preparedSSHIdentityRuntime struct {
-	Cleanup func()
-	Keys    []preparedSSHIdentityKey
 }
 
 type preparedSSHIdentityKey struct {
@@ -97,6 +95,43 @@ func (k provisionedSSHKey) Usable() bool {
 var gitSSHHostPattern = regexp.MustCompile(`^[a-z0-9.-]+$`)
 var gitSSHPortPattern = regexp.MustCompile(`^[0-9]+$`)
 var sshAgentPIDPattern = regexp.MustCompile(`SSH_AGENT_PID=([0-9]+);`)
+
+const (
+	gitSSHBootstrapHelperEnv = "HAZMAT_GIT_SSH_BOOTSTRAP_HELPER"
+	gitSSHBootstrapSocketEnv = "HAZMAT_GIT_SSH_BOOTSTRAP_SOCKET"
+)
+
+var (
+	gitSSHExecutablePath             = os.Executable
+	gitSSHWriteRuntimeFile           = writeGitSSHRuntimeFile
+	gitSSHStartAgent                 = startAgentSSHAgent
+	gitSSHLoadKey                    = loadKeyIntoSSHAgent
+	gitSSHStatusWriter     io.Writer = os.Stderr
+)
+
+type gitSSHBootstrapRequest struct {
+	Key string `json:"key"`
+}
+
+type gitSSHBootstrapResponse struct {
+	SocketPath     string `json:"socket_path,omitempty"`
+	KnownHostsPath string `json:"known_hosts_path,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+type gitSSHBootstrapService struct {
+	runtimeDir string
+	socketPath string
+	listener   net.Listener
+	done       chan struct{}
+
+	mu        sync.Mutex
+	keys      map[string]sessionGitSSHKey
+	prepared  map[string]preparedSSHIdentityKey
+	teardowns []func()
+
+	closeOnce sync.Once
+}
 
 type gitSSHTestTarget struct {
 	RequestedHost         string
@@ -704,7 +739,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 			)
 		}
 		return fmt.Sprintf(
-			"Git-over-SSH enabled for this project via selected key %q (hosts: %s). Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent.",
+			"Git-over-SSH enabled for this project via selected key %q (hosts: %s). Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent on first Git-over-SSH use.",
 			key.Name,
 			strings.Join(key.AllowedHosts, ", "),
 		)
@@ -718,7 +753,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 		parts = append(parts, fmt.Sprintf("%s → %s", key.Name, hosts))
 	}
 	return fmt.Sprintf(
-		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and loads each into its own session-local ssh-agent.",
+		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and loads each into its own session-local ssh-agent on first Git-over-SSH use.",
 		strings.Join(parts, "; "),
 	)
 }
@@ -749,7 +784,7 @@ func resolveLegacyManagedGitSSH(cfg sessionConfig, raw *ProjectGitSSHConfig) (*s
 	return &sessionGitSSHConfig{
 		DisplayName: displayName,
 		SessionNote: fmt.Sprintf(
-			"Legacy host-scoped Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent for Git only.",
+			"Legacy host-scoped Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent on first Git-over-SSH use.",
 			strings.Join(allowedHosts, ", "),
 		),
 		Keys: []sessionGitSSHKey{{
@@ -1038,120 +1073,241 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 		return runtime, nil
 	}
 
-	identityRuntime, err := prepareSSHIdentityRuntime(cfg)
+	runtimeDir := filepath.Join(seatbeltProfileDir, "git-ssh", fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
+	if err := agentEnsureSharedDir(runtimeDir, 0o2770); err != nil {
+		return runtime, fmt.Errorf("prepare managed git ssh runtime dir: %w", err)
+	}
+
+	bootstrapService, err := startGitSSHBootstrapService(cfg, runtimeDir)
 	if err != nil {
+		_ = os.RemoveAll(runtimeDir)
 		return runtime, err
 	}
 
-	wrapperDir := identityRuntime.runtimeDir()
-	wrapperPath := filepath.Join(wrapperDir, "git-ssh")
-	wrapperScript := buildGitSSHWrapperScript(identityRuntime.Keys)
-	if err := asAgentWriteFile(wrapperPath, []byte(wrapperScript), 0o700); err != nil {
-		identityRuntime.Cleanup()
+	helperPath, err := gitSSHExecutablePath()
+	if err != nil {
+		bootstrapService.Close()
+		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("resolve hazmat binary for managed git ssh: %w", err)
+	}
+
+	wrapperPath := filepath.Join(runtimeDir, "git-ssh")
+	wrapperScript := buildGitSSHWrapperScript(cfg.Keys)
+	if err := gitSSHWriteRuntimeFile(wrapperPath, []byte(wrapperScript), 0o750); err != nil {
+		bootstrapService.Close()
 		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("write managed git ssh wrapper: %w", err)
 	}
 
-	runtime.Cleanup = identityRuntime.Cleanup
+	runtime.Cleanup = bootstrapService.Close
 	runtime.EnvPairs = []string{
 		"GIT_SSH_COMMAND=" + wrapperPath,
 		"GIT_SSH_VARIANT=ssh",
+		gitSSHBootstrapHelperEnv + "=" + helperPath,
+		gitSSHBootstrapSocketEnv + "=" + bootstrapService.socketPath,
 	}
 	return runtime, nil
 }
 
-// runtimeDir recovers the runtime directory containing all per-key sockets
-// and known_hosts files. Every preparedSSHIdentityKey lives under the same
-// directory by construction, so we return the parent of the first socket.
-func (r preparedSSHIdentityRuntime) runtimeDir() string {
-	if len(r.Keys) == 0 {
-		return ""
-	}
-	return filepath.Dir(r.Keys[0].SocketPath)
-}
-
-func prepareSSHIdentityRuntime(cfg sessionGitSSHConfig) (preparedSSHIdentityRuntime, error) {
-	runtime := preparedSSHIdentityRuntime{
-		Cleanup: func() {},
-	}
-
-	runtimeDir := filepath.Join(seatbeltProfileDir, "git-ssh", fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
-	if err := asAgentMkdirAll(runtimeDir, 0o700); err != nil {
-		return runtime, fmt.Errorf("prepare managed git ssh runtime dir: %w", err)
-	}
-	runtime.Cleanup = func() {
-		_ = asAgentQuiet("rm", "-rf", runtimeDir)
-	}
-
-	agentTeardowns := make([]func(), 0, len(cfg.Keys))
-	appendTeardown := func(fn func()) {
-		agentTeardowns = append(agentTeardowns, fn)
-	}
-	rollback := func() {
-		for i := len(agentTeardowns) - 1; i >= 0; i-- {
-			agentTeardowns[i]()
-		}
-		_ = asAgentQuiet("rm", "-rf", runtimeDir)
-	}
-
-	// Derive socket paths from validated key names, then assert pairwise
-	// distinctness at session time. Names are already unique at config-set
-	// time (ValidateProjectSSHConfig), so this is a defensive check for the
-	// TLA invariant SocketsDistinctForPresent.
-	seenSocket := make(map[string]string, len(cfg.Keys))
-	preparedKeys := make([]preparedSSHIdentityKey, 0, len(cfg.Keys))
-
+func startGitSSHBootstrapService(cfg sessionGitSSHConfig, runtimeDir string) (*gitSSHBootstrapService, error) {
+	keys := make(map[string]sessionGitSSHKey, len(cfg.Keys))
 	for _, key := range cfg.Keys {
-		socketPath := filepath.Join(runtimeDir, "agent-"+key.Name+".sock")
-		if prior, dup := seenSocket[socketPath]; dup {
-			rollback()
-			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh keys %q and %q resolve to the same session socket %q", prior, key.Name, socketPath)
+		if _, dup := keys[key.Name]; dup {
+			return nil, fmt.Errorf("duplicate SSH key name %q in managed Git SSH runtime", key.Name)
 		}
-		seenSocket[socketPath] = key.Name
-
-		pid, err := startAgentSSHAgent(socketPath)
-		if err != nil {
-			rollback()
-			return preparedSSHIdentityRuntime{Cleanup: func() {}}, err
-		}
-		killSocket := socketPath
-		killPID := pid
-		appendTeardown(func() {
-			cmd := newAgentCommand("env",
-				"SSH_AGENT_PID="+killPID,
-				"SSH_AUTH_SOCK="+killSocket,
-				"/usr/bin/ssh-agent", "-k")
-			cmd.Stdout = io.Discard
-			cmd.Stderr = io.Discard
-			_ = cmd.Run()
-		})
-
-		if err := loadKeyIntoSSHAgent(socketPath, key.PrivateKeyPath); err != nil {
-			rollback()
-			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: %w", key.Name, err)
-		}
-
-		knownHostsData, err := os.ReadFile(key.KnownHostsPath)
-		if err != nil {
-			rollback()
-			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: read known_hosts: %w", key.Name, err)
-		}
-		runtimeKnownHostsPath := filepath.Join(runtimeDir, "known_hosts-"+key.Name)
-		if err := asAgentWriteFile(runtimeKnownHostsPath, knownHostsData, 0o600); err != nil {
-			rollback()
-			return preparedSSHIdentityRuntime{Cleanup: func() {}}, fmt.Errorf("ssh key %q: write known_hosts: %w", key.Name, err)
-		}
-
-		preparedKeys = append(preparedKeys, preparedSSHIdentityKey{
-			Name:           key.Name,
-			SocketPath:     socketPath,
-			KnownHostsPath: runtimeKnownHostsPath,
-			AllowedHosts:   append([]string(nil), key.AllowedHosts...),
-		})
+		keys[key.Name] = key
 	}
 
-	runtime.Cleanup = rollback
-	runtime.Keys = preparedKeys
-	return runtime, nil
+	socketPath := filepath.Join(runtimeDir, "bootstrap.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("start managed git ssh bootstrap listener: %w", err)
+	}
+	if err := os.Chmod(socketPath, 0o660); err != nil {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
+		return nil, fmt.Errorf("set managed git ssh bootstrap socket mode: %w", err)
+	}
+
+	service := &gitSSHBootstrapService{
+		runtimeDir: runtimeDir,
+		socketPath: socketPath,
+		listener:   listener,
+		done:       make(chan struct{}),
+		keys:       keys,
+		prepared:   make(map[string]preparedSSHIdentityKey, len(cfg.Keys)),
+	}
+	go service.serve()
+	return service, nil
+}
+
+func (s *gitSSHBootstrapService) Close() {
+	if s == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		if s.listener != nil {
+			_ = s.listener.Close()
+		}
+		if s.done != nil {
+			<-s.done
+		}
+
+		s.mu.Lock()
+		teardowns := append([]func(){}, s.teardowns...)
+		s.teardowns = nil
+		s.mu.Unlock()
+
+		for i := len(teardowns) - 1; i >= 0; i-- {
+			teardowns[i]()
+		}
+		_ = os.RemoveAll(s.runtimeDir)
+	})
+}
+
+func (s *gitSSHBootstrapService) serve() {
+	defer close(s.done)
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			return
+		}
+		s.handleConn(conn)
+	}
+}
+
+func (s *gitSSHBootstrapService) handleConn(conn net.Conn) {
+	defer conn.Close()
+
+	var req gitSSHBootstrapRequest
+	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+		_ = json.NewEncoder(conn).Encode(gitSSHBootstrapResponse{
+			Error: fmt.Sprintf("decode managed git ssh bootstrap request: %v", err),
+		})
+		return
+	}
+
+	resp, err := s.bootstrap(req.Key)
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	_ = json.NewEncoder(conn).Encode(resp)
+}
+
+func (s *gitSSHBootstrapService) bootstrap(keyName string) (gitSSHBootstrapResponse, error) {
+	start := time.Now()
+	prepared, bootstrapped, err := s.prepareKey(keyName)
+	if err != nil {
+		return gitSSHBootstrapResponse{}, err
+	}
+	if bootstrapped && gitSSHStatusWriter != nil {
+		fmt.Fprintf(gitSSHStatusWriter, "hazmat git-ssh: key %q ready (%.1fs)\n", keyName, time.Since(start).Seconds())
+	}
+	return gitSSHBootstrapResponse{
+		SocketPath:     prepared.SocketPath,
+		KnownHostsPath: prepared.KnownHostsPath,
+	}, nil
+}
+
+func (s *gitSSHBootstrapService) prepareKey(keyName string) (preparedSSHIdentityKey, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if prepared, ok := s.prepared[keyName]; ok {
+		return prepared, false, nil
+	}
+
+	key, ok := s.keys[keyName]
+	if !ok {
+		return preparedSSHIdentityKey{}, false, fmt.Errorf("managed git ssh key %q is not configured for this project", keyName)
+	}
+	if gitSSHStatusWriter != nil {
+		fmt.Fprintf(gitSSHStatusWriter, "hazmat git-ssh: preparing SSH key %q for this session\n", keyName)
+	}
+
+	prepared, teardown, err := prepareSSHIdentityKeyRuntime(s.runtimeDir, key)
+	if err != nil {
+		return preparedSSHIdentityKey{}, false, err
+	}
+	s.prepared[keyName] = prepared
+	s.teardowns = append(s.teardowns, teardown)
+	return prepared, true, nil
+}
+
+func prepareSSHIdentityKeyRuntime(runtimeDir string, key sessionGitSSHKey) (preparedSSHIdentityKey, func(), error) {
+	socketPath := filepath.Join(runtimeDir, "agent-"+key.Name+".sock")
+	pid, err := gitSSHStartAgent(socketPath)
+	if err != nil {
+		return preparedSSHIdentityKey{}, func() {}, err
+	}
+
+	teardown := func() {
+		cmd := newAgentCommand("env",
+			"SSH_AGENT_PID="+pid,
+			"SSH_AUTH_SOCK="+socketPath,
+			"/usr/bin/ssh-agent", "-k")
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+		_ = cmd.Run()
+	}
+
+	if err := gitSSHLoadKey(socketPath, key.PrivateKeyPath); err != nil {
+		teardown()
+		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: %w", key.Name, err)
+	}
+
+	knownHostsData, err := os.ReadFile(key.KnownHostsPath)
+	if err != nil {
+		teardown()
+		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: read known_hosts: %w", key.Name, err)
+	}
+	runtimeKnownHostsPath := filepath.Join(runtimeDir, "known_hosts-"+key.Name)
+	if err := gitSSHWriteRuntimeFile(runtimeKnownHostsPath, knownHostsData, 0o640); err != nil {
+		teardown()
+		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: write known_hosts: %w", key.Name, err)
+	}
+
+	return preparedSSHIdentityKey{
+		Name:           key.Name,
+		SocketPath:     socketPath,
+		KnownHostsPath: runtimeKnownHostsPath,
+		AllowedHosts:   append([]string(nil), key.AllowedHosts...),
+	}, teardown, nil
+}
+
+func requestGitSSHBootstrap(socketPath, keyName string) (gitSSHBootstrapResponse, error) {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return gitSSHBootstrapResponse{}, fmt.Errorf("connect managed git ssh bootstrap service: %w", err)
+	}
+	defer conn.Close()
+
+	if err := json.NewEncoder(conn).Encode(gitSSHBootstrapRequest{Key: keyName}); err != nil {
+		return gitSSHBootstrapResponse{}, fmt.Errorf("request managed git ssh bootstrap: %w", err)
+	}
+
+	var resp gitSSHBootstrapResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return gitSSHBootstrapResponse{}, fmt.Errorf("read managed git ssh bootstrap response: %w", err)
+	}
+	if strings.TrimSpace(resp.Error) != "" {
+		return resp, errors.New(resp.Error)
+	}
+	if strings.TrimSpace(resp.SocketPath) == "" || strings.TrimSpace(resp.KnownHostsPath) == "" {
+		return resp, fmt.Errorf("managed git ssh bootstrap returned incomplete runtime for key %q", keyName)
+	}
+	return resp, nil
+}
+
+func writeGitSSHRuntimeFile(path string, content []byte, mode os.FileMode) error {
+	if err := os.WriteFile(path, content, mode); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return err
+	}
+	return nil
 }
 
 func startAgentSSHAgent(socketPath string) (string, error) {
@@ -1324,26 +1480,19 @@ func interpretGitSSHProbeResult(host, output string, err error) error {
 	return fmt.Errorf("SSH test failed for git@%s: %s", host, strings.TrimSpace(output))
 }
 
-func asAgentMkdirAll(path string, mode os.FileMode) error {
-	return agentEnsureDir(path, mode)
-}
-
-func asAgentWriteFile(path string, content []byte, mode os.FileMode) error {
-	return agentWriteFile(path, content, mode)
-}
-
 // buildGitSSHWrapperScript renders the shell wrapper that routes a Git-over-SSH
-// invocation to exactly one prepared key's identity-agent socket.
+// invocation to exactly one configured key and lazily requests the session-local
+// ssh-agent socket/known_hosts pair when Git first needs SSH.
 //
 // The routing contract matches tla/MC_GitSSHRouting.tla:
 //   - The destination host must match exactly one key's AllowedHosts patterns
 //     (shell glob semantics via `case`); anything else is rejected.
-//   - Prepared keys with no effective AllowedHosts are omitted from the case
+//   - Keys with no effective AllowedHosts are omitted from the case
 //     arms and therefore match no destination host.
 //
 // The wrapper passes only protocol handshake options to ssh and rejects
 // interactive shells or unknown remote commands.
-func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
+func buildGitSSHWrapperScript(keys []sessionGitSSHKey) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString("set -eu\n\n")
@@ -1391,6 +1540,7 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 	b.WriteString("case \"$normalized_host\" in\n")
 	b.WriteString("  *@*) normalized_host=${normalized_host#*@} ;;\n")
 	b.WriteString("esac\n")
+	b.WriteString("key=\"\"\n")
 	b.WriteString("sock=\"\"\n")
 	b.WriteString("kh=\"\"\n")
 	b.WriteString("case \"$normalized_host\" in\n")
@@ -1398,13 +1548,20 @@ func buildGitSSHWrapperScript(keys []preparedSSHIdentityKey) string {
 		if len(key.AllowedHosts) == 0 {
 			continue
 		}
-		sock := shellQuote([]string{key.SocketPath})[0]
-		kh := shellQuote([]string{key.KnownHostsPath})[0]
+		name := shellQuote([]string{key.Name})[0]
 		patterns := strings.Join(key.AllowedHosts, "|")
-		fmt.Fprintf(&b, "  %s) sock=%s; kh=%s ;;\n", patterns, sock, kh)
+		fmt.Fprintf(&b, "  %s) key=%s ;;\n", patterns, name)
 	}
 	b.WriteString("  *) reject \"destination host not allowed: $normalized_host\" ;;\n")
 	b.WriteString("esac\n")
+	fmt.Fprintf(&b, "helper=${%s:-}\n", gitSSHBootstrapHelperEnv)
+	fmt.Fprintf(&b, "control=${%s:-}\n", gitSSHBootstrapSocketEnv)
+	b.WriteString("[ -n \"$helper\" ] || reject \"missing managed git ssh helper\"\n")
+	b.WriteString("[ -n \"$control\" ] || reject \"missing managed git ssh bootstrap socket\"\n")
+	b.WriteString("bootstrap_output=$(\"$helper\" _git_ssh_bootstrap \"$control\" \"$key\") || reject \"failed to prepare SSH key $key\"\n")
+	b.WriteString("eval \"$bootstrap_output\"\n")
+	b.WriteString("[ -n \"${sock:-}\" ] || reject \"missing ssh-agent socket for $key\"\n")
+	b.WriteString("[ -n \"${kh:-}\" ] || reject \"missing known_hosts path for $key\"\n")
 
 	b.WriteString("[ \"$#\" -gt 0 ] || reject \"interactive ssh is not allowed for this profile\"\n")
 	b.WriteString("case \"$1\" in\n")

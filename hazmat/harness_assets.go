@@ -58,6 +58,7 @@ type harnessAssetDesiredEntry struct {
 	DestPath    string
 	Kind        string
 	Fingerprint string
+	SourceState harnessAssetPathSnapshot
 }
 
 type harnessAssetSyncResult struct {
@@ -69,11 +70,29 @@ type harnessAssetSyncResult struct {
 	Warnings  []string
 }
 
+type harnessAssetSyncPreview struct {
+	Desired  map[string]harnessAssetDesiredEntry
+	Result   harnessAssetSyncResult
+	Warnings []string
+}
+
+type harnessAssetPathSnapshot struct {
+	Entries map[string]harnessAssetPathSnapshotEntry
+}
+
+type harnessAssetPathSnapshotEntry struct {
+	Kind            string
+	Mode            uint32
+	Size            int64
+	ModTimeUnixNano int64
+}
+
 var (
-	harnessAssetsFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/harness-assets.json")
-	harnessAssetAgentHome = agentHome
-	harnessAssetsNow      = func() time.Time { return time.Now().UTC() }
-	harnessAssetSpecs     = map[HarnessID][]harnessAssetSpec{
+	harnessAssetsFilePath              = filepath.Join(os.Getenv("HOME"), ".hazmat/harness-assets.json")
+	harnessAssetAgentHome              = agentHome
+	harnessAssetsNow                   = func() time.Time { return time.Now().UTC() }
+	collectDesiredHarnessAssetsForSync = collectDesiredHarnessAssets
+	harnessAssetSpecs                  = map[HarnessID][]harnessAssetSpec{
 		HarnessClaude: {
 			{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: "~/.claude/CLAUDE.md", AgentPath: agentHome + "/.claude/CLAUDE.md"},
 			{Harness: HarnessClaude, Key: "commands", Kind: harnessAssetDirRoot, HostPath: "~/.claude/commands", AgentPath: agentHome + "/.claude/commands"},
@@ -159,7 +178,7 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 	if err != nil {
 		return sessionMutationPlan{}, err
 	}
-	if !preview.hasWork() {
+	if !preview.Result.hasWork() {
 		return sessionMutationPlan{}, nil
 	}
 
@@ -173,12 +192,12 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 	plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 		Metadata: sessionMutation{
 			Summary:     fmt.Sprintf("%s asset sync", displayName),
-			Detail:      fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, harnessAssetAgentHome, preview.changeSummary()),
+			Detail:      fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, harnessAssetAgentHome, preview.Result.changeSummary()),
 			Persistence: "persistent in agent home",
 			ProofScope:  sessionMutationProofScopeTestsDocs,
 		},
 		Apply: func() (sessionMutationExecution, error) {
-			result, err := syncHarnessAssets(harnessID)
+			result, err := syncHarnessAssetsWithPreview(harnessID, preview)
 			if err != nil {
 				return sessionMutationExecution{}, err
 			}
@@ -196,24 +215,32 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 	return plan, nil
 }
 
-func previewHarnessAssetSync(harnessID HarnessID) (harnessAssetSyncResult, error) {
+func previewHarnessAssetSync(harnessID HarnessID) (harnessAssetSyncPreview, error) {
 	state, err := loadHarnessAssetsState()
 	if err != nil {
-		return harnessAssetSyncResult{}, err
+		return harnessAssetSyncPreview{}, err
 	}
-	desired, warnings, err := collectDesiredHarnessAssets(harnessID)
+	desired, warnings, err := collectDesiredHarnessAssetsForSync(harnessID)
 	if err != nil {
-		return harnessAssetSyncResult{}, err
+		return harnessAssetSyncPreview{}, err
 	}
 	result, err := diffHarnessAssetState(state.harnessEntries(harnessID), desired)
 	if err != nil {
-		return harnessAssetSyncResult{}, err
+		return harnessAssetSyncPreview{}, err
 	}
 	result.Warnings = append(result.Warnings, warnings...)
-	return result, nil
+	return harnessAssetSyncPreview{
+		Desired:  desired,
+		Result:   result,
+		Warnings: append([]string(nil), warnings...),
+	}, nil
 }
 
 func syncHarnessAssets(harnessID HarnessID) (harnessAssetSyncResult, error) {
+	return syncHarnessAssetsWithPreview(harnessID, harnessAssetSyncPreview{})
+}
+
+func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncPreview) (harnessAssetSyncResult, error) {
 	var result harnessAssetSyncResult
 
 	if err := withHarnessAssetLock(func() error {
@@ -222,9 +249,13 @@ func syncHarnessAssets(harnessID HarnessID) (harnessAssetSyncResult, error) {
 			return err
 		}
 
-		desired, warnings, err := collectDesiredHarnessAssets(harnessID)
-		if err != nil {
-			return err
+		desired := preview.Desired
+		warnings := append([]string(nil), preview.Warnings...)
+		if desired == nil || !harnessAssetPreviewIsFresh(desired) {
+			desired, warnings, err = collectDesiredHarnessAssetsForSync(harnessID)
+			if err != nil {
+				return err
+			}
 		}
 		result.Warnings = append(result.Warnings, warnings...)
 
@@ -427,7 +458,7 @@ func collectDesiredHarnessAssetFile(spec harnessAssetSpec) (harnessAssetDesiredE
 		return harnessAssetDesiredEntry{}, "", false, err
 	}
 
-	kind, fingerprint, err := fingerprintHarnessAssetPath(resolved)
+	kind, fingerprint, sourceState, err := fingerprintHarnessAssetPathWithSnapshot(resolved)
 	if err != nil {
 		return harnessAssetDesiredEntry{}, fmt.Sprintf("skipped %s: %v", expandTilde(spec.HostPath), err), false, nil
 	}
@@ -437,6 +468,7 @@ func collectDesiredHarnessAssetFile(spec harnessAssetSpec) (harnessAssetDesiredE
 		DestPath:    spec.AgentPath,
 		Kind:        kind,
 		Fingerprint: fingerprint,
+		SourceState: sourceState,
 	}, warning, true, nil
 }
 
@@ -497,7 +529,7 @@ func collectDesiredHarnessAssetDir(spec harnessAssetSpec) ([]harnessAssetDesired
 			return nil, nil, err
 		}
 
-		kind, fingerprint, err := fingerprintHarnessAssetPath(resolved)
+		kind, fingerprint, sourceState, err := fingerprintHarnessAssetPathWithSnapshot(resolved)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped %s: %v", expandTilde(sourcePath), err))
 			continue
@@ -509,6 +541,7 @@ func collectDesiredHarnessAssetDir(spec harnessAssetSpec) ([]harnessAssetDesired
 			DestPath:    destPath,
 			Kind:        kind,
 			Fingerprint: fingerprint,
+			SourceState: sourceState,
 		})
 		if warning != "" {
 			warnings = append(warnings, warning)
@@ -580,43 +613,65 @@ func harnessAssetDestMatches(destPath string, entry harnessAssetDesiredEntry) (b
 }
 
 func fingerprintHarnessAssetPath(path string) (string, string, error) {
+	kind, fingerprint, _, err := fingerprintHarnessAssetPathWithSnapshot(path)
+	return kind, fingerprint, err
+}
+
+func fingerprintHarnessAssetPathWithSnapshot(path string) (string, string, harnessAssetPathSnapshot, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "", "", err
+		return "", "", harnessAssetPathSnapshot{}, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return "", "", fmt.Errorf("top-level symlinks are not supported at %s", path)
+		return "", "", harnessAssetPathSnapshot{}, fmt.Errorf("top-level symlinks are not supported at %s", path)
 	}
 	if info.Mode().IsRegular() {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return "", "", err
+			return "", "", harnessAssetPathSnapshot{}, err
 		}
 		sum := sha256.Sum256(raw)
-		return harnessAssetEntryFile, "sha256:" + hex.EncodeToString(sum[:]), nil
+		snapshot := harnessAssetPathSnapshot{
+			Entries: map[string]harnessAssetPathSnapshotEntry{
+				".": harnessAssetSnapshotEntryForInfo(info, harnessAssetEntryFile),
+			},
+		}
+		return harnessAssetEntryFile, "sha256:" + hex.EncodeToString(sum[:]), snapshot, nil
 	}
 	if !info.IsDir() {
-		return "", "", fmt.Errorf("unsupported source type %s", info.Mode().String())
+		return "", "", harnessAssetPathSnapshot{}, fmt.Errorf("unsupported source type %s", info.Mode().String())
 	}
 
-	sum, err := fingerprintHarnessAssetDir(path)
+	sum, snapshot, err := fingerprintHarnessAssetDir(path)
 	if err != nil {
-		return "", "", err
+		return "", "", harnessAssetPathSnapshot{}, err
 	}
-	return harnessAssetEntryDir, "sha256:" + hex.EncodeToString(sum[:]), nil
+	return harnessAssetEntryDir, "sha256:" + hex.EncodeToString(sum[:]), snapshot, nil
 }
 
-func fingerprintHarnessAssetDir(path string) ([32]byte, error) {
+func fingerprintHarnessAssetDir(path string) ([32]byte, harnessAssetPathSnapshot, error) {
 	hasher := sha256.New()
-	if err := hashHarnessAssetDirInto(hasher, path, "."); err != nil {
-		return [32]byte{}, err
+	snapshot := harnessAssetPathSnapshot{Entries: make(map[string]harnessAssetPathSnapshotEntry)}
+	if err := hashHarnessAssetDirInto(hasher, snapshot.Entries, path, "."); err != nil {
+		return [32]byte{}, harnessAssetPathSnapshot{}, err
 	}
 	var sum [32]byte
 	copy(sum[:], hasher.Sum(nil))
-	return sum, nil
+	return sum, snapshot, nil
 }
 
-func hashHarnessAssetDirInto(hasher hash.Hash, path, rel string) error {
+func hashHarnessAssetDirInto(hasher hash.Hash, snapshot map[string]harnessAssetPathSnapshotEntry, path, rel string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("nested symlink %s is not supported", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	snapshot[rel] = harnessAssetSnapshotEntryForInfo(info, harnessAssetEntryDir)
 	if _, err := hasher.Write([]byte("dir\x00" + rel + "\x00")); err != nil {
 		return err
 	}
@@ -638,6 +693,7 @@ func hashHarnessAssetDirInto(hasher hash.Hash, path, rel string) error {
 
 		childRel := filepath.Join(rel, name)
 		if info.Mode().IsRegular() {
+			snapshot[childRel] = harnessAssetSnapshotEntryForInfo(info, harnessAssetEntryFile)
 			raw, err := os.ReadFile(child)
 			if err != nil {
 				return err
@@ -651,12 +707,116 @@ func hashHarnessAssetDirInto(hasher hash.Hash, path, rel string) error {
 			continue
 		}
 		if info.IsDir() {
-			if err := hashHarnessAssetDirInto(hasher, child, childRel); err != nil {
+			if err := hashHarnessAssetDirInto(hasher, snapshot, child, childRel); err != nil {
 				return err
 			}
 			continue
 		}
 		return fmt.Errorf("unsupported nested source type %s at %s", info.Mode().String(), child)
+	}
+	return nil
+}
+
+func harnessAssetSnapshotEntryForInfo(info os.FileInfo, kind string) harnessAssetPathSnapshotEntry {
+	return harnessAssetPathSnapshotEntry{
+		Kind:            kind,
+		Mode:            uint32(info.Mode()),
+		Size:            info.Size(),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+	}
+}
+
+func harnessAssetPreviewIsFresh(desired map[string]harnessAssetDesiredEntry) bool {
+	for _, entry := range desired {
+		if !harnessAssetPathSnapshotMatches(entry.SourcePath, entry.SourceState) {
+			return false
+		}
+	}
+	return true
+}
+
+func harnessAssetPathSnapshotMatches(path string, snapshot harnessAssetPathSnapshot) bool {
+	if len(snapshot.Entries) == 0 {
+		return false
+	}
+	current, err := snapshotHarnessAssetPath(path)
+	if err != nil {
+		return false
+	}
+	if len(current.Entries) != len(snapshot.Entries) {
+		return false
+	}
+	for rel, expected := range snapshot.Entries {
+		actual, ok := current.Entries[rel]
+		if !ok || actual != expected {
+			return false
+		}
+	}
+	return true
+}
+
+func snapshotHarnessAssetPath(path string) (harnessAssetPathSnapshot, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return harnessAssetPathSnapshot{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return harnessAssetPathSnapshot{}, fmt.Errorf("top-level symlinks are not supported at %s", path)
+	}
+
+	snapshot := harnessAssetPathSnapshot{Entries: make(map[string]harnessAssetPathSnapshotEntry)}
+	if info.Mode().IsRegular() {
+		snapshot.Entries["."] = harnessAssetSnapshotEntryForInfo(info, harnessAssetEntryFile)
+		return snapshot, nil
+	}
+	if !info.IsDir() {
+		return harnessAssetPathSnapshot{}, fmt.Errorf("unsupported source type %s", info.Mode().String())
+	}
+	if err := snapshotHarnessAssetDirInto(snapshot.Entries, path, "."); err != nil {
+		return harnessAssetPathSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func snapshotHarnessAssetDirInto(snapshot map[string]harnessAssetPathSnapshotEntry, path, rel string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("nested symlink %s is not supported", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	snapshot[rel] = harnessAssetSnapshotEntryForInfo(info, harnessAssetEntryDir)
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		childInfo, err := os.Lstat(child)
+		if err != nil {
+			return err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("nested symlink %s is not supported", child)
+		}
+
+		childRel := filepath.Join(rel, entry.Name())
+		if childInfo.Mode().IsRegular() {
+			snapshot[childRel] = harnessAssetSnapshotEntryForInfo(childInfo, harnessAssetEntryFile)
+			continue
+		}
+		if childInfo.IsDir() {
+			if err := snapshotHarnessAssetDirInto(snapshot, child, childRel); err != nil {
+				return err
+			}
+			continue
+		}
+		return fmt.Errorf("unsupported nested source type %s at %s", childInfo.Mode().String(), child)
 	}
 	return nil
 }

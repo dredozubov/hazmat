@@ -181,6 +181,107 @@ func TestSyncHarnessAssetsCreatesUpdatesAndDeletesManagedEntries(t *testing.T) {
 	}
 }
 
+func TestSyncHarnessAssetsWithPreviewReusesDesiredStateWhenSourcesUnchanged(t *testing.T) {
+	env := isolateHarnessAssets(t)
+
+	hostFile := filepath.Join(env.hostHome, ".claude", "CLAUDE.md")
+	destFile := filepath.Join(env.agentHome, ".claude", "CLAUDE.md")
+	harnessAssetSpecs[HarnessClaude] = []harnessAssetSpec{
+		{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: hostFile, AgentPath: destFile},
+	}
+	writeHarnessAssetTestFile(t, hostFile, "preview content\n")
+
+	realCollect := collectDesiredHarnessAssets
+	oldCollect := collectDesiredHarnessAssetsForSync
+	var collectCalls int
+	collectDesiredHarnessAssetsForSync = func(harnessID HarnessID) (map[string]harnessAssetDesiredEntry, []string, error) {
+		collectCalls++
+		return realCollect(harnessID)
+	}
+	t.Cleanup(func() {
+		collectDesiredHarnessAssetsForSync = oldCollect
+	})
+
+	preview, err := previewHarnessAssetSync(HarnessClaude)
+	if err != nil {
+		t.Fatalf("previewHarnessAssetSync: %v", err)
+	}
+	if collectCalls != 1 {
+		t.Fatalf("collectDesiredHarnessAssetsForSync calls after preview = %d, want 1", collectCalls)
+	}
+
+	result, err := syncHarnessAssetsWithPreview(HarnessClaude, preview)
+	if err != nil {
+		t.Fatalf("syncHarnessAssetsWithPreview: %v", err)
+	}
+	if collectCalls != 1 {
+		t.Fatalf("collectDesiredHarnessAssetsForSync calls after apply = %d, want preview reuse", collectCalls)
+	}
+	if result.Added != 1 || result.Updated != 0 {
+		t.Fatalf("result = %+v, want 1 added", result)
+	}
+
+	raw, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("read dest file: %v", err)
+	}
+	if string(raw) != "preview content\n" {
+		t.Fatalf("dest content = %q", string(raw))
+	}
+}
+
+func TestSyncHarnessAssetsWithPreviewFallsBackWhenSourcesChange(t *testing.T) {
+	env := isolateHarnessAssets(t)
+
+	hostFile := filepath.Join(env.hostHome, ".claude", "CLAUDE.md")
+	destFile := filepath.Join(env.agentHome, ".claude", "CLAUDE.md")
+	harnessAssetSpecs[HarnessClaude] = []harnessAssetSpec{
+		{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: hostFile, AgentPath: destFile},
+	}
+	writeHarnessAssetTestFile(t, hostFile, "initial preview\n")
+
+	realCollect := collectDesiredHarnessAssets
+	oldCollect := collectDesiredHarnessAssetsForSync
+	var collectCalls int
+	collectDesiredHarnessAssetsForSync = func(harnessID HarnessID) (map[string]harnessAssetDesiredEntry, []string, error) {
+		collectCalls++
+		return realCollect(harnessID)
+	}
+	t.Cleanup(func() {
+		collectDesiredHarnessAssetsForSync = oldCollect
+	})
+
+	preview, err := previewHarnessAssetSync(HarnessClaude)
+	if err != nil {
+		t.Fatalf("previewHarnessAssetSync: %v", err)
+	}
+	if collectCalls != 1 {
+		t.Fatalf("collectDesiredHarnessAssetsForSync calls after preview = %d, want 1", collectCalls)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	writeHarnessAssetTestFile(t, hostFile, "updated before apply\n")
+
+	result, err := syncHarnessAssetsWithPreview(HarnessClaude, preview)
+	if err != nil {
+		t.Fatalf("syncHarnessAssetsWithPreview: %v", err)
+	}
+	if collectCalls != 2 {
+		t.Fatalf("collectDesiredHarnessAssetsForSync calls after changed source = %d, want 2", collectCalls)
+	}
+	if result.Added != 1 || result.Updated != 0 {
+		t.Fatalf("result = %+v, want 1 added after fallback recompute", result)
+	}
+
+	raw, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("read dest file: %v", err)
+	}
+	if string(raw) != "updated before apply\n" {
+		t.Fatalf("dest content = %q", string(raw))
+	}
+}
+
 func TestSyncHarnessAssetsAdoptsEqualUnmanagedEntry(t *testing.T) {
 	env := isolateHarnessAssets(t)
 

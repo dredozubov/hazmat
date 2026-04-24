@@ -140,7 +140,7 @@ func main() {
 		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
-		newConnectCmd(), newStackCheckCmd(), newCompletionCmd(root),
+		newConnectCmd(), newGitSSHBootstrapCmd(), newStackCheckCmd(), newCompletionCmd(root),
 		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
@@ -170,6 +170,23 @@ func newConnectCmd() *cobra.Command {
 				os.Exit(1)
 			}
 			conn.Close() //nolint:errcheck // diagnostic probe; process exits immediately
+		},
+	}
+}
+
+func newGitSSHBootstrapCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "_git_ssh_bootstrap <socket> <key>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			resp, err := requestGitSSHBootstrap(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			quoted := shellQuote([]string{resp.SocketPath, resp.KnownHostsPath})
+			fmt.Printf("sock=%s\nkh=%s\n", quoted[0], quoted[1])
+			return nil
 		},
 	}
 }
