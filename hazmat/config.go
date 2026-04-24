@@ -184,9 +184,9 @@ type CloudBackup struct {
 	Bucket      string `yaml:"bucket"`
 	AccessKey   string `yaml:"access_key"`
 	RecoveryKey string `yaml:"recovery_key,omitempty"` // Kopia repo encryption key
-	// LegacyPassword accepts the pre-rename `password:` YAML key. Migrated to
+	// LegacyRecoveryKey accepts the pre-rename `password:` YAML key. Migrated to
 	// RecoveryKey on load and dropped on next save.
-	LegacyPassword string `yaml:"password,omitempty"`
+	LegacyRecoveryKey string `yaml:"password,omitempty"`
 	// SecretKey is NOT stored here — it's in cloudCredentialPath
 }
 
@@ -652,9 +652,9 @@ func loadConfig() (HazmatConfig, error) {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
-	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.RecoveryKey == "" && cfg.Backup.Cloud.LegacyPassword != "" {
-		cfg.Backup.Cloud.RecoveryKey = cfg.Backup.Cloud.LegacyPassword
-		cfg.Backup.Cloud.LegacyPassword = ""
+	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.RecoveryKey == "" && cfg.Backup.Cloud.LegacyRecoveryKey != "" {
+		cfg.Backup.Cloud.RecoveryKey = cfg.Backup.Cloud.LegacyRecoveryKey
+		cfg.Backup.Cloud.LegacyRecoveryKey = ""
 	}
 
 	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
