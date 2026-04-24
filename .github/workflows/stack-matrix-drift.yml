@@ -9,6 +9,9 @@ concurrency:
   group: stack-matrix-drift
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   GO_VERSION_FILE: hazmat/go.mod
   GO_CACHE_DEP: hazmat/go.sum
