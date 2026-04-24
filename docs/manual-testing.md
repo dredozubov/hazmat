@@ -90,8 +90,8 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 
 - [ ] **Subscription path** (Device Code)
   - Preconditions: a ChatGPT Plus/Pro/Business/Enterprise subscription.
-  - Steps: `hazmat codex` → at the auth picker, **type `2`** (arrow keys don't navigate this picker — see `sandboxing-zqjs`) → press Enter → complete the device-code flow on host browser.
-  - Expected: `/Users/agent/.codex/auth.json` populated; `agent:* 0600`.
+  - Steps: `hazmat codex` → at the auth picker, press `↓` once to highlight **Sign in with Device Code** (or type `2`) → press Enter → complete the device-code flow on host browser.
+  - Expected: the highlight moves from option `1` to option `2`; `/Users/agent/.codex/auth.json` populated; `agent:* 0600`.
   - Verify: `hazmat codex exec "Reply with only OK and nothing else."` returns `OK` with a token-count footer.
 
 - [ ] **API key path** (env var)
@@ -250,7 +250,6 @@ Reference card for fixing common stuck states. Not a checklist — these are the
 
 - **Single-key SSH config blocking all launches**: edit `~/.hazmat/config.yaml`, convert each project entry to the multi-key shape ([docs/usage.md](usage.md) §"Reusable SSH profiles"). The error message includes the exact YAML to paste.
 
-- **Codex auth picker arrow keys not responding**: type the option number (`2` for Device Code, `3` for API key) directly. Or use `hazmat config import codex` to bypass the picker entirely. Tracked as `sandboxing-zqjs`.
 
 - **Codex chat fails with `no native root CA certificates`**: rebuild against latest master (commit `eaaaa1c` and later). Several Security framework / mach-service allowances were added.
 

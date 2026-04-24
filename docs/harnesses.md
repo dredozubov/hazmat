@@ -33,8 +33,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 - **Install (one-time):** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, installs to `/Users/agent/.local/bin/codex`. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
 - **Auth file location:** `/Users/agent/.codex/auth.json` (mode `0600`). Holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys — same file regardless of which auth mode you use.
-- **Subscription / OAuth path:** run `hazmat codex`, pick **Sign in with Device Code** in the first-run picker. You complete the code on your host browser; the token persists in `auth.json` inside the sandbox.
-  - Known issue: the auth picker doesn't accept arrow-key navigation under hazmat. Type the option number (`2` for Device Code, `3` for API key) and press Enter. Tracked as [sandboxing-zqjs](#).
+- **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token persists in `auth.json` inside the sandbox.
   - The import path bypasses this picker entirely.
 - **API key path:** `hazmat config agent` can seed `OPENAI_API_KEY` from your invoking shell into `/Users/agent/.zshrc`. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
 - **Import from host path:** `hazmat config import codex` copies `~/.codex/auth.json` (covers OAuth and API key) plus your git identity. Prompts, rules, and `AGENTS.md` mirror automatically via the harness asset sync at session launch.
