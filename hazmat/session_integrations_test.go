@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+func TestSuggestedIntegrationActionDefaultChoiceInteractiveDefaultsToAlways(t *testing.T) {
+	if got := suggestedIntegrationActionDefaultChoice(&UI{}); got != string(suggestedIntegrationActionAlways) {
+		t.Fatalf("suggestedIntegrationActionDefaultChoice(interactive) = %q, want %q", got, suggestedIntegrationActionAlways)
+	}
+}
+
+func TestSuggestedIntegrationActionDefaultChoiceYesAllDefaultsToUseNow(t *testing.T) {
+	if got := suggestedIntegrationActionDefaultChoice(&UI{YesAll: true}); got != string(suggestedIntegrationActionUseNow) {
+		t.Fatalf("suggestedIntegrationActionDefaultChoice(--yes) = %q, want %q", got, suggestedIntegrationActionUseNow)
+	}
+}
+
 func TestResolveLaunchIntegrationFlagsUseNowAddsSelectedSuggestions(t *testing.T) {
 	isolateConfig(t)
 

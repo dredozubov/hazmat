@@ -183,7 +183,7 @@ func defaultPromptSuggestedLaunchIntegrations(projectDir string, items []suggest
 				Description: "Skip these suggestions for this launch without saving a project preference.",
 			},
 		},
-		string(suggestedIntegrationActionUseNow),
+		suggestedIntegrationActionDefaultChoice(ui),
 	)
 	if err != nil {
 		return suggestedIntegrationPromptResult{}, err
@@ -193,6 +193,13 @@ func defaultPromptSuggestedLaunchIntegrations(projectDir string, items []suggest
 		Action:   suggestedIntegrationAction(action),
 		Selected: selected,
 	}, nil
+}
+
+func suggestedIntegrationActionDefaultChoice(ui *UI) string {
+	if ui != nil && ui.YesAll {
+		return string(suggestedIntegrationActionUseNow)
+	}
+	return string(suggestedIntegrationActionAlways)
 }
 
 func normalizeSuggestedSelection(available, selected []string) ([]string, error) {
