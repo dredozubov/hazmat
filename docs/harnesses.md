@@ -9,9 +9,9 @@ Use this table to choose a setup path. Every harness supports two of the three a
 | Harness | Tested | Install | Subscription / OAuth | API key (env var) | Import from host |
 |---|---|---|---|---|---|
 | **Claude Code** | 2.1.118 | `hazmat bootstrap claude` | `/login` inside `hazmat claude` | `ANTHROPIC_API_KEY` via `hazmat config agent` | `hazmat config import claude` |
-| **Codex** | 0.118.0 | `hazmat bootstrap codex` | Device Code in TUI (or import) | (in `auth.json` — use import) | `hazmat config import codex` |
+| **Codex** | 0.118.0 | `hazmat bootstrap codex` | Device Code in TUI (or import) | `OPENAI_API_KEY` via `hazmat config agent` | `hazmat config import codex` |
 | **OpenCode** | 1.14.20 | `hazmat bootstrap opencode` | per-provider OAuth via `opencode auth login` | per-provider env vars | `hazmat config import opencode` |
-| **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` (manual; see notes) | `hazmat config import gemini` |
+| **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
 
 After bootstrap + auth: `hazmat <harness>` to launch a session, or `hazmat <harness> -p "prompt"` (claude / gemini) / `hazmat <harness> exec "prompt"` (codex) / `hazmat <harness> run "prompt"` (opencode) for non-interactive use.
 
@@ -36,7 +36,7 @@ The fastest path for a new install is almost always the **import** column — it
 - **Subscription / OAuth path:** run `hazmat codex`, pick **Sign in with Device Code** in the first-run picker. You complete the code on your host browser; the token persists in `auth.json` inside the sandbox.
   - Known issue: the auth picker doesn't accept arrow-key navigation under hazmat. Type the option number (`2` for Device Code, `3` for API key) and press Enter. Tracked as [sandboxing-zqjs](#).
   - The import path bypasses this picker entirely.
-- **API key path:** there's no `OPENAI_API_KEY` env-var seed in `hazmat config agent` yet; either paste the key in the codex first-run picker (option `3`) or set it in your host environment before running `hazmat config import codex`. Tracked as [sandboxing-bcu9](#).
+- **API key path:** `hazmat config agent` can seed `OPENAI_API_KEY` from your invoking shell into `/Users/agent/.zshrc`. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
 - **Import from host path:** `hazmat config import codex` copies `~/.codex/auth.json` (covers OAuth and API key) plus your git identity. Prompts, rules, and `AGENTS.md` mirror automatically via the harness asset sync at session launch.
 - **Verify:** `hazmat codex exec "Reply with only OK"` — runs the codex non-interactive subcommand; should print `OK` and exit cleanly.
 
@@ -55,7 +55,7 @@ The fastest path for a new install is almost always the **import** column — it
 - **Install (one-time):** `hazmat bootstrap gemini`. Installs `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works).
 - **Auth file location:** `/Users/agent/.gemini/oauth_creds.json` (file fallback, mode `0600`) **or** macOS Keychain (modern default — file isn't created when Keychain is used).
 - **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; tokens persist inside the sandbox.
-- **API key path:** Gemini CLI reads `GEMINI_API_KEY` (AI Studio key) or `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` (Vertex). There's no `hazmat config agent` flow for these env vars yet — set them in `/Users/agent/.zshrc` manually for now (`echo 'export GEMINI_API_KEY=...' | sudo -u agent tee -a /Users/agent/.zshrc`). Tracked as [sandboxing-bcu9](#).
+- **API key path:** `hazmat config agent` can seed `GEMINI_API_KEY` (AI Studio key) from your invoking shell into `/Users/agent/.zshrc`. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
 - **Import from host path:** `hazmat config import gemini` copies `~/.gemini/oauth_creds.json` (when host stored creds in the file fallback rather than Keychain), `google_accounts.json`, `settings.json`, `GEMINI.md`, and your git identity. If your host stores OAuth in Keychain, `oauth_creds.json` won't exist on the host and that item is silently skipped — re-auth inside `hazmat gemini` or use the env-var path.
 - **Verify:** `hazmat gemini -p "say only OK"` — non-interactive prompt; should print `OK`.
 
@@ -68,6 +68,14 @@ Three rules of thumb:
 3. **You only have an API key (or you're scripting CI).** Use the **API key** column. Persistent, scriptable, no browser dance.
 
 Mixing is fine: you can import once and switch to API key later by setting the env var, or vice versa. Hazmat doesn't track which mode you're using.
+
+## Session modes
+
+Harness auth and harness session mode are separate decisions:
+
+- **Native containment:** available on all four harnesses (`claude`, `codex`, `opencode`, `gemini`).
+- **Docker Sandbox:** available on all four harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
+- **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
 ## Session integrations
 

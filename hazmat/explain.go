@@ -106,20 +106,9 @@ func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfi
 		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, or gemini)", target)
 	}
 
-	switch target {
-	case "claude", "shell", "exec":
-		prepared, err := resolvePreparedSession(target, opts, true)
-		if err != nil {
-			return sessionConfig{}, "", err
-		}
-		return prepared.Config, prepared.Mode, nil
-	case "opencode", "codex", "gemini":
-		prepared, err := resolvePreparedSession(target, opts, false)
-		if err != nil {
-			return sessionConfig{}, "", err
-		}
-		return prepared.Config, prepared.Mode, nil
-	default:
-		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q", target)
+	prepared, err := resolvePreparedSession(target, opts, true)
+	if err != nil {
+		return sessionConfig{}, "", err
 	}
+	return prepared.Config, prepared.Mode, nil
 }

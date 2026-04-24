@@ -1111,17 +1111,22 @@ func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 	}
 }
 
-func TestWarnDockerProjectNativeOnlyCommandMentionsFallbackCommand(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
-		t.Fatalf("create Dockerfile: %v", err)
-	}
-	err := warnDockerProject("opencode", dir, autoDockerRequest())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "hazmat claude --docker=sandbox") {
-		t.Errorf("native-only command should point to a Docker-capable session, got: %s", err)
+func TestWarnDockerProjectHarnessCommandMentionsSameHarnessCommands(t *testing.T) {
+	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+			t.Fatalf("create Dockerfile: %v", err)
+		}
+		err := warnDockerProject(commandName, dir, autoDockerRequest())
+		if err == nil {
+			t.Fatalf("expected error for %s", commandName)
+		}
+		if !strings.Contains(err.Error(), fmt.Sprintf("hazmat %s --docker=sandbox", commandName)) {
+			t.Errorf("%s should point to its Docker Sandbox command, got: %s", commandName, err)
+		}
+		if !strings.Contains(err.Error(), fmt.Sprintf("hazmat %s --docker=none", commandName)) {
+			t.Errorf("%s should keep a native fallback command, got: %s", commandName, err)
+		}
 	}
 }
 
@@ -2070,6 +2075,17 @@ func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 	}
 }
 
+func TestDockerSessionExampleUsesSameHarnessForSandboxMode(t *testing.T) {
+	projectDir := "/tmp/project"
+	for _, commandName := range []string{"claude", "opencode", "codex", "gemini"} {
+		got := dockerSessionExample(commandName, projectDir, dockerModeSandbox)
+		want := fmt.Sprintf("hazmat %s --docker=sandbox -C %s", commandName, projectDir)
+		if got != want {
+			t.Fatalf("dockerSessionExample(%q, sandbox) = %q, want %q", commandName, got, want)
+		}
+	}
+}
+
 func TestResolveExplainSessionDefaultsToNativeForDockerProject(t *testing.T) {
 	isolateConfig(t)
 	skipInitCheck(t)
@@ -2182,34 +2198,58 @@ func TestResolveExplainSessionUsesProjectDockerModeAuto(t *testing.T) {
 	}
 }
 
-func TestResolvePreparedSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	dir := t.TempDir()
-	_, err := resolvePreparedSession("opencode", harnessSessionOpts{
-		project:            dir,
-		dockerMode:         "sandbox",
-		dockerModeExplicit: true,
-	}, false)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "--docker=sandbox is not supported for hazmat opencode yet") {
-		t.Fatalf("unexpected error: %v", err)
+	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+		dir := t.TempDir()
+		prepared, err := resolvePreparedSession(commandName, harnessSessionOpts{
+			project:            dir,
+			dockerMode:         "sandbox",
+			dockerModeExplicit: true,
+		}, true)
+		if err != nil {
+			t.Fatalf("resolvePreparedSession(%s): %v", commandName, err)
+		}
+		if prepared.Mode != sessionModeDockerSandbox {
+			t.Fatalf("%s mode = %q, want Docker Sandbox", commandName, prepared.Mode)
+		}
+		if prepared.Config.RoutingReason != "using Docker Sandbox because --docker=sandbox was requested" {
+			t.Fatalf("%s RoutingReason = %q", commandName, prepared.Config.RoutingReason)
+		}
+		wantHarness, ok := harnessIDForCommand(commandName)
+		if !ok {
+			t.Fatalf("missing harness ID for %s", commandName)
+		}
+		if prepared.Config.HarnessID != wantHarness {
+			t.Fatalf("%s HarnessID = %q, want %q", commandName, prepared.Config.HarnessID, wantHarness)
+		}
 	}
 }
 
-func TestResolveExplainSessionRejectsUnsupportedSandboxTarget(t *testing.T) {
+func TestResolveExplainSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	dir := t.TempDir()
-	_, _, err := resolveExplainSession("opencode", harnessSessionOpts{
-		project:            dir,
-		dockerMode:         "sandbox",
-		dockerModeExplicit: true,
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "--docker=sandbox is not supported for hazmat opencode yet") {
-		t.Fatalf("unexpected error: %v", err)
+	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+		dir := t.TempDir()
+		cfg, mode, err := resolveExplainSession(commandName, harnessSessionOpts{
+			project:            dir,
+			dockerMode:         "sandbox",
+			dockerModeExplicit: true,
+		})
+		if err != nil {
+			t.Fatalf("resolveExplainSession(%s): %v", commandName, err)
+		}
+		if mode != sessionModeDockerSandbox {
+			t.Fatalf("%s mode = %q, want Docker Sandbox", commandName, mode)
+		}
+		if cfg.RoutingReason != "using Docker Sandbox because --docker=sandbox was requested" {
+			t.Fatalf("%s RoutingReason = %q", commandName, cfg.RoutingReason)
+		}
+		wantHarness, ok := harnessIDForCommand(commandName)
+		if !ok {
+			t.Fatalf("missing harness ID for %s", commandName)
+		}
+		if cfg.HarnessID != wantHarness {
+			t.Fatalf("%s HarnessID = %q, want %q", commandName, cfg.HarnessID, wantHarness)
+		}
 	}
 }

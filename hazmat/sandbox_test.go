@@ -763,6 +763,88 @@ func TestRunSandboxClaudeSessionAutoDetectsAndRecordsBackend(t *testing.T) {
 	}
 }
 
+func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
+	tests := []struct {
+		name        string
+		agent       string
+		run         func(sessionConfig, []string) error
+		forwarded   []string
+		expectedRun []string
+	}{
+		{
+			name:        "codex",
+			agent:       "codex",
+			run:         runSandboxCodexSession,
+			forwarded:   []string{"exec", "say only OK"},
+			expectedRun: []string{"--dangerously-bypass-approvals-and-sandbox", "exec", "say only OK"},
+		},
+		{
+			name:        "opencode",
+			agent:       "opencode",
+			run:         runSandboxOpenCodeSession,
+			forwarded:   []string{"run", "say only OK"},
+			expectedRun: []string{"run", "say only OK"},
+		},
+		{
+			name:        "gemini",
+			agent:       "gemini",
+			run:         runSandboxGeminiSession,
+			forwarded:   []string{"-p", "say only OK"},
+			expectedRun: []string{"-p", "say only OK"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			savedConfigPath := configFilePath
+			configFilePath = filepath.Join(t.TempDir(), "config.yaml")
+			defer func() { configFilePath = savedConfigPath }()
+			savedApprovalsPath := sandboxApprovalsFilePath
+			sandboxApprovalsFilePath = filepath.Join(t.TempDir(), "sandbox-approvals.yaml")
+			defer func() { sandboxApprovalsFilePath = savedApprovalsPath }()
+
+			cfg := defaultConfig()
+			cfg.Sandbox.Backend = &SandboxBackendConfig{
+				Type:           sandboxBackendDockerSandboxes,
+				PolicyProfile:  sandboxPolicyProfileBaseline,
+				DesktopVersion: "4.61.0",
+				ComposeVersion: "2.40.3",
+			}
+			if err := saveConfig(cfg); err != nil {
+				t.Fatalf("saveConfig: %v", err)
+			}
+
+			projectDir := t.TempDir()
+			sessionCfg := sessionConfig{ProjectDir: projectDir}
+			name := sandboxName(tc.agent, projectDir, nil, nil, sandboxPolicyProfileBaseline)
+			if err := recordSandboxApproval(projectDir, sandboxBackendDockerSandboxes, sandboxPolicyProfileBaseline); err != nil {
+				t.Fatalf("recordSandboxApproval: %v", err)
+			}
+
+			probe := healthySandboxProbe()
+			probe.outputs[sandboxProbeKey("docker", "version", "--format", "{{json .Server}}")] = fakeSandboxResult{
+				output: `{"Platform":{"Name":"Docker Desktop 4.61.1 (123456)"}}`,
+			}
+
+			savedProbeFactory := sandboxProbeFactory
+			sandboxProbeFactory = func() sandboxProbe { return probe }
+			defer func() { sandboxProbeFactory = savedProbeFactory }()
+
+			if err := tc.run(sessionCfg, tc.forwarded); err != nil {
+				t.Fatalf("%s sandbox run: %v", tc.name, err)
+			}
+
+			if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", "sandbox", "create", "--name", name, tc.agent, projectDir)) {
+				t.Fatalf("%s sandbox create should use matching agent; calls=%v", tc.name, probe.calls)
+			}
+			runArgs := append([]string{"sandbox", "run", name, "--"}, tc.expectedRun...)
+			if !containsSandboxCall(probe.calls, "run:"+sandboxProbeKey("docker", runArgs...)) {
+				t.Fatalf("%s sandbox run should forward %v; calls=%v", tc.name, tc.expectedRun, probe.calls)
+			}
+		})
+	}
+}
+
 func TestRunSandboxExecSessionUsesShellSandbox(t *testing.T) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(t.TempDir(), "config.yaml")

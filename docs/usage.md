@@ -260,10 +260,11 @@ hazmat claude --docker=auto         # marker-based Docker routing
 hazmat config docker auto -C ~/workspace/my-project
 ```
 
-Today Docker Sandbox sessions are surfaced through `hazmat claude`,
-`hazmat shell`, and `hazmat exec`. OpenCode and Codex stay in native
-containment; use `hazmat claude --docker=sandbox` when you need a
-Docker-capable agent session.
+Docker Sandbox sessions are available through every harness entrypoint:
+`hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
+`hazmat shell`, and `hazmat exec`. `--docker=auto` keeps the default native
+path for code-only repos and routes Docker-heavy private-daemon fits into the
+matching harness automatically.
 
 If `.devcontainer/` is the only Docker-related directory, Hazmat stays in
 native containment unless the devcontainer.json positively indicates Docker

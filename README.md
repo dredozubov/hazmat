@@ -112,7 +112,7 @@ Hazmat is useful because the boundaries are concrete. That also means the limita
 - **The DNS blocklist is exact-domain, not wildcard.** It is based on `/etc/hosts`, not a full DNS filtering stack. See [docs/design-assumptions.md](docs/design-assumptions.md).
 - **Shared `/tmp` stays shared.** Hazmat does not pretend macOS temp space suddenly became private.
 - **MCP env inheritance and `SSH_AUTH_SOCK` abuse are still category-wide problems.** Some of the hardest issues here are operational, not just architectural. They are called out directly in [docs/threat-matrix.md](docs/threat-matrix.md).
-- **Not every harness gets every mode.** Today Docker Sandbox sessions are exposed through the Claude path; Codex, OpenCode, and Gemini stay in native containment.
+- **Docker Sandbox mode now covers every harness entrypoint.** `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`, `hazmat shell`, and `hazmat exec` can all route into private-daemon Docker Sandbox sessions when the repo needs it.
 
 If you are dealing with hostile repos, long unattended runs, or shared-daemon Docker workflows, the honest answer may be Tier 4, not stretching Tier 2 past what it does well. Start with [docs/overview.md](docs/overview.md).
 

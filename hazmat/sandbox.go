@@ -113,7 +113,7 @@ type sandboxBackendAdapter interface {
 	Type() string
 	ValidateLaunchCompatibility(spec sandboxLaunchSpec, backend *SandboxBackendConfig, version semver) error
 	PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error
-	RunClaudeSession(probe sandboxProbe, sandboxName string, forwarded []string) error
+	RunAgentSession(probe sandboxProbe, agent, sandboxName string, forwarded []string) error
 	RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error
 	RunExecSession(probe sandboxProbe, sandboxName, projectDir string, commandArgs []string) error
 	RemoveManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig) error
@@ -193,7 +193,7 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 			args = append(args, dir+":ro")
 		}
 		if out, err := probe.Run("docker", args...); err != nil {
-			return sandboxActionError(probe, out, err, "create Docker Sandbox %s", spec.Name)
+			return sandboxActionError(probe, spec.Agent, out, err, "create Docker Sandbox %s", spec.Name)
 		}
 	}
 
@@ -203,19 +203,39 @@ func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaun
 		policyArgs = append(policyArgs, "--allow-host", host)
 	}
 	if out, err := probe.Run("docker", policyArgs...); err != nil {
-		return sandboxActionError(probe, out, err, "apply Docker network policy to %s", spec.Name)
+		return sandboxActionError(probe, spec.Agent, out, err, "apply Docker network policy to %s", spec.Name)
 	}
 	return nil
 }
 
-func (dockerSandboxesBackend) RunClaudeSession(probe sandboxProbe, sandboxName string, forwarded []string) error {
+func sandboxAgentDisplayName(agent string) string {
+	switch agent {
+	case "claude":
+		return "Claude"
+	case "codex":
+		return "Codex"
+	case "opencode":
+		return "OpenCode"
+	case "gemini":
+		return "Gemini"
+	case "shell":
+		return "shell"
+	default:
+		if strings.TrimSpace(agent) == "" {
+			return "agent"
+		}
+		return agent
+	}
+}
+
+func (dockerSandboxesBackend) RunAgentSession(probe sandboxProbe, agent, sandboxName string, forwarded []string) error {
 	args := []string{"sandbox", "run", sandboxName}
 	if len(forwarded) > 0 {
 		args = append(args, "--")
 		args = append(args, forwarded...)
 	}
 	if out, err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, out, err, "run Claude in Docker Sandbox %s", sandboxName)
+		return sandboxActionError(probe, agent, out, err, "run %s in Docker Sandbox %s", sandboxAgentDisplayName(agent), sandboxName)
 	}
 	return nil
 }
@@ -223,7 +243,7 @@ func (dockerSandboxesBackend) RunClaudeSession(probe sandboxProbe, sandboxName s
 func (dockerSandboxesBackend) RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error {
 	if out, err := probe.Run("docker", "sandbox", "run", sandboxName, "--",
 		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", projectDir); err != nil {
-		return sandboxActionError(probe, out, err, "run shell in Docker Sandbox %s", sandboxName)
+		return sandboxActionError(probe, "shell", out, err, "run shell in Docker Sandbox %s", sandboxName)
 	}
 	return nil
 }
@@ -233,7 +253,7 @@ func (dockerSandboxesBackend) RunExecSession(probe sandboxProbe, sandboxName, pr
 		"-lc", `cd "$1" && shift && exec "$@"`, "bash", projectDir}
 	args = append(args, commandArgs...)
 	if out, err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, out, err, "run exec session in Docker Sandbox %s", sandboxName)
+		return sandboxActionError(probe, "shell", out, err, "run exec session in Docker Sandbox %s", sandboxName)
 	}
 	return nil
 }
@@ -792,14 +812,14 @@ func dockerDesktopStatus(probe sandboxProbe) (string, error) {
 	return "", fmt.Errorf("status line not found")
 }
 
-func sandboxActionError(probe sandboxProbe, output string, err error, format string, args ...any) error {
+func sandboxActionError(probe sandboxProbe, agent, output string, err error, format string, args ...any) error {
 	base := fmt.Sprintf(format, args...)
 	if output != "" {
 		if sandboxNotFoundError(output) {
 			return fmt.Errorf("%s: %w", base, errSandboxNotFound)
 		}
-		if claudeSandboxAuthError(output) {
-			return fmt.Errorf("%s: Claude is not authenticated in Docker Sandboxes; run 'hazmat claude' interactively and type /login, or configure ANTHROPIC_API_KEY in your shell startup files and restart Docker Desktop", base)
+		if hint, ok := sandboxAuthErrorHint(agent, output); ok {
+			return fmt.Errorf("%s: %s", base, hint)
 		}
 	}
 	if dockerDesktopClosedPipeError(output, err) {
@@ -810,6 +830,16 @@ func sandboxActionError(probe sandboxProbe, output string, err error, format str
 		return fmt.Errorf("%s: Docker Desktop stopped unexpectedly; restart Docker Desktop and retry", base)
 	}
 	return fmt.Errorf("%s", base)
+}
+
+func sandboxAuthErrorHint(agent, output string) (string, bool) {
+	switch agent {
+	case "claude":
+		if claudeSandboxAuthError(output) {
+			return "Claude is not authenticated in Docker Sandboxes; run 'hazmat claude' interactively and type /login, or configure ANTHROPIC_API_KEY in your shell startup files and restart Docker Desktop", true
+		}
+	}
+	return "", false
 }
 
 func sandboxNotFoundError(output string) bool {
@@ -978,8 +1008,27 @@ func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 		forwarded = append([]string{"--dangerously-skip-permissions"}, forwarded...)
 	}
 
-	return runPreparedSandboxSession(cfg, "claude", "Claude", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
-		return adapter.RunClaudeSession(probe, name, forwarded)
+	return runSandboxAgentSession(cfg, "claude", forwarded)
+}
+
+func runSandboxOpenCodeSession(cfg sessionConfig, forwarded []string) error {
+	return runSandboxAgentSession(cfg, "opencode", forwarded)
+}
+
+func runSandboxCodexSession(cfg sessionConfig, forwarded []string) error {
+	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
+		forwarded = append(codexSkipPermissionsArgs(), forwarded...)
+	}
+	return runSandboxAgentSession(cfg, "codex", forwarded)
+}
+
+func runSandboxGeminiSession(cfg sessionConfig, forwarded []string) error {
+	return runSandboxAgentSession(cfg, "gemini", forwarded)
+}
+
+func runSandboxAgentSession(cfg sessionConfig, agent string, forwarded []string) error {
+	return runPreparedSandboxSession(cfg, agent, sandboxAgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunAgentSession(probe, agent, name, forwarded)
 	})
 }
 

@@ -363,13 +363,15 @@ Hazmat flags (parsed first, may appear anywhere before --):
 All other flags and arguments are forwarded to OpenCode.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
-Docker Sandbox sessions are currently available through hazmat claude. Use
---docker=auto only when you want Docker markers to block explicitly.
+Use --docker=sandbox when this repo needs a private-daemon Docker session.
+Use --docker=auto when you want Hazmat to inspect the repo and route
+Docker-heavy private-daemon fits automatically.
 
 Examples:
   hazmat opencode
   hazmat opencode -p "explain this"
   hazmat opencode -C /proj -p "hi"
+  hazmat opencode --docker=sandbox -C /proj
   hazmat opencode --docker=auto -C /proj
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
@@ -382,12 +384,15 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("opencode", opts, false)
+			prepared, err := prepareLaunchSession("opencode", opts, true)
 			if err != nil {
 				return err
 			}
 			if err := beginPreparedSession(prepared, "opencode", opts.noBackup, true); err != nil {
 				return err
+			}
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxOpenCodeSession(prepared.Config, forwarded)
 			}
 			return runAgentSeatbeltScript(prepared.Config, openCodeLaunchScript(), forwarded...)
 		},
@@ -414,12 +419,14 @@ Hazmat flags (parsed first, may appear anywhere before --):
 All other flags and arguments are forwarded to Codex.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
-Docker Sandbox sessions are currently available through hazmat claude. Use
---docker=auto only when you want Docker markers to block explicitly.
+Use --docker=sandbox when this repo needs a private-daemon Docker session.
+Use --docker=auto when you want Hazmat to inspect the repo and route
+Docker-heavy private-daemon fits automatically.
 
 Examples:
   hazmat codex
   hazmat codex "explain this repo"
+  hazmat codex --docker=sandbox -C /proj
   hazmat codex --docker=auto -C /proj
   hazmat codex -C /proj --full-auto
   hazmat codex --no-backup`,
@@ -433,12 +440,15 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("codex", opts, false)
+			prepared, err := prepareLaunchSession("codex", opts, true)
 			if err != nil {
 				return err
 			}
 			if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
 				return err
+			}
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxCodexSession(prepared.Config, forwarded)
 			}
 
 			// Hazmat provides the primary containment boundary here, so when
@@ -471,14 +481,21 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
+  --docker <mode>        Docker routing: none (default), sandbox, or auto
+  --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Gemini.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+Use --docker=sandbox when this repo needs a private-daemon Docker session.
+Use --docker=auto when you want Hazmat to inspect the repo and route
+Docker-heavy private-daemon fits automatically.
 
 Examples:
   hazmat gemini
   hazmat gemini -p "explain this repo"
+  hazmat gemini --docker=sandbox -C /proj
+  hazmat gemini --docker=auto -C /proj
   hazmat gemini -C /proj
   hazmat gemini --no-backup`,
 		DisableFlagParsing: true,
@@ -491,12 +508,15 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("gemini", opts, false)
+			prepared, err := prepareLaunchSession("gemini", opts, true)
 			if err != nil {
 				return err
 			}
 			if err := beginPreparedSession(prepared, "gemini", opts.noBackup, true); err != nil {
 				return err
+			}
+			if prepared.Mode == sessionModeDockerSandbox {
+				return runSandboxGeminiSession(prepared.Config, forwarded)
 			}
 			return runAgentSeatbeltScript(prepared.Config, geminiLaunchScript(), forwarded...)
 		},
@@ -1625,14 +1645,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 	case "claude":
 		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	case "opencode":
-		if mode == dockerModeSandbox {
-			return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
-		}
 		return fmt.Sprintf("hazmat opencode %s -C %s", flag, projectDir)
 	case "codex":
-		if mode == dockerModeSandbox {
-			return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
-		}
 		return fmt.Sprintf("hazmat codex %s -C %s", flag, projectDir)
 	case "gemini":
 		return fmt.Sprintf("hazmat gemini %s -C %s", flag, projectDir)
@@ -1855,10 +1869,12 @@ func resolveSessionSandboxMode(commandName, projectDir string, request dockerRou
 }
 
 func unsupportedSandboxTargetMessage(commandName, projectDir string, request dockerRoutingRequest) string {
+	dockerCmd := dockerSessionExample(commandName, projectDir, dockerModeSandbox)
+	nativeCmd := dockerSessionExample(commandName, projectDir, dockerModeNone)
 	if request.Source == dockerRequestProjectConfig {
-		return fmt.Sprintf("this project is configured with docker: sandbox, but hazmat %s does not support Docker Sandboxes yet\nuse %s or change the project setting with: hazmat config docker none -C %s", commandName, dockerSessionExample("claude", projectDir, dockerModeSandbox), projectDir)
+		return fmt.Sprintf("this project is configured with docker: sandbox, but hazmat %s does not support Docker Sandboxes yet\nuse %s for Docker-capable work, or change the project setting with: hazmat config docker none -C %s", commandName, dockerCmd, projectDir)
 	}
-	return fmt.Sprintf("--docker=sandbox is not supported for hazmat %s yet\nuse %s instead", commandName, dockerSessionExample("claude", projectDir, dockerModeSandbox))
+	return fmt.Sprintf("--docker=sandbox is not supported for hazmat %s yet\nuse %s for Docker-capable work, or %s for a native code-only session", commandName, dockerCmd, nativeCmd)
 }
 
 // warnDockerProject checks whether explicit Docker auto/sandbox routing would

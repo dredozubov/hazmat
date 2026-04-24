@@ -160,6 +160,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: `hazmat explain --for <each> -C /tmp` (or any project dir without an SSH-config gate)
   - Expected: each prints a session contract; integrations section updates if `--integration go` is added; no errors.
 
+- [ ] **Docker Sandbox support across harnesses**
+  - Preconditions: repo with a `Dockerfile`.
+  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode` and `gemini`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini`).
+  - Expected: `--docker=auto` routes the matching harness into Docker Sandbox mode on Docker-heavy private-daemon repos; explicit `--docker=sandbox` launches the same harness in Docker Sandbox mode without redirecting you to Claude.
+
 - [ ] **Per-harness seatbelt scoping**
   - Steps: snapshot the generated SBPL for claude vs codex:
     ```bash
