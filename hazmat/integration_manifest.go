@@ -1081,7 +1081,8 @@ development environments. Integrations cannot widen trust boundaries — they ma
 only reduce friction or tighten defaults.
 
   hazmat integration list        List available integrations
-  hazmat integration show <name> Show integration details`,
+  hazmat integration show <name> Show integration details
+  hazmat integration rejections  Inspect or clear persisted rejected suggestions`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runIntegrationList()
@@ -1104,7 +1105,52 @@ only reduce friction or tighten defaults.
 			return runIntegrationShow(args[0])
 		},
 	})
+	cmd.AddCommand(newIntegrationRejectionsCmd())
 
+	return cmd
+}
+
+func newIntegrationRejectionsCmd() *cobra.Command {
+	var project string
+
+	cmd := &cobra.Command{
+		Use:   "rejections",
+		Short: "Inspect or clear persisted rejected suggested integrations",
+		Long: `Rejected suggested integrations are remembered per project so Hazmat
+does not keep re-prompting during interactive launches. Use these commands
+to inspect the saved rejected suggestions for a project, or clear them so
+Hazmat will ask again on a future launch.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			return c.Help()
+		},
+	}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List persisted rejected suggested integrations",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runIntegrationRejectionsList(project)
+		},
+	}
+	listCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory to inspect (defaults to all configured projects)")
+
+	clearCmd := &cobra.Command{
+		Use:   "clear [integration-name ...]",
+		Short: "Clear persisted rejected suggested integrations for a project",
+		Long: `Clear all rejected suggested integrations for a project, or only the
+named integrations when arguments are provided. Clearing them lets Hazmat
+ask again on future interactive launches.`,
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runIntegrationRejectionsClear(project, args)
+		},
+	}
+	clearCmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory whose rejected suggestions should be cleared")
+
+	cmd.AddCommand(listCmd, clearCmd)
 	return cmd
 }
 
@@ -1168,6 +1214,98 @@ func runIntegrationList() error {
 	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
 	fmt.Println("  Prompt:   interactive harness launches can approve suggested integrations automatically")
 	fmt.Println()
+	return nil
+}
+
+func runIntegrationRejectionsList(project string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	if project != "" {
+		projectDir, err := resolveDir(project, true)
+		if err != nil {
+			return err
+		}
+		rejected := cfg.ProjectRejectedIntegrations(projectDir)
+		if len(rejected) == 0 {
+			fmt.Printf("No rejected suggested integrations recorded for %s\n", projectDir)
+			return nil
+		}
+		fmt.Printf("Rejected suggested integrations for %s:\n", projectDir)
+		for _, name := range rejected {
+			fmt.Printf("  - %s\n", name)
+		}
+		return nil
+	}
+
+	records := cfg.RejectedIntegrations()
+	if len(records) == 0 {
+		fmt.Println("No rejected suggested integrations recorded.")
+		return nil
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].ProjectDir < records[j].ProjectDir
+	})
+	fmt.Println("Rejected suggested integrations:")
+	for _, record := range records {
+		fmt.Printf("  %s: %s\n", record.ProjectDir, strings.Join(record.Integrations, ", "))
+	}
+	return nil
+}
+
+func runIntegrationRejectionsClear(project string, names []string) error {
+	if strings.TrimSpace(project) == "" {
+		return fmt.Errorf("project directory is required (use -C/--project)")
+	}
+
+	projectDir, err := resolveDir(project, true)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	current := cfg.ProjectRejectedIntegrations(projectDir)
+	if len(current) == 0 {
+		fmt.Printf("No rejected suggested integrations recorded for %s\n", projectDir)
+		return nil
+	}
+
+	if len(names) == 0 {
+		cfg.Integrations.Rejected = upsertRejectedIntegrations(cfg.Integrations.Rejected, projectDir, nil)
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+		fmt.Printf("Cleared all rejected suggested integrations for %s\n", projectDir)
+		return nil
+	}
+
+	currentSet := stringSet(current)
+	toRemove := stringSet(names)
+	var unknown []string
+	for name := range toRemove {
+		if _, ok := currentSet[name]; !ok {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("project %s has no rejected suggested integrations named: %s", projectDir, strings.Join(unknown, ", "))
+	}
+
+	remaining := filterStrings(current, toRemove)
+	cfg.Integrations.Rejected = upsertRejectedIntegrations(cfg.Integrations.Rejected, projectDir, remaining)
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Cleared rejected suggested integrations for %s: %s\n", projectDir, strings.Join(dedupeStrings(names), ", "))
 	return nil
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -1200,6 +1201,162 @@ func TestApprovalDifferentProjectsIndependent(t *testing.T) {
 	}
 	if isApproved("/project/a", "hashB") {
 		t.Fatal("project a with project b's hash should not be approved")
+	}
+}
+
+func TestRunIntegrationRejectionsListShowsAllConfiguredProjects(t *testing.T) {
+	isolateConfig(t)
+
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+	canonicalA, err := resolveDir(projectA, false)
+	if err != nil {
+		t.Fatalf("resolveDir(projectA): %v", err)
+	}
+	canonicalB, err := resolveDir(projectB, false)
+	if err != nil {
+		t.Fatalf("resolveDir(projectB): %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Integrations.Rejected = []IntegrationRejection{
+		{ProjectDir: canonicalB, Integrations: []string{"python-uv"}},
+		{ProjectDir: canonicalA, Integrations: []string{"node", "tla-java"}},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationRejectionsList("")
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationRejectionsList: %v", err)
+	}
+	if !strings.Contains(out, "Rejected suggested integrations:\n") {
+		t.Fatalf("output missing header:\n%s", out)
+	}
+	if !strings.Contains(out, canonicalA+": node, tla-java") {
+		t.Fatalf("output missing project A:\n%s", out)
+	}
+	if !strings.Contains(out, canonicalB+": python-uv") {
+		t.Fatalf("output missing project B:\n%s", out)
+	}
+}
+
+func TestRunIntegrationRejectionsListShowsSingleProject(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	canonicalProject, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Integrations.Rejected = []IntegrationRejection{
+		{ProjectDir: canonicalProject, Integrations: []string{"node", "python-uv"}},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationRejectionsList(projectDir)
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationRejectionsList: %v", err)
+	}
+	if !strings.Contains(out, "Rejected suggested integrations for "+canonicalProject+":\n") {
+		t.Fatalf("output missing project header:\n%s", out)
+	}
+	if !strings.Contains(out, "  - node\n") || !strings.Contains(out, "  - python-uv\n") {
+		t.Fatalf("output missing rejected integrations:\n%s", out)
+	}
+}
+
+func TestRunIntegrationRejectionsClearAll(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	canonicalProject, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Integrations.Rejected = []IntegrationRejection{
+		{ProjectDir: canonicalProject, Integrations: []string{"node", "python-uv"}},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationRejectionsClear(projectDir, nil)
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationRejectionsClear: %v", err)
+	}
+	if !strings.Contains(out, "Cleared all rejected suggested integrations for "+canonicalProject) {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	updated, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if got := updated.ProjectRejectedIntegrations(canonicalProject); len(got) != 0 {
+		t.Fatalf("rejected = %v, want empty", got)
+	}
+}
+
+func TestRunIntegrationRejectionsClearSubset(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	canonicalProject, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Integrations.Rejected = []IntegrationRejection{
+		{ProjectDir: canonicalProject, Integrations: []string{"node", "python-uv", "tla-java"}},
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationRejectionsClear(projectDir, []string{"python-uv", "node"})
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationRejectionsClear: %v", err)
+	}
+	if !strings.Contains(out, "Cleared rejected suggested integrations for "+canonicalProject+": python-uv, node") &&
+		!strings.Contains(out, "Cleared rejected suggested integrations for "+canonicalProject+": node, python-uv") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	updated, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if got := updated.ProjectRejectedIntegrations(canonicalProject); !reflect.DeepEqual(got, []string{"tla-java"}) {
+		t.Fatalf("rejected = %v, want [tla-java]", got)
+	}
+}
+
+func TestRunIntegrationRejectionsClearRequiresProject(t *testing.T) {
+	isolateConfig(t)
+
+	err := runIntegrationRejectionsClear("", nil)
+	if err == nil {
+		t.Fatal("expected error when project is missing")
+	}
+	if !strings.Contains(err.Error(), "project directory is required") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
