@@ -14,6 +14,8 @@ const (
 	suggestedIntegrationActionNotNow suggestedIntegrationAction = "not-now"
 )
 
+const suggestedIntegrationActionPrompt = "How should Hazmat use this selection? [1-3, Enter for default]:"
+
 type suggestedIntegrationPromptItem struct {
 	Name        string
 	Description string
@@ -165,7 +167,7 @@ func defaultPromptSuggestedLaunchIntegrations(projectDir string, items []suggest
 	}
 
 	action, err := ui.Choose(
-		"How should Hazmat use this selection?",
+		suggestedIntegrationActionPrompt,
 		[]UIChoice{
 			{
 				Key:         string(suggestedIntegrationActionUseNow),

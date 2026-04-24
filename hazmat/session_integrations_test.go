@@ -112,6 +112,12 @@ func TestResolveLaunchIntegrationFlagsAlwaysPersistsSelectedAndRejectedSuggestio
 	}
 }
 
+func TestSuggestedIntegrationActionPromptIncludesExplicitInputHint(t *testing.T) {
+	if got := suggestedIntegrationActionPrompt; got != "How should Hazmat use this selection? [1-3, Enter for default]:" {
+		t.Fatalf("suggestedIntegrationActionPrompt = %q", got)
+	}
+}
+
 func TestResolveLaunchIntegrationFlagsSkipsRejectedSuggestions(t *testing.T) {
 	isolateConfig(t)
 
