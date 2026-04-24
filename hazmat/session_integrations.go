@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ type suggestedIntegrationPromptResult struct {
 	Selected []string
 }
 
+type launchIntegrationResolution struct {
+	Integrations []IntegrationSpec
+}
+
 var promptSuggestedLaunchIntegrations = defaultPromptSuggestedLaunchIntegrations
 
 func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
@@ -37,11 +42,12 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	}
 
 	progress.Step("checking suggested integrations")
-	resolvedIntegrations, err := resolveLaunchIntegrationFlags(projectDir, opts.integrations)
+	resolvedIntegrations, err := resolveLaunchIntegrations(projectDir, opts.integrations)
 	if err != nil {
 		return preparedSession{}, err
 	}
-	opts.integrations = resolvedIntegrations
+	opts.resolvedIntegrations = resolvedIntegrations.Integrations
+	opts.integrationsResolved = true
 
 	prepared, err := resolvePreparedSessionWithProgress(commandName, opts, supportsSandbox, progress)
 	if err != nil {
@@ -51,10 +57,62 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	return prepared, nil
 }
 
+func resolveLaunchIntegrations(projectDir string, integrationFlags []string) (launchIntegrationResolution, error) {
+	baseFlags := dedupeStrings(integrationFlags)
+
+	integrations, err := resolveActiveIntegrationsForSession(baseFlags, projectDir)
+	if err != nil {
+		return launchIntegrationResolution{}, err
+	}
+
+	activeNames := make(map[string]struct{}, len(integrations))
+	for _, spec := range integrations {
+		activeNames[spec.Meta.Name] = struct{}{}
+	}
+
+	suggestions := suggestedIntegrationsForProject(projectDir, activeNames)
+	if len(suggestions) == 0 || !shouldPromptSuggestedIntegrations() {
+		return launchIntegrationResolution{Integrations: integrations}, nil
+	}
+
+	items := buildSuggestedIntegrationPromptItems(suggestions)
+	result, err := promptSuggestedLaunchIntegrations(projectDir, items)
+	if err != nil {
+		return launchIntegrationResolution{}, err
+	}
+
+	selected, err := normalizeSuggestedSelection(suggestions, result.Selected)
+	if err != nil {
+		return launchIntegrationResolution{}, err
+	}
+
+	switch result.Action {
+	case suggestedIntegrationActionUseNow:
+		integrations, err = mergeSelectedLaunchIntegrations(integrations, selected)
+		if err != nil {
+			return launchIntegrationResolution{}, err
+		}
+		return launchIntegrationResolution{Integrations: integrations}, nil
+	case suggestedIntegrationActionAlways:
+		if err := persistSuggestedIntegrationPreferences(projectDir, suggestions, selected); err != nil {
+			return launchIntegrationResolution{}, err
+		}
+		integrations, err = mergeSelectedLaunchIntegrations(integrations, selected)
+		if err != nil {
+			return launchIntegrationResolution{}, err
+		}
+		return launchIntegrationResolution{Integrations: integrations}, nil
+	case suggestedIntegrationActionNotNow:
+		return launchIntegrationResolution{Integrations: integrations}, nil
+	default:
+		return launchIntegrationResolution{}, fmt.Errorf("unknown suggested integration action %q", result.Action)
+	}
+}
+
 func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string) ([]string, error) {
 	baseFlags := dedupeStrings(integrationFlags)
 
-	integrations, err := resolveActiveIntegrations(baseFlags, projectDir)
+	integrations, err := resolveActiveIntegrationsForSession(baseFlags, projectDir)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +151,34 @@ func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string)
 	default:
 		return nil, fmt.Errorf("unknown suggested integration action %q", result.Action)
 	}
+}
+
+func mergeSelectedLaunchIntegrations(existing []IntegrationSpec, selected []string) ([]IntegrationSpec, error) {
+	if len(selected) == 0 {
+		return existing, nil
+	}
+
+	merged := make([]IntegrationSpec, 0, len(existing)+len(selected))
+	seen := make(map[string]struct{}, len(existing)+len(selected))
+	for _, spec := range existing {
+		merged = append(merged, spec)
+		seen[spec.Meta.Name] = struct{}{}
+	}
+	for _, name := range selected {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		spec, err := loadIntegrationSpecByName(name)
+		if err != nil {
+			return nil, err
+		}
+		merged = append(merged, spec)
+		seen[name] = struct{}{}
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Meta.Name < merged[j].Meta.Name
+	})
+	return merged, nil
 }
 
 func shouldPromptSuggestedIntegrations() bool {

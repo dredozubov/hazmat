@@ -215,6 +215,49 @@ func TestApplyIntegrationsFiltersRejectedSuggestionsFromSessionContract(t *testi
 	}
 }
 
+func TestPrepareLaunchSessionResolvesActiveIntegrationsOnce(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	projectDir := t.TempDir()
+	canonicalProjectDir, err := resolveDir(projectDir, false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+
+	savedResolver := resolveActiveIntegrationsForSession
+	calls := 0
+	resolveActiveIntegrationsForSession = func(integrationFlags []string, gotProjectDir string) ([]IntegrationSpec, error) {
+		calls++
+		if gotProjectDir != canonicalProjectDir {
+			t.Fatalf("projectDir = %q, want %q", gotProjectDir, canonicalProjectDir)
+		}
+		if !reflect.DeepEqual(integrationFlags, []string{"custom"}) {
+			t.Fatalf("integrationFlags = %v, want [custom]", integrationFlags)
+		}
+		return []IntegrationSpec{
+			{Meta: IntegrationMeta{Name: "custom"}},
+		}, nil
+	}
+	t.Cleanup(func() {
+		resolveActiveIntegrationsForSession = savedResolver
+	})
+
+	prepared, err := prepareLaunchSession("shell", harnessSessionOpts{
+		project:      projectDir,
+		integrations: []string{"custom"},
+	}, true)
+	if err != nil {
+		t.Fatalf("prepareLaunchSession: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("resolveActiveIntegrationsForSession call count = %d, want 1", calls)
+	}
+	if !reflect.DeepEqual(prepared.Config.ActiveIntegrations, []string{"custom"}) {
+		t.Fatalf("ActiveIntegrations = %v, want [custom]", prepared.Config.ActiveIntegrations)
+	}
+}
+
 func integrationTestProject(t *testing.T, files map[string]string) string {
 	t.Helper()
 

@@ -510,6 +510,8 @@ type harnessSessionOpts struct {
 	readDirs              []string
 	writeDirs             []string
 	integrations          []string
+	resolvedIntegrations  []IntegrationSpec
+	integrationsResolved  bool
 	skipHarnessAssetsSync bool
 	noBackup              bool
 	useSandbox            bool
@@ -712,11 +714,16 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 // applyIntegrations resolves, validates, and merges active integrations into
 // the session config.
 func applyIntegrations(cfg *sessionConfig, integrationFlags []string) (sessionMutationPlan, error) {
-	integrations, err := resolveActiveIntegrations(integrationFlags, cfg.ProjectDir)
+	integrations, err := resolveActiveIntegrationsForSession(integrationFlags, cfg.ProjectDir)
 	if err != nil {
 		return sessionMutationPlan{}, err
 	}
+	return applyResolvedIntegrations(cfg, integrations)
+}
 
+var resolveActiveIntegrationsForSession = resolveActiveIntegrations
+
+func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpec) (sessionMutationPlan, error) {
 	// Detect integrations that remain unresolved after active ones are merged.
 	activeNames := make(map[string]struct{}, len(integrations))
 	for _, spec := range integrations {
@@ -889,9 +896,17 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	progress.Step("applying session integrations")
-	integrationMutationPlan, err := applyIntegrations(&cfg, opts.integrations)
-	if err != nil {
-		return preparedSession{}, err
+	var integrationMutationPlan sessionMutationPlan
+	if opts.integrationsResolved {
+		integrationMutationPlan, err = applyResolvedIntegrations(&cfg, opts.resolvedIntegrations)
+		if err != nil {
+			return preparedSession{}, err
+		}
+	} else {
+		integrationMutationPlan, err = applyIntegrations(&cfg, opts.integrations)
+		if err != nil {
+			return preparedSession{}, err
+		}
 	}
 	progress.Step("checking repo-local hooks")
 	maybePromptProjectHooks(cfg.ProjectDir)
