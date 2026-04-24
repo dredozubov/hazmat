@@ -2,9 +2,9 @@
 # check-gitleaks.sh: broader secret-scanning layer alongside
 # scripts/check-secret-patterns.sh.
 #
-# scripts/check-secret-patterns.sh is the fast Google-specific first line
-# (regex-only, no dependencies). gitleaks runs as the second line and covers
-# ~100 provider patterns plus generic high-entropy detection.
+# scripts/check-secret-patterns.sh is the fast regex-only first line
+# (no dependencies). gitleaks runs as the second line and covers ~100 provider
+# patterns plus generic high-entropy detection.
 #
 # Modes:
 #   --staged   scan only staged changes (used by pre-commit)

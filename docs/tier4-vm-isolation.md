@@ -49,7 +49,7 @@ limactl shell claude-sandbox
 ### Inside the VM
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_API_KEY="example-anthropic-key"
 git clone https://github.com/your/project.git  # clone INSIDE the VM
 cd project
 claude --dangerously-skip-permissions

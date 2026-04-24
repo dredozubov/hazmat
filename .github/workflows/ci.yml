@@ -24,8 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reject provider-shaped Google API keys
+      - name: Reject provider-shaped credential patterns
         run: bash scripts/check-secret-patterns.sh
+
+      - name: Regression-check secret-pattern script
+        run: bash scripts/test-secret-patterns.sh
 
   gitleaks:
     name: Gitleaks

@@ -102,7 +102,9 @@ func TestReadZshrcEnvLineMatchesExactName(t *testing.T) {
 }
 
 func TestMaskKeyWithKnownPrefix(t *testing.T) {
-	line := `export ANTHROPIC_API_KEY="sk-ant-abcdefghijklmnopqrstuvwxyz1234"`
+	// Keep the real prefix so prefix-anchored masking is exercised, but avoid
+	// a full provider-shaped fixture that the repo secret scanner should catch.
+	line := `export ANTHROPIC_API_KEY="sk-ant-example1234"`
 	got := maskKey(line, "sk-ant-")
 	// Must show the sk-ant- prefix and end of the key for recognition.
 	if !strings.HasPrefix(got, "sk-ant-") {

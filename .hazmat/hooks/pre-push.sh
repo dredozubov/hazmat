@@ -5,17 +5,10 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 GITLEAKS_CONFIG="$SCRIPT_DIR/gitleaks.toml"
-GOOGLE_API_KEY_PATTERN='AIza[0-9A-Za-z_-]{35}'
 
 cd "$REPO_ROOT"
 
-echo "pre-push: tracked Google API key scan..."
-if matches="$(git grep -n -I -E "$GOOGLE_API_KEY_PATTERN" -- .)"; then
-	echo "pre-push: found provider-shaped Google API key material:" >&2
-	printf '%s\n' "$matches" >&2
-	echo "pre-push: replace it with an obviously fake fixture before pushing." >&2
-	exit 1
-fi
+sh "$REPO_ROOT/scripts/check-secret-patterns.sh" repo
 
 echo "pre-push: gitleaks scan..."
 gitleaks detect --redact -v --no-banner --config "$GITLEAKS_CONFIG"
