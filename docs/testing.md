@@ -42,8 +42,12 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
 - `pre-commit`: the tracked source lives under `.hazmat/hooks/pre-commit.sh`
   and runs staged diff sanity, `gofmt` on staged Go files, and shell syntax
   checks for staged scripts, plus two staged secret scans:
-  - `scripts/check-secret-patterns.sh --staged` — fast Google `AIza` regex (no
-    dependencies)
+  - `scripts/check-secret-patterns.sh --staged` — fast regex gate for the
+    highest-signal provider-issued patterns Hazmat docs/tests are likely to
+    touch (currently Google API keys, Anthropic API keys, GitHub PATs, AWS
+    access key IDs, OpenRouter keys, and Context7 keys). No external
+    dependencies. Safe placeholder guidance lives in
+    [docs/synthetic-credentials.md](synthetic-credentials.md).
   - `scripts/check-gitleaks.sh --staged` — broader scanner via
     [`gitleaks`](https://github.com/gitleaks/gitleaks) covering ~100 provider
     patterns and high-entropy detection (config:
@@ -51,9 +55,9 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
     `brew install gitleaks` or
     `go install github.com/zricethezav/gitleaks/v8@latest`
 - `pre-push`: the tracked source lives under `.hazmat/hooks/pre-push.sh` and
-  runs the fast local gate (tracked-file Google API key scan, full-tree
-  gitleaks scan, `go vet`, `go test`, Linux compile-only, `golangci-lint`, and
-  CLI smoke tests)
+  runs the fast local gate (tracked-file secret-pattern scan, full-tree
+  gitleaks scan, `go vet`, `go test`, Linux compile-only, `golangci-lint`,
+  and CLI smoke tests)
 
 The legacy `scripts/pre-commit`, `scripts/pre-push`, and `scripts/check-fast.sh`
 entrypoints remain as compatibility wrappers for manual runs and older docs, but

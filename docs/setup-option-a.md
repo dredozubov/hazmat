@@ -142,7 +142,7 @@ chmod 700 ~/.config/git
 # Git will persist it to ~/.config/git/credentials.
 
 # Anthropic API key
-echo 'export ANTHROPIC_API_KEY="sk-ant-api03-YOUR-KEY-HERE"' >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY="example-anthropic-key-replace-me"' >> ~/.zshrc
 source ~/.zshrc
 
 # Set restrictive umask (prevents /tmp leakage)
@@ -590,8 +590,8 @@ sudo -u agent -i
 mkdir -p ~/.aws
 cat > ~/.aws/credentials << 'EOF'
 [default]
-aws_access_key_id = AKIA...
-aws_secret_access_key = ...
+aws_access_key_id = example-aws-access-key-id
+aws_secret_access_key = example-aws-secret-access-key
 EOF
 chmod 600 ~/.aws/credentials
 ```

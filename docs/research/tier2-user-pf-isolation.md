@@ -33,7 +33,7 @@ Each encrypted volume has its own password, separate from FileVault. Encryption 
 ```bash
 sudo -u claudeagent -i
 curl -fsSL https://claude.ai/install.sh | bash
-echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY="example-anthropic-key"' >> ~/.zshrc
 ```
 
 ## Step 4: Configure pf Firewall Rules

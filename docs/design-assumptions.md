@@ -103,7 +103,7 @@ block-beta
 - **Yellow zone** — agent user credentials. Plain text, accessible within agent sessions. Protected from host-level reads by file permissions.
 - **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
 
-**Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="sk-ant-..."` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
+**Plain text, no encryption.** API key is `export ANTHROPIC_API_KEY="example-anthropic-key"` in `/Users/agent/.zshrc`. Git credentials are in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 

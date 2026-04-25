@@ -39,7 +39,8 @@ paths = [
 # Stopwords skip a finding when the matched secret contains the substring.
 # Use this for canonical SSH/PGP filenames and test-fixture names that the
 # generic-api-key rule treats as high-entropy strings. Keep this list short
-# and obviously non-secret-shaped.
+# and obviously non-secret-shaped. Contributor-facing fixture guidance lives in
+# docs/synthetic-credentials.md.
 stopwords = [
   "id_ed25519",
   "id_rsa",
@@ -47,4 +48,13 @@ stopwords = [
   "id_dsa",
   "shared_key",
   "known_hosts",
+  "example-anthropic-key",
+  "example-openai-key",
+  "example-gemini-key",
+  "example-google-api-key",
+  "example-github-pat",
+  "example-aws-access-key-id",
+  "example-aws-secret-access-key",
+  "example-openrouter-key",
+  "example-context7-key",
 ]

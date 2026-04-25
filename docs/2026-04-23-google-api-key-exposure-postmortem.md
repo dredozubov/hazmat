@@ -79,6 +79,20 @@ from local development into published history.
 - Add a short contributor guideline for synthetic credentials so future tests
   reuse known-safe placeholder formats instead of inventing new ones ad hoc.
 
+## Subsequent Follow-Up
+
+- The fast repo-local secret gate now covers a reviewed set of additional
+  provider-shaped credentials beyond Google keys.
+- Safe fixture guidance now lives in
+  [docs/synthetic-credentials.md](synthetic-credentials.md).
+- The allowlist strategy remains intentionally narrow:
+  - prefer obviously fake `example-*` placeholder shapes that do not resemble
+    provider-issued secrets
+  - allowlist only scanner-definition files, lockfiles, or specific obviously
+    fake stopwords when generic detectors still misfire
+  - never allowlist docs/tests/examples simply because they contain
+    credential-shaped values
+
 ## Operator Checklist For This Incident
 
 - Revoke or verify invalidity of the reported Google API key in Google Cloud.
