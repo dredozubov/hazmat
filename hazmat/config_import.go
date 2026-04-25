@@ -124,8 +124,16 @@ func (e claudeImportEnv) hostCredentialFile() string {
 	return filepath.Join(e.hostClaudeDir(), ".credentials.json")
 }
 
+func (e claudeImportEnv) storedCredentialFile() string {
+	return claudeCredentialStorePathForHome(e.hostHome)
+}
+
 func (e claudeImportEnv) hostClaudeStatePath() string {
 	return filepath.Join(e.hostHome, ".claude.json")
+}
+
+func (e claudeImportEnv) storedClaudeStatePath() string {
+	return claudeStateStorePathForHome(e.hostHome)
 }
 
 func (e claudeImportEnv) hostGitConfigPath() string {
@@ -164,7 +172,8 @@ func newConfigImportCmd() *cobra.Command {
 
 Hazmat keeps its own runtime settings, hooks, and safety controls. Import is
 limited to portable basics such as sign-in state, git identity, commands,
-and skills.`,
+and skills. Durable auth is stored in ~/.hazmat/secrets and materialized only
+for matching sessions.`,
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(newConfigImportClaudeCmd())
@@ -180,11 +189,12 @@ func newConfigImportClaudeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "claude",
-		Short: "Import Claude basics into the agent environment",
+		Short: "Import Claude basics into Hazmat-managed state",
 		Long: `Import a curated subset of your host Claude setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from Claude's known auth stores, when present
+    (stored in ~/.hazmat/secrets and materialized only for Claude sessions)
   - git user.name and user.email
   - ~/.claude/commands
   - ~/.claude/skills
@@ -363,30 +373,27 @@ func scanClaudeAuthState(env claudeImportEnv, r *Runner) (claudeImportItem, bool
 		return claudeImportItem{}, false, nil
 	}
 
-	agentRaw, err := readMaybePrivilegedFile(env.agentClaudeStatePath(), r)
 	status := claudeImportNew
-	switch {
-	case err == nil && len(agentRaw) > 0:
-		agentState, err := selectClaudeAuthKeys(agentRaw)
-		if err != nil {
-			return claudeImportItem{}, false, fmt.Errorf("parse agent Claude state: %w", err)
-		}
-		switch {
-		case jsonSubsetEqual(hostState, agentState):
+	if storedState, ok, err := readJSONMapStoreFile(env.storedClaudeStatePath()); err != nil {
+		return claudeImportItem{}, false, fmt.Errorf("read stored Claude state: %w", err)
+	} else if ok {
+		if jsonSubsetEqual(hostState, storedState) {
 			status = claudeImportUnchanged
-		case len(agentState) > 0:
+		} else {
 			status = claudeImportConflict
 		}
-	case os.IsNotExist(err):
-		status = claudeImportNew
-	case errors.Is(err, fs.ErrPermission):
-		if _, statErr := os.Stat(env.agentClaudeStatePath()); statErr == nil {
-			status = claudeImportConflict
-		} else if !os.IsNotExist(statErr) {
-			return claudeImportItem{}, false, fmt.Errorf("stat agent Claude state: %w", statErr)
+	} else {
+		agentState, ok, err := readClaudeStateKeysFromAgent(env.agentClaudeStatePath())
+		if err != nil {
+			return claudeImportItem{}, false, fmt.Errorf("read agent Claude state: %w", err)
 		}
-	case err != nil:
-		return claudeImportItem{}, false, fmt.Errorf("read agent Claude state: %w", err)
+		if ok {
+			if jsonSubsetEqual(hostState, agentState) {
+				status = claudeImportNew
+			} else {
+				status = claudeImportConflict
+			}
+		}
 	}
 
 	return claudeImportItem{
@@ -395,7 +402,7 @@ func scanClaudeAuthState(env claudeImportEnv, r *Runner) (claudeImportItem, bool
 		Kind:       claudeImportStateMerge,
 		Status:     status,
 		SourcePath: env.hostClaudeStatePath(),
-		DestPath:   env.agentClaudeStatePath(),
+		DestPath:   env.storedClaudeStatePath(),
 		HostJSON:   hostState,
 	}, true, nil
 }
@@ -409,29 +416,27 @@ func scanClaudeCredentialFile(env claudeImportEnv, r *Runner) (claudeImportItem,
 		return claudeImportItem{}, false, fmt.Errorf("read host Claude credentials: %w", err)
 	}
 
-	agentRaw, err := readMaybePrivilegedFile(env.agentCredentialFile(), r)
 	status := claudeImportNew
-	switch {
-	case err == nil && bytes.Equal(hostRaw, agentRaw):
-		status = claudeImportUnchanged
-	case err == nil:
-		status = claudeImportConflict
-	case os.IsNotExist(err):
-		status = claudeImportNew
-	case errors.Is(err, fs.ErrPermission):
-		if _, statErr := os.Stat(env.agentCredentialFile()); statErr == nil {
+	if storedRaw, ok, err := readHostStoredSecretFile(env.storedCredentialFile()); err != nil {
+		return claudeImportItem{}, false, fmt.Errorf("read stored Claude credentials: %w", err)
+	} else if ok {
+		if bytes.Equal(hostRaw, storedRaw) {
+			status = claudeImportUnchanged
+		} else {
 			status = claudeImportConflict
-		} else if !os.IsNotExist(statErr) {
-			return claudeImportItem{}, false, fmt.Errorf("stat agent Claude credentials: %w", statErr)
 		}
-	default:
-		return claudeImportItem{}, false, fmt.Errorf("read agent Claude credentials: %w", err)
-	}
-
-	// Self-heal: re-import when content matches but ownership is wrong
-	// (e.g. left over from a pre-fix import that wrote as the host user).
-	if status == claudeImportUnchanged && !agentOwnsFile(env.agentCredentialFile()) {
-		status = claudeImportNew
+	} else {
+		agentRaw, ok, err := readAgentSecretFile(env.agentCredentialFile())
+		if err != nil {
+			return claudeImportItem{}, false, fmt.Errorf("read agent Claude credentials: %w", err)
+		}
+		if ok {
+			if bytes.Equal(hostRaw, agentRaw) {
+				status = claudeImportNew
+			} else {
+				status = claudeImportConflict
+			}
+		}
 	}
 
 	return claudeImportItem{
@@ -440,7 +445,7 @@ func scanClaudeCredentialFile(env claudeImportEnv, r *Runner) (claudeImportItem,
 		Kind:       claudeImportCredentialFile,
 		Status:     status,
 		SourcePath: env.hostCredentialFile(),
-		DestPath:   env.agentCredentialFile(),
+		DestPath:   env.storedCredentialFile(),
 	}, true, nil
 }
 
@@ -933,9 +938,12 @@ func applyClaudeImportItem(item claudeImportItem, env claudeImportEnv, r *Runner
 		if err != nil {
 			return fmt.Errorf("read host credential file: %w", err)
 		}
-		return writeMaybePrivilegedFile(item.DestPath, raw, 0o600, agentUser+":staff", r)
+		if err := writeHostStoredSecretFile(item.DestPath, raw); err != nil {
+			return fmt.Errorf("write stored Claude credential file: %w", err)
+		}
+		return removeAgentSecretFile(env.agentCredentialFile())
 	case claudeImportStateMerge:
-		return writeImportedClaudeState(item, env.agentClaudeStatePath(), r)
+		return writeImportedClaudeState(item, env.storedClaudeStatePath(), env.agentClaudeStatePath())
 	default:
 		return fmt.Errorf("unsupported import kind: %s", item.Kind)
 	}
@@ -1008,29 +1016,28 @@ func writeImportedGitIdentity(item claudeImportItem, path string) error {
 	return os.WriteFile(path, []byte(renderINI(cfg)), 0o660)
 }
 
-func writeImportedClaudeState(item claudeImportItem, path string, r *Runner) error {
-	currentRaw, err := readMaybePrivilegedFile(path, r)
-	if err != nil && !os.IsNotExist(err) {
+func writeImportedClaudeState(item claudeImportItem, storePath, legacyPath string) error {
+	current, ok, err := readJSONMapStoreFile(storePath)
+	if err != nil {
 		return err
 	}
-
-	current := map[string]json.RawMessage{}
-	if len(currentRaw) > 0 {
-		if err := json.Unmarshal(currentRaw, &current); err != nil {
-			return fmt.Errorf("parse existing agent Claude state: %w", err)
+	if !ok {
+		current = map[string]json.RawMessage{}
+		if legacyState, ok, err := readClaudeStateKeysFromAgent(legacyPath); err != nil {
+			return err
+		} else if ok {
+			for key, value := range legacyState {
+				current[key] = value
+			}
 		}
 	}
 	for key, value := range item.HostJSON {
 		current[key] = value
 	}
-
-	merged, err := json.MarshalIndent(current, "", "  ")
-	if err != nil {
+	if err := writeJSONMapStoreFile(storePath, current); err != nil {
 		return err
 	}
-	merged = append(merged, '\n')
-
-	return writeMaybePrivilegedFile(path, merged, 0o600, agentUser+":staff", r)
+	return removeClaudeStateKeysFromAgent(legacyPath)
 }
 
 func readMaybePrivilegedFile(path string, r *Runner) ([]byte, error) {

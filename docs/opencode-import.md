@@ -24,7 +24,7 @@ hazmat config import opencode --overwrite
 hazmat config import opencode --skip-existing
 ```
 
-Import is **copy-once**. Hazmat does not sync your host OpenCode setup continuously. If you want to refresh commands, agents, or skills later, rerun the import command.
+Import is **copy-once**. Hazmat does not sync your host OpenCode setup continuously. If you want to refresh commands, agents, or skills later, rerun the import command. Imported sign-in state is stored in Hazmat's host-owned secret store and only materialized into `/Users/agent` for active OpenCode sessions.
 
 ## What Hazmat Imports
 
@@ -36,7 +36,7 @@ Hazmat currently imports only these categories:
 - `~/.config/opencode/agents`
 - `~/.config/opencode/skills`
 
-For commands, agents, and skills, Hazmat resolves top-level symlinks and copies the resolved file or directory content into the agent environment. The imported result is a regular file or directory tree inside `/Users/agent/.config/opencode/...`, not a live link back to your host setup.
+OpenCode auth lands in `~/.hazmat/secrets/opencode/auth.json`. Commands, agents, and skills are still copied into the agent environment: Hazmat resolves top-level symlinks and copies the resolved file or directory content into `/Users/agent/.config/opencode/...`, not a live link back to your host setup.
 
 If an entry is broken, unreadable, or not a regular file/directory after resolution, Hazmat skips it and reports why.
 

@@ -16,11 +16,11 @@ import (
 type geminiImportKind string
 
 const (
-	geminiImportOAuthFile      geminiImportKind = "oauth-file"
-	geminiImportAccountsFile   geminiImportKind = "accounts-file"
-	geminiImportSettingsFile   geminiImportKind = "settings-file"
-	geminiImportGeminiMD       geminiImportKind = "gemini-md"
-	geminiImportGitIdentity    geminiImportKind = "git-identity"
+	geminiImportOAuthFile    geminiImportKind = "oauth-file"
+	geminiImportAccountsFile geminiImportKind = "accounts-file"
+	geminiImportSettingsFile geminiImportKind = "settings-file"
+	geminiImportGeminiMD     geminiImportKind = "gemini-md"
+	geminiImportGitIdentity  geminiImportKind = "git-identity"
 )
 
 type geminiImportEnv struct {
@@ -76,8 +76,16 @@ func (e geminiImportEnv) hostOAuthFile() string {
 	return filepath.Join(e.hostGeminiDir(), "oauth_creds.json")
 }
 
+func (e geminiImportEnv) storedOAuthFile() string {
+	return geminiOAuthStorePathForHome(e.hostHome)
+}
+
 func (e geminiImportEnv) hostAccountsFile() string {
 	return filepath.Join(e.hostGeminiDir(), "google_accounts.json")
+}
+
+func (e geminiImportEnv) storedAccountsFile() string {
+	return geminiAccountsStorePathForHome(e.hostHome)
 }
 
 func (e geminiImportEnv) hostSettingsFile() string {
@@ -122,13 +130,15 @@ func newConfigImportGeminiCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "gemini",
-		Short: "Import Gemini basics into the agent environment",
+		Short: "Import Gemini basics into Hazmat-managed state",
 		Long: `Import a curated subset of your host Gemini setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from ~/.gemini/oauth_creds.json (OAuth refresh token —
     only present when the host stored creds in the file fallback rather
-    than the macOS Keychain; modern installs default to Keychain)
+    than the macOS Keychain; modern installs default to Keychain;
+    Hazmat stores imported file-based auth in ~/.hazmat/secrets and
+    materializes it only for Gemini sessions)
   - account index from ~/.gemini/google_accounts.json
   - ~/.gemini/settings.json (model prefs, MCP servers — portable basics)
   - ~/.gemini/GEMINI.md (cross-project memory file)
@@ -265,6 +275,49 @@ func runGeminiBasicsImport(ui *UI, r *Runner, env geminiImportEnv, opts geminiIm
 func scanGeminiImportPlan(env geminiImportEnv, r *Runner) (geminiImportPlan, error) {
 	var plan geminiImportPlan
 
+	scanStoredSecretFile := func(name string, kind geminiImportKind, hostPath, storePath, legacyPath string) error {
+		hostRaw, err := os.ReadFile(hostPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("read host %s: %w", name, err)
+		}
+
+		status := claudeImportNew
+		if storedRaw, ok, err := readHostStoredSecretFile(storePath); err != nil {
+			return fmt.Errorf("read stored %s: %w", name, err)
+		} else if ok {
+			if bytes.Equal(hostRaw, storedRaw) {
+				status = claudeImportUnchanged
+			} else {
+				status = claudeImportConflict
+			}
+		} else {
+			legacyRaw, ok, err := readAgentSecretFile(legacyPath)
+			if err != nil {
+				return fmt.Errorf("read legacy %s: %w", name, err)
+			}
+			if ok {
+				if bytes.Equal(hostRaw, legacyRaw) {
+					status = claudeImportNew
+				} else {
+					status = claudeImportConflict
+				}
+			}
+		}
+
+		plan.Items = append(plan.Items, geminiImportItem{
+			Category:   "sign-in",
+			Name:       name,
+			Kind:       kind,
+			Status:     status,
+			SourcePath: hostPath,
+			DestPath:   storePath,
+		})
+		return nil
+	}
+
 	scanFile := func(category, name string, kind geminiImportKind, hostPath, agentPath string) error {
 		hostRaw, err := os.ReadFile(hostPath)
 		if err != nil {
@@ -292,11 +345,6 @@ func scanGeminiImportPlan(env geminiImportEnv, r *Runner) (geminiImportPlan, err
 			return fmt.Errorf("read agent %s: %w", name, err)
 		}
 
-		// Self-heal: re-import when content matches but ownership is wrong.
-		if status == claudeImportUnchanged && !agentOwnsFile(agentPath) {
-			status = claudeImportNew
-		}
-
 		plan.Items = append(plan.Items, geminiImportItem{
 			Category:   category,
 			Name:       name,
@@ -308,12 +356,12 @@ func scanGeminiImportPlan(env geminiImportEnv, r *Runner) (geminiImportPlan, err
 		return nil
 	}
 
-	if err := scanFile("sign-in", "Gemini OAuth credentials", geminiImportOAuthFile,
-		env.hostOAuthFile(), env.agentOAuthFile()); err != nil {
+	if err := scanStoredSecretFile("Gemini OAuth credentials", geminiImportOAuthFile,
+		env.hostOAuthFile(), env.storedOAuthFile(), env.agentOAuthFile()); err != nil {
 		return plan, err
 	}
-	if err := scanFile("sign-in", "Gemini account index", geminiImportAccountsFile,
-		env.hostAccountsFile(), env.agentAccountsFile()); err != nil {
+	if err := scanStoredSecretFile("Gemini account index", geminiImportAccountsFile,
+		env.hostAccountsFile(), env.storedAccountsFile(), env.agentAccountsFile()); err != nil {
 		return plan, err
 	}
 	if err := scanFile("settings", "Gemini settings.json", geminiImportSettingsFile,
@@ -575,17 +623,25 @@ func applyGeminiImportItem(item geminiImportItem, env geminiImportEnv, r *Runner
 	switch item.Kind {
 	case geminiImportGitIdentity:
 		return writeImportedGitIdentity(item.toClaudeImportItem(), env.agentGitConfigPath())
-	case geminiImportOAuthFile, geminiImportAccountsFile, geminiImportSettingsFile, geminiImportGeminiMD:
+	case geminiImportOAuthFile, geminiImportAccountsFile:
 		raw, err := os.ReadFile(item.SourcePath)
 		if err != nil {
 			return fmt.Errorf("read host %s: %w", item.Name, err)
 		}
-		// Credential-grade files (oauth, accounts) get 0600; settings + memory
-		// can be group-readable since they don't carry secrets.
-		mode := os.FileMode(0o660)
-		if item.Kind == geminiImportOAuthFile || item.Kind == geminiImportAccountsFile {
-			mode = 0o600
+		if err := writeHostStoredSecretFile(item.DestPath, raw); err != nil {
+			return fmt.Errorf("write stored %s: %w", item.Name, err)
 		}
+		legacyPath := env.agentOAuthFile()
+		if item.Kind == geminiImportAccountsFile {
+			legacyPath = env.agentAccountsFile()
+		}
+		return removeAgentSecretFile(legacyPath)
+	case geminiImportSettingsFile, geminiImportGeminiMD:
+		raw, err := os.ReadFile(item.SourcePath)
+		if err != nil {
+			return fmt.Errorf("read host %s: %w", item.Name, err)
+		}
+		mode := os.FileMode(0o660)
 		return writeMaybePrivilegedFile(item.DestPath, raw, mode, agentUser+":staff", r)
 	default:
 		return fmt.Errorf("unsupported import kind: %s", item.Kind)

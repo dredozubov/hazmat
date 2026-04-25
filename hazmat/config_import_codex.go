@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,6 +72,10 @@ func (e codexImportEnv) hostAuthFile() string {
 	return filepath.Join(e.hostCodexDir(), "auth.json")
 }
 
+func (e codexImportEnv) storedAuthFile() string {
+	return codexAuthStorePathForHome(e.hostHome)
+}
+
 func (e codexImportEnv) hostGitConfigPath() string {
 	return filepath.Join(e.hostHome, ".gitconfig")
 }
@@ -95,12 +98,14 @@ func newConfigImportCodexCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "codex",
-		Short: "Import Codex basics into the agent environment",
+		Short: "Import Codex basics into Hazmat-managed state",
 		Long: `Import a curated subset of your host Codex setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from ~/.codex/auth.json (covers ChatGPT subscription
-    OAuth tokens AND OpenAI API keys; Codex stores both in this file)
+    OAuth tokens AND OpenAI API keys; Codex stores both in this file;
+    Hazmat stores the imported result in ~/.hazmat/secrets and materializes
+    it only for Codex sessions)
   - git user.name and user.email
 
 Hazmat does NOT import config.toml, MCP servers, prompts, rules, AGENTS.md,
@@ -254,31 +259,27 @@ func scanCodexAuthFile(env codexImportEnv, r *Runner) (codexImportItem, bool, er
 		return codexImportItem{}, false, fmt.Errorf("read host Codex auth: %w", err)
 	}
 
-	agentRaw, err := readMaybePrivilegedFile(env.agentAuthFile(), r)
 	status := claudeImportNew
-	switch {
-	case err == nil && bytes.Equal(hostRaw, agentRaw):
-		status = claudeImportUnchanged
-	case err == nil:
-		status = claudeImportConflict
-	case os.IsNotExist(err):
-		status = claudeImportNew
-	case errors.Is(err, fs.ErrPermission):
-		if _, statErr := os.Stat(env.agentAuthFile()); statErr == nil {
+	if storedRaw, ok, err := readHostStoredSecretFile(env.storedAuthFile()); err != nil {
+		return codexImportItem{}, false, fmt.Errorf("read stored Codex auth: %w", err)
+	} else if ok {
+		if bytes.Equal(hostRaw, storedRaw) {
+			status = claudeImportUnchanged
+		} else {
 			status = claudeImportConflict
-		} else if !os.IsNotExist(statErr) {
-			return codexImportItem{}, false, fmt.Errorf("stat agent Codex auth: %w", statErr)
 		}
-	default:
-		return codexImportItem{}, false, fmt.Errorf("read agent Codex auth: %w", err)
-	}
-
-	// Self-heal: if content matches but the file isn't owned by the agent
-	// (e.g. a pre-fix import wrote it as the host user), re-import so the
-	// agent-write path restores correct ownership. Otherwise codex can't
-	// open the file and dies with errSecNoSuchKeychain inside the sandbox.
-	if status == claudeImportUnchanged && !agentOwnsFile(env.agentAuthFile()) {
-		status = claudeImportNew
+	} else {
+		agentRaw, ok, err := readAgentSecretFile(env.agentAuthFile())
+		if err != nil {
+			return codexImportItem{}, false, fmt.Errorf("read agent Codex auth: %w", err)
+		}
+		if ok {
+			if bytes.Equal(hostRaw, agentRaw) {
+				status = claudeImportNew
+			} else {
+				status = claudeImportConflict
+			}
+		}
 	}
 
 	return codexImportItem{
@@ -287,7 +288,7 @@ func scanCodexAuthFile(env codexImportEnv, r *Runner) (codexImportItem, bool, er
 		Kind:       codexImportAuthFile,
 		Status:     status,
 		SourcePath: env.hostAuthFile(),
-		DestPath:   env.agentAuthFile(),
+		DestPath:   env.storedAuthFile(),
 	}, true, nil
 }
 
@@ -522,7 +523,10 @@ func applyCodexImportItem(item codexImportItem, env codexImportEnv, r *Runner) e
 		if err != nil {
 			return fmt.Errorf("read host Codex auth file: %w", err)
 		}
-		return writeMaybePrivilegedFile(item.DestPath, raw, 0o600, agentUser+":staff", r)
+		if err := writeHostStoredSecretFile(item.DestPath, raw); err != nil {
+			return fmt.Errorf("write stored Codex auth file: %w", err)
+		}
+		return removeAgentSecretFile(env.agentAuthFile())
 	default:
 		return fmt.Errorf("unsupported import kind: %s", item.Kind)
 	}

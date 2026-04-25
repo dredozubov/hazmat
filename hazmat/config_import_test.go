@@ -169,11 +169,14 @@ func TestScanClaudeImportPlanOnlyIncludesPortableBasics(t *testing.T) {
 func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) {
 	env := testClaudeImportEnv(t)
 
+	credentials := `{"token":"claude-token"}`
+	writeTestFile(t, env.hostCredentialFile(), credentials)
 	writeTestFile(t, env.hostClaudeStatePath(), `{
   "oauthAccount": {"emailAddress": "denis@example.com"},
   "userID": "u-123",
   "mcpServers": {"github": {"type": "stdio"}}
 }`)
+	writeTestFile(t, env.agentCredentialFile(), `{"token":"legacy-claude-token"}`)
 	writeTestFile(t, env.agentClaudeStatePath(), `{
   "projects": {"hazmat": true},
   "anonymousId": "anon-1"
@@ -225,7 +228,18 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 		t.Fatalf("agent gitconfig missing imported identity:\n%s", gitConfig)
 	}
 
-	stateRaw, err := os.ReadFile(env.agentClaudeStatePath())
+	credentialRaw, err := os.ReadFile(env.storedCredentialFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(credentialRaw) != credentials {
+		t.Fatalf("stored Claude credential file = %q", credentialRaw)
+	}
+	if _, err := os.Stat(env.agentCredentialFile()); !os.IsNotExist(err) {
+		t.Fatalf("legacy agent credential file should be removed, got err=%v", err)
+	}
+
+	stateRaw, err := os.ReadFile(env.storedClaudeStatePath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,8 +253,22 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 	if state["userID"] != "u-123" {
 		t.Fatalf("userID = %v, want u-123", state["userID"])
 	}
-	if _, ok := state["projects"]; !ok {
+	if _, ok := state["projects"]; ok {
+		t.Fatal("projects should remain in the legacy agent state file")
+	}
+	agentStateRaw, err := os.ReadFile(env.agentClaudeStatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agentState map[string]any
+	if err := json.Unmarshal(agentStateRaw, &agentState); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := agentState["projects"]; !ok {
 		t.Fatal("expected existing agent-only projects state to be preserved")
+	}
+	if _, ok := agentState["oauthAccount"]; ok {
+		t.Fatal("oauthAccount should be removed from legacy agent Claude state")
 	}
 	if _, ok := state["mcpServers"]; ok {
 		t.Fatal("mcpServers should not be imported from host Claude state")
@@ -423,7 +451,9 @@ func TestScanOpenCodeImportPlanOnlyIncludesPortableBasics(t *testing.T) {
 func TestApplyOpenCodeImportPlanCopiesPortableContent(t *testing.T) {
 	env := testOpenCodeImportEnv(t)
 
-	writeTestFile(t, env.hostAuthFile(), `{"provider":"anthropic","token":"abc123"}`)
+	auth := `{"provider":"anthropic","token":"abc123"}`
+	writeTestFile(t, env.hostAuthFile(), auth)
+	writeTestFile(t, env.agentAuthFile(), `{"provider":"anthropic","token":"legacy"}`)
 	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
 
 	commandTarget := filepath.Join(t.TempDir(), "command.md")
@@ -464,12 +494,15 @@ func TestApplyOpenCodeImportPlanCopiesPortableContent(t *testing.T) {
 		t.Fatalf("applyOpenCodeImportPlan: %v", err)
 	}
 
-	authRaw, err := os.ReadFile(env.agentAuthFile())
+	authRaw, err := os.ReadFile(env.storedAuthFile())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(authRaw) != `{"provider":"anthropic","token":"abc123"}` {
+	if string(authRaw) != auth {
 		t.Fatalf("agent auth file = %q", authRaw)
+	}
+	if _, err := os.Stat(env.agentAuthFile()); !os.IsNotExist(err) {
+		t.Fatalf("legacy agent auth file should be removed, got err=%v", err)
 	}
 
 	gitConfigRaw, err := os.ReadFile(env.agentGitConfigPath())
@@ -528,7 +561,9 @@ func TestScanCodexImportPlanIncludesAuthAndGitIdentity(t *testing.T) {
 func TestApplyCodexImportPlanCopiesAuthAndIdentity(t *testing.T) {
 	env := testCodexImportEnv(t)
 
-	writeTestFile(t, env.hostAuthFile(), `{"OPENAI_API_KEY":"sk-test-456"}`)
+	auth := `{"OPENAI_API_KEY":"sk-test-456"}`
+	writeTestFile(t, env.hostAuthFile(), auth)
+	writeTestFile(t, env.agentAuthFile(), `{"OPENAI_API_KEY":"legacy"}`)
 	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
 
 	plan, err := scanCodexImportPlan(env, nil)
@@ -542,12 +577,15 @@ func TestApplyCodexImportPlanCopiesAuthAndIdentity(t *testing.T) {
 		t.Fatalf("applyCodexImportPlan: %v", err)
 	}
 
-	authRaw, err := os.ReadFile(env.agentAuthFile())
+	authRaw, err := os.ReadFile(env.storedAuthFile())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(authRaw) != `{"OPENAI_API_KEY":"sk-test-456"}` {
+	if string(authRaw) != auth {
 		t.Fatalf("agent auth file = %q", authRaw)
+	}
+	if _, err := os.Stat(env.agentAuthFile()); !os.IsNotExist(err) {
+		t.Fatalf("legacy agent auth file should be removed, got err=%v", err)
 	}
 
 	gitConfigRaw, err := os.ReadFile(env.agentGitConfigPath())
@@ -580,13 +618,12 @@ func TestScanCodexImportPlanDetectsConflict(t *testing.T) {
 	}
 }
 
-func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
-	withAgentOwnsFileStub(t, true) // simulate correctly-owned agent file
+func TestScanCodexImportPlanMatchingStoredFileIsUnchanged(t *testing.T) {
 	env := testCodexImportEnv(t)
 
 	body := `{"OPENAI_API_KEY":"sk-same"}`
 	writeTestFile(t, env.hostAuthFile(), body)
-	writeTestFile(t, env.agentAuthFile(), body)
+	writeTestFile(t, env.storedAuthFile(), body)
 
 	plan, err := scanCodexImportPlan(env, nil)
 	if err != nil {
@@ -597,11 +634,7 @@ func TestScanCodexImportPlanMatchingFilesAreUnchanged(t *testing.T) {
 	}
 }
 
-func TestScanCodexImportPlanSelfHealsBadOwnership(t *testing.T) {
-	// Same content host-side and agent-side, but the agent file is host-owned
-	// (a previous import wrote it as the host user). Self-heal should mark the
-	// item as actionable so the next apply rewrites it via the agent path.
-	withAgentOwnsFileStub(t, false)
+func TestScanCodexImportPlanMatchingLegacyFileTriggersMigration(t *testing.T) {
 	env := testCodexImportEnv(t)
 
 	body := `{"OPENAI_API_KEY":"sk-same"}`
@@ -613,20 +646,8 @@ func TestScanCodexImportPlanSelfHealsBadOwnership(t *testing.T) {
 		t.Fatalf("scanCodexImportPlan: %v", err)
 	}
 	if !plan.hasActionableChanges() {
-		t.Fatal("expected scan to demote 'unchanged' to 'new' when agent doesn't own the file (self-heal)")
+		t.Fatal("expected matching legacy auth file to remain actionable until it is migrated into the host store")
 	}
-}
-
-// withAgentOwnsFileStub overrides the agentOwnsFile var for the duration of t
-// and restores it on cleanup. Call once per test that touches the auth-file
-// scan path; tests that don't call this get the production behaviour, which
-// returns false for any test fixture (since fixtures are owned by the test
-// runner, not the agent).
-func withAgentOwnsFileStub(t *testing.T, owns bool) {
-	t.Helper()
-	prev := agentOwnsFile
-	agentOwnsFile = func(string) bool { return owns }
-	t.Cleanup(func() { agentOwnsFile = prev })
 }
 
 func TestScanGeminiImportPlanIncludesAuthSettingsAndIdentity(t *testing.T) {
@@ -654,11 +675,15 @@ func TestApplyGeminiImportPlanCopiesAllPortableArtifacts(t *testing.T) {
 	env := testGeminiImportEnv(t)
 
 	oauth := `{"refresh_token":"rrr","access_token":"aaa"}`
+	accounts := `{"active":"user@example.com"}`
 	settings := `{"model":"gemini-3"}`
 	memory := "# remember this\n"
 	writeTestFile(t, env.hostOAuthFile(), oauth)
+	writeTestFile(t, env.hostAccountsFile(), accounts)
 	writeTestFile(t, env.hostSettingsFile(), settings)
 	writeTestFile(t, env.hostGeminiMDFile(), memory)
+	writeTestFile(t, env.agentOAuthFile(), `{"refresh_token":"legacy"}`)
+	writeTestFile(t, env.agentAccountsFile(), `{"active":"legacy@example.com"}`)
 	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
 
 	plan, err := scanGeminiImportPlan(env, nil)
@@ -673,9 +698,10 @@ func TestApplyGeminiImportPlanCopiesAllPortableArtifacts(t *testing.T) {
 	}
 
 	for path, want := range map[string]string{
-		env.agentOAuthFile():    oauth,
-		env.agentSettingsFile(): settings,
-		env.agentGeminiMDFile(): memory,
+		env.storedOAuthFile():    oauth,
+		env.storedAccountsFile(): accounts,
+		env.agentSettingsFile():  settings,
+		env.agentGeminiMDFile():  memory,
 	} {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -684,6 +710,12 @@ func TestApplyGeminiImportPlanCopiesAllPortableArtifacts(t *testing.T) {
 		if string(raw) != want {
 			t.Fatalf("agent %s = %q, want %q", path, raw, want)
 		}
+	}
+	if _, err := os.Stat(env.agentOAuthFile()); !os.IsNotExist(err) {
+		t.Fatalf("legacy agent OAuth file should be removed, got err=%v", err)
+	}
+	if _, err := os.Stat(env.agentAccountsFile()); !os.IsNotExist(err) {
+		t.Fatalf("legacy agent accounts file should be removed, got err=%v", err)
 	}
 
 	gitConfig, err := os.ReadFile(env.agentGitConfigPath())

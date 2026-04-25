@@ -966,6 +966,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err := applyHarnessAPIKeyEnv(&cfg); err != nil {
 		return preparedSession{}, err
 	}
+	if err := applyHarnessAuthArtifacts(&cfg); err != nil {
+		return preparedSession{}, err
+	}
 	progress.Step("planning harness asset sync")
 	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)
 	if err != nil {
