@@ -1646,6 +1646,9 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 		IntegrationEnv: map[string]string{
 			"GOPATH": "/Users/dr/go",
 		},
+		HarnessEnv: map[string]string{
+			"ANTHROPIC_API_KEY": "stored-claude-key",
+		},
 	}
 
 	pairs := agentEnvPairs(cfg)
@@ -1677,6 +1680,9 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 	if values["GOPATH"] != "/Users/dr/go" {
 		t.Fatalf("GOPATH = %q, want /Users/dr/go", values["GOPATH"])
+	}
+	if values["ANTHROPIC_API_KEY"] != "stored-claude-key" {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want stored-claude-key", values["ANTHROPIC_API_KEY"])
 	}
 	if values["TERM"] != "xterm-ghostty" {
 		t.Fatalf("TERM = %q, want xterm-ghostty", values["TERM"])

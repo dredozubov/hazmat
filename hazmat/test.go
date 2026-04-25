@@ -504,11 +504,14 @@ func testAgentTools(ui *UI) {
 			ui.TestWarn(fmt.Sprintf("Claude Code expected but not found for agent user — run 'hazmat bootstrap claude' or verify %s", claudeInstallerURL))
 		}
 
-		if out, _ := asAgentOutput("bash", "-c",
-			"grep -q ANTHROPIC_API_KEY ~/.zshrc 2>/dev/null && echo yes || echo no"); strings.TrimSpace(out) == "yes" {
-			ui.TestPass("ANTHROPIC_API_KEY is configured for agent user")
+		if value, source, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0]); err == nil && value != "" {
+			if source == configuredAPIKeySourceLegacy {
+				ui.TestWarn(fmt.Sprintf("ANTHROPIC_API_KEY still lives in %s — rerun 'hazmat config agent' or launch 'hazmat claude' once to migrate it into ~/.hazmat/secrets", agentZshrcPath))
+			} else {
+				ui.TestPass("ANTHROPIC_API_KEY is stored in Hazmat's host-owned secret store")
+			}
 		} else {
-			ui.TestWarn("ANTHROPIC_API_KEY not found in agent's .zshrc — hazmat claude will need /login")
+			ui.TestWarn("ANTHROPIC_API_KEY not configured for Hazmat sessions — hazmat claude will need /login")
 		}
 
 		if asAgentQuiet("test", "-f", agentHome+"/.claude/settings.json") == nil {

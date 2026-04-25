@@ -84,6 +84,9 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 	for key, val := range cfg.IntegrationEnv {
 		pairs = append(pairs, key+"="+val)
 	}
+	for key, val := range cfg.HarnessEnv {
+		pairs = append(pairs, key+"="+val)
+	}
 
 	return pairs
 }

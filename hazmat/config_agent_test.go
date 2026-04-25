@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -82,6 +84,26 @@ func TestRewriteZshrcAPIKeysOnlyTouchesNamedVars(t *testing.T) {
 	}
 }
 
+func TestRewriteZshrcAPIKeysCanRemoveManagedExports(t *testing.T) {
+	original := strings.Join([]string{
+		`export ANTHROPIC_API_KEY="ant-old"`,
+		`export OPENAI_API_KEY="oai-old"`,
+		`alias ll="ls -la"`,
+	}, "\n")
+
+	got := rewriteZshrcAPIKeys(original, []pendingAPIKeyUpdate{
+		{EnvVar: "ANTHROPIC_API_KEY"},
+		{EnvVar: "OPENAI_API_KEY"},
+	})
+
+	if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "OPENAI_API_KEY") {
+		t.Fatalf("rewrite should remove managed exports, got:\n%s", got)
+	}
+	if !strings.Contains(got, `alias ll="ls -la"`) {
+		t.Fatalf("rewrite dropped unrelated content:\n%s", got)
+	}
+}
+
 func TestReadZshrcEnvLineMatchesExactName(t *testing.T) {
 	tmp := t.TempDir() + "/.zshrc"
 	content := strings.Join([]string{
@@ -98,6 +120,110 @@ func TestReadZshrcEnvLineMatchesExactName(t *testing.T) {
 
 	if absent := readZshrcEnvLine(tmp, "OPENAI_API_KEY"); absent != "" {
 		t.Fatalf("readZshrcEnvLine should return empty for absent var, got %q", absent)
+	}
+}
+
+func TestParseExportedEnvLineValue(t *testing.T) {
+	got, ok := parseExportedEnvLineValue(`export ANTHROPIC_API_KEY="real-claude"`, "ANTHROPIC_API_KEY")
+	if !ok || got != "real-claude" {
+		t.Fatalf("parseExportedEnvLineValue = %q, %v", got, ok)
+	}
+
+	got, ok = parseExportedEnvLineValue(`export OPENAI_API_KEY=sk-openai-value`, "OPENAI_API_KEY")
+	if !ok || got != "sk-openai-value" {
+		t.Fatalf("parseExportedEnvLineValue without quotes = %q, %v", got, ok)
+	}
+}
+
+func TestLookupConfiguredAPIKeyPrefersHostSecretStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tmpZshrc := filepath.Join(t.TempDir(), ".zshrc")
+	writeTestFile(t, tmpZshrc, `export ANTHROPIC_API_KEY="legacy-value"`)
+	withAgentZshrcPath(t, tmpZshrc)
+
+	spec := harnessAPIKeyPrompts[0]
+	if err := storeHostAPIKey(spec, "stored-value"); err != nil {
+		t.Fatalf("storeHostAPIKey: %v", err)
+	}
+
+	got, source, err := lookupConfiguredAPIKey(spec)
+	if err != nil {
+		t.Fatalf("lookupConfiguredAPIKey: %v", err)
+	}
+	if got != "stored-value" {
+		t.Fatalf("lookupConfiguredAPIKey value = %q, want stored-value", got)
+	}
+	if source != configuredAPIKeySourceStore {
+		t.Fatalf("lookupConfiguredAPIKey source = %q, want %q", source, configuredAPIKeySourceStore)
+	}
+}
+
+func TestLookupConfiguredAPIKeyFallsBackToLegacyAgentZshrc(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tmpZshrc := filepath.Join(t.TempDir(), ".zshrc")
+	writeTestFile(t, tmpZshrc, `export ANTHROPIC_API_KEY="legacy-value"`)
+	withAgentZshrcPath(t, tmpZshrc)
+
+	got, source, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0])
+	if err != nil {
+		t.Fatalf("lookupConfiguredAPIKey: %v", err)
+	}
+	if got != "legacy-value" {
+		t.Fatalf("lookupConfiguredAPIKey value = %q, want legacy-value", got)
+	}
+	if source != configuredAPIKeySourceLegacy {
+		t.Fatalf("lookupConfiguredAPIKey source = %q, want %q", source, configuredAPIKeySourceLegacy)
+	}
+}
+
+func TestApplyHarnessAPIKeyEnvMigratesLegacyZshrc(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tmpZshrc := filepath.Join(t.TempDir(), ".zshrc")
+	writeTestFile(t, tmpZshrc, strings.Join([]string{
+		`export ANTHROPIC_API_KEY="legacy-value"`,
+		`alias ll="ls -la"`,
+	}, "\n"))
+	withAgentZshrcPath(t, tmpZshrc)
+
+	cfg := sessionConfig{HarnessID: HarnessClaude}
+	if err := applyHarnessAPIKeyEnv(&cfg); err != nil {
+		t.Fatalf("applyHarnessAPIKeyEnv: %v", err)
+	}
+
+	if cfg.HarnessEnv["ANTHROPIC_API_KEY"] != "legacy-value" {
+		t.Fatalf("HarnessEnv[ANTHROPIC_API_KEY] = %q, want legacy-value", cfg.HarnessEnv["ANTHROPIC_API_KEY"])
+	}
+	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Migrated legacy ANTHROPIC_API_KEY") {
+		t.Fatalf("SessionNotes = %v, want migration note", cfg.SessionNotes)
+	}
+
+	secretPath, err := providerSecretStorePath("ANTHROPIC_API_KEY")
+	if err != nil {
+		t.Fatalf("providerSecretStorePath: %v", err)
+	}
+	raw, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("read migrated secret: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) != "legacy-value" {
+		t.Fatalf("stored secret = %q, want legacy-value", strings.TrimSpace(string(raw)))
+	}
+
+	zshrcRaw, err := os.ReadFile(tmpZshrc)
+	if err != nil {
+		t.Fatalf("read migrated zshrc: %v", err)
+	}
+	if strings.Contains(string(zshrcRaw), "ANTHROPIC_API_KEY") {
+		t.Fatalf("legacy export still present after migration:\n%s", string(zshrcRaw))
+	}
+	if !strings.Contains(string(zshrcRaw), `alias ll="ls -la"`) {
+		t.Fatalf("zshrc rewrite dropped unrelated lines:\n%s", string(zshrcRaw))
 	}
 }
 
@@ -170,4 +296,13 @@ func TestHarnessAPIKeyPromptsCoverAllSingleEnvVarHarnesses(t *testing.T) {
 			t.Errorf("managed harness %q has no entry in harnessAPIKeyPrompts — config agent will not prompt for its API key", h.Spec.ID)
 		}
 	}
+}
+
+func withAgentZshrcPath(t *testing.T, path string) {
+	t.Helper()
+	prev := agentZshrcPath
+	agentZshrcPath = path
+	t.Cleanup(func() {
+		agentZshrcPath = prev
+	})
 }
