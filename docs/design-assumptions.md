@@ -100,10 +100,10 @@ block-beta
 ```
 
 - **Red zone** — host user credentials. Denied by seatbelt + user isolation. Agent cannot read or write these.
-- **Yellow zone** — agent-session credentials and agent-home auth files. Plain text within the session when a capability is actively granted; imported harness auth files and git credentials still live under `/Users/agent`. Protected from host-level reads by file permissions.
+- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable harness auth now lives in `~/.hazmat/secrets`, but Git credentials still live under `/Users/agent`. Protected from host-level reads by file permissions and cleanup-on-exit.
 - **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
 
-**Mixed state today.** API keys configured through `hazmat config agent` now live in `~/.hazmat/secrets/providers/` and are injected only into matching native sessions. Git credentials are still in `/Users/agent/.config/git/credentials` (git's built-in store), and imported harness auth files still persist under `/Users/agent`. No Keychain integration yet.
+**Mixed state today.** API keys configured through `hazmat config agent` and file-backed harness auth imported or harvested from sessions now live in `~/.hazmat/secrets/` and are materialized only for matching sessions. Git credentials are still in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration yet.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 

@@ -68,7 +68,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Subscription path** (`/login`)
   - Preconditions: a Claude Pro/Max subscription on the host.
   - Steps: `hazmat claude` → type `/login` → complete browser OAuth → exit Claude.
-  - Expected: `/Users/agent/.claude/.credentials.json` exists, mode `0600`, owned by `agent`.
+  - Expected: `~/.hazmat/secrets/claude/credentials.json` exists after exit; `/Users/agent/.claude/.credentials.json` is gone again once the session ends.
   - Verify: `hazmat claude -p "say only OK"` round-trips.
 
 - [ ] **API key path** (env var)
@@ -79,7 +79,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Host import path**
   - Preconditions: claude already authed on host (`~/.claude/.credentials.json` exists).
   - Steps: `hazmat config import claude --dry-run` → review plan → `hazmat config import claude` (no `--dry-run`).
-  - Expected: "Sign-in: yes" in the plan; agent file lands as `agent:* 0600`; subsequent `hazmat claude -p "say OK"` round-trips without a `/login` prompt.
+  - Expected: "Sign-in: yes" in the plan; `~/.hazmat/secrets/claude/credentials.json` and/or `state.json` are populated; subsequent `hazmat claude -p "say OK"` round-trips without a `/login` prompt.
 
 ### 2.2 Codex
 
@@ -91,7 +91,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Subscription path** (Device Code)
   - Preconditions: a ChatGPT Plus/Pro/Business/Enterprise subscription.
   - Steps: `hazmat codex` → at the auth picker, press `↓` once to highlight **Sign in with Device Code** (or type `2`) → press Enter → complete the device-code flow on host browser.
-  - Expected: the highlight moves from option `1` to option `2`; `/Users/agent/.codex/auth.json` populated; `agent:* 0600`.
+  - Expected: the highlight moves from option `1` to option `2`; after exit `~/.hazmat/secrets/codex/auth.json` exists and `/Users/agent/.codex/auth.json` has been cleaned up.
   - Verify: `hazmat codex exec "Reply with only OK and nothing else."` returns `OK` with a token-count footer.
 
 - [ ] **API key path** (env var)
@@ -102,7 +102,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Host import path**
   - Preconditions: codex already authed on host.
   - Steps: `hazmat config import codex` → accept.
-  - Expected: `agentOwnsFile` returns true; subsequent `hazmat codex exec "say OK"` skips the auth picker entirely.
+  - Expected: `~/.hazmat/secrets/codex/auth.json` exists; subsequent `hazmat codex exec "say OK"` skips the auth picker entirely.
 
 ### 2.3 OpenCode
 
@@ -113,7 +113,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Subscription / per-provider auth path**
   - Preconditions: a provider account that OpenCode supports (Anthropic, OpenAI, Google, OpenRouter, etc.).
   - Steps: `hazmat opencode` → at the OpenCode prompt, run `/auth` (or exit and use `opencode auth login` outside Hazmat then import).
-  - Expected: provider entry in `/Users/agent/.local/share/opencode/auth.json`.
+  - Expected: provider entry is available during the session and harvested into `~/.hazmat/secrets/opencode/auth.json` when the session exits.
 
 - [ ] **API key path** (per provider, no single env var)
   - Note: OpenCode is exempt from the `hazmat config agent` env-var prompts (multi-provider — no single key). Use the host import path or set per-provider keys with `opencode auth login` inside the sandbox.
@@ -121,7 +121,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Host import path**
   - Preconditions: opencode authed on host.
   - Steps: `hazmat config import opencode --dry-run` → `hazmat config import opencode`.
-  - Expected: "Sign-in: yes"; agent `auth.json` ends up `agent:* 0600`; `hazmat opencode run "say OK"` round-trips.
+  - Expected: "Sign-in: yes"; `~/.hazmat/secrets/opencode/auth.json` exists; `hazmat opencode run "say OK"` round-trips.
 
 ### 2.4 Gemini
 
@@ -134,7 +134,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Subscription path** (Google sign-in)
   - Preconditions: a Google account with Gemini access.
   - Steps: `hazmat gemini` → "Sign in with Google" flow.
-  - Expected: gemini stores credentials (Keychain on modern installs, fallback file `~/.gemini/oauth_creds.json` otherwise).
+  - Expected: Gemini stores credentials in Keychain on modern installs; if it falls back to file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` when the session exits.
 
 - [ ] **API key path** (env var)
   - Preconditions: `GEMINI_API_KEY` set in your invoking shell (get one from https://aistudio.google.com/apikey).
@@ -144,7 +144,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Host import path** (file-fallback only)
   - Preconditions: host stores creds in `~/.gemini/oauth_creds.json` (file fallback). If host uses macOS Keychain (the modern default), this item is N/A — the import will silently skip the OAuth file.
   - Steps: `hazmat config import gemini`.
-  - Expected: file imported as `agent:* 0600`; `hazmat gemini -p "say OK"` round-trips.
+  - Expected: imported file-backed auth lands in `~/.hazmat/secrets/gemini/`; `hazmat gemini -p "say OK"` round-trips.
 
 ---
 
@@ -196,17 +196,17 @@ These exercise the per-harness scaffolding rather than any one harness.
 
 These verify that earlier-fixed bugs stay fixed.
 
-- [ ] **Self-heal on broken auth.json ownership** (regression: `sandboxing-fkdf`)
-  - Setup: simulate the pre-fix broken state by copying an auth file to the agent dir as the host user:
+- [ ] **Legacy auth file migrates into host-owned storage**
+  - Setup: simulate an older Hazmat release that still left auth under `/Users/agent`:
     ```bash
+    rm -f ~/.hazmat/secrets/codex/auth.json
     sudo -u agent rm -f /Users/agent/.codex/auth.json
-    cp ~/.codex/auth.json /Users/agent/.codex/auth.json
-    chmod 600 /Users/agent/.codex/auth.json
-    ls -l /Users/agent/.codex/auth.json     # should show owner = dr
+    sudo -u agent install -d -m 700 /Users/agent/.codex
+    sudo -u agent cp ~/.codex/auth.json /Users/agent/.codex/auth.json
     ```
-  - Steps: `hazmat config import codex --dry-run`
-  - Expected: plan shows the auth file as **New** (or actionable), not Unchanged. Without `--dry-run`, re-import → owner becomes `agent`.
-  - On failure: check `agentOwnsFile` returns false in the broken state; check the scan path demotes Unchanged to New.
+  - Steps: `hazmat codex exec "Reply with only OK."`
+  - Expected: the run succeeds; after exit `~/.hazmat/secrets/codex/auth.json` exists and `/Users/agent/.codex/auth.json` is gone again.
+  - On failure: check the session notes for a migration warning or mismatch warning from the harness auth runtime.
 
 - [ ] **Codex bootstrap creates `~/.agents` shared dir** (regression: `sandboxing-3u4a`)
   - Steps: `sudo -u agent rm -rf /Users/agent/.agents` → `hazmat bootstrap codex`
@@ -253,10 +253,10 @@ Reference card for fixing common stuck states. Not a checklist — these are the
 
 - **Codex chat fails with `no native root CA certificates`**: rebuild against latest master (commit `eaaaa1c` and later). Several Security framework / mach-service allowances were added.
 
-- **Agent file owned by host user (mode 0600, can't be opened by agent)**: with the self-heal in commit `539034b`, just re-run `hazmat config import <harness>`. If for some reason the heal doesn't fire, manually remove and re-import:
+- **Stale auth file left under `/Users/agent` from an older build**: remove the stale runtime copy and relaunch so Hazmat can materialize the host-owned copy cleanly:
   ```bash
-  sudo -u agent rm /Users/agent/<auth-file-path>
-  hazmat config import <harness>
+  sudo -u agent rm -f /Users/agent/<auth-file-path>
+  hazmat <harness>
   ```
 
 ---

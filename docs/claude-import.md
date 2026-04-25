@@ -26,7 +26,7 @@ hazmat config import claude --skip-existing
 
 `hazmat init` also offers the same flow after bootstrap.
 
-Import is **copy-once**. Hazmat does not sync your host Claude setup continuously. If you want to refresh commands or skills later, rerun the import command.
+Import is **copy-once**. Hazmat does not sync your host Claude setup continuously. If you want to refresh commands or skills later, rerun the import command. Imported sign-in state is stored in Hazmat's host-owned secret store and only materialized into `/Users/agent` for active Claude sessions.
 
 ## What Hazmat Imports
 
@@ -37,7 +37,7 @@ Hazmat currently imports only these categories:
 - `~/.claude/commands`
 - `~/.claude/skills`
 
-For commands and skills, Hazmat resolves top-level symlinks and copies the resolved file or directory content into the agent environment. The imported result is a regular file or directory tree inside `/Users/agent/.claude/...`, not a live link back to your host setup.
+Claude auth lands in `~/.hazmat/secrets/claude/`. Commands and skills are still copied into the agent environment: Hazmat resolves top-level symlinks and copies the resolved file or directory content into `/Users/agent/.claude/...`, not a live link back to your host setup.
 
 If an entry is broken, unreadable, or not a regular file/directory after resolution, Hazmat skips it and reports why.
 

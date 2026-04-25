@@ -1051,18 +1051,46 @@ func sessionPathExposesFile(cfg sessionConfig, path string) bool {
 }
 
 func prepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
-	runtime := preparedSessionRuntime{
-		Cleanup: func() {},
+	var runtimes []preparedSessionRuntime
+
+	harnessRuntime, err := prepareHarnessAuthRuntime(cfg)
+	if err != nil {
+		return preparedSessionRuntime{}, err
 	}
-	if cfg.GitSSH == nil {
-		return runtime, nil
+	runtimes = append(runtimes, harnessRuntime)
+
+	if cfg.GitSSH != nil {
+		gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
+		if err != nil {
+			return preparedSessionRuntime{}, err
+		}
+		runtimes = append(runtimes, gitSSHRuntime)
 	}
 
-	gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
-	if err != nil {
-		return runtime, err
+	return mergePreparedSessionRuntimes(runtimes...), nil
+}
+
+func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSessionRuntime {
+	merged := preparedSessionRuntime{Cleanup: func() {}}
+	if len(runtimes) == 0 {
+		return merged
 	}
-	return gitSSHRuntime, nil
+
+	var cleanups []func()
+	for _, runtime := range runtimes {
+		if len(runtime.EnvPairs) > 0 {
+			merged.EnvPairs = append(merged.EnvPairs, runtime.EnvPairs...)
+		}
+		if runtime.Cleanup != nil {
+			cleanups = append(cleanups, runtime.Cleanup)
+		}
+	}
+	merged.Cleanup = func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}
+	return merged
 }
 
 func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, error) {

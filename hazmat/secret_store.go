@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,15 +25,22 @@ func hostSecretStoreDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("determine home directory for Hazmat secrets: %w", err)
 	}
-	return filepath.Join(home, ".hazmat", "secrets"), nil
+	return secretStoreDirForHome(home), nil
+}
+
+func secretStoreDirForHome(home string) string {
+	return filepath.Join(home, ".hazmat", "secrets")
 }
 
 func providerSecretStorePath(envVar string) (string, error) {
-	root, err := hostSecretStoreDir()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("determine home directory for Hazmat secrets: %w", err)
 	}
+	return providerSecretStorePathForHome(home, envVar)
+}
 
+func providerSecretStorePathForHome(home, envVar string) (string, error) {
 	var filename string
 	switch envVar {
 	case "ANTHROPIC_API_KEY":
@@ -43,7 +52,189 @@ func providerSecretStorePath(envVar string) (string, error) {
 	default:
 		return "", fmt.Errorf("no host secret-store mapping for %s", envVar)
 	}
-	return filepath.Join(root, "providers", filename), nil
+	return filepath.Join(secretStoreDirForHome(home), "providers", filename), nil
+}
+
+func claudeCredentialStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "claude", "credentials.json")
+}
+
+func claudeStateStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "claude", "state.json")
+}
+
+func codexAuthStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "codex", "auth.json")
+}
+
+func openCodeAuthStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "opencode", "auth.json")
+}
+
+func geminiOAuthStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "gemini", "oauth_creds.json")
+}
+
+func geminiAccountsStorePathForHome(home string) string {
+	return filepath.Join(secretStoreDirForHome(home), "gemini", "google_accounts.json")
+}
+
+func readHostStoredSecretFile(path string) ([]byte, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return raw, true, nil
+}
+
+func writeHostStoredSecretFile(path string, raw []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}
+
+func usesManagedAgentPath(path string) bool {
+	return path == agentHome || isWithinDir(agentHome, path)
+}
+
+func readAgentSecretFile(path string) ([]byte, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err == nil {
+		return raw, true, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if !usesManagedAgentPath(path) {
+		return nil, false, err
+	}
+
+	out, agentErr := newAgentCommand("cat", path).Output()
+	if agentErr != nil {
+		return nil, false, agentErr
+	}
+	return out, true, nil
+}
+
+func writeAgentSecretFile(path string, raw []byte, mode os.FileMode) error {
+	if !usesManagedAgentPath(path) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, raw, mode); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	if err := agentMkdirAll(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return agentWriteFile(path, raw, mode)
+}
+
+func removeAgentSecretFile(path string) error {
+	if !usesManagedAgentPath(path) {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := asAgentQuiet("rm", "-f", path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeJSONMapStoreFile(path string, payload map[string]json.RawMessage) error {
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	return writeHostStoredSecretFile(path, raw)
+}
+
+func readJSONMapStoreFile(path string) (map[string]json.RawMessage, bool, error) {
+	raw, ok, err := readHostStoredSecretFile(path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, false, err
+	}
+	if len(payload) == 0 {
+		return nil, false, nil
+	}
+	return payload, true, nil
+}
+
+func readClaudeStateKeysFromAgent(path string) (map[string]json.RawMessage, bool, error) {
+	raw, ok, err := readAgentSecretFile(path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	payload, err := selectClaudeAuthKeys(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(payload) == 0 {
+		return nil, false, nil
+	}
+	return payload, true, nil
+}
+
+func writeClaudeStateKeysToAgent(path string, payload map[string]json.RawMessage) error {
+	currentRaw, ok, err := readAgentSecretFile(path)
+	if err != nil {
+		return err
+	}
+
+	current := map[string]json.RawMessage{}
+	if ok && len(bytes.TrimSpace(currentRaw)) > 0 {
+		if err := json.Unmarshal(currentRaw, &current); err != nil {
+			return err
+		}
+	}
+	for key, value := range payload {
+		current[key] = value
+	}
+
+	raw, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	return writeAgentSecretFile(path, raw, 0o600)
+}
+
+func removeClaudeStateKeysFromAgent(path string) error {
+	raw, ok, err := readAgentSecretFile(path)
+	if err != nil || !ok {
+		return err
+	}
+
+	var current map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &current); err != nil {
+		return err
+	}
+	for _, key := range claudePortableAuthKeys {
+		delete(current, key)
+	}
+	if len(current) == 0 {
+		return removeAgentSecretFile(path)
+	}
+
+	updated, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return err
+	}
+	updated = append(updated, '\n')
+	return writeAgentSecretFile(path, updated, 0o600)
 }
 
 func readHostStoredAPIKey(spec harnessAPIKeySpec) (string, error) {

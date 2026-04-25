@@ -492,7 +492,7 @@ hazmat config import claude --overwrite
 hazmat config import claude --skip-existing
 ```
 
-Hazmat treats this as a curated import, not a full Claude migration. It can copy sign-in state, git identity, commands, and skills into the agent environment. Hazmat keeps its own runtime settings, hooks, MCP configuration, plugins, and safety controls.
+Hazmat treats this as a curated import, not a full Claude migration. It stores Claude sign-in state in `~/.hazmat/secrets/claude/`, imports git identity plus commands and skills, and only materializes file-backed auth into `/Users/agent` while a Claude session is active. Hazmat keeps its own runtime settings, hooks, MCP configuration, plugins, and safety controls.
 
 Detailed scope, symlink behavior, conflict handling, and MCP migration guidance live in [claude-import.md](claude-import.md).
 
@@ -514,8 +514,10 @@ hazmat codex
 hazmat codex -p "review the recent changes"
 ```
 
-Codex uses the same containment and project preflight model. It keeps its own
-auth and runtime state under the agent user's home directory.
+Codex uses the same containment and project preflight model. Runtime state
+lives under the agent user's home directory, while durable imported auth and
+API keys live in Hazmat's host-owned secret store and are materialized only
+for active Codex sessions.
 
 ## Importing Portable OpenCode Basics
 
@@ -526,7 +528,7 @@ hazmat config import opencode --overwrite
 hazmat config import opencode --skip-existing
 ```
 
-Hazmat treats this as a curated import, not a full OpenCode migration. It can copy sign-in state, git identity, commands, agents, and skills into the agent environment. Hazmat keeps its own runtime settings, plugins, project-local `.opencode` directories, and safety controls separate.
+Hazmat treats this as a curated import, not a full OpenCode migration. It stores OpenCode sign-in state in `~/.hazmat/secrets/opencode/auth.json`, imports git identity plus commands, agents, and skills, and only materializes file-backed auth into `/Users/agent` while an OpenCode session is active. Hazmat keeps its own runtime settings, plugins, project-local `.opencode` directories, and safety controls separate.
 
 Detailed scope, symlink behavior, and migration guidance live in [opencode-import.md](opencode-import.md).
 

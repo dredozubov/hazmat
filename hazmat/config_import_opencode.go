@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,6 +89,10 @@ func (e opencodeImportEnv) hostAuthFile() string {
 	return filepath.Join(e.hostHome, ".local", "share", "opencode", "auth.json")
 }
 
+func (e opencodeImportEnv) storedAuthFile() string {
+	return openCodeAuthStorePathForHome(e.hostHome)
+}
+
 func (e opencodeImportEnv) hostGitConfigPath() string {
 	return filepath.Join(e.hostHome, ".gitconfig")
 }
@@ -124,11 +127,12 @@ func newConfigImportOpenCodeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "opencode",
-		Short: "Import OpenCode basics into the agent environment",
+		Short: "Import OpenCode basics into Hazmat-managed state",
 		Long: `Import a curated subset of your host OpenCode setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from ~/.local/share/opencode/auth.json
+    (stored in ~/.hazmat/secrets and materialized only for OpenCode sessions)
   - git user.name and user.email
   - ~/.config/opencode/commands
   - ~/.config/opencode/agents
@@ -319,29 +323,27 @@ func scanOpenCodeAuthFile(env opencodeImportEnv, r *Runner) (opencodeImportItem,
 		return opencodeImportItem{}, false, fmt.Errorf("read host OpenCode auth: %w", err)
 	}
 
-	agentRaw, err := readMaybePrivilegedFile(env.agentAuthFile(), r)
 	status := claudeImportNew
-	switch {
-	case err == nil && bytes.Equal(hostRaw, agentRaw):
-		status = claudeImportUnchanged
-	case err == nil:
-		status = claudeImportConflict
-	case os.IsNotExist(err):
-		status = claudeImportNew
-	case errors.Is(err, fs.ErrPermission):
-		if _, statErr := os.Stat(env.agentAuthFile()); statErr == nil {
+	if storedRaw, ok, err := readHostStoredSecretFile(env.storedAuthFile()); err != nil {
+		return opencodeImportItem{}, false, fmt.Errorf("read stored OpenCode auth: %w", err)
+	} else if ok {
+		if bytes.Equal(hostRaw, storedRaw) {
+			status = claudeImportUnchanged
+		} else {
 			status = claudeImportConflict
-		} else if !os.IsNotExist(statErr) {
-			return opencodeImportItem{}, false, fmt.Errorf("stat agent OpenCode auth: %w", statErr)
 		}
-	default:
-		return opencodeImportItem{}, false, fmt.Errorf("read agent OpenCode auth: %w", err)
-	}
-
-	// Self-heal: re-import when content matches but ownership is wrong
-	// (e.g. left over from a pre-fix import that wrote as the host user).
-	if status == claudeImportUnchanged && !agentOwnsFile(env.agentAuthFile()) {
-		status = claudeImportNew
+	} else {
+		agentRaw, ok, err := readAgentSecretFile(env.agentAuthFile())
+		if err != nil {
+			return opencodeImportItem{}, false, fmt.Errorf("read agent OpenCode auth: %w", err)
+		}
+		if ok {
+			if bytes.Equal(hostRaw, agentRaw) {
+				status = claudeImportNew
+			} else {
+				status = claudeImportConflict
+			}
+		}
 	}
 
 	return opencodeImportItem{
@@ -350,7 +352,7 @@ func scanOpenCodeAuthFile(env opencodeImportEnv, r *Runner) (opencodeImportItem,
 		Kind:       opencodeImportAuthFile,
 		Status:     status,
 		SourcePath: env.hostAuthFile(),
-		DestPath:   env.agentAuthFile(),
+		DestPath:   env.storedAuthFile(),
 	}, true, nil
 }
 
@@ -629,7 +631,10 @@ func applyOpenCodeImportItem(item opencodeImportItem, env opencodeImportEnv, r *
 		if err != nil {
 			return fmt.Errorf("read host OpenCode auth file: %w", err)
 		}
-		return writeMaybePrivilegedFile(item.DestPath, raw, 0o600, agentUser+":staff", r)
+		if err := writeHostStoredSecretFile(item.DestPath, raw); err != nil {
+			return fmt.Errorf("write stored OpenCode auth file: %w", err)
+		}
+		return removeAgentSecretFile(env.agentAuthFile())
 	default:
 		return fmt.Errorf("unsupported import kind: %s", item.Kind)
 	}
