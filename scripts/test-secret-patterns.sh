@@ -12,6 +12,22 @@ pass() { PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[32m✓\033[0m 
 fail() { FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1)); printf "  \033[31m✗\033[0m %s\n" "$1"; }
 phase() { printf "\n\033[1m── %s ──\033[0m\n\n" "$1"; }
 
+google_fixture() {
+	printf '%s%s\n' "AI" "za12345678901234567890123456789012345"
+}
+
+anthropic_fixture() {
+	printf '%s%s\n' "sk-ant-" "api03-abcdefghijklmnopqrstuvwxyz1234567890"
+}
+
+github_fixture() {
+	printf '%s%s\n' "gh" "p_abcdefghijklmnopqrstuvwxyz1234567890"
+}
+
+aws_fixture() {
+	printf '%s%s\n' "AK" "IA1234567890ABCDEF"
+}
+
 make_repo() {
 	tmp="$(mktemp -d)"
 	git -C "$tmp" init -q
@@ -81,7 +97,7 @@ phase "Staged detection"
 
 repo="$(make_repo)"
 trap 'rm -rf "$repo" "${repo2:-}" "${repo3:-}" "${repo4:-}" "${repo5:-}"' EXIT INT TERM HUP
-printf 'AIza12345678901234567890123456789012345\n' >"$repo/google.txt"
+google_fixture >"$repo/google.txt"
 git -C "$repo" add google.txt
 assert_fails_with \
 	"staged Google key is rejected" \
@@ -90,7 +106,7 @@ assert_fails_with \
 rm -rf "$repo"
 
 repo2="$(make_repo)"
-printf 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890\n' >"$repo2/anthropic.txt"
+anthropic_fixture >"$repo2/anthropic.txt"
 git -C "$repo2" add anthropic.txt
 assert_fails_with \
 	"staged Anthropic key is rejected" \
@@ -99,7 +115,7 @@ assert_fails_with \
 rm -rf "$repo2"
 
 repo3="$(make_repo)"
-printf 'ghp_abcdefghijklmnopqrstuvwxyz1234567890\n' >"$repo3/github.txt"
+github_fixture >"$repo3/github.txt"
 git -C "$repo3" add github.txt
 assert_fails_with \
 	"staged GitHub token is rejected" \
@@ -110,7 +126,7 @@ rm -rf "$repo3"
 phase "Tracked detection"
 
 repo4="$(make_repo)"
-printf 'AKIA1234567890ABCDEF\n' >"$repo4/aws.txt"
+aws_fixture >"$repo4/aws.txt"
 git -C "$repo4" add aws.txt
 git -C "$repo4" commit -qm "add aws fixture"
 assert_fails_with \
