@@ -150,11 +150,8 @@ func runStatus(full bool) error {
 	}
 	installedHarnesses := installedManagedHarnesses()
 	claudeConfigured := func() bool {
-		data, err := os.ReadFile(agentHome + "/.zshrc")
-		if err != nil {
-			return false
-		}
-		return strings.Contains(string(data), "ANTHROPIC_API_KEY")
+		value, _, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0])
+		return err == nil && value != ""
 	}
 
 	allDone := containmentConfigured()

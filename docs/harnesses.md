@@ -24,7 +24,7 @@ The fastest path for a new install is almost always the **import** column — it
 - **Install (one-time):** `hazmat bootstrap claude`. Downloads the official Anthropic installer, verifies the published checksum, installs to `/Users/agent/.local/bin/claude`. Idempotent.
 - **Auth file location:** `/Users/agent/.claude/.credentials.json` (mode `0600`).
 - **Subscription / OAuth path:** run `hazmat claude`, type `/login`. Claude opens a browser for the OAuth handshake; the resulting credentials are written to `.credentials.json` inside the sandbox.
-- **API key path:** `hazmat config agent` will offer to seed `ANTHROPIC_API_KEY` from your invoking shell into `/Users/agent/.zshrc`. Persistent across sessions.
+- **API key path:** `hazmat config agent` will offer to store `ANTHROPIC_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/anthropic-api-key`. Hazmat injects it only into matching native sessions instead of keeping it in `/Users/agent/.zshrc`.
 - **Import from host path:** `hazmat config import claude` copies `~/.claude/.credentials.json`, the user-level `commands/` and `skills/` portable basics, and your git identity from host → agent. Doesn't import `settings.json`, hooks, MCP, or session history (those stay host-only).
 - **Verify:** `hazmat claude -p "say OK"` — single-shot prompt; should print `OK`.
 - **Detailed import scope:** [docs/claude-import.md](claude-import.md).
@@ -35,7 +35,7 @@ The fastest path for a new install is almost always the **import** column — it
 - **Auth file location:** `/Users/agent/.codex/auth.json` (mode `0600`). Holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys — same file regardless of which auth mode you use.
 - **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token persists in `auth.json` inside the sandbox.
   - The import path bypasses this picker entirely.
-- **API key path:** `hazmat config agent` can seed `OPENAI_API_KEY` from your invoking shell into `/Users/agent/.zshrc`. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
+- **API key path:** `hazmat config agent` can store `OPENAI_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/openai-api-key`. Hazmat injects it only into matching native sessions. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
 - **Import from host path:** `hazmat config import codex` copies `~/.codex/auth.json` (covers OAuth and API key) plus your git identity. Prompts, rules, and `AGENTS.md` mirror automatically via the harness asset sync at session launch.
 - **Verify:** `hazmat codex exec "Reply with only OK"` — runs the codex non-interactive subcommand; should print `OK` and exit cleanly.
 
@@ -54,7 +54,7 @@ The fastest path for a new install is almost always the **import** column — it
 - **Install (one-time):** `hazmat bootstrap gemini`. Installs `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works).
 - **Auth file location:** `/Users/agent/.gemini/oauth_creds.json` (file fallback, mode `0600`) **or** macOS Keychain (modern default — file isn't created when Keychain is used).
 - **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; tokens persist inside the sandbox.
-- **API key path:** `hazmat config agent` can seed `GEMINI_API_KEY` (AI Studio key) from your invoking shell into `/Users/agent/.zshrc`. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
+- **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into matching native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
 - **Import from host path:** `hazmat config import gemini` copies `~/.gemini/oauth_creds.json` (when host stored creds in the file fallback rather than Keychain), `google_accounts.json`, `settings.json`, `GEMINI.md`, and your git identity. If your host stores OAuth in Keychain, `oauth_creds.json` won't exist on the host and that item is silently skipped — re-auth inside `hazmat gemini` or use the env-var path.
 - **Verify:** `hazmat gemini -p "say only OK"` — non-interactive prompt; should print `OK`.
 

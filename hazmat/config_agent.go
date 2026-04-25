@@ -20,6 +20,7 @@ func newConfigAgentCmd() *cobra.Command {
 Sets up:
   1. API keys for installed harnesses (Anthropic / OpenAI / Gemini —
      only prompts for harnesses that are actually installed)
+     Stored in ~/.hazmat/secrets and injected only into matching sessions
   2. Git identity (name + email, pre-filled from host git config)
   3. Git credential helper (HTTPS with stored credentials)
 
@@ -42,11 +43,11 @@ Examples:
 // harnessAPIKeySpec maps a managed harness to the env var its CLI reads for
 // API-key auth, plus presentation hints.
 type harnessAPIKeySpec struct {
-	Harness     HarnessID
-	EnvVar      string // env var name written to /Users/agent/.zshrc
-	DisplayName string // "Anthropic", "OpenAI", "Gemini"
-	KeyPrefix   string // mask hint — known prefix that identifies a real key (e.g. "sk-ant-"); empty = no prefix-based mask
-	SkipHint    string // shown when the user chooses not to set the key
+	Harness      HarnessID
+	EnvVar       string // env var name injected into matching sessions
+	DisplayName  string // "Anthropic", "OpenAI", "Gemini"
+	KeyPrefix    string // mask hint — known prefix that identifies a real key (e.g. "sk-ant-"); empty = no prefix-based mask
+	SkipHint     string // shown when the user chooses not to set the key
 	NotFoundHint string // shown when neither current nor host env var is set, before the paste prompt
 }
 
@@ -79,7 +80,8 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 	},
 }
 
-// pendingAPIKeyUpdate captures a single env var to overwrite in /Users/agent/.zshrc.
+// pendingAPIKeyUpdate captures a single env var to persist in Hazmat's
+// host-owned secret store. Value == "" means "remove any legacy export".
 type pendingAPIKeyUpdate struct {
 	EnvVar string
 	Value  string
@@ -189,23 +191,24 @@ func runConfigAgent(ui *UI) error {
 	// Read each file, modify in memory, write to temp, sudo install with
 	// correct ownership. No login shell needed.
 
-	needsWrite := len(apiKeyUpdates) > 0 || gitName != "" || gitEmail != "" || needHelper
+	cleanupEnvVars := removableLegacyAPIKeyEnvVars(apiKeyUpdates)
+	needsWrite := len(apiKeyUpdates) > 0 || gitName != "" || gitEmail != "" || needHelper || hasLegacyAPIKeyExports(cleanupEnvVars)
 
 	if needsWrite {
-		// .zshrc: rewrite with all pending API key updates applied.
 		if len(apiKeyUpdates) > 0 {
-			if err := updateAgentFile(
-				agentHome+"/.zshrc",
-				func(content string) string {
-					return rewriteZshrcAPIKeys(content, apiKeyUpdates)
-				},
-				0o600, // API keys should not be world-readable
-			); err != nil {
-				return fmt.Errorf("set API keys: %w", err)
-			}
 			for _, upd := range apiKeyUpdates {
-				ui.Ok(fmt.Sprintf("%s set", upd.EnvVar))
+				if err := storeHostAPIKey(harnessAPIKeyPromptByEnvVar(upd.EnvVar), upd.Value); err != nil {
+					return err
+				}
+				ui.Ok(fmt.Sprintf("%s stored in ~/.hazmat/secrets", upd.EnvVar))
 			}
+		}
+
+		if hasLegacyAPIKeyExports(cleanupEnvVars) {
+			if err := removeLegacyAPIKeyExports(cleanupEnvVars); err != nil {
+				return fmt.Errorf("remove legacy API-key exports from %s: %w", agentZshrcPath, err)
+			}
+			ui.Ok(fmt.Sprintf("Legacy API-key exports removed from %s", agentZshrcPath))
 		}
 
 		// .gitconfig: update name, email, credential helper
@@ -258,24 +261,35 @@ func runConfigAgent(ui *UI) error {
 func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate, error) {
 	ui.Step(fmt.Sprintf("%s API key", spec.DisplayName))
 
-	currentLine := readZshrcEnvLine(agentHome+"/.zshrc", spec.EnvVar)
+	currentValue, source, err := lookupConfiguredAPIKey(spec)
+	if err != nil {
+		return nil, err
+	}
 	hostKey := os.Getenv(spec.EnvVar)
 
 	switch {
-	case currentLine != "":
-		cDim.Printf("  Current: %s\n", maskKey(currentLine, spec.KeyPrefix))
+	case currentValue != "":
+		sourceLabel := "~/.hazmat/secrets"
+		if source == configuredAPIKeySourceLegacy {
+			sourceLabel = agentZshrcPath + " (legacy; Enter will migrate it)"
+		}
+		cDim.Printf("  Current: %s (%s)\n", maskKey(fmt.Sprintf(`export %s="%s"`, spec.EnvVar, currentValue), spec.KeyPrefix), sourceLabel)
 		fmt.Print("  New API key (Enter to keep, or paste new): ")
 		apiKey, _ := term.ReadPassword(int(syscall.Stdin))
 		fmt.Println()
 		newKey := strings.TrimSpace(string(apiKey))
 		if newKey == "" {
+			if source == configuredAPIKeySourceLegacy {
+				ui.SkipDone("API key kept — migrating legacy export into ~/.hazmat/secrets")
+				return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: currentValue}, nil
+			}
 			ui.SkipDone("API key kept")
 			return nil, nil
 		}
 		return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: newKey}, nil
 	case hostKey != "":
 		fmt.Printf("  Found %s in your environment: %s\n", spec.EnvVar, maskHostKey(hostKey))
-		if ui.Ask("Copy this key to the agent user?") {
+		if ui.Ask("Store this key for Hazmat sessions?") {
 			return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: hostKey}, nil
 		}
 		fmt.Printf("  Set it later with 'hazmat config agent', or %s.\n", spec.SkipHint)
@@ -297,7 +311,7 @@ func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate,
 }
 
 // readZshrcEnvLine returns the trimmed line that exports the named env var
-// from /Users/agent/.zshrc, or empty string if the file or line is absent.
+// from the agent zshrc, or empty string if the file or line is absent.
 func readZshrcEnvLine(path, envVar string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -313,8 +327,8 @@ func readZshrcEnvLine(path, envVar string) string {
 }
 
 // rewriteZshrcAPIKeys removes any existing `export <ENVVAR>=...` line for each
-// pending update and appends the new value at the end of the file. Order of
-// other lines is preserved.
+// pending update and appends non-empty replacement values at the end of the
+// file. Order of other lines is preserved.
 func rewriteZshrcAPIKeys(content string, updates []pendingAPIKeyUpdate) string {
 	envVarsToReplace := make(map[string]string, len(updates))
 	for _, upd := range updates {
@@ -337,6 +351,9 @@ func rewriteZshrcAPIKeys(content string, updates []pendingAPIKeyUpdate) string {
 	}
 
 	for _, upd := range updates {
+		if upd.Value == "" {
+			continue
+		}
 		kept = append(kept, fmt.Sprintf(`export %s="%s"`, upd.EnvVar, upd.Value))
 	}
 

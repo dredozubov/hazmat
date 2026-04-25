@@ -402,7 +402,7 @@ hazmat restore --cloud         # restore latest snapshot
 ## Updating Credentials
 
 ```bash
-hazmat config agent            # re-enter Claude API key, git name/email
+hazmat config agent            # re-enter native-session API keys, git name/email
 ```
 
 ## Managed Git SSH

@@ -34,10 +34,11 @@ type sessionConfig struct {
 	IntegrationWarnings     []string          // warnings surfaced by active integrations
 	ActiveIntegrations      []string          // integration names, for status bar
 	GitSSH                  *sessionGitSSHConfig
-	ServiceAccess           []string  // explicit external-service access granted to session
-	RoutingReason           string    // plain-language explanation for the chosen mode
-	SessionNotes            []string  // plain-language notes about session behavior
-	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
+	HarnessEnv              map[string]string // narrow harness-specific env injected at launch
+	ServiceAccess           []string          // explicit external-service access granted to session
+	RoutingReason           string            // plain-language explanation for the chosen mode
+	SessionNotes            []string          // plain-language notes about session behavior
+	HarnessID               HarnessID         // which agent harness this session is for ("" = generic shell/exec)
 	RepoSetup               *repoSetupState
 }
 
@@ -960,6 +961,10 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
+	}
+	progress.Step("loading harness credentials")
+	if err := applyHarnessAPIKeyEnv(&cfg); err != nil {
+		return preparedSession{}, err
 	}
 	progress.Step("planning harness asset sync")
 	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)

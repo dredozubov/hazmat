@@ -74,7 +74,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **API key path** (env var)
   - Preconditions: `ANTHROPIC_API_KEY` set in your invoking shell.
   - Steps: `hazmat config agent` → accept the offer to copy the host key → press Enter through git identity.
-  - Expected: `grep ANTHROPIC_API_KEY /Users/agent/.zshrc` returns the export line; `hazmat claude -p "say only OK"` round-trips.
+  - Expected: `~/.hazmat/secrets/providers/anthropic-api-key` exists with mode `0600`; `hazmat claude -p "say only OK"` round-trips.
 
 - [ ] **Host import path**
   - Preconditions: claude already authed on host (`~/.claude/.credentials.json` exists).
@@ -97,7 +97,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **API key path** (env var)
   - Preconditions: `OPENAI_API_KEY` set in your invoking shell.
   - Steps: `hazmat config agent` → accept the OpenAI key prompt.
-  - Expected: `OPENAI_API_KEY` in `/Users/agent/.zshrc`; `hazmat codex exec "say OK"` round-trips.
+  - Expected: `~/.hazmat/secrets/providers/openai-api-key` exists with mode `0600`; `hazmat codex exec "say OK"` round-trips.
 
 - [ ] **Host import path**
   - Preconditions: codex already authed on host.
@@ -139,7 +139,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **API key path** (env var)
   - Preconditions: `GEMINI_API_KEY` set in your invoking shell (get one from https://aistudio.google.com/apikey).
   - Steps: `hazmat config agent` → accept the Gemini key prompt.
-  - Expected: `GEMINI_API_KEY` in `/Users/agent/.zshrc`; `hazmat gemini -p "say OK"` round-trips.
+  - Expected: `~/.hazmat/secrets/providers/gemini-api-key` exists with mode `0600`; `hazmat gemini -p "say OK"` round-trips.
 
 - [ ] **Host import path** (file-fallback only)
   - Preconditions: host stores creds in `~/.gemini/oauth_creds.json` (file fallback). If host uses macOS Keychain (the modern default), this item is N/A — the import will silently skip the OAuth file.
