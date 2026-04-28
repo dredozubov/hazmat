@@ -26,6 +26,7 @@ for hook in pre-commit pre-push; do
 done
 
 sh "$REPO_ROOT/scripts/check-secret-patterns.sh" repo
+sh "$REPO_ROOT/scripts/check-credential-regressions.sh" repo
 
 echo "pre-push: gitleaks scan..."
 gitleaks detect --redact -v --no-banner --config "$GITLEAKS_CONFIG"

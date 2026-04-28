@@ -30,6 +30,12 @@ jobs:
       - name: Regression-check secret-pattern script
         run: bash scripts/test-secret-patterns.sh
 
+      - name: Reject credential handling regressions
+        run: bash scripts/check-credential-regressions.sh
+
+      - name: Regression-check credential regression script
+        run: bash scripts/test-credential-regressions.sh
+
   gitleaks:
     name: Gitleaks
     runs-on: ubuntu-latest

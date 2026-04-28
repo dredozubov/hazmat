@@ -18,6 +18,7 @@ if [ -z "$STAGED_FILES" ]; then
 fi
 
 sh "$REPO_ROOT/scripts/check-secret-patterns.sh" --staged
+sh "$REPO_ROOT/scripts/check-credential-regressions.sh" --staged
 
 echo "pre-commit: gitleaks scan..."
 gitleaks protect --staged --redact -v --no-banner --config "$GITLEAKS_CONFIG"

@@ -224,6 +224,7 @@ func runConfigAgent(ui *UI) error {
 						cfg = setINIValue(cfg, "user", "email", gitEmail)
 					}
 					if needHelper {
+						// credential-regression: allow legacy agent-side Git HTTPS store until sandboxing-6md1 brokers it.
 						helper := "store --file " + agentHome + "/.config/git/credentials"
 						cfg = setINIValue(cfg, "credential", "helper", helper)
 					}

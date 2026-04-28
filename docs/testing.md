@@ -48,6 +48,12 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
     access key IDs, OpenRouter keys, and Context7 keys). No external
     dependencies. Safe placeholder guidance lives in
     [docs/synthetic-credentials.md](synthetic-credentials.md).
+  - `scripts/check-credential-regressions.sh --staged` — structural credential
+    lifecycle gate. It rejects new ad hoc durable writes to agent credential
+    paths, `credential.helper store` additions, host secret-store writes outside
+    the registry/store owners, and credential-shaped integration env passthrough
+    entries that should be modeled as SecretRef-backed
+    credentials instead.
   - `scripts/check-gitleaks.sh --staged` — broader scanner via
     [`gitleaks`](https://github.com/gitleaks/gitleaks) covering ~100 provider
     patterns and high-entropy detection (config:
@@ -55,13 +61,34 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
     `brew install gitleaks` or
     `go install github.com/zricethezav/gitleaks/v8@latest`
 - `pre-push`: the tracked source lives under `.hazmat/hooks/pre-push.sh` and
-  runs the fast local gate (tracked-file secret-pattern scan, full-tree
-  gitleaks scan, `go vet`, `go test`, Linux compile-only, `golangci-lint`,
-  and CLI smoke tests)
+  runs the fast local gate (tracked-file secret-pattern scan, structural
+  credential regression scan, full-tree gitleaks scan, `go vet`, `go test`,
+  Linux compile-only, `golangci-lint`, and CLI smoke tests)
 
 The legacy `scripts/pre-commit`, `scripts/pre-push`, and `scripts/check-fast.sh`
 entrypoints remain as compatibility wrappers for manual runs and older docs, but
 they are no longer the source of truth for Git hook installation.
+
+### Adding Credential Surfaces
+
+New credential handling must be represented in the typed credential registry, or
+explicitly documented as an external backend such as Keychain. Do not add direct
+writes to durable `/Users/agent` credential paths, do not add a new
+`credential.helper store` path, and do not write to `~/.hazmat/secrets` outside
+the registry/store owner files.
+
+For environment delivery, integration `env_passthrough` is only for passive
+selectors and path pointers. Credential-shaped names such as `*_TOKEN`,
+`*_SECRET`, `*_API_KEY`, `*_PASSWORD`, `*_PRIVATE_KEY`, and `*_ACCESS_KEY`
+belong behind a registry-backed SecretRef or brokered delivery path, not in
+`safeEnvKeys` or an integration manifest.
+
+If a line is a deliberate temporary exception, place
+`credential-regression: allow <issue-id and reason>` on the same line or the
+immediately preceding line. Treat that as a maintainer-reviewed escape hatch, not
+as the normal way to add credentials. Add or update a fixture in
+`scripts/test-credential-regressions.sh` whenever the scanner's intended
+boundary changes.
 
 ### Harness guardrails
 
