@@ -58,7 +58,7 @@ registry-level credential lifecycle: delivery mode matching, session scoping,
 adapter-required backend denial, env/broker/external grant cleanup on crash,
 and file-backed residue recovery as a precondition to session launch. It still
 does **not** model concrete Keychain APIs, git credential-helper bytes, SSH
-agent sockets, cloud-provider APIs, or exact integration manifest parsing.
+agent liveness, cloud-provider APIs, or exact integration manifest parsing.
 
 ---
 
@@ -505,8 +505,8 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
 | Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
 | Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
-| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `NoCrossKey` |
-| Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), and any-host fallback retirement (sandboxing-qq9b) are implemented and covered by the routing model |
+| Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `IdentitySourceClassified`, `NoCrossKey` |
+| Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), any-host fallback retirement (sandboxing-qq9b), and typed Git SSH identity-source classification are implemented and covered by the routing model |
 
 **What this verifies:**
 
@@ -541,7 +541,7 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
 
 6. **Profile and inline identity are mutually exclusive:** a key that
    declares both a profile reference and inline `private_key:` is a
-   schema-level conflict. The spec models `inlineMaterial` explicitly so
+   schema-level conflict. The spec models `identitySource` explicitly so
    TLC can reach the conflict state and witness the rejection. Proved by
    `NoProfileInlineConflict`.
 
@@ -549,7 +549,12 @@ TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
    reference or inline material). A present key with neither is rejected.
    Proved by `PresentKeysHaveIdentity`.
 
-TLC passes across 884,736 distinct states (1,327,104 generated, depth 2, ~1 min).
+8. **Identity sources are classified:** every ready key resolves to exactly
+   one identity class: profile-backed, external host-file reference, or
+   provisioned secret-store-backed root. Proved by
+   `IdentitySourceClassified`.
+
+TLC passes across 1,990,656 distinct states (2,985,984 generated, depth 2, ~16s).
 
 **Scope boundary:**
 

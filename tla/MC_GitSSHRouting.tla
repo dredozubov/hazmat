@@ -9,6 +9,9 @@
 \*     - a declared host set (after glob expansion, before normalization)
 \*     - an identity-agent socket it binds to at runtime
 \*     - an optional reference to a named profile (NoProfile when inline)
+\*     - an explicit non-profile identity source for inline material:
+\*       ExternalIdentity for host-file references, ProvisionedIdentity for
+\*       the secret-store-backed provisioned key root, or NoIdentity
 \*   A profile, when defined, contributes default host inheritance: if the
 \*   project key declares no hosts of its own, the profile's default hosts
 \*   apply. Profile references that point to undefined profiles are a
@@ -53,9 +56,17 @@ CONSTANTS
     KeyNames,     \* finite set of candidate key identifiers
     Sockets,      \* finite set of identity-agent socket identifiers
     ProfileNames, \* finite set of candidate profile identifiers
-    NoProfile     \* sentinel meaning "no profile reference" (inline key)
+    NoProfile,    \* sentinel meaning "no profile reference" (inline key)
+    NoIdentity,   \* sentinel meaning "no non-profile identity source"
+    ExternalIdentity,
+    ProvisionedIdentity
 
 ASSUME NoProfile \notin ProfileNames
+ASSUME NoIdentity /= ExternalIdentity
+ASSUME NoIdentity /= ProvisionedIdentity
+ASSUME ExternalIdentity /= ProvisionedIdentity
+
+IdentitySources == {NoIdentity, ExternalIdentity, ProvisionedIdentity}
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Variables
@@ -66,23 +77,25 @@ VARIABLES
     socket,                \* KeyNames -> Sockets (per-key socket binding)
     present,               \* SUBSET KeyNames (keys actually configured)
     keyProfile,            \* KeyNames -> ProfileNames \cup {NoProfile}
-    inlineMaterial,        \* KeyNames -> BOOLEAN (key declares 'private_key:' or 'key:')
+    identitySource,        \* KeyNames -> IdentitySources for non-profile refs
     profileDefaultHosts,   \* ProfileNames -> SUBSET Hosts
     definedProfiles,       \* SUBSET ProfileNames (profiles in ssh_profiles:)
     effective,             \* KeyNames -> SUBSET Hosts (after normalization)
     configValid,           \* BOOLEAN (passed config-set validation)
     phase                  \* "init" | "ready" | "rejected"
 
-vars == <<assignment, socket, present, keyProfile, inlineMaterial,
+vars == <<assignment, socket, present, keyProfile, identitySource,
           profileDefaultHosts, definedProfiles, effective, configValid, phase>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Key classification
-\*   InlineKey(k)                — k is a present key with no profile reference
-\*   ProfileKey(k)               — k is a present key referencing a defined profile
-\*   HasProfileInlineConflict(k) — k declares both profile and inline material
-\*   IsOrphanKey(k)              — k has no identity source
-\*   InlineKeyEmptyHosts(k)      — k is inline and declares no hosts (now illegal)
+\*   InlineKey(k)                  — k is a present key with no profile reference
+\*   ProfileKey(k)                 — k is a present key referencing a defined profile
+\*   ExternalIdentityKey(k)        — k uses an external host-file credential ref
+\*   ProvisionedIdentityKey(k)     — k uses the provisioned secret-store key root
+\*   HasProfileInlineConflict(k)   — k declares both profile and inline material
+\*   IsOrphanKey(k)                — k has no identity source
+\*   InlineKeyEmptyHosts(k)        — k is inline and declares no hosts (now illegal)
 \*
 \* The legacy any-host fallback that previously admitted a single inline key
 \* with empty declared hosts has been retired — every inline key must declare
@@ -98,27 +111,35 @@ ProfileKey(k) ==
     /\ k \in present
     /\ keyProfile[k] \in definedProfiles
 
+ExternalIdentityKey(k) ==
+    /\ InlineKey(k)
+    /\ identitySource[k] = ExternalIdentity
+
+ProvisionedIdentityKey(k) ==
+    /\ InlineKey(k)
+    /\ identitySource[k] = ProvisionedIdentity
+
 \* A key that declares both a profile reference AND inline identity
 \* material (private_key: / key:) is a schema-level conflict. The Go
 \* validator must reject it at config-load time.
 HasProfileInlineConflict(k) ==
     /\ k \in present
     /\ keyProfile[k] /= NoProfile
-    /\ inlineMaterial[k]
+    /\ identitySource[k] /= NoIdentity
 
 \* A present key with no profile reference AND no inline material has no
 \* identity source at all. The Go validator must reject it.
 IsOrphanKey(k) ==
     /\ k \in present
     /\ keyProfile[k] = NoProfile
-    /\ ~inlineMaterial[k]
+    /\ identitySource[k] = NoIdentity
 
 \* An inline key that declares no hosts would previously have been expanded
 \* to the any-host fallback. After force-migration (sandboxing-qq9b) this is
 \* a config-load failure.
 InlineKeyEmptyHosts(k) ==
     /\ InlineKey(k)
-    /\ inlineMaterial[k]
+    /\ identitySource[k] /= NoIdentity
     /\ assignment[k] = {}
 
 \* Normalize(k) computes the effective host set for key k after profile
@@ -139,7 +160,7 @@ Init ==
     /\ socket              \in [KeyNames -> Sockets]
     /\ present             \in (SUBSET KeyNames) \ {{}}
     /\ keyProfile          \in [KeyNames -> ProfileNames \cup {NoProfile}]
-    /\ inlineMaterial      \in [KeyNames -> BOOLEAN]
+    /\ identitySource      \in [KeyNames -> IdentitySources]
     /\ profileDefaultHosts \in [ProfileNames -> SUBSET Hosts]
     /\ definedProfiles     \in SUBSET ProfileNames
     /\ effective           = [k \in KeyNames |-> {}]
@@ -152,13 +173,15 @@ Init ==
 \*   2. Dangling profile reference        — owned by config.go at config-load time
 \*   3. Profile + inline identity clash   — owned by config.go at config-load time
 \*   4. Orphan key (no identity source)   — owned by config.go at config-load time
-\*   5. Inline key with empty hosts       — owned by config.go at config-load time
+\*   5. Inline identity source class      — owned by git_ssh.go resolution into
+\*                                          ExternalIdentity or ProvisionedIdentity
+\*   6. Inline key with empty hosts       — owned by config.go at config-load time
 \*                                          (legacy any-host fallback retired)
-\*   6. Identity-agent socket collision   — owned by git_ssh.go during session
+\*   7. Identity-agent socket collision   — owned by git_ssh.go during session
 \*                                          preparation; sockets are runtime
 \*                                          artifacts allocated per session, not
 \*                                          values stored in the config file.
-\* The spec checks all six together because the union is what every wrapper
+\* The spec checks all seven together because the union is what every wrapper
 \* invocation actually relies on.
 \* ═══════════════════════════════════════════════════════════════════════════════
 
@@ -191,7 +214,7 @@ Validate ==
                 /\ phase'       = "rejected"
            ELSE /\ configValid' = TRUE
                 /\ phase'       = "ready"
-    /\ UNCHANGED <<assignment, socket, present, keyProfile, inlineMaterial,
+    /\ UNCHANGED <<assignment, socket, present, keyProfile, identitySource,
                    profileDefaultHosts, definedProfiles>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
@@ -222,7 +245,7 @@ TypeOK ==
     /\ socket              \in [KeyNames -> Sockets]
     /\ present             \subseteq KeyNames
     /\ keyProfile          \in [KeyNames -> ProfileNames \cup {NoProfile}]
-    /\ inlineMaterial      \in [KeyNames -> BOOLEAN]
+    /\ identitySource      \in [KeyNames -> IdentitySources]
     /\ profileDefaultHosts \in [ProfileNames -> SUBSET Hosts]
     /\ definedProfiles     \subseteq ProfileNames
     /\ effective           \in [KeyNames -> SUBSET Hosts]
@@ -296,6 +319,17 @@ NoProfileInlineConflict ==
 PresentKeysHaveIdentity ==
     phase = "ready" =>
         \A k \in present : ~IsOrphanKey(k)
+
+\* --- IdentitySourceClassified ---
+\* Every ready key has exactly one resolved identity class: profile-backed,
+\* external host-file reference, or provisioned secret-store-backed root.
+IdentitySourceClassified ==
+    phase = "ready" =>
+        \A k \in present :
+            \/ /\ ProfileKey(k)
+               /\ identitySource[k] = NoIdentity
+            \/ ExternalIdentityKey(k)
+            \/ ProvisionedIdentityKey(k)
 
 \* --- NoCrossKey ---
 \* When exactly one key matches the host, the lookup's socket is the

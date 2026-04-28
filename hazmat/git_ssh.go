@@ -31,10 +31,78 @@ type sessionGitSSHConfig struct {
 // default_hosts and whose project key declares no override; such a key matches
 // no destination host.
 type sessionGitSSHKey struct {
-	Name           string
+	Name         string
+	Identity     sessionGitSSHIdentityRef
+	AllowedHosts []string
+}
+
+type sessionGitSSHIdentitySource string
+
+const (
+	gitSSHIdentitySourceExternalFile       sessionGitSSHIdentitySource = "external-file"
+	gitSSHIdentitySourceProvisionedKeyRoot sessionGitSSHIdentitySource = "provisioned-key-root"
+)
+
+type sessionGitSSHIdentityRef struct {
+	CredentialID   credentialID
+	Source         sessionGitSSHIdentitySource
 	PrivateKeyPath string
 	KnownHostsPath string
-	AllowedHosts   []string
+}
+
+func newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath string) sessionGitSSHIdentityRef {
+	return sessionGitSSHIdentityRef{
+		CredentialID:   credentialGitSSHExternalIdentity,
+		Source:         gitSSHIdentitySourceExternalFile,
+		PrivateKeyPath: privateKeyPath,
+		KnownHostsPath: knownHostsPath,
+	}
+}
+
+func newProvisionedGitSSHIdentityRef(privateKeyPath, knownHostsPath string) sessionGitSSHIdentityRef {
+	return sessionGitSSHIdentityRef{
+		CredentialID:   credentialGitSSHProvisionedIdentity,
+		Source:         gitSSHIdentitySourceProvisionedKeyRoot,
+		PrivateKeyPath: privateKeyPath,
+		KnownHostsPath: knownHostsPath,
+	}
+}
+
+func (ref sessionGitSSHIdentityRef) validate() error {
+	if strings.TrimSpace(ref.PrivateKeyPath) == "" {
+		return fmt.Errorf("private key path is empty")
+	}
+	if strings.TrimSpace(ref.KnownHostsPath) == "" {
+		return fmt.Errorf("known_hosts path is empty")
+	}
+	descriptor, ok := findCredentialDescriptor(ref.CredentialID)
+	if !ok {
+		return fmt.Errorf("credential descriptor %q is not registered", ref.CredentialID)
+	}
+	if descriptor.Kind != credentialKindGitSSHIdentity {
+		return fmt.Errorf("%s is %s, not %s", ref.CredentialID, descriptor.Kind, credentialKindGitSSHIdentity)
+	}
+	switch ref.Source {
+	case gitSSHIdentitySourceExternalFile:
+		if ref.CredentialID != credentialGitSSHExternalIdentity || descriptor.Delivery != credentialDeliveryExternalReference {
+			return fmt.Errorf("external Git SSH identity must use %s", credentialGitSSHExternalIdentity)
+		}
+	case gitSSHIdentitySourceProvisionedKeyRoot:
+		if ref.CredentialID != credentialGitSSHProvisionedIdentity || descriptor.Backend != credentialStorageHostSecretStore {
+			return fmt.Errorf("provisioned Git SSH identity must use %s", credentialGitSSHProvisionedIdentity)
+		}
+	default:
+		return fmt.Errorf("unsupported Git SSH identity source %q", ref.Source)
+	}
+	return nil
+}
+
+func (key sessionGitSSHKey) privateKeyPath() string {
+	return key.Identity.PrivateKeyPath
+}
+
+func (key sessionGitSSHKey) knownHostsPath() string {
+	return key.Identity.KnownHostsPath
 }
 
 // PrimaryKey returns the first configured key, or nil when the config has no
@@ -188,7 +256,7 @@ type sshConfigAliasResolution struct {
 }
 
 func provisionedSSHKeysRootDir() string {
-	return filepath.Join(filepath.Dir(configFilePath), "ssh", "keys")
+	return mustCredentialStorePathForConfig(credentialGitSSHProvisionedIdentity)
 }
 
 func defaultSSHKeyDirectory() string {
@@ -597,9 +665,10 @@ func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
 
 // resolveProjectSSHKeys walks the normalized key list for a project SSH
 // config and produces a sessionGitSSHConfig with one sessionGitSSHKey per
-// entry. Each key's identity resolves through a profile reference, an
-// inline PrivateKeyPath, or the provisioned inventory; visibility and
-// containment checks run per-key so a single stray identity blocks the
+// entry. Each key's identity resolves into a typed credential reference:
+// an external host-file reference for profile/inline/legacy paths, or the
+// provisioned secret-store-backed key root for inventory keys. Visibility
+// and containment checks run per-key so a single stray identity blocks the
 // whole session.
 func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles map[string]SSHProfile) (*sessionGitSSHConfig, error) {
 	if err := ValidateProjectSSHConfig(*raw); err != nil {
@@ -641,15 +710,12 @@ func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey, profiles 
 		name = "default"
 	}
 
-	privateKeyPath, knownHostsPath, err := resolveProjectSSHKeyIdentity(entry, profiles)
+	identity, err := resolveProjectSSHKeyIdentity(entry, profiles)
 	if err != nil {
 		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: %w", name, err)
 	}
-	if isWithinDir(agentHome, privateKeyPath) {
-		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: private key %q must stay outside %s", name, privateKeyPath, agentHome)
-	}
-	if sessionPathExposesFile(cfg, privateKeyPath) {
-		return sessionGitSSHKey{}, fmt.Errorf("ssh key %q: private key %q is visible inside the session contract; move it outside the project/read/write paths", name, privateKeyPath)
+	if err := validateSessionGitSSHIdentity(name, cfg, identity); err != nil {
+		return sessionGitSSHKey{}, err
 	}
 
 	// Declared Hosts take precedence; otherwise inherit the referenced
@@ -670,23 +736,44 @@ func resolveProjectSSHKeyEntry(cfg sessionConfig, entry ProjectSSHKey, profiles 
 	}
 
 	return sessionGitSSHKey{
-		Name:           name,
-		PrivateKeyPath: privateKeyPath,
-		KnownHostsPath: knownHostsPath,
-		AllowedHosts:   allowedHosts,
+		Name:         name,
+		Identity:     identity,
+		AllowedHosts: allowedHosts,
 	}, nil
 }
 
-func resolveProjectSSHKeyIdentity(entry ProjectSSHKey, profiles map[string]SSHProfile) (string, string, error) {
+func validateSessionGitSSHIdentity(name string, cfg sessionConfig, identity sessionGitSSHIdentityRef) error {
+	if err := identity.validate(); err != nil {
+		return fmt.Errorf("ssh key %q: identity: %w", name, err)
+	}
+	if isWithinDir(agentHome, identity.PrivateKeyPath) {
+		return fmt.Errorf("ssh key %q: private key %q must stay outside %s", name, identity.PrivateKeyPath, agentHome)
+	}
+	if sessionPathExposesFile(cfg, identity.PrivateKeyPath) {
+		return fmt.Errorf("ssh key %q: private key %q is visible inside the session contract; move it outside the project/read/write paths", name, identity.PrivateKeyPath)
+	}
+	if identity.Source == gitSSHIdentitySourceProvisionedKeyRoot {
+		root := provisionedSSHKeysRootDir()
+		if canonicalRoot, err := canonicalizePath(root); err == nil {
+			root = canonicalRoot
+		}
+		if !isWithinDir(root, identity.PrivateKeyPath) {
+			return fmt.Errorf("ssh key %q: provisioned private key %q is outside %s", name, identity.PrivateKeyPath, root)
+		}
+	}
+	return nil
+}
+
+func resolveProjectSSHKeyIdentity(entry ProjectSSHKey, profiles map[string]SSHProfile) (sessionGitSSHIdentityRef, error) {
 	profileName := strings.TrimSpace(entry.Profile)
 	if profileName != "" {
 		profile, ok := profiles[profileName]
 		if !ok {
-			return "", "", fmt.Errorf("profile %q is not defined in ssh_profiles", profileName)
+			return sessionGitSSHIdentityRef{}, fmt.Errorf("profile %q is not defined in ssh_profiles", profileName)
 		}
 		privateKeyPath, err := canonicalizeConfiguredFile(profile.PrivateKeyPath)
 		if err != nil {
-			return "", "", fmt.Errorf("profile %q private_key: %w", profileName, err)
+			return sessionGitSSHIdentityRef{}, fmt.Errorf("profile %q private_key: %w", profileName, err)
 		}
 		knownHostsRaw := profile.KnownHostsPath
 		if strings.TrimSpace(knownHostsRaw) == "" {
@@ -694,15 +781,15 @@ func resolveProjectSSHKeyIdentity(entry ProjectSSHKey, profiles map[string]SSHPr
 		}
 		knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
 		if err != nil {
-			return "", "", fmt.Errorf("profile %q known_hosts: %w", profileName, err)
+			return sessionGitSSHIdentityRef{}, fmt.Errorf("profile %q known_hosts: %w", profileName, err)
 		}
-		return privateKeyPath, knownHostsPath, nil
+		return newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath), nil
 	}
 
 	if strings.TrimSpace(entry.PrivateKeyPath) != "" {
 		privateKeyPath, err := canonicalizeConfiguredFile(entry.PrivateKeyPath)
 		if err != nil {
-			return "", "", fmt.Errorf("private_key: %w", err)
+			return sessionGitSSHIdentityRef{}, fmt.Errorf("private_key: %w", err)
 		}
 		knownHostsRaw := entry.KnownHostsPath
 		if strings.TrimSpace(knownHostsRaw) == "" {
@@ -710,23 +797,23 @@ func resolveProjectSSHKeyIdentity(entry ProjectSSHKey, profiles map[string]SSHPr
 		}
 		knownHostsPath, err := canonicalizeConfiguredFile(knownHostsRaw)
 		if err != nil {
-			return "", "", fmt.Errorf("known_hosts: %w", err)
+			return sessionGitSSHIdentityRef{}, fmt.Errorf("known_hosts: %w", err)
 		}
-		return privateKeyPath, knownHostsPath, nil
+		return newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath), nil
 	}
 
 	keyName := strings.TrimSpace(entry.Key)
 	if keyName == "" {
-		return "", "", fmt.Errorf("profile, private_key, or key is required")
+		return sessionGitSSHIdentityRef{}, fmt.Errorf("profile, private_key, or key is required")
 	}
 	provisioned, err := findProvisionedSSHKey(keyName)
 	if err != nil {
-		return "", "", fmt.Errorf("key: %w", err)
+		return sessionGitSSHIdentityRef{}, fmt.Errorf("key: %w", err)
 	}
 	if !provisioned.Usable() {
-		return "", "", fmt.Errorf("key %q is not usable: %s", provisioned.Name, provisioned.Status)
+		return sessionGitSSHIdentityRef{}, fmt.Errorf("key %q is not usable: %s", provisioned.Name, provisioned.Status)
 	}
-	return provisioned.PrivateKeyPath, provisioned.KnownHostsPath, nil
+	return newProvisionedGitSSHIdentityRef(provisioned.PrivateKeyPath, provisioned.KnownHostsPath), nil
 }
 
 func sessionNoteForKeys(keys []sessionGitSSHKey) string {
@@ -788,10 +875,9 @@ func resolveLegacyManagedGitSSH(cfg sessionConfig, raw *ProjectGitSSHConfig) (*s
 			strings.Join(allowedHosts, ", "),
 		),
 		Keys: []sessionGitSSHKey{{
-			Name:           displayName,
-			PrivateKeyPath: privateKeyPath,
-			KnownHostsPath: knownHostsPath,
-			AllowedHosts:   allowedHosts,
+			Name:         displayName,
+			Identity:     newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath),
+			AllowedHosts: allowedHosts,
 		}},
 	}, nil
 }
@@ -1280,12 +1366,16 @@ func prepareSSHIdentityKeyRuntime(runtimeDir string, key sessionGitSSHKey) (prep
 		_ = cmd.Run()
 	}
 
-	if err := gitSSHLoadKey(socketPath, key.PrivateKeyPath); err != nil {
+	if err := key.Identity.validate(); err != nil {
+		teardown()
+		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: identity: %w", key.Name, err)
+	}
+	if err := gitSSHLoadKey(socketPath, key.privateKeyPath()); err != nil {
 		teardown()
 		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: %w", key.Name, err)
 	}
 
-	knownHostsData, err := os.ReadFile(key.KnownHostsPath)
+	knownHostsData, err := os.ReadFile(key.knownHostsPath())
 	if err != nil {
 		teardown()
 		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: read known_hosts: %w", key.Name, err)
@@ -1391,7 +1481,10 @@ func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
 }
 
 func probeGitSSHHost(key sessionGitSSHKey, target gitSSHTestTarget) (string, error) {
-	return runGitSSHProbe(key.PrivateKeyPath, key.KnownHostsPath, target)
+	if err := key.Identity.validate(); err != nil {
+		return "", fmt.Errorf("ssh key %q: identity: %w", key.Name, err)
+	}
+	return runGitSSHProbe(key.privateKeyPath(), key.knownHostsPath(), target)
 }
 
 // selectSessionGitSSHKey picks the session key that matches the destination

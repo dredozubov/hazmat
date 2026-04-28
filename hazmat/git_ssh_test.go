@@ -215,11 +215,17 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if got.Keys[0].Name != "id_ed25519" {
 		t.Fatalf("Keys[0].Name = %q, want id_ed25519", got.Keys[0].Name)
 	}
-	if got.Keys[0].PrivateKeyPath != keyPath {
-		t.Fatalf("Keys[0].PrivateKeyPath = %q, want %q", got.Keys[0].PrivateKeyPath, keyPath)
+	if got.Keys[0].Identity.CredentialID != credentialGitSSHExternalIdentity {
+		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentialGitSSHExternalIdentity)
 	}
-	if got.Keys[0].KnownHostsPath != knownHostsPath {
-		t.Fatalf("Keys[0].KnownHostsPath = %q, want %q", got.Keys[0].KnownHostsPath, knownHostsPath)
+	if got.Keys[0].Identity.Source != gitSSHIdentitySourceExternalFile {
+		t.Fatalf("Keys[0].Identity.Source = %q, want %q", got.Keys[0].Identity.Source, gitSSHIdentitySourceExternalFile)
+	}
+	if got.Keys[0].Identity.PrivateKeyPath != keyPath {
+		t.Fatalf("Keys[0].Identity.PrivateKeyPath = %q, want %q", got.Keys[0].Identity.PrivateKeyPath, keyPath)
+	}
+	if got.Keys[0].Identity.KnownHostsPath != knownHostsPath {
+		t.Fatalf("Keys[0].Identity.KnownHostsPath = %q, want %q", got.Keys[0].Identity.KnownHostsPath, knownHostsPath)
 	}
 	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"github.com"}) {
 		t.Fatalf("Keys[0].AllowedHosts = %v, want [github.com]", got.Keys[0].AllowedHosts)
@@ -270,11 +276,56 @@ func TestResolveManagedGitSSHUsesProfileIdentityAndInheritsDefaultHosts(t *testi
 	if len(got.Keys) != 1 {
 		t.Fatalf("Keys len = %d, want 1", len(got.Keys))
 	}
-	if got.Keys[0].PrivateKeyPath != canonicalKey {
-		t.Fatalf("Keys[0].PrivateKeyPath = %q, want %q (profile identity)", got.Keys[0].PrivateKeyPath, canonicalKey)
+	if got.Keys[0].Identity.CredentialID != credentialGitSSHExternalIdentity {
+		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentialGitSSHExternalIdentity)
+	}
+	if got.Keys[0].Identity.Source != gitSSHIdentitySourceExternalFile {
+		t.Fatalf("Keys[0].Identity.Source = %q, want %q", got.Keys[0].Identity.Source, gitSSHIdentitySourceExternalFile)
+	}
+	if got.Keys[0].Identity.PrivateKeyPath != canonicalKey {
+		t.Fatalf("Keys[0].Identity.PrivateKeyPath = %q, want %q (profile identity)", got.Keys[0].Identity.PrivateKeyPath, canonicalKey)
 	}
 	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"github.com"}) {
 		t.Fatalf("Keys[0].AllowedHosts = %v, want [github.com] (inherited from profile)", got.Keys[0].AllowedHosts)
+	}
+}
+
+func TestResolveManagedGitSSHUsesProvisionedIdentityReference(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	key := writeProvisionedSSHKeyDirectory(t, "github-bot")
+	if err := runConfigSSHAdd(projectDir, "github", []string{"github.com"}, "github-bot", "", ""); err != nil {
+		t.Fatalf("runConfigSSHAdd --inventory: %v", err)
+	}
+
+	cfg, err := resolveSessionConfig(projectDir, nil, nil)
+	if err != nil {
+		t.Fatalf("resolveSessionConfig: %v", err)
+	}
+	got, err := resolveManagedGitSSH(cfg)
+	if err != nil {
+		t.Fatalf("resolveManagedGitSSH: %v", err)
+	}
+	if got == nil || len(got.Keys) != 1 {
+		t.Fatalf("managed Git SSH config = %+v, want one key", got)
+	}
+	identity := got.Keys[0].Identity
+	if identity.CredentialID != credentialGitSSHProvisionedIdentity {
+		t.Fatalf("CredentialID = %q, want %q", identity.CredentialID, credentialGitSSHProvisionedIdentity)
+	}
+	if identity.Source != gitSSHIdentitySourceProvisionedKeyRoot {
+		t.Fatalf("Source = %q, want %q", identity.Source, gitSSHIdentitySourceProvisionedKeyRoot)
+	}
+	if identity.PrivateKeyPath != key.PrivateKeyPath || identity.KnownHostsPath != key.KnownHostsPath {
+		t.Fatalf("identity = %+v, want provisioned key %+v", identity, key)
+	}
+	root, err := canonicalizePath(provisionedSSHKeysRootDir())
+	if err != nil {
+		t.Fatalf("canonicalize provisioned root: %v", err)
+	}
+	if !isWithinDir(root, identity.PrivateKeyPath) {
+		t.Fatalf("provisioned private key %q is outside %q", identity.PrivateKeyPath, root)
 	}
 }
 
@@ -747,10 +798,9 @@ func TestGitSSHBootstrapServiceBootstrapsOnlyOnFirstRequest(t *testing.T) {
 
 	service, err := startGitSSHBootstrapService(sessionGitSSHConfig{
 		Keys: []sessionGitSSHKey{{
-			Name:           "github",
-			PrivateKeyPath: "/keys/id_ed25519",
-			KnownHostsPath: knownHostsPath,
-			AllowedHosts:   []string{"github.com"},
+			Name:         "github",
+			Identity:     newExternalGitSSHIdentityRef("/keys/id_ed25519", knownHostsPath),
+			AllowedHosts: []string{"github.com"},
 		}},
 	}, runtimeDir)
 	if err != nil {
@@ -858,6 +908,29 @@ func writeNamedSSHKeyDirectory(t *testing.T, keyName string, includeKnownHosts b
 		}
 	}
 	return dir
+}
+
+func writeProvisionedSSHKeyDirectory(t *testing.T, keyName string) provisionedSSHKey {
+	t.Helper()
+
+	dir := filepath.Join(provisionedSSHKeysRootDir(), keyName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir provisioned SSH key dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "private_key"), []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write provisioned private key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "public_key"), []byte("ssh-ed25519 AAAA test@hazmat"), 0o600); err != nil {
+		t.Fatalf("write provisioned public key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "known_hosts"), []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write provisioned known_hosts: %v", err)
+	}
+	key := inspectProvisionedSSHKey(keyName, dir)
+	if !key.Usable() {
+		t.Fatalf("provisioned key = %+v, want usable", key)
+	}
+	return key
 }
 
 type assertErr struct{}
@@ -1374,7 +1447,7 @@ func TestSelectSessionGitSSHKeyRejectsEmptyAllowedHosts(t *testing.T) {
 	// and detectLegacyFlatSSH reject it at config load). If it somehow
 	// did, no host would match and the lookup would reject.
 	cfg := &sessionGitSSHConfig{
-		Keys: []sessionGitSSHKey{{Name: "only", PrivateKeyPath: "/k", KnownHostsPath: "/kh"}},
+		Keys: []sessionGitSSHKey{{Name: "only", Identity: newExternalGitSSHIdentityRef("/k", "/kh")}},
 	}
 	_, err := selectSessionGitSSHKey(cfg, "github.com")
 	if err == nil || !strings.Contains(err.Error(), "no SSH key configured for host") {

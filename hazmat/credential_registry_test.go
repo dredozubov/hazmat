@@ -228,14 +228,39 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 
 func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
-	if summary.ManagedHostSecretStore != 12 {
-		t.Fatalf("ManagedHostSecretStore = %d, want 12", summary.ManagedHostSecretStore)
+	if summary.ManagedHostSecretStore != 13 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 13", summary.ManagedHostSecretStore)
 	}
 	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
 		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
 	}
-	if len(summary.ExternalBoundaries) != 0 {
-		t.Fatalf("ExternalBoundaries = %v, want none", summary.ExternalBoundaries)
+	if len(summary.ExternalBoundaries) != 1 || summary.ExternalBoundaries[0] != "Git SSH external identity reference" {
+		t.Fatalf("ExternalBoundaries = %v, want Git SSH external identity reference", summary.ExternalBoundaries)
+	}
+}
+
+func TestGitSSHCredentialDescriptorsModelIdentitySources(t *testing.T) {
+	external := mustCredentialDescriptor(credentialGitSSHExternalIdentity)
+	if external.Kind != credentialKindGitSSHIdentity {
+		t.Fatalf("external Git SSH kind = %q, want %q", external.Kind, credentialKindGitSSHIdentity)
+	}
+	if external.Backend != credentialStorageExternalFile || external.Delivery != credentialDeliveryExternalReference || external.Support != credentialSupportExternal {
+		t.Fatalf("external Git SSH descriptor = %+v, want external file reference", external)
+	}
+	if _, err := external.StorePathForHome(t.TempDir()); err == nil {
+		t.Fatalf("external Git SSH descriptor produced host store path")
+	}
+
+	provisioned := mustCredentialDescriptor(credentialGitSSHProvisionedIdentity)
+	if provisioned.Kind != credentialKindGitSSHIdentity {
+		t.Fatalf("provisioned Git SSH kind = %q, want %q", provisioned.Kind, credentialKindGitSSHIdentity)
+	}
+	if provisioned.Backend != credentialStorageHostSecretStore || provisioned.Delivery != credentialDeliveryBrokeredHelper || provisioned.Support != credentialSupportManaged {
+		t.Fatalf("provisioned Git SSH descriptor = %+v, want managed brokered helper", provisioned)
+	}
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitSSHProvisionedIdentity)
+	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "git-ssh", "provisioned")) {
+		t.Fatalf("provisioned Git SSH store path = %q, want git-ssh/provisioned secret subtree", storePath)
 	}
 }
 

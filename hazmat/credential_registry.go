@@ -62,6 +62,9 @@ const (
 	credentialHarnessGeminiAccounts    credentialID = "harness.gemini.accounts"
 	credentialHarnessGeminiKeychain    credentialID = "harness.gemini.keychain-oauth"
 
+	credentialGitSSHExternalIdentity    credentialID = "git-ssh.external-identity"
+	credentialGitSSHProvisionedIdentity credentialID = "git-ssh.provisioned-identity"
+
 	credentialCloudS3AccessKeyID credentialID = "cloud.s3.access-key-id"
 	credentialCloudS3SecretKey   credentialID = "cloud.s3.secret-key"
 	credentialCloudKopiaRecovery credentialID = "cloud.kopia.recovery-key"
@@ -228,6 +231,27 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Redacted:    true,
 	},
 	{
+		ID:          credentialGitSSHExternalIdentity,
+		DisplayName: "Git SSH external identity reference",
+		Kind:        credentialKindGitSSHIdentity,
+		Backend:     credentialStorageExternalFile,
+		Delivery:    credentialDeliveryExternalReference,
+		Support:     credentialSupportExternal,
+		ExternalRef: "host-owned private key path selected by project SSH config or ssh_profiles",
+		Redacted:    true,
+	},
+	{
+		ID:           credentialGitSSHProvisionedIdentity,
+		DisplayName:  "Git SSH provisioned identity root",
+		Kind:         credentialKindGitSSHIdentity,
+		Backend:      credentialStorageHostSecretStore,
+		Delivery:     credentialDeliveryBrokeredHelper,
+		Support:      credentialSupportManaged,
+		StoreRelPath: "git-ssh/provisioned",
+		LegacyPaths:  []string{filepath.Join(filepath.Dir(configFilePath), "ssh", "keys")},
+		Redacted:     true,
+	},
+	{
 		ID:           credentialCloudS3AccessKeyID,
 		DisplayName:  "Cloud backup S3 access key ID",
 		Kind:         credentialKindCloudBackup,
@@ -321,6 +345,29 @@ func credentialStorePathForHome(home string, id credentialID) (string, error) {
 
 func mustCredentialStorePathForHome(home string, id credentialID) string {
 	storePath, err := credentialStorePathForHome(home, id)
+	if err != nil {
+		panic(err)
+	}
+	return storePath
+}
+
+func credentialStorePathForConfig(id credentialID) (string, error) {
+	descriptor, ok := findCredentialDescriptor(id)
+	if !ok {
+		return "", fmt.Errorf("no credential descriptor for %s", id)
+	}
+	if descriptor.Backend != credentialStorageHostSecretStore {
+		return "", fmt.Errorf("%s uses %s, not host secret store", descriptor.ID, descriptor.Backend)
+	}
+	cleanRelPath, err := cleanCredentialStoreRelPath(descriptor.StoreRelPath)
+	if err != nil {
+		return "", fmt.Errorf("%s store path: %w", descriptor.ID, err)
+	}
+	return filepath.Join(filepath.Dir(configFilePath), "secrets", filepath.FromSlash(cleanRelPath)), nil
+}
+
+func mustCredentialStorePathForConfig(id credentialID) string {
+	storePath, err := credentialStorePathForConfig(id)
 	if err != nil {
 		panic(err)
 	}

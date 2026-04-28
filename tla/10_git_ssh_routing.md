@@ -6,10 +6,12 @@
 
 Per-project SSH configs with N>=1 named keys, each carrying a declared
 destination-host set, an identity-agent socket binding, and an optional
-reference to a named profile. The routing relation maps a destination host
-to either a unique key (with its bound socket) or a rejection. The spec is
-wrapper/broker-agnostic: it models the policy contract, not the transport
-mechanism.
+reference to a named profile. Non-profile keys also carry a resolved
+identity source: either an external host-file credential reference or the
+secret-store-backed provisioned key root. The routing relation maps a
+destination host to either a unique key (with its bound socket) or a
+rejection. The spec is wrapper/broker-agnostic: it models the policy
+contract, not the transport mechanism.
 
 Governed code:
 
@@ -59,6 +61,7 @@ they still allocate distinct per-session identity-agent sockets, so
 | `NoDanglingProfileRefs` | Every profile reference in a ready config resolves to a defined profile; dangling references are rejected at config load. |
 | `NoProfileInlineConflict` | No present key declares both a profile reference and inline identity material. |
 | `PresentKeysHaveIdentity` | Every present key has an identity source (profile reference or inline material); orphan keys are rejected. |
+| `IdentitySourceClassified` | Every ready key resolves to exactly one identity class: profile-backed, external host-file reference, or provisioned secret-store-backed root. |
 | `NoCrossKey` | When exactly one key matches the host, the lookup returns that key's name and its bound socket, and no other present key binds to the same socket. |
 
 ## Scope boundary
@@ -87,13 +90,15 @@ Default config:
 Two profiles with independently-chosen `default_hosts` let TLC explore
 configurations where two present keys inherit from distinct profiles,
 covering both disjoint and overlapping inherited host sets. The
-`inlineMaterial` boolean lets TLC reach the profile+inline conflict state
-and the orphan (no-identity) state, so both rejections are proved rather
-than assumed away by the model shape. Two hosts are sufficient to witness
-all single/pair host-set partitions; the smaller host bound keeps the
-state count tractable given the expanded profile and identity variables.
+`identitySource` lets TLC reach external-file, provisioned-root,
+profile+inline conflict, and orphan (no-identity) states, so these cases
+are proved rather than assumed away by the model shape. Two hosts are
+sufficient to witness all single/pair host-set partitions; the smaller
+host bound keeps the state count tractable given the expanded profile and
+identity variables.
 
-Current run: 884,736 distinct states, ~1 minute TLC completion.
+Current run: 1,990,656 distinct states (2,985,984 generated), depth 2,
+~16s TLC completion.
 
 ## How to run
 

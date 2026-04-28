@@ -441,9 +441,12 @@ has been retired. Profile-referencing keys still inherit `default_hosts`
 from the profile when they declare no hosts of their own.
 
 This is an explicit per-project capability for Git transport only. Hazmat
-keeps each private key in host-owned storage, loads it into its own fresh
-session-local `ssh-agent`, and forces Git through a constrained wrapper
-that routes the destination host to the matching socket.
+resolves every key to a typed credential reference before launch. External
+keys and profile keys remain explicit host-file references; provisioned
+inventory keys live under `~/.hazmat/secrets/git-ssh/provisioned/<name>/`.
+Hazmat loads the selected identity into its own fresh session-local
+`ssh-agent` and forces Git through a constrained wrapper that routes the
+destination host to the matching socket.
 
 ### Reusable SSH profiles
 

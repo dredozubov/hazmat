@@ -76,8 +76,8 @@ type ProjectSSHConfig struct {
 // Exactly one identity source must be set:
 //   - Profile: reference to a shared identity in HazmatConfig.SSHProfiles
 //   - PrivateKeyPath: filesystem path to a private key (inline)
-//   - Key: reference to the legacy provisioned inventory at
-//     ~/.hazmat/ssh/keys/<name>/ (inline variant, predates profiles)
+//   - Key: reference to the typed provisioned inventory under the host
+//     secret store at ~/.hazmat/secrets/git-ssh/provisioned/<name>/
 //
 // Combining two of these is a config-load error. Hosts overrides any
 // Profile-inherited default_hosts when non-empty.
@@ -1281,7 +1281,7 @@ Examples:
 	addCmd.Flags().StringArrayVar(&addHosts, "host", nil,
 		"Destination host this key serves (repeatable, supports glob)")
 	addCmd.Flags().StringVar(&addInventory, "inventory", "",
-		"Reference a provisioned key from ~/.hazmat/ssh/keys/<name>/ instead of a path")
+		"Reference a provisioned key from ~/.hazmat/secrets/git-ssh/provisioned/<name>/ instead of a path")
 	addCmd.Flags().StringVar(&addProfile, "profile", "",
 		"Reference a shared SSH profile defined in ssh_profiles")
 
