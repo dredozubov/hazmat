@@ -33,6 +33,35 @@ func TestCodexLaunchScriptChecksInstalledPath(t *testing.T) {
 	}
 }
 
+func TestCodexInstallScriptInstallsLatestIntoAgentPrefix(t *testing.T) {
+	script := codexInstallScript(
+		"https://example.com/install.sh",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"rust-v0.125.0",
+	)
+	for _, want := range []string{
+		`curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail "https://example.com/install.sh" -o "$installer"`,
+		`expected="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"`,
+		`export CODEX_INSTALL_DIR="$HOME/.local/bin"`,
+		`sh "$installer" --release "rust-v0.125.0"`,
+		`test -x "$HOME/.local/bin/codex"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("codexInstallScript() missing %q in %q", want, script)
+		}
+	}
+}
+
+func TestCodexInstallerReleaseArg(t *testing.T) {
+	got, err := codexInstallerReleaseArg(codexGitHubRelease{TagName: "rust-v0.125.0"})
+	if err != nil {
+		t.Fatalf("codexInstallerReleaseArg() error = %v", err)
+	}
+	if got != "rust-v0.125.0" {
+		t.Fatalf("codexInstallerReleaseArg() = %q", got)
+	}
+}
+
 func TestCodexInstallerAssetFromRelease(t *testing.T) {
 	asset, err := codexInstallerAssetFromRelease(codexGitHubRelease{
 		Assets: []codexGitHubAsset{

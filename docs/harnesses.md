@@ -31,7 +31,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 ### Codex
 
-- **Install (one-time):** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, installs to `/Users/agent/.local/bin/codex`. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
+- **Install / update:** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, and installs or refreshes the agent-owned Codex CLI at `/Users/agent/.local/bin/codex`. Re-running this command updates the Hazmat copy; upgrading a host Homebrew `codex` binary does not change the isolated agent binary by itself. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
 - **Durable auth storage:** `~/.hazmat/secrets/codex/auth.json`. Hazmat materializes it to `/Users/agent/.codex/auth.json` only while a Codex session is active. The file holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys.
 - **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token is harvested into `~/.hazmat/secrets/codex/auth.json` when the session exits.
   - The import path bypasses this picker entirely.
@@ -105,7 +105,7 @@ These are managed copies — if you edit them inside the sandbox, the next sessi
 
 ## Troubleshooting
 
-- **Bootstrap step says "already installed":** that's the idempotent path. If you want a fresh install, uninstall first (`hazmat <harness> uninstall` if the CLI provides one, or remove the binary at `/Users/agent/.local/bin/<harness>`).
+- **Bootstrap step says "already installed":** that's the idempotent path for harnesses that do not refresh on every bootstrap. Codex is different: `hazmat bootstrap codex` refreshes the agent-owned Codex CLI to the latest verified release. If you want a fresh reinstall for another harness, uninstall first (`hazmat <harness> uninstall` if the CLI provides one, or remove the binary at `/Users/agent/.local/bin/<harness>`).
 - **Import says "no basics found to import":** the host doesn't have any of the expected files in its standard locations. Check the **Auth file location** above for the harness — that's the path the import scans.
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** check that `~/.hazmat/secrets/codex/auth.json` exists. If an older Hazmat left a stale `/Users/agent/.codex/auth.json`, remove it and relaunch so the host-owned copy is materialized cleanly.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.

@@ -18,7 +18,6 @@ const (
 	codexLatestInstallerURL   = "https://github.com/openai/codex/releases/latest/download/install.sh"
 	codexInstallerAssetName   = "install.sh"
 	codexBinRel               = "/.local/bin/codex"
-	codexBundledRipgrepRel    = "/.local/bin/rg"
 	codexMissingHelp          = "Error: Codex not installed for agent user. Run: hazmat bootstrap codex"
 	codexStateDirRel          = "/.codex"
 	codexGitHubAPIAccept      = "application/vnd.github+json"
@@ -26,7 +25,8 @@ const (
 )
 
 type codexGitHubRelease struct {
-	Assets []codexGitHubAsset `json:"assets"`
+	TagName string             `json:"tag_name"`
+	Assets  []codexGitHubAsset `json:"assets"`
 }
 
 type codexGitHubAsset struct {
@@ -109,30 +109,62 @@ func codexInstallerSHA256(asset codexGitHubAsset) (string, error) {
 	return sum, nil
 }
 
-func resolveLatestCodexInstaller() (string, string, error) {
+func codexInstallerReleaseArg(release codexGitHubRelease) (string, error) {
+	tagName := strings.TrimSpace(release.TagName)
+	if tagName == "" {
+		return "", fmt.Errorf("latest Codex release tag is missing")
+	}
+	return tagName, nil
+}
+
+func resolveLatestCodexInstaller() (string, string, string, error) {
 	release, err := fetchLatestCodexRelease()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	asset, err := codexInstallerAssetFromRelease(release)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	sum, err := codexInstallerSHA256(asset)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
+	}
+	releaseArg, err := codexInstallerReleaseArg(release)
+	if err != nil {
+		return "", "", "", err
 	}
 	if asset.BrowserDownloadURL == "" {
-		return "", "", fmt.Errorf("latest Codex installer URL is missing")
+		return "", "", "", fmt.Errorf("latest Codex installer URL is missing")
 	}
-	return asset.BrowserDownloadURL, sum, nil
+	return asset.BrowserDownloadURL, sum, releaseArg, nil
+}
+
+func codexInstallScript(installerURL, installerSHA256, installerRelease string) string {
+	return fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+installer=$(mktemp "${TMPDIR:-/tmp}/codex-install.XXXXXX")
+cleanup() { rm -f "$installer"; }
+trap cleanup EXIT
+curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
+actual=$(shasum -a 256 "$installer" | awk '{print $1}')
+expected=%q
+if [[ "$actual" != "$expected" ]]; then
+  echo "Codex installer checksum mismatch: expected $expected, got $actual" >&2
+  exit 1
+fi
+export PATH="$HOME/.local/bin:$PATH"
+export CODEX_INSTALL_DIR="$HOME/.local/bin"
+sh "$installer" --release %q
+test -x "$HOME%s"
+`, installerURL, installerSHA256, installerRelease, codexBinRel)
 }
 
 func newBootstrapCodexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "codex",
-		Short: "Install Codex for the agent user",
-		Long: `Install Codex for the agent user.
+		Short: "Install or update Codex for the agent user",
+		Long: `Install or update Codex for the agent user.
 
 Hazmat uses the official Codex installer, verifies the published installer
 digest from the latest GitHub release, and installs Codex into ~/.local/bin
@@ -153,59 +185,44 @@ func runCodexBootstrap(ui *UI, r *Runner) error {
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
-	ui.Step("Install Codex for agent user")
+	ui.Step("Install or update Codex for agent user")
 	if codexBin, ok := findInstalledCodexBinaryWith(r.AgentOutput); ok {
-		ui.SkipDone(fmt.Sprintf("Codex already installed at %s", codexBin))
-	} else {
-		installerURL := codexLatestInstallerURL
-		installerSHA256 := strings.Repeat("0", 64)
-		if !r.DryRun {
-			var err error
-			installerURL, installerSHA256, err = resolveLatestCodexInstaller()
-			if err != nil {
-				return err
-			}
-		}
-
-		installScript := fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-installer=$(mktemp "${TMPDIR:-/tmp}/codex-install.XXXXXX")
-cleanup() { rm -f "$installer"; }
-trap cleanup EXIT
-curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
-actual=$(shasum -a 256 "$installer" | awk '{print $1}')
-expected=%q
-if [[ "$actual" != "$expected" ]]; then
-  echo "Codex installer checksum mismatch: expected $expected, got $actual" >&2
-  exit 1
-fi
-export PATH="$HOME/.local/bin:$PATH"
-export CODEX_INSTALL_DIR="$HOME/.local/bin"
-sh "$installer" latest
-test -x "$HOME%s"
-test -x "$HOME%s"
-`, installerURL, installerSHA256, codexBinRel, codexBundledRipgrepRel)
-
-		scriptFile, err := os.CreateTemp("/tmp", "hazmat-codex-bootstrap-*.sh")
-		if err != nil {
-			return fmt.Errorf("create Codex bootstrap script: %w", err)
-		}
-		defer os.Remove(scriptFile.Name())
-		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
-			return fmt.Errorf("write Codex bootstrap script: %w", err)
-		}
-		scriptFile.Close() //nolint:errcheck // close-to-flush; chmod below catches problems
-		if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
-			return fmt.Errorf("chmod Codex bootstrap script: %w", err)
-		}
-
-		if err := r.AsAgentVisible("download, verify, and install Codex as agent user",
-			"/bin/bash", scriptFile.Name()); err != nil {
-			return fmt.Errorf("install Codex: %w", err)
-		}
-		ui.Ok("Codex installed")
+		ui.Ok(fmt.Sprintf("Found existing Codex at %s; refreshing to latest", codexBin))
+	} else if r.DryRun {
+		ui.Ok("Would install latest Codex for agent user")
 	}
+
+	installerURL := codexLatestInstallerURL
+	installerSHA256 := strings.Repeat("0", 64)
+	installerRelease := "latest"
+	if !r.DryRun {
+		var err error
+		installerURL, installerSHA256, installerRelease, err = resolveLatestCodexInstaller()
+		if err != nil {
+			return err
+		}
+	}
+
+	installScript := codexInstallScript(installerURL, installerSHA256, installerRelease)
+	scriptFile, err := os.CreateTemp("/tmp", "hazmat-codex-bootstrap-*.sh")
+	if err != nil {
+		return fmt.Errorf("create Codex bootstrap script: %w", err)
+	}
+	defer os.Remove(scriptFile.Name())
+	if _, err := scriptFile.WriteString(installScript); err != nil {
+		scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
+		return fmt.Errorf("write Codex bootstrap script: %w", err)
+	}
+	scriptFile.Close() //nolint:errcheck // close-to-flush; chmod below catches problems
+	if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
+		return fmt.Errorf("chmod Codex bootstrap script: %w", err)
+	}
+
+	if err := r.AsAgentVisible("download, verify, and install or update Codex as agent user",
+		"/bin/bash", scriptFile.Name()); err != nil {
+		return fmt.Errorf("install Codex: %w", err)
+	}
+	ui.Ok("Codex installed or updated")
 
 	ui.Step("Create Codex state directory")
 	stateDir := agentHome + codexStateDirRel
