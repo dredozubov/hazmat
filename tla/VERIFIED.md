@@ -53,6 +53,13 @@ harvest, removal, and crash/restart at each phase. It still does **not** model
 Keychain-backed auth, exact JSON merge semantics, or concurrent host-store
 writes while a session is running.
 
+Important credential-capability boundary: the current suite now also models the
+registry-level credential lifecycle: delivery mode matching, session scoping,
+adapter-required backend denial, env/broker/external grant cleanup on crash,
+and file-backed residue recovery as a precondition to session launch. It still
+does **not** model concrete Keychain APIs, git credential-helper bytes, SSH
+agent sockets, cloud-provider APIs, or exact integration manifest parsing.
+
 ---
 
 ## Governance Rules
@@ -682,6 +689,63 @@ baseline from a same-content rewrite.
 
 ---
 
+### 13 — Credential Capability Lifecycle
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/13_credential_capability_lifecycle.md` |
+| TLA+ files | `tla/MC_CredentialCapabilityLifecycle.tla`, `tla/MC_CredentialCapabilityLifecycle.cfg` |
+| Governed code | `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
+| Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
+| Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
+| Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoAgentResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
+| Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving file-backed recovery invariants |
+
+**What this verifies:**
+
+1. **Delivery mode is authoritative:** a file credential may create agent-side
+   materialization, an env credential may only appear in env grants, a brokered
+   credential may only appear in broker grants, and external references may only
+   appear as external grants.
+
+2. **Adapter-required backends are inert:** a credential like Gemini Keychain
+   OAuth cannot become active, delivered, materialized, env-granted,
+   broker-granted, or externally granted until an adapter is modeled.
+
+3. **Harness scope is enforced:** active-session exposure must either belong to
+   the active harness or be explicitly global, which is the shape expected for
+   future Git HTTPS broker credentials.
+
+4. **Crash clears session-only grants:** env, broker, and external grants do not
+   survive a crash/restart transition. File residue may survive, but launch is
+   blocked until recovery reconciles it.
+
+5. **Host ownership remains the recovered state:** after recovery, the latest
+   known managed value is in host primary storage or a host-owned conflict
+   archive, not only in `/Users/agent`.
+
+TLC passes across 63,681 distinct states (225,105 generated, depth 32, ~4s).
+
+**Scope boundary:**
+
+This is a registry-level proof. It does not model exact concrete file paths,
+filesystem permissions, JSON merge semantics, Keychain authorization prompts,
+git credential-helper protocol bytes, cloud provider behavior, SSH agent socket
+behavior, or integration manifest parsing. Those remain governed by narrower
+future specs, tests, and docs.
+
+**Change rules:**
+- Adding a credential delivery mode, support status, or secret-exposing backend
+  requires updating `MC_CredentialCapabilityLifecycle.tla` first.
+- Adapter-required credentials must remain undeliverable until their adapter is
+  represented in this model and TLC proves the intended invariants.
+- Git HTTPS, cloud backup, Git SSH, and integration/env credential work must
+  preserve the model's delivery-mode and session-scope invariants.
+- Any future path that creates durable `/Users/agent` credential material must
+  be modeled as file delivery and must preserve recovery-before-launch.
+
+---
+
 ### 9 — Launch FD Isolation
 
 | Field | Value |
@@ -746,6 +810,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
+| `13_credential_capability_lifecycle` | `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 
 ---
 
@@ -758,7 +823,8 @@ side cleanup is now a proved design rule instead of an implementation detail.
 - Exact ACL/chmod filesystem walk semantics for session-time permission repairs
 - Reworked setup-completion liveness under the current bounded setup/rollback retry model
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
-- Explicit Tier 3 API-key or other model-credential injection mechanisms, which are not yet implemented in `hazmat/sandbox.go`
+- Concrete Keychain APIs, git credential-helper protocol bytes, SSH agent socket
+  behavior, cloud provider APIs, and integration manifest parsing
 
 These areas remain governed by tests and documentation rather than the current
 TLC proofs.
