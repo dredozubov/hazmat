@@ -35,10 +35,11 @@ type sessionConfig struct {
 	ActiveIntegrations      []string          // integration names, for status bar
 	GitSSH                  *sessionGitSSHConfig
 	HarnessEnv              map[string]string // narrow harness-specific env injected at launch
-	ServiceAccess           []string          // explicit external-service access granted to session
-	RoutingReason           string            // plain-language explanation for the chosen mode
-	SessionNotes            []string          // plain-language notes about session behavior
-	HarnessID               HarnessID         // which agent harness this session is for ("" = generic shell/exec)
+	CredentialEnvGrants     []sessionCredentialEnvGrant
+	ServiceAccess           []string  // explicit external-service access granted to session
+	RoutingReason           string    // plain-language explanation for the chosen mode
+	SessionNotes            []string  // plain-language notes about session behavior
+	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
 	RepoSetup               *repoSetupState
 }
 
@@ -1321,6 +1322,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	if len(cfg.IntegrationRegistryKeys) > 0 {
 		fmt.Fprintf(&b, "  Invoker env passthrough: registry URLs via %s\n",
 			strings.Join(cfg.IntegrationRegistryKeys, ", "))
+	}
+	if labels := sessionCredentialEnvGrantLabels(cfg.CredentialEnvGrants); len(labels) > 0 {
+		fmt.Fprintf(&b, "  Credential env grants: %s\n", strings.Join(labels, ", "))
 	}
 	if len(cfg.SessionNotes) > 0 {
 		fmt.Fprintln(&b, "  Notes:")

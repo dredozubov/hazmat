@@ -133,6 +133,35 @@ var registryEnvKeys = map[string]bool{
 	"NPM_CONFIG_REGISTRY": true,
 }
 
+func isCredentialGrantEnvKey(key string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(key))
+	switch normalized {
+	case "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+		"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PAT", "SSH_AUTH_SOCK":
+		return true
+	}
+	if strings.HasSuffix(normalized, "_API_KEY") ||
+		strings.HasSuffix(normalized, "_PRIVATE_KEY") ||
+		strings.HasSuffix(normalized, "_ACCESS_KEY") ||
+		strings.HasSuffix(normalized, "_ACCESS_TOKEN") {
+		return true
+	}
+	for _, part := range strings.Split(normalized, "_") {
+		switch part {
+		case "TOKEN", "SECRET", "PASSWORD":
+			return true
+		}
+	}
+	return false
+}
+
+func rejectCredentialGrantEnvKey(owner, field, key string) error {
+	if !isCredentialGrantEnvKey(key) {
+		return nil
+	}
+	return fmt.Errorf("%s: env key %q in %s is credential/capability-shaped; use a SecretRef or capability grant instead of env passthrough", owner, key, field)
+}
+
 // ── Integration manifest types ─────────────────────────────────────────────
 
 type IntegrationSpec struct {
@@ -300,6 +329,9 @@ func validateIntegrationSchema(p IntegrationSpec) error {
 
 func validateIntegrationEnvKeys(integrationName, field string, keys []string) error {
 	for _, key := range keys {
+		if err := rejectCredentialGrantEnvKey(fmt.Sprintf("integration %q", integrationName), field, key); err != nil {
+			return err
+		}
 		if !safeEnvKeys[key] {
 			return fmt.Errorf("integration %q: env key %q in %s not in safe passthrough set", integrationName, key, field)
 		}
@@ -970,6 +1002,9 @@ func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, pl
 
 	for _, integration := range integrations {
 		session := integrationSessionForPlatform(integration.Spec.Session, platform)
+		if err := validateIntegrationEnvKeys(integration.Spec.Meta.Name, "session.env_passthrough", session.EnvPassthrough); err != nil {
+			return integrationMergeResult{}, err
+		}
 		if !integration.ReplaceDeclaredReadDirs {
 			dirs, err := validateIntegrationPathsForPlatform(integration.Spec, platform)
 			if err != nil {
@@ -1004,6 +1039,9 @@ func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, pl
 			}
 		}
 		for key, value := range integration.ResolvedEnv {
+			if err := rejectCredentialGrantEnvKey(fmt.Sprintf("integration %q", integration.Spec.Meta.Name), "resolved env", key); err != nil {
+				return integrationMergeResult{}, err
+			}
 			if value == "" {
 				continue
 			}

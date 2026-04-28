@@ -29,7 +29,7 @@ Legend:
 | Agent modifies `~/.zshrc` or similar | Partial | Yes | Yes | Yes | Yes |
 | Agent accesses browser cookies or saved credentials | No | Partial | Yes | Yes | Yes |
 | Agent accesses Keychain-adjacent material | No | Partial | Yes | Yes | Yes |
-| MCP child processes inherit agent user's full shell env (API keys, SSH_AUTH_SOCK) | No | No | No¹ | No¹ | No¹ |
+| MCP child processes inherit explicit session credential grants | No | No | Partial¹ | Partial¹ | Partial¹ |
 | MEMORY.md injection → cross-session persistent instructions | No | No | No | No | Yes² |
 | Any main-user process reads `~/.claude/history.jsonl`, `paste-cache/`, `~/.claude.json` | No | No | No⁵ | No⁵ | No⁵ |
 | Settings misconfiguration removes permission gates (`skipDangerousModePermissionPrompt`) | No | No | Partial⁶ | Partial⁶ | Yes⁷ |
@@ -45,7 +45,7 @@ Legend:
 | Network exfiltration via DNS | No | No | Partial | Yes | Yes |
 | Lateral movement on localhost or LAN | No | Partial | Partial | Yes | Yes |
 | Prompt injection via MCP server | Partial | Partial | Partial | Yes | Yes |
-| SSH agent socket abuse (SSH_AUTH_SOCK → auth to remote servers without key exfil) | No | No | No³ | No³ | No³ |
+| SSH agent socket abuse (SSH_AUTH_SOCK → auth to remote servers without key exfil) | No | No | Partial³ | Partial³ | Partial³ |
 | MCP supply chain: compromised npm/PyPI package exfiltrates credentials at spawn time | No | No | Partial⁴ | Partial⁴ | Partial⁴ |
 
 ### Escape, Persistence, and Recovery Surface
@@ -61,13 +61,13 @@ Legend:
 
 ## Matrix Footnotes
 
-1. **MCP env inheritance is not addressed by any tier.** All tiers run MCP server subprocesses that inherit the agent user's shell environment. Tier 2 limits *which user's* environment is exposed (agent user, not main user), but if the agent user has API keys or SSH_AUTH_SOCK in its shell profile, those reach every MCP child. `CLAUDE_CODE_DONT_INHERIT_ENV=1` does not suppress this (confirmed by testing). Mitigation: export only the specific credentials each MCP server legitimately needs, or use `env -i` to strip-and-reconstruct the environment before launching Claude.
+1. **MCP env inheritance is only bounded at the session boundary.** Native Hazmat sessions strip and reconstruct the launch environment instead of inheriting the agent user's full shell environment. Integration `env_passthrough` is limited to passive non-secret selectors, and credential/capability-shaped names such as `*_TOKEN`, `*_API_KEY`, `*_SECRET`, and `SSH_AUTH_SOCK` are rejected unless a future SecretRef/capability grant owns them. Existing harness API-key grants are loaded from the host secret store and displayed redacted in the session contract. Residual risk: once a credential is explicitly granted to the harness process, downstream child processes such as MCP servers may inherit it unless the harness or MCP wrapper provides finer-grained env scoping.
 
 2. **MEMORY.md persistence is only cleanly addressed by Tier 4 snapshot rollback.** Lower tiers cannot distinguish a poisoned memory entry from a legitimate user preference. Detection requires diffing the memory files after each session.
 
-3. **SSH agent abuse bypasses all filesystem-based isolation.** No tier removes `SSH_AUTH_SOCK` from the environment. An MCP server or a compromised subprocess with code execution can authenticate to any SSH server the user's key has access to, without reading the key from disk. Mitigation: don't export `SSH_AUTH_SOCK` in the agent user's shell, or use a separate SSH key with limited access for agent sessions.
+3. **SSH agent abuse bypasses filesystem-only isolation.** Hazmat does not pass the host user's `SSH_AUTH_SOCK` through integration env, and general SSH remains unsupported. Managed Git-over-SSH may still expose a fresh session-local ssh-agent socket for the selected project key until the brokered Git SSH work replaces that socket with a narrower transport capability. A compromised process that reaches such a socket can authenticate as that key without reading the private key from disk, so use dedicated low-privilege project keys.
 
-4. **pf egress filtering reduces but does not eliminate supply-chain exfil risk.** A pf allowlist blocks exfiltration to unknown destinations, but an attacker routing through an allowlisted CDN (e.g., Cloudflare, AWS CloudFront, Google Cloud Run) bypasses it. The MCP subprocess still inherits all credentials at spawn time. Mitigation: lockfile pinning for MCP packages (not currently supported by Claude's MCP config format) and vetting installed packages.
+4. **pf egress filtering reduces but does not eliminate supply-chain exfil risk.** A pf allowlist blocks exfiltration to unknown destinations, but an attacker routing through an allowlisted CDN (e.g., Cloudflare, AWS CloudFront, Google Cloud Run) bypasses it. MCP subprocesses may still inherit credentials that were explicitly granted to the harness process. Mitigation: lockfile pinning for MCP packages (not currently supported by Claude's MCP config format), vetting installed packages, and avoiding broad harness-level credential grants when a narrower broker is available.
 
 5. **`~/.claude/` disk artifacts are not protected from main-user processes by any tier.** Tier 2 protects the agent user from reading the main user's `~/.claude/`. But any process running as the main user — including Claude itself in non-Tier-2 setups, other tools, or a compromised browser — can read `~/.claude/history.jsonl` (full prompt history), `~/.claude.json` (all credentials and project paths), and `~/.claude/paste-cache/` (all pasted content). These files accumulate indefinitely. Mitigation: periodic rotation of `history.jsonl` and `paste-cache/`; treat `~/.claude.json` as a credential file and protect it accordingly.
 
@@ -88,7 +88,7 @@ Legend:
 - Tier 2 `pf` rules are not a complete answer for every exfiltration path, and they do not meaningfully constrain container traffic.
 - Tier 3 is only a strong answer when the agent is using its own daemon or microVM, not the host daemon.
 - Tier 4 is the best recovery story because rollback is part of the design, not an afterthought.
-- **No tier currently addresses MCP env inheritance, SSH agent socket abuse, or MCP supply-chain attacks against the agent user's own credentials.** These require operational controls (what you export into the shell) not sandbox architecture controls.
+- **No tier fully addresses child-process inheritance of explicitly granted credentials, session-local SSH-agent socket abuse, or MCP supply-chain attacks against credentials intentionally granted to the harness.** Hazmat now blocks ambient credential env passthrough at the integration/session boundary, but downstream per-MCP scoping still requires harness or broker support.
 - **`~/.claude/` accumulated artifacts (history, paste-cache, debug logs) are a high-value target that no tier protects from main-user processes.** These grow indefinitely and should be rotated manually.
 - **Operational settings (`skipDangerousModePermissionPrompt`, world-writable `git-worktrees.json`) can silently remove tier protections.** Audit `~/.claude/settings.json` and fix file permissions as part of Tier 2 setup.
 - **Integration approval protects against agent self-escalation, not host compromise.** The approval prompt and hash-keyed record prevent the sandboxed agent from silently activating integrations on the next session. They do not prevent an attacker with host-user code execution from forging approvals — but such an attacker already has broader access than integrations can provide. Integration validation (not approval) is the security boundary.

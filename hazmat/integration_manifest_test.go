@@ -151,6 +151,22 @@ func TestValidateIntegrationSchemaUnsafeEnvKey(t *testing.T) {
 	}
 }
 
+func TestValidateIntegrationSchemaRejectsCredentialEnvKey(t *testing.T) {
+	for _, key := range []string{"GITHUB_TOKEN", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "SSH_AUTH_SOCK"} {
+		p := IntegrationSpec{
+			Meta:    IntegrationMeta{Name: "test", Version: 1},
+			Session: IntegrationSession{EnvPassthrough: []string{key}},
+		}
+		err := validateIntegrationSchema(p)
+		if err == nil {
+			t.Fatalf("expected error for credential env key %s", key)
+		}
+		if !strings.Contains(err.Error(), "credential/capability-shaped") {
+			t.Fatalf("unexpected error for %s: %v", key, err)
+		}
+	}
+}
+
 func TestValidateIntegrationSchemaSafeEnvKey(t *testing.T) {
 	p := IntegrationSpec{
 		Meta:    IntegrationMeta{Name: "test", Version: 1},
@@ -566,6 +582,21 @@ func TestMergeResolvedIntegrationsUsesPlatformEnvOverlay(t *testing.T) {
 	}
 	if _, ok := result.EnvPassthrough["TLA2TOOLS_JAR"]; ok {
 		t.Fatalf("linux env should not include darwin overlay: %v", result.EnvPassthrough)
+	}
+}
+
+func TestMergeResolvedIntegrationsRejectsCredentialResolvedEnv(t *testing.T) {
+	_, err := mergeResolvedIntegrationsForPlatform([]resolvedIntegration{
+		{
+			Spec:        IntegrationSpec{Meta: IntegrationMeta{Name: "bad-resolver", Version: 1}},
+			ResolvedEnv: map[string]string{"GITHUB_TOKEN": "example-token"},
+		},
+	}, "darwin")
+	if err == nil {
+		t.Fatal("expected error for credential-shaped resolved env")
+	}
+	if !strings.Contains(err.Error(), "credential/capability-shaped") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

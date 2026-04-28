@@ -405,5 +405,12 @@ func applyHarnessAPIKeyEnv(cfg *sessionConfig) error {
 		cfg.HarnessEnv = make(map[string]string, 1)
 	}
 	cfg.HarnessEnv[spec.EnvVar] = value
+	if descriptor, ok := providerCredentialDescriptorForEnvVar(spec.EnvVar); ok {
+		cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
+			EnvVar:       spec.EnvVar,
+			CredentialID: descriptor.ID,
+			Source:       "host secret store",
+		})
+	}
 	return nil
 }

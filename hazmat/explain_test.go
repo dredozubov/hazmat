@@ -49,6 +49,13 @@ func TestBuildExplainJSON(t *testing.T) {
 			"GOROOT":      "/opt/homebrew/Cellar/go/1.2.3/libexec",
 		},
 		IntegrationRegistryKeys: []string{"NPM_CONFIG_REGISTRY"},
+		CredentialEnvGrants: []sessionCredentialEnvGrant{
+			{
+				EnvVar:       "OPENAI_API_KEY",
+				CredentialID: credentialProviderOpenAIAPIKey,
+				Source:       "host secret store",
+			},
+		},
 		PlannedHostMutations: []sessionMutation{
 			{
 				Summary:     "project ACL repair",
@@ -108,6 +115,16 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.IntegrationEnvKeys, []string{"GOROOT", "VIRTUAL_ENV"}) {
 		t.Fatalf("IntegrationEnvKeys = %v", got.IntegrationEnvKeys)
+	}
+	if !reflect.DeepEqual(got.CredentialEnvGrants, []explainJSONCredentialEnvGrant{
+		{
+			EnvVar:       "OPENAI_API_KEY",
+			CredentialID: string(credentialProviderOpenAIAPIKey),
+			Source:       "host secret store",
+			Redacted:     true,
+		},
+	}) {
+		t.Fatalf("CredentialEnvGrants = %#v", got.CredentialEnvGrants)
 	}
 	if got.Snapshot.Enabled {
 		t.Fatalf("Snapshot.Enabled = true, want false")

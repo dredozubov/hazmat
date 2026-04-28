@@ -8,31 +8,32 @@ import (
 const explainJSONFormatVersion = 1
 
 type explainJSONPreview struct {
-	FormatVersion         int               `json:"format_version"`
-	Target                string            `json:"target"`
-	Mode                  string            `json:"mode"`
-	ModeLabel             string            `json:"mode_label"`
-	ProjectDir            string            `json:"project_dir"`
-	RoutingReason         string            `json:"routing_reason,omitempty"`
-	SuggestedIntegrations []string          `json:"suggested_integrations,omitempty"`
-	RepoSetupSummary      string            `json:"repo_setup_summary,omitempty"`
-	RepoSetupApplied      []explainJSONRepoSetupEffect `json:"repo_setup_applied,omitempty"`
-	RepoSetupPending      []explainJSONRepoSetupEffect `json:"repo_setup_pending,omitempty"`
-	ActiveIntegrations    []string          `json:"active_integrations,omitempty"`
-	IntegrationSources    []string          `json:"integration_sources,omitempty"`
-	IntegrationDetails    []string          `json:"integration_details,omitempty"`
-	IntegrationWarnings   []string          `json:"integration_warnings,omitempty"`
-	IntegrationEnvKeys    []string          `json:"integration_env_keys,omitempty"`
-	RegistryEnvKeys       []string          `json:"integration_registry_env_keys,omitempty"`
-	PlannedHostMutations  []sessionMutation `json:"planned_host_mutations,omitempty"`
-	ReadOnlyDirs          []string          `json:"read_only_dirs,omitempty"`
-	AutoReadOnlyDirs      []string          `json:"auto_read_only_dirs,omitempty"`
-	UserReadOnlyDirs      []string          `json:"user_read_only_dirs,omitempty"`
-	ReadWriteExtensions   []string          `json:"read_write_extensions,omitempty"`
-	ServiceAccess         []string          `json:"service_access,omitempty"`
-	GitSSHKey             string            `json:"git_ssh_key,omitempty"`
-	Snapshot              explainJSONBackup `json:"snapshot"`
-	SessionNotes          []string          `json:"session_notes,omitempty"`
+	FormatVersion         int                             `json:"format_version"`
+	Target                string                          `json:"target"`
+	Mode                  string                          `json:"mode"`
+	ModeLabel             string                          `json:"mode_label"`
+	ProjectDir            string                          `json:"project_dir"`
+	RoutingReason         string                          `json:"routing_reason,omitempty"`
+	SuggestedIntegrations []string                        `json:"suggested_integrations,omitempty"`
+	RepoSetupSummary      string                          `json:"repo_setup_summary,omitempty"`
+	RepoSetupApplied      []explainJSONRepoSetupEffect    `json:"repo_setup_applied,omitempty"`
+	RepoSetupPending      []explainJSONRepoSetupEffect    `json:"repo_setup_pending,omitempty"`
+	ActiveIntegrations    []string                        `json:"active_integrations,omitempty"`
+	IntegrationSources    []string                        `json:"integration_sources,omitempty"`
+	IntegrationDetails    []string                        `json:"integration_details,omitempty"`
+	IntegrationWarnings   []string                        `json:"integration_warnings,omitempty"`
+	IntegrationEnvKeys    []string                        `json:"integration_env_keys,omitempty"`
+	RegistryEnvKeys       []string                        `json:"integration_registry_env_keys,omitempty"`
+	CredentialEnvGrants   []explainJSONCredentialEnvGrant `json:"credential_env_grants,omitempty"`
+	PlannedHostMutations  []sessionMutation               `json:"planned_host_mutations,omitempty"`
+	ReadOnlyDirs          []string                        `json:"read_only_dirs,omitempty"`
+	AutoReadOnlyDirs      []string                        `json:"auto_read_only_dirs,omitempty"`
+	UserReadOnlyDirs      []string                        `json:"user_read_only_dirs,omitempty"`
+	ReadWriteExtensions   []string                        `json:"read_write_extensions,omitempty"`
+	ServiceAccess         []string                        `json:"service_access,omitempty"`
+	GitSSHKey             string                          `json:"git_ssh_key,omitempty"`
+	Snapshot              explainJSONBackup               `json:"snapshot"`
+	SessionNotes          []string                        `json:"session_notes,omitempty"`
 }
 
 type explainJSONRepoSetupEffect struct {
@@ -40,6 +41,13 @@ type explainJSONRepoSetupEffect struct {
 	Kind    string   `json:"kind"`
 	Value   string   `json:"value"`
 	Sources []string `json:"sources,omitempty"`
+}
+
+type explainJSONCredentialEnvGrant struct {
+	EnvVar       string `json:"env_var"`
+	CredentialID string `json:"credential_id,omitempty"`
+	Source       string `json:"source,omitempty"`
+	Redacted     bool   `json:"redacted"`
 }
 
 type explainJSONBackup struct {
@@ -65,6 +73,7 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		IntegrationWarnings:   append([]string(nil), cfg.IntegrationWarnings...),
 		IntegrationEnvKeys:    integrationEnvKeys(cfg.IntegrationEnv),
 		RegistryEnvKeys:       append([]string(nil), cfg.IntegrationRegistryKeys...),
+		CredentialEnvGrants:   explainJSONCredentialEnvGrants(cfg.CredentialEnvGrants),
 		PlannedHostMutations:  append([]sessionMutation(nil), cfg.PlannedHostMutations...),
 		ReadOnlyDirs:          append([]string(nil), cfg.ReadDirs...),
 		AutoReadOnlyDirs:      append([]string(nil), cfg.AutoReadDirs...),
@@ -78,6 +87,23 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		},
 		SessionNotes: append([]string(nil), cfg.SessionNotes...),
 	}
+}
+
+func explainJSONCredentialEnvGrants(grants []sessionCredentialEnvGrant) []explainJSONCredentialEnvGrant {
+	normalized := normalizedSessionCredentialEnvGrants(grants)
+	if len(normalized) == 0 {
+		return nil
+	}
+	out := make([]explainJSONCredentialEnvGrant, 0, len(normalized))
+	for _, grant := range normalized {
+		out = append(out, explainJSONCredentialEnvGrant{
+			EnvVar:       grant.EnvVar,
+			CredentialID: string(grant.CredentialID),
+			Source:       grant.Source,
+			Redacted:     true,
+		})
+	}
+	return out
 }
 
 func explainJSONRepoSetupEffects(state *repoSetupState, applied bool) []explainJSONRepoSetupEffect {

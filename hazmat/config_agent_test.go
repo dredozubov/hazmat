@@ -199,6 +199,12 @@ func TestApplyHarnessAPIKeyEnvMigratesLegacyZshrc(t *testing.T) {
 	if cfg.HarnessEnv["ANTHROPIC_API_KEY"] != "legacy-value" {
 		t.Fatalf("HarnessEnv[ANTHROPIC_API_KEY] = %q, want legacy-value", cfg.HarnessEnv["ANTHROPIC_API_KEY"])
 	}
+	if len(cfg.CredentialEnvGrants) != 1 {
+		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
+	}
+	if got := cfg.CredentialEnvGrants[0]; got.EnvVar != "ANTHROPIC_API_KEY" || got.CredentialID != credentialProviderAnthropicAPIKey || got.Source != "host secret store" {
+		t.Fatalf("CredentialEnvGrants[0] = %+v", got)
+	}
 	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Migrated legacy ANTHROPIC_API_KEY") {
 		t.Fatalf("SessionNotes = %v, want migration note", cfg.SessionNotes)
 	}

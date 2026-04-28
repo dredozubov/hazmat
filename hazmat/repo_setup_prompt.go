@@ -93,7 +93,9 @@ func finalizePreparedRepoSetup(prepared preparedSession, interactive, persist bo
 	if !state.currentSafe.empty() && state.currentSafe.subsetOf(finalEffects) {
 		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, state.CandidateMutationPlan)
 	}
-	applyRepoSetupEffects(&prepared.Config, finalEffects, *state)
+	if err := applyRepoSetupEffects(&prepared.Config, finalEffects, *state); err != nil {
+		return prepared, err
+	}
 
 	record.ProjectDir = prepared.Config.ProjectDir
 	record.LastSeenHash = state.CandidateHash
@@ -128,7 +130,7 @@ func recomputeRepoSetupDisplayState(state repoSetupState, final repoSetupStoredE
 	return &state
 }
 
-func applyRepoSetupEffects(cfg *sessionConfig, effects repoSetupStoredEffects, state repoSetupState) {
+func applyRepoSetupEffects(cfg *sessionConfig, effects repoSetupStoredEffects, state repoSetupState) error {
 	effectByID := repoSetupEffectByID(append(append([]repoSetupEffect{}, state.currentSafeEffects...), state.currentExplicitEffects...))
 
 	if len(effects.ReadOnly) > 0 {
@@ -153,6 +155,9 @@ func applyRepoSetupEffects(cfg *sessionConfig, effects repoSetupStoredEffects, s
 		cfg.IntegrationEnv = make(map[string]string)
 	}
 	for _, key := range effects.EnvSelectors {
+		if err := rejectCredentialGrantEnvKey("repo setup", "env_selectors", key); err != nil {
+			return err
+		}
 		id := "env:" + key
 		value := ""
 		if effect, ok := effectByID[id]; ok {
@@ -166,6 +171,7 @@ func applyRepoSetupEffects(cfg *sessionConfig, effects repoSetupStoredEffects, s
 		}
 		cfg.IntegrationEnv[key] = value
 	}
+	return nil
 }
 
 func repoSetupSummary(state *repoSetupState) string {

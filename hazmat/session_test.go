@@ -1824,7 +1824,14 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		IntegrationExcludes:     []string{"vendor/", ".next/"},
 		IntegrationWarnings:     []string{"Using SDKMAN Java. Ensure JAVA_HOME points to the correct version."},
 		ActiveIntegrations:      []string{"go", "node"},
-		ServiceAccess:           []string{"github"},
+		CredentialEnvGrants: []sessionCredentialEnvGrant{
+			{
+				EnvVar:       "ANTHROPIC_API_KEY",
+				CredentialID: credentialProviderAnthropicAPIKey,
+				Source:       "host secret store",
+			},
+		},
+		ServiceAccess: []string{"github"},
 		GitSSH: &sessionGitSSHConfig{
 			DisplayName: "id_rsa",
 		},
@@ -1849,6 +1856,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Pre-session snapshot: on",
 		"Snapshot excludes:    vendor/, .next/",
 		"Invoker env passthrough: registry URLs via GOPROXY",
+		"Credential env grants: ANTHROPIC_API_KEY=<redacted> (provider.anthropic.api-key, host secret store)",
 		"Notes:",
 		"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project",
 		"Warnings:",

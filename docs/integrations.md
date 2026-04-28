@@ -369,6 +369,11 @@ commands:
 - Env passthrough keys must be in the safe set (passive pointers like `GOPATH`,
   `JAVA_HOME`, `VIRTUAL_ENV`). Keys that accept arbitrary flags or preload code
   (`NODE_OPTIONS`, `PYTHONPATH`, `GOFLAGS`, `LD_PRELOAD`) are rejected.
+  Credential/capability-shaped keys such as `*_TOKEN`, `*_API_KEY`,
+  `*_SECRET`, `*_PASSWORD`, `*_PRIVATE_KEY`, `*_ACCESS_KEY`, and
+  `SSH_AUTH_SOCK` are rejected before the safe-set check; they need a
+  registry-backed SecretRef or brokered capability instead of
+  `env_passthrough`.
 - Platform overlays are fail-closed. The schema currently accepts only
   `darwin` and `linux`, and Linux overlays remain inert until Linux sessions are
   implemented.

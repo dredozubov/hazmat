@@ -109,6 +109,22 @@ func TestFinalizePreparedRepoSetupRememberPersistsEffects(t *testing.T) {
 	}
 }
 
+func TestApplyRepoSetupEffectsRejectsCredentialEnvSelector(t *testing.T) {
+	var cfg sessionConfig
+	err := applyRepoSetupEffects(&cfg, repoSetupStoredEffects{
+		EnvSelectors: []string{"GITHUB_TOKEN"},
+	}, repoSetupState{})
+	if err == nil {
+		t.Fatal("expected credential env selector to be rejected")
+	}
+	if !strings.Contains(err.Error(), "credential/capability-shaped") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.IntegrationEnv) != 0 {
+		t.Fatalf("IntegrationEnv = %v, want empty", cfg.IntegrationEnv)
+	}
+}
+
 func TestFinalizePreparedRepoSetupUseOnceDoesNotPersistRemembered(t *testing.T) {
 	isolateConfig(t)
 
