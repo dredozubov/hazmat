@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,6 +75,87 @@ hooks:
 	}
 }
 
+func TestMaybePromptProjectHooksSkipsForeignHooksPathOwner(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	setFlagYesAllForTest(t, true)
+
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-push
+    script: pre-push.sh
+    purpose: fast local gate
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-push.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalGitHooksPath(projectDir, ".beads/hooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	stderr := captureStderr(t, func() {
+		maybePromptProjectHooks(projectDir)
+	})
+	if stderr != "" {
+		t.Fatalf("expected launch hook prompt to stay quiet for foreign hooksPath owner, got %q", stderr)
+	}
+	if hooksPath, err := readLocalGitHooksPath(projectDir); err != nil || hooksPath != ".beads/hooks" {
+		t.Fatalf("expected foreign hooksPath to remain .beads/hooks, got %q err=%v", hooksPath, err)
+	}
+}
+
+func TestMaybePromptProjectHooksReportsForeignHooksPathAfterManagedInstall(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	setFlagYesAllForTest(t, true)
+
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-push
+    script: pre-push.sh
+    purpose: fast local gate
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-push.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installProjectHookRuntime(projectDir, "/usr/local/bin/hazmat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalGitHooksPath(projectDir, ".beads/hooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	stderr := captureStderr(t, func() {
+		maybePromptProjectHooks(projectDir)
+	})
+	if !strings.Contains(stderr, "repo hooks need install/repair") {
+		t.Fatalf("expected launch hook repair warning for installed runtime drift, got %q", stderr)
+	}
+	if hooksPath, err := readLocalGitHooksPath(projectDir); err != nil || hooksPath != ".beads/hooks" {
+		t.Fatalf("expected foreign hooksPath to remain .beads/hooks, got %q err=%v", hooksPath, err)
+	}
+}
+
 func TestRunHooksUninstallRemovesApprovalAndSnapshots(t *testing.T) {
 	setProjectHookApprovalTestPaths(t)
 	setFlagYesAllForTest(t, true)
@@ -117,6 +199,29 @@ hooks:
 	if _, err := os.Stat(snapshotDir); !os.IsNotExist(err) {
 		t.Fatalf("expected snapshot removal, stat err=%v", err)
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = old
+	}()
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return string(data)
 }
 
 func setFlagYesAllForTest(t *testing.T, value bool) {

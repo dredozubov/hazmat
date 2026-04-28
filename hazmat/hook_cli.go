@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -209,6 +210,9 @@ func maybePromptProjectHooks(projectDir string) {
 		approvedNow = true
 	}
 
+	if status.RuntimeHooksPathDrift != nil && status.RuntimeHooksPathDrift.ConfiguredHooksPath != "" && !status.RuntimeHasManagedArtifacts {
+		return
+	}
 	if status.RuntimeErr != "" {
 		fmt.Fprintf(os.Stderr, "hazmat: repo hooks need install/repair: %s\n", status.RuntimeErr)
 	}
@@ -230,10 +234,12 @@ func maybePromptProjectHooks(projectDir string) {
 }
 
 type inspectedProjectHooks struct {
-	Bundle       *loadedProjectHookBundle
-	Approval     *projectHookApprovalRecord
-	RuntimeErr   string
-	RuntimeValid bool
+	Bundle                     *loadedProjectHookBundle
+	Approval                   *projectHookApprovalRecord
+	RuntimeErr                 string
+	RuntimeValid               bool
+	RuntimeHooksPathDrift      *projectHookHooksPathDriftError
+	RuntimeHasManagedArtifacts bool
 }
 
 func inspectProjectHooks(project string) (string, inspectedProjectHooks, error) {
@@ -258,6 +264,13 @@ func inspectProjectHooks(project string) (string, inspectedProjectHooks, error) 
 	if bundle != nil && approval != nil && approval.BundleHash == bundle.BundleHash {
 		if _, err := validateProjectHookRuntime(projectDir); err != nil {
 			status.RuntimeErr = err.Error()
+			var hooksPathDrift *projectHookHooksPathDriftError
+			if errors.As(err, &hooksPathDrift) {
+				status.RuntimeHooksPathDrift = hooksPathDrift
+				if runtime, buildErr := buildProjectHookRuntime(projectDir); buildErr == nil {
+					status.RuntimeHasManagedArtifacts = projectHookManagedRuntimeArtifactsExist(runtime)
+				}
+			}
 		} else {
 			status.RuntimeValid = true
 		}

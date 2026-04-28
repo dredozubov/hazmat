@@ -36,6 +36,15 @@ type projectHookRuntimePaths struct {
 	GitDir      string
 }
 
+type projectHookHooksPathDriftError struct {
+	ConfiguredHooksPath string
+	WantedHooksPath     string
+}
+
+func (e *projectHookHooksPathDriftError) Error() string {
+	return fmt.Sprintf("git core.hooksPath drifted to %q (want %q)", e.ConfiguredHooksPath, e.WantedHooksPath)
+}
+
 func newGitHookWrapperCmd() *cobra.Command {
 	var projectDir string
 	cmd := &cobra.Command{
@@ -208,7 +217,10 @@ func validateProjectHookRuntime(projectDir string) (*projectHookRuntime, error) 
 		return nil, err
 	}
 	if configuredHooksPath != runtime.ManagedDir {
-		return nil, fmt.Errorf("git core.hooksPath drifted to %q (want %q)", configuredHooksPath, runtime.ManagedDir)
+		return nil, &projectHookHooksPathDriftError{
+			ConfiguredHooksPath: configuredHooksPath,
+			WantedHooksPath:     runtime.ManagedDir,
+		}
 	}
 	if err := validateHookDispatcherLayout(runtime.ManagedDir, runtime.DeclaredHookSet, false); err != nil {
 		return nil, err
@@ -324,6 +336,20 @@ func projectHookRuntimePathsForProject(projectDir string) projectHookRuntimePath
 		FallbackDir: filepath.Join(gitDir, "hooks"),
 		GitDir:      gitDir,
 	}
+}
+
+func projectHookManagedRuntimeArtifactsExist(runtime *projectHookRuntime) bool {
+	for _, path := range []string{runtime.ManagedDir, runtime.WrapperPath} {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	for _, hook := range runtime.DeclaredHookSet {
+		if projectHookDispatcherHasMarker(filepath.Join(runtime.FallbackDir, string(hook)), "hazmat-hook-fallback") {
+			return true
+		}
+	}
+	return false
 }
 
 func projectHookDeclaredTypes(bundle *loadedProjectHookBundle, approval *projectHookApprovalRecord) []hookType {
@@ -469,6 +495,11 @@ func validateHookDispatcherLayout(dir string, declared []hookType, fallback bool
 		}
 	}
 	return nil
+}
+
+func projectHookDispatcherHasMarker(path, marker string) bool {
+	raw, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(raw), marker)
 }
 
 func buildProjectHookDispatcherScript(hazmatBinPath, projectDir string, hook hookType, fallback bool) string {
