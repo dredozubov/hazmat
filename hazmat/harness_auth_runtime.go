@@ -29,36 +29,21 @@ func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifac
 	switch id {
 	case HarnessClaude:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifact("Claude credential file",
-				claudeCredentialStorePathForHome(home),
-				agentHome+"/.claude/.credentials.json",
-			),
+			rawHarnessAuthArtifactForCredential(home, credentialHarnessClaudeCredentials),
 			claudeStateHarnessAuthArtifact(home),
 		}
 	case HarnessCodex:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifact("Codex auth file",
-				codexAuthStorePathForHome(home),
-				agentHome+"/.codex/auth.json",
-			),
+			rawHarnessAuthArtifactForCredential(home, credentialHarnessCodexAuth),
 		}
 	case HarnessOpenCode:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifact("OpenCode auth file",
-				openCodeAuthStorePathForHome(home),
-				agentHome+"/.local/share/opencode/auth.json",
-			),
+			rawHarnessAuthArtifactForCredential(home, credentialHarnessOpenCodeAuth),
 		}
 	case HarnessGemini:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifact("Gemini OAuth credentials",
-				geminiOAuthStorePathForHome(home),
-				agentHome+"/.gemini/oauth_creds.json",
-			),
-			rawHarnessAuthArtifact("Gemini account index",
-				geminiAccountsStorePathForHome(home),
-				agentHome+"/.gemini/google_accounts.json",
-			),
+			rawHarnessAuthArtifactForCredential(home, credentialHarnessGeminiOAuth),
+			rawHarnessAuthArtifactForCredential(home, credentialHarnessGeminiAccounts),
 		}
 	default:
 		return nil
@@ -90,6 +75,16 @@ func preserveHarnessAuthConflict(artifact harnessAuthArtifact, data harnessAuthD
 		return "", err
 	}
 	return path, nil
+}
+
+func rawHarnessAuthArtifactForCredential(home string, id credentialID) harnessAuthArtifact {
+	descriptor := mustCredentialDescriptor(id)
+	storePath := mustCredentialStorePathForHome(home, id)
+	agentPath, err := descriptor.AgentMaterializationPath()
+	if err != nil {
+		panic(err)
+	}
+	return rawHarnessAuthArtifact(descriptor.DisplayName, storePath, agentPath)
 }
 
 func rawHarnessAuthArtifact(name, storePath, agentPath string) harnessAuthArtifact {
@@ -129,10 +124,15 @@ func rawHarnessAuthArtifact(name, storePath, agentPath string) harnessAuthArtifa
 }
 
 func claudeStateHarnessAuthArtifact(home string) harnessAuthArtifact {
+	descriptor := mustCredentialDescriptor(credentialHarnessClaudeState)
+	agentPath, err := descriptor.AgentMaterializationPath()
+	if err != nil {
+		panic(err)
+	}
 	return harnessAuthArtifact{
-		Name:      "Claude account state",
-		StorePath: claudeStateStorePathForHome(home),
-		AgentPath: agentHome + "/.claude.json",
+		Name:      descriptor.DisplayName,
+		StorePath: mustCredentialStorePathForHome(home, credentialHarnessClaudeState),
+		AgentPath: agentPath,
 		ReadStore: func(path string) (harnessAuthData, bool, error) {
 			payload, ok, err := readJSONMapStoreFile(path)
 			if !ok || err != nil {

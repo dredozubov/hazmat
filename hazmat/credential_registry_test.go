@@ -1,0 +1,174 @@
+package main
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
+	home := t.TempDir()
+	secretRoot := secretStoreDirForHome(home)
+	seenIDs := map[credentialID]bool{}
+	seenStorePaths := map[string]credentialID{}
+
+	for _, descriptor := range builtinCredentialDescriptors() {
+		if descriptor.ID == "" {
+			t.Fatalf("descriptor has empty ID: %+v", descriptor)
+		}
+		if seenIDs[descriptor.ID] {
+			t.Fatalf("duplicate credential ID %q", descriptor.ID)
+		}
+		seenIDs[descriptor.ID] = true
+		if descriptor.DisplayName == "" {
+			t.Fatalf("%s has empty display name", descriptor.ID)
+		}
+		if descriptor.Kind == "" {
+			t.Fatalf("%s has empty kind", descriptor.ID)
+		}
+		if descriptor.Backend == "" {
+			t.Fatalf("%s has empty backend", descriptor.ID)
+		}
+		if descriptor.Delivery == "" {
+			t.Fatalf("%s has empty delivery mode", descriptor.ID)
+		}
+		if !descriptor.Redacted {
+			t.Fatalf("%s must be redacted", descriptor.ID)
+		}
+
+		if descriptor.Backend == credentialStorageHostSecretStore {
+			storePath, err := descriptor.StorePathForHome(home)
+			if err != nil {
+				t.Fatalf("%s StorePathForHome: %v", descriptor.ID, err)
+			}
+			rel, err := filepath.Rel(secretRoot, storePath)
+			if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+				t.Fatalf("%s store path %q is outside secret root %q", descriptor.ID, storePath, secretRoot)
+			}
+			if previous, exists := seenStorePaths[storePath]; exists {
+				t.Fatalf("%s and %s share store path %q", descriptor.ID, previous, storePath)
+			}
+			seenStorePaths[storePath] = descriptor.ID
+		}
+
+		switch descriptor.Delivery {
+		case credentialDeliveryEnv:
+			envVar, err := descriptor.EnvDeliveryVar()
+			if err != nil {
+				t.Fatalf("%s EnvDeliveryVar: %v", descriptor.ID, err)
+			}
+			if !strings.HasSuffix(envVar, "_API_KEY") {
+				t.Fatalf("%s env delivery uses unexpected env var %q", descriptor.ID, envVar)
+			}
+			if descriptor.AgentPath != "" {
+				t.Fatalf("%s env delivery must not declare an agent path", descriptor.ID)
+			}
+		case credentialDeliveryMaterializedFile:
+			agentPath, err := descriptor.AgentMaterializationPath()
+			if err != nil {
+				t.Fatalf("%s AgentMaterializationPath: %v", descriptor.ID, err)
+			}
+			if !usesManagedAgentPath(agentPath) {
+				t.Fatalf("%s materializes outside managed agent home: %q", descriptor.ID, agentPath)
+			}
+			if !descriptor.ConflictArchive {
+				t.Fatalf("%s materialized credential must preserve conflicts", descriptor.ID)
+			}
+		case credentialDeliveryNone, credentialDeliveryBrokeredHelper, credentialDeliveryExternalReference:
+		default:
+			t.Fatalf("%s has unknown delivery mode %q", descriptor.ID, descriptor.Delivery)
+		}
+	}
+}
+
+func TestProviderSecretStorePathForHomeUsesCredentialRegistry(t *testing.T) {
+	home := t.TempDir()
+	cases := []struct {
+		envVar string
+		id     credentialID
+	}{
+		{"ANTHROPIC_API_KEY", credentialProviderAnthropicAPIKey},
+		{"OPENAI_API_KEY", credentialProviderOpenAIAPIKey},
+		{"GEMINI_API_KEY", credentialProviderGeminiAPIKey},
+	}
+
+	for _, tc := range cases {
+		got, err := providerSecretStorePathForHome(home, tc.envVar)
+		if err != nil {
+			t.Fatalf("providerSecretStorePathForHome(%q): %v", tc.envVar, err)
+		}
+		want := mustCredentialStorePathForHome(home, tc.id)
+		if got != want {
+			t.Fatalf("providerSecretStorePathForHome(%q) = %q, want %q", tc.envVar, got, want)
+		}
+	}
+
+	if _, err := providerSecretStorePathForHome(home, "UNREGISTERED_API_KEY"); err == nil {
+		t.Fatalf("providerSecretStorePathForHome accepted unregistered env var")
+	}
+}
+
+func TestHarnessAuthArtifactsUseCredentialRegistry(t *testing.T) {
+	home := t.TempDir()
+	cases := []struct {
+		harness HarnessID
+		ids     []credentialID
+	}{
+		{HarnessClaude, []credentialID{credentialHarnessClaudeCredentials, credentialHarnessClaudeState}},
+		{HarnessCodex, []credentialID{credentialHarnessCodexAuth}},
+		{HarnessOpenCode, []credentialID{credentialHarnessOpenCodeAuth}},
+		{HarnessGemini, []credentialID{credentialHarnessGeminiOAuth, credentialHarnessGeminiAccounts}},
+	}
+
+	for _, tc := range cases {
+		artifacts := harnessAuthArtifactsForHome(tc.harness, home)
+		if len(artifacts) != len(tc.ids) {
+			t.Fatalf("%s artifacts length = %d, want %d", tc.harness, len(artifacts), len(tc.ids))
+		}
+		for i, id := range tc.ids {
+			descriptor := mustCredentialDescriptor(id)
+			wantAgentPath, err := descriptor.AgentMaterializationPath()
+			if err != nil {
+				t.Fatalf("%s AgentMaterializationPath: %v", id, err)
+			}
+			wantStorePath := mustCredentialStorePathForHome(home, id)
+			if artifacts[i].Name != descriptor.DisplayName {
+				t.Fatalf("%s artifact name = %q, want %q", id, artifacts[i].Name, descriptor.DisplayName)
+			}
+			if artifacts[i].StorePath != wantStorePath {
+				t.Fatalf("%s artifact StorePath = %q, want %q", id, artifacts[i].StorePath, wantStorePath)
+			}
+			if artifacts[i].AgentPath != wantAgentPath {
+				t.Fatalf("%s artifact AgentPath = %q, want %q", id, artifacts[i].AgentPath, wantAgentPath)
+			}
+		}
+	}
+}
+
+func TestCredentialStoreRelPathRejectsUnsafePaths(t *testing.T) {
+	for _, relPath := range []string{"", "/absolute", "../secret", "secret/../other", "secret//other", "./secret"} {
+		if _, err := cleanCredentialStoreRelPath(relPath); err == nil {
+			t.Fatalf("cleanCredentialStoreRelPath(%q) succeeded, want error", relPath)
+		}
+	}
+
+	got, err := cleanCredentialStoreRelPath("providers/openai-api-key")
+	if err != nil {
+		t.Fatalf("cleanCredentialStoreRelPath valid path: %v", err)
+	}
+	if got != "providers/openai-api-key" {
+		t.Fatalf("cleanCredentialStoreRelPath valid path = %q", got)
+	}
+}
+
+func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
+	envDescriptor := mustCredentialDescriptor(credentialProviderOpenAIAPIKey)
+	if _, err := envDescriptor.AgentMaterializationPath(); err == nil {
+		t.Fatalf("AgentMaterializationPath accepted env-delivered credential")
+	}
+
+	fileDescriptor := mustCredentialDescriptor(credentialHarnessCodexAuth)
+	if _, err := fileDescriptor.EnvDeliveryVar(); err == nil {
+		t.Fatalf("EnvDeliveryVar accepted materialized-file credential")
+	}
+}

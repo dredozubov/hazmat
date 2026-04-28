@@ -33,42 +33,35 @@ func providerSecretStorePath(envVar string) (string, error) {
 }
 
 func providerSecretStorePathForHome(home, envVar string) (string, error) {
-	var filename string
-	switch envVar {
-	case "ANTHROPIC_API_KEY":
-		filename = "anthropic-api-key"
-	case "OPENAI_API_KEY":
-		filename = "openai-api-key"
-	case "GEMINI_API_KEY":
-		filename = "gemini-api-key"
-	default:
+	descriptor, ok := providerCredentialDescriptorForEnvVar(envVar)
+	if !ok {
 		return "", fmt.Errorf("no host secret-store mapping for %s", envVar)
 	}
-	return filepath.Join(secretStoreDirForHome(home), "providers", filename), nil
+	return descriptor.StorePathForHome(home)
 }
 
 func claudeCredentialStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "claude", "credentials.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessClaudeCredentials)
 }
 
 func claudeStateStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "claude", "state.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
 }
 
 func codexAuthStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "codex", "auth.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)
 }
 
 func openCodeAuthStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "opencode", "auth.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessOpenCodeAuth)
 }
 
 func geminiOAuthStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "gemini", "oauth_creds.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessGeminiOAuth)
 }
 
 func geminiAccountsStorePathForHome(home string) string {
-	return filepath.Join(secretStoreDirForHome(home), "gemini", "google_accounts.json")
+	return mustCredentialStorePathForHome(home, credentialHarnessGeminiAccounts)
 }
 
 func readHostStoredSecretFile(path string) ([]byte, bool, error) {
