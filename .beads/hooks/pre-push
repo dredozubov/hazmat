@@ -22,3 +22,10 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v1.0.0 ---
+
+# --- BEGIN HAZMAT REPO GATE ---
+_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+if [ -f "$_repo_root/scripts/pre-push" ]; then
+  sh "$_repo_root/scripts/pre-push" "$@"
+fi
+# --- END HAZMAT REPO GATE ---

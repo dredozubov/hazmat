@@ -316,19 +316,3 @@ func promptItemNames(items []suggestedIntegrationPromptItem) []string {
 	}
 	return names
 }
-
-func sameStringSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	as := make(map[string]struct{}, len(a))
-	for _, value := range a {
-		as[value] = struct{}{}
-	}
-	for _, value := range b {
-		if _, ok := as[value]; !ok {
-			return false
-		}
-	}
-	return true
-}

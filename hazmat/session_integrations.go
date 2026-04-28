@@ -89,41 +89,6 @@ func resolveLaunchIntegrationFlags(projectDir string, integrationFlags []string)
 	return flags, nil
 }
 
-func mergeSelectedLaunchIntegrations(existing []IntegrationSpec, selected []string) ([]IntegrationSpec, error) {
-	if len(selected) == 0 {
-		return existing, nil
-	}
-
-	merged := make([]IntegrationSpec, 0, len(existing)+len(selected))
-	seen := make(map[string]struct{}, len(existing)+len(selected))
-	for _, spec := range existing {
-		merged = append(merged, spec)
-		seen[spec.Meta.Name] = struct{}{}
-	}
-	for _, name := range selected {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		spec, err := loadIntegrationSpecByName(name)
-		if err != nil {
-			return nil, err
-		}
-		merged = append(merged, spec)
-		seen[name] = struct{}{}
-	}
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Meta.Name < merged[j].Meta.Name
-	})
-	return merged, nil
-}
-
-func shouldPromptSuggestedIntegrations() bool {
-	if flagDryRun {
-		return false
-	}
-	return flagYesAll || uiIsTerminal()
-}
-
 func suggestedIntegrationsForProject(projectDir string, activeNames map[string]struct{}) []string {
 	suggestions := suggestIntegrations(projectDir, activeNames)
 	suggestions = append(suggestions, unapprovedRepoRecommendedIntegrations(projectDir, activeNames)...)
@@ -168,23 +133,6 @@ func filterRejectedSuggestedIntegrations(projectDir string, suggestions []string
 		filtered = append(filtered, name)
 	}
 	return filtered
-}
-
-func buildSuggestedIntegrationPromptItems(names []string) []suggestedIntegrationPromptItem {
-	items := make([]suggestedIntegrationPromptItem, 0, len(names))
-	for _, name := range names {
-		description := "Suggested by project files."
-		if spec, err := loadBuiltinIntegrationSpec(name); err == nil {
-			if spec.Meta.Description != "" {
-				description = spec.Meta.Description
-			}
-		}
-		items = append(items, suggestedIntegrationPromptItem{
-			Name:        name,
-			Description: description,
-		})
-	}
-	return items
 }
 
 func defaultPromptSuggestedLaunchIntegrations(projectDir string, items []suggestedIntegrationPromptItem) (suggestedIntegrationPromptResult, error) {
@@ -251,67 +199,6 @@ func suggestedIntegrationActionDefaultChoice(ui *UI) string {
 	return string(suggestedIntegrationActionAlways)
 }
 
-func normalizeSuggestedSelection(available, selected []string) ([]string, error) {
-	if len(selected) == 0 {
-		return nil, nil
-	}
-
-	allowed := stringSet(available)
-	normalized := make([]string, 0, len(selected))
-	seen := make(map[string]struct{}, len(selected))
-	for _, raw := range selected {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			continue
-		}
-		if _, ok := allowed[name]; !ok {
-			return nil, fmt.Errorf("unknown suggested integration %q", name)
-		}
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		normalized = append(normalized, name)
-		seen[name] = struct{}{}
-	}
-	return normalized, nil
-}
-
-func persistSuggestedIntegrationPreferences(projectDir string, presented, selected []string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
-	selected = dedupeStrings(selected)
-	selectedSet := stringSet(selected)
-
-	pinned := appendUniqueStrings(cfg.ProjectPinnedIntegrations(projectDir), selected)
-	cfg.Integrations.Pinned = upsertPinnedIntegrations(cfg.Integrations.Pinned, projectDir, pinned)
-
-	rejected := filterStrings(cfg.ProjectRejectedIntegrations(projectDir), selectedSet)
-	rejected = appendUniqueStrings(rejected, subtractStrings(presented, selectedSet))
-	cfg.Integrations.Rejected = upsertRejectedIntegrations(cfg.Integrations.Rejected, projectDir, rejected)
-
-	return saveConfig(cfg)
-}
-
-func upsertPinnedIntegrations(pins []IntegrationPin, projectDir string, names []string) []IntegrationPin {
-	names = dedupeStrings(names)
-	filtered := pins[:0]
-	for _, pin := range pins {
-		if pin.ProjectDir != projectDir {
-			filtered = append(filtered, pin)
-		}
-	}
-	if len(names) == 0 {
-		return filtered
-	}
-	return append(filtered, IntegrationPin{
-		ProjectDir:   projectDir,
-		Integrations: names,
-	})
-}
-
 func upsertRejectedIntegrations(rejections []IntegrationRejection, projectDir string, names []string) []IntegrationRejection {
 	names = dedupeStrings(names)
 	filtered := rejections[:0]
@@ -346,19 +233,6 @@ func dedupeStrings(values []string) []string {
 	return deduped
 }
 
-func appendUniqueStrings(existing, additions []string) []string {
-	merged := append([]string(nil), dedupeStrings(existing)...)
-	seen := stringSet(merged)
-	for _, value := range dedupeStrings(additions) {
-		if _, dup := seen[value]; dup {
-			continue
-		}
-		merged = append(merged, value)
-		seen[value] = struct{}{}
-	}
-	return merged
-}
-
 func stringSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -369,20 +243,6 @@ func stringSet(values []string) map[string]struct{} {
 		set[value] = struct{}{}
 	}
 	return set
-}
-
-func subtractStrings(values []string, excluded map[string]struct{}) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	var filtered []string
-	for _, value := range values {
-		if _, skip := excluded[value]; skip {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
 }
 
 func filterStrings(values []string, excluded map[string]struct{}) []string {

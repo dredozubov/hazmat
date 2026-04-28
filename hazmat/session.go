@@ -1354,18 +1354,6 @@ func printRepoSetupDetails(state *repoSetupState) {
 	fmt.Fprint(os.Stderr, renderRepoSetupLaunchDetails(state))
 }
 
-func renderSuggestedIntegrations(suggestions []string) string {
-	if len(suggestions) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("hazmat: suggested integrations: %s (activate with --integration <name> or approve them during an interactive launch)\n",
-		strings.Join(suggestions, ", "))
-}
-
-func printSuggestedIntegrations(suggestions []string) {
-	fmt.Fprint(os.Stderr, renderSuggestedIntegrations(suggestions))
-}
-
 func resolveReadDirs(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, nil

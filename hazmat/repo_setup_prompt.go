@@ -52,6 +52,9 @@ func finalizePreparedRepoSetup(prepared preparedSession, interactive, persist bo
 			case repoSetupPromptApproveOnce:
 				finalEffects = finalEffects.union(state.currentExplicit)
 			case repoSetupPromptLaunchWithout:
+			case repoSetupPromptUseOnce:
+				finalEffects = finalEffects.union(state.currentExplicit)
+			case repoSetupPromptKeepCurrent, repoSetupPromptExplain:
 			}
 		}
 
@@ -73,6 +76,9 @@ func finalizePreparedRepoSetup(prepared preparedSession, interactive, persist bo
 				for _, effect := range state.PendingSafe {
 					rejectedSafe[effect.ID] = struct{}{}
 				}
+			case repoSetupPromptApproveOnce:
+				finalEffects = finalEffects.union(state.currentSafe)
+			case repoSetupPromptLaunchWithout, repoSetupPromptExplain:
 			}
 		}
 	}

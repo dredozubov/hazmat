@@ -29,7 +29,7 @@ for path in $STAGED_FILES; do
 		hazmat/*.go)
 			GO_FILES="$GO_FILES $path"
 			;;
-		.hazmat/hooks/*.sh|scripts/*.sh|scripts/pre-commit|scripts/pre-push)
+		.beads/hooks/*|.hazmat/hooks/*.sh|scripts/*.sh|scripts/pre-commit|scripts/pre-push)
 			SHELL_FILES="$SHELL_FILES $path"
 			;;
 	esac

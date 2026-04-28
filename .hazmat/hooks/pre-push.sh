@@ -8,6 +8,23 @@ GITLEAKS_CONFIG="$SCRIPT_DIR/gitleaks.toml"
 
 cd "$REPO_ROOT"
 
+echo "pre-push: git hook wiring..."
+for hook in pre-commit pre-push; do
+	hook_path="$REPO_ROOT/.beads/hooks/$hook"
+	if [ ! -x "$hook_path" ]; then
+		echo "pre-push: expected executable hook shim at $hook_path" >&2
+		exit 1
+	fi
+	if ! grep -q "BEGIN HAZMAT REPO GATE" "$hook_path"; then
+		echo "pre-push: $hook_path is missing the Hazmat repo gate chain" >&2
+		exit 1
+	fi
+	if ! grep -q "scripts/$hook" "$hook_path"; then
+		echo "pre-push: $hook_path does not call scripts/$hook" >&2
+		exit 1
+	fi
+done
+
 sh "$REPO_ROOT/scripts/check-secret-patterns.sh" repo
 
 echo "pre-push: gitleaks scan..."

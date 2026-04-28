@@ -590,22 +590,6 @@ func recordApproval(projectDir, fileHash string) error {
 	return saveIntegrationApprovals(af)
 }
 
-// promptIntegrationApproval asks the user to approve repo-recommended integrations.
-// Returns true if approved. Non-interactive sessions (no TTY) return false.
-func promptIntegrationApproval(projectDir string, integrationNames []string) bool {
-	fmt.Fprintf(os.Stderr, "\nhazmat: this repo recommends integrations: %s\n",
-		strings.Join(integrationNames, ", "))
-	fmt.Fprintf(os.Stderr, "hazmat: source: %s/%s\n", projectDir, repoRecommendedIntegrationsFile)
-	fmt.Fprintf(os.Stderr, "hazmat: approve these integrations for this repo? [y/N] ")
-
-	var answer string
-	if _, err := fmt.Scanln(&answer); err != nil {
-		return false
-	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	return answer == "y" || answer == "yes"
-}
-
 // ── Resolution: CLI flags + config pinning + repo recommendations ────────
 
 // resolveActiveIntegrations determines which integrations to load for a session.
