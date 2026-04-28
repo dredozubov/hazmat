@@ -2,16 +2,15 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
 
 const (
-	geminiBinRel       = "/.local/bin/gemini"
-	geminiNpmPackage   = "@google/gemini-cli@latest"
-	geminiMissingHelp  = "Error: Gemini CLI not installed for agent user. Run: hazmat bootstrap gemini"
-	geminiStateDirRel  = "/.gemini"
+	geminiBinRel      = "/.local/bin/gemini"
+	geminiNpmPackage  = "@google/gemini-cli@latest"
+	geminiMissingHelp = "Error: Gemini CLI not installed for agent user. Run: hazmat bootstrap gemini"
+	geminiStateDirRel = "/.gemini"
 )
 
 func findInstalledGeminiBinary() (string, bool) {
@@ -33,11 +32,29 @@ func geminiLaunchScript() string {
 		`exec "$HOME` + geminiBinRel + `" "$@"`
 }
 
+func geminiInstallScript() string {
+	// npm install -g writes the package + bin shim into the configured
+	// prefix. We force prefix=$HOME/.local so the install lands in the
+	// agent's home (isolated from any host-side nvm/node dirs that
+	// happen to be on the agent's PATH).
+	return fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js not found on agent PATH — install Homebrew node first: brew install node" >&2
+  exit 1
+fi
+mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/node_modules"
+export NPM_CONFIG_PREFIX="$HOME/.local"
+npm install -g --silent %q
+test -x "$HOME%s"
+`, geminiNpmPackage, geminiBinRel)
+}
+
 func newBootstrapGeminiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "gemini",
-		Short: "Install Gemini CLI for the agent user",
-		Long: `Install Gemini CLI for the agent user.
+		Short: "Install or update Gemini CLI for the agent user",
+		Long: `Install or update Gemini CLI for the agent user.
 
 Hazmat installs the official @google/gemini-cli npm package into the agent
 user's ~/.local prefix. Node.js must be available on the agent's PATH
@@ -59,45 +76,16 @@ func runGeminiBootstrap(ui *UI, r *Runner) error {
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
-	ui.Step("Install Gemini CLI for agent user")
-	if geminiBin, ok := findInstalledGeminiBinaryWith(r.AgentOutput); ok {
-		ui.SkipDone(fmt.Sprintf("Gemini CLI already installed at %s", geminiBin))
-	} else {
-		// npm install -g writes the package + bin shim into the configured
-		// prefix. We force prefix=$HOME/.local so the install lands in the
-		// agent's home (isolated from any host-side nvm/node dirs that
-		// happen to be on the agent's PATH).
-		installScript := fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js not found on agent PATH — install Homebrew node first: brew install node" >&2
-  exit 1
-fi
-mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/node_modules"
-export NPM_CONFIG_PREFIX="$HOME/.local"
-npm install -g --silent %q
-test -x "$HOME%s"
-`, geminiNpmPackage, geminiBinRel)
-
-		scriptFile, err := os.CreateTemp("/tmp", "hazmat-gemini-bootstrap-*.sh")
-		if err != nil {
-			return fmt.Errorf("create Gemini bootstrap script: %w", err)
-		}
-		defer os.Remove(scriptFile.Name())
-		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close() //nolint:errcheck
-			return fmt.Errorf("write Gemini bootstrap script: %w", err)
-		}
-		scriptFile.Close() //nolint:errcheck
-		if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
-			return fmt.Errorf("chmod Gemini bootstrap script: %w", err)
-		}
-
-		if err := r.AsAgentVisible("install Gemini CLI as agent user via npm",
-			"/bin/bash", scriptFile.Name()); err != nil {
-			return fmt.Errorf("install Gemini CLI: %w", err)
-		}
-		ui.Ok("Gemini CLI installed")
+	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
+		DisplayName:   "Gemini CLI",
+		TempPattern:   "hazmat-gemini-bootstrap-*.sh",
+		InstallReason: "install or update Gemini CLI as agent user via npm",
+		BuildScript: func(bool) (string, error) {
+			return geminiInstallScript(), nil
+		},
+		FindExisting: findInstalledGeminiBinaryWith,
+	}); err != nil {
+		return err
 	}
 
 	ui.Step("Create Gemini state directory")

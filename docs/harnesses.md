@@ -21,7 +21,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 ### Claude Code
 
-- **Install (one-time):** `hazmat bootstrap claude`. Downloads the official Anthropic installer, verifies the published checksum, installs to `/Users/agent/.local/bin/claude`. Idempotent.
+- **Install / update:** `hazmat bootstrap claude`. Downloads the official Anthropic installer, verifies the pinned installer checksum, and installs or refreshes the agent-owned Claude Code CLI at `/Users/agent/.local/bin/claude`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/claude/credentials.json` and `~/.hazmat/secrets/claude/state.json`. Hazmat materializes them to `/Users/agent/.claude/.credentials.json` and `/Users/agent/.claude.json` only while a Claude session is active.
 - **Subscription / OAuth path:** run `hazmat claude`, type `/login`. Claude opens a browser for the OAuth handshake; the resulting credentials are harvested back into `~/.hazmat/secrets/claude/` when the session exits.
 - **API key path:** `hazmat config agent` will offer to store `ANTHROPIC_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/anthropic-api-key`. Hazmat injects it only into matching native sessions instead of keeping it in `/Users/agent/.zshrc`.
@@ -31,7 +31,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 ### Codex
 
-- **Install / update:** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, and installs or refreshes the agent-owned Codex CLI at `/Users/agent/.local/bin/codex`. Re-running this command updates the Hazmat copy; upgrading a host Homebrew `codex` binary does not change the isolated agent binary by itself. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
+- **Install / update:** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, and installs or refreshes the agent-owned Codex CLI at `/Users/agent/.local/bin/codex`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
 - **Durable auth storage:** `~/.hazmat/secrets/codex/auth.json`. Hazmat materializes it to `/Users/agent/.codex/auth.json` only while a Codex session is active. The file holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys.
 - **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token is harvested into `~/.hazmat/secrets/codex/auth.json` when the session exits.
   - The import path bypasses this picker entirely.
@@ -41,7 +41,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 ### OpenCode
 
-- **Install (one-time):** `hazmat bootstrap opencode`. Downloads via the official OpenCode installer, prepares config dir, links `/Users/agent/.local/bin/opencode`.
+- **Install / update:** `hazmat bootstrap opencode`. Downloads via the official OpenCode installer, installs or refreshes the agent-owned OpenCode CLI, prepares the config dir, and links `/Users/agent/.local/bin/opencode`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/opencode/auth.json`. Hazmat materializes it to `/Users/agent/.local/share/opencode/auth.json` only while an OpenCode session is active. Provider-specific shape; OpenCode supports Anthropic, OpenAI, Google, OpenRouter, Groq, etc.
 - **Subscription / OAuth path:** run `hazmat opencode`, then `opencode auth login` and pick a provider. Each provider has its own OAuth flow; what works in plain `opencode` works inside `hazmat opencode`. File-based auth is harvested into `~/.hazmat/secrets/opencode/auth.json` when the session exits.
 - **API key path:** OpenCode reads provider keys from the same `auth.json`. Either paste them via `opencode auth login` inside the sandbox, or pre-seed them on the host with the OpenCode `auth login` flow and import.
@@ -51,7 +51,7 @@ The fastest path for a new install is almost always the **import** column — it
 
 ### Gemini
 
-- **Install (one-time):** `hazmat bootstrap gemini`. Installs `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works).
+- **Install / update:** `hazmat bootstrap gemini`. Installs or refreshes `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works). Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/gemini/oauth_creds.json` and `~/.hazmat/secrets/gemini/google_accounts.json` for file-based Gemini auth. Hazmat materializes them to `/Users/agent/.gemini/...` only while a Gemini session is active. Modern installs may still use macOS Keychain instead of file-backed OAuth.
 - **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; if Gemini writes file-backed auth, Hazmat harvests it into `~/.hazmat/secrets/gemini/` when the session exits.
 - **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into matching native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
@@ -105,7 +105,7 @@ These are managed copies — if you edit them inside the sandbox, the next sessi
 
 ## Troubleshooting
 
-- **Bootstrap step says "already installed":** that's the idempotent path for harnesses that do not refresh on every bootstrap. Codex is different: `hazmat bootstrap codex` refreshes the agent-owned Codex CLI to the latest verified release. If you want a fresh reinstall for another harness, uninstall first (`hazmat <harness> uninstall` if the CLI provides one, or remove the binary at `/Users/agent/.local/bin/<harness>`).
+- **Bootstrap sees an existing harness binary:** Hazmat still runs the harness installer/update path. Existing config files, hooks, auth state, and shared directories remain idempotent and are not overwritten unless their step explicitly says so.
 - **Import says "no basics found to import":** the host doesn't have any of the expected files in its standard locations. Check the **Auth file location** above for the harness — that's the path the import scans.
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** check that `~/.hazmat/secrets/codex/auth.json` exists. If an older Hazmat left a stale `/Users/agent/.codex/auth.json`, remove it and relaunch so the host-owned copy is materialized cleanly.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.

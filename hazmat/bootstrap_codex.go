@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -185,44 +184,27 @@ func runCodexBootstrap(ui *UI, r *Runner) error {
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
-	ui.Step("Install or update Codex for agent user")
-	if codexBin, ok := findInstalledCodexBinaryWith(r.AgentOutput); ok {
-		ui.Ok(fmt.Sprintf("Found existing Codex at %s; refreshing to latest", codexBin))
-	} else if r.DryRun {
-		ui.Ok("Would install latest Codex for agent user")
+	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
+		DisplayName:   "Codex",
+		TempPattern:   "hazmat-codex-bootstrap-*.sh",
+		InstallReason: "download, verify, and install or update Codex as agent user",
+		BuildScript: func(dryRun bool) (string, error) {
+			installerURL := codexLatestInstallerURL
+			installerSHA256 := strings.Repeat("0", 64)
+			installerRelease := "latest"
+			if !dryRun {
+				var err error
+				installerURL, installerSHA256, installerRelease, err = resolveLatestCodexInstaller()
+				if err != nil {
+					return "", err
+				}
+			}
+			return codexInstallScript(installerURL, installerSHA256, installerRelease), nil
+		},
+		FindExisting: findInstalledCodexBinaryWith,
+	}); err != nil {
+		return err
 	}
-
-	installerURL := codexLatestInstallerURL
-	installerSHA256 := strings.Repeat("0", 64)
-	installerRelease := "latest"
-	if !r.DryRun {
-		var err error
-		installerURL, installerSHA256, installerRelease, err = resolveLatestCodexInstaller()
-		if err != nil {
-			return err
-		}
-	}
-
-	installScript := codexInstallScript(installerURL, installerSHA256, installerRelease)
-	scriptFile, err := os.CreateTemp("/tmp", "hazmat-codex-bootstrap-*.sh")
-	if err != nil {
-		return fmt.Errorf("create Codex bootstrap script: %w", err)
-	}
-	defer os.Remove(scriptFile.Name())
-	if _, err := scriptFile.WriteString(installScript); err != nil {
-		scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
-		return fmt.Errorf("write Codex bootstrap script: %w", err)
-	}
-	scriptFile.Close() //nolint:errcheck // close-to-flush; chmod below catches problems
-	if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
-		return fmt.Errorf("chmod Codex bootstrap script: %w", err)
-	}
-
-	if err := r.AsAgentVisible("download, verify, and install or update Codex as agent user",
-		"/bin/bash", scriptFile.Name()); err != nil {
-		return fmt.Errorf("install Codex: %w", err)
-	}
-	ui.Ok("Codex installed or updated")
 
 	ui.Step("Create Codex state directory")
 	stateDir := agentHome + codexStateDirRel
