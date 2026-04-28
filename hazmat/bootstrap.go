@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,7 +9,7 @@ import (
 
 const (
 	claudeInstallerURL    = "https://claude.ai/install.sh"
-	claudeInstallerSHA256 = "431889ac7d056f636aaf5b71524666d04c89c45560f80329940846479d484778"
+	claudeInstallerSHA256 = "b315b46925a9bfb9422f2503dd5aa649f680832f4c076b22d87c39d578c3d830"
 )
 
 func findInstalledClaudeBinary() (string, bool) {
@@ -23,6 +22,24 @@ func findInstalledClaudeBinaryWith(read func(args ...string) (string, error)) (s
 		return path, true
 	}
 	return "", false
+}
+
+func claudeInstallScript() string {
+	return fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+installer=$(mktemp "${TMPDIR:-/tmp}/claude-install.XXXXXX")
+cleanup() { rm -f "$installer"; }
+trap cleanup EXIT
+curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
+actual=$(shasum -a 256 "$installer" | awk '{print $1}')
+expected=%q
+if [[ "$actual" != "$expected" ]]; then
+  echo "Claude installer checksum mismatch: expected $expected, got $actual" >&2
+  exit 1
+fi
+bash "$installer" latest
+test -x "$HOME/.local/bin/claude"
+`, claudeInstallerURL, claudeInstallerSHA256)
 }
 
 // agentSettingsJSON is the default Claude Code settings written to the agent
@@ -89,8 +106,8 @@ exit 0
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "Install a harness tool for the agent user",
-		Long: `Install a supported harness tool into the agent environment.
+		Short: "Install or update a harness tool for the agent user",
+		Long: `Install or update a supported harness tool in the agent environment.
 
 Without a subcommand, 'hazmat bootstrap' installs Claude Code for backward
 compatibility.
@@ -98,7 +115,8 @@ compatibility.
 Subcommands:
   hazmat bootstrap claude
   hazmat bootstrap codex
-  hazmat bootstrap opencode`,
+  hazmat bootstrap opencode
+  hazmat bootstrap gemini`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
@@ -116,8 +134,8 @@ Subcommands:
 func newBootstrapClaudeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "claude",
-		Short: "Install Claude Code for the agent user and write default settings",
-		Long: `Install Claude Code for the agent user, write a default settings.json with
+		Short: "Install or update Claude Code for the agent user and write default settings",
+		Long: `Install or update Claude Code for the agent user, write a default settings.json with
 allow/deny rules, and create a PreToolUse hook skeleton.
 
 Run once after 'hazmat init'. Uses the passwordless sudo rule configured
@@ -127,11 +145,11 @@ is only for manual generic 'sudo -u agent ...' commands.
 
 Steps:
   1. Verify the agent user exists (run 'hazmat init' first if not)
-  2. Install Claude Code under ~/.local/bin/claude for the agent user
+  2. Install or update Claude Code under ~/.local/bin/claude for the agent user
   3. Write ~/.claude/settings.json (0600) if not already present
   4. Create ~/.claude/hooks/ (0700) and a PreToolUse hook (0700) if absent
 
-This command is idempotent: steps already completed are skipped.`,
+This command refreshes the harness binary and leaves existing settings/hooks alone.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
@@ -149,47 +167,17 @@ func runBootstrap(ui *UI, r *Runner) error {
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
-	// ── Step 2: install Claude Code ───────────────────────────────────────────
-	ui.Step("Install Claude Code for agent user")
-	claudeBin := agentHome + "/.local/bin/claude"
-	if _, err := r.AgentOutput("test", "-x", claudeBin); err == nil {
-		ui.SkipDone("Claude Code already installed")
-	} else {
-		// Write the installer script to a temp file rather than passing it
-		// inline. sudo -i joins arguments into a single string for the login
-		// shell, which strips newlines and evaluates $variables prematurely.
-		installScript := fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-installer=$(mktemp "${TMPDIR:-/tmp}/claude-install.XXXXXX")
-cleanup() { rm -f "$installer"; }
-trap cleanup EXIT
-curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
-actual=$(shasum -a 256 "$installer" | awk '{print $1}')
-expected=%q
-if [[ "$actual" != "$expected" ]]; then
-  echo "Claude installer checksum mismatch: expected $expected, got $actual" >&2
-  exit 1
-fi
-bash "$installer"
-`, claudeInstallerURL, claudeInstallerSHA256)
-
-		scriptFile, err := os.CreateTemp("/tmp", "hazmat-bootstrap-*.sh")
-		if err != nil {
-			return fmt.Errorf("create bootstrap script: %w", err)
-		}
-		defer os.Remove(scriptFile.Name())
-		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
-			return fmt.Errorf("write bootstrap script: %w", err)
-		}
-		scriptFile.Close()                 //nolint:errcheck // close-to-flush; exec below catches problems
-		os.Chmod(scriptFile.Name(), 0o755) //nolint:errcheck // exec below fails if not executable
-
-		if err := r.AsAgentVisible("download, verify, and install Claude Code as agent user",
-			"/bin/bash", scriptFile.Name()); err != nil {
-			return fmt.Errorf("install Claude Code: %w", err)
-		}
-		ui.Ok("Claude Code installed")
+	// ── Step 2: install/update Claude Code ────────────────────────────────────
+	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
+		DisplayName:   "Claude Code",
+		TempPattern:   "hazmat-claude-bootstrap-*.sh",
+		InstallReason: "download, verify, and install or update Claude Code as agent user",
+		BuildScript: func(bool) (string, error) {
+			return claudeInstallScript(), nil
+		},
+		FindExisting: findInstalledClaudeBinaryWith,
+	}); err != nil {
+		return err
 	}
 
 	// ── Step 3: write settings.json ───────────────────────────────────────────

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -50,6 +49,29 @@ func openCodeLaunchScript() string {
 		`exec "$opencode_bin" "$@"`
 }
 
+func openCodeInstallScript() string {
+	return fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+installer=$(mktemp "${TMPDIR:-/tmp}/opencode-install.XXXXXX")
+cleanup() { rm -f "$installer"; }
+trap cleanup EXIT
+curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
+bash "$installer" --no-modify-path
+if [ -x "$HOME%s" ] && [ ! -e "$HOME%s" ] && [ ! -L "$HOME%s" ]; then
+  install -d -m 0700 "$HOME/.local/bin"
+  ln -s "$HOME%s" "$HOME%s"
+fi
+test -x "$HOME%s" || test -x "$HOME%s"
+`, opencodeInstallerURL,
+		openCodeCurrentBinRel,
+		openCodeLegacyBinRel,
+		openCodeLegacyBinRel,
+		openCodeCurrentBinRel,
+		openCodeLegacyBinRel,
+		openCodeCurrentBinRel,
+		openCodeLegacyBinRel)
+}
+
 func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 	ui.Step("Ensure OpenCode is on agent PATH")
 
@@ -92,8 +114,8 @@ func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 func newBootstrapOpenCodeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "opencode",
-		Short: "Install OpenCode for the agent user and write a minimal config",
-		Long: `Install OpenCode for the agent user and write a minimal global config.
+		Short: "Install or update OpenCode for the agent user and write a minimal config",
+		Long: `Install or update OpenCode for the agent user and write a minimal global config.
 
 Hazmat writes only a small agent-owned opencode.json with autoupdate disabled.
 Runtime behavior, provider settings, commands, agents, skills, and auth can be
@@ -114,50 +136,16 @@ func runOpenCodeBootstrap(ui *UI, r *Runner) error {
 	}
 	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
-	ui.Step("Install OpenCode for agent user")
-	if opencodeBin, ok := findInstalledOpenCodeBinaryWith(r.AgentOutput); ok {
-		ui.SkipDone(fmt.Sprintf("OpenCode already installed at %s", opencodeBin))
-	} else {
-		installScript := fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-installer=$(mktemp "${TMPDIR:-/tmp}/opencode-install.XXXXXX")
-cleanup() { rm -f "$installer"; }
-trap cleanup EXIT
-curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail %q -o "$installer"
-bash "$installer" --no-modify-path
-if [ -x "$HOME%s" ] && [ ! -e "$HOME%s" ] && [ ! -L "$HOME%s" ]; then
-  install -d -m 0700 "$HOME/.local/bin"
-  ln -s "$HOME%s" "$HOME%s"
-fi
-test -x "$HOME%s" || test -x "$HOME%s"
-`, opencodeInstallerURL,
-			openCodeCurrentBinRel,
-			openCodeLegacyBinRel,
-			openCodeLegacyBinRel,
-			openCodeCurrentBinRel,
-			openCodeLegacyBinRel,
-			openCodeCurrentBinRel,
-			openCodeLegacyBinRel)
-
-		scriptFile, err := os.CreateTemp("/tmp", "hazmat-opencode-bootstrap-*.sh")
-		if err != nil {
-			return fmt.Errorf("create OpenCode bootstrap script: %w", err)
-		}
-		defer os.Remove(scriptFile.Name())
-		if _, err := scriptFile.WriteString(installScript); err != nil {
-			scriptFile.Close() //nolint:errcheck // error-path close; write error is more important
-			return fmt.Errorf("write OpenCode bootstrap script: %w", err)
-		}
-		scriptFile.Close() //nolint:errcheck // close-to-flush; chmod below catches problems
-		if err := os.Chmod(scriptFile.Name(), 0o755); err != nil {
-			return fmt.Errorf("chmod OpenCode bootstrap script: %w", err)
-		}
-
-		if err := r.AsAgentVisible("download and install OpenCode as agent user",
-			"/bin/bash", scriptFile.Name()); err != nil {
-			return fmt.Errorf("install OpenCode: %w", err)
-		}
-		ui.Ok("OpenCode installed")
+	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
+		DisplayName:   "OpenCode",
+		TempPattern:   "hazmat-opencode-bootstrap-*.sh",
+		InstallReason: "download and install or update OpenCode as agent user",
+		BuildScript: func(bool) (string, error) {
+			return openCodeInstallScript(), nil
+		},
+		FindExisting: findInstalledOpenCodeBinaryWith,
+	}); err != nil {
+		return err
 	}
 
 	if err := ensureOpenCodePathShim(ui, r); err != nil {
