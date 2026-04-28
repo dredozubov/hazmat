@@ -200,8 +200,8 @@ Workspace:
 
 ## Configuration
 
-All backup settings live in `~/.config/hazmat/config.yaml`. Cloud secret key
-is stored separately in `~/.config/hazmat/cloud-credentials` (0600).
+Backup settings live in `~/.config/hazmat/config.yaml`. Cloud credential
+material lives under `~/.hazmat/secrets/cloud/`.
 
 | Setting | Default | Override |
 |---------|---------|---------|
@@ -211,7 +211,7 @@ is stored separately in `~/.config/hazmat/cloud-credentials` (0600).
 | Snapshot retention | 20 latest, 7 daily, 4 weekly | `hazmat config set backup.retention.keep_latest N` |
 | Snapshot excludes | node_modules, .venv, dist, build, target | `hazmat config set backup.excludes.add PATTERN` |
 | Cloud endpoint | — | `hazmat config cloud` or `hazmat config set` |
-| Cloud secret key | — | `hazmat config cloud` or `HAZMAT_CLOUD_SECRET_KEY` env |
+| Cloud credentials | — | `hazmat config cloud`; `HAZMAT_CLOUD_SECRET_KEY` / `HAZMAT_CLOUD_PASSWORD` env |
 | Blocked ports | Hardcoded (SMTP, IRC, FTP, Tor, etc.) | Opinionated, not configurable |
 | Blocked domains | Hardcoded (ngrok, pastebin, etc.) | Opinionated, not configurable |
 | Seatbelt policy | Generated per-session | Dynamic, not configurable |

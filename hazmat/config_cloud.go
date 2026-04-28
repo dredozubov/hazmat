@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -174,19 +175,23 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 	cfg.Backup.Cloud.AccessKey = accessKey
 	cfg.Backup.Cloud.RecoveryKey = recoveryKey
 
-	if err := saveConfig(cfg); err != nil {
+	if err := saveCloudAccessKey(accessKey); err != nil {
 		return err
 	}
-
-	// Save secret key separately with restricted permissions
 	if err := saveCloudSecretKey(secretKey); err != nil {
+		return err
+	}
+	if err := saveCloudRecoveryKey(recoveryKey); err != nil {
+		return err
+	}
+	if err := saveConfig(cfg); err != nil {
 		return err
 	}
 
 	fmt.Println()
 	cGreen.Println("  Cloud backup configured.")
 	fmt.Printf("    Config:      %s\n", configFilePath)
-	fmt.Printf("    Credentials: %s\n", cloudCredentialPath)
+	fmt.Printf("    Credentials: %s\n", filepath.Join("~", ".hazmat", "secrets", "cloud"))
 	cDim.Println("    Run: hazmat backup --cloud")
 	fmt.Println()
 	return nil

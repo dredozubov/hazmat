@@ -61,6 +61,10 @@ const (
 	credentialHarnessGeminiOAuth       credentialID = "harness.gemini.oauth"
 	credentialHarnessGeminiAccounts    credentialID = "harness.gemini.accounts"
 	credentialHarnessGeminiKeychain    credentialID = "harness.gemini.keychain-oauth"
+
+	credentialCloudS3AccessKeyID credentialID = "cloud.s3.access-key-id"
+	credentialCloudS3SecretKey   credentialID = "cloud.s3.secret-key"
+	credentialCloudKopiaRecovery credentialID = "cloud.kopia.recovery-key"
 )
 
 // credentialDescriptor is the only place a durable credential surface should
@@ -222,6 +226,39 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Harness:     HarnessGemini,
 		ExternalRef: "macOS Keychain item owned by Gemini CLI",
 		Redacted:    true,
+	},
+	{
+		ID:           credentialCloudS3AccessKeyID,
+		DisplayName:  "Cloud backup S3 access key ID",
+		Kind:         credentialKindCloudBackup,
+		Backend:      credentialStorageHostSecretStore,
+		Delivery:     credentialDeliveryNone,
+		Support:      credentialSupportManaged,
+		StoreRelPath: "cloud/s3-access-key-id",
+		LegacyPaths:  []string{configFilePath},
+		Redacted:     true,
+	},
+	{
+		ID:           credentialCloudS3SecretKey,
+		DisplayName:  "Cloud backup S3 secret key",
+		Kind:         credentialKindCloudBackup,
+		Backend:      credentialStorageHostSecretStore,
+		Delivery:     credentialDeliveryNone,
+		Support:      credentialSupportManaged,
+		StoreRelPath: "cloud/s3-secret-key",
+		LegacyPaths:  []string{cloudCredentialPath},
+		Redacted:     true,
+	},
+	{
+		ID:           credentialCloudKopiaRecovery,
+		DisplayName:  "Cloud backup recovery key",
+		Kind:         credentialKindCloudBackup,
+		Backend:      credentialStorageHostSecretStore,
+		Delivery:     credentialDeliveryNone,
+		Support:      credentialSupportManaged,
+		StoreRelPath: "cloud/kopia-recovery-key",
+		LegacyPaths:  []string{configFilePath},
+		Redacted:     true,
 	},
 }
 

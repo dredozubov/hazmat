@@ -156,7 +156,7 @@ exit
 
 Use the sandbox user for credentials and mutable state, but keep general-purpose toolchains installed once via Homebrew on the host:
 
-- Install as `agent`: Claude Code, git credential store, Git identity, Anthropic key, cloud credentials
+- Install as `agent`: Claude Code, git credential store, Git identity, Anthropic key
 - Install on the host via Homebrew: `node`, `make`, `uv`, `ripgrep`, `jq`, `gh`, `pnpm`, `fd`, other compilers or CLIs
 - Run those host-installed binaries through the sandbox with `agent-exec ...` or inside `agent-shell`
 

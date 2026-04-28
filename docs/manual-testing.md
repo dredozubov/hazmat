@@ -186,6 +186,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: any `hazmat <harness>` launch; before chatting, scroll up to the snapshot line.
   - Expected: `Snapshot: <project> ... done (X.Xs)`; `hazmat snapshots list` shows the new entry.
 
+- [ ] **Cloud credential storage**
+  - Preconditions: disposable S3-compatible test credentials, or run only the config/migration checks without `hazmat backup --cloud`.
+  - Steps: configure with `HAZMAT_CLOUD_SECRET_KEY=<secret> HAZMAT_CLOUD_PASSWORD=<recovery> hazmat config cloud --endpoint <endpoint> --bucket <bucket> --access-key <access> --secret-key-from-env`.
+  - Expected: `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.config/hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
+
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.
   - Expected: `☢ HAZMAT │ <integrations> ... <project>` rendered in the bottom row, doesn't scroll.

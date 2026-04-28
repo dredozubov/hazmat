@@ -300,6 +300,20 @@ func openCloudRepo(ctx context.Context) (repo.Repository, error) {
 	}
 
 	cloud := cfg.Backup.Cloud
+	if cloud.AccessKey == "" {
+		accessKey, err := loadCloudAccessKey()
+		if err != nil {
+			return nil, err
+		}
+		cloud.AccessKey = accessKey
+	}
+	if cloud.RecoveryKey == "" {
+		recoveryKey, err := loadCloudRecoveryKey()
+		if err != nil {
+			return nil, err
+		}
+		cloud.RecoveryKey = recoveryKey
+	}
 	endpoint := strings.TrimPrefix(cloud.Endpoint, "https://")
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	useTLS := !strings.HasPrefix(cloud.Endpoint, "http://")

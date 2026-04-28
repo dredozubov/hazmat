@@ -140,6 +140,27 @@ func TestProviderSecretStorePathForHomeUsesCredentialRegistry(t *testing.T) {
 	}
 }
 
+func TestCloudCredentialStorePathsUseCredentialRegistry(t *testing.T) {
+	home := t.TempDir()
+	for _, id := range []credentialID{
+		credentialCloudS3AccessKeyID,
+		credentialCloudS3SecretKey,
+		credentialCloudKopiaRecovery,
+	} {
+		got, err := credentialStorePathForHome(home, id)
+		if err != nil {
+			t.Fatalf("credentialStorePathForHome(%s): %v", id, err)
+		}
+		want := mustCredentialStorePathForHome(home, id)
+		if got != want {
+			t.Fatalf("credentialStorePathForHome(%s) = %q, want %q", id, got, want)
+		}
+		if !strings.Contains(got, filepath.Join(".hazmat", "secrets", "cloud")) {
+			t.Fatalf("cloud credential %s stored outside cloud secret-store subtree: %q", id, got)
+		}
+	}
+}
+
 func TestHarnessAuthArtifactsUseCredentialRegistry(t *testing.T) {
 	home := t.TempDir()
 	cases := []struct {
@@ -207,8 +228,8 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 
 func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
-	if summary.ManagedHostSecretStore != 9 {
-		t.Fatalf("ManagedHostSecretStore = %d, want 9", summary.ManagedHostSecretStore)
+	if summary.ManagedHostSecretStore != 12 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 12", summary.ManagedHostSecretStore)
 	}
 	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
 		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)

@@ -196,7 +196,7 @@ may add more excludes such as `.terraform/` or `.turbo/` for the current
 session only. They affect what goes into automatic pre-session snapshots, not
 the seatbelt allow rules.
 
-**Cloud credentials are split across two files.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint, bucket, access key, and Kopia encryption password. The S3 secret key lives separately in `~/.config/hazmat/cloud-credentials` (0600) or can be set via `HAZMAT_CLOUD_SECRET_KEY` env var. Both files are owner-read-only because the config contains the access key and encryption password.
+**Cloud credentials are host-secret-store entries.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint and bucket. The S3 access key ID, S3 secret key, and Kopia recovery key live under `~/.hazmat/secrets/cloud/` and are loaded through the credential registry. `HAZMAT_CLOUD_SECRET_KEY` and `HAZMAT_CLOUD_PASSWORD` remain explicit runtime/import sources, but they are not written back into `config.yaml`. Older `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and `~/.hazmat/cloud-credentials` values migrate into the secret store.
 
 **Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
 

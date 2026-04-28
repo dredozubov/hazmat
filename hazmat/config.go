@@ -22,9 +22,8 @@ var (
 
 var configFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/config.yaml")
 
-// cloudCredentialPath stores the S3 secret key separately from the main
-// config file. The config file is human-readable and safe to share; the
-// credential file is 0600 and contains only the secret key.
+// cloudCredentialPath is the pre-secret-store S3 secret key location.
+// Current releases migrate it into ~/.hazmat/secrets/cloud/s3-secret-key.
 var cloudCredentialPath = filepath.Join(os.Getenv("HOME"), ".hazmat/cloud-credentials")
 
 // ── Config types ────────────────────────────────────────────────────────────
@@ -210,14 +209,16 @@ type RetentionConfig struct {
 }
 
 type CloudBackup struct {
-	Endpoint    string `yaml:"endpoint"`
-	Bucket      string `yaml:"bucket"`
-	AccessKey   string `yaml:"access_key"`
-	RecoveryKey string `yaml:"recovery_key,omitempty"` // Kopia repo encryption key
+	Endpoint string `yaml:"endpoint"`
+	Bucket   string `yaml:"bucket"`
+	// AccessKey and RecoveryKey are hydrated from the host secret store at
+	// load time for existing callers. saveConfig always scrubs them from YAML.
+	AccessKey   string `yaml:"access_key,omitempty"`
+	RecoveryKey string `yaml:"recovery_key,omitempty"` // legacy Kopia repo encryption key location
 	// LegacyRecoveryKey accepts the pre-rename `password:` YAML key. Migrated to
 	// RecoveryKey on load and dropped on next save.
 	LegacyRecoveryKey string `yaml:"password,omitempty"`
-	// SecretKey is NOT stored here — it's in cloudCredentialPath
+	// SecretKey is not represented in config; it lives in the host secret store.
 }
 
 // ── Defaults ────────────────────────────────────────────────────────────────
@@ -686,6 +687,10 @@ func loadConfig() (HazmatConfig, error) {
 		cfg.Backup.Cloud.RecoveryKey = cfg.Backup.Cloud.LegacyRecoveryKey
 		cfg.Backup.Cloud.LegacyRecoveryKey = ""
 	}
+	cloudMigrated, err := migrateCloudCredentialsIntoSecretStore(&cfg)
+	if err != nil {
+		return cfg, err
+	}
 
 	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
 		return cfg, err
@@ -705,6 +710,11 @@ func loadConfig() (HazmatConfig, error) {
 		}
 	}
 
+	if cloudMigrated {
+		if err := saveConfig(cfg); err != nil {
+			return cfg, fmt.Errorf("save migrated cloud credential config: %w", err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -714,7 +724,8 @@ func saveConfig(cfg HazmatConfig) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
-	data, err := yaml.Marshal(&cfg)
+	safeCfg := scrubConfigSecretsForSave(cfg)
+	data, err := yaml.Marshal(&safeCfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
@@ -723,11 +734,132 @@ func saveConfig(cfg HazmatConfig) error {
 	return os.WriteFile(configFilePath, []byte(header+string(data)), 0o600)
 }
 
-// ── Cloud credential (secret key only) ──────────────────────────────────────
+func scrubConfigSecretsForSave(cfg HazmatConfig) HazmatConfig {
+	if cfg.Backup.Cloud == nil {
+		return cfg
+	}
+	cloud := *cfg.Backup.Cloud
+	cloud.AccessKey = ""
+	cloud.RecoveryKey = ""
+	cloud.LegacyRecoveryKey = ""
+	cfg.Backup.Cloud = &cloud
+	return cfg
+}
+
+// ── Cloud credentials ──────────────────────────────────────────────────────
+
+func cloudCredentialStorePath(id credentialID) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determine home directory for Hazmat cloud credentials: %w", err)
+	}
+	return credentialStorePathForHome(home, id)
+}
+
+func readCloudStoredCredential(id credentialID) (string, bool, error) {
+	path, err := cloudCredentialStorePath(id)
+	if err != nil {
+		return "", false, err
+	}
+	raw, ok, err := readHostStoredSecretFile(path)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", false, nil
+	}
+	return value, true, nil
+}
+
+func saveCloudStoredCredential(id credentialID, value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("%s cannot be empty", id)
+	}
+	path, err := cloudCredentialStorePath(id)
+	if err != nil {
+		return err
+	}
+	return writeHostStoredSecretFile(path, []byte(value+"\n"))
+}
+
+func migrateCloudCredentialsIntoSecretStore(cfg *HazmatConfig) (bool, error) {
+	if cfg.Backup.Cloud == nil {
+		return false, nil
+	}
+
+	migrated := false
+	if cfg.Backup.Cloud.AccessKey != "" {
+		if err := saveCloudStoredCredential(credentialCloudS3AccessKeyID, cfg.Backup.Cloud.AccessKey); err != nil {
+			return false, fmt.Errorf("migrate cloud access key: %w", err)
+		}
+		migrated = true
+	}
+	if cfg.Backup.Cloud.RecoveryKey != "" {
+		if err := saveCloudStoredCredential(credentialCloudKopiaRecovery, cfg.Backup.Cloud.RecoveryKey); err != nil {
+			return false, fmt.Errorf("migrate cloud recovery key: %w", err)
+		}
+		migrated = true
+	}
+
+	cfg.Backup.Cloud.AccessKey = ""
+	cfg.Backup.Cloud.RecoveryKey = ""
+	cfg.Backup.Cloud.LegacyRecoveryKey = ""
+
+	if accessKey, ok, err := readCloudStoredCredential(credentialCloudS3AccessKeyID); err != nil {
+		return migrated, fmt.Errorf("read cloud access key: %w", err)
+	} else if ok {
+		cfg.Backup.Cloud.AccessKey = accessKey
+	}
+	if recoveryKey := os.Getenv("HAZMAT_CLOUD_PASSWORD"); recoveryKey != "" {
+		cfg.Backup.Cloud.RecoveryKey = recoveryKey
+	} else if recoveryKey, ok, err := readCloudStoredCredential(credentialCloudKopiaRecovery); err != nil {
+		return migrated, fmt.Errorf("read cloud recovery key: %w", err)
+	} else if ok {
+		cfg.Backup.Cloud.RecoveryKey = recoveryKey
+	}
+
+	return migrated, nil
+}
+
+func loadCloudAccessKey() (string, error) {
+	if key, ok, err := readCloudStoredCredential(credentialCloudS3AccessKeyID); err != nil {
+		return "", fmt.Errorf("read cloud access key: %w", err)
+	} else if ok {
+		return key, nil
+	}
+	return "", fmt.Errorf("cloud access key not configured\nRun: hazmat config cloud")
+}
+
+func saveCloudAccessKey(key string) error {
+	return saveCloudStoredCredential(credentialCloudS3AccessKeyID, key)
+}
+
+func loadCloudRecoveryKey() (string, error) {
+	if key := os.Getenv("HAZMAT_CLOUD_PASSWORD"); key != "" {
+		return key, nil
+	}
+	if key, ok, err := readCloudStoredCredential(credentialCloudKopiaRecovery); err != nil {
+		return "", fmt.Errorf("read cloud recovery key: %w", err)
+	} else if ok {
+		return key, nil
+	}
+	return "", fmt.Errorf("cloud recovery key not configured\nRun: hazmat config cloud")
+}
+
+func saveCloudRecoveryKey(key string) error {
+	return saveCloudStoredCredential(credentialCloudKopiaRecovery, key)
+}
 
 func loadCloudSecretKey() (string, error) {
 	// Environment variable takes precedence
 	if key := os.Getenv("HAZMAT_CLOUD_SECRET_KEY"); key != "" {
+		return key, nil
+	}
+	if key, ok, err := readCloudStoredCredential(credentialCloudS3SecretKey); err != nil {
+		return "", fmt.Errorf("read cloud secret key: %w", err)
+	} else if ok {
 		return key, nil
 	}
 
@@ -735,15 +867,27 @@ func loadCloudSecretKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read cloud credentials: %w\nSet HAZMAT_CLOUD_SECRET_KEY or run: hazmat config cloud", err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	key := strings.TrimSpace(string(data))
+	if key == "" {
+		return "", fmt.Errorf("legacy cloud credential file is empty\nSet HAZMAT_CLOUD_SECRET_KEY or run: hazmat config cloud")
+	}
+	if err := saveCloudSecretKey(key); err != nil {
+		return "", fmt.Errorf("migrate legacy cloud credential: %w", err)
+	}
+	if err := os.Remove(cloudCredentialPath); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("remove legacy cloud credential %s: %w", cloudCredentialPath, err)
+	}
+	return key, nil
 }
 
 func saveCloudSecretKey(key string) error {
-	dir := filepath.Dir(cloudCredentialPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := saveCloudStoredCredential(credentialCloudS3SecretKey, key); err != nil {
 		return err
 	}
-	return os.WriteFile(cloudCredentialPath, []byte(key+"\n"), 0o600)
+	if err := os.Remove(cloudCredentialPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove legacy cloud credential %s: %w", cloudCredentialPath, err)
+	}
+	return nil
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────
@@ -1432,6 +1576,9 @@ func runConfigSet(key, value string) error {
 		cfg.Backup.Cloud.Bucket = value
 	case "backup.cloud.access_key":
 		ensureCloudConfig(&cfg)
+		if err := saveCloudAccessKey(value); err != nil {
+			return err
+		}
 		cfg.Backup.Cloud.AccessKey = value
 	case "session.skip_permissions":
 		b := value == "true" || value == "1" || value == "yes"
