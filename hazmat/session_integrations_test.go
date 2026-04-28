@@ -1,9 +1,11 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,6 +93,41 @@ func TestResolveLaunchIntegrationFlagsAlwaysPersistsSelectedAndRejectedSuggestio
 func TestSuggestedIntegrationActionPromptIncludesExplicitInputHint(t *testing.T) {
 	if got := suggestedIntegrationActionPrompt; got != "How should Hazmat use this selection? [1-3, Enter for default]:" {
 		t.Fatalf("suggestedIntegrationActionPrompt = %q", got)
+	}
+}
+
+func TestPromptSuggestedLaunchIntegrationsLinksIntegrationDocs(t *testing.T) {
+	isolateConfig(t)
+
+	savedYesAll := flagYesAll
+	flagYesAll = true
+	t.Cleanup(func() { flagYesAll = savedYesAll })
+
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = w
+	result, runErr := defaultPromptSuggestedLaunchIntegrations("/tmp/project", []suggestedIntegrationPromptItem{
+		{Name: "node", Description: "Node.js project defaults"},
+	})
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	os.Stderr = oldStderr
+	data, readErr := io.ReadAll(r)
+	if readErr != nil {
+		t.Fatalf("read stderr: %v", readErr)
+	}
+	if runErr != nil {
+		t.Fatalf("defaultPromptSuggestedLaunchIntegrations: %v", runErr)
+	}
+	if result.Action != suggestedIntegrationActionUseNow {
+		t.Fatalf("Action = %q, want %q", result.Action, suggestedIntegrationActionUseNow)
+	}
+	if !strings.Contains(string(data), integrationDocsURL) {
+		t.Fatalf("prompt stderr missing integrations doc link:\n%s", string(data))
 	}
 }
 

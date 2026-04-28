@@ -140,6 +140,7 @@ func defaultPromptSuggestedLaunchIntegrations(projectDir string, items []suggest
 
 	fmt.Println()
 	fmt.Fprintf(os.Stderr, "hazmat: suggested integrations detected for %s\n", projectDir)
+	fmt.Fprintf(os.Stderr, "hazmat: integrations add optional stack helpers. Learn more: %s\n", integrationDocsURL)
 
 	choices := make([]UIChoice, 0, len(items))
 	defaultKeys := make([]string, 0, len(items))

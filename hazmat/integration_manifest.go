@@ -1082,7 +1082,10 @@ func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, pl
 
 // ── CLI command ────────────────────────────────────────────────────────────
 
-const integrationContributorFlowDocURL = "https://github.com/dredozubov/hazmat/blob/master/docs/integration-contributor-flow.md"
+const (
+	integrationDocsURL               = "https://github.com/dredozubov/hazmat/blob/master/docs/integrations.md"
+	integrationContributorFlowDocURL = "https://github.com/dredozubov/hazmat/blob/master/docs/integration-contributor-flow.md"
+)
 
 func newIntegrationCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -1103,6 +1106,7 @@ only reduce friction or tighten defaults.
                                 Validate an integration manifest
   hazmat integration rejections  Inspect or clear persisted rejected suggestions
 
+Learn integrations: ` + integrationDocsURL + `
 Missing stack support? See ` + integrationContributorFlowDocURL,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -1242,6 +1246,7 @@ func runIntegrationList() error {
 	fmt.Println("  Draft:    hazmat integration scaffold <name> --from-current-project")
 	fmt.Println("  Validate: hazmat integration validate <file-or-name>")
 	fmt.Println("  Prompt:   interactive harness launches can approve suggested integrations automatically")
+	fmt.Printf("  Learn:    %s\n", integrationDocsURL)
 	fmt.Printf("  Contribute: missing your stack? %s\n", integrationContributorFlowDocURL)
 	fmt.Println()
 	return nil

@@ -1293,7 +1293,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
 	fmt.Fprintf(&b, "  Integrations:         %s\n", sessionContractList(cfg.ActiveIntegrations))
 	if len(cfg.ActiveIntegrations) == 0 {
-		fmt.Fprintf(&b, "  Integration help:     %s\n", integrationContributorFlowDocURL)
+		fmt.Fprintf(&b, "  Integration help:     optional stack helpers: hazmat integration setup (%s)\n", integrationDocsURL)
 	}
 	if len(cfg.IntegrationSources) > 0 {
 		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))

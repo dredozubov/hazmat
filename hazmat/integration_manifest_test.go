@@ -1120,6 +1120,9 @@ func TestRunIntegrationListShowsContributorFlowLink(t *testing.T) {
 	if !strings.Contains(out, "Contribute: missing your stack? "+integrationContributorFlowDocURL) {
 		t.Fatalf("output missing contributor flow link:\n%s", out)
 	}
+	if !strings.Contains(out, "Learn:    "+integrationDocsURL) {
+		t.Fatalf("output missing integrations docs link:\n%s", out)
+	}
 }
 
 func TestRunIntegrationSetupShowsDoorway(t *testing.T) {
@@ -1139,7 +1142,7 @@ func TestRunIntegrationSetupShowsDoorway(t *testing.T) {
 		"Suggested built-ins:  node",
 		"Recommend in repo:    hazmat integration setup --recommend <name[,name]>",
 		"Create draft:         hazmat integration scaffold <name> --from-current-project",
-		integrationContributorFlowDocURL,
+		integrationDocsURL,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("setup output missing %q:\n%s", want, out)
@@ -1192,6 +1195,9 @@ func TestRunIntegrationScaffoldCreatesDraftFromProjectEvidence(t *testing.T) {
 	}
 	if !strings.Contains(out, "Created integration draft: "+output) {
 		t.Fatalf("unexpected output:\n%s", out)
+	}
+	if !strings.Contains(out, "Contributor flow: "+integrationContributorFlowDocURL) {
+		t.Fatalf("scaffold output missing contributor flow link:\n%s", out)
 	}
 
 	data, err := os.ReadFile(output)

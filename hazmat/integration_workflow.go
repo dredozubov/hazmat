@@ -155,7 +155,7 @@ func runIntegrationSetup(opts integrationSetupOptions) error {
 	fmt.Println("  Recommend in repo:    hazmat integration setup --recommend <name[,name]>")
 	fmt.Println("  Create draft:         hazmat integration scaffold <name> --from-current-project")
 	fmt.Println("  Validate draft:       hazmat integration validate <file-or-name>")
-	fmt.Printf("  Flow guide:           %s\n", integrationContributorFlowDocURL)
+	fmt.Printf("  Learn integrations:   %s\n", integrationDocsURL)
 	fmt.Println()
 	return nil
 }
@@ -244,6 +244,7 @@ func runIntegrationScaffold(name string, opts integrationScaffoldOptions) error 
 	fmt.Println()
 	fmt.Printf("Next: edit %s\n", outputPath)
 	fmt.Printf("Then: hazmat integration validate %s\n", outputPath)
+	fmt.Printf("Contributor flow: %s\n", integrationContributorFlowDocURL)
 	fmt.Println("For a built-in PR, keep the manifest small and include a focused test or docs note when behavior changes.")
 	return nil
 }

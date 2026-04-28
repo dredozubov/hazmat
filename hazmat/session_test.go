@@ -2009,7 +2009,7 @@ func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 	for _, want := range []string{
 		"Mode:                 Native containment",
 		"Integrations:         none",
-		"Integration help:     " + integrationContributorFlowDocURL,
+		"Integration help:     optional stack helpers: hazmat integration setup (" + integrationDocsURL + ")",
 		"Auto read-only:       none",
 		"Read-only extensions: none",
 		"Read-write extensions: none",
