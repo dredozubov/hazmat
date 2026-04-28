@@ -59,6 +59,9 @@ weaken Hazmat's trust boundary.
 ```bash
 hazmat integration list
 hazmat integration show node
+hazmat integration setup
+hazmat integration scaffold bun --from-current-project
+hazmat integration validate ~/.hazmat/integrations/bun.yaml
 ```
 
 `hazmat integration list` shows built-in integrations, user-installed manifests under
@@ -73,6 +76,13 @@ If the built-ins do not cover your stack, start with
 normal Hazmat output should lead users toward existing integrations, repo
 recommendations, or a small PR-shaped integration draft without relying on an
 exhaustive list of ecosystems.
+
+`hazmat integration setup` prints the current project's integration state and
+the next commands for using, recommending, or creating integrations.
+`hazmat integration scaffold <name>` creates a valid draft manifest from the
+name you provide and optional current-project evidence. `hazmat integration
+validate <file-or-name>` checks a built-in, user-installed, or file-backed
+manifest before you use it or turn it into a PR.
 
 Manifest `session.read_dirs` and `session.env_passthrough` are common to every
 platform. Platform-owned entries live under `session.platforms.<platform>`, so

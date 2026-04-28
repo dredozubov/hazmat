@@ -1091,6 +1091,161 @@ func TestRunIntegrationListShowsContributorFlowLink(t *testing.T) {
 	}
 }
 
+func TestRunIntegrationSetupShowsDoorway(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := integrationTestProject(t, map[string]string{
+		"package.json": "{}\n",
+	})
+	out, err := captureStdout(t, func() error {
+		return runIntegrationSetup(integrationSetupOptions{Project: projectDir})
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationSetup: %v", err)
+	}
+	for _, want := range []string{
+		"hazmat: integration setup",
+		"Suggested built-ins:  node",
+		"Recommend in repo:    hazmat integration setup --recommend <name[,name]>",
+		"Create draft:         hazmat integration scaffold <name> --from-current-project",
+		integrationContributorFlowDocURL,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("setup output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunIntegrationSetupRecommendWritesRepoRecommendations(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := t.TempDir()
+	out, err := captureStdout(t, func() error {
+		return runIntegrationSetup(integrationSetupOptions{Project: projectDir, Recommend: "node, go node"})
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationSetup recommend: %v", err)
+	}
+	if !strings.Contains(out, "Recommended integrations: node, go") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	names, _, err := loadRepoRecommendations(projectDir)
+	if err != nil {
+		t.Fatalf("loadRepoRecommendations: %v", err)
+	}
+	if !reflect.DeepEqual(names, []string{"node", "go"}) {
+		t.Fatalf("names = %v, want [node go]", names)
+	}
+}
+
+func TestRunIntegrationScaffoldCreatesDraftFromProjectEvidence(t *testing.T) {
+	isolateConfig(t)
+
+	projectDir := integrationTestProject(t, map[string]string{
+		"bun.lockb":    "lock\n",
+		"package.json": "{}\n",
+		".gitignore":   "node_modules/\n.env\n.next/\n!keep\n",
+	})
+	output := filepath.Join(t.TempDir(), "bun.yaml")
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationScaffold("bun", integrationScaffoldOptions{
+			Project:            projectDir,
+			Output:             output,
+			FromCurrentProject: true,
+		})
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationScaffold: %v", err)
+	}
+	if !strings.Contains(out, "Created integration draft: "+output) {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read scaffold: %v", err)
+	}
+	spec, err := loadIntegrationSpec(data)
+	if err != nil {
+		t.Fatalf("load scaffold: %v\n%s", err, data)
+	}
+	if spec.Meta.Name != "bun" {
+		t.Fatalf("name = %q, want bun", spec.Meta.Name)
+	}
+	if !reflect.DeepEqual(spec.Detect.Files, []string{"bun.lockb", "package.json"}) {
+		t.Fatalf("detect files = %v, want [bun.lockb package.json]", spec.Detect.Files)
+	}
+	if !reflect.DeepEqual(spec.Backup.Excludes, []string{"node_modules/", ".next/"}) {
+		t.Fatalf("excludes = %v, want [node_modules/ .next/]", spec.Backup.Excludes)
+	}
+}
+
+func TestRunIntegrationScaffoldRejectsExistingOutputWithoutForce(t *testing.T) {
+	isolateConfig(t)
+
+	output := filepath.Join(t.TempDir(), "demo.yaml")
+	if err := os.WriteFile(output, []byte("existing\n"), 0o644); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	err := runIntegrationScaffold("demo", integrationScaffoldOptions{
+		Output:             output,
+		FromCurrentProject: false,
+	})
+	if err == nil {
+		t.Fatal("expected existing output to be rejected")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunIntegrationValidateAcceptsFile(t *testing.T) {
+	isolateConfig(t)
+
+	output := filepath.Join(t.TempDir(), "demo.yaml")
+	if err := runIntegrationScaffold("demo", integrationScaffoldOptions{
+		Output:             output,
+		FromCurrentProject: false,
+	}); err != nil {
+		t.Fatalf("runIntegrationScaffold: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return runIntegrationValidate(output, integrationValidateOptions{})
+	})
+	if err != nil {
+		t.Fatalf("runIntegrationValidate: %v", err)
+	}
+	if !strings.Contains(out, "Integration manifest valid: demo") {
+		t.Fatalf("validate output missing success:\n%s", out)
+	}
+}
+
+func TestRunIntegrationValidateRejectsUnsafeEnv(t *testing.T) {
+	isolateConfig(t)
+
+	path := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(path, []byte(`integration:
+  name: bad
+  version: 1
+session:
+  env_passthrough: [NODE_OPTIONS]
+`), 0o644); err != nil {
+		t.Fatalf("write bad manifest: %v", err)
+	}
+
+	err := runIntegrationValidate(path, integrationValidateOptions{})
+	if err == nil {
+		t.Fatal("expected unsafe env passthrough to be rejected")
+	}
+	if !strings.Contains(err.Error(), "NODE_OPTIONS") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadRepoRecommendationsRejectsUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	recDir := filepath.Join(dir, ".hazmat")

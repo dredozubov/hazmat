@@ -1058,6 +1058,11 @@ only reduce friction or tighten defaults.
 
   hazmat integration list        List available integrations
   hazmat integration show <name> Show integration details
+  hazmat integration setup       Show guided setup and contribution paths
+  hazmat integration scaffold <name>
+                                Create a draft integration manifest
+  hazmat integration validate <file-or-name>
+                                Validate an integration manifest
   hazmat integration rejections  Inspect or clear persisted rejected suggestions
 
 Missing stack support? See ` + integrationContributorFlowDocURL,
@@ -1083,7 +1088,12 @@ Missing stack support? See ` + integrationContributorFlowDocURL,
 			return runIntegrationShow(args[0])
 		},
 	})
-	cmd.AddCommand(newIntegrationRejectionsCmd())
+	cmd.AddCommand(
+		newIntegrationSetupCmd(),
+		newIntegrationScaffoldCmd(),
+		newIntegrationValidateCmd(),
+		newIntegrationRejectionsCmd(),
+	)
 
 	return cmd
 }
@@ -1188,8 +1198,11 @@ func runIntegrationList() error {
 	}
 
 	fmt.Println()
+	fmt.Println("  Setup:    hazmat integration setup")
 	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --integration <name>")
 	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
+	fmt.Println("  Draft:    hazmat integration scaffold <name> --from-current-project")
+	fmt.Println("  Validate: hazmat integration validate <file-or-name>")
 	fmt.Println("  Prompt:   interactive harness launches can approve suggested integrations automatically")
 	fmt.Printf("  Contribute: missing your stack? %s\n", integrationContributorFlowDocURL)
 	fmt.Println()

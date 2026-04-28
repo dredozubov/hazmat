@@ -35,12 +35,12 @@ excludes, or safe environment passthrough for this session.
 
 ## Setup Flow
 
-The future guided setup command should be the main doorway for normal users,
-repo maintainers, and contributors.
+`hazmat integration setup` is the main doorway for normal users, repo
+maintainers, and contributors.
 
 ```mermaid
 flowchart TD
-    A["hazmat integration setup"] --> B["One-screen explanation of what integrations can do"]
+    A["hazmat integration setup"] --> B["One-screen explanation of current integration state"]
     B --> C{"What do you want to do?"}
     C --> D["Use an existing integration"]
     C --> E["Recommend existing integrations for this repo"]
@@ -59,8 +59,9 @@ flowchart TD
 ```
 
 This avoids requiring users to discover `--integration` on their own. The
-session contract points to integrations, and the setup flow helps users decide
-whether they want to use, recommend, or create one.
+session contract points to integrations, and the setup flow shows commands for
+using an existing integration, recommending integrations in the repo, or
+creating a draft manifest.
 
 ## Missing Integration Flow
 
@@ -88,18 +89,32 @@ SwiftPM integration", or "this is a repo-specific user integration." Hazmat
 supplies guardrails: schema validation, safe environment keys, credential deny
 checks, and a small PR checklist.
 
-## Current Manual Path
+## Current Command Path
 
-Until the guided commands exist, use the manual path:
+Create a draft from the current project:
 
 ```bash
-cp -f docs/examples/integration-template.yaml hazmat/integrations/<name>.yaml
-$EDITOR hazmat/integrations/<name>.yaml
-go test ./...
+hazmat integration setup
+hazmat integration scaffold <name> --from-current-project
+$EDITOR ~/.hazmat/integrations/<name>.yaml
+hazmat integration validate ~/.hazmat/integrations/<name>.yaml
 ```
 
-For a local-only experiment, place the manifest in `~/.hazmat/integrations/`
-instead of `hazmat/integrations/`.
+When run inside the Hazmat source tree, `scaffold` writes to
+`hazmat/integrations/<name>.yaml` by default so the result is PR-shaped. When
+run from another project, it writes to `~/.hazmat/integrations/<name>.yaml` by
+default for local experimentation. Use `--output` or `--user` to choose
+explicitly.
+
+Recommend existing integrations for a repo:
+
+```bash
+hazmat integration setup --recommend node,go
+```
+
+That writes `.hazmat/integrations.yaml` with existing integration names only.
+Hazmat still asks the host user to approve the repo recommendation on first
+use.
 
 A good first PR usually contains:
 
@@ -119,7 +134,7 @@ flowchart LR
     A["Session contract: Integrations: none"] --> E["This flow"]
     B["hazmat integration list"] --> E
     C["Unknown repo recommendation"] --> E
-    D["Future integration setup/scaffold commands"] --> E
+    D["integration setup/scaffold/validate commands"] --> E
 ```
 
 Keep the link quiet and consistent. Integrations are optional ergonomics, not a

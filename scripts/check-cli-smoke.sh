@@ -22,6 +22,9 @@ run_smoke "opencode --help" opencode --help
 run_smoke "integration --help" integration --help
 run_smoke "integration list" integration list
 run_smoke "integration show node" integration show node
+run_smoke "integration setup" integration setup
+run_smoke "integration scaffold --help" integration scaffold --help
+run_smoke "integration validate template" integration validate ../docs/examples/integration-template.yaml
 run_smoke "config set --help" config set --help
 run_smoke "config import claude --dry-run" config import claude --dry-run
 run_smoke "config import opencode --help" config import opencode --help
