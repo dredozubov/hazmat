@@ -134,7 +134,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 - [ ] **Subscription path** (Google sign-in)
   - Preconditions: a Google account with Gemini access.
   - Steps: `hazmat gemini` → "Sign in with Google" flow.
-  - Expected: Gemini stores credentials in Keychain on modern installs; if it falls back to file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` when the session exits.
+  - Expected: if Gemini writes file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` when the session exits. If Gemini stores OAuth only in Keychain, Hazmat reports that as an adapter-required external backend and does not copy the Keychain item into `/Users/agent`.
 
 - [ ] **API key path** (env var)
   - Preconditions: `GEMINI_API_KEY` set in your invoking shell (get one from https://aistudio.google.com/apikey).
@@ -142,7 +142,7 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
   - Expected: `~/.hazmat/secrets/providers/gemini-api-key` exists with mode `0600`; `hazmat gemini -p "say OK"` round-trips.
 
 - [ ] **Host import path** (file-fallback only)
-  - Preconditions: host stores creds in `~/.gemini/oauth_creds.json` (file fallback). If host uses macOS Keychain (the modern default), this item is N/A — the import will silently skip the OAuth file.
+  - Preconditions: host stores creds in `~/.gemini/oauth_creds.json` (file fallback). If host uses macOS Keychain, this item is N/A — the import skips the OAuth file because Keychain-backed Gemini OAuth is not imported yet.
   - Steps: `hazmat config import gemini`.
   - Expected: imported file-backed auth lands in `~/.hazmat/secrets/gemini/`; `hazmat gemini -p "say OK"` round-trips.
 

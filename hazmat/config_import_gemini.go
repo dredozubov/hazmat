@@ -150,8 +150,9 @@ managed harness asset sync at session launch.
 
 If your host stores Gemini OAuth in macOS Keychain (the default), the
 oauth_creds.json file won't exist on the host and that item will be
-skipped — set GEMINI_API_KEY in the agent environment instead, or
-re-auth inside 'hazmat gemini' via the device-code flow.
+skipped because Hazmat does not yet import Keychain-backed Gemini OAuth —
+use 'hazmat config agent' to store GEMINI_API_KEY, or re-auth inside
+'hazmat gemini' via the device-code flow.
 
 Use --dry-run to preview. If existing imported files differ, either
 choose a policy interactively or pass --overwrite / --skip-existing

@@ -32,11 +32,15 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 		if descriptor.Delivery == "" {
 			t.Fatalf("%s has empty delivery mode", descriptor.ID)
 		}
+		if descriptor.Support == "" {
+			t.Fatalf("%s has empty support status", descriptor.ID)
+		}
 		if !descriptor.Redacted {
 			t.Fatalf("%s must be redacted", descriptor.ID)
 		}
 
-		if descriptor.Backend == credentialStorageHostSecretStore {
+		switch descriptor.Backend {
+		case credentialStorageHostSecretStore:
 			storePath, err := descriptor.StorePathForHome(home)
 			if err != nil {
 				t.Fatalf("%s StorePathForHome: %v", descriptor.ID, err)
@@ -49,6 +53,15 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 				t.Fatalf("%s and %s share store path %q", descriptor.ID, previous, storePath)
 			}
 			seenStorePaths[storePath] = descriptor.ID
+		case credentialStorageKeychain, credentialStorageExternalFile, credentialStorageBroker:
+			if descriptor.StoreRelPath != "" {
+				t.Fatalf("%s non-host backend must not declare host store path %q", descriptor.ID, descriptor.StoreRelPath)
+			}
+			if _, err := descriptor.StorePathForHome(home); err == nil {
+				t.Fatalf("%s non-host backend produced a host store path", descriptor.ID)
+			}
+		default:
+			t.Fatalf("%s has unknown backend %q", descriptor.ID, descriptor.Backend)
 		}
 
 		switch descriptor.Delivery {
@@ -75,8 +88,27 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 				t.Fatalf("%s materialized credential must preserve conflicts", descriptor.ID)
 			}
 		case credentialDeliveryNone, credentialDeliveryBrokeredHelper, credentialDeliveryExternalReference:
+			if descriptor.Delivery == credentialDeliveryExternalReference && descriptor.ExternalRef == "" {
+				t.Fatalf("%s external-reference delivery must describe the external authority", descriptor.ID)
+			}
+			if descriptor.AgentPath != "" {
+				t.Fatalf("%s non-file delivery must not declare an agent path", descriptor.ID)
+			}
 		default:
 			t.Fatalf("%s has unknown delivery mode %q", descriptor.ID, descriptor.Delivery)
+		}
+
+		switch descriptor.Support {
+		case credentialSupportManaged:
+			if descriptor.Backend != credentialStorageHostSecretStore {
+				t.Fatalf("%s managed credential uses non-host backend %q", descriptor.ID, descriptor.Backend)
+			}
+		case credentialSupportExternal, credentialSupportAdapterRequired:
+			if descriptor.Backend == credentialStorageHostSecretStore {
+				t.Fatalf("%s external credential unexpectedly uses host secret store", descriptor.ID)
+			}
+		default:
+			t.Fatalf("%s has unknown support status %q", descriptor.ID, descriptor.Support)
 		}
 	}
 }
@@ -170,5 +202,40 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 	fileDescriptor := mustCredentialDescriptor(credentialHarnessCodexAuth)
 	if _, err := fileDescriptor.EnvDeliveryVar(); err == nil {
 		t.Fatalf("EnvDeliveryVar accepted materialized-file credential")
+	}
+}
+
+func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
+	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
+	if summary.ManagedHostSecretStore != 9 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 9", summary.ManagedHostSecretStore)
+	}
+	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
+		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
+	}
+	if len(summary.ExternalBoundaries) != 0 {
+		t.Fatalf("ExternalBoundaries = %v, want none", summary.ExternalBoundaries)
+	}
+}
+
+func TestGeminiKeychainCredentialBoundaryIsExternal(t *testing.T) {
+	descriptor := mustCredentialDescriptor(credentialHarnessGeminiKeychain)
+	if descriptor.Backend != credentialStorageKeychain {
+		t.Fatalf("Gemini Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
+	}
+	if descriptor.Delivery != credentialDeliveryExternalReference {
+		t.Fatalf("Gemini Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
+	}
+	if descriptor.Support != credentialSupportAdapterRequired {
+		t.Fatalf("Gemini Keychain support = %q, want %q", descriptor.Support, credentialSupportAdapterRequired)
+	}
+	if descriptor.StoreRelPath != "" || descriptor.AgentPath != "" {
+		t.Fatalf("Gemini Keychain descriptor must not declare file paths: %+v", descriptor)
+	}
+	if _, err := descriptor.StorePathForHome(t.TempDir()); err == nil {
+		t.Fatalf("Gemini Keychain descriptor produced host store path")
+	}
+	if _, err := descriptor.AgentMaterializationPath(); err == nil {
+		t.Fatalf("Gemini Keychain descriptor produced agent materialization path")
 	}
 }

@@ -41,6 +41,14 @@ const (
 	credentialDeliveryExternalReference credentialDeliveryMode = "external-reference"
 )
 
+type credentialSupportStatus string
+
+const (
+	credentialSupportManaged         credentialSupportStatus = "managed"
+	credentialSupportExternal        credentialSupportStatus = "external"
+	credentialSupportAdapterRequired credentialSupportStatus = "adapter-required"
+)
+
 const (
 	credentialProviderAnthropicAPIKey credentialID = "provider.anthropic.api-key"
 	credentialProviderOpenAIAPIKey    credentialID = "provider.openai.api-key"
@@ -52,6 +60,7 @@ const (
 	credentialHarnessOpenCodeAuth      credentialID = "harness.opencode.auth"
 	credentialHarnessGeminiOAuth       credentialID = "harness.gemini.oauth"
 	credentialHarnessGeminiAccounts    credentialID = "harness.gemini.accounts"
+	credentialHarnessGeminiKeychain    credentialID = "harness.gemini.keychain-oauth"
 )
 
 // credentialDescriptor is the only place a durable credential surface should
@@ -62,13 +71,21 @@ type credentialDescriptor struct {
 	Kind            credentialKind
 	Backend         credentialStorageBackend
 	Delivery        credentialDeliveryMode
+	Support         credentialSupportStatus
 	StoreRelPath    string
 	Harness         HarnessID
 	EnvVar          string
 	AgentPath       string
+	ExternalRef     string
 	LegacyPaths     []string
 	Redacted        bool
 	ConflictArchive bool
+}
+
+type credentialRegistrySummary struct {
+	ManagedHostSecretStore int
+	ExternalBoundaries     []string
+	AdapterRequired        []string
 }
 
 var builtinCredentialRegistry = []credentialDescriptor{
@@ -78,6 +95,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:         credentialKindProviderAPIKey,
 		Backend:      credentialStorageHostSecretStore,
 		Delivery:     credentialDeliveryEnv,
+		Support:      credentialSupportManaged,
 		StoreRelPath: "providers/anthropic-api-key",
 		Harness:      HarnessClaude,
 		EnvVar:       "ANTHROPIC_API_KEY",
@@ -90,6 +108,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:         credentialKindProviderAPIKey,
 		Backend:      credentialStorageHostSecretStore,
 		Delivery:     credentialDeliveryEnv,
+		Support:      credentialSupportManaged,
 		StoreRelPath: "providers/openai-api-key",
 		Harness:      HarnessCodex,
 		EnvVar:       "OPENAI_API_KEY",
@@ -102,6 +121,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:         credentialKindProviderAPIKey,
 		Backend:      credentialStorageHostSecretStore,
 		Delivery:     credentialDeliveryEnv,
+		Support:      credentialSupportManaged,
 		StoreRelPath: "providers/gemini-api-key",
 		Harness:      HarnessGemini,
 		EnvVar:       "GEMINI_API_KEY",
@@ -114,6 +134,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "claude/credentials.json",
 		Harness:         HarnessClaude,
 		AgentPath:       agentHome + "/.claude/.credentials.json",
@@ -127,6 +148,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "claude/state.json",
 		Harness:         HarnessClaude,
 		AgentPath:       agentHome + "/.claude.json",
@@ -140,6 +162,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "codex/auth.json",
 		Harness:         HarnessCodex,
 		AgentPath:       agentHome + "/.codex/auth.json",
@@ -153,6 +176,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "opencode/auth.json",
 		Harness:         HarnessOpenCode,
 		AgentPath:       agentHome + "/.local/share/opencode/auth.json",
@@ -166,6 +190,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "gemini/oauth_creds.json",
 		Harness:         HarnessGemini,
 		AgentPath:       agentHome + "/.gemini/oauth_creds.json",
@@ -179,6 +204,7 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Kind:            credentialKindHarnessAuth,
 		Backend:         credentialStorageHostSecretStore,
 		Delivery:        credentialDeliveryMaterializedFile,
+		Support:         credentialSupportManaged,
 		StoreRelPath:    "gemini/google_accounts.json",
 		Harness:         HarnessGemini,
 		AgentPath:       agentHome + "/.gemini/google_accounts.json",
@@ -186,12 +212,40 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Redacted:        true,
 		ConflictArchive: true,
 	},
+	{
+		ID:          credentialHarnessGeminiKeychain,
+		DisplayName: "Gemini Keychain OAuth state",
+		Kind:        credentialKindExternalAuth,
+		Backend:     credentialStorageKeychain,
+		Delivery:    credentialDeliveryExternalReference,
+		Support:     credentialSupportAdapterRequired,
+		Harness:     HarnessGemini,
+		ExternalRef: "macOS Keychain item owned by Gemini CLI",
+		Redacted:    true,
+	},
 }
 
 func builtinCredentialDescriptors() []credentialDescriptor {
 	descriptors := make([]credentialDescriptor, len(builtinCredentialRegistry))
 	copy(descriptors, builtinCredentialRegistry)
 	return descriptors
+}
+
+func summarizeCredentialRegistry(descriptors []credentialDescriptor) credentialRegistrySummary {
+	var summary credentialRegistrySummary
+	for _, descriptor := range descriptors {
+		switch descriptor.Support {
+		case credentialSupportManaged:
+			if descriptor.Backend == credentialStorageHostSecretStore {
+				summary.ManagedHostSecretStore++
+			}
+		case credentialSupportExternal:
+			summary.ExternalBoundaries = append(summary.ExternalBoundaries, descriptor.DisplayName)
+		case credentialSupportAdapterRequired:
+			summary.AdapterRequired = append(summary.AdapterRequired, descriptor.DisplayName)
+		}
+	}
+	return summary
 }
 
 func findCredentialDescriptor(id credentialID) (credentialDescriptor, bool) {

@@ -71,8 +71,9 @@ Some existing features should not be modeled as simple imported files:
   capability work lands.
 - Integration-provided credential env vars should become explicit credential
   grants, not inherited ambient environment.
-- Keychain-backed auth should be represented as a Keychain or external-auth
-  backend, not silently copied into the file store.
+- Keychain-backed auth is represented as a non-file backend. Gemini Keychain
+  OAuth is currently registered as `adapter-required`, so Hazmat does not claim
+  to import, harvest, or materialize it.
 
 ## Verification Path
 

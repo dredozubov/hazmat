@@ -63,6 +63,7 @@ func runTest(quick bool) error {
 	testPfFirewallLive(ui, quick, selfPath)
 	testDNSBlocklist(ui)
 	testPersistence(ui)
+	testCredentialRegistry(ui)
 	testAgentTools(ui)
 	testCommandSurface(ui)
 	testSeatbelt(ui)
@@ -455,6 +456,21 @@ func testPersistence(ui *UI) {
 		ui.TestPass(fmt.Sprintf("/etc/pf.conf references anchor '%s'", pfAnchorName))
 	} else {
 		ui.TestFail(fmt.Sprintf("/etc/pf.conf does not reference anchor '%s'", pfAnchorName))
+	}
+}
+
+// ── Credential registry ──────────────────────────────────────────────────────
+
+func testCredentialRegistry(ui *UI) {
+	ui.Step("Credential registry")
+
+	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
+	ui.TestPass(fmt.Sprintf("Credential registry declares %d managed host secret-store entries", summary.ManagedHostSecretStore))
+	if len(summary.ExternalBoundaries) > 0 {
+		ui.TestPass(fmt.Sprintf("External credential boundaries: %s", strings.Join(summary.ExternalBoundaries, ", ")))
+	}
+	if len(summary.AdapterRequired) > 0 {
+		ui.TestPass(fmt.Sprintf("Credential backend adapters still required: %s", strings.Join(summary.AdapterRequired, ", ")))
 	}
 }
 
