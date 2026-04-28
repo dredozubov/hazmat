@@ -1291,6 +1291,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	}
 	fmt.Fprintf(&b, "  Project (read-write): %s\n", cfg.ProjectDir)
 	fmt.Fprintf(&b, "  Integrations:         %s\n", sessionContractList(cfg.ActiveIntegrations))
+	if len(cfg.ActiveIntegrations) == 0 {
+		fmt.Fprintf(&b, "  Integration help:     %s\n", integrationContributorFlowDocURL)
+	}
 	if len(cfg.IntegrationSources) > 0 {
 		fmt.Fprintf(&b, "  Integration sources: %s\n", sessionContractList(cfg.IntegrationSources))
 	}

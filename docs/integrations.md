@@ -68,6 +68,12 @@ hazmat integration show node
 read-only paths, env passthrough keys, snapshot excludes, warnings, and
 command hints.
 
+If the built-ins do not cover your stack, start with
+[integration-contributor-flow.md](integration-contributor-flow.md). It shows how
+normal Hazmat output should lead users toward existing integrations, repo
+recommendations, or a small PR-shaped integration draft without relying on an
+exhaustive list of ecosystems.
+
 Manifest `session.read_dirs` and `session.env_passthrough` are common to every
 platform. Platform-owned entries live under `session.platforms.<platform>`, so
 Darwin-specific Homebrew, Command Line Tools, `java_home`, `/opt/homebrew`, and
@@ -259,7 +265,10 @@ Tell your contributors which integrations the repo needs, and note any prerequis
 (runtimes, tools) in the project README. When a contributor runs `hazmat claude`
 for the first time, they'll see the approval prompt with the exact integration list.
 
-If you want to add or improve an integration, see [integration-author-kit.md](integration-author-kit.md).
+If you want to add or improve an integration, start with
+[integration-contributor-flow.md](integration-contributor-flow.md), then use
+[integration-author-kit.md](integration-author-kit.md) for the exact manifest
+contract.
 
 If your project needs an integration that doesn't exist as a built-in,
 contributors can create a matching user manifest on their machines (see

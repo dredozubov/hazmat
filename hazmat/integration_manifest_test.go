@@ -1074,6 +1074,21 @@ func TestLoadRepoRecommendationsUnknownIntegration(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown integration name")
 	}
+	if !strings.Contains(err.Error(), integrationContributorFlowDocURL) {
+		t.Fatalf("error missing contributor flow link: %v", err)
+	}
+}
+
+func TestRunIntegrationListShowsContributorFlowLink(t *testing.T) {
+	isolateConfig(t)
+
+	out, err := captureStdout(t, runIntegrationList)
+	if err != nil {
+		t.Fatalf("runIntegrationList: %v", err)
+	}
+	if !strings.Contains(out, "Contribute: missing your stack? "+integrationContributorFlowDocURL) {
+		t.Fatalf("output missing contributor flow link:\n%s", out)
+	}
 }
 
 func TestLoadRepoRecommendationsRejectsUnknownFields(t *testing.T) {

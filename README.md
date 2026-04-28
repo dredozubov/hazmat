@@ -217,6 +217,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
 | [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini |
 | [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |
+| [docs/integration-contributor-flow.md](docs/integration-contributor-flow.md) | How users discover integrations and turn missing stack support into PR-shaped work |
 | [docs/integration-author-kit.md](docs/integration-author-kit.md) | How to propose integrations without turning them into policy escapes |
 | [docs/community.md](docs/community.md) | Support tiers, ownership model, sponsor lanes, and contribution surfaces |
 | [docs/public-roadmap.md](docs/public-roadmap.md) | Curated public roadmap exported from beads issues |

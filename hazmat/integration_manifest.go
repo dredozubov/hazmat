@@ -526,7 +526,7 @@ func loadRepoRecommendations(projectDir string) ([]string, string, error) {
 	// Validate: every name must resolve through existing loaders.
 	for _, name := range rec.Integrations {
 		if _, err := loadIntegrationSpecByName(name); err != nil {
-			return nil, "", fmt.Errorf("%s: unknown integration %q", repoRecommendedIntegrationsFile, name)
+			return nil, "", fmt.Errorf("%s: unknown integration %q; see %s", repoRecommendedIntegrationsFile, name, integrationContributorFlowDocURL)
 		}
 	}
 
@@ -1044,6 +1044,8 @@ func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, pl
 
 // ── CLI command ────────────────────────────────────────────────────────────
 
+const integrationContributorFlowDocURL = "https://github.com/dredozubov/hazmat/blob/master/docs/integration-contributor-flow.md"
+
 func newIntegrationCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "integration",
@@ -1056,7 +1058,9 @@ only reduce friction or tighten defaults.
 
   hazmat integration list        List available integrations
   hazmat integration show <name> Show integration details
-  hazmat integration rejections  Inspect or clear persisted rejected suggestions`,
+  hazmat integration rejections  Inspect or clear persisted rejected suggestions
+
+Missing stack support? See ` + integrationContributorFlowDocURL,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runIntegrationList()
@@ -1187,6 +1191,7 @@ func runIntegrationList() error {
 	fmt.Println("  Activate: hazmat claude|codex|opencode|shell|exec --integration <name>")
 	fmt.Println("  Pin:      hazmat config set integrations.pin \"~/workspace/app:node,go\"")
 	fmt.Println("  Prompt:   interactive harness launches can approve suggested integrations automatically")
+	fmt.Printf("  Contribute: missing your stack? %s\n", integrationContributorFlowDocURL)
 	fmt.Println()
 	return nil
 }

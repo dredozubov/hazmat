@@ -6,6 +6,11 @@ They are bounded, auditable, and intentionally weaker than a plugin system. An i
 
 If you want to propose a built-in integration or tighten an existing one, this is the contract to work from.
 
+If you are still deciding how a normal user discovers the integration path, read
+[docs/integration-contributor-flow.md](integration-contributor-flow.md) first.
+This page focuses on the manifest contract after someone decides to create or
+review an integration.
+
 ## What Integrations Can and Cannot Do
 
 ### Allowed
