@@ -20,14 +20,6 @@ const (
 
 var agentZshrcPath = filepath.Join(agentHome, ".zshrc")
 
-func hostSecretStoreDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("determine home directory for Hazmat secrets: %w", err)
-	}
-	return secretStoreDirForHome(home), nil
-}
-
 func secretStoreDirForHome(home string) string {
 	return filepath.Join(home, ".hazmat", "secrets")
 }
