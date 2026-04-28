@@ -25,6 +25,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 9 | `09_launch_fd_isolation.md` | Native helper fd-table cleanup before `sandbox_init()` and stdio-only agent exec | **High** |
 | 10 | `10_git_ssh_routing.md` | Multi-key Git SSH routing, profile resolution, and deterministic host-to-key selection | **High** |
 | 11 | `11_git_hook_approval.md` | Repo-local Git hook approval, immutable approved snapshots, hooksPath pinning, and drift refusal | **High** |
+| 12 | `12_secret_store_recovery.md` | Host-owned harness secret-store recovery across materialize, refresh, harvest, removal, and crash/restart | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

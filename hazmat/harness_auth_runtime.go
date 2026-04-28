@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 )
 
 type harnessAuthData any
@@ -20,6 +22,8 @@ type harnessAuthArtifact struct {
 	RemoveAgent func(string) error
 	Equal       func(harnessAuthData, harnessAuthData) bool
 }
+
+var harnessAuthConflictNow = time.Now
 
 func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifact {
 	switch id {
@@ -59,6 +63,33 @@ func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifac
 	default:
 		return nil
 	}
+}
+
+func harnessAuthConflictDir(storePath string) string {
+	return filepath.Join(filepath.Dir(storePath), filepath.Base(storePath)+".conflicts")
+}
+
+func nextHarnessAuthConflictPath(storePath string) string {
+	stamp := harnessAuthConflictNow().UTC().Format("20060102T150405.000000000Z")
+	dir := harnessAuthConflictDir(storePath)
+	for i := 0; ; i++ {
+		name := stamp
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", stamp, i)
+		}
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err != nil {
+			return path
+		}
+	}
+}
+
+func preserveHarnessAuthConflict(artifact harnessAuthArtifact, data harnessAuthData) (string, error) {
+	path := nextHarnessAuthConflictPath(artifact.StorePath)
+	if err := artifact.WriteStore(path, data); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func rawHarnessAuthArtifact(name, storePath, agentPath string) harnessAuthArtifact {
@@ -186,7 +217,20 @@ func migrateHarnessAuthArtifact(artifact harnessAuthArtifact, addNote func(strin
 				addNote(fmt.Sprintf("Removed legacy %s from %s because the host-owned copy in ~/.hazmat/secrets already matches it.", artifact.Name, artifact.AgentPath))
 			}
 		} else {
-			addNote(fmt.Sprintf("Host-owned %s differs from the legacy copy in %s; Hazmat will keep using the legacy file for this session and harvest it back into ~/.hazmat/secrets on exit.", artifact.Name, artifact.AgentPath))
+			conflictPath, err := preserveHarnessAuthConflict(artifact, stored)
+			if err != nil {
+				addNote(fmt.Sprintf("Host-owned %s differs from the legacy copy in %s, but Hazmat could not archive the host-owned copy before recovery: %v", artifact.Name, artifact.AgentPath, err))
+				return nil
+			}
+			if err := artifact.WriteStore(artifact.StorePath, legacy); err != nil {
+				addNote(fmt.Sprintf("Archived the previous host-owned %s at %s, but could not promote the legacy copy from %s into ~/.hazmat/secrets: %v", artifact.Name, conflictPath, artifact.AgentPath, err))
+				return nil
+			}
+			if err := artifact.RemoveAgent(artifact.AgentPath); err != nil {
+				addNote(fmt.Sprintf("Recovered divergent %s from %s into ~/.hazmat/secrets and preserved the previous host-owned copy at %s, but could not remove the old runtime copy: %v", artifact.Name, artifact.AgentPath, conflictPath, err))
+			} else {
+				addNote(fmt.Sprintf("Recovered divergent %s from %s into ~/.hazmat/secrets; previous host-owned copy preserved at %s.", artifact.Name, artifact.AgentPath, conflictPath))
+			}
 		}
 	}
 
@@ -212,13 +256,16 @@ func prepareHarnessAuthRuntimeForArtifacts(artifacts []harnessAuthArtifact) (pre
 
 	var cleanups []func()
 	for _, artifact := range artifacts {
-		if err := materializeHarnessAuthArtifact(artifact); err != nil {
+		baseline, baselineExists, err := materializeHarnessAuthArtifact(artifact)
+		if err != nil {
 			return preparedSessionRuntime{}, fmt.Errorf("prepare %s: %w", artifact.Name, err)
 		}
-		artifact := artifact
+		artifactForCleanup := artifact
+		baselineForCleanup := baseline
+		baselineExistsForCleanup := baselineExists
 		cleanups = append(cleanups, func() {
-			if err := harvestHarnessAuthArtifact(artifact); err != nil {
-				fmt.Fprintf(os.Stderr, "hazmat: warning: could not harvest %s into ~/.hazmat/secrets: %v\n", artifact.Name, err)
+			if err := harvestHarnessAuthArtifact(artifactForCleanup, baselineForCleanup, baselineExistsForCleanup); err != nil {
+				fmt.Fprintf(os.Stderr, "hazmat: warning: could not harvest %s into ~/.hazmat/secrets: %v\n", artifactForCleanup.Name, err)
 			}
 		})
 	}
@@ -231,24 +278,40 @@ func prepareHarnessAuthRuntimeForArtifacts(artifacts []harnessAuthArtifact) (pre
 	return runtime, nil
 }
 
-func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) error {
-	if _, ok, err := artifact.ReadAgent(artifact.AgentPath); err != nil {
-		return err
-	} else if ok {
-		return nil
+func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) (harnessAuthData, bool, error) {
+	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
+	if err != nil {
+		return nil, false, err
 	}
 
-	stored, ok, err := artifact.ReadStore(artifact.StorePath)
-	if err != nil || !ok {
-		return err
+	if _, ok, err := artifact.ReadAgent(artifact.AgentPath); err != nil {
+		return nil, false, err
+	} else if ok {
+		return stored, storedExists, nil
 	}
-	return artifact.WriteAgent(artifact.AgentPath, stored)
+
+	if !storedExists {
+		return nil, false, nil
+	}
+	return stored, true, artifact.WriteAgent(artifact.AgentPath, stored)
 }
 
-func harvestHarnessAuthArtifact(artifact harnessAuthArtifact) error {
+func harvestHarnessAuthArtifact(artifact harnessAuthArtifact, baseline harnessAuthData, baselineExists bool) error {
 	data, ok, err := artifact.ReadAgent(artifact.AgentPath)
 	if err != nil || !ok {
 		return err
+	}
+	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
+	if err != nil {
+		return err
+	}
+	if storedExists && !artifact.Equal(stored, data) {
+		hostChangedSinceMaterialize := !baselineExists || !artifact.Equal(stored, baseline)
+		if hostChangedSinceMaterialize {
+			if _, err := preserveHarnessAuthConflict(artifact, stored); err != nil {
+				return fmt.Errorf("archive existing host-owned copy before harvest: %w", err)
+			}
+		}
 	}
 	if err := artifact.WriteStore(artifact.StorePath, data); err != nil {
 		return err

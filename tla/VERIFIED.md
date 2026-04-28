@@ -6,10 +6,11 @@ to future changes in those areas.
 
 Important scope boundary: the current TLA+ suite governs Hazmat's core
 containment, rollback, seatbelt, backup, core version-migration logic,
-session-time host permission repair planning/persistence, and built-in harness
-state recording/rollback cleanup. It still does **not** model curated import
-file contents, session-only integration activation/pinning, or future harness
-plugin systems. Those should not be implied by the existing proofs.
+session-time host permission repair planning/persistence, built-in harness
+state recording/rollback cleanup, and host-owned harness secret-store
+crash recovery. It still does **not** model curated import file contents,
+session-only integration activation/pinning, or future harness plugin systems.
+Those should not be implied by the existing proofs.
 
 Important additional scope boundary: the current TLA+ suite now includes the
 host-side Tier 3 launch boundary for Docker-capable sessions: mount-planner
@@ -44,6 +45,13 @@ immutable approved snapshot execution, `core.hooksPath` pinning, and refusal on
 drift or reroute. It still does **not** model exact `hooks.yaml` parsing,
 human-readable diff summarization, shell-script contents, or arbitrary direct
 invocation of foreign `git` binaries outside Hazmat-managed entrypoints.
+
+Important secret-store boundary: the current suite now also models file-backed
+harness auth crash recovery: host-owned primary storage, temporary agent-side
+materialization, startup recovery of residue, conflict archive preservation,
+harvest, removal, and crash/restart at each phase. It still does **not** model
+Keychain-backed auth, exact JSON merge semantics, or concurrent host-store
+writes while a session is running.
 
 ---
 
@@ -616,6 +624,64 @@ invocation of a foreign `git` binary outside that managed path.
 
 ---
 
+### 12 — Secret Store Crash Recovery
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/12_secret_store_recovery.md` |
+| TLA+ files | `tla/MC_SecretStoreRecovery.tla`, `tla/MC_SecretStoreRecovery.cfg` |
+| Governed code | `hazmat/harness_auth_runtime.go` — startup recovery, materialization, harvest, conflict archive |
+| Governed code | `hazmat/secret_store.go` — host/agent secret file read/write/remove helpers |
+| Key invariants | `LatestValueNeverSilentlyLost`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
+| Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value or leaving recovered idle state dependent on `/Users/agent` residue |
+
+**What this verifies:**
+
+1. **Startup recovery precedes launch:** materialization and session execution
+   cannot start until leftover agent-side auth residue has been reconciled.
+
+2. **Crash residue is promoted, not ignored:** if a prior session refreshed auth
+   and Hazmat died before cleanup, the next launch promotes that agent-side
+   value into the host store.
+
+3. **Divergence is archived before overwrite:** if both host and agent copies
+   exist and differ, the previous host copy is preserved in a host-owned
+   conflict archive before the agent residue becomes primary.
+
+4. **Recovered idle state is host-owned:** after recovery completes, the latest
+   known auth value is in the host primary store or conflict archive, not only
+   under `/Users/agent`.
+
+5. **No cross-harness materialization:** while one harness session is active,
+   the model never exposes another harness's auth artifact under the agent
+   home.
+
+TLC passes across 9,238 distinct states (34,723 generated, depth 28, <1s).
+
+**Scope boundary:**
+
+The proof is content-level and crash/restart focused. It does not model exact
+Claude JSON merge semantics, Keychain-backed auth, concrete filesystem
+permission syscalls, or concurrent writes to the same host secret while a
+session is running. Proving the concurrent-host-write case requires revision or
+epoch metadata; content equality alone cannot distinguish an unchanged
+baseline from a same-content rewrite.
+
+**Change rules:**
+- Changes to `migrateHarnessAuthArtifact()`, `materializeHarnessAuthArtifact()`,
+  or `harvestHarnessAuthArtifact()` must update `MC_SecretStoreRecovery.tla`
+  first and re-run TLC before the Go implementation changes.
+- Any new harness file-backed auth artifact must be representable by the
+  host/agent/conflict archive state machine before it participates in session
+  materialization.
+- Any path that overwrites host-owned auth with agent-side auth must either
+  prove the host value is the expected session baseline or preserve the
+  divergent host value first.
+- Stronger guarantees for concurrent host-store writes require explicit
+  revision metadata in the model and implementation.
+
+---
+
 ### 9 — Launch FD Isolation
 
 | Field | Value |
@@ -679,12 +745,14 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
+| `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
 
 ---
 
 ## Not Yet Formally Modeled
 
 - Exact curated import file contents, conflict-resolution behavior, and merged JSON/file payload semantics
+- Concurrent writes to the same host secret while a harness session is running; the current secret-store proof is crash/restart recovery, not multi-writer synchronization
 - Integration activation, project pinning, and integration-specific snapshot ignore rules
 - Exact `hooks.yaml` parsing behavior, human-readable diff/summary generation, and foreign raw-`git` entrypoints outside Hazmat-managed wrapper paths
 - Exact ACL/chmod filesystem walk semantics for session-time permission repairs

@@ -253,9 +253,8 @@ Reference card for fixing common stuck states. Not a checklist — these are the
 
 - **Codex chat fails with `no native root CA certificates`**: rebuild against latest master (commit `eaaaa1c` and later). Several Security framework / mach-service allowances were added.
 
-- **Stale auth file left under `/Users/agent` from an older build**: remove the stale runtime copy and relaunch so Hazmat can materialize the host-owned copy cleanly:
+- **Stale auth file left under `/Users/agent` from an older build**: relaunch the matching harness with current Hazmat. Startup recovery should promote the leftover agent copy into `~/.hazmat/secrets`, archive any divergent host-owned copy under a sibling `.conflicts/` directory, and remove the agent copy. Manual removal should only be needed if recovery reports a filesystem error:
   ```bash
-  sudo -u agent rm -f /Users/agent/<auth-file-path>
   hazmat <harness>
   ```
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPrepareHarnessAuthRuntimeMaterializesAndHarvestsRawAuth(t *testing.T) {
@@ -50,6 +51,9 @@ func TestPrepareHarnessAuthRuntimeMaterializesAndHarvestsRawAuth(t *testing.T) {
 	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
 		t.Fatalf("agent auth should be removed after cleanup, got err=%v", err)
 	}
+	if _, err := os.Stat(harnessAuthConflictDir(storePath)); !os.IsNotExist(err) {
+		t.Fatalf("normal harvest should not archive the superseded baseline, got err=%v", err)
+	}
 }
 
 func TestMigrateHarnessAuthArtifactsMovesLegacyRawAuthIntoStore(t *testing.T) {
@@ -86,6 +90,115 @@ func TestMigrateHarnessAuthArtifactsMovesLegacyRawAuthIntoStore(t *testing.T) {
 	}
 	if len(notes) == 0 || !strings.Contains(notes[0], "Migrated legacy OpenCode auth file") {
 		t.Fatalf("migration notes = %v, want migration note", notes)
+	}
+}
+
+func TestMigrateHarnessAuthArtifactsArchivesDivergentHostBeforePromotingAgent(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "codex", "auth.json")
+	agentPath := filepath.Join(root, "agent", ".codex", "auth.json")
+	hostAuth := []byte(`{"token":"host"}`)
+	agentAuth := []byte(`{"token":"agent"}`)
+
+	if err := writeHostStoredSecretFile(storePath, hostAuth); err != nil {
+		t.Fatalf("write host auth: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent auth dir: %v", err)
+	}
+	if err := os.WriteFile(agentPath, agentAuth, 0o600); err != nil {
+		t.Fatalf("write agent auth: %v", err)
+	}
+
+	restoreClock := harnessAuthConflictNow
+	harnessAuthConflictNow = func() time.Time {
+		return time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		harnessAuthConflictNow = restoreClock
+	})
+
+	var notes []string
+	if err := migrateHarnessAuthArtifacts([]harnessAuthArtifact{
+		rawHarnessAuthArtifact("Codex auth file", storePath, agentPath),
+	}, func(note string) {
+		notes = append(notes, note)
+	}); err != nil {
+		t.Fatalf("migrateHarnessAuthArtifacts: %v", err)
+	}
+
+	storeRaw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read recovered store auth: %v", err)
+	}
+	if string(storeRaw) != string(agentAuth) {
+		t.Fatalf("recovered store auth = %q, want %q", storeRaw, agentAuth)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("agent auth should be removed after recovery, got err=%v", err)
+	}
+
+	conflictPath := filepath.Join(harnessAuthConflictDir(storePath), "20260428T120000.000000000Z")
+	conflictRaw, err := os.ReadFile(conflictPath)
+	if err != nil {
+		t.Fatalf("read archived host auth: %v", err)
+	}
+	if string(conflictRaw) != string(hostAuth) {
+		t.Fatalf("archived host auth = %q, want %q", conflictRaw, hostAuth)
+	}
+	if len(notes) == 0 || !strings.Contains(notes[0], "Recovered divergent Codex auth file") {
+		t.Fatalf("migration notes = %v, want divergent recovery note", notes)
+	}
+}
+
+func TestHarvestHarnessAuthArtifactArchivesDivergentStoreBeforeOverwrite(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "opencode", "auth.json")
+	agentPath := filepath.Join(root, "agent", ".local", "share", "opencode", "auth.json")
+	baselineAuth := []byte(`{"token":"baseline"}`)
+	hostAuth := []byte(`{"token":"host"}`)
+	agentAuth := []byte(`{"token":"agent"}`)
+
+	if err := writeHostStoredSecretFile(storePath, hostAuth); err != nil {
+		t.Fatalf("write host auth: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent auth dir: %v", err)
+	}
+	if err := os.WriteFile(agentPath, agentAuth, 0o600); err != nil {
+		t.Fatalf("write agent auth: %v", err)
+	}
+
+	restoreClock := harnessAuthConflictNow
+	harnessAuthConflictNow = func() time.Time {
+		return time.Date(2026, 4, 28, 12, 1, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		harnessAuthConflictNow = restoreClock
+	})
+
+	if err := harvestHarnessAuthArtifact(rawHarnessAuthArtifact("OpenCode auth file", storePath, agentPath), baselineAuth, true); err != nil {
+		t.Fatalf("harvestHarnessAuthArtifact: %v", err)
+	}
+
+	storeRaw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read harvested store auth: %v", err)
+	}
+	if string(storeRaw) != string(agentAuth) {
+		t.Fatalf("harvested store auth = %q, want %q", storeRaw, agentAuth)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("agent auth should be removed after harvest, got err=%v", err)
+	}
+
+	conflictPath := filepath.Join(harnessAuthConflictDir(storePath), "20260428T120100.000000000Z")
+	conflictRaw, err := os.ReadFile(conflictPath)
+	if err != nil {
+		t.Fatalf("read archived host auth: %v", err)
+	}
+	if string(conflictRaw) != string(hostAuth) {
+		t.Fatalf("archived host auth = %q, want %q", conflictRaw, hostAuth)
 	}
 }
 
