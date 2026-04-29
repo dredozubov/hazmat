@@ -45,7 +45,7 @@ Legend:
 | Network exfiltration via DNS | No | No | Partial | Yes | Yes |
 | Lateral movement on localhost or LAN | No | Partial | Partial | Yes | Yes |
 | Prompt injection via MCP server | Partial | Partial | Partial | Yes | Yes |
-| SSH agent socket abuse (SSH_AUTH_SOCK → auth to remote servers without key exfil) | No | No | Partial³ | Partial³ | Partial³ |
+| SSH signing authority abuse (host agent or explicit broker grant) | No | No | Partial³ | Partial³ | Partial³ |
 | MCP supply chain: compromised npm/PyPI package exfiltrates credentials at spawn time | No | No | Partial⁴ | Partial⁴ | Partial⁴ |
 
 ### Escape, Persistence, and Recovery Surface

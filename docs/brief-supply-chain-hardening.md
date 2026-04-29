@@ -5,6 +5,11 @@
 
 **Audience:** hazmat contributors
 
+> Historical incident brief. Some mitigations proposed below have since landed:
+> current provider keys, harness auth, GitHub tokens, Git HTTPS credentials,
+> cloud credentials, and provisioned Git SSH identities are registry-backed; run
+> `hazmat check` for the current credential inventory.
+
 ---
 
 ## What hazmat already mitigates

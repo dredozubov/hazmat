@@ -139,7 +139,12 @@ general continuation path for every Docker-heavy local dev environment.
 
 ### Authentication
 
-Set `ANTHROPIC_API_KEY` in `~/.bashrc` or `~/.zshrc` globally, not inline on the command. The daemon runs independently of the current shell session.
+For Hazmat-managed native sessions, configure provider keys with
+`hazmat config agent`; they live under `~/.hazmat/secrets/providers/` and are
+not durable shell-profile exports. For the standalone devcontainer examples
+below, pass only the minimum credential the containerized tool requires and
+prefer Compose `secrets:` when that tool supports file-based secrets. The daemon
+runs independently of the current shell session.
 
 ## Option B: Official Anthropic Devcontainer
 

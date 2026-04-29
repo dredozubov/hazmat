@@ -17,6 +17,23 @@ After bootstrap + auth: `hazmat <harness>` to launch a session, or `hazmat <harn
 
 The fastest path for a new install is almost always the **import** column — it copies whatever credentials you already have on the host into Hazmat's host-owned secret store, so there's nothing to re-enter inside the sandbox.
 
+## Credential storage summary
+
+Hazmat's current credential map is registry-backed. Durable managed credentials
+live under `~/.hazmat/secrets/`; the session sees only the delivery form needed
+for the selected capability.
+
+| Surface | Durable owner | Session delivery |
+|---|---|---|
+| Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |
+| Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for the matching native harness |
+| GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed |
+| Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
+| Git SSH provisioned keys | `~/.hazmat/secrets/git-ssh/provisioned/` | Per-session brokered Git SSH transport |
+| Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
+| Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
+| Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
+
 ## Per-harness reference
 
 ### Claude Code

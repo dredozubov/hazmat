@@ -415,6 +415,10 @@ hazmat config github           # store a GitHub API token for explicit --github 
 GH_TOKEN=... hazmat config github --token-from-env
 ```
 
+`hazmat config agent` stores native-session provider API keys under
+`~/.hazmat/secrets/providers/*` and injects them only into the matching native
+harness. It does not persist API-key exports in `/Users/agent/.zshrc`.
+
 `hazmat config github` stores the token under
 `~/.hazmat/secrets/github/token`. Launch commands only expose it when you pass
 `--github`, where it appears in the session as `GH_TOKEN` and as a redacted
@@ -426,6 +430,10 @@ Git HTTPS credentials are brokered per native session. Legacy agent-side
 `/Users/agent/.config/git/credentials` entries migrate into
 `~/.hazmat/secrets/git-https/credentials` on session launch, and `hazmat check`
 reports any old helper or credential-store residue without printing tokens.
+
+For the full registry inventory, run `hazmat check` and inspect the credential
+section. It lists each surface by redacted registry ID, storage backend,
+delivery mode, and legacy residue status.
 
 ## Managed Git SSH
 
