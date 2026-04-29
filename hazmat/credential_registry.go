@@ -64,6 +64,7 @@ const (
 
 	credentialGitSSHExternalIdentity    credentialID = "git-ssh.external-identity"
 	credentialGitSSHProvisionedIdentity credentialID = "git-ssh.provisioned-identity"
+	credentialGitHTTPSAgentStore        credentialID = "git-https.agent-store"
 
 	credentialCloudS3AccessKeyID credentialID = "cloud.s3.access-key-id"
 	credentialCloudS3SecretKey   credentialID = "cloud.s3.secret-key"
@@ -250,6 +251,15 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		StoreRelPath: "git-ssh/provisioned",
 		LegacyPaths:  []string{filepath.Join(filepath.Dir(configFilePath), "ssh", "keys")},
 		Redacted:     true,
+	},
+	{
+		ID:          credentialGitHTTPSAgentStore,
+		DisplayName: "Git HTTPS agent credential store",
+		Kind:        credentialKindGitHTTPS,
+		Backend:     credentialStorageBroker,
+		Delivery:    credentialDeliveryBrokeredHelper,
+		Support:     credentialSupportAdapterRequired,
+		Redacted:    true,
 	},
 	{
 		ID:           credentialCloudS3AccessKeyID,

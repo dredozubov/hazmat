@@ -231,8 +231,14 @@ func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T)
 	if summary.ManagedHostSecretStore != 13 {
 		t.Fatalf("ManagedHostSecretStore = %d, want 13", summary.ManagedHostSecretStore)
 	}
-	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
-		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
+	wantAdapterRequired := []string{"Gemini Keychain OAuth state", "Git HTTPS agent credential store"}
+	if len(summary.AdapterRequired) != len(wantAdapterRequired) {
+		t.Fatalf("AdapterRequired = %v, want %v", summary.AdapterRequired, wantAdapterRequired)
+	}
+	for i, want := range wantAdapterRequired {
+		if summary.AdapterRequired[i] != want {
+			t.Fatalf("AdapterRequired = %v, want %v", summary.AdapterRequired, wantAdapterRequired)
+		}
 	}
 	if len(summary.ExternalBoundaries) != 1 || summary.ExternalBoundaries[0] != "Git SSH external identity reference" {
 		t.Fatalf("ExternalBoundaries = %v, want Git SSH external identity reference", summary.ExternalBoundaries)

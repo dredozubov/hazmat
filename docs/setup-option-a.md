@@ -1,5 +1,7 @@
 # Option A Setup: Dedicated `agent` User + Soft pf Blocklist
 
+> Historical design note. This page predates the host-owned secret store and the current `hazmat init`/`hazmat check` workflow. Treat references to durable API keys, Claude auth, or Git credentials under `/Users/agent` as background for the original design, not current operational guidance.
+
 Complete setup guide for sandboxing Claude Code on macOS using a dedicated user account with blocklist-based network restrictions and a host-side command surface that keeps day-to-day usage pleasant.
 
 ## Architecture

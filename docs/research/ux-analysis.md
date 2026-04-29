@@ -1,5 +1,7 @@
 # Hazmat UX Analysis
 
+> Historical research note. Some flows below predate the host-owned secret store. Current durable provider keys, harness auth, cloud credentials, and provisioned Git SSH identities live under `~/.hazmat/secrets`; use `hazmat check` for the current credential inventory.
+
 ## User Journey Map
 
 ### Flow 1: First-Time Setup (Happy Path)
@@ -200,7 +202,7 @@ Workspace:
 
 ## Configuration
 
-Backup settings live in `~/.config/hazmat/config.yaml`. Cloud credential
+Backup settings live in `~/.hazmat/config.yaml`. Cloud credential
 material lives under `~/.hazmat/secrets/cloud/`.
 
 | Setting | Default | Override |

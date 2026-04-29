@@ -63,7 +63,7 @@ func runTest(quick bool) error {
 	testPfFirewallLive(ui, quick, selfPath)
 	testDNSBlocklist(ui)
 	testPersistence(ui)
-	testCredentialRegistry(ui)
+	testCredentialInventory(ui)
 	testAgentTools(ui)
 	testCommandSurface(ui)
 	testSeatbelt(ui)
@@ -459,10 +459,10 @@ func testPersistence(ui *UI) {
 	}
 }
 
-// ── Credential registry ──────────────────────────────────────────────────────
+// ── Credential inventory ─────────────────────────────────────────────────────
 
-func testCredentialRegistry(ui *UI) {
-	ui.Step("Credential registry")
+func testCredentialInventory(ui *UI) {
+	ui.Step("Credential inventory")
 
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
 	ui.TestPass(fmt.Sprintf("Credential registry declares %d managed host secret-store entries", summary.ManagedHostSecretStore))
@@ -471,6 +471,60 @@ func testCredentialRegistry(ui *UI) {
 	}
 	if len(summary.AdapterRequired) > 0 {
 		ui.TestPass(fmt.Sprintf("Credential backend adapters still required: %s", strings.Join(summary.AdapterRequired, ", ")))
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Cannot determine home directory for credential inventory: %v", err))
+		return
+	}
+	entries, err := inspectCredentialInventory(home)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Credential inventory failed: %v", err))
+		return
+	}
+	inventorySummary := summarizeCredentialInventory(entries)
+	ui.TestPass(fmt.Sprintf(
+		"Credential inventory covers %d redacted surfaces (%d configured, %d not configured, %d external, %d adapter-required)",
+		inventorySummary.Total,
+		inventorySummary.Configured,
+		inventorySummary.NotConfigured,
+		inventorySummary.External,
+		inventorySummary.AdapterRequired,
+	))
+	for _, entry := range entries {
+		reportCredentialInventoryEntry(ui, entry)
+	}
+}
+
+func reportCredentialInventoryEntry(ui *UI, entry credentialInventoryEntry) {
+	line := formatCredentialInventoryEntry(entry)
+	switch entry.Status() {
+	case credentialInventoryConfigured, credentialInventoryExternal:
+		ui.TestPass(line)
+	case credentialInventoryNotConfigured:
+		ui.TestSkip(line)
+	case credentialInventoryAdapterRequired:
+		ui.TestWarn(line)
+	case credentialInventoryNeedsRepair:
+		ui.TestWarn(line)
+		for _, finding := range entry.AgentResidue {
+			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
+		}
+		for _, finding := range entry.LegacyResidue {
+			cDim.Printf("    %s\n", formatCredentialInventoryFinding("legacy residue", finding))
+		}
+	case credentialInventoryError:
+		ui.TestFail(line)
+		for _, errText := range entry.Errors {
+			cDim.Printf("    %s\n", errText)
+		}
+		for _, finding := range entry.AgentResidue {
+			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
+		}
+		for _, finding := range entry.LegacyResidue {
+			cDim.Printf("    %s\n", formatCredentialInventoryFinding("legacy residue", finding))
+		}
 	}
 }
 

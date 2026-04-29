@@ -399,7 +399,7 @@ hazmat backup --cloud          # incremental encrypted snapshot
 hazmat restore --cloud         # restore latest snapshot
 ```
 
-Cloud backup keeps endpoint and bucket in `~/.config/hazmat/config.yaml`.
+Cloud backup keeps endpoint and bucket in `~/.hazmat/config.yaml`.
 Credential material is host-owned under `~/.hazmat/secrets/cloud/`; legacy
 `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and
 `~/.hazmat/cloud-credentials` entries migrate there automatically.

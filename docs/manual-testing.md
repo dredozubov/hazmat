@@ -189,7 +189,12 @@ These exercise the per-harness scaffolding rather than any one harness.
 - [ ] **Cloud credential storage**
   - Preconditions: disposable S3-compatible test credentials, or run only the config/migration checks without `hazmat backup --cloud`.
   - Steps: configure with `HAZMAT_CLOUD_SECRET_KEY=<secret> HAZMAT_CLOUD_PASSWORD=<recovery> hazmat config cloud --endpoint <endpoint> --bucket <bucket> --access-key <access> --secret-key-from-env`.
-  - Expected: `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.config/hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
+  - Expected: `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
+
+- [ ] **Credential inventory and legacy residue**
+  - Preconditions: at least one configured provider key or imported harness auth; optional old residue under `/Users/agent/.zshrc`, `/Users/agent/.config/git/credentials`, or `~/.hazmat/cloud-credentials` for migration checks.
+  - Steps: run `hazmat check`; inspect the "Credential inventory" section.
+  - Expected: every credential surface is reported by registry ID with backend, delivery mode, and host-store presence/absence. Legacy locations produce actionable repair guidance. Output must not contain raw API keys, OAuth tokens, PATs, S3 keys, or recovery keys.
 
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.

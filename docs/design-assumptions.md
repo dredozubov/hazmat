@@ -71,9 +71,9 @@ block-beta
     end
     block:agent["Agent user home (/Users/agent)"]
         columns 3
-        apikey["API key in .zshrc"]
-        gitcred["Git PAT in credentials"]
-        claudeconf["~/.claude/ config"]
+        sessionenv["Session API key env"]
+        gitcred["Legacy Git HTTPS store"]
+        harnessstate["Transient harness auth"]
     end
     block:project["Project directory (read-write)"]
         columns 3
@@ -91,27 +91,27 @@ block-beta
     style keychain fill:#fcc,stroke:#c33,color:#000
     style ghcli fill:#fcc,stroke:#c33,color:#000
     style docker fill:#fcc,stroke:#c33,color:#000
-    style apikey fill:#ffe,stroke:#a80,color:#000
+    style sessionenv fill:#ffe,stroke:#a80,color:#000
     style gitcred fill:#ffe,stroke:#a80,color:#000
-    style claudeconf fill:#ffe,stroke:#a80,color:#000
+    style harnessstate fill:#ffe,stroke:#a80,color:#000
     style env fill:#ffd,stroke:#aa0,color:#000
     style src fill:#cfc,stroke:#3a3,color:#000
     style dotgit fill:#cfc,stroke:#3a3,color:#000
 ```
 
 - **Red zone** — host user credentials. Denied by seatbelt + user isolation. Agent cannot read or write these.
-- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable harness auth now lives in `~/.hazmat/secrets`, but Git credentials still live under `/Users/agent`. Protected from host-level reads by file permissions and cleanup-on-exit.
+- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable provider keys, file-backed harness auth, cloud backup credentials, and provisioned Git SSH identities live in `~/.hazmat/secrets`. Git HTTPS credentials remain legacy agent-home state until the broker lands.
 - **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
 
-**Mixed state today.** API keys configured through `hazmat config agent` and file-backed harness auth imported or harvested from sessions now live in `~/.hazmat/secrets/` and are materialized only for matching sessions. Git credentials are still in `/Users/agent/.config/git/credentials` (git's built-in store). No Keychain integration yet.
+**Mixed state today.** API keys configured through `hazmat config agent`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, and typed provisioned Git SSH identities now live in `~/.hazmat/secrets/`. Materialized files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. Git HTTPS credentials are still in `/Users/agent/.config/git/credentials` until the brokered helper replaces git's built-in store. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 
 **`hazmat config ssh test` is a host-side helper, not a session capability.** The test command deliberately runs as the invoking host user, not inside the contained agent environment. That lets it reuse the host user's real OpenSSH routing semantics from `~/.ssh/config` such as aliases, `HostName`, `Port`, `Include`, and `ProxyJump`, while still forcing the Hazmat-selected private key and `known_hosts` for authentication. This is a UX aid for validating that a selected project key works against the user's existing SSH topology; it does not widen the session-time capability boundary, and the in-session Git wrapper remains stricter than the test helper.
 
-**Seatbelt protects the host user's credentials.** The deny list blocks: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`. The agent cannot read the host user's SSH keys, AWS tokens, or GitHub CLI tokens.
+**Seatbelt protects the host user's credentials.** The deny list blocks common host credential roots. The agent cannot read the host user's SSH keys, AWS tokens, GitHub CLI tokens, keychain material, or common cloud/tooling credentials unless a narrower capability explicitly re-allows something.
 
-**The deny list is not exhaustive.** Not blocked: `~/.docker/config.json`, `~/.kube/config`, `~/.netrc`, `~/.m2/settings.xml`, `/Library/Preferences`. If you have credentials in these locations, the seatbelt won't prevent the agent from reading them. We should expand this list.
+**The deny list is not exhaustive.** Native sessions deny common host credential locations including `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`, `~/.docker`, `~/.kube`, `~/.netrc`, `~/.m2/settings.xml`, `~/.config/gcloud`, `~/.azure`, and `~/.oci`. Less common credential stores may still need explicit review before adding read scope.
 
 **Credentials in the project directory are exposed.** If your project has `.env`, `.env.local`, or embedded secrets, the agent can read them — the project directory is read-write by design.
 
@@ -178,7 +178,7 @@ not execute them.
 
 ## Backup
 
-**Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for offsite workspace backup. Both configured via `~/.config/hazmat/config.yaml`.
+**Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for offsite workspace backup. Both configured via `~/.hazmat/config.yaml`.
 
 **Snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project directory before launching. The snapshot covers only the write-target directory — not the whole workspace, not read-only dirs. Skip with `--no-backup`.
 
@@ -196,9 +196,9 @@ may add more excludes such as `.terraform/` or `.turbo/` for the current
 session only. They affect what goes into automatic pre-session snapshots, not
 the seatbelt allow rules.
 
-**Cloud credentials are host-secret-store entries.** The config file (`~/.config/hazmat/config.yaml`, 0600) stores the S3 endpoint and bucket. The S3 access key ID, S3 secret key, and Kopia recovery key live under `~/.hazmat/secrets/cloud/` and are loaded through the credential registry. `HAZMAT_CLOUD_SECRET_KEY` and `HAZMAT_CLOUD_PASSWORD` remain explicit runtime/import sources, but they are not written back into `config.yaml`. Older `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and `~/.hazmat/cloud-credentials` values migrate into the secret store.
+**Cloud credentials are host-secret-store entries.** The config file (`~/.hazmat/config.yaml`, 0600) stores the S3 endpoint and bucket. The S3 access key ID, S3 secret key, and Kopia recovery key live under `~/.hazmat/secrets/cloud/` and are loaded through the credential registry. `HAZMAT_CLOUD_SECRET_KEY` and `HAZMAT_CLOUD_PASSWORD` remain explicit runtime/import sources, but they are not written back into `config.yaml`. Older `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and `~/.hazmat/cloud-credentials` values migrate into the secret store.
 
-**Credentials may be in snapshots.** The agent's `.zshrc` (containing the API key) and git credentials file are inside the agent home, not the project, so they're NOT in project snapshots. But if your project has `.env` files, those ARE snapshotted.
+**Credentials may be in snapshots.** Hazmat-managed provider keys and file-backed harness auth are outside the project and should not be in project snapshots; `hazmat check` reports legacy agent-home residue such as old `.zshrc` exports or Git HTTPS credentials. If your project has `.env` files, those ARE snapshotted unless excluded.
 
 **Integrations are ergonomic overlays, not policy escapes.** Integrations may
 add read-only paths, snapshot excludes, safe env passthrough, warnings, and
