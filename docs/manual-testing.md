@@ -192,9 +192,9 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Expected: `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
 
 - [ ] **Credential inventory and legacy residue**
-  - Preconditions: at least one configured provider key or imported harness auth; optional old residue under `/Users/agent/.zshrc`, `/Users/agent/.config/git/credentials`, or `~/.hazmat/cloud-credentials` for migration checks.
-  - Steps: run `hazmat check`; inspect the "Credential inventory" section.
-  - Expected: every credential surface is reported by registry ID with backend, delivery mode, and host-store presence/absence. Legacy locations produce actionable repair guidance. Output must not contain raw API keys, OAuth tokens, PATs, S3 keys, or recovery keys.
+  - Preconditions: at least one configured provider key or imported harness auth; optional old residue under `/Users/agent/.zshrc`, `/Users/agent/.config/git/credentials`, `~/.hazmat/cloud-credentials`, or `~/.hazmat/ssh/keys` for migration checks.
+  - Steps: run `hazmat migrate credentials --dry-run`; run `hazmat migrate credentials`; run `hazmat check`; inspect the "Credential inventory" section.
+  - Expected: every credential surface is reported by registry ID with backend, delivery mode, and host-store presence/absence. Legacy locations are migrated or produce actionable repair guidance. Output must not contain raw API keys, OAuth tokens, PATs, S3 keys, recovery keys, or SSH private-key material.
 
 - [ ] **Git HTTPS credential broker**
   - Preconditions: a disposable HTTPS Git token, or an existing legacy `/Users/agent/.config/git/credentials` fixture.

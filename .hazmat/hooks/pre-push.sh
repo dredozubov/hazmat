@@ -69,6 +69,8 @@ run_smoke "opencode --help" opencode --help
 run_smoke "integration --help" integration --help
 run_smoke "integration list" integration list
 run_smoke "integration show node" integration show node
+run_smoke "migrate --help" migrate --help
+run_smoke "migrate credentials --help" migrate credentials --help
 run_smoke "config set --help" config set --help
 run_smoke "config import claude --dry-run" config import claude --dry-run
 run_smoke "config import opencode --help" config import opencode --help

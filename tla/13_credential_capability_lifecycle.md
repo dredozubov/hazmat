@@ -39,6 +39,13 @@ file-backed harness auth conflict preservation. This model is the broader
 capability-safety contract: which delivery modes may expose which credential
 types, and when.
 
+The one-shot `hazmat migrate credentials` command is intentionally not part of
+`MC_Migration`, which models init-version transitions. Credential repair is
+user-data reconciliation: it must preserve managed host-store values, remove
+agent-home residue where possible, and keep external or adapter-required
+boundaries explicit. Those properties are governed here and by
+`MC_SecretStoreRecovery`; concrete parsing and path coverage live in Go tests.
+
 ## What the TLA+ Model Checks
 
 | Invariant | Meaning |

@@ -23,6 +23,11 @@ Hazmat's current credential map is registry-backed. Durable managed credentials
 live under `~/.hazmat/secrets/`; the session sees only the delivery form needed
 for the selected capability.
 
+Users upgrading from older Hazmat versions can run
+`hazmat migrate credentials` once, or with `--dry-run`, to move legacy
+agent-home/provider/cloud/Git residue into the current store without printing
+secret values.
+
 | Surface | Durable owner | Session delivery |
 |---|---|---|
 | Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |

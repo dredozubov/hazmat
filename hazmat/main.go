@@ -119,6 +119,8 @@ func main() {
 	// ── Workspace ──
 	configCmd := newConfigCmd()
 	configCmd.GroupID = "ws"
+	migrateCmd := newMigrateCmd()
+	migrateCmd.GroupID = "ws"
 	integrationCmd := newIntegrationCmd()
 	integrationCmd.GroupID = "ws"
 	backupCmd := newBackupCmd()
@@ -140,7 +142,7 @@ func main() {
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
 		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
-		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
+		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
 		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),
 		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)

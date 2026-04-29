@@ -105,6 +105,14 @@ block-beta
 
 **Mixed state today.** API keys configured through `hazmat config agent`, GitHub API tokens configured through `hazmat config github`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, typed provisioned Git SSH identities, and Git HTTPS credentials now live in `~/.hazmat/secrets/`. Materialized harness files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. GitHub API tokens are delivered only to sessions launched with `--github`. Git HTTPS uses a per-session brokered helper so git's built-in plaintext store is not durable agent-home state. Git SSH uses a session-scoped transport broker instead of exposing an ssh-agent socket. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
 
+**Upgrade repair is explicit.** `hazmat migrate credentials` is the user-facing
+repair path for older installs and interrupted secret-store transitions. It is
+not an init-version migration: it is an idempotent data repair that can migrate
+legacy provider exports, harness auth residue, Git HTTPS stores/helpers, cloud
+credential fields/files, and provisioned Git SSH roots. Divergent legacy values
+are preserved in host-owned conflict paths rather than printed or silently
+dropped.
+
 **GitHub API access is an explicit session capability.** Hazmat denies host GitHub CLI state such as `~/.config/gh` and rejects ambient `GH_TOKEN`/`GITHUB_TOKEN` passthrough from integrations and repo setup. The only supported GitHub API token path is host-owned storage at `~/.hazmat/secrets/github/token`, activated per launch with `--github`, delivered as `GH_TOKEN`, and shown as a redacted `github.api-token` grant. Docker Sandbox sessions currently fail closed for this grant because that backend does not yet deliver session env credentials with equivalent semantics.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory and forcing Git through a session-scoped transport broker. Arbitrary SSH shells remain unsupported.
