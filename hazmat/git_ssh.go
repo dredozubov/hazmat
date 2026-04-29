@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,13 +120,6 @@ type preparedSessionRuntime struct {
 	Cleanup  func()
 }
 
-type preparedSSHIdentityKey struct {
-	Name           string
-	SocketPath     string
-	KnownHostsPath string
-	AllowedHosts   []string
-}
-
 type sshKeyCandidate struct {
 	DirectoryPath  string
 	PrivateKeyPath string
@@ -162,44 +155,43 @@ func (k provisionedSSHKey) Usable() bool {
 
 var gitSSHHostPattern = regexp.MustCompile(`^[a-z0-9.-]+$`)
 var gitSSHPortPattern = regexp.MustCompile(`^[0-9]+$`)
-var sshAgentPIDPattern = regexp.MustCompile(`SSH_AGENT_PID=([0-9]+);`)
-
-const (
-	gitSSHBootstrapHelperEnv = "HAZMAT_GIT_SSH_BOOTSTRAP_HELPER"
-	gitSSHBootstrapSocketEnv = "HAZMAT_GIT_SSH_BOOTSTRAP_SOCKET"
-)
-
 var (
-	gitSSHExecutablePath             = os.Executable
-	gitSSHWriteRuntimeFile           = writeGitSSHRuntimeFile
-	gitSSHStartAgent                 = startAgentSSHAgent
-	gitSSHLoadKey                    = loadKeyIntoSSHAgent
-	gitSSHStatusWriter     io.Writer = os.Stderr
+	gitSSHExecutablePath = os.Executable
 )
 
-type gitSSHBootstrapRequest struct {
-	Key string `json:"key"`
+type gitSSHTransportRequest struct {
+	Args        []string `json:"args"`
+	GitProtocol string   `json:"git_protocol,omitempty"`
 }
 
-type gitSSHBootstrapResponse struct {
-	SocketPath     string `json:"socket_path,omitempty"`
-	KnownHostsPath string `json:"known_hosts_path,omitempty"`
-	Error          string `json:"error,omitempty"`
+type gitSSHTransportInvocation struct {
+	RequestedHost string
+	HostArg       string
+	Port          string
+	RemoteCommand []string
+	GitProtocol   string
 }
 
-type gitSSHBootstrapService struct {
+type gitSSHTransportBroker struct {
+	cfg        sessionGitSSHConfig
 	runtimeDir string
 	socketPath string
 	listener   net.Listener
 	done       chan struct{}
-
-	mu        sync.Mutex
-	keys      map[string]sessionGitSSHKey
-	prepared  map[string]preparedSSHIdentityKey
-	teardowns []func()
-
-	closeOnce sync.Once
+	closeOnce  sync.Once
 }
+
+type gitSSHTransportFrameType byte
+
+const (
+	gitSSHFrameStdin gitSSHTransportFrameType = iota + 1
+	gitSSHFrameStdout
+	gitSSHFrameStderr
+	gitSSHFrameStdinEOF
+	gitSSHFrameExit
+)
+
+const gitSSHTransportMaxFrameSize = 16 * 1024 * 1024
 
 type gitSSHTestTarget struct {
 	RequestedHost         string
@@ -826,7 +818,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 			)
 		}
 		return fmt.Sprintf(
-			"Git-over-SSH enabled for this project via selected key %q (hosts: %s). Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent on first Git-over-SSH use.",
+			"Git-over-SSH enabled for this project via selected key %q (hosts: %s). Hazmat keeps the private key in host-owned storage and performs Git transport through a session-scoped broker; no session ssh-agent socket is exposed.",
 			key.Name,
 			strings.Join(key.AllowedHosts, ", "),
 		)
@@ -840,7 +832,7 @@ func sessionNoteForKeys(keys []sessionGitSSHKey) string {
 		parts = append(parts, fmt.Sprintf("%s → %s", key.Name, hosts))
 	}
 	return fmt.Sprintf(
-		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and loads each into its own session-local ssh-agent on first Git-over-SSH use.",
+		"Git-over-SSH enabled for this project with per-host key routing: %s. Hazmat keeps the private keys in host-owned storage and performs Git transport through a session-scoped broker; no session ssh-agent socket is exposed.",
 		strings.Join(parts, "; "),
 	)
 }
@@ -871,7 +863,7 @@ func resolveLegacyManagedGitSSH(cfg sessionConfig, raw *ProjectGitSSHConfig) (*s
 	return &sessionGitSSHConfig{
 		DisplayName: displayName,
 		SessionNote: fmt.Sprintf(
-			"Legacy host-scoped Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and loads it into a fresh session-local ssh-agent on first Git-over-SSH use.",
+			"Legacy host-scoped Git SSH enabled for hosts: %s. Hazmat keeps the private key in host-owned storage and performs Git transport through a session-scoped broker; no session ssh-agent socket is exposed.",
 			strings.Join(allowedHosts, ", "),
 		),
 		Keys: []sessionGitSSHKey{{
@@ -1198,7 +1190,7 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 		return runtime, fmt.Errorf("prepare managed git ssh runtime dir: %w", err)
 	}
 
-	bootstrapService, err := startGitSSHBootstrapService(cfg, runtimeDir)
+	broker, err := startGitSSHTransportBroker(cfg, runtimeDir)
 	if err != nil {
 		_ = os.RemoveAll(runtimeDir)
 		return runtime, err
@@ -1206,60 +1198,51 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 
 	helperPath, err := gitSSHExecutablePath()
 	if err != nil {
-		bootstrapService.Close()
-		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("resolve hazmat binary for managed git ssh: %w", err)
+		broker.Close()
+		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("resolve hazmat binary for managed git ssh broker helper: %w", err)
 	}
+	command := strings.Join(shellQuote([]string{helperPath, "_git_ssh_transport", broker.socketPath}), " ")
 
-	wrapperPath := filepath.Join(runtimeDir, "git-ssh")
-	wrapperScript := buildGitSSHWrapperScript(cfg.Keys)
-	if err := gitSSHWriteRuntimeFile(wrapperPath, []byte(wrapperScript), 0o750); err != nil {
-		bootstrapService.Close()
-		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("write managed git ssh wrapper: %w", err)
-	}
-
-	runtime.Cleanup = bootstrapService.Close
+	runtime.Cleanup = broker.Close
 	runtime.EnvPairs = []string{
-		"GIT_SSH_COMMAND=" + wrapperPath,
+		"GIT_SSH_COMMAND=" + command,
 		"GIT_SSH_VARIANT=ssh",
-		gitSSHBootstrapHelperEnv + "=" + helperPath,
-		gitSSHBootstrapSocketEnv + "=" + bootstrapService.socketPath,
 	}
 	return runtime, nil
 }
 
-func startGitSSHBootstrapService(cfg sessionGitSSHConfig, runtimeDir string) (*gitSSHBootstrapService, error) {
+func startGitSSHTransportBroker(cfg sessionGitSSHConfig, runtimeDir string) (*gitSSHTransportBroker, error) {
 	keys := make(map[string]sessionGitSSHKey, len(cfg.Keys))
 	for _, key := range cfg.Keys {
 		if _, dup := keys[key.Name]; dup {
-			return nil, fmt.Errorf("duplicate SSH key name %q in managed Git SSH runtime", key.Name)
+			return nil, fmt.Errorf("duplicate SSH key name %q in managed Git SSH broker config", key.Name)
 		}
 		keys[key.Name] = key
 	}
 
-	socketPath := filepath.Join(runtimeDir, "bootstrap.sock")
+	socketPath := filepath.Join(runtimeDir, "transport.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("start managed git ssh bootstrap listener: %w", err)
+		return nil, fmt.Errorf("start managed git ssh transport broker listener at %s: %w; check shared runtime directory permissions and rerun hazmat init if setup drifted", socketPath, err)
 	}
 	if err := os.Chmod(socketPath, 0o660); err != nil {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
-		return nil, fmt.Errorf("set managed git ssh bootstrap socket mode: %w", err)
+		return nil, fmt.Errorf("set managed git ssh transport broker socket mode at %s: %w; check shared runtime directory permissions and rerun hazmat init if setup drifted", socketPath, err)
 	}
 
-	service := &gitSSHBootstrapService{
+	service := &gitSSHTransportBroker{
+		cfg:        cfg,
 		runtimeDir: runtimeDir,
 		socketPath: socketPath,
 		listener:   listener,
 		done:       make(chan struct{}),
-		keys:       keys,
-		prepared:   make(map[string]preparedSSHIdentityKey, len(cfg.Keys)),
 	}
 	go service.serve()
 	return service, nil
 }
 
-func (s *gitSSHBootstrapService) Close() {
+func (s *gitSSHTransportBroker) Close() {
 	if s == nil {
 		return
 	}
@@ -1270,20 +1253,11 @@ func (s *gitSSHBootstrapService) Close() {
 		if s.done != nil {
 			<-s.done
 		}
-
-		s.mu.Lock()
-		teardowns := append([]func(){}, s.teardowns...)
-		s.teardowns = nil
-		s.mu.Unlock()
-
-		for i := len(teardowns) - 1; i >= 0; i-- {
-			teardowns[i]()
-		}
 		_ = os.RemoveAll(s.runtimeDir)
 	})
 }
 
-func (s *gitSSHBootstrapService) serve() {
+func (s *gitSSHTransportBroker) serve() {
 	defer close(s.done)
 	for {
 		conn, err := s.listener.Accept()
@@ -1293,135 +1267,477 @@ func (s *gitSSHBootstrapService) serve() {
 			}
 			return
 		}
-		s.handleConn(conn)
+		go s.handleConn(conn)
 	}
 }
 
-func (s *gitSSHBootstrapService) handleConn(conn net.Conn) {
+func (s *gitSSHTransportBroker) handleConn(conn net.Conn) {
 	defer conn.Close()
 
-	var req gitSSHBootstrapRequest
-	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		_ = json.NewEncoder(conn).Encode(gitSSHBootstrapResponse{
-			Error: fmt.Sprintf("decode managed git ssh bootstrap request: %v", err),
-		})
+	req, err := readGitSSHTransportRequest(conn)
+	if err != nil {
+		_ = writeGitSSHTransportFrame(conn, gitSSHFrameStderr, []byte(fmt.Sprintf("hazmat git-ssh: decode broker request: %v\n", err)))
+		_ = writeGitSSHTransportExit(conn, 97)
 		return
 	}
 
-	resp, err := s.bootstrap(req.Key)
+	exitCode, err := runGitSSHTransportRequest(s.cfg, req, conn)
 	if err != nil {
-		resp.Error = err.Error()
+		_ = writeGitSSHTransportFrame(conn, gitSSHFrameStderr, []byte("hazmat git-ssh: "+err.Error()+"\n"))
+		if exitCode == 0 {
+			exitCode = 97
+		}
 	}
-	_ = json.NewEncoder(conn).Encode(resp)
+	_ = writeGitSSHTransportExit(conn, exitCode)
 }
 
-func (s *gitSSHBootstrapService) bootstrap(keyName string) (gitSSHBootstrapResponse, error) {
-	start := time.Now()
-	prepared, bootstrapped, err := s.prepareKey(keyName)
-	if err != nil {
-		return gitSSHBootstrapResponse{}, err
-	}
-	if bootstrapped && gitSSHStatusWriter != nil {
-		fmt.Fprintf(gitSSHStatusWriter, "hazmat git-ssh: key %q ready (%.1fs)\n", keyName, time.Since(start).Seconds())
-	}
-	return gitSSHBootstrapResponse{
-		SocketPath:     prepared.SocketPath,
-		KnownHostsPath: prepared.KnownHostsPath,
-	}, nil
-}
-
-func (s *gitSSHBootstrapService) prepareKey(keyName string) (preparedSSHIdentityKey, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if prepared, ok := s.prepared[keyName]; ok {
-		return prepared, false, nil
-	}
-
-	key, ok := s.keys[keyName]
-	if !ok {
-		return preparedSSHIdentityKey{}, false, fmt.Errorf("managed git ssh key %q is not configured for this project", keyName)
-	}
-	if gitSSHStatusWriter != nil {
-		fmt.Fprintf(gitSSHStatusWriter, "hazmat git-ssh: preparing SSH key %q for this session\n", keyName)
-	}
-
-	prepared, teardown, err := prepareSSHIdentityKeyRuntime(s.runtimeDir, key)
-	if err != nil {
-		return preparedSSHIdentityKey{}, false, err
-	}
-	s.prepared[keyName] = prepared
-	s.teardowns = append(s.teardowns, teardown)
-	return prepared, true, nil
-}
-
-func prepareSSHIdentityKeyRuntime(runtimeDir string, key sessionGitSSHKey) (preparedSSHIdentityKey, func(), error) {
-	socketPath := filepath.Join(runtimeDir, "agent-"+key.Name+".sock")
-	pid, err := gitSSHStartAgent(socketPath)
-	if err != nil {
-		return preparedSSHIdentityKey{}, func() {}, err
-	}
-
-	teardown := func() {
-		cmd := newAgentCommand("env",
-			"SSH_AGENT_PID="+pid,
-			"SSH_AUTH_SOCK="+socketPath,
-			"/usr/bin/ssh-agent", "-k")
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		_ = cmd.Run()
-	}
-
-	if err := key.Identity.validate(); err != nil {
-		teardown()
-		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: identity: %w", key.Name, err)
-	}
-	if err := gitSSHLoadKey(socketPath, key.privateKeyPath()); err != nil {
-		teardown()
-		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: %w", key.Name, err)
-	}
-
-	knownHostsData, err := os.ReadFile(key.knownHostsPath())
-	if err != nil {
-		teardown()
-		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: read known_hosts: %w", key.Name, err)
-	}
-	runtimeKnownHostsPath := filepath.Join(runtimeDir, "known_hosts-"+key.Name)
-	if err := gitSSHWriteRuntimeFile(runtimeKnownHostsPath, knownHostsData, 0o640); err != nil {
-		teardown()
-		return preparedSSHIdentityKey{}, func() {}, fmt.Errorf("ssh key %q: write known_hosts: %w", key.Name, err)
-	}
-
-	return preparedSSHIdentityKey{
-		Name:           key.Name,
-		SocketPath:     socketPath,
-		KnownHostsPath: runtimeKnownHostsPath,
-		AllowedHosts:   append([]string(nil), key.AllowedHosts...),
-	}, teardown, nil
-}
-
-func requestGitSSHBootstrap(socketPath, keyName string) (gitSSHBootstrapResponse, error) {
+func runGitSSHTransportHelper(socketPath string, args []string) int {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		return gitSSHBootstrapResponse{}, fmt.Errorf("connect managed git ssh bootstrap service: %w", err)
+		fmt.Fprintf(os.Stderr, "hazmat git-ssh: connect transport broker: %v\n", err)
+		return 97
 	}
 	defer conn.Close()
 
-	if err := json.NewEncoder(conn).Encode(gitSSHBootstrapRequest{Key: keyName}); err != nil {
-		return gitSSHBootstrapResponse{}, fmt.Errorf("request managed git ssh bootstrap: %w", err)
+	req := gitSSHTransportRequest{
+		Args:        append([]string(nil), args...),
+		GitProtocol: strings.TrimSpace(os.Getenv("GIT_PROTOCOL")),
+	}
+	if err := writeGitSSHTransportRequest(conn, req); err != nil {
+		fmt.Fprintf(os.Stderr, "hazmat git-ssh: send transport request: %v\n", err)
+		return 97
 	}
 
-	var resp gitSSHBootstrapResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return gitSSHBootstrapResponse{}, fmt.Errorf("read managed git ssh bootstrap response: %w", err)
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, readErr := os.Stdin.Read(buf)
+			if n > 0 {
+				if err := writeGitSSHTransportFrame(conn, gitSSHFrameStdin, buf[:n]); err != nil {
+					return
+				}
+			}
+			if readErr == io.EOF {
+				_ = writeGitSSHTransportFrame(conn, gitSSHFrameStdinEOF, nil)
+				return
+			}
+			if readErr != nil {
+				_ = writeGitSSHTransportFrame(conn, gitSSHFrameStdinEOF, nil)
+				return
+			}
+		}
+	}()
+
+	for {
+		frameType, payload, err := readGitSSHTransportFrame(conn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hazmat git-ssh: read transport broker response: %v\n", err)
+			return 97
+		}
+		switch frameType {
+		case gitSSHFrameStdout:
+			if _, err := os.Stdout.Write(payload); err != nil {
+				return 97
+			}
+		case gitSSHFrameStderr:
+			if _, err := os.Stderr.Write(payload); err != nil {
+				return 97
+			}
+		case gitSSHFrameExit:
+			if len(payload) != 4 {
+				fmt.Fprintln(os.Stderr, "hazmat git-ssh: malformed broker exit frame")
+				return 97
+			}
+			return int(binary.BigEndian.Uint32(payload))
+		default:
+			fmt.Fprintf(os.Stderr, "hazmat git-ssh: unexpected broker frame type %d\n", frameType)
+			return 97
+		}
 	}
-	if strings.TrimSpace(resp.Error) != "" {
-		return resp, errors.New(resp.Error)
+}
+
+func runGitSSHTransportRequest(cfg sessionGitSSHConfig, req gitSSHTransportRequest, conn net.Conn) (int, error) {
+	cmd, err := buildGitSSHTransportCommand(cfg, req)
+	if err != nil {
+		return 97, err
 	}
-	if strings.TrimSpace(resp.SocketPath) == "" || strings.TrimSpace(resp.KnownHostsPath) == "" {
-		return resp, fmt.Errorf("managed git ssh bootstrap returned incomplete runtime for key %q", keyName)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return 127, fmt.Errorf("open ssh stdin pipe: %w", err)
 	}
-	return resp, nil
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 127, fmt.Errorf("open ssh stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return 127, fmt.Errorf("open ssh stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return 127, fmt.Errorf("start brokered ssh: %w", err)
+	}
+
+	var writeMu sync.Mutex
+	writeFrame := func(frameType gitSSHTransportFrameType, payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return writeGitSSHTransportFrame(conn, frameType, payload)
+	}
+
+	go func() {
+		defer stdin.Close() //nolint:errcheck // best-effort shutdown after helper EOF/error
+		for {
+			frameType, payload, err := readGitSSHTransportFrame(conn)
+			if err != nil {
+				return
+			}
+			switch frameType {
+			case gitSSHFrameStdin:
+				if len(payload) > 0 {
+					if _, err := stdin.Write(payload); err != nil {
+						return
+					}
+				}
+			case gitSSHFrameStdinEOF:
+				return
+			default:
+				return
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	copyStream := func(frameType gitSSHTransportFrameType, r io.Reader) {
+		defer wg.Done()
+		buf := make([]byte, 32*1024)
+		for {
+			n, readErr := r.Read(buf)
+			if n > 0 {
+				if err := writeFrame(frameType, buf[:n]); err != nil {
+					return
+				}
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}
+	wg.Add(2)
+	go copyStream(gitSSHFrameStdout, stdout)
+	go copyStream(gitSSHFrameStderr, stderr)
+
+	waitErr := cmd.Wait()
+	wg.Wait()
+	if waitErr == nil {
+		return 0, nil
+	}
+	if cmd.ProcessState != nil {
+		if code := cmd.ProcessState.ExitCode(); code >= 0 {
+			return code, nil
+		}
+	}
+	return 1, nil
+}
+
+func buildGitSSHTransportCommand(cfg sessionGitSSHConfig, req gitSSHTransportRequest) (*exec.Cmd, error) {
+	invocation, err := parseGitSSHTransportInvocation(req.Args, req.GitProtocol)
+	if err != nil {
+		return nil, err
+	}
+	key, err := selectSessionGitSSHKey(&cfg, invocation.RequestedHost)
+	if err != nil {
+		return nil, err
+	}
+	if err := key.Identity.validate(); err != nil {
+		return nil, fmt.Errorf("ssh key %q: identity: %w", key.Name, err)
+	}
+	if _, err := os.Stat(key.privateKeyPath()); err != nil {
+		return nil, fmt.Errorf("ssh key %q: private key: %w", key.Name, err)
+	}
+	if _, err := os.Stat(key.knownHostsPath()); err != nil {
+		return nil, fmt.Errorf("ssh key %q: known_hosts: %w", key.Name, err)
+	}
+
+	target, err := parseGitSSHTestTarget(invocation.HostArg)
+	if err != nil {
+		return nil, err
+	}
+	if invocation.Port != "" {
+		target.Port = invocation.Port
+		target.InputPort = invocation.Port
+	}
+	target, err = resolveGitSSHTestTargetWithSeen(target, make(map[string]struct{}))
+	if err != nil {
+		return nil, err
+	}
+
+	args := []string{
+		"-F", "none",
+		"-o", "BatchMode=yes",
+		"-o", "IdentitiesOnly=yes",
+		"-o", "IdentityAgent=none",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UserKnownHostsFile=" + key.knownHostsPath(),
+		"-o", "GlobalKnownHostsFile=/dev/null",
+		"-o", "ForwardAgent=no",
+		"-o", "ClearAllForwardings=yes",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "PasswordAuthentication=no",
+		"-o", "NumberOfPasswordPrompts=0",
+		"-o", "RequestTTY=no",
+		"-i", key.privateKeyPath(),
+	}
+	if invocation.GitProtocol != "" {
+		args = append(args, "-o", "SendEnv=GIT_PROTOCOL")
+	}
+	if target.HostKeyAlias != "" {
+		args = append(args, "-o", "HostKeyAlias="+target.HostKeyAlias)
+	}
+	if len(target.JumpTargets) > 0 {
+		jumps := make([]string, 0, len(target.JumpTargets))
+		for _, jump := range target.JumpTargets {
+			jumps = append(jumps, jump.summary())
+		}
+		args = append(args, "-J", strings.Join(jumps, ","))
+	}
+	if target.User != "" {
+		args = append(args, "-l", target.User)
+	}
+	if target.Port != "" {
+		args = append(args, "-p", target.Port)
+	}
+	args = append(args, "-T", target.Host)
+	args = append(args, invocation.RemoteCommand...)
+
+	cmd := exec.Command("/usr/bin/ssh", args...)
+	if invocation.GitProtocol != "" {
+		cmd.Env = append(os.Environ(), "GIT_PROTOCOL="+invocation.GitProtocol)
+	}
+	return cmd, nil
+}
+
+func parseGitSSHTransportInvocation(args []string, gitProtocol string) (gitSSHTransportInvocation, error) {
+	invocation := gitSSHTransportInvocation{GitProtocol: strings.TrimSpace(gitProtocol)}
+	for len(args) > 0 {
+		arg := args[0]
+		switch {
+		case arg == "-4" || arg == "-6" || arg == "-T":
+			args = args[1:]
+		case arg == "-p":
+			if len(args) < 2 {
+				return gitSSHTransportInvocation{}, fmt.Errorf("missing value for -p")
+			}
+			if !gitSSHPortPattern.MatchString(args[1]) {
+				return gitSSHTransportInvocation{}, fmt.Errorf("invalid ssh port %q", args[1])
+			}
+			invocation.Port = args[1]
+			args = args[2:]
+		case arg == "-o":
+			if len(args) < 2 {
+				return gitSSHTransportInvocation{}, fmt.Errorf("missing value for -o")
+			}
+			if err := applyAllowedGitSSHTransportOption(args[1], &invocation); err != nil {
+				return gitSSHTransportInvocation{}, err
+			}
+			args = args[2:]
+		case strings.HasPrefix(arg, "-o"):
+			if err := applyAllowedGitSSHTransportOption(strings.TrimPrefix(arg, "-o"), &invocation); err != nil {
+				return gitSSHTransportInvocation{}, err
+			}
+			args = args[1:]
+		case arg == "--":
+			args = args[1:]
+			goto destination
+		case strings.HasPrefix(arg, "-"):
+			return gitSSHTransportInvocation{}, fmt.Errorf("unsupported ssh option: %s", arg)
+		default:
+			goto destination
+		}
+	}
+
+destination:
+	if len(args) == 0 {
+		return gitSSHTransportInvocation{}, fmt.Errorf("missing destination host")
+	}
+	invocation.HostArg = args[0]
+	requestedHost, err := gitSSHRequestedHost(invocation.HostArg)
+	if err != nil {
+		return gitSSHTransportInvocation{}, err
+	}
+	invocation.RequestedHost = requestedHost
+	invocation.RemoteCommand = append([]string(nil), args[1:]...)
+	if len(invocation.RemoteCommand) == 0 {
+		return gitSSHTransportInvocation{}, fmt.Errorf("interactive ssh is not allowed for this profile")
+	}
+	if len(invocation.RemoteCommand) != 1 {
+		return gitSSHTransportInvocation{}, fmt.Errorf("remote command must be one Git transport invocation")
+	}
+	if err := validateGitSSHRemoteCommand(invocation.RemoteCommand[0]); err != nil {
+		return gitSSHTransportInvocation{}, err
+	}
+	return invocation, nil
+}
+
+func applyAllowedGitSSHTransportOption(option string, invocation *gitSSHTransportInvocation) error {
+	option = strings.TrimSpace(option)
+	switch {
+	case option == "SendEnv=GIT_PROTOCOL" || option == "SendEnv=*":
+		return nil
+	case strings.HasPrefix(option, "SetEnv=GIT_PROTOCOL="):
+		value := strings.TrimPrefix(option, "SetEnv=GIT_PROTOCOL=")
+		if value != "" && value != "*" {
+			invocation.GitProtocol = value
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported ssh option: -o %s", option)
+	}
+}
+
+func gitSSHRequestedHost(destination string) (string, error) {
+	host := strings.TrimSpace(destination)
+	if host == "" {
+		return "", fmt.Errorf("missing destination host")
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if !gitSSHHostPattern.MatchString(host) {
+		return "", fmt.Errorf("invalid destination host %q", host)
+	}
+	return host, nil
+}
+
+func validateGitSSHRemoteCommand(command string) error {
+	command = strings.TrimSpace(command)
+	verb, repo, ok := strings.Cut(command, " ")
+	if !ok || strings.TrimSpace(repo) == "" {
+		return fmt.Errorf("remote command not allowed: %s", command)
+	}
+	switch verb {
+	case "git-upload-pack", "git-receive-pack", "git-upload-archive":
+	default:
+		return fmt.Errorf("remote command not allowed: %s", command)
+	}
+	if hasUnquotedShellControl(repo) {
+		return fmt.Errorf("remote command contains unsupported shell syntax: %s", command)
+	}
+	return nil
+}
+
+func hasUnquotedShellControl(s string) bool {
+	var quote rune
+	escaped := false
+	for _, r := range s {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != '\'' && r == '\\' {
+			escaped = true
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			if quote == 0 {
+				quote = r
+				continue
+			}
+			if quote == r {
+				quote = 0
+				continue
+			}
+		case ';', '&', '|', '<', '>', '`', '$', '\n', '\r':
+			if quote == 0 {
+				return true
+			}
+		}
+	}
+	return quote != 0 || escaped
+}
+
+func writeGitSSHTransportRequest(w io.Writer, req gitSSHTransportRequest) error {
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if len(payload) > gitSSHTransportMaxFrameSize {
+		return fmt.Errorf("transport request too large")
+	}
+	var size [4]byte
+	binary.BigEndian.PutUint32(size[:], uint32(len(payload)))
+	if _, err := w.Write(size[:]); err != nil {
+		return err
+	}
+	_, err = w.Write(payload)
+	return err
+}
+
+func readGitSSHTransportRequest(r io.Reader) (gitSSHTransportRequest, error) {
+	var size [4]byte
+	if _, err := io.ReadFull(r, size[:]); err != nil {
+		return gitSSHTransportRequest{}, err
+	}
+	n := binary.BigEndian.Uint32(size[:])
+	if n == 0 || n > gitSSHTransportMaxFrameSize {
+		return gitSSHTransportRequest{}, fmt.Errorf("invalid request size %d", n)
+	}
+	payload := make([]byte, n)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return gitSSHTransportRequest{}, err
+	}
+	var req gitSSHTransportRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return gitSSHTransportRequest{}, err
+	}
+	return req, nil
+}
+
+func writeGitSSHTransportFrame(w io.Writer, frameType gitSSHTransportFrameType, payload []byte) error {
+	if len(payload) > gitSSHTransportMaxFrameSize {
+		return fmt.Errorf("transport frame too large")
+	}
+	var header [5]byte
+	header[0] = byte(frameType)
+	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+	if _, err := w.Write(header[:]); err != nil {
+		return err
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	_, err := w.Write(payload)
+	return err
+}
+
+func readGitSSHTransportFrame(r io.Reader) (gitSSHTransportFrameType, []byte, error) {
+	var header [5]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return 0, nil, err
+	}
+	n := binary.BigEndian.Uint32(header[1:])
+	if n > gitSSHTransportMaxFrameSize {
+		return 0, nil, fmt.Errorf("invalid frame size %d", n)
+	}
+	payload := make([]byte, n)
+	if n > 0 {
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return 0, nil, err
+		}
+	}
+	return gitSSHTransportFrameType(header[0]), payload, nil
+}
+
+func writeGitSSHTransportExit(w io.Writer, exitCode int) error {
+	var payload [4]byte
+	if exitCode < 0 {
+		exitCode = 1
+	}
+	binary.BigEndian.PutUint32(payload[:], uint32(exitCode))
+	return writeGitSSHTransportFrame(w, gitSSHFrameExit, payload[:])
 }
 
 func writeGitSSHRuntimeFile(path string, content []byte, mode os.FileMode) error {
@@ -1430,58 +1746,6 @@ func writeGitSSHRuntimeFile(path string, content []byte, mode os.FileMode) error
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		return err
-	}
-	return nil
-}
-
-func startAgentSSHAgent(socketPath string) (string, error) {
-	cmd := newAgentCommand("/usr/bin/ssh-agent", "-s", "-a", socketPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("start session ssh-agent: %s", msg)
-	}
-	pid, err := parseSSHAgentPID(stdout.String())
-	if err != nil {
-		return "", fmt.Errorf("start session ssh-agent: %w", err)
-	}
-	return pid, nil
-}
-
-func parseSSHAgentPID(output string) (string, error) {
-	matches := sshAgentPIDPattern.FindStringSubmatch(output)
-	if len(matches) != 2 {
-		return "", fmt.Errorf("could not parse ssh-agent pid from output")
-	}
-	return matches[1], nil
-}
-
-func loadKeyIntoSSHAgent(socketPath, keyPath string) error {
-	keyData, err := os.ReadFile(keyPath)
-	if err != nil {
-		return fmt.Errorf("read managed git ssh private key: %w", err)
-	}
-
-	cmd := newAgentCommand("env",
-		"SSH_AUTH_SOCK="+socketPath,
-		"SSH_ASKPASS_REQUIRE=never",
-		"/usr/bin/ssh-add", "-q", "-")
-	cmd.Stdin = bytes.NewReader(keyData)
-	cmd.Stdout = io.Discard
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return fmt.Errorf("load managed git ssh key into session agent: %s", msg)
 	}
 	return nil
 }
@@ -1605,111 +1869,4 @@ func interpretGitSSHProbeResult(host, output string, err error) error {
 	}
 
 	return fmt.Errorf("SSH test failed for git@%s: %s", host, strings.TrimSpace(output))
-}
-
-// buildGitSSHWrapperScript renders the shell wrapper that routes a Git-over-SSH
-// invocation to exactly one configured key and lazily requests the session-local
-// ssh-agent socket/known_hosts pair when Git first needs SSH.
-//
-// The routing contract matches tla/MC_GitSSHRouting.tla:
-//   - The destination host must match exactly one key's AllowedHosts patterns
-//     (shell glob semantics via `case`); anything else is rejected.
-//   - Keys with no effective AllowedHosts are omitted from the case
-//     arms and therefore match no destination host.
-//
-// The wrapper passes only protocol handshake options to ssh and rejects
-// interactive shells or unknown remote commands.
-func buildGitSSHWrapperScript(keys []sessionGitSSHKey) string {
-	var b strings.Builder
-	b.WriteString("#!/bin/sh\n")
-	b.WriteString("set -eu\n\n")
-	b.WriteString("reject() {\n")
-	b.WriteString("  echo \"hazmat git-ssh: $*\" >&2\n")
-	b.WriteString("  exit 97\n")
-	b.WriteString("}\n\n")
-	b.WriteString("port=\"\"\n")
-	b.WriteString("while [ \"$#\" -gt 0 ]; do\n")
-	b.WriteString("  case \"$1\" in\n")
-	b.WriteString("    -4|-6|-T)\n")
-	b.WriteString("      shift\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    -p)\n")
-	b.WriteString("      [ \"$#\" -ge 2 ] || reject \"missing value for -p\"\n")
-	b.WriteString("      port=\"$2\"\n")
-	b.WriteString("      shift 2\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    -o)\n")
-	b.WriteString("      [ \"$#\" -ge 2 ] || reject \"missing value for -o\"\n")
-	b.WriteString("      case \"$2\" in\n")
-	b.WriteString("        SendEnv=*|SetEnv=GIT_PROTOCOL=*) shift 2 ;;\n")
-	b.WriteString("        *) reject \"unsupported ssh option: -o $2\" ;;\n")
-	b.WriteString("      esac\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    -oSendEnv=*|-oSetEnv=GIT_PROTOCOL=*)\n")
-	b.WriteString("      shift\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    --)\n")
-	b.WriteString("      shift\n")
-	b.WriteString("      break\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    -*)\n")
-	b.WriteString("      reject \"unsupported ssh option: $1\"\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("    *)\n")
-	b.WriteString("      break\n")
-	b.WriteString("      ;;\n")
-	b.WriteString("  esac\n")
-	b.WriteString("done\n")
-	b.WriteString("[ \"$#\" -ge 1 ] || reject \"missing destination host\"\n")
-	b.WriteString("host=\"$1\"\n")
-	b.WriteString("shift\n")
-	b.WriteString("normalized_host=\"$host\"\n")
-	b.WriteString("case \"$normalized_host\" in\n")
-	b.WriteString("  *@*) normalized_host=${normalized_host#*@} ;;\n")
-	b.WriteString("esac\n")
-	b.WriteString("key=\"\"\n")
-	b.WriteString("sock=\"\"\n")
-	b.WriteString("kh=\"\"\n")
-	b.WriteString("case \"$normalized_host\" in\n")
-	for _, key := range keys {
-		if len(key.AllowedHosts) == 0 {
-			continue
-		}
-		name := shellQuote([]string{key.Name})[0]
-		patterns := strings.Join(key.AllowedHosts, "|")
-		fmt.Fprintf(&b, "  %s) key=%s ;;\n", patterns, name)
-	}
-	b.WriteString("  *) reject \"destination host not allowed: $normalized_host\" ;;\n")
-	b.WriteString("esac\n")
-	fmt.Fprintf(&b, "helper=${%s:-}\n", gitSSHBootstrapHelperEnv)
-	fmt.Fprintf(&b, "control=${%s:-}\n", gitSSHBootstrapSocketEnv)
-	b.WriteString("[ -n \"$helper\" ] || reject \"missing managed git ssh helper\"\n")
-	b.WriteString("[ -n \"$control\" ] || reject \"missing managed git ssh bootstrap socket\"\n")
-	b.WriteString("bootstrap_output=$(\"$helper\" _git_ssh_bootstrap \"$control\" \"$key\") || reject \"failed to prepare SSH key $key\"\n")
-	b.WriteString("eval \"$bootstrap_output\"\n")
-	b.WriteString("[ -n \"${sock:-}\" ] || reject \"missing ssh-agent socket for $key\"\n")
-	b.WriteString("[ -n \"${kh:-}\" ] || reject \"missing known_hosts path for $key\"\n")
-
-	b.WriteString("[ \"$#\" -gt 0 ] || reject \"interactive ssh is not allowed for this profile\"\n")
-	b.WriteString("case \"$1\" in\n")
-	b.WriteString("  git-upload-pack*|git-receive-pack*|git-upload-archive*) ;;\n")
-	b.WriteString("  *) reject \"remote command not allowed: $1\" ;;\n")
-	b.WriteString("esac\n")
-	b.WriteString("if [ -n \"$port\" ]; then\n")
-	b.WriteString("  set -- -p \"$port\" \"$host\" \"$@\"\n")
-	b.WriteString("else\n")
-	b.WriteString("  set -- \"$host\" \"$@\"\n")
-	b.WriteString("fi\n")
-	b.WriteString("exec /usr/bin/ssh \\\n")
-	b.WriteString("  -F none \\\n")
-	b.WriteString("  -o BatchMode=yes \\\n")
-	b.WriteString("  -o IdentityFile=none \\\n")
-	b.WriteString("  -o StrictHostKeyChecking=yes \\\n")
-	b.WriteString("  -o UserKnownHostsFile=\"$kh\" \\\n")
-	b.WriteString("  -o GlobalKnownHostsFile=/dev/null \\\n")
-	b.WriteString("  -o ForwardAgent=no \\\n")
-	b.WriteString("  -o ClearAllForwardings=yes \\\n")
-	b.WriteString("  -o IdentityAgent=\"$sock\" \\\n")
-	b.WriteString("  \"$@\"\n")
-	return b.String()
 }

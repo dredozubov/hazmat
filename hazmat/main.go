@@ -141,7 +141,7 @@ func main() {
 		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
-		newConnectCmd(), newGitSSHBootstrapCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),
+		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),
 		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
@@ -175,19 +175,19 @@ func newConnectCmd() *cobra.Command {
 	}
 }
 
-func newGitSSHBootstrapCmd() *cobra.Command {
+func newGitSSHTransportCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:    "_git_ssh_bootstrap <socket> <key>",
-		Hidden: true,
-		Args:   cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			resp, err := requestGitSSHBootstrap(args[0], args[1])
-			if err != nil {
-				return err
+		Use:                "_git_ssh_transport <socket> [ssh-args...]",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) < 2 {
+				return fmt.Errorf("_git_ssh_transport requires a broker socket and ssh arguments")
 			}
-			quoted := shellQuote([]string{resp.SocketPath, resp.KnownHostsPath})
-			fmt.Printf("sock=%s\nkh=%s\n", quoted[0], quoted[1])
 			return nil
+		},
+		Run: func(_ *cobra.Command, args []string) {
+			os.Exit(runGitSSHTransportHelper(args[0], args[1:]))
 		},
 	}
 }

@@ -201,6 +201,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: launch any native session and run a Git HTTPS operation that needs credentials; exit; run `hazmat check`.
   - Expected: `~/.hazmat/secrets/git-https/credentials` exists with mode `0600`; `/Users/agent/.config/git/credentials` is absent after migration; `hazmat check` reports `git-https.agent-store` without printing the token. Agent `.gitconfig` has no persistent `credential.helper = store --file /Users/agent/.config/git/credentials`; sessions inject the brokered helper at launch.
 
+- [ ] **Git SSH transport broker**
+  - Preconditions: a project configured with `hazmat config ssh add --host <git-host> <key>`; optional `~/.ssh/config` alias using `ProxyJump`.
+  - Steps: launch a native session for that project; run a Git SSH fetch or push against the configured host; inside the session run `test -z "${SSH_AUTH_SOCK:-}" && find /Users/agent -type s -name '*agent*' -print`.
+  - Expected: Git SSH succeeds through `GIT_SSH_COMMAND`; `SSH_AUTH_SOCK` is unset; no readable session ssh-agent socket exists under `/Users/agent`; aliases and supported `ProxyJump` routing continue to work.
+
 - [ ] **Explicit GitHub API capability**
   - Preconditions: disposable fine-grained GitHub token with minimal read scope.
   - Steps: `GH_TOKEN=<token> hazmat config github --token-from-env`; run `hazmat explain --github --json`; run `hazmat shell --github --no-backup` and `test -n "$GH_TOKEN" && test -z "${GITHUB_TOKEN:-}" && echo OK` inside the session; then try `hazmat explain --github --docker=sandbox`.

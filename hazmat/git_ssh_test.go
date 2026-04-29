@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -460,6 +461,10 @@ func TestNewGitSSHProbeCommandUsesHostUserSSH(t *testing.T) {
 		"-o",
 		"IdentityAgent=none",
 		"-o",
+		"PasswordAuthentication=no",
+		"-o",
+		"NumberOfPasswordPrompts=0",
+		"-o",
 		"UserKnownHostsFile=/tmp/known_hosts",
 		"-i",
 		"/tmp/id_rsa",
@@ -669,167 +674,148 @@ func TestInterpretGitSSHProbeResultRecognizesAuthenticatedGitErrors(t *testing.T
 	}
 }
 
-func TestBuildGitSSHWrapperScriptAlwaysEmitsHostRoutedCase(t *testing.T) {
-	// After the any-host fallback retirement, every wrapper emits a case
-	// statement that routes matched hosts and rejects others. There's no
-	// bare legacy path.
-	script := buildGitSSHWrapperScript([]sessionGitSSHKey{{
-		Name:         "only",
-		AllowedHosts: []string{"github.com"},
-	}})
-	for _, fragment := range []string{
-		"interactive ssh is not allowed",
-		"git-upload-pack*|git-receive-pack*|git-upload-archive*",
-		"-o IdentityFile=none",
-		"github.com) key=only ;;",
-		"*) reject \"destination host not allowed: $normalized_host\" ;;",
-		"helper=${HAZMAT_GIT_SSH_BOOTSTRAP_HELPER:-}",
-		"control=${HAZMAT_GIT_SSH_BOOTSTRAP_SOCKET:-}",
-		"bootstrap_output=$(\"$helper\" _git_ssh_bootstrap \"$control\" \"$key\")",
-		"-o UserKnownHostsFile=\"$kh\"",
-		"-o IdentityAgent=\"$sock\"",
-		"-o StrictHostKeyChecking=yes",
-	} {
-		if !strings.Contains(script, fragment) {
-			t.Fatalf("wrapper script missing %q:\n%s", fragment, script)
-		}
-	}
-	if strings.Contains(script, "IdentitiesOnly=yes") {
-		t.Fatalf("wrapper script should not force IdentitiesOnly=yes:\n%s", script)
-	}
-}
-
-func TestBuildGitSSHWrapperScriptSkipsEmptyAllowedHosts(t *testing.T) {
-	script := buildGitSSHWrapperScript([]sessionGitSSHKey{
-		{
-			Name: "empty",
-		},
-		{
-			Name:         "github",
-			AllowedHosts: []string{"github.com"},
-		},
-	})
-	for _, forbidden := range []string{
-		"\n  ) key=",
-	} {
-		if strings.Contains(script, forbidden) {
-			t.Fatalf("wrapper script included empty-host arm %q:\n%s", forbidden, script)
-		}
-	}
-	if !strings.Contains(script, "github.com) key=github ;;") {
-		t.Fatalf("wrapper script should still include routed hosts:\n%s", script)
-	}
-	if !strings.Contains(script, "*) reject \"destination host not allowed: $normalized_host\" ;;") {
-		t.Fatalf("wrapper script should retain default rejection:\n%s", script)
-	}
-}
-
-func TestBuildGitSSHWrapperScriptMultiKeyRoutesByHost(t *testing.T) {
-	script := buildGitSSHWrapperScript([]sessionGitSSHKey{
-		{
-			Name:         "github",
-			AllowedHosts: []string{"github.com"},
-		},
-		{
-			Name:         "prod",
-			AllowedHosts: []string{"prod.example.com", "*.prod.example.com"},
-		},
-	})
-	for _, fragment := range []string{
-		"github.com) key=github ;;",
-		"prod.example.com|*.prod.example.com) key=prod ;;",
-		"*) reject \"destination host not allowed: $normalized_host\" ;;",
-	} {
-		if !strings.Contains(script, fragment) {
-			t.Fatalf("multi-key wrapper missing %q:\n%s", fragment, script)
-		}
-	}
-}
-
-func TestParseSSHAgentPID(t *testing.T) {
-	pid, err := parseSSHAgentPID("SSH_AUTH_SOCK=/tmp/agent.sock; export SSH_AUTH_SOCK;\nSSH_AGENT_PID=4242; export SSH_AGENT_PID;\n")
+func TestParseGitSSHTransportInvocationAllowsOnlyGitTransport(t *testing.T) {
+	invocation, err := parseGitSSHTransportInvocation([]string{
+		"-o", "SendEnv=GIT_PROTOCOL",
+		"-p", "2222",
+		"git@github.com",
+		"git-upload-pack '/owner/repo.git'",
+	}, "version=2")
 	if err != nil {
-		t.Fatalf("parseSSHAgentPID: %v", err)
+		t.Fatalf("parseGitSSHTransportInvocation: %v", err)
 	}
-	if pid != "4242" {
-		t.Fatalf("parseSSHAgentPID = %q, want 4242", pid)
+	if invocation.RequestedHost != "github.com" || invocation.Port != "2222" || invocation.GitProtocol != "version=2" {
+		t.Fatalf("invocation = %+v", invocation)
+	}
+
+	for _, args := range [][]string{
+		{"github.com"},
+		{"github.com", "bash"},
+		{"github.com", "git-upload-packevil repo"},
+		{"github.com", "git-upload-pack", "; touch /tmp/pwned"},
+		{"github.com", "git-upload-pack '/owner/repo.git'; touch /tmp/pwned"},
+		{"github.com", "git-upload-pack $(touch /tmp/pwned)"},
+		{"-A", "github.com", "git-upload-pack repo"},
+		{"-o", "ProxyCommand=sh", "github.com", "git-upload-pack repo"},
+	} {
+		if _, err := parseGitSSHTransportInvocation(args, ""); err == nil {
+			t.Fatalf("parseGitSSHTransportInvocation(%v) succeeded, want rejection", args)
+		}
 	}
 }
 
-func TestGitSSHBootstrapServiceBootstrapsOnlyOnFirstRequest(t *testing.T) {
-	runtimeDir, err := os.MkdirTemp("/tmp", "hazmat-git-ssh-")
-	if err != nil {
-		t.Fatalf("MkdirTemp runtimeDir: %v", err)
+func TestBuildGitSSHTransportCommandRoutesHostThroughBrokerPolicy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte("Host github-alias\n  HostName github.com\n  User git\n  Port 2222\n  HostKeyAlias github.com\n"), 0o600); err != nil {
+		t.Fatalf("write ssh config: %v", err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
 	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
 	if err := os.WriteFile(knownHostsPath, []byte("github.com ssh-ed25519 AAAA"), 0o600); err != nil {
 		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	oldWrite := gitSSHWriteRuntimeFile
-	oldStart := gitSSHStartAgent
-	oldLoad := gitSSHLoadKey
-	oldStatus := gitSSHStatusWriter
-	t.Cleanup(func() {
-		gitSSHWriteRuntimeFile = oldWrite
-		gitSSHStartAgent = oldStart
-		gitSSHLoadKey = oldLoad
-		gitSSHStatusWriter = oldStatus
-	})
-
-	gitSSHWriteRuntimeFile = func(path string, content []byte, mode os.FileMode) error {
-		if err := os.WriteFile(path, content, mode); err != nil {
-			return err
-		}
-		return os.Chmod(path, mode)
-	}
-	var startCalls int
-	gitSSHStartAgent = func(socketPath string) (string, error) {
-		startCalls++
-		return "4242", nil
-	}
-	var loadCalls int
-	gitSSHLoadKey = func(socketPath, keyPath string) error {
-		loadCalls++
-		return nil
-	}
-	gitSSHStatusWriter = io.Discard
-
-	service, err := startGitSSHBootstrapService(sessionGitSSHConfig{
+	cmd, err := buildGitSSHTransportCommand(sessionGitSSHConfig{
 		Keys: []sessionGitSSHKey{{
 			Name:         "github",
-			Identity:     newExternalGitSSHIdentityRef("/keys/id_ed25519", knownHostsPath),
-			AllowedHosts: []string{"github.com"},
+			Identity:     newExternalGitSSHIdentityRef(keyPath, knownHostsPath),
+			AllowedHosts: []string{"github-alias"},
 		}},
-	}, runtimeDir)
+	}, gitSSHTransportRequest{
+		Args:        []string{"git@github-alias", "git-upload-pack '/owner/repo.git'"},
+		GitProtocol: "version=2",
+	})
 	if err != nil {
-		t.Fatalf("startGitSSHBootstrapService: %v", err)
+		t.Fatalf("buildGitSSHTransportCommand: %v", err)
 	}
-	t.Cleanup(service.Close)
+	got := strings.Join(cmd.Args, "\x00")
+	for _, fragment := range []string{
+		"/usr/bin/ssh",
+		"-F\x00none",
+		"BatchMode=yes",
+		"IdentitiesOnly=yes",
+		"IdentityAgent=none",
+		"StrictHostKeyChecking=yes",
+		"UserKnownHostsFile=" + knownHostsPath,
+		"ForwardAgent=no",
+		"ClearAllForwardings=yes",
+		"PasswordAuthentication=no",
+		"NumberOfPasswordPrompts=0",
+		"-i\x00" + keyPath,
+		"SendEnv=GIT_PROTOCOL",
+		"HostKeyAlias=github.com",
+		"-l\x00git",
+		"-p\x002222",
+		"-T\x00github.com",
+		"git-upload-pack '/owner/repo.git'",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("brokered ssh command missing %q:\n%q", fragment, cmd.Args)
+		}
+	}
+	if strings.Contains(got, "SSH_AUTH_SOCK") || strings.Contains(got, "agent-") {
+		t.Fatalf("brokered ssh command should not expose a session ssh-agent socket: %q", cmd.Args)
+	}
+}
 
-	first, err := requestGitSSHBootstrap(service.socketPath, "github")
-	if err != nil {
-		t.Fatalf("first requestGitSSHBootstrap: %v", err)
+func TestBuildGitSSHTransportCommandPreservesProxyJump(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sshDir, err)
 	}
-	second, err := requestGitSSHBootstrap(service.socketPath, "github")
-	if err != nil {
-		t.Fatalf("second requestGitSSHBootstrap: %v", err)
+	config := "Host openclaw-1\n  HostName bastion.example.com\n  ProxyJump jumpbox\n\nHost jumpbox\n  HostName gateway.example.com\n  User ops\n  Port 2222\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write ssh config: %v", err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(keyPath, []byte("PRIVATE KEY"), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	if err := os.WriteFile(knownHostsPath, []byte("bastion.example.com ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
 	}
 
-	wantSocket := filepath.Join(runtimeDir, "agent-github.sock")
-	wantKnownHosts := filepath.Join(runtimeDir, "known_hosts-github")
-	if first.SocketPath != wantSocket || first.KnownHostsPath != wantKnownHosts {
-		t.Fatalf("first bootstrap = %+v, want socket %q and known_hosts %q", first, wantSocket, wantKnownHosts)
+	cmd, err := buildGitSSHTransportCommand(sessionGitSSHConfig{
+		Keys: []sessionGitSSHKey{{
+			Name:         "cluster",
+			Identity:     newExternalGitSSHIdentityRef(keyPath, knownHostsPath),
+			AllowedHosts: []string{"openclaw-1"},
+		}},
+	}, gitSSHTransportRequest{Args: []string{"git@openclaw-1", "git-upload-pack repo"}})
+	if err != nil {
+		t.Fatalf("buildGitSSHTransportCommand: %v", err)
 	}
-	if second != first {
-		t.Fatalf("cached bootstrap = %+v, want %+v", second, first)
+	got := strings.Join(cmd.Args, "\x00")
+	if !strings.Contains(got, "-J\x00ops@gateway.example.com:2222") {
+		t.Fatalf("brokered ssh command should preserve ProxyJump, got %q", cmd.Args)
 	}
-	if startCalls != 1 {
-		t.Fatalf("gitSSHStartAgent calls = %d, want 1", startCalls)
+	if !strings.Contains(got, "-T\x00bastion.example.com") {
+		t.Fatalf("brokered ssh command should use resolved HostName, got %q", cmd.Args)
 	}
-	if loadCalls != 1 {
-		t.Fatalf("gitSSHLoadKey calls = %d, want 1", loadCalls)
+}
+
+func TestGitSSHTransportFramesRoundTrip(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeGitSSHTransportFrame(&buf, gitSSHFrameStdout, []byte("hello")); err != nil {
+		t.Fatalf("writeGitSSHTransportFrame: %v", err)
+	}
+	frameType, payload, err := readGitSSHTransportFrame(&buf)
+	if err != nil {
+		t.Fatalf("readGitSSHTransportFrame: %v", err)
+	}
+	if frameType != gitSSHFrameStdout || string(payload) != "hello" {
+		t.Fatalf("frame = %d %q, want stdout hello", frameType, payload)
 	}
 }
 

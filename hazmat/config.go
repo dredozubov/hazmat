@@ -1380,9 +1380,9 @@ last key is removed, the project's SSH configuration is cleared.`,
 		Short: "Configure per-project Git-over-SSH key selection",
 		Long: `Assign an SSH key from a chosen directory to a project for Git-over-SSH use.
 
-Hazmat keeps the private key in host-owned storage, loads it into a fresh
-session-local ssh-agent at launch time, and still restricts the session to
-Git SSH transports rather than arbitrary remote shells.
+Hazmat keeps the private key in host-owned storage and routes in-session Git
+SSH through a session-scoped transport broker. No session ssh-agent socket is
+exposed, and arbitrary remote SSH shells remain unsupported.
 
 By default Hazmat looks for keys in ~/.ssh and uses known_hosts from the same
 directory. To use a different directory, pass the full key path as the key

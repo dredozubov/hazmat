@@ -461,9 +461,11 @@ This is an explicit per-project capability for Git transport only. Hazmat
 resolves every key to a typed credential reference before launch. External
 keys and profile keys remain explicit host-file references; provisioned
 inventory keys live under `~/.hazmat/secrets/git-ssh/provisioned/<name>/`.
-Hazmat loads the selected identity into its own fresh session-local
-`ssh-agent` and forces Git through a constrained wrapper that routes the
-destination host to the matching socket.
+Hazmat routes Git through a session-scoped transport broker. The broker runs
+outside the contained session, selects the matching key by destination host,
+preserves supported OpenSSH routing such as `ProxyJump`, and performs only Git
+transport commands. The session receives `GIT_SSH_COMMAND`, not a readable
+private key or reusable `ssh-agent` socket.
 
 ### Reusable SSH profiles
 
@@ -492,8 +494,8 @@ hazmat config ssh profile remove personal-github --force   # detaches referrers
 
 A profile reference that points to an undefined profile is rejected at
 config load, not at session launch. Two project keys may safely reference
-the same profile; they each allocate their own session-local `ssh-agent`
-socket, so routing and cleanup remain per-key.
+the same profile; the broker still routes each destination host to exactly one
+configured project key.
 
 For guidance on how to choose and scope keys for GitHub, remote servers,
 deploy keys, machine users, SSH certificates, and per-target `known_hosts`
