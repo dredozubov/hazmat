@@ -112,7 +112,7 @@ func TestFinalizePreparedRepoSetupRememberPersistsEffects(t *testing.T) {
 func TestApplyRepoSetupEffectsRejectsCredentialEnvSelector(t *testing.T) {
 	var cfg sessionConfig
 	err := applyRepoSetupEffects(&cfg, repoSetupStoredEffects{
-		EnvSelectors: []string{"GITHUB_TOKEN"},
+		EnvSelectors: []string{"GH_TOKEN", "GITHUB_TOKEN"},
 	}, repoSetupState{})
 	if err == nil {
 		t.Fatal("expected credential env selector to be rejected")

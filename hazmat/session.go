@@ -34,7 +34,7 @@ type sessionConfig struct {
 	IntegrationWarnings     []string          // warnings surfaced by active integrations
 	ActiveIntegrations      []string          // integration names, for status bar
 	GitSSH                  *sessionGitSSHConfig
-	HarnessEnv              map[string]string // narrow harness-specific env injected at launch
+	HarnessEnv              map[string]string // narrow credential/capability env injected at launch
 	CredentialEnvGrants     []sessionCredentialEnvGrant
 	ServiceAccess           []string  // explicit external-service access granted to session
 	RoutingReason           string    // plain-language explanation for the chosen mode
@@ -133,6 +133,7 @@ func newShellCmd() *cobra.Command {
 	var writeDirs []string
 	var integrationNames []string
 	var noBackup bool
+	var github bool
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
@@ -147,6 +148,7 @@ func newShellCmd() *cobra.Command {
 				writeDirs:          writeDirs,
 				integrations:       integrationNames,
 				noBackup:           noBackup,
+				github:             github,
 				useSandbox:         useSandbox,
 				allowDocker:        allowDocker,
 				dockerMode:         dockerModeValue,
@@ -175,6 +177,8 @@ func newShellCmd() *cobra.Command {
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&github, "github", false,
+		"Grant this session the configured GitHub API token as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
@@ -193,6 +197,7 @@ func newExecCmd() *cobra.Command {
 	var writeDirs []string
 	var integrationNames []string
 	var noBackup bool
+	var github bool
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
@@ -217,6 +222,7 @@ Examples:
 				writeDirs:          writeDirs,
 				integrations:       integrationNames,
 				noBackup:           noBackup,
+				github:             github,
 				useSandbox:         useSandbox,
 				allowDocker:        allowDocker,
 				dockerMode:         dockerModeValue,
@@ -245,6 +251,8 @@ Examples:
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&github, "github", false,
+		"Grant this session the configured GitHub API token as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
@@ -270,6 +278,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
+  --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
   --sandbox              Alias for --docker=sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
@@ -287,6 +296,7 @@ Examples:
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
   hazmat claude --docker=sandbox -C /proj  Use Docker Sandbox mode
   hazmat claude --docker=auto -C /proj     Auto-detect private-daemon Docker mode
+  hazmat claude --github -p "review this PR"
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
   hazmat claude --continue             Continue most recent conversation`,
@@ -359,6 +369,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
+  --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -375,6 +386,7 @@ Examples:
   hazmat opencode -C /proj -p "hi"
   hazmat opencode --docker=sandbox -C /proj
   hazmat opencode --docker=auto -C /proj
+  hazmat opencode --github -p "review this PR"
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -415,6 +427,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
+  --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -430,6 +443,7 @@ Examples:
   hazmat codex "explain this repo"
   hazmat codex --docker=sandbox -C /proj
   hazmat codex --docker=auto -C /proj
+  hazmat codex --github "review this PR"
   hazmat codex -C /proj --full-auto
   hazmat codex --no-backup`,
 		DisableFlagParsing: true,
@@ -483,6 +497,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --integration <name>   Activate a session integration (repeatable)
   --skip-harness-assets-sync  Skip managed harness prompt-asset sync for this launch
   --no-backup            Skip pre-session snapshot
+  --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -498,6 +513,7 @@ Examples:
   hazmat gemini -p "explain this repo"
   hazmat gemini --docker=sandbox -C /proj
   hazmat gemini --docker=auto -C /proj
+  hazmat gemini --github -p "review this PR"
   hazmat gemini -C /proj
   hazmat gemini --no-backup`,
 		DisableFlagParsing: true,
@@ -537,6 +553,7 @@ type harnessSessionOpts struct {
 	integrationsResolved  bool
 	skipHarnessAssetsSync bool
 	noBackup              bool
+	github                bool
 	useSandbox            bool
 	allowDocker           bool
 	dockerMode            string
@@ -557,7 +574,7 @@ func legacyIntegrationFlagError(_ *cobra.Command, err error) error {
 
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
 // Hazmat flags (--project, --read, --write, --integration,
-// --skip-harness-assets-sync, --no-backup,
+// --skip-harness-assets-sync, --no-backup, --github,
 // --docker, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
@@ -587,6 +604,8 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.skipHarnessAssetsSync = true
 		case arg == "--no-backup":
 			opts.noBackup = true
+		case arg == "--github":
+			opts.github = true
 		case arg == "--docker":
 			value, err := nextValue(&i, arg, "a mode (auto, none, sandbox)")
 			if err != nil {
@@ -962,6 +981,12 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
+	}
+	if opts.github {
+		progress.Step("loading GitHub API capability")
+		if err := applyGitHubSessionCapability(&cfg, mode); err != nil {
+			return preparedSession{}, err
+		}
 	}
 	progress.Step("loading harness credentials")
 	if err := applyHarnessAPIKeyEnv(&cfg); err != nil {

@@ -65,6 +65,7 @@ const (
 	credentialGitSSHExternalIdentity    credentialID = "git-ssh.external-identity"
 	credentialGitSSHProvisionedIdentity credentialID = "git-ssh.provisioned-identity"
 	credentialGitHTTPSAgentStore        credentialID = "git-https.agent-store"
+	credentialGitHubAPIToken            credentialID = "github.api-token"
 
 	credentialCloudS3AccessKeyID credentialID = "cloud.s3.access-key-id"
 	credentialCloudS3SecretKey   credentialID = "cloud.s3.secret-key"
@@ -261,6 +262,17 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		Support:      credentialSupportManaged,
 		StoreRelPath: "git-https/credentials",
 		LegacyPaths:  []string{gitHTTPSAgentCredentialsPath},
+		Redacted:     true,
+	},
+	{
+		ID:           credentialGitHubAPIToken,
+		DisplayName:  "GitHub API token",
+		Kind:         credentialKindGitHubToken,
+		Backend:      credentialStorageHostSecretStore,
+		Delivery:     credentialDeliveryEnv,
+		Support:      credentialSupportManaged,
+		StoreRelPath: "github/token",
+		EnvVar:       "GH_TOKEN",
 		Redacted:     true,
 	},
 	{

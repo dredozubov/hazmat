@@ -15,6 +15,7 @@ func newExplainCmd() *cobra.Command {
 	var integrationNames []string
 	var skipHarnessAssetsSync bool
 	var noBackup bool
+	var github bool
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
@@ -33,6 +34,7 @@ Examples:
   hazmat explain
   hazmat explain --json
   hazmat explain -C ~/workspace/my-project --integration node
+  hazmat explain --github -C ~/workspace/my-project
   hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
   hazmat explain --for opencode --docker=none -C ~/workspace/repo
   hazmat explain --for gemini --integration go -C ~/workspace/my-go-project`,
@@ -45,6 +47,7 @@ Examples:
 				integrations:          integrationNames,
 				skipHarnessAssetsSync: skipHarnessAssetsSync,
 				noBackup:              noBackup,
+				github:                github,
 				useSandbox:            useSandbox,
 				allowDocker:           allowDocker,
 				dockerMode:            dockerModeValue,
@@ -84,6 +87,8 @@ Examples:
 		"Preview without managed harness prompt-asset sync")
 	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
 		"Preview without a pre-session snapshot")
+	cmd.Flags().BoolVar(&github, "github", false,
+		"Preview a session with the configured GitHub API token granted as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,

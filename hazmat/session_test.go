@@ -1403,7 +1403,7 @@ func TestParseClaudeArgsForwardsUnknownFlags(t *testing.T) {
 }
 
 func TestParseClaudeArgsDockerFlag(t *testing.T) {
-	args := []string{"--no-backup", "--docker=none", "-C", "/myproject", "-p", "hello"}
+	args := []string{"--no-backup", "--github", "--docker=none", "-C", "/myproject", "-p", "hello"}
 	opts, fwd, err := parseClaudeArgs(args)
 	if err != nil {
 		t.Fatal(err)
@@ -1413,6 +1413,9 @@ func TestParseClaudeArgsDockerFlag(t *testing.T) {
 	}
 	if !opts.noBackup {
 		t.Fatal("noBackup should be true")
+	}
+	if !opts.github {
+		t.Fatal("github should be true")
 	}
 	if opts.dockerMode != "none" {
 		t.Fatalf("dockerMode = %q, want none", opts.dockerMode)

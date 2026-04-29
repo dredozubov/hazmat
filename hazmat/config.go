@@ -906,6 +906,7 @@ Subcommands:
   hazmat config sudoers      Show or manage Hazmat's sudoers rules
   hazmat config edit         Open config in $EDITOR
   hazmat config agent        Configure API key and git identity
+  hazmat config github       Configure explicit GitHub API session access
   hazmat config import claude Import portable Claude basics
   hazmat config import codex Import portable Codex basics
   hazmat config import opencode Import portable OpenCode basics
@@ -921,6 +922,7 @@ Examples:
   hazmat config ssh add --name github --host github.com ~/.ssh/id_ed25519
   hazmat config sudoers --enable-agent-maintenance
   hazmat config agent
+  hazmat config github --token-from-env
   hazmat config import claude --dry-run
   hazmat config import codex --dry-run
   hazmat config import opencode --dry-run
@@ -939,6 +941,7 @@ Examples:
 	cmd.AddCommand(newConfigSSHCmd())
 	cmd.AddCommand(newConfigSudoersCmd())
 	cmd.AddCommand(newConfigAgentCmd())
+	cmd.AddCommand(newConfigGitHubCmd())
 	cmd.AddCommand(newConfigImportCmd())
 	cmd.AddCommand(newConfigCloudCmd())
 	cmd.AddCommand(newConfigSetCmd())
@@ -1010,6 +1013,11 @@ func runConfigShow() error {
 	fmt.Printf("    Skip permissions: %v (bypass Claude/Codex app prompts)\n", cfg.SkipPermissions())
 	fmt.Printf("    Status bar:       %v (opt-in)\n", cfg.StatusBar())
 	fmt.Printf("    Harness assets:   %v (managed prompt-asset sync)\n", cfg.HarnessAssets())
+	if _, ok, err := readGitHubStoredToken(); err == nil && ok {
+		fmt.Printf("    GitHub API:       configured (enable per session with --github)\n")
+	} else {
+		fmt.Printf("    GitHub API:       not configured\n")
+	}
 	readDirs := cfg.SessionReadDirs()
 	if len(readDirs) > 0 {
 		fmt.Printf("    Read dirs:        %s\n", strings.Join(readDirs, ", "))

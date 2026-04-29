@@ -71,7 +71,7 @@ block-beta
     end
     block:agent["Agent user home (/Users/agent)"]
         columns 3
-        sessionenv["Session API key env"]
+        sessionenv["Session credential env"]
         gitcred["Brokered Git HTTPS helper"]
         harnessstate["Transient harness auth"]
     end
@@ -100,10 +100,12 @@ block-beta
 ```
 
 - **Red zone** — host user credentials. Denied by seatbelt + user isolation. Agent cannot read or write these.
-- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable provider keys, file-backed harness auth, cloud backup credentials, provisioned Git SSH identities, and Git HTTPS credentials live in `~/.hazmat/secrets`.
+- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable provider keys, GitHub API tokens, file-backed harness auth, cloud backup credentials, provisioned Git SSH identities, and Git HTTPS credentials live in `~/.hazmat/secrets`.
 - **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
 
-**Mixed state today.** API keys configured through `hazmat config agent`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, typed provisioned Git SSH identities, and Git HTTPS credentials now live in `~/.hazmat/secrets/`. Materialized harness files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. Git HTTPS uses a per-session brokered helper so git's built-in plaintext store is not durable agent-home state. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
+**Mixed state today.** API keys configured through `hazmat config agent`, GitHub API tokens configured through `hazmat config github`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, typed provisioned Git SSH identities, and Git HTTPS credentials now live in `~/.hazmat/secrets/`. Materialized harness files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. GitHub API tokens are delivered only to sessions launched with `--github`. Git HTTPS uses a per-session brokered helper so git's built-in plaintext store is not durable agent-home state. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
+
+**GitHub API access is an explicit session capability.** Hazmat denies host GitHub CLI state such as `~/.config/gh` and rejects ambient `GH_TOKEN`/`GITHUB_TOKEN` passthrough from integrations and repo setup. The only supported GitHub API token path is host-owned storage at `~/.hazmat/secrets/github/token`, activated per launch with `--github`, delivered as `GH_TOKEN`, and shown as a redacted `github.api-token` grant. Docker Sandbox sessions currently fail closed for this grant because that backend does not yet deliver session env credentials with equivalent semantics.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 
@@ -198,7 +200,7 @@ the seatbelt allow rules.
 
 **Cloud credentials are host-secret-store entries.** The config file (`~/.hazmat/config.yaml`, 0600) stores the S3 endpoint and bucket. The S3 access key ID, S3 secret key, and Kopia recovery key live under `~/.hazmat/secrets/cloud/` and are loaded through the credential registry. `HAZMAT_CLOUD_SECRET_KEY` and `HAZMAT_CLOUD_PASSWORD` remain explicit runtime/import sources, but they are not written back into `config.yaml`. Older `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and `~/.hazmat/cloud-credentials` values migrate into the secret store.
 
-**Credentials may be in snapshots.** Hazmat-managed provider keys and file-backed harness auth are outside the project and should not be in project snapshots; `hazmat check` reports legacy agent-home residue such as old `.zshrc` exports or Git HTTPS credentials. If your project has `.env` files, those ARE snapshotted unless excluded.
+**Credentials may be in snapshots.** Hazmat-managed provider keys, GitHub API tokens, and file-backed harness auth are outside the project and should not be in project snapshots; `hazmat check` reports legacy agent-home residue such as old `.zshrc` exports or Git HTTPS credentials. If your project has `.env` files, those ARE snapshotted unless excluded.
 
 **Integrations are ergonomic overlays, not policy escapes.** Integrations may
 add read-only paths, snapshot excludes, safe env passthrough, warnings, and

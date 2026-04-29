@@ -152,7 +152,7 @@ func TestValidateIntegrationSchemaUnsafeEnvKey(t *testing.T) {
 }
 
 func TestValidateIntegrationSchemaRejectsCredentialEnvKey(t *testing.T) {
-	for _, key := range []string{"GITHUB_TOKEN", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "SSH_AUTH_SOCK"} {
+	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "SSH_AUTH_SOCK"} {
 		p := IntegrationSpec{
 			Meta:    IntegrationMeta{Name: "test", Version: 1},
 			Session: IntegrationSession{EnvPassthrough: []string{key}},

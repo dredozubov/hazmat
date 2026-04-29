@@ -88,6 +88,7 @@ hazmat: session
   Read-only extensions: /Users/dr/reference-docs
   Read-write extensions: /Users/dr/.venvs/my-app
   Service access:       none
+  Credential env grants: none
   Pre-session snapshot: on
   Snapshot excludes:    vendor/
 ```
@@ -103,6 +104,7 @@ Each line maps to a concrete boundary:
 - **Read-only extensions** — explicit additional read-only directories from `-R` or config
 - **Read-write extensions** — explicit additional writable directories from `-W` or config
 - **Service access** — external services the agent can authenticate to
+- **Credential env grants** — redacted environment-delivered credentials granted explicitly for this session
 - **Pre-session snapshot** — whether a rollback point was created
 - **Snapshot excludes** — patterns skipped by the snapshot (often from integrations)
 
@@ -114,6 +116,7 @@ hazmat explain --json               # machine-readable preview for automation
 hazmat explain --docker=sandbox     # preview Docker Sandbox mode
 hazmat explain --docker=auto        # preview marker-based Docker routing
 hazmat explain --integration node   # preview with an integration
+hazmat explain --github             # preview explicit GitHub API access
 ```
 
 `hazmat explain` previews these changes but does not apply them. A real session
@@ -408,7 +411,16 @@ Credential material is host-owned under `~/.hazmat/secrets/cloud/`; legacy
 
 ```bash
 hazmat config agent            # re-enter native-session API keys, git name/email
+hazmat config github           # store a GitHub API token for explicit --github sessions
+GH_TOKEN=... hazmat config github --token-from-env
 ```
+
+`hazmat config github` stores the token under
+`~/.hazmat/secrets/github/token`. Launch commands only expose it when you pass
+`--github`, where it appears in the session as `GH_TOKEN` and as a redacted
+`github.api-token` grant in the contract and `hazmat explain --json`. Repo
+recommendations and integrations cannot activate it, and ambient
+`GH_TOKEN`/`GITHUB_TOKEN` passthrough remains rejected.
 
 Git HTTPS credentials are brokered per native session. Legacy agent-side
 `/Users/agent/.config/git/credentials` entries migrate into

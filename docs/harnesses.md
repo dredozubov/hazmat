@@ -76,6 +76,25 @@ Harness auth and harness session mode are separate decisions:
 - **Docker Sandbox:** available on all four harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
+## GitHub API Access
+
+GitHub API access is harness-agnostic and explicit. Configure a token once with
+`hazmat config github` or `GH_TOKEN=... hazmat config github --token-from-env`,
+then pass `--github` to the session that needs it:
+
+```bash
+hazmat claude --github -p "review this PR"
+hazmat codex --github "review this PR"
+hazmat opencode --github -p "review this PR"
+hazmat gemini --github -p "review this PR"
+```
+
+Hazmat stores the token in `~/.hazmat/secrets/github/token`, injects only
+`GH_TOKEN`, and shows a redacted `github.api-token` grant in the session
+contract and `hazmat explain --json`. Integrations and repo recommendations
+cannot request this capability, and Docker Sandbox sessions currently reject
+`--github` instead of silently dropping it.
+
 ## Session integrations
 
 Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, and gemini all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.

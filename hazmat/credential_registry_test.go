@@ -70,7 +70,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s EnvDeliveryVar: %v", descriptor.ID, err)
 			}
-			if !strings.HasSuffix(envVar, "_API_KEY") {
+			if !isCredentialGrantEnvKey(envVar) {
 				t.Fatalf("%s env delivery uses unexpected env var %q", descriptor.ID, envVar)
 			}
 			if descriptor.AgentPath != "" {
@@ -228,14 +228,35 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 
 func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
-	if summary.ManagedHostSecretStore != 14 {
-		t.Fatalf("ManagedHostSecretStore = %d, want 14", summary.ManagedHostSecretStore)
+	if summary.ManagedHostSecretStore != 15 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 15", summary.ManagedHostSecretStore)
 	}
 	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
 		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
 	}
 	if len(summary.ExternalBoundaries) != 1 || summary.ExternalBoundaries[0] != "Git SSH external identity reference" {
 		t.Fatalf("ExternalBoundaries = %v, want Git SSH external identity reference", summary.ExternalBoundaries)
+	}
+}
+
+func TestGitHubAPITokenUsesCredentialRegistry(t *testing.T) {
+	descriptor := mustCredentialDescriptor(credentialGitHubAPIToken)
+	if descriptor.Kind != credentialKindGitHubToken {
+		t.Fatalf("GitHub token kind = %q, want %q", descriptor.Kind, credentialKindGitHubToken)
+	}
+	if descriptor.Backend != credentialStorageHostSecretStore || descriptor.Delivery != credentialDeliveryEnv || descriptor.Support != credentialSupportManaged {
+		t.Fatalf("GitHub token descriptor = %+v, want managed host-store env delivery", descriptor)
+	}
+	envVar, err := descriptor.EnvDeliveryVar()
+	if err != nil {
+		t.Fatalf("GitHub token EnvDeliveryVar: %v", err)
+	}
+	if envVar != "GH_TOKEN" {
+		t.Fatalf("GitHub token env var = %q, want GH_TOKEN", envVar)
+	}
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitHubAPIToken)
+	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "github", "token")) {
+		t.Fatalf("GitHub token store path = %q, want github/token secret-store path", storePath)
 	}
 }
 

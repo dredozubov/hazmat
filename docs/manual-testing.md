@@ -201,6 +201,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: launch any native session and run a Git HTTPS operation that needs credentials; exit; run `hazmat check`.
   - Expected: `~/.hazmat/secrets/git-https/credentials` exists with mode `0600`; `/Users/agent/.config/git/credentials` is absent after migration; `hazmat check` reports `git-https.agent-store` without printing the token. Agent `.gitconfig` has no persistent `credential.helper = store --file /Users/agent/.config/git/credentials`; sessions inject the brokered helper at launch.
 
+- [ ] **Explicit GitHub API capability**
+  - Preconditions: disposable fine-grained GitHub token with minimal read scope.
+  - Steps: `GH_TOKEN=<token> hazmat config github --token-from-env`; run `hazmat explain --github --json`; run `hazmat shell --github --no-backup` and `test -n "$GH_TOKEN" && test -z "${GITHUB_TOKEN:-}" && echo OK` inside the session; then try `hazmat explain --github --docker=sandbox`.
+  - Expected: `~/.hazmat/secrets/github/token` exists with mode `0600`; explain JSON includes one redacted `github.api-token` grant for `GH_TOKEN`; the native session sees `GH_TOKEN` but not `GITHUB_TOKEN`; Docker Sandbox preview fails closed with an explicit unsupported-capability message. Output must not print the raw token.
+
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.
   - Expected: `☢ HAZMAT │ <integrations> ... <project>` rendered in the bottom row, doesn't scroll.
