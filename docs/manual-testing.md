@@ -196,6 +196,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: run `hazmat check`; inspect the "Credential inventory" section.
   - Expected: every credential surface is reported by registry ID with backend, delivery mode, and host-store presence/absence. Legacy locations produce actionable repair guidance. Output must not contain raw API keys, OAuth tokens, PATs, S3 keys, or recovery keys.
 
+- [ ] **Git HTTPS credential broker**
+  - Preconditions: a disposable HTTPS Git token, or an existing legacy `/Users/agent/.config/git/credentials` fixture.
+  - Steps: launch any native session and run a Git HTTPS operation that needs credentials; exit; run `hazmat check`.
+  - Expected: `~/.hazmat/secrets/git-https/credentials` exists with mode `0600`; `/Users/agent/.config/git/credentials` is absent after migration; `hazmat check` reports `git-https.agent-store` without printing the token. Agent `.gitconfig` has no persistent `credential.helper = store --file /Users/agent/.config/git/credentials`; sessions inject the brokered helper at launch.
+
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.
   - Expected: `☢ HAZMAT │ <integrations> ... <project>` rendered in the bottom row, doesn't scroll.

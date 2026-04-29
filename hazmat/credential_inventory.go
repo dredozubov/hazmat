@@ -21,8 +21,6 @@ const (
 	credentialInventoryError           credentialInventoryStatus = "error"
 )
 
-const gitHTTPSAgentCredentialsPath = agentHome + "/.config/git/credentials"
-
 type credentialInventoryFinding struct {
 	Path   string
 	Detail string
@@ -216,7 +214,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 				return []credentialInventoryFinding{{
 					Path:   gitHTTPSAgentCredentialsPath,
 					Detail: "legacy agent-home Git HTTPS credential store",
-					Repair: "migrate Git HTTPS credentials to the brokered credential helper when sandboxing-6md1 lands; rotate and remove old PATs from the agent store",
+					Repair: "launch a native Hazmat session once to migrate the Git HTTPS credentials into ~/.hazmat/secrets/git-https/credentials, or rotate and remove old PATs from the agent store",
 				}}, nil
 			}
 		}
@@ -239,6 +237,14 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 	}
 
 	switch descriptor.ID {
+	case credentialGitHTTPSAgentStore:
+		if hasLegacyGitHTTPSCredentialHelper(gitHTTPSAgentGitConfigPath) {
+			findings = append(findings, credentialInventoryFinding{
+				Path:   gitHTTPSAgentGitConfigPath,
+				Detail: "legacy persistent Git HTTPS credential helper",
+				Repair: "run `hazmat config agent` to remove the persistent helper; Hazmat now injects a brokered helper only while a native session runs",
+			})
+		}
 	case credentialGitSSHProvisionedIdentity:
 		legacyRoot := legacyProvisionedSSHKeysRootDir()
 		if exists, err := credentialInventoryPathExists(legacyRoot); err != nil {
@@ -290,8 +296,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 		credentialHarnessGeminiOAuth,
 		credentialHarnessGeminiAccounts,
 		credentialHarnessGeminiKeychain,
-		credentialGitSSHExternalIdentity,
-		credentialGitHTTPSAgentStore:
+		credentialGitSSHExternalIdentity:
 	}
 
 	sort.SliceStable(findings, func(i, j int) bool {

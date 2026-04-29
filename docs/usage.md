@@ -410,6 +410,11 @@ Credential material is host-owned under `~/.hazmat/secrets/cloud/`; legacy
 hazmat config agent            # re-enter native-session API keys, git name/email
 ```
 
+Git HTTPS credentials are brokered per native session. Legacy agent-side
+`/Users/agent/.config/git/credentials` entries migrate into
+`~/.hazmat/secrets/git-https/credentials` on session launch, and `hazmat check`
+reports any old helper or credential-store residue without printing tokens.
+
 ## Managed Git SSH
 
 A single-key project config (explicit host required):

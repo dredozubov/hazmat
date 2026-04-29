@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -140,7 +141,7 @@ func main() {
 		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
-		newConnectCmd(), newGitSSHBootstrapCmd(), newStackCheckCmd(), newCompletionCmd(root),
+		newConnectCmd(), newGitSSHBootstrapCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),
 		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
 	)
 	root.SetHelpCommandGroupID("ws")
@@ -187,6 +188,32 @@ func newGitSSHBootstrapCmd() *cobra.Command {
 			quoted := shellQuote([]string{resp.SocketPath, resp.KnownHostsPath})
 			fmt.Printf("sock=%s\nkh=%s\n", quoted[0], quoted[1])
 			return nil
+		},
+	}
+}
+
+func newGitHTTPSCredentialCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "_git_https_credential <socket> <operation>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			payload, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fmt.Errorf("read Git HTTPS credential request from stdin: %w", err)
+			}
+			resp, err := requestGitHTTPSCredential(args[0], args[1], payload)
+			if len(resp.Stdout) > 0 {
+				if _, writeErr := os.Stdout.Write(resp.Stdout); writeErr != nil && err == nil {
+					err = writeErr
+				}
+			}
+			if len(resp.Stderr) > 0 {
+				if _, writeErr := os.Stderr.Write(resp.Stderr); writeErr != nil && err == nil {
+					err = writeErr
+				}
+			}
+			return err
 		},
 	}
 }

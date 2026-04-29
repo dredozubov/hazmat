@@ -16,12 +16,14 @@ func isolateCredentialInventoryTest(t *testing.T) string {
 	savedConfigPath := configFilePath
 	savedCloudCredentialPath := cloudCredentialPath
 	savedAgentZshrcPath := agentZshrcPath
+	savedGitHTTPSAgentGitConfigPath := gitHTTPSAgentGitConfigPath
 	savedPathExists := credentialInventoryPathExists
 	savedReadFile := credentialInventoryReadFile
 
 	configFilePath = filepath.Join(home, ".hazmat", "config.yaml")
 	cloudCredentialPath = filepath.Join(home, ".hazmat", "cloud-credentials")
 	agentZshrcPath = filepath.Join(home, "agent", ".zshrc")
+	gitHTTPSAgentGitConfigPath = filepath.Join(home, "agent", ".gitconfig")
 	credentialInventoryPathExists = credentialInventoryPathExistsOnDisk
 	credentialInventoryReadFile = os.ReadFile
 
@@ -29,6 +31,7 @@ func isolateCredentialInventoryTest(t *testing.T) string {
 		configFilePath = savedConfigPath
 		cloudCredentialPath = savedCloudCredentialPath
 		agentZshrcPath = savedAgentZshrcPath
+		gitHTTPSAgentGitConfigPath = savedGitHTTPSAgentGitConfigPath
 		credentialInventoryPathExists = savedPathExists
 		credentialInventoryReadFile = savedReadFile
 	})
@@ -116,7 +119,7 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 	if got := gitHTTPS.Status(); got != credentialInventoryNeedsRepair {
 		t.Fatalf("Git HTTPS status = %s, want %s", got, credentialInventoryNeedsRepair)
 	}
-	if len(gitHTTPS.AgentResidue) != 1 || !strings.Contains(gitHTTPS.AgentResidue[0].Repair, "brokered credential helper") {
+	if len(gitHTTPS.AgentResidue) != 1 || !strings.Contains(gitHTTPS.AgentResidue[0].Repair, "migrate the Git HTTPS credentials") {
 		t.Fatalf("Git HTTPS residue = %v, want broker repair guidance", gitHTTPS.AgentResidue)
 	}
 }

@@ -228,20 +228,28 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 
 func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
-	if summary.ManagedHostSecretStore != 13 {
-		t.Fatalf("ManagedHostSecretStore = %d, want 13", summary.ManagedHostSecretStore)
+	if summary.ManagedHostSecretStore != 14 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 14", summary.ManagedHostSecretStore)
 	}
-	wantAdapterRequired := []string{"Gemini Keychain OAuth state", "Git HTTPS agent credential store"}
-	if len(summary.AdapterRequired) != len(wantAdapterRequired) {
-		t.Fatalf("AdapterRequired = %v, want %v", summary.AdapterRequired, wantAdapterRequired)
-	}
-	for i, want := range wantAdapterRequired {
-		if summary.AdapterRequired[i] != want {
-			t.Fatalf("AdapterRequired = %v, want %v", summary.AdapterRequired, wantAdapterRequired)
-		}
+	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
+		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
 	}
 	if len(summary.ExternalBoundaries) != 1 || summary.ExternalBoundaries[0] != "Git SSH external identity reference" {
 		t.Fatalf("ExternalBoundaries = %v, want Git SSH external identity reference", summary.ExternalBoundaries)
+	}
+}
+
+func TestGitHTTPSCredentialStoreUsesCredentialRegistry(t *testing.T) {
+	descriptor := mustCredentialDescriptor(credentialGitHTTPSAgentStore)
+	if descriptor.Kind != credentialKindGitHTTPS {
+		t.Fatalf("Git HTTPS kind = %q, want %q", descriptor.Kind, credentialKindGitHTTPS)
+	}
+	if descriptor.Backend != credentialStorageHostSecretStore || descriptor.Delivery != credentialDeliveryBrokeredHelper || descriptor.Support != credentialSupportManaged {
+		t.Fatalf("Git HTTPS descriptor = %+v, want managed host-store brokered helper", descriptor)
+	}
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitHTTPSAgentStore)
+	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "git-https", "credentials")) {
+		t.Fatalf("Git HTTPS store path = %q, want git-https secret-store path", storePath)
 	}
 }
 

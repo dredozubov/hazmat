@@ -1145,6 +1145,12 @@ func prepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
 	}
 	runtimes = append(runtimes, harnessRuntime)
 
+	gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
+	if err != nil {
+		return preparedSessionRuntime{}, err
+	}
+	runtimes = append(runtimes, gitHTTPSRuntime)
+
 	if cfg.GitSSH != nil {
 		gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
 		if err != nil {

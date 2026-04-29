@@ -22,7 +22,7 @@ Sets up:
      only prompts for harnesses that are actually installed)
      Stored in ~/.hazmat/secrets and injected only into matching sessions
   2. Git identity (name + email, pre-filled from host git config)
-  3. Git credential helper (HTTPS with stored credentials)
+  3. Removes legacy agent-home Git HTTPS credential helpers
 
 Each prompt copies from your invoking-shell environment when the matching
 env var is set, lets you paste a key, or accepts Enter to skip in favour
@@ -137,8 +137,8 @@ func runConfigAgent(ui *UI) error {
 	// ── 2. Git identity ─────────────────────────────────────────────────────
 	ui.Step("Git identity")
 
-	agentName := gitConfigValue(agentHome+"/.gitconfig", "name")
-	agentEmail := gitConfigValue(agentHome+"/.gitconfig", "email")
+	agentName := gitConfigValue(gitHTTPSAgentGitConfigPath, "name")
+	agentEmail := gitConfigValue(gitHTTPSAgentGitConfigPath, "email")
 	hostName, _ := hostGitOutput("config", "--global", "user.name")
 	hostEmail, _ := hostGitOutput("config", "--global", "user.email")
 
@@ -183,16 +183,15 @@ func runConfigAgent(ui *UI) error {
 		gitEmail = strings.TrimSpace(gitEmail)
 	}
 
-	// ── 3. Git credential helper ────────────────────────────────────────────
-	currentHelper := gitConfigValue(agentHome+"/.gitconfig", "helper")
-	needHelper := currentHelper == ""
+	// ── 3. Git HTTPS helper cleanup ────────────────────────────────────────
+	legacyGitHTTPSHelper := hasLegacyGitHTTPSCredentialHelper(gitHTTPSAgentGitConfigPath)
 
 	// ── Apply writes ────────────────────────────────────────────────────────
 	// Read each file, modify in memory, write to temp, sudo install with
 	// correct ownership. No login shell needed.
 
 	cleanupEnvVars := removableLegacyAPIKeyEnvVars(apiKeyUpdates)
-	needsWrite := len(apiKeyUpdates) > 0 || gitName != "" || gitEmail != "" || needHelper || hasLegacyAPIKeyExports(cleanupEnvVars)
+	needsWrite := len(apiKeyUpdates) > 0 || gitName != "" || gitEmail != "" || legacyGitHTTPSHelper || hasLegacyAPIKeyExports(cleanupEnvVars)
 
 	if needsWrite {
 		if len(apiKeyUpdates) > 0 {
@@ -211,10 +210,10 @@ func runConfigAgent(ui *UI) error {
 			ui.Ok(fmt.Sprintf("Legacy API-key exports removed from %s", agentZshrcPath))
 		}
 
-		// .gitconfig: update name, email, credential helper
-		if gitName != "" || gitEmail != "" || needHelper {
+		// .gitconfig: update name/email and remove legacy Git HTTPS helper.
+		if gitName != "" || gitEmail != "" || legacyGitHTTPSHelper {
 			if err := updateAgentFile(
-				agentHome+"/.gitconfig",
+				gitHTTPSAgentGitConfigPath,
 				func(content string) string {
 					cfg := parseINI(content)
 					if gitName != "" {
@@ -223,10 +222,8 @@ func runConfigAgent(ui *UI) error {
 					if gitEmail != "" {
 						cfg = setINIValue(cfg, "user", "email", gitEmail)
 					}
-					if needHelper {
-						// credential-regression: allow legacy agent-side Git HTTPS store until sandboxing-6md1 brokers it.
-						helper := "store --file " + agentHome + "/.config/git/credentials"
-						cfg = setINIValue(cfg, "credential", "helper", helper)
+					if legacyGitHTTPSHelper {
+						cfg = removeINIValues(cfg, "credential", "helper", isLegacyGitHTTPSCredentialHelperValue)
 					}
 					return renderINI(cfg)
 				},
@@ -238,8 +235,8 @@ func runConfigAgent(ui *UI) error {
 			if gitName != "" || gitEmail != "" {
 				ui.Ok(fmt.Sprintf("Git identity: %s <%s>", gitName, gitEmail))
 			}
-			if needHelper {
-				ui.Ok("Git credential helper configured")
+			if legacyGitHTTPSHelper {
+				ui.Ok("Legacy Git HTTPS credential helper removed; Hazmat now brokers HTTPS credentials per session")
 			}
 		}
 	} else {
@@ -430,6 +427,35 @@ func setINIValue(sections []iniSection, section, key, value string) []iniSection
 	return sections
 }
 
+func removeINIValues(sections []iniSection, section, key string, shouldRemove func(string) bool) []iniSection {
+	for i, s := range sections {
+		if s.name != section {
+			continue
+		}
+		filtered := s.lines[:0]
+		for _, line := range s.lines {
+			trimmed := strings.TrimSpace(line)
+			value, ok := parseINIKeyValue(trimmed, key)
+			if ok && shouldRemove(value) {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		sections[i].lines = filtered
+	}
+	return sections
+}
+
+func parseINIKeyValue(line, key string) (string, bool) {
+	if strings.HasPrefix(line, key+" =") {
+		return strings.TrimSpace(strings.TrimPrefix(line, key+" =")), true
+	}
+	if strings.HasPrefix(line, key+"=") {
+		return strings.TrimSpace(strings.TrimPrefix(line, key+"=")), true
+	}
+	return "", false
+}
+
 func renderINI(sections []iniSection) string {
 	var b strings.Builder
 	for _, s := range sections {
@@ -453,15 +479,30 @@ func gitConfigValue(path, key string) string {
 		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, key+" = ") {
-			return strings.TrimPrefix(line, key+" = ")
-		}
-		if strings.HasPrefix(line, key+"=") {
-			return strings.TrimPrefix(line, key+"=")
+		if value, ok := parseINIKeyValue(strings.TrimSpace(line), key); ok {
+			return value
 		}
 	}
 	return ""
+}
+
+func hasLegacyGitHTTPSCredentialHelper(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		value, ok := parseINIKeyValue(strings.TrimSpace(line), "helper")
+		if ok && isLegacyGitHTTPSCredentialHelperValue(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLegacyGitHTTPSCredentialHelperValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return strings.Contains(trimmed, "store") && strings.Contains(trimmed, gitHTTPSAgentCredentialsPath)
 }
 
 // maskKey shows a masked form of an `export NAME="value"` zshrc line.

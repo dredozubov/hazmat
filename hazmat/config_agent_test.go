@@ -304,6 +304,46 @@ func TestHarnessAPIKeyPromptsCoverAllSingleEnvVarHarnesses(t *testing.T) {
 	}
 }
 
+func TestRemoveINIValuesRemovesOnlyLegacyGitHTTPSHelper(t *testing.T) {
+	sections := parseINI(strings.Join([]string{
+		"[credential]",
+		"\thelper = store --file " + gitHTTPSAgentCredentialsPath,
+		"\thelper = osxkeychain",
+		"[user]",
+		"\tname = Agent",
+	}, "\n"))
+
+	got := renderINI(removeINIValues(sections, "credential", "helper", isLegacyGitHTTPSCredentialHelperValue))
+	if strings.Contains(got, gitHTTPSAgentCredentialsPath) {
+		t.Fatalf("legacy helper still present:\n%s", got)
+	}
+	if !strings.Contains(got, "helper = osxkeychain") {
+		t.Fatalf("non-legacy helper was removed:\n%s", got)
+	}
+	if !strings.Contains(got, "name = Agent") {
+		t.Fatalf("unrelated section was changed:\n%s", got)
+	}
+}
+
+func TestHasLegacyGitHTTPSCredentialHelper(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".gitconfig")
+	writeTestFile(t, path, strings.Join([]string{
+		"[credential]",
+		"\thelper = store --file " + gitHTTPSAgentCredentialsPath,
+	}, "\n"))
+	if !hasLegacyGitHTTPSCredentialHelper(path) {
+		t.Fatal("hasLegacyGitHTTPSCredentialHelper = false, want true")
+	}
+
+	writeTestFile(t, path, strings.Join([]string{
+		"[credential]",
+		"\thelper = osxkeychain",
+	}, "\n"))
+	if hasLegacyGitHTTPSCredentialHelper(path) {
+		t.Fatal("hasLegacyGitHTTPSCredentialHelper = true for non-legacy helper")
+	}
+}
+
 func withAgentZshrcPath(t *testing.T, path string) {
 	t.Helper()
 	prev := agentZshrcPath

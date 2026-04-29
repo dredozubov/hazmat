@@ -72,7 +72,7 @@ block-beta
     block:agent["Agent user home (/Users/agent)"]
         columns 3
         sessionenv["Session API key env"]
-        gitcred["Legacy Git HTTPS store"]
+        gitcred["Brokered Git HTTPS helper"]
         harnessstate["Transient harness auth"]
     end
     block:project["Project directory (read-write)"]
@@ -100,10 +100,10 @@ block-beta
 ```
 
 - **Red zone** — host user credentials. Denied by seatbelt + user isolation. Agent cannot read or write these.
-- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable provider keys, file-backed harness auth, cloud backup credentials, and provisioned Git SSH identities live in `~/.hazmat/secrets`. Git HTTPS credentials remain legacy agent-home state until the broker lands.
+- **Yellow zone** — session-local credentials and compatibility state. Plain text within the session when a capability is actively granted; durable provider keys, file-backed harness auth, cloud backup credentials, provisioned Git SSH identities, and Git HTTPS credentials live in `~/.hazmat/secrets`.
 - **Green zone** — project directory. Fully readable and writable by the agent. `.env` files with secrets are exposed by design.
 
-**Mixed state today.** API keys configured through `hazmat config agent`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, and typed provisioned Git SSH identities now live in `~/.hazmat/secrets/`. Materialized files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. Git HTTPS credentials are still in `/Users/agent/.config/git/credentials` until the brokered helper replaces git's built-in store. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
+**Mixed state today.** API keys configured through `hazmat config agent`, file-backed harness auth imported or harvested from sessions, cloud backup secrets, typed provisioned Git SSH identities, and Git HTTPS credentials now live in `~/.hazmat/secrets/`. Materialized harness files are copied into `/Users/agent` only for matching sessions and harvested back out on normal exit. Git HTTPS uses a per-session brokered helper so git's built-in plaintext store is not durable agent-home state. Gemini's macOS Keychain OAuth item is an adapter-required external boundary.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory, loading it into a fresh session-local `ssh-agent`, and forcing Git through a constrained wrapper. Arbitrary SSH shells remain unsupported.
 
