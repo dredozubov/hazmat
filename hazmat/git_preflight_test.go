@@ -123,6 +123,122 @@ func TestCollectGitPermissionProblemsSkipsOptionalMissingPaths(t *testing.T) {
 	}
 }
 
+func TestGitMetadataACLTargetsSkipObjectFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	gitDir := filepath.Join(projectDir, ".git")
+	for _, dir := range []string{
+		filepath.Join(gitDir, "objects", "ab"),
+		filepath.Join(gitDir, "objects", "pack"),
+		filepath.Join(gitDir, "refs", "heads"),
+		filepath.Join(gitDir, "logs", "refs", "heads"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, contents := range map[string]string{
+		filepath.Join(gitDir, "HEAD"):                              "ref: refs/heads/main\n",
+		filepath.Join(gitDir, "index"):                             "index",
+		filepath.Join(gitDir, "packed-refs"):                       "",
+		filepath.Join(gitDir, "objects", "ab", "object"):           "object",
+		filepath.Join(gitDir, "objects", "pack", "pack-test.pack"): "pack",
+		filepath.Join(gitDir, "refs", "heads", "main"):             "ref",
+		filepath.Join(gitDir, "logs", "HEAD"):                      "log",
+		filepath.Join(gitDir, "logs", "refs", "heads", "main"):     "log",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dirs, files, failures := gitMetadataACLTargets(gitDir)
+	if len(failures) != 0 {
+		t.Fatalf("gitMetadataACLTargets failures = %v", failures)
+	}
+	for _, want := range []string{
+		gitDir,
+		filepath.Join(gitDir, "objects"),
+		filepath.Join(gitDir, "objects", "ab"),
+		filepath.Join(gitDir, "objects", "pack"),
+		filepath.Join(gitDir, "refs", "heads"),
+		filepath.Join(gitDir, "logs", "refs", "heads"),
+	} {
+		if !containsPath(dirs, want) {
+			t.Fatalf("dirs missing %s in %v", want, dirs)
+		}
+	}
+	for _, want := range []string{
+		filepath.Join(gitDir, "HEAD"),
+		filepath.Join(gitDir, "index"),
+		filepath.Join(gitDir, "packed-refs"),
+		filepath.Join(gitDir, "refs", "heads", "main"),
+		filepath.Join(gitDir, "logs", "HEAD"),
+		filepath.Join(gitDir, "logs", "refs", "heads", "main"),
+	} {
+		if !containsPath(files, want) {
+			t.Fatalf("files missing %s in %v", want, files)
+		}
+	}
+	for _, forbidden := range []string{
+		filepath.Join(gitDir, "objects", "ab", "object"),
+		filepath.Join(gitDir, "objects", "pack", "pack-test.pack"),
+	} {
+		if containsPath(files, forbidden) || containsPath(dirs, forbidden) {
+			t.Fatalf("object file target should be skipped: %s", forbidden)
+		}
+	}
+}
+
+func TestApplyGitMetadataACLsDoesNotChmodObjectFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	gitDir := filepath.Join(projectDir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "objects", "ab"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(gitDir, "objects", "ab", "object")
+	if err := os.WriteFile(objectPath, []byte("object"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	if failures := applyGitMetadataACLs(gitDir); len(failures) != 0 {
+		t.Fatalf("applyGitMetadataACLs failures = %v", failures)
+	}
+	var allArgs []string
+	for _, args := range backend.chmods {
+		allArgs = append(allArgs, args...)
+	}
+	if containsPath(allArgs, objectPath) {
+		t.Fatalf("applyGitMetadataACLs must not chmod object file %s; args=%v", objectPath, backend.chmods)
+	}
+	if !containsPath(allArgs, filepath.Join(gitDir, "objects", "ab")) {
+		t.Fatalf("applyGitMetadataACLs should chmod object fanout dir; args=%v", backend.chmods)
+	}
+}
+
+func containsPath(paths []string, want string) bool {
+	for _, path := range paths {
+		if path == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGitRepairCommandIncludesChownAndACLRepair(t *testing.T) {
 	cmd := gitRepairCommand("/tmp/project/.git")
 	for _, want := range []string{

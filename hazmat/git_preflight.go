@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,6 +35,164 @@ func gitPathRequirements(gitDir string) []gitPathRequirement {
 		{path: filepath.Join(gitDir, "refs"), requireInherit: true},
 		{path: filepath.Join(gitDir, "logs"), optional: true, requireInherit: true},
 	}
+}
+
+func gitMutableFileACLTargets(gitDir string) []string {
+	return []string{
+		filepath.Join(gitDir, "HEAD"),
+		filepath.Join(gitDir, "index"),
+		filepath.Join(gitDir, "packed-refs"),
+		filepath.Join(gitDir, "config"),
+		filepath.Join(gitDir, "FETCH_HEAD"),
+		filepath.Join(gitDir, "ORIG_HEAD"),
+		filepath.Join(gitDir, "MERGE_HEAD"),
+	}
+}
+
+func gitMetadataACLTargets(gitDir string) (dirs []string, files []string, failures []string) {
+	addDir := func(path string, optional bool) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			if os.IsNotExist(err) && optional {
+				return
+			}
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			failures = append(failures, fmt.Sprintf("%s: not a regular directory", path))
+			return
+		}
+		dirs = append(dirs, path)
+	}
+	addFile := func(path string, optional bool) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			if os.IsNotExist(err) && optional {
+				return
+			}
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			return
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			failures = append(failures, fmt.Sprintf("%s: not a regular file", path))
+			return
+		}
+		files = append(files, path)
+	}
+
+	addDir(gitDir, false)
+	addDir(filepath.Join(gitDir, "objects"), false)
+	addDir(filepath.Join(gitDir, "refs"), false)
+	addDir(filepath.Join(gitDir, "logs"), true)
+	for _, path := range gitMutableFileACLTargets(gitDir) {
+		addFile(path, path != filepath.Join(gitDir, "HEAD"))
+	}
+
+	for _, path := range gitImmediateObjectDirs(gitDir) {
+		addDir(path, true)
+	}
+	refDirs, refFiles, refFailures := gitTreeACLTargets(filepath.Join(gitDir, "refs"), true)
+	dirs = append(dirs, refDirs...)
+	files = append(files, refFiles...)
+	failures = append(failures, refFailures...)
+	logDirs, logFiles, logFailures := gitTreeACLTargets(filepath.Join(gitDir, "logs"), true)
+	dirs = append(dirs, logDirs...)
+	files = append(files, logFiles...)
+	failures = append(failures, logFailures...)
+
+	dirs = uniqueSortedPaths(dirs)
+	files = uniqueSortedPaths(files)
+	return dirs, files, failures
+}
+
+func gitImmediateObjectDirs(gitDir string) []string {
+	objectsDir := filepath.Join(gitDir, "objects")
+	entries, err := os.ReadDir(objectsDir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirs = append(dirs, filepath.Join(objectsDir, entry.Name()))
+	}
+	return dirs
+}
+
+func gitTreeACLTargets(root string, includeFiles bool) (dirs []string, files []string, failures []string) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, []string{fmt.Sprintf("%s: %v", root, err)}
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, nil, []string{fmt.Sprintf("%s: not a regular directory", root)}
+	}
+
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, infoErr))
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			failures = append(failures, fmt.Sprintf("%s: symlink not repaired", path))
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if includeFiles && info.Mode().IsRegular() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+	}
+	return dirs, files, failures
+}
+
+func uniqueSortedPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	sort.Strings(paths)
+	out := paths[:0]
+	var last string
+	for i, path := range paths {
+		if i > 0 && path == last {
+			continue
+		}
+		out = append(out, path)
+		last = path
+	}
+	return out
+}
+
+func applyGitMetadataACLs(gitDir string) []string {
+	dirs, files, failures := gitMetadataACLTargets(gitDir)
+	inv := directACLInvoker{}
+	for _, result := range []aclBatchApplyResult{
+		applyACLGrantToPathBatches(inv, devGroupInheritableGrant, dirs),
+		applyACLGrantToPathBatches(inv, devGroupGrant, files),
+	} {
+		failures = append(failures, result.Failures...)
+	}
+	return failures
 }
 
 func currentUserCanReadPath(path string) bool {
@@ -122,9 +281,9 @@ func gitRepairCommand(gitDir string) string {
 }
 
 // repairGitAfterSession re-checks .git/ permissions after an agent session
-// and attempts to repair any files that became agent-owned during the session.
-// This is best-effort: if the inherited dev group ACL is intact, chmod +a
-// succeeds silently. If it isn't, we print a manual repair command.
+// and attempts to repair the small set of mutable Git metadata paths. Object
+// files are intentionally not walked: Git writes through object directories,
+// while existing objects are immutable and only need ordinary read access.
 func repairGitAfterSession(projectDir string) {
 	gitDir := gitMetadataDir(projectDir)
 	if gitDir == "" {
@@ -135,7 +294,7 @@ func repairGitAfterSession(projectDir string) {
 		return
 	}
 
-	_ = applyDevACLTree(gitDir)
+	_ = applyGitMetadataACLs(gitDir)
 
 	if problems := collectGitPermissionProblems(gitDir); len(problems) > 0 {
 		fmt.Fprintf(os.Stderr, "\nhazmat: .git metadata needs repair (agent-owned files)\n")
@@ -153,7 +312,7 @@ func ensureGitMetadataHealthy(projectDir string) (bool, error) {
 		return false, nil
 	}
 
-	_ = applyDevACLTree(gitDir)
+	_ = applyGitMetadataACLs(gitDir)
 
 	if problems := collectGitPermissionProblems(gitDir); len(problems) > 0 {
 		return false, fmt.Errorf("git metadata permissions are still broken:\n  - %s\nRun:\n  %s",

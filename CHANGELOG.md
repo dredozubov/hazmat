@@ -15,6 +15,7 @@ All notable changes to Hazmat are documented in this file.
 
 ### Fixed
 - Batch project and `.git` ACL repair so first launch in large worktrees no longer shells out once per file.
+- Keep Git metadata ACL repair bounded by targeting mutable Git metadata paths and object directories instead of walking every object file.
 - Forward launch-session SIGTERM/SIGINT handling through the supervised harness process and escalate repeated interrupts to keep contained agent sessions stoppable.
 - Expand harness asset-sync warnings into actionable multiline summaries when host prompt assets are skipped, including symlink escapes outside the managed source root.
 
