@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,10 +34,10 @@ func TestACLRowSatisfiesDevGroupGrant(t *testing.T) {
 	userPrincipal := " 0: user:agent allow execute"
 
 	cases := []struct {
-		name              string
-		line              string
-		wantInheritable   bool // Satisfies(devGroupInheritableGrant)
-		wantNonInherit    bool // Satisfies(devGroupGrant)
+		name            string
+		line            string
+		wantInheritable bool // Satisfies(devGroupInheritableGrant)
+		wantNonInherit  bool // Satisfies(devGroupGrant)
 	}{
 		{"dir-inherit", dirInherit, true, true},
 		{"dir-no-inherit", dirNoInherit, false, true},
@@ -108,9 +109,9 @@ func TestParseACLRowRejectsNonACLLines(t *testing.T) {
 		"drwxr-xr-x  10 dr  staff  320 Apr 18 10:00 .",
 		"total 0",
 		"garbage line without colon",
-		" X: group:dev allow search",   // non-numeric index
-		" 0: group:dev unknownkind x",  // unknown kind token
-		" 0: group:dev allow",          // missing perms field
+		" X: group:dev allow search",  // non-numeric index
+		" 0: group:dev unknownkind x", // unknown kind token
+		" 0: group:dev allow",         // missing perms field
 	}
 
 	for _, line := range cases {
@@ -538,5 +539,60 @@ func TestPendingLaunchHelperTraverseTargetsIncludesHomeAndParents(t *testing.T) 
 		if got[i] != path {
 			t.Fatalf("pendingLaunchHelperTraverseTargets()[%d] = %q, want %q (all=%v)", i, got[i], path, got)
 		}
+	}
+}
+
+type batchRecordingACLBackend struct {
+	chmods [][]string
+}
+
+func (b *batchRecordingACLBackend) ReadACLs(string) ([]ACLRow, error) {
+	return nil, nil
+}
+
+func (b *batchRecordingACLBackend) Chmod(args ...string) error {
+	b.chmods = append(b.chmods, append([]string(nil), args...))
+	return nil
+}
+
+func (b *batchRecordingACLBackend) SudoChmod(*Runner, string, ...string) error {
+	return nil
+}
+
+func TestApplyACLGrantToPathBatchesChunksChmodCalls(t *testing.T) {
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	var paths []string
+	for i := 0; i < aclChmodBatchMaxPaths+3; i++ {
+		paths = append(paths, filepath.Join("/tmp/project", fmt.Sprintf("file-%03d", i)))
+	}
+
+	result := applyACLGrantToPathBatches(directACLInvoker{}, devGroupGrant, paths)
+	if result.Targets != len(paths) {
+		t.Fatalf("Targets = %d, want %d", result.Targets, len(paths))
+	}
+	if len(result.Failures) != 0 {
+		t.Fatalf("Failures = %v, want none", result.Failures)
+	}
+	if len(backend.chmods) != 2 {
+		t.Fatalf("chmod call count = %d, want 2", len(backend.chmods))
+	}
+	first := backend.chmods[0]
+	if len(first) != 2+aclChmodBatchMaxPaths {
+		t.Fatalf("first chmod arg count = %d, want %d", len(first), 2+aclChmodBatchMaxPaths)
+	}
+	if first[0] != "+a" || first[1] != devGroupGrant.String() {
+		t.Fatalf("first chmod prefix = %v, want +a dev grant", first[:2])
+	}
+	second := backend.chmods[1]
+	if len(second) != 2+3 {
+		t.Fatalf("second chmod arg count = %d, want %d", len(second), 2+3)
 	}
 }

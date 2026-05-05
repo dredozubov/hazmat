@@ -52,8 +52,9 @@ func (s *statusBar) Start() func() {
 	signal.Notify(winch, syscall.SIGWINCH)
 
 	// Catch SIGINT/SIGTERM so Go's default handler doesn't terminate us
-	// before the deferred cleanup runs. The child process receives the
-	// signal through the process group and handles it.
+	// before the deferred cleanup runs. The session command runner forwards
+	// termination signals to the child process while the parent stays alive
+	// long enough to restore the terminal.
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 

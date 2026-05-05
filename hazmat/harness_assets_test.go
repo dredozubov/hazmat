@@ -486,3 +486,30 @@ func TestResolveExplainSessionDoesNotApplyHarnessAssetSync(t *testing.T) {
 		t.Fatalf("explain should not materialize harness assets: %v", err)
 	}
 }
+
+func TestSummarizeHarnessAssetWarningsFormatsEscapesActionably(t *testing.T) {
+	warnings := []string{
+		"skipped /Users/dr/.claude/commands/a.md: resolved path /Users/dr/workspace/a.md escapes the allowed root /Users/dr/.claude/commands",
+		"skipped /Users/dr/.claude/commands/b.md: resolved path /Users/dr/workspace/b.md escapes the allowed root /Users/dr/.claude/commands",
+		"skipped /Users/dr/.claude/commands/c.md: resolved path /Users/dr/workspace/c.md escapes the allowed root /Users/dr/.claude/commands",
+		"skipped /Users/dr/.claude/commands/d.md: resolved path /Users/dr/workspace/d.md escapes the allowed root /Users/dr/.claude/commands",
+		"skipped /Users/dr/.claude/commands/e.md: resolved path /Users/dr/workspace/e.md escapes the allowed root /Users/dr/.claude/commands",
+		"skipped /Users/dr/.claude/commands/f.md: resolved path /Users/dr/workspace/f.md escapes the allowed root /Users/dr/.claude/commands",
+	}
+
+	got := summarizeHarnessAssetWarnings(warnings)
+	for _, want := range []string{
+		"6 harness assets were not copied",
+		"symlink targets leave the managed source root",
+		"Showing 5",
+		"- 1 more omitted",
+		"--skip-harness-assets-sync",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "+4 more") {
+		t.Fatalf("summary still uses collapsed warning format: %q", got)
+	}
+}

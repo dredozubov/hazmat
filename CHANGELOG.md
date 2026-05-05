@@ -13,6 +13,11 @@ All notable changes to Hazmat are documented in this file.
 - Docker routing now defaults to native code-only containment (`--docker=none`). Use `--docker=sandbox`, `--docker=auto`, or `hazmat config docker auto` to opt into Docker Sandbox routing for private-daemon Docker workflows.
 - Retired the legacy any-host SSH fallback. Every inline project SSH key must now declare at least one `--host`. The `hazmat config ssh set <path>` subcommand has been removed — use `hazmat config ssh add --name <n> --host <h> <path>` instead. Configs that still use the pre-migration flat shape (`ssh: {private_key, known_hosts}` with no `keys:` list) are rejected at load with a copy-paste YAML snippet showing the replacement.
 
+### Fixed
+- Batch project and `.git` ACL repair so first launch in large worktrees no longer shells out once per file.
+- Forward launch-session SIGTERM/SIGINT handling through the supervised harness process and escalate repeated interrupts to keep contained agent sessions stoppable.
+- Expand harness asset-sync warnings into actionable multiline summaries when host prompt assets are skipped, including symlink escapes outside the managed source root.
+
 ## [0.7.0] - 2026-04-18
 
 ### Added

@@ -110,6 +110,20 @@ var aclRepairProbeDirNames = map[string]struct{}{
 }
 
 const aclRepairProbeMaxDepth = 4
+const aclChmodBatchMaxPaths = 256
+const aclChmodBatchMaxBytes = 96 * 1024
+
+type aclTreeApplyResult struct {
+	Targets  int
+	Batches  int
+	Failures []string
+}
+
+type aclBatchApplyResult struct {
+	Targets  int
+	Batches  int
+	Failures []string
+}
 
 func projectNeedsACLRepair(projectDir string) bool {
 	if !projectRootWritableByAgent(projectDir) {
@@ -279,13 +293,22 @@ func ensureAgentCanTraverseLaunchHelperPath(helperPath string) (bool, []string) 
 // inheritable root grant is what macOS propagates to anything created
 // after the walk.
 func applyDevACLTree(root string) []string {
+	return applyDevACLTreeResult(root).Failures
+}
+
+func applyDevACLTreeResult(root string) aclTreeApplyResult {
+	var result aclTreeApplyResult
 	var failures []string
 	inv := directACLInvoker{}
 
 	if err := ensureACL(inv, root, devGroupInheritableGrant); err != nil {
 		failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+	} else {
+		result.Targets++
 	}
 
+	var dirTargets []string
+	var fileTargets []string
 	for _, p := range collectACLTargets(root) {
 		info, err := os.Lstat(p)
 		if err != nil {
@@ -295,16 +318,77 @@ func applyDevACLTree(root string) []string {
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
-		grant := devGroupGrant
 		if info.IsDir() {
-			grant = devGroupInheritableGrant
+			dirTargets = append(dirTargets, p)
+			continue
 		}
-		if err := ensureACL(inv, p, grant); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
-		}
+		fileTargets = append(fileTargets, p)
 	}
 
-	return failures
+	sort.Strings(dirTargets)
+	sort.Strings(fileTargets)
+
+	for _, batchResult := range []aclBatchApplyResult{
+		applyACLGrantToPathBatches(inv, devGroupInheritableGrant, dirTargets),
+		applyACLGrantToPathBatches(inv, devGroupGrant, fileTargets),
+	} {
+		result.Targets += batchResult.Targets
+		result.Batches += batchResult.Batches
+		failures = append(failures, batchResult.Failures...)
+	}
+
+	result.Failures = failures
+	return result
+}
+
+func applyACLGrantToPathBatches(inv aclInvoker, grant ACLGrant, paths []string) aclBatchApplyResult {
+	var result aclBatchApplyResult
+	for _, batch := range aclPathBatches(grant, paths) {
+		args := append([]string{"+a", grant.String()}, batch...)
+		if err := inv.Chmod(args...); err == nil {
+			result.Targets += len(batch)
+			result.Batches++
+			continue
+		}
+
+		// Fall back to the idempotent single-path path when a batch contains
+		// a stale or otherwise invalid entry. The common path remains one
+		// chmod per batch instead of one ls+chmod pair per filesystem entry.
+		for _, path := range batch {
+			if err := ensureACL(inv, path, grant); err != nil {
+				result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", path, err))
+				continue
+			}
+			result.Targets++
+			result.Batches++
+		}
+	}
+	return result
+}
+
+func aclPathBatches(grant ACLGrant, paths []string) [][]string {
+	var batches [][]string
+	var current []string
+	currentBytes := len("+a") + len(grant.String())
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		batches = append(batches, append([]string(nil), current...))
+		current = current[:0]
+		currentBytes = len("+a") + len(grant.String())
+	}
+
+	for _, path := range paths {
+		pathBytes := len(path) + 1
+		if len(current) >= aclChmodBatchMaxPaths || currentBytes+pathBytes > aclChmodBatchMaxBytes {
+			flush()
+		}
+		current = append(current, path)
+		currentBytes += pathBytes
+	}
+	flush()
+	return batches
 }
 
 // ensureProjectWritable checks if the agent user can write to the project

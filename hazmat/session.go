@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -2023,7 +2025,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	}
 
 	startTime := time.Now()
-	err = cmd.Run()
+	err = runSessionCommand(cmd)
 	endTime := time.Now()
 
 	// Post-session: repair .git/ permissions that may have been altered
@@ -2036,6 +2038,85 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 	}
 
 	return err
+}
+
+func runSessionCommand(cmd *exec.Cmd) error {
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	return runCommandWithForwardedSignals(cmd, signals)
+}
+
+func runCommandWithForwardedSignals(cmd *exec.Cmd, signals <-chan os.Signal) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	waitErr := make(chan error, 1)
+	waitDone := make(chan struct{})
+	go func() {
+		waitErr <- cmd.Wait()
+		close(waitDone)
+	}()
+
+	var interruptCount int
+	for {
+		select {
+		case sig, ok := <-signals:
+			if !ok {
+				signals = nil
+				continue
+			}
+			if sig == syscall.SIGINT {
+				interruptCount++
+			}
+			forwardSignalToSessionCommand(cmd, sig)
+			if sig == syscall.SIGTERM || interruptCount >= 2 {
+				killSessionCommandAfter(cmd, waitDone, 2*time.Second)
+			}
+		case err := <-waitErr:
+			return err
+		}
+	}
+}
+
+func forwardSignalToSessionCommand(cmd *exec.Cmd, sig os.Signal) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	if sig == syscall.SIGINT && processSharesCurrentGroup(cmd.Process.Pid) {
+		return
+	}
+	_ = cmd.Process.Signal(sig)
+}
+
+func processSharesCurrentGroup(pid int) bool {
+	currentPGID, err := syscall.Getpgid(os.Getpid())
+	if err != nil {
+		return false
+	}
+	childPGID, err := syscall.Getpgid(pid)
+	if err != nil {
+		return false
+	}
+	return childPGID == currentPGID
+}
+
+func killSessionCommandAfter(cmd *exec.Cmd, waitDone <-chan struct{}, delay time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	process := cmd.Process
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-waitDone:
+			return
+		case <-timer.C:
+			_ = process.Kill()
+		}
+	}()
 }
 
 // preSessionSnapshot takes an automatic snapshot before a session starts.

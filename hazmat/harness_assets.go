@@ -24,6 +24,7 @@ const (
 	harnessAssetEntryDir  = "dir"
 
 	harnessAssetsStateVersion = 1
+	harnessAssetWarningLimit  = 5
 )
 
 type harnessAssetSpec struct {
@@ -946,12 +947,37 @@ func summarizeHarnessAssetWarnings(warnings []string) string {
 		return ""
 	}
 	if len(warnings) == 1 {
-		return warnings[0]
+		return warnings[0] + "\n    The asset was not copied. Fix the source path or launch with --skip-harness-assets-sync to skip managed asset refresh."
 	}
-	if len(warnings) == 2 {
-		return warnings[0] + "; " + warnings[1]
+
+	allEscapes := true
+	for _, warning := range warnings {
+		if !strings.Contains(warning, "escapes the allowed root") {
+			allEscapes = false
+			break
+		}
 	}
-	return fmt.Sprintf("%s; %s; +%d more", warnings[0], warnings[1], len(warnings)-2)
+
+	limit := harnessAssetWarningLimit
+	if len(warnings) < limit {
+		limit = len(warnings)
+	}
+
+	var b strings.Builder
+	if allEscapes {
+		fmt.Fprintf(&b, "%d harness assets were not copied because their symlink targets leave the managed source root.", len(warnings))
+	} else {
+		fmt.Fprintf(&b, "%d harness asset warning(s); affected assets were not copied.", len(warnings))
+	}
+	fmt.Fprintf(&b, "\n    Showing %d:", limit)
+	for i := 0; i < limit; i++ {
+		fmt.Fprintf(&b, "\n    - %s", warnings[i])
+	}
+	if remaining := len(warnings) - limit; remaining > 0 {
+		fmt.Fprintf(&b, "\n    - %d more omitted", remaining)
+	}
+	b.WriteString("\n    Fix or remove those source entries, or launch with --skip-harness-assets-sync to skip managed asset refresh.")
+	return b.String()
 }
 
 func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {

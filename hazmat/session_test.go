@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -1583,6 +1585,50 @@ func TestTranscriptHasAltScreenEnter(t *testing.T) {
 	}
 	if transcriptHasAltScreenEnter([]byte("plain output only")) {
 		t.Fatal("unexpected alt-screen detection for plain output")
+	}
+}
+
+func TestRunCommandWithForwardedSignalsForwardsSIGTERM(t *testing.T) {
+	cmd := exec.Command("/bin/sh", "-c", "trap 'exit 42' TERM; while true; do sleep 1; done")
+	signals := make(chan os.Signal, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- runCommandWithForwardedSignals(cmd, signals)
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for cmd.Process == nil {
+		select {
+		case err := <-done:
+			t.Fatalf("command exited before signal: %v", err)
+		case <-deadline:
+			t.Fatal("timed out waiting for command to start")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+
+	signals <- syscall.SIGTERM
+
+	select {
+	case err := <-done:
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("runCommandWithForwardedSignals error = %v, want ExitError", err)
+		}
+		if code := exitErr.ExitCode(); code != 42 {
+			status, ok := exitErr.Sys().(syscall.WaitStatus)
+			if !ok || status.Signal() != syscall.SIGTERM {
+				t.Fatalf("exit code = %d, signal = %v, want exit 42 or SIGTERM", code, status.Signal())
+			}
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for forwarded SIGTERM to stop command")
 	}
 }
 
