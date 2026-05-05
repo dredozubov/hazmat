@@ -92,6 +92,13 @@ from local development into published history.
     fake stopwords when generic detectors still misfire
   - never allowlist docs/tests/examples simply because they contain
     credential-shaped values
+- `2026-05-05`: GitHub secret-scanning alert #2 was reviewed after it flagged
+  the Google-key-shaped test fixture added in commit `d7706a50`. The current
+  `master` fixture already split the provider-shaped value across string
+  fragments, Google API key lookup returned a decode failure for the reported
+  literal, confirming it was not a valid Google API key, and the stale
+  `codex/broaden-secret-pattern-scan` branch that still pointed at the flagged
+  commit was removed. The GitHub alert was resolved as `used_in_tests`.
 
 ## Operator Checklist For This Incident
 

@@ -233,7 +233,7 @@ func TestRememberRepoSetupDenialsFeedsNextRunSuggestions(t *testing.T) {
 	}
 	t.Cleanup(func() { repoSetupLogShow = savedLogShow })
 
-	start := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	start := time.Now().UTC().Add(-time.Minute)
 	end := start.Add(2 * time.Second)
 	if err := rememberRepoSetupDenials(sessionConfig{ProjectDir: projectDir}, start, end); err != nil {
 		t.Fatalf("rememberRepoSetupDenials: %v", err)
