@@ -421,7 +421,7 @@ generated, depth 1, 13s).
 | Governed code | `hazmat/git_preflight.go` — `.git` metadata repair checks |
 | Governed code | `hazmat/integration_resolver.go` — Homebrew tool permission repair planning |
 | Governed code | `hazmat/session.go`, `hazmat/explain.go` — preview vs launch mutation behavior |
-| Key invariants | `PlannedRepairsMatchSnapshot`, `PreviewIsReadOnly`, `DockerSkipsNativeACLRepairs`, `HomebrewRepairRequiresEligibleCellar`, `LaunchClearsFatalRepairNeeds`, `RollbackPreservesSessionRepairs` |
+| Key invariants | `PlannedRepairsMatchSnapshot`, `PreviewIsReadOnly`, `DockerSkipsNativeACLRepairs`, `HomebrewRepairRequiresEligibleCellar`, `LaunchClearsFatalRepairNeeds`, `RollbackPreservesSessionRepairs`, `BackfillIsOutsideStartupPlan` |
 | Status | **Proved** — explicit host permission repair classes, preview semantics, and non-reverting rollback behavior are now modeled |
 
 **What this verifies:**
@@ -441,7 +441,11 @@ generated, depth 1, 13s).
    any already-applied session repair. That persistence is now part of the
    proved contract instead of documentation-only behavior.
 
-TLC passes across all 6,634 reachable states (15,663 generated, depth 7, ~2s).
+5. **Project backfill is not startup work:** project ACL startup repair is
+   modeled as a bounded launch repair. Historical full-tree backfill remains
+   outside the automatic launch plan.
+
+TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 
 **Change rules:**
 - Adding a new host permission repair class requires updating this spec first:

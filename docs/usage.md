@@ -99,7 +99,7 @@ Each line maps to a concrete boundary:
 - **Why this mode** — what triggered the mode selection (`--docker=sandbox`, `--docker=auto`, project config, or the default native mode)
 - **Project (read-write)** — the only directory the agent can modify
 - **Integrations** — active stack integrations and what they add automatically
-- **Host changes** — persistent host-side mutations Hazmat may apply before launch, such as project ACL repair, agent Git safe-directory trust, or a bounded toolchain permission fix. Permission-repair classes are modeled in TLA+; non-permission host changes are governed by tests and documentation.
+- **Host changes** — persistent host-side mutations Hazmat may apply before launch, such as bounded project ACL startup repair, agent Git safe-directory trust, or a bounded toolchain permission fix. Permission-repair classes are modeled in TLA+; non-permission host changes are governed by tests and documentation.
 - **Auto read-only** — read-only directories that Hazmat resolved on your behalf
 - **Read-only extensions** — explicit additional read-only directories from `-R` or config
 - **Read-write extensions** — explicit additional writable directories from `-W` or config

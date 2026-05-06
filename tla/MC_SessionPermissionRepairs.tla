@@ -5,7 +5,13 @@ EXTENDS TLC
 \* Session-time permission repairs are planned from the current host state,
 \* previewed by `hazmat explain`, optionally applied before launch, and never
 \* reverted by core rollback. This model abstracts the four currently
-\* user-visible repair classes and the native-vs-Tier-3 split.
+\* user-visible launch repair classes and the native-vs-Tier-3 split.
+\*
+\* ProjectACL is intentionally the bounded startup repair: it prepares the
+\* project root and a finite set of likely-mutable existing paths so launch is
+\* not proportional to repository size. Historical full-tree ACL backfill is
+\* represented separately as ProjectBackfill and is not an automatic startup
+\* mutation.
 \*
 \* Governed code:
 \*   hazmat/session_mutation.go — repair planning and preview/apply flow
@@ -13,6 +19,7 @@ EXTENDS TLC
 \*   hazmat/acl_*.go — platform ACL mechanics used by repair actions
 
 ProjectACL == "projectACL"
+ProjectBackfill == "projectBackfill"
 TraverseACL == "traverseACL"
 GitACL == "gitACL"
 HomebrewMode == "homebrewMode"
@@ -26,6 +33,7 @@ VARIABLES
     phase,
     sessionMode,
     projectBroken,
+    projectBackfillNeeded,
     traverseBroken,
     gitBroken,
     homebrewBroken,
@@ -39,6 +47,7 @@ vars ==
     << phase,
        sessionMode,
        projectBroken,
+       projectBackfillNeeded,
        traverseBroken,
        gitBroken,
        homebrewBroken,
@@ -75,6 +84,7 @@ Init ==
     /\ phase = "idle"
     /\ sessionMode = "unset"
     /\ projectBroken \in BOOLEAN
+    /\ projectBackfillNeeded \in BOOLEAN
     /\ traverseBroken \in BOOLEAN
     /\ gitBroken \in BOOLEAN
     /\ homebrewBroken \in BOOLEAN
@@ -92,6 +102,7 @@ Preview(m) ==
     /\ planned' = ExpectedPlan(m, applied)
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
+                    projectBackfillNeeded,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -107,6 +118,7 @@ PlanLaunch(m) ==
     /\ planned' = ExpectedPlan(m, applied)
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
+                    projectBackfillNeeded,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -121,6 +133,7 @@ ApplyRepair(r) ==
     /\ UNCHANGED << phase,
                     sessionMode,
                     projectBroken,
+                    projectBackfillNeeded,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -136,6 +149,7 @@ Launch ==
     /\ phase' = "launched"
     /\ UNCHANGED << sessionMode,
                     projectBroken,
+                    projectBackfillNeeded,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -151,6 +165,7 @@ Rollback ==
     /\ rollbackSnapshot' = applied
     /\ UNCHANGED << sessionMode,
                     projectBroken,
+                    projectBackfillNeeded,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -177,6 +192,7 @@ TypeOK ==
     /\ phase \in Phases
     /\ sessionMode \in SessionModes
     /\ projectBroken \in BOOLEAN
+    /\ projectBackfillNeeded \in BOOLEAN
     /\ traverseBroken \in BOOLEAN
     /\ gitBroken \in BOOLEAN
     /\ homebrewBroken \in BOOLEAN
@@ -204,5 +220,8 @@ LaunchClearsFatalRepairNeeds ==
 
 RollbackPreservesSessionRepairs ==
     phase = "rolledBack" => applied = rollbackSnapshot
+
+BackfillIsOutsideStartupPlan ==
+    ProjectBackfill \notin planned
 
 =============================================================================

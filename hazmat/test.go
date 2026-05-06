@@ -178,10 +178,10 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	}
 	defer cleanup()
 
-	if fixed, err := ensureProjectWritable(workspaceDir); err != nil {
+	if outcome, err := ensureProjectWritable(workspaceDir); err != nil {
 		ui.TestFail(fmt.Sprintf("check workspace ACL repair failed: %v", err))
 		return
-	} else if fixed {
+	} else if outcome.Fixed {
 		ui.TestPass("Check workspace ACL repair applied successfully")
 	} else {
 		ui.TestPass("Check workspace ACL already healthy")

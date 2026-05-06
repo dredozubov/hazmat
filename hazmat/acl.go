@@ -53,10 +53,10 @@ var agentTraverseGrant = ACLGrant{
 	Inherit:   false,
 }
 
-// devGroupInheritableGrant is the collaborative ACL applied to the project
-// root so existing and future content is read-write for both the host user
-// and the agent user. Inherit flags propagate the ACL to new files and
-// subdirectories created under the root.
+// devGroupInheritableGrant is the collaborative ACL applied to project
+// directories so future content is read-write for both the host user and the
+// agent user. Inherit flags propagate the ACL to new files and subdirectories
+// created under a repaired directory.
 var devGroupInheritableGrant = ACLGrant{
 	Principal: "group:" + sharedGroup,
 	Perms: []string{
@@ -67,9 +67,9 @@ var devGroupInheritableGrant = ACLGrant{
 }
 
 // devGroupGrant is devGroupInheritableGrant without inheritance flags.
-// Applied to existing files (which cannot carry inherit flags) during the
-// initial project ACL walk so the agent can modify files that pre-date
-// the inheritable grant on the parent directory.
+// Applied to bounded existing-file repair targets. Files cannot carry inherit
+// flags, so full historical file backfill is deliberately separate from the
+// startup repair path.
 var devGroupGrant = ACLGrant{
 	Principal: devGroupInheritableGrant.Principal,
 	Perms:     devGroupInheritableGrant.Perms,

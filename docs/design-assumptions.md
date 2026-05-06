@@ -162,17 +162,19 @@ TLA+ suite, not just an implementation assumption.
 **No special workspace read shortcut exists.** If you want broad read access, you must pass that path explicitly with `-R`. Hazmat does not reserve a separate workspace flag anymore.
 
 **Some sessions make persistent host-side changes.** Before launch, Hazmat may
-repair collaborative ACLs on the project tree, `.git` metadata, or ancestor
-paths needed to traverse explicitly exposed directories. With Homebrew-backed
-integration resolution enabled, Hazmat may also plan a narrow toolchain
-permission repair under a Homebrew Cellar path when local mode bits would
-otherwise block the agent user. For external repos, Hazmat may also add the
-active repository root to the agent user's Git `safe.directory` list so
-agent-side build tools can read version metadata. These changes are shown in
-the session contract under `Host changes`. The verified TLA+ suite models the
-permission-repair classes, preview-vs-launch behavior, and rollback
-persistence for that subset of the contract; agent Git trust remains governed
-by tests and documentation.
+repair bounded collaborative ACLs on the project root and shallow existing
+paths, `.git` metadata, or ancestor paths needed to traverse explicitly exposed
+directories. Project ACL repair is deliberately not a full-tree historical
+backfill on the startup critical path. With Homebrew-backed integration
+resolution enabled, Hazmat may also plan a narrow toolchain permission repair
+under a Homebrew Cellar path when local mode bits would otherwise block the
+agent user. For external repos, Hazmat may also add the active repository root
+to the agent user's Git `safe.directory` list so agent-side build tools can
+read version metadata. These changes are shown in the session contract under
+`Host changes`. The verified TLA+ suite models the permission-repair classes,
+preview-vs-launch behavior, bounded project ACL startup semantics, and
+rollback persistence for that subset of the contract; agent Git trust remains
+governed by tests and documentation.
 
 **`hazmat explain` is a pure preview for these mutations.** It computes and
 shows the same planned host changes that a real launch may apply, but it does
@@ -250,11 +252,12 @@ or explicit integration read dirs instead.
 **Rollback does not delete your files.** `hazmat rollback` removes system configuration (users, firewall, sudoers, wrappers) but does not delete any project files the agent created or modified. Back up first if needed.
 
 **Rollback does not revert session-time permission repairs.** `hazmat rollback`
-does not remove collaborative ACLs added to project trees, `.git`, or exposed
-ancestor paths during later sessions, and it does not revert Homebrew toolchain
-permission repairs. That non-reversion is now an explicit part of the TLA+
-proof bar for session mutation behavior, even though the exact ACL/chmod
-filesystem operations are still covered by tests and docs rather than the model.
+does not remove collaborative ACLs added to project roots, bounded project
+startup targets, `.git`, or exposed ancestor paths during later sessions, and
+it does not revert Homebrew toolchain permission repairs. That non-reversion is
+now an explicit part of the TLA+ proof bar for session mutation behavior, even
+though the exact ACL/chmod filesystem operations are still covered by tests and
+docs rather than the model.
 
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents, including harness state such as Claude and OpenCode config, auth, and imported basics, survive rollback.
 

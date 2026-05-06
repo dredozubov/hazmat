@@ -68,21 +68,25 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 			Metadata: sessionMutation{
 				Summary:     "project ACL repair",
-				Detail:      fmt.Sprintf("may add collaborative ACLs under %s so the agent can edit existing files", projectDir),
+				Detail:      fmt.Sprintf("may add bounded collaborative ACLs on %s and shallow existing paths so startup is not proportional to repository size", projectDir),
 				Persistence: "persistent in project",
 				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
 			Apply: func() (sessionMutationExecution, error) {
-				fixed, err := ensureProjectWritable(projectDir)
+				outcome, err := ensureProjectWritable(projectDir)
 				if err != nil {
 					return sessionMutationExecution{
 						Warning: fmt.Sprintf("could not fully set project ACL: %v", err),
 					}, nil
 				}
-				if fixed {
-					return sessionMutationExecution{
-						AppliedMessage: "  Fixed project permissions for agent access",
-					}, nil
+				if outcome.Fixed {
+					result := sessionMutationExecution{
+						AppliedMessage: "  Fixed bounded project permissions for agent access",
+					}
+					if outcome.Truncated {
+						result.Warning = "project ACL startup repair hit its bounded scan cap; full historical backfill was deferred"
+					}
+					return result, nil
 				}
 				return sessionMutationExecution{}, nil
 			},

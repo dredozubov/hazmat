@@ -29,16 +29,24 @@ the permission-repair subset still needs a precise modeled contract:
 
 ## TLA+ Model
 
-The model abstracts the four user-visible repair classes:
+The model abstracts the four user-visible launch repair classes:
 
 - `projectACL`
 - `traverseACL`
 - `gitACL`
 - `homebrewMode`
 
+`projectACL` specifically means the bounded startup repair for the project
+root and a finite set of likely-mutable existing paths. It does not mean
+"recursively chmod every pre-existing file before launch." Historical full-tree
+backfill is represented as `projectBackfill` in the model so the boundary is
+explicit, but that backfill is not part of the automatic startup mutation set.
+
 It treats the host as a finite permission state:
 
 - each repair class may or may not currently be needed
+- full-tree project backfill may independently be needed, but it does not
+  drive launch-time mutation planning
 - Homebrew repair has an extra eligibility bit that represents the
   invoker-owned Cellar-root requirement
 - the session mode is `native` or `docker`
@@ -65,6 +73,7 @@ mode-bit edits on concrete paths.
 | `HomebrewRepairRequiresEligibleCellar` | Homebrew repair is planned only when the path is eligible and still blocked |
 | `LaunchClearsFatalRepairNeeds` | Launch cannot succeed while fatal repair classes (`gitACL`, eligible Homebrew repair) are still unresolved |
 | `RollbackPreservesSessionRepairs` | Core rollback does not revert any already-applied session repair |
+| `BackfillIsOutsideStartupPlan` | Historical full-tree project ACL backfill is never planned as an automatic launch repair |
 
 ## TLC Result
 
@@ -80,10 +89,10 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `15,663 states generated`
-- `6,634 distinct states found`
+- `31,326 states generated`
+- `13,268 distinct states found`
 - `depth 7`
-- `Finished in 2s`
+- `Finished in <1s`
 
 ## Interpretation
 
@@ -93,6 +102,8 @@ CLI now presents to users:
 
 - preview is non-mutating
 - native and Docker modes plan different repair classes intentionally
+- project ACL startup repair is bounded; expensive historical backfill stays
+  outside automatic launch planning
 - Homebrew repair is not a generic escape hatch
 - rollback leaves these session-time permission changes in place
 

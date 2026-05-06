@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // rowFromLine is a test helper that parses a single ls -leOd row. Fails the
@@ -17,6 +18,15 @@ func rowFromLine(t *testing.T, line string) ACLRow {
 		t.Fatalf("parseACLRow(%q) returned ok=false", line)
 	}
 	return row
+}
+
+func rowForGrant(grant ACLGrant) ACLRow {
+	return ACLRow{
+		Principal: grant.Principal,
+		Kind:      ACLAllow,
+		Perms:     append([]string(nil), grant.Perms...),
+		Inherit:   grant.Inherit,
+	}
 }
 
 func TestACLRowSatisfiesDevGroupGrant(t *testing.T) {
@@ -557,6 +567,142 @@ func (b *batchRecordingACLBackend) Chmod(args ...string) error {
 
 func (b *batchRecordingACLBackend) SudoChmod(*Runner, string, ...string) error {
 	return nil
+}
+
+type pathRecordingACLBackend struct {
+	rows  map[string][]ACLRow
+	reads []string
+}
+
+func (b *pathRecordingACLBackend) ReadACLs(path string) ([]ACLRow, error) {
+	b.reads = append(b.reads, path)
+	return b.rows[path], nil
+}
+
+func (b *pathRecordingACLBackend) Chmod(...string) error {
+	return nil
+}
+
+func (b *pathRecordingACLBackend) SudoChmod(*Runner, string, ...string) error {
+	return nil
+}
+
+func TestProjectNeedsACLRepairOnlyChecksRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".venv", "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir .venv: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "pkg", "deep"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+
+	backend := &pathRecordingACLBackend{
+		rows: map[string][]ACLRow{
+			projectDir: {rowForGrant(devGroupInheritableGrant)},
+		},
+	}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	if projectNeedsACLRepair(projectDir) {
+		t.Fatalf("projectNeedsACLRepair() = true, want false for healthy root ACL")
+	}
+	if len(backend.reads) != 1 || backend.reads[0] != projectDir {
+		t.Fatalf("projectNeedsACLRepair read ACLs at %v, want only %s", backend.reads, projectDir)
+	}
+}
+
+func TestApplyDevACLStartupRepairIsBounded(t *testing.T) {
+	projectDir := t.TempDir()
+	deepFile := filepath.Join(projectDir, "pkg", "deep", "deeper", "file.go")
+	if err := os.MkdirAll(filepath.Dir(deepFile), 0o755); err != nil {
+		t.Fatalf("mkdir deep tree: %v", err)
+	}
+	if err := os.WriteFile(deepFile, []byte("package pkg"), 0o644); err != nil {
+		t.Fatalf("write deep file: %v", err)
+	}
+	for i := 0; i < projectACLStartupMaxTargets+100; i++ {
+		path := filepath.Join(projectDir, fmt.Sprintf("file-%04d.go", i))
+		if err := os.WriteFile(path, []byte("package main"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	start := time.Now()
+	result := applyDevACLStartupRepairResult(projectDir)
+	elapsed := time.Since(start)
+
+	if len(result.Failures) != 0 {
+		t.Fatalf("Failures = %v, want none", result.Failures)
+	}
+	if !result.Truncated {
+		t.Fatalf("Truncated = false, want true for target cap fixture")
+	}
+	if result.Targets > projectACLStartupMaxTargets+1 {
+		t.Fatalf("Targets = %d, want <= root + cap (%d)", result.Targets, projectACLStartupMaxTargets+1)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("bounded startup ACL repair took %s on synthetic large tree, want <= 2s", elapsed)
+	}
+	for _, args := range backend.chmods {
+		for _, arg := range args[2:] {
+			if arg == deepFile {
+				t.Fatalf("startup repair chmoded deep file %s; args=%v", deepFile, backend.chmods)
+			}
+		}
+	}
+}
+
+func BenchmarkProjectACLStartupRepairLargeTree(b *testing.B) {
+	projectDir := b.TempDir()
+	for dirIdx := 0; dirIdx < 150; dirIdx++ {
+		dir := filepath.Join(projectDir, fmt.Sprintf("pkg-%03d", dirIdx), "internal", "deep")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			b.Fatalf("mkdir %s: %v", dir, err)
+		}
+		for fileIdx := 0; fileIdx < 50; fileIdx++ {
+			path := filepath.Join(dir, fmt.Sprintf("file-%03d.go", fileIdx))
+			if err := os.WriteFile(path, []byte("package pkg"), 0o644); err != nil {
+				b.Fatalf("write %s: %v", path, err)
+			}
+		}
+	}
+
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	b.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		backend.chmods = nil
+		result := applyDevACLStartupRepairResult(projectDir)
+		if len(result.Failures) != 0 {
+			b.Fatalf("Failures = %v, want none", result.Failures)
+		}
+		if result.Targets > projectACLStartupMaxTargets+1 {
+			b.Fatalf("Targets = %d, want <= root + cap (%d)", result.Targets, projectACLStartupMaxTargets+1)
+		}
+	}
 }
 
 func TestApplyACLGrantToPathBatchesChunksChmodCalls(t *testing.T) {

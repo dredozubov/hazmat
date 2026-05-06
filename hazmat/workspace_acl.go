@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -100,23 +102,19 @@ func shouldSkipACLWalkDir(path, name string) bool {
 	return true
 }
 
-var aclRepairProbeDirNames = map[string]struct{}{
-	".next":  {},
-	".venv":  {},
-	"build":  {},
-	"dist":   {},
-	"target": {},
-	"venv":   {},
-}
-
-const aclRepairProbeMaxDepth = 4
+const projectACLStartupMaxDepth = 3
+const projectACLStartupMaxTargets = 1024
+const projectACLStartupMaxEntries = 4096
+const projectACLReadDirBatchSize = 128
 const aclChmodBatchMaxPaths = 256
 const aclChmodBatchMaxBytes = 96 * 1024
 
 type aclTreeApplyResult struct {
-	Targets  int
-	Batches  int
-	Failures []string
+	Targets        int
+	Batches        int
+	EntriesScanned int
+	Truncated      bool
+	Failures       []string
 }
 
 type aclBatchApplyResult struct {
@@ -125,44 +123,24 @@ type aclBatchApplyResult struct {
 	Failures []string
 }
 
+type projectACLRepairOutcome struct {
+	Fixed          bool
+	Targets        int
+	Batches        int
+	EntriesScanned int
+	Truncated      bool
+}
+
+type projectACLTargetCollection struct {
+	Dirs           []string
+	Files          []string
+	EntriesScanned int
+	Truncated      bool
+	Failures       []string
+}
+
 func projectNeedsACLRepair(projectDir string) bool {
-	if !projectRootWritableByAgent(projectDir) {
-		return true
-	}
-
-	needsRepair := false
-	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort probe
-		if needsRepair || err != nil || path == projectDir {
-			return nil
-		}
-		if !d.IsDir() {
-			return nil
-		}
-
-		// Probe tracked dirs before the skip check — some probe
-		// targets (e.g. .venv) are also in the ACL walk skip list.
-		if _, tracked := aclRepairProbeDirNames[d.Name()]; tracked {
-			if !pathHasDevACL(path, true) {
-				needsRepair = true
-			}
-			return filepath.SkipDir
-		}
-
-		if shouldSkipACLWalkDir(path, d.Name()) {
-			return filepath.SkipDir
-		}
-
-		rel, relErr := filepath.Rel(projectDir, path)
-		if relErr != nil {
-			return nil
-		}
-		depth := strings.Count(rel, string(os.PathSeparator)) + 1
-		if depth > aclRepairProbeMaxDepth {
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	return needsRepair
+	return !projectRootWritableByAgent(projectDir)
 }
 
 func collectAgentTraverseTargets(homeDir, projectDir string, dirs []string) []string {
@@ -287,16 +265,76 @@ func ensureAgentCanTraverseLaunchHelperPath(helperPath string) (bool, []string) 
 	return fixed, failures
 }
 
-// applyDevACLTree stamps the collaborative dev-group ACL across a project:
-// an inheritable grant on the root, then a non-inheritable grant on each
-// existing entry so pre-existing files become writable by the agent. The
-// inheritable root grant is what macOS propagates to anything created
-// after the walk.
-func applyDevACLTree(root string) []string {
-	return applyDevACLTreeResult(root).Failures
+// collectProjectACLStartupTargets returns a bounded set of existing project
+// paths to repair during session startup. It deliberately does not try to
+// backfill every historical file in a large checkout.
+func collectProjectACLStartupTargets(root string) projectACLTargetCollection {
+	type dirToScan struct {
+		path  string
+		depth int
+	}
+
+	var result projectACLTargetCollection
+	queue := []dirToScan{{path: root, depth: 0}}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if result.Truncated {
+			break
+		}
+		if current.depth >= projectACLStartupMaxDepth {
+			continue
+		}
+
+		dir, err := os.Open(current.path)
+		if err != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", current.path, err))
+			continue
+		}
+		for {
+			entries, readErr := dir.ReadDir(projectACLReadDirBatchSize)
+			for _, entry := range entries {
+				result.EntriesScanned++
+				if result.EntriesScanned > projectACLStartupMaxEntries ||
+					len(result.Dirs)+len(result.Files) >= projectACLStartupMaxTargets {
+					result.Truncated = true
+					break
+				}
+
+				path := filepath.Join(current.path, entry.Name())
+				if entry.Type()&os.ModeSymlink != 0 {
+					continue
+				}
+				if entry.IsDir() {
+					result.Dirs = append(result.Dirs, path)
+					if shouldSkipACLWalkDir(path, entry.Name()) {
+						continue
+					}
+					queue = append(queue, dirToScan{path: path, depth: current.depth + 1})
+					continue
+				}
+				result.Files = append(result.Files, path)
+			}
+			if result.Truncated || readErr != nil {
+				if readErr != nil && !errors.Is(readErr, io.EOF) {
+					result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", current.path, readErr))
+				}
+				break
+			}
+			if len(entries) == 0 {
+				break
+			}
+		}
+		if err := dir.Close(); err != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", current.path, err))
+		}
+	}
+
+	return result
 }
 
-func applyDevACLTreeResult(root string) aclTreeApplyResult {
+func applyDevACLStartupRepairResult(root string) aclTreeApplyResult {
 	var result aclTreeApplyResult
 	var failures []string
 	inv := directACLInvoker{}
@@ -307,30 +345,17 @@ func applyDevACLTreeResult(root string) aclTreeApplyResult {
 		result.Targets++
 	}
 
-	var dirTargets []string
-	var fileTargets []string
-	for _, p := range collectACLTargets(root) {
-		info, err := os.Lstat(p)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", p, err))
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		if info.IsDir() {
-			dirTargets = append(dirTargets, p)
-			continue
-		}
-		fileTargets = append(fileTargets, p)
-	}
+	targets := collectProjectACLStartupTargets(root)
+	result.EntriesScanned = targets.EntriesScanned
+	result.Truncated = targets.Truncated
+	failures = append(failures, targets.Failures...)
 
-	sort.Strings(dirTargets)
-	sort.Strings(fileTargets)
+	sort.Strings(targets.Dirs)
+	sort.Strings(targets.Files)
 
 	for _, batchResult := range []aclBatchApplyResult{
-		applyACLGrantToPathBatches(inv, devGroupInheritableGrant, dirTargets),
-		applyACLGrantToPathBatches(inv, devGroupGrant, fileTargets),
+		applyACLGrantToPathBatches(inv, devGroupInheritableGrant, targets.Dirs),
+		applyACLGrantToPathBatches(inv, devGroupGrant, targets.Files),
 	} {
 		result.Targets += batchResult.Targets
 		result.Batches += batchResult.Batches
@@ -392,27 +417,35 @@ func aclPathBatches(grant ACLGrant, paths []string) [][]string {
 }
 
 // ensureProjectWritable checks if the agent user can write to the project
-// directory and applies the dev group ACL if not. Called as a pre-flight
-// check before every session.
+// directory and applies the bounded startup dev group ACL repair if not.
+// Called as a pre-flight check before every session.
 //
 // No sudo needed — the file owner can modify ACLs on their own files.
-// The inheritable ACL is set on the project root, then applied recursively
-// to existing content so the agent can modify existing source files.
+// The inheritable ACL is set on the project root, then applied to a finite
+// shallow set of existing paths. Full historical backfill is intentionally not
+// done on the startup critical path.
 //
 // This replaces the old workspace-wide ACL scan during init. Instead of
 // fixing everything upfront, we fix per-project on first use.
 //
-// Returns true if a fix was applied.
-func ensureProjectWritable(projectDir string) (bool, error) {
+// Returns a repair outcome when a fix was applied.
+func ensureProjectWritable(projectDir string) (projectACLRepairOutcome, error) {
 	// Fast path: project already has the inheritable dev ACL we need and
-	// known mutable dependency/build directories are healthy.
+	// new content will inherit collaboration permissions.
 	if !projectNeedsACLRepair(projectDir) {
-		return false, nil
+		return projectACLRepairOutcome{}, nil
 	}
 
-	if failures := applyDevACLTree(projectDir); len(failures) > 0 {
-		return false, fmt.Errorf("%s", failures[0])
+	result := applyDevACLStartupRepairResult(projectDir)
+	if len(result.Failures) > 0 {
+		return projectACLRepairOutcome{}, fmt.Errorf("%s", result.Failures[0])
 	}
 
-	return true, nil
+	return projectACLRepairOutcome{
+		Fixed:          true,
+		Targets:        result.Targets,
+		Batches:        result.Batches,
+		EntriesScanned: result.EntriesScanned,
+		Truncated:      result.Truncated,
+	}, nil
 }

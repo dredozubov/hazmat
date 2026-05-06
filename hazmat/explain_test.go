@@ -59,7 +59,7 @@ func TestBuildExplainJSON(t *testing.T) {
 		PlannedHostMutations: []sessionMutation{
 			{
 				Summary:     "project ACL repair",
-				Detail:      "may add collaborative ACLs under /tmp/project",
+				Detail:      "may add bounded collaborative ACLs on /tmp/project and shallow existing paths",
 				Persistence: "persistent in project",
 				ProofScope:  sessionMutationProofScopeTLAModel,
 			},
