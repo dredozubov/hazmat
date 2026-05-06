@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -313,6 +314,65 @@ func TestPrepareLaunchSessionResolvesActiveIntegrationsOnce(t *testing.T) {
 	}
 	if !reflect.DeepEqual(prepared.Config.ActiveIntegrations, []string{"custom"}) {
 		t.Fatalf("ActiveIntegrations = %v, want [custom]", prepared.Config.ActiveIntegrations)
+	}
+}
+
+func BenchmarkSessionPreparationLargeTree(b *testing.B) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(b.TempDir(), "nonexistent.yaml")
+	b.Cleanup(func() { configFilePath = savedConfigPath })
+
+	savedRequireInit := requireInit
+	requireInit = func() error { return nil }
+	b.Cleanup(func() { requireInit = savedRequireInit })
+
+	savedCollectAssets := collectDesiredHarnessAssetsForSync
+	collectDesiredHarnessAssetsForSync = func(HarnessID) (map[string]harnessAssetDesiredEntry, []string, error) {
+		return nil, nil, nil
+	}
+	b.Cleanup(func() { collectDesiredHarnessAssetsForSync = savedCollectAssets })
+
+	projectDir := b.TempDir()
+	for i := 0; i < 200; i++ {
+		nested := filepath.Join(projectDir, fmt.Sprintf("pkg-%03d", i), "internal", "deep")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			b.Fatalf("mkdir %s: %v", nested, err)
+		}
+		for j := 0; j < 20; j++ {
+			path := filepath.Join(nested, fmt.Sprintf("file-%03d.txt", j))
+			if err := os.WriteFile(path, []byte("fixture"), 0o644); err != nil {
+				b.Fatalf("write %s: %v", path, err)
+			}
+		}
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module test"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Spec.tla"), []byte("---- MODULE Spec ----"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "MC.cfg"), []byte("SPECIFICATION Spec"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resolved, err := resolveLaunchIntegrations(projectDir, nil)
+		if err != nil {
+			b.Fatalf("resolveLaunchIntegrations: %v", err)
+		}
+		prepared, err := resolvePreparedSessionWithProgress("claude", harnessSessionOpts{
+			project:              projectDir,
+			resolvedIntegrations: resolved.Integrations,
+			integrationsResolved: true,
+		}, true, nil)
+		if err != nil {
+			b.Fatalf("resolvePreparedSessionWithProgress: %v", err)
+		}
+		if !containsString(prepared.Config.SuggestedIntegrations, "go") || !containsString(prepared.Config.SuggestedIntegrations, "tla-java") {
+			b.Fatalf("suggested integrations = %v, want go and tla-java", prepared.Config.SuggestedIntegrations)
+		}
 	}
 }
 

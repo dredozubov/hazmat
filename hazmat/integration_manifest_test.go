@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -929,6 +930,85 @@ func TestSuggestIntegrationsRootDirSkippedWhenAbsent(t *testing.T) {
 			t.Fatalf("did not expect beads suggestion without .beads/, got %v", suggestions)
 		}
 	}
+}
+
+func TestBuildProjectDetectIndexSkipsRepeatedLargeTreeWalks(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 200; i++ {
+		nested := filepath.Join(dir, fmt.Sprintf("pkg-%03d", i), "internal", "deep")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", nested, err)
+		}
+		if err := os.WriteFile(filepath.Join(nested, "package.json"), []byte(`{"name":"deep"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	index := buildProjectDetectIndex(dir)
+	goSpec, err := loadBuiltinIntegrationSpec("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeSpec, err := loadBuiltinIntegrationSpec("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !integrationSuggestionMatchesIndex(index, goSpec) {
+		t.Fatalf("expected go integration from indexed root marker")
+	}
+	if integrationSuggestionMatchesIndex(index, nodeSpec) {
+		t.Fatalf("did not expect node from non-preferred deep package.json marker")
+	}
+	if len(index.Files) == 0 {
+		t.Fatalf("index.Files is empty")
+	}
+}
+
+func BenchmarkSuggestIntegrationsLargeTree(b *testing.B) {
+	dir := b.TempDir()
+	for i := 0; i < 200; i++ {
+		nested := filepath.Join(dir, fmt.Sprintf("pkg-%03d", i), "internal", "deep")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			b.Fatalf("mkdir %s: %v", nested, err)
+		}
+		for j := 0; j < 20; j++ {
+			path := filepath.Join(nested, fmt.Sprintf("file-%03d.txt", j))
+			if err := os.WriteFile(path, []byte("fixture"), 0o644); err != nil {
+				b.Fatalf("write %s: %v", path, err)
+			}
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Spec.tla"), []byte("---- MODULE Spec ----"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "MC.cfg"), []byte("SPECIFICATION Spec"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		suggestions := suggestIntegrations(dir, nil)
+		if !containsString(suggestions, "go") || !containsString(suggestions, "tla-java") {
+			b.Fatalf("suggestions = %v, want go and tla-java", suggestions)
+		}
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadIntegrationSpecAcceptsRootDir(t *testing.T) {

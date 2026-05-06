@@ -758,6 +758,124 @@ var integrationDetectPreferredTopLevelDirs = map[string]map[string]struct{}{
 
 const integrationDetectMaxDepth = 4
 
+type projectDetectFile struct {
+	Rel   string
+	Name  string
+	Dir   string
+	Depth int
+}
+
+type projectDetectIndex struct {
+	RootDirs map[string]struct{}
+	RootFile []string
+	Files    []projectDetectFile
+	ByDir    map[string][]string
+}
+
+func buildProjectDetectIndex(projectDir string) projectDetectIndex {
+	index := projectDetectIndex{
+		RootDirs: make(map[string]struct{}),
+		ByDir:    make(map[string][]string),
+	}
+
+	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort suggestion probe
+		if err != nil || path == projectDir {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := strings.Count(rel, string(os.PathSeparator)) + 1
+		name := d.Name()
+		if d.IsDir() {
+			if depth == 1 {
+				index.RootDirs[name] = struct{}{}
+			}
+			if depth > integrationDetectMaxDepth {
+				return filepath.SkipDir
+			}
+			if _, skip := integrationDetectIgnoredDirs[name]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if depth > integrationDetectMaxDepth {
+			return nil
+		}
+
+		dir := filepath.Dir(rel)
+		if dir == "." {
+			dir = ""
+			index.RootFile = append(index.RootFile, name)
+		}
+		index.Files = append(index.Files, projectDetectFile{
+			Rel:   rel,
+			Name:  name,
+			Dir:   dir,
+			Depth: depth,
+		})
+		index.ByDir[dir] = append(index.ByDir[dir], name)
+		return nil
+	})
+
+	return index
+}
+
+func (index projectDetectIndex) hasRootDir(name string) bool {
+	if index.RootDirs == nil {
+		return false
+	}
+	_, ok := index.RootDirs[name]
+	return ok
+}
+
+func (index projectDetectIndex) rootMatchesDetectFile(pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	for _, name := range index.RootFile {
+		if detectFileMatches(pattern, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (index projectDetectIndex) matchesDetectFile(integrationName, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	for _, file := range index.Files {
+		if !detectFileMatches(pattern, file.Name) {
+			continue
+		}
+		if file.Depth > 1 && !integrationSuggestsFromNestedPath(integrationName, file.Rel) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (index projectDetectIndex) hasFileWithSiblingPattern(pattern, siblingPattern string) bool {
+	if pattern == "" || siblingPattern == "" {
+		return false
+	}
+	for _, file := range index.Files {
+		if !detectFileMatches(pattern, file.Name) {
+			continue
+		}
+		for _, sibling := range index.ByDir[file.Dir] {
+			if detectFileMatches(siblingPattern, sibling) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func detectPatternHasWildcard(pattern string) bool {
 	return strings.ContainsAny(pattern, "*?[")
 }
@@ -786,156 +904,25 @@ func integrationSuggestsFromNestedPath(integrationName, rel string) bool {
 	return allowed
 }
 
-func projectMatchesDetectFile(projectDir, integrationName, pattern string) bool {
-	if pattern == "" {
-		return false
-	}
-
-	if !detectPatternHasWildcard(pattern) {
-		if _, err := os.Stat(filepath.Join(projectDir, pattern)); err == nil {
-			return true
-		}
-	}
-
-	matched := false
-	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort suggestion probe
-		if matched || err != nil {
-			return nil
-		}
-		if path == projectDir {
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(projectDir, path)
-		if relErr != nil {
-			return nil
-		}
-		depth := strings.Count(rel, string(os.PathSeparator)) + 1
-		if d.IsDir() {
-			if depth > integrationDetectMaxDepth {
-				return filepath.SkipDir
-			}
-			if _, skip := integrationDetectIgnoredDirs[d.Name()]; skip {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if depth > integrationDetectMaxDepth {
-			return nil
-		}
-		if detectFileMatches(pattern, d.Name()) {
-			if depth > 1 && !integrationSuggestsFromNestedPath(integrationName, rel) {
-				return nil
-			}
-			matched = true
-		}
-		return nil
-	})
-	return matched
-}
-
-func projectHasFileWithSiblingPattern(projectDir, pattern, siblingPattern string) bool {
-	if pattern == "" || siblingPattern == "" {
-		return false
-	}
-
-	matched := false
-	filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // best-effort suggestion probe
-		if matched || err != nil {
-			return nil
-		}
-		if path == projectDir {
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(projectDir, path)
-		if relErr != nil {
-			return nil
-		}
-		depth := strings.Count(rel, string(os.PathSeparator)) + 1
-		if d.IsDir() {
-			if depth > integrationDetectMaxDepth {
-				return filepath.SkipDir
-			}
-			if _, skip := integrationDetectIgnoredDirs[d.Name()]; skip {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if depth > integrationDetectMaxDepth || !detectFileMatches(pattern, d.Name()) {
-			return nil
-		}
-
-		entries, readErr := os.ReadDir(filepath.Dir(path))
-		if readErr != nil {
-			return nil
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			if detectFileMatches(siblingPattern, entry.Name()) {
-				matched = true
-				break
-			}
-		}
-		return nil
-	})
-	return matched
-}
-
-func projectRootMatchesDetectFile(projectDir, pattern string) bool {
-	if pattern == "" {
-		return false
-	}
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if detectFileMatches(pattern, entry.Name()) {
-			return true
-		}
-	}
-	return false
-}
-
-func projectHasRootDir(projectDir, name string) bool {
-	if name == "" || name == "." || name == ".." {
-		return false
-	}
-	if strings.ContainsAny(name, "/\\\x00") {
-		return false
-	}
-	info, err := os.Lstat(filepath.Join(projectDir, name))
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
-}
-
-func integrationSuggestionMatches(projectDir string, spec IntegrationSpec) bool {
+func integrationSuggestionMatchesIndex(index projectDetectIndex, spec IntegrationSpec) bool {
 	for _, d := range spec.Detect.RootDirs {
-		if projectHasRootDir(projectDir, d) {
+		if index.hasRootDir(d) {
 			return true
 		}
 	}
 	switch spec.Meta.Name {
 	case "java-gradle", "java-maven":
 		for _, f := range spec.Detect.Files {
-			if projectRootMatchesDetectFile(projectDir, f) {
+			if index.rootMatchesDetectFile(f) {
 				return true
 			}
 		}
 		return false
 	case "tla-java":
-		return projectHasFileWithSiblingPattern(projectDir, "*.cfg", "*.tla")
+		return index.hasFileWithSiblingPattern("*.cfg", "*.tla")
 	default:
 		for _, f := range spec.Detect.Files {
-			if projectMatchesDetectFile(projectDir, spec.Meta.Name, f) {
+			if index.matchesDetectFile(spec.Meta.Name, f) {
 				return true
 			}
 		}
@@ -947,6 +934,7 @@ func integrationSuggestionMatches(projectDir string, spec IntegrationSpec) bool 
 // names of built-in integrations that match but are not already active.
 func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []string {
 	var suggestions []string
+	var candidates []IntegrationSpec
 	for _, name := range allBuiltinIntegrationNames() {
 		if _, active := activeNames[name]; active {
 			continue
@@ -958,8 +946,16 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 		if len(p.Detect.Files) == 0 && len(p.Detect.RootDirs) == 0 {
 			continue
 		}
-		if integrationSuggestionMatches(projectDir, p) {
-			suggestions = append(suggestions, name)
+		candidates = append(candidates, p)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	index := buildProjectDetectIndex(projectDir)
+	for _, p := range candidates {
+		if integrationSuggestionMatchesIndex(index, p) {
+			suggestions = append(suggestions, p.Meta.Name)
 		}
 	}
 	return suggestions
