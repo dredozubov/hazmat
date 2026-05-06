@@ -50,7 +50,7 @@ func initSetupSteps() []initStep {
 		},
 		{
 			name:        "setupHardeningGaps",
-			tlaResource: tlaResourceUmask,
+			tlaResource: tlaResourceHardeningGaps,
 			run: func(ctx initStepContext) error {
 				return setupHardeningGaps(ctx.ui, ctx.runner)
 			},

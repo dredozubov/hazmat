@@ -36,7 +36,7 @@
 \*   1: devGroup           setupDevGroup
 \*   2: homeDirTraverse    setupHomeDirTraverse
 \*   3: localRepo          setupLocalRepo
-\*   4: umask              setupHardeningGaps
+\*   4: umask + hostCredentialModes setupHardeningGaps
 \*   5: seatbelt           setupSeatbelt
 \*   6: wrappers           setupUserExperience + zsh completions + git safe.directory
 \*   7: pfAnchor           setupPfFirewall           ← containment before privilege
@@ -89,7 +89,8 @@ VARIABLES
     homeDirTraverse, \* ACL on $HOME allowing agent to traverse
     localRepo,       \* Kopia snapshot repository at ~/.hazmat/repo
     \* Phase 3: Hardening
-    umask,           \* umask 077 in .zshrc files
+    umask,           \* managed umask block in agent .zshrc
+    hostCredentialModes, \* owner-only mode repairs for host credential paths
     seatbelt,        \* claude-sandboxed wrapper in agent's .local/bin
     wrappers,        \* host wrappers + agent env
     \* Phase 4: Network (containment before privilege)
@@ -116,13 +117,13 @@ CONSTANTS
     MaxSetupAttempts,
     MaxRollbackAttempts
 
-vars == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+vars == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
           wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
           launchDaemon, claudeCode, credentials,
           phase, setupStep, setupAttempts, rollbackAttempts,
           rollbackStep, rollbackMode>>
 
-resources == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+resources == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                wrappers, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                launchDaemon, claudeCode, credentials>>
 
@@ -136,6 +137,7 @@ TypeOK ==
     /\ homeDirTraverse \in BOOLEAN
     /\ localRepo      \in BOOLEAN
     /\ umask          \in BOOLEAN
+    /\ hostCredentialModes \in BOOLEAN
     /\ seatbelt       \in BOOLEAN
     /\ wrappers       \in BOOLEAN
     /\ launchHelper   \in BOOLEAN
@@ -163,6 +165,7 @@ Init ==
     /\ homeDirTraverse = FALSE
     /\ localRepo      = FALSE
     /\ umask          = FALSE
+    /\ hostCredentialModes = FALSE
     /\ seatbelt       = FALSE
     /\ wrappers       = FALSE
     /\ launchHelper   = FALSE
@@ -188,7 +191,7 @@ InstallLaunchHelper ==
     /\ ~launchHelper
     /\ phase = "idle"
     /\ launchHelper' = TRUE
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     phase, setupStep, setupAttempts, rollbackAttempts,
@@ -203,7 +206,7 @@ CtlUnchanged == UNCHANGED <<phase, setupStep, setupAttempts, rollbackAttempts, r
 
 OtherResources(changing) ==
     \A r \in {"agentUser", "devGroup", "homeDirTraverse", "localRepo",
-              "umask", "seatbelt", "wrappers", "launchHelper",
+              "umask", "hostCredentialModes", "seatbelt", "wrappers", "launchHelper",
               "sudoers", "maintenanceSudoers", "pfAnchor", "dnsBlocklist", "launchDaemon",
               "claudeCode", "credentials"} \ {changing}:
         TRUE  \* placeholder — we use explicit UNCHANGED in each step instead
@@ -214,7 +217,7 @@ BeginSetup ==
     /\ phase'         = "setting_up"
     /\ setupStep'     = 0
     /\ setupAttempts' = setupAttempts + 1
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials, rollbackAttempts,
                     rollbackStep, rollbackMode>>
@@ -222,26 +225,26 @@ BeginSetup ==
 SetupStepSucceed ==
     /\ phase = "setting_up"
     /\ setupStep < 15
-    /\ \/ (setupStep = 0  /\ agentUser'      = TRUE /\ UNCHANGED <<devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 1  /\ devGroup'       = TRUE /\ UNCHANGED <<agentUser, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 2  /\ homeDirTraverse' = TRUE /\ UNCHANGED <<agentUser, devGroup, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 3  /\ localRepo'      = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 4  /\ umask'          = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 5  /\ seatbelt'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 6  /\ wrappers'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+    /\ \/ (setupStep = 0  /\ agentUser'      = TRUE /\ UNCHANGED <<devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 1  /\ devGroup'       = TRUE /\ UNCHANGED <<agentUser, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 2  /\ homeDirTraverse' = TRUE /\ UNCHANGED <<agentUser, devGroup, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 3  /\ localRepo'      = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 4  /\ umask'          = TRUE /\ hostCredentialModes' = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 5  /\ seatbelt'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 6  /\ wrappers'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \* Steps 7-9: Network containment BEFORE privilege grant.
-       \/ (setupStep = 7  /\ pfAnchor'      = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 8  /\ dnsBlocklist'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 9  /\ launchDaemon'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
+       \/ (setupStep = 7  /\ pfAnchor'      = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 8  /\ dnsBlocklist'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 9  /\ launchDaemon'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
        \* Step 10: verify launchHelper exists — does NOT create it.
-       \/ (setupStep = 10 /\ launchHelper           /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 10 /\ launchHelper           /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \* Step 11: narrow privilege granted after all containment is active.
-       \/ (setupStep = 11 /\ sudoers'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 11 /\ sudoers'       = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
        \* Step 12: optional broader agent-maintenance sudoers rule.
        \/ (setupStep = 12 /\ maintenanceSudoers' \in {maintenanceSudoers, TRUE}
-                          /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (setupStep = 13 /\ claudeCode'    = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, credentials>>)
-       \/ (setupStep = 14 /\ credentials'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode>>)
+                          /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (setupStep = 13 /\ claudeCode'    = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, credentials>>)
+       \/ (setupStep = 14 /\ credentials'   = TRUE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode>>)
     /\ setupStep' = setupStep + 1
     /\ UNCHANGED <<phase, setupAttempts, rollbackAttempts, rollbackStep, rollbackMode>>
 
@@ -249,7 +252,7 @@ SetupComplete ==
     /\ phase = "setting_up"
     /\ setupStep = 15
     /\ phase' = "idle"
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts, rollbackAttempts,
@@ -261,7 +264,7 @@ SetupStepFail ==
     /\ \/ (setupStep = 10 /\ ~launchHelper)  \* deterministic fail if helper absent
        \/ setupStep /= 10                     \* any other step can fail randomly
     /\ phase' = "idle"
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts, rollbackAttempts,
@@ -284,6 +287,7 @@ SetupStepFail ==
 \*  Step 10: devGroup         optional rollbackDevGroup   — only with --delete-group
 \*
 \* Does NOT remove: launchHelper (external binary).
+\* Does NOT roll back: hostCredentialModes (persistent host hardening, not a Hazmat artifact).
 \* Does NOT remove: claudeCode/credentials (removed only with --delete-user).
 \* ═══════════════════════════════════════════════════════════════════════════════
 
@@ -295,7 +299,7 @@ BeginRollback ==
     /\ rollbackAttempts' = rollbackAttempts + 1
     /\ \/ rollbackMode' = "core"
        \/ rollbackMode' = "destructive"
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts>>
@@ -303,15 +307,15 @@ BeginRollback ==
 RollbackCore ==
     /\ phase = "rolling_back"
     /\ rollbackStep < 9
-    /\ \/ (rollbackStep = 0 /\ sudoers' = FALSE /\ maintenanceSudoers' = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 1 /\ launchDaemon'   = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
-       \/ (rollbackStep = 2 /\ pfAnchor'      = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 3 /\ dnsBlocklist'   = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 4 /\ seatbelt'       = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 5 /\ wrappers'       = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 6 /\ homeDirTraverse' = FALSE /\ UNCHANGED <<agentUser, devGroup, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 7 /\ umask'          = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
-       \/ (rollbackStep = 8 /\ localRepo'      = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+    /\ \/ (rollbackStep = 0 /\ sudoers' = FALSE /\ maintenanceSudoers' = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 1 /\ launchDaemon'   = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, claudeCode, credentials>>)
+       \/ (rollbackStep = 2 /\ pfAnchor'      = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 3 /\ dnsBlocklist'   = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 4 /\ seatbelt'       = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 5 /\ wrappers'       = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 6 /\ homeDirTraverse' = FALSE /\ UNCHANGED <<agentUser, devGroup, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 7 /\ umask'          = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+       \/ (rollbackStep = 8 /\ localRepo'      = FALSE /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
     /\ rollbackStep' = rollbackStep + 1
     /\ UNCHANGED <<phase, setupStep, setupAttempts, rollbackAttempts, rollbackMode>>
 
@@ -322,9 +326,9 @@ RollbackDestructive ==
     /\ rollbackStep >= 9
     /\ rollbackStep < 11
     /\ \/ (rollbackStep = 9  /\ agentUser'    = FALSE /\ claudeCode' = FALSE /\ credentials' = FALSE
-                             /\ UNCHANGED <<devGroup, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon>>)
+                             /\ UNCHANGED <<devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon>>)
        \/ (rollbackStep = 10 /\ devGroup'     = FALSE
-                             /\ UNCHANGED <<agentUser, homeDirTraverse, localRepo, umask, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
+                             /\ UNCHANGED <<agentUser, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt, wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist, launchDaemon, claudeCode, credentials>>)
     /\ rollbackStep' = rollbackStep + 1
     /\ UNCHANGED <<phase, setupStep, setupAttempts, rollbackAttempts, rollbackMode>>
 
@@ -334,7 +338,7 @@ RollbackComplete ==
        \/ (rollbackMode = "destructive" /\ rollbackStep = 11)
     /\ phase' = "idle"
     /\ rollbackMode' = "none"
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts, rollbackAttempts, rollbackStep>>
@@ -343,7 +347,7 @@ RollbackInterrupt ==
     /\ phase = "rolling_back"
     /\ phase' = "idle"
     /\ rollbackMode' = "none"
-    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, seatbelt,
+    /\ UNCHANGED <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
                     wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                     launchDaemon, claudeCode, credentials,
                     setupStep, setupAttempts, rollbackAttempts, rollbackStep>>

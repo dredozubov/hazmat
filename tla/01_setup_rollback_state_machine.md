@@ -3,10 +3,11 @@
 ## Problem Statement
 
 Hazmat setup creates core system resources in a fixed order: agent user, dev
-group, home-directory traverse ACL, local snapshot repository, umask,
-seatbelt wrapper, command wrappers, pf firewall, DNS blocklist, LaunchDaemon,
-launch helper verification, sudoers, default Claude bootstrap, and agent
-credentials. Rollback removes the host-managed resources in reverse-safe order.
+group, home-directory traverse ACL, local snapshot repository, hardening
+repairs, seatbelt wrapper, command wrappers, pf firewall, DNS blocklist,
+LaunchDaemon, launch helper verification, sudoers, default Claude bootstrap,
+and agent credentials. Rollback removes the host-managed resources in
+reverse-safe order.
 
 The interesting correctness questions are NOT about concurrency (setup is
 sequential) but about the **state machine** formed by all possible
@@ -44,7 +45,7 @@ Step  0: setupAgentUser        → agentUser
 Step  1: setupDevGroup         → devGroup
 Step  2: setupHomeDirTraverse  → homeDirTraverse
 Step  3: setupLocalRepo        → localRepo
-Step  4: setupHardeningGaps    → umask
+Step  4: setupHardeningGaps    → umask + hostCredentialModes
 Step  5: setupSeatbelt         → seatbelt
 Step  6: setupUserExperience   → wrappers
 Step  7: setupPfFirewall       → pfAnchor      ← firewall activates
@@ -93,7 +94,13 @@ and how many setup/rollback attempts have occurred.
    Modeling them as one atomic step is safe because the real code always
    completes all steps.
 
-4. **Harness/session ergonomics are outside this setup model.** Optional
+4. **Host credential mode repairs are persistent hardening.** Step 4 models
+   owner-only mode repairs for existing host credential paths separately from
+   the managed umask block. Core rollback removes the managed umask block but
+   intentionally preserves owner-only credential modes because they are host
+   security posture, not a Hazmat artifact.
+
+5. **Harness/session ergonomics are outside this setup model.** Optional
    harness-specific commands such as `hazmat bootstrap opencode`, curated
    import flows, and session-only integration activation are not part of
    `runInit()`. They are modeled separately where applicable and are still
@@ -115,7 +122,7 @@ broader maintenance sudoers rule at step 12 behind the same containment gate. Th
 `user agent` rules only require the agent user to exist (step 0).
 
 **TLC confirmation:** After fix, `AgentContained` and `CanAlwaysReachClean`
-pass across all 33,135 distinct states (62,148 generated). The agent is never
+pass across all 35,005 distinct states (65,662 generated). The agent is never
 launchable without firewall containment in any reachable state, even when the
 optional broader maintenance sudoers rule is present, and the bounded model
 still guarantees a path back to a clean state.
@@ -145,6 +152,6 @@ exit, not eventual successful completion after arbitrary bounded failures.
 | `MaxSetupAttempts` | 2 | Covers: first setup fails, re-run succeeds |
 | `MaxRollbackAttempts` | 2 | Covers: rollback after first setup, then after re-setup |
 
-**Confirmed state space:** 62,148 states generated, 33,135 distinct. Runtime: ~1 second
+**Confirmed state space:** 65,662 states generated, 35,005 distinct. Runtime: ~3 seconds
 with `-lncheck final`. All checked safety invariants plus `CanAlwaysReachClean`
 pass after the fix.

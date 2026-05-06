@@ -131,8 +131,8 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 3. **Rollback:** Reordered so all sudoers privilege is removed first, before firewall/dns/daemon.
 
 The principle: **grant privilege last, revoke privilege first.**
-`AgentContained` and `CanAlwaysReachClean` now pass across all 33,135 reachable
-states (62,148 generated, ~1s with liveness enabled).
+`AgentContained` and `CanAlwaysReachClean` now pass across all 35,005 reachable
+states (65,662 generated, ~3s with liveness enabled).
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -145,6 +145,10 @@ successful completion after arbitrary bounded failures.
   `AgentContained` before committing.
 - Adding a new setup step requires adding the corresponding resource variable
   and updating `SetupStepSucceed` / `RollbackCore` / `RollbackDestructive`.
+- Adding a new persistent mutation inside an existing setup step still requires
+  updating the model first when the step is in governed `hazmat/init.go`.
+  If rollback intentionally preserves the mutation, document that boundary in
+  the setup/rollback spec instead of treating it as an unmodeled side effect.
 - Adding a new privilege-granting artifact requires extending `AgentContained`
   and the rollback-first privilege revocation logic, not just the setup path.
 - Adding a new rollback step (e.g., a new `--delete-X` flag) requires a new

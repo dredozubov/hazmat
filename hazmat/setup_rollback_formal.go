@@ -7,6 +7,7 @@ const (
 	tlaResourceDevGroup           setupRollbackTLAResource = "devGroup"
 	tlaResourceHomeDirTraverse    setupRollbackTLAResource = "homeDirTraverse"
 	tlaResourceLocalRepo          setupRollbackTLAResource = "localRepo"
+	tlaResourceHardeningGaps      setupRollbackTLAResource = "umask+hostCredentialModes"
 	tlaResourceUmask              setupRollbackTLAResource = "umask"
 	tlaResourceSeatbelt           setupRollbackTLAResource = "seatbelt"
 	tlaResourceWrappers           setupRollbackTLAResource = "wrappers"

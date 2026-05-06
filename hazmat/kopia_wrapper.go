@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -225,7 +226,17 @@ func snapshotDir(ctx context.Context, r repo.DirectRepository, sourcePath, descr
 // listSnapshots returns all snapshots for the given source path, newest last.
 func listSnapshots(ctx context.Context, r repo.Repository, sourcePath string) ([]*snapshot.Manifest, error) {
 	si := localSourceInfo(sourcePath)
-	return snapshot.ListSnapshots(ctx, r, si)
+	snapshots, err := snapshot.ListSnapshots(ctx, r, si)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].StartTime.Equal(snapshots[j].StartTime) {
+			return snapshots[i].ID < snapshots[j].ID
+		}
+		return snapshots[i].StartTime.Before(snapshots[j].StartTime)
+	})
+	return snapshots, nil
 }
 
 // restoreSnapshotTo restores a snapshot to destPath.
@@ -256,8 +267,9 @@ func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapsho
 	}
 
 	stats, err := restore.Entry(ctx, r, output, rootEntry, restore.Options{
-		Parallel:              8,
-		MinSizeForPlaceholder: 1 << 30, // 1 GiB — avoid .kopia-entry placeholders
+		Parallel:               8,
+		RestoreDirEntryAtDepth: 1 << 30, // restore nested directories instead of shallow .kopia-entry placeholders
+		MinSizeForPlaceholder:  1 << 30, // 1 GiB — avoid .kopia-entry placeholders
 	})
 	if err != nil {
 		return nil, fmt.Errorf("restore: %w", err)

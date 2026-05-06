@@ -620,6 +620,19 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 		ui.SkipDone("Docker socket not found (Docker Desktop not running or not installed)")
 	}
 
+	if fixed, skipped, err := hardenHostCredentialPaths(r, os.Getenv("HOME")); err != nil {
+		return err
+	} else {
+		for _, path := range skipped {
+			ui.WarnMsg(fmt.Sprintf("Host credential path is a symlink; leaving unchanged: %s", path))
+		}
+		if fixed == 0 {
+			ui.SkipDone("Host credential paths already restricted")
+		} else {
+			ui.Ok(fmt.Sprintf("Restricted %d host credential path(s) to owner-only access", fixed))
+		}
+	}
+
 	// Restrictive umask for agent user — use a managed block so rollback is precise.
 	agentZshrc := agentHome + "/.zshrc"
 	agentZshrcData, _ := r.SudoOutput("cat", agentZshrc)
@@ -640,6 +653,74 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	ui.SkipDone("Host shell umask left unchanged")
 
 	return nil
+}
+
+type hostCredentialHardeningSpec struct {
+	rel      string
+	dirMode  os.FileMode
+	fileMode os.FileMode
+}
+
+type hostCredentialHardeningTarget struct {
+	path string
+	mode os.FileMode
+}
+
+var hostCredentialHardeningSpecs = []hostCredentialHardeningSpec{
+	{rel: ".ssh", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".aws", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".gnupg", dirMode: 0o700, fileMode: 0o600},
+	{rel: "Library/Keychains", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".config/gh", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".docker", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".kube", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".netrc", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".m2/settings.xml", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".config/gcloud", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".azure", dirMode: 0o700, fileMode: 0o600},
+	{rel: ".oci", dirMode: 0o700, fileMode: 0o600},
+}
+
+func hostCredentialHardeningTargets(home string) ([]hostCredentialHardeningTarget, []string) {
+	var targets []hostCredentialHardeningTarget
+	var skippedSymlinks []string
+	for _, spec := range hostCredentialHardeningSpecs {
+		path := filepath.Join(home, filepath.FromSlash(spec.rel))
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			skippedSymlinks = append(skippedSymlinks, path)
+			continue
+		}
+
+		mode := spec.fileMode
+		if info.IsDir() {
+			mode = spec.dirMode
+		}
+		if mode == 0 || info.Mode().Perm() == mode {
+			continue
+		}
+		targets = append(targets, hostCredentialHardeningTarget{
+			path: path,
+			mode: mode,
+		})
+	}
+	return targets, skippedSymlinks
+}
+
+func hardenHostCredentialPaths(r *Runner, home string) (int, []string, error) {
+	targets, skippedSymlinks := hostCredentialHardeningTargets(home)
+	for _, target := range targets {
+		if err := r.Chmod(target.path, target.mode); err != nil {
+			return 0, skippedSymlinks, fmt.Errorf("chmod host credential path %s: %w", target.path, err)
+		}
+	}
+	return len(targets), skippedSymlinks, nil
 }
 
 // ── Step 5: Seatbelt wrapper ──────────────────────────────────────────────────

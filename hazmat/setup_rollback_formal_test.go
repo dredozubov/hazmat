@@ -18,7 +18,7 @@ func TestInitSetupStepsMatchMCSetupRollbackResources(t *testing.T) {
 		tlaResourceDevGroup,
 		tlaResourceHomeDirTraverse,
 		tlaResourceLocalRepo,
-		tlaResourceUmask,
+		tlaResourceHardeningGaps,
 		tlaResourceSeatbelt,
 		tlaResourceWrappers,
 		tlaResourcePfAnchor,

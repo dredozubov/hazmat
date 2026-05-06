@@ -36,6 +36,21 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## TLA+ Governance
+
+Changes in verified areas must start from the TLA+ model. For setup/init,
+rollback, seatbelt policy, credential delivery, session permission repair,
+launch fd isolation, and other areas listed in `tla/VERIFIED.md`:
+
+1. Update the relevant `tla/MC_*.tla` model and companion `.md` design note first.
+2. Run TLC for the affected spec and confirm "No error has been found."
+3. Only then update the implementation/tests to match the proved design.
+
+For `hazmat/init.go` specifically, adding a setup step, changing step order, or
+adding a persistent mutation inside an existing setup step requires model work
+first. If rollback intentionally preserves the mutation, document that boundary
+in the setup/rollback spec.
+
 <!-- BEGIN BEADS INTEGRATION -->
 ## Issue Tracking with bd (beads)
 
