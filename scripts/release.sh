@@ -649,3 +649,6 @@ RESTORE_CHANGELOG_ON_EXIT=0
 echo ""
 echo "Done. Watch the release workflow:"
 echo "  https://github.com/dredozubov/hazmat/actions"
+echo ""
+echo "The workflow publishes the Homebrew formula and metadata/hazmat-release.json"
+echo "in the same tap commit; Hazmat update notifications are gated on that metadata."

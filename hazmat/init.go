@@ -211,6 +211,7 @@ func runStatus(full bool) error {
 		fmt.Println("  Next step: hazmat init")
 	}
 	fmt.Println()
+	maybeNotifyUpdateAvailable(os.Stderr)
 
 	if full {
 		ui := &UI{}

@@ -131,6 +131,17 @@ jobs:
           sed -i "s/version \"0.0.0\"/version \"${BARE}\"/" Formula/hazmat.rb
           sed -i "s/PLACEHOLDER_ARM64/${SHA_ARM64}/" Formula/hazmat.rb
           sed -i "s/PLACEHOLDER_AMD64/${SHA_AMD64}/" Formula/hazmat.rb
+          mkdir -p metadata
+          cat > metadata/hazmat-release.json <<EOF
+          {
+            "version": "${TAG}",
+            "release_url": "https://github.com/dredozubov/hazmat/releases/tag/${TAG}",
+            "formula": "dredozubov/tap/hazmat",
+            "upgrade_command": "brew update && brew upgrade dredozubov/tap/hazmat",
+            "published_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "source": "homebrew-tap"
+          }
+          EOF
 
       - name: Push tap update
         env:
@@ -141,6 +152,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/dredozubov/homebrew-tap.git"
-          git add Formula/hazmat.rb
+          git add Formula/hazmat.rb metadata/hazmat-release.json
           git commit -m "hazmat ${TAG}"
           git push
