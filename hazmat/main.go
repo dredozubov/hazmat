@@ -62,6 +62,8 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			maybeNotifyUpdateAvailable(os.Stderr)
+			defer maybeNotifyUpdateAvailable(os.Stderr)
 			// No subcommand: show status checklist + hint to use --help.
 			if err := runStatus(false); err != nil {
 				return err
@@ -80,30 +82,30 @@ func main() {
 		"Answer yes to all prompts (for non-interactive / scripted use)")
 
 	// ── Setup ──
-	initCmd := newInitCmd()
+	initCmd := withUpdateNotifications(newInitCmd())
 	initCmd.GroupID = "setup"
 	initCmd.AddCommand(newInitCloudCmd())
-	bootstrapCmd := newBootstrapCmd()
+	bootstrapCmd := withUpdateNotifications(newBootstrapCmd())
 	bootstrapCmd.GroupID = "setup"
-	rollbackCmd := newRollbackCmd()
+	rollbackCmd := withUpdateNotifications(newRollbackCmd())
 	rollbackCmd.GroupID = "setup"
-	checkCmd := newInitCheckCmd()
+	checkCmd := withUpdateNotifications(newInitCheckCmd())
 	checkCmd.GroupID = "setup"
 	sandboxCmd := newSandboxCmd()
 	sandboxCmd.GroupID = "setup"
 
 	// ── Run agents ──
-	claudeCmd := newClaudeCmd()
+	claudeCmd := withUpdateNotifications(newClaudeCmd())
 	claudeCmd.GroupID = "run"
-	codexCmd := newCodexCmd()
+	codexCmd := withUpdateNotifications(newCodexCmd())
 	codexCmd.GroupID = "run"
-	opencodeCmd := newOpenCodeCmd()
+	opencodeCmd := withUpdateNotifications(newOpenCodeCmd())
 	opencodeCmd.GroupID = "run"
-	geminiCmd := newGeminiCmd()
+	geminiCmd := withUpdateNotifications(newGeminiCmd())
 	geminiCmd.GroupID = "run"
-	shellCmd := newShellCmd()
+	shellCmd := withUpdateNotifications(newShellCmd())
 	shellCmd.GroupID = "run"
-	execCmd := newExecCmd()
+	execCmd := withUpdateNotifications(newExecCmd())
 	execCmd.GroupID = "run"
 	explainCmd := newExplainCmd()
 	explainCmd.GroupID = "run"
@@ -125,7 +127,7 @@ func main() {
 	integrationCmd.GroupID = "ws"
 	backupCmd := newBackupCmd()
 	backupCmd.GroupID = "ws"
-	statusCmd := newStatusCmd()
+	statusCmd := withUpdateNotifications(newStatusCmd())
 	statusCmd.GroupID = "ws"
 	exportCmd := newExportCmd()
 	exportCmd.GroupID = "ws"

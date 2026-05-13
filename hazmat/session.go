@@ -1050,7 +1050,6 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 }
 
 func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
-	maybeNotifyUpdateAvailable(os.Stderr)
 	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
 	printRepoSetupDetails(prepared.Config.RepoSetup)
 	printSessionMutationDetails(prepared.Config.PlannedHostMutations)

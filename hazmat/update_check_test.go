@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func isolateUpdateCheck(t *testing.T) {
@@ -80,8 +82,8 @@ func TestMaybeNotifyUpdateAvailableUsesTapMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read update state: %v", err)
 	}
-	if state.Latest.Version != "v0.8.0" || state.LastNotifiedVersion != "v0.8.0" {
-		t.Fatalf("state = %+v, want latest/notified v0.8.0", state)
+	if state.Latest.Version != "v0.8.0" || state.CheckedAt == "" {
+		t.Fatalf("state = %+v, want latest v0.8.0 with checked_at", state)
 	}
 }
 
@@ -115,15 +117,13 @@ func TestMaybeNotifyUpdateAvailableDoesNotCallBrew(t *testing.T) {
 	}
 }
 
-func TestMaybeNotifyUpdateAvailableThrottlesChecksAndNotifications(t *testing.T) {
+func TestMaybeNotifyUpdateAvailableUsesCachedMetadataWhenCheckNotDue(t *testing.T) {
 	isolateUpdateCheck(t)
 
 	now := updateCheckNow()
 	state := updateCheckState{
-		CheckedAt:           now.Add(-time.Hour).Format(time.RFC3339),
-		Latest:              updateReleaseMetadata{Version: "v0.8.0"},
-		LastNotifiedVersion: "v0.8.0",
-		LastNotifiedAt:      now.Add(-time.Hour).Format(time.RFC3339),
+		CheckedAt: now.Add(-time.Hour).Format(time.RFC3339),
+		Latest:    updateReleaseMetadata{Version: "v0.8.0"},
 	}
 	if err := writeUpdateCheckState(state); err != nil {
 		t.Fatalf("write update state: %v", err)
@@ -131,8 +131,67 @@ func TestMaybeNotifyUpdateAvailableThrottlesChecksAndNotifications(t *testing.T)
 
 	var out bytes.Buffer
 	maybeNotifyUpdateAvailable(&out)
-	if out.Len() != 0 {
-		t.Fatalf("notification = %q, want none", out.String())
+	if !strings.Contains(out.String(), "hazmat: v0.8.0 is available") {
+		t.Fatalf("notification = %q, want cached update", out.String())
+	}
+}
+
+func TestWithUpdateNotificationsPrintsAtStartAndExit(t *testing.T) {
+	isolateUpdateCheck(t)
+
+	state := updateCheckState{
+		CheckedAt: updateCheckNow().Format(time.RFC3339),
+		Latest:    updateReleaseMetadata{Version: "v0.8.0"},
+	}
+	if err := writeUpdateCheckState(state); err != nil {
+		t.Fatalf("write update state: %v", err)
+	}
+
+	cmd := withUpdateNotifications(&cobra.Command{
+		Use:  "test-command",
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return nil
+		},
+	})
+	stderr := captureStderr(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute command: %v", err)
+		}
+	})
+
+	if got := strings.Count(stderr, "hazmat: v0.8.0 is available"); got != 2 {
+		t.Fatalf("notification count = %d, want 2\n%s", got, stderr)
+	}
+}
+
+func TestWithUpdateNotificationsSkipsHelpArgs(t *testing.T) {
+	isolateUpdateCheck(t)
+
+	state := updateCheckState{
+		CheckedAt: updateCheckNow().Format(time.RFC3339),
+		Latest:    updateReleaseMetadata{Version: "v0.8.0"},
+	}
+	if err := writeUpdateCheckState(state); err != nil {
+		t.Fatalf("write update state: %v", err)
+	}
+
+	cmd := withUpdateNotifications(&cobra.Command{
+		Use:                "test-command",
+		DisableFlagParsing: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return nil
+		},
+	})
+	cmd.SetArgs([]string{"--help"})
+	stderr := captureStderr(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute command: %v", err)
+		}
+	})
+
+	if strings.Contains(stderr, "hazmat: v0.8.0 is available") {
+		t.Fatalf("help notification = %q, want none", stderr)
 	}
 }
 

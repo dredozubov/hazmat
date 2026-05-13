@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
 const (
-	defaultUpdateCheckURL      = "https://raw.githubusercontent.com/dredozubov/homebrew-tap/master/metadata/hazmat-release.json"
-	updateCheckInterval        = 24 * time.Hour
-	updateNotificationInterval = 24 * time.Hour
-	updateCheckTimeout         = 800 * time.Millisecond
+	defaultUpdateCheckURL = "https://raw.githubusercontent.com/dredozubov/homebrew-tap/master/metadata/hazmat-release.json"
+	updateCheckInterval   = 24 * time.Hour
+	updateCheckTimeout    = 800 * time.Millisecond
 )
 
 type updateReleaseMetadata struct {
@@ -32,10 +32,8 @@ type updateReleaseMetadata struct {
 }
 
 type updateCheckState struct {
-	CheckedAt           string                `json:"checked_at,omitempty"`
-	Latest              updateReleaseMetadata `json:"latest,omitempty"`
-	LastNotifiedVersion string                `json:"last_notified_version,omitempty"`
-	LastNotifiedAt      string                `json:"last_notified_at,omitempty"`
+	CheckedAt string                `json:"checked_at,omitempty"`
+	Latest    updateReleaseMetadata `json:"latest,omitempty"`
 }
 
 var (
@@ -59,13 +57,10 @@ func maybeNotifyUpdateAvailable(w io.Writer) {
 
 	now := updateCheckNow().UTC()
 	state, _ := readUpdateCheckState()
-	notifiedVersion := ""
-	if updateMetadataNewerThan(state.Latest, current) && shouldNotifyForUpdate(state, state.Latest.Version, now) {
+	printedVersion := ""
+	if updateMetadataNewerThan(state.Latest, current) {
 		printUpdateNotification(w, state.Latest, current)
-		state.LastNotifiedVersion = canonicalUpdateVersion(state.Latest.Version)
-		state.LastNotifiedAt = now.Format(time.RFC3339)
-		notifiedVersion = state.LastNotifiedVersion
-		_ = writeUpdateCheckState(state)
+		printedVersion = canonicalUpdateVersion(state.Latest.Version)
 	}
 
 	if !updateCheckDue(state, now) {
@@ -78,14 +73,51 @@ func maybeNotifyUpdateAvailable(w io.Writer) {
 		state.Latest = latest
 		latestVersion := canonicalUpdateVersion(latest.Version)
 		if updateMetadataNewerThan(latest, current) &&
-			latestVersion != notifiedVersion &&
-			shouldNotifyForUpdate(state, latest.Version, now) {
+			latestVersion != printedVersion {
 			printUpdateNotification(w, latest, current)
-			state.LastNotifiedVersion = latestVersion
-			state.LastNotifiedAt = now.Format(time.RFC3339)
 		}
 	}
 	_ = writeUpdateCheckState(state)
+}
+
+func withUpdateNotifications(cmd *cobra.Command) *cobra.Command {
+	runE := cmd.RunE
+	run := cmd.Run
+	if runE != nil {
+		cmd.RunE = func(cmd *cobra.Command, args []string) (err error) {
+			if skipUpdateNotificationForArgs(args) {
+				return runE(cmd, args)
+			}
+			maybeNotifyUpdateAvailable(os.Stderr)
+			defer maybeNotifyUpdateAvailable(os.Stderr)
+			return runE(cmd, args)
+		}
+		return cmd
+	}
+	if run != nil {
+		cmd.Run = func(cmd *cobra.Command, args []string) {
+			if skipUpdateNotificationForArgs(args) {
+				run(cmd, args)
+				return
+			}
+			maybeNotifyUpdateAvailable(os.Stderr)
+			defer maybeNotifyUpdateAvailable(os.Stderr)
+			run(cmd, args)
+		}
+	}
+	return cmd
+}
+
+func skipUpdateNotificationForArgs(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldRunUpdateNotifier() bool {
@@ -137,21 +169,6 @@ func updateCheckDue(state updateCheckState, now time.Time) bool {
 		return false
 	}
 	return now.Sub(checkedAt) >= updateCheckInterval
-}
-
-func shouldNotifyForUpdate(state updateCheckState, latestVersion string, now time.Time) bool {
-	latestVersion = canonicalUpdateVersion(latestVersion)
-	if latestVersion == "" || state.LastNotifiedVersion != latestVersion || state.LastNotifiedAt == "" {
-		return true
-	}
-	lastNotifiedAt, err := time.Parse(time.RFC3339, state.LastNotifiedAt)
-	if err != nil {
-		return true
-	}
-	if lastNotifiedAt.After(now) {
-		return false
-	}
-	return now.Sub(lastNotifiedAt) >= updateNotificationInterval
 }
 
 func printUpdateNotification(w io.Writer, latest updateReleaseMetadata, current string) {

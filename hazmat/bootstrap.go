@@ -124,10 +124,10 @@ Subcommands:
 			return claudeCodeHarness.Bootstrap(ui, r)
 		},
 	}
-	cmd.AddCommand(newBootstrapClaudeCmd())
-	cmd.AddCommand(newBootstrapCodexCmd())
-	cmd.AddCommand(newBootstrapOpenCodeCmd())
-	cmd.AddCommand(newBootstrapGeminiCmd())
+	cmd.AddCommand(withUpdateNotifications(newBootstrapClaudeCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapCodexCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapOpenCodeCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapGeminiCmd()))
 	return cmd
 }
 
