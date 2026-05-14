@@ -89,6 +89,12 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "ghc/cabal runtime probe with Darwin Homebrew ghc and cabal-install fallback",
 		Resolve: resolveHaskellCabalIntegration,
 	},
+	"python-pip": {
+		Summary: "python runtime probe with Darwin Homebrew python fallback; keeps pip cache dirs from manifest",
+		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+			return resolvePythonIntegration(ctx, spec, "python-pip")
+		},
+	},
 	"python-poetry": {
 		Summary:                  "python runtime probe with Darwin Homebrew python fallback",
 		ReplacesDeclaredReadDirs: true,

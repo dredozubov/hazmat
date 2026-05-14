@@ -145,8 +145,9 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `go` | `go.mod` | resolved `GOROOT` | `GOPATH`, `GOPROXY`, `GOPRIVATE`, `CGO_ENABLED` | `vendor/` |
 | `haskell-cabal` | `cabal.project`, `*.cabal`, `stack.yaml` | resolved GHC and Cabal prefixes | — | `dist-newstyle/`, `.stack-work/` |
 | `node` | `package.json` | resolved Node prefix; Darwin declares `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
+| `python-pip` | `requirements.txt` (when neither `uv.lock` nor `poetry.lock` is at root) | `~/.cache/pip`, `~/Library/Caches/pip`, `~/.local/lib`; resolved Python prefix | `VIRTUAL_ENV` | `.venv/`, `venv/`, `env/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/`, `build/` |
 | `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
-| `python-uv` | `uv.lock` | `~/.local/share/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
+| `python-uv` | `uv.lock` | `~/.local/share/uv`, `~/.cache/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.uv-cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `rust` | `Cargo.toml` | resolved Rust sysroot | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
 | `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | resolved JDK home and Gradle prefix | `JAVA_HOME` | `.gradle/`, `build/`, `out/`, `target/`, `*.class` |
 | `java-maven` | `pom.xml` | resolved JDK home and Maven prefix | `JAVA_HOME` | `target/`, `*.class` |

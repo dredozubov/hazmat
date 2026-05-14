@@ -1,0 +1,33 @@
+integration:
+  name: python-pip
+  version: 1
+  description: Python project using plain pip + venv/virtualenv
+
+detect:
+  files: [requirements.txt]
+
+session:
+  read_dirs:
+    - ~/.cache/pip
+    - ~/Library/Caches/pip
+    - ~/.local/lib
+  env_passthrough: [VIRTUAL_ENV]
+
+backup:
+  excludes:
+    - .venv/
+    - venv/
+    - env/
+    - __pycache__/
+    - .pytest_cache/
+    - .mypy_cache/
+    - .ruff_cache/
+    - "*.pyc"
+    - dist/
+    - "*.egg-info/"
+    - build/
+
+commands:
+  test: python -m pytest
+  lint: python -m ruff check .
+  format: python -m ruff format .

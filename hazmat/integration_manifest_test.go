@@ -731,6 +731,100 @@ func TestSuggestIntegrationsSkipsAuxiliaryPlaygroundAndScriptsMarkers(t *testing
 	}
 }
 
+func TestSuggestIntegrationsPythonPipFiresOnPlainRequirements(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundPip := false
+	for _, s := range suggestions {
+		if s == "python-pip" {
+			foundPip = true
+		}
+		if s == "python-uv" || s == "python-poetry" {
+			t.Fatalf("did not expect %q on a plain requirements.txt project, got %v", s, suggestions)
+		}
+	}
+	if !foundPip {
+		t.Fatalf("expected python-pip suggestion for requirements.txt at root, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsPythonPipDefersToUvLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "uv.lock"), []byte("version = 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "python-pip" {
+			t.Fatalf("did not expect python-pip suggestion when uv.lock is present, got %v", suggestions)
+		}
+	}
+	foundUv := false
+	for _, s := range suggestions {
+		if s == "python-uv" {
+			foundUv = true
+		}
+	}
+	if !foundUv {
+		t.Fatalf("expected python-uv suggestion to remain, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "poetry.lock"), []byte("[[package]]\nname = \"requests\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "python-pip" {
+			t.Fatalf("did not expect python-pip suggestion when poetry.lock is present, got %v", suggestions)
+		}
+	}
+	foundPoetry := false
+	for _, s := range suggestions {
+		if s == "python-poetry" {
+			foundPoetry = true
+		}
+	}
+	if !foundPoetry {
+		t.Fatalf("expected python-poetry suggestion to remain, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsPythonPipSkipsAuxiliaryPlaygroundRequirements(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[workspace]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	playgroundDir := filepath.Join(dir, "playground")
+	if err := os.MkdirAll(playgroundDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(playgroundDir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, s := range suggestions {
+		if s == "python-pip" {
+			t.Fatalf("did not expect python-pip suggestion from auxiliary playground/requirements.txt, got %v", suggestions)
+		}
+	}
+}
+
 func TestSuggestIntegrationsMatchesPreferredNestedRustDirs(t *testing.T) {
 	dir := t.TempDir()
 	cratesDir := filepath.Join(dir, "crates", "core")

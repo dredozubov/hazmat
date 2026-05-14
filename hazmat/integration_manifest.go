@@ -729,6 +729,15 @@ var integrationDetectPreferredTopLevelDirs = map[string]map[string]struct{}{
 		"ui":       {},
 		"web":      {},
 	},
+	"python-pip": {
+		"api":     {},
+		"app":     {},
+		"apps":    {},
+		"backend": {},
+		"server":  {},
+		"service": {},
+		"worker":  {},
+	},
 	"python-poetry": {
 		"api":     {},
 		"app":     {},
@@ -920,6 +929,20 @@ func integrationSuggestionMatchesIndex(index projectDetectIndex, spec Integratio
 		return false
 	case "tla-java":
 		return index.hasFileWithSiblingPattern("*.cfg", "*.tla")
+	case "python-pip":
+		// Defer to python-uv / python-poetry when their lock files are present
+		// at root; otherwise suggest python-pip from any requirements.txt match.
+		for _, lock := range []string{"uv.lock", "poetry.lock"} {
+			if index.rootMatchesDetectFile(lock) {
+				return false
+			}
+		}
+		for _, f := range spec.Detect.Files {
+			if index.matchesDetectFile(spec.Meta.Name, f) {
+				return true
+			}
+		}
+		return false
 	default:
 		for _, f := range spec.Detect.Files {
 			if index.matchesDetectFile(spec.Meta.Name, f) {
