@@ -1,0 +1,32 @@
+integration:
+  name: yarn
+  version: 1
+  description: JavaScript/TypeScript project using Yarn (Classic or Berry)
+
+detect:
+  files: [yarn.lock]
+
+session:
+  read_dirs:
+    - ~/.cache/yarn
+    - ~/Library/Caches/Yarn
+    - ~/.yarn
+    - ~/.local/share/yarn
+  env_passthrough: [YARN_CACHE_FOLDER]
+
+backup:
+  excludes:
+    - node_modules/
+    - .next/
+    - .turbo/
+    - .nuxt/
+    - out/
+    - .vercel/
+    - .pnp.cjs
+    - .pnp.loader.mjs
+
+commands:
+  install: yarn install
+  test: yarn test
+  build: yarn build
+  lint: yarn lint

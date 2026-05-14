@@ -112,6 +112,7 @@ var safeEnvKeys = map[string]bool{
 	"NPM_CONFIG_REGISTRY": true, // registry redirect — residual risk, surfaced in UX
 	"PNPM_HOME":           true, // path pointer to pnpm CLI install dir
 	"BUN_INSTALL":         true, // path pointer to bun install root
+	"YARN_CACHE_FOLDER":   true, // path pointer to yarn cache; explicit YARN_PLUGINS / YARN_NODE_OPTIONS stay out (flag/plugin injection)
 
 	// Python — mode flag and venv pointer
 	"VIRTUAL_ENV": true,

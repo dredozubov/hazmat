@@ -915,6 +915,51 @@ func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsYarnCoexistsWithNode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "yarn.lock"), []byte("# yarn lockfile v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundNode := false
+	foundYarn := false
+	for _, s := range suggestions {
+		if s == "node" {
+			foundNode = true
+		}
+		if s == "yarn" {
+			foundYarn = true
+		}
+	}
+	if !foundNode || !foundYarn {
+		t.Fatalf("expected both node and yarn suggestions for package.json + yarn.lock, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsYarnDoesNotExcludeZeroInstallYarnCache(t *testing.T) {
+	spec, err := loadBuiltinIntegrationSpec("yarn")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(yarn): %v", err)
+	}
+	for _, ex := range spec.Backup.Excludes {
+		if strings.HasPrefix(ex, ".yarn/cache") || ex == ".yarn/cache/" {
+			t.Fatalf("yarn manifest must not exclude .yarn/cache (zero-install repos commit it); got %v", spec.Backup.Excludes)
+		}
+	}
+}
+
+func TestSafeEnvKeysExcludesDangerousYarnKnobs(t *testing.T) {
+	for _, key := range []string{"YARN_PLUGINS", "YARN_NODE_OPTIONS", "YARN_REGISTRY"} {
+		if safeEnvKeys[key] {
+			t.Errorf("%q must not be in safeEnvKeys (plugin/flag/registry injection vector)", key)
+		}
+	}
+}
+
 func TestSuggestIntegrationsPnpmCoexistsWithNode(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
