@@ -122,6 +122,10 @@ var safeEnvKeys = map[string]bool{
 	// Ruby — path pointer only
 	"GEM_HOME": true,
 
+	// PHP — path pointers only
+	"COMPOSER_HOME":      true,
+	"COMPOSER_CACHE_DIR": true,
+
 	// Editor preference
 	"EDITOR": true,
 	"VISUAL": true,

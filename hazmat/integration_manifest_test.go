@@ -804,6 +804,24 @@ func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"name":"vendor/pkg"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "php-composer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected php-composer suggestion for composer.json at root, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPnpmCoexistsWithNode(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {

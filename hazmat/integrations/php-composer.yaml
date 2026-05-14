@@ -1,0 +1,26 @@
+integration:
+  name: php-composer
+  version: 1
+  description: PHP project using Composer
+
+detect:
+  files: [composer.json]
+
+session:
+  read_dirs:
+    - ~/.composer
+    - ~/.config/composer
+    - ~/.cache/composer
+    - ~/Library/Caches/composer
+  env_passthrough: [COMPOSER_HOME, COMPOSER_CACHE_DIR]
+
+backup:
+  excludes:
+    - vendor/
+    - .phpunit.result.cache
+    - var/cache/
+    - var/log/
+
+commands:
+  test: composer test
+  install: composer install

@@ -153,6 +153,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | resolved JDK home and Gradle prefix | `JAVA_HOME` | `.gradle/`, `build/`, `out/`, `target/`, `*.class` |
 | `java-maven` | `pom.xml` | resolved JDK home and Maven prefix | `JAVA_HOME` | `target/`, `*.class` |
 | `ruby-bundler` | `Gemfile`, `Gemfile.lock` | resolved Ruby prefix | — | `vendor/bundle/`, `.bundle/`, `tmp/`, `log/` |
+| `php-composer` | `composer.json` | `~/.composer`, `~/.config/composer`, `~/.cache/composer`, `~/Library/Caches/composer` | `COMPOSER_HOME`, `COMPOSER_CACHE_DIR` | `vendor/`, `.phpunit.result.cache`, `var/cache/`, `var/log/` |
 | `elixir-mix` | `mix.exs`, `mix.lock` | resolved Elixir and Erlang prefixes | — | `_build/`, `deps/`, `erl_crash.dump` |
 | `terraform-plan` | `*.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `opentofu-plan` | manual activation | resolved OpenTofu prefix | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
