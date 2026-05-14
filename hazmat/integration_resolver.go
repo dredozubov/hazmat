@@ -167,6 +167,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "Android SDK probe via ANDROID_HOME / ANDROID_SDK_ROOT with macOS default fallback",
 		Resolve: resolveAndroidGradleIntegration,
 	},
+	"cmake": {
+		Summary: "cmake probe with Xcode developer dir fallback for clang/clang++",
+		Resolve: resolveCMakeIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -781,6 +785,45 @@ func resolveAndroidGradleIntegration(ctx *integrationResolveContext, spec Integr
 		return result, nil
 	}
 	result.Details = append(result.Details, "android-gradle: no Android SDK found in $ANDROID_HOME, $ANDROID_SDK_ROOT, ~/Library/Android/sdk, or ~/Android/Sdk; using manifest dirs only")
+	return result, nil
+}
+
+// resolveCMakeIntegration probes the cmake binary and, on macOS, the Xcode
+// developer dir (since the default toolchain is clang from Xcode/CLT). cmake
+// itself usually lives in /opt/homebrew/bin which is in base policy; the
+// developer dir traversal grant is what unlocks symlink resolution for
+// /usr/bin/cc -> /Library/Developer/CommandLineTools/usr/bin/cc and similar.
+// Adds the cmake install prefix as AdditionalReadDirs when cmake is found
+// and the developer dir when xcode-select returns one.
+func resolveCMakeIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	cmakePath, err := ctx.Probe.LookPath("cmake")
+	if err == nil && cmakePath != "" {
+		if resolved, err := filepath.EvalSymlinks(cmakePath); err == nil && resolved != "" {
+			prefix := filepath.Dir(filepath.Dir(resolved))
+			if dir, err := validatedRuntimeDir(ctx, prefix, filepath.Join("bin", "cmake")); err == nil && dir != "" {
+				result.AdditionalReadDirs = append(result.AdditionalReadDirs, dir)
+				result.Source = "cmake (active runtime)"
+				result.Details = append(result.Details, fmt.Sprintf("cmake: resolved runtime prefix -> %s", dir))
+			}
+		}
+	} else {
+		result.Details = append(result.Details, "cmake: binary not found on PATH; using manifest dirs only")
+	}
+
+	if out, err := ctx.Probe.Output("xcode-select", "-p"); err == nil {
+		developerDir := strings.TrimSpace(out)
+		if developerDir != "" {
+			if dir, err := validatedRuntimeDir(ctx, developerDir, filepath.Join("usr", "bin", "clang")); err == nil && dir != "" {
+				result.AdditionalReadDirs = append(result.AdditionalReadDirs, dir)
+				result.ResolvedEnv["DEVELOPER_DIR"] = dir
+				result.Details = append(result.Details, fmt.Sprintf("cmake: resolved Xcode developer dir -> %s", dir))
+				if result.Source == "" {
+					result.Source = "cmake (Xcode developer dir)"
+				}
+			}
+		}
+	}
 	return result, nil
 }
 

@@ -275,6 +275,57 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsCMakeProbesBothCmakeAndDeveloperDir(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	cmakeRoot := filepath.Join(t.TempDir(), "cmake-prefix")
+	cmakePath := writeExecutable(t, cmakeRoot, "cmake")
+	canonicalCmake, err := canonicalizePath(cmakeRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(cmake): %v", err)
+	}
+
+	developerRoot := filepath.Join(t.TempDir(), "DeveloperDir")
+	if err := os.MkdirAll(filepath.Join(developerRoot, "usr", "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(developerRoot, "usr", "bin", "clang"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write clang: %v", err)
+	}
+	canonicalDev, err := canonicalizePath(developerRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(dev): %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{"cmake": cmakePath},
+			outputs:   map[string]string{"xcode-select -p": developerRoot},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("cmake")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(cmake): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	got := resolved[0].AdditionalReadDirs
+	if len(got) != 2 || got[0] != canonicalCmake || got[1] != canonicalDev {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q, %q]", got, canonicalCmake, canonicalDev)
+	}
+	if resolved[0].ResolvedEnv["DEVELOPER_DIR"] != canonicalDev {
+		t.Fatalf("DEVELOPER_DIR = %q, want %q", resolved[0].ResolvedEnv["DEVELOPER_DIR"], canonicalDev)
+	}
+	if resolved[0].Source != "cmake (active runtime)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
 func TestResolveRuntimeIntegrationsAndroidGradleProbesAndroidHome(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

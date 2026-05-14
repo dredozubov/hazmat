@@ -133,6 +133,14 @@ var safeEnvKeys = map[string]bool{
 	"ANDROID_NDK_HOME": true,
 	"GRADLE_USER_HOME": true,
 
+	// CMake / C/C++ — path pointers and build-system selector only.
+	// CC and CXX are intentionally excluded — they can carry argument
+	// strings (e.g. CXX="ccache clang++ -Werror"), which is flag injection.
+	// Users who need a non-default compiler should set it explicitly via
+	// cmake -DCMAKE_C_COMPILER=... rather than env passthrough.
+	"CMAKE_PREFIX_PATH": true, // colon-separated search path for find_package
+	"CMAKE_GENERATOR":   true, // build-system selector (Ninja / Xcode / Unix Makefiles)
+
 	// Ruby — path pointer only
 	"GEM_HOME": true,
 

@@ -1,0 +1,27 @@
+integration:
+  name: cmake
+  version: 1
+  description: C/C++ project built with CMake
+
+detect:
+  files: [CMakeLists.txt]
+
+session:
+  read_dirs:
+    - ~/.cmake
+  env_passthrough: [CMAKE_PREFIX_PATH, CMAKE_GENERATOR]
+
+backup:
+  excludes:
+    - build/
+    - cmake-build-debug/
+    - cmake-build-release/
+    - CMakeFiles/
+    - CMakeCache.txt
+    - _deps/
+    - install/
+
+commands:
+  configure: cmake -B build
+  build: cmake --build build
+  test: ctest --test-dir build --output-on-failure
