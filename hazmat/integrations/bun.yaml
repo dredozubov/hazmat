@@ -14,10 +14,21 @@ session:
 backup:
   excludes:
     - node_modules/
+    - dist/
+    - build/
+    - out/
     - .next/
     - .nuxt/
-    - dist/
-    - out/
+    - .vercel/
+    - .turbo/
+    - .vite/
+    - .svelte-kit/
+    - .astro/
+    - .angular/cache/
+    - .parcel-cache/
+    - coverage/
+    - playwright-report/
+    - test-results/
 
 commands:
   test: bun test

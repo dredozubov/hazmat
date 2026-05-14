@@ -915,6 +915,85 @@ func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
 	}
 }
 
+func TestJSPackageManagerFrontendArtifactExcludesParity(t *testing.T) {
+	// Generated-artifact excludes that every JS/TS package-manager
+	// integration should carry; tool-specific extras (.pnp.*, .pnpm-store/,
+	// zero-install .yarn/cache exception) are not in this baseline.
+	baseline := []string{
+		"node_modules/",
+		"dist/", "build/", "out/",
+		".next/", ".nuxt/", ".vercel/", ".turbo/",
+		".vite/", ".svelte-kit/", ".astro/", ".angular/cache/", ".parcel-cache/",
+		"coverage/", "playwright-report/", "test-results/",
+	}
+	for _, name := range []string{"node", "pnpm", "bun", "yarn"} {
+		spec, err := loadBuiltinIntegrationSpec(name)
+		if err != nil {
+			t.Fatalf("load %s: %v", name, err)
+		}
+		got := make(map[string]struct{}, len(spec.Backup.Excludes))
+		for _, ex := range spec.Backup.Excludes {
+			got[ex] = struct{}{}
+		}
+		for _, want := range baseline {
+			if _, ok := got[want]; !ok {
+				t.Errorf("%s: missing baseline frontend artifact exclude %q", name, want)
+			}
+		}
+	}
+}
+
+func TestJSPackageManagerExcludesContainNoSourceOrConfigDirs(t *testing.T) {
+	// Generated-artifact dirs only. These names are common SOURCE/CONFIG
+	// directories that must never end up in a JS package-manager exclude.
+	forbidden := []string{
+		"src/", "app/", "pages/", "components/", "public/", "static/", "lib/",
+		"config/", ".github/", ".vscode/", ".idea/",
+		"package.json", "tsconfig.json", "vite.config.ts", "next.config.js",
+	}
+	for _, name := range []string{"node", "pnpm", "bun", "yarn"} {
+		spec, err := loadBuiltinIntegrationSpec(name)
+		if err != nil {
+			t.Fatalf("load %s: %v", name, err)
+		}
+		for _, ex := range spec.Backup.Excludes {
+			for _, bad := range forbidden {
+				if ex == bad {
+					t.Errorf("%s exclude %q would exclude source/config", name, ex)
+				}
+			}
+		}
+	}
+}
+
+func TestPnpmExcludesPnpmStoreYarnDoesNotExcludeYarnCache(t *testing.T) {
+	// .pnpm-store/ is a project-local pnpm store override (a generated
+	// dir); pnpm.yaml may exclude it. .yarn/cache is the Berry zero-install
+	// store users intentionally commit; yarn.yaml must NOT exclude it.
+	pnpmSpec, err := loadBuiltinIntegrationSpec("pnpm")
+	if err != nil {
+		t.Fatalf("load pnpm: %v", err)
+	}
+	pnpmHas := false
+	for _, ex := range pnpmSpec.Backup.Excludes {
+		if ex == ".pnpm-store/" {
+			pnpmHas = true
+		}
+	}
+	if !pnpmHas {
+		t.Errorf("pnpm should exclude .pnpm-store/ (project-local store override)")
+	}
+	yarnSpec, err := loadBuiltinIntegrationSpec("yarn")
+	if err != nil {
+		t.Fatalf("load yarn: %v", err)
+	}
+	for _, ex := range yarnSpec.Backup.Excludes {
+		if strings.HasPrefix(ex, ".yarn/cache") {
+			t.Errorf("yarn must not exclude %q (zero-install Berry repos commit it)", ex)
+		}
+	}
+}
+
 func TestSuggestIntegrationsKubernetesRenderFiresOnChartYaml(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: hi\nversion: 0.1.0\n"), 0o644); err != nil {

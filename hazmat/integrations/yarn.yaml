@@ -17,11 +17,21 @@ session:
 backup:
   excludes:
     - node_modules/
-    - .next/
-    - .turbo/
-    - .nuxt/
+    - dist/
+    - build/
     - out/
+    - .next/
+    - .nuxt/
     - .vercel/
+    - .turbo/
+    - .vite/
+    - .svelte-kit/
+    - .astro/
+    - .angular/cache/
+    - .parcel-cache/
+    - coverage/
+    - playwright-report/
+    - test-results/
     - .pnp.cjs
     - .pnp.loader.mjs
 
