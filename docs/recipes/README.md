@@ -17,6 +17,14 @@ Recipes are a **Community** support surface. They are useful, but they are not a
 - [OpenCode + Go](opencode-go.md)
 - [Gemini + TLA+](gemini-tla.md)
 
+## Database Recipes
+
+These recipes show how to use Hazmat with a real database without granting credentials.
+
+- [Database: SQLite-only tests](database-sqlite.md) — simplest case.
+- [Database: ephemeral PostgreSQL / Redis via Tier 3](database-tier3-postgres-redis.md) — when SQLite isn't enough.
+- [Database: cloud DBs (RDS, Aurora, Cloud SQL, Supabase, Neon, PlanetScale)](database-cloud-db.md) — keeping production credentials outside the session.
+
 ## What a Good Recipe Includes
 
 - which harness to use
