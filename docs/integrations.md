@@ -146,6 +146,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `haskell-cabal` | `cabal.project`, `*.cabal`, `stack.yaml` | resolved GHC and Cabal prefixes | — | `dist-newstyle/`, `.stack-work/` |
 | `node` | `package.json` | resolved Node prefix; Darwin declares `/opt/homebrew/lib/node_modules` | `NODE_ENV` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/` |
 | `pnpm` | `pnpm-lock.yaml` | `~/.local/share/pnpm`, `~/Library/pnpm`, `~/.pnpm-store` | `PNPM_HOME` | `node_modules/`, `.next/`, `.turbo/`, `.nuxt/`, `out/`, `.vercel/`, `.pnpm-store/` |
+| `bun` | `bun.lockb`, `bun.lock`, `bunfig.toml` | resolved bun prefix (via `LookPath("bun")`); `~/.bun` | `BUN_INSTALL`, `NODE_ENV` | `node_modules/`, `.next/`, `.nuxt/`, `dist/`, `out/` |
 | `python-pip` | `requirements.txt` (when neither `uv.lock` nor `poetry.lock` is at root) | `~/.cache/pip`, `~/Library/Caches/pip`, `~/.local/lib`; resolved Python prefix | `VIRTUAL_ENV` | `.venv/`, `venv/`, `env/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/`, `build/` |
 | `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `python-uv` | `uv.lock` | `~/.local/share/uv`, `~/.cache/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.uv-cache/`, `*.pyc`, `dist/`, `*.egg-info/` |

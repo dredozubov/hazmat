@@ -155,6 +155,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "Xcode/CLT developer dir probe via xcode-select",
 		Resolve: resolveSwiftIntegration,
 	},
+	"bun": {
+		Summary: "bun runtime probe with Darwin Homebrew bun fallback",
+		Resolve: resolveBunIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -653,6 +657,47 @@ func resolveSwiftIntegration(ctx *integrationResolveContext, spec IntegrationSpe
 	result.ResolvedEnv["DEVELOPER_DIR"] = dir
 	result.Source = "swift (xcode-select developer dir)"
 	result.Details = append(result.Details, fmt.Sprintf("swift: resolved developer dir -> %s", dir))
+	return result, nil
+}
+
+// resolveBunIntegration probes the active bun runtime via LookPath("bun")
+// and exposes its install prefix. Homebrew installs land at
+// /opt/homebrew/Cellar/bun/<ver> (already in base policy); curl-script
+// installs land at ~/.bun/bin/bun (manifest's read_dir covers this).
+// The resolver also sets BUN_INSTALL so the agent's bun knows where its
+// global install root lives.
+func resolveBunIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	bunPath, err := ctx.Probe.LookPath("bun")
+	if err != nil || bunPath == "" {
+		brewResult := ctx.brewPrefix("bun")
+		if brewResult.Prefix != "" {
+			dir, err := validatedRuntimeDir(ctx, brewResult.Prefix, filepath.Join("bin", "bun"))
+			if err == nil && dir != "" {
+				result.AdditionalReadDirs = []string{dir}
+				result.Source = fmt.Sprintf("bun (Homebrew %s)", brewResult.Formula)
+				result.Details = append(result.Details, fmt.Sprintf("bun: resolved via Homebrew %s -> %s", brewResult.Formula, dir))
+			}
+		} else if brewResult.Detail != "" {
+			result.Details = append(result.Details, "bun: "+brewResult.Detail)
+		}
+		return result, nil
+	}
+	resolved, err := filepath.EvalSymlinks(bunPath)
+	if err != nil || resolved == "" {
+		result.Details = append(result.Details, fmt.Sprintf("bun: cannot resolve bun symlink (%v)", err))
+		return result, nil
+	}
+	prefix := filepath.Dir(filepath.Dir(resolved))
+	dir, err := validatedRuntimeDir(ctx, prefix, filepath.Join("bin", "bun"))
+	if err == nil && dir != "" {
+		result.AdditionalReadDirs = []string{dir}
+		result.Source = "bun (active runtime)"
+		result.Details = append(result.Details, fmt.Sprintf("bun: resolved active runtime prefix -> %s", dir))
+	}
+	if home := integrationGetenv("BUN_INSTALL"); home != "" {
+		result.ResolvedEnv["BUN_INSTALL"] = home
+	}
 	return result, nil
 }
 

@@ -275,6 +275,42 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsBunProbesLookPath(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	bunRoot := filepath.Join(t.TempDir(), "bun-root")
+	bunPath := writeExecutable(t, bunRoot, "bun")
+	canonicalBunRoot, err := canonicalizePath(bunRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{
+				"bun": bunPath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("bun")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(bun): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalBunRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalBunRoot)
+	}
+	if resolved[0].Source != "bun (active runtime)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
 func TestResolveRuntimeIntegrationsPythonUVUsesRuntimeProbe(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

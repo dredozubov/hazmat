@@ -1,0 +1,25 @@
+integration:
+  name: bun
+  version: 1
+  description: JavaScript/TypeScript project using Bun
+
+detect:
+  files: [bun.lockb, bun.lock, bunfig.toml]
+
+session:
+  read_dirs:
+    - ~/.bun
+  env_passthrough: [BUN_INSTALL, NODE_ENV]
+
+backup:
+  excludes:
+    - node_modules/
+    - .next/
+    - .nuxt/
+    - dist/
+    - out/
+
+commands:
+  test: bun test
+  build: bun run build
+  install: bun install

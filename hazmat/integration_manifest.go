@@ -111,6 +111,7 @@ var safeEnvKeys = map[string]bool{
 	"NODE_ENV":            true,
 	"NPM_CONFIG_REGISTRY": true, // registry redirect — residual risk, surfaced in UX
 	"PNPM_HOME":           true, // path pointer to pnpm CLI install dir
+	"BUN_INSTALL":         true, // path pointer to bun install root
 
 	// Python — mode flag and venv pointer
 	"VIRTUAL_ENV": true,
