@@ -97,8 +97,7 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		},
 	},
 	"python-uv": {
-		Summary:                  "python runtime probe with Darwin Homebrew python fallback",
-		ReplacesDeclaredReadDirs: true,
+		Summary: "python runtime probe with Darwin Homebrew python fallback; keeps uv-managed dirs from manifest",
 		Resolve: func(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 			return resolvePythonIntegration(ctx, spec, "python-uv")
 		},

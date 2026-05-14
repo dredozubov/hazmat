@@ -9,6 +9,7 @@ detect:
 session:
   read_dirs:
     - ~/.local/share/uv
+    - ~/.cache/uv
   env_passthrough: [VIRTUAL_ENV]
 
 backup:
@@ -18,6 +19,7 @@ backup:
     - .pytest_cache/
     - .mypy_cache/
     - .ruff_cache/
+    - .uv-cache/
     - "*.pyc"
     - dist/
     - "*.egg-info/"
