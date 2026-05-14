@@ -1,0 +1,28 @@
+integration:
+  name: dotnet
+  version: 1
+  description: .NET project using the dotnet CLI
+
+detect:
+  files: [global.json, "*.csproj", "*.fsproj", "*.vbproj", "*.sln", Directory.Build.props]
+
+session:
+  read_dirs:
+    - ~/.nuget
+    - ~/.dotnet
+    - ~/.local/share/NuGet
+  env_passthrough: [DOTNET_ROOT, NUGET_PACKAGES]
+
+backup:
+  excludes:
+    - bin/
+    - obj/
+    - .vs/
+    - TestResults/
+    - packages/
+    - "*.user"
+
+commands:
+  test: dotnet test
+  build: dotnet build
+  restore: dotnet restore

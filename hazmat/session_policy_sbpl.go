@@ -48,7 +48,9 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; ── System libraries (required by Node.js / dyld) ──────────────────────\n")
 	w(";; Path traversal literals for realpath() and symlink resolution.\n")
 	w(";; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.\n")
-	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/System", "/Library", "/Library/Developer"} {
+	w(";; /opt is the parent of /opt/homebrew — tools symlinked via /opt/homebrew/bin\n")
+	w(";; that point to absolute paths elsewhere need realpath() to lstat /opt itself.\n")
+	for _, p := range []string{"/", "/private", "/var", "/var/select", "/tmp", "/etc", "/usr", "/opt", "/System", "/Library", "/Library/Developer"} {
 		w("(allow file-read* (literal %q))\n", p)
 	}
 	for _, p := range []string{"/usr/lib", "/usr/share", "/System/Library", "/Library/Frameworks", "/Library/Developer/CommandLineTools", "/private/etc", "/private/var/select", "/private/var/db/timezone"} {

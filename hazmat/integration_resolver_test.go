@@ -275,6 +275,51 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsDotnetProbesLookPath(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	sdkRoot := filepath.Join(t.TempDir(), "dotnet-sdk")
+	if err := os.MkdirAll(sdkRoot, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	dotnetPath := filepath.Join(sdkRoot, "dotnet")
+	if err := os.WriteFile(dotnetPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write dotnet: %v", err)
+	}
+	canonicalSdk, err := canonicalizePath(sdkRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{
+				"dotnet": dotnetPath,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("dotnet")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(dotnet): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalSdk {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalSdk)
+	}
+	if resolved[0].ResolvedEnv["DOTNET_ROOT"] != canonicalSdk {
+		t.Fatalf("ResolvedEnv[DOTNET_ROOT] = %q, want %q", resolved[0].ResolvedEnv["DOTNET_ROOT"], canonicalSdk)
+	}
+	if resolved[0].Source != "dotnet (active SDK)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
 func TestResolveRuntimeIntegrationsBunProbesLookPath(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

@@ -159,6 +159,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "bun runtime probe with Darwin Homebrew bun fallback",
 		Resolve: resolveBunIntegration,
 	},
+	"dotnet": {
+		Summary: ".NET SDK probe via LookPath; resolves Microsoft pkg or Homebrew cask installs",
+		Resolve: resolveDotnetIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -698,6 +702,40 @@ func resolveBunIntegration(ctx *integrationResolveContext, spec IntegrationSpec)
 	if home := integrationGetenv("BUN_INSTALL"); home != "" {
 		result.ResolvedEnv["BUN_INSTALL"] = home
 	}
+	return result, nil
+}
+
+// resolveDotnetIntegration probes the active .NET SDK via LookPath("dotnet"),
+// resolves the symlink (Homebrew links /opt/homebrew/bin/dotnet ->
+// /usr/local/share/dotnet/dotnet for the official cask), and exposes the
+// SDK root. DOTNET_ROOT is set to the same path so the agent's dotnet host
+// can locate frameworks; NUGET_PACKAGES is forwarded from the invoker
+// environment when present.
+func resolveDotnetIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	dotnetPath, err := ctx.Probe.LookPath("dotnet")
+	if err != nil || dotnetPath == "" {
+		result.Details = append(result.Details, "dotnet: binary not found on PATH; using manifest dirs only")
+		return result, nil
+	}
+	resolved, err := filepath.EvalSymlinks(dotnetPath)
+	if err != nil || resolved == "" {
+		result.Details = append(result.Details, fmt.Sprintf("dotnet: cannot resolve symlink (%v)", err))
+		return result, nil
+	}
+	sdkRoot := filepath.Dir(resolved)
+	dir, err := validatedRuntimeDir(ctx, sdkRoot, "dotnet")
+	if err != nil || dir == "" {
+		result.Details = append(result.Details, fmt.Sprintf("dotnet: sdk root %q lacks dotnet binary", sdkRoot))
+		return result, nil
+	}
+	result.AdditionalReadDirs = []string{dir}
+	result.ResolvedEnv["DOTNET_ROOT"] = dir
+	if pkgs := integrationGetenv("NUGET_PACKAGES"); pkgs != "" {
+		result.ResolvedEnv["NUGET_PACKAGES"] = pkgs
+	}
+	result.Source = "dotnet (active SDK)"
+	result.Details = append(result.Details, fmt.Sprintf("dotnet: resolved SDK root -> %s", dir))
 	return result, nil
 }
 

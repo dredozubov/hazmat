@@ -123,6 +123,10 @@ var safeEnvKeys = map[string]bool{
 	// Swift / Xcode — path pointer to active developer dir
 	"DEVELOPER_DIR": true,
 
+	// .NET — path pointers only
+	"DOTNET_ROOT":    true,
+	"NUGET_PACKAGES": true,
+
 	// Ruby — path pointer only
 	"GEM_HOME": true,
 

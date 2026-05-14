@@ -724,6 +724,16 @@ func TestGenerateSBPLProjectOnly(t *testing.T) {
 	}
 }
 
+func TestGenerateSBPLIncludesOptLiteral(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+	}
+	policy := generateSBPL(cfg)
+	if !strings.Contains(policy, `(allow file-read* (literal "/opt"))`) {
+		t.Error("expected file-read* literal grant on /opt so realpath of /opt/homebrew symlinks to absolute targets succeeds")
+	}
+}
+
 func TestGenerateSBPLWithReadDirs(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/tmp/myproject",
