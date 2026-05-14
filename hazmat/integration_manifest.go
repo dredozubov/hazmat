@@ -127,6 +127,12 @@ var safeEnvKeys = map[string]bool{
 	"DOTNET_ROOT":    true,
 	"NUGET_PACKAGES": true,
 
+	// Android — path pointers only
+	"ANDROID_HOME":     true,
+	"ANDROID_SDK_ROOT": true,
+	"ANDROID_NDK_HOME": true,
+	"GRADLE_USER_HOME": true,
+
 	// Ruby — path pointer only
 	"GEM_HOME": true,
 

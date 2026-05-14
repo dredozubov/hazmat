@@ -275,6 +275,74 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsAndroidGradleProbesAndroidHome(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	sdkRoot := filepath.Join(t.TempDir(), "android-sdk")
+	if err := os.MkdirAll(filepath.Join(sdkRoot, "platforms"), 0o755); err != nil {
+		t.Fatalf("mkdir platforms: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(sdkRoot, "build-tools", "34.0.0"), 0o755); err != nil {
+		t.Fatalf("mkdir build-tools: %v", err)
+	}
+	canonicalSdk, err := canonicalizePath(sdkRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	t.Setenv("ANDROID_HOME", sdkRoot)
+	t.Setenv("ANDROID_SDK_ROOT", "")
+
+	integration, err := loadBuiltinIntegrationSpec("android-gradle")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(android-gradle): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalSdk {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalSdk)
+	}
+	if resolved[0].ResolvedEnv["ANDROID_HOME"] != canonicalSdk {
+		t.Fatalf("ResolvedEnv[ANDROID_HOME] = %q, want %q", resolved[0].ResolvedEnv["ANDROID_HOME"], canonicalSdk)
+	}
+	if resolved[0].ResolvedEnv["ANDROID_SDK_ROOT"] != canonicalSdk {
+		t.Fatalf("ResolvedEnv[ANDROID_SDK_ROOT] = %q, want %q", resolved[0].ResolvedEnv["ANDROID_SDK_ROOT"], canonicalSdk)
+	}
+	if resolved[0].Source != "android-gradle (SDK probe)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsAndroidGradleSkipsCandidateWithoutPlatformsDir(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	notSdk := filepath.Join(t.TempDir(), "not-actually-sdk")
+	if err := os.MkdirAll(notSdk, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	t.Setenv("ANDROID_HOME", notSdk)
+	t.Setenv("ANDROID_SDK_ROOT", "")
+	t.Setenv("HOME", t.TempDir())
+
+	integration, err := loadBuiltinIntegrationSpec("android-gradle")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(android-gradle): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 0 {
+		t.Fatalf("AdditionalReadDirs = %v, want empty when no candidate has platforms/", got)
+	}
+	if _, set := resolved[0].ResolvedEnv["ANDROID_HOME"]; set {
+		t.Fatalf("ANDROID_HOME should not be set when no SDK found")
+	}
+}
+
 func TestResolveRuntimeIntegrationsDotnetProbesLookPath(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

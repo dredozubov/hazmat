@@ -804,6 +804,41 @@ func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsAndroidGradleCoexistsWithJavaGradle(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"), []byte("rootProject.name = \"app\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle.kts"), []byte("// root build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "local.properties"), []byte("sdk.dir=/Users/dr/Library/Android/sdk\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	appMain := filepath.Join(dir, "app", "src", "main")
+	if err := os.MkdirAll(appMain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appMain, "AndroidManifest.xml"), []byte("<manifest/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundJavaGradle := false
+	foundAndroid := false
+	for _, s := range suggestions {
+		if s == "java-gradle" {
+			foundJavaGradle = true
+		}
+		if s == "android-gradle" {
+			foundAndroid = true
+		}
+	}
+	if !foundJavaGradle || !foundAndroid {
+		t.Fatalf("expected both java-gradle and android-gradle suggestions on Android project, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"name":"vendor/pkg"}`), 0o644); err != nil {

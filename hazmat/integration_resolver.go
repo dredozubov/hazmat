@@ -163,6 +163,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: ".NET SDK probe via LookPath; resolves Microsoft pkg or Homebrew cask installs",
 		Resolve: resolveDotnetIntegration,
 	},
+	"android-gradle": {
+		Summary: "Android SDK probe via ANDROID_HOME / ANDROID_SDK_ROOT with macOS default fallback",
+		Resolve: resolveAndroidGradleIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -736,6 +740,47 @@ func resolveDotnetIntegration(ctx *integrationResolveContext, spec IntegrationSp
 	}
 	result.Source = "dotnet (active SDK)"
 	result.Details = append(result.Details, fmt.Sprintf("dotnet: resolved SDK root -> %s", dir))
+	return result, nil
+}
+
+// resolveAndroidGradleIntegration locates the Android SDK. The probe order is
+// $ANDROID_HOME → $ANDROID_SDK_ROOT → ~/Library/Android/sdk (macOS Android
+// Studio default) → ~/Android/Sdk (manual installs / Linux). The chosen dir
+// must contain a "platforms" subdirectory to count as an SDK root. The result
+// is added as AdditionalReadDirs and exported via ANDROID_HOME +
+// ANDROID_SDK_ROOT in ResolvedEnv. The JDK side is left to java-gradle.
+func resolveAndroidGradleIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	candidates := []string{
+		integrationGetenv("ANDROID_HOME"),
+		integrationGetenv("ANDROID_SDK_ROOT"),
+		filepath.Join(integrationGetenv("HOME"), "Library", "Android", "sdk"),
+		filepath.Join(integrationGetenv("HOME"), "Android", "Sdk"),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(candidate, "platforms"))
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		resolved, err := canonicalizePath(candidate)
+		if err != nil || resolved == "" {
+			continue
+		}
+		if isCredentialDenyPath(resolved) {
+			result.Details = append(result.Details, fmt.Sprintf("android-gradle: skipped %q (credential deny zone)", resolved))
+			continue
+		}
+		result.AdditionalReadDirs = []string{resolved}
+		result.ResolvedEnv["ANDROID_HOME"] = resolved
+		result.ResolvedEnv["ANDROID_SDK_ROOT"] = resolved
+		result.Source = "android-gradle (SDK probe)"
+		result.Details = append(result.Details, fmt.Sprintf("android-gradle: resolved SDK -> %s", resolved))
+		return result, nil
+	}
+	result.Details = append(result.Details, "android-gradle: no Android SDK found in $ANDROID_HOME, $ANDROID_SDK_ROOT, ~/Library/Android/sdk, or ~/Android/Sdk; using manifest dirs only")
 	return result, nil
 }
 

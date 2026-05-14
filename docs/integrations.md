@@ -152,6 +152,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `python-uv` | `uv.lock` | `~/.local/share/uv`, `~/.cache/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.uv-cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `rust` | `Cargo.toml` | resolved Rust sysroot | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
 | `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | resolved JDK home and Gradle prefix | `JAVA_HOME` | `.gradle/`, `build/`, `out/`, `target/`, `*.class` |
+| `android-gradle` | `AndroidManifest.xml`, `local.properties` | resolved Android SDK (via `$ANDROID_HOME` / `$ANDROID_SDK_ROOT` / `~/Library/Android/sdk` / `~/Android/Sdk` — the candidate must have a `platforms/` subdir to count); `~/.android`, `~/.gradle` | `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, `GRADLE_USER_HOME` | `build/`, `.gradle/`, `.cxx/`, `captures/`, `local.properties`, `*.iml`, `.idea/` |
 | `java-maven` | `pom.xml` | resolved JDK home and Maven prefix | `JAVA_HOME` | `target/`, `*.class` |
 | `ruby-bundler` | `Gemfile`, `Gemfile.lock` | resolved Ruby prefix | — | `vendor/bundle/`, `.bundle/`, `tmp/`, `log/` |
 | `php-composer` | `composer.json` | `~/.composer`, `~/.config/composer`, `~/.cache/composer`, `~/Library/Caches/composer` | `COMPOSER_HOME`, `COMPOSER_CACHE_DIR` | `vendor/`, `.phpunit.result.cache`, `var/cache/`, `var/log/` |

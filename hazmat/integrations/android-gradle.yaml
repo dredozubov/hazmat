@@ -1,0 +1,27 @@
+integration:
+  name: android-gradle
+  version: 1
+  description: Android project with Gradle (Kotlin/Java)
+
+detect:
+  files: [AndroidManifest.xml, local.properties]
+
+session:
+  read_dirs:
+    - ~/.android
+    - ~/.gradle
+  env_passthrough: [ANDROID_HOME, ANDROID_SDK_ROOT, ANDROID_NDK_HOME, GRADLE_USER_HOME]
+
+backup:
+  excludes:
+    - build/
+    - .gradle/
+    - .cxx/
+    - captures/
+    - local.properties
+    - "*.iml"
+    - .idea/
+
+commands:
+  test: ./gradlew test
+  build: ./gradlew assembleDebug
