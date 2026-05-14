@@ -2083,7 +2083,7 @@ func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 
 func TestSessionRoutingExplanationRequestedSandbox(t *testing.T) {
 	dir := t.TempDir()
-	reason, notes := sessionRoutingExplanation("claude", dir, sandboxDockerRequest(dockerRequestFlag), detectDockerProject(dir), sessionModeDockerSandbox)
+	reason, notes := sessionRoutingExplanation("claude", dir, sandboxDockerRequest(dockerRequestFlag), detectDockerProject(dir), sessionModeDockerSandbox, false)
 	if reason != "using Docker Sandbox because --docker=sandbox was requested" {
 		t.Fatalf("reason = %q", reason)
 	}
@@ -2098,7 +2098,7 @@ func TestSessionRoutingExplanationDockerNone(t *testing.T) {
 		t.Fatalf("create Dockerfile: %v", err)
 	}
 	detection := detectDockerProject(dir)
-	reason, notes := sessionRoutingExplanation("claude", dir, noneDockerRequest(dockerRequestFlag), detection, sessionModeNative)
+	reason, notes := sessionRoutingExplanation("claude", dir, noneDockerRequest(dockerRequestFlag), detection, sessionModeNative, false)
 	if reason != "staying in native containment because --docker=none was requested" {
 		t.Fatalf("reason = %q", reason)
 	}
@@ -2119,7 +2119,7 @@ func TestSessionRoutingExplanationDefaultDockerNone(t *testing.T) {
 		t.Fatalf("create Dockerfile: %v", err)
 	}
 	detection := detectDockerProject(dir)
-	reason, notes := sessionRoutingExplanation("claude", dir, defaultDockerRequest(), detection, sessionModeNative)
+	reason, notes := sessionRoutingExplanation("claude", dir, defaultDockerRequest(), detection, sessionModeNative, false)
 	if reason != "using native containment by default (Docker routing: none)" {
 		t.Fatalf("reason = %q", reason)
 	}
@@ -2140,12 +2140,32 @@ func TestSessionRoutingExplanationDevcontainerOnly(t *testing.T) {
 		t.Fatalf("mkdir .devcontainer: %v", err)
 	}
 	detection := detectDockerProject(dir)
-	reason, notes := sessionRoutingExplanation("claude", dir, autoDockerRequest(), detection, sessionModeNative)
+	reason, notes := sessionRoutingExplanation("claude", dir, autoDockerRequest(), detection, sessionModeNative, false)
 	if reason != "staying in native containment because .devcontainer/ alone does not require Docker mode" {
 		t.Fatalf("reason = %q", reason)
 	}
 	if len(notes) != 1 || !strings.Contains(notes[0], "hazmat claude --docker=sandbox") {
 		t.Fatalf("notes = %v", notes)
+	}
+}
+
+func TestSessionRoutingExplanationDockerNoneSuppressedWhenIntegrationActive(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
+		t.Fatalf("create Dockerfile: %v", err)
+	}
+	detection := detectDockerProject(dir)
+	reason, notes := sessionRoutingExplanation("claude", dir, noneDockerRequest(dockerRequestFlag), detection, sessionModeNative, true)
+	if reason != "staying in native containment because --docker=none was requested" {
+		t.Fatalf("reason = %q", reason)
+	}
+	for _, n := range notes {
+		if strings.Contains(n, "Docker files detected") {
+			t.Fatalf("did not expect duplicate 'Docker files detected' note when docker integration is active, got %v", notes)
+		}
+		if strings.Contains(n, "If this session needs Docker") {
+			t.Fatalf("did not expect duplicate '--docker=sandbox' hint when docker integration is active (integration warning carries it), got %v", notes)
+		}
 	}
 }
 

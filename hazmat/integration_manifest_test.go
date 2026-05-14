@@ -804,6 +804,28 @@ func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsDockerFiresOnDevcontainerDir(t *testing.T) {
+	dir := t.TempDir()
+	dc := filepath.Join(dir, ".devcontainer")
+	if err := os.MkdirAll(dc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dc, "devcontainer.json"), []byte(`{"image":"mcr.microsoft.com/devcontainers/base:debian"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "docker" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected docker suggestion for .devcontainer/ at root, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsDockerFiresOnDockerfile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -979,7 +980,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		)
 	}
 
-	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode)
+	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
@@ -1757,7 +1758,7 @@ func dockerProjectBlockedMessage(commandName, projectDir string, detection docke
 	return dockerProjectNeedsSandboxMessage(commandName, projectDir, detection)
 }
 
-func sessionRoutingExplanation(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, mode sessionMode) (string, []string) {
+func sessionRoutingExplanation(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, mode sessionMode, dockerIntegrationActive bool) (string, []string) {
 	if mode == sessionModeDockerSandbox {
 		switch request.Mode {
 		case dockerModeSandbox:
@@ -1806,7 +1807,12 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 		}
 
 		var notes []string
-		if len(detection.HardMarkers) > 0 {
+		// When the docker integration is active, the integration's own warning
+		// already conveys "Docker commands do not work in native containment;
+		// use --docker=sandbox", so the duplicate session notes are suppressed.
+		// Shared-daemon-signals and devcontainer-soft notes remain because they
+		// carry information the integration warning doesn't.
+		if len(detection.HardMarkers) > 0 && !dockerIntegrationActive {
 			notes = append(notes, fmt.Sprintf("Docker files detected: %s. Docker commands will not work in native containment.", strings.Join(detection.HardMarkers, ", ")))
 		}
 		if detection.HasSharedDaemonSignals() {
@@ -1815,7 +1821,7 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 		if len(detection.SoftMarkers) > 0 {
 			notes = append(notes, fmt.Sprintf("Container metadata detected: %s. Docker mode is not enabled by default.", strings.Join(detection.SoftMarkers, ", ")))
 		}
-		if len(detection.HardMarkers) > 0 || len(detection.SoftMarkers) > 0 {
+		if (len(detection.HardMarkers) > 0 || len(detection.SoftMarkers) > 0) && !dockerIntegrationActive {
 			notes = append(notes, fmt.Sprintf("If this session needs Docker, use: %s", dockerSessionExample(commandName, projectDir, dockerModeSandbox)))
 		}
 		return reason, notes

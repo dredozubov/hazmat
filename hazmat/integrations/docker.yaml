@@ -5,6 +5,7 @@ integration:
 
 detect:
   files: [Dockerfile, Containerfile, compose.yml, compose.yaml, docker-compose.yml, docker-compose.yaml]
+  root_dirs: [.devcontainer]
 
 session:
   env_passthrough: [DOCKER_HOST, DOCKER_TLS_VERIFY]
