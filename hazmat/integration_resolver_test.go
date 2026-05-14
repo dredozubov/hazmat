@@ -275,6 +275,40 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsDenoProbesLookPath(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	denoRoot := filepath.Join(t.TempDir(), "deno-root")
+	denoPath := writeExecutable(t, denoRoot, "deno")
+	canonicalDeno, err := canonicalizePath(denoRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{"deno": denoPath},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("deno")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(deno): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalDeno {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalDeno)
+	}
+	if resolved[0].Source != "deno (active runtime)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
 func TestResolveRuntimeIntegrationsFlutterProbesLookPath(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

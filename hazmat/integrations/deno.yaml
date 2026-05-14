@@ -1,0 +1,28 @@
+integration:
+  name: deno
+  version: 1
+  description: Deno runtime project (deno.json / deno.jsonc / deno.lock)
+
+detect:
+  files: [deno.json, deno.jsonc, deno.lock]
+
+session:
+  read_dirs:
+    - ~/.cache/deno
+    - ~/Library/Caches/deno
+    - ~/.deno
+  env_passthrough: [DENO_DIR, DENO_INSTALL]
+
+warnings:
+  - "Deno's remote URL imports (https://deno.land/..., jsr:..., npm:...) require network authority that the integration does not grant. Pre-cache dependencies on the host with 'deno cache' before the session, or use a local-only fixture. The integration only opens the deno cache for reads."
+
+backup:
+  excludes:
+    - coverage/
+    - .deno_dir/
+
+commands:
+  test: deno test --no-prompt
+  lint: deno lint
+  format-check: deno fmt --check
+  build: deno task build

@@ -175,6 +175,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "flutter SDK probe via LookPath; covers pure-Dart projects too",
 		Resolve: resolveFlutterIntegration,
 	},
+	"deno": {
+		Summary: "deno runtime probe via LookPath",
+		Resolve: resolveDenoIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -861,6 +865,35 @@ func resolveFlutterIntegration(ctx *integrationResolveContext, spec IntegrationS
 	result.ResolvedEnv["FLUTTER_ROOT"] = dir
 	result.Source = "flutter (active SDK)"
 	result.Details = append(result.Details, fmt.Sprintf("flutter: resolved SDK root -> %s", dir))
+	return result, nil
+}
+
+// resolveDenoIntegration probes the deno runtime via LookPath. Homebrew puts
+// it at /opt/homebrew/bin/deno (Cellar-symlinked); curl-install lands at
+// ~/.deno/bin/deno. The manifest already grants ~/.cache/deno and the macOS
+// variant; the resolver only adds the install prefix when found.
+func resolveDenoIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	denoPath, err := ctx.Probe.LookPath("deno")
+	if err != nil || denoPath == "" {
+		result.Details = append(result.Details, "deno: binary not on PATH; using manifest cache grants only")
+		return result, nil
+	}
+	resolved, err := filepath.EvalSymlinks(denoPath)
+	if err != nil || resolved == "" {
+		result.Details = append(result.Details, fmt.Sprintf("deno: cannot resolve symlink (%v)", err))
+		return result, nil
+	}
+	prefix := filepath.Dir(filepath.Dir(resolved))
+	dir, err := validatedRuntimeDir(ctx, prefix, filepath.Join("bin", "deno"))
+	if err == nil && dir != "" {
+		result.AdditionalReadDirs = []string{dir}
+		result.Source = "deno (active runtime)"
+		result.Details = append(result.Details, fmt.Sprintf("deno: resolved runtime prefix -> %s", dir))
+	}
+	if denoDir := integrationGetenv("DENO_DIR"); denoDir != "" {
+		result.ResolvedEnv["DENO_DIR"] = denoDir
+	}
 	return result, nil
 }
 

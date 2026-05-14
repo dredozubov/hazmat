@@ -113,6 +113,8 @@ var safeEnvKeys = map[string]bool{
 	"PNPM_HOME":           true, // path pointer to pnpm CLI install dir
 	"BUN_INSTALL":         true, // path pointer to bun install root
 	"YARN_CACHE_FOLDER":   true, // path pointer to yarn cache; explicit YARN_PLUGINS / YARN_NODE_OPTIONS stay out (flag/plugin injection)
+	"DENO_DIR":            true, // path pointer to deno's global cache root
+	"DENO_INSTALL":        true, // path pointer to deno install root
 
 	// Python — mode flag and venv pointer
 	"VIRTUAL_ENV": true,

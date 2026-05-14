@@ -915,6 +915,32 @@ func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsDenoFiresOnDenoJson(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "deno.json"), []byte(`{"tasks":{"build":"echo ok"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "deno" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected deno suggestion for deno.json at root, got %v", suggestions)
+	}
+}
+
+func TestSafeEnvKeysExcludesDangerousDenoKnobs(t *testing.T) {
+	for _, key := range []string{"DENO_AUTH_TOKENS", "DENO_TLS_CA_STORE", "DENO_CERT", "DENO_V8_FLAGS"} {
+		if safeEnvKeys[key] {
+			t.Errorf("%q must not be in safeEnvKeys (credential/TLS/flag injection vector)", key)
+		}
+	}
+}
+
 func TestSuggestIntegrationsYarnCoexistsWithNode(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
