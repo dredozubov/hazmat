@@ -1,0 +1,29 @@
+integration:
+  name: kubernetes-render
+  version: 1
+  description: Render-only Kubernetes/Helm/Kustomize workflow (no cluster, no credentials)
+
+detect:
+  files: [Chart.yaml, kustomization.yaml, helmfile.yaml]
+
+session:
+  read_dirs:
+    - ~/Library/Caches/helm
+    - ~/.cache/helm
+  env_passthrough: []
+
+warnings:
+  - "This integration is render/lint/template ONLY. Cluster operations (kubectl apply, kubectl get/exec, helm install/upgrade/pull from a remote registry, kubectl port-forward) are outside native containment by design — they need cluster credentials and network egress that the integration does not grant. Use the suggested commands (helm template, helm lint, kubectl kustomize, kubectl apply --dry-run=client) which work entirely on local files."
+  - "KUBECONFIG and ~/.kube are intentionally NOT exposed. If a render step needs an offline kubeconfig (e.g. helm template --kube-version), point at a project-local copy with --kubeconfig ./kubeconfig.yaml instead of relying on host config."
+
+backup:
+  excludes:
+    - charts/*.tgz
+    - .helm/
+    - .kustomize/
+
+commands:
+  template: helm template .
+  lint: helm lint
+  kustomize-build: kubectl kustomize .
+  dry-run: kubectl apply --dry-run=client --validate=false -f .

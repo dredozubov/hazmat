@@ -915,6 +915,70 @@ func TestSuggestIntegrationsPhpComposerFiresOnComposerJson(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsKubernetesRenderFiresOnChartYaml(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v2\nname: hi\nversion: 0.1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "kubernetes-render" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected kubernetes-render suggestion for Chart.yaml at root, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsKubernetesRenderFiresOnKustomization(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte("resources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "kubernetes-render" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected kubernetes-render suggestion for kustomization.yaml at root, got %v", suggestions)
+	}
+}
+
+func TestKubernetesRenderIntegrationDoesNotGrantClusterCredentialPath(t *testing.T) {
+	spec, err := loadBuiltinIntegrationSpec("kubernetes-render")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(kubernetes-render): %v", err)
+	}
+	combined := append(append([]string{}, spec.Session.ReadDirs...), spec.Session.EnvPassthrough...)
+	for _, p := range combined {
+		switch p {
+		case "KUBECONFIG", "~/.kube", "~/.config/kube", "~/.azure", "~/.aws", "~/.config/gcloud":
+			t.Errorf("kubernetes-render must not expose %q (cluster/cloud credentials are out of integration scope)", p)
+		}
+		if strings.Contains(p, ".kube") || strings.Contains(p, ".azure") || strings.Contains(p, ".aws") {
+			t.Errorf("kubernetes-render path %q smells like cluster/cloud credentials", p)
+		}
+	}
+	if len(spec.Session.EnvPassthrough) != 0 {
+		t.Errorf("kubernetes-render must declare empty env_passthrough, got %v", spec.Session.EnvPassthrough)
+	}
+}
+
+func TestSafeEnvKeysExcludesKubernetesClusterAndPluginVectors(t *testing.T) {
+	for _, key := range []string{"KUBECONFIG", "KUBECTL_PLUGINS_PATH", "HELM_PLUGINS", "HELM_REGISTRY_CONFIG", "HELM_REPOSITORY_CONFIG"} {
+		if safeEnvKeys[key] {
+			t.Errorf("%q must not be in safeEnvKeys (cluster/credential/plugin injection vector)", key)
+		}
+	}
+}
+
 func TestSuggestIntegrationsDenoFiresOnDenoJson(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "deno.json"), []byte(`{"tasks":{"build":"echo ok"}}`), 0o644); err != nil {
