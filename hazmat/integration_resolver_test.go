@@ -275,6 +275,71 @@ func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing
 	}
 }
 
+func TestResolveRuntimeIntegrationsFlutterProbesLookPath(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	sdkRoot := filepath.Join(t.TempDir(), "flutter-sdk")
+	flutterPath := writeExecutable(t, sdkRoot, "flutter")
+	canonicalSdk, err := canonicalizePath(sdkRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPaths: map[string]string{"flutter": flutterPath},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("flutter")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(flutter): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalSdk {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalSdk)
+	}
+	if resolved[0].ResolvedEnv["FLUTTER_ROOT"] != canonicalSdk {
+		t.Fatalf("FLUTTER_ROOT = %q, want %q", resolved[0].ResolvedEnv["FLUTTER_ROOT"], canonicalSdk)
+	}
+	if resolved[0].Source != "flutter (active SDK)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsFlutterFallsBackWhenSdkMissing(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			lookPathErrs: map[string]error{"flutter": fmt.Errorf("flutter not on PATH")},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("flutter")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(flutter): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 0 {
+		t.Fatalf("AdditionalReadDirs = %v, want empty fallback", got)
+	}
+	if _, set := resolved[0].ResolvedEnv["FLUTTER_ROOT"]; set {
+		t.Fatalf("FLUTTER_ROOT should not be set when flutter is missing")
+	}
+}
+
 func TestResolveRuntimeIntegrationsCMakeProbesBothCmakeAndDeveloperDir(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()

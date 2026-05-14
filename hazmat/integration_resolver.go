@@ -171,6 +171,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "cmake probe with Xcode developer dir fallback for clang/clang++",
 		Resolve: resolveCMakeIntegration,
 	},
+	"flutter": {
+		Summary: "flutter SDK probe via LookPath; covers pure-Dart projects too",
+		Resolve: resolveFlutterIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -824,6 +828,39 @@ func resolveCMakeIntegration(ctx *integrationResolveContext, spec IntegrationSpe
 			}
 		}
 	}
+	return result, nil
+}
+
+// resolveFlutterIntegration probes the flutter binary and exposes its SDK
+// root (which contains bin/flutter, bin/cache/dart-sdk, and packages/). The
+// Homebrew cask installs Flutter at /opt/homebrew/Caskroom/flutter/<ver>/flutter,
+// with /opt/homebrew/bin/flutter symlinked into it. Manual installs land at
+// ~/development/flutter or fvm-managed locations.
+//
+// If flutter is not on PATH, the manifest's ~/.pub-cache grant still applies,
+// covering pure-Dart projects that don't ship the Flutter SDK.
+func resolveFlutterIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	flutterPath, err := ctx.Probe.LookPath("flutter")
+	if err != nil || flutterPath == "" {
+		result.Details = append(result.Details, "flutter: SDK not on PATH; using manifest pub-cache grant only (pure-Dart projects still work)")
+		return result, nil
+	}
+	resolved, err := filepath.EvalSymlinks(flutterPath)
+	if err != nil || resolved == "" {
+		result.Details = append(result.Details, fmt.Sprintf("flutter: cannot resolve symlink (%v)", err))
+		return result, nil
+	}
+	sdkRoot := filepath.Dir(filepath.Dir(resolved))
+	dir, err := validatedRuntimeDir(ctx, sdkRoot, filepath.Join("bin", "flutter"))
+	if err != nil || dir == "" {
+		result.Details = append(result.Details, fmt.Sprintf("flutter: SDK root %q lacks bin/flutter", sdkRoot))
+		return result, nil
+	}
+	result.AdditionalReadDirs = []string{dir}
+	result.ResolvedEnv["FLUTTER_ROOT"] = dir
+	result.Source = "flutter (active SDK)"
+	result.Details = append(result.Details, fmt.Sprintf("flutter: resolved SDK root -> %s", dir))
 	return result, nil
 }
 

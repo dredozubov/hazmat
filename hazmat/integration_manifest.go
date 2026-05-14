@@ -133,6 +133,10 @@ var safeEnvKeys = map[string]bool{
 	"ANDROID_NDK_HOME": true,
 	"GRADLE_USER_HOME": true,
 
+	// Flutter / Dart — path pointers only
+	"FLUTTER_ROOT": true,
+	"PUB_CACHE":    true,
+
 	// CMake / C/C++ — path pointers and build-system selector only.
 	// CC and CXX are intentionally excluded — they can carry argument
 	// strings (e.g. CXX="ccache clang++ -Werror"), which is flag injection.
