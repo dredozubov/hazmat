@@ -1,0 +1,32 @@
+integration:
+  name: swift
+  version: 1
+  description: Swift project using SwiftPM (macOS-native)
+
+detect:
+  files: [Package.swift]
+
+session:
+  platforms:
+    darwin:
+      read_dirs:
+        - ~/Library/Caches/org.swift.swiftpm
+        - ~/Library/org.swift.swiftpm
+        - ~/Library/Developer/Xcode/DerivedData
+      env_passthrough: [DEVELOPER_DIR]
+
+warnings:
+  - "SwiftPM applies its own sandbox during manifest evaluation. That nested sandbox is rejected inside Hazmat (sandbox_apply: Operation not permitted). Pass --disable-sandbox to swift build/test/run, or set SWIFTPM_DISABLE_SANDBOX=1, to skip SwiftPM's inner sandbox. The outer Hazmat seatbelt still applies."
+
+backup:
+  excludes:
+    - .build/
+    - .swiftpm/
+    - DerivedData/
+    - Pods/
+    - "*.xcodeproj/xcuserdata/"
+    - "*.xcworkspace/xcuserdata/"
+
+commands:
+  test: swift test
+  build: swift build

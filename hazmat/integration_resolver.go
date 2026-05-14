@@ -151,6 +151,10 @@ var builtinIntegrationResolvers = map[string]integrationResolverSpec{
 		Summary: "bd + dolt Homebrew permission repair (no read_dirs; .beads/ lives in the project tree)",
 		Resolve: resolveBeadsIntegration,
 	},
+	"swift": {
+		Summary: "Xcode/CLT developer dir probe via xcode-select",
+		Resolve: resolveSwiftIntegration,
+	},
 }
 
 func (hostIntegrationProbe) LookPath(name string) (string, error) {
@@ -621,6 +625,34 @@ func resolveElixirMixIntegration(ctx *integrationResolveContext, spec Integratio
 	}
 
 	result.Source = integrationSource("elixir-mix", sourceParts)
+	return result, nil
+}
+
+// resolveSwiftIntegration probes the active Xcode developer dir via
+// xcode-select. The output is typically /Applications/Xcode.app/Contents/Developer
+// (Xcode) or /Library/Developer/CommandLineTools (CLT — already in base policy).
+// Returns the developer dir as AdditionalReadDirs and DEVELOPER_DIR in
+// ResolvedEnv so the agent's swift toolchain lookup hits the same prefix.
+func resolveSwiftIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
+	result := resolvedIntegration{Spec: spec, ResolvedEnv: make(map[string]string)}
+	out, err := ctx.Probe.Output("xcode-select", "-p")
+	if err != nil {
+		result.Details = append(result.Details, fmt.Sprintf("swift: xcode-select -p failed (%v); using manifest dirs only", err))
+		return result, nil
+	}
+	developerDir := strings.TrimSpace(out)
+	if developerDir == "" {
+		return result, nil
+	}
+	dir, err := validatedRuntimeDir(ctx, developerDir, filepath.Join("usr", "bin", "swift"))
+	if err != nil || dir == "" {
+		result.Details = append(result.Details, fmt.Sprintf("swift: developer dir %q has no usr/bin/swift; using manifest dirs only", developerDir))
+		return result, nil
+	}
+	result.AdditionalReadDirs = []string{dir}
+	result.ResolvedEnv["DEVELOPER_DIR"] = dir
+	result.Source = "swift (xcode-select developer dir)"
+	result.Details = append(result.Details, fmt.Sprintf("swift: resolved developer dir -> %s", dir))
 	return result, nil
 }
 

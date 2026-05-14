@@ -119,6 +119,9 @@ var safeEnvKeys = map[string]bool{
 	"JAVA_HOME":     true,
 	"TLA2TOOLS_JAR": true, // path to tla2tools.jar for TLC model checking
 
+	// Swift / Xcode — path pointer to active developer dir
+	"DEVELOPER_DIR": true,
+
 	// Ruby — path pointer only
 	"GEM_HOME": true,
 

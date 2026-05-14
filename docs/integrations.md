@@ -158,6 +158,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `terraform-plan` | `*.tf` | — | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `opentofu-plan` | manual activation | resolved OpenTofu prefix | — | `.terraform/`, `*.tfstate`, `*.tfstate.backup` |
 | `tla-java` | `*.cfg` files with sibling `*.tla` | resolved JDK home; Darwin declares `/Library/Java` and `/opt/homebrew/opt/openjdk` | `JAVA_HOME`, `TLA2TOOLS_JAR` | `tla/states/`, `*.dot` |
+| `swift` | `Package.swift` | resolved Xcode developer dir (via `xcode-select -p`); `~/Library/Caches/org.swift.swiftpm`, `~/Library/org.swift.swiftpm`, `~/Library/Developer/Xcode/DerivedData` | `DEVELOPER_DIR` | `.build/`, `.swiftpm/`, `DerivedData/`, `Pods/`, `*.xcodeproj/xcuserdata/`, `*.xcworkspace/xcuserdata/` |
 
 Integrations influence three parts of session setup:
 

@@ -200,6 +200,81 @@ func TestResolveRuntimeIntegrationsHaskellCabalUsesRuntimeProbe(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeIntegrationsSwiftProbesXcodeSelect(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+	developerRoot := filepath.Join(t.TempDir(), "DeveloperDir")
+	swiftBinDir := filepath.Join(developerRoot, "usr", "bin")
+	if err := os.MkdirAll(swiftBinDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", swiftBinDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(swiftBinDir, "swift"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write swift: %v", err)
+	}
+	canonicalRoot, err := canonicalizePath(developerRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"xcode-select -p": developerRoot,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("swift")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(swift): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 1 || got[0] != canonicalRoot {
+		t.Fatalf("AdditionalReadDirs = %v, want [%q]", got, canonicalRoot)
+	}
+	if resolved[0].ResolvedEnv["DEVELOPER_DIR"] != canonicalRoot {
+		t.Fatalf("ResolvedEnv[DEVELOPER_DIR] = %q, want %q", resolved[0].ResolvedEnv["DEVELOPER_DIR"], canonicalRoot)
+	}
+	if resolved[0].Source != "swift (xcode-select developer dir)" {
+		t.Fatalf("Source = %q", resolved[0].Source)
+	}
+}
+
+func TestResolveRuntimeIntegrationsSwiftFallsBackWhenXcodeSelectFails(t *testing.T) {
+	allowAllIntegrationExecutables(t)
+	projectDir := t.TempDir()
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputErrs: map[string]error{
+				"xcode-select -p": fmt.Errorf("xcode-select missing"),
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	integration, err := loadBuiltinIntegrationSpec("swift")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(swift): %v", err)
+	}
+	resolved, _, err := resolveRuntimeIntegrations(projectDir, []IntegrationSpec{integration})
+	if err != nil {
+		t.Fatalf("resolveRuntimeIntegrations: %v", err)
+	}
+	if got := resolved[0].AdditionalReadDirs; len(got) != 0 {
+		t.Fatalf("AdditionalReadDirs = %v, want empty fallback", got)
+	}
+	if _, set := resolved[0].ResolvedEnv["DEVELOPER_DIR"]; set {
+		t.Fatalf("DEVELOPER_DIR should not be set when xcode-select fails, got %q", resolved[0].ResolvedEnv["DEVELOPER_DIR"])
+	}
+}
+
 func TestResolveRuntimeIntegrationsPythonUVUsesRuntimeProbe(t *testing.T) {
 	allowAllIntegrationExecutables(t)
 	projectDir := t.TempDir()
