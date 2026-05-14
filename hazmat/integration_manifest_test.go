@@ -804,6 +804,42 @@ func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsDockerFiresOnDockerfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "docker" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected docker suggestion for Dockerfile at root, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsDockerFiresOnCompose(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	found := false
+	for _, s := range suggestions {
+		if s == "docker" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected docker suggestion for docker-compose.yml at root, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsAndroidGradleCoexistsWithJavaGradle(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"), []byte("rootProject.name = \"app\"\n"), 0o644); err != nil {

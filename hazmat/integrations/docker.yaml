@@ -1,0 +1,23 @@
+integration:
+  name: docker
+  version: 1
+  description: Docker-based project (Dockerfile / compose)
+
+detect:
+  files: [Dockerfile, Containerfile, compose.yml, compose.yaml, docker-compose.yml, docker-compose.yaml]
+
+session:
+  env_passthrough: [DOCKER_HOST, DOCKER_TLS_VERIFY]
+
+warnings:
+  - "Docker commands do not work in native containment. To run Docker workloads inside Hazmat, use 'hazmat exec --docker=sandbox' (or the equivalent flag on claude/codex/opencode). The Tier 3 Docker Sandbox mode is governed by MC_Tier3LaunchContainment."
+
+backup:
+  excludes:
+    - .docker/
+    - "*.dockerfile.swp"
+
+commands:
+  build: docker build .
+  up: docker compose up
+  down: docker compose down

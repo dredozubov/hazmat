@@ -148,6 +148,12 @@ var safeEnvKeys = map[string]bool{
 	"COMPOSER_HOME":      true,
 	"COMPOSER_CACHE_DIR": true,
 
+	// Docker — daemon socket selector and TLS toggle only.
+	// These are inert in native containment; they only have effect when the
+	// session is routed through hazmat's Tier 3 Docker Sandbox mode.
+	"DOCKER_HOST":       true,
+	"DOCKER_TLS_VERIFY": true,
+
 	// Editor preference
 	"EDITOR": true,
 	"VISUAL": true,
