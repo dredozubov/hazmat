@@ -1,0 +1,29 @@
+integration:
+  name: pnpm
+  version: 1
+  description: JavaScript/TypeScript project using pnpm
+
+detect:
+  files: [pnpm-lock.yaml]
+
+session:
+  read_dirs:
+    - ~/.local/share/pnpm
+    - ~/Library/pnpm
+    - ~/.pnpm-store
+  env_passthrough: [PNPM_HOME]
+
+backup:
+  excludes:
+    - node_modules/
+    - .next/
+    - .turbo/
+    - .nuxt/
+    - out/
+    - .vercel/
+    - .pnpm-store/
+
+commands:
+  test: pnpm test
+  build: pnpm build
+  lint: pnpm lint

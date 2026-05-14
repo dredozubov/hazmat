@@ -804,6 +804,49 @@ func TestSuggestIntegrationsPythonPipDefersToPoetryLock(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsPnpmCoexistsWithNode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '6.0'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundNode := false
+	foundPnpm := false
+	for _, s := range suggestions {
+		if s == "node" {
+			foundNode = true
+		}
+		if s == "pnpm" {
+			foundPnpm = true
+		}
+	}
+	if !foundNode || !foundPnpm {
+		t.Fatalf("expected both node and pnpm suggestions for package.json + pnpm-lock.yaml, got %v", suggestions)
+	}
+}
+
+func TestSuggestIntegrationsPnpmFiresFromLockfileWithoutPackageJson(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '6.0'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	foundPnpm := false
+	for _, s := range suggestions {
+		if s == "pnpm" {
+			foundPnpm = true
+		}
+	}
+	if !foundPnpm {
+		t.Fatalf("expected pnpm suggestion for pnpm-lock.yaml at root even without package.json, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPythonPipSkipsAuxiliaryPlaygroundRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[workspace]"), 0o644); err != nil {
