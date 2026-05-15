@@ -99,7 +99,11 @@ Current state, not aspirational state:
 - **macOS native containment is the default path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
 - **Four harnesses are supported in containment.** Claude Code, Codex, OpenCode, and Gemini. Details, tested versions, and auth flows live in [docs/harnesses.md](docs/harnesses.md).
 - **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
-- **Integrations exist for common stacks.** Hazmat currently ships built-in integrations for Go, Node, Rust, Python, Java, TLA+, Terraform/OpenTofu, Beads, and more. See [docs/integrations.md](docs/integrations.md).
+- **27 built-in stack integrations.** Full table in [docs/STACKS.md](docs/STACKS.md); schema and trust-model rules in [docs/integrations.md](docs/integrations.md). Quick groupings:
+  - Python: `python-uv`, `python-pip`, `python-poetry`. JS/TS: `node`, `pnpm`, `yarn`, `bun`, `deno`.
+  - JVM and mobile: `java-gradle`, `java-maven`, `tla-java`, `android-gradle`, `swift`, `flutter`.
+  - Systems: `go`, `rust`, `cmake`, `haskell-cabal`, `elixir-mix`, `ruby-bundler`, `php-composer`, `dotnet`.
+  - Infra and build: `docker`, `kubernetes-render` (render/lint only), `terraform-plan`, `opentofu-plan`, `beads`.
 - **Repo-local Git hooks have a Hazmat-managed approval path.** Repos can declare `pre-commit`, `commit-msg`, and `pre-push` in `.hazmat/hooks/hooks.yaml`; approval, install, drift review, and uninstall flow through `hazmat hooks ...`.
 - **Core behavior is tested and partially formally verified.** The exact proof boundary is explicit in [tla/VERIFIED.md](tla/VERIFIED.md). If something is not listed there, do not assume a proof exists.
 
