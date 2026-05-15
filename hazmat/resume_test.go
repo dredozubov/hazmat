@@ -194,6 +194,10 @@ func TestCopyResumeSessionFileAtomicCopy(t *testing.T) {
 	if err := os.WriteFile(srcPath, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	srcTime := time.Unix(1234, 0)
+	if err := os.Chtimes(srcPath, srcTime, srcTime); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := copyResumeSessionFile(srcPath, destPath); err != nil {
 		t.Fatalf("copyResumeSessionFile: %v", err)
@@ -215,6 +219,9 @@ func TestCopyResumeSessionFileAtomicCopy(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("dest mode = %04o, want 0600", perm)
+	}
+	if !info.ModTime().Equal(srcTime) {
+		t.Fatalf("dest modtime = %s, want %s", info.ModTime(), srcTime)
 	}
 
 	// Source is untouched.
@@ -386,17 +393,81 @@ func TestSyncResumeSessionFilesReplacesSymlinks(t *testing.T) {
 	if string(got) != string(content) {
 		t.Fatalf("content = %q, want %q", got, content)
 	}
+	info, err = os.Stat(symPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o660 {
+		t.Fatalf("replacement mode = %04o, want 0660", perm)
+	}
 }
 
-func TestSyncResumeSessionFilesLeavesExistingRegularFiles(t *testing.T) {
+func TestSyncResumeSessionFilesRefreshesStaleRegularFiles(t *testing.T) {
 	srcDir := t.TempDir()
 	destDir := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(srcDir, "session.jsonl"), []byte("host"), 0o644); err != nil {
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	if err := os.WriteFile(srcPath, []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destPath := filepath.Join(destDir, "session.jsonl")
+	if err := os.WriteFile(destPath, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Unix(10, 0)
+	newTime := time.Unix(20, 0)
+	if err := os.Chtimes(destPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(srcPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "host" {
+		t.Fatalf("dest contents = %q, want refreshed host copy", data)
+	}
+	info, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o660 {
+		t.Fatalf("dest mode = %04o, want 0660", perm)
+	}
+	if !info.ModTime().Equal(newTime) {
+		t.Fatalf("dest modtime = %s, want %s", info.ModTime(), newTime)
+	}
+}
+
+func TestSyncResumeSessionFilesLeavesNewerDivergentRegularFiles(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	if err := os.WriteFile(srcPath, []byte("host"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	destPath := filepath.Join(destDir, "session.jsonl")
 	if err := os.WriteFile(destPath, []byte("agent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srcTime := time.Unix(10, 0)
+	destTime := time.Unix(20, 0)
+	if err := os.Chtimes(srcPath, srcTime, srcTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(destPath, destTime, destTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -414,5 +485,53 @@ func TestSyncResumeSessionFilesLeavesExistingRegularFiles(t *testing.T) {
 	}
 	if string(data) != "agent" {
 		t.Fatalf("dest contents = %q, want agent copy preserved", data)
+	}
+	info, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o660 {
+		t.Fatalf("dest mode = %04o, want startup permission repair to set 0660", perm)
+	}
+}
+
+func TestSyncResumeSessionFilesRestoresMetadataForIdenticalRegularFiles(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	destPath := filepath.Join(destDir, "session.jsonl")
+	if err := os.WriteFile(srcPath, []byte("same"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destPath, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srcTime := time.Unix(10, 0)
+	badDestTime := time.Unix(100, 0)
+	if err := os.Chtimes(srcPath, srcTime, srcTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(destPath, badDestTime, badDestTime); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := syncResumeSessionFiles(srcDir, destDir, "", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFiles: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+
+	info, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o660 {
+		t.Fatalf("dest mode = %04o, want 0660", perm)
+	}
+	if !info.ModTime().Equal(srcTime) {
+		t.Fatalf("dest modtime = %s, want %s", info.ModTime(), srcTime)
 	}
 }

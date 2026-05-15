@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -93,6 +94,7 @@ func agentSessionDir(invokerDir string) (string, error) {
 type resumeSessionFile struct {
 	name    string
 	path    string
+	size    int64
 	modTime time.Time
 }
 
@@ -117,6 +119,7 @@ func listResumeSessionFiles(dir string) ([]resumeSessionFile, error) {
 		files = append(files, resumeSessionFile{
 			name:    name,
 			path:    filepath.Join(dir, name),
+			size:    info.Size(),
 			modTime: info.ModTime(),
 		})
 	}
@@ -156,6 +159,18 @@ func selectResumeSessionFiles(files []resumeSessionFile, resumeTarget string, wa
 }
 
 func copyResumeSessionFile(src, dest string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", src, err)
+	}
+	return copyResumeSessionFileWithMode(src, dest, 0o600, info.ModTime())
+}
+
+func copySharedResumeSessionFile(file resumeSessionFile, dest string) error {
+	return copyResumeSessionFileWithMode(file.path, dest, 0o660, file.modTime)
+}
+
+func copyResumeSessionFileWithMode(src, dest string, mode os.FileMode, modTime time.Time) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
@@ -176,13 +191,63 @@ func copyResumeSessionFile(src, dest string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp file for %s: %w", dest, err)
 	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
+	if err := os.Chmod(tmpName, mode); err != nil {
 		return fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
+	if err := os.Chtimes(tmpName, modTime, modTime); err != nil {
+		return fmt.Errorf("preserve timestamp for %s: %w", tmpName, err)
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		return fmt.Errorf("rename %s to %s: %w", tmpName, dest, err)
 	}
 	return nil
+}
+
+func resumeSessionContentsEqual(a, b string) bool {
+	left, err := os.Open(a)
+	if err != nil {
+		return false
+	}
+	defer left.Close()
+	right, err := os.Open(b)
+	if err != nil {
+		return false
+	}
+	defer right.Close()
+
+	leftBuf := make([]byte, 32*1024)
+	rightBuf := make([]byte, 32*1024)
+	for {
+		leftN, leftErr := left.Read(leftBuf)
+		rightN, rightErr := right.Read(rightBuf)
+		if leftN != rightN || !bytes.Equal(leftBuf[:leftN], rightBuf[:rightN]) {
+			return false
+		}
+		if leftErr == io.EOF && rightErr == io.EOF {
+			return true
+		}
+		if leftErr != nil || rightErr != nil {
+			return false
+		}
+	}
+}
+
+func shouldRefreshResumeSessionFile(src resumeSessionFile, dest string, destInfo os.FileInfo) bool {
+	if src.modTime.After(destInfo.ModTime()) {
+		return true
+	}
+	needsSharedMode := destInfo.Mode().Perm()&0o060 != 0o060
+	if !needsSharedMode && src.modTime.Equal(destInfo.ModTime()) {
+		return false
+	}
+	return src.size == destInfo.Size() && resumeSessionContentsEqual(src.path, dest)
+}
+
+func repairExistingResumeSessionPermissions(dest string, info os.FileInfo) {
+	if info.Mode().Perm()&0o060 == 0o060 {
+		return
+	}
+	_ = os.Chmod(dest, 0o660)
 }
 
 func syncResumeSessionFiles(srcDir, destDir, resumeTarget string, wantsContinue bool) (int, error) {
@@ -203,12 +268,17 @@ func syncResumeSessionFiles(srcDir, destDir, resumeTarget string, wantsContinue 
 					return synced, fmt.Errorf("remove stale symlink %s: %w", dest, err)
 				}
 			} else {
-				// Regular file — agent has its own local copy, don't overwrite it.
-				continue
+				// Regular files may be prior host syncs or agent-local
+				// continuations. Refresh stale/equivalent host copies, but keep
+				// newer divergent files intact.
+				if !shouldRefreshResumeSessionFile(file, dest, info) {
+					repairExistingResumeSessionPermissions(dest, info)
+					continue
+				}
 			}
 		}
 
-		if err := copyResumeSessionFile(file.path, dest); err != nil {
+		if err := copySharedResumeSessionFile(file, dest); err != nil {
 			return synced, err
 		}
 		synced++
@@ -221,10 +291,12 @@ func syncResumeSessionFiles(srcDir, destDir, resumeTarget string, wantsContinue 
 // agent user's session directory. This lets --resume and --continue work
 // without granting the seatbelt direct access to the host transcript store.
 //
-// Existing regular files are left untouched so agent-local continuations are
-// never overwritten. When --continue is used, only the most recent session is
-// copied. A targeted --resume copies only the requested session. Bare --resume
-// copies the available project sessions so Claude can offer its picker UI.
+// Existing regular files are refreshed only when the host transcript is newer
+// or the destination is an equivalent prior sync with bad metadata. Newer
+// divergent files are kept intact so agent-local continuations are not
+// overwritten. When --continue is used, only the most recent session is copied.
+// A targeted --resume copies only the requested session. Bare --resume copies
+// the available project sessions so Claude can offer its picker UI.
 func syncResumeSession(projectDir string, resumeTarget string, wantsContinue bool) error {
 	srcDir := invokerSessionDir(projectDir)
 	if srcDir == "" {
