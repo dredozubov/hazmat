@@ -379,6 +379,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
 All other flags and arguments are forwarded to OpenCode.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+When --continue or --session is detected, Hazmat imports the matching host
+OpenCode session into the agent user's OpenCode store before launch.
 Use --docker=sandbox when this repo needs a private-daemon Docker session.
 Use --docker=auto when you want Hazmat to inspect the repo and route
 Docker-heavy private-daemon fits automatically.
@@ -386,6 +388,8 @@ Docker-heavy private-daemon fits automatically.
 Examples:
   hazmat opencode
   hazmat opencode -p "explain this"
+  hazmat opencode --continue
+  hazmat opencode --session ses_abc123
   hazmat opencode -C /proj -p "hi"
   hazmat opencode --docker=sandbox -C /proj
   hazmat opencode --docker=auto -C /proj
@@ -410,6 +414,12 @@ Examples:
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
 				return runSandboxOpenCodeSession(prepared.Config, forwarded)
+			}
+			if detectOpenCodeResumeRequest(forwarded).requested {
+				if err := syncOpenCodeResumeState(prepared.Config.ProjectDir, forwarded); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: OpenCode session sync failed: %v\n", err)
+					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+				}
 			}
 			return runAgentSeatbeltScript(prepared.Config, openCodeLaunchScript(), forwarded...)
 		},
@@ -437,6 +447,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
 All other flags and arguments are forwarded to Codex.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+When resume or fork subcommands are detected, session history from your user
+account is copied into the agent user's Codex session store.
 Use --docker=sandbox when this repo needs a private-daemon Docker session.
 Use --docker=auto when you want Hazmat to inspect the repo and route
 Docker-heavy private-daemon fits automatically.
@@ -444,6 +456,8 @@ Docker-heavy private-daemon fits automatically.
 Examples:
   hazmat codex
   hazmat codex "explain this repo"
+  hazmat codex resume --last
+  hazmat codex fork <session-id>
   hazmat codex --docker=sandbox -C /proj
   hazmat codex --docker=auto -C /proj
   hazmat codex --github "review this PR"
@@ -468,6 +482,12 @@ Examples:
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
 				return runSandboxCodexSession(prepared.Config, forwarded)
+			}
+			if codexResumeRequested(forwarded) {
+				if err := syncCodexResumeState(); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: Codex session sync failed: %v\n", err)
+					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+				}
 			}
 
 			// Hazmat provides the primary containment boundary here, so when
@@ -507,6 +527,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
 All other flags and arguments are forwarded to Gemini.
 Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
+When --resume/-r or --list-sessions is detected, Hazmat copies this project's
+Gemini session history into the agent user's Gemini session store.
 Use --docker=sandbox when this repo needs a private-daemon Docker session.
 Use --docker=auto when you want Hazmat to inspect the repo and route
 Docker-heavy private-daemon fits automatically.
@@ -514,6 +536,8 @@ Docker-heavy private-daemon fits automatically.
 Examples:
   hazmat gemini
   hazmat gemini -p "explain this repo"
+  hazmat gemini --list-sessions
+  hazmat gemini --resume latest
   hazmat gemini --docker=sandbox -C /proj
   hazmat gemini --docker=auto -C /proj
   hazmat gemini --github -p "review this PR"
@@ -538,6 +562,12 @@ Examples:
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
 				return runSandboxGeminiSession(prepared.Config, forwarded)
+			}
+			if geminiResumeRequested(forwarded) {
+				if err := syncGeminiResumeState(prepared.Config.ProjectDir); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: Gemini session sync failed: %v\n", err)
+					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+				}
 			}
 			return runAgentSeatbeltScript(prepared.Config, geminiLaunchScript(), forwarded...)
 		},
