@@ -9,7 +9,7 @@ repos:
     ref: f65b10a54d9abb2ceb3890bcadc22e372f635f88
     stack: node-typescript-rust
     project_subdir: .
-    expected_suggestions: [node, rust]
+    expected_suggestions: [docker, node, pnpm, rust]
     activate: [node, rust]
     required_formulas: [node, pnpm]
     smoke_commands:
