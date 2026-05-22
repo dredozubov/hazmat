@@ -19,6 +19,7 @@ func newExplainCmd() *cobra.Command {
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
+	var networkModeValue string
 	var outputJSON bool
 
 	cmd := &cobra.Command{
@@ -37,6 +38,7 @@ Examples:
   hazmat explain --github -C ~/workspace/my-project
   hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
   hazmat explain --for opencode --docker=none -C ~/workspace/repo
+  hazmat explain --for codex --network none -C ~/workspace/repo
   hazmat explain --for gemini --integration go -C ~/workspace/my-go-project`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -52,6 +54,8 @@ Examples:
 				allowDocker:           allowDocker,
 				dockerMode:            dockerModeValue,
 				dockerModeExplicit:    cmd.Flags().Changed("docker"),
+				networkMode:           networkModeValue,
+				networkModeExplicit:   cmd.Flags().Changed("network"),
 			})
 			if err != nil {
 				return err
@@ -91,6 +95,8 @@ Examples:
 		"Preview a session with the configured GitHub API token granted as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
+	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
+		"Native network policy: default or none")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,

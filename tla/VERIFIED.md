@@ -165,8 +165,8 @@ successful completion after arbitrary bounded failures.
 | Spec | `tla/02_seatbelt_policy_structure.md` |
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential` |
-| Status | **Fixed** — credential denies cover both ops; resume dir + project re-assertion modeled |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, and native network-none mode modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -187,6 +187,10 @@ successful completion after arbitrary bounded failures.
    is a parent of the project directory, the project's write access is re-asserted
    as the last allow before credential denies.
 
+4. Added native per-session `--network none` modeling. Default native sessions
+   keep outbound network and DNS authority; network-none sessions emit neither
+   grant, with no global firewall state.
+
 Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
 4=agent home, 5=project write re-assert, 6=credential denies.
 
@@ -205,6 +209,8 @@ inherited credential-bearing fd still alive.
   they cover any credential paths — add to the model and re-verify.
 - Adding new optional read+write sections (like ResumeDir) requires modeling the
   path and verifying it cannot overlap with `CredPaths`.
+- Changing native network grants requires updating this model and re-proving
+  both default outbound behavior and network-none denial.
 
 ---
 
@@ -369,15 +375,15 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 | Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
 | Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunch()`, `buildSandboxLaunchSpec()` |
 | Governed code | `hazmat/integration_manifest.go` — `isCredentialDenyPath()` |
-| Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
+| Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `NetworkNoneBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
 | Status | **Proved** — exact Tier 2/Tier 3 identity is false by design, but the canonical core containment contract is equivalent across both backends |
 
 **What was found:**
 
 1. Exact backend identity is not a valid claim for the current product. The
-   model proves three intentional divergence classes: integration env
-   passthrough, host-side resume history behavior, and Tier 3 ancestor mount
-   rewriting.
+   model proves four intentional divergence classes: integration env
+   passthrough, native-only network-none mode, host-side resume history behavior,
+   and Tier 3 ancestor mount rewriting.
 
 2. A real Tier 2 vs Tier 3 mismatch existed in implementation: Tier 3 already
    rejected project/read/write roots that overlapped credential deny zones, but
@@ -392,8 +398,8 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 
 The principle: **Hazmat may share one path-based containment contract across
 tiers, but it must not claim stronger backend identity than the implementation
-actually provides.** TLC passes across all 163,840 reachable states (327,680
-generated, depth 1, 13s).
+actually provides.** TLC passes across all 327,680 reachable states (655,360
+generated, depth 1, 17s).
 
 **Change rules:**
 - Changes to project/read/write root normalization or credential-deny handling
@@ -401,6 +407,8 @@ generated, depth 1, 13s).
   containment spec.
 - Adding Tier 3 integration-env support requires updating this spec first; the
   current proof treats that difference as an intentional exact-identity break.
+- Adding a Docker Sandbox equivalent of native `--network none` or changing
+  how native network-none requests route requires updating this spec first.
 - Changing resume/continue transcript handling across tiers requires updating
   this spec first; host resume parity is currently outside the equivalent core
   containment contract.

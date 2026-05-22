@@ -30,6 +30,7 @@ type explainJSONPreview struct {
 	AutoReadOnlyDirs      []string                        `json:"auto_read_only_dirs,omitempty"`
 	UserReadOnlyDirs      []string                        `json:"user_read_only_dirs,omitempty"`
 	ReadWriteExtensions   []string                        `json:"read_write_extensions,omitempty"`
+	NetworkPolicy         sessionNetworkPolicyMetadata    `json:"network_policy"`
 	ServiceAccess         []string                        `json:"service_access,omitempty"`
 	GitSSHKey             string                          `json:"git_ssh_key,omitempty"`
 	Snapshot              explainJSONBackup               `json:"snapshot"`
@@ -79,6 +80,7 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		AutoReadOnlyDirs:      append([]string(nil), cfg.AutoReadDirs...),
 		UserReadOnlyDirs:      append([]string(nil), cfg.UserReadDirs...),
 		ReadWriteExtensions:   append([]string(nil), cfg.WriteDirs...),
+		NetworkPolicy:         buildSessionNetworkPolicyMetadata(cfg, mode),
 		ServiceAccess:         append([]string(nil), cfg.ServiceAccess...),
 		GitSSHKey:             explainGitSSHKey(cfg.GitSSH),
 		Snapshot: explainJSONBackup{

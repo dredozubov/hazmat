@@ -140,6 +140,41 @@ hazmat opencode
 
 This generates a per-session security policy, switches to the agent user, and launches the agent inside containment. When you exit, the session is cleaned up.
 
+### Denying Network Egress for One Native Session
+
+Native sessions allow outbound network by default so harnesses can reach their
+model provider, package registries, and other explicit services. For offline
+review harnesses, pass `--network none` to remove outbound network authority
+from that one Seatbelt policy:
+
+```bash
+hazmat claude --network none --metadata-json -p "review this packet offline"
+hazmat codex --network none --metadata-json exec "review this packet offline"
+hazmat exec --network none --metadata-json -- /bin/zsh -lc 'make test'
+hazmat explain --network none --json
+```
+
+`--network none` is native-only. It omits the `network-outbound` Seatbelt grant
+and the DNS resolver mach lookup, so outbound IPv4, outbound IPv6, and DNS
+resolution fail closed for the sandboxed process tree. Hazmat does not install
+or remove per-session `pf` rules for this mode; concurrent default sessions keep
+their normal network behavior, and there is no network cleanup artifact after
+normal exit, timeout, or signal.
+
+Threat boundary: this mode blocks network egress, including provider API calls,
+package downloads, Git remotes, DNS, and loopback outbound dials. It is not a
+VM boundary and does not make already-visible local files secret from the
+harness. Local inbound listener support remains in the profile for tools that
+bind preview servers, but it is not an outbound path.
+
+`--metadata-json` emits one compact JSON line to stderr after the native helper
+has applied the Seatbelt policy. The child harness stdout is left untouched, so
+non-interactive callers can still capture structured stdout while verifying:
+
+```json
+{"kind":"hazmat.session","network_policy":{"requested":"none","effective":"none","enforced":true}}
+```
+
 ### Giving the Agent Access to Other Directories
 
 By default, the agent can only write to the project directory (your current

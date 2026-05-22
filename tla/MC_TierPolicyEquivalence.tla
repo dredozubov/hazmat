@@ -78,6 +78,7 @@ VARIABLES
     readDirs,
     writeDirs,
     integrationEnvRequested,
+    networkNoneRequested,
     resumeRequested,
     backendReady,
     approvalGranted,
@@ -85,13 +86,15 @@ VARIABLES
 
 vars ==
     <<projectDir, readDirs, writeDirs, integrationEnvRequested,
-      resumeRequested, backendReady, approvalGranted, extraMountsSupported>>
+      networkNoneRequested, resumeRequested, backendReady, approvalGranted,
+      extraMountsSupported>>
 
 TypeOK ==
     /\ projectDir \in Paths
     /\ readDirs \subseteq Paths
     /\ writeDirs \subseteq Paths
     /\ integrationEnvRequested \in BOOLEAN
+    /\ networkNoneRequested \in BOOLEAN
     /\ resumeRequested \in BOOLEAN
     /\ backendReady \in BOOLEAN
     /\ approvalGranted \in BOOLEAN
@@ -102,6 +105,7 @@ Init ==
     /\ readDirs \in SUBSET ReadChoices
     /\ writeDirs \in SUBSET WriteChoices
     /\ integrationEnvRequested \in BOOLEAN
+    /\ networkNoneRequested \in BOOLEAN
     /\ resumeRequested \in BOOLEAN
     /\ backendReady \in BOOLEAN
     /\ approvalGranted \in BOOLEAN
@@ -155,6 +159,7 @@ Tier3ExtraMountsRequired ==
 Tier3LaunchAllowed ==
     /\ ~HasCredentialInput
     /\ ~integrationEnvRequested
+    /\ ~networkNoneRequested
     /\ backendReady
     /\ approvalGranted
     /\ (extraMountsSupported \/ ~Tier3ExtraMountsRequired)
@@ -169,6 +174,7 @@ Tier2ExactPolicy ==
      roRoots                 |-> IF Tier2LaunchAllowed THEN Tier2ReadRoots ELSE {},
      rwRoots                 |-> IF Tier2LaunchAllowed THEN Tier2WriteRoots \cup {projectDir} ELSE {},
      integrationEnvPassthru  |-> integrationEnvRequested,
+     networkPolicy           |-> IF networkNoneRequested THEN "none" ELSE "default",
      hostResumeSync          |-> resumeRequested,
      ancestorRewriteNeeded   |-> FALSE]
 
@@ -177,6 +183,7 @@ Tier3ExactPolicy ==
      roRoots                 |-> IF Tier3LaunchAllowed THEN Tier3ReadRoots ELSE {},
      rwRoots                 |-> IF Tier3LaunchAllowed THEN Tier3WriteRoots \cup {projectDir} ELSE {},
      integrationEnvPassthru  |-> FALSE,
+     networkPolicy           |-> "sandbox-profile",
      hostResumeSync          |-> FALSE,
      ancestorRewriteNeeded   |-> AncestorRewriteNeeded]
 
@@ -192,6 +199,7 @@ ExtraMountGateSatisfied ==
 CanonicalComparableInputs ==
     /\ ~HasCredentialInput
     /\ ~integrationEnvRequested
+    /\ ~networkNoneRequested
     /\ ~resumeRequested
     /\ backendReady
     /\ approvalGranted
@@ -216,6 +224,7 @@ IntegrationEnvBreaksExactIdentity ==
 ResumeBreaksExactIdentity ==
     /\ ~HasCredentialInput
     /\ ~integrationEnvRequested
+    /\ ~networkNoneRequested
     /\ resumeRequested
     /\ backendReady
     /\ approvalGranted
@@ -229,6 +238,7 @@ ResumeBreaksExactIdentity ==
 AncestorRewriteBreaksExactIdentity ==
     /\ ~HasCredentialInput
     /\ ~integrationEnvRequested
+    /\ ~networkNoneRequested
     /\ ~resumeRequested
     /\ backendReady
     /\ approvalGranted
@@ -236,6 +246,18 @@ AncestorRewriteBreaksExactIdentity ==
     /\ AncestorRewriteNeeded
     => /\ Tier2LaunchAllowed
        /\ Tier3LaunchAllowed
+       /\ ~ExactPolicyIdentity
+
+NetworkNoneBreaksExactIdentity ==
+    /\ ~HasCredentialInput
+    /\ ~integrationEnvRequested
+    /\ networkNoneRequested
+    /\ ~resumeRequested
+    /\ backendReady
+    /\ approvalGranted
+    /\ ExtraMountGateSatisfied
+    => /\ Tier2LaunchAllowed
+       /\ ~Tier3LaunchAllowed
        /\ ~ExactPolicyIdentity
 
 CanonicalCoreContainmentEquivalent ==

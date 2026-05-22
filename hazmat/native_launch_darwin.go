@@ -38,13 +38,19 @@ func (b darwinNativeLaunchBackend) CommandSudoArgs(req nativeLaunchCommandReques
 	//
 	// hazmat-launch validates the policy file path and SUDO_UID ownership
 	// before applying the platform sandbox. It refuses inline policies.
+	// Optional metadata is emitted by hazmat-launch only after sandbox_init()
+	// succeeds, so callers never see "enforced": true for a failed native
+	// sandbox application.
 	// env -i runs *inside* the sandbox so the environment is set after the
 	// privilege boundary is crossed.
 	full := []string{
 		"-u", agentUser,
 		launchHelperPath(), req.Policy.Path,
-		"/usr/bin/env", "-i",
 	}
+	if req.MetadataJSON != "" {
+		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)
+	}
+	full = append(full, "/usr/bin/env", "-i")
 	full = append(full, b.AgentEnvPairs(req.Config)...)
 	full = append(full, req.RuntimeEnvPairs...)
 	full = append(full, "/bin/zsh", "-lc", req.Script, "zsh")

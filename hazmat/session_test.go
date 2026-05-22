@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -52,6 +53,44 @@ func TestParseHarnessArgsRejectsLegacyPackFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--pack was removed before v1") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseHarnessArgsRecognizesNetworkAndMetadataFlags(t *testing.T) {
+	opts, forwarded, err := parseHarnessArgs([]string{"--network", "none", "--metadata-json", "-p", "review"})
+	if err != nil {
+		t.Fatalf("parseHarnessArgs: %v", err)
+	}
+	if !opts.networkModeExplicit || opts.networkMode != "none" {
+		t.Fatalf("network opts = explicit:%v mode:%q, want explicit none", opts.networkModeExplicit, opts.networkMode)
+	}
+	if !opts.metadataJSON {
+		t.Fatal("expected metadataJSON to be true")
+	}
+	if len(forwarded) != 2 || forwarded[0] != "-p" || forwarded[1] != "review" {
+		t.Fatalf("forwarded = %v, want [-p review]", forwarded)
+	}
+}
+
+func TestParseSessionNetworkMode(t *testing.T) {
+	for _, raw := range []string{"", "default", "DEFAULT"} {
+		got, err := parseSessionNetworkMode(raw)
+		if err != nil {
+			t.Fatalf("parseSessionNetworkMode(%q): %v", raw, err)
+		}
+		if got != sessionNetworkDefault {
+			t.Fatalf("parseSessionNetworkMode(%q) = %q, want default", raw, got)
+		}
+	}
+	got, err := parseSessionNetworkMode("none")
+	if err != nil {
+		t.Fatalf("parseSessionNetworkMode(none): %v", err)
+	}
+	if got != sessionNetworkNone {
+		t.Fatalf("parseSessionNetworkMode(none) = %q, want none", got)
+	}
+	if _, err := parseSessionNetworkMode("off"); err == nil {
+		t.Fatal("expected invalid network mode to be rejected")
 	}
 }
 
@@ -884,6 +923,74 @@ func TestGenerateSBPLBaseRulesPresentForEveryHarness(t *testing.T) {
 				t.Errorf("harness %q policy missing base rule:\n  %s", harness, base)
 			}
 		}
+	}
+}
+
+func TestGenerateSBPLNetworkNoneDeniesOutboundAndDNS(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir:  "/tmp/myproject",
+		HarnessID:   HarnessCodex,
+		NetworkMode: sessionNetworkNone,
+	}
+	policy := generateSBPL(cfg)
+
+	for _, denied := range []string{
+		`(allow network-outbound)`,
+		`(allow mach-lookup (global-name "com.apple.mDNSResponder"))`,
+	} {
+		if strings.Contains(policy, denied) {
+			t.Fatalf("--network none policy unexpectedly contains %q:\n%s", denied, policy)
+		}
+	}
+	if !strings.Contains(policy, `Outbound IPv4, IPv6, and DNS are denied by default`) {
+		t.Fatalf("network-none policy missing denial comment:\n%s", policy)
+	}
+	if !strings.Contains(policy, `(allow network-inbound (local tcp "*:*"))`) {
+		t.Fatalf("network-none policy should preserve local inbound listener support:\n%s", policy)
+	}
+}
+
+func TestGenerateSBPLNetworkNoneDoesNotWeakenDefaultSessions(t *testing.T) {
+	defaultPolicy := generateSBPL(sessionConfig{ProjectDir: "/tmp/myproject"})
+	nonePolicy := generateSBPL(sessionConfig{ProjectDir: "/tmp/myproject", NetworkMode: sessionNetworkNone})
+
+	for _, want := range []string{
+		`(allow network-outbound)`,
+		`(allow mach-lookup (global-name "com.apple.mDNSResponder"))`,
+	} {
+		if !strings.Contains(defaultPolicy, want) {
+			t.Fatalf("default policy missing %q:\n%s", want, defaultPolicy)
+		}
+		if strings.Contains(nonePolicy, want) {
+			t.Fatalf("network-none policy should not contain %q:\n%s", want, nonePolicy)
+		}
+	}
+}
+
+func TestSessionLaunchMetadataReportsNetworkNone(t *testing.T) {
+	cfg := sessionConfig{
+		Target:      "codex",
+		ProjectDir:  "/tmp/myproject",
+		NetworkMode: sessionNetworkNone,
+	}
+	meta := buildSessionLaunchMetadata(cfg, sessionModeNative)
+
+	if meta.Kind != "hazmat.session" {
+		t.Fatalf("Kind = %q, want hazmat.session", meta.Kind)
+	}
+	if meta.NetworkPolicy.Requested != "none" || meta.NetworkPolicy.Effective != "none" {
+		t.Fatalf("NetworkPolicy = %+v, want requested/effective none", meta.NetworkPolicy)
+	}
+	if !meta.NetworkPolicy.Enforced || !meta.NetworkPolicy.DenyAllEgress {
+		t.Fatalf("NetworkPolicy = %+v, want enforced deny-all egress", meta.NetworkPolicy)
+	}
+	if !slices.Contains(meta.NetworkPolicy.Denied, "outbound-ipv4") ||
+		!slices.Contains(meta.NetworkPolicy.Denied, "outbound-ipv6") ||
+		!slices.Contains(meta.NetworkPolicy.Denied, "dns") {
+		t.Fatalf("NetworkPolicy.Denied = %v, want IPv4, IPv6, and DNS", meta.NetworkPolicy.Denied)
+	}
+	if meta.NetworkPolicy.CleanupRequired {
+		t.Fatalf("CleanupRequired = true, want false for native seatbelt network mode")
 	}
 }
 
@@ -1723,6 +1830,9 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	if values["SANDBOX_PROJECT_DIR"] != cfg.ProjectDir {
 		t.Fatalf("SANDBOX_PROJECT_DIR = %q, want %q", values["SANDBOX_PROJECT_DIR"], cfg.ProjectDir)
 	}
+	if values["SANDBOX_NETWORK_MODE"] != "default" {
+		t.Fatalf("SANDBOX_NETWORK_MODE = %q, want default", values["SANDBOX_NETWORK_MODE"])
+	}
 
 	var dirs []string
 	if err := json.Unmarshal([]byte(values["SANDBOX_READ_DIRS_JSON"]), &dirs); err != nil {
@@ -1910,6 +2020,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Auto read-only:       /opt/homebrew/lib/node_modules, /Users/dr/go/pkg/mod",
 		"Read-only extensions: /Users/dr/workspace/shared-ref",
 		"Read-write extensions: /Users/dr/.venvs/project",
+		"Network policy:      Docker Sandbox profile (deny by default)",
 		"Service access:       github",
 		"Git SSH key:          id_rsa",
 		"Pre-session snapshot: on",
@@ -2072,6 +2183,7 @@ func TestRenderSessionContractShowsNoneAndSkippedSnapshot(t *testing.T) {
 		"Auto read-only:       none",
 		"Read-only extensions: none",
 		"Read-write extensions: none",
+		"Network policy:      default (outbound allowed)",
 		"Service access:       none",
 		"Pre-session snapshot: skipped (--no-backup)",
 	} {

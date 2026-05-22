@@ -211,6 +211,31 @@ func TestExecModeBypassesPolicyValidation(t *testing.T) {
 	}
 }
 
+func TestParseLaunchModeArgsMetadata(t *testing.T) {
+	metadata, cmdArgs, err := parseLaunchModeArgs([]string{
+		"--hazmat-metadata-json",
+		`{"kind":"hazmat.session"}`,
+		"/usr/bin/env",
+		"-i",
+	})
+	if err != nil {
+		t.Fatalf("parseLaunchModeArgs: %v", err)
+	}
+	if metadata != `{"kind":"hazmat.session"}` {
+		t.Fatalf("metadata = %q", metadata)
+	}
+	if !reflect.DeepEqual(cmdArgs, []string{"/usr/bin/env", "-i"}) {
+		t.Fatalf("cmdArgs = %v", cmdArgs)
+	}
+
+	if _, _, err := parseLaunchModeArgs([]string{"--hazmat-metadata-json", `{}`}); err == nil {
+		t.Fatal("expected missing command after metadata to be rejected")
+	}
+	if _, _, err := parseLaunchModeArgs(nil); err == nil {
+		t.Fatal("expected missing command to be rejected")
+	}
+}
+
 func listOpenFDs(maxFD int) ([]int, error) {
 	openFDs := make([]int, 0, maxFD+1)
 	for fd := 0; fd <= maxFD; fd++ {

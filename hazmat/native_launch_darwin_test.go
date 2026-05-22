@@ -37,3 +37,29 @@ func TestDarwinNativeLaunchSudoArgsShape(t *testing.T) {
 		t.Fatalf("native launch sudo args = %#v, want %#v", got, want)
 	}
 }
+
+func TestDarwinNativeLaunchSudoArgsIncludeMetadataBeforeEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, key := range terminalEnvPassthroughKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TERMINFO", "")
+	t.Setenv("TERMINFO_DIRS", "")
+
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
+	metadata := `{"kind":"hazmat.session"}`
+
+	got := nativeLaunchSudoArgsWithMetadata(cfg, policy, nil, metadata, `exec "$@"`, "arg1")
+
+	wantPrefix := []string{
+		"-u", agentUser,
+		launchHelperPath(), policy.Path,
+		"--hazmat-metadata-json", metadata,
+		"/usr/bin/env", "-i",
+	}
+	if len(got) < len(wantPrefix) || !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("native launch sudo args prefix = %#v, want %#v", got, wantPrefix)
+	}
+}

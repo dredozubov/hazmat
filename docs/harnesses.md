@@ -98,6 +98,21 @@ Harness auth and harness session mode are separate decisions:
 - **Docker Sandbox:** available on all four harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
+Native containment also supports a per-session network mode:
+
+```bash
+hazmat claude --network none --metadata-json -p "offline review"
+hazmat codex --network none --metadata-json exec "offline review"
+hazmat opencode --network none run "offline review"
+hazmat gemini --network none -p "offline review"
+```
+
+`--network none` denies outbound IPv4, outbound IPv6, and DNS for that native
+session's Seatbelt identity. It composes with concurrent Hazmat sessions because
+it does not touch global `pf` state. Use `--metadata-json` when an automation
+needs to verify the requested policy was enforced; the JSON line is written to
+stderr so the harness stdout remains usable for non-interactive capture.
+
 ## GitHub API Access
 
 GitHub API access is harness-agnostic and explicit. Configure a token once with

@@ -2,10 +2,11 @@
 
 ## Problem Statement
 
-`generateSBPL()` produces a per-session macOS Seatbelt (sandbox-exec) policy
-from user-provided inputs: `ProjectDir` (writable working directory) and
-`ReadDirs` (read-only reference directories). The policy embeds literal paths
-and relies on SBPL's **last-match-wins** semantics to deny credential access.
+`generateSBPL()` produces a per-session macOS Seatbelt policy from
+user-provided inputs: `ProjectDir` (writable working directory), `ReadDirs`
+(read-only reference directories), and the requested native session network
+mode. The policy embeds literal paths and relies on SBPL's
+**last-match-wins** semantics to deny credential access.
 
 The correctness questions:
 
@@ -22,11 +23,16 @@ The correctness questions:
 
 4. **Read dir subsumption** — are redundant read dir rules correctly elided?
 
+5. **Per-session network denial** — when the caller requests `--network none`,
+   does the native policy omit both outbound network and DNS lookup authority
+   without changing any global firewall state?
+
 ## Code Location
 
 | File | Functions |
 |------|-----------|
 | `hazmat/session.go` | `generateSBPL()`, `isWithinDir()` |
+| `hazmat/session_policy_sbpl.go` | `compileDarwinSBPL()` |
 
 ## Policy Section Ordering (as implemented)
 
@@ -42,6 +48,10 @@ Section 6: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
 
 Credential denies are ALWAYS last (section 6). Since SBPL is last-match-wins,
 any earlier allow for the same path is overridden by the deny.
+
+Network authority is modeled separately from filesystem path matching. Default
+native sessions emit outbound network and DNS lookup grants; `--network none`
+emits neither. The local inbound rule is intentionally not an egress grant.
 
 ## TLA+ Model
 
@@ -62,6 +72,8 @@ Six abstract paths with a containment relation:
 
 - `ProjectDir ∈ {normalProj, agentHome, sshDir, configDir}` — tests dangerous choices
 - `ReadDirs ⊆ {normalProj, agentHome, outsideRef}` — tests broad read dirs
+- `NetworkMode ∈ {default, none}` — tests the default outbound mode and
+  per-session deny-all egress mode
 
 ### Variables
 
@@ -75,7 +87,7 @@ the highest section number determines the outcome. This models SBPL semantics.
 
 ## What TLC Finds
 
-### Invariants That Pass (768 states, <1s)
+### Invariants That Pass (1,536 states, <1s)
 
 | Invariant | Meaning |
 |-----------|---------|
@@ -85,6 +97,9 @@ the highest section number determines the outcome. This models SBPL semantics.
 | `ProjectDirWritable` | Project directory always has write access |
 | `ReadDirSubsumption` | Read dirs within project dir correctly elided |
 | `ResumeDirNotCredential` | Optional resume dir cannot overlap credential paths |
+| `NetworkNoneDeniesOutbound` | `--network none` emits no outbound network grant |
+| `NetworkNoneDeniesDNS` | `--network none` emits no DNS lookup grant |
+| `NetworkDefaultAllowsOutbound` | Default sessions preserve outbound network + DNS grants |
 
 ### Result
 
@@ -96,8 +111,9 @@ write access and earlier static config allows for all modeled credential paths.
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Paths | 6 | Covers: normal project, agent home, credential dirs, config overlap, outside ref |
+| Paths | 7 | Covers: normal project, agent home, credential dirs, config overlap, outside ref, invoker resume dir |
 | ProjectChoices | 4 | Includes adversarial choices: agentHome, sshDir, configDir |
 | ReadChoices | 3 | Includes broad choice: agentHome |
+| NetworkChoices | 2 | Covers default outbound mode and deny-all egress mode |
 
-**Confirmed state space:** 864 states generated, 768 distinct. Runtime: <1s.
+**Confirmed state space:** 1,728 states generated, 1,536 distinct. Runtime: <1s.

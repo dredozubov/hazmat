@@ -21,6 +21,7 @@ import (
 )
 
 type sessionConfig struct {
+	Target                  string
 	ProjectDir              string
 	ReadDirs                []string
 	WriteDirs               []string
@@ -39,7 +40,9 @@ type sessionConfig struct {
 	GitSSH                  *sessionGitSSHConfig
 	HarnessEnv              map[string]string // narrow credential/capability env injected at launch
 	CredentialEnvGrants     []sessionCredentialEnvGrant
-	ServiceAccess           []string  // explicit external-service access granted to session
+	ServiceAccess           []string // explicit external-service access granted to session
+	NetworkMode             sessionNetworkMode
+	EmitSessionMetadataJSON bool
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
@@ -140,22 +143,27 @@ func newShellCmd() *cobra.Command {
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
+	var networkModeValue string
+	var metadataJSON bool
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			prepared, err := prepareLaunchSession("shell", harnessSessionOpts{
-				project:            project,
-				readDirs:           readDirs,
-				writeDirs:          writeDirs,
-				integrations:       integrationNames,
-				noBackup:           noBackup,
-				github:             github,
-				useSandbox:         useSandbox,
-				allowDocker:        allowDocker,
-				dockerMode:         dockerModeValue,
-				dockerModeExplicit: cmd.Flags().Changed("docker"),
+				project:             project,
+				readDirs:            readDirs,
+				writeDirs:           writeDirs,
+				integrations:        integrationNames,
+				noBackup:            noBackup,
+				github:              github,
+				useSandbox:          useSandbox,
+				allowDocker:         allowDocker,
+				dockerMode:          dockerModeValue,
+				dockerModeExplicit:  cmd.Flags().Changed("docker"),
+				networkMode:         networkModeValue,
+				networkModeExplicit: cmd.Flags().Changed("network"),
+				metadataJSON:        metadataJSON,
 			}, true)
 			if err != nil {
 				return err
@@ -184,6 +192,10 @@ func newShellCmd() *cobra.Command {
 		"Grant this session the configured GitHub API token as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
+	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
+		"Native network policy: default or none")
+	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
+		"Emit one machine-readable session metadata JSON line to stderr before launch")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
@@ -204,6 +216,8 @@ func newExecCmd() *cobra.Command {
 	var useSandbox bool
 	var allowDocker bool
 	var dockerModeValue string
+	var networkModeValue string
+	var metadataJSON bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -220,16 +234,19 @@ Examples:
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prepared, err := prepareLaunchSession("exec", harnessSessionOpts{
-				project:            project,
-				readDirs:           readDirs,
-				writeDirs:          writeDirs,
-				integrations:       integrationNames,
-				noBackup:           noBackup,
-				github:             github,
-				useSandbox:         useSandbox,
-				allowDocker:        allowDocker,
-				dockerMode:         dockerModeValue,
-				dockerModeExplicit: cmd.Flags().Changed("docker"),
+				project:             project,
+				readDirs:            readDirs,
+				writeDirs:           writeDirs,
+				integrations:        integrationNames,
+				noBackup:            noBackup,
+				github:              github,
+				useSandbox:          useSandbox,
+				allowDocker:         allowDocker,
+				dockerMode:          dockerModeValue,
+				dockerModeExplicit:  cmd.Flags().Changed("docker"),
+				networkMode:         networkModeValue,
+				networkModeExplicit: cmd.Flags().Changed("network"),
+				metadataJSON:        metadataJSON,
 			}, true)
 			if err != nil {
 				return err
@@ -258,6 +275,10 @@ Examples:
 		"Grant this session the configured GitHub API token as GH_TOKEN")
 	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
+	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
+		"Native network policy: default or none")
+	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
+		"Emit one machine-readable session metadata JSON line to stderr before launch")
 	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
 		"Run with Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
@@ -283,6 +304,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --no-backup            Skip pre-session snapshot
   --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
+  --network <mode>       Native network policy: default or none
+  --metadata-json        Emit one launch metadata JSON line to stderr
   --sandbox              Alias for --docker=sandbox
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -299,6 +322,7 @@ Examples:
   hazmat claude -C /proj -p "hi"       Set project + Claude print mode
   hazmat claude --docker=sandbox -C /proj  Use Docker Sandbox mode
   hazmat claude --docker=auto -C /proj     Auto-detect private-daemon Docker mode
+  hazmat claude --network none -p "review offline"
   hazmat claude --github -p "review this PR"
   hazmat claude --no-backup -p "hi"    Skip snapshot + Claude print mode
   hazmat claude --resume               Resume a conversation in containment
@@ -374,6 +398,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --no-backup            Skip pre-session snapshot
   --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
+  --network <mode>       Native network policy: default or none
+  --metadata-json        Emit one launch metadata JSON line to stderr
   --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to OpenCode.
@@ -393,6 +419,7 @@ Examples:
   hazmat opencode -C /proj -p "hi"
   hazmat opencode --docker=sandbox -C /proj
   hazmat opencode --docker=auto -C /proj
+  hazmat opencode --network none -p "review offline"
   hazmat opencode --github -p "review this PR"
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
@@ -442,6 +469,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --no-backup            Skip pre-session snapshot
   --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
+  --network <mode>       Native network policy: default or none
+  --metadata-json        Emit one launch metadata JSON line to stderr
   --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Codex.
@@ -460,6 +489,7 @@ Examples:
   hazmat codex fork <session-id>
   hazmat codex --docker=sandbox -C /proj
   hazmat codex --docker=auto -C /proj
+  hazmat codex --network none exec "review offline"
   hazmat codex --github "review this PR"
   hazmat codex -C /proj --full-auto
   hazmat codex --no-backup`,
@@ -522,6 +552,8 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --no-backup            Skip pre-session snapshot
   --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
+  --network <mode>       Native network policy: default or none
+  --metadata-json        Emit one launch metadata JSON line to stderr
   --ignore-docker        Alias for --docker=none (deprecated)
 
 All other flags and arguments are forwarded to Gemini.
@@ -540,6 +572,7 @@ Examples:
   hazmat gemini --resume latest
   hazmat gemini --docker=sandbox -C /proj
   hazmat gemini --docker=auto -C /proj
+  hazmat gemini --network none -p "review offline"
   hazmat gemini --github -p "review this PR"
   hazmat gemini -C /proj
   hazmat gemini --no-backup`,
@@ -591,6 +624,9 @@ type harnessSessionOpts struct {
 	allowDocker           bool
 	dockerMode            string
 	dockerModeExplicit    bool
+	networkMode           string
+	networkModeExplicit   bool
+	metadataJSON          bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -608,7 +644,7 @@ func legacyIntegrationFlagError(_ *cobra.Command, err error) error {
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
 // Hazmat flags (--project, --read, --write, --integration,
 // --skip-harness-assets-sync, --no-backup, --github,
-// --docker, --sandbox, --ignore-docker)
+// --docker, --network, --metadata-json, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
@@ -639,6 +675,8 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.noBackup = true
 		case arg == "--github":
 			opts.github = true
+		case arg == "--metadata-json":
+			opts.metadataJSON = true
 		case arg == "--docker":
 			value, err := nextValue(&i, arg, "a mode (auto, none, sandbox)")
 			if err != nil {
@@ -649,6 +687,16 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		case strings.HasPrefix(arg, "--docker="):
 			opts.dockerMode = arg[len("--docker="):]
 			opts.dockerModeExplicit = true
+		case arg == "--network":
+			value, err := nextValue(&i, arg, "a mode (default, none)")
+			if err != nil {
+				return opts, nil, err
+			}
+			opts.networkMode = value
+			opts.networkModeExplicit = true
+		case strings.HasPrefix(arg, "--network="):
+			opts.networkMode = arg[len("--network="):]
+			opts.networkModeExplicit = true
 		case arg == "--sandbox":
 			opts.useSandbox = true
 		case arg == "--ignore-docker":
@@ -929,6 +977,7 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 		ProjectDir:     projectDir,
 		ReadDirs:       readDirs,
 		WriteDirs:      writeDirs,
+		NetworkMode:    sessionNetworkDefault,
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil
 }
@@ -959,6 +1008,13 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	cfg.Target = commandName
+	cfg.EmitSessionMetadataJSON = opts.metadataJSON
+	networkMode, err := parseSessionNetworkMode(opts.networkMode)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	cfg.NetworkMode = networkMode
 	if id, ok := harnessIDForCommand(commandName); ok {
 		cfg.HarnessID = id
 	}
@@ -997,6 +1053,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	if cfg.NetworkMode == sessionNetworkNone && mode != sessionModeNative {
+		return preparedSession{}, fmt.Errorf("--network none is supported only for native containment; use --docker=none or omit Docker Sandbox routing")
+	}
 
 	progress.Step("checking Git SSH access")
 	cfg.GitSSH, err = resolveManagedGitSSH(cfg)
@@ -1011,6 +1070,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
+	if cfg.NetworkMode == sessionNetworkNone {
+		cfg.SessionNotes = append(cfg.SessionNotes, "--network none denies outbound IPv4, IPv6, and DNS for this native session; external provider/API calls will fail closed.")
+	}
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")
 		cfg.SessionNotes = append(cfg.SessionNotes, cfg.GitSSH.SessionNote)
@@ -1362,6 +1424,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	fmt.Fprintf(&b, "  Auto read-only:       %s\n", sessionContractList(cfg.AutoReadDirs))
 	fmt.Fprintf(&b, "  Read-only extensions: %s\n", sessionContractList(cfg.UserReadDirs))
 	fmt.Fprintf(&b, "  Read-write extensions: %s\n", sessionContractList(cfg.WriteDirs))
+	fmt.Fprintf(&b, "  Network policy:      %s\n", sessionNetworkContractLabel(cfg, mode))
 	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
 	if cfg.GitSSH != nil && strings.TrimSpace(cfg.GitSSH.DisplayName) != "" {
 		fmt.Fprintf(&b, "  Git SSH key:          %s\n", cfg.GitSSH.DisplayName)
@@ -1992,8 +2055,16 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		return err
 	}
 	defer policy.Cleanup()
+	metadataJSON := ""
+	if cfg.EmitSessionMetadataJSON {
+		var err error
+		metadataJSON, err = marshalSessionLaunchMetadataJSON(cfg, sessionModeNative)
+		if err != nil {
+			return fmt.Errorf("marshal session metadata: %w", err)
+		}
+	}
 
-	full := nativeLaunchSudoArgs(cfg, policy, runtime.EnvPairs, script, args...)
+	full := nativeLaunchSudoArgsWithMetadata(cfg, policy, runtime.EnvPairs, metadataJSON, script, args...)
 
 	var (
 		barOnce     sync.Once

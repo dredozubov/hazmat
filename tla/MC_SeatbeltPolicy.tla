@@ -1,7 +1,7 @@
 ---- MODULE MC_SeatbeltPolicy ----
 \* Seatbelt (SBPL) policy generation — verifies that credential deny rules
 \* are effective for ALL combinations of user-provided ProjectDir, ReadDirs,
-\* and ResumeDir.
+\* ResumeDir, and per-session network mode.
 \*
 \* SBPL semantics: rules are evaluated in order, LAST match wins.
 \* generateSBPL() emits rules in fixed sections:
@@ -12,6 +12,11 @@
 \*   Section 5: Project write re-assertion (same path as section 2, last allow)
 \*   Section 6: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
 \*
+\* Per-session network policy is independent of filesystem last-match behavior:
+\* the default mode emits outbound network and DNS lookup allowances, while
+\* network mode "none" emits neither. There is no global firewall state in this
+\* model because native network-none is a per-process Seatbelt property.
+\*
 \* Since all rules within a section have the same action type, "last match wins"
 \* reduces to "highest section number wins." This lets us model rules as a set
 \* of (section, action, path) tuples instead of an ordered sequence.
@@ -21,6 +26,7 @@
 \*   2. Credential writes are ALWAYS denied (section 6 deny overrides all allows)
 \*   3. Read dirs never grant write access
 \*   4. ResumeDir (invoker's session dir) cannot be a credential path
+\*   5. Network mode "none" grants no outbound network or DNS authority
 \*
 \* Governed code:
 \*   hazmat/session.go — generateSBPL(), isWithinDir()
@@ -37,6 +43,7 @@ CONSTANTS
     AgentHomeSubs,  \* subset: paths under agent home that get static read+write allows
     ProjectChoices, \* subset: valid choices for ProjectDir
     ReadChoices,    \* subset: valid choices for ReadDir entries
+    NetworkChoices, \* subset: network modes ("default", "none")
     ResumeChoices,  \* subset: valid choices for ResumeDir (invoker's session dir or none)
     \* Model constant identifiers for abstract paths
     normalProj,     \* /Users/dr/workspace/myproject
@@ -51,6 +58,7 @@ ASSUME CredPaths \subseteq Paths
 ASSUME AgentHomeSubs \subseteq Paths
 ASSUME ProjectChoices \subseteq Paths
 ASSUME ReadChoices \subseteq Paths
+ASSUME NetworkChoices \subseteq {"default", "none"}
 ASSUME ResumeChoices \ {"none"} \subseteq Paths
 
 \* Contains(child, parent) = TRUE iff `child` is within (or equal to) `parent`.
@@ -71,11 +79,13 @@ Contains(child, parent) ==
 VARIABLES
     projectDir,   \* chosen project directory (a Path)
     readDirs,     \* chosen read directories (SUBSET Paths)
+    networkMode,  \* "default" or "none"
     resumeDir,    \* chosen resume session directory (a Path or "none")
     rules,        \* set of emitted rules: [section, action, path]
+    networkAllows,\* set of emitted network grants
     section       \* 0..7: which section we're generating (7 = done)
 
-vars == <<projectDir, readDirs, resumeDir, rules, section>>
+vars == <<projectDir, readDirs, networkMode, resumeDir, rules, networkAllows, section>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Rule constructors
@@ -93,8 +103,10 @@ DenyWrite(sec, p)  == [section |-> sec, action |-> "deny_write",  path |-> p]
 TypeOK ==
     /\ projectDir \in Paths
     /\ readDirs   \subseteq Paths
+    /\ networkMode \in {"default", "none"}
     /\ resumeDir  \in Paths \cup {"none"}
     /\ section    \in 0..7
+    /\ networkAllows \subseteq {"network_outbound", "dns_lookup", "network_inbound_local"}
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Initial state — nondeterministic choice of inputs
@@ -103,8 +115,10 @@ TypeOK ==
 Init ==
     /\ projectDir \in ProjectChoices
     /\ readDirs   \in SUBSET ReadChoices
+    /\ networkMode \in NetworkChoices
     /\ resumeDir  \in ResumeChoices
     /\ rules      = {}
+    /\ networkAllows = {}
     /\ section    = 0
 
 \* ═══════════════════════════════════════════════════════════════════════════════
@@ -113,10 +127,15 @@ Init ==
 
 \* Section 0: System library allows (static paths like /usr/lib, /System/Library).
 \* These never overlap with agent home or credential paths. Abstracted away.
+\* Network allows are also emitted in the static section in the implementation.
 EmitSystemLibs ==
     /\ section = 0
+    /\ networkAllows' =
+       IF networkMode = "default"
+       THEN networkAllows \cup {"network_outbound", "dns_lookup", "network_inbound_local"}
+       ELSE networkAllows \cup {"network_inbound_local"}
     /\ section' = 1
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir, rules>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, rules>>
 
 \* Section 1: Read-only directory allows.
 \* Each read dir gets (allow file-read*) unless subsumed.
@@ -130,14 +149,14 @@ EmitReadDirs ==
        IN
          rules' = rules \cup {AllowRead(1, d) : d \in notSubsumed}
     /\ section' = 2
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Section 2: Project directory read+write.
 EmitProjectDir ==
     /\ section = 2
     /\ rules' = rules \cup {AllowRead(2, projectDir), AllowWrite(2, projectDir)}
     /\ section' = 3
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Section 3: Resume session directory read+write (optional).
 \* When --resume or --continue is used, the invoking user's session directory
@@ -151,7 +170,7 @@ EmitResumeDir ==
        THEN rules' = rules \cup {AllowRead(3, resumeDir), AllowWrite(3, resumeDir)}
        ELSE UNCHANGED rules
     /\ section' = 4
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Section 4: Agent home — BROAD read+write allow on entire agent home.
 \* This replaced individual subdirectory allows (.claude, .local, .config, etc.)
@@ -166,7 +185,7 @@ EmitHomeConfig ==
          {AllowRead(4, p) : p \in AgentHomeSubs} \cup
          {AllowWrite(4, p) : p \in AgentHomeSubs}
     /\ section' = 5
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Section 5: Project write re-assertion.
 \* When a read-only -R directory is a parent of the project directory,
@@ -177,7 +196,7 @@ EmitProjectWriteReassert ==
     /\ section = 5
     /\ rules' = rules \cup {AllowRead(5, projectDir), AllowWrite(5, projectDir)}
     /\ section' = 6
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Section 6: Credential denies (static, ALWAYS LAST).
 \* Deny both file-read* (exfiltration) and file-write* (planting).
@@ -187,7 +206,7 @@ EmitCredDenies ==
          {DenyRead(6, p)  : p \in CredPaths} \cup
          {DenyWrite(6, p) : p \in CredPaths}
     /\ section' = 7
-    /\ UNCHANGED <<projectDir, readDirs, resumeDir>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
 \* Terminal.
 Done ==
@@ -284,5 +303,21 @@ ResumeDirNotCredential ==
     section = 7 =>
         \/ resumeDir = "none"
         \/ resumeDir \notin CredPaths
+
+\* --- Network mode "none" grants no outbound network authority ---
+NetworkNoneDeniesOutbound ==
+    section = 7 /\ networkMode = "none" =>
+        "network_outbound" \notin networkAllows
+
+\* --- Network mode "none" grants no DNS lookup authority ---
+NetworkNoneDeniesDNS ==
+    section = 7 /\ networkMode = "none" =>
+        "dns_lookup" \notin networkAllows
+
+\* --- Default mode preserves the existing outbound network behavior ---
+NetworkDefaultAllowsOutbound ==
+    section = 7 /\ networkMode = "default" =>
+        /\ "network_outbound" \in networkAllows
+        /\ "dns_lookup" \in networkAllows
 
 ====

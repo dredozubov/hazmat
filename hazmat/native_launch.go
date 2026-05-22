@@ -15,6 +15,7 @@ type nativeLaunchCommandRequest struct {
 	Config          sessionConfig
 	Policy          nativeLaunchPolicyArtifact
 	RuntimeEnvPairs []string
+	MetadataJSON    string
 	Script          string
 	Args            []string
 }
@@ -30,10 +31,15 @@ type nativeLaunchEnvironment struct {
 }
 
 func nativeLaunchSudoArgs(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, script string, args ...string) []string {
+	return nativeLaunchSudoArgsWithMetadata(cfg, policy, runtimeEnvPairs, "", script, args...)
+}
+
+func nativeLaunchSudoArgsWithMetadata(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
 	return newNativeLaunchBackend().CommandSudoArgs(nativeLaunchCommandRequest{
 		Config:          cfg,
 		Policy:          policy,
 		RuntimeEnvPairs: runtimeEnvPairs,
+		MetadataJSON:    metadataJSON,
 		Script:          script,
 		Args:            args,
 	})
@@ -61,6 +67,7 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 	pairs = append(pairs,
 		"SANDBOX_ACTIVE=1",
 		"SANDBOX_PROJECT_DIR="+cfg.ProjectDir,
+		"SANDBOX_NETWORK_MODE="+normalizeSessionNetworkMode(cfg.NetworkMode).String(),
 		"SANDBOX_READ_DIRS_JSON="+string(readDirsJSON),
 		"SANDBOX_WRITE_DIRS_JSON="+string(writeDirsJSON),
 	)

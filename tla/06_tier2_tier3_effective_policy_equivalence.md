@@ -8,6 +8,8 @@ Docker Sandbox sessions "the same policy"?
 The codebase already suggests the answer is "not exactly":
 
 - Tier 3 rejects integration env passthrough in `hazmat/sandbox.go`
+- Tier 2 supports a native-only `--network none` mode, while Tier 3 uses its
+  configured Docker Sandbox network profile
 - Tier 3 keeps `--resume` / `--continue` history sandbox-local instead of using
   the host transcript sync used by Tier 2
 - Tier 3 may rewrite ancestor read/write inputs into sibling mounts because
@@ -52,6 +54,7 @@ The drafted model encodes three persistent exact-identity gaps:
 | Invariant | Meaning |
 |-----------|---------|
 | `IntegrationEnvBreaksExactIdentity` | Tier 2 can launch with integration env passthrough, Tier 3 currently rejects it |
+| `NetworkNoneBreaksExactIdentity` | Native `--network none` is a Tier 2-only policy mode |
 | `ResumeBreaksExactIdentity` | Tier 2 uses host transcript sync, Tier 3 keeps resume history sandbox-local |
 | `AncestorRewriteBreaksExactIdentity` | Tier 3 must rewrite some ancestor paths into sibling mounts instead of preserving the exact root set |
 
@@ -117,6 +120,7 @@ it is a credential path itself or a parent of one.
 - `IntegrationEnvRequested`
 - `ResumeRequested`
 - Tier 3 launch gates:
+  - native network-none request absent
   - backend ready
   - approval granted
   - extra mount support present or absent
@@ -142,6 +146,7 @@ identity is impossible once that rewrite behavior enters.
 |-----------|---------|
 | `CredentialInputsRejectedInBoth` | Both tiers reject credential-overlapping project/read/write roots |
 | `IntegrationEnvBreaksExactIdentity` | Integration env passthrough makes exact identity false |
+| `NetworkNoneBreaksExactIdentity` | Native network-none requests make exact identity false |
 | `ResumeBreaksExactIdentity` | Host resume sync makes exact identity false |
 | `AncestorRewriteBreaksExactIdentity` | Ancestor rewrite makes exact identity false |
 | `CanonicalCoreContainmentEquivalent` | Under canonical comparable inputs, both tiers have the same core containment policy |
@@ -160,8 +165,8 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `327680 states generated`
-- `163840 distinct states found`
+- `655360 states generated`
+- `327680 distinct states found`
 - `depth 1`
 - `Finished in 13s`
 
@@ -175,6 +180,8 @@ The useful product conclusion is:
 - any future work that aims for stronger equivalence has to remove the known
   product differences first:
   - integration env support in Tier 3
+  - a Docker Sandbox equivalent for native `--network none`, if Hazmat wants
+    exact policy identity for that mode
   - host transcript resume parity
   - a more explicit cross-backend story for ancestor path handling
 
@@ -186,4 +193,4 @@ The useful product conclusion is:
 | ProjectChoices | 5 | safe project roots plus unsafe broad/credential parents |
 | ReadChoices | 6 | safe roots, nested roots, overlapping roots, unsafe home parent |
 | WriteChoices | 4 | safe write roots plus unsafe broad parent |
-| Launch gate booleans | 5 | env, resume, backend readiness, approval, extra-mount capability |
+| Launch gate booleans | 6 | env, native network-none request, resume, backend readiness, approval, extra-mount capability |

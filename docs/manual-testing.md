@@ -211,6 +211,14 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: `GH_TOKEN=<token> hazmat config github --token-from-env`; run `hazmat explain --github --json`; run `hazmat shell --github --no-backup` and `test -n "$GH_TOKEN" && test -z "${GITHUB_TOKEN:-}" && echo OK` inside the session; then try `hazmat explain --github --docker=sandbox`.
   - Expected: `~/.hazmat/secrets/github/token` exists with mode `0600`; explain JSON includes one redacted `github.api-token` grant for `GH_TOKEN`; the native session sees `GH_TOKEN` but not `GITHUB_TOKEN`; Docker Sandbox preview fails closed with an explicit unsupported-capability message. Output must not print the raw token.
 
+- [ ] **Native `--network none` egress denial**
+  - Steps: run `hazmat explain --network none --json` and confirm `network_policy.requested` and `network_policy.effective` are both `none`; then run `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'curl -fsS --max-time 5 https://example.com >/tmp/hazmat-net.out'` and capture stderr.
+  - Expected: the command fails closed; stderr includes one JSON metadata line with `"requested":"none"`, `"effective":"none"`, `"enforced":true`, and denied surfaces for outbound IPv4, outbound IPv6, and DNS. Harness stdout remains separate from Hazmat's metadata.
+
+- [ ] **Native `--network none` DNS and teardown**
+  - Steps: run `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'nc -z -G 5 example.com 443'` and `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'nc -z -G 5 93.184.216.34 443'`; interrupt a third long-running `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'sleep 60'` with Ctrl-C; then run a default `hazmat exec --no-backup -- /bin/zsh -lc 'echo OK'`.
+  - Expected: DNS-name and direct IPv4 dials both fail in network-none sessions; interruption leaves no per-session firewall/pf state to clean up; the subsequent default session launches normally.
+
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.
   - Expected: `☢ HAZMAT │ <integrations> ... <project>` rendered in the bottom row, doesn't scroll.

@@ -84,6 +84,9 @@ func TestBuildExplainJSON(t *testing.T) {
 	if got.Mode != string(sessionModeNative) {
 		t.Fatalf("Mode = %q", got.Mode)
 	}
+	if got.NetworkPolicy.Requested != "default" || got.NetworkPolicy.Effective != "default" || !got.NetworkPolicy.Enforced {
+		t.Fatalf("NetworkPolicy = %+v, want enforced default policy", got.NetworkPolicy)
+	}
 	if !reflect.DeepEqual(got.SuggestedIntegrations, []string{"node"}) {
 		t.Fatalf("SuggestedIntegrations = %v", got.SuggestedIntegrations)
 	}

@@ -1049,6 +1049,11 @@ func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(
 	if err != nil {
 		return err
 	}
+	if cfg.EmitSessionMetadataJSON {
+		if err := emitSessionLaunchMetadataJSON(os.Stderr, cfg, sessionModeDockerSandbox); err != nil {
+			return fmt.Errorf("emit session metadata: %w", err)
+		}
+	}
 
 	fmt.Fprintf(os.Stderr, "hazmat: starting %s in Docker Sandbox %s\n", label, name)
 	err = run(adapter, probe, name)

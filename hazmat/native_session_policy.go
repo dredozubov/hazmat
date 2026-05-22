@@ -12,6 +12,7 @@ type nativeSessionPolicy struct {
 	WriteDirs          []string
 	AgentHome          string
 	CredentialDenySubs []string
+	NetworkMode        sessionNetworkMode
 	// MacOSNativeTLS is true when the harness running in this session uses the
 	// macOS Security framework directly for TLS trust evaluation (Rust apps
 	// linked against the security-framework crate, e.g. codex). Such harnesses
@@ -44,6 +45,7 @@ func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
 		WriteDirs:          cloneStringSlice(cfg.WriteDirs),
 		AgentHome:          agentHome,
 		CredentialDenySubs: cloneStringSlice(credentialDenySubs),
+		NetworkMode:        normalizeSessionNetworkMode(cfg.NetworkMode),
 		MacOSNativeTLS:     harnessUsesMacOSNativeTLS(cfg.HarnessID),
 	}
 }

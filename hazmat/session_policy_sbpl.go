@@ -135,18 +135,21 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w("(allow file-read* file-write* (regex #\"/dev/ttys[0-9]+\"))\n\n")
 
 	w(";; ── Mach services (base — needed by every harness) ─────────────────────────\n")
-	for _, svc := range []string{
+	baseMachServices := []string{
 		"com.apple.system.logger",
 		"com.apple.CoreServices.coreservicesd",
 		"com.apple.system.notification_center",
-		"com.apple.mDNSResponder",
 		"com.apple.trustd",                                // TLS certificate verification (Go, curl, Python, etc.)
 		"com.apple.system.opendirectoryd.api",             // user/group directory lookups
 		"com.apple.system.opendirectoryd.libinfo",         // getpwuid/getgrnam via libinfo (needed by git, id, etc.)
 		"com.apple.system.DirectoryService.libinfo_v1",    // getpwuid/getgrnam legacy path
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 		"com.apple.pboard",                                // pasteboard (clipboard read/write — paste into Claude Code and copy out)
-	} {
+	}
+	if policy.NetworkMode != sessionNetworkNone {
+		baseMachServices = append(baseMachServices, "com.apple.mDNSResponder")
+	}
+	for _, svc := range baseMachServices {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
 	if policy.MacOSNativeTLS {
@@ -182,8 +185,12 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))\n\n")
 	}
 
-	w(";; ── Network: outbound for API calls ──────────────────────────────────────\n")
-	w("(allow network-outbound)\n")
+	w(";; ── Network ───────────────────────────────────────────────────────────────\n")
+	if policy.NetworkMode == sessionNetworkNone {
+		w(";; Outbound IPv4, IPv6, and DNS are denied by default for this session.\n")
+	} else {
+		w("(allow network-outbound)\n")
+	}
 	w("(allow network-inbound (local tcp \"*:*\"))\n\n")
 
 	w(";; ── Writable roots (re-assert after all read-only rules) ───────────────────\n")

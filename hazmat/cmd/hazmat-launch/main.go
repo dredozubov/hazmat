@@ -50,6 +50,8 @@ var policyFilePattern = regexp.MustCompile(`^/private/tmp/hazmat-\d+\.sb$`)
 // (e.g. hand-written "(version 1)(allow default)" files) are rejected.
 const denyDefaultMarker = "(deny default)"
 
+const metadataJSONArg = "--hazmat-metadata-json"
+
 func main() {
 	if err := closeInheritedFDs(); err != nil {
 		die("hazmat-launch: close inherited fds: %v", err)
@@ -75,6 +77,10 @@ func main() {
 }
 
 func runLaunchMode(policyFile string, cmdArgs []string) {
+	metadataJSON, cmdArgs, err := parseLaunchModeArgs(cmdArgs)
+	if err != nil {
+		die("hazmat-launch: %v", err)
+	}
 	policy, err := validateAndReadPolicy(policyFile)
 	if err != nil {
 		die("hazmat-launch: %v", err)
@@ -86,8 +92,27 @@ func runLaunchMode(policyFile string, cmdArgs []string) {
 	if err := sandboxInit(policy); err != nil {
 		die("hazmat-launch: %v", err)
 	}
+	if metadataJSON != "" {
+		fmt.Fprintln(os.Stderr, metadataJSON)
+	}
 
 	execCommand(cmdArgs)
+}
+
+func parseLaunchModeArgs(args []string) (metadataJSON string, cmdArgs []string, err error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("missing command")
+	}
+	if args[0] != metadataJSONArg {
+		return "", args, nil
+	}
+	if len(args) < 3 {
+		return "", nil, fmt.Errorf("%s requires a JSON payload and command", metadataJSONArg)
+	}
+	if args[1] == "" {
+		return "", nil, fmt.Errorf("%s payload is empty", metadataJSONArg)
+	}
+	return args[1], args[2:], nil
 }
 
 func execCommand(cmdArgs []string) {
