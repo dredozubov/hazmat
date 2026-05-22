@@ -4,8 +4,14 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-22
+
 ### Added
 - Interactive setup and session commands now notify at command start and exit when the Homebrew tap metadata says a newer Hazmat release is available, without invoking `brew` during startup.
+- Gemini is now a first-class contained harness, with setup import, explain-mode coverage, resume sync, and Docker Sandbox routing across every harness entrypoint.
+- Repo onboarding can approve, persist, or reject suggested integrations, with expanded built-in stack coverage across Python, JS/TS package managers, mobile, infra, and build systems.
+- Repo-local Git hooks now have a Hazmat-managed approval path with manifest hashing, install/review/uninstall UX, runtime enforcement, and rollback support.
+- Credential handling now routes imported harness auth, Git HTTPS/GitHub credentials, Git SSH identities, and cloud backup credentials through typed host-owned capability stores instead of broad sandbox grants.
 - Multi-key per-project Git SSH routing. `hazmat config ssh add --name <n> --host <h>... <path>` appends a named, host-scoped key; `hazmat config ssh remove --name <n>` removes one. Each destination host resolves to exactly one configured key; overlap and mixed legacy/new configs are rejected at config-save time.
 - Reusable SSH profiles. `ssh_profiles:` in `~/.hazmat/config.yaml` defines a named identity (private key + optional known_hosts + optional default_hosts) usable from any project via `hazmat config ssh add --profile <name>`. Project keys inherit `default_hosts` when they declare no hosts of their own; declared `--host` always overrides. Full CLI: `hazmat config ssh profile add | list | show | remove | rename`. Removal refuses while any project references the profile; `--force` detaches and removes atomically. Rename updates every referrer in one save.
 - TLA+ formal verification of the routing + profile resolution contract (`MC_GitSSHRouting`). Nine invariants checked across 884,736 distinct states: determinism, overlap rejection, host-outside-allowlist rejection, inline-key-has-declared-hosts, per-key socket distinctness, dangling-reference rejection, profile+inline identity conflict rejection, orphan-key rejection, and binding integrity.
@@ -15,10 +21,9 @@ All notable changes to Hazmat are documented in this file.
 - Retired the legacy any-host SSH fallback. Every inline project SSH key must now declare at least one `--host`. The `hazmat config ssh set <path>` subcommand has been removed — use `hazmat config ssh add --name <n> --host <h> <path>` instead. Configs that still use the pre-migration flat shape (`ssh: {private_key, known_hosts}` with no `keys:` list) are rejected at load with a copy-paste YAML snippet showing the replacement.
 
 ### Fixed
-- Batch project and `.git` ACL repair so first launch in large worktrees no longer shells out once per file.
-- Keep Git metadata ACL repair bounded by targeting mutable Git metadata paths and object directories instead of walking every object file.
-- Forward launch-session SIGTERM/SIGINT handling through the supervised harness process and escalate repeated interrupts to keep contained agent sessions stoppable.
-- Expand harness asset-sync warnings into actionable multiline summaries when host prompt assets are skipped, including symlink escapes outside the managed source root.
+- First launch in large worktrees no longer shells out once per file during project and `.git` ACL repair.
+- Contained sessions are easier to stop and resume: SIGTERM/SIGINT now propagate through supervised harnesses, and transcript syncing works for Claude, Codex, Gemini, and OpenCode.
+- Harness asset-sync warnings now explain skipped host prompt files, including symlink escapes outside the managed source root.
 
 ## [0.7.0] - 2026-04-18
 
@@ -137,7 +142,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/dredozubov/hazmat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/dredozubov/hazmat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dredozubov/hazmat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dredozubov/hazmat/compare/v0.4.3...v0.5.0
