@@ -14,7 +14,7 @@ repos:
     required_formulas: [node, pnpm]
     smoke_commands:
       - node -e 'const pkg = require("./package.json"); if (!Array.isArray(pkg.workspaces) || pkg.workspaces.length === 0) process.exit(1)'
-      - pnpm pkg get workspaces >/dev/null
+      - npm_config_manage_package_manager_versions=false pnpm root -w >/dev/null
     notes: High-signal mixed Node, TypeScript, and Rust target with nested packages, Rust crates, and .next output.
 
   - id: pydantic-ai
