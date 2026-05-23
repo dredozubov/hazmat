@@ -4,6 +4,11 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-23
+
+### Fixed
+- Upgraded the embedded Kopia dependency to v0.23.0, picking up the upstream fix for CVE-2026-45695 / GHSA-2q4c-3mrw-63c3, an unauthenticated RCE path through SSH ProxyCommand handling in Kopia server storage probing.
+
 ## [0.8.0] - 2026-05-22
 
 ### Added
@@ -142,7 +147,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/dredozubov/hazmat/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/dredozubov/hazmat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/dredozubov/hazmat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dredozubov/hazmat/compare/v0.5.0...v0.6.0
