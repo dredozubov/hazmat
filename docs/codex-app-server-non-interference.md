@@ -18,6 +18,17 @@ started through:
 hazmat codex-app-server -C /path/to/scratch/project --listen stdio://
 ```
 
+The Codex App CLI-path shim is also safe for autonomous backend testing because
+it only handles the subprocess invocation shape the desktop app would use:
+
+```bash
+HAZMAT_CODEX_APP_SHIM_PROJECT=/path/to/scratch/project \
+HAZMAT_CODEX_APP_SHIM_NETWORK=none \
+HAZMAT_CODEX_APP_SHIM_NO_BACKUP=true \
+HAZMAT_CODEX_APP_SHIM_SKIP_ASSETS_SYNC=true \
+hazmat app-server --analytics-default-enabled
+```
+
 Hazmat owns the process lifecycle for that subprocess. The stock desktop app is
 not a participant in this path.
 
@@ -37,6 +48,7 @@ Useful modes:
 ```bash
 scripts/check-codex-app-server-smoke.sh --check-prereqs
 scripts/check-codex-app-server-smoke.sh
+scripts/check-codex-app-server-smoke.sh --via-cli-path-shim
 scripts/check-codex-app-server-smoke.sh --skip-if-missing-prereqs
 ```
 
@@ -65,6 +77,7 @@ only.
 - Epic: `sandboxing-zz6k` tracks the contained Codex app-server program.
 - `sandboxing-zz6k.3` added the managed `hazmat codex-app-server` stdio command.
 - `sandboxing-zz6k.4` expanded the autonomous app-server API smoke.
+- `sandboxing-zz6k.5` adds the autonomous Codex App CLI-path shim.
 - `sandboxing-lsn2` is the separate desktop attach feasibility spike.
 - `sandboxing-wsd1` classifies Codex host-state paths before any broader grants.
 - `sandboxing-8tj4` assesses residual `/private/tmp` exposure for this backend.

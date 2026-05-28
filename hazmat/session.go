@@ -602,6 +602,154 @@ func codexAppServerForwardedArgs(listen string) []string {
 	return []string{"app-server", "--listen", listen}
 }
 
+const (
+	codexAppShimProjectEnv        = "HAZMAT_CODEX_APP_SHIM_PROJECT"
+	codexAppShimNetworkEnv        = "HAZMAT_CODEX_APP_SHIM_NETWORK"
+	codexAppShimNoBackupEnv       = "HAZMAT_CODEX_APP_SHIM_NO_BACKUP"
+	codexAppShimSkipAssetsSyncEnv = "HAZMAT_CODEX_APP_SHIM_SKIP_ASSETS_SYNC"
+)
+
+func newCodexAppShimCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "codex-app-shim [app-server args...]",
+		Aliases: []string{"app-server"},
+		Short:   "Compatibility shim for Codex App CODEX_CLI_PATH",
+		Long: `Compatibility shim for Codex App CODEX_CLI_PATH.
+
+This command lets the stock Codex desktop app spawn Hazmat as its Codex CLI
+binary. Set CODEX_CLI_PATH to the hazmat executable; when the app runs
+` + "`app-server --analytics-default-enabled`" + `, Hazmat's root-level ` + "`app-server`" + `
+alias accepts that argv shape and starts the managed contained backend.
+
+Hazmat launch settings are read from environment variables because the desktop
+app owns the app-server argv:
+  HAZMAT_CODEX_APP_SHIM_PROJECT            Writable project directory
+  HAZMAT_CODEX_APP_SHIM_NETWORK            default or none
+  HAZMAT_CODEX_APP_SHIM_NO_BACKUP          true/false
+  HAZMAT_CODEX_APP_SHIM_SKIP_ASSETS_SYNC   true/false
+
+Supported app-server args:
+  --analytics-default-enabled
+  --listen stdio://
+
+This command does not launch, quit, or reconfigure the desktop app; it only
+handles the subprocess invocation once a client starts it.`,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if codexAppShimHelpRequested(args) {
+				return cmd.Help()
+			}
+			opts, forwarded, err := codexAppShimLaunch(args, os.LookupEnv)
+			if err != nil {
+				return err
+			}
+			return runContainedCodexSession(opts, forwarded)
+		},
+	}
+	return cmd
+}
+
+func codexAppShimHelpRequested(args []string) bool {
+	return len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help")
+}
+
+func codexAppShimLaunch(args []string, lookup func(string) (string, bool)) (harnessSessionOpts, []string, error) {
+	forwarded, err := codexAppShimForwardedArgs(args)
+	if err != nil {
+		return harnessSessionOpts{}, nil, err
+	}
+	opts, err := codexAppShimHarnessOpts(lookup)
+	if err != nil {
+		return harnessSessionOpts{}, nil, err
+	}
+	return opts, forwarded, nil
+}
+
+func codexAppShimForwardedArgs(args []string) ([]string, error) {
+	normalized := slices.Clone(args)
+	if len(normalized) > 0 && normalized[0] == "app-server" {
+		normalized = normalized[1:]
+	}
+
+	listen := codexAppServerDefaultListen
+	passthrough := []string{}
+
+	nextValue := func(i *int, flag string) (string, error) {
+		if *i+1 >= len(normalized) {
+			return "", fmt.Errorf("%s requires a value", flag)
+		}
+		*i++
+		return normalized[*i], nil
+	}
+
+	for i := 0; i < len(normalized); i++ {
+		arg := normalized[i]
+		switch {
+		case arg == "--analytics-default-enabled" || strings.HasPrefix(arg, "--analytics-default-enabled="):
+			passthrough = append(passthrough, arg)
+		case arg == "--listen":
+			value, err := nextValue(&i, arg)
+			if err != nil {
+				return nil, err
+			}
+			listen = value
+		case strings.HasPrefix(arg, "--listen="):
+			listen = arg[len("--listen="):]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return nil, fmt.Errorf("unsupported Codex App shim app-server flag %q", arg)
+			}
+			return nil, fmt.Errorf("unsupported Codex App shim app-server argument %q; only stdio app-server mode is supported", arg)
+		}
+	}
+
+	if listen != codexAppServerDefaultListen {
+		return nil, fmt.Errorf("Codex App shim currently supports only --listen %s; got %s", codexAppServerDefaultListen, listen)
+	}
+
+	forwarded := codexAppServerForwardedArgs(listen)
+	forwarded = append(forwarded, passthrough...)
+	return forwarded, nil
+}
+
+func codexAppShimHarnessOpts(lookup func(string) (string, bool)) (harnessSessionOpts, error) {
+	var opts harnessSessionOpts
+	if project, ok := lookup(codexAppShimProjectEnv); ok {
+		opts.project = project
+	}
+	if network, ok := lookup(codexAppShimNetworkEnv); ok {
+		if _, err := parseSessionNetworkMode(network); err != nil {
+			return opts, fmt.Errorf("%s: %w", codexAppShimNetworkEnv, err)
+		}
+		opts.networkMode = network
+		opts.networkModeExplicit = true
+	}
+
+	var err error
+	if opts.noBackup, err = codexAppShimBoolEnv(lookup, codexAppShimNoBackupEnv); err != nil {
+		return opts, err
+	}
+	if opts.skipHarnessAssetsSync, err = codexAppShimBoolEnv(lookup, codexAppShimSkipAssetsSyncEnv); err != nil {
+		return opts, err
+	}
+	return opts, nil
+}
+
+func codexAppShimBoolEnv(lookup func(string) (string, bool), name string) (bool, error) {
+	value, ok := lookup(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false", name)
+	}
+}
+
 func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error {
 	prepared, err := prepareLaunchSession("codex", opts, true)
 	if err != nil {

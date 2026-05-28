@@ -19,6 +19,8 @@ run_smoke "bootstrap codex --help" bootstrap codex --help
 run_smoke "bootstrap opencode --help" bootstrap opencode --help
 run_smoke "codex --help" codex --help
 run_smoke "codex-app-server --help" codex-app-server --help
+run_smoke "codex-app-shim --help" codex-app-shim --help
+run_smoke "app-server --help" app-server --help
 run_smoke "opencode --help" opencode --help
 run_smoke "integration --help" integration --help
 run_smoke "integration list" integration list

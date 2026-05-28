@@ -10,13 +10,14 @@ AGENT_HOME="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_HOME:-/Users/agent}"
 CODEX_BIN="$AGENT_HOME/.local/bin/codex"
 LAUNCH_HELPER="${HAZMAT_CODEX_APP_SERVER_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
 MODE="run"
+VIA_SHIM=0
 MISSING_PREREQS=""
 SCRATCH=""
 DENIED_DIR_CREATED=0
 
 usage() {
 	cat <<'EOF'
-Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missing-prereqs]
+Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missing-prereqs] [--via-cli-path-shim]
 
 Starts a short-lived Hazmat-contained `hazmat codex-app-server --listen stdio://`
 backend and validates JSON-RPC initialize, command execution, project file
@@ -28,6 +29,9 @@ Options:
   --check-prereqs           Only check local prerequisites; exit 0 when ready,
                             exit 2 with reasons when the machine is not ready.
   --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
+  --via-cli-path-shim       Start the backend through Hazmat's Codex App
+                            CODEX_CLI_PATH compatibility shim instead of the
+                            direct codex-app-server command.
   -h, --help                Show this help.
 
 This smoke test never launches, quits, or attaches to the stock Codex desktop
@@ -42,6 +46,9 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--skip-if-missing-prereqs)
 			MODE="skip"
+			;;
+		--via-cli-path-shim)
+			VIA_SHIM=1
 			;;
 		-h|--help)
 			usage
@@ -161,15 +168,20 @@ if [ ! -d "$DENIED_DIR" ]; then
 fi
 sudo -n -u "$AGENT_USER" /bin/sh -c 'umask 077; printf "%s\n" "fake smoke-test credential" >"$1"' sh "$DENIED_FILE"
 
-node - "$REPO_ROOT" "$PROJECT" "$ALLOWED_FILE" "$DENIED_FILE" <<'NODE'
+node - "$REPO_ROOT" "$PROJECT" "$ALLOWED_FILE" "$DENIED_FILE" "$VIA_SHIM" <<'NODE'
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const path = require("node:path");
 
-const [repoRoot, projectDir, allowedFile, deniedFile] = process.argv.slice(2);
+const [repoRoot, projectDir, allowedFile, deniedFile, viaShimRaw] = process.argv.slice(2);
 const hazmatDir = path.join(repoRoot, "hazmat");
-
-const child = spawn("go", [
+const viaShim = viaShimRaw === "1";
+const childArgs = viaShim ? [
+  "run",
+  ".",
+  "app-server",
+  "--analytics-default-enabled",
+] : [
   "run",
   ".",
   "codex-app-server",
@@ -181,14 +193,23 @@ const child = spawn("go", [
   projectDir,
   "--listen",
   "stdio://",
-], {
+];
+const childEnv = {
+  ...process.env,
+  NO_COLOR: "1",
+  HAZMAT_NO_UPDATE_CHECK: "1",
+};
+if (viaShim) {
+  childEnv.HAZMAT_CODEX_APP_SHIM_PROJECT = projectDir;
+  childEnv.HAZMAT_CODEX_APP_SHIM_NETWORK = "none";
+  childEnv.HAZMAT_CODEX_APP_SHIM_NO_BACKUP = "true";
+  childEnv.HAZMAT_CODEX_APP_SHIM_SKIP_ASSETS_SYNC = "true";
+}
+
+const child = spawn("go", childArgs, {
   cwd: hazmatDir,
   stdio: ["pipe", "pipe", "pipe"],
-  env: {
-    ...process.env,
-    NO_COLOR: "1",
-    HAZMAT_NO_UPDATE_CHECK: "1",
-  },
+  env: childEnv,
 });
 
 let nextId = 1;

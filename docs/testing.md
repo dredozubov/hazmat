@@ -84,6 +84,11 @@ The non-interference rules for backend work and any future desktop attach probe
 are documented in
 [docs/codex-app-server-non-interference.md](codex-app-server-non-interference.md).
 
+To exercise the Codex App `CODEX_CLI_PATH` compatibility shim without launching
+the desktop app, add `--via-cli-path-shim`. This starts the same backend through
+the root-level `hazmat app-server --analytics-default-enabled` invocation shape
+that the desktop app uses when `CODEX_CLI_PATH` points at Hazmat.
+
 First check whether the current host is prepared:
 
 ```bash
@@ -94,6 +99,7 @@ Run the smoke strictly when prerequisites are present:
 
 ```bash
 scripts/check-codex-app-server-smoke.sh
+scripts/check-codex-app-server-smoke.sh --via-cli-path-shim
 ```
 
 For autonomous gates that should avoid false failures on unprepared machines,

@@ -202,6 +202,91 @@ func TestCodexAppServerCommandRejectsUnmanagedTransport(t *testing.T) {
 	}
 }
 
+func TestCodexAppShimForwardedArgsAcceptsDesktopShape(t *testing.T) {
+	got, err := codexAppShimForwardedArgs([]string{"--analytics-default-enabled"})
+	if err != nil {
+		t.Fatalf("codexAppShimForwardedArgs: %v", err)
+	}
+	want := []string{"app-server", "--listen", "stdio://", "--analytics-default-enabled"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("codexAppShimForwardedArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestCodexAppShimForwardedArgsAcceptsExplicitSubcommandAndListen(t *testing.T) {
+	got, err := codexAppShimForwardedArgs([]string{"app-server", "--listen=stdio://", "--analytics-default-enabled=false"})
+	if err != nil {
+		t.Fatalf("codexAppShimForwardedArgs: %v", err)
+	}
+	want := []string{"app-server", "--listen", "stdio://", "--analytics-default-enabled=false"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("codexAppShimForwardedArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestCodexAppShimForwardedArgsRejectsUnmanagedTransport(t *testing.T) {
+	_, err := codexAppShimForwardedArgs([]string{"--listen", "ws://127.0.0.1:9999"})
+	if err == nil {
+		t.Fatal("expected non-stdio transport to be rejected")
+	}
+	if !strings.Contains(err.Error(), "supports only --listen stdio://") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCodexAppShimForwardedArgsRejectsUnsupportedFlag(t *testing.T) {
+	_, err := codexAppShimForwardedArgs([]string{"--ws-auth", "capability-token"})
+	if err == nil {
+		t.Fatal("expected unsupported flag to be rejected")
+	}
+	if !strings.Contains(err.Error(), "unsupported Codex App shim app-server flag") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCodexAppShimHarnessOptsFromEnv(t *testing.T) {
+	env := map[string]string{
+		codexAppShimProjectEnv:        "/tmp/project",
+		codexAppShimNetworkEnv:        "none",
+		codexAppShimNoBackupEnv:       "true",
+		codexAppShimSkipAssetsSyncEnv: "1",
+	}
+	opts, err := codexAppShimHarnessOpts(func(name string) (string, bool) {
+		value, ok := env[name]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("codexAppShimHarnessOpts: %v", err)
+	}
+	if opts.project != "/tmp/project" {
+		t.Fatalf("project = %q, want /tmp/project", opts.project)
+	}
+	if !opts.networkModeExplicit || opts.networkMode != "none" {
+		t.Fatalf("network opts = explicit:%v mode:%q, want explicit none", opts.networkModeExplicit, opts.networkMode)
+	}
+	if !opts.noBackup {
+		t.Fatal("expected noBackup")
+	}
+	if !opts.skipHarnessAssetsSync {
+		t.Fatal("expected skipHarnessAssetsSync")
+	}
+}
+
+func TestCodexAppShimHarnessOptsRejectsInvalidBoolEnv(t *testing.T) {
+	_, err := codexAppShimHarnessOpts(func(name string) (string, bool) {
+		if name == codexAppShimNoBackupEnv {
+			return "sometimes", true
+		}
+		return "", false
+	})
+	if err == nil {
+		t.Fatal("expected invalid bool env to be rejected")
+	}
+	if !strings.Contains(err.Error(), codexAppShimNoBackupEnv) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveReadDirsDeduplicates(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")
