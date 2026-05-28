@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-28
 **Bead:** `sandboxing-lh7j`
+**Linux backend companion:** [2026-05-28-linux-ready-backend-architecture.md](2026-05-28-linux-ready-backend-architecture.md)
 **Goal:** split Hazmat into composable Go packages that can be reused by other
 tools without importing CLI wiring or weakening verified containment behavior.
 
@@ -49,6 +50,8 @@ Reusable packages should follow these rules:
 | `seatbelt` | Planned with TLA guard | macOS SBPL rendering from a backend-neutral policy plan | `sessioncontract`, `pathpolicy` | Cobra, Docker, bootstrap |
 | `backends/native` | Planned/internal | Native macOS launch preparation, SBPL artifact lifecycle, env materialization | `sessioncontract`, `seatbelt`, `credentials` | CLI parsing |
 | `backends/docker` | Planned/internal | Docker Sandbox routing, lifecycle, network profile, metadata, teardown | `sessioncontract` | Native seatbelt internals |
+| `platform/linux` | Planned | Linux distro/kernel feature inspection for plan-only and future native launch support | Standard library | setup mutation, launch execution |
+| `setup/linux` | Planned with TLA guard | Linux agent user, helper, sudoers, cgroup, and tool-home resources after model approval | `platform/linux`, hostexec | session planning |
 | `harnesses` | Planned | Agent harness descriptors and launch argument shaping for Claude, Codex, Gemini, OpenCode | `sessioncontract` | Backend execution |
 | `hostexec` | Planned/internal | Host command execution interface and concrete sudo/helper runners | Standard library | Session policy construction |
 
