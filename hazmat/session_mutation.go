@@ -7,17 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"hazmat/sessioncontract"
 )
 
 const sessionMutationProofScopeTLAModel = "TLA+ model + tests/docs"
 const sessionMutationProofScopeTestsDocs = "tests/docs"
 
-type sessionMutation struct {
-	Summary     string
-	Detail      string
-	Persistence string
-	ProofScope  string
-}
+type sessionMutation = sessioncontract.HostMutation
 
 type sessionMutationExecution struct {
 	AppliedMessage string

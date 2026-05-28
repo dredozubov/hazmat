@@ -95,6 +95,36 @@ func TestParseSessionNetworkMode(t *testing.T) {
 	}
 }
 
+func TestSessionContractRequestCopiesSessionConfigShape(t *testing.T) {
+	cfg := sessionConfig{
+		Target:                  "codex",
+		ProjectDir:              "/workspace/project",
+		ReadDirs:                []string{"/opt/sdk", "/opt/runtime"},
+		AutoReadDirs:            []string{"/opt/runtime"},
+		UserReadDirs:            []string{"/opt/sdk"},
+		WriteDirs:               []string{"/tmp/cache"},
+		NetworkMode:             sessionNetworkNone,
+		ActiveIntegrations:      []string{"go"},
+		HarnessID:               HarnessCodex,
+		EmitSessionMetadataJSON: true,
+	}
+
+	request := sessionContractRequest(cfg)
+	if request.Target != "codex" || request.ProjectDir != "/workspace/project" {
+		t.Fatalf("request identity = %+v", request)
+	}
+	if request.NetworkMode != sessionNetworkNone || !request.MetadataJSON || request.HarnessID != string(HarnessCodex) {
+		t.Fatalf("request policy fields = %+v", request)
+	}
+	if !slices.Equal(request.ReadOnlyDirs, cfg.ReadDirs) ||
+		!slices.Equal(request.AutoReadOnlyDirs, cfg.AutoReadDirs) ||
+		!slices.Equal(request.UserReadOnlyDirs, cfg.UserReadDirs) ||
+		!slices.Equal(request.ReadWriteExtensions, cfg.WriteDirs) ||
+		!slices.Equal(request.Integrations, cfg.ActiveIntegrations) {
+		t.Fatalf("request paths/integrations = %+v", request)
+	}
+}
+
 func TestRunConfigSetRejectsLegacyPackKeys(t *testing.T) {
 	isolateConfig(t)
 

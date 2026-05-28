@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 
+	"hazmat/sessioncontract"
 	"hazmat/sessionmeta"
 )
 
@@ -32,10 +33,6 @@ func buildSessionLaunchMetadata(cfg sessionConfig, mode sessionMode) sessionLaun
 	return sessionmeta.BuildLaunchMetadata(sessionLaunchMetadataInput(cfg, mode))
 }
 
-func buildSessionNetworkPolicyMetadata(cfg sessionConfig, mode sessionMode) sessionNetworkPolicyMetadata {
-	return sessionmeta.BuildNetworkPolicyMetadata(cfg.NetworkMode, mode)
-}
-
 func emitSessionLaunchMetadataJSON(w io.Writer, cfg sessionConfig, mode sessionMode) error {
 	return sessionmeta.EmitLaunchMetadataJSON(w, sessionLaunchMetadataInput(cfg, mode))
 }
@@ -45,10 +42,20 @@ func marshalSessionLaunchMetadataJSON(cfg sessionConfig, mode sessionMode) (stri
 }
 
 func sessionLaunchMetadataInput(cfg sessionConfig, mode sessionMode) sessionmeta.LaunchMetadataInput {
-	return sessionmeta.LaunchMetadataInput{
-		Target:      cfg.Target,
-		Mode:        mode,
-		ProjectDir:  cfg.ProjectDir,
-		NetworkMode: cfg.NetworkMode,
+	return sessionContractRequest(cfg).LaunchMetadataInput(mode)
+}
+
+func sessionContractRequest(cfg sessionConfig) sessioncontract.Request {
+	return sessioncontract.Request{
+		Target:              cfg.Target,
+		ProjectDir:          cfg.ProjectDir,
+		ReadOnlyDirs:        cfg.ReadDirs,
+		AutoReadOnlyDirs:    cfg.AutoReadDirs,
+		UserReadOnlyDirs:    cfg.UserReadDirs,
+		ReadWriteExtensions: cfg.WriteDirs,
+		NetworkMode:         cfg.NetworkMode,
+		Integrations:        cfg.ActiveIntegrations,
+		HarnessID:           string(cfg.HarnessID),
+		MetadataJSON:        cfg.EmitSessionMetadataJSON,
 	}
 }

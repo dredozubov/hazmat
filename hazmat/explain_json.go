@@ -6,9 +6,10 @@ import (
 	"strings"
 
 	linuxplatform "hazmat/platform/linux"
+	"hazmat/sessioncontract"
 )
 
-const explainJSONFormatVersion = 1
+const explainJSONFormatVersion = sessioncontract.PlanFormatVersion
 
 type explainJSONPreview struct {
 	FormatVersion         int                             `json:"format_version"`
@@ -41,59 +42,78 @@ type explainJSONPreview struct {
 	Platform              *linuxplatform.Report           `json:"platform,omitempty"`
 }
 
-type explainJSONRepoSetupEffect struct {
-	Class   string   `json:"class"`
-	Kind    string   `json:"kind"`
-	Value   string   `json:"value"`
-	Sources []string `json:"sources,omitempty"`
-}
-
-type explainJSONCredentialEnvGrant struct {
-	EnvVar       string `json:"env_var"`
-	CredentialID string `json:"credential_id,omitempty"`
-	Source       string `json:"source,omitempty"`
-	Redacted     bool   `json:"redacted"`
-}
-
-type explainJSONBackup struct {
-	Enabled  bool     `json:"enabled"`
-	Excludes []string `json:"excludes,omitempty"`
-}
+type explainJSONRepoSetupEffect = sessioncontract.RepoSetupEffect
+type explainJSONCredentialEnvGrant = sessioncontract.CredentialEnvGrant
+type explainJSONBackup = sessioncontract.Snapshot
 
 func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) explainJSONPreview {
+	return explainJSONPreviewFromPlan(buildSessionContractPlan(target, cfg, mode, skipSnapshot), explainPlatformReport())
+}
+
+func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatform.Report) explainJSONPreview {
 	return explainJSONPreview{
-		FormatVersion:         explainJSONFormatVersion,
+		FormatVersion:         plan.FormatVersion,
+		Target:                plan.Target,
+		Mode:                  plan.Mode,
+		ModeLabel:             plan.ModeLabel,
+		ProjectDir:            plan.ProjectDir,
+		RoutingReason:         plan.RoutingReason,
+		SuggestedIntegrations: plan.SuggestedIntegrations,
+		RepoSetupSummary:      plan.RepoSetupSummary,
+		RepoSetupApplied:      plan.RepoSetupApplied,
+		RepoSetupPending:      plan.RepoSetupPending,
+		ActiveIntegrations:    plan.ActiveIntegrations,
+		IntegrationSources:    plan.IntegrationSources,
+		IntegrationDetails:    plan.IntegrationDetails,
+		IntegrationWarnings:   plan.IntegrationWarnings,
+		IntegrationEnvKeys:    plan.IntegrationEnvKeys,
+		RegistryEnvKeys:       plan.RegistryEnvKeys,
+		CredentialEnvGrants:   plan.CredentialEnvGrants,
+		PlannedHostMutations:  plan.PlannedHostMutations,
+		ReadOnlyDirs:          plan.ReadOnlyDirs,
+		AutoReadOnlyDirs:      plan.AutoReadOnlyDirs,
+		UserReadOnlyDirs:      plan.UserReadOnlyDirs,
+		ReadWriteExtensions:   plan.ReadWriteExtensions,
+		NetworkPolicy:         plan.NetworkPolicy,
+		ServiceAccess:         plan.ServiceAccess,
+		GitSSHKey:             plan.GitSSHKey,
+		Snapshot:              plan.Snapshot,
+		SessionNotes:          plan.SessionNotes,
+		Platform:              platform,
+	}
+}
+
+func buildSessionContractPlan(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.Plan {
+	return sessioncontract.BuildPlan(sessioncontract.PlanInput{
 		Target:                target,
-		Mode:                  string(mode),
-		ModeLabel:             mode.Label(),
+		Mode:                  mode,
 		ProjectDir:            cfg.ProjectDir,
 		RoutingReason:         cfg.RoutingReason,
-		SuggestedIntegrations: append([]string(nil), cfg.SuggestedIntegrations...),
+		SuggestedIntegrations: cfg.SuggestedIntegrations,
 		RepoSetupSummary:      repoSetupSummary(cfg.RepoSetup),
 		RepoSetupApplied:      explainJSONRepoSetupEffects(cfg.RepoSetup, true),
 		RepoSetupPending:      explainJSONRepoSetupEffects(cfg.RepoSetup, false),
-		ActiveIntegrations:    append([]string(nil), cfg.ActiveIntegrations...),
-		IntegrationSources:    append([]string(nil), cfg.IntegrationSources...),
-		IntegrationDetails:    append([]string(nil), cfg.IntegrationDetails...),
-		IntegrationWarnings:   append([]string(nil), cfg.IntegrationWarnings...),
-		IntegrationEnvKeys:    integrationEnvKeys(cfg.IntegrationEnv),
-		RegistryEnvKeys:       append([]string(nil), cfg.IntegrationRegistryKeys...),
+		ActiveIntegrations:    cfg.ActiveIntegrations,
+		IntegrationSources:    cfg.IntegrationSources,
+		IntegrationDetails:    cfg.IntegrationDetails,
+		IntegrationWarnings:   cfg.IntegrationWarnings,
+		IntegrationEnv:        cfg.IntegrationEnv,
+		RegistryEnvKeys:       cfg.IntegrationRegistryKeys,
 		CredentialEnvGrants:   explainJSONCredentialEnvGrants(cfg.CredentialEnvGrants),
-		PlannedHostMutations:  append([]sessionMutation(nil), cfg.PlannedHostMutations...),
-		ReadOnlyDirs:          append([]string(nil), cfg.ReadDirs...),
-		AutoReadOnlyDirs:      append([]string(nil), cfg.AutoReadDirs...),
-		UserReadOnlyDirs:      append([]string(nil), cfg.UserReadDirs...),
-		ReadWriteExtensions:   append([]string(nil), cfg.WriteDirs...),
-		NetworkPolicy:         buildSessionNetworkPolicyMetadata(cfg, mode),
-		ServiceAccess:         append([]string(nil), cfg.ServiceAccess...),
+		PlannedHostMutations:  cfg.PlannedHostMutations,
+		ReadOnlyDirs:          cfg.ReadDirs,
+		AutoReadOnlyDirs:      cfg.AutoReadDirs,
+		UserReadOnlyDirs:      cfg.UserReadDirs,
+		ReadWriteExtensions:   cfg.WriteDirs,
+		NetworkMode:           cfg.NetworkMode,
+		ServiceAccess:         cfg.ServiceAccess,
 		GitSSHKey:             explainGitSSHKey(cfg.GitSSH),
-		Snapshot: explainJSONBackup{
+		Snapshot: sessioncontract.Snapshot{
 			Enabled:  !skipSnapshot,
-			Excludes: append([]string(nil), cfg.IntegrationExcludes...),
+			Excludes: cfg.IntegrationExcludes,
 		},
-		SessionNotes: append([]string(nil), cfg.SessionNotes...),
-		Platform:     explainPlatformReport(),
-	}
+		SessionNotes: cfg.SessionNotes,
+	})
 }
 
 var explainPlatformReport = func() *linuxplatform.Report {
