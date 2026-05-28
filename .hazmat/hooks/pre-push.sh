@@ -39,14 +39,8 @@ go vet ./...
 echo "pre-push: go test..."
 go test ./...
 
-TMPDIR_LINUX_COMPILE="$(mktemp -d)"
-cleanup() {
-	rm -rf "$TMPDIR_LINUX_COMPILE"
-}
-trap cleanup EXIT INT TERM HUP
-
 echo "pre-push: linux compile-only..."
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c ./... -o "$TMPDIR_LINUX_COMPILE"
+"$REPO_ROOT/scripts/check-linux-compile.sh"
 
 echo "pre-push: golangci-lint..."
 golangci-lint run ./...
