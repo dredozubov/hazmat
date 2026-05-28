@@ -169,7 +169,7 @@ func newShellCmd() *cobra.Command {
 			if prepared.Mode == sessionModeDockerSandbox {
 				return runSandboxShellSession(prepared.Config)
 			}
-			return runAgentSeatbeltScript(prepared.Config,
+			return runPreparedAgentSeatbeltScript(prepared,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
 	}
@@ -252,7 +252,7 @@ Examples:
 			if prepared.Mode == sessionModeDockerSandbox {
 				return runSandboxExecSession(prepared.Config, args)
 			}
-			return runAgentSeatbeltScript(prepared.Config,
+			return runPreparedAgentSeatbeltScript(prepared,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
 	}
@@ -368,7 +368,7 @@ Examples:
 				skipFlag = "--dangerously-skip-permissions "
 			}
 
-			return runAgentSeatbeltScriptWithUI(prepared.Config, claudeLaunchUI(forwarded),
+			return runPreparedAgentSeatbeltScriptWithUI(prepared, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap claude" >&2; exit 1; }; }; `+
@@ -443,7 +443,7 @@ Examples:
 					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
 				}
 			}
-			return runAgentSeatbeltScript(prepared.Config, openCodeLaunchScript(), forwarded...)
+			return runPreparedAgentSeatbeltScript(prepared, openCodeLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -772,7 +772,7 @@ func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error
 		forwarded = codexLaunchArgs(forwarded, true)
 	}
 
-	return runAgentSeatbeltScriptWithUI(prepared.Config, codexLaunchUI(forwarded),
+	return runPreparedAgentSeatbeltScriptWithUI(prepared, codexLaunchUI(forwarded),
 		codexLaunchScript(), forwarded...)
 }
 
@@ -863,7 +863,7 @@ Examples:
 					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
 				}
 			}
-			return runAgentSeatbeltScript(prepared.Config, geminiLaunchScript(), forwarded...)
+			return runPreparedAgentSeatbeltScript(prepared, geminiLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -2203,8 +2203,12 @@ func generateSBPL(cfg sessionConfig) string {
 	return compileDarwinSBPL(newNativeSessionPolicy(cfg))
 }
 
-func runAgentSeatbeltScript(cfg sessionConfig, script string, args ...string) error {
-	return runAgentSeatbeltScriptWithUI(cfg, sessionLaunchUI{showStatusBar: true}, script, args...)
+func runPreparedAgentSeatbeltScript(prepared preparedSession, script string, args ...string) error {
+	return runPreparedAgentSeatbeltScriptWithUI(prepared, sessionLaunchUI{showStatusBar: true}, script, args...)
+}
+
+func runPreparedAgentSeatbeltScriptWithUI(prepared preparedSession, ui sessionLaunchUI, script string, args ...string) error {
+	return runAgentSeatbeltScriptWithPlan(prepared.Config, prepared.BackendPlan, ui, script, args...)
 }
 
 func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI {
@@ -2215,7 +2219,7 @@ func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI 
 	return ui
 }
 
-func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script string, args ...string) error {
+func runAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, ui sessionLaunchUI, script string, args ...string) error {
 	if hcfg, err := loadConfig(); err == nil {
 		ui = applyStatusBarConfig(ui, hcfg)
 	}
@@ -2229,7 +2233,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		cfg.TempDir = runtime.TempDir
 	}
 
-	policy, err := prepareNativeLaunchPolicy(cfg)
+	policy, err := prepareNativeLaunchPolicyWithPlan(cfg, plan)
 	if err != nil {
 		return err
 	}
@@ -2243,7 +2247,7 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		}
 	}
 
-	full := nativeLaunchSudoArgsWithMetadata(cfg, policy, runtime.EnvPairs, metadataJSON, script, args...)
+	full := nativeLaunchSudoArgsWithMetadataAndPlan(cfg, plan, policy, runtime.EnvPairs, metadataJSON, script, args...)
 
 	var (
 		barOnce     sync.Once

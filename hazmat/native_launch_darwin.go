@@ -13,8 +13,8 @@ func newNativeLaunchBackend() nativeLaunchBackend {
 	return darwinNativeLaunchBackend{}
 }
 
-func (darwinNativeLaunchBackend) PreparePolicy(cfg sessionConfig) (nativeLaunchPolicyArtifact, error) {
-	policy := generateSBPL(cfg)
+func (darwinNativeLaunchBackend) PreparePolicy(req nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error) {
+	policy := generateSBPL(req.Config)
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
 		return nativeLaunchPolicyArtifact{}, fmt.Errorf("write seatbelt policy: %w", err)
@@ -51,15 +51,15 @@ func (b darwinNativeLaunchBackend) CommandSudoArgs(req nativeLaunchCommandReques
 		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)
 	}
 	full = append(full, "/usr/bin/env", "-i")
-	full = append(full, b.AgentEnvPairs(req.Config)...)
+	full = append(full, b.AgentEnvPairs(nativeLaunchEnvRequest{Config: req.Config, Plan: req.Plan})...)
 	full = append(full, req.RuntimeEnvPairs...)
 	full = append(full, "/bin/zsh", "-lc", req.Script, "zsh")
 	full = append(full, req.Args...)
 	return full
 }
 
-func (darwinNativeLaunchBackend) AgentEnvPairs(cfg sessionConfig) []string {
-	return nativeLaunchBaseEnvPairs(cfg, nativeLaunchEnvironment{
+func (darwinNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []string {
+	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:      "/bin/zsh",
 		Path:       defaultAgentPath,
 		TmpDir:     defaultAgentTmpDir,

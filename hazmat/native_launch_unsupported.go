@@ -13,7 +13,7 @@ func newNativeLaunchBackend() nativeLaunchBackend {
 	return unsupportedNativeLaunchBackend{}
 }
 
-func (unsupportedNativeLaunchBackend) PreparePolicy(sessionConfig) (nativeLaunchPolicyArtifact, error) {
+func (unsupportedNativeLaunchBackend) PreparePolicy(nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error) {
 	return nativeLaunchPolicyArtifact{}, fmt.Errorf("hazmat does not implement native launch for %s yet; supported platform is macOS", runtime.GOOS)
 }
 
@@ -21,8 +21,8 @@ func (unsupportedNativeLaunchBackend) CommandSudoArgs(nativeLaunchCommandRequest
 	return nil
 }
 
-func (unsupportedNativeLaunchBackend) AgentEnvPairs(cfg sessionConfig) []string {
-	return nativeLaunchBaseEnvPairs(cfg, nativeLaunchEnvironment{
+func (unsupportedNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []string {
+	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:      "/bin/sh",
 		Path:       defaultAgentPath,
 		TmpDir:     defaultAgentTmpDir,

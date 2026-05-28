@@ -6,13 +6,24 @@ import (
 )
 
 type nativeLaunchBackend interface {
-	PreparePolicy(sessionConfig) (nativeLaunchPolicyArtifact, error)
+	PreparePolicy(nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error)
 	CommandSudoArgs(nativeLaunchCommandRequest) []string
-	AgentEnvPairs(sessionConfig) []string
+	AgentEnvPairs(nativeLaunchEnvRequest) []string
+}
+
+type nativeLaunchPolicyRequest struct {
+	Config sessionConfig
+	Plan   sessionBackendPlan
+}
+
+type nativeLaunchEnvRequest struct {
+	Config sessionConfig
+	Plan   sessionBackendPlan
 }
 
 type nativeLaunchCommandRequest struct {
 	Config          sessionConfig
+	Plan            sessionBackendPlan
 	Policy          nativeLaunchPolicyArtifact
 	RuntimeEnvPairs []string
 	MetadataJSON    string
@@ -31,12 +42,17 @@ type nativeLaunchEnvironment struct {
 }
 
 func nativeLaunchSudoArgs(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, script string, args ...string) []string {
-	return nativeLaunchSudoArgsWithMetadata(cfg, policy, runtimeEnvPairs, "", script, args...)
+	return nativeLaunchSudoArgsWithMetadataAndPlan(cfg, nativeLaunchPlanForConfig(cfg), policy, runtimeEnvPairs, "", script, args...)
 }
 
 func nativeLaunchSudoArgsWithMetadata(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
+	return nativeLaunchSudoArgsWithMetadataAndPlan(cfg, nativeLaunchPlanForConfig(cfg), policy, runtimeEnvPairs, metadataJSON, script, args...)
+}
+
+func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
 	return newNativeLaunchBackend().CommandSudoArgs(nativeLaunchCommandRequest{
 		Config:          cfg,
+		Plan:            plan,
 		Policy:          policy,
 		RuntimeEnvPairs: runtimeEnvPairs,
 		MetadataJSON:    metadataJSON,
@@ -46,7 +62,18 @@ func nativeLaunchSudoArgsWithMetadata(cfg sessionConfig, policy nativeLaunchPoli
 }
 
 func agentEnvPairs(cfg sessionConfig) []string {
-	return newNativeLaunchBackend().AgentEnvPairs(cfg)
+	return agentEnvPairsWithPlan(cfg, nativeLaunchPlanForConfig(cfg))
+}
+
+func agentEnvPairsWithPlan(cfg sessionConfig, plan sessionBackendPlan) []string {
+	return newNativeLaunchBackend().AgentEnvPairs(nativeLaunchEnvRequest{
+		Config: cfg,
+		Plan:   plan,
+	})
+}
+
+func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
+	return buildSessionBackendPlan(cfg, sessionModeNative)
 }
 
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {

@@ -56,3 +56,26 @@ func TestBuildSessionBackendPlanReportsDockerEnvGap(t *testing.T) {
 		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
 	}
 }
+
+func TestPrepareLaunchSessionCarriesBackendPlan(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	projectDir := t.TempDir()
+	prepared, err := prepareLaunchSession("codex", harnessSessionOpts{
+		project:     projectDir,
+		networkMode: "none",
+	}, true)
+	if err != nil {
+		t.Fatalf("prepareLaunchSession: %v", err)
+	}
+	if prepared.BackendPlan.Target != "codex" {
+		t.Fatalf("BackendPlan.Target = %q", prepared.BackendPlan.Target)
+	}
+	if prepared.BackendPlan.ProjectDir != prepared.Config.ProjectDir {
+		t.Fatalf("BackendPlan.ProjectDir = %q, want %q", prepared.BackendPlan.ProjectDir, prepared.Config.ProjectDir)
+	}
+	if prepared.BackendPlan.NetworkMode != sessionNetworkNone {
+		t.Fatalf("BackendPlan.NetworkMode = %q", prepared.BackendPlan.NetworkMode)
+	}
+}

@@ -12,5 +12,12 @@ func (a nativeLaunchPolicyArtifact) Cleanup() {
 }
 
 func prepareNativeLaunchPolicy(cfg sessionConfig) (nativeLaunchPolicyArtifact, error) {
-	return newNativeLaunchBackend().PreparePolicy(cfg)
+	return prepareNativeLaunchPolicyWithPlan(cfg, nativeLaunchPlanForConfig(cfg))
+}
+
+func prepareNativeLaunchPolicyWithPlan(cfg sessionConfig, plan sessionBackendPlan) (nativeLaunchPolicyArtifact, error) {
+	return newNativeLaunchBackend().PreparePolicy(nativeLaunchPolicyRequest{
+		Config: cfg,
+		Plan:   plan,
+	})
 }
