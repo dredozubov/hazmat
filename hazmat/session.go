@@ -128,42 +128,78 @@ func (p *sessionPreparationProgress) Done() {
 	fmt.Fprintf(p.w, "hazmat: session startup preparation complete (%.1fs)\n", p.now().Sub(p.start).Seconds())
 }
 
+type sessionCommandFlags struct {
+	project          string
+	readDirs         []string
+	writeDirs        []string
+	integrationNames []string
+	noBackup         bool
+	github           bool
+	useSandbox       bool
+	allowDocker      bool
+	dockerModeValue  string
+	networkModeValue string
+	metadataJSON     bool
+}
+
+func bindCommonSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
+	cmd.Flags().StringVarP(&flags.project, "project", "C", "",
+		"Writable project directory (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&flags.readDirs, "read", "R", nil,
+		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVarP(&flags.writeDirs, "write", "W", nil,
+		"Read-write directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&flags.integrationNames, "integration", nil,
+		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().BoolVar(&flags.noBackup, "no-backup", false,
+		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&flags.github, "github", false,
+		"Grant this session the configured GitHub API token as GH_TOKEN")
+	cmd.Flags().StringVar(&flags.dockerModeValue, "docker", string(dockerModeNone),
+		"Docker routing: none (default), sandbox, or auto")
+	cmd.Flags().StringVar(&flags.networkModeValue, "network", string(sessionNetworkDefault),
+		"Native network policy: default or none")
+	cmd.Flags().BoolVar(&flags.metadataJSON, "metadata-json", false,
+		"Emit one machine-readable session metadata JSON line to stderr before launch")
+	cmd.Flags().BoolVar(&flags.useSandbox, "sandbox", false,
+		"Run with Docker Sandbox support")
+	cmd.Flags().BoolVar(&flags.allowDocker, "ignore-docker", false,
+		"Continue without Docker support even if Docker markers are present")
+	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
+	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
+	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
+}
+
+func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessionOpts {
+	return harnessSessionOpts{
+		project:             f.project,
+		readDirs:            f.readDirs,
+		writeDirs:           f.writeDirs,
+		integrations:        f.integrationNames,
+		noBackup:            f.noBackup,
+		github:              f.github,
+		useSandbox:          f.useSandbox,
+		allowDocker:         f.allowDocker,
+		dockerMode:          f.dockerModeValue,
+		dockerModeExplicit:  cmd.Flags().Changed("docker"),
+		networkMode:         f.networkModeValue,
+		networkModeExplicit: cmd.Flags().Changed("network"),
+		metadataJSON:        f.metadataJSON,
+	}
+}
+
 func newShellCmd() *cobra.Command {
-	var project string
-	var readDirs []string
-	var writeDirs []string
-	var integrationNames []string
-	var noBackup bool
-	var github bool
-	var useSandbox bool
-	var allowDocker bool
-	var dockerModeValue string
-	var networkModeValue string
-	var metadataJSON bool
+	var flags sessionCommandFlags
 	cmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			prepared, err := prepareLaunchSession("shell", harnessSessionOpts{
-				project:             project,
-				readDirs:            readDirs,
-				writeDirs:           writeDirs,
-				integrations:        integrationNames,
-				noBackup:            noBackup,
-				github:              github,
-				useSandbox:          useSandbox,
-				allowDocker:         allowDocker,
-				dockerMode:          dockerModeValue,
-				dockerModeExplicit:  cmd.Flags().Changed("docker"),
-				networkMode:         networkModeValue,
-				networkModeExplicit: cmd.Flags().Changed("network"),
-				metadataJSON:        metadataJSON,
-			}, true)
+			prepared, err := prepareLaunchSession("shell", flags.harnessSessionOpts(cmd), true)
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "shell", noBackup, false); err != nil {
+			if err := beginPreparedSession(prepared, "shell", flags.noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -173,46 +209,12 @@ func newShellCmd() *cobra.Command {
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
 		},
 	}
-	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory)")
-	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
-		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
-		"Read-write directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
-		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
-		"Skip pre-session snapshot")
-	cmd.Flags().BoolVar(&github, "github", false,
-		"Grant this session the configured GitHub API token as GH_TOKEN")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
-		"Docker routing: none (default), sandbox, or auto")
-	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
-		"Native network policy: default or none")
-	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
-		"Emit one machine-readable session metadata JSON line to stderr before launch")
-	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Run with Docker Sandbox support")
-	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Continue without Docker support even if Docker markers are present")
-	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
-	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
-	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
+	bindCommonSessionFlags(cmd, &flags)
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
-	var project string
-	var readDirs []string
-	var writeDirs []string
-	var integrationNames []string
-	var noBackup bool
-	var github bool
-	var useSandbox bool
-	var allowDocker bool
-	var dockerModeValue string
-	var networkModeValue string
-	var metadataJSON bool
+	var flags sessionCommandFlags
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -228,25 +230,11 @@ Examples:
   hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prepared, err := prepareLaunchSession("exec", harnessSessionOpts{
-				project:             project,
-				readDirs:            readDirs,
-				writeDirs:           writeDirs,
-				integrations:        integrationNames,
-				noBackup:            noBackup,
-				github:              github,
-				useSandbox:          useSandbox,
-				allowDocker:         allowDocker,
-				dockerMode:          dockerModeValue,
-				dockerModeExplicit:  cmd.Flags().Changed("docker"),
-				networkMode:         networkModeValue,
-				networkModeExplicit: cmd.Flags().Changed("network"),
-				metadataJSON:        metadataJSON,
-			}, true)
+			prepared, err := prepareLaunchSession("exec", flags.harnessSessionOpts(cmd), true)
 			if err != nil {
 				return err
 			}
-			if err := beginPreparedSession(prepared, "exec", noBackup, false); err != nil {
+			if err := beginPreparedSession(prepared, "exec", flags.noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -256,31 +244,7 @@ Examples:
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
 		},
 	}
-	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory)")
-	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
-		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
-		"Read-write directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
-		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
-		"Skip pre-session snapshot")
-	cmd.Flags().BoolVar(&github, "github", false,
-		"Grant this session the configured GitHub API token as GH_TOKEN")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
-		"Docker routing: none (default), sandbox, or auto")
-	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
-		"Native network policy: default or none")
-	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
-		"Emit one machine-readable session metadata JSON line to stderr before launch")
-	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Run with Docker Sandbox support")
-	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Continue without Docker support even if Docker markers are present")
-	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
-	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
-	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
+	bindCommonSessionFlags(cmd, &flags)
 	return cmd
 }
 
