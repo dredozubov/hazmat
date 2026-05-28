@@ -1187,25 +1187,6 @@ func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpe
 	return mutationPlan, nil
 }
 
-func appendUniqueDirs(existing, additions []string) ([]string, []string) {
-	seen := make(map[string]struct{}, len(existing)+len(additions))
-	for _, dir := range existing {
-		seen[dir] = struct{}{}
-	}
-
-	merged := append([]string(nil), existing...)
-	var added []string
-	for _, dir := range additions {
-		if _, dup := seen[dir]; dup {
-			continue
-		}
-		seen[dir] = struct{}{}
-		merged = append(merged, dir)
-		added = append(added, dir)
-	}
-	return merged, added
-}
-
 func resolveSessionConfig(project string, readPaths, writePaths []string) (sessionConfig, error) {
 	projectDir, err := resolveDir(project, true)
 	if err != nil {
@@ -1446,52 +1427,6 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	return nil
 }
 
-// resolveDir resolves target to an absolute, symlink-free directory path.
-// If target is empty and defaultToCwd is true, the current working directory
-// is used. The resolved path must exist and be a directory.
-func resolveDir(target string, defaultToCwd bool) (string, error) {
-	if target == "" && defaultToCwd {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("determine current directory: %w", err)
-		}
-		target = wd
-	}
-	if target == "" {
-		return "", fmt.Errorf("path is required")
-	}
-
-	abs, err := filepath.Abs(target)
-	if err != nil {
-		return "", fmt.Errorf("resolve %q: %w", target, err)
-	}
-	if abs, err = filepath.EvalSymlinks(abs); err != nil {
-		return "", fmt.Errorf("resolve symlinks for %q: %w", target, err)
-	}
-
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", fmt.Errorf("stat %q: %w", abs, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("%q is not a directory", abs)
-	}
-
-	return abs, nil
-}
-
-// expandTilde replaces a leading ~ with the current user's home directory.
-func expandTilde(path string) string {
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[1:])
-	}
-	return path
-}
-
 var terminalEnvPassthroughKeys = []string{
 	"TERM",
 	"COLORTERM",
@@ -1639,43 +1574,6 @@ func defaultReadDirs(explicit []string) []string {
 func configuredProjectAccess(projectDir string) ([]string, []string) {
 	cfg, _ := loadConfig()
 	return cfg.ProjectReadDirs(projectDir), cfg.ProjectWriteDirs(projectDir)
-}
-
-func subtractResolvedDirs(candidates, existing []string) []string {
-	existingResolved := make(map[string]struct{}, len(existing))
-	for _, dir := range existing {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
-		resolved, err := filepath.EvalSymlinks(abs)
-		if err != nil {
-			continue
-		}
-		existingResolved[resolved] = struct{}{}
-	}
-
-	var filtered []string
-	seen := make(map[string]struct{}, len(candidates))
-	for _, dir := range candidates {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
-		resolved, err := filepath.EvalSymlinks(abs)
-		if err != nil {
-			continue
-		}
-		if _, dup := existingResolved[resolved]; dup {
-			continue
-		}
-		if _, dup := seen[resolved]; dup {
-			continue
-		}
-		seen[resolved] = struct{}{}
-		filtered = append(filtered, dir)
-	}
-	return filtered
 }
 
 func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot bool) string {

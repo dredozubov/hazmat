@@ -1,434 +1,58 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
+
+	"hazmat/integrations"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// ── Credential deny paths ──────────────────────────────────────────────────
-// These must match the native session policy's credential deny list exactly.
+var safeEnvKeys = integrations.SafeEnvKeys()
 
-var credentialDenySubs = []string{
-	"/.ssh",
-	"/.aws",
-	"/.gnupg",
-	"/Library/Keychains",
-	"/.config/gh",
-	"/.docker",
-	"/.kube",
-	"/.netrc",
-	"/.m2/settings.xml",
-	"/.config/gcloud",
-	"/.azure",
-	"/.oci",
-}
+type IntegrationSpec = integrations.Spec
 
-// hostStateDenySubs protects host application state that should not be granted
-// or imported wholesale into contained sessions. Unlike credentialDenySubs,
-// these are not emitted as runtime SBPL denies: agent-owned runtime state for a
-// contained app may still be legitimate. Use this list to reject host-source
-// grants and broad imports before launch.
-var hostStateDenySubs = []string{
-	"/.codex/sqlite",
-	"/Library/Application Support/Codex",
-	"/Library/HTTPStorages/com.openai.codex",
-	"/Library/Caches/com.openai.codex",
-	"/Library/Preferences/com.openai.codex.plist",
-	"/Library/Logs/com.openai.codex",
-}
+type IntegrationMeta = integrations.Meta
 
-// ── Canonical path helpers ─────────────────────────────────────────────────
+type IntegrationDetect = integrations.Detect
 
-// canonicalizePath resolves a path to its absolute, symlink-free form.
-// This is the same canonicalization used by resolveDir in session.go.
-func canonicalizePath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve %q: %w", path, err)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve symlinks for %q: %w", path, err)
-	}
-	return resolved, nil
-}
+type IntegrationSession = integrations.Session
 
-// isCredentialDenyPath checks whether the given canonical path is a credential
-// deny path or a proper parent of one. The seatbelt deny list uses agentHome
-// as the base, but integration read_dirs are resolved against the invoker's
-// home. We check both agent home and invoker home as bases, since a path
-// under the invoker's home could still overlap with the agent's deny zone
-// if it's an unusual layout.
-//
-// The check is: reject if the path IS a credential deny path, or if the
-// path is a proper parent of one (which would grant broad access covering
-// the credential subpath).
-func isCredentialDenyPath(canonical string) bool {
-	for _, home := range denyBaseHomes() {
-		for _, sub := range credentialDenySubs {
-			credPath := home + sub
+type IntegrationPlatformSession = integrations.PlatformSession
 
-			// Exact match: path IS a credential deny path.
-			if canonical == credPath {
-				return true
-			}
+type IntegrationBackup = integrations.Backup
 
-			// Parent check: path is a proper parent of a credential path.
-			// e.g., /Users/dr would be a parent of /Users/dr/.ssh
-			if strings.HasPrefix(credPath, canonical+"/") {
-				return true
-			}
-		}
-	}
-	return false
-}
+const (
+	integrationMaxSize           = integrations.MaxSize
+	integrationMaxReadDirs       = integrations.MaxReadDirs
+	integrationMaxEnvKeys        = integrations.MaxEnvKeys
+	integrationMaxExcludes       = integrations.MaxExcludes
+	integrationMaxWarnings       = integrations.MaxWarnings
+	integrationMaxCommands       = integrations.MaxCommands
+	integrationMaxDetectFiles    = integrations.MaxDetectFiles
+	integrationMaxDetectRootDirs = integrations.MaxDetectRootDirs
+)
 
-func isHostStateDenyPath(canonical string) bool {
-	for _, home := range denyBaseHomes() {
-		for _, sub := range hostStateDenySubs {
-			if pathsOverlap(canonical, home+sub) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func denyBaseHomes() []string {
-	seen := map[string]struct{}{}
-	var homes []string
-	add := func(path string) {
-		if strings.TrimSpace(path) == "" {
-			return
-		}
-		clean := filepath.Clean(path)
-		if _, ok := seen[clean]; !ok {
-			seen[clean] = struct{}{}
-			homes = append(homes, clean)
-		}
-		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
-			resolved = filepath.Clean(resolved)
-			if _, ok := seen[resolved]; !ok {
-				seen[resolved] = struct{}{}
-				homes = append(homes, resolved)
-			}
-		}
-	}
-
-	add(agentHome)
-	if h, err := os.UserHomeDir(); err == nil {
-		add(h)
-	}
-	return homes
-}
-
-func pathsOverlap(a, b string) bool {
-	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
-}
-
-// ── Safe environment key set ───────────────────────────────────────────────
-// Integrations may only request passthrough for these keys. Each must be a passive
-// path pointer or selector, NOT a flag-injection or code-preload vector.
-//
-// Excluded by design: NODE_OPTIONS, PYTHONPATH, GOFLAGS, MAVEN_OPTS,
-// CGO_CFLAGS, CFLAGS, CXXFLAGS, LDFLAGS, BUNDLE_PATH, CC, CXX, etc.
-
-var safeEnvKeys = map[string]bool{
-	// Go — passive path pointers and module config
-	"GOPATH":       true,
-	"GOROOT":       true,
-	"GOPROXY":      true, // registry redirect — residual risk, surfaced in UX
-	"GONOPROXY":    true,
-	"GONOSUMCHECK": true,
-	"GOPRIVATE":    true,
-	"CGO_ENABLED":  true, // "0" or "1", not flag injection
-
-	// Rust — path pointers only
-	"RUSTUP_HOME":      true,
-	"CARGO_HOME":       true,
-	"CARGO_TARGET_DIR": true,
-
-	// Node — mode selector and registry
-	"NODE_ENV":            true,
-	"NPM_CONFIG_REGISTRY": true, // registry redirect — residual risk, surfaced in UX
-	"PNPM_HOME":           true, // path pointer to pnpm CLI install dir
-	"BUN_INSTALL":         true, // path pointer to bun install root
-	"YARN_CACHE_FOLDER":   true, // path pointer to yarn cache; explicit YARN_PLUGINS / YARN_NODE_OPTIONS stay out (flag/plugin injection)
-	"DENO_DIR":            true, // path pointer to deno's global cache root
-	"DENO_INSTALL":        true, // path pointer to deno install root
-
-	// Python — mode flag and venv pointer
-	"VIRTUAL_ENV": true,
-
-	// Java / TLA+ — path pointers only
-	"JAVA_HOME":     true,
-	"TLA2TOOLS_JAR": true, // path to tla2tools.jar for TLC model checking
-
-	// Swift / Xcode — path pointer to active developer dir
-	"DEVELOPER_DIR": true,
-
-	// .NET — path pointers only
-	"DOTNET_ROOT":    true,
-	"NUGET_PACKAGES": true,
-
-	// Android — path pointers only
-	"ANDROID_HOME":     true,
-	"ANDROID_SDK_ROOT": true,
-	"ANDROID_NDK_HOME": true,
-	"GRADLE_USER_HOME": true,
-
-	// Flutter / Dart — path pointers only
-	"FLUTTER_ROOT": true,
-	"PUB_CACHE":    true,
-
-	// CMake / C/C++ — path pointers and build-system selector only.
-	// CC and CXX are intentionally excluded — they can carry argument
-	// strings (e.g. CXX="ccache clang++ -Werror"), which is flag injection.
-	// Users who need a non-default compiler should set it explicitly via
-	// cmake -DCMAKE_C_COMPILER=... rather than env passthrough.
-	"CMAKE_PREFIX_PATH": true, // colon-separated search path for find_package
-	"CMAKE_GENERATOR":   true, // build-system selector (Ninja / Xcode / Unix Makefiles)
-
-	// Ruby — path pointer only
-	"GEM_HOME": true,
-
-	// PHP — path pointers only
-	"COMPOSER_HOME":      true,
-	"COMPOSER_CACHE_DIR": true,
-
-	// Docker — daemon socket selector and TLS toggle only.
-	// These are inert in native containment; they only have effect when the
-	// session is routed through hazmat's Tier 3 Docker Sandbox mode.
-	"DOCKER_HOST":       true,
-	"DOCKER_TLS_VERIFY": true,
-
-	// Editor preference
-	"EDITOR": true,
-	"VISUAL": true,
-}
-
-// registryEnvKeys are safeEnvKeys that can redirect downloads to different
-// servers. When active, these are surfaced in session UX as a residual risk.
-var registryEnvKeys = map[string]bool{
-	"GOPROXY":             true,
-	"NPM_CONFIG_REGISTRY": true,
-}
+var integrationNameRe = integrations.NamePattern
 
 func isCredentialGrantEnvKey(key string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(key))
-	switch normalized {
-	case "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-		"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PAT", "SSH_AUTH_SOCK":
-		return true
-	}
-	if strings.HasSuffix(normalized, "_API_KEY") ||
-		strings.HasSuffix(normalized, "_PRIVATE_KEY") ||
-		strings.HasSuffix(normalized, "_ACCESS_KEY") ||
-		strings.HasSuffix(normalized, "_ACCESS_TOKEN") {
-		return true
-	}
-	for _, part := range strings.Split(normalized, "_") {
-		switch part {
-		case "TOKEN", "SECRET", "PASSWORD":
-			return true
-		}
-	}
-	return false
+	return integrations.IsCredentialGrantEnvKey(key)
 }
 
 func rejectCredentialGrantEnvKey(owner, field, key string) error {
-	if !isCredentialGrantEnvKey(key) {
-		return nil
-	}
-	return fmt.Errorf("%s: env key %q in %s is credential/capability-shaped; use a SecretRef or capability grant instead of env passthrough", owner, key, field)
+	return integrations.RejectCredentialGrantEnvKey(owner, field, key)
 }
 
-// ── Integration manifest types ─────────────────────────────────────────────
-
-type IntegrationSpec struct {
-	Meta     IntegrationMeta    `yaml:"integration"`
-	Detect   IntegrationDetect  `yaml:"detect"`
-	Session  IntegrationSession `yaml:"session"`
-	Backup   IntegrationBackup  `yaml:"backup"`
-	Warnings []string           `yaml:"warnings"`
-	Commands map[string]string  `yaml:"commands"`
-}
-
-type IntegrationMeta struct {
-	Name        string `yaml:"name"`
-	Version     int    `yaml:"version"`
-	Description string `yaml:"description"`
-}
-
-type IntegrationDetect struct {
-	Files    []string `yaml:"files"`
-	RootDirs []string `yaml:"root_dirs"`
-}
-
-type IntegrationSession struct {
-	ReadDirs       []string                              `yaml:"read_dirs"`
-	EnvPassthrough []string                              `yaml:"env_passthrough"`
-	Platforms      map[string]IntegrationPlatformSession `yaml:"platforms"`
-}
-
-type IntegrationPlatformSession struct {
-	ReadDirs       []string `yaml:"read_dirs"`
-	EnvPassthrough []string `yaml:"env_passthrough"`
-}
-
-type IntegrationBackup struct {
-	Excludes []string `yaml:"excludes"`
-}
-
-// ── Validation ─────────────────────────────────────────────────────────────
-
-const (
-	integrationMaxSize           = 8192 // 8KB manifest limit
-	integrationMaxReadDirs       = 20
-	integrationMaxEnvKeys        = 20
-	integrationMaxExcludes       = 50
-	integrationMaxWarnings       = 10
-	integrationMaxCommands       = 20
-	integrationMaxDetectFiles    = 10
-	integrationMaxDetectRootDirs = 10
-)
-
-var integrationNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-
-var integrationRootDirNameRe = regexp.MustCompile(`^[a-z0-9._-]+$`)
-
-var integrationManifestPlatforms = map[string]struct{}{
-	"darwin": {},
-	"linux":  {},
-}
-
-// validateIntegrationSchema checks structural validity (V1, V3, V4, V5, V6).
-// This runs at load time before paths are resolved.
 func validateIntegrationSchema(p IntegrationSpec) error {
-	// V1: required fields and types.
-	if p.Meta.Name == "" {
-		return fmt.Errorf("integration: name is required")
-	}
-	if !integrationNameRe.MatchString(p.Meta.Name) {
-		return fmt.Errorf("integration %q: name must match %s", p.Meta.Name, integrationNameRe)
-	}
-	if p.Meta.Version != 1 {
-		return fmt.Errorf("integration %q: version must be 1, got %d", p.Meta.Name, p.Meta.Version)
-	}
-
-	// V3: env passthrough keys must be in safe set.
-	if err := validateIntegrationEnvKeys(p.Meta.Name, "session.env_passthrough", p.Session.EnvPassthrough); err != nil {
-		return err
-	}
-	for platform, session := range p.Session.Platforms {
-		if _, ok := integrationManifestPlatforms[platform]; !ok {
-			return fmt.Errorf("integration %q: unsupported session platform %q", p.Meta.Name, platform)
-		}
-		if err := validateIntegrationEnvKeys(p.Meta.Name, "session.platforms."+platform+".env_passthrough", session.EnvPassthrough); err != nil {
-			return err
-		}
-	}
-
-	// V4: exclude patterns.
-	for _, pat := range p.Backup.Excludes {
-		if pat == "" {
-			return fmt.Errorf("integration %q: empty exclude pattern", p.Meta.Name)
-		}
-		if strings.HasPrefix(pat, "!") {
-			return fmt.Errorf("integration %q: negation excludes not supported: %q", p.Meta.Name, pat)
-		}
-	}
-
-	// V5: detect files must be basenames or basename globs, no path separators.
-	for _, f := range p.Detect.Files {
-		if strings.Contains(f, "/") {
-			return fmt.Errorf("integration %q: detect file %q must be a filename, not a path", p.Meta.Name, f)
-		}
-	}
-
-	// V5b: detect.root_dirs are root-only directory markers (checked via os.Stat
-	// at the project root, not walked). Reject anything that could escape the
-	// project root, contain path separators or whitespace, or match "." / "..".
-	for _, d := range p.Detect.RootDirs {
-		if d == "" {
-			return fmt.Errorf("integration %q: empty detect root_dir", p.Meta.Name)
-		}
-		if d == "." || d == ".." {
-			return fmt.Errorf("integration %q: detect root_dir %q is not a valid project marker", p.Meta.Name, d)
-		}
-		if strings.ContainsAny(d, "/\\\x00") {
-			return fmt.Errorf("integration %q: detect root_dir %q must be a single path component", p.Meta.Name, d)
-		}
-		if strings.ContainsFunc(d, func(r rune) bool {
-			switch r {
-			case ' ', '\t', '\n', '\r':
-				return true
-			}
-			return false
-		}) {
-			return fmt.Errorf("integration %q: detect root_dir %q must not contain whitespace", p.Meta.Name, d)
-		}
-		if !integrationRootDirNameRe.MatchString(d) {
-			return fmt.Errorf("integration %q: detect root_dir %q must match %s", p.Meta.Name, d, integrationRootDirNameRe)
-		}
-	}
-
-	// V6: bounds.
-	if len(p.Session.ReadDirs) > integrationMaxReadDirs {
-		return fmt.Errorf("integration %q: too many read_dirs (%d, max %d)", p.Meta.Name, len(p.Session.ReadDirs), integrationMaxReadDirs)
-	}
-	if len(p.Session.EnvPassthrough) > integrationMaxEnvKeys {
-		return fmt.Errorf("integration %q: too many env_passthrough keys (%d, max %d)", p.Meta.Name, len(p.Session.EnvPassthrough), integrationMaxEnvKeys)
-	}
-	for platform := range p.Session.Platforms {
-		effective := integrationSessionForPlatform(p.Session, platform)
-		if len(effective.ReadDirs) > integrationMaxReadDirs {
-			return fmt.Errorf("integration %q: too many %s read_dirs (%d, max %d)", p.Meta.Name, platform, len(effective.ReadDirs), integrationMaxReadDirs)
-		}
-		if len(effective.EnvPassthrough) > integrationMaxEnvKeys {
-			return fmt.Errorf("integration %q: too many %s env_passthrough keys (%d, max %d)", p.Meta.Name, platform, len(effective.EnvPassthrough), integrationMaxEnvKeys)
-		}
-	}
-	if len(p.Backup.Excludes) > integrationMaxExcludes {
-		return fmt.Errorf("integration %q: too many excludes (%d, max %d)", p.Meta.Name, len(p.Backup.Excludes), integrationMaxExcludes)
-	}
-	if len(p.Warnings) > integrationMaxWarnings {
-		return fmt.Errorf("integration %q: too many warnings (%d, max %d)", p.Meta.Name, len(p.Warnings), integrationMaxWarnings)
-	}
-	if len(p.Commands) > integrationMaxCommands {
-		return fmt.Errorf("integration %q: too many commands (%d, max %d)", p.Meta.Name, len(p.Commands), integrationMaxCommands)
-	}
-	if len(p.Detect.Files) > integrationMaxDetectFiles {
-		return fmt.Errorf("integration %q: too many detect files (%d, max %d)", p.Meta.Name, len(p.Detect.Files), integrationMaxDetectFiles)
-	}
-	if len(p.Detect.RootDirs) > integrationMaxDetectRootDirs {
-		return fmt.Errorf("integration %q: too many detect root_dirs (%d, max %d)", p.Meta.Name, len(p.Detect.RootDirs), integrationMaxDetectRootDirs)
-	}
-
-	return nil
-}
-
-func validateIntegrationEnvKeys(integrationName, field string, keys []string) error {
-	for _, key := range keys {
-		if err := rejectCredentialGrantEnvKey(fmt.Sprintf("integration %q", integrationName), field, key); err != nil {
-			return err
-		}
-		if !safeEnvKeys[key] {
-			return fmt.Errorf("integration %q: env key %q in %s not in safe passthrough set", integrationName, key, field)
-		}
-	}
-	return nil
+	return integrations.ValidateSchema(p)
 }
 
 func integrationSessionForCurrentPlatform(session IntegrationSession) IntegrationPlatformSession {
@@ -436,20 +60,7 @@ func integrationSessionForCurrentPlatform(session IntegrationSession) Integratio
 }
 
 func integrationSessionForPlatform(session IntegrationSession, platform string) IntegrationPlatformSession {
-	effective := IntegrationPlatformSession{
-		ReadDirs:       append([]string(nil), session.ReadDirs...),
-		EnvPassthrough: append([]string(nil), session.EnvPassthrough...),
-	}
-	if session.Platforms == nil {
-		return effective
-	}
-	overlay, ok := session.Platforms[platform]
-	if !ok {
-		return effective
-	}
-	effective.ReadDirs = append(effective.ReadDirs, overlay.ReadDirs...)
-	effective.EnvPassthrough = append(effective.EnvPassthrough, overlay.EnvPassthrough...)
-	return effective
+	return integrations.SessionForPlatform(session, platform)
 }
 
 // validateIntegrationPaths checks read_dirs against credential deny zones (V2).
@@ -506,34 +117,14 @@ var (
 )
 
 func hasLegacyTopLevelKey(data []byte, key string) bool {
-	trimmed := bytes.TrimSpace(data)
-	prefix := []byte(key + ":")
-	return bytes.HasPrefix(trimmed, prefix) || bytes.Contains(data, append([]byte("\n"), prefix...))
+	return integrations.HasLegacyTopLevelKey(data, key)
 }
 
 // loadIntegrationSpec parses and schema-validates a single integration manifest
 // from YAML bytes. Unknown fields are rejected (fail closed) so typos and
 // unsupported keys are caught at load time rather than silently ignored.
 func loadIntegrationSpec(data []byte) (IntegrationSpec, error) {
-	if len(data) > integrationMaxSize {
-		return IntegrationSpec{}, fmt.Errorf("integration manifest exceeds %d byte limit", integrationMaxSize)
-	}
-	if hasLegacyTopLevelKey(data, "pack") {
-		return IntegrationSpec{}, fmt.Errorf("legacy integration manifest schema detected: rename top-level key 'pack:' to 'integration:'")
-	}
-
-	var p IntegrationSpec
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
-	dec.KnownFields(true)
-	if err := dec.Decode(&p); err != nil {
-		return IntegrationSpec{}, fmt.Errorf("parse integration manifest: %w", err)
-	}
-
-	if err := validateIntegrationSchema(p); err != nil {
-		return IntegrationSpec{}, err
-	}
-
-	return p, nil
+	return integrations.LoadSpec(data)
 }
 
 // loadBuiltinIntegrationSpec loads a built-in integration spec by name from the
@@ -1084,13 +675,7 @@ func suggestIntegrations(projectDir string, activeNames map[string]struct{}) []s
 
 // integrationMergeResult holds the merged output of all active integrations, ready for
 // injection into session setup.
-type integrationMergeResult struct {
-	ReadDirs       []string          // canonical paths to add as -R
-	EnvPassthrough map[string]string // key=value pairs resolved from invoker env
-	Excludes       []string          // backup exclude patterns
-	Warnings       []string          // messages to show at session start
-	RegistryKeys   []string          // active registry-redirect env keys (for UX)
-}
+type integrationMergeResult = integrations.MergeResult
 
 // mergeIntegrations validates paths and merges all active integrations into a
 // single result.
@@ -1102,97 +687,27 @@ func mergeIntegrations(integrations []IntegrationSpec) (integrationMergeResult, 
 	return mergeResolvedIntegrations(resolved)
 }
 
-func mergeResolvedIntegrations(integrations []resolvedIntegration) (integrationMergeResult, error) {
-	return mergeResolvedIntegrationsForPlatform(integrations, currentIntegrationPlatform())
+func mergeResolvedIntegrations(resolved []resolvedIntegration) (integrationMergeResult, error) {
+	return mergeResolvedIntegrationsForPlatform(resolved, currentIntegrationPlatform())
 }
 
-func mergeResolvedIntegrationsForPlatform(integrations []resolvedIntegration, platform string) (integrationMergeResult, error) {
-	var result integrationMergeResult
-	result.EnvPassthrough = make(map[string]string)
-
-	readDirSeen := make(map[string]struct{})
-	excludeSeen := make(map[string]struct{})
-	warnSeen := make(map[string]struct{})
-	registrySeen := make(map[string]struct{})
-
-	for _, integration := range integrations {
-		session := integrationSessionForPlatform(integration.Spec.Session, platform)
-		if err := validateIntegrationEnvKeys(integration.Spec.Meta.Name, "session.env_passthrough", session.EnvPassthrough); err != nil {
-			return integrationMergeResult{}, err
-		}
-		if !integration.ReplaceDeclaredReadDirs {
-			dirs, err := validateIntegrationPathsForPlatform(integration.Spec, platform)
-			if err != nil {
-				return integrationMergeResult{}, err
-			}
-			for _, d := range dirs {
-				if _, dup := readDirSeen[d]; !dup {
-					result.ReadDirs = append(result.ReadDirs, d)
-					readDirSeen[d] = struct{}{}
-				}
-			}
-		}
-
-		for _, d := range integration.AdditionalReadDirs {
-			if _, dup := readDirSeen[d]; !dup {
-				result.ReadDirs = append(result.ReadDirs, d)
-				readDirSeen[d] = struct{}{}
-			}
-		}
-
-		// Env passthrough: resolve from invoker's environment.
-		for _, key := range session.EnvPassthrough {
-			if _, set := result.EnvPassthrough[key]; set {
-				continue
-			}
-			if val := os.Getenv(key); val != "" {
-				result.EnvPassthrough[key] = val
-				if registryEnvKeys[key] && val != "" {
-					result.RegistryKeys = append(result.RegistryKeys, key)
-					registrySeen[key] = struct{}{}
-				}
-			}
-		}
-		for key, value := range integration.ResolvedEnv {
-			if err := rejectCredentialGrantEnvKey(fmt.Sprintf("integration %q", integration.Spec.Meta.Name), "resolved env", key); err != nil {
-				return integrationMergeResult{}, err
-			}
-			if value == "" {
-				continue
-			}
-			result.EnvPassthrough[key] = value
-			if registryEnvKeys[key] {
-				if _, dup := registrySeen[key]; !dup {
-					result.RegistryKeys = append(result.RegistryKeys, key)
-					registrySeen[key] = struct{}{}
-				}
-			}
-		}
-
-		// Backup excludes.
-		for _, pat := range integration.Spec.Backup.Excludes {
-			if _, dup := excludeSeen[pat]; !dup {
-				result.Excludes = append(result.Excludes, pat)
-				excludeSeen[pat] = struct{}{}
-			}
-		}
-
-		// Warnings.
-		for _, w := range integration.Spec.Warnings {
-			if _, dup := warnSeen[w]; !dup {
-				result.Warnings = append(result.Warnings, w)
-				warnSeen[w] = struct{}{}
-			}
-		}
-		for _, w := range integration.AdditionalWarnings {
-			if _, dup := warnSeen[w]; !dup {
-				result.Warnings = append(result.Warnings, w)
-				warnSeen[w] = struct{}{}
-			}
-		}
+func mergeResolvedIntegrationsForPlatform(resolved []resolvedIntegration, platform string) (integrationMergeResult, error) {
+	items := make([]integrations.Resolved, 0, len(resolved))
+	for _, integration := range resolved {
+		items = append(items, integrations.Resolved{
+			Spec:                    integration.Spec,
+			ReplaceDeclaredReadDirs: integration.ReplaceDeclaredReadDirs,
+			AdditionalReadDirs:      integration.AdditionalReadDirs,
+			ResolvedEnv:             integration.ResolvedEnv,
+			AdditionalWarnings:      integration.AdditionalWarnings,
+		})
 	}
 
-	return result, nil
+	return integrations.MergeResolved(items, integrations.MergeOptions{
+		Platform:         platform,
+		ValidateReadDirs: validateIntegrationPathsForPlatform,
+		Getenv:           os.Getenv,
+	})
 }
 
 // ── CLI command ────────────────────────────────────────────────────────────
