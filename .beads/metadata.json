@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "sandboxing",
-  "project_id": "b679fc59-6314-4c01-8cee-252b9d31e87e"
-}

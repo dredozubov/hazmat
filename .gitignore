@@ -14,16 +14,6 @@ tla/*_TTrace_*.bin
 # macOS
 .DS_Store
 
-# Beads local database / credentials.
-# Fine-grained runtime ignores live in .beads/.gitignore.
-.beads/dolt/
+# Beads is used as local-only task tracking in this repo.
+.beads/
 .beads-credential-key
-
-# Legacy Beads JSONL exports for this Dolt-backed repo
-.beads/comments.jsonl
-.beads/config.jsonl
-.beads/dependencies.jsonl
-.beads/dolt-backup.json
-.beads/events.jsonl
-.beads/issues.jsonl
-.beads/labels.jsonl
