@@ -993,6 +993,83 @@ func TestGenerateSBPLWithWriteDirs(t *testing.T) {
 	}
 }
 
+func TestGenerateSBPLUsesSessionTempInsteadOfBroadHostTemp(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/Users/dr/workspace/project",
+		TempDir:    agentHome + "/.cache/hazmat/tmp/test-session",
+	}
+	policy := generateSBPL(cfg)
+
+	for _, want := range []string{
+		`(allow file-read* file-write* (subpath "` + cfg.TempDir + `"))`,
+		`(allow process-exec (subpath "` + cfg.TempDir + `"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("policy missing session temp rule %q:\n%s", want, policy)
+		}
+	}
+
+	for _, broad := range []string{"/private/tmp", "/private/var/folders"} {
+		for _, forbidden := range []string{
+			`(allow file-read* file-write* (subpath "` + broad + `"))`,
+			`(allow process-exec (subpath "` + broad + `"))`,
+		} {
+			if strings.Contains(policy, forbidden) {
+				t.Fatalf("policy should not include broad host temp grant %q:\n%s", forbidden, policy)
+			}
+		}
+		if !strings.Contains(policy, `(allow file-read-metadata (literal "`+broad+`"))`) {
+			t.Fatalf("policy should preserve metadata-only temp parent access for %s:\n%s", broad, policy)
+		}
+	}
+}
+
+func TestGenerateSBPLDeniesCodexTempSocketsAfterUserTempGrant(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/private/tmp",
+		TempDir:    agentHome + "/.cache/hazmat/tmp/test-session",
+	}
+	policy := generateSBPL(cfg)
+
+	denySection := ";; ── DENY host temp capability sockets"
+	credentialSection := ";; ── DENY sensitive credential directories"
+	denyIdx := strings.Index(policy, denySection)
+	credentialIdx := strings.Index(policy, credentialSection)
+	if denyIdx < 0 {
+		t.Fatalf("policy missing host temp socket deny section:\n%s", policy)
+	}
+	if credentialIdx < 0 {
+		t.Fatalf("policy missing credential deny section:\n%s", policy)
+	}
+	if denyIdx > credentialIdx {
+		t.Fatalf("host temp socket denies should appear before final credential denies:\n%s", policy)
+	}
+
+	for _, socketDir := range []string{
+		"/tmp/codex-browser-use",
+		"/tmp/codex-ipc",
+		"/private/tmp/codex-browser-use",
+		"/private/tmp/codex-ipc",
+	} {
+		for _, want := range []string{
+			`(deny file-read* file-write* (subpath "` + socketDir + `"))`,
+			`(deny process-exec (subpath "` + socketDir + `"))`,
+		} {
+			if !strings.Contains(policy, want) {
+				t.Fatalf("policy missing socket deny %q:\n%s", want, policy)
+			}
+		}
+	}
+	for _, want := range []string{
+		`(deny file-read* file-write* (regex #"^/private/var/folders/.*/T/codex-ipc(/|$)"))`,
+		`(deny process-exec (regex #"^/private/var/folders/.*/T/codex-ipc(/|$)"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("policy missing var-folders socket deny %q:\n%s", want, policy)
+		}
+	}
+}
+
 func TestGenerateSBPLReadDirEqualToProjectOmitted(t *testing.T) {
 	// A read dir that equals ProjectDir is redundant (project already has
 	// read+write) and should not emit a separate read-only rule.
@@ -1991,6 +2068,7 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 		HarnessEnv: map[string]string{
 			"ANTHROPIC_API_KEY": "stored-claude-key",
 		},
+		TempDir: agentHome + "/.cache/hazmat/tmp/test-session",
 	}
 
 	pairs := agentEnvPairs(cfg)
@@ -2008,6 +2086,11 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	}
 	if values["SANDBOX_NETWORK_MODE"] != "default" {
 		t.Fatalf("SANDBOX_NETWORK_MODE = %q, want default", values["SANDBOX_NETWORK_MODE"])
+	}
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if values[key] != cfg.TempDir {
+			t.Fatalf("%s = %q, want %q", key, values[key], cfg.TempDir)
+		}
 	}
 
 	var dirs []string

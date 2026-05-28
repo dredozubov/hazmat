@@ -165,8 +165,9 @@ successful completion after arbitrary bounded failures.
 | Spec | `tla/02_seatbelt_policy_structure.md` |
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
-| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, and native network-none mode modeled |
+| Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, and host-temp narrowing modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -191,8 +192,14 @@ successful completion after arbitrary bounded failures.
    keep outbound network and DNS authority; network-none sessions emit neither
    grant, with no global firewall state.
 
+5. Added host temp narrowing to the model. Broad `/private/tmp` and
+   `/private/var/folders` access is no longer implicit; an agent-owned
+   per-session temp root remains readable, writable, and executable for build
+   artifacts; Codex App temp/control socket paths are denied after user grants.
+
 Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
-4=agent home, 5=project write re-assert, 6=credential denies.
+4=agent home, 5=session temp, 6=project write re-assert, 7=temp socket denies,
+8=credential denies.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
@@ -209,6 +216,9 @@ inherited credential-bearing fd still alive.
   they cover any credential paths — add to the model and re-verify.
 - Adding new optional read+write sections (like ResumeDir) requires modeling the
   path and verifying it cannot overlap with `CredPaths`.
+- Changing native temp grants or temp socket deny paths requires updating this
+  model and re-proving host temp denial, session temp usability, and temp socket
+  denial.
 - Changing native network grants requires updating this model and re-proving
   both default outbound behavior and network-none denial.
 

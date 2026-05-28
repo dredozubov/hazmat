@@ -7,19 +7,22 @@ Codex desktop attach smoke.
 
 ## Decision
 
-Keep the current temp policy unchanged for the first contained app-server path
-and treat broad temp access as documented residual risk.
+The initial `sandboxing-8tj4` assessment kept the temp policy unchanged because
+native Seatbelt policy generation is a verified area.
 
-Do not narrow `compileDarwinSBPL()` in this bead. Native Seatbelt policy
-generation is a verified area, and temp narrowing changes both filesystem and
-`process-exec` authority. The next implementation step is
-`sandboxing-zz6k.8`, which must update `tla/MC_SeatbeltPolicy.tla` and
-`tla/02_seatbelt_policy_structure.md`, prove the new design with TLC, and only
-then update the native SBPL implementation and tests.
+`sandboxing-zz6k.8` then implemented the model-first narrowing:
 
-## Current Exposure
+- `TMPDIR`, `TMP`, and `TEMP` now point at an agent-owned per-session temp root
+  under `/Users/agent/.cache/hazmat/tmp/`.
+- The native SBPL grants read/write/exec for that session temp root.
+- The native SBPL no longer grants implicit broad read/write/exec over
+  `/private/tmp` or `/private/var/folders`.
+- Codex App temp/control socket families get explicit deny rules after
+  project/read/temp allows and before final credential denies.
 
-The native policy currently grants:
+## Original Exposure
+
+Before `sandboxing-zz6k.8`, the native policy granted:
 
 - `file-read* file-write*` under `/private/tmp`
 - `file-read* file-write*` under `/private/var/folders`
@@ -35,7 +38,7 @@ normal Codex CLI use: app-server `fs/*` APIs are server-side capabilities. They
 are not protected by Codex's inner CLI sandbox, so Hazmat's outer user,
 Seatbelt, and network boundaries are the actual enforcement layer. A contained
 app-server can therefore read host-readable files in `/private/tmp` or
-`/private/var/folders` until this policy is narrowed.
+`/private/var/folders` unless this policy is narrowed.
 
 The host-state classification also identified these temp capability endpoints:
 
@@ -46,46 +49,47 @@ The host-state classification also identified these temp capability endpoints:
 These are not credential files under agent home, so they do not belong in
 `credentialDenySubs`. They should be handled by the temp path-policy design.
 
-## Why Not Patch Immediately
+## Model-First Rationale
 
 Changing temp rules directly would alter a verified policy boundary without the
 required model update. It also risks breaking core development workflows because
 the current policy relies on broad temp read/write/exec for build tooling.
 
-The safer path is to model the intended rule ordering and test the runtime
-effect. Candidate designs include:
-
-1. Per-session temp roots with narrow read/write/exec grants.
-2. Explicit deny rules for known Codex App temp/control socket paths after any
-   broad temp allow, if Seatbelt enforcement for Unix-domain socket path access
-   proves effective.
-3. A hybrid design that keeps minimal compatibility grants for system temp
-   metadata while routing writable temp output through session-owned roots.
+The implemented design uses per-session temp roots with narrow read/write/exec
+grants, plus explicit deny rules for known Codex App temp/control socket paths.
 
 The model should preserve the existing credential deny last-match behavior and
 make any new temp/socket deny ordering explicit.
 
-## Test Requirements For Narrowing
+## Implemented Test Coverage
 
-`sandboxing-zz6k.8` should not close until autonomous tests cover:
+`sandboxing-zz6k.8` added or extended coverage for:
 
-- app-server `fs/readFile` denied for an outside-project, host-readable temp
-  file;
-- app-server access to Codex App temp/control socket paths denied, or a
-  documented reason why the chosen policy cannot enforce that class;
-- Go, Rust, Node, shell, and C/CGO temp artifact flows still work;
-- `--network none` behavior is unchanged;
-- credential and host-state deny tests still pass.
+- TLA model invariants for host temp denial, session temp usability, temp
+  socket denial, credential denial, read-dir isolation, project writability,
+  and network-none behavior.
+- Unit tests proving the generated SBPL does not include broad host temp grants,
+  does include session temp grants, and emits Codex temp socket denies after a
+  broad user temp grant.
+- The app-server smoke proving `fs/readFile` is denied for an outside-project,
+  host-readable temp file.
+- The app-server smoke proving shell, Node, Rust, and available Go/CGO temp
+  artifacts use the agent session temp root. On this machine Go/CGO is skipped
+  because the agent-visible `go` binary has no usable `GOROOT`; the probe runs
+  when `go env GOROOT` succeeds.
+- Existing credential denial and `--network none` app-server smoke checks.
 
-## Residual Risk Until Fixed
+## Residual Risk After Narrowing
 
 Contained app-server sessions are still isolated from host credentials,
 project-unrelated home and Library state, and network egress when
-`--network none` is selected. However, host-readable files and capability
-pathnames under `/private/tmp` and `/private/var/folders` remain in scope for
-the contained agent until the model-first temp narrowing work lands.
+`--network none` is selected. Host-readable files under `/private/tmp` and
+`/private/var/folders` are no longer implicitly readable just because they are
+in temp.
 
-Do not describe the current app-server path as fully host-temp-isolated.
+If a user explicitly selects a broad host temp path as the project or a read
+dir, non-socket files under that grant are intentionally exposed. Codex App
+temp/control socket paths remain explicitly denied as defense in depth.
 
 ## Related Beads
 

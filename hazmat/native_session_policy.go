@@ -11,6 +11,7 @@ type nativeSessionPolicy struct {
 	ReadDirs           []string
 	WriteDirs          []string
 	AgentHome          string
+	TempDir            string
 	CredentialDenySubs []string
 	NetworkMode        sessionNetworkMode
 	// MacOSNativeTLS is true when the harness running in this session uses the
@@ -44,10 +45,18 @@ func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
 		ReadDirs:           cloneStringSlice(cfg.ReadDirs),
 		WriteDirs:          cloneStringSlice(cfg.WriteDirs),
 		AgentHome:          agentHome,
+		TempDir:            sessionTempDirOrDefault(cfg.TempDir),
 		CredentialDenySubs: cloneStringSlice(credentialDenySubs),
 		NetworkMode:        normalizeSessionNetworkMode(cfg.NetworkMode),
 		MacOSNativeTLS:     harnessUsesMacOSNativeTLS(cfg.HarnessID),
 	}
+}
+
+func sessionTempDirOrDefault(tempDir string) string {
+	if tempDir != "" {
+		return tempDir
+	}
+	return defaultAgentTmpDir
 }
 
 func cloneStringSlice(values []string) []string {

@@ -52,13 +52,19 @@ func agentEnvPairs(cfg sessionConfig) []string {
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {
 	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
 	writeDirsJSON, _ := json.Marshal(cfg.WriteDirs)
+	tmpDir := env.TmpDir
+	if cfg.TempDir != "" {
+		tmpDir = cfg.TempDir
+	}
 	pairs := []string{
 		"HOME=" + agentHome,
 		"USER=" + agentUser,
 		"LOGNAME=" + agentUser,
 		"SHELL=" + env.Shell,
 		"PATH=" + env.Path,
-		"TMPDIR=" + env.TmpDir,
+		"TMPDIR=" + tmpDir,
+		"TMP=" + tmpDir,
+		"TEMP=" + tmpDir,
 		"XDG_CACHE_HOME=" + env.CacheHome,
 		"XDG_CONFIG_HOME=" + env.ConfigHome,
 		"XDG_DATA_HOME=" + env.DataHome,

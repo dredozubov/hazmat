@@ -111,7 +111,12 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; Credential directories are denied at the end (last-match-wins).\n")
 	w("(allow file-read* file-write* (subpath %q))\n\n", home)
 
-	w(";; ── Temp and cache directories ──────────────────────────────────────────────\n")
+	w(";; ── Session temp directory ───────────────────────────────────────────────────\n")
+	w(";; Runtime TMPDIR points at this agent-owned per-session root. Do not grant\n")
+	w(";; broad /private/tmp or /private/var/folders read/write/exec here.\n")
+	w("(allow file-read* file-write* (subpath %q))\n", policy.TempDir)
+	w("(allow process-exec (subpath %q))\n\n", policy.TempDir)
+
 	w(";; ── DNS resolver + system state ───────────────────────────────────────────\n")
 	w(";; resolv.conf is a symlink to /private/var/run/resolv.conf.\n")
 	w("(allow file-read* (subpath \"/private/var/run\"))\n")
@@ -119,11 +124,9 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; CGO and clang read it to locate the SDK.\n")
 	w("(allow file-read* (literal \"/private/var/db/xcode_select_link\"))\n\n")
 
+	w(";; Temp parent metadata only; session temp itself is agent-home scoped.\n")
 	for _, p := range []string{"/private/tmp", "/private/var/folders"} {
-		w("(allow file-read* file-write* (subpath %q))\n", p)
-		// process-exec: compilers (go test, rustc, gcc) build artifacts to
-		// temp dirs and exec them. The agent already has write access here.
-		w("(allow process-exec (subpath %q))\n", p)
+		w("(allow file-read-metadata (literal %q))\n", p)
 	}
 	w("\n")
 
@@ -209,6 +212,16 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	if len(policy.WriteDirs) > 0 {
 		w("\n")
 	}
+
+	w(";; ── DENY host temp capability sockets ─────────────────────────────────────\n")
+	w(";; These override broad user-granted temp roots. They are local control\n")
+	w(";; sockets, not ordinary build artifacts.\n")
+	for _, p := range []string{"/tmp/codex-browser-use", "/tmp/codex-ipc", "/private/tmp/codex-browser-use", "/private/tmp/codex-ipc"} {
+		w("(deny file-read* file-write* (subpath %q))\n", p)
+		w("(deny process-exec (subpath %q))\n", p)
+	}
+	w("(deny file-read* file-write* (regex #\"^/private/var/folders/.*/T/codex-ipc(/|$)\"))\n")
+	w("(deny process-exec (regex #\"^/private/var/folders/.*/T/codex-ipc(/|$)\"))\n\n")
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")

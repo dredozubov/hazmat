@@ -26,5 +26,5 @@ const (
 	defaultAgentCacheHome  = agentHome + "/.cache"
 	defaultAgentConfigHome = agentHome + "/.config"
 	defaultAgentDataHome   = agentHome + "/.local/share"
-	defaultAgentTmpDir     = "/private/tmp"
+	defaultAgentTmpDir     = agentHome + "/.cache/hazmat/tmp"
 )

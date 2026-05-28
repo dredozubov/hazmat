@@ -143,6 +143,7 @@ fi
 SCRATCH="$(mktemp -d /tmp/hazmat-codex-app-server-smoke.XXXXXX)"
 PROJECT="$SCRATCH/project"
 ALLOWED_FILE="$PROJECT/allowed.txt"
+HOST_TEMP_FILE="$SCRATCH/outside-host-temp.txt"
 DENIED_DIR="$AGENT_HOME/.ssh"
 DENIED_FILE="$DENIED_DIR/hazmat-app-server-smoke.$$"
 
@@ -161,6 +162,8 @@ mkdir -p "$PROJECT"
 chmod 755 "$SCRATCH" "$PROJECT"
 printf 'allowed from project\n' >"$ALLOWED_FILE"
 chmod 644 "$ALLOWED_FILE"
+printf 'host temp outside project\n' >"$HOST_TEMP_FILE"
+chmod 644 "$HOST_TEMP_FILE"
 
 if [ ! -d "$DENIED_DIR" ]; then
 	sudo -n -u "$AGENT_USER" mkdir -p "$DENIED_DIR"
@@ -168,12 +171,12 @@ if [ ! -d "$DENIED_DIR" ]; then
 fi
 sudo -n -u "$AGENT_USER" /bin/sh -c 'umask 077; printf "%s\n" "fake smoke-test credential" >"$1"' sh "$DENIED_FILE"
 
-node - "$REPO_ROOT" "$PROJECT" "$ALLOWED_FILE" "$DENIED_FILE" "$VIA_SHIM" <<'NODE'
+node - "$REPO_ROOT" "$PROJECT" "$ALLOWED_FILE" "$HOST_TEMP_FILE" "$DENIED_FILE" "$VIA_SHIM" <<'NODE'
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const path = require("node:path");
 
-const [repoRoot, projectDir, allowedFile, deniedFile, viaShimRaw] = process.argv.slice(2);
+const [repoRoot, projectDir, allowedFile, hostTempFile, deniedFile, viaShimRaw] = process.argv.slice(2);
 const hazmatDir = path.join(repoRoot, "hazmat");
 const viaShim = viaShimRaw === "1";
 const childArgs = viaShim ? [
@@ -408,10 +411,97 @@ async function main() {
     fail(`command/exec unexpected result: ${JSON.stringify(command)}`);
   }
 
+  const shellTemp = await request("command/exec", {
+    command: ["/bin/sh", "-lc", `
+      set -eu
+      case "$TMPDIR" in
+        /Users/agent/.cache/hazmat/tmp/*) ;;
+        *) echo "bad TMPDIR=$TMPDIR"; exit 17 ;;
+      esac
+      probe="$(mktemp "$TMPDIR/hazmat-shell.XXXXXX")"
+      printf shell-temp-ok >"$probe"
+      cat "$probe"
+      rm -f "$probe"
+    `],
+    cwd: projectDir,
+    sandboxPolicy: { type: "externalSandbox", networkAccess: "restricted" },
+    timeoutMs: 10000,
+  });
+  if (shellTemp.exitCode !== 0 || shellTemp.stdout !== "shell-temp-ok") {
+    fail(`shell TMPDIR probe unexpected result: ${JSON.stringify(shellTemp)}`);
+  }
+
+  const toolchainTemp = await request("command/exec", {
+    command: ["/bin/sh", "-lc", `
+      set -eu
+      out=""
+      if command -v node >/dev/null 2>&1; then
+        node -e 'const fs=require("fs"), os=require("os"), path=require("path"); const d=fs.mkdtempSync(path.join(os.tmpdir(),"hazmat-node-")); fs.writeFileSync(path.join(d,"probe.txt"),"node-temp-ok"); if (fs.readFileSync(path.join(d,"probe.txt"),"utf8") !== "node-temp-ok") process.exit(1); fs.rmSync(d,{recursive:true,force:true});'
+        out="$out node"
+      fi
+      if command -v go >/dev/null 2>&1 && go env GOROOT >/dev/null 2>&1; then
+        d="$(mktemp -d "$TMPDIR/hazmat-go.XXXXXX")"
+        cat >"$d/go.mod" <<'EOF'
+module hazmat-temp-probe
+
+go 1.20
+EOF
+        cat >"$d/main_test.go" <<'EOF'
+package hazmattempprobe
+
+/*
+int add(int a, int b) { return a + b; }
+*/
+import "C"
+import "testing"
+
+func TestCGOTemp(t *testing.T) {
+	if C.add(1, 2) != 3 {
+		t.Fatal("bad cgo result")
+	}
+}
+EOF
+        (cd "$d" && CGO_ENABLED=1 go test . >/dev/null)
+        rm -rf "$d"
+        out="$out go-cgo"
+      else
+        out="$out go-skip"
+      fi
+      if command -v rustc >/dev/null 2>&1; then
+        d="$(mktemp -d "$TMPDIR/hazmat-rust.XXXXXX")"
+        printf 'fn main(){print!("rust-temp-ok");}\n' >"$d/main.rs"
+        rustc "$d/main.rs" -o "$d/probe"
+        "$d/probe" >/dev/null
+        rm -rf "$d"
+        out="$out rust"
+      fi
+      printf '%s' "$out"
+    `],
+    cwd: projectDir,
+    sandboxPolicy: { type: "externalSandbox", networkAccess: "restricted" },
+    timeoutMs: 60000,
+  }, 70000);
+  if (toolchainTemp.exitCode !== 0) {
+    fail(`toolchain TMPDIR probe failed: ${JSON.stringify(toolchainTemp)}`);
+  }
+
   const allowed = await request("fs/readFile", { path: allowedFile });
   const allowedText = Buffer.from(allowed.dataBase64, "base64").toString("utf8");
   if (allowedText !== "allowed from project\n") {
     fail(`fs/readFile allowed content mismatch: ${JSON.stringify(allowedText)}`);
+  }
+
+  let hostTempError = null;
+  try {
+    await request("fs/readFile", { path: hostTempFile }, 10000);
+  } catch (error) {
+    hostTempError = error;
+  }
+  if (!hostTempError || !hostTempError.rpcError) {
+    fail("fs/readFile unexpectedly succeeded for outside-project host temp file");
+  }
+  if (!/not permitted|permission denied|deny/i.test(hostTempError.rpcError.message || "")) {
+    fail(`fs/readFile host temp probe did not fail with a sandbox denial: ${hostTempError.rpcError.message}`);
   }
 
   const writtenFile = path.join(projectDir, "fs-write-remove.txt");
@@ -542,7 +632,10 @@ async function main() {
 
   console.log("codex-app-server-smoke: initialize ok");
   console.log("codex-app-server-smoke: command/exec ok");
+  console.log("codex-app-server-smoke: shell TMPDIR probe ok");
+  console.log(`codex-app-server-smoke: toolchain TMPDIR probe ok:${toolchainTemp.stdout || " none-found"}`);
   console.log("codex-app-server-smoke: fs/readFile project allow ok");
+  console.log(`codex-app-server-smoke: fs/readFile outside host temp denied: ${hostTempError.rpcError.message}`);
   console.log("codex-app-server-smoke: fs/writeFile and fs/remove project mutation ok");
   console.log(`codex-app-server-smoke: fs/readFile credential path denied: ${deniedError.rpcError.message}`);
   if (processSpawnStatus === "ok") {

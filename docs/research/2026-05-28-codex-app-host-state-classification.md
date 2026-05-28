@@ -39,7 +39,7 @@ The safer split is:
 
 Implementation note: `sandboxing-zz6k.7` added `hostStateDenySubs` as a preflight host-source deny list for session roots, integration `read_dirs`, and harness asset sync. It intentionally does not emit runtime SBPL denies.
 
-Temp exposure note: `docs/research/2026-05-28-codex-app-server-temp-exposure.md` keeps Codex App temp sockets out of `credentialDenySubs` and records the current `/private/tmp` and `/private/var/folders` grant as residual risk pending model-first policy narrowing in `sandboxing-zz6k.8`.
+Temp exposure note: `docs/research/2026-05-28-codex-app-server-temp-exposure.md` keeps Codex App temp sockets out of `credentialDenySubs`. `sandboxing-zz6k.8` narrowed native temp policy with agent-owned per-session temp roots and explicit Codex temp socket denies.
 
 ## Related Beads
 

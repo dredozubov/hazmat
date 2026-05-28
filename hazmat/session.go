@@ -47,6 +47,7 @@ type sessionConfig struct {
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
 	RepoSetup               *repoSetupState
+	TempDir                 string // agent-owned per-session temp dir for native launch
 }
 
 type sessionLaunchUI struct {
@@ -2324,6 +2325,9 @@ func runAgentSeatbeltScriptWithUI(cfg sessionConfig, ui sessionLaunchUI, script 
 		return err
 	}
 	defer runtime.Cleanup()
+	if runtime.TempDir != "" {
+		cfg.TempDir = runtime.TempDir
+	}
 
 	policy, err := prepareNativeLaunchPolicy(cfg)
 	if err != nil {

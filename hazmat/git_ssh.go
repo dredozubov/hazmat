@@ -117,6 +117,7 @@ func (c *sessionGitSSHConfig) PrimaryKey() *sessionGitSSHKey {
 
 type preparedSessionRuntime struct {
 	EnvPairs []string
+	TempDir  string
 	Cleanup  func()
 }
 
@@ -1130,15 +1131,30 @@ func sessionPathExposesFile(cfg sessionConfig, path string) bool {
 
 func prepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
 	var runtimes []preparedSessionRuntime
+	cleanupPrepared := func() {
+		for i := len(runtimes) - 1; i >= 0; i-- {
+			if runtimes[i].Cleanup != nil {
+				runtimes[i].Cleanup()
+			}
+		}
+	}
+
+	tempRuntime, err := prepareAgentTempRuntime()
+	if err != nil {
+		return preparedSessionRuntime{}, err
+	}
+	runtimes = append(runtimes, tempRuntime)
 
 	harnessRuntime, err := prepareHarnessAuthRuntime(cfg)
 	if err != nil {
+		cleanupPrepared()
 		return preparedSessionRuntime{}, err
 	}
 	runtimes = append(runtimes, harnessRuntime)
 
 	gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
 	if err != nil {
+		cleanupPrepared()
 		return preparedSessionRuntime{}, err
 	}
 	runtimes = append(runtimes, gitHTTPSRuntime)
@@ -1146,6 +1162,7 @@ func prepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
 	if cfg.GitSSH != nil {
 		gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
 		if err != nil {
+			cleanupPrepared()
 			return preparedSessionRuntime{}, err
 		}
 		runtimes = append(runtimes, gitSSHRuntime)
@@ -1165,6 +1182,9 @@ func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSe
 		if len(runtime.EnvPairs) > 0 {
 			merged.EnvPairs = append(merged.EnvPairs, runtime.EnvPairs...)
 		}
+		if runtime.TempDir != "" {
+			merged.TempDir = runtime.TempDir
+		}
 		if runtime.Cleanup != nil {
 			cleanups = append(cleanups, runtime.Cleanup)
 		}
@@ -1175,6 +1195,21 @@ func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSe
 		}
 	}
 	return merged
+}
+
+func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
+	runtime := preparedSessionRuntime{Cleanup: func() {}}
+	tempDir := filepath.Join(defaultAgentTmpDir, fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
+	if err := agentEnsureDir(tempDir, 0o700); err != nil {
+		return runtime, fmt.Errorf("prepare agent temp dir: %w", err)
+	}
+	runtime.TempDir = tempDir
+	runtime.Cleanup = func() {
+		if err := asAgentQuiet("/bin/rm", "-rf", tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "hazmat: warning: could not remove agent temp dir %s: %v\n", tempDir, err)
+		}
+	}
+	return runtime, nil
 }
 
 func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, error) {
