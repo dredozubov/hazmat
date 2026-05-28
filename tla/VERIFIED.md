@@ -32,6 +32,13 @@ final agent exec keeps only stdio. The suite still does **not** model `sudo`
 internals, Go runtime internals, or kernel behavior beyond that abstract fd
 contract.
 
+Important Linux-native boundary: the current suite now includes a design model
+for the future experimental Linux native helper. It proves launch ordering
+across spec validation, fd cleanup, namespace/mount/network setup, privilege
+drop, `no_new_privs`, Landlock/seccomp decisions, metadata emission, and exec.
+It does **not** model concrete Linux syscalls, mount propagation, seccomp
+filter contents, Landlock ruleset shape, or runtime behavior after exec.
+
 Important concrete-IO boundary: the current suite models which repair classes
 and harness-state transitions Hazmat may plan, apply, preserve, or delete. It
 does **not** model the exact `chmod`/ACL syscall effects, concrete filesystem
@@ -825,6 +832,55 @@ side cleanup is now a proved design rule instead of an implementation detail.
 
 ---
 
+### 14 — Linux Native Launch Ordering
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/14_linux_native_launch.md` |
+| TLA+ files | `tla/MC_LinuxNativeLaunch.tla`, `tla/MC_LinuxNativeLaunch.cfg` |
+| Governed code | `hazmat/containment/linux` — plan-only launch spec compiler |
+| Governed code | future Linux native helper — validation, fd cleanup, namespace/mount/network setup, privilege drop, LSM/seccomp, metadata, final `exec` |
+| Key invariants | `SpecValidatedBeforeSideEffects`, `FDsClosedBeforeNamespaces`, `MountsAfterNamespaces`, `NetworkNoneDeniedBeforeMetadata`, `PrivilegeDropBeforeLSMAndMetadata`, `MetadataAfterEnforcement`, `ExecAfterMetadata`, `NoExecOnFailure`, `NoExecWithMissingRequiredFeature` |
+| Status | **Design Proved, Implementation Pending** — Linux native launch remains unsupported until the helper implementation follows this ordering and passes Linux smoke/manual gates |
+
+**What this verifies:**
+
+1. **Spec validation comes first:** no fd cleanup, namespace creation, mount,
+   network, privilege, metadata, or exec fact can appear before a valid launch
+   spec and mount plan.
+
+2. **Inherited fd cleanup precedes namespace work:** Linux native launch keeps
+   the same design rule as the Darwin helper: ambient descriptors are removed
+   before enforcement setup continues.
+
+3. **Network-none is enforced before metadata:** a `--network none` launch must
+   create the network namespace and record the deny state before metadata or
+   exec.
+
+4. **Privilege drop and `no_new_privs` precede LSM/seccomp decisions:** metadata
+   cannot be emitted until privilege drop, `no_new_privs`, Landlock, and
+   seccomp states are settled.
+
+5. **Capability gaps fail closed unless explicitly accepted:** missing
+   namespace support always fails; missing Landlock/seccomp may continue only
+   when the launch spec explicitly accepts that gap.
+
+TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
+
+**Change rules:**
+- The Linux helper implementation must follow the modeled order before it can
+  be considered supported.
+- Any relaxation that emits metadata before enforcement, execs without
+  metadata, or treats a missing required feature as success requires updating
+  `MC_LinuxNativeLaunch.tla` first and re-running TLC.
+- Changes to Linux launch-spec capability gap semantics must update both this
+  model and the companion design note before implementation.
+- Concrete syscall behavior, seccomp filter contents, Landlock rules, and mount
+  propagation details remain test/VM-smoke obligations in addition to this
+  abstract proof.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -842,6 +898,7 @@ side cleanup is now a proved design rule instead of an implementation detail.
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
 | `13_credential_capability_lifecycle` | `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
+| `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 
 ---
 
@@ -854,6 +911,8 @@ side cleanup is now a proved design rule instead of an implementation detail.
 - Exact ACL/chmod filesystem walk semantics for session-time permission repairs
 - Reworked setup-completion liveness under the current bounded setup/rollback retry model
 - Docker Sandbox or microVM runtime internals after the host-side Tier 3 launch boundary
+- Concrete Linux native helper syscall behavior, mount propagation, seccomp
+  filter contents, Landlock ruleset shape, and runtime behavior after exec
 - Concrete Keychain APIs, git credential-helper protocol bytes, SSH agent socket
   behavior, cloud provider APIs, and integration manifest parsing
 

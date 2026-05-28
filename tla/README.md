@@ -27,6 +27,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 11 | `11_git_hook_approval.md` | Repo-local Git hook approval, immutable approved snapshots, hooksPath pinning, and drift refusal | **High** |
 | 12 | `12_secret_store_recovery.md` | Host-owned harness secret-store recovery across materialize, refresh, harvest, removal, and crash/restart | **High** |
 | 13 | `13_credential_capability_lifecycle.md` | Registry-level credential delivery modes, session scoping, adapter-required backends, and crash/recovery exposure rules | **High** |
+| 14 | `14_linux_native_launch.md` | Future Linux native helper ordering: spec validation, fd cleanup, namespaces, mounts, network, privileges, LSM/seccomp, metadata, exec | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

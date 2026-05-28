@@ -33,6 +33,7 @@ run_spec MC_TierPolicyEquivalence no
 run_spec MC_SessionPermissionRepairs no
 run_spec MC_HarnessLifecycle no
 run_spec MC_LaunchFDIsolation no
+run_spec MC_LinuxNativeLaunch no
 run_spec MC_GitSSHRouting no
 run_spec MC_GitHookApproval no
 run_spec MC_SecretStoreRecovery no
