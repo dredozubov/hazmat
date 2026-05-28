@@ -91,6 +91,7 @@ const (
 type preparedSession struct {
 	Config           sessionConfig
 	Mode             sessionMode
+	BackendPlan      sessionBackendPlan
 	HostMutationPlan sessionMutationPlan
 }
 
@@ -1355,6 +1356,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	prepared := preparedSession{
 		Config:           cfg,
 		Mode:             mode,
+		BackendPlan:      buildSessionBackendPlan(cfg, mode),
 		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
