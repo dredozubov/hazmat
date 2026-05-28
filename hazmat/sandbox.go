@@ -104,6 +104,7 @@ type sandboxLaunchSpec struct {
 	Name           string
 	Agent          string
 	Config         sessionConfig
+	BackendPlan    sessionBackendPlan
 	Profile        sandboxPolicyProfile
 	MountReadDirs  []string
 	MountWriteDirs []string
@@ -1000,6 +1001,10 @@ func ensureSandboxApproval(projectDir, backendType string, profile sandboxPolicy
 }
 
 func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxClaudeSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxClaudeSession(prepared preparedSession, forwarded []string) error {
 	if wantsResume, _, wantsContinue := detectResumeFlags(forwarded); wantsResume || wantsContinue {
 		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --docker=sandbox mode")
 	}
@@ -1008,44 +1013,65 @@ func runSandboxClaudeSession(cfg sessionConfig, forwarded []string) error {
 		forwarded = append([]string{"--dangerously-skip-permissions"}, forwarded...)
 	}
 
-	return runSandboxAgentSession(cfg, "claude", forwarded)
+	return runPreparedSandboxAgentSession(prepared, "claude", forwarded)
 }
 
 func runSandboxOpenCodeSession(cfg sessionConfig, forwarded []string) error {
-	return runSandboxAgentSession(cfg, "opencode", forwarded)
+	return runPreparedSandboxOpenCodeSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxOpenCodeSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "opencode", forwarded)
 }
 
 func runSandboxCodexSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxCodexSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxCodexSession(prepared preparedSession, forwarded []string) error {
 	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
 		forwarded = codexLaunchArgs(forwarded, true)
 	}
-	return runSandboxAgentSession(cfg, "codex", forwarded)
+	return runPreparedSandboxAgentSession(prepared, "codex", forwarded)
 }
 
 func runSandboxGeminiSession(cfg sessionConfig, forwarded []string) error {
-	return runSandboxAgentSession(cfg, "gemini", forwarded)
+	return runPreparedSandboxGeminiSession(preparedSandboxSessionForConfig(cfg), forwarded)
 }
 
-func runSandboxAgentSession(cfg sessionConfig, agent string, forwarded []string) error {
-	return runPreparedSandboxSession(cfg, agent, sandboxAgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+func runPreparedSandboxGeminiSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "gemini", forwarded)
+}
+
+func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {
+	return runPreparedSandboxSession(prepared, agent, sandboxAgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
 		return adapter.RunAgentSession(probe, agent, name, forwarded)
 	})
 }
 
 func runSandboxShellSession(cfg sessionConfig) error {
-	return runPreparedSandboxSession(cfg, "shell", "shell", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
-		return adapter.RunShellSession(probe, name, cfg.ProjectDir)
+	return runPreparedSandboxShellSession(preparedSandboxSessionForConfig(cfg))
+}
+
+func runPreparedSandboxShellSession(prepared preparedSession) error {
+	return runPreparedSandboxSession(prepared, "shell", "shell", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunShellSession(probe, name, prepared.Config.ProjectDir)
 	})
 }
 
 func runSandboxExecSession(cfg sessionConfig, commandArgs []string) error {
-	return runPreparedSandboxSession(cfg, "shell", "exec session", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
-		return adapter.RunExecSession(probe, name, cfg.ProjectDir, commandArgs)
+	return runPreparedSandboxExecSession(preparedSandboxSessionForConfig(cfg), commandArgs)
+}
+
+func runPreparedSandboxExecSession(prepared preparedSession, commandArgs []string) error {
+	return runPreparedSandboxSession(prepared, "shell", "exec session", func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+		return adapter.RunExecSession(probe, name, prepared.Config.ProjectDir, commandArgs)
 	})
 }
 
-func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(sandboxBackendAdapter, sandboxProbe, string) error) error {
-	adapter, probe, name, err := prepareSandboxLaunch(cfg, agent)
+func runPreparedSandboxSession(prepared preparedSession, agent, label string, run func(sandboxBackendAdapter, sandboxProbe, string) error) error {
+	cfg := prepared.Config
+	adapter, probe, name, err := prepareSandboxLaunchWithPlan(cfg, prepared.BackendPlan, agent)
 	if err != nil {
 		return err
 	}
@@ -1069,7 +1095,7 @@ func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(
 		return fmt.Errorf("remove stale Docker Sandbox %s: %w", name, err)
 	}
 
-	adapter, probe, name, err = prepareSandboxLaunch(cfg, agent)
+	adapter, probe, name, err = prepareSandboxLaunchWithPlan(cfg, prepared.BackendPlan, agent)
 	if err != nil {
 		return err
 	}
@@ -1078,8 +1104,8 @@ func runPreparedSandboxSession(cfg sessionConfig, agent, label string, run func(
 	return run(adapter, probe, name)
 }
 
-func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
-	if len(cfg.IntegrationEnv) > 0 {
+func prepareSandboxLaunchWithPlan(cfg sessionConfig, plan sessionBackendPlan, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
+	if len(plan.IntegrationEnvKeys) > 0 {
 		return nil, nil, "", fmt.Errorf("integration env passthrough is not supported with --docker=sandbox yet")
 	}
 
@@ -1092,7 +1118,7 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 	if err != nil {
 		return nil, nil, "", err
 	}
-	spec, err := buildSandboxLaunchSpec(agent, cfg, profile)
+	spec, err := buildSandboxLaunchSpecWithPlan(agent, cfg, plan, profile)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -1120,6 +1146,10 @@ func prepareSandboxLaunch(cfg sessionConfig, agent string) (sandboxBackendAdapte
 }
 
 func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
+	return buildSandboxLaunchSpecWithPlan(agent, cfg, buildSessionBackendPlan(cfg, sessionModeDockerSandbox), profile)
+}
+
+func buildSandboxLaunchSpecWithPlan(agent string, cfg sessionConfig, plan sessionBackendPlan, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
 	if isCredentialDenyPath(cfg.ProjectDir) {
 		return sandboxLaunchSpec{}, fmt.Errorf("project dir %q resolves to credential deny zone", cfg.ProjectDir)
 	}
@@ -1218,10 +1248,19 @@ func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPoli
 		Name:           sandboxName(agent, cfg.ProjectDir, mountReadDirs, mountWriteDirs, profile.Name),
 		Agent:          agent,
 		Config:         cfg,
+		BackendPlan:    plan,
 		Profile:        profile,
 		MountReadDirs:  mountReadDirs,
 		MountWriteDirs: mountWriteDirs,
 	}, nil
+}
+
+func preparedSandboxSessionForConfig(cfg sessionConfig) preparedSession {
+	return preparedSession{
+		Config:      cfg,
+		Mode:        sessionModeDockerSandbox,
+		BackendPlan: buildSessionBackendPlan(cfg, sessionModeDockerSandbox),
+	}
 }
 
 func sandboxReadDirWriteOverlap(readDir string, writeDirs []string) (skip bool, conflict string) {

@@ -167,7 +167,7 @@ func newShellCmd() *cobra.Command {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxShellSession(prepared.Config)
+				return runPreparedSandboxShellSession(prepared)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
 				`cd "$SANDBOX_PROJECT_DIR" && exec /bin/zsh -il`)
@@ -250,7 +250,7 @@ Examples:
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxExecSession(prepared.Config, args)
+				return runPreparedSandboxExecSession(prepared, args)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
@@ -344,7 +344,7 @@ Examples:
 			}
 
 			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxClaudeSession(prepared.Config, forwarded)
+				return runPreparedSandboxClaudeSession(prepared, forwarded)
 			}
 
 			// Sync sessions for --resume / --continue.
@@ -435,7 +435,7 @@ Examples:
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxOpenCodeSession(prepared.Config, forwarded)
+				return runPreparedSandboxOpenCodeSession(prepared, forwarded)
 			}
 			if detectOpenCodeResumeRequest(forwarded).requested {
 				if err := syncOpenCodeResumeState(prepared.Config.ProjectDir, forwarded); err != nil {
@@ -754,7 +754,7 @@ func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error
 		return err
 	}
 	if prepared.Mode == sessionModeDockerSandbox {
-		return runSandboxCodexSession(prepared.Config, forwarded)
+		return runPreparedSandboxCodexSession(prepared, forwarded)
 	}
 	if codexResumeRequested(forwarded) {
 		if err := syncCodexResumeState(); err != nil {
@@ -855,7 +855,7 @@ Examples:
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxGeminiSession(prepared.Config, forwarded)
+				return runPreparedSandboxGeminiSession(prepared, forwarded)
 			}
 			if geminiResumeRequested(forwarded) {
 				if err := syncGeminiResumeState(prepared.Config.ProjectDir); err != nil {

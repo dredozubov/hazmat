@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"hazmat/sessionbackend"
 )
 
 type fakeSandboxProbe struct {
@@ -417,6 +419,40 @@ func TestBuildSandboxLaunchSpecFiltersCoveredReadDirs(t *testing.T) {
 	wantName := sandboxName("claude", projectDir, []string{refDir}, nil, sandboxPolicyProfileBaseline)
 	if spec.Name != wantName {
 		t.Fatalf("spec.Name = %q, want %q", spec.Name, wantName)
+	}
+}
+
+func TestBuildSandboxLaunchSpecCarriesExplicitBackendPlan(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := sessionConfig{
+		Target:     "claude",
+		ProjectDir: projectDir,
+	}
+	plan := buildSessionBackendPlan(cfg, sessionModeDockerSandbox)
+
+	spec, err := buildSandboxLaunchSpecWithPlan("claude", cfg, plan, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpecWithPlan: %v", err)
+	}
+	if spec.BackendPlan.Backend != sessionbackend.KindDockerSandbox {
+		t.Fatalf("BackendPlan.Backend = %q", spec.BackendPlan.Backend)
+	}
+	if spec.BackendPlan.ProjectDir != projectDir {
+		t.Fatalf("BackendPlan.ProjectDir = %q, want %q", spec.BackendPlan.ProjectDir, projectDir)
+	}
+}
+
+func TestPrepareSandboxLaunchRejectsPlanIntegrationEnvGapBeforeProbe(t *testing.T) {
+	cfg := sessionConfig{ProjectDir: t.TempDir()}
+	plan := buildSessionBackendPlan(cfg, sessionModeDockerSandbox)
+	plan.IntegrationEnvKeys = []string{"GOPROXY"}
+
+	_, _, _, err := prepareSandboxLaunchWithPlan(cfg, plan, "claude")
+	if err == nil {
+		t.Fatal("expected integration env passthrough gap to be rejected")
+	}
+	if !strings.Contains(err.Error(), "integration env passthrough is not supported") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
