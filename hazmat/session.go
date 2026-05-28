@@ -196,6 +196,17 @@ func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessi
 	}
 }
 
+func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox, preflightBeforeSnapshot bool) (preparedSession, error) {
+	prepared, err := prepareLaunchSession(commandName, opts, supportsSandbox)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	if err := beginPreparedSession(prepared, commandName, opts.noBackup, preflightBeforeSnapshot); err != nil {
+		return preparedSession{}, err
+	}
+	return prepared, nil
+}
+
 func newShellCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	cmd := &cobra.Command{
@@ -203,11 +214,8 @@ func newShellCmd() *cobra.Command {
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			prepared, err := prepareLaunchSession("shell", flags.harnessSessionOpts(cmd), true)
+			prepared, err := prepareAndBeginLaunchSession("shell", flags.harnessSessionOpts(cmd), true, false)
 			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "shell", flags.noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -238,11 +246,8 @@ Examples:
   hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prepared, err := prepareLaunchSession("exec", flags.harnessSessionOpts(cmd), true)
+			prepared, err := prepareAndBeginLaunchSession("exec", flags.harnessSessionOpts(cmd), true, false)
 			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "exec", flags.noBackup, false); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -307,11 +312,8 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("claude", opts, true)
+			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
 			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "claude", opts.noBackup, false); err != nil {
 				return err
 			}
 
@@ -399,11 +401,8 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("opencode", opts, true)
+			prepared, err := prepareAndBeginLaunchSession("opencode", opts, true, true)
 			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "opencode", opts.noBackup, true); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
@@ -666,11 +665,8 @@ func codexAppShimBoolEnv(lookup func(string) (string, bool), name string) (bool,
 }
 
 func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error {
-	prepared, err := prepareLaunchSession("codex", opts, true)
+	prepared, err := prepareAndBeginLaunchSession("codex", opts, true, true)
 	if err != nil {
-		return err
-	}
-	if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
 		return err
 	}
 	if prepared.Mode == sessionModeDockerSandbox {
@@ -767,11 +763,8 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("gemini", opts, true)
+			prepared, err := prepareAndBeginLaunchSession("gemini", opts, true, true)
 			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "gemini", opts.noBackup, true); err != nil {
 				return err
 			}
 			if prepared.Mode == sessionModeDockerSandbox {
