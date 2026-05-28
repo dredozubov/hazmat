@@ -133,6 +133,7 @@ type sessionCommandFlags struct {
 	readDirs         []string
 	writeDirs        []string
 	integrationNames []string
+	skipHarnessSync  bool
 	noBackup         bool
 	github           bool
 	useSandbox       bool
@@ -170,21 +171,28 @@ func bindCommonSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 }
 
+func bindCommonHarnessSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
+	bindCommonSessionFlags(cmd, flags)
+	cmd.Flags().BoolVar(&flags.skipHarnessSync, "skip-harness-assets-sync", false,
+		"Skip managed harness prompt-asset sync for this launch")
+}
+
 func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessionOpts {
 	return harnessSessionOpts{
-		project:             f.project,
-		readDirs:            f.readDirs,
-		writeDirs:           f.writeDirs,
-		integrations:        f.integrationNames,
-		noBackup:            f.noBackup,
-		github:              f.github,
-		useSandbox:          f.useSandbox,
-		allowDocker:         f.allowDocker,
-		dockerMode:          f.dockerModeValue,
-		dockerModeExplicit:  cmd.Flags().Changed("docker"),
-		networkMode:         f.networkModeValue,
-		networkModeExplicit: cmd.Flags().Changed("network"),
-		metadataJSON:        f.metadataJSON,
+		project:               f.project,
+		readDirs:              f.readDirs,
+		writeDirs:             f.writeDirs,
+		integrations:          f.integrationNames,
+		skipHarnessAssetsSync: f.skipHarnessSync,
+		noBackup:              f.noBackup,
+		github:                f.github,
+		useSandbox:            f.useSandbox,
+		allowDocker:           f.allowDocker,
+		dockerMode:            f.dockerModeValue,
+		dockerModeExplicit:    cmd.Flags().Changed("docker"),
+		networkMode:           f.networkModeValue,
+		networkModeExplicit:   cmd.Flags().Changed("network"),
+		metadataJSON:          f.metadataJSON,
 	}
 }
 
@@ -472,18 +480,7 @@ Examples:
 const codexAppServerDefaultListen = "stdio://"
 
 func newCodexAppServerCmd() *cobra.Command {
-	var project string
-	var readDirs []string
-	var writeDirs []string
-	var integrationNames []string
-	var skipHarnessAssetsSync bool
-	var noBackup bool
-	var github bool
-	var useSandbox bool
-	var allowDocker bool
-	var dockerModeValue string
-	var networkModeValue string
-	var metadataJSON bool
+	var flags sessionCommandFlags
 	var listen string
 	cmd := &cobra.Command{
 		Use:   "codex-app-server [flags]",
@@ -506,54 +503,13 @@ Examples:
 				return fmt.Errorf("codex-app-server currently supports only --listen %s; use `hazmat codex ... app-server --listen %s` for raw Codex transport experiments",
 					codexAppServerDefaultListen, listen)
 			}
-			opts := harnessSessionOpts{
-				project:               project,
-				readDirs:              readDirs,
-				writeDirs:             writeDirs,
-				integrations:          integrationNames,
-				skipHarnessAssetsSync: skipHarnessAssetsSync,
-				noBackup:              noBackup,
-				github:                github,
-				useSandbox:            useSandbox,
-				allowDocker:           allowDocker,
-				dockerMode:            dockerModeValue,
-				dockerModeExplicit:    cmd.Flags().Changed("docker"),
-				networkMode:           networkModeValue,
-				networkModeExplicit:   cmd.Flags().Changed("network"),
-				metadataJSON:          metadataJSON,
-			}
+			opts := flags.harnessSessionOpts(cmd)
 			return runContainedCodexSession(opts, codexAppServerForwardedArgs(listen))
 		},
 	}
-	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory)")
-	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
-		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
-		"Read-write directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
-		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().BoolVar(&skipHarnessAssetsSync, "skip-harness-assets-sync", false,
-		"Skip managed harness prompt-asset sync for this launch")
-	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
-		"Skip pre-session snapshot")
-	cmd.Flags().BoolVar(&github, "github", false,
-		"Grant this session the configured GitHub API token as GH_TOKEN")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
-		"Docker routing: none (default), sandbox, or auto")
-	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
-		"Native network policy: default or none")
-	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
-		"Emit one machine-readable session metadata JSON line to stderr before launch")
-	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Run with Docker Sandbox support")
-	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Continue without Docker support even if Docker markers are present")
+	bindCommonHarnessSessionFlags(cmd, &flags)
 	cmd.Flags().StringVar(&listen, "listen", codexAppServerDefaultListen,
 		"Codex app-server listen transport (stdio:// only)")
-	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
-	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
-	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 	return cmd
 }
 

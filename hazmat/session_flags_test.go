@@ -13,7 +13,8 @@ func TestCommonSessionFlagsDefaults(t *testing.T) {
 	bindCommonSessionFlags(cmd, &flags)
 
 	opts := flags.harnessSessionOpts(cmd)
-	if opts.project != "" || opts.noBackup || opts.github || opts.useSandbox || opts.allowDocker || opts.metadataJSON {
+	if opts.project != "" || opts.noBackup || opts.github || opts.useSandbox || opts.allowDocker ||
+		opts.skipHarnessAssetsSync || opts.metadataJSON {
 		t.Fatalf("boolean/string defaults = %+v, want empty and false", opts)
 	}
 	if len(opts.readDirs) != 0 || len(opts.writeDirs) != 0 || len(opts.integrations) != 0 {
@@ -30,6 +31,21 @@ func TestCommonSessionFlagsDefaults(t *testing.T) {
 	}
 	if opts.networkModeExplicit {
 		t.Fatal("networkModeExplicit should be false by default")
+	}
+}
+
+func TestCommonHarnessSessionFlagsEnableAssetSyncSkip(t *testing.T) {
+	var flags sessionCommandFlags
+	cmd := &cobra.Command{Use: "test"}
+	bindCommonHarnessSessionFlags(cmd, &flags)
+
+	if err := cmd.Flags().Set("skip-harness-assets-sync", "true"); err != nil {
+		t.Fatalf("set skip-harness-assets-sync: %v", err)
+	}
+
+	opts := flags.harnessSessionOpts(cmd)
+	if !opts.skipHarnessAssetsSync {
+		t.Fatal("expected skipHarnessAssetsSync")
 	}
 }
 
