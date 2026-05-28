@@ -196,6 +196,19 @@ func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessi
 	}
 }
 
+type harnessArgsParser func([]string) (harnessSessionOpts, []string, error)
+
+func parseHarnessCommandArgs(cmd *cobra.Command, args []string, parser harnessArgsParser) (harnessSessionOpts, []string, bool, error) {
+	opts, forwarded, err := parser(args)
+	if err != nil {
+		if err == errHarnessHelp {
+			return harnessSessionOpts{}, nil, true, cmd.Help()
+		}
+		return harnessSessionOpts{}, nil, false, err
+	}
+	return opts, forwarded, false, nil
+}
+
 func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox, preflightBeforeSnapshot bool) (preparedSession, error) {
 	prepared, err := prepareLaunchSession(commandName, opts, supportsSandbox)
 	if err != nil {
@@ -304,12 +317,12 @@ Examples:
 		// We disable Cobra's parsing and extract hazmat flags manually.
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, err := parseClaudeArgs(args)
+			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseClaudeArgs)
 			if err != nil {
-				if err == errHarnessHelp {
-					return cmd.Help()
-				}
 				return err
+			}
+			if handled {
+				return nil
 			}
 
 			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
@@ -393,12 +406,12 @@ Examples:
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, err := parseHarnessArgs(args)
+			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
 			if err != nil {
-				if err == errHarnessHelp {
-					return cmd.Help()
-				}
 				return err
+			}
+			if handled {
+				return nil
 			}
 
 			prepared, err := prepareAndBeginLaunchSession("opencode", opts, true, true)
@@ -462,12 +475,12 @@ Examples:
   hazmat codex --no-backup`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, err := parseHarnessArgs(args)
+			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
 			if err != nil {
-				if err == errHarnessHelp {
-					return cmd.Help()
-				}
 				return err
+			}
+			if handled {
+				return nil
 			}
 
 			return runContainedCodexSession(opts, forwarded)
@@ -755,12 +768,12 @@ Examples:
   hazmat gemini --no-backup`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, err := parseHarnessArgs(args)
+			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
 			if err != nil {
-				if err == errHarnessHelp {
-					return cmd.Help()
-				}
 				return err
+			}
+			if handled {
+				return nil
 			}
 
 			prepared, err := prepareAndBeginLaunchSession("gemini", opts, true, true)

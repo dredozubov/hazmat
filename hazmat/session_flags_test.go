@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -46,6 +47,34 @@ func TestCommonHarnessSessionFlagsEnableAssetSyncSkip(t *testing.T) {
 	opts := flags.harnessSessionOpts(cmd)
 	if !opts.skipHarnessAssetsSync {
 		t.Fatal("expected skipHarnessAssetsSync")
+	}
+}
+
+func TestParseHarnessCommandArgsRendersHelp(t *testing.T) {
+	var renderedHelp bool
+	cmd := &cobra.Command{
+		Use:          "test",
+		SilenceUsage: true,
+	}
+	cmd.SetHelpFunc(func(*cobra.Command, []string) {
+		renderedHelp = true
+	})
+
+	opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, []string{"--help"}, parseHarnessArgs)
+	if err != nil {
+		t.Fatalf("parseHarnessCommandArgs: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected handled help")
+	}
+	if !reflect.DeepEqual(opts, harnessSessionOpts{}) {
+		t.Fatalf("opts = %+v, want zero", opts)
+	}
+	if forwarded != nil {
+		t.Fatalf("forwarded = %v, want nil", forwarded)
+	}
+	if !renderedHelp {
+		t.Fatal("expected command help output")
 	}
 }
 
