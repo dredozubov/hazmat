@@ -72,12 +72,22 @@ Until those details are explicit and approved for the probe, treat desktop app
 attach work as blocked and continue with Hazmat-owned app-server subprocesses
 only.
 
+`scripts/check-codex-desktop-attach-smoke.sh` is the guarded entrypoint for that
+future live probe. Its default mode prints the host-state disclosure and exits
+without side effects. Its live mode requires
+`--run --i-understand-this-may-launch-codex-app`, refuses to run while Codex App
+is already running, launches through a temporary `CODEX_CLI_PATH` proxy, and
+records app-server JSON-RPC method names in scratch logs. It still requires
+human approval because the stock app may read or mutate normal host-user Codex
+state as soon as it launches.
+
 ## Handoff Pointers
 
 - Epic: `sandboxing-zz6k` tracks the contained Codex app-server program.
 - `sandboxing-zz6k.3` added the managed `hazmat codex-app-server` stdio command.
 - `sandboxing-zz6k.4` expanded the autonomous app-server API smoke.
 - `sandboxing-zz6k.5` adds the autonomous Codex App CLI-path shim.
+- `sandboxing-zz6k.6` owns the explicit opt-in live desktop attach smoke.
 - `sandboxing-lsn2` is the separate desktop attach feasibility spike.
 - `sandboxing-wsd1` classifies Codex host-state paths before any broader grants.
 - `sandboxing-8tj4` assesses residual `/private/tmp` exposure for this backend.

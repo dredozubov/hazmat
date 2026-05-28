@@ -233,7 +233,7 @@ Static probe result on 2026-05-28:
 - The practical candidate is to launch the desktop app with `CODEX_CLI_PATH` pointing at a Hazmat-owned shim, or to configure an SSH remote host with `codex_cli_command` pointing at Hazmat on the remote host. The desktop side would still use stdio, but the spawned command can route into `hazmat codex-app-server` under the existing outer containment.
 - If the shim owns the stdio app-server process and that process runs as `agent` under Hazmat, app-server `command/exec`, `process/spawn`, `fs/*`, and `thread/shellCommand` should land on the contained backend because those APIs execute where the app-server runs. `browser-use` and computer-use need a separate proof because the host Electron UI remains local and tool runtime paths are configured through the app-server.
 - Residual host-side surfaces remain: GUI auth and settings, keychain access, app support/cache/HTTPStorage/log/crashpad paths, deeplinks, LaunchServices, remote-control enrollment state, and the initial host-user spawn of the shim. The contained backend now uses an agent-owned session temp root rather than implicit broad `/private/tmp` access. This is backend containment, not full GUI containment.
-- The live desktop attach proof was not run because it would require launching or reconfiguring the user's active Codex App. That work is tracked separately as an explicit opt-in smoke.
+- The live desktop attach proof was not run because it would require launching or reconfiguring the user's active Codex App. That work is tracked separately as an explicit opt-in smoke. The guarded harness is `scripts/check-codex-desktop-attach-smoke.sh`; it defaults to a host-state disclosure/dry run and requires explicit approval before launching the stock app.
 
 Verdict: Option C is plausible through CLI command substitution, not through a proven arbitrary external app-server endpoint. Build the shim path first because it can be tested autonomously without touching the live desktop app; keep the live desktop proof opt-in.
 
@@ -320,7 +320,7 @@ This preserves Hazmat's core security property: execution and filesystem side ef
 - `sandboxing-lsn2` probes whether the stock Codex desktop app can attach to a Hazmat-contained app-server or remote environment.
 - `sandboxing-wsd1` classifies Codex App host-state paths before any future integration grants parent `Library` or `.codex` paths.
 - `sandboxing-zz6k.5` prototypes the autonomous `CODEX_CLI_PATH`/`codex_cli_command` shim path without launching the desktop app.
-- `sandboxing-zz6k.6` tracks the explicit opt-in live desktop attach smoke.
+- `sandboxing-zz6k.6` tracks the explicit opt-in live desktop attach smoke and its guarded launcher/proxy harness.
 - `sandboxing-zz6k.8` modeled and narrowed native temp policy for the contained app-server path.
 
 ## Sources

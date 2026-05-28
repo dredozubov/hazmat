@@ -14,6 +14,7 @@ are not interchangeable.
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
+| `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
@@ -118,6 +119,39 @@ macOS host, opt in explicitly:
 ```bash
 HAZMAT_CODEX_APP_SERVER_SMOKE=1 bash scripts/pre-push
 ```
+
+### Codex desktop attach smoke
+
+Use this only for the explicit opt-in live desktop proof. It is not part of
+autonomous backend testing because it can launch the stock Codex app and cause
+that app to read or update normal host-user app state. The default command is a
+safe dry run that prints the required host-state disclosure:
+
+```bash
+scripts/check-codex-desktop-attach-smoke.sh
+scripts/check-codex-desktop-attach-smoke.sh --print-disclosure
+```
+
+Before a live run, check whether the machine is in a safe state:
+
+```bash
+scripts/check-codex-desktop-attach-smoke.sh --check-prereqs
+```
+
+`--check-prereqs` fails closed if Codex App is already running. The script never
+quits or kills the app for you. After explicit approval and after quitting any
+existing Codex App instance manually, run:
+
+```bash
+scripts/check-codex-desktop-attach-smoke.sh --run --i-understand-this-may-launch-codex-app
+```
+
+The live run builds a scratch Hazmat binary, creates a scratch project under
+`/tmp`, launches Codex through `/usr/bin/open --env CODEX_CLI_PATH=...`, and
+records app-server JSON-RPC method names in `proxy.jsonl` without logging
+request params by default. The method log is the evidence for whether desktop
+side-effect APIs route through the Hazmat-backed backend; unobserved methods
+remain unproven and should be recorded as residual risk.
 
 ### Adding Credential Surfaces
 
