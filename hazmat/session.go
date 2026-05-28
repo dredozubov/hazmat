@@ -492,6 +492,7 @@ Examples:
   hazmat codex --network none exec "review offline"
   hazmat codex --github "review this PR"
   hazmat codex -C /proj --full-auto
+  hazmat codex --no-backup --skip-harness-assets-sync -C /proj app-server --listen stdio://
   hazmat codex --no-backup`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -522,12 +523,15 @@ Examples:
 
 			// Hazmat provides the primary containment boundary here, so when
 			// session.skip_permissions is enabled we bypass Codex's own
-			// approval prompts and sandbox layer.
+			// approval prompts and sandbox layer for interactive/exec modes.
+			// app-server is a JSON-RPC protocol process; do not add Codex CLI
+			// globals that can change subcommand parsing.
 			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-				forwarded = append(codexSkipPermissionsArgs(), forwarded...)
+				forwarded = codexLaunchArgs(forwarded, true)
 			}
 
-			return runAgentSeatbeltScript(prepared.Config, codexLaunchScript(), forwarded...)
+			return runAgentSeatbeltScriptWithUI(prepared.Config, codexLaunchUI(forwarded),
+				codexLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -535,6 +539,24 @@ Examples:
 
 func codexSkipPermissionsArgs() []string {
 	return []string{"--dangerously-bypass-approvals-and-sandbox"}
+}
+
+func codexAppServerRequested(forwarded []string) bool {
+	return slices.Contains(forwarded, "app-server")
+}
+
+func codexLaunchArgs(forwarded []string, skipPermissions bool) []string {
+	if skipPermissions && !codexAppServerRequested(forwarded) {
+		return append(codexSkipPermissionsArgs(), forwarded...)
+	}
+	return forwarded
+}
+
+func codexLaunchUI(forwarded []string) sessionLaunchUI {
+	if codexAppServerRequested(forwarded) {
+		return sessionLaunchUI{}
+	}
+	return sessionLaunchUI{showStatusBar: true}
 }
 
 func newGeminiCmd() *cobra.Command {

@@ -141,6 +141,43 @@ func TestCodexSkipPermissionsArgs(t *testing.T) {
 		t.Fatalf("codexSkipPermissionsArgs() = %v, want --dangerously-bypass-approvals-and-sandbox", got)
 	}
 }
+
+func TestCodexLaunchArgsAddsSkipPermissionsForInteractiveModes(t *testing.T) {
+	got := codexLaunchArgs([]string{"exec", "review"}, true)
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "exec", "review"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("codexLaunchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestCodexLaunchArgsDoesNotAddSkipPermissionsForAppServer(t *testing.T) {
+	got := codexLaunchArgs([]string{"app-server", "--listen", "stdio://"}, true)
+	want := []string{"app-server", "--listen", "stdio://"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("codexLaunchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestCodexLaunchUIForAppServerDisablesStatusBar(t *testing.T) {
+	ui := codexLaunchUI([]string{"app-server", "--listen", "stdio://"})
+	if ui.showStatusBar {
+		t.Fatal("showStatusBar should be false for app-server stdio")
+	}
+	if ui.clearScreen {
+		t.Fatal("clearScreen should be false for app-server stdio")
+	}
+	if ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be false for app-server stdio")
+	}
+}
+
+func TestCodexLaunchUIForInteractiveModeKeepsStatusBar(t *testing.T) {
+	ui := codexLaunchUI([]string{"exec", "review"})
+	if !ui.showStatusBar {
+		t.Fatal("showStatusBar should stay enabled for interactive Codex modes")
+	}
+}
+
 func TestResolveReadDirsDeduplicates(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")

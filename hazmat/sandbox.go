@@ -1017,7 +1017,7 @@ func runSandboxOpenCodeSession(cfg sessionConfig, forwarded []string) error {
 
 func runSandboxCodexSession(cfg sessionConfig, forwarded []string) error {
 	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-		forwarded = append(codexSkipPermissionsArgs(), forwarded...)
+		forwarded = codexLaunchArgs(forwarded, true)
 	}
 	return runSandboxAgentSession(cfg, "codex", forwarded)
 }
