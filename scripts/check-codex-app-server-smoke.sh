@@ -2,19 +2,148 @@
 
 set -eu
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+AGENT_USER="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_USER:-agent}"
+AGENT_HOME="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_HOME:-/Users/agent}"
+CODEX_BIN="$AGENT_HOME/.local/bin/codex"
+LAUNCH_HELPER="${HAZMAT_CODEX_APP_SERVER_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
+MODE="run"
+MISSING_PREREQS=""
+SCRATCH=""
+DENIED_DIR_CREATED=0
+
+usage() {
+	cat <<'EOF'
+Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missing-prereqs]
+
+Starts a short-lived Hazmat-contained `codex app-server --listen stdio://`
+backend and validates JSON-RPC initialize, command execution, project file
+access, credential path denial, and --network none behavior.
+
+Options:
+  --check-prereqs           Only check local prerequisites; exit 0 when ready,
+                            exit 2 with reasons when the machine is not ready.
+  --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
+  -h, --help                Show this help.
+
+This smoke test never launches, quits, or attaches to the stock Codex desktop
+app. It uses a scratch project and a fake agent-owned credential probe.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--check-prereqs)
+			MODE="check"
+			;;
+		--skip-if-missing-prereqs)
+			MODE="skip"
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		*)
+			echo "codex-app-server-smoke: unknown argument: $1" >&2
+			usage >&2
+			exit 2
+			;;
+	esac
+	shift
+done
+
+add_missing_prereq() {
+	if [ -z "$MISSING_PREREQS" ]; then
+		MISSING_PREREQS="- $*"
+	else
+		MISSING_PREREQS="$MISSING_PREREQS
+- $*"
+	fi
+}
+
+require_command() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		add_missing_prereq "$1 is not on PATH"
+	fi
+}
+
+check_prereqs() {
+	MISSING_PREREQS=""
+
+	if [ "$(uname -s 2>/dev/null || printf unknown)" != "Darwin" ]; then
+		add_missing_prereq "macOS/Darwin is required for the native seatbelt app-server smoke"
+	fi
+
+	require_command go
+	require_command node
+	require_command sudo
+	require_command id
+
+	if [ ! -x /usr/bin/nc ]; then
+		add_missing_prereq "/usr/bin/nc is required for the network-none probe"
+	fi
+	if [ ! -x "$LAUNCH_HELPER" ]; then
+		add_missing_prereq "$LAUNCH_HELPER is missing or not executable; run hazmat init"
+	fi
+	if [ ! -x /usr/bin/sandbox-exec ]; then
+		add_missing_prereq "/usr/bin/sandbox-exec is missing; native seatbelt support is unavailable"
+	fi
+
+	if command -v id >/dev/null 2>&1; then
+		if ! id -u "$AGENT_USER" >/dev/null 2>&1; then
+			add_missing_prereq "agent user '$AGENT_USER' does not exist; run hazmat init"
+		fi
+	fi
+
+	if command -v sudo >/dev/null 2>&1 && id -u "$AGENT_USER" >/dev/null 2>&1; then
+		if ! sudo -n -u "$AGENT_USER" /usr/bin/true >/dev/null 2>&1; then
+			add_missing_prereq "passwordless non-interactive sudo to '$AGENT_USER' is unavailable"
+		elif ! sudo -n -u "$AGENT_USER" test -x "$CODEX_BIN" >/dev/null 2>&1; then
+			add_missing_prereq "Codex CLI is not installed for '$AGENT_USER' at $CODEX_BIN; run hazmat bootstrap codex"
+		fi
+	fi
+
+	if [ -n "$MISSING_PREREQS" ]; then
+		return 1
+	fi
+	return 0
+}
+
+print_missing_prereqs() {
+	echo "codex-app-server-smoke: missing prerequisites:" >&2
+	printf '%s\n' "$MISSING_PREREQS" >&2
+}
+
+if ! check_prereqs; then
+	if [ "$MODE" = "skip" ]; then
+		echo "codex-app-server-smoke: skipped because prerequisites are missing" >&2
+		print_missing_prereqs
+		exit 0
+	fi
+	print_missing_prereqs
+	exit 2
+fi
+
+if [ "$MODE" = "check" ]; then
+	echo "codex-app-server-smoke: prerequisites ok"
+	exit 0
+fi
+
 SCRATCH="$(mktemp -d /tmp/hazmat-codex-app-server-smoke.XXXXXX)"
 PROJECT="$SCRATCH/project"
 ALLOWED_FILE="$PROJECT/allowed.txt"
-DENIED_DIR="/Users/agent/.ssh"
+DENIED_DIR="$AGENT_HOME/.ssh"
 DENIED_FILE="$DENIED_DIR/hazmat-app-server-smoke.$$"
-DENIED_DIR_CREATED=0
 
 cleanup() {
-	rm -rf "$SCRATCH"
-	sudo -n -u agent rm -f "$DENIED_FILE" 2>/dev/null || :
+	if [ -n "$SCRATCH" ]; then
+		rm -rf "$SCRATCH"
+	fi
+	sudo -n -u "$AGENT_USER" rm -f "$DENIED_FILE" 2>/dev/null || :
 	if [ "$DENIED_DIR_CREATED" = "1" ]; then
-		sudo -n -u agent rmdir "$DENIED_DIR" 2>/dev/null || :
+		sudo -n -u "$AGENT_USER" rmdir "$DENIED_DIR" 2>/dev/null || :
 	fi
 }
 trap cleanup EXIT INT TERM
@@ -25,15 +154,10 @@ printf 'allowed from project\n' >"$ALLOWED_FILE"
 chmod 644 "$ALLOWED_FILE"
 
 if [ ! -d "$DENIED_DIR" ]; then
-	sudo -n -u agent mkdir -p "$DENIED_DIR"
+	sudo -n -u "$AGENT_USER" mkdir -p "$DENIED_DIR"
 	DENIED_DIR_CREATED=1
 fi
-sudo -n -u agent /bin/sh -c 'umask 077; printf "%s\n" "fake smoke-test credential" >"$1"' sh "$DENIED_FILE"
-
-if ! command -v node >/dev/null 2>&1; then
-	echo "codex-app-server-smoke: node is required" >&2
-	exit 1
-fi
+sudo -n -u "$AGENT_USER" /bin/sh -c 'umask 077; printf "%s\n" "fake smoke-test credential" >"$1"' sh "$DENIED_FILE"
 
 node - "$REPO_ROOT" "$PROJECT" "$ALLOWED_FILE" "$DENIED_FILE" <<'NODE'
 const { spawn } = require("node:child_process");

@@ -13,6 +13,7 @@ are not interchangeable.
 | `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
+| `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
@@ -68,6 +69,44 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
 The legacy `scripts/pre-commit`, `scripts/pre-push`, and `scripts/check-fast.sh`
 entrypoints remain as compatibility wrappers for manual runs and older docs, but
 they are no longer the source of truth for Git hook installation.
+
+### Codex app-server smoke
+
+Use this when changing the contained Codex app-server backend path. It starts a
+short-lived `hazmat codex --network none ... app-server --listen stdio://`
+subprocess as the Hazmat agent user, talks JSON-RPC over stdio, and verifies
+initialize, `command/exec`, project `fs/readFile`, fake credential-path denial,
+and outbound-network denial. It does not launch, quit, attach to, or mutate the
+stock Codex desktop app.
+
+First check whether the current host is prepared:
+
+```bash
+scripts/check-codex-app-server-smoke.sh --check-prereqs
+```
+
+Run the smoke strictly when prerequisites are present:
+
+```bash
+scripts/check-codex-app-server-smoke.sh
+```
+
+For autonomous gates that should avoid false failures on unprepared machines,
+use the skip mode:
+
+```bash
+scripts/check-codex-app-server-smoke.sh --skip-if-missing-prereqs
+```
+
+`--check-prereqs` exits 2 and prints precise missing requirements when the host
+is not ready. `--skip-if-missing-prereqs` prints the same reasons but exits 0.
+The normal run still fails closed on protocol, filesystem, credential, process,
+or network regressions. To include this smoke in the pre-push gate on a prepared
+macOS host, opt in explicitly:
+
+```bash
+HAZMAT_CODEX_APP_SERVER_SMOKE=1 bash scripts/pre-push
+```
 
 ### Adding Credential Surfaces
 
