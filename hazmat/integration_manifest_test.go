@@ -108,6 +108,44 @@ func TestIsCredentialDenyPathCargoRegistryAllowed(t *testing.T) {
 	}
 }
 
+func TestIsHostStateDenyPathRejectsCodexAppState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, path := range []string{
+		filepath.Join(home, ".codex"),
+		filepath.Join(home, ".codex", "sqlite"),
+		filepath.Join(home, ".codex", "sqlite", "codex-dev.db"),
+		filepath.Join(home, "Library", "Application Support"),
+		filepath.Join(home, "Library", "Application Support", "Codex"),
+		filepath.Join(home, "Library", "Application Support", "Codex", "Crashpad"),
+		filepath.Join(home, "Library", "HTTPStorages", "com.openai.codex"),
+		filepath.Join(home, "Library", "Caches", "com.openai.codex"),
+		filepath.Join(home, "Library", "Preferences", "com.openai.codex.plist"),
+		filepath.Join(home, "Library", "Logs", "com.openai.codex"),
+	} {
+		if !isHostStateDenyPath(path) {
+			t.Errorf("isHostStateDenyPath(%q) = false, want true", path)
+		}
+	}
+}
+
+func TestIsHostStateDenyPathAllowsNarrowCodexAssets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, path := range []string{
+		filepath.Join(home, ".codex", "AGENTS.md"),
+		filepath.Join(home, ".codex", "prompts"),
+		filepath.Join(home, ".codex", "rules"),
+		filepath.Join(home, ".agents", "skills"),
+	} {
+		if isHostStateDenyPath(path) {
+			t.Errorf("isHostStateDenyPath(%q) = true, want false", path)
+		}
+	}
+}
+
 // ── validateIntegrationSchema ─────────────────────────────────────────────────────
 
 func TestValidateIntegrationSchemaMinimal(t *testing.T) {
@@ -291,6 +329,27 @@ func TestValidateIntegrationPathsSafeDirAccepted(t *testing.T) {
 	}
 	if len(canonical) != 1 {
 		t.Fatalf("expected 1 canonical path, got %d", len(canonical))
+	}
+}
+
+func TestValidateIntegrationPathsHostStateParentRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	appSupport := filepath.Join(home, "Library", "Application Support")
+	if err := os.MkdirAll(appSupport, 0o755); err != nil {
+		t.Fatalf("mkdir app support: %v", err)
+	}
+
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "bad", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{appSupport}},
+	}
+	_, err := validateIntegrationPaths(p)
+	if err == nil {
+		t.Fatal("expected host-state parent read_dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "host-state deny zone") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -1219,6 +1219,9 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 	if isCredentialDenyPath(projectDir) {
 		return sessionConfig{}, fmt.Errorf("project dir %q resolves to credential deny zone", projectDir)
 	}
+	if isHostStateDenyPath(projectDir) {
+		return sessionConfig{}, fmt.Errorf("project dir %q resolves to host-state deny zone", projectDir)
+	}
 
 	readDirs, err := resolveReadDirs(readPaths)
 	if err != nil {
@@ -1228,6 +1231,9 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 		if isCredentialDenyPath(dir) {
 			return sessionConfig{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
 		}
+		if isHostStateDenyPath(dir) {
+			return sessionConfig{}, fmt.Errorf("read dir %q resolves to host-state deny zone", dir)
+		}
 	}
 	writeDirs, err := resolveReadDirs(writePaths)
 	if err != nil {
@@ -1236,6 +1242,9 @@ func resolveSessionConfig(project string, readPaths, writePaths []string) (sessi
 	for _, dir := range writeDirs {
 		if isCredentialDenyPath(dir) {
 			return sessionConfig{}, fmt.Errorf("write dir %q resolves to credential deny zone", dir)
+		}
+		if isHostStateDenyPath(dir) {
+			return sessionConfig{}, fmt.Errorf("write dir %q resolves to host-state deny zone", dir)
 		}
 	}
 

@@ -347,6 +347,36 @@ func TestResolveSessionConfigWithReadDirs(t *testing.T) {
 	}
 }
 
+func TestResolveSessionConfigRejectsHostStateReadDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	readDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(readDir, 0o755); err != nil {
+		t.Fatalf("mkdir read dir: %v", err)
+	}
+
+	_, err := resolveSessionConfig(t.TempDir(), []string{readDir}, nil)
+	if err == nil {
+		t.Fatal("expected host-state read dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "host-state deny zone") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveSessionConfigAllowsNarrowCodexAssetReadDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	readDir := filepath.Join(home, ".codex", "prompts")
+	if err := os.MkdirAll(readDir, 0o755); err != nil {
+		t.Fatalf("mkdir read dir: %v", err)
+	}
+
+	if _, err := resolveSessionConfig(t.TempDir(), []string{readDir}, nil); err != nil {
+		t.Fatalf("narrow Codex asset read dir rejected: %v", err)
+	}
+}
+
 func TestResolveSessionConfigNoReadDirs(t *testing.T) {
 	projectDir := t.TempDir()
 

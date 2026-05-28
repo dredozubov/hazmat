@@ -381,6 +381,52 @@ func TestSyncHarnessAssetsRejectsNestedSymlink(t *testing.T) {
 	}
 }
 
+func TestSyncHarnessAssetsSkipsCodexHostStateDenyRoot(t *testing.T) {
+	env := isolateHarnessAssets(t)
+	t.Setenv("HOME", env.hostHome)
+
+	hostRoot := filepath.Join(env.hostHome, ".codex")
+	destRoot := filepath.Join(env.agentHome, ".codex")
+	harnessAssetSpecs[HarnessCodex] = []harnessAssetSpec{
+		{Harness: HarnessCodex, Key: "codex-root", Kind: harnessAssetDirRoot, HostPath: hostRoot, AgentPath: destRoot},
+	}
+	writeHarnessAssetTestFile(t, filepath.Join(hostRoot, "sqlite", "codex-dev.db"), "private\n")
+
+	result, err := syncHarnessAssets(HarnessCodex)
+	if err != nil {
+		t.Fatalf("syncHarnessAssets(host-state): %v", err)
+	}
+	if result.Added != 0 {
+		t.Fatalf("host-state result = %+v, want 0 added", result)
+	}
+	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "host-state deny zone") {
+		t.Fatalf("warnings = %v, want host-state deny warning", result.Warnings)
+	}
+}
+
+func TestSyncHarnessAssetsAllowsNarrowCodexPromptAssets(t *testing.T) {
+	env := isolateHarnessAssets(t)
+	t.Setenv("HOME", env.hostHome)
+
+	hostRoot := filepath.Join(env.hostHome, ".codex", "prompts")
+	destRoot := filepath.Join(env.agentHome, ".codex", "prompts")
+	harnessAssetSpecs[HarnessCodex] = []harnessAssetSpec{
+		{Harness: HarnessCodex, Key: "prompts", Kind: harnessAssetDirRoot, HostPath: hostRoot, AgentPath: destRoot},
+	}
+	writeHarnessAssetTestFile(t, filepath.Join(hostRoot, "review.md"), "review\n")
+
+	result, err := syncHarnessAssets(HarnessCodex)
+	if err != nil {
+		t.Fatalf("syncHarnessAssets(prompts): %v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("prompt result = %+v, want 1 added", result)
+	}
+	if _, err := os.Stat(filepath.Join(destRoot, "review.md")); err != nil {
+		t.Fatalf("prompt destination should exist: %v", err)
+	}
+}
+
 func TestResolvePreparedSessionPlansHarnessAssetSyncForHarnessCommands(t *testing.T) {
 	env := isolateHarnessAssets(t)
 	isolateConfig(t)

@@ -37,6 +37,8 @@ The safer split is:
 2. Keep Codex auth on the existing credential lifecycle path. Do not copy host `.codex` wholesale to solve desktop/app-server auth.
 3. Treat Codex App temp sockets as part of the contained app-server `/private/tmp` exposure review. These paths are capability endpoints and do not fit the home-relative `credentialDenySubs` model.
 
+Implementation note: `sandboxing-zz6k.7` added `hostStateDenySubs` as a preflight host-source deny list for session roots, integration `read_dirs`, and harness asset sync. It intentionally does not emit runtime SBPL denies.
+
 ## Related Beads
 
 - `sandboxing-wsd1`: this classification.

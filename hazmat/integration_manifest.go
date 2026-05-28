@@ -34,6 +34,20 @@ var credentialDenySubs = []string{
 	"/.oci",
 }
 
+// hostStateDenySubs protects host application state that should not be granted
+// or imported wholesale into contained sessions. Unlike credentialDenySubs,
+// these are not emitted as runtime SBPL denies: agent-owned runtime state for a
+// contained app may still be legitimate. Use this list to reject host-source
+// grants and broad imports before launch.
+var hostStateDenySubs = []string{
+	"/.codex/sqlite",
+	"/Library/Application Support/Codex",
+	"/Library/HTTPStorages/com.openai.codex",
+	"/Library/Caches/com.openai.codex",
+	"/Library/Preferences/com.openai.codex.plist",
+	"/Library/Logs/com.openai.codex",
+}
+
 // ── Canonical path helpers ─────────────────────────────────────────────────
 
 // canonicalizePath resolves a path to its absolute, symlink-free form.
@@ -61,12 +75,7 @@ func canonicalizePath(path string) (string, error) {
 // path is a proper parent of one (which would grant broad access covering
 // the credential subpath).
 func isCredentialDenyPath(canonical string) bool {
-	homes := []string{agentHome}
-	if h, err := os.UserHomeDir(); err == nil && h != agentHome {
-		homes = append(homes, h)
-	}
-
-	for _, home := range homes {
+	for _, home := range denyBaseHomes() {
 		for _, sub := range credentialDenySubs {
 			credPath := home + sub
 
@@ -83,6 +92,49 @@ func isCredentialDenyPath(canonical string) bool {
 		}
 	}
 	return false
+}
+
+func isHostStateDenyPath(canonical string) bool {
+	for _, home := range denyBaseHomes() {
+		for _, sub := range hostStateDenySubs {
+			if pathsOverlap(canonical, home+sub) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func denyBaseHomes() []string {
+	seen := map[string]struct{}{}
+	var homes []string
+	add := func(path string) {
+		if strings.TrimSpace(path) == "" {
+			return
+		}
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; !ok {
+			seen[clean] = struct{}{}
+			homes = append(homes, clean)
+		}
+		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+			resolved = filepath.Clean(resolved)
+			if _, ok := seen[resolved]; !ok {
+				seen[resolved] = struct{}{}
+				homes = append(homes, resolved)
+			}
+		}
+	}
+
+	add(agentHome)
+	if h, err := os.UserHomeDir(); err == nil {
+		add(h)
+	}
+	return homes
+}
+
+func pathsOverlap(a, b string) bool {
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 // ── Safe environment key set ───────────────────────────────────────────────
@@ -425,6 +477,10 @@ func validateIntegrationPathsForPlatform(p IntegrationSpec, platform string) ([]
 
 		if isCredentialDenyPath(resolved) {
 			return nil, fmt.Errorf("integration %q: read_dir %q resolves to credential deny zone %q",
+				p.Meta.Name, dir, resolved)
+		}
+		if isHostStateDenyPath(resolved) {
+			return nil, fmt.Errorf("integration %q: read_dir %q resolves to host-state deny zone %q",
 				p.Meta.Name, dir, resolved)
 		}
 

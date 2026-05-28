@@ -587,6 +587,9 @@ func resolveHarnessAssetTopLevelPath(path, allowedRoot string) (string, os.FileI
 	if !isWithinDir(allowedRoot, resolved) {
 		return "", nil, fmt.Sprintf("skipped %s: resolved path %s escapes the allowed root %s", expanded, resolved, allowedRoot), false
 	}
+	if isHostStateDenyPath(resolved) {
+		return "", nil, fmt.Sprintf("skipped %s: resolves to host-state deny zone %s", expanded, resolved), false
+	}
 
 	info, err := os.Stat(resolved)
 	if err != nil {
