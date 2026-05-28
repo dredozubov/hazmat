@@ -61,7 +61,7 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 		FormatVersion:         explainJSONFormatVersion,
 		Target:                target,
 		Mode:                  string(mode),
-		ModeLabel:             mode.label(),
+		ModeLabel:             mode.Label(),
 		ProjectDir:            cfg.ProjectDir,
 		RoutingReason:         cfg.RoutingReason,
 		SuggestedIntegrations: append([]string(nil), cfg.SuggestedIntegrations...),

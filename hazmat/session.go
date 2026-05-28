@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"hazmat/sessionmeta"
+
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -79,11 +81,11 @@ type dockerRoutingRequest struct {
 	Source dockerRequestSource
 }
 
-type sessionMode string
+type sessionMode = sessionmeta.Mode
 
 const (
-	sessionModeNative        sessionMode = "native"
-	sessionModeDockerSandbox sessionMode = "docker-sandbox"
+	sessionModeNative        = sessionmeta.ModeNative
+	sessionModeDockerSandbox = sessionmeta.ModeDockerSandbox
 )
 
 type preparedSession struct {
@@ -123,15 +125,6 @@ func (p *sessionPreparationProgress) Done() {
 		return
 	}
 	fmt.Fprintf(p.w, "hazmat: session startup preparation complete (%.1fs)\n", p.now().Sub(p.start).Seconds())
-}
-
-func (m sessionMode) label() string {
-	switch m {
-	case sessionModeDockerSandbox:
-		return "Docker Sandbox"
-	default:
-		return "Native containment"
-	}
 }
 
 func newShellCmd() *cobra.Command {
@@ -1682,7 +1675,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	var b strings.Builder
 
 	fmt.Fprintln(&b, "hazmat: session")
-	fmt.Fprintf(&b, "  Mode:                 %s\n", mode.label())
+	fmt.Fprintf(&b, "  Mode:                 %s\n", mode.Label())
 	if cfg.RoutingReason != "" {
 		fmt.Fprintf(&b, "  Why this mode:        %s\n", cfg.RoutingReason)
 	}
