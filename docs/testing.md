@@ -80,6 +80,9 @@ initialize, `command/exec`, project `fs/readFile`, project `fs/writeFile` and
 `thread/shellCommand`, fake credential-path denial through filesystem APIs and
 through process APIs when available, and outbound-network denial. It does not
 launch, quit, attach to, or mutate the stock Codex desktop app.
+The non-interference rules for backend work and any future desktop attach probe
+are documented in
+[docs/codex-app-server-non-interference.md](codex-app-server-non-interference.md).
 
 First check whether the current host is prepared:
 
