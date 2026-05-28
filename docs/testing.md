@@ -73,7 +73,7 @@ they are no longer the source of truth for Git hook installation.
 ### Codex app-server smoke
 
 Use this when changing the contained Codex app-server backend path. It starts a
-short-lived `hazmat codex --network none ... app-server --listen stdio://`
+short-lived `hazmat codex-app-server --network none --listen stdio://`
 subprocess as the Hazmat agent user, talks JSON-RPC over stdio, and verifies
 initialize, `command/exec`, project `fs/readFile`, project `fs/writeFile` and
 `fs/remove`, `process/spawn` when the installed app-server exposes it,

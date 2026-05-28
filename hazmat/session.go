@@ -504,37 +504,133 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareLaunchSession("codex", opts, true)
-			if err != nil {
-				return err
-			}
-			if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
-				return err
-			}
-			if prepared.Mode == sessionModeDockerSandbox {
-				return runSandboxCodexSession(prepared.Config, forwarded)
-			}
-			if codexResumeRequested(forwarded) {
-				if err := syncCodexResumeState(); err != nil {
-					fmt.Fprintf(os.Stderr, "  Warning: Codex session sync failed: %v\n", err)
-					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
-				}
-			}
-
-			// Hazmat provides the primary containment boundary here, so when
-			// session.skip_permissions is enabled we bypass Codex's own
-			// approval prompts and sandbox layer for interactive/exec modes.
-			// app-server is a JSON-RPC protocol process; do not add Codex CLI
-			// globals that can change subcommand parsing.
-			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-				forwarded = codexLaunchArgs(forwarded, true)
-			}
-
-			return runAgentSeatbeltScriptWithUI(prepared.Config, codexLaunchUI(forwarded),
-				codexLaunchScript(), forwarded...)
+			return runContainedCodexSession(opts, forwarded)
 		},
 	}
 	return cmd
+}
+
+const codexAppServerDefaultListen = "stdio://"
+
+func newCodexAppServerCmd() *cobra.Command {
+	var project string
+	var readDirs []string
+	var writeDirs []string
+	var integrationNames []string
+	var skipHarnessAssetsSync bool
+	var noBackup bool
+	var github bool
+	var useSandbox bool
+	var allowDocker bool
+	var dockerModeValue string
+	var networkModeValue string
+	var metadataJSON bool
+	var listen string
+	cmd := &cobra.Command{
+		Use:   "codex-app-server [flags]",
+		Short: "Start a contained Codex app-server backend",
+		Long: `Start a Hazmat-contained Codex app-server backend.
+
+This command launches Codex as ` + "`codex app-server --listen stdio://`" + ` inside
+Hazmat's normal Codex containment path. stdout is reserved for app-server JSONL
+protocol messages; Hazmat status, metadata, and setup messages go to stderr.
+
+Supported managed transport:
+  --listen stdio://       Use JSON-RPC over this process' stdin/stdout
+
+Examples:
+  hazmat codex-app-server -C /proj --no-backup
+  hazmat codex-app-server -C /proj --network none --skip-harness-assets-sync`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if listen != codexAppServerDefaultListen {
+				return fmt.Errorf("codex-app-server currently supports only --listen %s; use `hazmat codex ... app-server --listen %s` for raw Codex transport experiments",
+					codexAppServerDefaultListen, listen)
+			}
+			opts := harnessSessionOpts{
+				project:               project,
+				readDirs:              readDirs,
+				writeDirs:             writeDirs,
+				integrations:          integrationNames,
+				skipHarnessAssetsSync: skipHarnessAssetsSync,
+				noBackup:              noBackup,
+				github:                github,
+				useSandbox:            useSandbox,
+				allowDocker:           allowDocker,
+				dockerMode:            dockerModeValue,
+				dockerModeExplicit:    cmd.Flags().Changed("docker"),
+				networkMode:           networkModeValue,
+				networkModeExplicit:   cmd.Flags().Changed("network"),
+				metadataJSON:          metadataJSON,
+			}
+			return runContainedCodexSession(opts, codexAppServerForwardedArgs(listen))
+		},
+	}
+	cmd.Flags().StringVarP(&project, "project", "C", "",
+		"Writable project directory (defaults to current directory)")
+	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
+		"Read-only directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
+		"Read-write directory to expose to the agent (repeatable)")
+	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
+		"Activate a session integration (repeatable, e.g. --integration go)")
+	cmd.Flags().BoolVar(&skipHarnessAssetsSync, "skip-harness-assets-sync", false,
+		"Skip managed harness prompt-asset sync for this launch")
+	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
+		"Skip pre-session snapshot")
+	cmd.Flags().BoolVar(&github, "github", false,
+		"Grant this session the configured GitHub API token as GH_TOKEN")
+	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
+		"Docker routing: none (default), sandbox, or auto")
+	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
+		"Native network policy: default or none")
+	cmd.Flags().BoolVar(&metadataJSON, "metadata-json", false,
+		"Emit one machine-readable session metadata JSON line to stderr before launch")
+	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
+		"Run with Docker Sandbox support")
+	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
+		"Continue without Docker support even if Docker markers are present")
+	cmd.Flags().StringVar(&listen, "listen", codexAppServerDefaultListen,
+		"Codex app-server listen transport (stdio:// only)")
+	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
+	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
+	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
+	return cmd
+}
+
+func codexAppServerForwardedArgs(listen string) []string {
+	return []string{"app-server", "--listen", listen}
+}
+
+func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error {
+	prepared, err := prepareLaunchSession("codex", opts, true)
+	if err != nil {
+		return err
+	}
+	if err := beginPreparedSession(prepared, "codex", opts.noBackup, true); err != nil {
+		return err
+	}
+	if prepared.Mode == sessionModeDockerSandbox {
+		return runSandboxCodexSession(prepared.Config, forwarded)
+	}
+	if codexResumeRequested(forwarded) {
+		if err := syncCodexResumeState(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: Codex session sync failed: %v\n", err)
+			fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+		}
+	}
+
+	// Hazmat provides the primary containment boundary here, so when
+	// session.skip_permissions is enabled we bypass Codex's own approval
+	// prompts and sandbox layer for interactive/exec modes. app-server is a
+	// JSON-RPC protocol process; do not add Codex CLI globals that can change
+	// subcommand parsing.
+	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
+		forwarded = codexLaunchArgs(forwarded, true)
+	}
+
+	return runAgentSeatbeltScriptWithUI(prepared.Config, codexLaunchUI(forwarded),
+		codexLaunchScript(), forwarded...)
 }
 
 func codexSkipPermissionsArgs() []string {

@@ -18,7 +18,7 @@ usage() {
 	cat <<'EOF'
 Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missing-prereqs]
 
-Starts a short-lived Hazmat-contained `codex app-server --listen stdio://`
+Starts a short-lived Hazmat-contained `hazmat codex-app-server --listen stdio://`
 backend and validates JSON-RPC initialize, command execution, project file
 access, filesystem mutation/removal, standalone process execution when exposed
 by the installed app-server, credential path denial, thread shell command
@@ -172,14 +172,13 @@ const hazmatDir = path.join(repoRoot, "hazmat");
 const child = spawn("go", [
   "run",
   ".",
-  "codex",
+  "codex-app-server",
   "--no-backup",
   "--skip-harness-assets-sync",
   "--network",
   "none",
   "-C",
   projectDir,
-  "app-server",
   "--listen",
   "stdio://",
 ], {

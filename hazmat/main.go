@@ -99,6 +99,8 @@ func main() {
 	claudeCmd.GroupID = "run"
 	codexCmd := withUpdateNotifications(newCodexCmd())
 	codexCmd.GroupID = "run"
+	codexAppServerCmd := withUpdateNotifications(newCodexAppServerCmd())
+	codexAppServerCmd.GroupID = "run"
 	opencodeCmd := withUpdateNotifications(newOpenCodeCmd())
 	opencodeCmd.GroupID = "run"
 	geminiCmd := withUpdateNotifications(newGeminiCmd())
@@ -142,7 +144,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, codexCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
+		claudeCmd, codexCmd, codexAppServerCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
 		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),

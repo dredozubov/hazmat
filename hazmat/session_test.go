@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,6 +176,29 @@ func TestCodexLaunchUIForInteractiveModeKeepsStatusBar(t *testing.T) {
 	ui := codexLaunchUI([]string{"exec", "review"})
 	if !ui.showStatusBar {
 		t.Fatal("showStatusBar should stay enabled for interactive Codex modes")
+	}
+}
+
+func TestCodexAppServerForwardedArgs(t *testing.T) {
+	got := codexAppServerForwardedArgs(codexAppServerDefaultListen)
+	want := []string{"app-server", "--listen", "stdio://"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("codexAppServerForwardedArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestCodexAppServerCommandRejectsUnmanagedTransport(t *testing.T) {
+	cmd := newCodexAppServerCmd()
+	cmd.SetArgs([]string{"--listen", "unix:///tmp/codex.sock"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-stdio app-server transport to be rejected")
+	}
+	if !strings.Contains(err.Error(), "supports only --listen stdio://") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
