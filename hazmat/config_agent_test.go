@@ -233,6 +233,51 @@ func TestApplyHarnessAPIKeyEnvMigratesLegacyZshrc(t *testing.T) {
 	}
 }
 
+func TestApplyHarnessAPIKeyEnvPlanOnlyDoesNotMigrateLegacyZshrc(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tmpZshrc := filepath.Join(t.TempDir(), ".zshrc")
+	writeTestFile(t, tmpZshrc, strings.Join([]string{
+		`export ANTHROPIC_API_KEY="legacy-value"`,
+		`alias ll="ls -la"`,
+	}, "\n"))
+	withAgentZshrcPath(t, tmpZshrc)
+
+	cfg := sessionConfig{HarnessID: HarnessClaude}
+	if err := applyHarnessAPIKeyEnvForSession(&cfg, true); err != nil {
+		t.Fatalf("applyHarnessAPIKeyEnvForSession: %v", err)
+	}
+
+	if cfg.HarnessEnv["ANTHROPIC_API_KEY"] != "legacy-value" {
+		t.Fatalf("HarnessEnv[ANTHROPIC_API_KEY] = %q, want legacy-value", cfg.HarnessEnv["ANTHROPIC_API_KEY"])
+	}
+	if len(cfg.CredentialEnvGrants) != 1 {
+		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
+	}
+	if got := cfg.CredentialEnvGrants[0]; got.Source != "legacy agent zshrc" {
+		t.Fatalf("CredentialEnvGrants[0].Source = %q, want legacy agent zshrc", got.Source)
+	}
+	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "would be migrated") {
+		t.Fatalf("SessionNotes = %v, want plan-only migration note", cfg.SessionNotes)
+	}
+
+	secretPath, err := providerSecretStorePathForHome(home, "ANTHROPIC_API_KEY")
+	if err != nil {
+		t.Fatalf("providerSecretStorePathForHome: %v", err)
+	}
+	if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
+		t.Fatalf("plan-only explain should not create host secret store file, stat err=%v", err)
+	}
+	zshrcRaw, err := os.ReadFile(tmpZshrc)
+	if err != nil {
+		t.Fatalf("read zshrc: %v", err)
+	}
+	if !strings.Contains(string(zshrcRaw), "ANTHROPIC_API_KEY") {
+		t.Fatalf("plan-only explain should preserve legacy export:\n%s", string(zshrcRaw))
+	}
+}
+
 func TestMaskKeyWithKnownPrefix(t *testing.T) {
 	// Keep the real prefix so prefix-anchored masking is exercised, but avoid
 	// a full provider-shaped fixture that the repo secret scanner should catch.

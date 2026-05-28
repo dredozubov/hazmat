@@ -1,8 +1,11 @@
 package main
 
 import (
+	"runtime"
 	"sort"
 	"strings"
+
+	linuxplatform "hazmat/platform/linux"
 )
 
 const explainJSONFormatVersion = 1
@@ -35,6 +38,7 @@ type explainJSONPreview struct {
 	GitSSHKey             string                          `json:"git_ssh_key,omitempty"`
 	Snapshot              explainJSONBackup               `json:"snapshot"`
 	SessionNotes          []string                        `json:"session_notes,omitempty"`
+	Platform              *linuxplatform.Report           `json:"platform,omitempty"`
 }
 
 type explainJSONRepoSetupEffect struct {
@@ -88,7 +92,16 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 			Excludes: append([]string(nil), cfg.IntegrationExcludes...),
 		},
 		SessionNotes: append([]string(nil), cfg.SessionNotes...),
+		Platform:     explainPlatformReport(),
 	}
+}
+
+var explainPlatformReport = func() *linuxplatform.Report {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	report := linuxplatform.InspectHost()
+	return &report
 }
 
 func explainJSONCredentialEnvGrants(grants []sessionCredentialEnvGrant) []explainJSONCredentialEnvGrant {

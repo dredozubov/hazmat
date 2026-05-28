@@ -56,6 +56,7 @@ Examples:
 				dockerModeExplicit:    cmd.Flags().Changed("docker"),
 				networkMode:           networkModeValue,
 				networkModeExplicit:   cmd.Flags().Changed("network"),
+				planOnly:              true,
 			})
 			if err != nil {
 				return err

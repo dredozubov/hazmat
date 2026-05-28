@@ -887,6 +887,7 @@ type harnessSessionOpts struct {
 	networkMode           string
 	networkModeExplicit   bool
 	metadataJSON          bool
+	planOnly              bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -1256,8 +1257,10 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 }
 
 func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionOpts, supportsSandbox bool, progress *sessionPreparationProgress) (preparedSession, error) {
-	if err := requireInit(); err != nil {
-		return preparedSession{}, err
+	if !opts.planOnly {
+		if err := requireInit(); err != nil {
+			return preparedSession{}, err
+		}
 	}
 
 	progress.Step("resolving project access")
@@ -1309,7 +1312,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 	progress.Step("checking repo-local hooks")
-	maybePromptProjectHooks(cfg.ProjectDir)
+	if !opts.planOnly {
+		maybePromptProjectHooks(cfg.ProjectDir)
+	}
 
 	progress.Step("checking Docker routing")
 	request, err := resolveDockerRoutingRequest(cfg.ProjectDir, opts)
@@ -1353,11 +1358,13 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 	progress.Step("loading harness credentials")
-	if err := applyHarnessAPIKeyEnv(&cfg); err != nil {
+	if err := applyHarnessAPIKeyEnvForSession(&cfg, opts.planOnly); err != nil {
 		return preparedSession{}, err
 	}
-	if err := applyHarnessAuthArtifacts(&cfg); err != nil {
-		return preparedSession{}, err
+	if !opts.planOnly {
+		if err := applyHarnessAuthArtifacts(&cfg); err != nil {
+			return preparedSession{}, err
+		}
 	}
 	progress.Step("planning harness asset sync")
 	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)

@@ -7,9 +7,21 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	linuxplatform "hazmat/platform/linux"
 )
 
 func TestBuildExplainJSON(t *testing.T) {
+	restorePlatformReport := stubExplainPlatformReport(t, &linuxplatform.Report{
+		RuntimeOS: "linux",
+		NativeBackend: linuxplatform.NativeBackendStatus{
+			Supported: false,
+			Phase:     "plan-only",
+			Reasons:   []string{"Linux native launch helper is not implemented yet"},
+		},
+	})
+	defer restorePlatformReport()
+
 	repoSetup := &repoSetupState{
 		AppliedSafe: []repoSetupEffect{
 			{
@@ -141,6 +153,9 @@ func TestBuildExplainJSON(t *testing.T) {
 	if got.GitSSHKey != "id_ed25519" {
 		t.Fatalf("GitSSHKey = %q, want id_ed25519", got.GitSSHKey)
 	}
+	if got.Platform == nil || got.Platform.RuntimeOS != "linux" || got.Platform.NativeBackend.Phase != "plan-only" {
+		t.Fatalf("Platform = %+v, want Linux plan-only report", got.Platform)
+	}
 }
 
 func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
@@ -188,6 +203,30 @@ func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
 	}
 }
 
+func TestExplainJSONCommandIsPlanOnlyAndDoesNotRequireInit(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("HOME", t.TempDir())
+
+	savedRequireInit := requireInit
+	requireInit = func() error { return os.ErrPermission }
+	t.Cleanup(func() { requireInit = savedRequireInit })
+
+	dir := t.TempDir()
+	cmd := newExplainCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--json", "-C", dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute should not require init for plan-only explain: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRenderRepoSetupDetails(t *testing.T) {
 	got := renderRepoSetupDetails(&repoSetupState{
 		AppliedSafe: []repoSetupEffect{
@@ -224,4 +263,11 @@ func TestRenderRepoSetupDetails(t *testing.T) {
 			t.Fatalf("renderRepoSetupDetails missing %q in:\n%s", want, got)
 		}
 	}
+}
+
+func stubExplainPlatformReport(t *testing.T, report *linuxplatform.Report) func() {
+	t.Helper()
+	saved := explainPlatformReport
+	explainPlatformReport = func() *linuxplatform.Report { return report }
+	return func() { explainPlatformReport = saved }
 }

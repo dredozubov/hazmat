@@ -369,6 +369,10 @@ func removeLegacyAPIKeyExports(envVars []string) error {
 }
 
 func applyHarnessAPIKeyEnv(cfg *sessionConfig) error {
+	return applyHarnessAPIKeyEnvForSession(cfg, false)
+}
+
+func applyHarnessAPIKeyEnvForSession(cfg *sessionConfig, planOnly bool) error {
 	spec, ok := harnessAPIKeySpecForHarness(cfg.HarnessID)
 	if !ok {
 		return nil
@@ -385,6 +389,11 @@ func applyHarnessAPIKeyEnv(cfg *sessionConfig) error {
 	switch source {
 	case configuredAPIKeySourceStore:
 	case configuredAPIKeySourceLegacy:
+		if planOnly {
+			cfg.SessionNotes = append(cfg.SessionNotes,
+				fmt.Sprintf("Legacy %s from %s would be migrated into ~/.hazmat/secrets before launch.", spec.EnvVar, agentZshrcPath))
+			break
+		}
 		if err := storeHostAPIKey(spec, value); err != nil {
 			cfg.SessionNotes = append(cfg.SessionNotes,
 				fmt.Sprintf("Using legacy %s from %s because migration into ~/.hazmat/secrets failed: %v", spec.EnvVar, agentZshrcPath, err))
@@ -406,10 +415,14 @@ func applyHarnessAPIKeyEnv(cfg *sessionConfig) error {
 	}
 	cfg.HarnessEnv[spec.EnvVar] = value
 	if descriptor, ok := providerCredentialDescriptorForEnvVar(spec.EnvVar); ok {
+		grantSource := "host secret store"
+		if planOnly && source == configuredAPIKeySourceLegacy {
+			grantSource = "legacy agent zshrc"
+		}
 		cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
 			EnvVar:       spec.EnvVar,
 			CredentialID: descriptor.ID,
-			Source:       "host secret store",
+			Source:       grantSource,
 		})
 	}
 	return nil
