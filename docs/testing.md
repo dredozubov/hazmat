@@ -75,9 +75,11 @@ they are no longer the source of truth for Git hook installation.
 Use this when changing the contained Codex app-server backend path. It starts a
 short-lived `hazmat codex --network none ... app-server --listen stdio://`
 subprocess as the Hazmat agent user, talks JSON-RPC over stdio, and verifies
-initialize, `command/exec`, project `fs/readFile`, fake credential-path denial,
-and outbound-network denial. It does not launch, quit, attach to, or mutate the
-stock Codex desktop app.
+initialize, `command/exec`, project `fs/readFile`, project `fs/writeFile` and
+`fs/remove`, `process/spawn` when the installed app-server exposes it,
+`thread/shellCommand`, fake credential-path denial through filesystem APIs and
+through process APIs when available, and outbound-network denial. It does not
+launch, quit, attach to, or mutate the stock Codex desktop app.
 
 First check whether the current host is prepared:
 

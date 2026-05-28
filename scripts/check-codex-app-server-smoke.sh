@@ -20,7 +20,9 @@ Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missin
 
 Starts a short-lived Hazmat-contained `codex app-server --listen stdio://`
 backend and validates JSON-RPC initialize, command execution, project file
-access, credential path denial, and --network none behavior.
+access, filesystem mutation/removal, standalone process execution when exposed
+by the installed app-server, credential path denial, thread shell command
+execution, and --network none behavior.
 
 Options:
   --check-prereqs           Only check local prerequisites; exit 0 when ready,
@@ -194,6 +196,8 @@ let nextId = 1;
 let stderr = "";
 let exited = false;
 const pending = new Map();
+const notificationWaiters = [];
+const notificationsSeen = [];
 
 child.stderr.setEncoding("utf8");
 child.stderr.on("data", (chunk) => {
@@ -207,6 +211,10 @@ child.on("exit", (code, signal) => {
     reject(new Error(`app-server exited before ${method} response: code=${code} signal=${signal}\n${stderr}`));
   }
   pending.clear();
+  for (const { reject, timer, method } of notificationWaiters.splice(0)) {
+    clearTimeout(timer);
+    reject(new Error(`app-server exited before ${method} notification: code=${code} signal=${signal}\n${stderr}`));
+  }
 });
 
 const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
@@ -234,6 +242,10 @@ lines.on("line", (line) => {
     } else {
       waiter.resolve(message.result);
     }
+    return;
+  }
+  if (typeof message.method === "string") {
+    dispatchNotification(message.method, message.params);
   }
 });
 
@@ -263,6 +275,67 @@ function request(method, params, timeoutMs = 20000) {
     pending.set(id, { resolve, reject, timer, method });
     send({ method, id, params });
   });
+}
+
+function waitForNotification(method, predicate, timeoutMs = 20000) {
+  const matches = predicate || (() => true);
+  const seen = notificationsSeen.find((notification) => (
+    notification.method === method && matches(notification.params)
+  ));
+  if (seen) {
+    return Promise.resolve(seen.params);
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const index = notificationWaiters.findIndex((waiter) => waiter.resolve === resolve);
+      if (index !== -1) {
+        notificationWaiters.splice(index, 1);
+      }
+      reject(new Error(`timeout waiting for ${method} notification\n${stderr}`));
+    }, timeoutMs);
+    notificationWaiters.push({
+      method,
+      predicate: matches,
+      resolve,
+      reject,
+      timer,
+    });
+  });
+}
+
+function dispatchNotification(method, params) {
+  notificationsSeen.push({ method, params });
+  for (let i = 0; i < notificationWaiters.length; i += 1) {
+    const waiter = notificationWaiters[i];
+    if (waiter.method !== method) {
+      continue;
+    }
+    let matches = false;
+    try {
+      matches = waiter.predicate(params);
+    } catch (error) {
+      notificationWaiters.splice(i, 1);
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+      return;
+    }
+    if (matches) {
+      notificationWaiters.splice(i, 1);
+      clearTimeout(waiter.timer);
+      waiter.resolve(params);
+      return;
+    }
+  }
+}
+
+function isUnsupportedMethodError(error, method) {
+  const message = String(error?.message || "");
+  return (
+    message.includes(`unknown variant \`${method}\``) ||
+    message.includes(`unknown method ${method}`) ||
+    message.includes(`Unknown method ${method}`) ||
+    /method not found|unsupported method/i.test(message)
+  );
 }
 
 function notify(method, params) {
@@ -321,6 +394,28 @@ async function main() {
     fail(`fs/readFile allowed content mismatch: ${JSON.stringify(allowedText)}`);
   }
 
+  const writtenFile = path.join(projectDir, "fs-write-remove.txt");
+  const writtenText = "written by fs/writeFile\n";
+  await request("fs/writeFile", {
+    path: writtenFile,
+    dataBase64: Buffer.from(writtenText, "utf8").toString("base64"),
+  });
+  const written = await request("fs/readFile", { path: writtenFile });
+  const readBackWrittenText = Buffer.from(written.dataBase64, "base64").toString("utf8");
+  if (readBackWrittenText !== writtenText) {
+    fail(`fs/writeFile read-back mismatch: ${JSON.stringify(readBackWrittenText)}`);
+  }
+  await request("fs/remove", { path: writtenFile, recursive: false, force: false });
+  let removedReadError = null;
+  try {
+    await request("fs/readFile", { path: writtenFile }, 10000);
+  } catch (error) {
+    removedReadError = error;
+  }
+  if (!removedReadError || !removedReadError.rpcError) {
+    fail("fs/remove did not remove the project file");
+  }
+
   let deniedError = null;
   try {
     await request("fs/readFile", { path: deniedFile }, 10000);
@@ -333,6 +428,87 @@ async function main() {
   if (!/not permitted|permission denied|deny/i.test(deniedError.rpcError.message || "")) {
     fail(`fs/readFile credential probe did not fail with a sandbox denial: ${deniedError.rpcError.message}`);
   }
+
+  let processSpawnStatus = "unsupported";
+  let deniedProcessExitCode = null;
+  const processHandle = `hazmat-smoke-process-${Date.now()}`;
+  try {
+    await request("process/spawn", {
+      command: ["/bin/sh", "-lc", "printf process-ok"],
+      processHandle,
+      cwd: projectDir,
+      outputBytesCap: 1048576,
+      timeoutMs: 6000,
+    }, 10000);
+  } catch (error) {
+    if (!isUnsupportedMethodError(error, "process/spawn")) {
+      throw error;
+    }
+    processSpawnStatus = "unsupported by installed app-server";
+  }
+  if (processSpawnStatus === "unsupported") {
+    const processResult = await waitForNotification(
+      "process/exited",
+      (params) => params && params.processHandle === processHandle,
+      12000,
+    );
+    if (processResult.exitCode !== 0 || processResult.stdout !== "process-ok") {
+      fail(`process/spawn unexpected result: ${JSON.stringify(processResult)}`);
+    }
+    processSpawnStatus = "ok";
+
+    const deniedProcessHandle = `hazmat-smoke-denied-process-${Date.now()}`;
+    await request("process/spawn", {
+      command: ["/bin/sh", "-lc", "cat \"$DENIED_FILE\""],
+      processHandle: deniedProcessHandle,
+      cwd: projectDir,
+      env: { DENIED_FILE: deniedFile },
+      outputBytesCap: 1048576,
+      timeoutMs: 6000,
+    }, 10000);
+    const deniedProcessResult = await waitForNotification(
+      "process/exited",
+      (params) => params && params.processHandle === deniedProcessHandle,
+      12000,
+    );
+    deniedProcessExitCode = deniedProcessResult.exitCode;
+    if (deniedProcessResult.exitCode === 0) {
+      fail("process/spawn unexpectedly read credential-deny path");
+    }
+    if (!/not permitted|permission denied|deny/i.test(`${deniedProcessResult.stdout}\n${deniedProcessResult.stderr}`)) {
+      fail(`process/spawn credential probe did not fail with a sandbox denial: ${JSON.stringify(deniedProcessResult)}`);
+    }
+  }
+
+  const threadStarted = await request("thread/start", {
+    cwd: projectDir,
+    approvalPolicy: "never",
+    sandbox: "read-only",
+    ephemeral: true,
+    serviceName: "hazmat_app_server_smoke",
+    sessionStartSource: "startup",
+  }, 10000);
+  const threadId = threadStarted?.thread?.id || threadStarted?.id;
+  if (typeof threadId !== "string" || threadId === "") {
+    fail(`thread/start response missing thread id: ${JSON.stringify(threadStarted)}`);
+  }
+  const shellFile = path.join(projectDir, "thread-shell-command.txt");
+  const shellCompleted = waitForNotification(
+    "turn/completed",
+    (params) => params && params.threadId === threadId,
+    20000,
+  );
+  await request("thread/shellCommand", {
+    threadId,
+    command: "printf thread-shell-ok > thread-shell-command.txt",
+  }, 10000);
+  await shellCompleted;
+  const shellRead = await request("fs/readFile", { path: shellFile });
+  const shellText = Buffer.from(shellRead.dataBase64, "base64").toString("utf8");
+  if (shellText !== "thread-shell-ok") {
+    fail(`thread/shellCommand side-effect mismatch: ${JSON.stringify(shellText)}`);
+  }
+  await request("fs/remove", { path: shellFile, recursive: false, force: false });
 
   const network = await request("command/exec", {
     command: ["/bin/sh", "-lc", "/usr/bin/nc -G 2 -z 1.1.1.1 443"],
@@ -347,7 +523,15 @@ async function main() {
   console.log("codex-app-server-smoke: initialize ok");
   console.log("codex-app-server-smoke: command/exec ok");
   console.log("codex-app-server-smoke: fs/readFile project allow ok");
+  console.log("codex-app-server-smoke: fs/writeFile and fs/remove project mutation ok");
   console.log(`codex-app-server-smoke: fs/readFile credential path denied: ${deniedError.rpcError.message}`);
+  if (processSpawnStatus === "ok") {
+    console.log("codex-app-server-smoke: process/spawn ok");
+    console.log(`codex-app-server-smoke: process/spawn credential path denied with exit ${deniedProcessExitCode}`);
+  } else {
+    console.log(`codex-app-server-smoke: process/spawn skipped: ${processSpawnStatus}`);
+  }
+  console.log("codex-app-server-smoke: thread/shellCommand ok");
   console.log(`codex-app-server-smoke: network none denied with exit ${network.exitCode}`);
 }
 
