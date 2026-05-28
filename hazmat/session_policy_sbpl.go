@@ -22,22 +22,27 @@ import (
 func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
+	projectDir := policy.ProjectPath()
+	readDirs := policy.ReadOnlyPaths()
+	writeDirs := policy.ReadWritePaths()
+	home := policy.AgentHome.Path
+	tempDir := policy.Temp.Path
 
 	w(";; Claude Code runtime seatbelt policy.\n")
 	w(";; Generated per-session by hazmat — do not edit manually.\n\n")
 	w("(version 1)\n(deny default)\n\n")
 
 	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
-	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools", policy.AgentHome} {
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools", home} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
-	for _, dir := range policy.ReadDirs {
+	for _, dir := range readDirs {
 		w("(allow process-exec (subpath %q))\n", dir)
 	}
-	for _, dir := range policy.WriteDirs {
+	for _, dir := range writeDirs {
 		w("(allow process-exec (subpath %q))\n", dir)
 	}
-	w("(allow process-exec (subpath %q))\n", policy.ProjectDir)
+	w("(allow process-exec (subpath %q))\n", projectDir)
 	w("(allow process-fork)\n")
 	w("(allow process-info* (target same-sandbox))\n")
 	w("(allow signal (target same-sandbox))\n\n")
@@ -75,7 +80,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	}
 	w("\n")
 
-	if ancestors := policy.ancestorMetadataDirs(); len(ancestors) > 0 {
+	if ancestors := policy.AncestorMetadataDirs(); len(ancestors) > 0 {
 		w(";; ── Ancestor metadata (stat only, no content) ────────────────────────────\n")
 		w(";; Required for path canonicalization by git, readlink, etc.\n")
 		for _, p := range ancestors {
@@ -84,7 +89,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("\n")
 	}
 
-	if pending := policy.effectiveReadOnlyDirs(); len(pending) > 0 {
+	if pending := policy.EffectiveReadOnlyDirs(); len(pending) > 0 {
 		w(";; ── Read-only directories ──────────────────────────────────────────────────\n")
 		for _, dir := range pending {
 			w("(allow file-read* (subpath %q))\n", dir)
@@ -92,7 +97,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("\n")
 	}
 
-	if pending := policy.effectiveWritableDirs(); len(pending) > 0 {
+	if pending := policy.EffectiveWritableDirs(); len(pending) > 0 {
 		w(";; ── Read-write extensions ────────────────────────────────────────────────\n")
 		for _, dir := range pending {
 			w("(allow file-read* file-write* (subpath %q))\n", dir)
@@ -101,10 +106,9 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	}
 
 	w(";; ── Active project — full read/write ──────────────────────────────────────\n")
-	w("(allow file-read* (subpath %q))\n", policy.ProjectDir)
-	w("(allow file-write* (subpath %q))\n\n", policy.ProjectDir)
+	w("(allow file-read* (subpath %q))\n", projectDir)
+	w("(allow file-write* (subpath %q))\n\n", projectDir)
 
-	home := policy.AgentHome
 	w(";; ── Agent home — broad read/write, credential dirs denied below ───────────\n")
 	w(";; A single subpath rule replaces individual subdirectory allows.\n")
 	w(";; Claude Code, Node.js, git, and shell rc files all live here.\n")
@@ -114,8 +118,8 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; ── Session temp directory ───────────────────────────────────────────────────\n")
 	w(";; Runtime TMPDIR points at this agent-owned per-session root. Do not grant\n")
 	w(";; broad /private/tmp or /private/var/folders read/write/exec here.\n")
-	w("(allow file-read* file-write* (subpath %q))\n", policy.TempDir)
-	w("(allow process-exec (subpath %q))\n\n", policy.TempDir)
+	w("(allow file-read* file-write* (subpath %q))\n", tempDir)
+	w("(allow process-exec (subpath %q))\n\n", tempDir)
 
 	w(";; ── DNS resolver + system state ───────────────────────────────────────────\n")
 	w(";; resolv.conf is a symlink to /private/var/run/resolv.conf.\n")
@@ -149,7 +153,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		"com.apple.system.DirectoryService.membership_v1", // group membership checks
 		"com.apple.pboard",                                // pasteboard (clipboard read/write — paste into Claude Code and copy out)
 	}
-	if policy.NetworkMode != sessionNetworkNone {
+	if policy.Network.Mode != sessionNetworkNone {
 		baseMachServices = append(baseMachServices, "com.apple.mDNSResponder")
 	}
 	for _, svc := range baseMachServices {
@@ -189,7 +193,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	}
 
 	w(";; ── Network ───────────────────────────────────────────────────────────────\n")
-	if policy.NetworkMode == sessionNetworkNone {
+	if policy.Network.Mode == sessionNetworkNone {
 		w(";; Outbound IPv4, IPv6, and DNS are denied by default for this session.\n")
 	} else {
 		w("(allow network-outbound)\n")
@@ -202,14 +206,14 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; the broad file-read* rule must not suppress explicit write access.\n")
 	w(";; Re-asserting file-write* here guarantees it is the last matching allow\n")
 	w(";; for any write operation targeting an explicit writable root.\n")
-	w("(allow file-read* file-write* (subpath %q))\n\n", policy.ProjectDir)
-	for _, dir := range policy.WriteDirs {
-		if isWithinDir(policy.ProjectDir, dir) {
+	w("(allow file-read* file-write* (subpath %q))\n\n", projectDir)
+	for _, dir := range writeDirs {
+		if isWithinDir(projectDir, dir) {
 			continue
 		}
 		w("(allow file-read* file-write* (subpath %q))\n", dir)
 	}
-	if len(policy.WriteDirs) > 0 {
+	if len(writeDirs) > 0 {
 		w("\n")
 	}
 
@@ -226,8 +230,8 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
 	w(";; These appear last so they override the broad allows above (last match wins).\n")
 	w(";; Both file-read* (exfiltration) and file-write* (planting) are denied.\n")
-	for _, sub := range policy.CredentialDenySubs {
-		w("(deny file-read* file-write* (subpath %q))\n", home+sub)
+	for _, path := range policy.CredentialDenyPaths() {
+		w("(deny file-read* file-write* (subpath %q))\n", path)
 	}
 
 	if policy.MacOSNativeTLS {
