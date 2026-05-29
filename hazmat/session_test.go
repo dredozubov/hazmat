@@ -1804,6 +1804,24 @@ func TestParseClaudeArgsForwardsUnknownFlags(t *testing.T) {
 	}
 }
 
+func TestParseClaudeArgsConsumesYesFlag(t *testing.T) {
+	savedYesAll := flagYesAll
+	flagYesAll = false
+	t.Cleanup(func() { flagYesAll = savedYesAll })
+
+	_, fwd, err := parseClaudeArgs([]string{"--yes", "-p", "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flagYesAll {
+		t.Fatal("flagYesAll should be true")
+	}
+	want := []string{"-p", "hello"}
+	if !slices.Equal(fwd, want) {
+		t.Fatalf("forwarded = %v, want %v", fwd, want)
+	}
+}
+
 func TestParseClaudeArgsDockerFlag(t *testing.T) {
 	args := []string{"--no-backup", "--github", "--docker=none", "-C", "/myproject", "-p", "hello"}
 	opts, fwd, err := parseClaudeArgs(args)

@@ -857,6 +857,8 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		switch {
 		case arg == "--help" || arg == "-h":
 			return opts, nil, errHarnessHelp
+		case arg == "--yes" || arg == "-y":
+			flagYesAll = true
 		case arg == "--skip-harness-assets-sync":
 			opts.skipHarnessAssetsSync = true
 		case arg == "--no-backup":
