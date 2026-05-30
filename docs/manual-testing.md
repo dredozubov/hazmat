@@ -56,7 +56,8 @@ Before you touch any harness flow.
 
 ## 2. Per-harness flows
 
-Run **one path** (subscription / API key / host import) per harness for a smoke pass; run **all three** before a release.
+Run **one path** (subscription / API key / host import or contained setup) per
+harness for a smoke pass; run every supported path before a release.
 
 ### 2.1 Claude Code
 
@@ -146,6 +147,35 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
   - Steps: `hazmat config import gemini`.
   - Expected: imported file-backed auth lands in `~/.hazmat/secrets/gemini/`; `hazmat gemini -p "say OK"` round-trips.
 
+### 2.5 Hermes (experimental)
+
+- [ ] **Bootstrap detects a missing binary without mutating state**
+  - Steps: on a machine without `/Users/agent/.local/bin/hermes`, run `hazmat bootstrap hermes`.
+  - Expected: the command exits with manual install guidance, does not run an upstream installer, and does not record Hermes as installed.
+
+- [ ] **Bootstrap verifies a manually installed binary**
+  - Preconditions: an agent-owned Hermes executable is present at `/Users/agent/.local/bin/hermes`.
+  - Steps: `sudo -n -u agent -H /Users/agent/.local/bin/hermes --version` → `hazmat bootstrap hermes`.
+  - Expected: `hermes --version` succeeds as the agent user; bootstrap records Hermes only after that version probe succeeds; re-running bootstrap is idempotent.
+
+- [ ] **Provider key reuse**
+  - Preconditions: one or more of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` is set in the invoking shell.
+  - Steps: `hazmat config agent` → accept the provider-key prompt(s); then run `hazmat explain --for hermes --json -C /tmp`.
+  - Expected: explain JSON contains redacted provider grants for Hermes and a session note for `HERMES_HOME=/Users/agent/.hazmat/hermes`. Raw key values never appear.
+
+- [ ] **Managed state root and no host profile import**
+  - Preconditions: optional sentinel file under host `~/.hermes/` to prove host profile state is not copied.
+  - Steps: `hazmat explain --for hermes -C /tmp`; run `hazmat hermes --no-backup -- --version`; then inspect `/Users/agent/.hazmat/hermes`, `/Users/agent/.hermes`, and `hazmat config import --help`.
+  - Expected: `/Users/agent/.hazmat/hermes` exists as the Hermes profile root; `/Users/agent/.hermes` is not created from host `~/.hermes`; host sentinel files are unchanged; `hazmat config import` has no `hermes` target.
+
+- [ ] **Rejected service entrypoints**
+  - Steps: run `hazmat hermes -- gateway`, `hazmat hermes -- dashboard`, `hazmat hermes -- server`, and `hazmat hermes -- cron add daily`.
+  - Expected: each command fails before launch with foreground-only guidance. Ordinary foreground commands such as `hazmat hermes -- --version` or `hazmat hermes -- chat ...` still pass through.
+
+- [ ] **Native `--network none`**
+  - Steps: `hazmat hermes --network none --metadata-json --no-backup -- --version`.
+  - Expected: stderr includes one JSON metadata line with `"requested":"none"`, `"effective":"none"`, and `"enforced":true`; the Hermes foreground command still exits cleanly. A provider-backed Hermes request should fail closed if it tries to dial out.
+
 ---
 
 ## 3. Cross-cutting
@@ -153,16 +183,16 @@ Run **one path** (subscription / API key / host import) per harness for a smoke 
 These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **`hazmat init --bootstrap-agent <harness>` end-to-end**
-  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent gemini` (try each of `claude / codex / opencode / gemini` in turn).
-  - Expected: agent user created; bootstrap step runs for the chosen harness; `hazmat config agent` prompt appears; the optional "Import basics?" prompt appears for the bootstrapped harness; the "Ready to use" guidance ends with `cd your-project && hazmat <harness>`.
+  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent gemini` (try each of `claude / codex / opencode / gemini / hermes` in turn).
+  - Expected: agent user created; bootstrap step runs for the chosen harness; `hazmat config agent` prompt appears; the optional "Import basics?" prompt appears only for importable harnesses; the "Ready to use" guidance ends with `cd your-project && hazmat <harness>`. Hermes init expects the manual binary path and does not offer profile import.
 
-- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / gemini / shell / exec`
+- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / gemini / hermes / shell / exec`
   - Steps: `hazmat explain --for <each> -C /tmp` (or any project dir without an SSH-config gate)
   - Expected: each prints a session contract; integrations section updates if `--integration go` is added; no errors.
 
 - [ ] **Docker Sandbox support across harnesses**
   - Preconditions: repo with a `Dockerfile`.
-  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode` and `gemini`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini`).
+  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `gemini`, and `hermes`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini` / `hermes`).
   - Expected: `--docker=auto` routes the matching harness into Docker Sandbox mode on Docker-heavy private-daemon repos; explicit `--docker=sandbox` launches the same harness in Docker Sandbox mode without redirecting you to Claude.
 
 - [ ] **Per-harness seatbelt scoping**
@@ -174,13 +204,13 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Expected: the codex policy contains `com.apple.SystemConfiguration.configd`, `com.apple.SecurityServer`, `/Library/Keychains`, and the `apple.shm.notification_center` IPC; the claude policy does **not** contain any of those (least-privilege gating from `sandboxing-m7f7`).
 
 - [ ] **Session integrations apply uniformly per harness**
-  - Steps: in a Go project, `hazmat explain --for codex` and `hazmat explain --for gemini`.
-  - Expected: both show `Integrations: go` with the same `Integration sources` line; both auto-add the Go module cache to read-only.
+  - Steps: in a Go project, `hazmat explain --for codex`, `hazmat explain --for gemini`, and `hazmat explain --for hermes`.
+  - Expected: all three show `Integrations: go` with the same `Integration sources` line; all auto-add the Go module cache to read-only.
 
 - [ ] **Harness asset sync**
   - Preconditions: edit a file in your host `~/.codex/prompts/` (or `~/.claude/commands/` for claude, `~/.gemini/extensions/` for gemini, `~/.config/opencode/commands/` for opencode).
   - Steps: launch the matching `hazmat <harness>` session; observe the "host changes" line.
-  - Expected: a "<Harness> asset sync" entry; the agent-side file matches the host-side after launch.
+  - Expected: a "<Harness> asset sync" entry; the agent-side file matches the host-side after launch. For Hermes, expected result is the inverse: no asset-sync entry and no host `~/.hermes` copy.
 
 - [ ] **Pre-session snapshot**
   - Steps: any `hazmat <harness>` launch; before chatting, scroll up to the snapshot line.
@@ -254,9 +284,9 @@ These verify that earlier-fixed bugs stay fixed.
   - On failure: check `closeInheritedFDs` is using `/dev/fd` enumeration (not iterating to RLIMIT_NOFILE); `ps -u agent` should not show stuck `hazmat-launch exec ...` processes after the run.
 
 - [ ] **Config-agent with multiple harnesses installed**
-  - Preconditions: claude + codex + gemini all bootstrapped.
+  - Preconditions: claude + codex + gemini + hermes all bootstrapped.
   - Steps: `hazmat config agent`
-  - Expected: three separate "API key" steps, one per installed harness, in order Claude → OpenAI → Gemini. OpenCode is intentionally skipped (no single env var).
+  - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Gemini, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode is intentionally skipped (no single env var).
 
 ---
 

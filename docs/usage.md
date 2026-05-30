@@ -2,7 +2,7 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
-> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, three auth paths (subscription / API key / host import), and verification commands for claude, codex, opencode, and gemini.
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, and experimental hermes.
 >
 > **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
@@ -29,7 +29,7 @@ hazmat init --bootstrap-agent claude   # one-time setup (~10 min, needs sudo)
 hazmat claude     # launch Claude Code in containment
 ```
 
-That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, or skip agent installation for now. When you bootstrap Claude during init, Hazmat can also ask for your API key, git credentials, and optionally import portable Claude basics from your existing setup.
+That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, Gemini, Hermes, or skip agent installation for now. When you bootstrap an agent during init, Hazmat can also ask for reusable provider API keys and git credentials. Import prompts are offered only for harnesses with a supported host-profile import path; Hermes does not import host `~/.hermes`.
 
 ```mermaid
 flowchart LR
@@ -38,8 +38,8 @@ flowchart LR
         I1[Create agent user] --> I2[Set up workspace ACLs]
         I2 --> I3[Init snapshot repo]
         I3 --> I4[Install firewall + DNS blocklist]
-        I4 --> I5["Optional: bootstrap Claude, Codex, or OpenCode"]
-        I5 --> I6["Optional: configure Claude API key + git creds"]
+        I4 --> I5["Optional: bootstrap a supported harness"]
+        I5 --> I6["Optional: configure provider keys + git creds"]
     end
     subgraph daily ["Every session (hazmat claude)"]
         direction TB
@@ -64,8 +64,8 @@ When you run `hazmat init`, it:
 4. Installs a firewall that blocks the agent from SMTP, IRC, FTP, Tor, and other exfiltration protocols
 5. Adds a DNS blocklist for tunnel and paste services (ngrok, pastebin, etc.)
 6. Optionally bootstraps a supported AI coding agent for the agent user
-7. If you choose Claude, offers to configure your Anthropic API key and git credentials
-8. If you choose Claude, can optionally import portable Claude basics such as sign-in state, commands, and skills
+7. If you choose a provider-backed harness, offers to configure reusable provider API keys and git credentials
+8. If the harness supports import, can optionally import portable basics such as sign-in state, commands, and skills
 
 Everything is interactive — it explains each step and asks for confirmation. To preview without making changes:
 
@@ -136,6 +136,7 @@ read-only access, snapshot excludes, and routing notes.
 cd ~/workspace/my-project
 hazmat claude
 hazmat opencode
+hazmat hermes -- --version
 ```
 
 This generates a per-session security policy, switches to the agent user, and launches the agent inside containment. When you exit, the session is cleaned up.
@@ -150,6 +151,7 @@ from that one Seatbelt policy:
 ```bash
 hazmat claude --network none --metadata-json -p "review this packet offline"
 hazmat codex --network none --metadata-json exec "review this packet offline"
+hazmat hermes --network none --metadata-json -- --version
 hazmat exec --network none --metadata-json -- /bin/zsh -lc 'make test'
 hazmat explain --network none --json
 ```
@@ -300,6 +302,7 @@ hazmat config docker auto -C ~/workspace/my-project
 
 Docker Sandbox sessions are available through every harness entrypoint:
 `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
+`hazmat hermes`,
 `hazmat shell`, and `hazmat exec`. `--docker=auto` keeps the default native
 path for code-only repos and routes Docker-heavy private-daemon fits into the
 matching harness automatically.
@@ -588,6 +591,22 @@ Codex uses the same containment and project preflight model. Runtime state
 lives under the agent user's home directory, while durable imported auth and
 API keys live in Hazmat's host-owned secret store and are materialized only
 for active Codex sessions.
+
+## Running Hermes
+
+```bash
+hazmat bootstrap hermes
+hazmat hermes
+hazmat hermes -- --version
+hazmat hermes -- chat "summarize this repo"
+```
+
+Hermes support is experimental and foreground-only. `hazmat bootstrap hermes`
+verifies a manually installed `/Users/agent/.local/bin/hermes`; it does not run
+an upstream installer or import host `~/.hermes`. Hermes sessions use
+`HERMES_HOME=/Users/agent/.hazmat/hermes`, receive only allowed provider API-key
+env vars from Hazmat's credential registry, and reject gateway/dashboard/API,
+server, and cron service entrypoints in v1.
 
 ## Importing Portable OpenCode Basics
 

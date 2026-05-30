@@ -1,10 +1,14 @@
 # Supported Harnesses
 
-Hazmat runs four agent CLIs in containment. This page is the actionable reference: pick your harness, pick your auth path, run the listed commands.
+Hazmat runs five agent CLIs in containment. Hermes is experimental and
+foreground-only in v1. This page is the actionable reference: pick your
+harness, pick your auth path, run the listed commands.
 
 ## Comparison matrix
 
-Use this table to choose a setup path. Every harness supports two of the three auth modes; the third column shows the **simplest** way to get a working session.
+Use this table to choose a setup path. Most harnesses support at least two auth
+modes; Hermes deliberately keeps a narrower v1 surface. The third column shows
+the **simplest** way to get a working session.
 
 | Harness | Tested | Install | Subscription / OAuth | API key (env var) | Import from host |
 |---|---|---|---|---|---|
@@ -12,10 +16,21 @@ Use this table to choose a setup path. Every harness supports two of the three a
 | **Codex** | 0.118.0 | `hazmat bootstrap codex` | Device Code in TUI (or import) | `OPENAI_API_KEY` via `hazmat config agent` | `hazmat config import codex` |
 | **OpenCode** | 1.14.20 | `hazmat bootstrap opencode` | per-provider OAuth via `opencode auth login` | per-provider env vars | `hazmat config import opencode` |
 | **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
+| **Hermes (experimental)** | manual install | `hazmat bootstrap hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
 
-After bootstrap + auth: `hazmat <harness>` to launch a session, or `hazmat <harness> -p "prompt"` (claude / gemini) / `hazmat <harness> exec "prompt"` (codex) / `hazmat <harness> run "prompt"` (opencode) for non-interactive use.
+After bootstrap + auth: `hazmat <harness>` to launch a session, or
+`hazmat <harness> -p "prompt"` (claude / gemini) /
+`hazmat <harness> exec "prompt"` (codex) /
+`hazmat <harness> run "prompt"` (opencode) /
+`hazmat hermes -- --version` or `hazmat hermes -- chat ...` (hermes) for
+foreground use.
 
-The fastest path for a new install is almost always the **import** column — it copies whatever credentials you already have on the host into Hazmat's host-owned secret store, so there's nothing to re-enter inside the sandbox.
+For Claude, Codex, OpenCode, and Gemini, the fastest path for a new install is
+usually the **import** column — it copies selected host credentials into
+Hazmat's host-owned secret store, so there's nothing to re-enter inside the
+sandbox. Hermes is intentionally different in v1: Hazmat does not import host
+`~/.hermes`; use provider keys from `hazmat config agent` or configure Hermes
+inside its contained profile.
 
 ## Credential storage summary
 
@@ -31,13 +46,14 @@ secret values.
 | Surface | Durable owner | Session delivery |
 |---|---|---|
 | Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |
-| Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses |
+| Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses, including Hermes when allowed for that provider |
 | GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed |
 | Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
 | Git SSH provisioned keys | `~/.hazmat/secrets/git-ssh/provisioned/` | Per-session brokered Git SSH transport |
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
 | Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
 | Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
+| Hermes profile state | `/Users/agent/.hazmat/hermes` | Managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
 
 Provider API keys are configured once per provider. If more than one harness is
 allowed to consume the same env var, Hazmat reuses the same stored key and
@@ -84,22 +100,51 @@ records the consuming harness in explain/session metadata.
 - **Import from host path:** `hazmat config import gemini` stores `~/.gemini/oauth_creds.json` and `google_accounts.json` in `~/.hazmat/secrets/gemini/`, and copies `settings.json`, `GEMINI.md`, and your git identity. If your host stores OAuth in Keychain, `oauth_creds.json` won't exist on the host and that item is skipped because Hazmat does not import Keychain-backed Gemini OAuth yet.
 - **Verify:** `hazmat gemini -p "say only OK"` — non-interactive prompt; should print `OK`.
 
+### Hermes (experimental)
+
+- **Install / update:** `hazmat bootstrap hermes` is detection-only in v1. It
+  verifies an agent-owned executable at `/Users/agent/.local/bin/hermes` by
+  running `hermes --version`, then records harness state. It does not run an
+  upstream install script, curl pipe, npm latest install, pipx install, or host
+  profile migration.
+- **Managed profile root:** Hazmat creates `/Users/agent/.hazmat/hermes` with
+  mode `0700` before launch and sets `HERMES_HOME` to that path. That state is
+  durable agent profile state; normal rollback boundaries are documented by the
+  setup/rollback model, and Hazmat does not treat host `~/.hermes` as a source.
+- **Provider API key path:** `hazmat config agent` can store
+  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and
+  `OPENROUTER_API_KEY` once in `~/.hazmat/secrets/providers/*`. Hermes receives
+  only the provider env vars allowed by Hazmat's credential registry for the
+  session.
+- **Contained setup path:** run `hazmat hermes` or
+  `hazmat hermes -- chat ...` and let Hermes write any local profile state under
+  the managed `HERMES_HOME`.
+- **Unsupported in v1:** `hazmat config import hermes`, host `~/.hermes`
+  import, harness asset sync, gateway/dashboard/API/server modes, persistent
+  cron/service entrypoints, and Hermes MCP/skill/profile migration.
+- **Verify:** `hazmat hermes -- --version` checks the foreground launch path.
+  `hazmat explain --for hermes -C /tmp` previews the session contract.
+  `hazmat hermes --network none --metadata-json -- --version` verifies that
+  Hermes composes with native network-none sessions.
+
 ## Choosing an auth mode
 
 Three rules of thumb:
 
-1. **You're the only user, and you've already auth'd this CLI on the host.** Use the **Import** column. One command, no re-entry.
+1. **You're the only user, and you've already auth'd this CLI on the host.** Use the **Import** column when the harness supports it. One command, no re-entry.
 2. **You have a subscription (Claude Pro / ChatGPT Plus / Google AI Pro / OpenCode-supported subscription).** Use the **Subscription / OAuth** column. The agent's first-run picker handles the browser handoff and Hazmat harvests file-backed tokens into its host-owned store when the session exits.
 3. **You only have an API key (or you're scripting CI).** Use the **API key** column. Persistent, scriptable, no browser dance.
 
-Mixing is fine: you can import once and switch to API key later by setting the env var, or vice versa. Hazmat doesn't track which mode you're using.
+Mixing is fine for importable harnesses: you can import once and switch to API
+key later by setting the env var, or vice versa. Hermes excludes host-profile
+import in v1, so mix provider keys with contained Hermes setup instead.
 
 ## Session modes
 
 Harness auth and harness session mode are separate decisions:
 
-- **Native containment:** available on all four harnesses (`claude`, `codex`, `opencode`, `gemini`).
-- **Docker Sandbox:** available on all four harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
+- **Native containment:** available on all five harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`).
+- **Docker Sandbox:** available on all five harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
 Native containment also supports a per-session network mode:
@@ -109,6 +154,7 @@ hazmat claude --network none --metadata-json -p "offline review"
 hazmat codex --network none --metadata-json exec "offline review"
 hazmat opencode --network none run "offline review"
 hazmat gemini --network none -p "offline review"
+hazmat hermes --network none --metadata-json -- --version
 ```
 
 `--network none` denies outbound IPv4, outbound IPv6, and DNS for that native
@@ -141,6 +187,7 @@ cd ~/workspace/project-that-reproduces
 ~/.hazmat/bin/hazmat-debug trace codex --name baseline -- --no-backup exec "say ok"
 ~/.hazmat/bin/hazmat-debug trace opencode --name baseline -- --no-backup run "say ok"
 ~/.hazmat/bin/hazmat-debug trace gemini --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace hermes --name baseline -- --no-backup -- --version
 ```
 
 The bundle includes the planned session contract, harness metadata, before/after
@@ -159,6 +206,7 @@ hazmat claude --github -p "review this PR"
 hazmat codex --github "review this PR"
 hazmat opencode --github -p "review this PR"
 hazmat gemini --github -p "review this PR"
+hazmat hermes --github -- chat "review this PR"
 ```
 
 Hazmat stores the token in `~/.hazmat/secrets/github/token`, injects only
@@ -169,7 +217,7 @@ cannot request this capability, and Docker Sandbox sessions currently reject
 
 ## Session integrations
 
-Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, and gemini all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
+Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, and hermes all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
 
 Preview the planned session contract for any harness with `hazmat explain --for <harness>`:
 
@@ -177,13 +225,17 @@ Preview the planned session contract for any harness with `hazmat explain --for 
 hazmat explain --for codex --integration go    # codex session, force-activate go integration
 hazmat explain --for gemini -C ~/my-rust-app    # gemini session, auto-detect rust from Cargo.toml
 hazmat explain --for opencode --json            # machine-readable preview
+hazmat explain --for hermes --network none       # Hermes foreground contract
 ```
 
 Integrations are documented in [docs/integrations.md](integrations.md) — the trust model, allowed env passthrough set, and built-in list are all there.
 
 ## Session asset sync
 
-Independent of the auth mode you pick, hazmat keeps a small set of "portable basics" in sync from your host to the agent on every session launch. This is harness-aware and runs automatically (toggle with `session.harness_assets` in `hazmat config`):
+For harnesses with an asset spec, hazmat keeps a small set of "portable
+basics" in sync from your host to the agent on every session launch. This is
+harness-aware and runs automatically (toggle with `session.harness_assets` in
+`hazmat config`):
 
 | Harness | Synced from host on launch |
 |---|---|
@@ -191,8 +243,11 @@ Independent of the auth mode you pick, hazmat keeps a small set of "portable bas
 | Codex | `~/.codex/AGENTS.md`, `prompts/`, `rules/`, `~/.agents/skills/` |
 | OpenCode | `~/.config/opencode/commands/`, `agents/`, `skills/` |
 | Gemini | `~/.gemini/GEMINI.md`, `extensions/` |
+| Hermes | none in v1; host `~/.hermes`, skills, MCP, cron, and service config are not synced |
 
-These are managed copies — if you edit them inside the sandbox, the next session will overwrite your edits with the host version. Edit on the host instead.
+For the rows with synced paths, these are managed copies — if you edit them
+inside the sandbox, the next session will overwrite your edits with the host
+version. Edit on the host instead.
 
 ## Troubleshooting
 
@@ -200,5 +255,7 @@ These are managed copies — if you edit them inside the sandbox, the next sessi
 - **Import says "no basics found to import":** the host doesn't have any of the expected files in its standard locations. Check the **Auth file location** above for the harness — that's the path the import scans.
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** check that `~/.hazmat/secrets/codex/auth.json` exists. If an older Hazmat left a stale `/Users/agent/.codex/auth.json`, current Hazmat should recover it automatically on launch. If the stale copy differs from the host-owned copy, the previous host-owned copy is preserved under `~/.hazmat/secrets/codex/auth.json.conflicts/`.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.
+- **`hazmat bootstrap hermes` says Hermes is not installed:** install or link the Hermes executable as the agent user at `/Users/agent/.local/bin/hermes`, then rerun bootstrap. Hazmat records Hermes as installed only after `hermes --version` succeeds.
+- **`hazmat hermes -- gateway` / `dashboard` / `server` / `cron` is rejected:** v1 supports foreground Hermes sessions only. Run an interactive or prompt-driven foreground command under `hazmat hermes`, or track service supervision as a separate design.
 
 For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).
