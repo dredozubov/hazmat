@@ -3,7 +3,7 @@
 \*
 \* This model generalizes the file-backed secret-store recovery model. It
 \* treats every credential surface as a registry entry with a storage backend,
-\* support status, session delivery mode, and optional harness scope.
+\* support status, session delivery mode, and explicit consumer harness set.
 \*
 \* The model intentionally separates durable host storage from session exposure:
 \* - materialized-file credentials may create temporary /Users/agent residue
@@ -39,9 +39,11 @@ CONSTANTS
     ClaudeHarness,
     CodexHarness,
     GeminiHarness,
-    ClaudeScopedCreds,
-    CodexScopedCreds,
-    GeminiScopedCreds,
+    HermesHarness,
+    ClaudeConsumerCreds,
+    CodexConsumerCreds,
+    GeminiConsumerCreds,
+    HermesConsumerCreds,
     GlobalCreds,
     HostSecretStoreCreds,
     KeychainBackendCreds,
@@ -74,6 +76,18 @@ SupportStatuses ==
      ExternalSupport,
      AdapterRequiredSupport}
 
+CredentialConsumers(c) ==
+    IF c \in GlobalCreds THEN Harnesses
+    ELSE {h \in Harnesses :
+        \/ /\ h = ClaudeHarness
+           /\ c \in ClaudeConsumerCreds
+        \/ /\ h = CodexHarness
+           /\ c \in CodexConsumerCreds
+        \/ /\ h = GeminiHarness
+           /\ c \in GeminiConsumerCreds
+        \/ /\ h = HermesHarness
+           /\ c \in HermesConsumerCreds}
+
 ASSUME
     /\ Credentials # {}
     /\ Harnesses # {}
@@ -83,12 +97,18 @@ ASSUME
     /\ ClaudeHarness \in Harnesses
     /\ CodexHarness \in Harnesses
     /\ GeminiHarness \in Harnesses
+    /\ HermesHarness \in Harnesses
+    /\ Harnesses = {ClaudeHarness, CodexHarness, GeminiHarness, HermesHarness}
     /\ ClaudeHarness # CodexHarness
     /\ ClaudeHarness # GeminiHarness
+    /\ ClaudeHarness # HermesHarness
     /\ CodexHarness # GeminiHarness
-    /\ ClaudeScopedCreds \subseteq Credentials
-    /\ CodexScopedCreds \subseteq Credentials
-    /\ GeminiScopedCreds \subseteq Credentials
+    /\ CodexHarness # HermesHarness
+    /\ GeminiHarness # HermesHarness
+    /\ ClaudeConsumerCreds \subseteq Credentials
+    /\ CodexConsumerCreds \subseteq Credentials
+    /\ GeminiConsumerCreds \subseteq Credentials
+    /\ HermesConsumerCreds \subseteq Credentials
     /\ GlobalCreds \subseteq Credentials
     /\ HostSecretStoreCreds \subseteq Credentials
     /\ KeychainBackendCreds \subseteq Credentials
@@ -102,26 +122,20 @@ ASSUME
     /\ ManagedSupportCreds \subseteq Credentials
     /\ ExternalSupportCreds \subseteq Credentials
     /\ AdapterRequiredSupportCreds \subseteq Credentials
-    /\ ClaudeScopedCreds \cup CodexScopedCreds \cup GeminiScopedCreds \cup GlobalCreds = Credentials
     /\ HostSecretStoreCreds \cup KeychainBackendCreds \cup BrokerBackendCreds \cup ExternalFileBackendCreds = Credentials
     /\ FileDeliveryCreds \cup EnvDeliveryCreds \cup BrokerDeliveryCreds \cup ExternalReferenceDeliveryCreds \cup NoDeliveryCreds = Credentials
     /\ ManagedSupportCreds \cup ExternalSupportCreds \cup AdapterRequiredSupportCreds = Credentials
-    /\ \A c \in Credentials :
-        Cardinality({s \in {ClaudeScopedCreds, CodexScopedCreds, GeminiScopedCreds, GlobalCreds} : c \in s}) = 1
+    /\ GlobalCreds \cap (ClaudeConsumerCreds \cup CodexConsumerCreds \cup GeminiConsumerCreds \cup HermesConsumerCreds) = {}
     /\ \A c \in Credentials :
         Cardinality({s \in {HostSecretStoreCreds, KeychainBackendCreds, BrokerBackendCreds, ExternalFileBackendCreds} : c \in s}) = 1
     /\ \A c \in Credentials :
         Cardinality({s \in {FileDeliveryCreds, EnvDeliveryCreds, BrokerDeliveryCreds, ExternalReferenceDeliveryCreds, NoDeliveryCreds} : c \in s}) = 1
     /\ \A c \in Credentials :
         Cardinality({s \in {ManagedSupportCreds, ExternalSupportCreds, AdapterRequiredSupportCreds} : c \in s}) = 1
+    /\ \A c \in Credentials \ GlobalCreds : CredentialConsumers(c) # {}
+    /\ \A c \in FileDeliveryCreds : Cardinality(CredentialConsumers(c)) = 1
 
 SecretVals == Values \cup {NoSecret}
-
-CredentialHarness(c) ==
-    IF c \in GlobalCreds THEN NoHarness
-    ELSE IF c \in ClaudeScopedCreds THEN ClaudeHarness
-    ELSE IF c \in CodexScopedCreds THEN CodexHarness
-    ELSE GeminiHarness
 
 CredentialBackend(c) ==
     IF c \in HostSecretStoreCreds THEN HostSecretStore
@@ -158,7 +172,7 @@ FileCreds ==
 EligibleCreds(h) ==
     {c \in Credentials :
         /\ CredentialSupport(c) # AdapterRequiredSupport
-        /\ CredentialHarness(c) \in {h, NoHarness}}
+        /\ h \in CredentialConsumers(c)}
 
 Phases ==
     {"idle",
@@ -649,7 +663,7 @@ NoCrossHarnessExposure ==
     phase \in ActivePhases =>
         /\ activeHarness \in Harnesses
         /\ \A c \in ExposedCreds :
-            CredentialHarness(c) \in {activeHarness, NoHarness}
+            activeHarness \in CredentialConsumers(c)
 
 NoSessionExposureOutsideActivePhase ==
     phase \notin ActivePhases =>

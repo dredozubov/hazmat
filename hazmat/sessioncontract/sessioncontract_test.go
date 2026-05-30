@@ -52,7 +52,7 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 		},
 		RegistryEnvKeys: []string{"NPM_CONFIG_REGISTRY"},
 		CredentialEnvGrants: []CredentialEnvGrant{
-			{EnvVar: "OPENAI_API_KEY", CredentialID: "provider.openai-api-key", Source: "host secret store", Redacted: true},
+			{EnvVar: "OPENAI_API_KEY", CredentialID: "provider.openai-api-key", Source: "host secret store", ConsumerHarness: "codex", Redacted: true},
 		},
 		PlannedHostMutations: []HostMutation{
 			{Summary: "project ACL repair", Detail: "repair detail", Persistence: "persistent in project", ProofScope: "tests/docs"},
@@ -81,7 +81,7 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 	if !plan.NetworkPolicy.DenyAllEgress || plan.NetworkPolicy.Enforcement != "native-seatbelt" {
 		t.Fatalf("NetworkPolicy = %+v, want native deny-all", plan.NetworkPolicy)
 	}
-	if got := plan.CredentialEnvGrants[0]; got.EnvVar != "OPENAI_API_KEY" || !got.Redacted {
+	if got := plan.CredentialEnvGrants[0]; got.EnvVar != "OPENAI_API_KEY" || got.ConsumerHarness != "codex" || !got.Redacted {
 		t.Fatalf("CredentialEnvGrants[0] = %+v", got)
 	}
 	input.RepoSetupApplied[0].Sources[0] = "mutated"

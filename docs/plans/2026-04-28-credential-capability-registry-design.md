@@ -2,7 +2,12 @@
 
 Hazmat credential handling should be registry-driven. A credential surface is not
 just a path; it is a typed capability with an owner, storage backend, delivery
-mode, legacy residue, and redaction policy.
+mode, consumer harness set, legacy residue, and redaction policy.
+
+This design is extended by
+`docs/plans/2026-05-30-shared-provider-credentials-design.md`, which makes
+provider API keys provider-owned and multi-consumer while preserving
+single-consumer harness auth files.
 
 ## Registry Shape
 
@@ -15,8 +20,9 @@ The source of truth is `credentialDescriptor` in
 - a storage backend such as host secret store, broker, Keychain, or external file
 - an explicit delivery mode: none, env, materialized file, brokered helper, or
   external reference
-- optional harness scoping, env var name, agent materialization path, legacy
-  paths, and conflict-archive behavior
+- optional single harness ownership for file auth, explicit consumer harnesses
+  for provider env credentials, env var name, agent materialization path,
+  legacy paths, and conflict-archive behavior
 - a redaction flag for diagnostics and future check output
 
 Host-owned file material uses a relative `StoreRelPath` under
@@ -39,23 +45,27 @@ each credential kind.
 Materialized file delivery is session-scoped. The existing harness auth runtime
 still copies data into `/Users/agent` only for the matching harness session,
 harvests it back into the host store, removes the session copy, and archives
-conflicts when host and session state diverge.
+conflicts when host and session state diverge. Env-delivered provider keys are
+session-scoped too, but they are selected by explicit consumer harnesses instead
+of by duplicating a provider key per harness.
 
 ## Current Coverage
 
 The initial registry covers the credential surfaces already supported by the
 secret-store branch:
 
-- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GEMINI_API_KEY`, stored under
-  `~/.hazmat/secrets/providers/*` and injected as env only into the matching
-  harness session
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and
+  `OPENROUTER_API_KEY`, stored under `~/.hazmat/secrets/providers/*` and
+  injected as env only into explicitly allowed consumer harness sessions
 - Claude credential and state auth files
 - Codex auth file
 - OpenCode auth file
 - Gemini OAuth and account index files
 
-Provider path lookup and harness auth materialization now use registry
-descriptors rather than duplicating path constants.
+Provider path lookup, provider env grants, and harness auth materialization now
+use registry descriptors rather than duplicating path constants. Explain/session
+metadata for provider env grants includes the env var, credential ID, source, and
+consuming harness.
 
 ## Remaining Backend Decisions
 

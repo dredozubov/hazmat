@@ -37,7 +37,7 @@ func providerSecretStorePathForHome(home, envVar string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("no host secret-store mapping for %s", envVar)
 	}
-	return descriptor.StorePathForHome(home)
+	return providerSecretStorePathForDescriptor(home, descriptor)
 }
 
 func claudeCredentialStorePathForHome(home string) string {
@@ -298,7 +298,8 @@ func parseExportedEnvLineValue(line, envVar string) (string, bool) {
 
 func harnessAPIKeySpecForHarness(id HarnessID) (harnessAPIKeySpec, bool) {
 	for _, spec := range harnessAPIKeyPrompts {
-		if spec.Harness == id {
+		descriptor, ok := findCredentialDescriptor(spec.CredentialID)
+		if ok && descriptor.CanDeliverTo(id) {
 			return spec, true
 		}
 	}
@@ -373,11 +374,17 @@ func applyHarnessAPIKeyEnv(cfg *sessionConfig) error {
 }
 
 func applyHarnessAPIKeyEnvForSession(cfg *sessionConfig, planOnly bool) error {
-	spec, ok := harnessAPIKeySpecForHarness(cfg.HarnessID)
-	if !ok {
-		return nil
+	descriptors := providerCredentialDescriptorsForHarness(cfg.HarnessID)
+	for _, descriptor := range descriptors {
+		if err := applyProviderAPIKeyEnvForSession(cfg, descriptor, planOnly); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
+func applyProviderAPIKeyEnvForSession(cfg *sessionConfig, descriptor credentialDescriptor, planOnly bool) error {
+	spec := harnessAPIKeyPromptByEnvVar(descriptor.EnvVar)
 	value, source, err := lookupConfiguredAPIKey(spec)
 	if err != nil {
 		return err
@@ -414,16 +421,15 @@ func applyHarnessAPIKeyEnvForSession(cfg *sessionConfig, planOnly bool) error {
 		cfg.HarnessEnv = make(map[string]string, 1)
 	}
 	cfg.HarnessEnv[spec.EnvVar] = value
-	if descriptor, ok := providerCredentialDescriptorForEnvVar(spec.EnvVar); ok {
-		grantSource := "host secret store"
-		if planOnly && source == configuredAPIKeySourceLegacy {
-			grantSource = "legacy agent zshrc"
-		}
-		cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
-			EnvVar:       spec.EnvVar,
-			CredentialID: descriptor.ID,
-			Source:       grantSource,
-		})
+	grantSource := "host secret store"
+	if planOnly && source == configuredAPIKeySourceLegacy {
+		grantSource = "legacy agent zshrc"
 	}
+	cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
+		EnvVar:          spec.EnvVar,
+		CredentialID:    descriptor.ID,
+		Source:          grantSource,
+		ConsumerHarness: cfg.HarnessID,
+	})
 	return nil
 }

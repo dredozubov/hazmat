@@ -63,9 +63,10 @@ func TestBuildExplainJSON(t *testing.T) {
 		IntegrationRegistryKeys: []string{"NPM_CONFIG_REGISTRY"},
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
-				EnvVar:       "OPENAI_API_KEY",
-				CredentialID: credentialProviderOpenAIAPIKey,
-				Source:       "host secret store",
+				EnvVar:          "OPENAI_API_KEY",
+				CredentialID:    credentialProviderOpenAIAPIKey,
+				Source:          "host secret store",
+				ConsumerHarness: HarnessCodex,
 			},
 		},
 		PlannedHostMutations: []sessionMutation{
@@ -133,10 +134,11 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.CredentialEnvGrants, []explainJSONCredentialEnvGrant{
 		{
-			EnvVar:       "OPENAI_API_KEY",
-			CredentialID: string(credentialProviderOpenAIAPIKey),
-			Source:       "host secret store",
-			Redacted:     true,
+			EnvVar:          "OPENAI_API_KEY",
+			CredentialID:    string(credentialProviderOpenAIAPIKey),
+			Source:          "host secret store",
+			ConsumerHarness: string(HarnessCodex),
+			Redacted:        true,
 		},
 	}) {
 		t.Fatalf("CredentialEnvGrants = %#v", got.CredentialEnvGrants)
@@ -155,6 +157,49 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if got.Platform == nil || got.Platform.RuntimeOS != "linux" || got.Platform.NativeBackend.Phase != "plan-only" {
 		t.Fatalf("Platform = %+v, want Linux plan-only report", got.Platform)
+	}
+}
+
+func TestHermesExplainJSONIncludesSharedProviderGrants(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, spec := range harnessAPIKeyPrompts {
+		if err := storeHostAPIKey(spec, "stored-"+spec.EnvVar); err != nil {
+			t.Fatalf("storeHostAPIKey(%s): %v", spec.EnvVar, err)
+		}
+	}
+
+	cfg := sessionConfig{
+		HarnessID:  HarnessHermes,
+		ProjectDir: "/tmp/project",
+	}
+	if err := applyHarnessAPIKeyEnvForSession(&cfg, true); err != nil {
+		t.Fatalf("applyHarnessAPIKeyEnvForSession: %v", err)
+	}
+
+	got := buildExplainJSON("hermes", cfg, sessionModeNative, true)
+	want := map[string]string{
+		"ANTHROPIC_API_KEY":  string(credentialProviderAnthropicAPIKey),
+		"OPENAI_API_KEY":     string(credentialProviderOpenAIAPIKey),
+		"GEMINI_API_KEY":     string(credentialProviderGeminiAPIKey),
+		"OPENROUTER_API_KEY": string(credentialProviderOpenRouterAPIKey),
+	}
+	if len(got.CredentialEnvGrants) != len(want) {
+		t.Fatalf("Hermes CredentialEnvGrants = %#v, want %d grants", got.CredentialEnvGrants, len(want))
+	}
+	for _, grant := range got.CredentialEnvGrants {
+		wantID, ok := want[grant.EnvVar]
+		if !ok {
+			t.Fatalf("unexpected Hermes credential grant: %#v", grant)
+		}
+		if grant.CredentialID != wantID || grant.Source != "host secret store" || grant.ConsumerHarness != string(HarnessHermes) || !grant.Redacted {
+			t.Fatalf("Hermes grant for %s = %#v, want credential %s from host store consumed by Hermes", grant.EnvVar, grant, wantID)
+		}
+		delete(want, grant.EnvVar)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing Hermes credential grants for %v", want)
 	}
 }
 
