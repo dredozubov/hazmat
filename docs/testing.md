@@ -17,6 +17,7 @@ are not interchangeable.
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
+| `scripts/e2e-harness-smoke.sh` | Do real harness launch paths still compose with Hermes state setup and Claude host-owned auth harvest guards? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
 | `scripts/e2e-vm.sh` | Run the destructive lifecycle test in an isolated macOS VM | VM | Destroys the VM, not your host setup |
@@ -198,6 +199,28 @@ bash scripts/e2e-bootstrap.sh
 This script assumes `hazmat init` has already been run on the host and that the
 required host toolchains are available. It does not require any specific AI
 coding agent harness to be installed.
+
+### Harness smoke
+
+Use this when changing a harness launch path, harness auth materialization, or a
+new foreground harness such as Hermes:
+
+```bash
+bash scripts/e2e-harness-smoke.sh
+make e2e-harness-smoke
+```
+
+The smoke does not call real Claude or Hermes services. It takes the shared
+host-side test lock, backs up the agent-owned Claude and Hermes binaries plus
+the Claude host secret-store files, installs synthetic agent-owned binaries,
+runs the real `hazmat hermes` and `hazmat claude` launch paths, then restores
+everything it touched. It requires `hazmat init` and non-interactive `sudo -n`.
+
+The Claude case seeds synthetic host-owned auth, lets the fake contained Claude
+process rewrite the runtime credential file to `{}`, and verifies that Hazmat
+preserves `~/.hazmat/secrets/claude/credentials.json` instead of persisting the
+logged-out runtime shape. That is the automated regression check for
+update-induced logout failures.
 
 ### Repo-matrix validation
 

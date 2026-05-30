@@ -458,6 +458,30 @@ ToolRefresh(c, v) ==
                     brokerGranted,
                     externalGranted >>
 
+\* A harness may rewrite a materialized baseline auth file into a logged-out or
+\* empty shape before any credential refresh. The implementation treats that as
+\* non-harvestable NoSecret instead of promoting it over the host-owned
+\* credential.
+ToolLogout(c) ==
+    /\ phase = "running"
+    /\ c \in activeCreds
+    /\ c \in ManagedFileCreds
+    /\ agent[c] # NoSecret
+    /\ agent[c] = baseline[c]
+    /\ agent' = [agent EXCEPT ![c] = NoSecret]
+    /\ UNCHANGED << phase,
+                    activeHarness,
+                    activeCreds,
+                    delivered,
+                    host,
+                    conflicts,
+                    latest,
+                    recovered,
+                    baseline,
+                    envGranted,
+                    brokerGranted,
+                    externalGranted >>
+
 ExternalStoreUpdate(c, v) ==
     /\ phase = "idle"
     /\ c \in ManagedHostCreds
@@ -591,6 +615,7 @@ Next ==
     \/ \E c \in Credentials : DeliverExternal(c)
     \/ StartRunning
     \/ \E c \in Credentials, v \in Values : ToolRefresh(c, v)
+    \/ \E c \in Credentials : ToolLogout(c)
     \/ \E c \in Credentials, v \in Values : ExternalStoreUpdate(c, v)
     \/ BeginHarvest
     \/ Harvest

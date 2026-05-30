@@ -56,6 +56,81 @@ func TestPrepareHarnessAuthRuntimeMaterializesAndHarvestsRawAuth(t *testing.T) {
 	}
 }
 
+func TestPrepareHarnessAuthRuntimePreservesClaudeCredentialsOnLoggedOutRewrite(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	stored := []byte(`{"sessionKey":"stored-token","refreshToken":"stored-refresh"}`)
+
+	artifact := claudeCredentialsHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+	if err := writeHostStoredSecretFile(artifact.StorePath, stored); err != nil {
+		t.Fatalf("writeHostStoredSecretFile: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+
+	if err := os.WriteFile(agentPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("simulate Claude logged-out credential rewrite: %v", err)
+	}
+
+	runtime.Cleanup()
+
+	storeRaw, err := os.ReadFile(artifact.StorePath)
+	if err != nil {
+		t.Fatalf("read preserved Claude credentials: %v", err)
+	}
+	if string(storeRaw) != string(stored) {
+		t.Fatalf("Claude credentials store = %q, want preserved %q", storeRaw, stored)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("logged-out agent credential residue should be removed, got err=%v", err)
+	}
+}
+
+func TestMigrateHarnessAuthArtifactsDropsNonHarvestableClaudeCredentials(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	stored := []byte(`{"sessionKey":"stored-token"}`)
+
+	artifact := claudeCredentialsHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+	if err := writeHostStoredSecretFile(artifact.StorePath, stored); err != nil {
+		t.Fatalf("writeHostStoredSecretFile: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent credentials dir: %v", err)
+	}
+	if err := os.WriteFile(agentPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write logged-out agent credentials: %v", err)
+	}
+
+	var notes []string
+	if err := migrateHarnessAuthArtifacts([]harnessAuthArtifact{artifact}, func(note string) {
+		notes = append(notes, note)
+	}); err != nil {
+		t.Fatalf("migrateHarnessAuthArtifacts: %v", err)
+	}
+
+	storeRaw, err := os.ReadFile(artifact.StorePath)
+	if err != nil {
+		t.Fatalf("read preserved Claude credentials: %v", err)
+	}
+	if string(storeRaw) != string(stored) {
+		t.Fatalf("Claude credentials store = %q, want preserved %q", storeRaw, stored)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("logged-out legacy credential residue should be removed, got err=%v", err)
+	}
+	if len(notes) == 0 || !strings.Contains(notes[0], "Ignored non-harvestable legacy Claude credential file") {
+		t.Fatalf("migration notes = %v, want non-harvestable note", notes)
+	}
+}
+
 func TestMigrateHarnessAuthArtifactsMovesLegacyRawAuthIntoStore(t *testing.T) {
 	root := t.TempDir()
 	storePath := filepath.Join(root, "store", "opencode", "auth.json")

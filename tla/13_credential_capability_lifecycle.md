@@ -21,6 +21,8 @@ problem than file recovery alone:
    be delivered at all until a backend adapter exists
 6. crash/restart must clear session-only grants while preserving and recovering
    file-backed residue
+7. logged-out or empty baseline runtime auth files must not overwrite
+   host-owned file-backed credentials during harvest
 
 The model checks those registry-level constraints independently of any one
 credential implementation.
@@ -93,7 +95,7 @@ File-backed harness auth remains single-consumer in the model.
 
 Two file-backed credentials are enough to check cross-harness exposure. Two
 secret values are enough to witness stale residue, refresh, conflict archive,
-and host-store update cases.
+host-store update cases, and non-harvestable logged-out baseline runtime auth.
 
 ## How to Run
 
@@ -112,10 +114,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `25,818,102 states generated`
-- `7,044,408 distinct states found`
+- `26,727,894 states generated`
+- `7,246,584 distinct states found`
 - `depth 32`
-- runtime about 7 minutes on the standalone local 10-worker run
+- runtime about 33 minutes on the standalone local 10-worker run
 
 ## Scope Boundary
 

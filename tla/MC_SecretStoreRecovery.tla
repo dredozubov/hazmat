@@ -182,6 +182,25 @@ ToolRefresh(h, v) ==
                     recovered,
                     baseline >>
 
+\* Some harness updates rewrite materialized runtime auth into a logged-out or
+\* empty shape before any credential refresh. The implementation normalizes
+\* those non-harvestable artifacts to NoSecret: do not overwrite the host-owned
+\* copy, and let cleanup remove the residue.
+ToolLogout(h) ==
+    /\ phase = "running"
+    /\ h \in Harnesses
+    /\ active = h
+    /\ agent[h] # NoSecret
+    /\ agent[h] = baseline[h]
+    /\ agent' = [agent EXCEPT ![h] = NoSecret]
+    /\ UNCHANGED << phase,
+                    active,
+                    host,
+                    conflicts,
+                    latest,
+                    recovered,
+                    baseline >>
+
 \* A host-side import or manual repair may change the durable store between
 \* sessions. Concurrent host-store writes during a running session require
 \* revision metadata to prove stronger than content-diff preservation, so they
@@ -278,6 +297,7 @@ Next ==
     \/ \E h \in Harnesses : MaterializeStored(h)
     \/ \E h \in Harnesses : MaterializeAbsent(h)
     \/ \E h \in Harnesses, v \in Versions : ToolRefresh(h, v)
+    \/ \E h \in Harnesses : ToolLogout(h)
     \/ \E h \in Harnesses, v \in Versions : ExternalStoreUpdate(h, v)
     \/ \E h \in Harnesses : BeginHarvest(h)
     \/ \E h \in Harnesses : Harvest(h)

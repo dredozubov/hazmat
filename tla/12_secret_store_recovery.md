@@ -33,6 +33,10 @@ auth artifacts:
 - if host and agent copies differ, Hazmat archives the previous host copy under
   a host-owned `.conflicts` directory, promotes the agent copy, then removes
   the agent copy
+- if a harness rewrites the materialized baseline auth artifact into a
+  logged-out or empty shape before any credential refresh, Hazmat treats it as
+  non-harvestable `NoSecret`: the host-owned copy is preserved and the runtime
+  residue is removed
 - session materialization copies the host value into `/Users/agent` only after
   startup recovery has completed
 - session harvest copies refreshed agent auth back into the host store and
@@ -106,7 +110,7 @@ Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
 - `34,723 states generated`
-- `9,238 distinct states found`
+- `10,870 distinct states found`
 - `depth 28`
 - runtime under 1s on the local 10-worker run
 

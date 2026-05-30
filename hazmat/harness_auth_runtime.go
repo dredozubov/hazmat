@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type harnessAuthArtifact struct {
 	WriteAgent  func(string, harnessAuthData) error
 	RemoveAgent func(string) error
 	Equal       func(harnessAuthData, harnessAuthData) bool
+	Harvestable func(harnessAuthData) bool
 }
 
 var harnessAuthConflictNow = time.Now
@@ -29,7 +31,7 @@ func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifac
 	switch id {
 	case HarnessClaude:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifactForCredential(home, credentialHarnessClaudeCredentials),
+			claudeCredentialsHarnessAuthArtifact(home),
 			claudeStateHarnessAuthArtifact(home),
 		}
 	case HarnessCodex:
@@ -48,6 +50,10 @@ func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifac
 	default:
 		return nil
 	}
+}
+
+func (a harnessAuthArtifact) isHarvestable(data harnessAuthData) bool {
+	return a.Harvestable == nil || a.Harvestable(data)
 }
 
 func harnessAuthConflictDir(storePath string) string {
@@ -85,6 +91,57 @@ func rawHarnessAuthArtifactForCredential(home string, id credentialID) harnessAu
 		panic(err)
 	}
 	return rawHarnessAuthArtifact(descriptor.DisplayName, storePath, agentPath)
+}
+
+func claudeCredentialsHarnessAuthArtifact(home string) harnessAuthArtifact {
+	artifact := rawHarnessAuthArtifactForCredential(home, credentialHarnessClaudeCredentials)
+	// Claude updates can rewrite the runtime credential file to an empty
+	// logged-out object. Do not promote that shape over the host-owned store.
+	artifact.Harvestable = isHarvestableClaudeCredentialData
+	return artifact
+}
+
+func isHarvestableClaudeCredentialData(data harnessAuthData) bool {
+	raw, _ := data.([]byte)
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return false
+	}
+
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return true
+	}
+	return jsonValueHasMeaningfulCredential(decoded)
+}
+
+func jsonValueHasMeaningfulCredential(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(v) != ""
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case []any:
+		for _, item := range v {
+			if jsonValueHasMeaningfulCredential(item) {
+				return true
+			}
+		}
+		return false
+	case map[string]any:
+		for _, item := range v {
+			if jsonValueHasMeaningfulCredential(item) {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
 }
 
 func rawHarnessAuthArtifact(name, storePath, agentPath string) harnessAuthArtifact {
@@ -195,6 +252,15 @@ func migrateHarnessAuthArtifact(artifact harnessAuthArtifact, addNote func(strin
 	if err != nil {
 		return fmt.Errorf("read legacy %s from %s: %w", artifact.Name, artifact.AgentPath, err)
 	}
+	if legacyExists && !artifact.isHarvestable(legacy) {
+		if err := artifact.RemoveAgent(artifact.AgentPath); err != nil {
+			addNote(fmt.Sprintf("Ignored non-harvestable legacy %s at %s to preserve the host-owned copy, but could not remove the runtime residue: %v", artifact.Name, artifact.AgentPath, err))
+		} else {
+			addNote(fmt.Sprintf("Ignored non-harvestable legacy %s at %s to preserve the host-owned copy.", artifact.Name, artifact.AgentPath))
+		}
+		legacy = nil
+		legacyExists = false
+	}
 
 	switch {
 	case !storedExists && !legacyExists:
@@ -300,6 +366,9 @@ func harvestHarnessAuthArtifact(artifact harnessAuthArtifact, baseline harnessAu
 	data, ok, err := artifact.ReadAgent(artifact.AgentPath)
 	if err != nil || !ok {
 		return err
+	}
+	if !artifact.isHarvestable(data) {
+		return artifact.RemoveAgent(artifact.AgentPath)
 	}
 	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
 	if err != nil {
