@@ -9,7 +9,7 @@ brokered credentials, and non-file external backends.
 
 Hazmat now treats credentials as typed capabilities rather than ad hoc paths.
 Each credential has a registry entry with a storage backend, support status,
-delivery mode, and optional harness scope. That creates a broader correctness
+delivery mode, and explicit consumer harness set. That creates a broader correctness
 problem than file recovery alone:
 
 1. only file-backed credentials may be materialized under `/Users/agent`
@@ -53,7 +53,7 @@ boundaries explicit. Those properties are governed here and by
 | `NonHostBackendsHaveNoHostStore` | Keychain, broker, and external-file backends do not acquire host secret-store values or agent file residue in this model. |
 | `DeliveryMatchesRegistry` | Session exposure must match the registry delivery mode: file, env, broker, or external reference. |
 | `AdapterRequiredNeverExposed` | Adapter-required credentials are never active, delivered, materialized, env-granted, broker-granted, or externally granted. |
-| `NoCrossHarnessExposure` | During an active session, exposed credentials must either belong to the active harness or be explicitly global. |
+| `NoCrossHarnessExposure` | During an active session, exposed credentials must list the active harness as a consumer. Global credentials model that by listing all harnesses. |
 | `NoSessionExposureOutsideActivePhase` | Env, broker, and external grants are cleared outside active session phases, including after crash. |
 | `LaunchOnlyAfterRecovery` | Sessions cannot deliver credentials until file-backed residue recovery is complete. |
 | `CleanRecoveredStateHasNoAgentResidue` | A recovered idle state has no modeled credential file left under `/Users/agent`. |
@@ -69,17 +69,27 @@ implies non-host external-reference delivery.
 
 Default config:
 
-- `Harnesses = {claude, codex, gemini}`
-- `Credentials = {claude_file, codex_file, claude_api, git_https, gemini_keychain}`
+- `Harnesses = {claude, codex, gemini, hermes}`
+- `Credentials = {claude_file, codex_file, anthropic_api, openai_api, gemini_api, openrouter_api, git_https, gemini_keychain}`
 - `Values = {v1, v2}`
 
 The credential set intentionally includes one representative for each important
 delivery/backend class:
 
 - materialized file: Claude and Codex auth files
-- env: Claude provider API key
+- env: Anthropic, OpenAI, Gemini, and OpenRouter provider API keys
 - broker: Git HTTPS credential helper
 - adapter-required external backend: Gemini Keychain OAuth
+
+Provider env credentials are intentionally multi-consumer where the registry
+allows transparent key reuse:
+
+- `anthropic_api` is consumed by Claude and Hermes
+- `openai_api` is consumed by Codex and Hermes
+- `gemini_api` is consumed by Gemini and Hermes
+- `openrouter_api` is consumed by Hermes only
+
+File-backed harness auth remains single-consumer in the model.
 
 Two file-backed credentials are enough to check cross-harness exposure. Two
 secret values are enough to witness stale residue, refresh, conflict archive,
@@ -102,10 +112,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `225,105 states generated`
-- `63,681 distinct states found`
+- `25,818,102 states generated`
+- `7,044,408 distinct states found`
 - `depth 32`
-- runtime about 4s on the local 10-worker run
+- runtime about 7 minutes on the standalone local 10-worker run
 
 ## Scope Boundary
 
@@ -137,3 +147,5 @@ future specs where the state machine warrants it.
 5. Git HTTPS, cloud backup, SSH identity, and integration/env credential work
    should use this model as the lifecycle contract before adding concrete
    backend-specific behavior.
+6. Adding a harness that consumes existing provider API keys requires updating
+   the consumer sets here before implementation.
