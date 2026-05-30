@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -67,6 +68,25 @@ func TestSupportedTraceHarnessSpecsCoverManagedHarnesses(t *testing.T) {
 		if !got[managed.Spec.ID] {
 			t.Fatalf("managed harness %q is missing from trace harness specs", managed.Spec.ID)
 		}
+	}
+}
+
+func TestCurrentTraceBackendSelection(t *testing.T) {
+	backend := currentTraceBackend()
+	if backend.name() == "" {
+		t.Fatal("trace backend name is empty")
+	}
+	if runtime.GOOS == "darwin" {
+		if !backend.supported() {
+			t.Fatal("darwin trace backend should be supported")
+		}
+		if backend.name() != "darwin" {
+			t.Fatalf("backend = %q, want darwin", backend.name())
+		}
+		return
+	}
+	if backend.supported() {
+		t.Fatalf("%s trace backend should be unsupported before platform implementation", runtime.GOOS)
 	}
 }
 

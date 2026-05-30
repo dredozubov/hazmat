@@ -6,13 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"syscall"
 	"time"
 	"unicode"
 
@@ -35,6 +32,7 @@ type traceManifest struct {
 	Kind          string    `json:"kind"`
 	Harness       HarnessID `json:"harness"`
 	DisplayName   string    `json:"display_name"`
+	Backend       string    `json:"backend"`
 	StartedAt     time.Time `json:"started_at"`
 	EndedAt       time.Time `json:"ended_at,omitempty"`
 	DurationMS    int64     `json:"duration_ms,omitempty"`
@@ -72,6 +70,30 @@ type traceHarnessInfo struct {
 
 type claudeTraceOptions = traceOptions
 
+type traceBackend interface {
+	name() string
+	supported() bool
+	unsupportedError(HarnessID) error
+	observerDescription() string
+	syscallFlagHelp() string
+	writeToolProbe(dir string, spec traceHarnessSpec)
+	writeHostSnapshot(dir string, spec traceHarnessSpec, phase string)
+	startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) traceObserverSet
+	writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time)
+	indicatorFiles() []string
+}
+
+type traceObserverSet interface {
+	waitBeforeLaunch()
+	stop()
+}
+
+type noopTraceObservers struct{}
+
+func (noopTraceObservers) waitBeforeLaunch() {}
+
+func (noopTraceObservers) stop() {}
+
 func newTraceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "trace",
@@ -89,6 +111,7 @@ contained session and write a trace bundle for later comparison.`,
 }
 
 func newTraceHarnessCmd(spec traceHarnessSpec) *cobra.Command {
+	backend := currentTraceBackend()
 	opts := traceOptions{
 		Harness:    spec.ID,
 		Syscalls:   true,
@@ -102,7 +125,7 @@ func newTraceHarnessCmd(spec traceHarnessSpec) *cobra.Command {
 		Short: "Trace a regular hazmat " + spec.CommandName + " launch",
 		Long: fmt.Sprintf(`Trace a regular hazmat %s launch.
 
-The command starts macOS observers before launching %s through the
+The command starts %s before launching %s through the
 same public Hazmat entrypoint used by `+"`hazmat %s`"+`. Results are written
 to a timestamped directory under ~/.hazmat/traces unless --out is provided.
 
@@ -113,6 +136,7 @@ Examples:
   hazmat trace %s --name baseline -- --no-backup %s
   hazmat trace %s --no-syscalls -- --network none %s`,
 			spec.CommandName,
+			backend.observerDescription(),
 			spec.DisplayName,
 			spec.CommandName,
 			spec.DisplayName,
@@ -135,7 +159,7 @@ Examples:
 	cmd.Flags().StringVar(&opts.Name, "name", "",
 		"Short experiment label to include in the trace directory name")
 	cmd.Flags().BoolVar(&opts.Syscalls, "syscalls", true,
-		"Attempt host-side syscall/filesystem probes with sudo -n dtruss/fs_usage/opensnoop")
+		backend.syscallFlagHelp())
 	cmd.Flags().BoolVar(&noSyscalls, "no-syscalls", false,
 		"Disable host-side syscall/filesystem probes")
 	cmd.Flags().BoolVar(&opts.Transcript, "transcript", true,
@@ -146,8 +170,9 @@ Examples:
 }
 
 func runHarnessTrace(opts traceOptions, forwarded []string) error {
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("hazmat trace %s is currently implemented for macOS/Darwin only", opts.Harness)
+	backend := currentTraceBackend()
+	if !backend.supported() {
+		return backend.unsupportedError(opts.Harness)
 	}
 
 	spec, ok := traceHarnessSpecByID(opts.Harness)
@@ -167,6 +192,7 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 		Kind:          "hazmat.harness_trace",
 		Harness:       spec.ID,
 		DisplayName:   spec.DisplayName,
+		Backend:       backend.name(),
 		StartedAt:     start,
 		OutputDir:     traceDir,
 		Name:          label,
@@ -179,33 +205,27 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 
 	fmt.Fprintf(os.Stderr, "hazmat trace: writing %s trace bundle to %s\n", spec.DisplayName, traceDir)
 	writeTraceText(traceDir, "command.txt", strings.Join(shellQuote(append([]string{"hazmat"}, launchArgs...)), " ")+"\n")
-	writeTraceExperimentGuide(traceDir, spec)
+	writeTraceExperimentGuide(traceDir, spec, backend)
 	writeTraceHarnessInfo(traceDir, spec)
-	writeTraceHostSnapshot(traceDir, spec, "before")
+	backend.writeHostSnapshot(traceDir, spec, "before")
 	writeTraceExplain(traceDir, spec, forwarded)
-	writeTraceToolProbe(traceDir, spec)
+	backend.writeToolProbe(traceDir, spec)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	var samplerDone <-chan struct{}
-	if opts.Syscalls {
-		samplerDone = startTraceProcessSampler(ctx, filepath.Join(traceDir, "process-samples.log"), spec)
+	observers := backend.startObservers(ctx, traceDir, spec, opts)
+	if observers == nil {
+		observers = noopTraceObservers{}
 	}
-	probes := startTraceProbes(opts.Syscalls, traceDir, spec)
-	if opts.Syscalls {
-		time.Sleep(750 * time.Millisecond)
-	}
+	observers.waitBeforeLaunch()
 
 	launchErr := runTraceLaunch(traceDir, opts, launchArgs)
 	end := time.Now()
 
 	cancel()
-	if samplerDone != nil {
-		<-samplerDone
-	}
-	stopTraceProbes(probes)
-	writeTraceHostSnapshot(traceDir, spec, "after")
-	writeTraceUnifiedLogs(traceDir, start, end, spec)
-	writeTraceIndicators(traceDir)
+	observers.stop()
+	backend.writeHostSnapshot(traceDir, spec, "after")
+	backend.writePostLaunchLogs(traceDir, spec, start, end)
+	writeTraceIndicators(traceDir, backend.indicatorFiles())
 
 	manifest.EndedAt = end
 	manifest.DurationMS = end.Sub(start).Milliseconds()
@@ -443,41 +463,6 @@ func writeTraceExplain(dir string, spec traceHarnessSpec, forwarded []string) {
 	writeTraceJSON(dir, "explain.json", buildExplainJSON(spec.CommandName, cfg, mode, opts.noBackup))
 }
 
-func writeTraceToolProbe(dir string, spec traceHarnessSpec) {
-	type probe struct {
-		Name string   `json:"name"`
-		Args []string `json:"args"`
-	}
-	probes := []probe{
-		{Name: hostUnamePath, Args: []string{"-a"}},
-		{Name: "/usr/bin/sw_vers"},
-		{Name: "/usr/bin/csrutil", Args: []string{"status"}},
-		{Name: "/usr/bin/which", Args: []string{"dtruss", "fs_usage", "opensnoop", "execsnoop", "sample", "spindump", "script", "log"}},
-		{Name: hostSudoPath, Args: []string{"-n", "-v"}},
-		{Name: hostSudoPath, Args: []string{"-n", "/usr/bin/dtruss", "/usr/bin/true"}},
-		{Name: hostSudoPath, Args: []string{"-n", "-u", agentUser, "/usr/bin/env", "HOME=" + agentHome, "PATH=" + defaultAgentPath, "/usr/bin/which", spec.ProcessFilters[0]}},
-	}
-	for i, p := range probes {
-		name := fmt.Sprintf("tool-probe-%02d-%s.txt", i+1, filepath.Base(p.Name))
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second, p.Name, p.Args...)
-	}
-}
-
-func writeTraceHostSnapshot(dir string, spec traceHarnessSpec, phase string) {
-	runTraceCommandToFile(filepath.Join(dir, phase+"-ps.txt"), 10*time.Second,
-		"/bin/ps", "-axo", "pid,ppid,pgid,user,stat,etime,command")
-	for _, path := range spec.AgentStatePaths {
-		name := phase + "-agent-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
-			hostSudoPath, "-n", "-u", agentUser, hostLsPath, "-laeO@", path)
-	}
-	for _, path := range spec.HostStatePaths {
-		name := phase + "-host-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
-			hostLsPath, "-laeO@", expandTilde(path))
-	}
-}
-
 func sanitizeTraceFilename(path string) string {
 	path = strings.TrimPrefix(path, "~/")
 	path = strings.TrimPrefix(path, "/")
@@ -506,167 +491,11 @@ func runTraceLaunch(dir string, opts traceOptions, launchArgs []string) error {
 	return runSessionCommand(cmd)
 }
 
-type traceProbe struct {
-	Name string
-	Cmd  *exec.Cmd
-	File *os.File
-}
-
-func startTraceProbes(enabled bool, dir string, spec traceHarnessSpec) []traceProbe {
-	if !enabled {
-		return nil
-	}
-	processFilter := spec.ProcessFilters[0]
-	specs := []struct {
-		name string
-		file string
-		argv []string
-	}{
-		{
-			name: "dtruss",
-			file: "dtruss.log",
-			argv: []string{"/usr/bin/dtruss", "-f", "-a", "-d", "-e", "-l", "-W", processFilter},
-		},
-		{
-			name: "fs_usage",
-			file: "fs_usage.log",
-			argv: []string{"/usr/bin/fs_usage", "-w", "-f", "filesys", processFilter},
-		},
-		{
-			name: "opensnoop",
-			file: "opensnoop.log",
-			argv: []string{"/usr/bin/opensnoop", "-n", processFilter},
-		},
-	}
-
-	var probes []traceProbe
-	for _, probeSpec := range specs {
-		probe, err := startTraceProbe(probeSpec.name, filepath.Join(dir, probeSpec.file), probeSpec.argv)
-		if err != nil {
-			appendTraceText(dir, "trace-errors.log", fmt.Sprintf("%s: %v\n", probeSpec.name, err))
-			continue
-		}
-		probes = append(probes, probe)
-	}
-	return probes
-}
-
-func startTraceProbe(name, path string, argv []string) (traceProbe, error) {
-	if len(argv) == 0 {
-		return traceProbe{}, fmt.Errorf("missing argv")
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return traceProbe{}, err
-	}
-	full := sudoNoPromptTraceArgv(argv)
-	fmt.Fprintf(file, "# %s\n# %s\n\n", time.Now().Format(time.RFC3339Nano), strings.Join(shellQuote(full), " "))
-
-	cmd := exec.Command(full[0], full[1:]...)
-	cmd.Stdout = file
-	cmd.Stderr = file
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		_ = file.Close()
-		return traceProbe{}, err
-	}
-	return traceProbe{Name: name, Cmd: cmd, File: file}, nil
-}
-
-func sudoNoPromptTraceArgv(argv []string) []string {
-	if os.Geteuid() == 0 {
-		return append([]string(nil), argv...)
-	}
-	full := []string{hostSudoPath, "-n"}
-	return append(full, argv...)
-}
-
-func stopTraceProbes(probes []traceProbe) {
-	for _, probe := range probes {
-		stopTraceProbe(probe)
-	}
-}
-
-func stopTraceProbe(probe traceProbe) {
-	defer probe.File.Close()
-	if probe.Cmd == nil || probe.Cmd.Process == nil {
-		return
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- probe.Cmd.Wait()
-	}()
-	signalTraceProcessGroup(probe.Cmd, syscall.SIGINT)
-	select {
-	case <-done:
-		return
-	case <-time.After(2 * time.Second):
-	}
-	signalTraceProcessGroup(probe.Cmd, syscall.SIGTERM)
-	select {
-	case <-done:
-		return
-	case <-time.After(2 * time.Second):
-	}
-	signalTraceProcessGroup(probe.Cmd, syscall.SIGKILL)
-	<-done
-}
-
-func signalTraceProcessGroup(cmd *exec.Cmd, sig syscall.Signal) {
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
-		_ = cmd.Process.Signal(sig)
-	}
-}
-
-func startTraceProcessSampler(ctx context.Context, path string, spec traceHarnessSpec) <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			return
-		}
-		defer file.Close()
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				sampleTraceProcesses(file, spec)
-			}
-		}
-	}()
-	return done
-}
-
-func sampleTraceProcesses(w io.Writer, spec traceHarnessSpec) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "pid,ppid,pgid,user,stat,etime,command").Output()
-	if err != nil {
-		fmt.Fprintf(w, "\n# %s ps failed: %v\n", time.Now().Format(time.RFC3339Nano), err)
-		return
-	}
-	fmt.Fprintf(w, "\n# %s\n", time.Now().Format(time.RFC3339Nano))
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if processSampleLineRelevant(line, spec) {
-			fmt.Fprintln(w, line)
-		}
-	}
-}
-
 func processSampleLineRelevant(line string, spec traceHarnessSpec) bool {
 	lower := strings.ToLower(line)
 	if strings.Contains(lower, "hazmat") ||
-		strings.Contains(line, "/Users/agent/") ||
-		strings.Contains(line, " agent ") {
+		strings.Contains(line, strings.TrimRight(agentHome, "/")+"/") ||
+		strings.Contains(line, " "+agentUser+" ") {
 		return true
 	}
 	for _, filter := range spec.ProcessFilters {
@@ -677,41 +506,7 @@ func processSampleLineRelevant(line string, spec traceHarnessSpec) bool {
 	return false
 }
 
-func writeTraceUnifiedLogs(dir string, start, end time.Time, spec traceHarnessSpec) {
-	startArg := start.Add(-2 * time.Second).Format("2006-01-02 15:04:05")
-	endArg := end.Add(2 * time.Second).Format("2006-01-02 15:04:05")
-	predicate := traceUnifiedLogPredicate(spec)
-	runTraceCommandToFile(filepath.Join(dir, "unified-log.json"), 90*time.Second,
-		hostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", predicate)
-
-	sandboxPredicate := `(process == "sandboxd") || (subsystem CONTAINS[c] "sandbox") || (eventMessage CONTAINS[c] "Sandbox:") || (eventMessage CONTAINS[c] "deny")`
-	runTraceCommandToFile(filepath.Join(dir, "sandbox-log.json"), 90*time.Second,
-		hostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", sandboxPredicate)
-}
-
-func traceUnifiedLogPredicate(spec traceHarnessSpec) string {
-	terms := append([]string{"hazmat"}, spec.ProcessFilters...)
-	parts := make([]string, 0, len(terms)+6)
-	for _, term := range terms {
-		term = strings.TrimSpace(term)
-		if term == "" {
-			continue
-		}
-		term = strings.ReplaceAll(term, `"`, `\"`)
-		parts = append(parts, fmt.Sprintf(`(process CONTAINS[c] "%s")`, term))
-		parts = append(parts, fmt.Sprintf(`(eventMessage CONTAINS[c] "%s")`, term))
-	}
-	parts = append(parts,
-		`(process == "sandboxd")`,
-		`(subsystem CONTAINS[c] "sandbox")`,
-		`(eventMessage CONTAINS[c] "sandbox")`,
-		`(eventMessage CONTAINS[c] "deny")`,
-		`(eventMessage CONTAINS[c] "automation")`,
-	)
-	return strings.Join(parts, " || ")
-}
-
-func writeTraceIndicators(dir string) {
+func writeTraceIndicators(dir string, files []string) {
 	patterns := []string{
 		"sandbox",
 		"automation",
@@ -730,14 +525,6 @@ func writeTraceIndicators(dir string) {
 		"getxattr",
 		"quarantine",
 		"seatbelt",
-	}
-	files := []string{
-		"dtruss.log",
-		"fs_usage.log",
-		"opensnoop.log",
-		"unified-log.json",
-		"sandbox-log.json",
-		"process-samples.log",
 	}
 	var b strings.Builder
 	for _, file := range files {
@@ -773,8 +560,15 @@ func writeTraceIndicators(dir string) {
 	writeTraceText(dir, "indicators.md", b.String())
 }
 
-func writeTraceExperimentGuide(dir string, spec traceHarnessSpec) {
+func writeTraceExperimentGuide(dir string, spec traceHarnessSpec, backend traceBackend) {
 	sample := strings.Join(shellQuote(spec.SampleArgs), " ")
+	artifacts := append([]string{
+		"manifest.json",
+		"harness.json",
+		"explain.json",
+		"command.txt",
+	}, backend.indicatorFiles()...)
+	artifactList := strings.Join(artifacts, ", ")
 	content := fmt.Sprintf(`# %[1]s Trace Experiment Notes
 
 Run each experiment with a short non-interactive %[1]s prompt first, then only
@@ -791,11 +585,10 @@ Suggested sequence:
    Then rerun the baseline and restore it with:
    hazmat config set session.skip_permissions true
 
-Compare manifest.json, explain.json, sandbox-log.json, dtruss.log,
-fs_usage.log, opensnoop.log, process-samples.log, and indicators.md across
-runs. The strongest evidence is a probe or denial that appears only in failing
-runs and disappears in the nearest passing control.
-`, spec.DisplayName, spec.CommandName, sample)
+Compare %[4]s, and indicators.md across runs. The strongest evidence is a
+probe or denial that appears only in failing runs and disappears in the nearest
+passing control.
+`, spec.DisplayName, spec.CommandName, sample, artifactList)
 	writeTraceText(dir, "experiments.md", content)
 }
 
