@@ -494,8 +494,8 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
 | Governed code | `hazmat/harness.go` — harness state recording |
 | Governed code | `hazmat/state.go` — `saveState()`, `updateHarnessState()`, `writeState()` |
-| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go` — bootstrap flows |
-| Governed code | `hazmat/config_import.go`, `hazmat/config_import_opencode.go` — curated import flows |
+| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go` — bootstrap flows |
+| Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
 | Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
 | Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
@@ -515,7 +515,11 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
-TLC passes across all 1,564 reachable states (16,064 generated, depth 9, ~2s).
+The model includes Claude, Codex, OpenCode, Gemini, and Hermes. Hermes is
+modeled as a built-in harness but is deliberately not importable in Phase 1.
+
+TLC passes across all 107,224 reachable states (1,821,312 generated, depth 13,
+~2s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define

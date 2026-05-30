@@ -11,8 +11,8 @@ EXTENDS TLC
 \*   - rollback always removes the host-owned state.json metadata
 \*   - rollback only removes agent-home harness artifacts when --delete-user is used
 
-Harnesses == {"claude", "codex", "opencode"}
-ImportableHarnesses == {"claude", "opencode"}
+Harnesses == {"claude", "codex", "opencode", "gemini", "hermes"}
+ImportableHarnesses == {"claude", "codex", "opencode", "gemini"}
 HarnessVersion == [h \in Harnesses |-> "1"]
 ActionKinds ==
     {"none",

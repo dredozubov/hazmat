@@ -34,16 +34,25 @@ gives them a dedicated home.
 
 ## TLA+ Model
 
-The model tracks three built-in harnesses:
+The model tracks five built-in harnesses:
 
 - `claude`
 - `codex`
 - `opencode`
+- `gemini`
+- `hermes`
 
 and the importable subset:
 
 - `claude`
+- `codex`
 - `opencode`
+- `gemini`
+
+Hermes is deliberately not in the importable subset for Phase 1. It has a
+managed foreground harness plan, but no curated host-profile import path:
+`~/.hermes`, skills, MCP configuration, cron state, provider files, and gateway
+state remain outside the lifecycle model until a typed import design exists.
 
 State is split into two layers:
 
@@ -85,9 +94,9 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `16,064 states generated`
-- `1,564 distinct states found`
-- `depth 9`
+- `1,821,312 states generated`
+- `107,224 distinct states found`
+- `depth 13`
 - `Finished in 2s`
 
 ## Interpretation
