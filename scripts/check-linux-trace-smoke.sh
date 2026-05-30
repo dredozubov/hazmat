@@ -3,7 +3,7 @@
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-golang:1.25-alpine}"
+IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-golang:1.25}"
 GOARCH_VALUE="${HAZMAT_LINUX_TRACE_GOARCH:-$(go env GOHOSTARCH)}"
 SKIP_IF_MISSING=0
 
@@ -44,22 +44,18 @@ docker run --rm --privileged \
 	-v "$REPO_ROOT:/src:ro" \
 	-v "$TMPDIR_LINUX_TRACE:/work" \
 	"$IMAGE" \
-	sh -eu -c '
-		if command -v apk >/dev/null 2>&1; then
-			apk add --no-cache strace procps coreutils util-linux >/dev/null
-		fi
-		if command -v apt-get >/dev/null 2>&1; then
-			apt-get update >/dev/null
-			DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends strace procps util-linux systemd >/dev/null
-		fi
-		if [ ! -x /usr/bin/uname ] && command -v uname >/dev/null 2>&1; then
-			ln -sf "$(command -v uname)" /usr/bin/uname
-		fi
-		if ! command -v journalctl >/dev/null 2>&1; then
-			printf "%s\n" "#!/bin/sh" "exit 0" >/usr/bin/journalctl
-			chmod +x /usr/bin/journalctl
-		fi
-		mkdir -p /work/src
+		sh -eu -c '
+			if command -v apk >/dev/null 2>&1; then
+				apk add --no-cache strace procps coreutils util-linux >/dev/null
+			fi
+			if command -v apt-get >/dev/null 2>&1; then
+				apt-get update >/dev/null
+				DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends strace procps util-linux systemd >/dev/null
+			fi
+			if [ ! -x /usr/bin/uname ] && command -v uname >/dev/null 2>&1; then
+				ln -sf "$(command -v uname)" /usr/bin/uname
+			fi
+			mkdir -p /work/src
 		cp -R /src/. /work/src/
 		cd /work/src
 		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 scripts/configure-debug-trace.sh
@@ -77,12 +73,13 @@ docker run --rm --privileged \
 		test -f "$bundle/harness.json"
 		test -f "$bundle/command.txt"
 		test -f "$bundle/before-ps.txt"
-		test -f "$bundle/after-ps.txt"
-		test -f "$bundle/indicators.md"
-		ls "$bundle"/strace.log* >/dev/null 2>&1
-		test -f "$bundle/journal.log"
-		test -f "$bundle/dmesg.log"
-		echo "$bundle" >/work/bundle-path.txt
-	'
+			test -f "$bundle/after-ps.txt"
+			test -f "$bundle/indicators.md"
+			ls "$bundle"/strace.log* >/dev/null 2>&1
+			test -f "$bundle/journal.log"
+			test -f "$bundle/dmesg.log"
+			test ! -f "$bundle/trace-errors.log"
+			echo "$bundle" >/work/bundle-path.txt
+		'
 
 echo "linux-trace-smoke: bundle shape ok: $(cat "$TMPDIR_LINUX_TRACE/bundle-path.txt")"

@@ -18,7 +18,7 @@ trace orchestration:
   `explain-error.txt`.
 - `indicators.md`, summarizing suspicious lines from backend evidence files.
 
-The Linux backend writes these best-effort evidence files:
+After strict preflight passes, the Linux backend writes these evidence files:
 
 - `tool-probe-01-uname.txt`: `uname -a`.
 - `tool-probe-02-os-release.txt`: `/etc/os-release` when readable.
@@ -32,8 +32,9 @@ The Linux backend writes these best-effort evidence files:
   shared process-filter routing.
 - `before-proc-self-status.txt` and `after-proc-self-status.txt`.
 - `before-agent-*-ls.txt` and `after-agent-*-ls.txt` for declared harness agent
-  state paths, using metadata only. Missing users, paths, or permissions are
-  captured in the file and do not abort tracing.
+  state paths, using metadata only. Missing target users, paths, or permissions
+  are captured in the file because they are facts about the traced harness state,
+  not missing trace dependencies.
 - `before-host-*-ls.txt` and `after-host-*-ls.txt` for declared host state paths,
   using metadata only.
 - `strace.log` or `strace.log.<pid>` files from required syscall tracing.
@@ -61,9 +62,10 @@ pid,ppid,pgid,user,stat,etime,args` and `/proc/<pid>/status` metadata for
 matched processes. `/proc/<pid>/cmdline` is acceptable because it is argv-level
 evidence comparable to `ps`; `/proc/<pid>/environ` is not collected by default.
 
-`journalctl` and `dmesg` are optional. Many containers and non-root hosts deny
-them. The backend should write the attempted command, timeout, and denial text
-instead of treating this as a trace failure.
+`journalctl` and `dmesg` are required for the debug trace contract. Many
+containers and non-root hosts deny them; those hosts fail during
+`configure-debug-trace` or runtime preflight rather than launching a partial
+trace.
 
 ## Strict Modes
 
@@ -86,23 +88,23 @@ state:
 
 - Linux build/compile of trace code.
 - Unit tests for command construction, indicator file lists, process-filter
-  routing, snapshot file naming, and degraded probe recording.
+  routing, snapshot file naming, and strict missing-dependency handling.
 - A container smoke that configures a debug trace build, runs `hazmat trace
   codex -- --help`, and validates `manifest.json`, `harness.json`,
   `command.txt`, `before-ps.txt`, `after-ps.txt`, `strace.log.<pid>`, and
   `indicators.md`.
 
-Syscall tracing smoke is separate because Docker hosts vary. It can run in an
-image with `strace` installed and should first try ordinary Docker. If the host
-requires it, the documented privileged variant may add `--cap-add=SYS_PTRACE`
-and a compatible seccomp profile. That variant is useful evidence, but it is
-not a default gate for local development.
+Syscall tracing smoke is separate because Docker hosts vary. It runs in an
+image with the required Linux trace tools installed. If the host requires it,
+the documented privileged variant may add `--cap-add=SYS_PTRACE` and a
+compatible seccomp profile. Missing trace prerequisites skip or fail the smoke
+before the traced harness is launched, depending on the caller's skip policy.
 
 ## Privileged Collector Decision
 
 Privileged Linux host extensions are not enabled by default. The first backend
 stays with `strace`, `/proc`, `ps`, `journalctl`, and `dmesg` because those can
-degrade cleanly in ordinary Docker and on unprivileged hosts.
+be required and preflighted without changing Hazmat containment policy.
 
 | Collector | Signal | Typical requirement | Docker fit | Decision |
 | --- | --- | --- | --- | --- |
@@ -114,5 +116,6 @@ degrade cleanly in ordinary Docker and on unprivileged hosts.
 | Cgroup/network telemetry | Per-session CPU, IO, and network counters. | Cgroup ownership or container/runtime integration. | Possible in Docker-specific backend. | Consider later as a separate Docker telemetry task, not part of native Linux trace v1. |
 
 Any future privileged collector must be explicitly enabled by the user, record
-its privilege prerequisites in the bundle, and degrade to a written explanation
-without altering the traced harness containment policy.
+its privilege prerequisites in the bundle, and fail before launch when its
+requirements are unavailable. It must not alter the traced harness containment
+policy.

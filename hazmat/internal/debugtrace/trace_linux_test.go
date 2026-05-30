@@ -1,6 +1,6 @@
 //go:build hazmat_debug && linux
 
-package main
+package debugtrace
 
 import (
 	"os/exec"

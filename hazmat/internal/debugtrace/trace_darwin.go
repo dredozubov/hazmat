@@ -1,6 +1,6 @@
 //go:build hazmat_debug && darwin
 
-package main
+package debugtrace
 
 import (
 	"bufio"
@@ -37,17 +37,17 @@ func (darwinTraceBackend) observerDescription() string {
 	return "macOS observers"
 }
 
-func (darwinTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error {
+func (darwinTraceBackend) preflight(env Env, _ HarnessSpec, opts Options) error {
 	required := map[string]string{
-		"sudo":      hostSudoPath,
-		"uname":     hostUnamePath,
+		"sudo":      env.HostSudoPath,
+		"uname":     env.HostUnamePath,
 		"sw_vers":   "/usr/bin/sw_vers",
 		"csrutil":   "/usr/bin/csrutil",
 		"which":     "/usr/bin/which",
 		"ps":        "/bin/ps",
-		"ls":        hostLsPath,
-		"script":    hostScriptPath,
-		"log":       hostLogPath,
+		"ls":        env.HostLsPath,
+		"script":    env.HostScriptPath,
+		"log":       env.HostLogPath,
 		"dtruss":    "/usr/bin/dtruss",
 		"fs_usage":  "/usr/bin/fs_usage",
 		"opensnoop": "/usr/bin/opensnoop",
@@ -57,18 +57,18 @@ func (darwinTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error
 			return err
 		}
 	}
-	if err := runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "-v"); err != nil {
+	if err := runTracePreflightCommand(10*time.Second, env.HostSudoPath, "-n", "-v"); err != nil {
 		return fmt.Errorf("trace requires non-interactive sudo before launch: %w", err)
 	}
 	if opts.Syscalls {
-		if err := runDarwinDTracePreflight(); err != nil {
+		if err := runDarwinDTracePreflight(env); err != nil {
 			return fmt.Errorf("trace requires working dtruss/DTrace before launch: %w", err)
 		}
 	}
 	return nil
 }
 
-func (darwinTraceBackend) writeToolProbe(dir string, spec traceHarnessSpec) {
+func (darwinTraceBackend) writeToolProbe(env Env, dir string, spec HarnessSpec) error {
 	type probe struct {
 		Name string   `json:"name"`
 		Args []string `json:"args"`
@@ -79,68 +79,86 @@ func (darwinTraceBackend) writeToolProbe(dir string, spec traceHarnessSpec) {
 		dtrussProbeArgs = []string{"-n", "/usr/bin/dtruss", self, "--version"}
 	}
 	probes := []probe{
-		{Name: hostUnamePath, Args: []string{"-a"}},
+		{Name: env.HostUnamePath, Args: []string{"-a"}},
 		{Name: "/usr/bin/sw_vers"},
 		{Name: "/usr/bin/csrutil", Args: []string{"status"}},
 		{Name: "/usr/bin/which", Args: []string{"dtruss", "fs_usage", "opensnoop", "execsnoop", "sample", "spindump", "script", "log"}},
-		{Name: hostSudoPath, Args: []string{"-n", "-v"}},
-		{Name: hostSudoPath, Args: dtrussProbeArgs},
-		{Name: hostSudoPath, Args: []string{"-n", "-u", agentUser, "/usr/bin/env", "HOME=" + agentHome, "PATH=" + defaultAgentPath, "/usr/bin/which", spec.ProcessFilters[0]}},
+		{Name: env.HostSudoPath, Args: []string{"-n", "-v"}},
+		{Name: env.HostSudoPath, Args: dtrussProbeArgs},
+		{Name: env.HostSudoPath, Args: []string{"-n", "-u", env.AgentUser, "/usr/bin/env", "HOME=" + env.AgentHome, "PATH=" + env.DefaultAgentPath, "/usr/bin/which", spec.ProcessFilters[0]}},
 	}
 	for i, p := range probes {
 		name := fmt.Sprintf("tool-probe-%02d-%s.txt", i+1, filepath.Base(p.Name))
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second, p.Name, p.Args...)
+		if err := runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second, p.Name, p.Args...); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func runDarwinDTracePreflight() error {
+func runDarwinDTracePreflight(env Env) error {
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve current executable for DTrace probe: %w", err)
 	}
-	return runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "/usr/bin/dtruss", self, "--version")
+	return runTracePreflightCommand(10*time.Second, env.HostSudoPath, "-n", "/usr/bin/dtruss", self, "--version")
 }
 
-func (darwinTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, phase string) {
-	runTraceCommandToFile(filepath.Join(dir, phase+"-ps.txt"), 10*time.Second,
-		"/bin/ps", "-axo", "pid,ppid,pgid,user,stat,etime,command")
+func (darwinTraceBackend) writeHostSnapshot(env Env, dir string, spec HarnessSpec, phase string) error {
+	if err := runRequiredTraceCommandToFile(filepath.Join(dir, phase+"-ps.txt"), 10*time.Second,
+		"/bin/ps", "-axo", "pid,ppid,pgid,user,stat,etime,command"); err != nil {
+		return err
+	}
 	for _, path := range spec.AgentStatePaths {
 		name := phase + "-agent-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
-			hostSudoPath, "-n", "-u", agentUser, hostLsPath, "-laeO@", path)
+		if err := runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
+			env.HostSudoPath, "-n", "-u", env.AgentUser, env.HostLsPath, "-laeO@", path); err != nil {
+			return err
+		}
 	}
 	for _, path := range spec.HostStatePaths {
 		name := phase + "-host-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
-			hostLsPath, "-laeO@", expandTilde(path))
+		if env.ExpandTilde != nil {
+			path = env.ExpandTilde(path)
+		}
+		if err := runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second,
+			env.HostLsPath, "-laeO@", path); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (darwinTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error) {
+func (darwinTraceBackend) startObservers(ctx context.Context, env Env, dir string, spec HarnessSpec, opts Options) (traceObserverSet, error) {
 	if !opts.Syscalls {
-		return noopTraceObservers{}, nil
+		return nil, fmt.Errorf("trace requires macOS syscall observers")
 	}
-	probes, err := startDarwinTraceProbes(dir, spec)
+	probes, err := startDarwinTraceProbes(env, dir, spec)
 	if err != nil {
 		return nil, err
 	}
+	samplerDone, err := startDarwinTraceProcessSampler(ctx, env, filepath.Join(dir, "process-samples.log"), spec)
+	if err != nil {
+		stopDarwinTraceProbes(probes)
+		return nil, err
+	}
 	return darwinTraceObservers{
-		samplerDone: startDarwinTraceProcessSampler(ctx, filepath.Join(dir, "process-samples.log"), spec),
+		samplerDone: samplerDone,
 		probes:      probes,
 		warmup:      750 * time.Millisecond,
 	}, nil
 }
 
-func (darwinTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {
-	return runTraceLaunch(dir, opts, launchArgs)
+func (darwinTraceBackend) runLaunch(env Env, dir string, opts Options, launchArgs []string) error {
+	return runTraceLaunch(env, dir, opts, launchArgs)
 }
 
 func traceScriptCommandArgs(transcript, self string, launchArgs []string) []string {
 	return append([]string{"-q", transcript, self}, launchArgs...)
 }
 
-func (darwinTraceBackend) writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time) {
-	writeDarwinTraceUnifiedLogs(dir, start, end, spec)
+func (darwinTraceBackend) writePostLaunchLogs(env Env, dir string, spec HarnessSpec, start, end time.Time) error {
+	return writeDarwinTraceUnifiedLogs(env, dir, start, end, spec)
 }
 
 func (darwinTraceBackend) indicatorFiles() []string {
@@ -179,7 +197,7 @@ type darwinTraceProbe struct {
 	File *os.File
 }
 
-func startDarwinTraceProbes(dir string, spec traceHarnessSpec) ([]darwinTraceProbe, error) {
+func startDarwinTraceProbes(env Env, dir string, spec HarnessSpec) ([]darwinTraceProbe, error) {
 	processFilter := spec.ProcessFilters[0]
 	specs := []struct {
 		name string
@@ -205,7 +223,7 @@ func startDarwinTraceProbes(dir string, spec traceHarnessSpec) ([]darwinTracePro
 
 	var probes []darwinTraceProbe
 	for _, probeSpec := range specs {
-		probe, err := startDarwinTraceProbe(probeSpec.name, filepath.Join(dir, probeSpec.file), probeSpec.argv)
+		probe, err := startDarwinTraceProbe(env, probeSpec.name, filepath.Join(dir, probeSpec.file), probeSpec.argv)
 		if err != nil {
 			stopDarwinTraceProbes(probes)
 			return nil, fmt.Errorf("start %s trace probe: %w", probeSpec.name, err)
@@ -215,7 +233,7 @@ func startDarwinTraceProbes(dir string, spec traceHarnessSpec) ([]darwinTracePro
 	return probes, nil
 }
 
-func startDarwinTraceProbe(name, path string, argv []string) (darwinTraceProbe, error) {
+func startDarwinTraceProbe(env Env, name, path string, argv []string) (darwinTraceProbe, error) {
 	if len(argv) == 0 {
 		return darwinTraceProbe{}, fmt.Errorf("missing argv")
 	}
@@ -223,8 +241,8 @@ func startDarwinTraceProbe(name, path string, argv []string) (darwinTraceProbe, 
 	if err != nil {
 		return darwinTraceProbe{}, err
 	}
-	full := sudoNoPromptTraceArgv(argv)
-	fmt.Fprintf(file, "# %s\n# %s\n\n", time.Now().Format(time.RFC3339Nano), strings.Join(shellQuote(full), " "))
+	full := sudoNoPromptTraceArgv(env, argv)
+	fmt.Fprintf(file, "# %s\n# %s\n\n", time.Now().Format(time.RFC3339Nano), strings.Join(ShellQuote(full), " "))
 
 	cmd := exec.Command(full[0], full[1:]...)
 	cmd.Stdout = file
@@ -237,11 +255,11 @@ func startDarwinTraceProbe(name, path string, argv []string) (darwinTraceProbe, 
 	return darwinTraceProbe{Name: name, Cmd: cmd, File: file}, nil
 }
 
-func sudoNoPromptTraceArgv(argv []string) []string {
+func sudoNoPromptTraceArgv(env Env, argv []string) []string {
 	if os.Geteuid() == 0 {
 		return append([]string(nil), argv...)
 	}
-	full := []string{hostSudoPath, "-n"}
+	full := []string{env.HostSudoPath, "-n"}
 	return append(full, argv...)
 }
 
@@ -285,14 +303,14 @@ func signalDarwinTraceProcessGroup(cmd *exec.Cmd, sig syscall.Signal) {
 	}
 }
 
-func startDarwinTraceProcessSampler(ctx context.Context, path string, spec traceHarnessSpec) <-chan struct{} {
+func startDarwinTraceProcessSampler(ctx context.Context, env Env, path string, spec HarnessSpec) (<-chan struct{}, error) {
 	done := make(chan struct{})
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create process samples log: %w", err)
+	}
 	go func() {
 		defer close(done)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			return
-		}
 		defer file.Close()
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
@@ -301,14 +319,14 @@ func startDarwinTraceProcessSampler(ctx context.Context, path string, spec trace
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				sampleDarwinTraceProcesses(file, spec)
+				sampleDarwinTraceProcesses(env, file, spec)
 			}
 		}
 	}()
-	return done
+	return done, nil
 }
 
-func sampleDarwinTraceProcesses(w io.Writer, spec traceHarnessSpec) {
+func sampleDarwinTraceProcesses(env Env, w io.Writer, spec HarnessSpec) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "pid,ppid,pgid,user,stat,etime,command").Output()
@@ -320,25 +338,30 @@ func sampleDarwinTraceProcesses(w io.Writer, spec traceHarnessSpec) {
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if processSampleLineRelevant(line, spec) {
+		if processSampleLineRelevant(env, line, spec) {
 			fmt.Fprintln(w, line)
 		}
 	}
 }
 
-func writeDarwinTraceUnifiedLogs(dir string, start, end time.Time, spec traceHarnessSpec) {
+func writeDarwinTraceUnifiedLogs(env Env, dir string, start, end time.Time, spec HarnessSpec) error {
 	startArg := start.Add(-2 * time.Second).Format("2006-01-02 15:04:05")
 	endArg := end.Add(2 * time.Second).Format("2006-01-02 15:04:05")
 	predicate := darwinTraceUnifiedLogPredicate(spec)
-	runTraceCommandToFile(filepath.Join(dir, "unified-log.json"), 90*time.Second,
-		hostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", predicate)
+	if err := runRequiredTraceCommandToFile(filepath.Join(dir, "unified-log.json"), 90*time.Second,
+		env.HostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", predicate); err != nil {
+		return err
+	}
 
 	sandboxPredicate := `(process == "sandboxd") || (subsystem CONTAINS[c] "sandbox") || (eventMessage CONTAINS[c] "Sandbox:") || (eventMessage CONTAINS[c] "deny")`
-	runTraceCommandToFile(filepath.Join(dir, "sandbox-log.json"), 90*time.Second,
-		hostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", sandboxPredicate)
+	if err := runRequiredTraceCommandToFile(filepath.Join(dir, "sandbox-log.json"), 90*time.Second,
+		env.HostLogPath, "show", "--style", "json", "--start", startArg, "--end", endArg, "--predicate", sandboxPredicate); err != nil {
+		return err
+	}
+	return nil
 }
 
-func darwinTraceUnifiedLogPredicate(spec traceHarnessSpec) string {
+func darwinTraceUnifiedLogPredicate(spec HarnessSpec) string {
 	terms := append([]string{"hazmat"}, spec.ProcessFilters...)
 	parts := make([]string, 0, len(terms)+6)
 	for _, term := range terms {
