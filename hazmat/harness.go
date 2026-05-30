@@ -12,6 +12,7 @@ const (
 	HarnessCodex                HarnessID = "codex"
 	HarnessOpenCode             HarnessID = "opencode"
 	HarnessGemini               HarnessID = "gemini"
+	HarnessHermes               HarnessID = "hermes"
 	claudeHarnessStateVersion             = "1"
 	codexHarnessStateVersion              = "1"
 	opencodeHarnessStateVersion           = "1"

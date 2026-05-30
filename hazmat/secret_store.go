@@ -37,7 +37,7 @@ func providerSecretStorePathForHome(home, envVar string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("no host secret-store mapping for %s", envVar)
 	}
-	return descriptor.StorePathForHome(home)
+	return providerSecretStorePathForDescriptor(home, descriptor)
 }
 
 func claudeCredentialStorePathForHome(home string) string {

@@ -50,9 +50,10 @@ const (
 )
 
 const (
-	credentialProviderAnthropicAPIKey credentialID = "provider.anthropic.api-key"
-	credentialProviderOpenAIAPIKey    credentialID = "provider.openai.api-key"
-	credentialProviderGeminiAPIKey    credentialID = "provider.gemini.api-key"
+	credentialProviderAnthropicAPIKey  credentialID = "provider.anthropic.api-key"
+	credentialProviderOpenAIAPIKey     credentialID = "provider.openai.api-key"
+	credentialProviderGeminiAPIKey     credentialID = "provider.gemini.api-key"
+	credentialProviderOpenRouterAPIKey credentialID = "provider.openrouter.api-key"
 
 	credentialHarnessClaudeCredentials credentialID = "harness.claude.credentials"
 	credentialHarnessClaudeState       credentialID = "harness.claude.state"
@@ -75,20 +76,21 @@ const (
 // credentialDescriptor is the only place a durable credential surface should
 // name both its host-owned storage and its session delivery mode.
 type credentialDescriptor struct {
-	ID              credentialID
-	DisplayName     string
-	Kind            credentialKind
-	Backend         credentialStorageBackend
-	Delivery        credentialDeliveryMode
-	Support         credentialSupportStatus
-	StoreRelPath    string
-	Harness         HarnessID
-	EnvVar          string
-	AgentPath       string
-	ExternalRef     string
-	LegacyPaths     []string
-	Redacted        bool
-	ConflictArchive bool
+	ID                credentialID
+	DisplayName       string
+	Kind              credentialKind
+	Backend           credentialStorageBackend
+	Delivery          credentialDeliveryMode
+	Support           credentialSupportStatus
+	StoreRelPath      string
+	Harness           HarnessID
+	ConsumerHarnesses []HarnessID
+	EnvVar            string
+	AgentPath         string
+	ExternalRef       string
+	LegacyPaths       []string
+	Redacted          bool
+	ConflictArchive   bool
 }
 
 type credentialRegistrySummary struct {
@@ -99,43 +101,56 @@ type credentialRegistrySummary struct {
 
 var builtinCredentialRegistry = []credentialDescriptor{
 	{
-		ID:           credentialProviderAnthropicAPIKey,
-		DisplayName:  "Anthropic API key",
-		Kind:         credentialKindProviderAPIKey,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryEnv,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "providers/anthropic-api-key",
-		Harness:      HarnessClaude,
-		EnvVar:       "ANTHROPIC_API_KEY",
-		LegacyPaths:  []string{agentZshrcPath},
-		Redacted:     true,
+		ID:                credentialProviderAnthropicAPIKey,
+		DisplayName:       "Anthropic API key",
+		Kind:              credentialKindProviderAPIKey,
+		Backend:           credentialStorageHostSecretStore,
+		Delivery:          credentialDeliveryEnv,
+		Support:           credentialSupportManaged,
+		StoreRelPath:      "providers/anthropic-api-key",
+		ConsumerHarnesses: []HarnessID{HarnessClaude, HarnessHermes},
+		EnvVar:            "ANTHROPIC_API_KEY",
+		LegacyPaths:       []string{agentZshrcPath},
+		Redacted:          true,
 	},
 	{
-		ID:           credentialProviderOpenAIAPIKey,
-		DisplayName:  "OpenAI API key",
-		Kind:         credentialKindProviderAPIKey,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryEnv,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "providers/openai-api-key",
-		Harness:      HarnessCodex,
-		EnvVar:       "OPENAI_API_KEY",
-		LegacyPaths:  []string{agentZshrcPath},
-		Redacted:     true,
+		ID:                credentialProviderOpenAIAPIKey,
+		DisplayName:       "OpenAI API key",
+		Kind:              credentialKindProviderAPIKey,
+		Backend:           credentialStorageHostSecretStore,
+		Delivery:          credentialDeliveryEnv,
+		Support:           credentialSupportManaged,
+		StoreRelPath:      "providers/openai-api-key",
+		ConsumerHarnesses: []HarnessID{HarnessCodex, HarnessHermes},
+		EnvVar:            "OPENAI_API_KEY",
+		LegacyPaths:       []string{agentZshrcPath},
+		Redacted:          true,
 	},
 	{
-		ID:           credentialProviderGeminiAPIKey,
-		DisplayName:  "Gemini API key",
-		Kind:         credentialKindProviderAPIKey,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryEnv,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "providers/gemini-api-key",
-		Harness:      HarnessGemini,
-		EnvVar:       "GEMINI_API_KEY",
-		LegacyPaths:  []string{agentZshrcPath},
-		Redacted:     true,
+		ID:                credentialProviderGeminiAPIKey,
+		DisplayName:       "Gemini API key",
+		Kind:              credentialKindProviderAPIKey,
+		Backend:           credentialStorageHostSecretStore,
+		Delivery:          credentialDeliveryEnv,
+		Support:           credentialSupportManaged,
+		StoreRelPath:      "providers/gemini-api-key",
+		ConsumerHarnesses: []HarnessID{HarnessGemini, HarnessHermes},
+		EnvVar:            "GEMINI_API_KEY",
+		LegacyPaths:       []string{agentZshrcPath},
+		Redacted:          true,
+	},
+	{
+		ID:                credentialProviderOpenRouterAPIKey,
+		DisplayName:       "OpenRouter API key",
+		Kind:              credentialKindProviderAPIKey,
+		Backend:           credentialStorageHostSecretStore,
+		Delivery:          credentialDeliveryEnv,
+		Support:           credentialSupportManaged,
+		StoreRelPath:      "providers/openrouter-api-key",
+		ConsumerHarnesses: []HarnessID{HarnessHermes},
+		EnvVar:            "OPENROUTER_API_KEY",
+		LegacyPaths:       []string{agentZshrcPath},
+		Redacted:          true,
 	},
 	{
 		ID:              credentialHarnessClaudeCredentials,
@@ -359,6 +374,37 @@ func providerCredentialDescriptorForEnvVar(envVar string) (credentialDescriptor,
 	return credentialDescriptor{}, false
 }
 
+func providerCredentialDescriptorForEnvVarAndHarness(envVar string, harness HarnessID) (credentialDescriptor, bool) {
+	descriptor, ok := providerCredentialDescriptorForEnvVar(envVar)
+	if !ok || !descriptor.CanDeliverTo(harness) {
+		return credentialDescriptor{}, false
+	}
+	return descriptor, true
+}
+
+func providerCredentialDescriptorsForHarness(harness HarnessID) []credentialDescriptor {
+	var descriptors []credentialDescriptor
+	for _, descriptor := range builtinCredentialRegistry {
+		if descriptor.Kind != credentialKindProviderAPIKey {
+			continue
+		}
+		if descriptor.CanDeliverTo(harness) {
+			descriptors = append(descriptors, descriptor)
+		}
+	}
+	return descriptors
+}
+
+func providerSecretStorePathForDescriptor(home string, descriptor credentialDescriptor) (string, error) {
+	if descriptor.Kind != credentialKindProviderAPIKey {
+		return "", fmt.Errorf("%s is %s, not %s", descriptor.ID, descriptor.Kind, credentialKindProviderAPIKey)
+	}
+	if descriptor.Backend != credentialStorageHostSecretStore {
+		return "", fmt.Errorf("%s uses %s, not host secret store", descriptor.ID, descriptor.Backend)
+	}
+	return descriptor.StorePathForHome(home)
+}
+
 func credentialStorePathForHome(home string, id credentialID) (string, error) {
 	descriptor, ok := findCredentialDescriptor(id)
 	if !ok {
@@ -430,6 +476,30 @@ func (descriptor credentialDescriptor) EnvDeliveryVar() (string, error) {
 		return "", fmt.Errorf("%s env delivery has no env var", descriptor.ID)
 	}
 	return descriptor.EnvVar, nil
+}
+
+func (descriptor credentialDescriptor) ConsumerHarnessIDs() []HarnessID {
+	if len(descriptor.ConsumerHarnesses) > 0 {
+		consumers := make([]HarnessID, len(descriptor.ConsumerHarnesses))
+		copy(consumers, descriptor.ConsumerHarnesses)
+		return consumers
+	}
+	if descriptor.Harness != "" {
+		return []HarnessID{descriptor.Harness}
+	}
+	return nil
+}
+
+func (descriptor credentialDescriptor) CanDeliverTo(harness HarnessID) bool {
+	if harness == "" {
+		return false
+	}
+	for _, consumer := range descriptor.ConsumerHarnessIDs() {
+		if consumer == harness {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanCredentialStoreRelPath(relPath string) (string, error) {
