@@ -61,7 +61,7 @@ func (darwinTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error
 		return fmt.Errorf("trace requires non-interactive sudo before launch: %w", err)
 	}
 	if opts.Syscalls {
-		if err := runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "/usr/bin/dtruss", "/usr/bin/true"); err != nil {
+		if err := runDarwinDTracePreflight(); err != nil {
 			return fmt.Errorf("trace requires working dtruss/DTrace before launch: %w", err)
 		}
 	}
@@ -73,19 +73,32 @@ func (darwinTraceBackend) writeToolProbe(dir string, spec traceHarnessSpec) {
 		Name string   `json:"name"`
 		Args []string `json:"args"`
 	}
+	self, err := os.Executable()
+	dtrussProbeArgs := []string{"-n", "/usr/bin/dtruss", "/usr/bin/true"}
+	if err == nil {
+		dtrussProbeArgs = []string{"-n", "/usr/bin/dtruss", self, "--version"}
+	}
 	probes := []probe{
 		{Name: hostUnamePath, Args: []string{"-a"}},
 		{Name: "/usr/bin/sw_vers"},
 		{Name: "/usr/bin/csrutil", Args: []string{"status"}},
 		{Name: "/usr/bin/which", Args: []string{"dtruss", "fs_usage", "opensnoop", "execsnoop", "sample", "spindump", "script", "log"}},
 		{Name: hostSudoPath, Args: []string{"-n", "-v"}},
-		{Name: hostSudoPath, Args: []string{"-n", "/usr/bin/dtruss", "/usr/bin/true"}},
+		{Name: hostSudoPath, Args: dtrussProbeArgs},
 		{Name: hostSudoPath, Args: []string{"-n", "-u", agentUser, "/usr/bin/env", "HOME=" + agentHome, "PATH=" + defaultAgentPath, "/usr/bin/which", spec.ProcessFilters[0]}},
 	}
 	for i, p := range probes {
 		name := fmt.Sprintf("tool-probe-%02d-%s.txt", i+1, filepath.Base(p.Name))
 		runTraceCommandToFile(filepath.Join(dir, name), 10*time.Second, p.Name, p.Args...)
 	}
+}
+
+func runDarwinDTracePreflight() error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve current executable for DTrace probe: %w", err)
+	}
+	return runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "/usr/bin/dtruss", self, "--version")
 }
 
 func (darwinTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, phase string) {

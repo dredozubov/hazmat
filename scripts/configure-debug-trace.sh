@@ -90,6 +90,30 @@ run_required() {
 	fi
 }
 
+run_darwin_dtruss_probe() {
+	tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-dtruss-probe.XXXXXX")"
+	helper="$tmpdir/hazmat-dtruss-probe"
+	src="$tmpdir/main.go"
+	cat >"$src" <<'EOF'
+package main
+
+func main() {}
+EOF
+	if ! go build -o "$helper" "$src" >/dev/null 2>&1; then
+		rm -rf "$tmpdir"
+		echo "configure-debug-trace: failed to build temporary DTrace probe helper" >&2
+		exit 1
+	fi
+	if ! /usr/bin/sudo -n /usr/bin/dtruss "$helper" >"$tmpdir/dtruss.out" 2>&1; then
+		sed 's/^/configure-debug-trace: dtruss: /' "$tmpdir/dtruss.out" >&2
+		rm -rf "$tmpdir"
+		echo "configure-debug-trace: required check failed: DTrace via dtruss" >&2
+		echo "configure-debug-trace: command: /usr/bin/sudo -n /usr/bin/dtruss <temporary helper>" >&2
+		exit 1
+	fi
+	rm -rf "$tmpdir"
+}
+
 case "$TARGET_GOOS" in
 	darwin)
 		require_executable sudo /usr/bin/sudo
@@ -105,7 +129,7 @@ case "$TARGET_GOOS" in
 		require_executable fs_usage /usr/bin/fs_usage
 		require_executable opensnoop /usr/bin/opensnoop
 		run_required "non-interactive sudo" /usr/bin/sudo -n -v
-		run_required "DTrace via dtruss" /usr/bin/sudo -n /usr/bin/dtruss /usr/bin/true
+		run_darwin_dtruss_probe
 		;;
 	linux)
 		strace_path="$(require_any_executable strace /usr/bin/strace /bin/strace /usr/local/bin/strace)"
