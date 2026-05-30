@@ -250,6 +250,9 @@ The preferred v1 fix is therefore:
    key, used by Codex and Hermes", instead of duplicating a harness-specific
    prompt.
 
+The concrete registry design is tracked in
+`docs/plans/2026-05-30-shared-provider-credentials-design.md`.
+
 This still avoids unmanaged Hermes profile import. It only means Hazmat's own
 provider secret store can deliver provider keys transparently to every harness
 that is explicitly allowed to consume them. If product wants zero managed
