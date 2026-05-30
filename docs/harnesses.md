@@ -31,13 +31,17 @@ secret values.
 | Surface | Durable owner | Session delivery |
 |---|---|---|
 | Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |
-| Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for the matching native harness |
+| Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses |
 | GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed |
 | Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
 | Git SSH provisioned keys | `~/.hazmat/secrets/git-ssh/provisioned/` | Per-session brokered Git SSH transport |
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
 | Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
 | Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
+
+Provider API keys are configured once per provider. If more than one harness is
+allowed to consume the same env var, Hazmat reuses the same stored key and
+records the consuming harness in explain/session metadata.
 
 ## Per-harness reference
 
@@ -46,7 +50,7 @@ secret values.
 - **Install / update:** `hazmat bootstrap claude`. Downloads the official Anthropic installer, verifies the pinned installer checksum, and installs or refreshes the agent-owned Claude Code CLI at `/Users/agent/.local/bin/claude`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/claude/credentials.json` and `~/.hazmat/secrets/claude/state.json`. Hazmat materializes them to `/Users/agent/.claude/.credentials.json` and `/Users/agent/.claude.json` only while a Claude session is active.
 - **Subscription / OAuth path:** run `hazmat claude`, type `/login`. Claude opens a browser for the OAuth handshake; the resulting credentials are harvested back into `~/.hazmat/secrets/claude/` when the session exits.
-- **API key path:** `hazmat config agent` will offer to store `ANTHROPIC_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/anthropic-api-key`. Hazmat injects it only into matching native sessions instead of keeping it in `/Users/agent/.zshrc`.
+- **API key path:** `hazmat config agent` will offer to store `ANTHROPIC_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/anthropic-api-key`. Hazmat injects it only into explicitly allowed native sessions instead of keeping it in `/Users/agent/.zshrc`.
 - **Import from host path:** `hazmat config import claude` stores `~/.claude/.credentials.json` and Claude auth state in `~/.hazmat/secrets/claude/`, and copies the user-level `commands/` and `skills/` portable basics plus your git identity into Hazmat's managed state. Doesn't import `settings.json`, hooks, MCP, or session history (those stay host-only).
 - **Verify:** `hazmat claude -p "say OK"` — single-shot prompt; should print `OK`.
 - **Detailed import scope:** [docs/claude-import.md](claude-import.md).
@@ -57,7 +61,7 @@ secret values.
 - **Durable auth storage:** `~/.hazmat/secrets/codex/auth.json`. Hazmat materializes it to `/Users/agent/.codex/auth.json` only while a Codex session is active. The file holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys.
 - **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token is harvested into `~/.hazmat/secrets/codex/auth.json` when the session exits.
   - The import path bypasses this picker entirely.
-- **API key path:** `hazmat config agent` can store `OPENAI_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/openai-api-key`. Hazmat injects it only into matching native sessions. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
+- **API key path:** `hazmat config agent` can store `OPENAI_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/openai-api-key`. Hazmat injects it only into explicitly allowed native sessions. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
 - **Import from host path:** `hazmat config import codex` stores `~/.codex/auth.json` (covers OAuth and API key) in `~/.hazmat/secrets/codex/auth.json` and imports your git identity. Prompts, rules, and `AGENTS.md` mirror automatically via the harness asset sync at session launch.
 - **Verify:** `hazmat codex exec "Reply with only OK"` — runs the codex non-interactive subcommand; should print `OK` and exit cleanly.
 
@@ -76,7 +80,7 @@ secret values.
 - **Install / update:** `hazmat bootstrap gemini`. Installs or refreshes `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works). Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/gemini/oauth_creds.json` and `~/.hazmat/secrets/gemini/google_accounts.json` for file-based Gemini auth. Hazmat materializes them to `/Users/agent/.gemini/...` only while a Gemini session is active. Modern Keychain-backed Gemini OAuth is an explicit external backend in Hazmat's credential registry; Hazmat does not import or harvest that Keychain item yet.
 - **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; if Gemini writes file-backed auth, Hazmat harvests it into `~/.hazmat/secrets/gemini/` when the session exits. If Gemini stores OAuth only in Keychain, use the API-key path or re-auth in the contained Gemini session until Hazmat has a Keychain adapter.
-- **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into matching native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
+- **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into explicitly allowed native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
 - **Import from host path:** `hazmat config import gemini` stores `~/.gemini/oauth_creds.json` and `google_accounts.json` in `~/.hazmat/secrets/gemini/`, and copies `settings.json`, `GEMINI.md`, and your git identity. If your host stores OAuth in Keychain, `oauth_creds.json` won't exist on the host and that item is skipped because Hazmat does not import Keychain-backed Gemini OAuth yet.
 - **Verify:** `hazmat gemini -p "say only OK"` — non-interactive prompt; should print `OK`.
 

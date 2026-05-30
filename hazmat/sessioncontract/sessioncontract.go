@@ -118,7 +118,9 @@ type RepoSetupEffect struct {
 	Sources []string `json:"sources,omitempty"`
 }
 
-// CredentialEnvGrant describes a redaction-safe env credential grant.
+// CredentialEnvGrant describes a redaction-safe env credential grant. For
+// provider API keys, ConsumerHarness names the active harness allowed to consume
+// the shared provider credential.
 type CredentialEnvGrant struct {
 	EnvVar          string `json:"env_var"`
 	CredentialID    string `json:"credential_id,omitempty"`
