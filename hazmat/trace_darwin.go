@@ -87,6 +87,10 @@ func (darwinTraceBackend) startObservers(ctx context.Context, dir string, spec t
 	}
 }
 
+func (darwinTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {
+	return runTraceLaunch(dir, opts, launchArgs)
+}
+
 func (darwinTraceBackend) writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time) {
 	writeDarwinTraceUnifiedLogs(dir, start, end, spec)
 }

@@ -85,6 +85,15 @@ func TestCurrentTraceBackendSelection(t *testing.T) {
 		}
 		return
 	}
+	if runtime.GOOS == "linux" {
+		if !backend.supported() {
+			t.Fatal("linux trace backend should be supported")
+		}
+		if backend.name() != "linux" {
+			t.Fatalf("backend = %q, want linux", backend.name())
+		}
+		return
+	}
 	if backend.supported() {
 		t.Fatalf("%s trace backend should be unsupported before platform implementation", runtime.GOOS)
 	}
@@ -149,5 +158,43 @@ func TestProcessSampleLineRelevantUsesHarnessFilters(t *testing.T) {
 	}
 	if processSampleLineRelevant("123 1 1 dr S 00:00 /usr/bin/unrelated", spec) {
 		t.Fatal("unexpected unrelated process relevance")
+	}
+}
+
+func TestTraceIndicatorPathsExpandsSortedGlobs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"strace.log.22", "strace.log.11", "other.log"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("ok\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	got := traceIndicatorPaths(dir, "strace.log.*")
+	want := []string{
+		filepath.Join(dir, "strace.log.11"),
+		filepath.Join(dir, "strace.log.22"),
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("traceIndicatorPaths = %v, want %v", got, want)
+	}
+}
+
+func TestWriteTraceIndicatorsExpandsGlobFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "strace.log.123"), []byte("openat denied EACCES sandbox\n"), 0o600); err != nil {
+		t.Fatalf("write strace fixture: %v", err)
+	}
+
+	writeTraceIndicators(dir, []string{"strace.log.*"})
+
+	got, err := os.ReadFile(filepath.Join(dir, "indicators.md"))
+	if err != nil {
+		t.Fatalf("read indicators: %v", err)
+	}
+	text := string(got)
+	if !strings.Contains(text, "## strace.log.123") {
+		t.Fatalf("indicators missing expanded file header: %s", text)
+	}
+	if !strings.Contains(text, "openat denied EACCES sandbox") {
+		t.Fatalf("indicators missing matched line: %s", text)
 	}
 }

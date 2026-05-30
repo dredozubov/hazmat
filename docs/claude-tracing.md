@@ -27,21 +27,35 @@ By default, the trace bundle is written under `~/.hazmat/traces` with mode
 - `command.txt` — the exact traced Hazmat command shape
 - `explain.json` — the planned Hazmat session contract for the run
 - `terminal.typescript` — PTY transcript when run from a terminal
-- `dtruss.log`, `fs_usage.log`, `opensnoop.log` — syscall/filesystem probes when non-interactive sudo and DTrace permissions allow them
 - `process-samples.log` — sampled process tree around Hazmat, the harness, and the agent user
-- `unified-log.json` and `sandbox-log.json` — macOS unified log extracts for the harness, Hazmat, sandboxd, sandbox, deny, and automation signals
 - `indicators.md` — a first-pass grep over the noisy logs for audit keywords
 - `experiments.md` — suggested follow-up experiments to compare against the run
 
-The syscall probes are intentionally started with `sudo -n` so tracing never
-hangs on a password prompt. If sudo credentials or DTrace privileges are not
-available, the bundle records the failure and still runs the harness session.
-Pre-authorize sudo in a separate terminal if you want those probes:
+On macOS, bundles can also include `dtruss.log`, `fs_usage.log`,
+`opensnoop.log`, `unified-log.json`, and `sandbox-log.json` when
+non-interactive sudo, DTrace, and unified-log access allow those probes.
+
+On Linux, bundles include tool probes, `before-ps.txt` / `after-ps.txt`,
+`before-proc-self-status.txt` / `after-proc-self-status.txt`, matching
+`/proc/<pid>/status` snapshots, optional `journal.log` / `dmesg.log`, and
+`strace.log.<pid>` files when `strace` is installed and permitted.
+
+The macOS syscall probes are intentionally started with `sudo -n` so tracing
+never hangs on a password prompt. If sudo credentials or DTrace privileges are
+not available, the bundle records the failure and still runs the harness
+session. Pre-authorize sudo in a separate terminal if you want those probes:
 
 ```bash
 sudo -v
 hazmat trace claude --name baseline -- --no-backup -p "say ok"
 ```
+
+On Linux, `strace` is used from process start when available. Missing `strace`,
+Yama/ptrace restrictions, container seccomp policy, unavailable `journalctl`,
+or denied `dmesg` access are recorded as degraded evidence instead of relaxing
+Hazmat containment or changing the harness policy. `--no-syscalls` skips
+`strace` and live process sampling but still writes the shared bundle files and
+pre/post metadata snapshots.
 
 Recommended comparison sequence for any harness:
 

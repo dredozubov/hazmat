@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !linux
 
 package main
 
@@ -40,6 +40,10 @@ func (unsupportedTraceBackend) writeHostSnapshot(string, traceHarnessSpec, strin
 
 func (unsupportedTraceBackend) startObservers(context.Context, string, traceHarnessSpec, traceOptions) traceObserverSet {
 	return noopTraceObservers{}
+}
+
+func (unsupportedTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {
+	return runTraceLaunch(dir, opts, launchArgs)
 }
 
 func (unsupportedTraceBackend) writePostLaunchLogs(string, traceHarnessSpec, time.Time, time.Time) {}

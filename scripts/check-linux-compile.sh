@@ -19,4 +19,4 @@ echo "linux-compile: GOOS=linux GOARCH=amd64 compile-only probe..."
 	done
 )
 
-echo "linux-compile: unsupported Linux backend compiles"
+echo "linux-compile: Linux build-tagged packages compile"

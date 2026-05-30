@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -79,6 +80,7 @@ type traceBackend interface {
 	writeToolProbe(dir string, spec traceHarnessSpec)
 	writeHostSnapshot(dir string, spec traceHarnessSpec, phase string)
 	startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) traceObserverSet
+	runLaunch(dir string, opts traceOptions, launchArgs []string) error
 	writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time)
 	indicatorFiles() []string
 }
@@ -218,7 +220,7 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 	}
 	observers.waitBeforeLaunch()
 
-	launchErr := runTraceLaunch(traceDir, opts, launchArgs)
+	launchErr := backend.runLaunch(traceDir, opts, launchArgs)
 	end := time.Now()
 
 	cancel()
@@ -471,9 +473,17 @@ func sanitizeTraceFilename(path string) string {
 }
 
 func runTraceLaunch(dir string, opts traceOptions, launchArgs []string) error {
+	cmd, err := newTraceLaunchCommand(dir, opts, launchArgs)
+	if err != nil {
+		return err
+	}
+	return runSessionCommand(cmd)
+}
+
+func newTraceLaunchCommand(dir string, opts traceOptions, launchArgs []string) (*exec.Cmd, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve current executable for traced launch: %w", err)
+		return nil, fmt.Errorf("resolve current executable for traced launch: %w", err)
 	}
 
 	var cmd *exec.Cmd
@@ -488,7 +498,7 @@ func runTraceLaunch(dir string, opts traceOptions, launchArgs []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = "/"
-	return runSessionCommand(cmd)
+	return cmd, nil
 }
 
 func processSampleLineRelevant(line string, spec traceHarnessSpec) bool {
@@ -528,36 +538,53 @@ func writeTraceIndicators(dir string, files []string) {
 	}
 	var b strings.Builder
 	for _, file := range files {
-		path := filepath.Join(dir, file)
-		f, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(&b, "## %s\n", file)
-		scanner := bufio.NewScanner(f)
-		count := 0
-		for scanner.Scan() {
-			line := scanner.Text()
-			lower := strings.ToLower(line)
-			for _, pattern := range patterns {
-				if strings.Contains(lower, pattern) {
-					fmt.Fprintln(&b, line)
-					count++
+		for _, path := range traceIndicatorPaths(dir, file) {
+			f, err := os.Open(path)
+			if err != nil {
+				continue
+			}
+			display := file
+			if rel, err := filepath.Rel(dir, path); err == nil {
+				display = rel
+			}
+			fmt.Fprintf(&b, "## %s\n", display)
+			scanner := bufio.NewScanner(f)
+			count := 0
+			for scanner.Scan() {
+				line := scanner.Text()
+				lower := strings.ToLower(line)
+				for _, pattern := range patterns {
+					if strings.Contains(lower, pattern) {
+						fmt.Fprintln(&b, line)
+						count++
+						break
+					}
+				}
+				if count >= 300 {
+					fmt.Fprintln(&b, "... truncated at 300 indicator lines ...")
 					break
 				}
 			}
-			if count >= 300 {
-				fmt.Fprintln(&b, "... truncated at 300 indicator lines ...")
-				break
+			if count == 0 {
+				fmt.Fprintln(&b, "(no indicator lines matched)")
 			}
+			fmt.Fprintln(&b)
+			_ = f.Close()
 		}
-		if count == 0 {
-			fmt.Fprintln(&b, "(no indicator lines matched)")
-		}
-		fmt.Fprintln(&b)
-		_ = f.Close()
 	}
 	writeTraceText(dir, "indicators.md", b.String())
+}
+
+func traceIndicatorPaths(dir, file string) []string {
+	if !strings.ContainsAny(file, "*?[") {
+		return []string{filepath.Join(dir, file)}
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, file))
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+	sort.Strings(matches)
+	return matches
 }
 
 func writeTraceExperimentGuide(dir string, spec traceHarnessSpec, backend traceBackend) {
