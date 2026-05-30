@@ -102,7 +102,21 @@ requires it, the documented privileged variant may add `--cap-add=SYS_PTRACE`
 and a compatible seccomp profile. That variant is useful evidence, but it is
 not a default gate for local development.
 
-Privileged Linux host extensions such as `perf`, eBPF or `bpftrace`, auditd,
-fanotify, seccomp event capture, and system-wide process accounting are out of
-scope for the first backend. They can be added later only as optional probes
-with clear privilege detection and degraded output.
+## Privileged Collector Decision
+
+Privileged Linux host extensions are not enabled by default. The first backend
+stays with `strace`, `/proc`, `ps`, `journalctl`, and `dmesg` because those can
+degrade cleanly in ordinary Docker and on unprivileged hosts.
+
+| Collector | Signal | Typical requirement | Docker fit | Decision |
+| --- | --- | --- | --- | --- |
+| `perf trace` | Low-overhead syscall and scheduler context. | `perf_event_paranoid` relaxed, `CAP_PERFMON` or root on many hosts. | Usually needs extra caps and host kernel support. | Future opt-in task only if syscall timing from `strace` is not enough. |
+| eBPF / `bpftrace` | Kernel tracepoints, uprobes, richer process/network evidence. | `CAP_BPF`, `CAP_PERFMON`, BTF/kernel config, mounted bpffs, often privileged container. | Not ordinary Docker-safe. | Future opt-in research, not a default trace collector. |
+| auditd | Persistent syscall/path audit events. | Host audit daemon policy and root-managed rules. | Host or privileged VM only. | Do not manage audit rules from `hazmat trace`; document manual correlation if users already run auditd. |
+| fanotify | File access notification. | `CAP_SYS_ADMIN` for broad watches and careful lifecycle cleanup. | Privileged only. | Defer; too invasive for observational default tracing. |
+| seccomp user notification | Policy-level syscall mediation evidence. | Launch policy redesign plus broker process. | Requires containment semantics changes. | Out of scope unless a future verified model changes launch policy first. |
+| Cgroup/network telemetry | Per-session CPU, IO, and network counters. | Cgroup ownership or container/runtime integration. | Possible in Docker-specific backend. | Consider later as a separate Docker telemetry task, not part of native Linux trace v1. |
+
+Any future privileged collector must be explicitly enabled by the user, record
+its privilege prerequisites in the bundle, and degrade to a written explanation
+without altering the traced harness containment policy.
