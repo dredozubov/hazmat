@@ -1514,7 +1514,7 @@ func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 }
 
 func TestWarnDockerProjectHarnessCommandMentionsSameHarnessCommands(t *testing.T) {
-	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes"} {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
 			t.Fatalf("create Dockerfile: %v", err)
@@ -2184,7 +2184,7 @@ func TestApplyIntegrationsRunsUniformlyForAllHarnesses(t *testing.T) {
 		excl    []string
 	}
 	got := make(map[HarnessID]result)
-	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes} {
 		cfg := sessionConfig{
 			ProjectDir:     t.TempDir(),
 			BackupExcludes: snapshotIgnoreRules(nil),
@@ -2200,10 +2200,10 @@ func TestApplyIntegrationsRunsUniformlyForAllHarnesses(t *testing.T) {
 		}
 	}
 
-	// All four harnesses must end up with identical integration effects:
+	// All managed foreground harnesses must end up with identical integration effects:
 	// same active list, same env passthrough keys, same excludes.
 	first := got[HarnessClaude]
-	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini} {
+	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes} {
 		if !slicesEqualString(first.active, got[harness].active) {
 			t.Errorf("ActiveIntegrations diverged for %s: %v vs %v (claude)", harness, got[harness].active, first.active)
 		}
@@ -2591,7 +2591,7 @@ func TestSessionRoutingExplanationDockerNoneSuppressedWhenIntegrationActive(t *t
 
 func TestDockerSessionExampleUsesSameHarnessForSandboxMode(t *testing.T) {
 	projectDir := "/tmp/project"
-	for _, commandName := range []string{"claude", "opencode", "codex", "gemini"} {
+	for _, commandName := range []string{"claude", "opencode", "codex", "gemini", "hermes"} {
 		got := dockerSessionExample(commandName, projectDir, dockerModeSandbox)
 		want := fmt.Sprintf("hazmat %s --docker=sandbox -C %s", commandName, projectDir)
 		if got != want {
@@ -2714,7 +2714,7 @@ func TestResolveExplainSessionUsesProjectDockerModeAuto(t *testing.T) {
 
 func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes"} {
 		dir := t.TempDir()
 		prepared, err := resolvePreparedSession(commandName, harnessSessionOpts{
 			project:            dir,
@@ -2742,7 +2742,7 @@ func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 
 func TestResolveExplainSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	for _, commandName := range []string{"opencode", "codex", "gemini"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes"} {
 		dir := t.TempDir()
 		cfg, mode, err := resolveExplainSession(commandName, harnessSessionOpts{
 			project:            dir,

@@ -828,6 +828,13 @@ func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
 			forwarded:   []string{"-p", "say only OK"},
 			expectedRun: []string{"-p", "say only OK"},
 		},
+		{
+			name:        "hermes",
+			agent:       "hermes",
+			run:         runSandboxHermesSession,
+			forwarded:   []string{"chat", "say only OK"},
+			expectedRun: []string{"chat", "say only OK"},
+		},
 	}
 
 	for _, tc := range tests {

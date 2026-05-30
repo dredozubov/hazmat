@@ -17,6 +17,7 @@ const (
 	codexHarnessStateVersion              = "1"
 	opencodeHarnessStateVersion           = "1"
 	geminiHarnessStateVersion             = "1"
+	hermesHarnessStateVersion             = "1"
 )
 
 type HarnessSpec struct {
@@ -42,11 +43,13 @@ type ClaudeHarness struct{}
 type CodexHarness struct{}
 type OpenCodeHarness struct{}
 type GeminiHarness struct{}
+type HermesHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
 var geminiHarness = GeminiHarness{}
+var hermesHarness = HermesHarness{}
 
 var managedHarnessRegistry = []ManagedHarness{
 	{
@@ -97,6 +100,18 @@ var managedHarnessRegistry = []ManagedHarness{
 			return geminiHarness.Bootstrap(ui, r)
 		},
 	},
+	{
+		Spec:             hermesHarness.Spec(),
+		LaunchCommand:    "hazmat hermes",
+		BootstrapCommand: "hazmat bootstrap hermes",
+		Installed: func() bool {
+			_, ok := findInstalledHermesBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return hermesHarness.Bootstrap(ui, r)
+		},
+	},
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -128,6 +143,14 @@ func (GeminiHarness) Spec() HarnessSpec {
 		ID:           HarnessGemini,
 		DisplayName:  "Gemini",
 		StateVersion: geminiHarnessStateVersion,
+	}
+}
+
+func (HermesHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessHermes,
+		DisplayName:  "Hermes",
+		StateVersion: hermesHarnessStateVersion,
 	}
 }
 
@@ -257,6 +280,22 @@ func (h GeminiHarness) RecordInstalled() error {
 
 func (h GeminiHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
+}
+
+func (h HermesHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runHermesBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h HermesHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
 }
 
 func managedHarnesses() []ManagedHarness {

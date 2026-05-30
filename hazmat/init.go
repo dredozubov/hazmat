@@ -63,7 +63,9 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init                                 # Interactive (recommended)
   hazmat init --bootstrap-agent claude        # Also install Claude Code
   hazmat init --bootstrap-agent codex         # Also install Codex
+  hazmat init --bootstrap-agent opencode      # Also install OpenCode
   hazmat init --bootstrap-agent gemini        # Also install Gemini CLI
+  hazmat init --bootstrap-agent hermes        # Verify manually installed Hermes CLI
   hazmat init --yes                           # Non-interactive; install maintenance sudoers by default
   hazmat check                                # Verify the setup
   hazmat rollback                             # Undo everything
@@ -77,7 +79,7 @@ Use --dry-run to preview all commands without executing anything.`,
 	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
 		"Override GID for the dev group (default: 599; use when 599 is already taken)")
 	cmd.Flags().StringVar(&bootstrapAgentFlag, "bootstrap-agent", "",
-		"Optional AI coding agent to install during init: skip, claude, codex, opencode")
+		"Optional AI coding agent to bootstrap during init: skip, claude, codex, opencode, gemini, hermes")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if agentUIDFlag != "" {
 			agentUID = agentUIDFlag
@@ -252,7 +254,7 @@ func normalizeInitBootstrapAgent(selection string) (string, error) {
 	if _, ok := managedHarnessByID(HarnessID(normalized)); ok {
 		return normalized, nil
 	}
-	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, or gemini)", selection)
+	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, gemini, or hermes)", selection)
 }
 
 func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
@@ -265,7 +267,8 @@ func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
 	fmt.Println()
 	cBold.Println("  Optional AI coding agent bootstrap")
 	fmt.Println("  Pick a harness to install now, or skip and install one later.")
-	selection, err := ui.Choose("Select a harness [1-4, Enter for default]:", initBootstrapChoices(), initBootstrapSkip)
+	choices := initBootstrapChoices()
+	selection, err := ui.Choose(fmt.Sprintf("Select a harness [1-%d, Enter for default]:", len(choices)), choices, initBootstrapSkip)
 	if err != nil {
 		return "", err
 	}
@@ -358,9 +361,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	}
 
 	// ── Optional import: portable harness basics ────────────────────────────
-	// Symmetric across all four supported harnesses — whichever one the user
-	// just bootstrapped gets the same one-shot offer to copy their existing
-	// host credentials/settings into the agent home.
+	// Importable harnesses get a one-shot offer to copy explicitly supported
+	// host credentials/settings into Hazmat-managed state. Hermes is a managed
+	// foreground harness but intentionally has no host-profile import in v1.
 	_ = offerHarnessBasicsImport(ui, r, bootstrapSelection)
 
 	if !flagDryRun {
@@ -392,11 +395,11 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	fmt.Println()
 	fmt.Println("  Ready to use:")
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini), string(HarnessHermes):
 		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
 	default:
 		fmt.Println("    cd your-project && hazmat shell")
-		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini")
+		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini|hermes")
 	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
@@ -404,8 +407,11 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
 		fmt.Println("  Update creds:   hazmat config agent")
 		fmt.Printf("  Import basics:  hazmat config import %s\n", bootstrapSelection)
+	case string(HarnessHermes):
+		fmt.Println("  Update creds:   hazmat config agent")
+		fmt.Println("  Hermes state:   managed HERMES_HOME under /Users/agent/.hazmat/hermes")
 	default:
-		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini")
+		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini|hermes")
 	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")

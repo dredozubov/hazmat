@@ -116,7 +116,8 @@ Subcommands:
   hazmat bootstrap claude
   hazmat bootstrap codex
   hazmat bootstrap opencode
-  hazmat bootstrap gemini`,
+  hazmat bootstrap gemini
+  hazmat bootstrap hermes`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
@@ -128,6 +129,7 @@ Subcommands:
 	cmd.AddCommand(withUpdateNotifications(newBootstrapCodexCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapOpenCodeCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapGeminiCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapHermesCmd()))
 	return cmd
 }
 

@@ -107,6 +107,8 @@ func main() {
 	opencodeCmd.GroupID = "run"
 	geminiCmd := withUpdateNotifications(newGeminiCmd())
 	geminiCmd.GroupID = "run"
+	hermesCmd := withUpdateNotifications(newHermesCmd())
+	hermesCmd.GroupID = "run"
 	shellCmd := withUpdateNotifications(newShellCmd())
 	shellCmd.GroupID = "run"
 	execCmd := withUpdateNotifications(newExecCmd())
@@ -146,7 +148,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, shellCmd, execCmd, explainCmd,
+		claudeCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, hermesCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
 		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),

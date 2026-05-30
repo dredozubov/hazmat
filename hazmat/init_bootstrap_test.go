@@ -15,6 +15,8 @@ func TestNormalizeInitBootstrapAgent(t *testing.T) {
 		{input: " opencode ", want: "opencode"},
 		{input: "gemini", want: "gemini"},
 		{input: "GEMINI", want: "gemini"},
+		{input: "hermes", want: "hermes"},
+		{input: "HERMES", want: "hermes"},
 		{input: "none", wantErr: true},
 	}
 
@@ -55,15 +57,17 @@ func TestResolveInitBootstrapAgentHonorsExplicitFlag(t *testing.T) {
 	}
 }
 
-// TestOfferHarnessBasicsImportCoversEveryManagedHarness asserts that every
-// managed harness has a dispatch case in offerHarnessBasicsImport. Catches
-// the case where someone adds a new harness to managedHarnessRegistry but
-// forgets to wire the post-bootstrap import offer.
-func TestOfferHarnessBasicsImportCoversEveryManagedHarness(t *testing.T) {
-	for _, h := range managedHarnessRegistry {
-		if !offerHarnessBasicsImportCovers(string(h.Spec.ID)) {
-			t.Errorf("managed harness %q has no dispatch case in offerHarnessBasicsImport — 'hazmat init --bootstrap-agent %s' will not offer the basics import", h.Spec.ID, h.Spec.ID)
+// TestOfferHarnessBasicsImportCoversImportableHarnesses asserts that every
+// curated-import harness has a dispatch case in offerHarnessBasicsImport.
+// Hermes is managed but intentionally not importable in Phase 1.
+func TestOfferHarnessBasicsImportCoversImportableHarnesses(t *testing.T) {
+	for _, id := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini} {
+		if !offerHarnessBasicsImportCovers(string(id)) {
+			t.Errorf("importable harness %q has no dispatch case in offerHarnessBasicsImport", id)
 		}
+	}
+	if offerHarnessBasicsImportCovers(string(HarnessHermes)) {
+		t.Errorf("Hermes must not offer host-profile import in Phase 1")
 	}
 }
 
@@ -77,8 +81,8 @@ func TestOfferHarnessBasicsImportRejectsUnknownSelections(t *testing.T) {
 
 func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 	harnesses := managedHarnesses()
-	if len(harnesses) != 4 {
-		t.Fatalf("managedHarnesses length = %d, want 4", len(harnesses))
+	if len(harnesses) != 5 {
+		t.Fatalf("managedHarnesses length = %d, want 5", len(harnesses))
 	}
 
 	want := map[HarnessID]string{
@@ -86,11 +90,15 @@ func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 		HarnessCodex:    "hazmat codex",
 		HarnessOpenCode: "hazmat opencode",
 		HarnessGemini:   "hazmat gemini",
+		HarnessHermes:   "hazmat hermes",
 	}
 
 	for _, harness := range harnesses {
 		if got := harness.LaunchCommand; got != want[harness.Spec.ID] {
 			t.Fatalf("launch command for %s = %q, want %q", harness.Spec.ID, got, want[harness.Spec.ID])
+		}
+		if harness.BootstrapCommand == "" || harness.Installed == nil || harness.Bootstrap == nil {
+			t.Fatalf("managed harness %s has incomplete bootstrap metadata", harness.Spec.ID)
 		}
 	}
 }

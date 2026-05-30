@@ -1200,6 +1200,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if id, ok := harnessIDForCommand(commandName); ok {
 		cfg.HarnessID = id
 	}
+	applyHarnessStaticSessionEnv(&cfg)
 	cfg.UserReadDirs, err = resolveReadDirs(userReadPaths)
 	if err != nil {
 		return preparedSession{}, err
@@ -1254,6 +1255,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
+	appendHarnessStaticSessionNotes(&cfg)
 	if cfg.NetworkMode == sessionNetworkNone {
 		cfg.SessionNotes = append(cfg.SessionNotes, "--network none denies outbound IPv4, IPv6, and DNS for this native session; external provider/API calls will fail closed.")
 	}
@@ -1281,11 +1283,12 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	harnessStateMutationPlan := buildHermesStateRootMutationPlan(cfg)
 	prepared := preparedSession{
 		Config:           cfg,
 		Mode:             mode,
 		BackendPlan:      buildSessionBackendPlan(cfg, mode),
-		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessAssetMutationPlan),
+		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
 		progress.Step("planning host repairs")
@@ -1878,6 +1881,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 		return fmt.Sprintf("hazmat codex %s -C %s", flag, projectDir)
 	case "gemini":
 		return fmt.Sprintf("hazmat gemini %s -C %s", flag, projectDir)
+	case "hermes":
+		return fmt.Sprintf("hazmat hermes %s -C %s", flag, projectDir)
 	default:
 		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	}

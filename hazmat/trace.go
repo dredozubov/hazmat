@@ -422,6 +422,22 @@ func supportedTraceHarnessSpecs() []traceHarnessSpec {
 			},
 			SampleArgs: []string{"-p", "say ok"},
 		},
+		{
+			ID:          HarnessHermes,
+			DisplayName: "Hermes",
+			CommandName: "hermes",
+			Parser:      parseHarnessArgs,
+			ProcessFilters: []string{
+				"hermes",
+			},
+			AgentStatePaths: []string{
+				hermesStateDir(),
+			},
+			HostStatePaths: []string{
+				"~/.hazmat/secrets/providers",
+			},
+			SampleArgs: []string{"--version"},
+		},
 	}
 }
 

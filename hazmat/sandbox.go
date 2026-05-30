@@ -219,6 +219,8 @@ func sandboxAgentDisplayName(agent string) string {
 		return "OpenCode"
 	case "gemini":
 		return "Gemini"
+	case "hermes":
+		return "Hermes"
 	case "shell":
 		return "shell"
 	default:
@@ -1041,6 +1043,14 @@ func runSandboxGeminiSession(cfg sessionConfig, forwarded []string) error {
 
 func runPreparedSandboxGeminiSession(prepared preparedSession, forwarded []string) error {
 	return runPreparedSandboxAgentSession(prepared, "gemini", forwarded)
+}
+
+func runSandboxHermesSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxHermesSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxHermesSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "hermes", forwarded)
 }
 
 func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {
