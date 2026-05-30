@@ -298,7 +298,8 @@ func parseExportedEnvLineValue(line, envVar string) (string, bool) {
 
 func harnessAPIKeySpecForHarness(id HarnessID) (harnessAPIKeySpec, bool) {
 	for _, spec := range harnessAPIKeyPrompts {
-		if spec.Harness == id {
+		descriptor, ok := findCredentialDescriptor(spec.CredentialID)
+		if ok && descriptor.CanDeliverTo(id) {
 			return spec, true
 		}
 	}

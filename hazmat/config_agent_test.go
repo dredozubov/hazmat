@@ -326,27 +326,94 @@ func TestMaskHostKeyLongKeyShowsHeadAndTail(t *testing.T) {
 	}
 }
 
-// harnessAPIKeyPrompts must cover every managed harness that has a
-// single-env-var auth path. OpenCode is exempt because it auths per-provider
-// via 'opencode auth login' (no single env var); future per-provider config
-// agent flows can revisit. Catches the case where someone adds a new harness
-// to managedHarnessRegistry but forgets to wire its API-key prompt here.
-func TestHarnessAPIKeyPromptsCoverAllSingleEnvVarHarnesses(t *testing.T) {
-	exempt := map[HarnessID]bool{
-		HarnessOpenCode: true, // multi-provider auth, no single env var
-	}
-	covered := make(map[HarnessID]bool, len(harnessAPIKeyPrompts))
+func TestProviderAPIKeyPromptsCoverManagedProviderDescriptors(t *testing.T) {
+	covered := make(map[credentialID]bool, len(harnessAPIKeyPrompts))
 	for _, spec := range harnessAPIKeyPrompts {
-		covered[spec.Harness] = true
+		descriptor := mustCredentialDescriptor(spec.CredentialID)
+		if descriptor.Kind != credentialKindProviderAPIKey {
+			t.Fatalf("%s prompt points at %s, want provider API key", spec.CredentialID, descriptor.Kind)
+		}
+		if spec.EnvVar != descriptor.EnvVar {
+			t.Fatalf("%s prompt EnvVar = %q, want descriptor env var %q", spec.CredentialID, spec.EnvVar, descriptor.EnvVar)
+		}
+		covered[spec.CredentialID] = true
 	}
-	for _, h := range managedHarnessRegistry {
-		if exempt[h.Spec.ID] {
+	for _, descriptor := range builtinCredentialDescriptors() {
+		if descriptor.Kind != credentialKindProviderAPIKey {
 			continue
 		}
-		if !covered[h.Spec.ID] {
-			t.Errorf("managed harness %q has no entry in harnessAPIKeyPrompts — config agent will not prompt for its API key", h.Spec.ID)
+		if !covered[descriptor.ID] {
+			t.Errorf("provider credential %q has no config-agent prompt", descriptor.ID)
 		}
 	}
+}
+
+func TestProviderAPIKeyPromptsAreSelectedFromConsumerHarnesses(t *testing.T) {
+	cases := []struct {
+		name      string
+		harnesses []HarnessID
+		want      []string
+	}{
+		{
+			name:      "none installed",
+			harnesses: nil,
+			want:      nil,
+		},
+		{
+			name:      "opencode only",
+			harnesses: []HarnessID{HarnessOpenCode},
+			want:      nil,
+		},
+		{
+			name:      "codex",
+			harnesses: []HarnessID{HarnessCodex},
+			want:      []string{"OPENAI_API_KEY"},
+		},
+		{
+			name:      "hermes",
+			harnesses: []HarnessID{HarnessHermes},
+			want:      []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"},
+		},
+		{
+			name:      "codex and hermes deduplicate openai",
+			harnesses: []HarnessID{HarnessCodex, HarnessHermes},
+			want:      []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompts := providerAPIKeyPromptsForHarnesses(tc.harnesses)
+			got := make([]string, 0, len(prompts))
+			for _, prompt := range prompts {
+				got = append(got, prompt.EnvVar)
+			}
+			if !sameStrings(got, tc.want) {
+				t.Fatalf("providerAPIKeyPromptsForHarnesses(%v) = %v, want %v", tc.harnesses, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProviderAPIKeyPromptConsumerLabelIncludesSharedConsumers(t *testing.T) {
+	openai := harnessAPIKeyPromptByEnvVar("OPENAI_API_KEY")
+	got := providerAPIKeyPromptConsumerLabel(openai)
+	want := "Codex and Hermes"
+	if got != want {
+		t.Fatalf("OpenAI consumer label = %q, want %q", got, want)
+	}
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestRemoveINIValuesRemovesOnlyLegacyGitHTTPSHelper(t *testing.T) {

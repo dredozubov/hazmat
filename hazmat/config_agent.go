@@ -18,15 +18,15 @@ func newConfigAgentCmd() *cobra.Command {
 		Long: `Configure the agent user's credentials.
 
 Sets up:
-  1. API keys for installed harnesses (Anthropic / OpenAI / Gemini —
-     only prompts for harnesses that are actually installed)
-     Stored in ~/.hazmat/secrets and injected only into matching sessions
+  1. Provider API keys used by installed harnesses (Anthropic / OpenAI /
+     Gemini / OpenRouter). Stored in ~/.hazmat/secrets and injected only into
+     explicitly allowed sessions
   2. Git identity (name + email, pre-filled from host git config)
   3. Removes legacy agent-home Git HTTPS credential helpers
 
 Each prompt copies from your invoking-shell environment when the matching
 env var is set, lets you paste a key, or accepts Enter to skip in favour
-of a per-harness import or interactive sign-in path.
+of a provider import or interactive sign-in path.
 
 Idempotent: existing values are shown and can be kept or overridden.
 
@@ -40,10 +40,10 @@ Examples:
 	return cmd
 }
 
-// harnessAPIKeySpec maps a managed harness to the env var its CLI reads for
-// API-key auth, plus presentation hints.
+// harnessAPIKeySpec describes a provider API-key prompt. Eligibility comes
+// from the credential registry's consumer harnesses, not from this table.
 type harnessAPIKeySpec struct {
-	Harness      HarnessID
+	CredentialID credentialID
 	EnvVar       string // env var name injected into matching sessions
 	DisplayName  string // "Anthropic", "OpenAI", "Gemini"
 	KeyPrefix    string // mask hint — known prefix that identifies a real key (e.g. "sk-ant-"); empty = no prefix-based mask
@@ -51,32 +51,40 @@ type harnessAPIKeySpec struct {
 	NotFoundHint string // shown when neither current nor host env var is set, before the paste prompt
 }
 
-// harnessAPIKeyPrompts is the table of API-key prompts that runConfigAgent
-// iterates. A harness is only prompted if it's currently installed.
+// harnessAPIKeyPrompts is the provider-prompt presentation table. Provider
+// descriptors decide which harnesses can consume each key.
 var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 	{
-		Harness:      HarnessClaude,
+		CredentialID: credentialProviderAnthropicAPIKey,
 		EnvVar:       "ANTHROPIC_API_KEY",
 		DisplayName:  "Anthropic",
 		KeyPrefix:    "sk-ant-",
-		SkipHint:     "import host Claude basics or run 'hazmat claude' and type /login",
-		NotFoundHint: "Paste an API key now (sk-ant-...) or press Enter to skip and use /login inside 'hazmat claude'.",
+		SkipHint:     "use provider auth inside Claude Code or another allowed harness",
+		NotFoundHint: "Paste an API key now (sk-ant-...) or press Enter to skip provider API-key setup.",
 	},
 	{
-		Harness:      HarnessCodex,
+		CredentialID: credentialProviderOpenAIAPIKey,
 		EnvVar:       "OPENAI_API_KEY",
 		DisplayName:  "OpenAI",
 		KeyPrefix:    "sk-",
-		SkipHint:     "import host Codex basics or sign in inside 'hazmat codex' (option 2 — Device Code)",
-		NotFoundHint: "Paste an API key now (sk-...) or press Enter to skip and sign in inside 'hazmat codex'.",
+		SkipHint:     "use provider auth inside Codex or another allowed harness",
+		NotFoundHint: "Paste an API key now (sk-...) or press Enter to skip provider API-key setup.",
 	},
 	{
-		Harness:      HarnessGemini,
+		CredentialID: credentialProviderGeminiAPIKey,
 		EnvVar:       "GEMINI_API_KEY",
 		DisplayName:  "Gemini",
 		KeyPrefix:    "",
-		SkipHint:     "import host Gemini basics or sign in with Google inside 'hazmat gemini'",
-		NotFoundHint: "Paste an API key now (from https://aistudio.google.com/apikey) or press Enter to skip and sign in inside 'hazmat gemini'.",
+		SkipHint:     "use provider auth inside Gemini or another allowed harness",
+		NotFoundHint: "Paste an API key now (from https://aistudio.google.com/apikey) or press Enter to skip provider API-key setup.",
+	},
+	{
+		CredentialID: credentialProviderOpenRouterAPIKey,
+		EnvVar:       "OPENROUTER_API_KEY",
+		DisplayName:  "OpenRouter",
+		KeyPrefix:    "sk-or-",
+		SkipHint:     "use provider auth inside an allowed harness",
+		NotFoundHint: "Paste an API key now (sk-or-...) or press Enter to skip provider API-key setup.",
 	},
 }
 
@@ -106,26 +114,16 @@ func runConfigAgent(ui *UI) error {
 
 	// ── Collect all inputs first (no sudo needed) ──────────────────────────
 
-	// ── 1. API keys (one prompt per installed harness) ─────────────────────
+	// ── 1. Provider API keys (one prompt per relevant provider) ────────────
 	var apiKeyUpdates []pendingAPIKeyUpdate
-	promptedAny := false
-	for _, spec := range harnessAPIKeyPrompts {
-		if !isManagedHarnessInstalled(spec.Harness) {
-			continue
-		}
-		promptedAny = true
-		update, err := collectHarnessAPIKey(ui, spec)
-		if err != nil {
-			return err
-		}
-		if update != nil {
-			apiKeyUpdates = append(apiKeyUpdates, *update)
-		}
-	}
-	if !promptedAny {
+	apiKeyPrompts := providerAPIKeyPromptsForHarnesses(installedManagedHarnessIDs())
+	if len(apiKeyPrompts) == 0 {
 		// No harnesses installed yet — preserve historical UX by showing the
-		// claude prompt anyway so users discover the path before they bootstrap.
-		update, err := collectHarnessAPIKey(ui, harnessAPIKeyPrompts[0])
+		// Anthropic prompt so users discover the path before they bootstrap.
+		apiKeyPrompts = []harnessAPIKeySpec{harnessAPIKeyPrompts[0]}
+	}
+	for _, spec := range apiKeyPrompts {
+		update, err := collectHarnessAPIKey(ui, spec)
 		if err != nil {
 			return err
 		}
@@ -258,6 +256,9 @@ func runConfigAgent(ui *UI) error {
 // the user provides a new value.
 func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate, error) {
 	ui.Step(fmt.Sprintf("%s API key", spec.DisplayName))
+	if consumers := providerAPIKeyPromptConsumerLabel(spec); consumers != "" {
+		fmt.Printf("  Used by: %s\n", consumers)
+	}
 
 	currentValue, source, err := lookupConfiguredAPIKey(spec)
 	if err != nil {
@@ -305,6 +306,81 @@ func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate,
 			return nil, nil
 		}
 		return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: newKey}, nil
+	}
+}
+
+func installedManagedHarnessIDs() []HarnessID {
+	installed := installedManagedHarnesses()
+	ids := make([]HarnessID, 0, len(installed))
+	for _, harness := range installed {
+		ids = append(ids, harness.Spec.ID)
+	}
+	return ids
+}
+
+func providerAPIKeyPromptsForHarnesses(harnesses []HarnessID) []harnessAPIKeySpec {
+	installed := make(map[HarnessID]struct{}, len(harnesses))
+	for _, harness := range harnesses {
+		if harness != "" {
+			installed[harness] = struct{}{}
+		}
+	}
+	if len(installed) == 0 {
+		return nil
+	}
+
+	var prompts []harnessAPIKeySpec
+	for _, spec := range harnessAPIKeyPrompts {
+		descriptor, ok := findCredentialDescriptor(spec.CredentialID)
+		if !ok || descriptor.Kind != credentialKindProviderAPIKey {
+			continue
+		}
+		for _, consumer := range descriptor.ConsumerHarnessIDs() {
+			if _, ok := installed[consumer]; ok {
+				prompts = append(prompts, spec)
+				break
+			}
+		}
+	}
+	return prompts
+}
+
+func providerAPIKeyPromptConsumerLabel(spec harnessAPIKeySpec) string {
+	descriptor, ok := findCredentialDescriptor(spec.CredentialID)
+	if !ok {
+		return ""
+	}
+	consumers := descriptor.ConsumerHarnessIDs()
+	if len(consumers) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(consumers))
+	for _, consumer := range consumers {
+		labels = append(labels, harnessDisplayNameForPrompt(consumer))
+	}
+	return joinPromptLabels(labels)
+}
+
+func harnessDisplayNameForPrompt(id HarnessID) string {
+	if id == HarnessHermes {
+		return "Hermes"
+	}
+	if harness, ok := managedHarnessByID(id); ok && strings.TrimSpace(harness.Spec.DisplayName) != "" {
+		return harness.Spec.DisplayName
+	}
+	return string(id)
+}
+
+func joinPromptLabels(labels []string) string {
+	switch len(labels) {
+	case 0:
+		return ""
+	case 1:
+		return labels[0]
+	case 2:
+		return labels[0] + " and " + labels[1]
+	default:
+		return strings.Join(labels[:len(labels)-1], ", ") + ", and " + labels[len(labels)-1]
 	}
 }
 
