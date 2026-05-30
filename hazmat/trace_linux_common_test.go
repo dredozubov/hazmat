@@ -8,7 +8,7 @@ import (
 )
 
 func TestPlanLinuxStraceUsesResolvedTool(t *testing.T) {
-	plan := planLinuxStrace(traceOptions{Syscalls: true}, func(name string) (string, bool) {
+	plan := planLinuxStrace(func(name string) (string, bool) {
 		if name != "strace" {
 			t.Fatalf("resolver asked for %q, want strace", name)
 		}
@@ -20,30 +20,20 @@ func TestPlanLinuxStraceUsesResolvedTool(t *testing.T) {
 	if plan.ToolPath != "/usr/bin/strace" {
 		t.Fatalf("ToolPath = %q, want /usr/bin/strace", plan.ToolPath)
 	}
-	if plan.DegradedReason != "" {
-		t.Fatalf("DegradedReason = %q, want empty", plan.DegradedReason)
+	if plan.MissingReason != "" {
+		t.Fatalf("MissingReason = %q, want empty", plan.MissingReason)
 	}
 }
 
-func TestPlanLinuxStraceDisablesWhenMissing(t *testing.T) {
-	plan := planLinuxStrace(traceOptions{Syscalls: true}, func(string) (string, bool) {
+func TestPlanLinuxStraceFailsWhenMissing(t *testing.T) {
+	plan := planLinuxStrace(func(string) (string, bool) {
 		return "", false
 	})
 	if plan.Enabled {
 		t.Fatal("expected missing strace to disable plan")
 	}
-	if plan.DegradedReason == "" {
+	if plan.MissingReason == "" {
 		t.Fatal("expected strict failure reason for missing strace")
-	}
-}
-
-func TestPlanLinuxStraceDisabledByOption(t *testing.T) {
-	plan := planLinuxStrace(traceOptions{Syscalls: false}, func(string) (string, bool) {
-		t.Fatal("resolver should not be called when syscall tracing is disabled")
-		return "", false
-	})
-	if plan.Enabled || plan.ToolPath != "" || plan.DegradedReason != "" {
-		t.Fatalf("plan = %+v, want zero plan", plan)
 	}
 }
 

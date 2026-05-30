@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,9 +58,9 @@ func (linuxTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error 
 		return err
 	}
 	if opts.Syscalls {
-		plan := planLinuxStrace(opts, resolveLinuxTraceTool)
+		plan := planLinuxStrace(resolveLinuxTraceTool)
 		if !plan.Enabled {
-			return fmt.Errorf("trace requires strace before launch: %s", plan.DegradedReason)
+			return fmt.Errorf("trace requires strace before launch: %s", plan.MissingReason)
 		}
 	}
 	if err := runTracePreflightCommand(10*time.Second, mustLinuxTraceTool("journalctl"), "--no-pager", "-n", "1"); err != nil {
@@ -71,36 +72,59 @@ func (linuxTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error 
 	return nil
 }
 
-func (linuxTraceBackend) writeToolProbe(dir string, _ traceHarnessSpec) {
-	runTraceCommandToFile(filepath.Join(dir, "tool-probe-01-uname.txt"), 10*time.Second, hostUnamePath, "-a")
-	writeLinuxTraceFileSnapshot(filepath.Join(dir, "tool-probe-02-os-release.txt"), "/etc/os-release")
-	writeLinuxTraceToolAvailability(filepath.Join(dir, "tool-probe-03-which.txt"),
-		"strace", "ps", "journalctl", "dmesg", "ls", "stat")
-	writeLinuxTraceFileSnapshot(filepath.Join(dir, "tool-probe-04-ptrace-scope.txt"), "/proc/sys/kernel/yama/ptrace_scope")
-	writeLinuxCapabilityProbe(filepath.Join(dir, "tool-probe-05-capabilities.txt"))
+func (linuxTraceBackend) writeToolProbe(dir string, _ traceHarnessSpec) error {
+	if err := runRequiredTraceCommandToFile(filepath.Join(dir, "tool-probe-01-uname.txt"), 10*time.Second, hostUnamePath, "-a"); err != nil {
+		return err
+	}
+	if err := writeLinuxTraceFileSnapshot(filepath.Join(dir, "tool-probe-02-os-release.txt"), "/etc/os-release"); err != nil {
+		return err
+	}
+	if err := writeLinuxTraceToolAvailability(filepath.Join(dir, "tool-probe-03-which.txt"),
+		"strace", "ps", "journalctl", "dmesg", "ls", "stat"); err != nil {
+		return err
+	}
+	if err := writeLinuxTraceFileSnapshot(filepath.Join(dir, "tool-probe-04-ptrace-scope.txt"), "/proc/sys/kernel/yama/ptrace_scope"); err != nil {
+		return err
+	}
+	return writeLinuxCapabilityProbe(filepath.Join(dir, "tool-probe-05-capabilities.txt"))
 }
 
-func (linuxTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, phase string) {
-	runLinuxTraceToolToFile(dir, phase+"-ps.txt", 10*time.Second,
-		"ps", "-eo", "pid,ppid,pgid,user,stat,etime,args")
-	writeLinuxTraceFileSnapshot(filepath.Join(dir, phase+"-proc-self-status.txt"), "/proc/self/status")
-	writeLinuxMatchedProcStatus(filepath.Join(dir, phase+"-proc-process-status.txt"), spec)
+func (linuxTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, phase string) error {
+	if err := runRequiredLinuxTraceToolToFile(dir, phase+"-ps.txt", 10*time.Second,
+		"ps", "-eo", "pid,ppid,pgid,user,stat,etime,args"); err != nil {
+		return err
+	}
+	if err := writeRequiredLinuxTraceFileSnapshot(filepath.Join(dir, phase+"-proc-self-status.txt"), "/proc/self/status"); err != nil {
+		return err
+	}
+	if err := writeLinuxMatchedProcStatus(filepath.Join(dir, phase+"-proc-process-status.txt"), spec); err != nil {
+		return err
+	}
 	for _, path := range spec.AgentStatePaths {
 		name := phase + "-agent-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runLinuxTraceToolToFile(dir, name, 10*time.Second, "ls", "-ld", "--", path)
+		if err := runLinuxTraceToolToFile(dir, name, 10*time.Second, "ls", "-ld", "--", path); err != nil {
+			return err
+		}
 	}
 	for _, path := range spec.HostStatePaths {
 		name := phase + "-host-" + sanitizeTraceFilename(path) + "-ls.txt"
-		runLinuxTraceToolToFile(dir, name, 10*time.Second, "ls", "-ld", "--", expandTilde(path))
+		if err := runLinuxTraceToolToFile(dir, name, 10*time.Second, "ls", "-ld", "--", expandTilde(path)); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (linuxTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error) {
 	if !opts.Syscalls {
-		return noopTraceObservers{}, nil
+		return nil, fmt.Errorf("trace requires Linux syscall observers")
+	}
+	samplerDone, err := startLinuxTraceProcessSampler(ctx, filepath.Join(dir, "process-samples.log"), spec)
+	if err != nil {
+		return nil, err
 	}
 	return linuxTraceObservers{
-		samplerDone: startLinuxTraceProcessSampler(ctx, filepath.Join(dir, "process-samples.log"), spec),
+		samplerDone: samplerDone,
 	}, nil
 }
 
@@ -109,9 +133,9 @@ func (linuxTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []s
 	if err != nil {
 		return err
 	}
-	plan := planLinuxStrace(opts, resolveLinuxTraceTool)
+	plan := planLinuxStrace(resolveLinuxTraceTool)
 	if !plan.Enabled {
-		return fmt.Errorf("trace requires strace before launch: %s", plan.DegradedReason)
+		return fmt.Errorf("trace requires strace before launch: %s", plan.MissingReason)
 	}
 	return runLinuxStraceLaunch(dir, plan.ToolPath, cmd)
 }
@@ -121,18 +145,19 @@ func traceScriptCommandArgs(transcript, self string, launchArgs []string) []stri
 	return []string{"-q", "-e", "-c", command, transcript}
 }
 
-func (linuxTraceBackend) writePostLaunchLogs(dir string, _ traceHarnessSpec, start, end time.Time) {
+func (linuxTraceBackend) writePostLaunchLogs(dir string, _ traceHarnessSpec, start, end time.Time) error {
 	since := start.Add(-2 * time.Second).Format(time.RFC3339)
 	until := end.Add(2 * time.Second).Format(time.RFC3339)
-	runLinuxTraceToolToFile(dir, "journal.log", 20*time.Second,
-		"journalctl", "--no-pager", "--since", since, "--until", until)
-	runLinuxTraceToolToFile(dir, "dmesg.log", 10*time.Second,
+	if err := runRequiredLinuxTraceToolToFile(dir, "journal.log", 20*time.Second,
+		"journalctl", "--no-pager", "--since", since, "--until", until); err != nil {
+		return err
+	}
+	return runRequiredLinuxTraceToolToFile(dir, "dmesg.log", 10*time.Second,
 		"dmesg", "--ctime", "--color=never")
 }
 
 func (linuxTraceBackend) indicatorFiles() []string {
 	return []string{
-		"trace-errors.log",
 		"strace-stderr.log",
 		"strace.log",
 		"strace.log.*",
@@ -175,9 +200,8 @@ func runLinuxStraceLaunch(dir, stracePath string, cmd *exec.Cmd) error {
 	wrapped.Dir = cmd.Dir
 	wrapped.Env = cmd.Env
 	err = runSessionCommand(wrapped)
-	_ = stderrCloser.Close()
-	if err != nil {
-		appendTraceText(dir, "trace-errors.log", fmt.Sprintf("# %s\nstrace launch exited: %v\n", time.Now().Format(time.RFC3339Nano), err))
+	if closeErr := stderrCloser.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close strace stderr log: %w", closeErr))
 	}
 	return err
 }
@@ -209,14 +233,14 @@ func linuxTraceStderr(dir string, primary io.Writer) (io.Writer, io.Closer, erro
 	}, file, nil
 }
 
-func startLinuxTraceProcessSampler(ctx context.Context, path string, spec traceHarnessSpec) <-chan struct{} {
+func startLinuxTraceProcessSampler(ctx context.Context, path string, spec traceHarnessSpec) (<-chan struct{}, error) {
 	done := make(chan struct{})
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create process samples log: %w", err)
+	}
 	go func() {
 		defer close(done)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			return
-		}
 		defer file.Close()
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
@@ -229,7 +253,7 @@ func startLinuxTraceProcessSampler(ctx context.Context, path string, spec traceH
 			}
 		}
 	}()
-	return done
+	return done, nil
 }
 
 func sampleLinuxTraceProcesses(w io.Writer, spec traceHarnessSpec) {
@@ -266,18 +290,16 @@ func linuxTraceProcessLines(spec traceHarnessSpec) ([]string, error) {
 	return lines, scanner.Err()
 }
 
-func writeLinuxMatchedProcStatus(path string, spec traceHarnessSpec) {
+func writeLinuxMatchedProcStatus(path string, spec traceHarnessSpec) error {
 	lines, err := linuxTraceProcessLines(spec)
 	if err != nil {
-		writeLinuxTracePath(path, fmt.Sprintf("# %s\n# collect matching process status: %v\n", time.Now().Format(time.RFC3339Nano), err))
-		return
+		return fmt.Errorf("collect matching process status: %w", err)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n# /proc/<pid>/status for matching ps rows\n\n", time.Now().Format(time.RFC3339Nano))
 	if len(lines) == 0 {
 		fmt.Fprintln(&b, "# no matching processes")
-		writeLinuxTracePath(path, b.String())
-		return
+		return writeLinuxTracePath(path, b.String())
 	}
 	for _, line := range lines {
 		pid, ok := linuxTracePIDFromPSLine(line)
@@ -293,7 +315,7 @@ func writeLinuxMatchedProcStatus(path string, spec traceHarnessSpec) {
 		}
 		fmt.Fprintf(&b, "%s\n", data)
 	}
-	writeLinuxTracePath(path, b.String())
+	return writeLinuxTracePath(path, b.String())
 }
 
 func linuxTracePIDFromPSLine(line string) (string, bool) {
@@ -309,16 +331,23 @@ func linuxTracePIDFromPSLine(line string) (string, bool) {
 	return fields[0], true
 }
 
-func runLinuxTraceToolToFile(dir, name string, timeout time.Duration, tool string, args ...string) {
+func runLinuxTraceToolToFile(dir, name string, timeout time.Duration, tool string, args ...string) error {
 	path, ok := resolveLinuxTraceTool(tool)
 	if !ok {
-		writeTraceText(dir, name, fmt.Sprintf("# %s\n# %s not found in supported Linux tool paths\n", time.Now().Format(time.RFC3339Nano), tool))
-		return
+		return writeTraceText(dir, name, fmt.Sprintf("# %s\n# %s not found in supported Linux tool paths\n", time.Now().Format(time.RFC3339Nano), tool))
 	}
-	runTraceCommandToFile(filepath.Join(dir, name), timeout, path, args...)
+	return runTraceCommandToFile(filepath.Join(dir, name), timeout, path, args...)
 }
 
-func writeLinuxTraceToolAvailability(path string, tools ...string) {
+func runRequiredLinuxTraceToolToFile(dir, name string, timeout time.Duration, tool string, args ...string) error {
+	path, ok := resolveLinuxTraceTool(tool)
+	if !ok {
+		return fmt.Errorf("trace requires %s in supported Linux tool paths", tool)
+	}
+	return runRequiredTraceCommandToFile(filepath.Join(dir, name), timeout, path, args...)
+}
+
+func writeLinuxTraceToolAvailability(path string, tools ...string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", time.Now().Format(time.RFC3339Nano))
 	for _, tool := range tools {
@@ -328,23 +357,29 @@ func writeLinuxTraceToolAvailability(path string, tools ...string) {
 			fmt.Fprintf(&b, "%s: not found\n", tool)
 		}
 	}
-	writeLinuxTracePath(path, b.String())
+	return writeLinuxTracePath(path, b.String())
 }
 
-func writeLinuxTraceFileSnapshot(dest, source string) {
+func writeLinuxTraceFileSnapshot(dest, source string) error {
 	data, err := os.ReadFile(source)
 	if err != nil {
-		writeLinuxTracePath(dest, fmt.Sprintf("# %s\n# read %s: %v\n", time.Now().Format(time.RFC3339Nano), source, err))
-		return
+		return writeLinuxTracePath(dest, fmt.Sprintf("# %s\n# read %s: %v\n", time.Now().Format(time.RFC3339Nano), source, err))
 	}
-	writeLinuxTracePath(dest, fmt.Sprintf("# %s\n# %s\n\n%s", time.Now().Format(time.RFC3339Nano), source, data))
+	return writeLinuxTracePath(dest, fmt.Sprintf("# %s\n# %s\n\n%s", time.Now().Format(time.RFC3339Nano), source, data))
 }
 
-func writeLinuxCapabilityProbe(path string) {
+func writeRequiredLinuxTraceFileSnapshot(dest, source string) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", source, err)
+	}
+	return writeLinuxTracePath(dest, fmt.Sprintf("# %s\n# %s\n\n%s", time.Now().Format(time.RFC3339Nano), source, data))
+}
+
+func writeLinuxCapabilityProbe(path string) error {
 	data, err := os.ReadFile("/proc/self/status")
 	if err != nil {
-		writeLinuxTracePath(path, fmt.Sprintf("# %s\n# read /proc/self/status: %v\n", time.Now().Format(time.RFC3339Nano), err))
-		return
+		return fmt.Errorf("read /proc/self/status: %w", err)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n# /proc/self/status capability and confinement fields\n\n", time.Now().Format(time.RFC3339Nano))
@@ -362,11 +397,14 @@ func writeLinuxCapabilityProbe(path string) {
 			fmt.Fprintln(&b, line)
 		}
 	}
-	writeLinuxTracePath(path, b.String())
+	return writeLinuxTracePath(path, b.String())
 }
 
-func writeLinuxTracePath(path, content string) {
-	_ = os.WriteFile(path, []byte(content), 0o600)
+func writeLinuxTracePath(path, content string) error {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write trace path %s: %w", path, err)
+	}
+	return nil
 }
 
 func resolveLinuxTraceTool(name string) (string, bool) {

@@ -5,19 +5,16 @@ package main
 type linuxTraceToolResolver func(name string) (string, bool)
 
 type linuxStracePlan struct {
-	Enabled        bool
-	ToolPath       string
-	DegradedReason string
+	Enabled       bool
+	ToolPath      string
+	MissingReason string
 }
 
-func planLinuxStrace(opts traceOptions, resolve linuxTraceToolResolver) linuxStracePlan {
-	if !opts.Syscalls {
-		return linuxStracePlan{}
-	}
+func planLinuxStrace(resolve linuxTraceToolResolver) linuxStracePlan {
 	path, ok := resolve("strace")
 	if !ok {
 		return linuxStracePlan{
-			DegradedReason: "strace not found in supported Linux tool paths; continuing without syscall trace",
+			MissingReason: "strace not found in supported Linux tool paths",
 		}
 	}
 	return linuxStracePlan{

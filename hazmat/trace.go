@@ -79,11 +79,11 @@ type traceBackend interface {
 	unsupportedError(HarnessID) error
 	observerDescription() string
 	preflight(spec traceHarnessSpec, opts traceOptions) error
-	writeToolProbe(dir string, spec traceHarnessSpec)
-	writeHostSnapshot(dir string, spec traceHarnessSpec, phase string)
+	writeToolProbe(dir string, spec traceHarnessSpec) error
+	writeHostSnapshot(dir string, spec traceHarnessSpec, phase string) error
 	startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error)
 	runLaunch(dir string, opts traceOptions, launchArgs []string) error
-	writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time)
+	writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time) error
 	indicatorFiles() []string
 }
 
@@ -195,15 +195,29 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 		Syscalls:      opts.Syscalls,
 		Transcript:    opts.Transcript,
 	}
-	writeTraceManifest(traceDir, manifest)
+	if err := writeTraceManifest(traceDir, manifest); err != nil {
+		return err
+	}
 
 	fmt.Fprintf(os.Stderr, "hazmat trace: writing %s trace bundle to %s\n", spec.DisplayName, traceDir)
-	writeTraceText(traceDir, "command.txt", strings.Join(shellQuote(append([]string{"hazmat"}, launchArgs...)), " ")+"\n")
-	writeTraceExperimentGuide(traceDir, spec, backend)
-	writeTraceHarnessInfo(traceDir, spec)
-	backend.writeHostSnapshot(traceDir, spec, "before")
-	writeTraceExplain(traceDir, spec, forwarded)
-	backend.writeToolProbe(traceDir, spec)
+	if err := writeTraceText(traceDir, "command.txt", strings.Join(shellQuote(append([]string{"hazmat"}, launchArgs...)), " ")+"\n"); err != nil {
+		return err
+	}
+	if err := writeTraceExperimentGuide(traceDir, spec, backend); err != nil {
+		return err
+	}
+	if err := writeTraceHarnessInfo(traceDir, spec); err != nil {
+		return err
+	}
+	if err := backend.writeHostSnapshot(traceDir, spec, "before"); err != nil {
+		return err
+	}
+	if err := writeTraceExplain(traceDir, spec, forwarded); err != nil {
+		return err
+	}
+	if err := backend.writeToolProbe(traceDir, spec); err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	observers, err := backend.startObservers(ctx, traceDir, spec, opts)
@@ -218,17 +232,24 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 
 	launchErr := backend.runLaunch(traceDir, opts, launchArgs)
 	end := time.Now()
+	traceErr := launchErr
 
 	cancel()
 	observers.stop()
-	backend.writeHostSnapshot(traceDir, spec, "after")
-	backend.writePostLaunchLogs(traceDir, spec, start, end)
-	writeTraceIndicators(traceDir, backend.indicatorFiles())
+	if err := backend.writeHostSnapshot(traceDir, spec, "after"); err != nil {
+		traceErr = errors.Join(traceErr, err)
+	}
+	if err := backend.writePostLaunchLogs(traceDir, spec, start, end); err != nil {
+		traceErr = errors.Join(traceErr, err)
+	}
+	if err := writeTraceIndicators(traceDir, backend.indicatorFiles()); err != nil {
+		traceErr = errors.Join(traceErr, err)
+	}
 
 	manifest.EndedAt = end
 	manifest.DurationMS = end.Sub(start).Milliseconds()
-	if launchErr != nil {
-		manifest.Error = launchErr.Error()
+	if traceErr != nil {
+		manifest.Error = traceErr.Error()
 		if code, ok := commandExitCode(launchErr); ok {
 			manifest.ExitCode = &code
 		}
@@ -236,13 +257,21 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 		code := 0
 		manifest.ExitCode = &code
 	}
-	writeTraceManifest(traceDir, manifest)
+	if err := writeTraceManifest(traceDir, manifest); err != nil {
+		return errors.Join(traceErr, err)
+	}
 
 	fmt.Fprintf(os.Stderr, "hazmat trace: bundle complete: %s\n", traceDir)
-	return launchErr
+	return traceErr
 }
 
 func preflightTraceRuntime(opts traceOptions) error {
+	if !opts.Syscalls {
+		return fmt.Errorf("trace requires syscall observer capture")
+	}
+	if !opts.Transcript {
+		return fmt.Errorf("trace requires PTY transcript capture")
+	}
 	if opts.Transcript {
 		if hostScriptPath == "" {
 			return fmt.Errorf("trace requires script(1) for terminal transcript capture")
@@ -344,8 +373,8 @@ func sanitizeTraceLabel(raw string) string {
 	return strings.Trim(b.String(), "-._")
 }
 
-func writeTraceManifest(dir string, manifest traceManifest) {
-	writeTraceJSON(dir, "manifest.json", manifest)
+func writeTraceManifest(dir string, manifest traceManifest) error {
+	return writeTraceJSON(dir, "manifest.json", manifest)
 }
 
 func supportedTraceHarnessSpecs() []traceHarnessSpec {
@@ -434,7 +463,7 @@ func traceHarnessSpecByID(id HarnessID) (traceHarnessSpec, bool) {
 	return traceHarnessSpec{}, false
 }
 
-func writeTraceHarnessInfo(dir string, spec traceHarnessSpec) {
+func writeTraceHarnessInfo(dir string, spec traceHarnessSpec) error {
 	info := traceHarnessInfo{
 		ID:              spec.ID,
 		DisplayName:     spec.DisplayName,
@@ -455,22 +484,20 @@ func writeTraceHarnessInfo(dir string, spec traceHarnessSpec) {
 		}
 		break
 	}
-	writeTraceJSON(dir, "harness.json", info)
+	return writeTraceJSON(dir, "harness.json", info)
 }
 
-func writeTraceExplain(dir string, spec traceHarnessSpec, forwarded []string) {
+func writeTraceExplain(dir string, spec traceHarnessSpec, forwarded []string) error {
 	opts, _, err := spec.Parser(forwarded)
 	if err != nil {
-		writeTraceText(dir, "explain-error.txt", err.Error()+"\n")
-		return
+		return writeTraceText(dir, "explain-error.txt", err.Error()+"\n")
 	}
 	opts.planOnly = true
 	cfg, mode, err := resolveExplainSession(spec.CommandName, opts)
 	if err != nil {
-		writeTraceText(dir, "explain-error.txt", err.Error()+"\n")
-		return
+		return writeTraceText(dir, "explain-error.txt", err.Error()+"\n")
 	}
-	writeTraceJSON(dir, "explain.json", buildExplainJSON(spec.CommandName, cfg, mode, opts.noBackup))
+	return writeTraceJSON(dir, "explain.json", buildExplainJSON(spec.CommandName, cfg, mode, opts.noBackup))
 }
 
 func sanitizeTraceFilename(path string) string {
@@ -523,7 +550,7 @@ func processSampleLineRelevant(line string, spec traceHarnessSpec) bool {
 	return false
 }
 
-func writeTraceIndicators(dir string, files []string) {
+func writeTraceIndicators(dir string, files []string) error {
 	patterns := []string{
 		"sandbox",
 		"automation",
@@ -579,7 +606,7 @@ func writeTraceIndicators(dir string, files []string) {
 			_ = f.Close()
 		}
 	}
-	writeTraceText(dir, "indicators.md", b.String())
+	return writeTraceText(dir, "indicators.md", b.String())
 }
 
 func traceIndicatorPaths(dir, file string) []string {
@@ -594,7 +621,7 @@ func traceIndicatorPaths(dir, file string) []string {
 	return matches
 }
 
-func writeTraceExperimentGuide(dir string, spec traceHarnessSpec, backend traceBackend) {
+func writeTraceExperimentGuide(dir string, spec traceHarnessSpec, backend traceBackend) error {
 	sample := strings.Join(shellQuote(spec.SampleArgs), " ")
 	artifacts := append([]string{
 		"manifest.json",
@@ -623,16 +650,31 @@ Compare %[4]s, and indicators.md across runs. The strongest evidence is a
 probe or denial that appears only in failing runs and disappears in the nearest
 passing control.
 `, spec.DisplayName, spec.CommandName, sample, artifactList)
-	writeTraceText(dir, "experiments.md", content)
+	return writeTraceText(dir, "experiments.md", content)
 }
 
-func runTraceCommandToFile(path string, timeout time.Duration, name string, args ...string) {
+func runTraceCommandToFile(path string, timeout time.Duration, name string, args ...string) error {
+	return runTraceCommandToFileMode(path, timeout, false, name, args...)
+}
+
+func runRequiredTraceCommandToFile(path string, timeout time.Duration, name string, args ...string) error {
+	return runTraceCommandToFileMode(path, timeout, true, name, args...)
+}
+
+func runTraceCommandToFileMode(path string, timeout time.Duration, requireSuccess bool, name string, args ...string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return
+		return fmt.Errorf("create trace command output %s: %w", path, err)
 	}
-	defer file.Close()
-	fmt.Fprintf(file, "# %s\n# %s\n\n", time.Now().Format(time.RFC3339Nano), strings.Join(shellQuote(append([]string{name}, args...)), " "))
+	var result error
+	commandText := strings.Join(shellQuote(append([]string{name}, args...)), " ")
+	if _, err := fmt.Fprintf(file, "# %s\n# %s\n\n", time.Now().Format(time.RFC3339Nano), commandText); err != nil {
+		result = fmt.Errorf("write trace command header %s: %w", path, err)
+		if closeErr := file.Close(); closeErr != nil {
+			result = errors.Join(result, fmt.Errorf("close trace command output %s: %w", path, closeErr))
+		}
+		return result
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -640,12 +682,23 @@ func runTraceCommandToFile(path string, timeout time.Duration, name string, args
 	cmd.Stderr = file
 	err = cmd.Run()
 	if ctx.Err() != nil {
-		fmt.Fprintf(file, "\n# timed out after %s\n", timeout)
-		return
+		timeoutErr := fmt.Errorf("trace command %s timed out after %s", commandText, timeout)
+		if _, writeErr := fmt.Fprintf(file, "\n# timed out after %s\n", timeout); writeErr != nil {
+			result = errors.Join(timeoutErr, fmt.Errorf("write trace command timeout %s: %w", path, writeErr))
+		} else {
+			result = timeoutErr
+		}
+	} else if err != nil {
+		if _, writeErr := fmt.Fprintf(file, "\n# exit error: %v\n", err); writeErr != nil {
+			result = fmt.Errorf("write trace command error %s: %w", path, writeErr)
+		} else if requireSuccess {
+			result = fmt.Errorf("trace command %s failed: %w", commandText, err)
+		}
 	}
-	if err != nil {
-		fmt.Fprintf(file, "\n# exit error: %v\n", err)
+	if closeErr := file.Close(); closeErr != nil {
+		result = errors.Join(result, fmt.Errorf("close trace command output %s: %w", path, closeErr))
 	}
+	return result
 }
 
 func requireTraceExecutable(label, path string) error {
@@ -682,30 +735,31 @@ func runTracePreflightCommand(timeout time.Duration, name string, args ...string
 	return nil
 }
 
-func writeTraceJSON(dir, name string, value any) {
+func writeTraceJSON(dir, name string, value any) error {
 	path := filepath.Join(dir, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return
+		return fmt.Errorf("create trace JSON %s: %w", path, err)
 	}
-	defer file.Close()
 	enc := json.NewEncoder(file)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(value)
-}
-
-func writeTraceText(dir, name, content string) {
-	_ = os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600)
-}
-
-func appendTraceText(dir, name, content string) {
-	file, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return
+	var result error
+	if err := enc.Encode(value); err != nil {
+		result = fmt.Errorf("write trace JSON %s: %w", path, err)
 	}
-	defer file.Close()
-	_, _ = file.WriteString(content)
+	if err := file.Close(); err != nil {
+		result = errors.Join(result, fmt.Errorf("close trace JSON %s: %w", path, err))
+	}
+	return result
+}
+
+func writeTraceText(dir, name, content string) error {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write trace text %s: %w", path, err)
+	}
+	return nil
 }
 
 func commandExitCode(err error) (int, bool) {

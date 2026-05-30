@@ -186,7 +186,9 @@ func TestWriteTraceIndicatorsExpandsGlobFiles(t *testing.T) {
 		t.Fatalf("write strace fixture: %v", err)
 	}
 
-	writeTraceIndicators(dir, []string{"strace.log.*"})
+	if err := writeTraceIndicators(dir, []string{"strace.log.*"}); err != nil {
+		t.Fatalf("write indicators: %v", err)
+	}
 
 	got, err := os.ReadFile(filepath.Join(dir, "indicators.md"))
 	if err != nil {
@@ -198,5 +200,14 @@ func TestWriteTraceIndicatorsExpandsGlobFiles(t *testing.T) {
 	}
 	if !strings.Contains(text, "openat denied EACCES sandbox") {
 		t.Fatalf("indicators missing matched line: %s", text)
+	}
+}
+
+func TestPreflightTraceRuntimeRejectsPartialTraceOptions(t *testing.T) {
+	if err := preflightTraceRuntime(traceOptions{Syscalls: false, Transcript: true}); err == nil || !strings.Contains(err.Error(), "syscall observer") {
+		t.Fatalf("disabled syscalls error = %v, want syscall observer error", err)
+	}
+	if err := preflightTraceRuntime(traceOptions{Syscalls: true, Transcript: false}); err == nil || !strings.Contains(err.Error(), "PTY transcript") {
+		t.Fatalf("disabled transcript error = %v, want PTY transcript error", err)
 	}
 }
