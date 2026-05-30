@@ -7,6 +7,10 @@ INSTALL_PLATFORM ?= $(HOST_PLATFORM)
 APP_DIR               := hazmat
 HAZMAT_BUILD_BIN      := $(APP_DIR)/hazmat
 HAZMAT_BUILD_HELPER   := $(APP_DIR)/hazmat-launch
+HAZMAT_DEBUG_ROOT     ?= $(HOME)/.hazmat
+HAZMAT_DEBUG_BINDIR   ?= $(HAZMAT_DEBUG_ROOT)/bin
+HAZMAT_DEBUG_BIN      ?= $(HAZMAT_DEBUG_BINDIR)/hazmat-debug
+HAZMAT_TRACE_CLAUDE_BIN ?= $(HAZMAT_DEBUG_BINDIR)/hazmat-trace-claude
 USER_PREFIX           ?= $(HOME)/.local
 USER_BINDIR           ?= $(USER_PREFIX)/bin
 USER_LIBEXECDIR       ?= $(USER_PREFIX)/libexec
@@ -18,7 +22,7 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch configure-debug-trace hazmat-debug test-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards check-hostexec hooks
+.PHONY: all hazmat hazmat-launch configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
@@ -29,12 +33,18 @@ hazmat:
 configure-debug-trace:
 	bash scripts/configure-debug-trace.sh
 
-hazmat-debug: configure-debug-trace
-	@rm -f $(HAZMAT_BUILD_BIN)
-	cd $(APP_DIR) && go build $(GOFLAGS) -tags 'hazmat_debug' -ldflags '$(LDFLAGS)' -o hazmat .
+hazmat-debug:
+	HAZMAT_DEBUG_BIN="$(HAZMAT_DEBUG_BIN)" \
+	HAZMAT_TRACE_CLAUDE_BIN="$(HAZMAT_TRACE_CLAUDE_BIN)" \
+	HAZMAT_BUILD_GOFLAGS="$(GOFLAGS)" \
+	HAZMAT_BUILD_LDFLAGS="$(LDFLAGS)" \
+	bash scripts/install-debug-trace.sh
 
 test-debug-trace: configure-debug-trace
 	cd $(APP_DIR) && go test -tags 'hazmat_debug' ./...
+
+clean-debug-trace:
+	rm -f $(HAZMAT_DEBUG_BIN) $(HAZMAT_TRACE_CLAUDE_BIN) $(APP_DIR)/trace_debug_configured.go
 
 hazmat-launch:
 	@rm -f $(HAZMAT_BUILD_HELPER)

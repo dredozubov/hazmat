@@ -18,13 +18,15 @@ trap cleanup EXIT INT TERM HUP
 echo "macos-trace-smoke: configuring debug trace build..."
 (
 	cd "$REPO_ROOT"
+	HAZMAT_DEBUG_BIN="$TMPDIR_MACOS_TRACE/hazmat-debug" \
+	HAZMAT_TRACE_CLAUDE_BIN="$TMPDIR_MACOS_TRACE/hazmat-trace-claude" \
 	make hazmat-debug
 )
 
 echo "macos-trace-smoke: running codex full trace bundle..."
 (
 	cd "$REPO_ROOT/hazmat"
-	/usr/bin/script -q "$TMPDIR_MACOS_TRACE/wrapper.typescript" ./hazmat trace codex \
+	/usr/bin/script -q "$TMPDIR_MACOS_TRACE/wrapper.typescript" "$TMPDIR_MACOS_TRACE/hazmat-debug" trace codex \
 		--out "$TMPDIR_MACOS_TRACE" \
 		--name smoke \
 		-- --help >/tmp/hazmat-macos-trace-smoke.out

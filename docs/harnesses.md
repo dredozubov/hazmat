@@ -116,19 +116,27 @@ stderr so the harness stdout remains usable for non-interactive capture.
 ## Harness tracing
 
 When a supported harness behaves differently under containment, developers can
-build Hazmat with debug trace support and use `hazmat trace <harness>` to
-collect a timestamped debug bundle around the normal launch path:
+install Hazmat's debug trace tools and collect a timestamped debug bundle around
+the normal launch path:
 
 ```bash
-make configure-debug-trace
+sudo -v
 make hazmat-debug
 ```
 
+For interactive Claude Code sessions, run the installed wrapper from the project
+that reproduces the issue:
+
 ```bash
-hazmat trace claude --name baseline -- --no-backup -p "say ok"
-hazmat trace codex --name baseline -- --no-backup exec "say ok"
-hazmat trace opencode --name baseline -- --no-backup run "say ok"
-hazmat trace gemini --name baseline -- --no-backup -p "say ok"
+cd ~/workspace/project-that-reproduces
+~/.hazmat/bin/hazmat-trace-claude --name claude-interactive-repro
+```
+
+```bash
+~/.hazmat/bin/hazmat-debug trace claude --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace codex --name baseline -- --no-backup exec "say ok"
+~/.hazmat/bin/hazmat-debug trace opencode --name baseline -- --no-backup run "say ok"
+~/.hazmat/bin/hazmat-debug trace gemini --name baseline -- --no-backup -p "say ok"
 ```
 
 The bundle includes the planned session contract, harness metadata, before/after

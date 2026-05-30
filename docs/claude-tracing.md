@@ -1,13 +1,34 @@
 # Harness tracing
 
 `hazmat trace <harness>` is developer-only debug tooling. Release builds do not
-include the command. Build it only after the debug trace prerequisite check
-passes:
+include the command. Install the debug trace tools only after the prerequisite
+check passes:
 
 ```bash
-make configure-debug-trace
+sudo -v
 make hazmat-debug
 ```
+
+This installs a developer-only binary and Claude helper outside the source
+checkout:
+
+```text
+~/.hazmat/bin/hazmat-debug
+~/.hazmat/bin/hazmat-trace-claude
+```
+
+For interactive Claude Code investigations, start in the affected project and
+run the wrapper:
+
+```bash
+cd ~/workspace/project-that-reproduces
+sudo -v
+~/.hazmat/bin/hazmat-trace-claude --name claude-interactive-repro
+```
+
+The wrapper prints the debug binary, project directory, trace root, and trace
+label before launching Claude. Use Claude normally; exit Claude to finalize the
+bundle.
 
 The debug trace command runs a normal contained harness entrypoint and collects a
 host-side trace bundle around it. Use it when Claude Code, Codex, OpenCode, or
@@ -18,10 +39,10 @@ credential materialization, or the harness runtime itself.
 Supported trace targets:
 
 ```bash
-hazmat trace claude --name baseline -- --no-backup -p "say ok"
-hazmat trace codex --name baseline -- --no-backup exec "say ok"
-hazmat trace opencode --name baseline -- --no-backup run "say ok"
-hazmat trace gemini --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace claude --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace codex --name baseline -- --no-backup exec "say ok"
+~/.hazmat/bin/hazmat-debug trace opencode --name baseline -- --no-backup run "say ok"
+~/.hazmat/bin/hazmat-debug trace gemini --name baseline -- --no-backup -p "say ok"
 ```
 
 Trace flags go before `--`. Normal `hazmat <harness>` flags and harness CLI
@@ -70,11 +91,11 @@ Linux-specific files:
 The macOS syscall probes use `sudo -n` so tracing never hangs on a password
 prompt. If sudo credentials or DTrace privileges are not available, trace fails
 before launching the harness. Pre-authorize sudo in a separate terminal before
-running `make configure-debug-trace`:
+running `make hazmat-debug` or the trace wrapper:
 
 ```bash
 sudo -v
-hazmat trace claude --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace claude --name baseline -- --no-backup -p "say ok"
 ```
 
 On Linux, `strace` is required from process start. Missing `strace`,
@@ -102,9 +123,9 @@ dependencies fail the smoke.
 Recommended comparison sequence for any harness:
 
 ```bash
-hazmat trace <harness> --name baseline -- --no-backup <non-interactive args>
-hazmat trace <harness> --name network-none -- --no-backup --network none <non-interactive args>
-hazmat trace <harness> --name docker -- --no-backup --docker=sandbox <non-interactive args>
+~/.hazmat/bin/hazmat-debug trace <harness> --name baseline -- --no-backup <non-interactive args>
+~/.hazmat/bin/hazmat-debug trace <harness> --name network-none -- --no-backup --network none <non-interactive args>
+~/.hazmat/bin/hazmat-debug trace <harness> --name docker -- --no-backup --docker=sandbox <non-interactive args>
 ```
 
 Treat a hypothesis as strong only when a specific syscall, denied path, log
@@ -117,7 +138,7 @@ enabled, temporarily disable that behavior, rerun the baseline, then restore it:
 
 ```bash
 hazmat config set session.skip_permissions false
-hazmat trace claude --name prompts-on -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-trace-claude --name prompts-on
 hazmat config set session.skip_permissions true
 ```
 
