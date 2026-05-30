@@ -113,6 +113,24 @@ it does not touch global `pf` state. Use `--metadata-json` when an automation
 needs to verify the requested policy was enforced; the JSON line is written to
 stderr so the harness stdout remains usable for non-interactive capture.
 
+## Harness tracing
+
+When a supported harness behaves differently under containment, use
+`hazmat trace <harness>` to collect a timestamped debug bundle around the normal
+launch path:
+
+```bash
+hazmat trace claude --name baseline -- --no-backup -p "say ok"
+hazmat trace codex --name baseline -- --no-backup exec "say ok"
+hazmat trace opencode --name baseline -- --no-backup run "say ok"
+hazmat trace gemini --name baseline -- --no-backup -p "say ok"
+```
+
+The bundle includes the planned session contract, harness metadata, before/after
+state snapshots, process samples, unified logs, sandbox denials, and best-effort
+DTrace probes when sudo/SIP allow them. See [Harness tracing](claude-tracing.md)
+for the comparison workflow.
+
 ## GitHub API Access
 
 GitHub API access is harness-agnostic and explicit. Configure a token once with

@@ -24,6 +24,9 @@ run_smoke "app-server --help" app-server --help
 run_smoke "opencode --help" opencode --help
 run_smoke "trace --help" trace --help
 run_smoke "trace claude --help" trace claude --help
+run_smoke "trace codex --help" trace codex --help
+run_smoke "trace opencode --help" trace opencode --help
+run_smoke "trace gemini --help" trace gemini --help
 run_smoke "integration --help" integration --help
 run_smoke "integration list" integration list
 run_smoke "integration show node" integration show node
