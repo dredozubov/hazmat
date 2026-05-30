@@ -22,8 +22,6 @@ import (
 
 const traceFormatVersion = 1
 
-var _ = traceDebugConfigured
-
 type traceOptions struct {
 	Harness    HarnessID
 	OutRoot    string
