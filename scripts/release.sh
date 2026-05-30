@@ -8,12 +8,13 @@
 #   ./scripts/release.sh --dry        # auto-determine version, dry run
 #
 # What happens:
-#   1. hazmat claude -p reviews changes since the last tag and updates CHANGELOG.md
-#   2. You review and confirm the changelog + version
-#   3. The changelog commit is created, tagged, and pushed
-#   4. GitHub Actions builds darwin/arm64 + darwin/amd64 binaries
-#   5. Creates a GitHub release with tarballs and checksums
-#   6. Updates the Homebrew tap formula at dredozubov/homebrew-tap
+#   1. Runs the local pre-release gate
+#   2. hazmat claude -p reviews changes since the last tag and updates CHANGELOG.md
+#   3. You review and confirm the changelog + version
+#   4. The changelog commit is created, tagged, and pushed
+#   5. GitHub Actions builds darwin/arm64 + darwin/amd64 binaries
+#   6. Creates a GitHub release with tarballs and checksums
+#   7. Updates the Homebrew tap formula at dredozubov/homebrew-tap
 #
 # Linux artifacts are intentionally not published yet. The Linux backend is
 # compile-only until setup/rollback resources are modeled in MC_SetupRollback
@@ -433,9 +434,11 @@ if [ -n "$(git status --porcelain -uno)" ]; then
     exit 1
 fi
 
-# Verify builds and tests pass
-echo "Running tests..."
-(cd hazmat && go test ./...)
+# Verify the local pre-release gate before drafting release notes. This includes
+# the all-harness synthetic e2e smoke, so release candidates fail before any
+# changelog/tag work if a harness launch path regresses.
+echo "Running local pre-release gate..."
+bash scripts/pre-release-local.sh
 echo ""
 
 # Use the installed Hazmat pair for the changelog session. Native sessions
