@@ -54,8 +54,10 @@ lifecycle model.
 - Add a clear path for running Hermes as a contained autonomous assistant.
 - Preserve Hazmat's existing harness/session contract.
 - Avoid importing the user's host `~/.hermes` state by default.
-- Keep Hermes credentials out of `/Users/agent` until a modeled credential
-  surface exists.
+- Support one modeled provider API key in v1 through Hazmat's existing
+  host-secret-store-to-env delivery shape, while keeping Hermes profile files,
+  OAuth state, MCP secrets, messaging credentials, SSH keys, cloud credentials,
+  and tool home secrets out of managed import.
 - Make Hermes' own terminal backend a secondary concern; Hazmat should wrap the
   whole Hermes process, not only commands Hermes emits through its terminal
   tool.
@@ -70,6 +72,8 @@ lifecycle model.
 - No `hermes gateway` daemon management in the first slice.
 - No dashboard/API port exposure in the first slice.
 - No host Docker socket grant.
+- No provider-key import from host `~/.hermes`; v1 provider env delivery must
+  come from Hazmat's host-owned secret store.
 - No automatic passthrough of `~/.ssh`, `gh`, cloud SDKs, MCP tokens, provider
   keys, or messaging-platform credentials.
 - No support for Hermes cron jobs that survive past the Hazmat session.
@@ -102,8 +106,12 @@ Hermes does not fit the **integration** side:
   Docker and remote execution.
 
 The implementation should therefore add `HarnessHermes` to the built-in harness
-registry only after its lifecycle and credential surfaces are modeled. It should
-not generalize into a user-provided harness plugin system as part of this work.
+registry only after the harness lifecycle model is updated. This is not merely
+"simple code": the model has a closed harness set, bootstrap records harness
+state versions, and `HarnessGemini` already exists in Go without appearing in
+`tla/MC_HarnessLifecycle.tla`. The Hermes change should backfill that Gemini
+drift at the same time, then add Hermes as a non-importable harness. This work
+should not generalize into a user-provided harness plugin system.
 
 ## Recommended User Model
 
@@ -126,10 +134,15 @@ The command should make these facts obvious in the session contract:
   deliberately provides Docker semantics.
 - Gateway, dashboard, and cron persistence are not part of the foreground
   harness contract.
+- A provider key, if configured, is injected from Hazmat's secret store as an
+  environment variable for this Hermes session only.
 
-If Hermes is not installed for the agent user, Hazmat should either print a
-bootstrap hint or run an explicit `hazmat bootstrap hermes` command. It should
-not run Hermes' curl-piped installer implicitly during a harness launch.
+Phase 1 must not leave users at a dead end. If Hermes is not installed for the
+agent user, the launcher should produce an actionable error pointing at
+`hazmat bootstrap hermes`. The registry entry must still have a non-nil
+`Installed` and `Bootstrap` path so `hazmat init` cannot expose a broken
+bootstrap selection. The bootstrap command may be manual-instruction-only in
+the first slice, but it must be present and verifiable.
 
 ## State Layout
 
@@ -153,6 +166,19 @@ Hazmat should set `HERMES_HOME=/Users/agent/.hazmat/hermes` for the session.
 Keeping the root under a Hazmat-owned prefix makes it easier to explain that the
 state is not the user's normal Hermes profile.
 
+Hazmat should create the root before launch as the agent user, with restrictive
+ownership and permissions. This is a non-secret harness environment setting; the
+implementation should either use a dedicated non-secret harness env channel or
+update the existing `HarnessEnv` comment so `HERMES_HOME` is not mislabeled as a
+credential/capability grant.
+
+The current native policy has a broad `/Users/agent` read/write grant, so this
+state root does not require a new seatbelt allow rule in v1. That fact cuts both
+ways: Hazmat's existing credential-deny anchors cover paths such as
+`/Users/agent/.ssh`, but they do not automatically cover nested Hermes tool-home
+paths such as `/Users/agent/.hazmat/hermes/home/.ssh`. The v1 design should not
+claim otherwise.
+
 The first slice should not sync:
 
 - host `~/.hermes`
@@ -169,6 +195,14 @@ under `~/.hermes/skills`, can include scripts, and can be modified or deleted by
 the agent. They should therefore not join the existing harness asset sync
 system until Hazmat has a Hermes-specific asset policy.
 
+Two foreground Hermes sessions will share the same managed `HERMES_HOME` unless
+the implementation adds a lock or per-session profile root. V1 can defer locking
+if it matches the rest of Hazmat's shared-agent-home posture, but the limitation
+should be documented. Secrets or credentials manually written into
+`<HERMES_HOME>/.env` by the user or by Hermes setup also survive ordinary Hazmat
+rollback unless the agent user is deleted; that is correct by inheritance, but
+it should be made visible.
+
 ## Credential Model
 
 Hermes credentials should be treated as a new credential surface, not as generic
@@ -183,11 +217,29 @@ files copied from the host. Relevant Hermes surfaces include:
 - skill-declared required environment variables
 - SSH, GitHub, cloud, and database credentials inside Hermes' per-tool home
 
-The v1 harness should avoid managed Hermes credential import. Users can run a
-fresh contained Hermes setup inside the agent profile if they deliberately want
-credentials to exist only in the contained agent account. That is compatible
-with Hazmat's current account-isolation story, but it is not the same as
-host-secret-store materialization.
+V1 should separate provider-key env delivery from Hermes profile import. The
+recommended first credential is a single Hermes-scoped `OPENAI_API_KEY` env
+grant, delivered from Hazmat's host-owned secret store and injected only into
+Hermes sessions. This reuses the existing `credentialDeliveryEnv` shape, but it
+still requires a harness-set update in the TLA+ models because the provider key
+descriptor and config-agent prompt are harness-scoped. If product wants zero
+managed secrets for a purer containment story, the design should state that as a
+policy choice, not as a technical necessity.
+
+The v1 harness should otherwise avoid managed Hermes credential import. Users
+can run a fresh contained Hermes setup inside the agent profile if they
+deliberately want credentials to exist only in the contained agent account. That
+is compatible with Hazmat's current account-isolation story, but it is not the
+same as host-secret-store materialization.
+
+The credential-deny posture for Hermes' tool home must be explicit. With the
+current native policy, credential denies anchored at `/Users/agent/.ssh`,
+`/Users/agent/.aws`, and similar paths do not deny
+`<HERMES_HOME>/home/.ssh` or `<HERMES_HOME>/home/.aws`. V1 may accept this
+because those nested credentials are agent-created rather than host-imported, so
+host confidentiality is preserved. If Hazmat wants defense-in-depth for nested
+Hermes tool-home credentials, it must extend deny generation to the Hermes root,
+with a seatbelt-policy model update and tests.
 
 Managed import/export should be a later slice with:
 
@@ -217,20 +269,29 @@ The bootstrap command should:
 
 - install into the agent user's managed tool area, not the host user's home
 - avoid mutating host shell profiles
-- pin or record the source version
+- pin and verify the source where upstream makes that possible
 - verify the installed `hermes --version`
 - make the install idempotent
 - avoid importing host `~/.hermes`
 - report whether optional dependencies such as browser tooling are absent
 
-If upstream does not publish signed releases or stable checksums, the bootstrap
-design should say so plainly and initially support either:
+Phase 1 should include a minimal non-broken bootstrap path even if full
+automated installation is deferred:
 
 - user-installed `hermes` on the agent account, detected by `PATH`, or
-- a pinned Git clone plus deterministic Python environment created by Hazmat.
+- a bootstrap command that prints exact manual install instructions, checks for
+  the binary afterward, and records harness state only when `hermes --version`
+  succeeds.
 
-The exact supply-chain policy should match the existing bootstrap posture for
-other harnesses: install is explicit, agent-owned, and auditable.
+The later automated bootstrap should be stricter than the loosest existing
+precedent. Hazmat's current harnesses are mixed: Claude pins a script checksum,
+Codex verifies a published GitHub digest, OpenCode uses a curl-piped installer,
+and Gemini installs an unpinned `@latest` package. Hermes has a richer
+in-process surface than a typical coding CLI, so the preferred target is the
+Codex/Claude end of that spectrum, not the OpenCode/Gemini end.
+
+The consistent rule is narrower: install is explicit, agent-owned, and never
+performed implicitly during `hazmat hermes` launch.
 
 ## Launch Pipeline
 
@@ -242,10 +303,14 @@ The Hermes foreground launch should reuse the existing session setup pipeline:
 4. apply network mode
 5. apply optional Git SSH and GitHub capabilities
 6. prepare backup/snapshot state
-7. set Hermes-specific environment, including `HERMES_HOME`
-8. launch the Hermes process as the agent user under native policy
-9. clean up session-scoped materialized credentials after exit
-10. leave durable Hermes agent-profile state only where the design explicitly
+7. create the managed Hermes state root as the agent user
+8. set Hermes-specific environment, including `HERMES_HOME` and the selected
+   provider key env grant
+9. reject deferred service-mode entrypoints such as `gateway`, dashboard/API,
+   and persistent cron commands with explicit guidance
+10. launch the Hermes process as the agent user under native policy
+11. clean up session-scoped materialized credentials after exit
+12. leave durable Hermes agent-profile state only where the design explicitly
     allows it
 
 The first slice should not configure Hermes' own Docker terminal backend
@@ -271,6 +336,9 @@ Recommended policy:
   v1.
 - `--network none` should make remote/backend setup fail closed rather than
   being silently bypassed.
+- Hermes is Python-based and should not need the wider macOS native TLS policy
+  used by Codex. The implementation should set `harnessUsesMacOSNativeTLS` to
+  false for Hermes and validate that with a live network probe.
 
 The docs should warn that inner Hermes terminal-backend isolation is not a
 substitute for Hazmat's whole-process wrapper when skills, plugins, MCP, hooks,
@@ -304,9 +372,16 @@ Supporting those safely requires a service lifecycle model:
   or dashboard exposure
 
 Until that exists, `hazmat hermes` should be a foreground command only. If the
-user forwards `gateway` manually, Hazmat should either reject it with a clear
-message or require an explicit escape flag such as `--allow-foreground-gateway`
-that still exits when the foreground process exits.
+user forwards `gateway`, dashboard/API, or persistent cron entrypoints manually,
+Hazmat should reject the command with clear guidance. Do not add
+`--allow-foreground-gateway` in v1; enforcing the deferral requires inspecting
+the Hermes passthrough args after `--`, not only Hazmat's own flags.
+
+There are two cron risks to keep distinct. A live cron worker process is
+contained by the foreground process tree and should die when the session exits.
+Durable cron definitions under `<HERMES_HOME>/cron` can survive and reactivate
+on a later Hermes launch. V1 should reject persistent cron management commands
+or document that persistent cron state is possible but unsupported.
 
 ## MCP, Skills, Hooks, And Plugins
 
@@ -330,8 +405,21 @@ assistant assets remain outside the v1 contract.
 
 ## TLA+ And Verification Requirements
 
-Adding the command name and bootstrap stub alone may be simple code, but the
-following changes touch verified areas and require model-first work:
+Adding `HarnessHermes` is itself a model-first change. The current
+`MC_HarnessLifecycle` model has a closed `Harnesses` set, while Go already ships
+`HarnessGemini` outside that set. The Hermes implementation should update the
+model before the Go registry change:
+
+- add `"gemini"` to `Harnesses` and `HarnessVersion`
+- add `"hermes"` to `Harnesses` and `HarnessVersion`
+- keep Hermes out of `ImportableHarnesses` for v1, matching the no host-profile
+  import decision
+- keep Codex and Hermes non-importable unless a curated import path is added
+- prove `RecordedHarnessVersionsMatchSpec`, dry-run state preservation, and the
+  rollback properties still hold
+- run the TLA+ suite before changing Go harness registry code
+
+The following changes also touch verified areas and require model-first work:
 
 - adding managed Hermes credential delivery
 - adding session-scoped Hermes state materialization and harvest
@@ -339,7 +427,7 @@ following changes touch verified areas and require model-first work:
 - changing rollback behavior for Hermes state
 - adding service/gateway lifecycle
 - changing launch file-descriptor behavior for Hermes IPC or API sockets
-- changing seatbelt rules for new agent-home state roots
+- changing seatbelt rules to deny nested Hermes tool-home credential paths
 
 At minimum, the implementation plan should review:
 
@@ -351,8 +439,8 @@ At minimum, the implementation plan should review:
 - launch fd isolation
 
 The design boundary for v1 should be chosen to avoid model churn where possible:
-foreground harness launch, no managed credential import, no gateway service, no
-new daemon setup, and no host-state sync.
+foreground harness launch, one env-delivered provider key, no managed Hermes
+profile import, no gateway service, no new daemon setup, and no host-state sync.
 
 ## Testing Plan
 
@@ -361,19 +449,28 @@ Unit tests:
 - `HarnessHermes` appears in the built-in harness registry.
 - `hazmat hermes -- ...` forwards Hermes args after Hazmat flag parsing.
 - `HERMES_HOME` points at the Hazmat-managed agent root.
+- the managed Hermes state root is created as the agent user before launch.
+- the registry entry has non-nil `Installed` and `Bootstrap` functions.
 - host `~/.hermes` paths are not selected as asset-sync roots.
 - `--skip-harness-assets-sync` remains accepted but has no Hermes host assets in
   v1.
 - Docker socket paths are not granted by the Hermes harness.
-- gateway/dashboard/cron commands are rejected or warned according to the final
-  CLI policy.
+- gateway/dashboard/persistent-cron commands are rejected after passthrough arg
+  parsing.
+- `hazmat explain` or its selected preview surface accepts `hermes` as a target
+  and reports disabled host-profile import, service-mode deferral, Docker socket
+  denial, and provider-key env delivery.
 
 Policy tests:
 
 - native policy allows the selected Hermes state root only as intended.
-- credential deny rules still override any broad read grants.
+- current credential denies are asserted for `/Users/agent/.ssh` and similar
+  roots, and tests explicitly document whether nested
+  `<HERMES_HOME>/home/.ssh` is accepted or denied.
 - `--network none` is preserved through Hermes launch.
 - optional Git/GitHub capabilities are still explicit.
+- Hermes does not receive the macOS native TLS widened policy unless the live
+  probe proves it needs one.
 
 Smoke tests:
 
@@ -384,6 +481,13 @@ Smoke tests:
   without requiring upstream installation
 - a scratch project where Hermes can read/write only within the expected project
   and session write roots
+- a provider-key fixture proving the selected env var is injected only for
+  Hermes sessions
+- a default-network live probe proving the selected provider endpoint is
+  reachable under Hazmat's default DNS/PF posture, and that `--network none`
+  fails closed with an actionable message
+- first-run diagnostics for missing binary, missing provider key, blocked
+  egress, and TLS/certificate failure
 
 Manual audit tests:
 
@@ -412,12 +516,20 @@ The docs should consistently say that Hazmat wraps Hermes as a whole process.
 They should not imply that Hermes' own approval prompts, env filtering, or
 terminal backends are Hazmat security boundaries.
 
+The docs should also warn that manually configured Hermes credentials under the
+managed agent profile survive ordinary rollback, that two foreground sessions
+share the same managed profile in v1, and that host-profile migration is
+deliberately absent.
+
 ## Phased Delivery
 
 ### Phase 0: Recipe Only
 
 Document how to run a user-installed Hermes binary through `hazmat exec`, with
-warnings about host state and credentials. No code changes beyond docs.
+concrete warnings about host state and credentials. If this recipe launches
+before the managed harness exists, it should set `HERMES_HOME` explicitly;
+otherwise `hazmat exec hermes` writes to the agent user's ordinary `~/.hermes`
+and creates a different state contract from the proposed harness.
 
 ### Phase 1: Experimental Foreground Harness
 
@@ -426,22 +538,25 @@ Add `hazmat hermes` as a built-in harness with:
 - no host profile import
 - managed `HERMES_HOME`
 - no harness asset sync
-- no managed Hermes credential import
+- one modeled provider API key delivered by env, recommended `OPENAI_API_KEY`
+- no managed Hermes profile or file credential import
 - no gateway/service support
+- rejection of gateway/dashboard/persistent-cron entrypoints
+- minimal non-broken `hazmat bootstrap hermes` and install detection
 - normal Hazmat network, project, Git, GitHub, backup, and native launch policy
 
-### Phase 2: Bootstrap
+### Phase 2: Automated Bootstrap
 
-Add explicit `hazmat bootstrap hermes` once the supply-chain posture is
-acceptable. Prefer a pinned, auditable installation path over running upstream's
-install script implicitly.
+Replace the Phase 1 manual-instruction bootstrap with automated installation
+once the supply-chain posture is acceptable. Prefer a pinned, auditable
+installation path over running upstream's install script directly.
 
-### Phase 3: Credential Capability
+### Phase 3: Additional Credential Capabilities
 
-Add typed Hermes credential support only after the TLA+ and registry design are
-updated. Start with provider keys and tool gateway credentials. Defer messaging,
-MCP OAuth, SSH, and cloud credentials unless each has a precise descriptor and
-cleanup story.
+Add typed Hermes credential support beyond the single provider key only after
+the TLA+ and registry design are updated. Tool gateway credentials may be the
+next candidate. Defer messaging, MCP OAuth, SSH, and cloud credentials unless
+each has a precise descriptor and cleanup story.
 
 ### Phase 4: Service Mode Evaluation
 
@@ -449,29 +564,41 @@ Evaluate whether Hazmat should own long-running assistant services at all. If
 yes, design a generic service lifecycle first, then consider Hermes gateway,
 dashboard, cron, and profile supervision.
 
-## Open Questions For Audit
+## Resolved Audit Decisions
 
-- Should the managed state root be `/Users/agent/.hazmat/hermes` or
-  `/Users/agent/.hermes` with `HERMES_HOME` set only when necessary?
-- Should v1 reject `hermes gateway`, `hermes cron`, and dashboard-related flags,
-  or allow them as foreground commands with loud warnings?
+- Use `/Users/agent/.hazmat/hermes` as the preferred managed state root unless
+  an implementation fact-check finds Hermes hardcodes `~/.hermes` in a way that
+  ignores `HERMES_HOME`.
+- Reject `hermes gateway`, persistent cron management, and dashboard/API
+  entrypoints in v1 with guidance.
 - Is it acceptable for users to configure credentials manually inside the agent
-  profile before Hazmat has managed Hermes credential import?
-- Should Hermes skills ever join harness asset sync, or should they remain
-  Hermes-profile state only?
-- Which Hermes install source is acceptable for `hazmat bootstrap hermes`?
-- Does adding a new durable app state root under `/Users/agent/.hazmat/hermes`
-  require seatbelt model work before even the no-credential v1?
-- Should `hazmat explain hermes` include a Hermes-specific section enumerating
-  disabled host-profile imports, service-mode deferrals, and Docker-socket
-  denials?
+  profile before Hazmat has managed Hermes credential import? Yes, but docs and
+  diagnostics must say those credentials are agent-profile state and survive
+  ordinary rollback.
+- Keep Hermes skills as Hermes-profile state in v1; do not join harness asset
+  sync.
+- Adding the new state root does not require a new seatbelt allow under the
+  current broad `/Users/agent` rule, but extending credential denies into nested
+  Hermes tool-home paths would require model work.
+- The explain/preview surface should include Hermes-specific notes for disabled
+  host-profile import, service-mode deferral, Docker socket denial, and
+  provider-key env delivery.
+
+## Remaining Questions
+
+- Which exact automated install source is acceptable for Phase 2?
+- Should v1 add profile locking, or is documented shared-state behavior
+  sufficient for the first release?
+- Should nested `<HERMES_HOME>/home` credential denies be added immediately, or
+  should v1 explicitly accept agent-created credentials there?
 
 ## Recommended Decision
 
-Proceed with Phase 1 only after a short audit of the state-root and command
-rejection policy. Keep the implementation small: foreground process, fresh
-contained Hermes profile, no credential import, no asset sync, no daemon, no
-Docker socket.
+Proceed with Phase 1 after the model-first harness lifecycle update and the
+single provider-key env-delivery update. Keep the implementation small:
+foreground process, fresh contained Hermes profile, one provider key,
+manual/minimal bootstrap, no Hermes profile import, no asset sync, no daemon, no
+Docker socket, and explicit rejection of service-mode entrypoints.
 
 This gives Hazmat a useful Hermes integration point while preserving the core
 security claim: Hazmat contains assistant runtimes as whole processes instead
