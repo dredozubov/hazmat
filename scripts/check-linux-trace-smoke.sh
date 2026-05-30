@@ -52,6 +52,9 @@ docker run --rm --privileged \
 			apt-get update >/dev/null
 			DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends strace procps util-linux systemd >/dev/null
 		fi
+		if [ ! -x /usr/bin/uname ] && command -v uname >/dev/null 2>&1; then
+			ln -sf "$(command -v uname)" /usr/bin/uname
+		fi
 		if ! command -v journalctl >/dev/null 2>&1; then
 			printf "%s\n" "#!/bin/sh" "exit 0" >/usr/bin/journalctl
 			chmod +x /usr/bin/journalctl
