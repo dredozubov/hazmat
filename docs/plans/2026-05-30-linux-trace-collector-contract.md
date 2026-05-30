@@ -1,10 +1,11 @@
 # Linux Trace Collector Contract
 
-`hazmat trace <harness>` is an observational debugging mode. Linux support must
-not relax Hazmat containment policy, add harness permissions, or make traced
-sessions behave differently except for the tracing wrapper itself. Any elevated
-host capability needed for richer Linux observability is optional and must be
-recorded as a degraded probe when unavailable.
+`hazmat trace <harness>` is an observational debugging mode built only for
+developer debug binaries. Linux support must not relax Hazmat containment
+policy, add harness permissions, or make traced sessions behave differently
+except for the tracing wrapper itself. Required Linux trace dependencies are
+checked before debug compilation and again before launch; missing dependencies
+fail the trace instead of producing degraded bundles.
 
 ## Bundle Contract
 
@@ -35,9 +36,8 @@ The Linux backend writes these best-effort evidence files:
   captured in the file and do not abort tracing.
 - `before-host-*-ls.txt` and `after-host-*-ls.txt` for declared host state paths,
   using metadata only.
-- `strace.log` or `strace.log.<pid>` files when syscall tracing is enabled and
-  usable.
-- `journal.log` and `dmesg.log` only when ordinary user access is available.
+- `strace.log` or `strace.log.<pid>` files from required syscall tracing.
+- `journal.log` and `dmesg.log` from required ordinary-user log access.
 
 The backend must never read credential file contents for snapshots. It should
 avoid `/proc/*/environ` by default because environment values can contain
@@ -65,24 +65,19 @@ evidence comparable to `ps`; `/proc/<pid>/environ` is not collected by default.
 them. The backend should write the attempted command, timeout, and denial text
 instead of treating this as a trace failure.
 
-## Degraded Modes
+## Strict Modes
 
-Linux tracing succeeds as a bundle even when some observers fail:
+Linux tracing fails before launching the harness when required observers are not
+available:
 
-- Missing `strace`: write tool probe output and `trace-errors.log`, skip syscall
-  files, and continue with snapshots/log probes.
-- Ptrace denied by Yama, seccomp, or container policy: keep the `strace` stderr
-  in the relevant log file, record ptrace/capability probes, and return the
-  traced harness exit status when the harness actually ran.
-- Missing agent user or agent home: write snapshot files with the failure text.
-- Missing `journalctl`, denied `dmesg`, or absent `/proc/sys/kernel/yama`: record
-  the failed probe and continue.
-- `--no-syscalls`: skip `strace` and live process sampling, but still emit tool
-  probes, pre/post snapshots, manifest, harness metadata, and indicators.
+- Missing `strace`, `ps`, `journalctl`, `dmesg`, `ls`, or `stat`.
+- Unreadable `/proc/self/status`.
+- Ptrace denied by Yama, seccomp, or container policy.
+- Unreadable `journalctl` or `dmesg` output.
+- Missing terminal/PTY transcript support from the shared trace runtime.
 
-The traced harness exit code remains authoritative. A probe failure should only
-change the trace command exit status if the probe wrapper prevented the harness
-from launching at all.
+Trace does not provide `--no-syscalls` or `--no-transcript` escape hatches. A
+trace bundle is useful only when all required evidence surfaces are available.
 
 ## Docker Test Contract
 
@@ -92,9 +87,10 @@ state:
 - Linux build/compile of trace code.
 - Unit tests for command construction, indicator file lists, process-filter
   routing, snapshot file naming, and degraded probe recording.
-- A container smoke that runs `hazmat trace codex --no-syscalls --no-transcript
-  -- --help` and validates `manifest.json`, `harness.json`, `command.txt`,
-  `before-ps.txt`, `after-ps.txt`, and `indicators.md`.
+- A container smoke that configures a debug trace build, runs `hazmat trace
+  codex -- --help`, and validates `manifest.json`, `harness.json`,
+  `command.txt`, `before-ps.txt`, `after-ps.txt`, `strace.log.<pid>`, and
+  `indicators.md`.
 
 Syscall tracing smoke is separate because Docker hosts vary. It can run in an
 image with `strace` installed and should first try ordinary Docker. If the host

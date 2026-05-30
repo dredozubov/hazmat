@@ -1,7 +1,16 @@
 # Harness tracing
 
-`hazmat trace <harness>` runs a normal contained harness entrypoint and collects
-a host-side trace bundle around it. Use it when Claude Code, Codex, OpenCode, or
+`hazmat trace <harness>` is developer-only debug tooling. Release builds do not
+include the command. Build it only after the debug trace prerequisite check
+passes:
+
+```bash
+make configure-debug-trace
+make hazmat-debug
+```
+
+The debug trace command runs a normal contained harness entrypoint and collects a
+host-side trace bundle around it. Use it when Claude Code, Codex, OpenCode, or
 Gemini behaves differently inside Hazmat and you need evidence for whether the
 trigger is Seatbelt, the agent user, environment variables, network policy,
 credential materialization, or the harness runtime itself.
@@ -30,7 +39,7 @@ Common bundle files:
 | `harness.json` | Supported harness metadata, installed probe, watched state paths, and process filters. |
 | `command.txt` | The exact traced Hazmat command shape. |
 | `explain.json` or `explain-error.txt` | Planned Hazmat session contract, or why it could not be rendered. |
-| `terminal.typescript` | PTY transcript when enabled and run from a terminal. |
+| `terminal.typescript` | PTY transcript. Trace requires terminal stdin. |
 | `before-*-ls.txt`, `after-*-ls.txt` | Metadata snapshots for declared harness state paths. |
 | `process-samples.log` | Sampled process tree around Hazmat, the harness, and the agent user when syscall/process observers are enabled. |
 | `indicators.md` | A first-pass grep over noisy logs for audit keywords. |
@@ -54,44 +63,41 @@ Linux-specific files:
 | `before-ps.txt`, `after-ps.txt` | `ps` snapshots around launch. |
 | `before-proc-self-status.txt`, `after-proc-self-status.txt` | `/proc/self/status` snapshots for the tracing process. |
 | `before-proc-process-status.txt`, `after-proc-process-status.txt` | `/proc/<pid>/status` snippets for matching Hazmat/harness/agent processes. |
-| `strace.log` or `strace.log.<pid>` | `strace -ff` output, or a degraded-mode explanation when `strace` is missing. |
+| `strace.log` or `strace.log.<pid>` | `strace -ff` output. |
 | `strace-stderr.log` | `strace` stderr and traced child stderr. |
-| `journal.log`, `dmesg.log` | Best-effort system logs when ordinary user/container permissions allow them. |
+| `journal.log`, `dmesg.log` | Required system log captures. |
 
-The macOS syscall probes are intentionally started with `sudo -n` so tracing
-never hangs on a password prompt. If sudo credentials or DTrace privileges are
-not available, the bundle records the failure and still runs the harness
-session. Pre-authorize sudo in a separate terminal if you want those probes:
+The macOS syscall probes use `sudo -n` so tracing never hangs on a password
+prompt. If sudo credentials or DTrace privileges are not available, trace fails
+before launching the harness. Pre-authorize sudo in a separate terminal before
+running `make configure-debug-trace`:
 
 ```bash
 sudo -v
 hazmat trace claude --name baseline -- --no-backup -p "say ok"
 ```
 
-On Linux, `strace` is used from process start when available. Missing `strace`,
+On Linux, `strace` is required from process start. Missing `strace`,
 Yama/ptrace restrictions, container seccomp policy, unavailable `journalctl`,
-or denied `dmesg` access are recorded as degraded evidence instead of relaxing
-Hazmat containment or changing the harness policy. `--no-syscalls` skips
-`strace` and live process sampling but still writes the shared bundle files and
-pre/post metadata snapshots.
+or denied `dmesg` access fail the debug trace prerequisite check or runtime
+preflight. Trace does not relax Hazmat containment and does not launch a partial
+trace bundle.
 
 Privileged Linux collectors such as `perf`, eBPF or `bpftrace`, auditd,
 fanotify, and seccomp event capture are not enabled by default. They require a
 separate opt-in design because they depend on host privileges, kernel config, or
 system daemons that ordinary Docker traces do not have.
 
-Regression smoke commands:
+Debug smoke commands:
 
 ```bash
 scripts/check-macos-trace-smoke.sh
-scripts/check-linux-trace-smoke.sh --skip-if-missing-prereqs
-HAZMAT_LINUX_TRACE_SMOKE=1 scripts/check-fast.sh
+scripts/check-linux-trace-smoke.sh
 ```
 
-The Linux smoke cross-builds Hazmat, runs it in Docker, tries to install/use
-`strace` and `procps`, executes `hazmat trace codex -- --help`, and validates
-the bundle shape. It accepts either real `strace.log.<pid>` output or a recorded
-degraded `strace.log`/`trace-errors.log` when the container cannot use strace.
+These smokes are intentionally not part of normal release gates. They configure
+and build a debug Hazmat binary, then validate a full trace bundle. Missing trace
+dependencies fail the smoke.
 
 Recommended comparison sequence for any harness:
 

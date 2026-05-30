@@ -115,9 +115,14 @@ stderr so the harness stdout remains usable for non-interactive capture.
 
 ## Harness tracing
 
-When a supported harness behaves differently under containment, use
-`hazmat trace <harness>` to collect a timestamped debug bundle around the normal
-launch path:
+When a supported harness behaves differently under containment, developers can
+build Hazmat with debug trace support and use `hazmat trace <harness>` to
+collect a timestamped debug bundle around the normal launch path:
+
+```bash
+make configure-debug-trace
+make hazmat-debug
+```
 
 ```bash
 hazmat trace claude --name baseline -- --no-backup -p "say ok"
@@ -127,9 +132,9 @@ hazmat trace gemini --name baseline -- --no-backup -p "say ok"
 ```
 
 The bundle includes the planned session contract, harness metadata, before/after
-state snapshots, process samples, unified logs, sandbox denials, and best-effort
-DTrace probes when sudo/SIP allow them. See [Harness tracing](claude-tracing.md)
-for the comparison workflow.
+state snapshots, process samples, unified logs, sandbox denials, and required
+platform trace probes. Release builds do not include this command. See
+[Harness tracing](claude-tracing.md) for the comparison workflow.
 
 ## GitHub API Access
 

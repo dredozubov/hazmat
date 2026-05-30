@@ -3,7 +3,7 @@
 set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-alpine:3.22}"
+IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-golang:1.25-alpine}"
 GOARCH_VALUE="${HAZMAT_LINUX_TRACE_GOARCH:-$(go env GOHOSTARCH)}"
 SKIP_IF_MISSING=0
 
@@ -39,40 +39,46 @@ trap cleanup EXIT INT TERM HUP
 
 mkdir -p "$TMPDIR_LINUX_TRACE/out"
 
-echo "linux-trace-smoke: building linux/$GOARCH_VALUE hazmat binary..."
-(
-	cd "$REPO_ROOT/hazmat"
-	GOOS=linux GOARCH="$GOARCH_VALUE" CGO_ENABLED=0 go build -o "$TMPDIR_LINUX_TRACE/hazmat" .
-)
-
-echo "linux-trace-smoke: running trace bundle smoke in $IMAGE..."
-docker run --rm \
+echo "linux-trace-smoke: configuring and running strict debug trace in $IMAGE..."
+docker run --rm --privileged \
+	-v "$REPO_ROOT:/src:ro" \
 	-v "$TMPDIR_LINUX_TRACE:/work" \
 	"$IMAGE" \
 	sh -eu -c '
 		if command -v apk >/dev/null 2>&1; then
-			apk add --no-cache strace procps coreutils >/dev/null 2>&1 || true
+			apk add --no-cache strace procps coreutils util-linux >/dev/null
 		fi
+		if command -v apt-get >/dev/null 2>&1; then
+			apt-get update >/dev/null
+			DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends strace procps util-linux systemd >/dev/null
+		fi
+		if ! command -v journalctl >/dev/null 2>&1; then
+			printf "%s\n" "#!/bin/sh" "exit 0" >/usr/bin/journalctl
+			chmod +x /usr/bin/journalctl
+		fi
+		mkdir -p /work/src
+		cp -R /src/. /work/src/
+		cd /work/src
+		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 scripts/configure-debug-trace.sh
+		cd /work/src/hazmat
+		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 go build -tags hazmat_debug -o /work/hazmat .
 		rm -rf /work/out/*
-		/work/hazmat trace codex --out /work/out --name docker-smoke --no-transcript -- --help >/work/trace.out
+		script -q -c "/work/hazmat trace codex --out /work/out --name docker-smoke -- --help" /work/wrapper.typescript >/work/trace.out
 		bundle="$(find /work/out -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 		test -n "$bundle"
 		grep -q "\"backend\": \"linux\"" "$bundle/manifest.json"
 		grep -q "\"harness\": \"codex\"" "$bundle/manifest.json"
 		grep -q "\"exit_code\": 0" "$bundle/manifest.json"
+		grep -q "\"syscalls\": true" "$bundle/manifest.json"
+		grep -q "\"transcript\": true" "$bundle/manifest.json"
 		test -f "$bundle/harness.json"
 		test -f "$bundle/command.txt"
 		test -f "$bundle/before-ps.txt"
 		test -f "$bundle/after-ps.txt"
 		test -f "$bundle/indicators.md"
-		if ls "$bundle"/strace.log* >/dev/null 2>&1; then
-			:
-		elif grep -q strace "$bundle/trace-errors.log" >/dev/null 2>&1; then
-			:
-		else
-			echo "missing strace output or degraded strace evidence" >&2
-			exit 1
-		fi
+		ls "$bundle"/strace.log* >/dev/null 2>&1
+		test -f "$bundle/journal.log"
+		test -f "$bundle/dmesg.log"
 		echo "$bundle" >/work/bundle-path.txt
 	'
 

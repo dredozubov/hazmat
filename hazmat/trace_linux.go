@@ -1,4 +1,4 @@
-//go:build linux
+//go:build hazmat_debug && linux
 
 package main
 
@@ -36,8 +36,39 @@ func (linuxTraceBackend) observerDescription() string {
 	return "Linux strace/proc observers"
 }
 
-func (linuxTraceBackend) syscallFlagHelp() string {
-	return "Attempt Linux syscall tracing with strace and process/proc snapshots"
+func (linuxTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error {
+	requiredTools := []string{"strace", "ps", "journalctl", "dmesg", "ls", "stat"}
+	for _, tool := range requiredTools {
+		path, ok := resolveLinuxTraceTool(tool)
+		if !ok {
+			return fmt.Errorf("trace requires %s in supported Linux tool paths", tool)
+		}
+		if err := requireTraceExecutable(tool, path); err != nil {
+			return err
+		}
+	}
+	if err := requireTraceExecutable("uname", hostUnamePath); err != nil {
+		return err
+	}
+	if err := requireTraceReadablePath("trace requires readable proc status", "/proc/self/status"); err != nil {
+		return err
+	}
+	if err := requireTraceReadablePath("trace requires proc filesystem", "/proc"); err != nil {
+		return err
+	}
+	if opts.Syscalls {
+		plan := planLinuxStrace(opts, resolveLinuxTraceTool)
+		if !plan.Enabled {
+			return fmt.Errorf("trace requires strace before launch: %s", plan.DegradedReason)
+		}
+	}
+	if err := runTracePreflightCommand(10*time.Second, mustLinuxTraceTool("journalctl"), "--no-pager", "-n", "1"); err != nil {
+		return fmt.Errorf("trace requires readable journalctl output before launch: %w", err)
+	}
+	if err := runTracePreflightCommand(10*time.Second, mustLinuxTraceTool("dmesg"), "--ctime", "--color=never"); err != nil {
+		return fmt.Errorf("trace requires readable dmesg output before launch: %w", err)
+	}
+	return nil
 }
 
 func (linuxTraceBackend) writeToolProbe(dir string, _ traceHarnessSpec) {
@@ -64,13 +95,13 @@ func (linuxTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, ph
 	}
 }
 
-func (linuxTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) traceObserverSet {
+func (linuxTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error) {
 	if !opts.Syscalls {
-		return noopTraceObservers{}
+		return noopTraceObservers{}, nil
 	}
 	return linuxTraceObservers{
 		samplerDone: startLinuxTraceProcessSampler(ctx, filepath.Join(dir, "process-samples.log"), spec),
-	}
+	}, nil
 }
 
 func (linuxTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {
@@ -80,12 +111,7 @@ func (linuxTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []s
 	}
 	plan := planLinuxStrace(opts, resolveLinuxTraceTool)
 	if !plan.Enabled {
-		if plan.DegradedReason != "" {
-			msg := fmt.Sprintf("# %s\n%s\n", time.Now().Format(time.RFC3339Nano), plan.DegradedReason)
-			appendTraceText(dir, "trace-errors.log", msg)
-			writeTraceText(dir, "strace.log", msg)
-		}
-		return runSessionCommand(cmd)
+		return fmt.Errorf("trace requires strace before launch: %s", plan.DegradedReason)
 	}
 	return runLinuxStraceLaunch(dir, plan.ToolPath, cmd)
 }
@@ -136,13 +162,15 @@ func runLinuxStraceLaunch(dir, stracePath string, cmd *exec.Cmd) error {
 	wrapped := exec.Command(stracePath, args...)
 	wrapped.Stdin = cmd.Stdin
 	wrapped.Stdout = cmd.Stdout
-	wrapped.Stderr = linuxTraceStderr(dir, cmd.Stderr)
+	stderr, stderrCloser, err := linuxTraceStderr(dir, cmd.Stderr)
+	if err != nil {
+		return err
+	}
+	wrapped.Stderr = stderr
 	wrapped.Dir = cmd.Dir
 	wrapped.Env = cmd.Env
-	err := runSessionCommand(wrapped)
-	if closer, ok := wrapped.Stderr.(io.Closer); ok {
-		_ = closer.Close()
-	}
+	err = runSessionCommand(wrapped)
+	_ = stderrCloser.Close()
 	if err != nil {
 		appendTraceText(dir, "trace-errors.log", fmt.Sprintf("# %s\nstrace launch exited: %v\n", time.Now().Format(time.RFC3339Nano), err))
 	}
@@ -161,19 +189,19 @@ func (w linuxTraceMultiWriteCloser) Close() error {
 	return w.close()
 }
 
-func linuxTraceStderr(dir string, primary io.Writer) io.Writer {
+func linuxTraceStderr(dir string, primary io.Writer) (io.Writer, io.Closer, error) {
 	if primary == nil {
 		primary = os.Stderr
 	}
 	file, err := os.OpenFile(filepath.Join(dir, "strace-stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return primary
+		return nil, nil, fmt.Errorf("create strace stderr log: %w", err)
 	}
 	fmt.Fprintf(file, "# %s\n# strace stderr and traced child stderr\n\n", time.Now().Format(time.RFC3339Nano))
 	return linuxTraceMultiWriteCloser{
 		Writer: io.MultiWriter(primary, file),
 		close:  file.Close,
-	}
+	}, file, nil
 }
 
 func startLinuxTraceProcessSampler(ctx context.Context, path string, spec traceHarnessSpec) <-chan struct{} {
@@ -346,6 +374,14 @@ func resolveLinuxTraceTool(name string) (string, bool) {
 		return candidate, true
 	}
 	return "", false
+}
+
+func mustLinuxTraceTool(name string) string {
+	path, ok := resolveLinuxTraceTool(name)
+	if !ok {
+		return name
+	}
+	return path
 }
 
 func linuxTraceToolCandidates(name string) []string {

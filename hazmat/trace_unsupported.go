@@ -1,4 +1,4 @@
-//go:build !darwin && !linux
+//go:build hazmat_debug && !darwin && !linux
 
 package main
 
@@ -34,12 +34,16 @@ func (unsupportedTraceBackend) syscallFlagHelp() string {
 	return "Attempt host-side syscall/filesystem probes"
 }
 
+func (unsupportedTraceBackend) preflight(traceHarnessSpec, traceOptions) error {
+	return fmt.Errorf("hazmat trace is not implemented on this platform")
+}
+
 func (unsupportedTraceBackend) writeToolProbe(string, traceHarnessSpec) {}
 
 func (unsupportedTraceBackend) writeHostSnapshot(string, traceHarnessSpec, string) {}
 
-func (unsupportedTraceBackend) startObservers(context.Context, string, traceHarnessSpec, traceOptions) traceObserverSet {
-	return noopTraceObservers{}
+func (unsupportedTraceBackend) startObservers(context.Context, string, traceHarnessSpec, traceOptions) (traceObserverSet, error) {
+	return noopTraceObservers{}, nil
 }
 
 func (unsupportedTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {

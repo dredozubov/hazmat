@@ -1,3 +1,5 @@
+//go:build hazmat_debug
+
 package main
 
 type linuxTraceToolResolver func(name string) (string, bool)

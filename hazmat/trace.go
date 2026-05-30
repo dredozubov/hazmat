@@ -1,3 +1,5 @@
+//go:build hazmat_debug
+
 package main
 
 import (
@@ -19,6 +21,8 @@ import (
 )
 
 const traceFormatVersion = 1
+
+var _ = traceDebugConfigured
 
 type traceOptions struct {
 	Harness    HarnessID
@@ -76,10 +80,10 @@ type traceBackend interface {
 	supported() bool
 	unsupportedError(HarnessID) error
 	observerDescription() string
-	syscallFlagHelp() string
+	preflight(spec traceHarnessSpec, opts traceOptions) error
 	writeToolProbe(dir string, spec traceHarnessSpec)
 	writeHostSnapshot(dir string, spec traceHarnessSpec, phase string)
-	startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) traceObserverSet
+	startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error)
 	runLaunch(dir string, opts traceOptions, launchArgs []string) error
 	writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time)
 	indicatorFiles() []string
@@ -119,8 +123,6 @@ func newTraceHarnessCmd(spec traceHarnessSpec) *cobra.Command {
 		Syscalls:   true,
 		Transcript: true,
 	}
-	var noSyscalls bool
-	var noTranscript bool
 
 	cmd := &cobra.Command{
 		Use:   string(spec.ID) + " [trace-flags] -- [hazmat-" + spec.CommandName + "-flags] [" + spec.CommandName + "-args...]",
@@ -136,7 +138,7 @@ Put Hazmat/%s launch flags after -- so they are forwarded untouched.
 Examples:
   hazmat trace %s -- %s
   hazmat trace %s --name baseline -- --no-backup %s
-  hazmat trace %s --no-syscalls -- --network none %s`,
+  hazmat trace %s --name network-none -- --network none %s`,
 			spec.CommandName,
 			backend.observerDescription(),
 			spec.DisplayName,
@@ -147,12 +149,6 @@ Examples:
 			spec.CommandName, strings.Join(shellQuote(spec.SampleArgs), " ")),
 		Args: cobra.ArbitraryArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
-			if noSyscalls {
-				opts.Syscalls = false
-			}
-			if noTranscript {
-				opts.Transcript = false
-			}
 			return runHarnessTrace(opts, args)
 		},
 	}
@@ -160,14 +156,6 @@ Examples:
 		"Directory in which to create the trace bundle (default: ~/.hazmat/traces)")
 	cmd.Flags().StringVar(&opts.Name, "name", "",
 		"Short experiment label to include in the trace directory name")
-	cmd.Flags().BoolVar(&opts.Syscalls, "syscalls", true,
-		backend.syscallFlagHelp())
-	cmd.Flags().BoolVar(&noSyscalls, "no-syscalls", false,
-		"Disable host-side syscall/filesystem probes")
-	cmd.Flags().BoolVar(&opts.Transcript, "transcript", true,
-		"Capture terminal I/O with script(1) while preserving a PTY")
-	cmd.Flags().BoolVar(&noTranscript, "no-transcript", false,
-		"Disable terminal transcript capture")
 	return cmd
 }
 
@@ -180,6 +168,12 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 	spec, ok := traceHarnessSpecByID(opts.Harness)
 	if !ok {
 		return fmt.Errorf("unknown trace harness %q", opts.Harness)
+	}
+	if err := preflightTraceRuntime(opts); err != nil {
+		return err
+	}
+	if err := backend.preflight(spec, opts); err != nil {
+		return err
 	}
 
 	start := time.Now()
@@ -214,7 +208,11 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 	backend.writeToolProbe(traceDir, spec)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	observers := backend.startObservers(ctx, traceDir, spec, opts)
+	observers, err := backend.startObservers(ctx, traceDir, spec, opts)
+	if err != nil {
+		cancel()
+		return err
+	}
 	if observers == nil {
 		observers = noopTraceObservers{}
 	}
@@ -244,6 +242,18 @@ func runHarnessTrace(opts traceOptions, forwarded []string) error {
 
 	fmt.Fprintf(os.Stderr, "hazmat trace: bundle complete: %s\n", traceDir)
 	return launchErr
+}
+
+func preflightTraceRuntime(opts traceOptions) error {
+	if opts.Transcript {
+		if hostScriptPath == "" {
+			return fmt.Errorf("trace requires script(1) for terminal transcript capture")
+		}
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return fmt.Errorf("trace requires terminal stdin so script(1) can capture a full PTY transcript")
+		}
+	}
+	return nil
 }
 
 func claudeTraceLaunchArgs(forwarded []string) []string {
@@ -487,7 +497,7 @@ func newTraceLaunchCommand(dir string, opts traceOptions, launchArgs []string) (
 	}
 
 	var cmd *exec.Cmd
-	if opts.Transcript && hostScriptPath != "" && term.IsTerminal(int(os.Stdin.Fd())) {
+	if opts.Transcript {
 		transcript := filepath.Join(dir, "terminal.typescript")
 		args := append([]string{"-q", transcript, self}, launchArgs...)
 		cmd = exec.Command(hostScriptPath, args...)
@@ -639,6 +649,40 @@ func runTraceCommandToFile(path string, timeout time.Duration, name string, args
 	if err != nil {
 		fmt.Fprintf(file, "\n# exit error: %v\n", err)
 	}
+}
+
+func requireTraceExecutable(label, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", label, path, err)
+	}
+	if info.IsDir() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%s %s is not executable", label, path)
+	}
+	return nil
+}
+
+func requireTraceReadablePath(label, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", label, path, err)
+	}
+	_ = file.Close()
+	return nil
+}
+
+func runTracePreflightCommand(timeout time.Duration, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s timed out after %s", strings.Join(shellQuote(append([]string{name}, args...)), " "), timeout)
+	}
+	if err != nil {
+		return fmt.Errorf("%s failed: %w: %s", strings.Join(shellQuote(append([]string{name}, args...)), " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func writeTraceJSON(dir, name string, value any) {

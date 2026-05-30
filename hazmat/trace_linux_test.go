@@ -1,4 +1,4 @@
-//go:build linux
+//go:build hazmat_debug && linux
 
 package main
 

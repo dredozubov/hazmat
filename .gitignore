@@ -1,5 +1,6 @@
 hazmat/hazmat
 hazmat/hazmat-launch
+hazmat/trace_debug_configured.go
 strategy.md
 
 # Legacy Dolt / SQLite artifacts

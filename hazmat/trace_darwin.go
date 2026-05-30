@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build hazmat_debug && darwin
 
 package main
 
@@ -37,8 +37,35 @@ func (darwinTraceBackend) observerDescription() string {
 	return "macOS observers"
 }
 
-func (darwinTraceBackend) syscallFlagHelp() string {
-	return "Attempt host-side syscall/filesystem probes with sudo -n dtruss/fs_usage/opensnoop"
+func (darwinTraceBackend) preflight(_ traceHarnessSpec, opts traceOptions) error {
+	required := map[string]string{
+		"sudo":      hostSudoPath,
+		"uname":     hostUnamePath,
+		"sw_vers":   "/usr/bin/sw_vers",
+		"csrutil":   "/usr/bin/csrutil",
+		"which":     "/usr/bin/which",
+		"ps":        "/bin/ps",
+		"ls":        hostLsPath,
+		"script":    hostScriptPath,
+		"log":       hostLogPath,
+		"dtruss":    "/usr/bin/dtruss",
+		"fs_usage":  "/usr/bin/fs_usage",
+		"opensnoop": "/usr/bin/opensnoop",
+	}
+	for label, path := range required {
+		if err := requireTraceExecutable(label, path); err != nil {
+			return err
+		}
+	}
+	if err := runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "-v"); err != nil {
+		return fmt.Errorf("trace requires non-interactive sudo before launch: %w", err)
+	}
+	if opts.Syscalls {
+		if err := runTracePreflightCommand(10*time.Second, hostSudoPath, "-n", "/usr/bin/dtruss", "/usr/bin/true"); err != nil {
+			return fmt.Errorf("trace requires working dtruss/DTrace before launch: %w", err)
+		}
+	}
+	return nil
 }
 
 func (darwinTraceBackend) writeToolProbe(dir string, spec traceHarnessSpec) {
@@ -76,15 +103,19 @@ func (darwinTraceBackend) writeHostSnapshot(dir string, spec traceHarnessSpec, p
 	}
 }
 
-func (darwinTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) traceObserverSet {
+func (darwinTraceBackend) startObservers(ctx context.Context, dir string, spec traceHarnessSpec, opts traceOptions) (traceObserverSet, error) {
 	if !opts.Syscalls {
-		return noopTraceObservers{}
+		return noopTraceObservers{}, nil
+	}
+	probes, err := startDarwinTraceProbes(dir, spec)
+	if err != nil {
+		return nil, err
 	}
 	return darwinTraceObservers{
 		samplerDone: startDarwinTraceProcessSampler(ctx, filepath.Join(dir, "process-samples.log"), spec),
-		probes:      startDarwinTraceProbes(dir, spec),
+		probes:      probes,
 		warmup:      750 * time.Millisecond,
-	}
+	}, nil
 }
 
 func (darwinTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []string) error {
@@ -131,7 +162,7 @@ type darwinTraceProbe struct {
 	File *os.File
 }
 
-func startDarwinTraceProbes(dir string, spec traceHarnessSpec) []darwinTraceProbe {
+func startDarwinTraceProbes(dir string, spec traceHarnessSpec) ([]darwinTraceProbe, error) {
 	processFilter := spec.ProcessFilters[0]
 	specs := []struct {
 		name string
@@ -159,12 +190,12 @@ func startDarwinTraceProbes(dir string, spec traceHarnessSpec) []darwinTraceProb
 	for _, probeSpec := range specs {
 		probe, err := startDarwinTraceProbe(probeSpec.name, filepath.Join(dir, probeSpec.file), probeSpec.argv)
 		if err != nil {
-			appendTraceText(dir, "trace-errors.log", fmt.Sprintf("%s: %v\n", probeSpec.name, err))
-			continue
+			stopDarwinTraceProbes(probes)
+			return nil, fmt.Errorf("start %s trace probe: %w", probeSpec.name, err)
 		}
 		probes = append(probes, probe)
 	}
-	return probes
+	return probes, nil
 }
 
 func startDarwinTraceProbe(name, path string, argv []string) (darwinTraceProbe, error) {

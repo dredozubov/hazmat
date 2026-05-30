@@ -1,3 +1,5 @@
+//go:build hazmat_debug
+
 package main
 
 import (
@@ -23,7 +25,7 @@ func TestPlanLinuxStraceUsesResolvedTool(t *testing.T) {
 	}
 }
 
-func TestPlanLinuxStraceDegradesWhenMissing(t *testing.T) {
+func TestPlanLinuxStraceDisablesWhenMissing(t *testing.T) {
 	plan := planLinuxStrace(traceOptions{Syscalls: true}, func(string) (string, bool) {
 		return "", false
 	})
@@ -31,7 +33,7 @@ func TestPlanLinuxStraceDegradesWhenMissing(t *testing.T) {
 		t.Fatal("expected missing strace to disable plan")
 	}
 	if plan.DegradedReason == "" {
-		t.Fatal("expected degraded reason for missing strace")
+		t.Fatal("expected strict failure reason for missing strace")
 	}
 }
 

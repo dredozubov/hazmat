@@ -18,13 +18,23 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards check-hostexec hooks
+.PHONY: all hazmat hazmat-launch configure-debug-trace hazmat-debug test-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile lint e2e e2e-bootstrap e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
 hazmat:
 	@rm -f $(HAZMAT_BUILD_BIN)
 	cd $(APP_DIR) && go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat .
+
+configure-debug-trace:
+	bash scripts/configure-debug-trace.sh
+
+hazmat-debug: configure-debug-trace
+	@rm -f $(HAZMAT_BUILD_BIN)
+	cd $(APP_DIR) && go build $(GOFLAGS) -tags 'hazmat_debug' -ldflags '$(LDFLAGS)' -o hazmat .
+
+test-debug-trace: configure-debug-trace
+	cd $(APP_DIR) && go test -tags 'hazmat_debug' ./...
 
 hazmat-launch:
 	@rm -f $(HAZMAT_BUILD_HELPER)
@@ -116,4 +126,4 @@ hooks:
 	@echo "Installed Hazmat-managed repo-local hooks"
 
 clean:
-	rm -f $(HAZMAT_BUILD_BIN) $(HAZMAT_BUILD_HELPER)
+	rm -f $(HAZMAT_BUILD_BIN) $(HAZMAT_BUILD_HELPER) $(APP_DIR)/trace_debug_configured.go

@@ -43,11 +43,22 @@ go vet ./...
 echo "pre-push: go test..."
 go test ./...
 
+if [ -f trace_debug_configured.go ]; then
+	echo "pre-push: debug trace go test..."
+	go test -tags hazmat_debug ./...
+else
+	echo "pre-push: raw debug trace build is gated..."
+	if go test -c -tags hazmat_debug . -o /tmp/hazmat-raw-debug.test >/tmp/hazmat-raw-debug.out 2>/tmp/hazmat-raw-debug.err; then
+		echo "pre-push: raw hazmat_debug build unexpectedly succeeded without configure-debug-trace" >&2
+		exit 1
+	fi
+	grep -q "traceDebugConfigured" /tmp/hazmat-raw-debug.err
+fi
+
 echo "pre-push: linux compile-only..."
 "$REPO_ROOT/scripts/check-linux-compile.sh"
 
-echo "pre-push: macOS trace smoke..."
-"$REPO_ROOT/scripts/check-macos-trace-smoke.sh"
+echo "pre-push: macOS trace smoke skipped (debug-only; run scripts/check-macos-trace-smoke.sh manually)"
 
 if [ "${HAZMAT_LINUX_TRACE_SMOKE:-}" = "1" ]; then
 	echo "pre-push: linux trace Docker smoke..."
@@ -77,11 +88,12 @@ run_smoke "codex-app-server --help" codex-app-server --help
 run_smoke "codex-app-shim --help" codex-app-shim --help
 run_smoke "app-server --help" app-server --help
 run_smoke "opencode --help" opencode --help
-run_smoke "trace --help" trace --help
-run_smoke "trace claude --help" trace claude --help
-run_smoke "trace codex --help" trace codex --help
-run_smoke "trace opencode --help" trace opencode --help
-run_smoke "trace gemini --help" trace gemini --help
+echo "pre-push: cli smoke trace hidden in release build..."
+if go run . trace --help >/tmp/hazmat-trace-help.out 2>/tmp/hazmat-trace-help.err; then
+	echo "pre-push: trace unexpectedly exists in default build" >&2
+	exit 1
+fi
+"$REPO_ROOT/scripts/check-debug-trace-cli-smoke.sh"
 run_smoke "integration --help" integration --help
 run_smoke "integration list" integration list
 run_smoke "integration show node" integration show node
