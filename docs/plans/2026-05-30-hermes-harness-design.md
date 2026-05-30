@@ -54,10 +54,12 @@ lifecycle model.
 - Add a clear path for running Hermes as a contained autonomous assistant.
 - Preserve Hazmat's existing harness/session contract.
 - Avoid importing the user's host `~/.hermes` state by default.
-- Support one modeled provider API key in v1 through Hazmat's existing
-  host-secret-store-to-env delivery shape, while keeping Hermes profile files,
-  OAuth state, MCP secrets, messaging credentials, SSH keys, cloud credentials,
-  and tool home secrets out of managed import.
+- Support transparent modeled provider API-key delivery in v1: if the user has
+  configured provider keys that Hermes already understands, Hazmat should inject
+  those same env vars into Hermes without making the user learn Hermes-specific
+  Hazmat choices. Hermes profile files, OAuth state, MCP secrets, messaging
+  credentials, SSH keys, cloud credentials, and tool home secrets remain out of
+  managed import.
 - Make Hermes' own terminal backend a secondary concern; Hazmat should wrap the
   whole Hermes process, not only commands Hermes emits through its terminal
   tool.
@@ -72,8 +74,9 @@ lifecycle model.
 - No `hermes gateway` daemon management in the first slice.
 - No dashboard/API port exposure in the first slice.
 - No host Docker socket grant.
-- No provider-key import from host `~/.hermes`; v1 provider env delivery must
-  come from Hazmat's host-owned secret store.
+- No bulk provider-key import from host `~/.hermes`; v1 provider env delivery
+  should come from Hazmat's host-owned secret store or an explicit, auditable
+  key import path.
 - No automatic passthrough of `~/.ssh`, `gh`, cloud SDKs, MCP tokens, provider
   keys, or messaging-platform credentials.
 - No support for Hermes cron jobs that survive past the Hazmat session.
@@ -218,29 +221,42 @@ files copied from the host. Relevant Hermes surfaces include:
 - SSH, GitHub, cloud, and database credentials inside Hermes' per-tool home
 
 V1 should separate provider-key env delivery from Hermes profile import. The
-recommended first credential is a single Hermes-scoped `OPENROUTER_API_KEY` env
-grant, delivered from Hazmat's host-owned secret store and injected only into
-Hermes sessions. Current Hermes provider resolution treats `OPENROUTER_API_KEY`
-as the primary OpenRouter key, while `OPENAI_API_KEY` is already owned by
-Hazmat's Codex descriptor and is also interpreted by Hermes as an OpenRouter,
-custom-endpoint, or direct OpenAI signal depending on config.
+right user model is transparent provider reuse: a user who has already stored an
+OpenAI, Anthropic, Gemini, or OpenRouter key in Hazmat should not have to learn a
+new Hermes-specific Hazmat key choice. Hazmat should inject the same env var
+names Hermes already understands, subject to an explicit registry allowlist for
+the Hermes harness.
 
-That choice keeps v1 useful without changing the credential registry schema.
-Adding another `OPENAI_API_KEY` descriptor scoped to Hermes would collide with
-the existing Codex descriptor because `credentialDescriptor.Harness` is a single
-`HarnessID`, `providerCredentialDescriptorForEnvVar` is env-var-only, and the
-provider secret-store path is derived from env var. Sharing `OPENAI_API_KEY`
-between Codex and Hermes would therefore require a modeled registry schema
-change: either multi-harness credential scope or harness-aware env descriptor
-lookup and grant attribution. It should not be described as "just add another
-row."
+That transparency requires a small credential-registry schema change. Today,
+`credentialDescriptor.Harness` is a single `HarnessID`,
+`providerCredentialDescriptorForEnvVar` is env-var-only, and the provider
+secret-store path is selected through that env var. `OPENAI_API_KEY` already
+belongs to the Codex descriptor. Adding a second Hermes-scoped
+`OPENAI_API_KEY` row would make descriptor lookup and grant attribution
+ambiguous. Avoiding the collision by telling users to use only
+`OPENROUTER_API_KEY` is technically simpler, but it leaks Hazmat internals and
+provider choices into the user experience.
 
-The OpenRouter v1 grant still requires a harness-set update in the TLA+ models
-because the provider key descriptor and config-agent prompt are harness-scoped.
-If product wants zero managed secrets for a purer containment story, the design
-should state that as a policy choice, not as a technical necessity. Nous Portal
-remains the smoother Hermes-native auth path, but it is OAuth/device-code state
-under the Hermes profile rather than a simple v1 env key.
+The preferred v1 fix is therefore:
+
+1. model provider API keys as shared or multi-consumer credentials, not
+   one-harness credentials;
+2. make env-descriptor lookup harness-aware or descriptor-ID-aware;
+3. keep a single host-store entry for a shared env var such as
+   `OPENAI_API_KEY`;
+4. record which harnesses may receive each provider env var;
+5. attribute session env grants to both the credential ID and consuming harness;
+6. make `hazmat config agent` prompt in provider terms, for example "OpenAI API
+   key, used by Codex and Hermes", instead of duplicating a harness-specific
+   prompt.
+
+This still avoids unmanaged Hermes profile import. It only means Hazmat's own
+provider secret store can deliver provider keys transparently to every harness
+that is explicitly allowed to consume them. If product wants zero managed
+secrets for a purer containment story, the design should state that as a policy
+choice, not as a technical necessity. Nous Portal remains the smoother
+Hermes-native auth path, but it is OAuth/device-code state under the Hermes
+profile rather than a simple v1 env key.
 
 The v1 harness should otherwise avoid managed Hermes credential import. Users
 can run a fresh contained Hermes setup inside the agent profile if they
@@ -431,10 +447,10 @@ model before the Go registry change:
 - keep Hermes out of `ImportableHarnesses` for v1, matching the no host-profile
   import decision
 - keep Codex and Hermes non-importable unless a curated import path is added
-- update `MC_CredentialCapabilityLifecycle` for Hermes and the new
-  Hermes-scoped OpenRouter env credential; do not model it as an
-  `OPENAI_API_KEY` duplicate unless the registry schema is changed to support
-  shared or harness-aware provider env descriptors
+- update `MC_CredentialCapabilityLifecycle` for Hermes and the shared-provider
+  credential model: provider env credentials may be delivered to multiple
+  explicitly allowed harnesses, while `NoCrossHarnessExposure` still forbids
+  exposure to unlisted harnesses
 - prove `RecordedHarnessVersionsMatchSpec`, dry-run state preservation, and the
   rollback properties still hold
 - run the TLA+ suite before changing Go harness registry code
@@ -458,9 +474,10 @@ At minimum, the implementation plan should review:
 - seatbelt policy structure
 - launch fd isolation
 
-The design boundary for v1 should be chosen to avoid model churn where possible:
-foreground harness launch, one env-delivered provider key, no managed Hermes
-profile import, no gateway service, no new daemon setup, and no host-state sync.
+The design boundary for v1 should keep runtime scope small while accepting the
+credential model work needed for transparency: foreground harness launch,
+shared provider-key env delivery, no managed Hermes profile import, no gateway
+service, no new daemon setup, and no host-state sync.
 
 ## Testing Plan
 
@@ -479,7 +496,7 @@ Unit tests:
   parsing.
 - `hazmat explain` or its selected preview surface accepts `hermes` as a target
   and reports disabled host-profile import, service-mode deferral, Docker socket
-  denial, and provider-key env delivery.
+  denial, and transparent provider-key env delivery.
 
 Policy tests:
 
@@ -501,8 +518,9 @@ Smoke tests:
   without requiring upstream installation
 - a scratch project where Hermes can read/write only within the expected project
   and session write roots
-- a provider-key fixture proving the selected env var is injected only for
-  Hermes sessions
+- provider-key fixtures proving shared keys such as `OPENAI_API_KEY` can be
+  injected into Codex and Hermes when both are allowed, while the same key is
+  not exposed to unrelated harnesses
 - a default-network live probe proving the selected provider endpoint is
   reachable under Hazmat's default DNS/PF posture, and that `--network none`
   fails closed with an actionable message
@@ -558,8 +576,8 @@ Add `hazmat hermes` as a built-in harness with:
 - no host profile import
 - managed `HERMES_HOME`
 - no harness asset sync
-- one modeled provider API key delivered by env, recommended
-  `OPENROUTER_API_KEY`
+- transparent modeled provider API-key delivery for Hermes-recognized env vars,
+  including shared keys such as `OPENAI_API_KEY`
 - no managed Hermes profile or file credential import
 - no gateway/service support
 - rejection of gateway/dashboard/persistent-cron entrypoints
@@ -574,10 +592,10 @@ installation path over running upstream's install script directly.
 
 ### Phase 3: Additional Credential Capabilities
 
-Add typed Hermes credential support beyond the single provider key only after
-the TLA+ and registry design are updated. Tool gateway credentials may be the
-next candidate. Defer messaging, MCP OAuth, SSH, and cloud credentials unless
-each has a precise descriptor and cleanup story.
+Add typed Hermes credential support beyond shared provider API-key env delivery
+only after the TLA+ and registry design are updated. Tool gateway credentials
+may be the next candidate. Defer messaging, MCP OAuth, SSH, and cloud
+credentials unless each has a precise descriptor and cleanup story.
 
 ### Phase 4: Service Mode Evaluation
 
@@ -603,7 +621,7 @@ dashboard, cron, and profile supervision.
   Hermes tool-home paths would require model work.
 - The explain/preview surface should include Hermes-specific notes for disabled
   host-profile import, service-mode deferral, Docker socket denial, and
-  provider-key env delivery.
+  transparent provider-key env delivery.
 
 ## Remaining Questions
 
@@ -616,10 +634,10 @@ dashboard, cron, and profile supervision.
 ## Recommended Decision
 
 Proceed with Phase 1 after the model-first harness lifecycle update and the
-single provider-key env-delivery update. Keep the implementation small:
-foreground process, fresh contained Hermes profile, one provider key,
-manual/minimal bootstrap, no Hermes profile import, no asset sync, no daemon, no
-Docker socket, and explicit rejection of service-mode entrypoints.
+shared-provider credential registry update. Keep the runtime implementation
+small: foreground process, fresh contained Hermes profile, transparent provider
+key delivery, manual/minimal bootstrap, no Hermes profile import, no asset sync,
+no daemon, no Docker socket, and explicit rejection of service-mode entrypoints.
 
 This gives Hazmat a useful Hermes integration point while preserving the core
 security claim: Hazmat contains assistant runtimes as whole processes instead
