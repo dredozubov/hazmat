@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd (beads)** for issue tracking. Run `bd prime` for current workflow context, or install hooks (`bd hooks install`) for auto-injection.
 
 ## Quick Reference
 
@@ -9,7 +9,7 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
-bd sync               # Sync with git
+bd dolt push          # Push beads state
 ```
 
 ## Non-Interactive Shell Commands
@@ -52,89 +52,26 @@ first. If rollback intentionally preserves the mutation, document that boundary
 in the setup/rollback spec.
 
 <!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+## Issue Tracking
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+This project uses **bd (beads)** for all issue tracking. Do not use markdown TODOs, task lists, or external trackers.
 
-### Why bd?
+Run `bd prime` at the start of a session or after context compaction to load the current AI workflow guidance. `bd onboard` intentionally stays minimal and points agents back to `bd prime`.
 
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Auto-syncs to JSONL for version control
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
+**Quick reference:**
+- `bd ready` - Find unblocked work
+- `bd show <id>` - View issue details
+- `bd create --title="Title" --description="Context" --type=task --priority=2` - Create issue
+- `bd update <id> --claim` - Claim work atomically
+- `bd close <id> --reason="Done"` - Complete work
+- `bd dolt pull` - Pull beads state from the Dolt remote
+- `bd dolt push` - Push beads state to the Dolt remote
 
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
+**Rules:**
+- Create or claim a bead before writing code.
+- Link discovered follow-up work with `--deps discovered-from:<parent-id>`.
+- Use priority values `0`-`4` or `P0`-`P4`; do not use textual priorities.
+- Do not use `bd edit`; it opens an editor and can block non-interactive agents.
 
 <!-- END BEADS INTEGRATION -->
 
@@ -150,7 +87,8 @@ For more details, see README.md and docs/QUICKSTART.md.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
+   bd dolt pull
+   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```

@@ -31,7 +31,7 @@ Reason: <explain what is blocking you>
 
 ### Agent Instructions
 
-This project uses **bd** (beads) for issue tracking.
+This project uses **bd (beads)** for issue tracking. Run `bd prime` for current workflow context.
 
 #### Quick Reference
 
@@ -40,7 +40,7 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
-bd sync               # Sync with git
+bd dolt push          # Push beads state
 ```
 
 #### Non-Interactive Shell Commands
@@ -66,12 +66,12 @@ Other commands that may prompt:
 
 #### Issue Tracking with bd (beads)
 
-This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods. Use `bd prime` after context compaction or a fresh session to reload current workflow guidance.
 
 Create new issues:
 ```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+bd create --title="Issue title" --description="Detailed context" --type=task --priority=2 --json
+bd create --title="Found bug" --description="What was found" --type=bug --priority=1 --deps discovered-from:bd-123 --json
 ```
 
 Priorities: 0=Critical, 1=High, 2=Medium (default), 3=Low, 4=Backlog
@@ -85,7 +85,8 @@ When ending a work session, complete ALL steps:
 4. Push to remote:
    ```bash
    git pull --rebase
-   bd sync
+   bd dolt pull
+   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```

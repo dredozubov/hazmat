@@ -298,7 +298,7 @@ Reference card for fixing common stuck states. Not a checklist — these are the
 - [ ] **No leaked agent processes**: `ps -u agent` shows nothing surprising.
 - [ ] **No stray `/tmp/hazmat-*.sb` files older than your session**: `ls -lt /tmp/hazmat-*.sb 2>/dev/null | head` — anything older than your last session was leaked by an earlier crash.
 - [ ] **Snapshot count is what you expected**: `hazmat snapshots list | wc -l` — sanity check that pre-session snapshots aren't accumulating without bound.
-- [ ] **bd issues reflect the test result**: if a checklist item failed in a way that points at a bug, file it (`bd create --type=bug ...`) before moving on.
+- [ ] **bd issues reflect the test result**: if a checklist item failed in a way that points at a bug, file it (`bd create --title="..." --type=bug ...`) before moving on.
 
 ---
 
@@ -310,4 +310,4 @@ Reference card for fixing common stuck states. Not a checklist — these are the
 - **TLA+ verification**: `cd tla && bash check_suite.sh` — no human-in-loop component.
 - **Performance**: there's no perf test yet; if a session takes noticeably longer to start than the last release, file a bug.
 
-If something feels wrong but isn't covered above, file an issue with `bd create --type=bug` rather than expanding this doc indefinitely. This doc should stay short enough to skim before a release.
+If something feels wrong but isn't covered above, file an issue with `bd create --title="..." --type=bug` rather than expanding this doc indefinitely. This doc should stay short enough to skim before a release.
