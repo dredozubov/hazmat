@@ -218,13 +218,29 @@ files copied from the host. Relevant Hermes surfaces include:
 - SSH, GitHub, cloud, and database credentials inside Hermes' per-tool home
 
 V1 should separate provider-key env delivery from Hermes profile import. The
-recommended first credential is a single Hermes-scoped `OPENAI_API_KEY` env
+recommended first credential is a single Hermes-scoped `OPENROUTER_API_KEY` env
 grant, delivered from Hazmat's host-owned secret store and injected only into
-Hermes sessions. This reuses the existing `credentialDeliveryEnv` shape, but it
-still requires a harness-set update in the TLA+ models because the provider key
-descriptor and config-agent prompt are harness-scoped. If product wants zero
-managed secrets for a purer containment story, the design should state that as a
-policy choice, not as a technical necessity.
+Hermes sessions. Current Hermes provider resolution treats `OPENROUTER_API_KEY`
+as the primary OpenRouter key, while `OPENAI_API_KEY` is already owned by
+Hazmat's Codex descriptor and is also interpreted by Hermes as an OpenRouter,
+custom-endpoint, or direct OpenAI signal depending on config.
+
+That choice keeps v1 useful without changing the credential registry schema.
+Adding another `OPENAI_API_KEY` descriptor scoped to Hermes would collide with
+the existing Codex descriptor because `credentialDescriptor.Harness` is a single
+`HarnessID`, `providerCredentialDescriptorForEnvVar` is env-var-only, and the
+provider secret-store path is derived from env var. Sharing `OPENAI_API_KEY`
+between Codex and Hermes would therefore require a modeled registry schema
+change: either multi-harness credential scope or harness-aware env descriptor
+lookup and grant attribution. It should not be described as "just add another
+row."
+
+The OpenRouter v1 grant still requires a harness-set update in the TLA+ models
+because the provider key descriptor and config-agent prompt are harness-scoped.
+If product wants zero managed secrets for a purer containment story, the design
+should state that as a policy choice, not as a technical necessity. Nous Portal
+remains the smoother Hermes-native auth path, but it is OAuth/device-code state
+under the Hermes profile rather than a simple v1 env key.
 
 The v1 harness should otherwise avoid managed Hermes credential import. Users
 can run a fresh contained Hermes setup inside the agent profile if they
@@ -415,6 +431,10 @@ model before the Go registry change:
 - keep Hermes out of `ImportableHarnesses` for v1, matching the no host-profile
   import decision
 - keep Codex and Hermes non-importable unless a curated import path is added
+- update `MC_CredentialCapabilityLifecycle` for Hermes and the new
+  Hermes-scoped OpenRouter env credential; do not model it as an
+  `OPENAI_API_KEY` duplicate unless the registry schema is changed to support
+  shared or harness-aware provider env descriptors
 - prove `RecordedHarnessVersionsMatchSpec`, dry-run state preservation, and the
   rollback properties still hold
 - run the TLA+ suite before changing Go harness registry code
@@ -538,7 +558,8 @@ Add `hazmat hermes` as a built-in harness with:
 - no host profile import
 - managed `HERMES_HOME`
 - no harness asset sync
-- one modeled provider API key delivered by env, recommended `OPENAI_API_KEY`
+- one modeled provider API key delivered by env, recommended
+  `OPENROUTER_API_KEY`
 - no managed Hermes profile or file credential import
 - no gateway/service support
 - rejection of gateway/dashboard/persistent-cron entrypoints
