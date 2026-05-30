@@ -46,6 +46,13 @@ go test ./...
 echo "pre-push: linux compile-only..."
 "$REPO_ROOT/scripts/check-linux-compile.sh"
 
+if [ "${HAZMAT_LINUX_TRACE_SMOKE:-}" = "1" ]; then
+	echo "pre-push: linux trace Docker smoke..."
+	"$REPO_ROOT/scripts/check-linux-trace-smoke.sh" --skip-if-missing-prereqs
+else
+	echo "pre-push: linux trace Docker smoke skipped (set HAZMAT_LINUX_TRACE_SMOKE=1 to enable)"
+fi
+
 echo "pre-push: golangci-lint..."
 golangci-lint run ./...
 
