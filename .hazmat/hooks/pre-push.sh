@@ -46,6 +46,9 @@ go test ./...
 echo "pre-push: linux compile-only..."
 "$REPO_ROOT/scripts/check-linux-compile.sh"
 
+echo "pre-push: macOS trace smoke..."
+"$REPO_ROOT/scripts/check-macos-trace-smoke.sh"
+
 if [ "${HAZMAT_LINUX_TRACE_SMOKE:-}" = "1" ]; then
 	echo "pre-push: linux trace Docker smoke..."
 	"$REPO_ROOT/scripts/check-linux-trace-smoke.sh" --skip-if-missing-prereqs
