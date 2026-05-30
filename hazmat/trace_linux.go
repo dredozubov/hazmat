@@ -81,7 +81,9 @@ func (linuxTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []s
 	plan := planLinuxStrace(opts, resolveLinuxTraceTool)
 	if !plan.Enabled {
 		if plan.DegradedReason != "" {
-			appendTraceText(dir, "trace-errors.log", fmt.Sprintf("# %s\n%s\n", time.Now().Format(time.RFC3339Nano), plan.DegradedReason))
+			msg := fmt.Sprintf("# %s\n%s\n", time.Now().Format(time.RFC3339Nano), plan.DegradedReason)
+			appendTraceText(dir, "trace-errors.log", msg)
+			writeTraceText(dir, "strace.log", msg)
 		}
 		return runSessionCommand(cmd)
 	}
