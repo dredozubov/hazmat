@@ -1,6 +1,6 @@
 //go:build hazmat_debug
 
-package main
+package debugtrace
 
 import (
 	"slices"
