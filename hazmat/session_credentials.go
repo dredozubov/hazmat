@@ -6,9 +6,10 @@ import (
 )
 
 type sessionCredentialEnvGrant struct {
-	EnvVar       string
-	CredentialID credentialID
-	Source       string
+	EnvVar          string
+	CredentialID    credentialID
+	Source          string
+	ConsumerHarness HarnessID
 }
 
 func appendSessionCredentialEnvGrant(grants []sessionCredentialEnvGrant, grant sessionCredentialEnvGrant) []sessionCredentialEnvGrant {
@@ -16,7 +17,7 @@ func appendSessionCredentialEnvGrant(grants []sessionCredentialEnvGrant, grant s
 		return grants
 	}
 	for _, existing := range grants {
-		if existing.EnvVar == grant.EnvVar && existing.CredentialID == grant.CredentialID {
+		if existing.EnvVar == grant.EnvVar && existing.CredentialID == grant.CredentialID && existing.ConsumerHarness == grant.ConsumerHarness {
 			return grants
 		}
 	}
@@ -31,6 +32,9 @@ func normalizedSessionCredentialEnvGrants(grants []sessionCredentialEnvGrant) []
 	copy(out, grants)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].EnvVar == out[j].EnvVar {
+			if out[i].CredentialID == out[j].CredentialID {
+				return out[i].ConsumerHarness < out[j].ConsumerHarness
+			}
 			return out[i].CredentialID < out[j].CredentialID
 		}
 		return out[i].EnvVar < out[j].EnvVar
@@ -49,6 +53,9 @@ func sessionCredentialEnvGrantLabels(grants []sessionCredentialEnvGrant) []strin
 		}
 		if grant.Source != "" {
 			details = append(details, grant.Source)
+		}
+		if grant.ConsumerHarness != "" {
+			details = append(details, "consumer="+string(grant.ConsumerHarness))
 		}
 		if len(details) > 0 {
 			label += " (" + strings.Join(details, ", ") + ")"

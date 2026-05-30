@@ -2302,9 +2302,10 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		ActiveIntegrations:      []string{"go", "node"},
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
-				EnvVar:       "ANTHROPIC_API_KEY",
-				CredentialID: credentialProviderAnthropicAPIKey,
-				Source:       "host secret store",
+				EnvVar:          "ANTHROPIC_API_KEY",
+				CredentialID:    credentialProviderAnthropicAPIKey,
+				Source:          "host secret store",
+				ConsumerHarness: HarnessClaude,
 			},
 		},
 		ServiceAccess: []string{"github"},
@@ -2333,7 +2334,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		"Pre-session snapshot: on",
 		"Snapshot excludes:    vendor/, .next/",
 		"Invoker env passthrough: registry URLs via GOPROXY",
-		"Credential env grants: ANTHROPIC_API_KEY=<redacted> (provider.anthropic.api-key, host secret store)",
+		"Credential env grants: ANTHROPIC_API_KEY=<redacted> (provider.anthropic.api-key, host secret store, consumer=claude)",
 		"Notes:",
 		"If this session needs Docker, use: hazmat claude --docker=sandbox -C /tmp/project",
 		"Warnings:",

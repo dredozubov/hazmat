@@ -132,10 +132,11 @@ func explainJSONCredentialEnvGrants(grants []sessionCredentialEnvGrant) []explai
 	out := make([]explainJSONCredentialEnvGrant, 0, len(normalized))
 	for _, grant := range normalized {
 		out = append(out, explainJSONCredentialEnvGrant{
-			EnvVar:       grant.EnvVar,
-			CredentialID: string(grant.CredentialID),
-			Source:       grant.Source,
-			Redacted:     true,
+			EnvVar:          grant.EnvVar,
+			CredentialID:    string(grant.CredentialID),
+			Source:          grant.Source,
+			ConsumerHarness: string(grant.ConsumerHarness),
+			Redacted:        true,
 		})
 	}
 	return out

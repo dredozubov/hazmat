@@ -120,10 +120,11 @@ type RepoSetupEffect struct {
 
 // CredentialEnvGrant describes a redaction-safe env credential grant.
 type CredentialEnvGrant struct {
-	EnvVar       string `json:"env_var"`
-	CredentialID string `json:"credential_id,omitempty"`
-	Source       string `json:"source,omitempty"`
-	Redacted     bool   `json:"redacted"`
+	EnvVar          string `json:"env_var"`
+	CredentialID    string `json:"credential_id,omitempty"`
+	Source          string `json:"source,omitempty"`
+	ConsumerHarness string `json:"consumer_harness,omitempty"`
+	Redacted        bool   `json:"redacted"`
 }
 
 // HostMutation describes a planned host mutation without executable behavior.

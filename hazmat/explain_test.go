@@ -63,9 +63,10 @@ func TestBuildExplainJSON(t *testing.T) {
 		IntegrationRegistryKeys: []string{"NPM_CONFIG_REGISTRY"},
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
-				EnvVar:       "OPENAI_API_KEY",
-				CredentialID: credentialProviderOpenAIAPIKey,
-				Source:       "host secret store",
+				EnvVar:          "OPENAI_API_KEY",
+				CredentialID:    credentialProviderOpenAIAPIKey,
+				Source:          "host secret store",
+				ConsumerHarness: HarnessCodex,
 			},
 		},
 		PlannedHostMutations: []sessionMutation{
@@ -133,10 +134,11 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.CredentialEnvGrants, []explainJSONCredentialEnvGrant{
 		{
-			EnvVar:       "OPENAI_API_KEY",
-			CredentialID: string(credentialProviderOpenAIAPIKey),
-			Source:       "host secret store",
-			Redacted:     true,
+			EnvVar:          "OPENAI_API_KEY",
+			CredentialID:    string(credentialProviderOpenAIAPIKey),
+			Source:          "host secret store",
+			ConsumerHarness: string(HarnessCodex),
+			Redacted:        true,
 		},
 	}) {
 		t.Fatalf("CredentialEnvGrants = %#v", got.CredentialEnvGrants)

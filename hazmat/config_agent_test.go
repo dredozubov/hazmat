@@ -202,7 +202,7 @@ func TestApplyHarnessAPIKeyEnvMigratesLegacyZshrc(t *testing.T) {
 	if len(cfg.CredentialEnvGrants) != 1 {
 		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
 	}
-	if got := cfg.CredentialEnvGrants[0]; got.EnvVar != "ANTHROPIC_API_KEY" || got.CredentialID != credentialProviderAnthropicAPIKey || got.Source != "host secret store" {
+	if got := cfg.CredentialEnvGrants[0]; got.EnvVar != "ANTHROPIC_API_KEY" || got.CredentialID != credentialProviderAnthropicAPIKey || got.Source != "host secret store" || got.ConsumerHarness != HarnessClaude {
 		t.Fatalf("CredentialEnvGrants[0] = %+v", got)
 	}
 	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Migrated legacy ANTHROPIC_API_KEY") {
@@ -255,8 +255,8 @@ func TestApplyHarnessAPIKeyEnvPlanOnlyDoesNotMigrateLegacyZshrc(t *testing.T) {
 	if len(cfg.CredentialEnvGrants) != 1 {
 		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
 	}
-	if got := cfg.CredentialEnvGrants[0]; got.Source != "legacy agent zshrc" {
-		t.Fatalf("CredentialEnvGrants[0].Source = %q, want legacy agent zshrc", got.Source)
+	if got := cfg.CredentialEnvGrants[0]; got.Source != "legacy agent zshrc" || got.ConsumerHarness != HarnessClaude {
+		t.Fatalf("CredentialEnvGrants[0] = %+v, want legacy agent zshrc for Claude", got)
 	}
 	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "would be migrated") {
 		t.Fatalf("SessionNotes = %v, want plan-only migration note", cfg.SessionNotes)
@@ -275,6 +275,86 @@ func TestApplyHarnessAPIKeyEnvPlanOnlyDoesNotMigrateLegacyZshrc(t *testing.T) {
 	}
 	if !strings.Contains(string(zshrcRaw), "ANTHROPIC_API_KEY") {
 		t.Fatalf("plan-only explain should preserve legacy export:\n%s", string(zshrcRaw))
+	}
+}
+
+func TestApplyHarnessAPIKeyEnvDeliversConfiguredProvidersForAllowedHarness(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, spec := range harnessAPIKeyPrompts {
+		if err := storeHostAPIKey(spec, "stored-"+spec.EnvVar); err != nil {
+			t.Fatalf("storeHostAPIKey(%s): %v", spec.EnvVar, err)
+		}
+	}
+
+	cases := []struct {
+		harness HarnessID
+		want    map[string]credentialID
+	}{
+		{
+			harness: HarnessClaude,
+			want: map[string]credentialID{
+				"ANTHROPIC_API_KEY": credentialProviderAnthropicAPIKey,
+			},
+		},
+		{
+			harness: HarnessCodex,
+			want: map[string]credentialID{
+				"OPENAI_API_KEY": credentialProviderOpenAIAPIKey,
+			},
+		},
+		{
+			harness: HarnessGemini,
+			want: map[string]credentialID{
+				"GEMINI_API_KEY": credentialProviderGeminiAPIKey,
+			},
+		},
+		{
+			harness: HarnessHermes,
+			want: map[string]credentialID{
+				"ANTHROPIC_API_KEY":  credentialProviderAnthropicAPIKey,
+				"OPENAI_API_KEY":     credentialProviderOpenAIAPIKey,
+				"GEMINI_API_KEY":     credentialProviderGeminiAPIKey,
+				"OPENROUTER_API_KEY": credentialProviderOpenRouterAPIKey,
+			},
+		},
+		{
+			harness: HarnessOpenCode,
+			want:    map[string]credentialID{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.harness), func(t *testing.T) {
+			cfg := sessionConfig{HarnessID: tc.harness}
+			if err := applyHarnessAPIKeyEnvForSession(&cfg, false); err != nil {
+				t.Fatalf("applyHarnessAPIKeyEnvForSession(%s): %v", tc.harness, err)
+			}
+			if len(cfg.HarnessEnv) != len(tc.want) {
+				t.Fatalf("%s HarnessEnv = %v, want %d provider keys", tc.harness, cfg.HarnessEnv, len(tc.want))
+			}
+			if len(cfg.CredentialEnvGrants) != len(tc.want) {
+				t.Fatalf("%s CredentialEnvGrants = %v, want %d grants", tc.harness, cfg.CredentialEnvGrants, len(tc.want))
+			}
+			for envVar, credentialID := range tc.want {
+				if got := cfg.HarnessEnv[envVar]; got != "stored-"+envVar {
+					t.Fatalf("%s HarnessEnv[%s] = %q, want stored value", tc.harness, envVar, got)
+				}
+				found := false
+				for _, grant := range cfg.CredentialEnvGrants {
+					if grant.EnvVar == envVar {
+						found = true
+						if grant.CredentialID != credentialID || grant.Source != "host secret store" || grant.ConsumerHarness != tc.harness {
+							t.Fatalf("%s grant for %s = %+v", tc.harness, envVar, grant)
+						}
+					}
+				}
+				if !found {
+					t.Fatalf("%s missing credential grant for %s in %v", tc.harness, envVar, cfg.CredentialEnvGrants)
+				}
+			}
+		})
 	}
 }
 
