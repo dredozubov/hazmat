@@ -154,11 +154,12 @@ for dir in .ssh .aws .gnupg ".config/gh"; do
 done
 
 # Agent CANNOT write outside project
-"$HAZMAT" exec -C "$PROJECT" touch /tmp/hazmat-escape-test-$$ > /dev/null 2>&1
-if [ -f "/tmp/hazmat-escape-test-$$" ]; then
-    # /tmp is shared — this is a known limitation, not a breach.
-    # But agent should NOT be able to write to host home.
-    sudo rm -f "/tmp/hazmat-escape-test-$$"
+TMP_ESCAPE="/tmp/hazmat-escape-test-$$"
+if "$HAZMAT" exec -C "$PROJECT" touch "$TMP_ESCAPE" > /dev/null 2>&1; then
+    if [ -f "$TMP_ESCAPE" ]; then
+        # /tmp may be shared in some environments; this is not the security boundary.
+        sudo rm -f "$TMP_ESCAPE"
+    fi
 fi
 "$HAZMAT" exec -C "$PROJECT" touch "$HOME/hazmat-escape-test-$$" > /dev/null 2>&1 \
     && { rm -f "$HOME/hazmat-escape-test-$$"; fail "ISOLATION BREACH: agent wrote to host home"; } \
