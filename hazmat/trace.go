@@ -497,8 +497,7 @@ func newTraceLaunchCommand(dir string, opts traceOptions, launchArgs []string) (
 	var cmd *exec.Cmd
 	if opts.Transcript {
 		transcript := filepath.Join(dir, "terminal.typescript")
-		args := append([]string{"-q", transcript, self}, launchArgs...)
-		cmd = exec.Command(hostScriptPath, args...)
+		cmd = exec.Command(hostScriptPath, traceScriptCommandArgs(transcript, self, launchArgs)...)
 	} else {
 		cmd = exec.Command(self, launchArgs...)
 	}

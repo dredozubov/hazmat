@@ -116,6 +116,11 @@ func (linuxTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []s
 	return runLinuxStraceLaunch(dir, plan.ToolPath, cmd)
 }
 
+func traceScriptCommandArgs(transcript, self string, launchArgs []string) []string {
+	command := strings.Join(shellQuote(append([]string{self}, launchArgs...)), " ")
+	return []string{"-q", "-e", "-c", command, transcript}
+}
+
 func (linuxTraceBackend) writePostLaunchLogs(dir string, _ traceHarnessSpec, start, end time.Time) {
 	since := start.Add(-2 * time.Second).Format(time.RFC3339)
 	until := end.Add(2 * time.Second).Format(time.RFC3339)

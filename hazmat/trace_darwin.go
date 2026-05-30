@@ -122,6 +122,10 @@ func (darwinTraceBackend) runLaunch(dir string, opts traceOptions, launchArgs []
 	return runTraceLaunch(dir, opts, launchArgs)
 }
 
+func traceScriptCommandArgs(transcript, self string, launchArgs []string) []string {
+	return append([]string{"-q", transcript, self}, launchArgs...)
+}
+
 func (darwinTraceBackend) writePostLaunchLogs(dir string, spec traceHarnessSpec, start, end time.Time) {
 	writeDarwinTraceUnifiedLogs(dir, start, end, spec)
 }

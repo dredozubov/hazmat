@@ -50,6 +50,10 @@ func (unsupportedTraceBackend) runLaunch(dir string, opts traceOptions, launchAr
 	return runTraceLaunch(dir, opts, launchArgs)
 }
 
+func traceScriptCommandArgs(transcript, self string, launchArgs []string) []string {
+	return append([]string{"-q", transcript, self}, launchArgs...)
+}
+
 func (unsupportedTraceBackend) writePostLaunchLogs(string, traceHarnessSpec, time.Time, time.Time) {}
 
 func (unsupportedTraceBackend) indicatorFiles() []string {
