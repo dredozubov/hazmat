@@ -47,7 +47,7 @@ secret values.
 |---|---|---|
 | Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |
 | Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses, including Hermes when allowed for that provider |
-| GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed |
+| GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed. Treat it as whole-process GitHub API authority, not a review-only grant. |
 | Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
 | Git SSH provisioned keys | `~/.hazmat/secrets/git-ssh/provisioned/` | Per-session brokered Git SSH transport |
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
@@ -111,6 +111,14 @@ records the consuming harness in explain/session metadata.
   mode `0700` before launch and sets `HERMES_HOME` to that path. That state is
   durable agent profile state; normal rollback boundaries are documented by the
   setup/rollback model, and Hazmat does not treat host `~/.hermes` as a source.
+- **Reset / uninstall boundary:** ordinary `hazmat rollback` removes host-owned
+  Hazmat metadata but preserves `/Users/agent/.hazmat/hermes` with the rest of
+  the agent home. After running untrusted Hermes skills, MCP servers, hooks, or
+  cron-like experiments, the supported full reset is
+  `hazmat rollback --delete-user` followed by `hazmat init` and
+  `hazmat bootstrap hermes`. A narrower Hermes-only reset command needs a
+  model-first cleanup design before
+  it can be supported.
 - **Provider API key path:** `hazmat config agent` can store
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and
   `OPENROUTER_API_KEY` once in `~/.hazmat/secrets/providers/*`. Hermes receives
@@ -214,6 +222,13 @@ Hazmat stores the token in `~/.hazmat/secrets/github/token`, injects only
 contract and `hazmat explain --json`. Integrations and repo recommendations
 cannot request this capability, and Docker Sandbox sessions currently reject
 `--github` instead of silently dropping it.
+
+`--github` is intentionally coarse. The token reaches the whole harness process
+and any tool, hook, MCP server, or child process it spawns. If the token has
+write scopes, the agent can use GitHub's API or local tooling to create refs,
+push branches, open or update PRs, edit issues, or otherwise modify the review
+path. Use a least-scoped token for the task and omit `--github` for sessions
+that must not be able to self-push or change repository state remotely.
 
 ## Session integrations
 

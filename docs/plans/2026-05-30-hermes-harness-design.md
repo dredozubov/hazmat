@@ -1,6 +1,10 @@
 # Hermes Managed Harness Design
 
-Status: Proposed
+Status: Implemented (Phase 1). Originally proposed and landed on master the same
+day (741cefa model-first, f34f5c2 implementation, 450ca5b docs); the initial
+landing ran the full TLA+ suite (`bash tla/check_suite.sh`) successfully. The
+forward-looking "should" language below is preserved as the original proposal;
+post-merge corrections are flagged inline.
 Date: 2026-05-30
 Related research:
 - https://github.com/NousResearch/hermes-agent
@@ -206,6 +210,14 @@ should be documented. Secrets or credentials manually written into
 rollback unless the agent user is deleted; that is correct by inheritance, but
 it should be made visible.
 
+The supported Phase 1 reset is the existing destructive agent-home reset:
+`hazmat rollback --delete-user`, followed by `hazmat init` and
+`hazmat bootstrap hermes`. Ordinary `hazmat rollback` removes host-owned Hazmat
+metadata but intentionally preserves `/Users/agent/.hazmat/hermes` with the
+rest of the agent home. A narrower `hazmat hermes reset` or uninstall command
+would be a new persistent cleanup path and must start with the harness-lifecycle
+model and rollback design note before implementation.
+
 ## Credential Model
 
 Hermes credentials should be treated as a new credential surface, not as generic
@@ -253,6 +265,16 @@ The preferred v1 fix is therefore:
 The concrete registry design is tracked in
 `docs/plans/2026-05-30-shared-provider-credentials-design.md`.
 
+Delivery is whole-process. Every provider key whose registry allowlist includes
+Hermes (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+`OPENROUTER_API_KEY`) is injected into the session environment and is therefore
+inherited by every skill, MCP server, hook, and subprocess Hermes spawns; there
+is no per-tool scoping inside the process. A shared env var such as
+`OPENAI_API_KEY` is a single host-store entry consumed by both Codex and Hermes,
+so rotating or compromising it affects both harnesses. This is the intended
+account-isolation model, but it is broader than "one provider key": assume any
+in-process Hermes component can read every delivered provider key.
+
 This still avoids unmanaged Hermes profile import. It only means Hazmat's own
 provider secret store can deliver provider keys transparently to every harness
 that is explicitly allowed to consume them. If product wants zero managed
@@ -272,9 +294,21 @@ current native policy, credential denies anchored at `/Users/agent/.ssh`,
 `/Users/agent/.aws`, and similar paths do not deny
 `<HERMES_HOME>/home/.ssh` or `<HERMES_HOME>/home/.aws`. V1 may accept this
 because those nested credentials are agent-created rather than host-imported, so
-host confidentiality is preserved. If Hazmat wants defense-in-depth for nested
-Hermes tool-home credentials, it must extend deny generation to the Hermes root,
-with a seatbelt-policy model update and tests.
+host-*imported* credential confidentiality is preserved.
+
+That is the correct test for confidentiality but not for integrity. The seatbelt
+grants `file-write*` and `process-exec` across all of `/Users/agent`, so an
+in-process Hermes skill or MCP server can write, read, and execute material under
+`<HERMES_HOME>/home` itself — the effective control against that staging/exfil
+path is network mode, not the deny list. Prefer `--network none` for Hermes runs
+that enable untrusted skills, plugins, or MCP servers. Separately, the managed
+state root survives ordinary `hazmat rollback` (it is removed only by
+`--delete-user`), and Hazmat does not pin or verify `config.yaml`, `skills/`,
+`hooks/`, or `cron/` between runs, so a compromised session can plant state that
+the next `hazmat hermes` launch silently honors. Recommend a documented state
+reset (or `--delete-user`) after untrusted work. If Hazmat wants defense-in-depth
+for the nested Hermes tool-home credentials themselves, it must extend deny
+generation to the Hermes root, with a seatbelt-policy model update and tests.
 
 Managed import/export should be a later slice with:
 
@@ -440,6 +474,19 @@ assistant assets remain outside the v1 contract.
 
 ## TLA+ And Verification Requirements
 
+> **Implementation status: done.** `MC_HarnessLifecycle` now models
+> `{claude, codex, opencode, gemini, hermes}` (the prior `HarnessGemini` drift is
+> backfilled) with Hermes excluded from `ImportableHarnesses`, and
+> `MC_CredentialCapabilityLifecycle` models OpenCode file-backed auth and Hermes
+> as a multi-consumer of the shared provider keys. The credential lifecycle
+> follow-up passed standalone TLC (`MC_CredentialCapabilityLifecycle.cfg` →
+> 25,623,297 generated states, 6,963,327 distinct, depth 32, no errors). The
+> "should" steps below record the original plan.
+
+`HarnessState.state_version` remains part of the lifecycle contract. Phase 1
+keeps it and reads it from `hazmat status` to surface missing or stale harness
+metadata; it is not used as a migration gate yet.
+
 Adding `HarnessHermes` is itself a model-first change. The current
 `MC_HarnessLifecycle` model has a closed `Harnesses` set, while Go already ships
 `HarnessGemini` outside that set. The Hermes implementation should update the
@@ -449,7 +496,9 @@ model before the Go registry change:
 - add `"hermes"` to `Harnesses` and `HarnessVersion`
 - keep Hermes out of `ImportableHarnesses` for v1, matching the no host-profile
   import decision
-- keep Codex and Hermes non-importable unless a curated import path is added
+- keep only Hermes out of `ImportableHarnesses`; Codex *is* importable
+  (`CodexHarness.ImportBasics`) and must stay in the set — do not generalize this
+  bullet to Codex
 - update `MC_CredentialCapabilityLifecycle` for Hermes and the shared-provider
   credential model: provider env credentials may be delivered to multiple
   explicitly allowed harnesses, while `NoCrossHarnessExposure` still forbids
@@ -617,6 +666,10 @@ dashboard, cron, and profile supervision.
   profile before Hazmat has managed Hermes credential import? Yes, but docs and
   diagnostics must say those credentials are agent-profile state and survive
   ordinary rollback.
+- Is there a Hermes-specific reset or uninstall command in Phase 1? No. The
+  supported reset boundary is destructive agent-user removal
+  (`hazmat rollback --delete-user`). A Hermes-only reset is future work because
+  it would change the modeled cleanup contract for agent-home harness state.
 - Keep Hermes skills as Hermes-profile state in v1; do not join harness asset
   sync.
 - Adding the new state root does not require a new seatbelt allow under the
@@ -633,6 +686,11 @@ dashboard, cron, and profile supervision.
   sufficient for the first release?
 - Should nested `<HERMES_HOME>/home` credential denies be added immediately, or
   should v1 explicitly accept agent-created credentials there?
+- `HERMES_HOME` is a single global root with no project component, so Hermes
+  `memories/`, `sessions/`, and `skills/` are shared across every project run
+  under the agent account (they are not isolated by `-C`). Is that acceptable
+  for v1's single-trust-domain assumption, or should the managed root carry a
+  per-project / per-workspace suffix? (Tracked as a separate issue.)
 
 ## Recommended Decision
 
