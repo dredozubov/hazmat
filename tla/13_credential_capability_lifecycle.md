@@ -71,14 +71,15 @@ implies non-host external-reference delivery.
 
 Default config:
 
-- `Harnesses = {claude, codex, gemini, hermes}`
-- `Credentials = {claude_file, codex_file, anthropic_api, openai_api, gemini_api, openrouter_api, git_https, gemini_keychain}`
+- `Harnesses = {claude, codex, opencode, gemini, hermes}`
+- `Credentials = {claude_file, opencode_file, anthropic_api, openai_api, gemini_api, openrouter_api, git_https, gemini_keychain}`
 - `Values = {v1, v2}`
 
 The credential set intentionally includes one representative for each important
 delivery/backend class:
 
-- materialized file: Claude and Codex auth files
+- materialized file: Claude and OpenCode auth files as representative
+  single-consumer harness auth surfaces
 - env: Anthropic, OpenAI, Gemini, and OpenRouter provider API keys
 - broker: Git HTTPS credential helper
 - adapter-required external backend: Gemini Keychain OAuth
@@ -91,7 +92,10 @@ allows transparent key reuse:
 - `gemini_api` is consumed by Gemini and Hermes
 - `openrouter_api` is consumed by Hermes only
 
-File-backed harness auth remains single-consumer in the model.
+File-backed harness auth remains single-consumer in the model. Codex and
+file-backed Gemini auth use the same implementation class as the two modeled
+file credentials; they are not enumerated separately so the maintained TLC
+suite stays tractable.
 
 Two file-backed credentials are enough to check cross-harness exposure. Two
 secret values are enough to witness stale residue, refresh, conflict archive,
@@ -114,10 +118,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `26,727,894 states generated`
-- `7,246,584 distinct states found`
+- `25,623,297 states generated`
+- `6,963,327 distinct states found`
 - `depth 32`
-- runtime about 33 minutes on the standalone local 10-worker run
+- runtime about 85 minutes on the standalone local 10-worker run
 
 ## Scope Boundary
 
