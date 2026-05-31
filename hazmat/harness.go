@@ -328,6 +328,33 @@ func installedManagedHarnesses() []ManagedHarness {
 	return installed
 }
 
+func harnessStateCurrent(state HarnessState, spec HarnessSpec) bool {
+	return state.StateVersion == spec.StateVersion
+}
+
+func formatInstalledHarnessNameForStatus(harness ManagedHarness, state HazmatState) string {
+	name := harness.Spec.DisplayName
+	if state.Harnesses == nil {
+		return name + " (state missing)"
+	}
+	recorded, ok := state.Harnesses[harness.Spec.ID]
+	if !ok || recorded.StateVersion == "" {
+		return name + " (state missing)"
+	}
+	if !harnessStateCurrent(recorded, harness.Spec) {
+		return fmt.Sprintf("%s (state v%s; want v%s)", name, recorded.StateVersion, harness.Spec.StateVersion)
+	}
+	return name
+}
+
+func formatInstalledHarnessNamesForStatus(installed []ManagedHarness, state HazmatState) []string {
+	names := make([]string, 0, len(installed))
+	for _, harness := range installed {
+		names = append(names, formatInstalledHarnessNameForStatus(harness, state))
+	}
+	return names
+}
+
 func recordHarnessInstalled(spec HarnessSpec) error {
 	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
 		state.StateVersion = spec.StateVersion
