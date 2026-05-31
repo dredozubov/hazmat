@@ -38,10 +38,12 @@ CONSTANTS
     AdapterRequiredSupport,
     ClaudeHarness,
     CodexHarness,
+    OpenCodeHarness,
     GeminiHarness,
     HermesHarness,
     ClaudeConsumerCreds,
     CodexConsumerCreds,
+    OpenCodeConsumerCreds,
     GeminiConsumerCreds,
     HermesConsumerCreds,
     GlobalCreds,
@@ -83,6 +85,8 @@ CredentialConsumers(c) ==
            /\ c \in ClaudeConsumerCreds
         \/ /\ h = CodexHarness
            /\ c \in CodexConsumerCreds
+        \/ /\ h = OpenCodeHarness
+           /\ c \in OpenCodeConsumerCreds
         \/ /\ h = GeminiHarness
            /\ c \in GeminiConsumerCreds
         \/ /\ h = HermesHarness
@@ -96,17 +100,23 @@ ASSUME
     /\ NoHarness \notin Harnesses
     /\ ClaudeHarness \in Harnesses
     /\ CodexHarness \in Harnesses
+    /\ OpenCodeHarness \in Harnesses
     /\ GeminiHarness \in Harnesses
     /\ HermesHarness \in Harnesses
-    /\ Harnesses = {ClaudeHarness, CodexHarness, GeminiHarness, HermesHarness}
+    /\ Harnesses = {ClaudeHarness, CodexHarness, OpenCodeHarness, GeminiHarness, HermesHarness}
     /\ ClaudeHarness # CodexHarness
+    /\ ClaudeHarness # OpenCodeHarness
     /\ ClaudeHarness # GeminiHarness
     /\ ClaudeHarness # HermesHarness
+    /\ CodexHarness # OpenCodeHarness
     /\ CodexHarness # GeminiHarness
     /\ CodexHarness # HermesHarness
+    /\ OpenCodeHarness # GeminiHarness
+    /\ OpenCodeHarness # HermesHarness
     /\ GeminiHarness # HermesHarness
     /\ ClaudeConsumerCreds \subseteq Credentials
     /\ CodexConsumerCreds \subseteq Credentials
+    /\ OpenCodeConsumerCreds \subseteq Credentials
     /\ GeminiConsumerCreds \subseteq Credentials
     /\ HermesConsumerCreds \subseteq Credentials
     /\ GlobalCreds \subseteq Credentials
@@ -125,7 +135,7 @@ ASSUME
     /\ HostSecretStoreCreds \cup KeychainBackendCreds \cup BrokerBackendCreds \cup ExternalFileBackendCreds = Credentials
     /\ FileDeliveryCreds \cup EnvDeliveryCreds \cup BrokerDeliveryCreds \cup ExternalReferenceDeliveryCreds \cup NoDeliveryCreds = Credentials
     /\ ManagedSupportCreds \cup ExternalSupportCreds \cup AdapterRequiredSupportCreds = Credentials
-    /\ GlobalCreds \cap (ClaudeConsumerCreds \cup CodexConsumerCreds \cup GeminiConsumerCreds \cup HermesConsumerCreds) = {}
+    /\ GlobalCreds \cap (ClaudeConsumerCreds \cup CodexConsumerCreds \cup OpenCodeConsumerCreds \cup GeminiConsumerCreds \cup HermesConsumerCreds) = {}
     /\ \A c \in Credentials :
         Cardinality({s \in {HostSecretStoreCreds, KeychainBackendCreds, BrokerBackendCreds, ExternalFileBackendCreds} : c \in s}) = 1
     /\ \A c \in Credentials :

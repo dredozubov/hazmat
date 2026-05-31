@@ -766,7 +766,8 @@ baseline from a same-content rewrite.
    known managed value is in host primary storage or a host-owned conflict
    archive, not only in `/Users/agent`.
 
-TLC passes across 63,681 distinct states (225,105 generated, depth 32, ~4s).
+TLC passes across 6,963,327 distinct states (25,623,297 generated, depth 32,
+~85m).
 
 **Scope boundary:**
 
