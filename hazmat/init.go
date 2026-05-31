@@ -151,6 +151,7 @@ func runStatus(full bool) error {
 		return true
 	}
 	installedHarnesses := installedManagedHarnesses()
+	state, stateErr := loadState()
 	claudeConfigured := func() bool {
 		value, _, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0])
 		return err == nil && value != ""
@@ -166,11 +167,16 @@ func runStatus(full bool) error {
 	if len(installedHarnesses) == 0 {
 		cDim.Printf("  [ ] %-24s %s\n", "Agent harness installed", "hazmat bootstrap claude|codex|opencode")
 	} else {
-		var names []string
-		for _, harness := range installedHarnesses {
-			names = append(names, harness.Spec.DisplayName)
+		names := formatInstalledHarnessNamesForStatus(installedHarnesses, state)
+		if stateErr != nil {
+			names = nil
+			for _, harness := range installedHarnesses {
+				names = append(names, harness.Spec.DisplayName)
+			}
+			cYellow.Printf("  [!] %-24s %s; state unreadable: %v\n", "Agent harness installed", strings.Join(names, ", "), stateErr)
+		} else {
+			cGreen.Printf("  [✓] %-24s %s\n", "Agent harness installed", strings.Join(names, ", "))
 		}
-		cGreen.Printf("  [✓] %-24s %s\n", "Agent harness installed", strings.Join(names, ", "))
 	}
 
 	if isManagedHarnessInstalled(HarnessClaude) {
