@@ -405,8 +405,8 @@ Recommended policy:
   v1.
 - `--network none` should make remote/backend setup fail closed rather than
   being silently bypassed.
-- Hermes is Python-based and should not need the wider macOS native TLS policy
-  used by Codex. The implementation should set `harnessUsesMacOSNativeTLS` to
+- Hermes is Python-based and should not need the wider macOS Security framework policy
+  used by Claude and Codex. The implementation should set `harnessUsesMacOSSecurityFramework` to
   false for Hermes and validate that with a live network probe.
 
 The docs should warn that inner Hermes terminal-backend isolation is not a
@@ -558,7 +558,7 @@ Policy tests:
   `<HERMES_HOME>/home/.ssh` is accepted or denied.
 - `--network none` is preserved through Hermes launch.
 - optional Git/GitHub capabilities are still explicit.
-- Hermes does not receive the macOS native TLS widened policy unless the live
+- Hermes does not receive the macOS Security framework widened policy unless the live
   probe proves it needs one.
 
 Smoke tests:

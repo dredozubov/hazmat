@@ -56,7 +56,7 @@ Section 1: Read-only directory allows (user input, filtered for subsumption)
 Section 2: Project directory read+write (user input)
 Section 3: Resume directory read+write (optional, invoking user's session dir)
 Section 4: Agent home config allows (static — .claude, .local, .config, etc.)
-Section 5: Session temp root read+write+exec (agent-owned per-session dir)
+Section 5: Session temp root read+write+exec, plus narrow harness runtime temp roots
 Section 6: Project write re-assertion (if a read dir is a parent of the project)
 Section 7: Host temp socket/capability denies
 Section 8: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
@@ -75,6 +75,11 @@ at an agent-owned session temp root; that root is granted read/write/exec so
 toolchains can create and execute temporary artifacts without exposing unrelated
 host temp files.
 
+Claude Code 2.1.x also probes `/private/tmp/claude-<agent uid>` directly even
+when `TMPDIR` and `BUN_TMPDIR` point at the session temp root. Hazmat grants
+read/write to that agent-owned Claude runtime root only for Claude sessions; it
+does not grant execute there and does not grant broader host temp access.
+
 Codex App temp/control socket paths are denied after project/read/temp allows
 and before credential denies. This keeps socket capability endpoints denied
 even when a user explicitly grants a broad host temp directory.
@@ -83,11 +88,16 @@ Network authority is modeled separately from filesystem path matching. Default
 native sessions emit outbound network and DNS lookup grants; `--network none`
 emits neither. The local inbound rule is intentionally not an egress grant.
 
+Harness-specific macOS Security framework compatibility grants are emitted in
+section 0 alongside system library and service allows. They are modeled as part
+of the abstract static system surface because they do not change the ordering of
+project/read/temp/credential path rules checked by this spec.
+
 ## TLA+ Model
 
 ### Abstract Path Model
 
-Sixteen abstract paths with a containment relation:
+Eighteen abstract paths with a containment relation:
 
 | Path | Represents | Contains |
 |------|-----------|----------|
@@ -102,10 +112,12 @@ Sixteen abstract paths with a containment relation:
 | `keychainWAL` | `/Users/agent/Library/Keychains/login.keychain-db-wal` | (nothing) |
 | `outsideRef` | `/Users/dr/reference` | (nothing) |
 | `invokerSess` | `/Users/dr/.claude/projects/-foo` | (nothing) |
-| `hostTempRoot` | `/private/tmp` | hostTempOutside, codexTempSocket |
+| `hostTempRoot` | `/private/tmp` | hostTempOutside, claudeTempRoot, claudeTempFile, codexTempSocket |
 | `hostTempOutside` | `/private/tmp/outside-host-readable.txt` | (nothing) |
 | `sessionTempRoot` | `/Users/agent/.cache/hazmat/tmp/<session>` | sessionTempFile |
 | `sessionTempFile` | `/Users/agent/.cache/hazmat/tmp/<session>/artifact` | (nothing) |
+| `claudeTempRoot` | `/private/tmp/claude-599` | claudeTempFile |
+| `claudeTempFile` | `/private/tmp/claude-599/socket` | (nothing) |
 | `codexTempSocket` | `/private/tmp/codex-ipc/app.sock` | (nothing) |
 
 ### Nondeterministic Inputs
@@ -145,6 +157,7 @@ the highest section number determines the outcome. This models SBPL semantics.
 | `HostTempNotImplicitlyWritable` | Outside host temp files are not writable unless explicitly granted as project |
 | `HostTempNotImplicitlyExecutable` | Outside host temp artifacts are not executable unless explicitly granted as project/read dirs |
 | `SessionTempWritable` | The agent-owned session temp root stays readable, writable, and executable |
+| `ClaudeRuntimeTempScoped` | Claude's agent-owned runtime temp dir is readable/writable but not executable unless the user explicitly grants an overlapping project/read path |
 | `TempSocketsDenied` | Codex App temp/control socket paths are denied even under broad host-temp grants |
 | `NetworkNoneDeniesOutbound` | `--network none` emits no outbound network grant |
 | `NetworkNoneDeniesDNS` | `--network none` emits no DNS lookup grant |
@@ -159,14 +172,15 @@ the explicit Claude agent login keychain files. It also proves that the
 post-deny Keychain exception is absent unless requested and stays limited to the
 login keychain DB plus SQLite sidecars; the broader Keychains directory remains
 denied. Host temp access is no longer implicit, while the agent-owned session
-temp root remains usable for compiler/runtime artifacts and Codex App temp
-socket capability paths stay denied.
+temp root remains usable for compiler/runtime artifacts, Claude's runtime temp
+root adds no implicit execute access, and Codex App temp socket capability paths
+stay denied.
 
 ## Model Bounds
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Paths | 16 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, outside ref, invoker resume dir, host temp, session temp, and Codex temp socket paths |
+| Paths | 18 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, outside ref, invoker resume dir, host temp, session temp, Claude runtime temp, and Codex temp socket paths |
 | ProjectChoices | 6 | Includes adversarial choices: agentHome, sshDir, configDir, and host temp paths |
 | ReadChoices | 4 | Includes broad choices: agentHome and hostTempRoot |
 | NetworkChoices | 2 | Covers default outbound mode and deny-all egress mode |

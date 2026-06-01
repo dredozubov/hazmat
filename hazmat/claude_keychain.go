@@ -125,16 +125,32 @@ func claudeAgentKeychainPrepareScript() string {
 kc="$HOME/Library/Keychains/login.keychain-db"
 mkdir -p "$HOME/Library/Keychains"
 
+best_effort_security() {
+  "$@" >/dev/null 2>&1 &
+  pid=$!
+  (
+    sleep 5
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -KILL "$pid" >/dev/null 2>&1 || true
+  ) &
+  watchdog=$!
+  wait "$pid" >/dev/null 2>&1 || true
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" >/dev/null 2>&1 || true
+  return 0
+}
+
 if [ ! -e "$kc" ]; then
   /usr/bin/security create-keychain -p "" "$kc"
 fi
 
 # Helper-backed maintenance mode can reject this login-keychain preference
 # write even when the default/search-list/unlock path succeeds.
-/usr/bin/security login-keychain -s "$kc" >/dev/null 2>&1 || true
+best_effort_security /usr/bin/security login-keychain -s "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
-/usr/bin/security set-keychain-settings -lut 21600 "$kc"
+best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
 /usr/bin/security unlock-keychain -p "" "$kc"
 `
 }
@@ -146,6 +162,22 @@ ts="$(date +%Y%m%d-%H%M%S)"
 backup_dir="$HOME/Library/Keychains/hazmat-login-keychain-backups/$ts"
 
 mkdir -p "$HOME/Library/Keychains"
+
+best_effort_security() {
+  "$@" >/dev/null 2>&1 &
+  pid=$!
+  (
+    sleep 5
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -KILL "$pid" >/dev/null 2>&1 || true
+  ) &
+  watchdog=$!
+  wait "$pid" >/dev/null 2>&1 || true
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" >/dev/null 2>&1 || true
+  return 0
+}
 
 moved=0
 for path in "$kc" "$kc-shm" "$kc-wal"; do
@@ -161,10 +193,10 @@ if [ "$moved" = "1" ]; then
 fi
 
 /usr/bin/security create-keychain -p "" "$kc"
-/usr/bin/security login-keychain -s "$kc" >/dev/null 2>&1 || true
+best_effort_security /usr/bin/security login-keychain -s "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
-/usr/bin/security set-keychain-settings -lut 21600 "$kc"
+best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
 /usr/bin/security unlock-keychain -p "" "$kc"
 echo "Created unlocked agent login keychain: $kc"
 `

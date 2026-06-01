@@ -12,7 +12,8 @@ func TestClaudeAgentKeychainPrepareScriptCreatesAndUnlocksWithoutReset(t *testin
 	for _, want := range []string{
 		`if [ ! -e "$kc" ]; then`,
 		`/usr/bin/security create-keychain -p "" "$kc"`,
-		`/usr/bin/security login-keychain -s "$kc" >/dev/null 2>&1 || true`,
+		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
+		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
 		`/usr/bin/security default-keychain -s "$kc"`,
 		`/usr/bin/security unlock-keychain -p "" "$kc"`,
 	} {
