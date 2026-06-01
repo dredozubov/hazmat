@@ -14,6 +14,12 @@ type nativeSessionPolicy struct {
 	// need a wider Security framework surface than Node-based harnesses that
 	// ship their own CA bundle (claude, gemini) — see compileDarwinSBPL.
 	MacOSNativeTLS bool
+
+	// MacOSAgentKeychainAccess is true when a native session must talk to the
+	// macOS Keychain for agent-owned harness auth. Keep this narrower than the
+	// native TLS surface: it grants the Security framework broker plus the
+	// agent login keychain files, not host keychains or trust roots.
+	MacOSAgentKeychainAccess bool
 }
 
 // macOSNativeTLSHarnesses is the set of harness IDs that need the wider
@@ -48,7 +54,8 @@ func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
 			Network: containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
 			Process: containment.ProcessPolicy{AllowFork: true},
 		},
-		MacOSNativeTLS: harnessUsesMacOSNativeTLS(cfg.HarnessID),
+		MacOSNativeTLS:           harnessUsesMacOSNativeTLS(cfg.HarnessID),
+		MacOSAgentKeychainAccess: cfg.ClaudeKeychainAccess,
 	}
 }
 

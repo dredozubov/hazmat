@@ -72,7 +72,7 @@ implies non-host external-reference delivery.
 Default config:
 
 - `Harnesses = {claude, codex, opencode, gemini, hermes}`
-- `Credentials = {claude_file, opencode_file, anthropic_api, openai_api, gemini_api, openrouter_api, git_https, gemini_keychain}`
+- `Credentials = {claude_file, opencode_file, claude_keychain, anthropic_api, openai_api, gemini_api, openrouter_api, git_https, gemini_keychain}`
 - `Values = {v1, v2}`
 
 The credential set intentionally includes one representative for each important
@@ -82,12 +82,14 @@ delivery/backend class:
   single-consumer harness auth surfaces
 - env: Anthropic, OpenAI, Gemini, and OpenRouter provider API keys
 - broker: Git HTTPS credential helper
+- supported external Keychain reference: Claude agent-account Keychain OAuth
 - adapter-required external backend: Gemini Keychain OAuth
 
 Provider env credentials are intentionally multi-consumer where the registry
 allows transparent key reuse:
 
 - `anthropic_api` is consumed by Claude and Hermes
+- `claude_keychain` is consumed by Claude only
 - `openai_api` is consumed by Codex and Hermes
 - `gemini_api` is consumed by Gemini and Hermes
 - `openrouter_api` is consumed by Hermes only
@@ -118,10 +120,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `25,623,297 states generated`
-- `6,963,327 distinct states found`
-- `depth 32`
-- runtime about 85 minutes on the standalone local 10-worker run
+- `30,720,870 states generated`
+- `8,351,181 distinct states found`
+- `depth 33`
+- runtime 33m24s on the standalone local 10-worker run
 
 ## Scope Boundary
 

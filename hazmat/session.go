@@ -48,6 +48,7 @@ type sessionConfig struct {
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
+	ClaudeKeychainAccess    bool      // native Claude OAuth path may use the agent login keychain
 	RepoSetup               *repoSetupState
 	TempDir                 string // agent-owned per-session temp dir for native launch
 }
@@ -324,6 +325,7 @@ Examples:
 			if handled {
 				return nil
 			}
+			opts.claudeBareRequested = claudeBareRequested(forwarded)
 
 			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
 			if err != nil {
@@ -346,20 +348,19 @@ Examples:
 				}
 			}
 
-			// --dangerously-skip-permissions is the default inside hazmat.
-			// The containment is OS-level (user isolation + seatbelt +
-			// pf firewall); Claude's permission prompts are redundant.
-			// Configurable via: hazmat config set session.skip_permissions false
-			skipFlag := ""
-			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-				skipFlag = "--dangerously-skip-permissions "
+			hcfg, _ := loadConfig()
+			if prepared.Config.ClaudeKeychainAccess {
+				if err := prepareClaudeAgentKeychainForLaunch(); err != nil {
+					return err
+				}
 			}
+			forwarded = claudeLaunchArgs(forwarded, hcfg.SkipPermissions(), claudeUseBareMode(prepared.Config, prepared.Mode))
 
 			return runPreparedAgentSeatbeltScriptWithUI(prepared, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap claude" >&2; exit 1; }; }; `+
-					`exec "$HOME/.local/bin/claude" `+skipFlag+`"$@"`, forwarded...)
+					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
 	return cmd
@@ -815,6 +816,7 @@ type harnessSessionOpts struct {
 	networkModeExplicit   bool
 	metadataJSON          bool
 	planOnly              bool
+	claudeBareRequested   bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -934,6 +936,60 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 
 func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 	return parseHarnessArgs(args)
+}
+
+func claudeLaunchArgs(forwarded []string, skipPermissions, useBare bool) []string {
+	var prefix []string
+	if skipPermissions {
+		prefix = append(prefix, "--dangerously-skip-permissions")
+	}
+	if useBare && !slices.Contains(forwarded, "--bare") {
+		prefix = append(prefix, "--bare")
+	}
+	if len(prefix) == 0 {
+		return forwarded
+	}
+	out := make([]string, 0, len(prefix)+len(forwarded))
+	out = append(out, prefix...)
+	out = append(out, forwarded...)
+	return out
+}
+
+func claudeBareRequested(forwarded []string) bool {
+	return slices.Contains(forwarded, "--bare")
+}
+
+func claudeAPIKeyAuthAvailable(cfg sessionConfig) bool {
+	if cfg.HarnessID != HarnessClaude {
+		return false
+	}
+	return strings.TrimSpace(cfg.HarnessEnv["ANTHROPIC_API_KEY"]) != ""
+}
+
+func claudeUseBareMode(cfg sessionConfig, mode sessionMode) bool {
+	return mode == sessionModeNative && claudeAPIKeyAuthAvailable(cfg)
+}
+
+func claudeNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode, bareRequested bool) bool {
+	return mode == sessionModeNative &&
+		cfg.HarnessID == HarnessClaude &&
+		!bareRequested &&
+		!claudeAPIKeyAuthAvailable(cfg)
+}
+
+func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
+	if !claudeUseBareMode(*cfg, mode) {
+		return
+	}
+	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code will run with --bare because ANTHROPIC_API_KEY is granted; this avoids agent-account Apple Keychain prompts.")
+}
+
+func appendClaudeKeychainSessionNote(cfg *sessionConfig, mode sessionMode, bareRequested bool) {
+	if !claudeNeedsAgentKeychainAccess(*cfg, mode, bareRequested) {
+		return
+	}
+	cfg.ClaudeKeychainAccess = true
+	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code may use the agent account login keychain for OAuth; Hazmat will prepare and unlock that keychain before launch.")
 }
 
 func claudeLaunchUI(forwarded []string) sessionLaunchUI {
@@ -1273,6 +1329,8 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err := applyHarnessAPIKeyEnvForSession(&cfg, opts.planOnly); err != nil {
 		return preparedSession{}, err
 	}
+	appendClaudeBareSessionNote(&cfg, mode)
+	appendClaudeKeychainSessionNote(&cfg, mode, opts.claudeBareRequested)
 	if !opts.planOnly {
 		if err := applyHarnessAuthArtifacts(&cfg); err != nil {
 			return preparedSession{}, err

@@ -12,15 +12,16 @@ capability access.
 The correctness questions:
 
 1. **Credential read protection** — can any combination of user inputs produce
-   a policy where credential reads are allowed? (The deny rules must always
-   be the last matching rules for credential paths.)
+   a policy where credential reads are allowed outside explicitly modeled
+   compatibility exceptions?
 
 2. **Read dir write isolation** — can read-only directories accidentally
    receive write access?
 
 3. **Credential write protection** — do the final deny rules also prevent
-   writes to credential directories, even when earlier project or static allow
-   sections would otherwise cover them?
+   writes to credential directories outside explicitly modeled compatibility
+   exceptions, even when earlier project or static allow sections would
+   otherwise cover them?
 
 4. **Read dir subsumption** — are redundant read dir rules correctly elided?
 
@@ -34,6 +35,11 @@ The correctness questions:
 
 7. **Temp socket capability protection** — do explicit temp socket denies win
    even if a user grants a broad host temp path as a project or read dir?
+
+8. **Claude Keychain exception scoping** — when native Claude OAuth needs the
+   agent login keychain, is the post-deny exception limited to the exact
+   agent-owned login keychain DB and sidecar files, while the broader
+   Keychains directory remains denied?
 
 ## Code Location
 
@@ -54,10 +60,14 @@ Section 5: Session temp root read+write+exec (agent-owned per-session dir)
 Section 6: Project write re-assertion (if a read dir is a parent of the project)
 Section 7: Host temp socket/capability denies
 Section 8: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
+Section 9: Claude agent login keychain exception (optional, exact files only)
 ```
 
-Credential denies are ALWAYS last (section 8). Since SBPL is last-match-wins,
-any earlier allow for the same path is overridden by the deny.
+Credential denies are the final broad credential boundary (section 8). Since
+SBPL is last-match-wins, any earlier allow for the same path is overridden by
+the deny. The only later filesystem allow is section 9, which is conditional on
+native Claude OAuth mode and re-allows only the exact agent login keychain DB
+and SQLite sidecar files. The broader Keychains directory remains denied.
 
 The native policy does not grant broad `/private/tmp` or
 `/private/var/folders` read/write/exec by default. Runtime `TMPDIR` is pointed
@@ -77,15 +87,19 @@ emits neither. The local inbound rule is intentionally not an egress grant.
 
 ### Abstract Path Model
 
-Twelve abstract paths with a containment relation:
+Sixteen abstract paths with a containment relation:
 
 | Path | Represents | Contains |
 |------|-----------|----------|
 | `normalProj` | `/Users/dr/workspace/myproject` | (nothing) |
-| `agentHome` | `/Users/agent` | sshDir, configDir, gcloudDir |
+| `agentHome` | `/Users/agent` | sshDir, configDir, gcloudDir, keychainDir, keychainDB, keychainSHM, keychainWAL |
 | `configDir` | `/Users/agent/.config` | gcloudDir |
 | `sshDir` | `/Users/agent/.ssh` | (nothing) |
 | `gcloudDir` | `/Users/agent/.config/gcloud` | (nothing) |
+| `keychainDir` | `/Users/agent/Library/Keychains` | keychainDB, keychainSHM, keychainWAL |
+| `keychainDB` | `/Users/agent/Library/Keychains/login.keychain-db` | (nothing) |
+| `keychainSHM` | `/Users/agent/Library/Keychains/login.keychain-db-shm` | (nothing) |
+| `keychainWAL` | `/Users/agent/Library/Keychains/login.keychain-db-wal` | (nothing) |
 | `outsideRef` | `/Users/dr/reference` | (nothing) |
 | `invokerSess` | `/Users/dr/.claude/projects/-foo` | (nothing) |
 | `hostTempRoot` | `/private/tmp` | hostTempOutside, codexTempSocket |
@@ -100,11 +114,14 @@ Twelve abstract paths with a containment relation:
 - `ReadDirs ⊆ {normalProj, agentHome, outsideRef, hostTempRoot}` — tests broad read dirs, including explicit host temp grants
 - `NetworkMode ∈ {default, none}` — tests the default outbound mode and
   per-session deny-all egress mode
+- `AgentKeychainAccess ∈ BOOLEAN` — tests native Claude OAuth's exact
+  agent-login-keychain exception and the normal no-exception path
 
 ### Variables
 
 - `rules` — set of emitted policy rules `[section, action, path]`
-- `section` — current policy generation phase (0..9)
+- `agentKeychainAccess` — whether section 9 is emitted
+- `section` — current policy generation phase (0..10)
 
 ### Evaluation: Last-Match-Wins
 
@@ -113,12 +130,13 @@ the highest section number determines the outcome. This models SBPL semantics.
 
 ## What TLC Finds
 
-### Invariants That Pass (5,760 states, <1s)
+### Invariants That Pass (12,672 states, <5s)
 
 | Invariant | Meaning |
 |-----------|---------|
-| `CredentialReadDenied` | Credential file-read* is always denied — section 8 deny always wins |
-| `CredentialWriteDenied` | Credential file-write* is always denied — section 8 deny always wins |
+| `CredentialReadDenied` | Credential file-read* is denied outside the exact Claude agent keychain exception |
+| `CredentialWriteDenied` | Credential file-write* is denied outside the exact Claude agent keychain exception |
+| `AgentKeychainExceptionScoped` | The optional Claude keychain exception allows only the modeled login keychain DB and sidecar files, and only when requested |
 | `ReadDirsNoWrite` | Read-only dirs never get file-write* rules |
 | `ProjectDirWritable` | Project directory always has write access |
 | `ReadDirSubsumption` | Read dirs within project dir correctly elided |
@@ -135,19 +153,23 @@ the highest section number determines the outcome. This models SBPL semantics.
 ### Result
 
 `CredentialWriteDenied` is part of the checked suite now. The current policy
-model proves that the final credential deny section overrides both project
-write access and earlier static config allows for all modeled credential paths.
-It also proves that host temp access is no longer implicit, while the
-agent-owned session temp root remains usable for compiler/runtime artifacts and
-Codex App temp socket capability paths stay denied.
+model proves that the credential deny section overrides both project write
+access and earlier static config allows for all modeled credential paths except
+the explicit Claude agent login keychain files. It also proves that the
+post-deny Keychain exception is absent unless requested and stays limited to the
+login keychain DB plus SQLite sidecars; the broader Keychains directory remains
+denied. Host temp access is no longer implicit, while the agent-owned session
+temp root remains usable for compiler/runtime artifacts and Codex App temp
+socket capability paths stay denied.
 
 ## Model Bounds
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Paths | 12 | Covers: normal project, agent home, credential dirs, config overlap, outside ref, invoker resume dir, host temp, session temp, and Codex temp socket paths |
+| Paths | 16 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, outside ref, invoker resume dir, host temp, session temp, and Codex temp socket paths |
 | ProjectChoices | 6 | Includes adversarial choices: agentHome, sshDir, configDir, and host temp paths |
 | ReadChoices | 4 | Includes broad choices: agentHome and hostTempRoot |
 | NetworkChoices | 2 | Covers default outbound mode and deny-all egress mode |
+| AgentKeychainAccess | 2 | Covers both normal credential denial and native Claude OAuth keychain compatibility |
 
-**Confirmed state space:** 6,336 states generated, 5,760 distinct. Runtime: <1s.
+**Confirmed state space:** 13,824 states generated, 12,672 distinct, depth 11. Runtime: <5s.

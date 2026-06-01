@@ -297,6 +297,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 		credentialHarnessOpenCodeAuth,
 		credentialHarnessGeminiOAuth,
 		credentialHarnessGeminiAccounts,
+		credentialHarnessClaudeKeychain,
 		credentialHarnessGeminiKeychain,
 		credentialGitSSHExternalIdentity:
 	}
