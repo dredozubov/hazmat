@@ -200,21 +200,26 @@ func runBootstrap(ui *UI, r *Runner) error {
 	claudeDir := agentHome + "/.claude"
 	settingsPath := claudeDir + "/settings.json"
 
-	if err := agentEnsureSharedDir(claudeDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", claudeDir, err)
-	}
 	projectsDir := claudeDir + "/projects"
-	if err := agentEnsureSharedDir(projectsDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", projectsDir, err)
-	}
-
-	if _, err := r.AgentOutput("test", "-f", settingsPath); err == nil {
-		ui.SkipDone(settingsPath + " already present (not overwritten)")
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s and %s", claudeDir, projectsDir))
+		ui.Ok(fmt.Sprintf("Would write %s if missing", settingsPath))
 	} else {
-		if err := agentWriteSharedFile(settingsPath, []byte(agentSettingsJSON), 0o660); err != nil {
-			return fmt.Errorf("write settings.json: %w", err)
+		if err := agentEnsureSharedDir(claudeDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", claudeDir, err)
 		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0660)", settingsPath))
+		if err := agentEnsureSharedDir(projectsDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", projectsDir, err)
+		}
+
+		if _, err := r.AgentOutput("test", "-f", settingsPath); err == nil {
+			ui.SkipDone(settingsPath + " already present (not overwritten)")
+		} else {
+			if err := agentWriteSharedFile(settingsPath, []byte(agentSettingsJSON), 0o660); err != nil {
+				return fmt.Errorf("write settings.json: %w", err)
+			}
+			ui.Ok(fmt.Sprintf("Wrote %s (0660)", settingsPath))
+		}
 	}
 
 	// ── Step 4: create hooks skeleton ─────────────────────────────────────────
@@ -222,20 +227,25 @@ func runBootstrap(ui *UI, r *Runner) error {
 	hooksDir := claudeDir + "/hooks"
 	hookScript := hooksDir + "/pre-tool-use.sh"
 
-	if err := agentEnsureSharedDir(hooksDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", hooksDir, err)
-	}
-
-	// Check the hook script specifically — not just the directory.  This
-	// handles the case where the directory exists but the script was never
-	// written (partial run) or was deleted by the user.
-	if _, err := r.AgentOutput("test", "-f", hookScript); err == nil {
-		ui.SkipDone(hookScript + " already present (not overwritten)")
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", hooksDir))
+		ui.Ok(fmt.Sprintf("Would write %s if missing", hookScript))
 	} else {
-		if err := agentWriteSharedFile(hookScript, []byte(agentPreToolUseHook), 0o770); err != nil {
-			return fmt.Errorf("write hook script: %w", err)
+		if err := agentEnsureSharedDir(hooksDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", hooksDir, err)
 		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0770)", hookScript))
+
+		// Check the hook script specifically — not just the directory.  This
+		// handles the case where the directory exists but the script was never
+		// written (partial run) or was deleted by the user.
+		if _, err := r.AgentOutput("test", "-f", hookScript); err == nil {
+			ui.SkipDone(hookScript + " already present (not overwritten)")
+		} else {
+			if err := agentWriteSharedFile(hookScript, []byte(agentPreToolUseHook), 0o770); err != nil {
+				return fmt.Errorf("write hook script: %w", err)
+			}
+			ui.Ok(fmt.Sprintf("Wrote %s (0770)", hookScript))
+		}
 	}
 
 	// ── Step 5: supply chain hardening ───────────────────────────────────────
@@ -245,7 +255,9 @@ func runBootstrap(ui *UI, r *Runner) error {
 	ui.Step("Supply chain hardening (package manager scripts)")
 
 	npmrc := agentHome + "/.npmrc"
-	if current, err := r.AgentOutput("cat", npmrc); err == nil {
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would ensure %s contains ignore-scripts=true", npmrc))
+	} else if current, err := r.AgentOutput("cat", npmrc); err == nil {
 		// Check if ignore-scripts is already set.
 		if strings.Contains(current, "ignore-scripts") {
 			ui.SkipDone("npm ignore-scripts already configured")
@@ -287,7 +299,9 @@ ignore-scripts=true
 	// as npm postinstall. Unlike npm, pip has no global ignore-scripts flag,
 	// but we can set safer defaults.
 	pipConf := agentHome + "/.config/pip/pip.conf"
-	if _, err := r.AgentOutput("test", "-f", pipConf); err == nil {
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would write %s if missing", pipConf))
+	} else if _, err := r.AgentOutput("test", "-f", pipConf); err == nil {
 		ui.SkipDone("pip.conf already configured")
 	} else {
 		pipConfContent := `# Managed by hazmat — supply chain hardening.

@@ -31,10 +31,16 @@ type HarnessState struct {
 	LastImportRunAt string `json:"last_import_run_at,omitempty"`
 }
 
+type harnessImportPolicy struct {
+	Supported bool
+	Boundary  string
+}
+
 type ManagedHarness struct {
 	Spec                 HarnessSpec
 	LaunchCommand        string
 	BootstrapCommand     string
+	ImportPolicy         harnessImportPolicy
 	Installed            func() bool
 	Probe                func(read func(args ...string) (string, error)) harnessProbe
 	ManagedCodeArtifacts func() []harnessManagedArtifact
@@ -59,6 +65,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             claudeCodeHarness.Spec(),
 		LaunchCommand:    "hazmat claude",
 		BootstrapCommand: "hazmat bootstrap claude",
+		ImportPolicy: harnessImportPolicy{
+			Supported: true,
+			Boundary:  "portable Claude auth, settings, hooks, and project basics",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledClaudeBinary()
 			return ok
@@ -78,6 +88,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             codexHarness.Spec(),
 		LaunchCommand:    "hazmat codex",
 		BootstrapCommand: "hazmat bootstrap codex",
+		ImportPolicy: harnessImportPolicy{
+			Supported: true,
+			Boundary:  "portable Codex auth, config, prompts, and session basics",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledCodexBinary()
 			return ok
@@ -97,6 +111,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             openCodeHarness.Spec(),
 		LaunchCommand:    "hazmat opencode",
 		BootstrapCommand: "hazmat bootstrap opencode",
+		ImportPolicy: harnessImportPolicy{
+			Supported: true,
+			Boundary:  "portable OpenCode auth, config, command, and agent basics",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledOpenCodeBinary()
 			return ok
@@ -116,6 +134,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             geminiHarness.Spec(),
 		LaunchCommand:    "hazmat gemini",
 		BootstrapCommand: "hazmat bootstrap gemini",
+		ImportPolicy: harnessImportPolicy{
+			Supported: true,
+			Boundary:  "file-backed Gemini OAuth, accounts, settings, and memory basics; Keychain OAuth remains external",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledGeminiBinary()
 			return ok
@@ -134,6 +156,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             hermesHarness.Spec(),
 		LaunchCommand:    "hazmat hermes",
 		BootstrapCommand: "hazmat bootstrap hermes",
+		ImportPolicy: harnessImportPolicy{
+			Supported: false,
+			Boundary:  "Hermes v1 has no curated import; manual executable, profile roots, and provider state are preserved",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledHermesBinary()
 			return ok

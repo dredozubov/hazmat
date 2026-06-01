@@ -46,7 +46,7 @@ func probeOpenCodeHarness(read func(args ...string) (string, error)) harnessProb
 func openCodeHarnessManagedCodeArtifacts() []harnessManagedArtifact {
 	return []harnessManagedArtifact{
 		harnessFileArtifact(agentHome+openCodeCurrentBinRel, "OpenCode executable"),
-		harnessFileArtifact(agentHome+openCodeLegacyBinRel, "OpenCode PATH shim"),
+		harnessSymlinkArtifact(agentHome+openCodeLegacyBinRel, "OpenCode PATH shim"),
 	}
 }
 
@@ -101,6 +101,10 @@ func ensureOpenCodePathShim(ui *UI, r *Runner) error {
 	}
 
 	shimDir := agentHome + "/.local/bin"
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would link %s -> %s", shimPath, installedPath))
+		return nil
+	}
 	if err := agentEnsureSharedDir(shimDir, 0o2770); err != nil {
 		return fmt.Errorf("ensure %s: %w", shimDir, err)
 	}
@@ -165,24 +169,33 @@ func runOpenCodeBootstrap(ui *UI, r *Runner) error {
 	ui.Step("Write agent OpenCode config")
 	configDir := agentHome + "/.config/opencode"
 	configPath := configDir + "/opencode.json"
-	if err := agentEnsureSharedDir(configDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", configDir, err)
-	}
-	if _, err := r.AgentOutput("test", "-f", configPath); err == nil {
-		ui.SkipDone(configPath + " already present (not overwritten)")
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", configDir))
+		ui.Ok(fmt.Sprintf("Would write %s if missing", configPath))
 	} else {
-		if err := agentWriteSharedFile(configPath, []byte(agentOpenCodeConfigJSON), 0o660); err != nil {
-			return fmt.Errorf("write OpenCode config: %w", err)
+		if err := agentEnsureSharedDir(configDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", configDir, err)
 		}
-		ui.Ok(fmt.Sprintf("Wrote %s (0660)", configPath))
+		if _, err := r.AgentOutput("test", "-f", configPath); err == nil {
+			ui.SkipDone(configPath + " already present (not overwritten)")
+		} else {
+			if err := agentWriteSharedFile(configPath, []byte(agentOpenCodeConfigJSON), 0o660); err != nil {
+				return fmt.Errorf("write OpenCode config: %w", err)
+			}
+			ui.Ok(fmt.Sprintf("Wrote %s (0660)", configPath))
+		}
 	}
 
 	ui.Step("Create OpenCode data directory")
 	dataDir := agentHome + "/.local/share/opencode"
-	if err := agentEnsureSharedDir(dataDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", dataDir, err)
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", dataDir))
+	} else {
+		if err := agentEnsureSharedDir(dataDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", dataDir, err)
+		}
+		ui.Ok(fmt.Sprintf("Prepared %s", dataDir))
 	}
-	ui.Ok(fmt.Sprintf("Prepared %s", dataDir))
 
 	return nil
 }

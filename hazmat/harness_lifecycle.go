@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,26 +26,104 @@ const (
 	harnessArtifactDir  harnessManagedArtifactKind = "dir"
 )
 
+type harnessArtifactOwnership string
+
+const (
+	harnessArtifactOwnedByHazmat harnessArtifactOwnership = "hazmat-owned"
+)
+
+type harnessArtifactSymlinkPolicy string
+
+const (
+	harnessArtifactSymlinkDisallowed harnessArtifactSymlinkPolicy = "disallowed"
+	harnessArtifactSymlinkAllowed    harnessArtifactSymlinkPolicy = "allowed"
+)
+
 type harnessManagedArtifact struct {
-	Path        string
-	Kind        harnessManagedArtifactKind
-	Description string
+	Path            string
+	Kind            harnessManagedArtifactKind
+	Description     string
+	Ownership       harnessArtifactOwnership
+	SymlinkPolicy   harnessArtifactSymlinkPolicy
+	PackageManager  string
+	PackageName     string
+	CreatedByUpdate bool
 }
 
 type harnessArtifactStatus struct {
-	Artifact harnessManagedArtifact
-	Exists   bool
-	Drift    string
+	Artifact    harnessManagedArtifact
+	Exists      bool
+	Symlink     bool
+	PackageName string
+	Drift       string
 }
 
+type harnessStateStatus struct {
+	Status       string `json:"status"`
+	Summary      string `json:"summary"`
+	Recorded     bool   `json:"recorded"`
+	StateVersion string `json:"state_version,omitempty"`
+	Current      bool   `json:"current"`
+	Error        string `json:"error,omitempty"`
+}
+
+type harnessImportStatus struct {
+	Supported   bool   `json:"supported"`
+	Status      string `json:"status"`
+	Summary     string `json:"summary"`
+	LastRunAt   string `json:"last_run_at,omitempty"`
+	Boundary    string `json:"boundary,omitempty"`
+	StateError  string `json:"state_error,omitempty"`
+	NextCommand string `json:"next_command,omitempty"`
+}
+
+type harnessCredentialEntryStatus struct {
+	ID          credentialID              `json:"id"`
+	DisplayName string                    `json:"display_name"`
+	Status      credentialInventoryStatus `json:"status"`
+	Kind        credentialKind            `json:"kind"`
+	Backend     credentialStorageBackend  `json:"backend"`
+	Delivery    credentialDeliveryMode    `json:"delivery"`
+	Support     credentialSupportStatus   `json:"support"`
+}
+
+type harnessCredentialStatus struct {
+	Summary         string                         `json:"summary"`
+	DescriptorCount int                            `json:"descriptor_count"`
+	Configured      int                            `json:"configured"`
+	NotConfigured   int                            `json:"not_configured"`
+	External        int                            `json:"external"`
+	AdapterRequired int                            `json:"adapter_required"`
+	NeedsRepair     int                            `json:"needs_repair"`
+	Errors          int                            `json:"errors"`
+	Error           string                         `json:"error,omitempty"`
+	Entries         []harnessCredentialEntryStatus `json:"entries,omitempty"`
+}
+
+type harnessLifecycleStatus string
+
+const (
+	harnessLifecycleOK                     harnessLifecycleStatus = "ok"
+	harnessLifecycleNotInstalled           harnessLifecycleStatus = "not_installed"
+	harnessLifecycleInstalledUnrecorded    harnessLifecycleStatus = "installed_unrecorded"
+	harnessLifecycleRecordedMissingBinary  harnessLifecycleStatus = "recorded_missing_binary"
+	harnessLifecycleStateVersionStale      harnessLifecycleStatus = "state_version_stale"
+	harnessLifecycleProbeFailed            harnessLifecycleStatus = "probe_failed"
+	harnessLifecycleCredentialRepairNeeded harnessLifecycleStatus = "credential_repair_needed"
+	harnessLifecycleStateUnreadable        harnessLifecycleStatus = "state_unreadable"
+)
+
 type harnessStatus struct {
-	Harness           ManagedHarness
-	Probe             harnessProbe
-	StateSummary      string
-	ImportSummary     string
-	CredentialSummary string
-	NextAction        string
-	StateErr          error
+	Harness          ManagedHarness
+	Probe            harnessProbe
+	LifecycleStatus  harnessLifecycleStatus
+	StateStatus      harnessStateStatus
+	ImportStatus     harnessImportStatus
+	CredentialStatus harnessCredentialStatus
+	Artifacts        []harnessArtifactStatus
+	Preserved        []string
+	NextAction       string
+	StateErr         error
 }
 
 type harnessUninstallPlan struct {
@@ -54,7 +134,9 @@ type harnessUninstallPlan struct {
 	StateErr        error
 }
 
-var summarizeHarnessCredentialsForStatus = summarizeHarnessCredentials
+const harnessLifecycleStatusFormatVersion = "hazmat.harness.status.v1"
+
+var inspectHarnessCredentialStatusForStatus = inspectHarnessCredentialStatus
 
 func newHarnessCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -67,11 +149,12 @@ same paths as bootstrap, or uninstall Hazmat-owned code artifacts without
 removing auth, profile, session, or provider data by default.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runHarnessStatus("")
+			return runHarnessStatus("", false)
 		},
 	}
 
-	cmd.AddCommand(&cobra.Command{
+	var statusJSON bool
+	statusCmd := &cobra.Command{
 		Use:   "status [harness]",
 		Short: "Show per-harness install, state, and credential status",
 		Args:  cobra.MaximumNArgs(1),
@@ -80,9 +163,11 @@ removing auth, profile, session, or provider data by default.`,
 			if len(args) == 1 {
 				id = args[0]
 			}
-			return runHarnessStatus(id)
+			return runHarnessStatus(id, statusJSON)
 		},
-	})
+	}
+	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "Emit machine-readable harness status JSON")
+	cmd.AddCommand(statusCmd)
 
 	var updateAll bool
 	updateCmd := &cobra.Command{
@@ -143,7 +228,7 @@ func normalizeManagedHarnessID(input string) (HarnessID, error) {
 	return "", fmt.Errorf("unknown harness %q (valid: %s)", input, strings.Join(valid, ", "))
 }
 
-func runHarnessStatus(input string) error {
+func runHarnessStatus(input string, outputJSON bool) error {
 	state, stateErr := loadState()
 	if strings.TrimSpace(input) != "" {
 		id, err := normalizeManagedHarnessID(input)
@@ -152,21 +237,31 @@ func runHarnessStatus(input string) error {
 		}
 		harness, _ := managedHarnessByID(id)
 		status := inspectManagedHarnessStatus(harness, state, stateErr, asAgentOutput)
+		if outputJSON {
+			return writeHarnessStatusJSON([]harnessStatus{status})
+		}
 		printHarnessDetailStatus(status)
 		return nil
+	}
+
+	statuses := make([]harnessStatus, 0, len(managedHarnessRegistry))
+	for _, harness := range managedHarnesses() {
+		statuses = append(statuses, inspectManagedHarnessStatus(harness, state, stateErr, asAgentOutput))
+	}
+	if outputJSON {
+		return writeHarnessStatusJSON(statuses)
 	}
 
 	fmt.Println()
 	cBold.Println("  Agent harnesses")
 	fmt.Println()
-	fmt.Printf("  %-12s %-12s %-18s %-18s %s\n", "Harness", "Installed", "State", "Import", "Next")
-	for _, harness := range managedHarnesses() {
-		status := inspectManagedHarnessStatus(harness, state, stateErr, asAgentOutput)
-		fmt.Printf("  %-12s %-12s %-18s %-18s %s\n",
+	fmt.Printf("  %-12s %-24s %-18s %-18s %s\n", "Harness", "Lifecycle", "State", "Import", "Next")
+	for _, status := range statuses {
+		fmt.Printf("  %-12s %-24s %-18s %-18s %s\n",
 			status.Harness.Spec.ID,
-			formatHarnessInstalledStatus(status.Probe),
-			truncateStatusField(status.StateSummary, 18),
-			truncateStatusField(status.ImportSummary, 18),
+			truncateStatusField(string(status.LifecycleStatus), 24),
+			truncateStatusField(status.StateStatus.Summary, 18),
+			truncateStatusField(status.ImportStatus.Summary, 18),
 			status.NextAction,
 		)
 	}
@@ -184,14 +279,22 @@ func inspectManagedHarnessStatus(harness ManagedHarness, state HazmatState, stat
 		probe = harnessProbe{Installed: true}
 	}
 
+	stateStatus := inspectHarnessStateStatus(harness, state, stateErr)
+	importStatus := inspectHarnessImportStatus(harness, state, stateErr)
+	credentialStatus := inspectHarnessCredentialStatusForStatus(harness.Spec.ID)
+	artifacts := inspectHarnessArtifactStatuses(harness, read)
+
 	return harnessStatus{
-		Harness:           harness,
-		Probe:             probe,
-		StateSummary:      formatHarnessStateSummary(harness, state, stateErr),
-		ImportSummary:     formatHarnessImportSummary(harness, state, stateErr),
-		CredentialSummary: summarizeHarnessCredentialsForStatus(harness.Spec.ID),
-		NextAction:        nextHarnessAction(harness, probe, state, stateErr),
-		StateErr:          stateErr,
+		Harness:          harness,
+		Probe:            probe,
+		LifecycleStatus:  classifyHarnessLifecycleStatus(probe, stateStatus, credentialStatus),
+		StateStatus:      stateStatus,
+		ImportStatus:     importStatus,
+		CredentialStatus: credentialStatus,
+		Artifacts:        artifacts,
+		Preserved:        append([]string(nil), harness.PreservedArtifacts...),
+		NextAction:       nextHarnessAction(harness, probe, state, stateErr),
+		StateErr:         stateErr,
 	}
 }
 
@@ -202,40 +305,110 @@ func formatHarnessInstalledStatus(probe harnessProbe) string {
 	return "no"
 }
 
-func formatHarnessStateSummary(harness ManagedHarness, state HazmatState, stateErr error) string {
+func inspectHarnessStateStatus(harness ManagedHarness, state HazmatState, stateErr error) harnessStateStatus {
 	if stateErr != nil {
-		return "state unreadable"
+		return harnessStateStatus{
+			Status:  "unreadable",
+			Summary: "state unreadable",
+			Error:   stateErr.Error(),
+		}
 	}
 	recorded, ok := state.Harnesses[harness.Spec.ID]
 	if !ok || recorded.StateVersion == "" {
-		return "not recorded"
+		return harnessStateStatus{
+			Status:  "not_recorded",
+			Summary: "not recorded",
+		}
 	}
 	if !harnessStateCurrent(recorded, harness.Spec) {
-		return fmt.Sprintf("outdated v%s", recorded.StateVersion)
+		return harnessStateStatus{
+			Status:       "stale",
+			Summary:      fmt.Sprintf("outdated v%s", recorded.StateVersion),
+			Recorded:     true,
+			StateVersion: recorded.StateVersion,
+		}
 	}
-	return "recorded v" + recorded.StateVersion
+	return harnessStateStatus{
+		Status:       "current",
+		Summary:      "recorded v" + recorded.StateVersion,
+		Recorded:     true,
+		StateVersion: recorded.StateVersion,
+		Current:      true,
+	}
 }
 
-func formatHarnessImportSummary(harness ManagedHarness, state HazmatState, stateErr error) string {
-	if !harnessSupportsBasicsImport(harness.Spec.ID) {
-		return "not supported"
+func inspectHarnessImportStatus(harness ManagedHarness, state HazmatState, stateErr error) harnessImportStatus {
+	policy := harness.ImportPolicy
+	if !policy.Supported {
+		summary := "not supported"
+		if policy.Boundary != "" {
+			summary += " (" + policy.Boundary + ")"
+		}
+		return harnessImportStatus{
+			Supported: false,
+			Status:    "not_supported",
+			Summary:   summary,
+			Boundary:  policy.Boundary,
+		}
 	}
 	if stateErr != nil {
-		return "state unreadable"
+		return harnessImportStatus{
+			Supported:  true,
+			Status:     "state_unreadable",
+			Summary:    "state unreadable",
+			Boundary:   policy.Boundary,
+			StateError: stateErr.Error(),
+		}
 	}
 	recorded, ok := state.Harnesses[harness.Spec.ID]
 	if !ok || recorded.LastImportRunAt == "" {
-		return "not imported"
+		return harnessImportStatus{
+			Supported:   true,
+			Status:      "not_imported",
+			Summary:     "not imported",
+			Boundary:    policy.Boundary,
+			NextCommand: "hazmat config import " + string(harness.Spec.ID),
+		}
 	}
-	return recorded.LastImportRunAt
+	return harnessImportStatus{
+		Supported: true,
+		Status:    "imported",
+		Summary:   recorded.LastImportRunAt,
+		LastRunAt: recorded.LastImportRunAt,
+		Boundary:  policy.Boundary,
+	}
 }
 
-func harnessSupportsBasicsImport(id HarnessID) bool {
-	switch id {
-	case HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini:
-		return true
+func inspectHarnessArtifactStatuses(harness ManagedHarness, read func(args ...string) (string, error)) []harnessArtifactStatus {
+	if harness.ManagedCodeArtifacts == nil {
+		return nil
+	}
+	artifacts := harness.ManagedCodeArtifacts()
+	statuses := make([]harnessArtifactStatus, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		statuses = append(statuses, inspectHarnessArtifact(read, artifact))
+	}
+	return statuses
+}
+
+func classifyHarnessLifecycleStatus(probe harnessProbe, state harnessStateStatus, credentials harnessCredentialStatus) harnessLifecycleStatus {
+	switch {
+	case state.Status == "unreadable":
+		return harnessLifecycleStateUnreadable
+	case !probe.Installed && state.Recorded:
+		return harnessLifecycleRecordedMissingBinary
+	case !probe.Installed:
+		return harnessLifecycleNotInstalled
+	case probe.VersionErr != "":
+		return harnessLifecycleProbeFailed
+	case state.Status == "stale":
+		return harnessLifecycleStateVersionStale
+	case state.Status == "not_recorded":
+		return harnessLifecycleInstalledUnrecorded
+	case credentials.NeedsRepair > 0:
+		return harnessLifecycleCredentialRepairNeeded
 	default:
-		return false
+		return harnessLifecycleOK
 	}
 }
 
@@ -258,6 +431,7 @@ func printHarnessDetailStatus(status harnessStatus) {
 	fmt.Println()
 	cBold.Printf("  %s (%s)\n", harness.Spec.DisplayName, harness.Spec.ID)
 	fmt.Println()
+	fmt.Printf("  Lifecycle:   %s\n", status.LifecycleStatus)
 	fmt.Printf("  Installed:   %s\n", formatHarnessInstalledStatus(status.Probe))
 	if status.Probe.BinaryPath != "" {
 		fmt.Printf("  Binary:      %s\n", status.Probe.BinaryPath)
@@ -269,39 +443,135 @@ func printHarnessDetailStatus(status harnessStatus) {
 	} else if status.Probe.VersionErr != "" {
 		fmt.Printf("  Version:     unavailable (%s)\n", status.Probe.VersionErr)
 	}
-	fmt.Printf("  State:       %s\n", status.StateSummary)
+	fmt.Printf("  State:       %s\n", status.StateStatus.Summary)
 	if status.StateErr != nil {
 		fmt.Printf("  State error: %v\n", status.StateErr)
 	}
-	fmt.Printf("  Import:      %s\n", status.ImportSummary)
-	fmt.Printf("  Credentials: %s\n", status.CredentialSummary)
+	fmt.Printf("  Import:      %s\n", status.ImportStatus.Summary)
+	fmt.Printf("  Credentials: %s\n", status.CredentialStatus.Summary)
 	fmt.Printf("  Update:      hazmat harness update %s\n", harness.Spec.ID)
 	fmt.Printf("  Uninstall:   hazmat harness uninstall %s\n", harness.Spec.ID)
 	fmt.Println()
-	printHarnessArtifactBoundaries(harness)
+	printHarnessArtifactBoundaries(status)
 	fmt.Println()
 }
 
-func printHarnessArtifactBoundaries(harness ManagedHarness) {
+func printHarnessArtifactBoundaries(status harnessStatus) {
 	fmt.Println("  Hazmat-owned code artifacts:")
-	if harness.ManagedCodeArtifacts == nil {
+	if len(status.Artifacts) == 0 {
 		fmt.Println("    - none")
-	} else if owned := harness.ManagedCodeArtifacts(); len(owned) > 0 {
-		for _, artifact := range owned {
-			fmt.Printf("    - %s (%s)\n", artifact.Path, artifact.Description)
-		}
 	} else {
-		fmt.Println("    - none")
+		for _, artifact := range status.Artifacts {
+			fmt.Printf("    - %s (%s)\n", artifact.Artifact.Path, formatHarnessArtifactStatus(artifact))
+		}
 	}
 
 	fmt.Println("  Preserved by default:")
-	if len(harness.PreservedArtifacts) == 0 {
+	if len(status.Preserved) == 0 {
 		fmt.Println("    - auth, profile, sessions, and provider state")
 		return
 	}
-	for _, item := range harness.PreservedArtifacts {
+	for _, item := range status.Preserved {
 		fmt.Printf("    - %s\n", item)
 	}
+}
+
+type harnessStatusJSONEnvelope struct {
+	FormatVersion string              `json:"format_version"`
+	Harnesses     []harnessStatusJSON `json:"harnesses"`
+}
+
+type harnessStatusJSON struct {
+	ID                       HarnessID                   `json:"id"`
+	DisplayName              string                      `json:"display_name"`
+	LifecycleStatus          harnessLifecycleStatus      `json:"lifecycle_status"`
+	Installed                bool                        `json:"installed"`
+	BinaryPath               string                      `json:"binary_path,omitempty"`
+	Version                  string                      `json:"version,omitempty"`
+	VersionUnavailableReason string                      `json:"version_unavailable_reason,omitempty"`
+	MissingReason            string                      `json:"missing_reason,omitempty"`
+	LaunchCommand            string                      `json:"launch_command"`
+	UpdateCommand            string                      `json:"update_command"`
+	UninstallCommand         string                      `json:"uninstall_command"`
+	NextAction               string                      `json:"next_action"`
+	State                    harnessStateStatus          `json:"state"`
+	Import                   harnessImportStatus         `json:"import"`
+	Credentials              harnessCredentialStatus     `json:"credentials"`
+	OwnedArtifacts           []harnessArtifactStatusJSON `json:"owned_artifacts"`
+	PreservedByDefault       []string                    `json:"preserved_by_default"`
+}
+
+type harnessArtifactStatusJSON struct {
+	Path            string                       `json:"path"`
+	Kind            harnessManagedArtifactKind   `json:"kind"`
+	Description     string                       `json:"description"`
+	Ownership       harnessArtifactOwnership     `json:"ownership"`
+	SymlinkPolicy   harnessArtifactSymlinkPolicy `json:"symlink_policy"`
+	PackageManager  string                       `json:"package_manager,omitempty"`
+	PackageName     string                       `json:"package_name,omitempty"`
+	DetectedPackage string                       `json:"detected_package,omitempty"`
+	CreatedByUpdate bool                         `json:"created_by_update"`
+	Exists          bool                         `json:"exists"`
+	Symlink         bool                         `json:"symlink"`
+	Drift           string                       `json:"drift,omitempty"`
+}
+
+func writeHarnessStatusJSON(statuses []harnessStatus) error {
+	envelope := harnessStatusJSONEnvelope{
+		FormatVersion: harnessLifecycleStatusFormatVersion,
+		Harnesses:     make([]harnessStatusJSON, 0, len(statuses)),
+	}
+	for _, status := range statuses {
+		envelope.Harnesses = append(envelope.Harnesses, harnessStatusForJSON(status))
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(envelope)
+}
+
+func harnessStatusForJSON(status harnessStatus) harnessStatusJSON {
+	harness := status.Harness
+	return harnessStatusJSON{
+		ID:                       harness.Spec.ID,
+		DisplayName:              harness.Spec.DisplayName,
+		LifecycleStatus:          status.LifecycleStatus,
+		Installed:                status.Probe.Installed,
+		BinaryPath:               status.Probe.BinaryPath,
+		Version:                  status.Probe.Version,
+		VersionUnavailableReason: status.Probe.VersionErr,
+		MissingReason:            status.Probe.MissingReason,
+		LaunchCommand:            harness.LaunchCommand,
+		UpdateCommand:            "hazmat harness update " + string(harness.Spec.ID),
+		UninstallCommand:         "hazmat harness uninstall " + string(harness.Spec.ID),
+		NextAction:               status.NextAction,
+		State:                    status.StateStatus,
+		Import:                   status.ImportStatus,
+		Credentials:              status.CredentialStatus,
+		OwnedArtifacts:           harnessArtifactStatusesForJSON(status.Artifacts),
+		PreservedByDefault:       append([]string(nil), status.Preserved...),
+	}
+}
+
+func harnessArtifactStatusesForJSON(statuses []harnessArtifactStatus) []harnessArtifactStatusJSON {
+	out := make([]harnessArtifactStatusJSON, 0, len(statuses))
+	for _, status := range statuses {
+		artifact := normalizeHarnessManagedArtifact(status.Artifact)
+		out = append(out, harnessArtifactStatusJSON{
+			Path:            artifact.Path,
+			Kind:            artifact.Kind,
+			Description:     artifact.Description,
+			Ownership:       artifact.Ownership,
+			SymlinkPolicy:   artifact.SymlinkPolicy,
+			PackageManager:  artifact.PackageManager,
+			PackageName:     artifact.PackageName,
+			DetectedPackage: status.PackageName,
+			CreatedByUpdate: artifact.CreatedByUpdate,
+			Exists:          status.Exists,
+			Symlink:         status.Symlink,
+			Drift:           status.Drift,
+		})
+	}
+	return out
 }
 
 func runHarnessUpdate(input string) error {
@@ -446,14 +716,7 @@ func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 		fmt.Println("    - no Hazmat-owned code artifacts declared")
 	} else {
 		for _, artifact := range plan.Artifacts {
-			state := "missing"
-			if artifact.Exists {
-				state = "present"
-			}
-			if artifact.Drift != "" {
-				state = "drifted: " + artifact.Drift
-			}
-			fmt.Printf("    - %s (%s, %s)\n", artifact.Artifact.Path, artifact.Artifact.Description, state)
+			fmt.Printf("    - %s (%s)\n", artifact.Artifact.Path, formatHarnessArtifactStatus(artifact))
 		}
 	}
 	if plan.MetadataPresent {
@@ -474,6 +737,7 @@ func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 }
 
 func inspectHarnessArtifact(read func(args ...string) (string, error), artifact harnessManagedArtifact) harnessArtifactStatus {
+	artifact = normalizeHarnessManagedArtifact(artifact)
 	status := harnessArtifactStatus{Artifact: artifact}
 	if err := validateHarnessArtifactPath(artifact.Path); err != nil {
 		status.Drift = err.Error()
@@ -486,19 +750,53 @@ func inspectHarnessArtifact(read func(args ...string) (string, error), artifact 
 		return status
 	}
 
+	status.Symlink = harnessArtifactIsSymlink(read, artifact.Path)
+	if status.Symlink && artifact.SymlinkPolicy != harnessArtifactSymlinkAllowed {
+		status.Drift = "symlink not allowed"
+		return status
+	}
+
 	switch artifact.Kind {
 	case harnessArtifactFile:
 		if !harnessArtifactIsFile(read, artifact.Path) {
-			status.Drift = "expected file or symlink"
+			status.Drift = "expected file"
 		}
 	case harnessArtifactDir:
+		if status.Symlink {
+			status.Drift = "expected directory, got symlink"
+			return status
+		}
 		if !harnessArtifactIsDir(read, artifact.Path) {
 			status.Drift = "expected directory"
 		}
 	default:
 		status.Drift = "unknown artifact kind " + string(artifact.Kind)
 	}
+	if status.Drift != "" {
+		return status
+	}
+	if artifact.PackageManager == "npm" && artifact.PackageName != "" {
+		packageName, err := inspectNpmPackageName(read, artifact.Path)
+		if err != nil {
+			status.Drift = err.Error()
+			return status
+		}
+		status.PackageName = packageName
+		if packageName != artifact.PackageName {
+			status.Drift = fmt.Sprintf("expected npm package %s, got %s", artifact.PackageName, packageName)
+		}
+	}
 	return status
+}
+
+func normalizeHarnessManagedArtifact(artifact harnessManagedArtifact) harnessManagedArtifact {
+	if artifact.Ownership == "" {
+		artifact.Ownership = harnessArtifactOwnedByHazmat
+	}
+	if artifact.SymlinkPolicy == "" {
+		artifact.SymlinkPolicy = harnessArtifactSymlinkDisallowed
+	}
+	return artifact
 }
 
 func validateHarnessArtifactPath(path string) error {
@@ -519,11 +817,16 @@ func harnessArtifactExists(read func(args ...string) (string, error), path strin
 	return false
 }
 
+func harnessArtifactIsSymlink(read func(args ...string) (string, error), path string) bool {
+	_, err := read("/usr/bin/test", "-L", path)
+	return err == nil
+}
+
 func harnessArtifactIsFile(read func(args ...string) (string, error), path string) bool {
 	if _, err := read("/usr/bin/test", "-f", path); err == nil {
 		return true
 	}
-	if _, err := read("/usr/bin/test", "-L", path); err == nil {
+	if harnessArtifactIsSymlink(read, path) {
 		return true
 	}
 	return false
@@ -534,7 +837,27 @@ func harnessArtifactIsDir(read func(args ...string) (string, error), path string
 	return err == nil
 }
 
+func inspectNpmPackageName(read func(args ...string) (string, error), packageDir string) (string, error) {
+	packageJSON := filepath.Join(packageDir, "package.json")
+	raw, err := read("/bin/cat", packageJSON)
+	if err != nil {
+		return "", fmt.Errorf("inspect npm package metadata %s: %v", packageJSON, err)
+	}
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", fmt.Errorf("parse npm package metadata %s: %w", packageJSON, err)
+	}
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		return "", fmt.Errorf("npm package metadata %s has no name", packageJSON)
+	}
+	return name, nil
+}
+
 func removeHarnessArtifact(r *Runner, artifact harnessManagedArtifact) error {
+	artifact = normalizeHarnessManagedArtifact(artifact)
 	if err := validateHarnessArtifactPath(artifact.Path); err != nil {
 		return err
 	}
@@ -591,82 +914,143 @@ func truncateStatusField(value string, width int) string {
 	return string(runes[:width-1]) + "."
 }
 
-func summarizeHarnessCredentials(id HarnessID) string {
+func inspectHarnessCredentialStatus(id HarnessID) harnessCredentialStatus {
 	descriptors := credentialDescriptorsForHarnessLifecycle(id)
+	status := harnessCredentialStatus{DescriptorCount: len(descriptors)}
 	if len(descriptors) == 0 {
-		return "none"
+		status.Summary = "none"
+		return status
 	}
 
 	entries, err := inspectCredentialInventory("")
 	if err != nil {
-		return "inventory unavailable; run hazmat config agent"
+		status.Summary = "inventory unavailable; run hazmat config agent"
+		status.Error = err.Error()
+		return status
 	}
 	relevant := make(map[credentialID]struct{}, len(descriptors))
 	for _, descriptor := range descriptors {
 		relevant[descriptor.ID] = struct{}{}
 	}
 
-	var configured, unset, external, adapter, repair, errors int
 	for _, entry := range entries {
 		if _, ok := relevant[entry.ID]; !ok {
 			continue
 		}
-		switch entry.Status() {
+		entryStatus := entry.Status()
+		status.Entries = append(status.Entries, harnessCredentialEntryStatus{
+			ID:          entry.ID,
+			DisplayName: entry.DisplayName,
+			Status:      entryStatus,
+			Kind:        entry.Kind,
+			Backend:     entry.Backend,
+			Delivery:    entry.Delivery,
+			Support:     entry.Support,
+		})
+		switch entryStatus {
 		case credentialInventoryConfigured:
-			configured++
+			status.Configured++
 		case credentialInventoryNotConfigured:
-			unset++
+			status.NotConfigured++
 		case credentialInventoryExternal:
-			external++
+			status.External++
 		case credentialInventoryAdapterRequired:
-			adapter++
+			status.AdapterRequired++
 		case credentialInventoryNeedsRepair:
-			repair++
+			status.NeedsRepair++
 		case credentialInventoryError:
-			errors++
+			status.Errors++
 		}
 	}
-	parts := []string{fmt.Sprintf("%d configured", configured)}
-	if unset > 0 {
-		parts = append(parts, fmt.Sprintf("%d unset", unset))
+	parts := []string{fmt.Sprintf("%d configured", status.Configured)}
+	if status.NotConfigured > 0 {
+		parts = append(parts, fmt.Sprintf("%d unset", status.NotConfigured))
 	}
-	if external > 0 {
-		parts = append(parts, fmt.Sprintf("%d external", external))
+	if status.External > 0 {
+		parts = append(parts, fmt.Sprintf("%d external", status.External))
 	}
-	if adapter > 0 {
-		parts = append(parts, fmt.Sprintf("%d adapter-required", adapter))
+	if status.AdapterRequired > 0 {
+		parts = append(parts, fmt.Sprintf("%d adapter-required", status.AdapterRequired))
 	}
-	if repair > 0 {
-		parts = append(parts, fmt.Sprintf("%d need repair", repair))
+	if status.NeedsRepair > 0 {
+		parts = append(parts, fmt.Sprintf("%d need repair", status.NeedsRepair))
 	}
-	if errors > 0 {
-		parts = append(parts, fmt.Sprintf("%d errors", errors))
+	if status.Errors > 0 {
+		parts = append(parts, fmt.Sprintf("%d errors", status.Errors))
 	}
-	return strings.Join(parts, ", ") + "; hazmat config agent"
-}
-
-func credentialDescriptorsForHarnessLifecycle(id HarnessID) []credentialDescriptor {
-	var descriptors []credentialDescriptor
-	for _, descriptor := range builtinCredentialDescriptors() {
-		if descriptor.Harness == id || descriptor.CanDeliverTo(id) {
-			descriptors = append(descriptors, descriptor)
-		}
-	}
-	return descriptors
+	status.Summary = strings.Join(parts, ", ") + "; hazmat config agent"
+	return status
 }
 
 func harnessFileArtifact(path, description string) harnessManagedArtifact {
 	return harnessManagedArtifact{
-		Path:        path,
-		Kind:        harnessArtifactFile,
-		Description: description,
+		Path:            path,
+		Kind:            harnessArtifactFile,
+		Description:     description,
+		Ownership:       harnessArtifactOwnedByHazmat,
+		SymlinkPolicy:   harnessArtifactSymlinkAllowed,
+		CreatedByUpdate: true,
 	}
 }
 
 func harnessDirArtifact(path, description string) harnessManagedArtifact {
 	return harnessManagedArtifact{
-		Path:        path,
-		Kind:        harnessArtifactDir,
-		Description: description,
+		Path:            path,
+		Kind:            harnessArtifactDir,
+		Description:     description,
+		Ownership:       harnessArtifactOwnedByHazmat,
+		SymlinkPolicy:   harnessArtifactSymlinkDisallowed,
+		CreatedByUpdate: true,
 	}
+}
+
+func harnessNpmPackageDirArtifact(path, packageName, description string) harnessManagedArtifact {
+	artifact := harnessDirArtifact(path, description)
+	artifact.PackageManager = "npm"
+	artifact.PackageName = packageName
+	return artifact
+}
+
+func harnessSymlinkArtifact(path, description string) harnessManagedArtifact {
+	artifact := harnessFileArtifact(path, description)
+	artifact.SymlinkPolicy = harnessArtifactSymlinkAllowed
+	return artifact
+}
+
+func harnessRegularFileArtifact(path, description string) harnessManagedArtifact {
+	artifact := harnessFileArtifact(path, description)
+	artifact.SymlinkPolicy = harnessArtifactSymlinkDisallowed
+	return artifact
+}
+
+func formatHarnessArtifactStatus(status harnessArtifactStatus) string {
+	state := "missing"
+	if status.Exists {
+		state = "present"
+	}
+	if status.Drift != "" {
+		state = "drifted: " + status.Drift
+	}
+	parts := []string{
+		status.Artifact.Description,
+		string(status.Artifact.Kind),
+		string(status.Artifact.Ownership),
+		state,
+	}
+	if status.Artifact.SymlinkPolicy == harnessArtifactSymlinkAllowed {
+		parts = append(parts, "symlink allowed")
+	}
+	if status.Artifact.PackageManager != "" {
+		packageName := status.Artifact.PackageName
+		if packageName == "" {
+			packageName = "unknown"
+		}
+		parts = append(parts, status.Artifact.PackageManager+":"+packageName)
+	}
+	if status.Artifact.CreatedByUpdate {
+		parts = append(parts, "created by update")
+	} else {
+		parts = append(parts, "verified only")
+	}
+	return strings.Join(parts, ", ")
 }

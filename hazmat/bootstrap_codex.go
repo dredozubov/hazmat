@@ -217,17 +217,25 @@ func runCodexBootstrap(ui *UI, r *Runner) error {
 
 	ui.Step("Create Codex state directory")
 	stateDir := agentHome + codexStateDirRel
-	if err := agentEnsureSharedDir(stateDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", stateDir, err)
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", stateDir))
+	} else {
+		if err := agentEnsureSharedDir(stateDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", stateDir, err)
+		}
+		ui.Ok(fmt.Sprintf("Prepared %s", stateDir))
 	}
-	ui.Ok(fmt.Sprintf("Prepared %s", stateDir))
 
 	ui.Step("Create shared agents skills directory")
 	agentsDir := agentHome + "/.agents"
-	if err := agentEnsureSharedDir(agentsDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", agentsDir, err)
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", agentsDir))
+	} else {
+		if err := agentEnsureSharedDir(agentsDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", agentsDir, err)
+		}
+		ui.Ok(fmt.Sprintf("Prepared %s", agentsDir))
 	}
-	ui.Ok(fmt.Sprintf("Prepared %s", agentsDir))
 
 	return nil
 }

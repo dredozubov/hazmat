@@ -395,6 +395,16 @@ func providerCredentialDescriptorsForHarness(harness HarnessID) []credentialDesc
 	return descriptors
 }
 
+func credentialDescriptorsForHarnessLifecycle(id HarnessID) []credentialDescriptor {
+	var descriptors []credentialDescriptor
+	for _, descriptor := range builtinCredentialRegistry {
+		if descriptor.Harness == id || descriptor.CanDeliverTo(id) {
+			descriptors = append(descriptors, descriptor)
+		}
+	}
+	return descriptors
+}
+
 func providerSecretStorePathForDescriptor(home string, descriptor credentialDescriptor) (string, error) {
 	if descriptor.Kind != credentialKindProviderAPIKey {
 		return "", fmt.Errorf("%s is %s, not %s", descriptor.ID, descriptor.Kind, credentialKindProviderAPIKey)

@@ -32,7 +32,7 @@ func probeGeminiHarness(read func(args ...string) (string, error)) harnessProbe 
 func geminiHarnessManagedCodeArtifacts() []harnessManagedArtifact {
 	return []harnessManagedArtifact{
 		harnessFileArtifact(agentHome+geminiBinRel, "Gemini CLI executable"),
-		harnessDirArtifact(agentHome+"/.local/lib/node_modules/@google/gemini-cli", "Gemini CLI npm package"),
+		harnessNpmPackageDirArtifact(agentHome+"/.local/lib/node_modules/@google/gemini-cli", "@google/gemini-cli", "Gemini CLI npm package"),
 	}
 }
 
@@ -100,10 +100,14 @@ func runGeminiBootstrap(ui *UI, r *Runner) error {
 
 	ui.Step("Create Gemini state directory")
 	stateDir := agentHome + geminiStateDirRel
-	if err := agentEnsureSharedDir(stateDir, 0o2770); err != nil {
-		return fmt.Errorf("ensure %s: %w", stateDir, err)
+	if r.DryRun {
+		ui.Ok(fmt.Sprintf("Would prepare %s", stateDir))
+	} else {
+		if err := agentEnsureSharedDir(stateDir, 0o2770); err != nil {
+			return fmt.Errorf("ensure %s: %w", stateDir, err)
+		}
+		ui.Ok(fmt.Sprintf("Prepared %s", stateDir))
 	}
-	ui.Ok(fmt.Sprintf("Prepared %s", stateDir))
 
 	return nil
 }
