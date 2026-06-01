@@ -57,6 +57,7 @@ const (
 
 	credentialHarnessClaudeCredentials credentialID = "harness.claude.credentials"
 	credentialHarnessClaudeState       credentialID = "harness.claude.state"
+	credentialHarnessClaudeKeychain    credentialID = "harness.claude.agent-keychain-oauth"
 	credentialHarnessCodexAuth         credentialID = "harness.codex.auth"
 	credentialHarnessOpenCodeAuth      credentialID = "harness.opencode.auth"
 	credentialHarnessGeminiOAuth       credentialID = "harness.gemini.oauth"
@@ -179,6 +180,17 @@ var builtinCredentialRegistry = []credentialDescriptor{
 		LegacyPaths:     []string{agentHome + "/.claude.json"},
 		Redacted:        true,
 		ConflictArchive: true,
+	},
+	{
+		ID:          credentialHarnessClaudeKeychain,
+		DisplayName: "Claude agent Keychain OAuth state",
+		Kind:        credentialKindExternalAuth,
+		Backend:     credentialStorageKeychain,
+		Delivery:    credentialDeliveryExternalReference,
+		Support:     credentialSupportExternal,
+		Harness:     HarnessClaude,
+		ExternalRef: agentHome + "/" + agentLoginKeychainRelPath,
+		Redacted:    true,
 	},
 	{
 		ID:              credentialHarnessCodexAuth,

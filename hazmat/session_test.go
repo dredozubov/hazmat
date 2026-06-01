@@ -234,6 +234,29 @@ func TestClaudeAPIKeyAuthAvailableRequiresClaudeHarnessEnv(t *testing.T) {
 	}
 }
 
+func TestClaudeNeedsAgentKeychainAccessOnlyForNativeOAuthMode(t *testing.T) {
+	cfg := sessionConfig{HarnessID: HarnessClaude}
+	if !claudeNeedsAgentKeychainAccess(cfg, sessionModeNative, false) {
+		t.Fatal("native Claude OAuth session should prepare the agent keychain")
+	}
+	if claudeNeedsAgentKeychainAccess(cfg, sessionModeNative, true) {
+		t.Fatal("explicit --bare session should not prepare the agent keychain")
+	}
+	if claudeNeedsAgentKeychainAccess(cfg, sessionModeDockerSandbox, false) {
+		t.Fatal("Docker Sandbox Claude session should not prepare the macOS agent keychain")
+	}
+
+	cfg.HarnessEnv = map[string]string{"ANTHROPIC_API_KEY": "stored-claude-key"}
+	if claudeNeedsAgentKeychainAccess(cfg, sessionModeNative, false) {
+		t.Fatal("API-key Claude session should use --bare instead of the agent keychain")
+	}
+
+	cfg = sessionConfig{HarnessID: HarnessCodex}
+	if claudeNeedsAgentKeychainAccess(cfg, sessionModeNative, false) {
+		t.Fatal("non-Claude session should not prepare the Claude agent keychain")
+	}
+}
+
 func TestCodexLaunchUIForAppServerDisablesStatusBar(t *testing.T) {
 	ui := codexLaunchUI([]string{"app-server", "--listen", "stdio://"})
 	if ui.showStatusBar {
@@ -1203,6 +1226,30 @@ func TestGenerateSBPLNonRustHarnessesDoNotGetNativeTLSRules(t *testing.T) {
 				t.Errorf("harness %q policy includes codex-only rule (least-privilege violation):\n  %s", harness, leaked)
 			}
 		}
+	}
+}
+
+func TestGenerateSBPLClaudeKeychainAccessIsScopedToAgentLoginKeychain(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir:           "/tmp/myproject",
+		HarnessID:            HarnessClaude,
+		ClaudeKeychainAccess: true,
+	}
+	policy := generateSBPL(cfg)
+
+	for _, want := range []string{
+		`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
+		`(allow mach-lookup (global-name "com.apple.securityd"))`,
+		`(deny file-read* file-write* (subpath "` + agentHome + `/Library/Keychains"))`,
+		`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
+		`(allow file-read* file-write* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("Claude keychain policy missing %q:\n%s", want, policy)
+		}
+	}
+	if strings.Contains(policy, `(allow file-read* (subpath "/Library/Keychains"))`) {
+		t.Fatalf("Claude keychain policy should not grant host/system Keychain subtree reads:\n%s", policy)
 	}
 }
 

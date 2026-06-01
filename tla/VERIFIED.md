@@ -173,8 +173,8 @@ successful completion after arbitrary bounded failures.
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
 | Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
-| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, and host-temp narrowing modeled |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -204,9 +204,14 @@ successful completion after arbitrary bounded failures.
    per-session temp root remains readable, writable, and executable for build
    artifacts; Codex App temp/control socket paths are denied after user grants.
 
+6. Added a conditional Claude agent login keychain exception after credential
+   denies. The model allows only the exact `/Users/agent/Library/Keychains/login.keychain-db`
+   representative files and sidecars when native Claude OAuth requests Keychain
+   compatibility; the broader Keychains directory remains denied.
+
 Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
 4=agent home, 5=session temp, 6=project write re-assert, 7=temp socket denies,
-8=credential denies.
+8=credential denies, 9=optional exact Claude agent login keychain exception.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
@@ -216,9 +221,12 @@ inherited credential-bearing fd still alive.
 
 **Change rules:**
 - Do not reorder the sections in `generateSBPL()` — credential denies MUST be
-  last. Moving any allow after the denies would break `CredentialReadDenied`.
+  the final broad credential boundary. Only the modeled exact Claude agent
+  login keychain exception may appear after them.
 - Adding new credential paths to the deny list requires adding them to
   `CredPaths` in the TLA+ model and re-running TLC.
+- Changing the Claude keychain exception paths requires updating
+  `AgentKeychainExceptionPaths` and re-running TLC.
 - Adding new static allow paths (new `AgentHomeSubs`) requires checking whether
   they cover any credential paths — add to the model and re-verify.
 - Adding new optional read+write sections (like ResumeDir) requires modeling the
@@ -741,7 +749,7 @@ baseline from a same-content rewrite.
 | Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
 | Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
 | Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoAgentResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
-| Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving file-backed recovery invariants |
+| Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, supported external references are explicit, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving file-backed recovery invariants |
 
 **What this verifies:**
 
@@ -754,19 +762,24 @@ baseline from a same-content rewrite.
    OAuth cannot become active, delivered, materialized, env-granted,
    broker-granted, or externally granted until an adapter is modeled.
 
-3. **Harness scope is enforced:** active-session exposure must either belong to
+3. **Supported external references stay external:** Claude's agent-account
+   Keychain OAuth boundary can be represented as an external grant for Claude,
+   but it is not materialized into Hazmat's host secret store.
+
+4. **Harness scope is enforced:** active-session exposure must either belong to
    the active harness or be explicitly global, which is the shape expected for
    future Git HTTPS broker credentials.
 
-4. **Crash clears session-only grants:** env, broker, and external grants do not
+5. **Crash clears session-only grants:** env, broker, and external grants do not
    survive a crash/restart transition. File residue may survive, but launch is
    blocked until recovery reconciles it.
 
-5. **Host ownership remains the recovered state:** after recovery, the latest
+6. **Host ownership remains the recovered state:** after recovery, the latest
    known managed value is in host primary storage or a host-owned conflict
    archive, not only in `/Users/agent`.
 
-TLC passes across 63,681 distinct states (225,105 generated, depth 32, ~4s).
+TLC passes across 8,634,438 distinct states (31,825,467 generated, depth 33,
+43m47s on the local 10-worker run).
 
 **Scope boundary:**
 

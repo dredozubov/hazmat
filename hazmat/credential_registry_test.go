@@ -352,8 +352,14 @@ func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T)
 	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
 		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
 	}
-	if len(summary.ExternalBoundaries) != 1 || summary.ExternalBoundaries[0] != "Git SSH external identity reference" {
-		t.Fatalf("ExternalBoundaries = %v, want Git SSH external identity reference", summary.ExternalBoundaries)
+	wantExternal := []string{"Claude agent Keychain OAuth state", "Git SSH external identity reference"}
+	if len(summary.ExternalBoundaries) != len(wantExternal) {
+		t.Fatalf("ExternalBoundaries = %v, want %v", summary.ExternalBoundaries, wantExternal)
+	}
+	for i, want := range wantExternal {
+		if summary.ExternalBoundaries[i] != want {
+			t.Fatalf("ExternalBoundaries = %v, want %v", summary.ExternalBoundaries, wantExternal)
+		}
 	}
 }
 
@@ -460,5 +466,33 @@ func TestGeminiKeychainCredentialBoundaryIsExternal(t *testing.T) {
 	}
 	if _, err := descriptor.AgentMaterializationPath(); err == nil {
 		t.Fatalf("Gemini Keychain descriptor produced agent materialization path")
+	}
+}
+
+func TestClaudeAgentKeychainCredentialBoundaryIsExternal(t *testing.T) {
+	descriptor := mustCredentialDescriptor(credentialHarnessClaudeKeychain)
+	if descriptor.Backend != credentialStorageKeychain {
+		t.Fatalf("Claude Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
+	}
+	if descriptor.Delivery != credentialDeliveryExternalReference {
+		t.Fatalf("Claude Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
+	}
+	if descriptor.Support != credentialSupportExternal {
+		t.Fatalf("Claude Keychain support = %q, want %q", descriptor.Support, credentialSupportExternal)
+	}
+	if !descriptor.CanDeliverTo(HarnessClaude) || descriptor.CanDeliverTo(HarnessCodex) {
+		t.Fatalf("Claude Keychain consumers = %v, want Claude only", descriptor.ConsumerHarnessIDs())
+	}
+	if descriptor.ExternalRef != agentLoginKeychainPath() {
+		t.Fatalf("Claude Keychain external ref = %q, want %q", descriptor.ExternalRef, agentLoginKeychainPath())
+	}
+	if descriptor.StoreRelPath != "" || descriptor.AgentPath != "" {
+		t.Fatalf("Claude Keychain descriptor must not declare file paths: %+v", descriptor)
+	}
+	if _, err := descriptor.StorePathForHome(t.TempDir()); err == nil {
+		t.Fatalf("Claude Keychain descriptor produced host store path")
+	}
+	if _, err := descriptor.AgentMaterializationPath(); err == nil {
+		t.Fatalf("Claude Keychain descriptor produced agent materialization path")
 	}
 }

@@ -48,6 +48,7 @@ type sessionConfig struct {
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
+	ClaudeKeychainAccess    bool      // native Claude OAuth path may use the agent login keychain
 	RepoSetup               *repoSetupState
 	TempDir                 string // agent-owned per-session temp dir for native launch
 }
@@ -324,6 +325,7 @@ Examples:
 			if handled {
 				return nil
 			}
+			opts.claudeBareRequested = claudeBareRequested(forwarded)
 
 			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
 			if err != nil {
@@ -347,6 +349,11 @@ Examples:
 			}
 
 			hcfg, _ := loadConfig()
+			if prepared.Config.ClaudeKeychainAccess {
+				if err := prepareClaudeAgentKeychainForLaunch(); err != nil {
+					return err
+				}
+			}
 			forwarded = claudeLaunchArgs(forwarded, hcfg.SkipPermissions(), claudeUseBareMode(prepared.Config, prepared.Mode))
 
 			return runPreparedAgentSeatbeltScriptWithUI(prepared, claudeLaunchUI(forwarded),
@@ -809,6 +816,7 @@ type harnessSessionOpts struct {
 	networkModeExplicit   bool
 	metadataJSON          bool
 	planOnly              bool
+	claudeBareRequested   bool
 }
 
 type claudeOpts = harnessSessionOpts
@@ -947,6 +955,10 @@ func claudeLaunchArgs(forwarded []string, skipPermissions, useBare bool) []strin
 	return out
 }
 
+func claudeBareRequested(forwarded []string) bool {
+	return slices.Contains(forwarded, "--bare")
+}
+
 func claudeAPIKeyAuthAvailable(cfg sessionConfig) bool {
 	if cfg.HarnessID != HarnessClaude {
 		return false
@@ -958,11 +970,26 @@ func claudeUseBareMode(cfg sessionConfig, mode sessionMode) bool {
 	return mode == sessionModeNative && claudeAPIKeyAuthAvailable(cfg)
 }
 
+func claudeNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode, bareRequested bool) bool {
+	return mode == sessionModeNative &&
+		cfg.HarnessID == HarnessClaude &&
+		!bareRequested &&
+		!claudeAPIKeyAuthAvailable(cfg)
+}
+
 func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
 	if !claudeUseBareMode(*cfg, mode) {
 		return
 	}
 	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code will run with --bare because ANTHROPIC_API_KEY is granted; this avoids agent-account Apple Keychain prompts.")
+}
+
+func appendClaudeKeychainSessionNote(cfg *sessionConfig, mode sessionMode, bareRequested bool) {
+	if !claudeNeedsAgentKeychainAccess(*cfg, mode, bareRequested) {
+		return
+	}
+	cfg.ClaudeKeychainAccess = true
+	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code may use the agent account login keychain for OAuth; Hazmat will prepare and unlock that keychain before launch.")
 }
 
 func claudeLaunchUI(forwarded []string) sessionLaunchUI {
@@ -1303,6 +1330,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	appendClaudeBareSessionNote(&cfg, mode)
+	appendClaudeKeychainSessionNote(&cfg, mode, opts.claudeBareRequested)
 	if !opts.planOnly {
 		if err := applyHarnessAuthArtifacts(&cfg); err != nil {
 			return preparedSession{}, err

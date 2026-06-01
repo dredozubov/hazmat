@@ -159,13 +159,19 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	for _, svc := range baseMachServices {
 		w("(allow mach-lookup (global-name %q))\n", svc)
 	}
-	if policy.MacOSNativeTLS {
+	if policy.MacOSNativeTLS || policy.MacOSAgentKeychainAccess {
 		w(";; Mach services for harnesses that use macOS Security framework directly:\n")
-		for _, svc := range []string{
-			"com.apple.SystemConfiguration.configd", // SCDynamicStoreCreate (Rust reqwest proxy detection)
-			"com.apple.trustd.agent",                // per-user trust agent (security-framework SecTrustEvaluate)
-			"com.apple.SecurityServer",              // Security framework XPC engine — does the actual SecTrust* evaluation
-		} {
+		services := []string{
+			"com.apple.SecurityServer", // Security framework XPC engine — does the actual SecTrust* / Keychain work
+			"com.apple.securityd",      // Keychain broker on current macOS releases
+		}
+		if policy.MacOSNativeTLS {
+			services = append(services,
+				"com.apple.SystemConfiguration.configd", // SCDynamicStoreCreate (Rust reqwest proxy detection)
+				"com.apple.trustd.agent",                // per-user trust agent (security-framework SecTrustEvaluate)
+			)
+		}
+		for _, svc := range services {
 			w("(allow mach-lookup (global-name %q))\n", svc)
 		}
 	}
@@ -228,7 +234,7 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 	w("(deny process-exec (regex #\"^/private/var/folders/.*/T/codex-ipc(/|$)\"))\n\n")
 
 	w(";; ── DENY sensitive credential directories ──────────────────────────────────\n")
-	w(";; These appear last so they override the broad allows above (last match wins).\n")
+	w(";; These are the final broad credential boundary (last match wins).\n")
 	w(";; Both file-read* (exfiltration) and file-write* (planting) are denied.\n")
 	for _, path := range policy.CredentialDenyPaths() {
 		w("(deny file-read* file-write* (subpath %q))\n", path)
@@ -246,6 +252,16 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db")
 		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-shm")
 		w("(allow file-read* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
+	}
+	if policy.MacOSAgentKeychainAccess {
+		w(";; ── Re-allow Claude's agent login keychain (post-deny override) ──────────\n")
+		w(";; Claude Code OAuth on newer releases may store/read auth via the agent\n")
+		w(";; account login keychain. This grants only that managed agent keychain DB\n")
+		w(";; and sidecar paths, after the broader Keychains credential deny.\n")
+		w("(allow file-read-metadata (literal %q))\n", home+"/Library/Keychains")
+		w("(allow file-read* file-write* (literal %q))\n", home+"/Library/Keychains/login.keychain-db")
+		w("(allow file-read* file-write* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-shm")
+		w("(allow file-read* file-write* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
 	}
 
 	return b.String()
