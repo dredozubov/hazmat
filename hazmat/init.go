@@ -164,7 +164,7 @@ func runStatus(full bool) error {
 	}
 
 	if len(installedHarnesses) == 0 {
-		cDim.Printf("  [ ] %-24s %s\n", "Agent harness installed", "hazmat bootstrap claude|codex|opencode")
+		cDim.Printf("  [ ] %-24s %s\n", "Agent harness installed", "hazmat harness status")
 	} else {
 		var names []string
 		for _, harness := range installedHarnesses {
@@ -203,9 +203,10 @@ func runStatus(full bool) error {
 		} else {
 			fmt.Println("  Core containment is ready.")
 			fmt.Println("  Install a harness when needed:")
-			fmt.Println("    hazmat bootstrap claude")
-			fmt.Println("    hazmat bootstrap codex")
-			fmt.Println("    hazmat bootstrap opencode")
+			fmt.Println("    hazmat harness status")
+			fmt.Println("    hazmat harness update claude")
+			fmt.Println("    hazmat harness update codex")
+			fmt.Println("    hazmat harness update opencode")
 			fmt.Println("  Or run contained commands directly:")
 			fmt.Println("    cd your-project && hazmat shell")
 		}

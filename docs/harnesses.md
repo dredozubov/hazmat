@@ -18,7 +18,23 @@ the **simplest** way to get a working session.
 | **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
 | **Hermes (experimental)** | manual install | `hazmat bootstrap hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
 
-After bootstrap + auth: `hazmat <harness>` to launch a session, or
+Use `hazmat harness status` to inspect every built-in harness at once. For one
+harness, `hazmat harness status codex` shows the agent binary path, version
+probe, recorded Hazmat state, last curated import timestamp when supported,
+credential hints, managed code artifacts, and the auth/profile/session data
+that uninstall preserves.
+
+`hazmat harness update <harness>` is the lifecycle-oriented spelling for
+install/update. The older `hazmat bootstrap <harness>` commands remain
+compatible aliases for the same paths. To remove agent-owned harness code, run
+`hazmat harness uninstall <harness>`; by default it removes only declared
+Hazmat-owned code artifacts plus the selected `~/.hazmat/state.json` metadata
+entry. Auth, profile roots, sessions, provider keys, and imported basics stay in
+place unless a future explicit purge flow models and documents a wider delete.
+Hermes is detection-only in v1, so its uninstall clears Hazmat metadata but
+does not remove the manually installed Hermes executable.
+
+After bootstrap/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
 `hazmat <harness> exec "prompt"` (codex) /
 `hazmat <harness> run "prompt"` (opencode) /

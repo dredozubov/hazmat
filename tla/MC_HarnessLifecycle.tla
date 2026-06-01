@@ -8,6 +8,8 @@ EXTENDS TLC
 \*   - successful bootstrap/import writes harness metadata unless the command is
 \*     a dry-run
 \*   - core saveState preserves existing harness metadata
+\*   - explicit harness uninstall removes harness code artifacts and host-owned
+\*     harness metadata, but preserves imported/profile state by default
 \*   - rollback always removes the host-owned state.json metadata
 \*   - rollback only removes agent-home harness artifacts when --delete-user is used
 
@@ -21,10 +23,13 @@ ActionKinds ==
      "bootstrap-dry",
      "import",
      "import-dry",
+     "uninstall",
+     "uninstall-dry",
      "save",
      "rollback-keep-user",
      "rollback-delete-user"}
 Phases == {"idle", "rolledBack"}
+NoHarness == "none"
 
 VARIABLES
     phase,
@@ -36,6 +41,7 @@ VARIABLES
     recordedVersion,
     recordedImported,
     lastAction,
+    lastHarness,
     snapshotRecordedVersion,
     snapshotRecordedImported,
     snapshotStateFilePresent,
@@ -52,6 +58,7 @@ vars ==
        recordedVersion,
        recordedImported,
        lastAction,
+       lastHarness,
        snapshotRecordedVersion,
        snapshotRecordedImported,
        snapshotStateFilePresent,
@@ -60,6 +67,18 @@ vars ==
 
 EmptyRecordedVersion ==
     [h \in Harnesses |-> ""]
+
+ClearSnapshots ==
+    /\ snapshotRecordedVersion' = EmptyRecordedVersion
+    /\ snapshotRecordedImported' = {}
+    /\ snapshotStateFilePresent' = FALSE
+    /\ snapshotInstalledArtifacts' = {}
+    /\ snapshotImportedArtifacts' = {}
+
+MetadataPresentAfterUninstall(h) ==
+    \/ initRecorded
+    \/ (recordedImported \ {h}) # {}
+    \/ \E other \in Harnesses \ {h} : recordedVersion[other] # ""
 
 Init ==
     /\ phase = "idle"
@@ -71,6 +90,7 @@ Init ==
     /\ recordedVersion = EmptyRecordedVersion
     /\ recordedImported = {}
     /\ lastAction = "none"
+    /\ lastHarness = NoHarness
     /\ snapshotRecordedVersion = EmptyRecordedVersion
     /\ snapshotRecordedImported = {}
     /\ snapshotStateFilePresent = FALSE
@@ -82,18 +102,15 @@ EnableCore ==
     /\ ~coreReady
     /\ coreReady' = TRUE
     /\ lastAction' = "enable-core"
+    /\ lastHarness' = NoHarness
+    /\ ClearSnapshots
     /\ UNCHANGED << phase,
                     stateFilePresent,
                     initRecorded,
                     installedArtifacts,
                     importedArtifacts,
                     recordedVersion,
-                    recordedImported,
-                    snapshotRecordedVersion,
-                    snapshotRecordedImported,
-                    snapshotStateFilePresent,
-                    snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    recordedImported >>
 
 Bootstrap(h) ==
     /\ phase = "idle"
@@ -103,22 +120,20 @@ Bootstrap(h) ==
     /\ recordedVersion' = [recordedVersion EXCEPT ![h] = HarnessVersion[h]]
     /\ stateFilePresent' = TRUE
     /\ lastAction' = "bootstrap"
+    /\ lastHarness' = h
+    /\ ClearSnapshots
     /\ UNCHANGED << phase,
                     coreReady,
                     initRecorded,
                     importedArtifacts,
-                    recordedImported,
-                    snapshotRecordedVersion,
-                    snapshotRecordedImported,
-                    snapshotStateFilePresent,
-                    snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    recordedImported >>
 
 BootstrapDryRun(h) ==
     /\ phase = "idle"
     /\ coreReady
     /\ h \in Harnesses
     /\ lastAction' = "bootstrap-dry"
+    /\ lastHarness' = h
     /\ snapshotRecordedVersion' = recordedVersion
     /\ snapshotRecordedImported' = recordedImported
     /\ snapshotStateFilePresent' = stateFilePresent
@@ -142,21 +157,59 @@ ImportBasics(h) ==
     /\ recordedImported' = recordedImported \cup {h}
     /\ stateFilePresent' = TRUE
     /\ lastAction' = "import"
+    /\ lastHarness' = h
+    /\ ClearSnapshots
     /\ UNCHANGED << phase,
                     coreReady,
                     initRecorded,
-                    installedArtifacts,
-                    snapshotRecordedVersion,
-                    snapshotRecordedImported,
-                    snapshotStateFilePresent,
-                    snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    installedArtifacts >>
 
 ImportDryRun(h) ==
     /\ phase = "idle"
     /\ coreReady
     /\ h \in ImportableHarnesses
     /\ lastAction' = "import-dry"
+    /\ lastHarness' = h
+    /\ snapshotRecordedVersion' = recordedVersion
+    /\ snapshotRecordedImported' = recordedImported
+    /\ snapshotStateFilePresent' = stateFilePresent
+    /\ snapshotInstalledArtifacts' = installedArtifacts
+    /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ UNCHANGED << phase,
+                    coreReady,
+                    stateFilePresent,
+                    initRecorded,
+                    installedArtifacts,
+                    importedArtifacts,
+                    recordedVersion,
+                    recordedImported >>
+
+Uninstall(h) ==
+    /\ phase = "idle"
+    /\ coreReady
+    /\ h \in Harnesses
+    /\ snapshotRecordedVersion' = recordedVersion
+    /\ snapshotRecordedImported' = recordedImported
+    /\ snapshotStateFilePresent' = stateFilePresent
+    /\ snapshotInstalledArtifacts' = installedArtifacts
+    /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ installedArtifacts' = installedArtifacts \ {h}
+    /\ importedArtifacts' = importedArtifacts
+    /\ recordedVersion' = [recordedVersion EXCEPT ![h] = ""]
+    /\ recordedImported' = recordedImported \ {h}
+    /\ stateFilePresent' = MetadataPresentAfterUninstall(h)
+    /\ lastAction' = "uninstall"
+    /\ lastHarness' = h
+    /\ UNCHANGED << phase,
+                    coreReady,
+                    initRecorded >>
+
+UninstallDryRun(h) ==
+    /\ phase = "idle"
+    /\ coreReady
+    /\ h \in Harnesses
+    /\ lastAction' = "uninstall-dry"
+    /\ lastHarness' = h
     /\ snapshotRecordedVersion' = recordedVersion
     /\ snapshotRecordedImported' = recordedImported
     /\ snapshotStateFilePresent' = stateFilePresent
@@ -182,6 +235,7 @@ SaveCoreState ==
     /\ stateFilePresent' = TRUE
     /\ initRecorded' = TRUE
     /\ lastAction' = "save"
+    /\ lastHarness' = NoHarness
     /\ UNCHANGED << phase,
                     coreReady,
                     installedArtifacts,
@@ -198,13 +252,14 @@ RollbackKeepUser ==
     /\ recordedVersion' = EmptyRecordedVersion
     /\ recordedImported' = {}
     /\ lastAction' = "rollback-keep-user"
+    /\ lastHarness' = NoHarness
+    /\ snapshotRecordedVersion' = EmptyRecordedVersion
+    /\ snapshotRecordedImported' = {}
+    /\ snapshotStateFilePresent' = FALSE
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
     /\ UNCHANGED << installedArtifacts,
-                    importedArtifacts,
-                    snapshotRecordedVersion,
-                    snapshotRecordedImported,
-                    snapshotStateFilePresent >>
+                    importedArtifacts >>
 
 RollbackDeleteUser ==
     /\ phase = "idle"
@@ -217,11 +272,12 @@ RollbackDeleteUser ==
     /\ recordedVersion' = EmptyRecordedVersion
     /\ recordedImported' = {}
     /\ lastAction' = "rollback-delete-user"
+    /\ lastHarness' = NoHarness
+    /\ snapshotRecordedVersion' = EmptyRecordedVersion
+    /\ snapshotRecordedImported' = {}
+    /\ snapshotStateFilePresent' = FALSE
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
-    /\ UNCHANGED << snapshotRecordedVersion,
-                    snapshotRecordedImported,
-                    snapshotStateFilePresent >>
 
 Stutter ==
     UNCHANGED vars
@@ -232,6 +288,8 @@ Next ==
     \/ \E h \in Harnesses : BootstrapDryRun(h)
     \/ \E h \in ImportableHarnesses : ImportBasics(h)
     \/ \E h \in ImportableHarnesses : ImportDryRun(h)
+    \/ \E h \in Harnesses : Uninstall(h)
+    \/ \E h \in Harnesses : UninstallDryRun(h)
     \/ SaveCoreState
     \/ RollbackKeepUser
     \/ RollbackDeleteUser
@@ -250,6 +308,7 @@ TypeOK ==
     /\ recordedVersion \in [Harnesses -> {"", "1"}]
     /\ recordedImported \subseteq ImportableHarnesses
     /\ lastAction \in ActionKinds
+    /\ lastHarness \in Harnesses \cup {NoHarness}
     /\ snapshotRecordedVersion \in [Harnesses -> {"", "1"}]
     /\ snapshotRecordedImported \subseteq ImportableHarnesses
     /\ snapshotStateFilePresent \in BOOLEAN
@@ -270,12 +329,24 @@ StateFilePresentWhenMetadataExists ==
         => stateFilePresent
 
 DryRunLeavesStateUntouched ==
-    lastAction \in {"bootstrap-dry", "import-dry"} =>
+    lastAction \in {"bootstrap-dry", "import-dry", "uninstall-dry"} =>
         /\ recordedVersion = snapshotRecordedVersion
         /\ recordedImported = snapshotRecordedImported
         /\ stateFilePresent = snapshotStateFilePresent
         /\ installedArtifacts = snapshotInstalledArtifacts
         /\ importedArtifacts = snapshotImportedArtifacts
+
+UninstallRemovesOnlyCodeAndMetadata ==
+    lastAction = "uninstall" =>
+        /\ lastHarness \in Harnesses
+        /\ installedArtifacts = snapshotInstalledArtifacts \ {lastHarness}
+        /\ importedArtifacts = snapshotImportedArtifacts
+        /\ recordedVersion = [snapshotRecordedVersion EXCEPT ![lastHarness] = ""]
+        /\ recordedImported = snapshotRecordedImported \ {lastHarness}
+        /\ stateFilePresent =
+            (\/ initRecorded
+             \/ recordedImported # {}
+             \/ \E h \in Harnesses : recordedVersion[h] # "")
 
 SaveCoreStatePreservesHarnessMetadata ==
     lastAction = "save" =>

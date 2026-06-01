@@ -39,6 +39,17 @@ func findInstalledOpenCodeBinaryWith(read func(args ...string) (string, error)) 
 	return "", false
 }
 
+func probeOpenCodeHarness(read func(args ...string) (string, error)) harnessProbe {
+	return probeHarnessBinary(read, findInstalledOpenCodeBinaryWith, "--version")
+}
+
+func openCodeHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return []harnessManagedArtifact{
+		harnessFileArtifact(agentHome+openCodeCurrentBinRel, "OpenCode executable"),
+		harnessFileArtifact(agentHome+openCodeLegacyBinRel, "OpenCode PATH shim"),
+	}
+}
+
 func openCodeLaunchScript() string {
 	return `cd "$SANDBOX_PROJECT_DIR" && ` +
 		`opencode_bin=""; ` +
@@ -122,9 +133,8 @@ Runtime behavior, provider settings, commands, agents, skills, and auth can be
 managed separately via OpenCode itself or 'hazmat config import opencode'.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return openCodeHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessOpenCode)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 }

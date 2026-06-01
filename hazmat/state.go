@@ -57,6 +57,30 @@ func updateHarnessState(id HarnessID, mutate func(HarnessState) HarnessState) er
 	return writeState(s)
 }
 
+func removeHarnessState(id HarnessID) error {
+	s, err := loadState()
+	if err != nil {
+		return err
+	}
+	if s.Harnesses == nil {
+		return nil
+	}
+	if _, ok := s.Harnesses[id]; !ok {
+		return nil
+	}
+	delete(s.Harnesses, id)
+	if len(s.Harnesses) == 0 {
+		s.Harnesses = nil
+	}
+	if s.InitVersion == "" && s.InitDate == "" && len(s.Harnesses) == 0 {
+		if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writeState(s)
+}
+
 func writeState(s HazmatState) error {
 	dir := filepath.Dir(stateFilePath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

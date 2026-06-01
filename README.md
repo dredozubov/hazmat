@@ -154,6 +154,11 @@ hazmat codex
 hazmat opencode
 hazmat gemini
 
+# Harness lifecycle
+hazmat harness status
+hazmat harness update codex
+hazmat harness uninstall codex --dry-run
+
 # Any command in containment
 hazmat exec -- make test
 hazmat exec -- /bin/zsh -lc 'uv run pytest -q'

@@ -13,7 +13,12 @@ state machine from core init/migration:
    home
 4. `saveState()` for core init/migration must preserve existing harness
    metadata
-5. rollback always removes the host-owned `state.json` record, but agent-home
+5. explicit harness uninstall removes only Hazmat-owned harness code artifacts
+   and the host-owned metadata entry for that harness by default
+6. uninstall dry-run must not mutate either the state file or the agent home
+7. uninstall preserves imported/auth/profile-like agent-home artifacts by
+   default; destructive purge semantics require a separate model change
+8. rollback always removes the host-owned `state.json` record, but agent-home
    harness artifacts survive unless `--delete-user` is passed
 
 The core migration proof intentionally did not model these rules. This spec
@@ -29,8 +34,13 @@ gives them a dedicated home.
 | `hazmat/bootstrap.go` | Claude bootstrap path |
 | `hazmat/bootstrap_codex.go` | Codex bootstrap path |
 | `hazmat/bootstrap_opencode.go` | OpenCode bootstrap path |
+| `hazmat/bootstrap_gemini.go` | Gemini bootstrap path |
+| `hazmat/bootstrap_hermes.go` | Hermes verification and managed profile reset |
+| `hazmat/harness_lifecycle.go` | Harness lifecycle CLI status/update/uninstall |
 | `hazmat/config_import.go` | Claude basics import |
 | `hazmat/config_import_opencode.go` | OpenCode basics import |
+| `hazmat/config_import_codex.go` | Codex basics import |
+| `hazmat/config_import_gemini.go` | Gemini basics import |
 
 ## TLA+ Model
 
@@ -58,7 +68,21 @@ State is split into two layers:
 
 - **agent-home artifacts**: bootstrap and imported basics that live under
   `/Users/agent`
+- **Hazmat-owned code artifacts**: the executable/package files that Hazmat's
+  harness bootstrap installed or verified as its managed launch target
 - **host-owned metadata**: the `~/.hazmat/state.json` harness map
+
+Explicit uninstall is intentionally narrower than rollback:
+
+- code artifacts for the selected harness are removed when Hazmat owns them
+- the selected harness metadata entry is removed from `state.json`
+- imported basics, auth files, profile roots, sessions, provider state, and
+  other user data in the agent home are preserved
+
+Hermes remains special: Hazmat verifies a manually installed binary for Phase 1
+and does not own the upstream Hermes executable. Its lifecycle status can show
+that binary, but default uninstall only clears Hazmat metadata and leaves the
+manual executable and managed profile roots alone.
 
 The model also tracks:
 
@@ -74,7 +98,8 @@ The model also tracks:
 | `RecordedHarnessVersionsMatchSpec` | Recorded harness entries always use the current declared harness state version |
 | `ImportedMetadataCarriesVersion` | Any recorded import timestamp implies the harness also has a recorded state version |
 | `StateFilePresentWhenMetadataExists` | Harness or init metadata never exists without `state.json` |
-| `DryRunLeavesStateUntouched` | Dry-run bootstrap/import never mutates metadata or agent-home artifacts |
+| `DryRunLeavesStateUntouched` | Dry-run bootstrap/import/uninstall never mutates metadata or agent-home artifacts |
+| `UninstallRemovesOnlyCodeAndMetadata` | Explicit uninstall removes selected harness code + metadata while preserving imported artifacts |
 | `SaveCoreStatePreservesHarnessMetadata` | Core `saveState()` preserves all existing harness metadata and artifacts |
 | `RollbackClearsMetadata` | Rollback removes the host-owned harness metadata record |
 | `RollbackWithoutDeleteUserPreservesArtifacts` | Rollback without `--delete-user` keeps all agent-home harness artifacts |
@@ -94,9 +119,9 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `1,821,312 states generated`
-- `107,224 distinct states found`
-- `depth 13`
+- `3,872,326 states generated`
+- `122,003 distinct states found`
+- `depth 16`
 - `Finished in 2s`
 
 ## Interpretation
@@ -106,6 +131,8 @@ Instead, it proves the lifecycle contract around the explicit harness boundary:
 
 - dry runs are read-only
 - successful recording writes only known harness versions
+- explicit uninstall clears a selected harness's code and metadata boundary
+  without erasing imported/auth/profile data
 - core init-state saves do not erase harness metadata
 - rollback drops the host-owned metadata record
 - agent-home harness files survive ordinary rollback and only disappear on
@@ -121,7 +148,10 @@ about when editing harness bootstrap/import flows.
 2. **Changing what rollback removes**: update this model first. The current
    proof intentionally distinguishes host-owned metadata cleanup from
    `--delete-user` agent-home deletion.
-3. **Changing dry-run behavior**: if any harness dry-run starts writing state,
+3. **Changing what explicit uninstall removes**: update this model first if
+   uninstall starts deleting imported basics, auth/profile state, sessions, or
+   any user data beyond declared Hazmat-owned code artifacts.
+4. **Changing dry-run behavior**: if any harness dry-run starts writing state,
    update this model and revisit `DryRunLeavesStateUntouched`.
-4. **Changing how `saveState()` rewrites `~/.hazmat/state.json`**: update this
+5. **Changing how `saveState()` rewrites `~/.hazmat/state.json`**: update this
    model first. The current proof requires harness metadata preservation.

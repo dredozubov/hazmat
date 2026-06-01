@@ -190,6 +190,10 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: `hazmat explain --for <each> -C /tmp` (or any project dir without an SSH-config gate)
   - Expected: each prints a session contract; integrations section updates if `--integration go` is added; no errors.
 
+- [ ] **Harness lifecycle CLI**
+  - Steps: run `hazmat harness status`; for each built-in harness, run `hazmat harness status <harness>` and `hazmat harness update <harness> --dry-run`; on a disposable agent setup, run `hazmat harness uninstall <harness> --dry-run`.
+  - Expected: list status shows all five harnesses; detail status shows binary/probe, recorded state, import status, credential hint, managed-code paths, and preserved data. Update dry-run follows the same path as bootstrap without mutating state. Uninstall dry-run lists only declared Hazmat-owned code artifacts plus metadata removal and says auth/profile/session data is preserved. Hermes does not claim Hazmat owns or removes the manual Hermes binary.
+
 - [ ] **Docker Sandbox support across harnesses**
   - Preconditions: repo with a `Dockerfile`.
   - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `gemini`, and `hermes`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini` / `hermes`).

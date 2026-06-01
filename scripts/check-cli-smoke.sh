@@ -17,6 +17,10 @@ run_smoke "bootstrap --help" bootstrap --help
 run_smoke "bootstrap claude --help" bootstrap claude --help
 run_smoke "bootstrap codex --help" bootstrap codex --help
 run_smoke "bootstrap opencode --help" bootstrap opencode --help
+run_smoke "harness --help" harness --help
+run_smoke "harness status --help" harness status --help
+run_smoke "harness update --help" harness update --help
+run_smoke "harness uninstall --help" harness uninstall --help
 run_smoke "codex --help" codex --help
 run_smoke "codex-app-server --help" codex-app-server --help
 run_smoke "codex-app-shim --help" codex-app-shim --help

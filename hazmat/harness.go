@@ -32,11 +32,14 @@ type HarnessState struct {
 }
 
 type ManagedHarness struct {
-	Spec             HarnessSpec
-	LaunchCommand    string
-	BootstrapCommand string
-	Installed        func() bool
-	Bootstrap        func(ui *UI, r *Runner) error
+	Spec                 HarnessSpec
+	LaunchCommand        string
+	BootstrapCommand     string
+	Installed            func() bool
+	Probe                func(read func(args ...string) (string, error)) harnessProbe
+	ManagedCodeArtifacts func() []harnessManagedArtifact
+	PreservedArtifacts   []string
+	Bootstrap            func(ui *UI, r *Runner) error
 }
 
 type ClaudeHarness struct{}
@@ -60,6 +63,13 @@ var managedHarnessRegistry = []ManagedHarness{
 			_, ok := findInstalledClaudeBinary()
 			return ok
 		},
+		Probe:                probeClaudeHarness,
+		ManagedCodeArtifacts: claudeHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + "/.claude credentials, settings, hooks, and projects",
+			agentHome + "/.claude.json account state",
+			"provider credentials in ~/.hazmat/secrets",
+		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return claudeCodeHarness.Bootstrap(ui, r)
 		},
@@ -71,6 +81,13 @@ var managedHarnessRegistry = []ManagedHarness{
 		Installed: func() bool {
 			_, ok := findInstalledCodexBinary()
 			return ok
+		},
+		Probe:                probeCodexHarness,
+		ManagedCodeArtifacts: codexHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + codexStateDirRel + " auth, config, logs, and sessions",
+			agentHome + "/.agents shared skills",
+			"provider credentials in ~/.hazmat/secrets",
 		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return codexHarness.Bootstrap(ui, r)
@@ -84,6 +101,13 @@ var managedHarnessRegistry = []ManagedHarness{
 			_, ok := findInstalledOpenCodeBinary()
 			return ok
 		},
+		Probe:                probeOpenCodeHarness,
+		ManagedCodeArtifacts: openCodeHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + "/.config/opencode config",
+			agentHome + "/.local/share/opencode auth and data",
+			"provider credentials in ~/.hazmat/secrets",
+		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return openCodeHarness.Bootstrap(ui, r)
 		},
@@ -96,6 +120,12 @@ var managedHarnessRegistry = []ManagedHarness{
 			_, ok := findInstalledGeminiBinary()
 			return ok
 		},
+		Probe:                probeGeminiHarness,
+		ManagedCodeArtifacts: geminiHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + geminiStateDirRel + " OAuth, accounts, config, and sessions",
+			"provider credentials in ~/.hazmat/secrets",
+		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return geminiHarness.Bootstrap(ui, r)
 		},
@@ -107,6 +137,13 @@ var managedHarnessRegistry = []ManagedHarness{
 		Installed: func() bool {
 			_, ok := findInstalledHermesBinary()
 			return ok
+		},
+		Probe:                probeHermesHarness,
+		ManagedCodeArtifacts: hermesHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + hermesBinRel + " manual Hermes executable",
+			hermesStateDir() + " managed profile roots",
+			"provider credentials in ~/.hazmat/secrets",
 		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return hermesHarness.Bootstrap(ui, r)
@@ -326,6 +363,10 @@ func installedManagedHarnesses() []ManagedHarness {
 		}
 	}
 	return installed
+}
+
+func harnessStateCurrent(state HarnessState, spec HarnessSpec) bool {
+	return state.StateVersion == spec.StateVersion
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {

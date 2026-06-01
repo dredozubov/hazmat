@@ -100,5 +100,8 @@ func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 		if harness.BootstrapCommand == "" || harness.Installed == nil || harness.Bootstrap == nil {
 			t.Fatalf("managed harness %s has incomplete bootstrap metadata", harness.Spec.ID)
 		}
+		if harness.Probe == nil || harness.ManagedCodeArtifacts == nil || len(harness.PreservedArtifacts) == 0 {
+			t.Fatalf("managed harness %s has incomplete lifecycle metadata", harness.Spec.ID)
+		}
 	}
 }

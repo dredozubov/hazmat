@@ -87,6 +87,8 @@ func main() {
 	initCmd.AddCommand(newInitCloudCmd())
 	bootstrapCmd := withUpdateNotifications(newBootstrapCmd())
 	bootstrapCmd.GroupID = "setup"
+	harnessCmd := withUpdateNotifications(newHarnessCmd())
+	harnessCmd.GroupID = "setup"
 	rollbackCmd := withUpdateNotifications(newRollbackCmd())
 	rollbackCmd.GroupID = "setup"
 	checkCmd := withUpdateNotifications(newInitCheckCmd())
@@ -147,7 +149,7 @@ func main() {
 		&cobra.Group{ID: "ws", Title: "Workspace:"},
 	)
 	root.AddCommand(
-		initCmd, bootstrapCmd, rollbackCmd, checkCmd, sandboxCmd,
+		initCmd, bootstrapCmd, harnessCmd, rollbackCmd, checkCmd, sandboxCmd,
 		claudeCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, hermesCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,

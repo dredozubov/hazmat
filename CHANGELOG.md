@@ -4,6 +4,9 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `hazmat harness status|update|uninstall` now exposes per-harness lifecycle management for the agent user. Status reports binary probes, recorded state, import status, credential hints, managed code artifacts, and preserved auth/profile/session boundaries; update shares the existing bootstrap paths; uninstall removes only declared Hazmat-owned code artifacts and selected harness metadata by default.
+
 ## [0.8.1] - 2026-05-23
 
 ### Fixed

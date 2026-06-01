@@ -46,6 +46,16 @@ func findInstalledCodexBinaryWith(read func(args ...string) (string, error)) (st
 	return "", false
 }
 
+func probeCodexHarness(read func(args ...string) (string, error)) harnessProbe {
+	return probeHarnessBinary(read, findInstalledCodexBinaryWith, "--version")
+}
+
+func codexHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return []harnessManagedArtifact{
+		harnessFileArtifact(agentHome+codexBinRel, "Codex executable"),
+	}
+}
+
 func codexLaunchScript() string {
 	return `cd "$SANDBOX_PROJECT_DIR" && ` +
 		`{ test -x "$HOME` + codexBinRel + `" || ` +
@@ -170,9 +180,8 @@ digest from the latest GitHub release, and installs Codex into ~/.local/bin
 for the agent user. Codex keeps its own auth and runtime state under ~/.codex.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return codexHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessCodex)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 }

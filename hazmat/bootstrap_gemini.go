@@ -25,6 +25,17 @@ func findInstalledGeminiBinaryWith(read func(args ...string) (string, error)) (s
 	return "", false
 }
 
+func probeGeminiHarness(read func(args ...string) (string, error)) harnessProbe {
+	return probeHarnessBinary(read, findInstalledGeminiBinaryWith, "--version")
+}
+
+func geminiHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return []harnessManagedArtifact{
+		harnessFileArtifact(agentHome+geminiBinRel, "Gemini CLI executable"),
+		harnessDirArtifact(agentHome+"/.local/lib/node_modules/@google/gemini-cli", "Gemini CLI npm package"),
+	}
+}
+
 func geminiLaunchScript() string {
 	return `cd "$SANDBOX_PROJECT_DIR" && ` +
 		`{ test -x "$HOME` + geminiBinRel + `" || ` +
@@ -62,9 +73,8 @@ user's ~/.local prefix. Node.js must be available on the agent's PATH
 auth and runtime state under ~/.gemini.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return geminiHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessGemini)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 }

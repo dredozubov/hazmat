@@ -94,11 +94,8 @@ func TestPendingMigrations(t *testing.T) {
 }
 
 func TestSaveStatePreservesHarnessState(t *testing.T) {
-	originalStateFilePath := stateFilePath
-	stateFilePath = filepath.Join(t.TempDir(), "state.json")
-	t.Cleanup(func() {
-		stateFilePath = originalStateFilePath
-	})
+	restoreState := isolateStateFile(t)
+	defer restoreState()
 
 	if err := updateHarnessState(HarnessClaude, func(state HarnessState) HarnessState {
 		state.StateVersion = "1"
@@ -133,11 +130,8 @@ func TestSaveStatePreservesHarnessState(t *testing.T) {
 }
 
 func TestRunDownMigrationsRemovesHarnessOnlyStateFile(t *testing.T) {
-	originalStateFilePath := stateFilePath
-	stateFilePath = filepath.Join(t.TempDir(), "state.json")
-	t.Cleanup(func() {
-		stateFilePath = originalStateFilePath
-	})
+	restoreState := isolateStateFile(t)
+	defer restoreState()
 
 	if err := claudeCodeHarness.RecordInstalled(); err != nil {
 		t.Fatalf("RecordInstalled: %v", err)
@@ -147,5 +141,61 @@ func TestRunDownMigrationsRemovesHarnessOnlyStateFile(t *testing.T) {
 
 	if _, err := os.Stat(stateFilePath); !os.IsNotExist(err) {
 		t.Fatalf("state file still exists after rollback cleanup, err=%v", err)
+	}
+}
+
+func TestRemoveHarnessStatePreservesOtherHarnessesAndInitState(t *testing.T) {
+	restoreState := isolateStateFile(t)
+	defer restoreState()
+
+	if err := saveState("0.4.0"); err != nil {
+		t.Fatalf("saveState: %v", err)
+	}
+	if err := claudeCodeHarness.RecordInstalled(); err != nil {
+		t.Fatalf("RecordInstalled(claude): %v", err)
+	}
+	if err := codexHarness.RecordBasicsImported(); err != nil {
+		t.Fatalf("RecordBasicsImported(codex): %v", err)
+	}
+
+	if err := removeHarnessState(HarnessClaude); err != nil {
+		t.Fatalf("removeHarnessState: %v", err)
+	}
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	if state.InitVersion != "0.4.0" {
+		t.Fatalf("InitVersion = %q, want preserved core state", state.InitVersion)
+	}
+	if _, ok := state.Harnesses[HarnessClaude]; ok {
+		t.Fatal("Claude harness metadata was not removed")
+	}
+	if codex, ok := state.Harnesses[HarnessCodex]; !ok || codex.LastImportRunAt == "" {
+		t.Fatalf("Codex metadata not preserved: %+v ok=%v", codex, ok)
+	}
+}
+
+func TestRemoveHarnessStateDeletesHarnessOnlyStateFile(t *testing.T) {
+	restoreState := isolateStateFile(t)
+	defer restoreState()
+
+	if err := claudeCodeHarness.RecordInstalled(); err != nil {
+		t.Fatalf("RecordInstalled: %v", err)
+	}
+	if err := removeHarnessState(HarnessClaude); err != nil {
+		t.Fatalf("removeHarnessState: %v", err)
+	}
+	if _, err := os.Stat(stateFilePath); !os.IsNotExist(err) {
+		t.Fatalf("state file still exists after harness-only removal, err=%v", err)
+	}
+}
+
+func isolateStateFile(t *testing.T) func() {
+	t.Helper()
+	originalStateFilePath := stateFilePath
+	stateFilePath = filepath.Join(t.TempDir(), "state.json")
+	return func() {
+		stateFilePath = originalStateFilePath
 	}
 }

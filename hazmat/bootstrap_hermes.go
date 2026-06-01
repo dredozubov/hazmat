@@ -32,6 +32,28 @@ func findInstalledHermesBinaryWith(read func(args ...string) (string, error)) (s
 	return "", false
 }
 
+func probeHermesHarness(read func(args ...string) (string, error)) harnessProbe {
+	binaryPath, ok := findInstalledHermesBinaryWith(read)
+	if !ok {
+		return harnessProbe{MissingReason: "manual Hermes binary not found for agent user"}
+	}
+	probe := harnessProbe{
+		Installed:  true,
+		BinaryPath: binaryPath,
+	}
+	version, err := read(binaryPath, "--version")
+	if err != nil {
+		probe.VersionErr = fmt.Sprintf("verify Hermes CLI with %s --version: %v", binaryPath, err)
+		return probe
+	}
+	probe.Version = firstStatusLine(version)
+	return probe
+}
+
+func hermesHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return nil
+}
+
 func hermesLaunchScript() string {
 	return `cd "$SANDBOX_PROJECT_DIR" && ` +
 		`{ test -x "$HOME` + hermesBinRel + `" || ` +
@@ -53,9 +75,8 @@ This command does not import host ~/.hermes, host provider files, MCP config,
 skills, cron state, or gateway settings.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return hermesHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessHermes)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 }

@@ -24,6 +24,16 @@ func findInstalledClaudeBinaryWith(read func(args ...string) (string, error)) (s
 	return "", false
 }
 
+func probeClaudeHarness(read func(args ...string) (string, error)) harnessProbe {
+	return probeHarnessBinary(read, findInstalledClaudeBinaryWith, "--version")
+}
+
+func claudeHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return []harnessManagedArtifact{
+		harnessFileArtifact(agentHome+"/.local/bin/claude", "Claude Code executable"),
+	}
+}
+
 func claudeInstallScript() string {
 	return fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
@@ -117,12 +127,16 @@ Subcommands:
   hazmat bootstrap codex
   hazmat bootstrap opencode
   hazmat bootstrap gemini
-  hazmat bootstrap hermes`,
+  hazmat bootstrap hermes
+
+For lifecycle-oriented commands, use:
+  hazmat harness status
+  hazmat harness update <harness>
+  hazmat harness uninstall <harness>`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return claudeCodeHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessClaude)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 	cmd.AddCommand(withUpdateNotifications(newBootstrapClaudeCmd()))
@@ -154,9 +168,8 @@ Steps:
 This command refreshes the harness binary and leaves existing settings/hooks alone.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return claudeCodeHarness.Bootstrap(ui, r)
+			harness, _ := managedHarnessByID(HarnessClaude)
+			return runManagedHarnessUpdate(harness)
 		},
 	}
 }
