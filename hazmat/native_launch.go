@@ -92,6 +92,7 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 		"TMPDIR=" + tmpDir,
 		"TMP=" + tmpDir,
 		"TEMP=" + tmpDir,
+		"BUN_TMPDIR=" + tmpDir,
 		"XDG_CACHE_HOME=" + env.CacheHome,
 		"XDG_CONFIG_HOME=" + env.ConfigHome,
 		"XDG_DATA_HOME=" + env.DataHome,

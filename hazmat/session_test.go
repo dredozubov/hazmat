@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1115,74 +1116,93 @@ func TestGenerateSBPLReadDirEqualToProjectOmitted(t *testing.T) {
 	}
 }
 
-// codexOnlySBPLRules captures every line that should be emitted ONLY when the
-// session's harness uses macOS native TLS (currently codex). Adding a new
-// harness with the same need? Update harnessUsesMacOSNativeTLS in
-// native_session_policy.go and these tests stay green automatically.
-var codexOnlySBPLRules = []string{
+// macOSSecurityFrameworkSBPLRules captures every line that should be emitted
+// only when the session's harness needs Apple's Security framework surface.
+// Adding a new harness with the same need? Update
+// harnessUsesMacOSSecurityFramework in native_session_policy.go and these tests
+// stay green automatically.
+var macOSSecurityFrameworkSBPLRules = []string{
 	`(allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))`,
 	`(allow mach-lookup (global-name "com.apple.trustd.agent"))`,
 	`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
+	`(allow mach-lookup (global-name "com.apple.securityd.xpc"))`,
 	`(allow file-read* (subpath "/System/Cryptexes"))`,
+	`(allow file-read* (subpath "/System/Volumes/Preboot/Cryptexes"))`,
 	`(allow file-read* (subpath "/Library/Keychains"))`,
+	`(allow file-read* (subpath "/private/var/db/mds/messages"))`,
 	`(allow file-read* (literal "/Library/Preferences/com.apple.security.plist"))`,
+	`(allow file-read* (literal "/Library/Preferences/.GlobalPreferences.plist"))`,
+	`(allow file-read* (literal "/Library/Preferences/com.apple.networkd.plist"))`,
 	`(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))`,
+	`(allow ipc-posix-shm-write-create (ipc-posix-name "com.apple.AppleDatabaseChanged"))`,
 	`(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))`,
 	`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
 	`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
 }
 
-func TestGenerateSBPLCodexHarnessGetsNativeTLSRules(t *testing.T) {
-	cfg := sessionConfig{
-		ProjectDir: "/tmp/myproject",
-		HarnessID:  HarnessCodex,
-	}
-	policy := generateSBPL(cfg)
-
-	for _, want := range codexOnlySBPLRules {
-		if !strings.Contains(policy, want) {
-			t.Errorf("codex policy missing macOS-native-TLS rule:\n  %s", want)
-		}
-	}
-}
-
-func TestGenerateSBPLNonRustHarnessesDoNotGetNativeTLSRules(t *testing.T) {
-	for _, harness := range []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessHermes, ""} {
+func TestGenerateSBPLSecurityFrameworkHarnessesGetRules(t *testing.T) {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
 		}
 		policy := generateSBPL(cfg)
-		for _, leaked := range codexOnlySBPLRules {
-			if strings.Contains(policy, leaked) {
-				t.Errorf("harness %q policy includes codex-only rule (least-privilege violation):\n  %s", harness, leaked)
+
+		for _, want := range macOSSecurityFrameworkSBPLRules {
+			if !strings.Contains(policy, want) {
+				t.Errorf("harness %q policy missing macOS Security framework rule:\n  %s", harness, want)
 			}
 		}
 	}
 }
 
-func TestGenerateSBPLClaudePolicyHasFewerAllowsThanCodex(t *testing.T) {
-	// Acceptance criterion for sandboxing-m7f7: a claude session must carry
-	// strictly fewer seatbelt allows than a codex session, since claude is a
-	// Node app shipping its own CA bundle and doesn't need the macOS Security
-	// framework surface codex requires.
-	claudeCfg := sessionConfig{ProjectDir: "/tmp/myproject", HarnessID: HarnessClaude}
-	codexCfg := sessionConfig{ProjectDir: "/tmp/myproject", HarnessID: HarnessCodex}
-
-	claudeAllows := strings.Count(generateSBPL(claudeCfg), "(allow ")
-	codexAllows := strings.Count(generateSBPL(codexCfg), "(allow ")
-
-	if claudeAllows >= codexAllows {
-		t.Fatalf("claude should have FEWER allows than codex (least privilege) — got claude=%d, codex=%d", claudeAllows, codexAllows)
+func TestGenerateSBPLClaudeGetsAgentRuntimeTempDir(t *testing.T) {
+	oldLookup := lookupAgentUser
+	lookupAgentUser = func() (*user.User, error) {
+		return &user.User{Uid: "777", Username: string(HarnessClaude)}, nil
 	}
+	t.Cleanup(func() { lookupAgentUser = oldLookup })
 
-	delta := codexAllows - claudeAllows
-	// Sanity: this should track len(codexOnlySBPLRules) modulo a small slack
-	// for shared rules that get split or duplicated. As of 2026-04-23 the
-	// gating adds 10 codex-only allows; assert at least 8 to catch accidental
-	// regressions where rules creep back into the base path.
-	if delta < 8 {
-		t.Fatalf("expected codex policy to carry at least 8 more allows than claude, got delta=%d (claude=%d, codex=%d)", delta, claudeAllows, codexAllows)
+	policy := generateSBPL(sessionConfig{
+		ProjectDir: "/tmp/myproject",
+		HarnessID:  HarnessClaude,
+	})
+	want := `(allow file-read* file-write* (subpath "/private/tmp/claude-777"))`
+	if !strings.Contains(policy, want) {
+		t.Fatalf("claude policy missing runtime temp grant %q:\n%s", want, policy)
+	}
+}
+
+func TestGenerateSBPLOtherHarnessesDoNotGetClaudeRuntimeTempDir(t *testing.T) {
+	oldLookup := lookupAgentUser
+	lookupAgentUser = func() (*user.User, error) {
+		return &user.User{Uid: "777", Username: "agent"}, nil
+	}
+	t.Cleanup(func() { lookupAgentUser = oldLookup })
+
+	for _, harness := range []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, ""} {
+		policy := generateSBPL(sessionConfig{
+			ProjectDir: "/tmp/myproject",
+			HarnessID:  harness,
+		})
+		if strings.Contains(policy, "/private/tmp/claude-777") {
+			t.Fatalf("harness %q policy includes Claude runtime temp grant:\n%s", harness, policy)
+		}
+	}
+}
+
+func TestGenerateSBPLOtherHarnessesDoNotGetSecurityFrameworkRules(t *testing.T) {
+	for _, harness := range []HarnessID{HarnessGemini, HarnessOpenCode, HarnessHermes, ""} {
+		cfg := sessionConfig{
+			ProjectDir: "/tmp/myproject",
+			HarnessID:  harness,
+		}
+		policy := generateSBPL(cfg)
+		for _, leaked := range macOSSecurityFrameworkSBPLRules {
+			if strings.Contains(policy, leaked) {
+				t.Errorf("harness %q policy includes Security framework rule (least-privilege violation):\n  %s", harness, leaked)
+			}
+		}
 	}
 }
 
@@ -2135,7 +2155,7 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 	if values["SANDBOX_NETWORK_MODE"] != "default" {
 		t.Fatalf("SANDBOX_NETWORK_MODE = %q, want default", values["SANDBOX_NETWORK_MODE"])
 	}
-	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP", "BUN_TMPDIR"} {
 		if values[key] != cfg.TempDir {
 			t.Fatalf("%s = %q, want %q", key, values[key], cfg.TempDir)
 		}
