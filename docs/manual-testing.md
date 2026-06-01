@@ -161,12 +161,12 @@ harness for a smoke pass; run every supported path before a release.
 - [ ] **Provider key reuse**
   - Preconditions: one or more of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` is set in the invoking shell.
   - Steps: `hazmat config agent` → accept the provider-key prompt(s); then run `hazmat explain --for hermes --json -C /tmp`.
-  - Expected: explain JSON contains redacted provider grants for Hermes and a session note for `HERMES_HOME=/Users/agent/.hazmat/hermes`. Raw key values never appear.
+  - Expected: explain JSON contains redacted provider grants for Hermes and a session note for project-scoped `HERMES_HOME=/Users/agent/.hazmat/hermes/projects/<project-hash>`. Raw key values never appear.
 
 - [ ] **Managed state root and no host profile import**
   - Preconditions: optional sentinel file under host `~/.hermes/` to prove host profile state is not copied.
-  - Steps: `hazmat explain --for hermes -C /tmp`; run `hazmat hermes --no-backup -- --version`; then inspect `/Users/agent/.hazmat/hermes`, `/Users/agent/.hermes`, and `hazmat config import --help`.
-  - Expected: `/Users/agent/.hazmat/hermes` exists as the Hermes profile root; `/Users/agent/.hermes` is not created from host `~/.hermes`; host sentinel files are unchanged; `hazmat config import` has no `hermes` target.
+  - Steps: `hazmat explain --for hermes -C /tmp`; run `hazmat hermes --no-backup -- --version`; then inspect `/Users/agent/.hazmat/hermes/projects`, `/Users/agent/.hermes`, and `hazmat config import --help`.
+  - Expected: a project-scoped directory exists under `/Users/agent/.hazmat/hermes/projects`; `/Users/agent/.hermes` is not created from host `~/.hermes`; host sentinel files are unchanged; `hazmat config import` has no `hermes` target.
 
 - [ ] **Rejected service entrypoints**
   - Steps: run `hazmat hermes -- gateway`, `hazmat hermes -- dashboard`, `hazmat hermes -- server`, and `hazmat hermes -- cron add daily`.

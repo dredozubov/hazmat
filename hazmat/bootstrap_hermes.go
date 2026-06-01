@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,13 +14,28 @@ import (
 var errHermesBinaryMissing = errors.New("Hermes binary missing")
 
 const (
-	hermesBinRel      = "/.local/bin/hermes"
-	hermesStateDirRel = "/.hazmat/hermes"
-	hermesMissingHelp = "Error: Hermes not installed for agent user. Run: hazmat bootstrap hermes"
+	hermesBinRel          = "/.local/bin/hermes"
+	hermesStateDirRel     = "/.hazmat/hermes"
+	hermesProjectsDirRel  = hermesStateDirRel + "/projects"
+	hermesMissingHelp     = "Error: Hermes not installed for agent user. Run: hazmat bootstrap hermes"
+	hermesFallbackProject = "unknown-project"
 )
 
 func hermesStateDir() string {
 	return agentHome + hermesStateDirRel
+}
+
+func hermesProjectsDir() string {
+	return agentHome + hermesProjectsDirRel
+}
+
+func hermesProjectStateDir(projectDir string) string {
+	projectDir = strings.TrimSpace(projectDir)
+	if projectDir == "" {
+		return filepath.Join(hermesProjectsDir(), hermesFallbackProject)
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(projectDir)))
+	return filepath.Join(hermesProjectsDir(), hex.EncodeToString(sum[:]))
 }
 
 func findInstalledHermesBinary() (string, bool) {
@@ -144,6 +162,12 @@ func ensureHermesStateRootAsAgent(path string) error {
 	if err := agentEnsureDir(agentHome+"/.hazmat", 0o700); err != nil {
 		return err
 	}
+	if err := agentEnsureDir(hermesStateDir(), 0o700); err != nil {
+		return err
+	}
+	if err := agentEnsureDir(hermesProjectsDir(), 0o700); err != nil {
+		return err
+	}
 	if err := agentEnsureDir(path, 0o700); err != nil {
 		return err
 	}
@@ -156,13 +180,13 @@ func buildHermesStateRootMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	if cfg.HarnessID != HarnessHermes {
 		return sessionMutationPlan{}
 	}
-	stateDir := hermesStateDir()
+	stateDir := hermesProjectStateDir(cfg.ProjectDir)
 	return sessionMutationPlan{
 		Mutations: []plannedSessionMutation{
 			{
 				Metadata: sessionMutation{
 					Summary:     "Hermes state root",
-					Detail:      fmt.Sprintf("may create managed HERMES_HOME at %s without importing host ~/.hermes", stateDir),
+					Detail:      fmt.Sprintf("may create project-scoped managed HERMES_HOME at %s without importing host ~/.hermes", stateDir),
 					Persistence: "persistent in agent home",
 					ProofScope:  sessionMutationProofScopeTestsDocs,
 				},
@@ -186,7 +210,7 @@ func applyHarnessStaticSessionEnv(cfg *sessionConfig) {
 	if cfg.HarnessEnv == nil {
 		cfg.HarnessEnv = make(map[string]string, 1)
 	}
-	cfg.HarnessEnv["HERMES_HOME"] = hermesStateDir()
+	cfg.HarnessEnv["HERMES_HOME"] = hermesProjectStateDir(cfg.ProjectDir)
 }
 
 func appendHarnessStaticSessionNotes(cfg *sessionConfig) {
@@ -194,7 +218,7 @@ func appendHarnessStaticSessionNotes(cfg *sessionConfig) {
 		return
 	}
 	cfg.SessionNotes = append(cfg.SessionNotes,
-		"Hermes uses managed HERMES_HOME="+hermesStateDir()+"; host ~/.hermes is not imported.",
+		"Hermes uses project-scoped managed HERMES_HOME="+hermesProjectStateDir(cfg.ProjectDir)+"; host ~/.hermes is not imported.",
 		"Hermes gateway, dashboard/API, and persistent cron entrypoints are deferred in this foreground harness.",
 	)
 }

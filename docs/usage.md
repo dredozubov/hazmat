@@ -674,13 +674,14 @@ hazmat hermes -- chat "summarize this repo"
 
 Hermes support is experimental and foreground-only. `hazmat bootstrap hermes`
 verifies a manually installed `/Users/agent/.local/bin/hermes`; it does not run
-an upstream installer or import host `~/.hermes`. Hermes sessions use
-`HERMES_HOME=/Users/agent/.hazmat/hermes`, receive only allowed provider API-key
-env vars from Hazmat's credential registry, and reject gateway/dashboard/API,
-server, and cron service entrypoints in v1. Ordinary `hazmat rollback` preserves
-that managed Hermes profile with the rest of the agent home; after untrusted
-Hermes skills, MCP servers, hooks, or cron-like experiments, the supported full
-reset is `hazmat rollback --delete-user`, then `hazmat init` and
+an upstream installer or import host `~/.hermes`. Hermes sessions use a
+project-scoped `HERMES_HOME=/Users/agent/.hazmat/hermes/projects/<project-hash>`,
+receive only allowed provider API-key env vars from Hazmat's credential
+registry, and reject gateway/dashboard/API, server, and cron service entrypoints
+in v1. Ordinary `hazmat rollback` preserves that managed Hermes profile tree
+with the rest of the agent home; after untrusted Hermes skills, MCP servers,
+hooks, or cron-like experiments, the supported full reset is
+`hazmat rollback --delete-user`, then `hazmat init` and
 `hazmat bootstrap hermes`.
 
 ## Running Qwen Code

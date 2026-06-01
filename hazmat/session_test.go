@@ -1313,7 +1313,7 @@ func TestGenerateSBPLBaseRulesPresentForEveryHarness(t *testing.T) {
 		`(allow file-read* file-write* (literal "/dev/tty"))`,
 		`(allow network-outbound)`,
 	}
-	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, ""} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, ""} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,

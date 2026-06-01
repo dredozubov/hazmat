@@ -40,7 +40,7 @@ type sessionConfig struct {
 	IntegrationWarnings     []string          // warnings surfaced by active integrations
 	ActiveIntegrations      []string          // integration names, for status bar
 	GitSSH                  *sessionGitSSHConfig
-	HarnessEnv              map[string]string // narrow credential/capability env injected at launch
+	HarnessEnv              map[string]string // narrow harness env injected at launch: credentials, capabilities, and state pointers
 	CredentialEnvGrants     []sessionCredentialEnvGrant
 	ServiceAccess           []string // explicit external-service access granted to session
 	NetworkMode             sessionNetworkMode
