@@ -117,10 +117,11 @@ func TestHermesLaunchScriptForwardsArgsEnvAndCWDToFakeBinary(t *testing.T) {
 	}
 
 	cmd := exec.Command("/bin/bash", "-c", hermesLaunchScript(), "hazmat-hermes", "chat", "--toolsets", "terminal,file")
+	hermesHome := hermesProjectStateDir(project)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
 		"SANDBOX_PROJECT_DIR="+project,
-		"HERMES_HOME="+hermesStateDir(),
+		"HERMES_HOME="+hermesHome,
 		"OPENAI_API_KEY=fake-openai",
 		"CAPTURE="+capture,
 	)
@@ -135,7 +136,7 @@ func TestHermesLaunchScriptForwardsArgsEnvAndCWDToFakeBinary(t *testing.T) {
 	got := string(raw)
 	for _, want := range []string{
 		project + "\n",
-		"HERMES_HOME=" + hermesStateDir(),
+		"HERMES_HOME=" + hermesHome,
 		"OPENAI_API_KEY=fake-openai",
 		"ARGS=chat --toolsets terminal,file",
 	} {
@@ -165,11 +166,30 @@ func TestRejectHermesDeferredEntrypoints(t *testing.T) {
 		{"--version"},
 		{"chat"},
 		{"chat", "gateway"},
+		{"--profile", "gateway"},
+		{"--profile", "gateway", "chat"},
+		{"--profile=gateway", "chat"},
+		{"--model", "gateway", "chat"},
+		{"-p", "gateway", "chat"},
+		{"-pgateway", "chat"},
 		{"--profile", "work", "chat"},
 	}
 	for _, args := range allowed {
 		if err := rejectHermesDeferredEntrypoint(args); err != nil {
 			t.Fatalf("rejectHermesDeferredEntrypoint(%v) = %v, want nil", args, err)
+		}
+	}
+
+	collidingFlagValues := [][]string{
+		{"--profile", "work", "gateway"},
+		{"--profile=work", "gateway"},
+		{"--model", "sonnet", "dashboard"},
+		{"-p", "work", "cron", "add", "daily"},
+		{"-pwork", "server"},
+	}
+	for _, args := range collidingFlagValues {
+		if err := rejectHermesDeferredEntrypoint(args); err == nil {
+			t.Fatalf("rejectHermesDeferredEntrypoint(%v) = nil, want error", args)
 		}
 	}
 }
@@ -188,8 +208,9 @@ func TestHermesSessionEnvAndStateRootPlan(t *testing.T) {
 	if got := prepared.Config.HarnessID; got != HarnessHermes {
 		t.Fatalf("HarnessID = %q, want %q", got, HarnessHermes)
 	}
-	if got := prepared.Config.HarnessEnv["HERMES_HOME"]; got != hermesStateDir() {
-		t.Fatalf("HERMES_HOME = %q, want %q", got, hermesStateDir())
+	hermesHome := hermesProjectStateDir(prepared.Config.ProjectDir)
+	if got := prepared.Config.HarnessEnv["HERMES_HOME"]; got != hermesHome {
+		t.Fatalf("HERMES_HOME = %q, want %q", got, hermesHome)
 	}
 	if _, ok := prepared.Config.HarnessEnv["OPENAI_API_KEY"]; ok {
 		t.Fatal("unexpected provider key in empty test store")
@@ -259,7 +280,9 @@ func TestNonHermesSessionDoesNotReceiveHermesHome(t *testing.T) {
 }
 
 func TestHermesStateRootMutationUsesManagedAgentPath(t *testing.T) {
-	cfg := sessionConfig{HarnessID: HarnessHermes}
+	projectDir := "/Users/dr/workspace/project"
+	expected := hermesProjectStateDir(projectDir)
+	cfg := sessionConfig{HarnessID: HarnessHermes, ProjectDir: projectDir}
 	plan := buildHermesStateRootMutationPlan(cfg)
 	if len(plan.Mutations) != 1 {
 		t.Fatalf("Hermes mutation count = %d, want 1", len(plan.Mutations))
@@ -277,11 +300,31 @@ func TestHermesStateRootMutationUsesManagedAgentPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply Hermes state root: %v", err)
 	}
-	if !slices.Equal(ensured, []string{hermesStateDir()}) {
-		t.Fatalf("ensured = %v, want %v", ensured, []string{hermesStateDir()})
+	if !slices.Equal(ensured, []string{expected}) {
+		t.Fatalf("ensured = %v, want %v", ensured, []string{expected})
 	}
-	if !strings.Contains(exec.AppliedMessage, hermesStateDir()) {
+	if !strings.Contains(exec.AppliedMessage, expected) {
 		t.Fatalf("AppliedMessage = %q", exec.AppliedMessage)
+	}
+}
+
+func TestHermesProjectStateDirIsProjectScoped(t *testing.T) {
+	projectA := "/Users/dr/workspace/project-a"
+	projectB := "/Users/dr/workspace/project-b"
+	gotA := hermesProjectStateDir(projectA)
+	gotARepeat := hermesProjectStateDir(projectA)
+	gotB := hermesProjectStateDir(projectB)
+	if gotA != gotARepeat {
+		t.Fatalf("hermesProjectStateDir is not stable: %q != %q", gotA, gotARepeat)
+	}
+	if gotA == gotB {
+		t.Fatalf("project state dirs collide: %q", gotA)
+	}
+	if !strings.HasPrefix(gotA, hermesProjectsDir()+string(os.PathSeparator)) {
+		t.Fatalf("project state dir %q is outside %q", gotA, hermesProjectsDir())
+	}
+	if strings.Contains(gotA, "project-a") {
+		t.Fatalf("project state dir should not embed project basename: %q", gotA)
 	}
 }
 
