@@ -34,7 +34,7 @@ gives them a dedicated home.
 
 ## TLA+ Model
 
-The model tracks six built-in harnesses:
+The model tracks seven built-in harnesses:
 
 - `claude`
 - `codex`
@@ -42,6 +42,7 @@ The model tracks six built-in harnesses:
 - `gemini`
 - `hermes`
 - `qwen`
+- `cursor-agent`
 
 and the importable subset:
 
@@ -50,11 +51,13 @@ and the importable subset:
 - `opencode`
 - `gemini`
 
-Hermes and Qwen are deliberately not in the importable subset for Phase 1. They
-have managed foreground harness plans, but no curated host-profile import path:
+Hermes, Qwen, and Cursor Agent are deliberately not in the importable subset for
+Phase 1. They have managed foreground harness plans, but no curated
+host-profile import path:
 Hermes host `~/.hermes` state and Qwen host `~/.qwen` settings, extensions,
 auth, sessions, and MCP configuration remain outside the import lifecycle until
-a typed import design exists.
+a typed import design exists. Cursor Agent host IDE/auth/profile state likewise
+stays outside the import lifecycle until Hazmat has a typed import design.
 
 State is split into two layers:
 
@@ -96,10 +99,10 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `5,875,790 states generated`
-- `317,444 distinct states found`
-- `depth 14`
-- `Finished in 5s`
+- `18,899,708 states generated`
+- `943,528 distinct states found`
+- `depth 15`
+- `Finished in 1m7s`
 
 ## Interpretation
 
