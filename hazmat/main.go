@@ -115,6 +115,8 @@ func main() {
 	hermesCmd.GroupID = "run"
 	qwenCmd := withUpdateNotifications(newQwenCmd())
 	qwenCmd.GroupID = "run"
+	cursorAgentCmd := withUpdateNotifications(newCursorAgentCmd())
+	cursorAgentCmd.GroupID = "run"
 	shellCmd := withUpdateNotifications(newShellCmd())
 	shellCmd.GroupID = "run"
 	execCmd := withUpdateNotifications(newExecCmd())
@@ -154,7 +156,7 @@ func main() {
 	)
 	root.AddCommand(
 		initCmd, bootstrapCmd, harnessCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, claudeKeychainCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, hermesCmd, qwenCmd, shellCmd, execCmd, explainCmd,
+		claudeCmd, claudeKeychainCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, hermesCmd, qwenCmd, cursorAgentCmd, shellCmd, execCmd, explainCmd,
 		snapshotsCmd, diffCmd, restoreCmd,
 		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
 		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),

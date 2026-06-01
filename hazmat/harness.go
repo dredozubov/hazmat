@@ -8,18 +8,20 @@ import (
 type HarnessID string
 
 const (
-	HarnessClaude               HarnessID = "claude"
-	HarnessCodex                HarnessID = "codex"
-	HarnessOpenCode             HarnessID = "opencode"
-	HarnessGemini               HarnessID = "gemini"
-	HarnessHermes               HarnessID = "hermes"
-	HarnessQwen                 HarnessID = "qwen"
-	claudeHarnessStateVersion             = "1"
-	codexHarnessStateVersion              = "1"
-	opencodeHarnessStateVersion           = "1"
-	geminiHarnessStateVersion             = "1"
-	hermesHarnessStateVersion             = "1"
-	qwenHarnessStateVersion               = "1"
+	HarnessClaude                  HarnessID = "claude"
+	HarnessCodex                   HarnessID = "codex"
+	HarnessOpenCode                HarnessID = "opencode"
+	HarnessGemini                  HarnessID = "gemini"
+	HarnessHermes                  HarnessID = "hermes"
+	HarnessQwen                    HarnessID = "qwen"
+	HarnessCursorAgent             HarnessID = "cursor-agent"
+	claudeHarnessStateVersion                = "1"
+	codexHarnessStateVersion                 = "1"
+	opencodeHarnessStateVersion              = "1"
+	geminiHarnessStateVersion                = "1"
+	hermesHarnessStateVersion                = "1"
+	qwenHarnessStateVersion                  = "1"
+	cursorAgentHarnessStateVersion           = "1"
 )
 
 type HarnessSpec struct {
@@ -56,6 +58,7 @@ type OpenCodeHarness struct{}
 type GeminiHarness struct{}
 type HermesHarness struct{}
 type QwenHarness struct{}
+type CursorAgentHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
@@ -63,6 +66,7 @@ var openCodeHarness = OpenCodeHarness{}
 var geminiHarness = GeminiHarness{}
 var hermesHarness = HermesHarness{}
 var qwenHarness = QwenHarness{}
+var cursorAgentHarness = CursorAgentHarness{}
 
 var managedHarnessRegistry = []ManagedHarness{
 	{
@@ -202,6 +206,18 @@ var managedHarnessRegistry = []ManagedHarness{
 			return qwenHarness.Bootstrap(ui, r)
 		},
 	},
+	{
+		Spec:             cursorAgentHarness.Spec(),
+		LaunchCommand:    "hazmat cursor-agent",
+		BootstrapCommand: "hazmat bootstrap cursor-agent",
+		Installed: func() bool {
+			_, ok := findInstalledCursorAgentBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return cursorAgentHarness.Bootstrap(ui, r)
+		},
+	},
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -249,6 +265,14 @@ func (QwenHarness) Spec() HarnessSpec {
 		ID:           HarnessQwen,
 		DisplayName:  "Qwen Code",
 		StateVersion: qwenHarnessStateVersion,
+	}
+}
+
+func (CursorAgentHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessCursorAgent,
+		DisplayName:  "Cursor Agent",
+		StateVersion: cursorAgentHarnessStateVersion,
 	}
 }
 
@@ -409,6 +433,22 @@ func (h QwenHarness) Bootstrap(ui *UI, r *Runner) error {
 }
 
 func (h QwenHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
+}
+
+func (h CursorAgentHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runCursorAgentBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h CursorAgentHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
 }
 

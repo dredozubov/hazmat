@@ -129,6 +129,7 @@ Subcommands:
   hazmat bootstrap gemini
   hazmat bootstrap hermes
   hazmat bootstrap qwen
+  hazmat bootstrap cursor-agent
 
 For lifecycle-oriented commands, use:
   hazmat harness status
@@ -146,6 +147,8 @@ For lifecycle-oriented commands, use:
 	cmd.AddCommand(withUpdateNotifications(newBootstrapGeminiCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapHermesCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapQwenCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapCursorAgentCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapCursorAgentCmd()))
 	return cmd
 }
 

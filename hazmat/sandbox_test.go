@@ -842,6 +842,13 @@ func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
 			forwarded:   []string{"--yolo", "-p", "say only OK"},
 			expectedRun: []string{"--yolo", "-p", "say only OK"},
 		},
+		{
+			name:        "cursor-agent",
+			agent:       "cursor-agent",
+			run:         runSandboxCursorAgentSession,
+			forwarded:   []string{"--print", "--output-format", "stream-json", "--force", "--trust"},
+			expectedRun: []string{"--print", "--output-format", "stream-json", "--force", "--trust"},
+		},
 	}
 
 	for _, tc := range tests {

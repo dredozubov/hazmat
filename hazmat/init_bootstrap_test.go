@@ -19,6 +19,8 @@ func TestNormalizeInitBootstrapAgent(t *testing.T) {
 		{input: "HERMES", want: "hermes"},
 		{input: "qwen", want: "qwen"},
 		{input: "QWEN", want: "qwen"},
+		{input: "cursor-agent", want: "cursor-agent"},
+		{input: "CURSOR-AGENT", want: "cursor-agent"},
 		{input: "none", wantErr: true},
 	}
 
@@ -61,7 +63,7 @@ func TestResolveInitBootstrapAgentHonorsExplicitFlag(t *testing.T) {
 
 // TestOfferHarnessBasicsImportCoversImportableHarnesses asserts that every
 // curated-import harness has a dispatch case in offerHarnessBasicsImport.
-// Hermes and Qwen are managed but intentionally not importable in Phase 1.
+// Hermes, Qwen, and Cursor Agent are managed but intentionally not importable in Phase 1.
 func TestOfferHarnessBasicsImportCoversImportableHarnesses(t *testing.T) {
 	for _, id := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini} {
 		if !offerHarnessBasicsImportCovers(string(id)) {
@@ -73,6 +75,9 @@ func TestOfferHarnessBasicsImportCoversImportableHarnesses(t *testing.T) {
 	}
 	if offerHarnessBasicsImportCovers(string(HarnessQwen)) {
 		t.Errorf("Qwen must not offer host-profile import in Phase 1")
+	}
+	if offerHarnessBasicsImportCovers(string(HarnessCursorAgent)) {
+		t.Errorf("Cursor Agent must not offer host-profile import in Phase 1")
 	}
 }
 
@@ -86,17 +91,18 @@ func TestOfferHarnessBasicsImportRejectsUnknownSelections(t *testing.T) {
 
 func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 	harnesses := managedHarnesses()
-	if len(harnesses) != 6 {
-		t.Fatalf("managedHarnesses length = %d, want 6", len(harnesses))
+	if len(harnesses) != 7 {
+		t.Fatalf("managedHarnesses length = %d, want 7", len(harnesses))
 	}
 
 	want := map[HarnessID]string{
-		HarnessClaude:   "hazmat claude",
-		HarnessCodex:    "hazmat codex",
-		HarnessOpenCode: "hazmat opencode",
-		HarnessGemini:   "hazmat gemini",
-		HarnessHermes:   "hazmat hermes",
-		HarnessQwen:     "hazmat qwen",
+		HarnessClaude:      "hazmat claude",
+		HarnessCodex:       "hazmat codex",
+		HarnessOpenCode:    "hazmat opencode",
+		HarnessGemini:      "hazmat gemini",
+		HarnessHermes:      "hazmat hermes",
+		HarnessQwen:        "hazmat qwen",
+		HarnessCursorAgent: "hazmat cursor-agent",
 	}
 
 	for _, harness := range harnesses {

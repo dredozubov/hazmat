@@ -168,6 +168,8 @@ func harnessIDForCommand(commandName string) (HarnessID, bool) {
 		return HarnessHermes, true
 	case string(HarnessQwen):
 		return HarnessQwen, true
+	case string(HarnessCursorAgent):
+		return HarnessCursorAgent, true
 	default:
 		return "", false
 	}

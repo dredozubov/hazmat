@@ -41,6 +41,7 @@ These are documented starting points, not exhaustive certification.
 | Gemini | TLA+ / TLC | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/integrations.md](integrations.md), [recipe](recipes/gemini-tla.md) | Requires the Java/TLA runtime path to be available and usually needs a more manual auth/runtime setup than Claude. |
 | Hermes (experimental) | Foreground assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Manual install verification only; no host `~/.hermes` import; gateway/dashboard/API/server/cron entrypoints are unsupported in v1. |
 | Qwen Code | Foreground assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Requires Node.js 20+ for bootstrap; host `~/.qwen` auth/settings are not imported; daemon/SDK/server modes are unsupported in v1. |
+| Cursor Agent | Foreground/headless assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Manual install verification only; host Cursor IDE state and host `~/.cursor` auth/profile data are not imported; service/daemon/browser-control modes are unsupported in v1. |
 
 ## Reporting Flow
 

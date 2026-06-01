@@ -1278,7 +1278,7 @@ func TestGenerateSBPLOtherHarnessesDoNotGetClaudeRuntimeTempDir(t *testing.T) {
 	}
 	t.Cleanup(func() { lookupAgentUser = oldLookup })
 
-	for _, harness := range []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, ""} {
+	for _, harness := range []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, ""} {
 		policy := generateSBPL(sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
@@ -1290,7 +1290,7 @@ func TestGenerateSBPLOtherHarnessesDoNotGetClaudeRuntimeTempDir(t *testing.T) {
 }
 
 func TestGenerateSBPLOtherHarnessesDoNotGetSecurityFrameworkRules(t *testing.T) {
-	for _, harness := range []HarnessID{HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, ""} {
+	for _, harness := range []HarnessID{HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, ""} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
@@ -1313,7 +1313,7 @@ func TestGenerateSBPLBaseRulesPresentForEveryHarness(t *testing.T) {
 		`(allow file-read* file-write* (literal "/dev/tty"))`,
 		`(allow network-outbound)`,
 	}
-	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, ""} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, ""} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
@@ -1632,7 +1632,7 @@ func TestWarnDockerProjectErrorMentionsDockerSandboxSupport(t *testing.T) {
 }
 
 func TestWarnDockerProjectHarnessCommandMentionsSameHarnessCommands(t *testing.T) {
-	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent"} {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte{}, 0o644); err != nil {
 			t.Fatalf("create Dockerfile: %v", err)
@@ -2288,7 +2288,7 @@ func TestAgentEnvPairsExposeSessionConfig(t *testing.T) {
 }
 
 // Acceptance check for "session integrations should be implemented for
-// supported harnesses": all four harness IDs (and the generic shell/exec
+// supported harnesses": all foreground harness IDs (and the generic shell/exec
 // targets) flow through the same applyIntegrations code path with identical
 // effect. The HarnessID field on sessionConfig is metadata only — it does
 // not gate which integrations apply.
@@ -2302,7 +2302,7 @@ func TestApplyIntegrationsRunsUniformlyForAllHarnesses(t *testing.T) {
 		excl    []string
 	}
 	got := make(map[HarnessID]result)
-	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes, HarnessQwen} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes, HarnessQwen, HarnessCursorAgent} {
 		cfg := sessionConfig{
 			ProjectDir:     t.TempDir(),
 			BackupExcludes: snapshotIgnoreRules(nil),
@@ -2321,7 +2321,7 @@ func TestApplyIntegrationsRunsUniformlyForAllHarnesses(t *testing.T) {
 	// All managed foreground harnesses must end up with identical integration effects:
 	// same active list, same env passthrough keys, same excludes.
 	first := got[HarnessClaude]
-	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes, HarnessQwen} {
+	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini, HarnessHermes, HarnessQwen, HarnessCursorAgent} {
 		if !slicesEqualString(first.active, got[harness].active) {
 			t.Errorf("ActiveIntegrations diverged for %s: %v vs %v (claude)", harness, got[harness].active, first.active)
 		}
@@ -2709,7 +2709,7 @@ func TestSessionRoutingExplanationDockerNoneSuppressedWhenIntegrationActive(t *t
 
 func TestDockerSessionExampleUsesSameHarnessForSandboxMode(t *testing.T) {
 	projectDir := "/tmp/project"
-	for _, commandName := range []string{"claude", "opencode", "codex", "gemini", "hermes", "qwen"} {
+	for _, commandName := range []string{"claude", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent"} {
 		got := dockerSessionExample(commandName, projectDir, dockerModeSandbox)
 		want := fmt.Sprintf("hazmat %s --docker=sandbox -C %s", commandName, projectDir)
 		if got != want {
@@ -2832,7 +2832,7 @@ func TestResolveExplainSessionUsesProjectDockerModeAuto(t *testing.T) {
 
 func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent"} {
 		dir := t.TempDir()
 		prepared, err := resolvePreparedSession(commandName, harnessSessionOpts{
 			project:            dir,
@@ -2860,7 +2860,7 @@ func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 
 func TestResolveExplainSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
-	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen"} {
+	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent"} {
 		dir := t.TempDir()
 		cfg, mode, err := resolveExplainSession(commandName, harnessSessionOpts{
 			project:            dir,

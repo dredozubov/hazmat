@@ -36,7 +36,8 @@ To avoid live harness dependencies, the script temporarily replaces each
 agent-owned harness binary with a synthetic executable, runs the normal Hazmat
 launch path, and restores every touched file on exit. The backup set includes
 agent-owned harness binaries, agent runtime auth files, Hermes managed state,
-host-owned harness auth stores, and provider env-secret files used by the smoke.
+Qwen/Cursor contained state, host-owned harness auth stores, and provider
+env-secret files used by the smoke.
 
 The script also exposes its policy surface:
 
@@ -103,6 +104,20 @@ write updated runtime auth files; Hazmat must harvest those updates into
 `~/.hazmat/secrets/<harness>/...` and remove the runtime files from the agent
 home on session exit.
 
+### Qwen and Cursor Agent Foreground Launch
+
+The Qwen and Cursor Agent cases install fake agent-owned binaries and run:
+
+```bash
+hazmat qwen --no-backup -C <scratch-project> --yolo -p "qwen smoke"
+hazmat cursor-agent --no-backup -C <scratch-project> -- --print --output-format stream-json --stream-partial-output --force --trust --workspace <scratch-project>
+```
+
+The fake binaries assert cwd and forwarded argv. Qwen verifies the contained
+`/Users/agent/.qwen` profile path exists. Cursor Agent verifies the Open
+Design-style headless argv is forwarded without Hazmat injecting or rewriting
+Cursor flags, then writes contained agent-side state under `/Users/agent`.
+
 ## Release Gate
 
 The local pre-release gate is:
@@ -118,8 +133,9 @@ work stops before version/tag activity if any managed harness smoke fails.
 
 ## Boundaries
 
-This smoke does not prove real Claude, Hermes, provider APIs, OAuth browser
-flows, terminal UI behavior, or network reachability. Those remain in
-`docs/manual-testing.md`. It also does not replace the TLA+ secret-store model:
+This smoke does not prove real Claude, Hermes, Qwen, Cursor Agent, provider
+APIs, OAuth browser flows, terminal UI behavior, or network reachability. Those
+remain in `docs/manual-testing.md`. It also does not replace the TLA+
+secret-store model:
 the logged-out runtime-auth case is modeled as a `NoSecret` transition before
 the Go harvest guard and smoke script rely on it.

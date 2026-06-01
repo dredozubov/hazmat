@@ -168,7 +168,7 @@ fi
 | 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
 | 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
 | 07 Session Permission Repairs | 4 launch repair classes plus deferred project backfill boundary, native/docker planning, preview/launch/rollback phases | 13,268 distinct | <1s |
-| 08 Harness Lifecycle | 3 harnesses, 2 importable harnesses, dry-run/save/rollback variants | 1,564 distinct | ~2s |
+| 08 Harness Lifecycle | 7 harnesses, 4 importable harnesses, dry-run/save/rollback variants | 943,528 distinct | ~1m |
 | 09 Launch FD Isolation | 2 inherited-fd classes, helper cleanup toggle, exec boundary phases | 112 distinct | <1s |
 | 10 Git-SSH Routing | 2 hosts, 2 keys, 2 sockets, 2 profiles, profile/inline identity variants | 884,736 distinct | ~1m |
 | 11 Git Hook Approval | 3 hook types, 2 bundle hashes, wrapper/dispatcher/install/drift lifecycle | 2,179,200 distinct | ~1-4m |

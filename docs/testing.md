@@ -18,7 +18,7 @@ are not interchangeable.
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
-| `scripts/e2e-harness-smoke.sh` | Do real harness launch paths still compose with Hermes/Qwen state setup and Claude host-owned auth harvest guards? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
+| `scripts/e2e-harness-smoke.sh` | Do real harness launch paths still compose with Hermes/Qwen/Cursor state setup and Claude host-owned auth harvest guards? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
 | `scripts/e2e-vm.sh` | Run the destructive lifecycle test in an isolated macOS VM | VM | Destroys the VM, not your host setup |
@@ -213,7 +213,7 @@ make e2e-harness-smoke
 
 The smoke does not call real harness services. It takes the shared host-side
 test lock, backs up the touched agent-owned harness binaries, contained
-Hermes/Qwen state, and host secret-store files, installs synthetic agent-owned
+Hermes/Qwen/Cursor state, and host secret-store files, installs synthetic agent-owned
 binaries, runs the real `hazmat <harness>` launch paths for every managed
 harness, then restores everything it touched. It requires `hazmat init` and
 non-interactive `sudo -n`.

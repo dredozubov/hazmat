@@ -41,7 +41,8 @@ Examples:
   hazmat explain --for codex --network none -C ~/workspace/repo
   hazmat explain --for gemini --integration go -C ~/workspace/my-go-project
   hazmat explain --for hermes -C ~/workspace/repo
-  hazmat explain --for qwen -C ~/workspace/repo`,
+  hazmat explain --for qwen -C ~/workspace/repo
+  hazmat explain --for cursor-agent -C ~/workspace/repo`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, mode, err := resolveExplainSession(target, harnessSessionOpts{
@@ -81,7 +82,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&target, "for", "claude",
-		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen)")
+		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent)")
 	cmd.Flags().StringVarP(&project, "project", "C", "",
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
@@ -115,9 +116,9 @@ Examples:
 
 func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfig, sessionMode, error) {
 	switch target {
-	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen":
+	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent":
 	default:
-		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, or qwen)", target)
+		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, qwen, or cursor-agent)", target)
 	}
 
 	prepared, err := resolvePreparedSession(target, opts, true)

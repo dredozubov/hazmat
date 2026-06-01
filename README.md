@@ -38,7 +38,7 @@ That gets you:
 
 If you want to preview before changing anything, run `hazmat init --dry-run` or `hazmat explain`.
 
-If you use Codex, OpenCode, Gemini, Hermes, or Qwen instead of Claude, start with [docs/harnesses.md](docs/harnesses.md).
+If you use Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent instead of Claude, start with [docs/harnesses.md](docs/harnesses.md).
 
 ## What a Session Looks Like
 
@@ -81,6 +81,7 @@ hazmat opencode
 hazmat gemini
 hazmat hermes
 hazmat qwen
+hazmat cursor-agent
 hazmat exec ./my-agent-loop.sh
 hazmat shell
 ```
@@ -100,7 +101,7 @@ hazmat shell
 Current state, not aspirational state:
 
 - **macOS native containment is the default path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
-- **Six harnesses are supported in containment.** Claude Code, Codex, OpenCode, Gemini, Hermes, and Qwen Code. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
+- **Seven harnesses are supported in containment.** Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen Code, and Cursor Agent. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
 - **Harness lifecycle is managed.** `hazmat harness status|update|uninstall` inspects agent-owned harness code, refreshes it through the bootstrap paths, and removes Hazmat-owned code artifacts without deleting auth/profile/session state by default.
 - **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode through every harness entrypoint, plus `hazmat shell` and `hazmat exec`. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 - **27 built-in stack integrations.** Full table in [docs/STACKS.md](docs/STACKS.md); schema and trust-model rules in [docs/integrations.md](docs/integrations.md). Quick groupings:
@@ -120,7 +121,6 @@ Hazmat is useful because the boundaries are concrete. That also means the limita
 - **The DNS blocklist is exact-domain, not wildcard.** It is based on `/etc/hosts`, not a full DNS filtering stack. See [docs/design-assumptions.md](docs/design-assumptions.md).
 - **Shared `/tmp` stays shared.** Hazmat does not pretend macOS temp space suddenly became private.
 - **MCP env inheritance and `SSH_AUTH_SOCK` abuse are still category-wide problems.** Some of the hardest issues here are operational, not just architectural. They are called out directly in [docs/threat-matrix.md](docs/threat-matrix.md).
-
 If you are dealing with hostile repos, long unattended runs, or shared-daemon Docker workflows, the honest answer may be Tier 4, not stretching Tier 2 past what it does well. Start with [docs/overview.md](docs/overview.md).
 
 ## Community Map
@@ -158,6 +158,7 @@ hazmat opencode
 hazmat gemini
 hazmat hermes
 hazmat qwen
+hazmat cursor-agent
 
 # Harness lifecycle
 hazmat harness status
@@ -229,7 +230,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/usage.md](docs/usage.md) | Full user guide once you are past the first session |
 | [docs/overview.md](docs/overview.md) | Which tier to use, and when |
 | [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
-| [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini, Hermes, and Qwen |
+| [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor Agent |
 | [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |
 | [docs/integration-contributor-flow.md](docs/integration-contributor-flow.md) | How users discover integrations and turn missing stack support into PR-shaped work |
 | [docs/integration-author-kit.md](docs/integration-author-kit.md) | How to propose integrations without turning them into policy escapes |

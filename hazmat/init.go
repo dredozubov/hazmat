@@ -67,6 +67,7 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init --bootstrap-agent gemini        # Also install Gemini CLI
   hazmat init --bootstrap-agent hermes        # Verify manually installed Hermes CLI
   hazmat init --bootstrap-agent qwen          # Also install Qwen Code
+  hazmat init --bootstrap-agent cursor-agent  # Verify manually installed Cursor Agent CLI
   hazmat init --yes                           # Non-interactive; install maintenance sudoers by default
   hazmat check                                # Verify the setup
   hazmat rollback                             # Undo everything
@@ -80,7 +81,7 @@ Use --dry-run to preview all commands without executing anything.`,
 	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
 		"Override GID for the dev group (default: 599; use when 599 is already taken)")
 	cmd.Flags().StringVar(&bootstrapAgentFlag, "bootstrap-agent", "",
-		"Optional AI coding agent to bootstrap during init: skip, claude, codex, opencode, gemini, hermes, qwen")
+		"Optional AI coding agent to bootstrap during init: skip, claude, codex, opencode, gemini, hermes, qwen, cursor-agent")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if agentUIDFlag != "" {
 			agentUID = agentUIDFlag
@@ -262,7 +263,7 @@ func normalizeInitBootstrapAgent(selection string) (string, error) {
 	if _, ok := managedHarnessByID(HarnessID(normalized)); ok {
 		return normalized, nil
 	}
-	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, gemini, hermes, or qwen)", selection)
+	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, gemini, hermes, qwen, or cursor-agent)", selection)
 }
 
 func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
@@ -370,9 +371,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 
 	// ── Optional import: portable harness basics ────────────────────────────
 	// Importable harnesses get a one-shot offer to copy explicitly supported
-	// host credentials/settings into Hazmat-managed state. Hermes and Qwen are
-	// managed foreground harnesses but intentionally have no host-profile import
-	// in v1.
+	// host credentials/settings into Hazmat-managed state. Hermes, Qwen, and
+	// Cursor Agent are managed foreground harnesses but intentionally have no
+	// host-profile import in v1.
 	_ = offerHarnessBasicsImport(ui, r, bootstrapSelection)
 
 	if !flagDryRun {
@@ -404,11 +405,11 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	fmt.Println()
 	fmt.Println("  Ready to use:")
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini), string(HarnessHermes), string(HarnessQwen):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini), string(HarnessHermes), string(HarnessQwen), string(HarnessCursorAgent):
 		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
 	default:
 		fmt.Println("    cd your-project && hazmat shell")
-		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen")
+		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
 	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
@@ -422,8 +423,11 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	case string(HarnessQwen):
 		fmt.Println("  Update creds:   hazmat qwen auth or configure contained /Users/agent/.qwen")
 		fmt.Println("  Qwen state:     contained under /Users/agent/.qwen; host ~/.qwen is not imported")
+	case string(HarnessCursorAgent):
+		fmt.Println("  Update creds:   hazmat cursor-agent -- login or set up contained Cursor Agent auth")
+		fmt.Println("  Cursor state:   contained under /Users/agent; host Cursor state is not imported")
 	default:
-		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen")
+		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
 	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")

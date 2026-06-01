@@ -14,7 +14,7 @@ Usage:
   bash scripts/e2e-harness-smoke.sh --list-harnesses
 
 Runs non-destructive harness smokes for:
-  - Claude Code, Codex, OpenCode, Gemini, Hermes, and Qwen foreground launch paths
+  - Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor Agent foreground launch paths
   - provider/env delivery for harnesses that consume provider env grants
   - file-backed auth materialization, harvest, and cleanup where applicable
   - Claude auth materialization/harvest preserving host-owned auth when the
@@ -28,7 +28,7 @@ EOF
 
 SKIP_BUILD=""
 LIST_HARNESSES=""
-SMOKE_HARNESSES="claude codex opencode gemini hermes qwen"
+SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -229,6 +229,8 @@ backup_path "$AGENT_HOME/.gemini/oauth_creds.json" "agent-gemini-oauth"
 backup_path "$AGENT_HOME/.gemini/google_accounts.json" "agent-gemini-accounts"
 backup_path "$AGENT_HOME/.local/bin/qwen" "agent-qwen-bin"
 backup_path "$AGENT_HOME/.qwen" "agent-qwen-state"
+backup_path "$AGENT_HOME/.local/bin/cursor-agent" "agent-cursor-agent-bin"
+backup_path "$AGENT_HOME/.cursor" "agent-cursor-state"
 backup_path "$HOME/.hazmat/secrets/claude/credentials.json" "host-claude-credentials"
 backup_path "$HOME/.hazmat/secrets/claude/state.json" "host-claude-state"
 backup_path "$HOME/.hazmat/secrets/codex/auth.json" "host-codex-auth"
@@ -250,6 +252,7 @@ record_absent_agent_dir "$AGENT_HOME/.opencode"
 record_absent_agent_dir "$AGENT_HOME/.local/share/opencode"
 record_absent_agent_dir "$AGENT_HOME/.gemini"
 record_absent_agent_dir "$AGENT_HOME/.qwen"
+record_absent_agent_dir "$AGENT_HOME/.cursor"
 
 PROJECT="$(mktemp -d /tmp/hazmat-harness-project.XXXXXX)"
 
@@ -443,5 +446,32 @@ assert_file_contains "$QWEN_OUT" "FAKE_QWEN_OK" "Qwen fake CLI ran through hazma
 sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.qwen" \
     && pass "Qwen contained state directory exists" \
     || die "Qwen contained state directory missing"
+
+phase "Cursor Agent foreground launch"
+FAKE_CURSOR_AGENT="$TMPDIR_SMOKE/cursor-agent"
+cat > "$FAKE_CURSOR_AGENT" <<'EOF'
+#!/bin/sh
+set -eu
+test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 100; }
+test "$#" -eq 8 || { echo "unexpected Cursor Agent arg count: $#" >&2; exit 101; }
+test "${1:-}" = "--print" || { echo "missing --print" >&2; exit 102; }
+test "${2:-}" = "--output-format" || { echo "missing --output-format" >&2; exit 103; }
+test "${3:-}" = "stream-json" || { echo "unexpected output format: ${3:-}" >&2; exit 104; }
+test "${4:-}" = "--stream-partial-output" || { echo "missing --stream-partial-output" >&2; exit 105; }
+test "${5:-}" = "--force" || { echo "missing --force" >&2; exit 106; }
+test "${6:-}" = "--trust" || { echo "missing --trust" >&2; exit 107; }
+test "${7:-}" = "--workspace" || { echo "missing --workspace" >&2; exit 108; }
+test "${8:-}" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected workspace: ${8:-}" >&2; exit 109; }
+mkdir -p "$HOME/.cursor"
+echo "FAKE_CURSOR_AGENT_OK"
+EOF
+install_agent_executable "$FAKE_CURSOR_AGENT" "$AGENT_HOME/.local/bin/cursor-agent"
+
+CURSOR_AGENT_OUT="$TMPDIR_SMOKE/cursor-agent.out"
+"$HAZMAT" cursor-agent --no-backup --skip-harness-assets-sync -C "$PROJECT" -- --print --output-format stream-json --stream-partial-output --force --trust --workspace "$PROJECT" > "$CURSOR_AGENT_OUT" 2>&1
+assert_file_contains "$CURSOR_AGENT_OUT" "FAKE_CURSOR_AGENT_OK" "Cursor Agent fake CLI ran through hazmat cursor-agent"
+sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.cursor" \
+    && pass "Cursor Agent contained state directory exists" \
+    || die "Cursor Agent contained state directory missing"
 
 printf "\n\033[32m  All %d harness smoke checks passed.\033[0m\n" "$PASS"

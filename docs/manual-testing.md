@@ -202,6 +202,27 @@ harness for a smoke pass; run every supported path before a release.
   - Steps: `hazmat qwen --network none --metadata-json --no-backup -p "say OK"`.
   - Expected: stderr includes one JSON metadata line with `"requested":"none"`, `"effective":"none"`, and `"enforced":true`; a provider-backed Qwen request should fail closed if it tries to dial out.
 
+### 2.7 Cursor Agent
+
+- [ ] **Bootstrap**
+  - Preconditions: Cursor Agent CLI is installed or linked for the agent user at `/Users/agent/.local/bin/cursor-agent`.
+  - Steps: `hazmat bootstrap cursor-agent`
+  - Expected: each step ✓; bootstrap records Cursor Agent after `cursor-agent --version`; bootstrap does not import host Cursor IDE state, host `~/.cursor`, or host auth settings.
+
+- [ ] **Contained auth path**
+  - Steps: `hazmat cursor-agent -- login` → complete Cursor Agent's auth/config flow inside the contained session → exit.
+  - Expected: Cursor Agent state is under `/Users/agent` paths; host Cursor IDE auth/profile state is unchanged and not copied into Hazmat's secret store.
+  - Verify: `hazmat cursor-agent -- --version` round-trips, and a headless command works when you pass Cursor Agent's own `--print`/`--force`/`--trust` flags.
+
+- [ ] **No host import path**
+  - Preconditions: optional sentinel file under host `~/.cursor/` to prove host profile state is not imported.
+  - Steps: `hazmat explain --for cursor-agent -C /tmp`; run `hazmat cursor-agent --no-backup -- --version`; inspect `/Users/agent` Cursor state paths and `hazmat config import --help`.
+  - Expected: host sentinel files are unchanged; `hazmat config import` has no `cursor-agent` target; no Cursor host assets are synced.
+
+- [ ] **Native `--network none`**
+  - Steps: `hazmat cursor-agent --network none --metadata-json --no-backup -- --version`.
+  - Expected: stderr includes one JSON metadata line with `"requested":"none"`, `"effective":"none"`, and `"enforced":true`; a provider-backed Cursor Agent request should fail closed if it tries to dial out.
+
 ---
 
 ## 3. Cross-cutting
@@ -209,10 +230,10 @@ harness for a smoke pass; run every supported path before a release.
 These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **`hazmat init --bootstrap-agent <harness>` end-to-end**
-  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent gemini` (try each of `claude / codex / opencode / gemini / hermes / qwen` in turn).
-  - Expected: agent user created; bootstrap step runs for the chosen harness; `hazmat config agent` prompt appears; the optional "Import basics?" prompt appears only for importable harnesses; the "Ready to use" guidance ends with `cd your-project && hazmat <harness>`. Hermes init expects the manual binary path and does not offer profile import. Qwen installs through npm, prepares `/Users/agent/.qwen`, and does not offer profile import.
+  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent gemini` (try each of `claude / codex / opencode / gemini / hermes / qwen / cursor-agent` in turn).
+  - Expected: agent user created; bootstrap step runs for the chosen harness; `hazmat config agent` prompt appears; the optional "Import basics?" prompt appears only for importable harnesses; the "Ready to use" guidance ends with `cd your-project && hazmat <harness>`. Hermes and Cursor Agent init expect manual binary paths and do not offer profile import. Qwen installs through npm, prepares `/Users/agent/.qwen`, and does not offer profile import.
 
-- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / gemini / hermes / qwen / shell / exec`
+- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / gemini / hermes / qwen / cursor-agent / shell / exec`
   - Steps: `hazmat explain --for <each> -C /tmp` (or any project dir without an SSH-config gate)
   - Expected: each prints a session contract; integrations section updates if `--integration go` is added; no errors.
 
@@ -222,7 +243,7 @@ These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **Docker Sandbox support across harnesses**
   - Preconditions: repo with a `Dockerfile`.
-  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `gemini`, `hermes`, and `qwen`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini` / `hermes` / `qwen`).
+  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `gemini`, `hermes`, `qwen`, and `cursor-agent`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini` / `hermes` / `qwen` / `cursor-agent`).
   - Expected: `--docker=auto` routes the matching harness into Docker Sandbox mode on Docker-heavy private-daemon repos; explicit `--docker=sandbox` launches the same harness in Docker Sandbox mode without redirecting you to Claude.
 
 - [ ] **Per-harness seatbelt scoping**
@@ -234,13 +255,13 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Expected: the codex policy contains `com.apple.SystemConfiguration.configd`, `com.apple.SecurityServer`, `/Library/Keychains`, and the `apple.shm.notification_center` IPC; the claude policy does **not** contain any of those (least-privilege gating from `sandboxing-m7f7`).
 
 - [ ] **Session integrations apply uniformly per harness**
-  - Steps: in a Go project, `hazmat explain --for codex`, `hazmat explain --for gemini`, `hazmat explain --for hermes`, and `hazmat explain --for qwen`.
-  - Expected: all four show `Integrations: go` with the same `Integration sources` line; all auto-add the Go module cache to read-only.
+  - Steps: in a Go project, `hazmat explain --for codex`, `hazmat explain --for gemini`, `hazmat explain --for hermes`, `hazmat explain --for qwen`, and `hazmat explain --for cursor-agent`.
+  - Expected: all five show `Integrations: go` with the same `Integration sources` line; all auto-add the Go module cache to read-only.
 
 - [ ] **Harness asset sync**
   - Preconditions: edit a file in your host `~/.codex/prompts/` (or `~/.claude/commands/` for claude, `~/.gemini/extensions/` for gemini, `~/.config/opencode/commands/` for opencode, `~/.qwen/QWEN.md` or `~/.qwen/extensions/` for qwen).
   - Steps: launch the matching `hazmat <harness>` session; observe the "host changes" line.
-  - Expected: a "<Harness> asset sync" entry; the agent-side file matches the host-side after launch. For Hermes, expected result is the inverse: no asset-sync entry and no host `~/.hermes` copy.
+  - Expected: a "<Harness> asset sync" entry; the agent-side file matches the host-side after launch. For Hermes and Cursor Agent, expected result is the inverse: no asset-sync entry and no host profile copy.
 
 - [ ] **Pre-session snapshot**
   - Steps: any `hazmat <harness>` launch; before chatting, scroll up to the snapshot line.
@@ -314,9 +335,9 @@ These verify that earlier-fixed bugs stay fixed.
   - On failure: check `closeInheritedFDs` is using `/dev/fd` enumeration (not iterating to RLIMIT_NOFILE); `ps -u agent` should not show stuck `hazmat-launch exec ...` processes after the run.
 
 - [ ] **Config-agent with multiple harnesses installed**
-  - Preconditions: claude + codex + gemini + hermes all bootstrapped.
+  - Preconditions: claude + codex + gemini + hermes + qwen + cursor-agent all bootstrapped.
   - Steps: `hazmat config agent`
-  - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Gemini, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode is intentionally skipped (no single env var).
+  - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Gemini, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode, Qwen, and Cursor Agent are intentionally skipped in v1 (no single Hazmat-managed provider env var).
 
 ---
 
