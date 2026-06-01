@@ -523,12 +523,12 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
-The model includes Claude, Codex, OpenCode, Gemini, Hermes, and Qwen. Hermes
-and Qwen are modeled as built-in harnesses but are deliberately not importable
-in Phase 1.
+The model includes Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor
+Agent. Hermes, Qwen, and Cursor Agent are modeled as built-in harnesses but are
+deliberately not importable in Phase 1.
 
-TLC passes across all 280,275 reachable states (10,018,190 generated, depth 17,
-~16s).
+TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
+~1m7s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
