@@ -1,14 +1,14 @@
 # Supported Harnesses
 
-Hazmat runs six agent CLIs in containment. Hermes and Qwen keep narrower
-foreground-only v1 surfaces. This page is the actionable reference: pick your
-harness, pick your auth path, run the listed commands.
+Hazmat runs seven agent CLIs in containment. Hermes, Qwen, and Cursor Agent
+keep narrower foreground-only v1 surfaces. This page is the actionable
+reference: pick your harness, pick your auth path, run the listed commands.
 
 ## Comparison matrix
 
 Use this table to choose a setup path. Most harnesses support at least two auth
-modes; Hermes and Qwen deliberately keep narrower v1 surfaces. The third column
-shows the **simplest** way to get a working session.
+modes; Hermes, Qwen, and Cursor Agent deliberately keep narrower v1 surfaces.
+The third column shows the **simplest** way to get a working session.
 
 | Harness | Tested | Install | Subscription / OAuth | API key (env var) | Import from host |
 |---|---|---|---|---|---|
@@ -18,20 +18,24 @@ shows the **simplest** way to get a working session.
 | **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
 | **Hermes (experimental)** | manual install | `hazmat bootstrap hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
 | **Qwen Code** | npm latest | `hazmat bootstrap qwen` | contained Qwen auth flow only | configure through contained Qwen profile / `.env` | unsupported in v1 |
+| **Cursor Agent** | manual install | `hazmat bootstrap cursor-agent` verifies only | contained Cursor Agent login only | configure through contained Cursor Agent profile; no Hazmat `CURSOR_API_KEY` grant in v1 | unsupported in v1 |
 
 After bootstrap + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
 `hazmat <harness> exec "prompt"` (codex) /
 `hazmat <harness> run "prompt"` (opencode) /
 `hazmat hermes -- --version` or `hazmat hermes -- chat ...` (hermes) /
-`hazmat qwen -p "prompt"` (qwen) for foreground use.
+`hazmat qwen -p "prompt"` (qwen) /
+`hazmat cursor-agent -- --version` or Cursor Agent headless flags
+(cursor-agent) for foreground use.
 
 For Claude, Codex, OpenCode, and Gemini, the fastest path for a new install is
 usually the **import** column — it copies selected host credentials into
 Hazmat's host-owned secret store, so there's nothing to re-enter inside the
-sandbox. Hermes and Qwen are intentionally different in v1: Hazmat does not
-import host `~/.hermes` or host `~/.qwen`. Use Hermes provider keys from
-`hazmat config agent`, or configure either harness inside its contained profile.
+sandbox. Hermes, Qwen, and Cursor Agent are intentionally different in v1:
+Hazmat does not import host `~/.hermes`, host `~/.qwen`, host `~/.cursor`, or
+Cursor IDE profile/auth state. Use Hermes provider keys from `hazmat config
+agent`, or configure the narrower harnesses inside their contained profiles.
 
 ## Credential storage summary
 
@@ -56,6 +60,7 @@ secret values.
 | Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
 | Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Project-scoped managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
 | Qwen profile state | `/Users/agent/.qwen` | Contained agent-side Qwen auth/settings/sessions; host `~/.qwen` auth/settings are not imported. Portable `QWEN.md` and `extensions/` can sync separately as assets. |
+| Cursor Agent profile state | `/Users/agent` default Cursor Agent paths such as `/Users/agent/.cursor` | Contained agent-side Cursor auth/settings/sessions; host Cursor IDE state, host `~/.cursor`, and host auth settings are not imported |
 
 Provider API keys are configured once per provider. If more than one harness is
 allowed to consume the same env var, Hazmat reuses the same stored key and
@@ -149,6 +154,31 @@ records the consuming harness in explain/session metadata.
 - **Unsupported in v1:** `hazmat config import qwen`, host `~/.qwen` auth/settings import, daemon mode, SDK/server mode, and broad Qwen profile migration.
 - **Verify:** `hazmat qwen -p "say only OK"` — single-shot prompt; should print `OK`.
 
+### Cursor Agent
+
+- **Install / update:** `hazmat bootstrap cursor-agent` is detection-only in
+  v1. It verifies an agent-owned executable at
+  `/Users/agent/.local/bin/cursor-agent` by running `cursor-agent --version`,
+  then records harness state. It does not run an upstream install script or
+  copy a host Cursor install.
+- **Contained profile boundary:** Cursor Agent runs as `/Users/agent` and uses
+  its own agent-side state. Hazmat does not import host Cursor IDE state, host
+  `~/.cursor`, host auth settings, or host workspace trust/profile data.
+- **Auth path:** run `hazmat cursor-agent -- login` or use Cursor Agent's own
+  contained setup flow. If your setup uses `CURSOR_API_KEY`, configure it
+  through Cursor Agent's contained profile or a future typed credential design;
+  `hazmat config agent` does not grant `CURSOR_API_KEY` in v1.
+- **Headless path:** Hazmat forwards Cursor Agent flags exactly as provided.
+  For Open Design-style automation, pass the Cursor flags yourself, for example
+  `hazmat cursor-agent --print --output-format stream-json
+  --stream-partial-output --force --trust`.
+- **Unsupported in v1:** `hazmat config import cursor-agent`, host Cursor IDE
+  auth/profile import, host `~/.cursor` sync, automatic `--force`/`--trust`
+  injection, and service/daemon/browser-control modes.
+- **Verify:** `hazmat cursor-agent -- --version` checks the foreground launch
+  path. `hazmat explain --for cursor-agent -C /tmp` previews the session
+  contract.
+
 ## Choosing an auth mode
 
 Three rules of thumb:
@@ -158,16 +188,16 @@ Three rules of thumb:
 3. **You only have an API key (or you're scripting CI).** Use the **API key** column. Persistent, scriptable, no browser dance.
 
 Mixing is fine for importable harnesses: you can import once and switch to API
-key later by setting the env var, or vice versa. Hermes and Qwen exclude
-host-profile import in v1, so mix provider keys or contained setup according to
-the harness-specific section above.
+key later by setting the env var, or vice versa. Hermes, Qwen, and Cursor Agent
+exclude host-profile import in v1, so mix provider keys or contained setup
+according to the harness-specific section above.
 
 ## Session modes
 
 Harness auth and harness session mode are separate decisions:
 
-- **Native containment:** available on all six harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`, `qwen`).
-- **Docker Sandbox:** available on all six harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
+- **Native containment:** available on all seven harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`, `qwen`, `cursor-agent`).
+- **Docker Sandbox:** available on all seven harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
 Native containment also supports a per-session network mode:
@@ -179,6 +209,7 @@ hazmat opencode --network none run "offline review"
 hazmat gemini --network none -p "offline review"
 hazmat hermes --network none --metadata-json -- --version
 hazmat qwen --network none -p "offline review"
+hazmat cursor-agent --network none -- --version
 ```
 
 `--network none` denies outbound IPv4, outbound IPv6, and DNS for that native
@@ -213,6 +244,7 @@ cd ~/workspace/project-that-reproduces
 ~/.hazmat/bin/hazmat-debug trace gemini --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace hermes --name baseline -- --no-backup -- --version
 ~/.hazmat/bin/hazmat-debug trace qwen --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace cursor-agent --name baseline -- --no-backup -- --version
 ```
 
 The bundle includes the planned session contract, harness metadata, before/after
@@ -233,6 +265,7 @@ hazmat opencode --github -p "review this PR"
 hazmat gemini --github -p "review this PR"
 hazmat hermes --github -- chat "review this PR"
 hazmat qwen --github -p "review this PR"
+hazmat cursor-agent --github --print --output-format stream-json --force --trust
 ```
 
 Hazmat stores the token in `~/.hazmat/secrets/github/token`, injects only
@@ -250,7 +283,7 @@ that must not be able to self-push or change repository state remotely.
 
 ## Session integrations
 
-Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, hermes, and qwen all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
+Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, hermes, qwen, and cursor-agent all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
 
 Preview the planned session contract for any harness with `hazmat explain --for <harness>`:
 
@@ -260,6 +293,7 @@ hazmat explain --for gemini -C ~/my-rust-app    # gemini session, auto-detect ru
 hazmat explain --for opencode --json            # machine-readable preview
 hazmat explain --for hermes --network none       # Hermes foreground contract
 hazmat explain --for qwen --docker=auto          # Qwen foreground contract
+hazmat explain --for cursor-agent --docker=auto  # Cursor Agent foreground contract
 ```
 
 Integrations are documented in [docs/integrations.md](integrations.md) — the trust model, allowed env passthrough set, and built-in list are all there.
@@ -279,6 +313,7 @@ harness-aware and runs automatically (toggle with `session.harness_assets` in
 | Gemini | `~/.gemini/GEMINI.md`, `extensions/` |
 | Qwen | `~/.qwen/QWEN.md`, `extensions/` |
 | Hermes | none in v1; host `~/.hermes`, skills, MCP, cron, and service config are not synced |
+| Cursor Agent | none in v1; host Cursor IDE state, host `~/.cursor`, auth, and workspace trust/profile data are not synced |
 
 For the rows with synced paths, these are managed copies — if you edit them
 inside the sandbox, the next session will overwrite your edits with the host
@@ -293,5 +328,7 @@ version. Edit on the host instead.
 - **`hazmat bootstrap hermes` says Hermes is not installed:** install or link the Hermes executable as the agent user at `/Users/agent/.local/bin/hermes`, then rerun bootstrap. Hazmat records Hermes as installed only after `hermes --version` succeeds.
 - **`hazmat hermes -- gateway` / `dashboard` / `server` / `cron` is rejected:** v1 supports foreground Hermes sessions only. Run an interactive or prompt-driven foreground command under `hazmat hermes`, or track service supervision as a separate design.
 - **`hazmat qwen` still asks for auth:** run Qwen's auth flow inside `hazmat qwen`, or configure the contained `/Users/agent/.qwen` profile. Hazmat does not import host `~/.qwen` auth/settings in v1.
+- **`hazmat bootstrap cursor-agent` says Cursor Agent is not installed:** install or link the Cursor Agent executable as the agent user at `/Users/agent/.local/bin/cursor-agent`, then rerun bootstrap. Hazmat records Cursor Agent as installed only after `cursor-agent --version` succeeds.
+- **`hazmat cursor-agent` still asks for auth:** run `hazmat cursor-agent -- login`, or configure the contained agent-side Cursor Agent profile. Hazmat does not import host Cursor IDE state, host `~/.cursor`, or host auth settings in v1.
 
 For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).

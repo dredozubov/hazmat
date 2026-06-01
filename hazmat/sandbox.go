@@ -223,6 +223,8 @@ func sandboxAgentDisplayName(agent string) string {
 		return "Hermes"
 	case "qwen":
 		return "Qwen Code"
+	case "cursor-agent":
+		return "Cursor Agent"
 	case "shell":
 		return "shell"
 	default:
@@ -1061,6 +1063,14 @@ func runSandboxQwenSession(cfg sessionConfig, forwarded []string) error {
 
 func runPreparedSandboxQwenSession(prepared preparedSession, forwarded []string) error {
 	return runPreparedSandboxAgentSession(prepared, "qwen", forwarded)
+}
+
+func runSandboxCursorAgentSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxCursorAgentSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxCursorAgentSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "cursor-agent", forwarded)
 }
 
 func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {

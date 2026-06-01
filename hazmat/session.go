@@ -1885,6 +1885,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 		return fmt.Sprintf("hazmat hermes %s -C %s", flag, projectDir)
 	case "qwen":
 		return fmt.Sprintf("hazmat qwen %s -C %s", flag, projectDir)
+	case "cursor-agent":
+		return fmt.Sprintf("hazmat cursor-agent %s -C %s", flag, projectDir)
 	default:
 		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	}

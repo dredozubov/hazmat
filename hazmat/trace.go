@@ -153,6 +153,24 @@ func supportedTraceHarnessSpecs() []debugtrace.HarnessSpec {
 			},
 			SampleArgs: []string{"-p", "say ok"},
 		},
+		{
+			ID:               debugtrace.HarnessID(HarnessCursorAgent),
+			DisplayName:      "Cursor Agent",
+			CommandName:      "cursor-agent",
+			LaunchCommand:    "hazmat cursor-agent",
+			BootstrapCommand: "hazmat bootstrap cursor-agent",
+			Installed:        installedTraceHarness(HarnessCursorAgent),
+			Explain:          traceExplain("cursor-agent", parseHarnessArgs),
+			ProcessFilters: []string{
+				"cursor-agent",
+				"cursor",
+			},
+			AgentStatePaths: []string{
+				filepath.Join(agentHome, ".cursor"),
+				filepath.Join(agentHome, ".config", "cursor"),
+			},
+			SampleArgs: []string{"--", "--version"},
+		},
 	}
 }
 

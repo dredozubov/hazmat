@@ -2,7 +2,7 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
-> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, and qwen.
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, qwen, and cursor-agent.
 >
 > **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
@@ -29,7 +29,7 @@ hazmat init --bootstrap-agent claude   # one-time setup (~10 min, needs sudo)
 hazmat claude     # launch Claude Code in containment
 ```
 
-That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, Gemini, Hermes, or skip agent installation for now. When you bootstrap an agent during init, Hazmat can also ask for reusable provider API keys and git credentials. Import prompts are offered only for harnesses with a supported host-profile import path; Hermes does not import host `~/.hermes`.
+That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, or skip agent installation for now. When you bootstrap an agent during init, Hazmat can also ask for reusable provider API keys and git credentials. Import prompts are offered only for harnesses with a supported host-profile import path; Hermes, Qwen, and Cursor Agent do not import host profile state in v1.
 
 ```mermaid
 flowchart LR
@@ -618,6 +618,38 @@ with the rest of the agent home; after untrusted Hermes skills, MCP servers,
 hooks, or cron-like experiments, the supported full reset is
 `hazmat rollback --delete-user`, then `hazmat init` and
 `hazmat bootstrap hermes`.
+
+## Running Qwen Code
+
+```bash
+hazmat bootstrap qwen
+hazmat qwen
+hazmat qwen -p "summarize this repo"
+```
+
+Qwen Code installs into the agent user's `~/.local` prefix through npm and
+keeps auth, settings, extensions, and session state under `/Users/agent/.qwen`.
+Hazmat does not import host `~/.qwen` auth/settings in v1. Portable prompt
+assets such as host `~/.qwen/QWEN.md` and `~/.qwen/extensions/` can sync into
+the contained profile on launch.
+
+## Running Cursor Agent
+
+```bash
+hazmat bootstrap cursor-agent
+hazmat cursor-agent
+hazmat cursor-agent -- --version
+hazmat cursor-agent --print --output-format stream-json --force --trust
+```
+
+Cursor Agent support is foreground/headless and verification-only in v1.
+`hazmat bootstrap cursor-agent` verifies a manually installed
+`/Users/agent/.local/bin/cursor-agent`; it does not run an upstream installer,
+import host Cursor IDE state, copy host `~/.cursor`, or grant
+`CURSOR_API_KEY`. Run `hazmat cursor-agent -- login` or configure Cursor Agent
+inside the contained agent profile. Hazmat forwards Cursor Agent flags exactly
+as provided, so automation flags such as `--force` and `--trust` must be
+explicit.
 
 ## Importing Portable OpenCode Basics
 
