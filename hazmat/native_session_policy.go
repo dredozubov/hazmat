@@ -8,29 +8,50 @@ import "hazmat/containment"
 // native primitives.
 type nativeSessionPolicy struct {
 	containment.Contract
-	// MacOSNativeTLS is true when the harness running in this session uses the
-	// macOS Security framework directly for TLS trust evaluation (Rust apps
-	// linked against the security-framework crate, e.g. codex). Such harnesses
-	// need a wider Security framework surface than Node-based harnesses that
-	// ship their own CA bundle (claude, gemini) — see compileDarwinSBPL.
-	MacOSNativeTLS bool
+	// MacOSSecurityFramework is true when the harness touches Apple's Security
+	// framework or the security(1) helper during startup or network setup. Such
+	// harnesses need the wider trust/keychain/configd surface in compileDarwinSBPL.
+	MacOSSecurityFramework bool
+	// RuntimeTempDirs are narrow, harness-owned temp roots outside the normal
+	// session TMPDIR that a packaged runtime still probes directly.
+	RuntimeTempDirs []string
 }
 
-// macOSNativeTLSHarnesses is the set of harness IDs that need the wider
+// macOSSecurityFrameworkHarnesses is the set of harness IDs that need the wider
 // macOS Security framework surface (configd, /Library/Keychains, trustd.agent,
 // SecurityServer, AF_SYSTEM kernel control sockets, etc.).
 //
-// As of 2026-04: only codex (Rust + reqwest with native-tls). Node-based
-// harnesses (claude, gemini) and Bun-based ones (opencode) ship their own
-// CA bundle and don't touch the Security framework, so they get the smaller
-// base policy.
-func harnessUsesMacOSNativeTLS(id HarnessID) bool {
+// Codex reaches this through Rust reqwest/native-tls. Claude Code 2.1.x also
+// invokes Security framework helpers during print-mode startup, even though its
+// main runtime is Node-based.
+func harnessUsesMacOSSecurityFramework(id HarnessID) bool {
 	switch id {
-	case HarnessCodex:
+	case HarnessClaude, HarnessCodex:
 		return true
 	default:
 		return false
 	}
+}
+
+func runtimeTempDirsForHarness(id HarnessID) []string {
+	switch id {
+	case HarnessClaude:
+		dir := claudeRuntimeTempDir()
+		if dir == "" {
+			return nil
+		}
+		return []string{dir}
+	default:
+		return nil
+	}
+}
+
+func claudeRuntimeTempDir() string {
+	agentInfo, err := lookupAgentUser()
+	if err != nil || agentInfo == nil || agentInfo.Uid == "" {
+		return ""
+	}
+	return "/private/tmp/claude-" + agentInfo.Uid
 }
 
 func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
@@ -48,7 +69,8 @@ func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
 			Network: containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
 			Process: containment.ProcessPolicy{AllowFork: true},
 		},
-		MacOSNativeTLS: harnessUsesMacOSNativeTLS(cfg.HarnessID),
+		MacOSSecurityFramework: harnessUsesMacOSSecurityFramework(cfg.HarnessID),
+		RuntimeTempDirs:        runtimeTempDirsForHarness(cfg.HarnessID),
 	}
 }
 

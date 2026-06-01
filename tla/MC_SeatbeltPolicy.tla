@@ -9,7 +9,7 @@
 \*   Section 2: Project directory read+write allows (user input)
 \*   Section 3: Resume session directory read+write (optional, invoker's ~/.claude/...)
 \*   Section 4: Agent home config allows (static — .claude, .local, .config, etc.)
-\*   Section 5: Session temp root read+write+exec (agent-owned per-session dir)
+\*   Section 5: Session temp root and narrow harness temp root grants
 \*   Section 6: Project write re-assertion (same path as section 2, last allow)
 \*   Section 7: Host temp socket/capability denies
 \*   Section 8: Credential denies (static — .ssh, .aws, .config/gcloud, etc.)
@@ -30,6 +30,7 @@
 \*   4. ResumeDir (invoker's session dir) cannot be a credential path
 \*   5. Host temp is not implicitly readable/writable/executable
 \*   6. Session temp remains writable and executable for build tools
+\*      while narrow harness temp roots remain non-executable
 \*   7. Codex App temp socket/capability paths are denied even if host temp is granted
 \*   8. Network mode "none" grants no outbound network or DNS authority
 \*
@@ -63,6 +64,8 @@ CONSTANTS
     hostTempOutside,\* /private/tmp/outside-host-readable.txt
     sessionTempRoot,\* /Users/agent/.cache/hazmat/tmp/<session>
     sessionTempFile,\* /Users/agent/.cache/hazmat/tmp/<session>/artifact
+    claudeTempRoot,\* /private/tmp/claude-599 (agent-owned Claude runtime temp)
+    claudeTempFile,\* /private/tmp/claude-599/socket
     codexTempSocket \* /private/tmp/codex-ipc/app.sock
 
 ASSUME CredPaths \subseteq Paths
@@ -87,6 +90,9 @@ Contains(child, parent) ==
     \/ (child = sessionTempFile /\ parent = agentHome)
     \/ (child = sessionTempFile /\ parent = sessionTempRoot)
     \/ (child = hostTempOutside /\ parent = hostTempRoot)
+    \/ (child = claudeTempRoot /\ parent = hostTempRoot)
+    \/ (child = claudeTempFile /\ parent = hostTempRoot)
+    \/ (child = claudeTempFile /\ parent = claudeTempRoot)
     \/ (child = codexTempSocket /\ parent = hostTempRoot)
 
 \* ═══════════════════════════════════════════════════════════════════════════════
@@ -209,14 +215,16 @@ EmitHomeConfig ==
     /\ section' = 5
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
-\* Section 5: Session temp root.
+\* Section 5: Session temp root and narrow harness runtime temp roots.
 \* Hazmat no longer grants broad /private/tmp or /private/var/folders
-\* read/write/exec. Runtime TMPDIR is an agent-owned per-session root, which
-\* remains writable and executable for compiler/runtime temp artifacts.
+\* read/write/exec. Runtime TMPDIR is an agent-owned per-session root. Claude
+\* also receives its agent-owned /private/tmp/claude-<uid> runtime dir because
+\* Claude Code 2.1.x probes it directly even when TMPDIR/BUN_TMPDIR are set.
 EmitSessionTemp ==
     /\ section = 5
     /\ rules' = rules \cup
-         {AllowRead(5, sessionTempRoot), AllowWrite(5, sessionTempRoot), AllowExec(5, sessionTempRoot)}
+         {AllowRead(5, sessionTempRoot), AllowWrite(5, sessionTempRoot), AllowExec(5, sessionTempRoot)} \cup
+         {AllowRead(5, claudeTempRoot), AllowWrite(5, claudeTempRoot)}
     /\ section' = 6
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, networkAllows>>
 
@@ -389,6 +397,15 @@ SessionTempWritable ==
         /\ EffectiveRead(sessionTempFile) = "allow_read"
         /\ EffectiveWrite(sessionTempFile) = "allow_write"
         /\ EffectiveExec(sessionTempFile) = "allow_exec"
+
+\* --- Claude runtime temp remains scoped and non-executable ---
+ClaudeRuntimeTempScoped ==
+    section = 9 =>
+        /\ EffectiveRead(claudeTempFile) = "allow_read"
+        /\ EffectiveWrite(claudeTempFile) = "allow_write"
+        /\ \/ Contains(claudeTempFile, projectDir)
+           \/ \E d \in readDirs : Contains(claudeTempFile, d)
+           \/ EffectiveExec(claudeTempFile) # "allow_exec"
 
 \* --- Codex App temp/control sockets stay denied even under broad temp grants ---
 TempSocketsDenied ==

@@ -15,7 +15,7 @@ session:
 
 warnings:
   - "The Flutter SDK at /opt/homebrew/share/flutter is a git checkout. When invoked as the sandboxed agent user, flutter's bootstrap fails with 'fatal: detected dubious ownership in repository'. Workaround: configure git to trust the SDK dir for the agent ('sudo -u agent git config --global --add safe.directory /opt/homebrew/share/flutter') or invoke the bundled dart at /opt/homebrew/share/flutter/bin/cache/dart-sdk/bin/dart directly."
-  - "Online 'dart pub get' / 'flutter pub get' may hit a TLS verification failure against pub.dev because Dart's ssl stack goes through Apple's SecureTransport. This is the same MacOSNativeTLS surface that codex needs; non-network commands and offline caching are unaffected."
+  - "Online 'dart pub get' / 'flutter pub get' may hit a TLS verification failure against pub.dev because Dart's ssl stack goes through Apple's SecureTransport. This is the same macOS Security framework surface that Claude and Codex need; non-network commands and offline caching are unaffected."
 
 backup:
   excludes:
