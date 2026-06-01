@@ -157,7 +157,7 @@ Hermes' default state root is `~/.hermes`. In Hazmat, the first slice should use
 a dedicated managed state root instead of importing host state:
 
 ```text
-/Users/agent/.hazmat/hermes/
+/Users/agent/.hazmat/hermes/projects/<project-hash>/
   config.yaml
   .env                  # absent in v1 unless explicitly configured inside agent
   sessions/
@@ -169,9 +169,11 @@ a dedicated managed state root instead of importing host state:
   home/
 ```
 
-Hazmat should set `HERMES_HOME=/Users/agent/.hazmat/hermes` for the session.
+Hazmat sets `HERMES_HOME` to a project-scoped path under
+`/Users/agent/.hazmat/hermes/projects/`, keyed by the canonical project path.
 Keeping the root under a Hazmat-owned prefix makes it easier to explain that the
-state is not the user's normal Hermes profile.
+state is not the user's normal Hermes profile; keying by project avoids sharing
+Hermes memories, sessions, and skills across unrelated `-C` values.
 
 Hazmat should create the root before launch as the agent user, with restrictive
 ownership and permissions. This is a non-secret harness environment setting; the
@@ -183,8 +185,8 @@ The current native policy has a broad `/Users/agent` read/write grant, so this
 state root does not require a new seatbelt allow rule in v1. That fact cuts both
 ways: Hazmat's existing credential-deny anchors cover paths such as
 `/Users/agent/.ssh`, but they do not automatically cover nested Hermes tool-home
-paths such as `/Users/agent/.hazmat/hermes/home/.ssh`. The v1 design should not
-claim otherwise.
+paths such as `/Users/agent/.hazmat/hermes/projects/<project-hash>/home/.ssh`.
+The v1 design should not claim otherwise.
 
 The first slice should not sync:
 
@@ -202,9 +204,9 @@ under `~/.hermes/skills`, can include scripts, and can be modified or deleted by
 the agent. They should therefore not join the existing harness asset sync
 system until Hazmat has a Hermes-specific asset policy.
 
-Two foreground Hermes sessions will share the same managed `HERMES_HOME` unless
-the implementation adds a lock or per-session profile root. V1 can defer locking
-if it matches the rest of Hazmat's shared-agent-home posture, but the limitation
+Two foreground Hermes sessions for the same project still share the same managed
+`HERMES_HOME`; cross-project sessions do not. V1 can defer locking if it matches
+the rest of Hazmat's shared-agent-home posture, but the same-project limitation
 should be documented. Secrets or credentials manually written into
 `<HERMES_HOME>/.env` by the user or by Hermes setup also survive ordinary Hazmat
 rollback unless the agent user is deleted; that is correct by inheritance, but
@@ -657,9 +659,9 @@ dashboard, cron, and profile supervision.
 
 ## Resolved Audit Decisions
 
-- Use `/Users/agent/.hazmat/hermes` as the preferred managed state root unless
-  an implementation fact-check finds Hermes hardcodes `~/.hermes` in a way that
-  ignores `HERMES_HOME`.
+- Use `/Users/agent/.hazmat/hermes/projects/<project-hash>` as the preferred
+  managed state root unless an implementation fact-check finds Hermes hardcodes
+  `~/.hermes` in a way that ignores `HERMES_HOME`.
 - Reject `hermes gateway`, persistent cron management, and dashboard/API
   entrypoints in v1 with guidance.
 - Is it acceptable for users to configure credentials manually inside the agent
@@ -686,11 +688,8 @@ dashboard, cron, and profile supervision.
   sufficient for the first release?
 - Should nested `<HERMES_HOME>/home` credential denies be added immediately, or
   should v1 explicitly accept agent-created credentials there?
-- `HERMES_HOME` is a single global root with no project component, so Hermes
-  `memories/`, `sessions/`, and `skills/` are shared across every project run
-  under the agent account (they are not isolated by `-C`). Is that acceptable
-  for v1's single-trust-domain assumption, or should the managed root carry a
-  per-project / per-workspace suffix? (Tracked as a separate issue.)
+- Should same-project foreground Hermes sessions share one project-scoped
+  profile root, or should Hazmat add locking or per-session roots?
 
 ## Recommended Decision
 

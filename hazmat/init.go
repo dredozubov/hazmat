@@ -415,7 +415,7 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		fmt.Printf("  Import basics:  hazmat config import %s\n", bootstrapSelection)
 	case string(HarnessHermes):
 		fmt.Println("  Update creds:   hazmat config agent")
-		fmt.Println("  Hermes state:   managed HERMES_HOME under /Users/agent/.hazmat/hermes")
+		fmt.Println("  Hermes state:   project-scoped HERMES_HOME under /Users/agent/.hazmat/hermes/projects")
 	default:
 		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini|hermes")
 	}

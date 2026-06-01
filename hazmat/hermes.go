@@ -86,8 +86,23 @@ func rejectHermesDeferredEntrypoint(forwarded []string) error {
 }
 
 func firstHermesEntrypoint(args []string) string {
+	skipNext := false
 	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
 		if strings.TrimSpace(arg) == "" {
+			continue
+		}
+		if arg == "--" {
+			continue
+		}
+		if hermesFlagHasInlineValue(arg) {
+			continue
+		}
+		if hermesFlagConsumesNext(arg) {
+			skipNext = true
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
@@ -96,4 +111,49 @@ func firstHermesEntrypoint(args []string) string {
 		return strings.ToLower(arg)
 	}
 	return ""
+}
+
+var hermesFlagsWithValues = map[string]struct{}{
+	"-c":            {},
+	"-m":            {},
+	"-p":            {},
+	"-t":            {},
+	"-w":            {},
+	"--config":      {},
+	"--config-file": {},
+	"--model":       {},
+	"--profile":     {},
+	"--provider":    {},
+	"--toolsets":    {},
+	"--tools":       {},
+	"--workspace":   {},
+}
+
+func hermesFlagHasInlineValue(arg string) bool {
+	if !strings.HasPrefix(arg, "-") {
+		return false
+	}
+	if strings.HasPrefix(arg, "--") {
+		name, _, ok := strings.Cut(arg, "=")
+		if !ok {
+			return false
+		}
+		_, takesValue := hermesFlagsWithValues[name]
+		return takesValue
+	}
+	_, takesValue := hermesFlagsWithValues[arg[:min(len(arg), 2)]]
+	return takesValue && len(arg) > 2
+}
+
+func hermesFlagConsumesNext(arg string) bool {
+	if !strings.HasPrefix(arg, "-") || arg == "--" {
+		return false
+	}
+	if strings.HasPrefix(arg, "--") {
+		if name, _, ok := strings.Cut(arg, "="); ok {
+			arg = name
+		}
+	}
+	_, takesValue := hermesFlagsWithValues[arg]
+	return takesValue
 }

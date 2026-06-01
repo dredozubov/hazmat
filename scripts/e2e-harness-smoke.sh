@@ -261,10 +261,13 @@ cat > "$FAKE_HERMES" <<'EOF'
 #!/bin/sh
 set -eu
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 40; }
-if [ "${HERMES_HOME:-}" != "$HOME/.hazmat/hermes" ]; then
-  echo "unexpected HERMES_HOME=${HERMES_HOME:-}" >&2
-  exit 41
-fi
+case "${HERMES_HOME:-}" in
+  "$HOME/.hazmat/hermes/projects/"*) ;;
+  *)
+	  echo "unexpected HERMES_HOME=${HERMES_HOME:-}" >&2
+	  exit 41
+	  ;;
+esac
 test "${ANTHROPIC_API_KEY:-}" = "stored-anthropic-provider" || { echo "missing ANTHROPIC_API_KEY" >&2; exit 42; }
 test "${OPENAI_API_KEY:-}" = "stored-openai-provider" || { echo "missing OPENAI_API_KEY" >&2; exit 43; }
 test "${GEMINI_API_KEY:-}" = "stored-gemini-provider" || { echo "missing GEMINI_API_KEY" >&2; exit 44; }
@@ -282,8 +285,8 @@ install_agent_executable "$FAKE_HERMES" "$AGENT_HOME/.local/bin/hermes"
 HERMES_OUT="$TMPDIR_SMOKE/hermes.out"
 "$HAZMAT" hermes --no-backup --skip-harness-assets-sync -C "$PROJECT" -- --version > "$HERMES_OUT" 2>&1
 assert_file_contains "$HERMES_OUT" "hermes fake smoke" "Hermes fake CLI ran through hazmat hermes"
-sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.hazmat/hermes" \
-    && pass "Hermes managed state root exists" \
+sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.hazmat/hermes/projects" \
+    && pass "Hermes managed project state root exists" \
     || die "Hermes managed state root missing"
 
 phase "Claude auth harvest guard"

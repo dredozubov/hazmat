@@ -59,10 +59,11 @@ The Hermes case installs a fake `/Users/agent/.local/bin/hermes`, runs:
 hazmat hermes --no-backup -C <scratch-project> -- --version
 ```
 
-The fake binary asserts `HERMES_HOME=$HOME/.hazmat/hermes` and prints a version
-marker. The smoke verifies that marker and checks that the managed Hermes state
-root exists. This covers the one-command foreground harness path without
-requiring a real Hermes install. The fake binary also asserts all Hermes
+The fake binary asserts `HERMES_HOME` is under
+`$HOME/.hazmat/hermes/projects/` and prints a version marker. The smoke verifies
+that marker and checks that the managed Hermes project-state root exists. This
+covers the one-command foreground harness path without requiring a real Hermes
+install. The fake binary also asserts all Hermes
 provider env grants that Hazmat can transparently deliver.
 
 ### Claude Auth Harvest Guard

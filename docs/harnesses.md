@@ -53,7 +53,7 @@ secret values.
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
 | Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
 | Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
-| Hermes profile state | `/Users/agent/.hazmat/hermes` | Managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
+| Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Project-scoped managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
 
 Provider API keys are configured once per provider. If more than one harness is
 allowed to consume the same env var, Hazmat reuses the same stored key and
@@ -107,14 +107,16 @@ records the consuming harness in explain/session metadata.
   running `hermes --version`, then records harness state. It does not run an
   upstream install script, curl pipe, npm latest install, pipx install, or host
   profile migration.
-- **Managed profile root:** Hazmat creates `/Users/agent/.hazmat/hermes` with
-  mode `0700` before launch and sets `HERMES_HOME` to that path. That state is
-  durable agent profile state; normal rollback boundaries are documented by the
-  setup/rollback model, and Hazmat does not treat host `~/.hermes` as a source.
+- **Managed profile root:** Hazmat creates
+  `/Users/agent/.hazmat/hermes/projects/<project-hash>` with mode `0700` before
+  launch and sets `HERMES_HOME` to that path. That state is durable agent
+  profile state scoped by canonical project path; normal rollback boundaries are
+  documented by the setup/rollback model, and Hazmat does not treat host
+  `~/.hermes` as a source.
 - **Reset / uninstall boundary:** ordinary `hazmat rollback` removes host-owned
   Hazmat metadata but preserves `/Users/agent/.hazmat/hermes` with the rest of
   the agent home. After running untrusted Hermes skills, MCP servers, hooks, or
-  cron-like experiments, the supported full reset is
+  cron-like experiments, the supported full reset for all Hermes project state is
   `hazmat rollback --delete-user` followed by `hazmat init` and
   `hazmat bootstrap hermes`. A narrower Hermes-only reset command needs a
   model-first cleanup design before
@@ -126,7 +128,7 @@ records the consuming harness in explain/session metadata.
   session.
 - **Contained setup path:** run `hazmat hermes` or
   `hazmat hermes -- chat ...` and let Hermes write any local profile state under
-  the managed `HERMES_HOME`.
+  the project-scoped managed `HERMES_HOME`.
 - **Unsupported in v1:** `hazmat config import hermes`, host `~/.hermes`
   import, harness asset sync, gateway/dashboard/API/server modes, persistent
   cron/service entrypoints, and Hermes MCP/skill/profile migration.

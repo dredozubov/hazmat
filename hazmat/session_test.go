@@ -1147,7 +1147,7 @@ func TestGenerateSBPLCodexHarnessGetsNativeTLSRules(t *testing.T) {
 }
 
 func TestGenerateSBPLNonRustHarnessesDoNotGetNativeTLSRules(t *testing.T) {
-	for _, harness := range []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, ""} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessHermes, ""} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
