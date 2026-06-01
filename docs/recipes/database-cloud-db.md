@@ -63,7 +63,7 @@ This way the credential lives on the host process, the agent talks to a forwarde
 ## Compatibility report prompts
 
 If you exercise this recipe, please file a compatibility note with:
-- harness (claude / codex / opencode / gemini / hermes)
+- harness (claude / codex / opencode / gemini / hermes / qwen)
 - cloud DB provider (RDS / Aurora / Cloud SQL / Supabase / Neon / PlanetScale)
 - containment mode (native / Tier 3 sandbox / Tier 4)
 - test command used

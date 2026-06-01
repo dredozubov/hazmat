@@ -323,6 +323,10 @@ func TestApplyHarnessAPIKeyEnvDeliversConfiguredProvidersForAllowedHarness(t *te
 			harness: HarnessOpenCode,
 			want:    map[string]credentialID{},
 		},
+		{
+			harness: HarnessQwen,
+			want:    map[string]credentialID{},
+		},
 	}
 
 	for _, tc := range cases {
@@ -442,6 +446,11 @@ func TestProviderAPIKeyPromptsAreSelectedFromConsumerHarnesses(t *testing.T) {
 		{
 			name:      "opencode only",
 			harnesses: []HarnessID{HarnessOpenCode},
+			want:      nil,
+		},
+		{
+			name:      "qwen only",
+			harnesses: []HarnessID{HarnessQwen},
 			want:      nil,
 		},
 		{

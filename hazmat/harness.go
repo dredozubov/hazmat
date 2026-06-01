@@ -13,11 +13,13 @@ const (
 	HarnessOpenCode             HarnessID = "opencode"
 	HarnessGemini               HarnessID = "gemini"
 	HarnessHermes               HarnessID = "hermes"
+	HarnessQwen                 HarnessID = "qwen"
 	claudeHarnessStateVersion             = "1"
 	codexHarnessStateVersion              = "1"
 	opencodeHarnessStateVersion           = "1"
 	geminiHarnessStateVersion             = "1"
 	hermesHarnessStateVersion             = "1"
+	qwenHarnessStateVersion               = "1"
 )
 
 type HarnessSpec struct {
@@ -44,12 +46,14 @@ type CodexHarness struct{}
 type OpenCodeHarness struct{}
 type GeminiHarness struct{}
 type HermesHarness struct{}
+type QwenHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
 var geminiHarness = GeminiHarness{}
 var hermesHarness = HermesHarness{}
+var qwenHarness = QwenHarness{}
 
 var managedHarnessRegistry = []ManagedHarness{
 	{
@@ -112,6 +116,18 @@ var managedHarnessRegistry = []ManagedHarness{
 			return hermesHarness.Bootstrap(ui, r)
 		},
 	},
+	{
+		Spec:             qwenHarness.Spec(),
+		LaunchCommand:    "hazmat qwen",
+		BootstrapCommand: "hazmat bootstrap qwen",
+		Installed: func() bool {
+			_, ok := findInstalledQwenBinary()
+			return ok
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return qwenHarness.Bootstrap(ui, r)
+		},
+	},
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -151,6 +167,14 @@ func (HermesHarness) Spec() HarnessSpec {
 		ID:           HarnessHermes,
 		DisplayName:  "Hermes",
 		StateVersion: hermesHarnessStateVersion,
+	}
+}
+
+func (QwenHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessQwen,
+		DisplayName:  "Qwen Code",
+		StateVersion: qwenHarnessStateVersion,
 	}
 }
 
@@ -295,6 +319,22 @@ func (h HermesHarness) Bootstrap(ui *UI, r *Runner) error {
 }
 
 func (h HermesHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
+}
+
+func (h QwenHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runQwenBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h QwenHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
 }
 

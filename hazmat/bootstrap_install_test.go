@@ -12,6 +12,7 @@ func TestHarnessBootstrapsUseInstallOrUpdateHelper(t *testing.T) {
 		"bootstrap_codex.go",
 		"bootstrap_opencode.go",
 		"bootstrap_gemini.go",
+		"bootstrap_qwen.go",
 	} {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -65,6 +66,22 @@ func TestGeminiInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("geminiInstallScript() missing %q in %q", want, script)
+		}
+	}
+}
+
+func TestQwenInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
+	script := qwenInstallScript()
+	for _, want := range []string{
+		`command -v node`,
+		`major >= 20`,
+		`mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/node_modules"`,
+		`export NPM_CONFIG_PREFIX="$HOME/.local"`,
+		`npm install -g --silent "@qwen-code/qwen-code@latest"`,
+		`test -x "$HOME/.local/bin/qwen"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("qwenInstallScript() missing %q in %q", want, script)
 		}
 	}
 }

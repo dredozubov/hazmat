@@ -221,6 +221,8 @@ func sandboxAgentDisplayName(agent string) string {
 		return "Gemini"
 	case "hermes":
 		return "Hermes"
+	case "qwen":
+		return "Qwen Code"
 	case "shell":
 		return "shell"
 	default:
@@ -1051,6 +1053,14 @@ func runSandboxHermesSession(cfg sessionConfig, forwarded []string) error {
 
 func runPreparedSandboxHermesSession(prepared preparedSession, forwarded []string) error {
 	return runPreparedSandboxAgentSession(prepared, "hermes", forwarded)
+}
+
+func runSandboxQwenSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxQwenSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxQwenSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "qwen", forwarded)
 }
 
 func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {

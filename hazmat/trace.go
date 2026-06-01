@@ -134,6 +134,25 @@ func supportedTraceHarnessSpecs() []debugtrace.HarnessSpec {
 			},
 			SampleArgs: []string{"--version"},
 		},
+		{
+			ID:               debugtrace.HarnessID(HarnessQwen),
+			DisplayName:      "Qwen Code",
+			CommandName:      "qwen",
+			LaunchCommand:    "hazmat qwen",
+			BootstrapCommand: "hazmat bootstrap qwen",
+			Installed:        installedTraceHarness(HarnessQwen),
+			Explain:          traceExplain("qwen", parseHarnessArgs),
+			ProcessFilters: []string{
+				"qwen",
+			},
+			AgentStatePaths: []string{
+				filepath.Join(agentHome, ".qwen"),
+			},
+			HostStatePaths: []string{
+				"~/.hazmat/harness-assets.json",
+			},
+			SampleArgs: []string{"-p", "say ok"},
+		},
 	}
 }
 

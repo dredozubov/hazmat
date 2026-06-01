@@ -115,6 +115,10 @@ var (
 			{Harness: HarnessGemini, Key: "gemini-md", Kind: harnessAssetFileRoot, HostPath: "~/.gemini/GEMINI.md", AgentPath: agentHome + "/.gemini/GEMINI.md"},
 			{Harness: HarnessGemini, Key: "extensions", Kind: harnessAssetDirRoot, HostPath: "~/.gemini/extensions", AgentPath: agentHome + "/.gemini/extensions"},
 		},
+		HarnessQwen: {
+			{Harness: HarnessQwen, Key: "qwen-md", Kind: harnessAssetFileRoot, HostPath: "~/.qwen/QWEN.md", AgentPath: agentHome + "/.qwen/QWEN.md"},
+			{Harness: HarnessQwen, Key: "extensions", Kind: harnessAssetDirRoot, HostPath: "~/.qwen/extensions", AgentPath: agentHome + "/.qwen/extensions"},
+		},
 	}
 )
 
@@ -162,6 +166,8 @@ func harnessIDForCommand(commandName string) (HarnessID, bool) {
 		return HarnessGemini, true
 	case string(HarnessHermes):
 		return HarnessHermes, true
+	case string(HarnessQwen):
+		return HarnessQwen, true
 	default:
 		return "", false
 	}

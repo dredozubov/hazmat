@@ -28,7 +28,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **One human controller.** Setup creates ACLs for the user who runs `hazmat init`. A second human user on the same Mac cannot co-manage the workspace without manual ACL changes.
 
-**Concurrent sessions are possible but racy.** Each `hazmat claude`, `hazmat opencode`, `hazmat shell`, or `hazmat exec` session gets a unique seatbelt policy (PID-based filename). But all sessions share the same agent home and harness state. Two harness instances writing to shared state like `~/.claude/` or `~/.config/opencode/` simultaneously is undefined behavior. We don't prevent it.
+**Concurrent sessions are possible but racy.** Each `hazmat claude`, `hazmat opencode`, `hazmat qwen`, `hazmat shell`, or `hazmat exec` session gets a unique seatbelt policy (PID-based filename). But all sessions share the same agent home and harness state. Two harness instances writing to shared state like `~/.claude/`, `~/.config/opencode/`, or `~/.qwen/` simultaneously is undefined behavior. We don't prevent it.
 
 ## Shell
 
@@ -182,7 +182,7 @@ not execute them.
 
 ## Claude Code Coupling
 
-**Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, or OpenCode when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
+**Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, OpenCode, Gemini, Hermes, or Qwen when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
 
 **Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Cursor, aider, or OpenAI's tools, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
 

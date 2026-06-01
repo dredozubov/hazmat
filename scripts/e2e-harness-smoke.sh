@@ -14,7 +14,7 @@ Usage:
   bash scripts/e2e-harness-smoke.sh --list-harnesses
 
 Runs non-destructive harness smokes for:
-  - Claude Code, Codex, OpenCode, Gemini, and Hermes foreground launch paths
+  - Claude Code, Codex, OpenCode, Gemini, Hermes, and Qwen foreground launch paths
   - provider/env delivery for harnesses that consume provider env grants
   - file-backed auth materialization, harvest, and cleanup where applicable
   - Claude auth materialization/harvest preserving host-owned auth when the
@@ -28,7 +28,7 @@ EOF
 
 SKIP_BUILD=""
 LIST_HARNESSES=""
-SMOKE_HARNESSES="claude codex opencode gemini hermes"
+SMOKE_HARNESSES="claude codex opencode gemini hermes qwen"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -227,6 +227,8 @@ backup_path "$AGENT_HOME/.local/share/opencode/auth.json" "agent-opencode-auth"
 backup_path "$AGENT_HOME/.local/bin/gemini" "agent-gemini-bin"
 backup_path "$AGENT_HOME/.gemini/oauth_creds.json" "agent-gemini-oauth"
 backup_path "$AGENT_HOME/.gemini/google_accounts.json" "agent-gemini-accounts"
+backup_path "$AGENT_HOME/.local/bin/qwen" "agent-qwen-bin"
+backup_path "$AGENT_HOME/.qwen" "agent-qwen-state"
 backup_path "$HOME/.hazmat/secrets/claude/credentials.json" "host-claude-credentials"
 backup_path "$HOME/.hazmat/secrets/claude/state.json" "host-claude-state"
 backup_path "$HOME/.hazmat/secrets/codex/auth.json" "host-codex-auth"
@@ -247,6 +249,7 @@ record_absent_agent_dir "$AGENT_HOME/.opencode/bin"
 record_absent_agent_dir "$AGENT_HOME/.opencode"
 record_absent_agent_dir "$AGENT_HOME/.local/share/opencode"
 record_absent_agent_dir "$AGENT_HOME/.gemini"
+record_absent_agent_dir "$AGENT_HOME/.qwen"
 
 PROJECT="$(mktemp -d /tmp/hazmat-harness-project.XXXXXX)"
 
@@ -411,5 +414,31 @@ assert_file_contains "$HOME/.hazmat/secrets/gemini/oauth_creds.json" "updated-ge
 assert_file_contains "$HOME/.hazmat/secrets/gemini/google_accounts.json" "updated-gemini-account" "Host-owned Gemini accounts harvested updated runtime auth"
 assert_agent_file_absent "$AGENT_HOME/.gemini/oauth_creds.json" "Gemini OAuth residue removed from agent home"
 assert_agent_file_absent "$AGENT_HOME/.gemini/google_accounts.json" "Gemini account residue removed from agent home"
+
+phase "Qwen foreground launch"
+FAKE_QWEN="$TMPDIR_SMOKE/qwen"
+cat > "$FAKE_QWEN" <<'EOF'
+#!/bin/sh
+set -eu
+test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 90; }
+if [ "${1:-}" != "--yolo" ]; then
+  echo "expected --yolo as first Qwen arg, got: $*" >&2
+  exit 91
+fi
+mkdir -p "$HOME/.qwen"
+case " $* " in
+  *" -p "*"qwen smoke"*) ;;
+  *) echo "unexpected Qwen args: $*" >&2; exit 92 ;;
+esac
+echo "FAKE_QWEN_OK"
+EOF
+install_agent_executable "$FAKE_QWEN" "$AGENT_HOME/.local/bin/qwen"
+
+QWEN_OUT="$TMPDIR_SMOKE/qwen.out"
+"$HAZMAT" qwen --no-backup --skip-harness-assets-sync -C "$PROJECT" --yolo -p "qwen smoke" > "$QWEN_OUT" 2>&1
+assert_file_contains "$QWEN_OUT" "FAKE_QWEN_OK" "Qwen fake CLI ran through hazmat qwen"
+sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.qwen" \
+    && pass "Qwen contained state directory exists" \
+    || die "Qwen contained state directory missing"
 
 printf "\n\033[32m  All %d harness smoke checks passed.\033[0m\n" "$PASS"

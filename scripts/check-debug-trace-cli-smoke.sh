@@ -22,5 +22,7 @@ run_smoke "trace claude --help" trace claude --help
 run_smoke "trace codex --help" trace codex --help
 run_smoke "trace opencode --help" trace opencode --help
 run_smoke "trace gemini --help" trace gemini --help
+run_smoke "trace hermes --help" trace hermes --help
+run_smoke "trace qwen --help" trace qwen --help
 
 echo "debug-trace-cli-smoke: all checks passed"

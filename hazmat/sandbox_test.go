@@ -835,6 +835,13 @@ func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
 			forwarded:   []string{"chat", "say only OK"},
 			expectedRun: []string{"chat", "say only OK"},
 		},
+		{
+			name:        "qwen",
+			agent:       "qwen",
+			run:         runSandboxQwenSession,
+			forwarded:   []string{"--yolo", "-p", "say only OK"},
+			expectedRun: []string{"--yolo", "-p", "say only OK"},
+		},
 	}
 
 	for _, tc := range tests {
