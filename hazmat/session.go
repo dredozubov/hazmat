@@ -346,20 +346,14 @@ Examples:
 				}
 			}
 
-			// --dangerously-skip-permissions is the default inside hazmat.
-			// The containment is OS-level (user isolation + seatbelt +
-			// pf firewall); Claude's permission prompts are redundant.
-			// Configurable via: hazmat config set session.skip_permissions false
-			skipFlag := ""
-			if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-				skipFlag = "--dangerously-skip-permissions "
-			}
+			hcfg, _ := loadConfig()
+			forwarded = claudeLaunchArgs(forwarded, hcfg.SkipPermissions(), claudeUseBareMode(prepared.Config, prepared.Mode))
 
 			return runPreparedAgentSeatbeltScriptWithUI(prepared, claudeLaunchUI(forwarded),
 				`cd "$SANDBOX_PROJECT_DIR" && `+
 					`{ test -x "$HOME/.local/bin/claude" || `+
 					`{ echo "Error: Claude Code not installed for agent user. Run: hazmat bootstrap claude" >&2; exit 1; }; }; `+
-					`exec "$HOME/.local/bin/claude" `+skipFlag+`"$@"`, forwarded...)
+					`exec "$HOME/.local/bin/claude" "$@"`, forwarded...)
 		},
 	}
 	return cmd
@@ -936,6 +930,41 @@ func parseClaudeArgs(args []string) (claudeOpts, []string, error) {
 	return parseHarnessArgs(args)
 }
 
+func claudeLaunchArgs(forwarded []string, skipPermissions, useBare bool) []string {
+	var prefix []string
+	if skipPermissions {
+		prefix = append(prefix, "--dangerously-skip-permissions")
+	}
+	if useBare && !slices.Contains(forwarded, "--bare") {
+		prefix = append(prefix, "--bare")
+	}
+	if len(prefix) == 0 {
+		return forwarded
+	}
+	out := make([]string, 0, len(prefix)+len(forwarded))
+	out = append(out, prefix...)
+	out = append(out, forwarded...)
+	return out
+}
+
+func claudeAPIKeyAuthAvailable(cfg sessionConfig) bool {
+	if cfg.HarnessID != HarnessClaude {
+		return false
+	}
+	return strings.TrimSpace(cfg.HarnessEnv["ANTHROPIC_API_KEY"]) != ""
+}
+
+func claudeUseBareMode(cfg sessionConfig, mode sessionMode) bool {
+	return mode == sessionModeNative && claudeAPIKeyAuthAvailable(cfg)
+}
+
+func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
+	if !claudeUseBareMode(*cfg, mode) {
+		return
+	}
+	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code will run with --bare because ANTHROPIC_API_KEY is granted; this avoids agent-account Apple Keychain prompts.")
+}
+
 func claudeLaunchUI(forwarded []string) sessionLaunchUI {
 	wantsResume, resumeTarget, wantsContinue := detectResumeFlags(forwarded)
 	if wantsResume && resumeTarget == "" && !wantsContinue {
@@ -1273,6 +1302,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err := applyHarnessAPIKeyEnvForSession(&cfg, opts.planOnly); err != nil {
 		return preparedSession{}, err
 	}
+	appendClaudeBareSessionNote(&cfg, mode)
 	if !opts.planOnly {
 		if err := applyHarnessAuthArtifacts(&cfg); err != nil {
 			return preparedSession{}, err

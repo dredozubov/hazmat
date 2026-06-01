@@ -1011,9 +1011,8 @@ func runPreparedSandboxClaudeSession(prepared preparedSession, forwarded []strin
 		fmt.Fprintln(os.Stderr, "hazmat: note: --resume/--continue uses Docker Sandbox-local Claude history; host transcript sync is not applied in --docker=sandbox mode")
 	}
 
-	if hcfg, _ := loadConfig(); hcfg.SkipPermissions() {
-		forwarded = append([]string{"--dangerously-skip-permissions"}, forwarded...)
-	}
+	hcfg, _ := loadConfig()
+	forwarded = claudeLaunchArgs(forwarded, hcfg.SkipPermissions(), false)
 
 	return runPreparedSandboxAgentSession(prepared, "claude", forwarded)
 }

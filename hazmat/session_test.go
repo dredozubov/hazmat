@@ -189,6 +189,51 @@ func TestCodexLaunchArgsDoesNotAddSkipPermissionsForAppServer(t *testing.T) {
 	}
 }
 
+func TestClaudeLaunchArgsAddsBareForAPIKeyAuth(t *testing.T) {
+	got := claudeLaunchArgs([]string{"-p", "hi"}, true, true)
+	want := []string{"--dangerously-skip-permissions", "--bare", "-p", "hi"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("claudeLaunchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestClaudeLaunchArgsDoesNotAddBareWithoutAPIKeyAuth(t *testing.T) {
+	got := claudeLaunchArgs([]string{"-p", "hi"}, true, false)
+	want := []string{"--dangerously-skip-permissions", "-p", "hi"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("claudeLaunchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestClaudeLaunchArgsDoesNotDuplicateBare(t *testing.T) {
+	got := claudeLaunchArgs([]string{"--bare", "-p", "hi"}, true, true)
+	want := []string{"--dangerously-skip-permissions", "--bare", "-p", "hi"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("claudeLaunchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestClaudeAPIKeyAuthAvailableRequiresClaudeHarnessEnv(t *testing.T) {
+	cfg := sessionConfig{
+		HarnessID:  HarnessClaude,
+		HarnessEnv: map[string]string{"ANTHROPIC_API_KEY": "stored-claude-key"},
+	}
+	if !claudeAPIKeyAuthAvailable(cfg) {
+		t.Fatal("expected Claude API key auth to be available")
+	}
+
+	cfg.HarnessID = HarnessCodex
+	if claudeAPIKeyAuthAvailable(cfg) {
+		t.Fatal("Codex session should not be treated as Claude API key auth")
+	}
+
+	cfg.HarnessID = HarnessClaude
+	cfg.HarnessEnv["ANTHROPIC_API_KEY"] = "   "
+	if claudeAPIKeyAuthAvailable(cfg) {
+		t.Fatal("blank ANTHROPIC_API_KEY should not enable Claude API key auth")
+	}
+}
+
 func TestCodexLaunchUIForAppServerDisablesStatusBar(t *testing.T) {
 	ui := codexLaunchUI([]string{"app-server", "--listen", "stdio://"})
 	if ui.showStatusBar {
