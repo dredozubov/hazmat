@@ -605,6 +605,8 @@ hazmat bootstrap hermes
 hazmat hermes
 hazmat hermes -- --version
 hazmat hermes -- chat "summarize this repo"
+hazmat hermes reset -C /path/to/project --force
+hazmat hermes reset --all --force
 ```
 
 Hermes support is experimental and foreground-only. `hazmat bootstrap hermes`
@@ -615,9 +617,14 @@ receive only allowed provider API-key env vars from Hazmat's credential
 registry, and reject gateway/dashboard/API, server, and cron service entrypoints
 in v1. Ordinary `hazmat rollback` preserves that managed Hermes profile tree
 with the rest of the agent home; after untrusted Hermes skills, MCP servers,
-hooks, or cron-like experiments, the supported full reset is
-`hazmat rollback --delete-user`, then `hazmat init` and
-`hazmat bootstrap hermes`.
+hooks, or cron-like experiments, use `hazmat hermes reset -C <project> --force`
+for the current project profile or `hazmat hermes reset --all --force` for all
+Hazmat-managed Hermes profile state. These reset commands keep the Hermes binary
+and Hazmat harness metadata. Use `hazmat rollback --delete-user`, then
+`hazmat init` and `hazmat bootstrap hermes`, only for a full destructive
+agent-home reset. Hazmat's service-mode rejection is argv-based; profile config,
+`.env`, hook, or cron state that activates Hermes gateway/service behavior is
+unsupported and should be removed with a Hermes reset.
 
 ## Importing Portable OpenCode Basics
 

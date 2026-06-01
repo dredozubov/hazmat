@@ -37,9 +37,15 @@ Examples:
   hazmat hermes -- chat --toolsets terminal,file
   hazmat hermes -C /proj -- chat
   hazmat hermes --network none -- --version
-  hazmat hermes --github -- chat`,
+  hazmat hermes --github -- chat
+  hazmat hermes reset -C /proj --force
+  hazmat hermes reset --all --force`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHermesResetRequest(args) {
+				return executeHermesResetArgs(args[1:])
+			}
+
 			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
 			if err != nil {
 				return err
@@ -62,6 +68,10 @@ Examples:
 		},
 	}
 	return cmd
+}
+
+func isHermesResetRequest(args []string) bool {
+	return len(args) > 0 && args[0] == "reset"
 }
 
 var hermesDeferredEntrypoints = map[string]string{

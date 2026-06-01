@@ -112,15 +112,18 @@ records the consuming harness in explain/session metadata.
   launch and sets `HERMES_HOME` to that path. That state is durable agent
   profile state scoped by canonical project path; normal rollback boundaries are
   documented by the setup/rollback model, and Hazmat does not treat host
-  `~/.hermes` as a source.
+  `~/.hermes` as a source. Hazmat status reports the recorded Hermes harness
+  state version, but v1 does not migrate incompatible Hermes profile layouts;
+  reset the affected project profile after an incompatible layout change.
 - **Reset / uninstall boundary:** ordinary `hazmat rollback` removes host-owned
   Hazmat metadata but preserves `/Users/agent/.hazmat/hermes` with the rest of
   the agent home. After running untrusted Hermes skills, MCP servers, hooks, or
-  cron-like experiments, the supported full reset for all Hermes project state is
+  cron-like experiments, use `hazmat hermes reset -C <project> --force` to
+  remove that project's managed `HERMES_HOME`, or `hazmat hermes reset --all
+  --force` to remove all Hazmat-managed Hermes profile state. Both keep the
+  Hermes binary and Hazmat harness metadata. The full destructive reset remains
   `hazmat rollback --delete-user` followed by `hazmat init` and
-  `hazmat bootstrap hermes`. A narrower Hermes-only reset command needs a
-  model-first cleanup design before
-  it can be supported.
+  `hazmat bootstrap hermes`.
 - **Provider API key path:** `hazmat config agent` can store
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and
   `OPENROUTER_API_KEY` once in `~/.hazmat/secrets/providers/*`. Hermes receives
@@ -132,6 +135,12 @@ records the consuming harness in explain/session metadata.
 - **Unsupported in v1:** `hazmat config import hermes`, host `~/.hermes`
   import, harness asset sync, gateway/dashboard/API/server modes, persistent
   cron/service entrypoints, and Hermes MCP/skill/profile migration.
+- **Service-mode config/env boundary:** Hazmat rejects service-mode entrypoints
+  in the command argv it forwards to Hermes. It does not parse Hermes profile
+  config files, `.env`, hooks, or cron/service state to prove that those files
+  cannot activate a gateway or worker on a later foreground launch. Treat
+  config/env-driven service activation as unsupported profile state and reset
+  the project profile after experiments.
 - **Verify:** `hazmat hermes -- --version` checks the foreground launch path.
   `hazmat explain --for hermes -C /tmp` previews the session contract.
   `hazmat hermes --network none --metadata-json -- --version` verifies that
@@ -273,6 +282,6 @@ version. Edit on the host instead.
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** check that `~/.hazmat/secrets/codex/auth.json` exists. If an older Hazmat left a stale `/Users/agent/.codex/auth.json`, current Hazmat should recover it automatically on launch. If the stale copy differs from the host-owned copy, the previous host-owned copy is preserved under `~/.hazmat/secrets/codex/auth.json.conflicts/`.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.
 - **`hazmat bootstrap hermes` says Hermes is not installed:** install or link the Hermes executable as the agent user at `/Users/agent/.local/bin/hermes`, then rerun bootstrap. Hazmat records Hermes as installed only after `hermes --version` succeeds.
-- **`hazmat hermes -- gateway` / `dashboard` / `server` / `cron` is rejected:** v1 supports foreground Hermes sessions only. Run an interactive or prompt-driven foreground command under `hazmat hermes`, or track service supervision as a separate design.
+- **`hazmat hermes -- gateway` / `dashboard` / `server` / `cron` is rejected:** v1 supports foreground Hermes sessions only. Run an interactive or prompt-driven foreground command under `hazmat hermes`, or track service supervision as a separate design. If Hermes profile config or env files were manually changed to activate service behavior, remove them with `hazmat hermes reset -C <project> --force`.
 
 For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).

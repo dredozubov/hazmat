@@ -494,10 +494,10 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
 | Governed code | `hazmat/harness.go` — harness state recording |
 | Governed code | `hazmat/state.go` — `saveState()`, `updateHarnessState()`, `writeState()` |
-| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go` — bootstrap flows |
+| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_hermes.go` — bootstrap flows and Hermes managed profile reset |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
-| Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
+| Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `ProfileResetPreservesHarnessMetadata`, `ProfileResetRemovesOnlyManagedProfile`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
 | Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
 
 **What this verifies:**
@@ -505,7 +505,7 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 1. **Known-version recording only:** successful harness recording writes only
    the declared built-in harness state version.
 
-2. **Dry runs are read-only:** dry-run bootstrap/import paths do not mutate
+2. **Dry runs are read-only:** dry-run bootstrap/import/profile-reset paths do not mutate
    either `~/.hazmat/state.json` or the agent-home artifact state.
 
 3. **Core state saves preserve harness metadata:** `saveState()` for init and
@@ -515,11 +515,14 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
+5. **Profile reset is narrow:** harness-specific managed profile reset can remove
+   the Hermes profile artifact without erasing install/import metadata.
+
 The model includes Claude, Codex, OpenCode, Gemini, and Hermes. Hermes is
 modeled as a built-in harness but is deliberately not importable in Phase 1.
 
-TLC passes across all 107,224 reachable states (1,821,312 generated, depth 13,
-~2s).
+TLC passes across all 455,441 reachable states (10,157,206 generated, depth 15,
+~25s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -531,6 +534,8 @@ TLC passes across all 107,224 reachable states (1,821,312 generated, depth 13,
   updating this spec first.
 - Changing rollback semantics for `~/.hazmat/state.json` or agent-home harness
   files requires updating this spec first.
+- Changing harness-specific managed profile cleanup requires updating this spec
+  first.
 
 ---
 

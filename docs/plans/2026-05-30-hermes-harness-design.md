@@ -212,13 +212,19 @@ should be documented. Secrets or credentials manually written into
 rollback unless the agent user is deleted; that is correct by inheritance, but
 it should be made visible.
 
-The supported Phase 1 reset is the existing destructive agent-home reset:
-`hazmat rollback --delete-user`, followed by `hazmat init` and
-`hazmat bootstrap hermes`. Ordinary `hazmat rollback` removes host-owned Hazmat
-metadata but intentionally preserves `/Users/agent/.hazmat/hermes` with the
-rest of the agent home. A narrower `hazmat hermes reset` or uninstall command
-would be a new persistent cleanup path and must start with the harness-lifecycle
-model and rollback design note before implementation.
+The supported Phase 1 profile reset is now modeled as a narrow Hermes cleanup:
+`hazmat hermes reset -C <project> --force` removes the selected project's
+managed `HERMES_HOME`, and `hazmat hermes reset --all --force` removes all
+Hazmat-managed Hermes profile state, including legacy managed roots. Ordinary
+`hazmat rollback` removes host-owned Hazmat metadata but intentionally preserves
+`/Users/agent/.hazmat/hermes` with the rest of the agent home. The destructive
+agent-home reset remains `hazmat rollback --delete-user`, followed by
+`hazmat init` and `hazmat bootstrap hermes`.
+
+The recorded Hermes harness state version is read by status diagnostics. V1
+does not attempt in-place migration of arbitrary Hermes profile layouts; an
+incompatible profile layout should be handled by resetting that project profile
+or all managed Hermes profile state.
 
 ## Credential Model
 
@@ -304,8 +310,9 @@ in-process Hermes skill or MCP server can write, read, and execute material unde
 `<HERMES_HOME>/home` itself — the effective control against that staging/exfil
 path is network mode, not the deny list. Prefer `--network none` for Hermes runs
 that enable untrusted skills, plugins, or MCP servers. Separately, the managed
-state root survives ordinary `hazmat rollback` (it is removed only by
-`--delete-user`), and Hazmat does not pin or verify `config.yaml`, `skills/`,
+state root survives ordinary `hazmat rollback` (it is removed by
+`hazmat hermes reset` or by `--delete-user`), and Hazmat does not pin or verify
+`config.yaml`, `skills/`,
 `hooks/`, or `cron/` between runs, so a compromised session can plant state that
 the next `hazmat hermes` launch silently honors. Recommend a documented state
 reset (or `--delete-user`) after untrusted work. If Hazmat wants defense-in-depth
@@ -447,6 +454,14 @@ user forwards `gateway`, dashboard/API, or persistent cron entrypoints manually,
 Hazmat should reject the command with clear guidance. Do not add
 `--allow-foreground-gateway` in v1; enforcing the deferral requires inspecting
 the Hermes passthrough args after `--`, not only Hazmat's own flags.
+
+That rejection is an argv boundary, not a Hermes profile interpreter. V1 does
+not parse Hermes config files, `.env`, hook state, or cron/service directories
+to prove that config/env-driven service activation cannot happen on a later
+foreground launch. Those surfaces are unsupported profile state; after testing
+them, remove the project profile with `hazmat hermes reset -C <project> --force`
+or clear all managed Hermes profile roots with `hazmat hermes reset --all
+--force`.
 
 There are two cron risks to keep distinct. A live cron worker process is
 contained by the foreground process tree and should die when the session exits.
@@ -668,10 +683,11 @@ dashboard, cron, and profile supervision.
   profile before Hazmat has managed Hermes credential import? Yes, but docs and
   diagnostics must say those credentials are agent-profile state and survive
   ordinary rollback.
-- Is there a Hermes-specific reset or uninstall command in Phase 1? No. The
-  supported reset boundary is destructive agent-user removal
-  (`hazmat rollback --delete-user`). A Hermes-only reset is future work because
-  it would change the modeled cleanup contract for agent-home harness state.
+- Is there a Hermes-specific reset or uninstall command in Phase 1? Yes:
+  `hazmat hermes reset -C <project> --force` removes one project profile, and
+  `hazmat hermes reset --all --force` removes all Hazmat-managed Hermes profile
+  state. The harness lifecycle model proves this profile reset preserves
+  install/import metadata and host-owned harness state.
 - Keep Hermes skills as Hermes-profile state in v1; do not join harness asset
   sync.
 - Adding the new state root does not require a new seatbelt allow under the

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -153,7 +154,11 @@ func ensureHermesStateRootAsAgent(path string) error {
 	return nil
 }
 
-var ensureHermesStateRoot = ensureHermesStateRootAsAgent
+var (
+	ensureHermesStateRoot  = ensureHermesStateRootAsAgent
+	requireHermesAgentUser = requireAgentUser
+	removeHermesStatePath  = removeHermesStatePathAsAgent
+)
 
 func buildHermesStateRootMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	if cfg.HarnessID != HarnessHermes {
@@ -200,4 +205,126 @@ func appendHarnessStaticSessionNotes(cfg *sessionConfig) {
 		"Hermes uses project-scoped managed HERMES_HOME="+hermesProjectStateDir(cfg.ProjectDir)+"; host ~/.hermes is not imported.",
 		"Hermes gateway, dashboard/API, and persistent cron entrypoints are deferred in this foreground harness.",
 	)
+}
+
+type hermesResetOptions struct {
+	Project string
+	All     bool
+	Force   bool
+}
+
+type hermesResetTarget struct {
+	Path  string
+	Scope string
+}
+
+func executeHermesResetArgs(args []string) error {
+	cmd := newHermesResetCmd()
+	cmd.SetArgs(args)
+	return cmd.Execute()
+}
+
+func newHermesResetCmd() *cobra.Command {
+	var opts hermesResetOptions
+	cmd := &cobra.Command{
+		Use:   "reset [--project <dir> | --all]",
+		Short: "Remove Hermes managed profile state",
+		Long: `Remove Hermes managed profile state.
+
+By default this removes only the project-scoped HERMES_HOME for the selected
+project. Use --all to remove all Hazmat-managed Hermes profile state, including
+legacy managed Hermes roots. This does not uninstall /Users/agent/.local/bin/hermes
+or remove Hazmat's recorded harness metadata.`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runHermesReset(opts)
+		},
+	}
+	cmd.Flags().StringVarP(&opts.Project, "project", "C", "", "Project directory whose Hermes profile state should be removed")
+	cmd.Flags().BoolVar(&opts.All, "all", false, "Remove all Hazmat-managed Hermes profile state")
+	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "Remove without prompting")
+	return cmd
+}
+
+func resolveHermesResetTarget(opts hermesResetOptions) (hermesResetTarget, error) {
+	if opts.All && strings.TrimSpace(opts.Project) != "" {
+		return hermesResetTarget{}, fmt.Errorf("--all cannot be combined with --project")
+	}
+	if opts.All {
+		return hermesResetTarget{
+			Path:  hermesStateDir(),
+			Scope: "all Hazmat-managed Hermes profile state",
+		}, nil
+	}
+
+	projectDir, err := resolveDir(opts.Project, true)
+	if err != nil {
+		return hermesResetTarget{}, fmt.Errorf("resolve Hermes reset project: %w", err)
+	}
+	return hermesResetTarget{
+		Path:  hermesProjectStateDir(projectDir),
+		Scope: "Hermes profile state for project " + projectDir,
+	}, nil
+}
+
+func isHermesManagedStatePath(path string) bool {
+	clean := filepath.Clean(path)
+	if clean == filepath.Clean(hermesStateDir()) {
+		return true
+	}
+	projectsRoot := filepath.Clean(hermesProjectsDir())
+	rel, err := filepath.Rel(projectsRoot, clean)
+	if err != nil || rel == "." || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func runHermesReset(opts hermesResetOptions) error {
+	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll || opts.Force}
+	r := NewRunner(ui, flagVerbose, flagDryRun)
+	return runHermesResetWith(ui, r, opts)
+}
+
+func runHermesResetWith(ui *UI, r *Runner, opts hermesResetOptions) error {
+	target, err := resolveHermesResetTarget(opts)
+	if err != nil {
+		return err
+	}
+	if !isHermesManagedStatePath(target.Path) {
+		return fmt.Errorf("refusing to remove non-Hermes-managed path %q", target.Path)
+	}
+	if _, err := requireHermesAgentUser(); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	cBold.Println("  Hermes reset")
+	fmt.Println()
+	fmt.Printf("    Scope:  %s\n", target.Scope)
+	fmt.Printf("    Target: %s\n", target.Path)
+	fmt.Println("    Keeps:  /Users/agent/.local/bin/hermes and Hazmat harness metadata")
+	fmt.Println()
+
+	if !ui.Ask("Remove this Hermes managed profile state?") {
+		fmt.Println()
+		return nil
+	}
+
+	if flagDryRun {
+		cYellow.Printf("  Dry-run: would remove %s\n", target.Path)
+		fmt.Println()
+		return nil
+	}
+
+	if err := removeHermesStatePath(r, target.Path); err != nil {
+		return fmt.Errorf("remove Hermes managed profile state %s: %w", target.Path, err)
+	}
+	ui.Ok(fmt.Sprintf("Removed %s", target.Path))
+	fmt.Println()
+	return nil
+}
+
+func removeHermesStatePathAsAgent(r *Runner, path string) error {
+	return r.AsAgent("remove Hermes managed profile state", "/bin/rm", "-rf", "--", path)
 }

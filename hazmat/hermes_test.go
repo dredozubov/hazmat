@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -194,6 +195,25 @@ func TestRejectHermesDeferredEntrypoints(t *testing.T) {
 	}
 }
 
+func TestHermesResetRequestReservesOnlyLeadingReset(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{args: []string{"reset"}, want: true},
+		{args: []string{"reset", "--all"}, want: true},
+		{args: []string{"--", "reset"}, want: false},
+		{args: []string{"chat", "reset"}, want: false},
+		{args: []string{"--profile", "reset", "chat"}, want: false},
+		{args: nil, want: false},
+	}
+	for _, tc := range cases {
+		if got := isHermesResetRequest(tc.args); got != tc.want {
+			t.Fatalf("isHermesResetRequest(%v) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 func TestHermesSessionEnvAndStateRootPlan(t *testing.T) {
 	skipInitCheck(t)
 	dir := t.TempDir()
@@ -305,6 +325,127 @@ func TestHermesStateRootMutationUsesManagedAgentPath(t *testing.T) {
 	}
 	if !strings.Contains(exec.AppliedMessage, expected) {
 		t.Fatalf("AppliedMessage = %q", exec.AppliedMessage)
+	}
+}
+
+func TestHermesResetTargetResolution(t *testing.T) {
+	project := t.TempDir()
+	canonical, err := resolveDir(project, true)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	target, err := resolveHermesResetTarget(hermesResetOptions{Project: project})
+	if err != nil {
+		t.Fatalf("resolveHermesResetTarget(project): %v", err)
+	}
+	if want := hermesProjectStateDir(canonical); target.Path != want {
+		t.Fatalf("project reset target = %q, want %q", target.Path, want)
+	}
+	if !strings.Contains(target.Scope, canonical) {
+		t.Fatalf("project reset scope = %q, want canonical project", target.Scope)
+	}
+
+	allTarget, err := resolveHermesResetTarget(hermesResetOptions{All: true})
+	if err != nil {
+		t.Fatalf("resolveHermesResetTarget(all): %v", err)
+	}
+	if allTarget.Path != hermesStateDir() {
+		t.Fatalf("all reset target = %q, want %q", allTarget.Path, hermesStateDir())
+	}
+
+	if _, err := resolveHermesResetTarget(hermesResetOptions{Project: project, All: true}); err == nil {
+		t.Fatal("resolveHermesResetTarget(project+all) = nil, want error")
+	}
+}
+
+func TestHermesManagedStatePathSafety(t *testing.T) {
+	managed := []string{
+		hermesStateDir(),
+		filepath.Join(hermesProjectsDir(), "abc123"),
+		filepath.Join(hermesProjectsDir(), "abc123", "sessions"),
+	}
+	for _, path := range managed {
+		if !isHermesManagedStatePath(path) {
+			t.Fatalf("isHermesManagedStatePath(%q) = false, want true", path)
+		}
+	}
+
+	unmanaged := []string{
+		agentHome,
+		agentHome + "/.hazmat",
+		hermesProjectsDir(),
+		hermesProjectsDir() + "-backup",
+		"/tmp",
+	}
+	for _, path := range unmanaged {
+		if isHermesManagedStatePath(path) {
+			t.Fatalf("isHermesManagedStatePath(%q) = true, want false", path)
+		}
+	}
+}
+
+func TestRunHermesResetForceRemovesProjectTarget(t *testing.T) {
+	project := t.TempDir()
+	canonical, err := resolveDir(project, true)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	want := hermesProjectStateDir(canonical)
+
+	savedRequire := requireHermesAgentUser
+	savedRemove := removeHermesStatePath
+	savedDryRun := flagDryRun
+	savedYesAll := flagYesAll
+	t.Cleanup(func() {
+		requireHermesAgentUser = savedRequire
+		removeHermesStatePath = savedRemove
+		flagDryRun = savedDryRun
+		flagYesAll = savedYesAll
+	})
+
+	flagDryRun = false
+	flagYesAll = false
+	requireHermesAgentUser = func() (*user.User, error) {
+		return &user.User{Username: agentUser, HomeDir: agentHome}, nil
+	}
+	var removed []string
+	removeHermesStatePath = func(_ *Runner, path string) error {
+		removed = append(removed, path)
+		return nil
+	}
+
+	if err := runHermesReset(hermesResetOptions{Project: project, Force: true}); err != nil {
+		t.Fatalf("runHermesReset: %v", err)
+	}
+	if !slices.Equal(removed, []string{want}) {
+		t.Fatalf("removed = %v, want %v", removed, []string{want})
+	}
+}
+
+func TestRunHermesResetDryRunDoesNotRemove(t *testing.T) {
+	savedRequire := requireHermesAgentUser
+	savedRemove := removeHermesStatePath
+	savedDryRun := flagDryRun
+	savedYesAll := flagYesAll
+	t.Cleanup(func() {
+		requireHermesAgentUser = savedRequire
+		removeHermesStatePath = savedRemove
+		flagDryRun = savedDryRun
+		flagYesAll = savedYesAll
+	})
+
+	flagDryRun = true
+	flagYesAll = false
+	requireHermesAgentUser = func() (*user.User, error) {
+		return &user.User{Username: agentUser, HomeDir: agentHome}, nil
+	}
+	removeHermesStatePath = func(_ *Runner, path string) error {
+		t.Fatalf("dry-run removed %q", path)
+		return nil
+	}
+
+	if err := runHermesReset(hermesResetOptions{Project: t.TempDir(), Force: true}); err != nil {
+		t.Fatalf("runHermesReset dry-run: %v", err)
 	}
 }
 

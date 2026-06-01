@@ -10,9 +10,12 @@ EXTENDS TLC
 \*   - core saveState preserves existing harness metadata
 \*   - rollback always removes the host-owned state.json metadata
 \*   - rollback only removes agent-home harness artifacts when --delete-user is used
+\*   - harness-specific profile reset may remove managed profile state without
+\*     removing installed/imported harness artifacts or host-owned metadata
 
 Harnesses == {"claude", "codex", "opencode", "gemini", "hermes"}
 ImportableHarnesses == {"claude", "codex", "opencode", "gemini"}
+ManagedProfileHarnesses == {"hermes"}
 HarnessVersion == [h \in Harnesses |-> "1"]
 ActionKinds ==
     {"none",
@@ -21,6 +24,9 @@ ActionKinds ==
      "bootstrap-dry",
      "import",
      "import-dry",
+     "profile-create",
+     "profile-reset",
+     "profile-reset-dry",
      "save",
      "rollback-keep-user",
      "rollback-delete-user"}
@@ -33,6 +39,7 @@ VARIABLES
     initRecorded,
     installedArtifacts,
     importedArtifacts,
+    managedProfileArtifacts,
     recordedVersion,
     recordedImported,
     lastAction,
@@ -40,7 +47,8 @@ VARIABLES
     snapshotRecordedImported,
     snapshotStateFilePresent,
     snapshotInstalledArtifacts,
-    snapshotImportedArtifacts
+    snapshotImportedArtifacts,
+    snapshotManagedProfileArtifacts
 
 vars ==
     << phase,
@@ -49,6 +57,7 @@ vars ==
        initRecorded,
        installedArtifacts,
        importedArtifacts,
+       managedProfileArtifacts,
        recordedVersion,
        recordedImported,
        lastAction,
@@ -56,7 +65,8 @@ vars ==
        snapshotRecordedImported,
        snapshotStateFilePresent,
        snapshotInstalledArtifacts,
-       snapshotImportedArtifacts >>
+       snapshotImportedArtifacts,
+       snapshotManagedProfileArtifacts >>
 
 EmptyRecordedVersion ==
     [h \in Harnesses |-> ""]
@@ -68,6 +78,7 @@ Init ==
     /\ initRecorded = FALSE
     /\ installedArtifacts = {}
     /\ importedArtifacts = {}
+    /\ managedProfileArtifacts = {}
     /\ recordedVersion = EmptyRecordedVersion
     /\ recordedImported = {}
     /\ lastAction = "none"
@@ -76,6 +87,7 @@ Init ==
     /\ snapshotStateFilePresent = FALSE
     /\ snapshotInstalledArtifacts = {}
     /\ snapshotImportedArtifacts = {}
+    /\ snapshotManagedProfileArtifacts = {}
 
 EnableCore ==
     /\ phase = "idle"
@@ -87,13 +99,15 @@ EnableCore ==
                     initRecorded,
                     installedArtifacts,
                     importedArtifacts,
+                    managedProfileArtifacts,
                     recordedVersion,
                     recordedImported,
                     snapshotRecordedVersion,
                     snapshotRecordedImported,
                     snapshotStateFilePresent,
                     snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    snapshotImportedArtifacts,
+                    snapshotManagedProfileArtifacts >>
 
 Bootstrap(h) ==
     /\ phase = "idle"
@@ -107,12 +121,14 @@ Bootstrap(h) ==
                     coreReady,
                     initRecorded,
                     importedArtifacts,
+                    managedProfileArtifacts,
                     recordedImported,
                     snapshotRecordedVersion,
                     snapshotRecordedImported,
                     snapshotStateFilePresent,
                     snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    snapshotImportedArtifacts,
+                    snapshotManagedProfileArtifacts >>
 
 BootstrapDryRun(h) ==
     /\ phase = "idle"
@@ -124,12 +140,14 @@ BootstrapDryRun(h) ==
     /\ snapshotStateFilePresent' = stateFilePresent
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
     /\ UNCHANGED << phase,
                     coreReady,
                     stateFilePresent,
                     initRecorded,
                     installedArtifacts,
                     importedArtifacts,
+                    managedProfileArtifacts,
                     recordedVersion,
                     recordedImported >>
 
@@ -146,11 +164,13 @@ ImportBasics(h) ==
                     coreReady,
                     initRecorded,
                     installedArtifacts,
+                    managedProfileArtifacts,
                     snapshotRecordedVersion,
                     snapshotRecordedImported,
                     snapshotStateFilePresent,
                     snapshotInstalledArtifacts,
-                    snapshotImportedArtifacts >>
+                    snapshotImportedArtifacts,
+                    snapshotManagedProfileArtifacts >>
 
 ImportDryRun(h) ==
     /\ phase = "idle"
@@ -162,12 +182,77 @@ ImportDryRun(h) ==
     /\ snapshotStateFilePresent' = stateFilePresent
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
     /\ UNCHANGED << phase,
                     coreReady,
                     stateFilePresent,
                     initRecorded,
                     installedArtifacts,
                     importedArtifacts,
+                    managedProfileArtifacts,
+                    recordedVersion,
+                    recordedImported >>
+
+CreateManagedProfile(h) ==
+    /\ phase = "idle"
+    /\ coreReady
+    /\ h \in ManagedProfileHarnesses
+    /\ managedProfileArtifacts' = managedProfileArtifacts \cup {h}
+    /\ lastAction' = "profile-create"
+    /\ UNCHANGED << phase,
+                    coreReady,
+                    stateFilePresent,
+                    initRecorded,
+                    installedArtifacts,
+                    importedArtifacts,
+                    recordedVersion,
+                    recordedImported,
+                    snapshotRecordedVersion,
+                    snapshotRecordedImported,
+                    snapshotStateFilePresent,
+                    snapshotInstalledArtifacts,
+                    snapshotImportedArtifacts,
+                    snapshotManagedProfileArtifacts >>
+
+ResetManagedProfile(h) ==
+    /\ phase = "idle"
+    /\ coreReady
+    /\ h \in ManagedProfileHarnesses
+    /\ snapshotRecordedVersion' = recordedVersion
+    /\ snapshotRecordedImported' = recordedImported
+    /\ snapshotStateFilePresent' = stateFilePresent
+    /\ snapshotInstalledArtifacts' = installedArtifacts
+    /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
+    /\ managedProfileArtifacts' = managedProfileArtifacts \ {h}
+    /\ lastAction' = "profile-reset"
+    /\ UNCHANGED << phase,
+                    coreReady,
+                    initRecorded,
+                    installedArtifacts,
+                    importedArtifacts,
+                    recordedVersion,
+                    recordedImported,
+                    stateFilePresent >>
+
+ResetManagedProfileDryRun(h) ==
+    /\ phase = "idle"
+    /\ coreReady
+    /\ h \in ManagedProfileHarnesses
+    /\ lastAction' = "profile-reset-dry"
+    /\ snapshotRecordedVersion' = recordedVersion
+    /\ snapshotRecordedImported' = recordedImported
+    /\ snapshotStateFilePresent' = stateFilePresent
+    /\ snapshotInstalledArtifacts' = installedArtifacts
+    /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
+    /\ UNCHANGED << phase,
+                    coreReady,
+                    stateFilePresent,
+                    initRecorded,
+                    installedArtifacts,
+                    importedArtifacts,
+                    managedProfileArtifacts,
                     recordedVersion,
                     recordedImported >>
 
@@ -179,6 +264,7 @@ SaveCoreState ==
     /\ snapshotStateFilePresent' = stateFilePresent
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
     /\ stateFilePresent' = TRUE
     /\ initRecorded' = TRUE
     /\ lastAction' = "save"
@@ -186,6 +272,7 @@ SaveCoreState ==
                     coreReady,
                     installedArtifacts,
                     importedArtifacts,
+                    managedProfileArtifacts,
                     recordedVersion,
                     recordedImported >>
 
@@ -200,8 +287,10 @@ RollbackKeepUser ==
     /\ lastAction' = "rollback-keep-user"
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
     /\ UNCHANGED << installedArtifacts,
                     importedArtifacts,
+                    managedProfileArtifacts,
                     snapshotRecordedVersion,
                     snapshotRecordedImported,
                     snapshotStateFilePresent >>
@@ -214,11 +303,13 @@ RollbackDeleteUser ==
     /\ initRecorded' = FALSE
     /\ installedArtifacts' = {}
     /\ importedArtifacts' = {}
+    /\ managedProfileArtifacts' = {}
     /\ recordedVersion' = EmptyRecordedVersion
     /\ recordedImported' = {}
     /\ lastAction' = "rollback-delete-user"
     /\ snapshotInstalledArtifacts' = installedArtifacts
     /\ snapshotImportedArtifacts' = importedArtifacts
+    /\ snapshotManagedProfileArtifacts' = managedProfileArtifacts
     /\ UNCHANGED << snapshotRecordedVersion,
                     snapshotRecordedImported,
                     snapshotStateFilePresent >>
@@ -232,6 +323,9 @@ Next ==
     \/ \E h \in Harnesses : BootstrapDryRun(h)
     \/ \E h \in ImportableHarnesses : ImportBasics(h)
     \/ \E h \in ImportableHarnesses : ImportDryRun(h)
+    \/ \E h \in ManagedProfileHarnesses : CreateManagedProfile(h)
+    \/ \E h \in ManagedProfileHarnesses : ResetManagedProfile(h)
+    \/ \E h \in ManagedProfileHarnesses : ResetManagedProfileDryRun(h)
     \/ SaveCoreState
     \/ RollbackKeepUser
     \/ RollbackDeleteUser
@@ -247,6 +341,7 @@ TypeOK ==
     /\ initRecorded \in BOOLEAN
     /\ installedArtifacts \subseteq Harnesses
     /\ importedArtifacts \subseteq ImportableHarnesses
+    /\ managedProfileArtifacts \subseteq ManagedProfileHarnesses
     /\ recordedVersion \in [Harnesses -> {"", "1"}]
     /\ recordedImported \subseteq ImportableHarnesses
     /\ lastAction \in ActionKinds
@@ -255,6 +350,7 @@ TypeOK ==
     /\ snapshotStateFilePresent \in BOOLEAN
     /\ snapshotInstalledArtifacts \subseteq Harnesses
     /\ snapshotImportedArtifacts \subseteq ImportableHarnesses
+    /\ snapshotManagedProfileArtifacts \subseteq ManagedProfileHarnesses
 
 RecordedHarnessVersionsMatchSpec ==
     \A h \in Harnesses :
@@ -270,12 +366,13 @@ StateFilePresentWhenMetadataExists ==
         => stateFilePresent
 
 DryRunLeavesStateUntouched ==
-    lastAction \in {"bootstrap-dry", "import-dry"} =>
+    lastAction \in {"bootstrap-dry", "import-dry", "profile-reset-dry"} =>
         /\ recordedVersion = snapshotRecordedVersion
         /\ recordedImported = snapshotRecordedImported
         /\ stateFilePresent = snapshotStateFilePresent
         /\ installedArtifacts = snapshotInstalledArtifacts
         /\ importedArtifacts = snapshotImportedArtifacts
+        /\ managedProfileArtifacts = snapshotManagedProfileArtifacts
 
 SaveCoreStatePreservesHarnessMetadata ==
     lastAction = "save" =>
@@ -283,6 +380,19 @@ SaveCoreStatePreservesHarnessMetadata ==
         /\ recordedImported = snapshotRecordedImported
         /\ installedArtifacts = snapshotInstalledArtifacts
         /\ importedArtifacts = snapshotImportedArtifacts
+        /\ managedProfileArtifacts = snapshotManagedProfileArtifacts
+
+ProfileResetPreservesHarnessMetadata ==
+    lastAction = "profile-reset" =>
+        /\ recordedVersion = snapshotRecordedVersion
+        /\ recordedImported = snapshotRecordedImported
+        /\ stateFilePresent = snapshotStateFilePresent
+        /\ installedArtifacts = snapshotInstalledArtifacts
+        /\ importedArtifacts = snapshotImportedArtifacts
+
+ProfileResetRemovesOnlyManagedProfile ==
+    lastAction = "profile-reset" =>
+        managedProfileArtifacts = snapshotManagedProfileArtifacts \ ManagedProfileHarnesses
 
 RollbackClearsMetadata ==
     phase = "rolledBack" =>
@@ -296,11 +406,13 @@ RollbackWithoutDeleteUserPreservesArtifacts ==
         /\ phase = "rolledBack"
         /\ installedArtifacts = snapshotInstalledArtifacts
         /\ importedArtifacts = snapshotImportedArtifacts
+        /\ managedProfileArtifacts = snapshotManagedProfileArtifacts
 
 RollbackDeleteUserRemovesArtifacts ==
     lastAction = "rollback-delete-user" =>
         /\ phase = "rolledBack"
         /\ installedArtifacts = {}
         /\ importedArtifacts = {}
+        /\ managedProfileArtifacts = {}
 
 =============================================================================

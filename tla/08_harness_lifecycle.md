@@ -15,6 +15,8 @@ state machine from core init/migration:
    metadata
 5. rollback always removes the host-owned `state.json` record, but agent-home
    harness artifacts survive unless `--delete-user` is passed
+6. harness-specific profile reset may remove managed profile state without
+   removing installed/imported harness artifacts or host-owned metadata
 
 The core migration proof intentionally did not model these rules. This spec
 gives them a dedicated home.
@@ -29,6 +31,7 @@ gives them a dedicated home.
 | `hazmat/bootstrap.go` | Claude bootstrap path |
 | `hazmat/bootstrap_codex.go` | Codex bootstrap path |
 | `hazmat/bootstrap_opencode.go` | OpenCode bootstrap path |
+| `hazmat/bootstrap_hermes.go` | Hermes managed profile root planning and reset |
 | `hazmat/config_import.go` | Claude basics import |
 | `hazmat/config_import_opencode.go` | OpenCode basics import |
 
@@ -58,6 +61,8 @@ State is split into two layers:
 
 - **agent-home artifacts**: bootstrap and imported basics that live under
   `/Users/agent`
+- **managed profile artifacts**: harness-owned session profile roots, currently
+  Hermes project-scoped `HERMES_HOME` directories
 - **host-owned metadata**: the `~/.hazmat/state.json` harness map
 
 The model also tracks:
@@ -76,6 +81,8 @@ The model also tracks:
 | `StateFilePresentWhenMetadataExists` | Harness or init metadata never exists without `state.json` |
 | `DryRunLeavesStateUntouched` | Dry-run bootstrap/import never mutates metadata or agent-home artifacts |
 | `SaveCoreStatePreservesHarnessMetadata` | Core `saveState()` preserves all existing harness metadata and artifacts |
+| `ProfileResetPreservesHarnessMetadata` | Harness profile reset does not erase install/import metadata or host state |
+| `ProfileResetRemovesOnlyManagedProfile` | Harness profile reset removes only the modeled managed profile artifact |
 | `RollbackClearsMetadata` | Rollback removes the host-owned harness metadata record |
 | `RollbackWithoutDeleteUserPreservesArtifacts` | Rollback without `--delete-user` keeps all agent-home harness artifacts |
 | `RollbackDeleteUserRemovesArtifacts` | Rollback with `--delete-user` removes all agent-home harness artifacts |
@@ -94,10 +101,10 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `1,821,312 states generated`
-- `107,224 distinct states found`
-- `depth 13`
-- `Finished in 2s`
+- `10,157,206 states generated`
+- `455,441 distinct states found`
+- `depth 15`
+- `Finished in 25s`
 
 ## Interpretation
 
@@ -110,6 +117,8 @@ Instead, it proves the lifecycle contract around the explicit harness boundary:
 - rollback drops the host-owned metadata record
 - agent-home harness files survive ordinary rollback and only disappear on
   destructive rollback
+- Hermes managed profile reset removes Hermes profile state without changing
+  harness install/import metadata
 
 That is the state-machine behavior users and developers actually need to reason
 about when editing harness bootstrap/import flows.
@@ -125,3 +134,6 @@ about when editing harness bootstrap/import flows.
    update this model and revisit `DryRunLeavesStateUntouched`.
 4. **Changing how `saveState()` rewrites `~/.hazmat/state.json`**: update this
    model first. The current proof requires harness metadata preservation.
+5. **Changing harness-specific profile cleanup**: update this model first. The
+   current proof allows Hermes profile reset to remove managed profile state
+   without removing install/import artifacts or host metadata.
