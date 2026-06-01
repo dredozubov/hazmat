@@ -28,7 +28,7 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **One human controller.** Setup creates ACLs for the user who runs `hazmat init`. A second human user on the same Mac cannot co-manage the workspace without manual ACL changes.
 
-**Concurrent sessions are possible but racy.** Each `hazmat claude`, `hazmat opencode`, `hazmat shell`, or `hazmat exec` session gets a unique seatbelt policy (PID-based filename). But all sessions share the same agent home and harness state. Two harness instances writing to shared state like `~/.claude/` or `~/.config/opencode/` simultaneously is undefined behavior. We don't prevent it.
+**Concurrent sessions are possible but racy.** Each `hazmat claude`, `hazmat opencode`, `hazmat qwen`, `hazmat shell`, or `hazmat exec` session gets a unique seatbelt policy (PID-based filename). But all sessions share the same agent home and harness state. Two harness instances writing to shared state like `~/.claude/`, `~/.config/opencode/`, or `~/.qwen/` simultaneously is undefined behavior. We don't prevent it.
 
 ## Shell
 
@@ -113,7 +113,7 @@ credential fields/files, and provisioned Git SSH roots. Divergent legacy values
 are preserved in host-owned conflict paths rather than printed or silently
 dropped.
 
-**GitHub API access is an explicit session capability.** Hazmat denies host GitHub CLI state such as `~/.config/gh` and rejects ambient `GH_TOKEN`/`GITHUB_TOKEN` passthrough from integrations and repo setup. The only supported GitHub API token path is host-owned storage at `~/.hazmat/secrets/github/token`, activated per launch with `--github`, delivered as `GH_TOKEN`, and shown as a redacted `github.api-token` grant. Docker Sandbox sessions currently fail closed for this grant because that backend does not yet deliver session env credentials with equivalent semantics.
+**GitHub API access is an explicit session capability.** Hazmat denies host GitHub CLI state such as `~/.config/gh` and rejects ambient `GH_TOKEN`/`GITHUB_TOKEN` passthrough from integrations and repo setup. The only supported GitHub API token path is host-owned storage at `~/.hazmat/secrets/github/token`, activated per launch with `--github`, delivered as `GH_TOKEN`, and shown as a redacted `github.api-token` grant. Docker Sandbox sessions currently fail closed for this grant because that backend does not yet deliver session env credentials with equivalent semantics. This is a whole-process GitHub API grant, not a review-only mode: with write scopes, the agent and any child tool can create refs, push branches through local tooling, edit issues, or modify PR state. Users who need a non-self-pushing review session should omit `--github` or use a least-scoped token that cannot mutate the repository.
 
 **General SSH inside sessions is intentionally unsupported.** The seatbelt denies `/Users/agent/.ssh`, and hazmat deliberately does not export the host user's `SSH_AUTH_SOCK` into the stripped session environment. A readable private key would violate the credential-deny model; a forwarded agent socket would reintroduce an SSH signing oracle. Hazmat may still grant an explicit per-project Git-over-SSH capability by selecting one host-owned key from a chosen directory and forcing Git through a session-scoped transport broker. Arbitrary SSH shells remain unsupported.
 
@@ -182,7 +182,7 @@ not execute them.
 
 ## Claude Code Coupling
 
-**Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, or OpenCode when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
+**Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, OpenCode, Gemini, Hermes, or Qwen when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
 
 **Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Cursor, aider, or OpenAI's tools, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
 

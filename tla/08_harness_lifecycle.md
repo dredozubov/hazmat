@@ -36,6 +36,7 @@ gives them a dedicated home.
 | `hazmat/bootstrap_opencode.go` | OpenCode bootstrap path |
 | `hazmat/bootstrap_gemini.go` | Gemini bootstrap path |
 | `hazmat/bootstrap_hermes.go` | Hermes verification and managed profile reset |
+| `hazmat/bootstrap_qwen.go` | Qwen Code npm bootstrap path |
 | `hazmat/harness_lifecycle.go` | Harness lifecycle CLI status/update/uninstall |
 | `hazmat/config_import.go` | Claude basics import |
 | `hazmat/config_import_opencode.go` | OpenCode basics import |
@@ -44,13 +45,14 @@ gives them a dedicated home.
 
 ## TLA+ Model
 
-The model tracks five built-in harnesses:
+The model tracks six built-in harnesses:
 
 - `claude`
 - `codex`
 - `opencode`
 - `gemini`
 - `hermes`
+- `qwen`
 
 and the importable subset:
 
@@ -59,10 +61,11 @@ and the importable subset:
 - `opencode`
 - `gemini`
 
-Hermes is deliberately not in the importable subset for Phase 1. It has a
-managed foreground harness plan, but no curated host-profile import path:
-`~/.hermes`, skills, MCP configuration, cron state, provider files, and gateway
-state remain outside the lifecycle model until a typed import design exists.
+Hermes and Qwen are deliberately not in the importable subset for Phase 1. They
+have managed foreground harness plans, but no curated host-profile import path:
+Hermes host `~/.hermes` state and Qwen host `~/.qwen` settings, extensions,
+auth, sessions, and MCP configuration remain outside the import lifecycle until
+a typed import design exists.
 
 State is split into two layers:
 
@@ -119,10 +122,10 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `3,872,326 states generated`
-- `122,003 distinct states found`
-- `depth 16`
-- `Finished in 2s`
+- `10,018,190 states generated`
+- `280,275 distinct states found`
+- `depth 17`
+- `Finished in 16s`
 
 ## Interpretation
 

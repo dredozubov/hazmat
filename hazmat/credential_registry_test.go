@@ -167,25 +167,25 @@ func TestProviderCredentialConsumersAreHarnessAware(t *testing.T) {
 		{
 			id:        credentialProviderAnthropicAPIKey,
 			allowed:   []HarnessID{HarnessClaude, HarnessHermes},
-			denied:    []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode},
+			denied:    []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen},
 			storePath: "providers/anthropic-api-key",
 		},
 		{
 			id:        credentialProviderOpenAIAPIKey,
 			allowed:   []HarnessID{HarnessCodex, HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode},
+			denied:    []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessQwen},
 			storePath: "providers/openai-api-key",
 		},
 		{
 			id:        credentialProviderGeminiAPIKey,
 			allowed:   []HarnessID{HarnessGemini, HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessQwen},
 			storePath: "providers/gemini-api-key",
 		},
 		{
 			id:        credentialProviderOpenRouterAPIKey,
 			allowed:   []HarnessID{HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen},
 			storePath: "providers/openrouter-api-key",
 		},
 	}
@@ -221,11 +221,17 @@ func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) 
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessClaude); ok {
 		t.Fatalf("OPENAI_API_KEY must not resolve for Claude")
 	}
+	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessQwen); ok {
+		t.Fatalf("OPENAI_API_KEY must not resolve for Qwen in Phase 1")
+	}
 	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessHermes); !ok || descriptor.ID != credentialProviderOpenRouterAPIKey {
 		t.Fatalf("OPENROUTER_API_KEY for Hermes = %+v, %v; want OpenRouter descriptor", descriptor, ok)
 	}
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessCodex); ok {
 		t.Fatalf("OPENROUTER_API_KEY must not resolve for Codex")
+	}
+	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessQwen); ok {
+		t.Fatalf("OPENROUTER_API_KEY must not resolve for Qwen in Phase 1")
 	}
 }
 
@@ -244,6 +250,7 @@ func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 			credentialProviderOpenRouterAPIKey,
 		}},
 		{HarnessOpenCode, nil},
+		{HarnessQwen, nil},
 	}
 
 	for _, tc := range cases {

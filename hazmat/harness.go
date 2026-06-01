@@ -13,11 +13,13 @@ const (
 	HarnessOpenCode             HarnessID = "opencode"
 	HarnessGemini               HarnessID = "gemini"
 	HarnessHermes               HarnessID = "hermes"
+	HarnessQwen                 HarnessID = "qwen"
 	claudeHarnessStateVersion             = "1"
 	codexHarnessStateVersion              = "1"
 	opencodeHarnessStateVersion           = "1"
 	geminiHarnessStateVersion             = "1"
 	hermesHarnessStateVersion             = "1"
+	qwenHarnessStateVersion               = "1"
 )
 
 type HarnessSpec struct {
@@ -53,12 +55,14 @@ type CodexHarness struct{}
 type OpenCodeHarness struct{}
 type GeminiHarness struct{}
 type HermesHarness struct{}
+type QwenHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
 var geminiHarness = GeminiHarness{}
 var hermesHarness = HermesHarness{}
+var qwenHarness = QwenHarness{}
 
 var managedHarnessRegistry = []ManagedHarness{
 	{
@@ -175,6 +179,29 @@ var managedHarnessRegistry = []ManagedHarness{
 			return hermesHarness.Bootstrap(ui, r)
 		},
 	},
+	{
+		Spec:             qwenHarness.Spec(),
+		LaunchCommand:    "hazmat qwen",
+		BootstrapCommand: "hazmat bootstrap qwen",
+		ImportPolicy: harnessImportPolicy{
+			Supported: false,
+			Boundary:  "Qwen v1 has no curated import; contained profile state and host asset sync boundaries are preserved",
+		},
+		Installed: func() bool {
+			_, ok := findInstalledQwenBinary()
+			return ok
+		},
+		Probe:                probeQwenHarness,
+		ManagedCodeArtifacts: qwenHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + qwenStateDirRel + " auth, settings, extensions, and sessions",
+			"host ~/.qwen auth and settings are not imported",
+			"provider credentials are configured inside the contained Qwen profile or project .env",
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return qwenHarness.Bootstrap(ui, r)
+		},
+	},
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -214,6 +241,14 @@ func (HermesHarness) Spec() HarnessSpec {
 		ID:           HarnessHermes,
 		DisplayName:  "Hermes",
 		StateVersion: hermesHarnessStateVersion,
+	}
+}
+
+func (QwenHarness) Spec() HarnessSpec {
+	return HarnessSpec{
+		ID:           HarnessQwen,
+		DisplayName:  "Qwen Code",
+		StateVersion: qwenHarnessStateVersion,
 	}
 }
 
@@ -361,6 +396,22 @@ func (h HermesHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
 }
 
+func (h QwenHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runQwenBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h QwenHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
+}
+
 func managedHarnesses() []ManagedHarness {
 	harnesses := make([]ManagedHarness, len(managedHarnessRegistry))
 	copy(harnesses, managedHarnessRegistry)
@@ -393,6 +444,29 @@ func installedManagedHarnesses() []ManagedHarness {
 
 func harnessStateCurrent(state HarnessState, spec HarnessSpec) bool {
 	return state.StateVersion == spec.StateVersion
+}
+
+func formatInstalledHarnessNameForStatus(harness ManagedHarness, state HazmatState) string {
+	name := harness.Spec.DisplayName
+	if state.Harnesses == nil {
+		return name + " (state missing)"
+	}
+	recorded, ok := state.Harnesses[harness.Spec.ID]
+	if !ok || recorded.StateVersion == "" {
+		return name + " (state missing)"
+	}
+	if !harnessStateCurrent(recorded, harness.Spec) {
+		return fmt.Sprintf("%s (state v%s; want v%s)", name, recorded.StateVersion, harness.Spec.StateVersion)
+	}
+	return name
+}
+
+func formatInstalledHarnessNamesForStatus(installed []ManagedHarness, state HazmatState) []string {
+	names := make([]string, 0, len(installed))
+	for _, harness := range installed {
+		names = append(names, formatInstalledHarnessNameForStatus(harness, state))
+	}
+	return names
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {

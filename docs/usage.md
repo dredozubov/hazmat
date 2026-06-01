@@ -2,7 +2,7 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
-> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, and experimental hermes.
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, and qwen.
 >
 > **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
@@ -464,6 +464,12 @@ harness. It does not persist API-key exports in `/Users/agent/.zshrc`.
 recommendations and integrations cannot activate it, and ambient
 `GH_TOKEN`/`GITHUB_TOKEN` passthrough remains rejected.
 
+`--github` gives the whole harness process GitHub API authority. A write-scoped
+token can let the agent create refs, push branches through local tooling, open
+or update PRs, edit issues, or otherwise change remote repository state. Use a
+least-scoped token and omit `--github` when the session must not be able to
+self-push or alter the review path.
+
 Git HTTPS credentials are brokered per native session. Legacy agent-side
 `/Users/agent/.config/git/credentials` entries migrate into
 `~/.hazmat/secrets/git-https/credentials` on session launch, and `hazmat check`
@@ -606,7 +612,11 @@ verifies a manually installed `/Users/agent/.local/bin/hermes`; it does not run
 an upstream installer or import host `~/.hermes`. Hermes sessions use
 `HERMES_HOME=/Users/agent/.hazmat/hermes`, receive only allowed provider API-key
 env vars from Hazmat's credential registry, and reject gateway/dashboard/API,
-server, and cron service entrypoints in v1.
+server, and cron service entrypoints in v1. Ordinary `hazmat rollback` preserves
+that managed Hermes profile with the rest of the agent home; after untrusted
+Hermes skills, MCP servers, hooks, or cron-like experiments, the supported full
+reset is `hazmat rollback --delete-user`, then `hazmat init` and
+`hazmat bootstrap hermes`.
 
 ## Importing Portable OpenCode Basics
 

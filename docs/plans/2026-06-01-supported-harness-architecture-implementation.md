@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Hazmat supports five agent code harnesses today: Claude Code, Codex, OpenCode,
-Gemini, and Hermes. The immediate lifecycle CLI work added user-facing
+Hazmat supports six agent code harnesses today: Claude Code, Codex, OpenCode,
+Gemini, Hermes, and Qwen Code. The immediate lifecycle CLI work added user-facing
 `hazmat harness status`, `hazmat harness update`, and
 `hazmat harness uninstall`, but the next step is to make the architecture
 explicit enough that every harness can evolve without copying policy decisions
@@ -130,12 +130,14 @@ For uninstall:
 | OpenCode | Hazmat runs official installer and maintains PATH shim | `/Users/agent/.opencode/bin/opencode`, `/Users/agent/.local/bin/opencode` | `/Users/agent/.config/opencode`, `/Users/agent/.local/share/opencode`, provider secrets | Yes | Yes |
 | Gemini | Hazmat installs `@google/gemini-cli@latest` into agent local prefix | `/Users/agent/.local/bin/gemini`, npm package dir | `/Users/agent/.gemini`, provider secrets, Keychain boundary | Yes, file-backed only | Yes |
 | Hermes | Hazmat verifies a manual executable only | none in v1 | `/Users/agent/.local/bin/hermes`, `/Users/agent/.hazmat/hermes`, provider secrets | No | No |
+| Qwen Code | Hazmat installs `@qwen-code/qwen-code@latest` into agent local prefix | `/Users/agent/.local/bin/qwen`, npm package dir | `/Users/agent/.qwen`, host `~/.qwen` boundary | No | Yes, portable assets only |
 
-Hermes is the deliberate exception. It participates in launch, explain,
-credential delivery, status, and metadata recording, but Hazmat does not fetch
-or remove Hermes code in v1. Any future Hermes installer must start with a
-supply-chain design and an update to the lifecycle model if uninstall semantics
-change.
+Hermes and Qwen are deliberate no-import boundaries in v1. Hermes participates
+in launch, explain, credential delivery, status, and metadata recording, but
+Hazmat does not fetch or remove Hermes code in v1. Qwen participates in launch,
+explain, status, update, uninstall, and portable asset sync, but Hazmat does
+not import host `~/.qwen` auth/settings/profile state. Any future expansion
+that changes what uninstall deletes must start with the lifecycle model.
 
 ## Implementation Phases
 
@@ -158,8 +160,8 @@ the path. Gemini's npm package directory is the first place this matters.
 Phase 4 should unify import and credential summaries. The lifecycle status
 should not duplicate credential registry logic; it should ask the registry for a
 per-harness summary and ask import modules whether curated import is supported.
-This phase should also make Gemini Keychain-backed OAuth and Hermes no-import
-boundaries visible without turning them into errors.
+This phase should also make Gemini Keychain-backed OAuth plus Hermes and Qwen
+no-import boundaries visible without turning them into errors.
 
 Phase 5 should add optional JSON output for automation. The JSON schema should
 include harness ID, display name, install status, binary path, version, state
@@ -200,7 +202,7 @@ Model-level tests:
 
 Go unit tests:
 
-- registry completeness for all five harnesses
+- registry completeness for all six harnesses
 - status object construction for installed, missing, stale, and probe-failure
   states
 - update delegation from `hazmat harness update` and legacy bootstrap commands

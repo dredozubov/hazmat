@@ -1883,6 +1883,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 		return fmt.Sprintf("hazmat gemini %s -C %s", flag, projectDir)
 	case "hermes":
 		return fmt.Sprintf("hazmat hermes %s -C %s", flag, projectDir)
+	case "qwen":
+		return fmt.Sprintf("hazmat qwen %s -C %s", flag, projectDir)
 	default:
 		return fmt.Sprintf("hazmat claude %s -C %s", flag, projectDir)
 	}

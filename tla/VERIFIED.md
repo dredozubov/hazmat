@@ -494,7 +494,7 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
 | Governed code | `hazmat/harness.go` — harness state recording |
 | Governed code | `hazmat/state.go` — `saveState()`, `updateHarnessState()`, `writeState()` |
-| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go` — bootstrap flows |
+| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
 | Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
@@ -515,11 +515,12 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
-The model includes Claude, Codex, OpenCode, Gemini, and Hermes. Hermes is
-modeled as a built-in harness but is deliberately not importable in Phase 1.
+The model includes Claude, Codex, OpenCode, Gemini, Hermes, and Qwen. Hermes
+and Qwen are modeled as built-in harnesses but are deliberately not importable
+in Phase 1.
 
-TLC passes across all 107,224 reachable states (1,821,312 generated, depth 13,
-~2s).
+TLC passes across all 280,275 reachable states (10,018,190 generated, depth 17,
+~16s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -766,7 +767,8 @@ baseline from a same-content rewrite.
    known managed value is in host primary storage or a host-owned conflict
    archive, not only in `/Users/agent`.
 
-TLC passes across 63,681 distinct states (225,105 generated, depth 32, ~4s).
+TLC passes across 6,963,327 distinct states (25,623,297 generated, depth 32,
+~85m).
 
 **Scope boundary:**
 

@@ -225,12 +225,12 @@ func TestManagedHarnessRegistryCarriesImportPolicy(t *testing.T) {
 			if !harness.ImportPolicy.Supported {
 				t.Fatalf("%s should support curated basics import", harness.Spec.ID)
 			}
-		case HarnessHermes:
+		case HarnessHermes, HarnessQwen:
 			if harness.ImportPolicy.Supported {
-				t.Fatal("Hermes should remain a no-import boundary in v1")
+				t.Fatalf("%s should remain a no-import boundary in v1", harness.Spec.ID)
 			}
 			if !strings.Contains(harness.ImportPolicy.Boundary, "no curated import") {
-				t.Fatalf("Hermes import boundary = %q", harness.ImportPolicy.Boundary)
+				t.Fatalf("%s import boundary = %q", harness.Spec.ID, harness.ImportPolicy.Boundary)
 			}
 		default:
 			t.Fatalf("unexpected harness %q", harness.Spec.ID)
