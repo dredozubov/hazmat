@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,12 @@ import (
 var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func TestGoldenDarwinSBPLBaselines(t *testing.T) {
+	oldLookup := lookupAgentUser
+	lookupAgentUser = func() (*user.User, error) {
+		return &user.User{Uid: "777", Username: agentUser, HomeDir: agentHome}, nil
+	}
+	t.Cleanup(func() { lookupAgentUser = oldLookup })
+
 	cases := map[string]sessionConfig{
 		"sbpl/default.sbpl": {
 			ProjectDir: "/Users/dr/workspace/project",
@@ -52,6 +59,12 @@ func TestGoldenDarwinSBPLBaselines(t *testing.T) {
 			ProjectDir: "/Users/dr/workspace/project",
 			HarnessID:  HarnessCodex,
 			TempDir:    agentHome + "/.cache/hazmat/tmp/golden-codex-native-tls",
+		},
+		"sbpl/claude-keychain.sbpl": {
+			ProjectDir:           "/Users/dr/workspace/project",
+			HarnessID:            HarnessClaude,
+			ClaudeKeychainAccess: true,
+			TempDir:              agentHome + "/.cache/hazmat/tmp/golden-claude-keychain",
 		},
 	}
 

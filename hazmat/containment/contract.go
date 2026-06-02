@@ -6,6 +6,7 @@ package containment
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"hazmat/sessionmeta"
@@ -135,6 +136,7 @@ func (c Contract) AncestorMetadataDirs() []string {
 	for dir := range ancestors {
 		dirs = append(dirs, dir)
 	}
+	sort.Strings(dirs)
 	return dirs
 }
 

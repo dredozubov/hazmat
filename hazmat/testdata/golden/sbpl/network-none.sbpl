@@ -1,0 +1,194 @@
+;; Claude Code runtime seatbelt policy.
+;; Generated per-session by hazmat — do not edit manually.
+
+(version 1)
+(deny default)
+
+;; ── Process execution ──────────────────────────────────────────────────────
+(allow process-exec (subpath "/usr/bin"))
+(allow process-exec (subpath "/bin"))
+(allow process-exec (subpath "/usr/local"))
+(allow process-exec (subpath "/opt/homebrew"))
+(allow process-exec (subpath "/Library/Developer/CommandLineTools"))
+(allow process-exec (subpath "/Users/agent"))
+(allow process-exec (subpath "/Users/dr/workspace/project"))
+(allow process-fork)
+(allow process-info* (target same-sandbox))
+(allow signal (target same-sandbox))
+
+;; ── System info (V8 reads CPU/memory via sysctl at startup) ────────────
+(allow sysctl-read)
+
+;; ── System libraries (required by Node.js / dyld) ──────────────────────
+;; Path traversal literals for realpath() and symlink resolution.
+;; /var → /private/var (DNS resolv.conf), /tmp → /private/tmp.
+;; /opt is the parent of /opt/homebrew — tools symlinked via /opt/homebrew/bin
+;; that point to absolute paths elsewhere need realpath() to lstat /opt itself.
+(allow file-read* (literal "/"))
+(allow file-read* (literal "/private"))
+(allow file-read* (literal "/var"))
+(allow file-read* (literal "/var/select"))
+(allow file-read* (literal "/tmp"))
+(allow file-read* (literal "/etc"))
+(allow file-read* (literal "/usr"))
+(allow file-read* (literal "/opt"))
+(allow file-read* (literal "/System"))
+(allow file-read* (literal "/Library"))
+(allow file-read* (literal "/Library/Developer"))
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+(allow file-read* (subpath "/System/Library"))
+(allow file-read* (subpath "/Library/Frameworks"))
+(allow file-read* (subpath "/Library/Developer/CommandLineTools"))
+(allow file-read* (subpath "/private/etc"))
+(allow file-read* (subpath "/private/var/select"))
+(allow file-read* (subpath "/private/var/db/timezone"))
+(allow file-read* (subpath "/System/Cryptexes"))
+(allow file-read* (subpath "/System/Volumes/Preboot/Cryptexes"))
+(allow file-read* (subpath "/Library/Keychains"))
+(allow file-read* (subpath "/private/var/db/mds/messages"))
+(allow file-read* (literal "/Library/Preferences/com.apple.security.plist"))
+(allow file-read* (literal "/Library/Preferences/.GlobalPreferences.plist"))
+(allow file-read* (literal "/Library/Preferences/com.apple.networkd.plist"))
+(allow file-read* (literal "/dev/urandom"))
+(allow file-read* (literal "/dev/null"))
+(allow file-read* (literal "/dev/zero"))
+(allow file-write* (literal "/dev/null"))
+(allow file-read* (subpath "/usr/bin"))
+(allow file-read* (subpath "/bin"))
+(allow file-read* (subpath "/usr/local"))
+(allow file-read* (subpath "/opt/homebrew"))
+
+;; ── Ancestor metadata (stat only, no content) ────────────────────────────
+;; Required for path canonicalization by git, readlink, etc.
+(allow file-read-metadata (literal "/Users"))
+(allow file-read-metadata (literal "/Users/dr"))
+(allow file-read-metadata (literal "/Users/dr/workspace"))
+
+;; ── Active project — full read/write ──────────────────────────────────────
+(allow file-read* (subpath "/Users/dr/workspace/project"))
+(allow file-write* (subpath "/Users/dr/workspace/project"))
+
+;; ── Agent home — broad read/write, credential dirs denied below ───────────
+;; A single subpath rule replaces individual subdirectory allows.
+;; Claude Code, Node.js, git, and shell rc files all live here.
+;; Credential directories are denied at the end (last-match-wins).
+(allow file-read* file-write* (subpath "/Users/agent"))
+
+;; ── Session temp directory ───────────────────────────────────────────────────
+;; Runtime TMPDIR points at this agent-owned per-session root. Do not grant
+;; broad /private/tmp or /private/var/folders read/write/exec here.
+(allow file-read* file-write* (subpath "/Users/agent/.cache/hazmat/tmp/golden-network-none"))
+(allow process-exec (subpath "/Users/agent/.cache/hazmat/tmp/golden-network-none"))
+
+;; ── DNS resolver + system state ───────────────────────────────────────────
+;; resolv.conf is a symlink to /private/var/run/resolv.conf.
+(allow file-read* (subpath "/private/var/run"))
+;; xcode-select stores the active developer dir as a symlink here.
+;; CGO and clang read it to locate the SDK.
+(allow file-read* (literal "/private/var/db/xcode_select_link"))
+
+;; Temp parent metadata only; session temp itself is agent-home scoped.
+(allow file-read-metadata (literal "/private/tmp"))
+(allow file-read-metadata (literal "/private/var/folders"))
+
+;; ── Terminal support (Node.js requires these) ──────────────────────────────
+(allow pseudo-tty)
+(allow file-ioctl)
+(allow file-read* file-write* (literal "/dev/tty"))
+(allow file-read* file-write* (literal "/dev/ptmx"))
+(allow file-read* file-write* (regex #"/dev/ttys[0-9]+"))
+
+;; ── Mach services (base — needed by every harness) ─────────────────────────
+(allow mach-lookup (global-name "com.apple.system.logger"))
+(allow mach-lookup (global-name "com.apple.CoreServices.coreservicesd"))
+(allow mach-lookup (global-name "com.apple.system.notification_center"))
+(allow mach-lookup (global-name "com.apple.trustd"))
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.api"))
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
+(allow mach-lookup (global-name "com.apple.system.DirectoryService.libinfo_v1"))
+(allow mach-lookup (global-name "com.apple.system.DirectoryService.membership_v1"))
+(allow mach-lookup (global-name "com.apple.pboard"))
+;; Mach services for harnesses that use macOS Security framework directly:
+(allow mach-lookup (global-name "com.apple.SecurityServer"))
+(allow mach-lookup (global-name "com.apple.securityd"))
+(allow mach-lookup (global-name "com.apple.securityd.xpc"))
+(allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))
+(allow mach-lookup (global-name "com.apple.trustd.agent"))
+(allow mach-host*)
+
+;; ── Pasteboard shared memory (clipboard copy out of session) ───────────────
+;; mach-lookup for com.apple.pboard covers the IPC handshake; the actual
+;; clipboard data is transferred via POSIX shared memory segments named
+;; com.apple.pasteboard.<N>.  Without these rules pbcopy silently fails.
+(allow ipc-posix-shm-read-data    (ipc-posix-name-regex #"^com\.apple\.pasteboard\."))
+(allow ipc-posix-shm-write-data   (ipc-posix-name-regex #"^com\.apple\.pasteboard\."))
+(allow ipc-posix-shm-write-create (ipc-posix-name-regex #"^com\.apple\.pasteboard\."))
+
+;; ── System notification center shared memory (Security framework) ────────
+;; framework subscribes to libnotify events during TLS trust evaluation;
+;; without apple.shm.notification_center the cert chain load hangs.)
+(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))
+
+(allow ipc-posix-shm-read-data    (ipc-posix-name "com.apple.AppleDatabaseChanged"))
+(allow ipc-posix-shm-write-data   (ipc-posix-name "com.apple.AppleDatabaseChanged"))
+(allow ipc-posix-shm-write-create (ipc-posix-name "com.apple.AppleDatabaseChanged"))
+
+;; ── Kernel control socket (AF_SYSTEM / SYSPROTO_CONTROL) ──────────────────
+;; SCDynamicStore's data channel (after the com.apple.SystemConfiguration
+;; mach-lookup handshake) uses AF_SYSTEM sockets. Rust reqwest's proxy
+;; detection blocks indefinitely without this; codex chat never round-trips.
+(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))
+
+;; ── Network ───────────────────────────────────────────────────────────────
+;; Outbound IPv4, IPv6, and DNS are denied by default for this session.
+(allow network-inbound (local tcp "*:*"))
+
+;; ── Writable roots (re-assert after all read-only rules) ───────────────────
+;; SBPL is last-match-wins. When a read-only -R directory is a parent of
+;; a writable root (e.g. -R ~/workspace with project ~/workspace/foo),
+;; the broad file-read* rule must not suppress explicit write access.
+;; Re-asserting file-write* here guarantees it is the last matching allow
+;; for any write operation targeting an explicit writable root.
+(allow file-read* file-write* (subpath "/Users/dr/workspace/project"))
+
+;; ── DENY host temp capability sockets ─────────────────────────────────────
+;; These override broad user-granted temp roots. They are local control
+;; sockets, not ordinary build artifacts.
+(deny file-read* file-write* (subpath "/tmp/codex-browser-use"))
+(deny process-exec (subpath "/tmp/codex-browser-use"))
+(deny file-read* file-write* (subpath "/tmp/codex-ipc"))
+(deny process-exec (subpath "/tmp/codex-ipc"))
+(deny file-read* file-write* (subpath "/private/tmp/codex-browser-use"))
+(deny process-exec (subpath "/private/tmp/codex-browser-use"))
+(deny file-read* file-write* (subpath "/private/tmp/codex-ipc"))
+(deny process-exec (subpath "/private/tmp/codex-ipc"))
+(deny file-read* file-write* (regex #"^/private/var/folders/.*/T/codex-ipc(/|$)"))
+(deny process-exec (regex #"^/private/var/folders/.*/T/codex-ipc(/|$)"))
+
+;; ── DENY sensitive credential directories ──────────────────────────────────
+;; These are the final broad credential boundary (last match wins).
+;; Both file-read* (exfiltration) and file-write* (planting) are denied.
+(deny file-read* file-write* (subpath "/Users/agent/.ssh"))
+(deny file-read* file-write* (subpath "/Users/agent/.aws"))
+(deny file-read* file-write* (subpath "/Users/agent/.gnupg"))
+(deny file-read* file-write* (subpath "/Users/agent/Library/Keychains"))
+(deny file-read* file-write* (subpath "/Users/agent/.config/gh"))
+(deny file-read* file-write* (subpath "/Users/agent/.docker"))
+(deny file-read* file-write* (subpath "/Users/agent/.kube"))
+(deny file-read* file-write* (subpath "/Users/agent/.netrc"))
+(deny file-read* file-write* (subpath "/Users/agent/.m2/settings.xml"))
+(deny file-read* file-write* (subpath "/Users/agent/.config/gcloud"))
+(deny file-read* file-write* (subpath "/Users/agent/.azure"))
+(deny file-read* file-write* (subpath "/Users/agent/.oci"))
+;; ── Re-allow agent's empty login keychain (post-deny override) ────────────
+;; The broader /Users/agent/Library/Keychains deny stays. macOS Security framework on
+;; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable
+;; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain
+;; lets Rust reqwest's native-tls path complete trust setup using system roots.
+;; The directory metadata allow lets Security stat() the keychain dir before
+;; opening the whitelisted keychain DB files inside it.
+(allow file-read-metadata (literal "/Users/agent/Library/Keychains"))
+(allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db"))
+(allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db-shm"))
+(allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db-wal"))

@@ -1,0 +1,21 @@
+{
+  "format_version": 1,
+  "kind": "hazmat.session",
+  "mode": "native",
+  "mode_label": "Native containment",
+  "network_policy": {
+    "cleanup_required": false,
+    "denied": [
+      "outbound-ipv4",
+      "outbound-ipv6",
+      "dns"
+    ],
+    "deny_all_egress": true,
+    "effective": "none",
+    "enforced": true,
+    "enforcement": "native-seatbelt",
+    "requested": "none"
+  },
+  "project_dir": "/Users/dr/workspace/project",
+  "target": "codex"
+}

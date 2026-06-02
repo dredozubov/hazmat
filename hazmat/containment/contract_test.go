@@ -26,6 +26,23 @@ func TestContractEffectivePathSets(t *testing.T) {
 	}
 }
 
+func TestContractAncestorMetadataDirsAreSorted(t *testing.T) {
+	contract := Contract{
+		Project:       PathGrant{Path: "/workspace/project", Access: PathReadWrite},
+		ReadOnlyDirs:  PathGrants([]string{"/var/cache/build", "/opt/toolchain/go"}, PathReadOnly),
+		ReadWriteDirs: PathGrants([]string{"/workspace/project/tmp"}, PathReadWrite),
+		AgentHome:     AgentHomePolicy{Path: "/home/agent"},
+		Temp:          TempPolicy{Path: "/tmp/hazmat"},
+		Network:       NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process:       ProcessPolicy{AllowFork: true},
+	}
+
+	want := []string{"/opt", "/opt/toolchain", "/var", "/var/cache", "/workspace", "/workspace/project"}
+	if got := contract.AncestorMetadataDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("AncestorMetadataDirs = %v, want %v", got, want)
+	}
+}
+
 func TestContractCopiesPathLists(t *testing.T) {
 	readDirs := []string{"/opt/sdk"}
 	grants := PathGrants(readDirs, PathReadOnly)

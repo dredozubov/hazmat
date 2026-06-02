@@ -1,0 +1,19 @@
+{
+  "EnvPassthrough": {
+    "GOPROXY": "https://proxy.golang.org,direct",
+    "GOROOT": "/opt/homebrew/Cellar/go/1.2.3/libexec"
+  },
+  "Excludes": [
+    ".gocache/"
+  ],
+  "ReadDirs": [
+    "/opt/homebrew/Cellar/go/1.2.3/libexec"
+  ],
+  "RegistryKeys": [
+    "GOPROXY"
+  ],
+  "Warnings": [
+    "Go integration warning",
+    "runtime warning"
+  ]
+}

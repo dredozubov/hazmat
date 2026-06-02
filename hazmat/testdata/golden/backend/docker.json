@@ -1,0 +1,30 @@
+{
+  "backend": "docker-sandbox",
+  "capability_gaps": [
+    {
+      "feature": "integration-env-passthrough",
+      "reason": "Docker Sandbox launch does not yet support integration env passthrough."
+    }
+  ],
+  "integration_env_keys": [
+    "GOROOT"
+  ],
+  "integrations": [
+    "go"
+  ],
+  "lifecycle_artifacts": [
+    {
+      "kind": "docker-sandbox"
+    }
+  ],
+  "mode": "docker-sandbox",
+  "network_mode": "none",
+  "project_dir": "/Users/dr/workspace/project",
+  "read_only_dirs": [
+    "/Users/dr/workspace/reference"
+  ],
+  "read_write_dirs": [
+    "/Users/dr/workspace/project/.cache"
+  ],
+  "target": "shell"
+}
