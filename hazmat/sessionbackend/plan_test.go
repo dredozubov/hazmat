@@ -77,3 +77,10 @@ func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 		t.Fatalf("LifecycleArtifacts = %v", plan.LifecycleArtifacts)
 	}
 }
+
+func TestRemoteEnvelopeBackendReportsPlanOnlyGap(t *testing.T) {
+	gaps := capabilityGaps(Input{}, KindRemoteEnvelope)
+	if len(gaps) != 1 || gaps[0].Feature != GapRemoteLaunch {
+		t.Fatalf("capabilityGaps(remote-envelope) = %v", gaps)
+	}
+}
