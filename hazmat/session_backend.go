@@ -4,6 +4,7 @@ import (
 	"runtime"
 
 	"hazmat/sessionbackend"
+	"hazmat/sessionplanner"
 )
 
 type sessionBackendPlan = sessionbackend.Plan
@@ -13,7 +14,7 @@ func buildSessionBackendPlan(cfg sessionConfig, mode sessionMode) sessionBackend
 }
 
 func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos string) sessionBackendPlan {
-	return sessionbackend.BuildPlan(sessionbackend.Input{
+	return sessionplanner.BuildBackendPlan(sessionbackend.Input{
 		Target:             cfg.Target,
 		Mode:               mode,
 		ProjectDir:         cfg.ProjectDir,

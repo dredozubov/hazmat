@@ -7,6 +7,7 @@ import (
 
 	linuxplatform "hazmat/platform/linux"
 	"hazmat/sessioncontract"
+	"hazmat/sessionplanner"
 )
 
 const explainJSONFormatVersion = sessioncontract.PlanFormatVersion
@@ -84,7 +85,7 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 }
 
 func buildSessionContractPlan(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.Plan {
-	return sessioncontract.BuildPlan(sessioncontract.PlanInput{
+	return sessionplanner.BuildContractPlan(sessioncontract.PlanInput{
 		Target:                target,
 		Mode:                  mode,
 		ProjectDir:            cfg.ProjectDir,

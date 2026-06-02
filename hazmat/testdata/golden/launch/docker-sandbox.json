@@ -1,0 +1,76 @@
+{
+  "agent": "claude",
+  "backend_plan": {
+    "backend": "docker-sandbox",
+    "integrations": [
+      "go"
+    ],
+    "lifecycle_artifacts": [
+      {
+        "kind": "docker-sandbox"
+      }
+    ],
+    "mode": "docker-sandbox",
+    "network_mode": "default",
+    "project_dir": "/Users/dr/workspace/project",
+    "read_only_dirs": [
+      "/Users/dr/workspace/reference",
+      "/opt/homebrew/Cellar/go/1.2.3/libexec"
+    ],
+    "read_write_dirs": [
+      "/Users/dr/workspace/project/.cache"
+    ],
+    "target": "claude"
+  },
+  "docker_create_args": [
+    "sandbox",
+    "create",
+    "--name",
+    "hazmat-claude-project-f1e17ca714b4",
+    "claude",
+    "/Users/dr/workspace/project",
+    "/Users/dr/workspace/reference:ro",
+    "/opt/homebrew/Cellar/go/1.2.3/libexec:ro"
+  ],
+  "mount_read_dirs": [
+    "/Users/dr/workspace/reference",
+    "/opt/homebrew/Cellar/go/1.2.3/libexec"
+  ],
+  "name": "hazmat-claude-project-f1e17ca714b4",
+  "network_proxy_args": [
+    "sandbox",
+    "network",
+    "proxy",
+    "hazmat-claude-project-f1e17ca714b4",
+    "--policy",
+    "deny",
+    "--allow-host",
+    "api.anthropic.com",
+    "--allow-host",
+    "claude.ai",
+    "--allow-host",
+    "platform.claude.com",
+    "--allow-host",
+    "statsig.anthropic.com",
+    "--allow-host",
+    "*.sentry.io",
+    "--allow-host",
+    "github.com",
+    "--allow-host",
+    "registry.npmjs.org"
+  ],
+  "profile": {
+    "allow_hosts": [
+      "api.anthropic.com",
+      "claude.ai",
+      "platform.claude.com",
+      "statsig.anthropic.com",
+      "*.sentry.io",
+      "github.com",
+      "registry.npmjs.org"
+    ],
+    "name": "baseline",
+    "policy": "deny"
+  },
+  "project_dir": "/Users/dr/workspace/project"
+}

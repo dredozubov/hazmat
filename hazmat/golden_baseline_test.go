@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"hazmat/containment"
+	linuxspec "hazmat/containment/linux"
 	"hazmat/integrations"
+	platformlinux "hazmat/platform/linux"
 	"hazmat/sessionbackend"
 	"hazmat/sessionmeta"
 )
@@ -131,6 +134,59 @@ func TestGoldenBackendPlanBaselines(t *testing.T) {
 	}
 }
 
+func TestGoldenLaunchSpecBaselines(t *testing.T) {
+	linuxContract, err := containment.NewContract(containment.ContractInput{
+		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants([]string{
+			"/opt/sdk",
+			"/workspace/reference",
+		}, containment.PathReadOnly),
+		ReadWriteDirs: containment.PathGrants([]string{
+			"/workspace/project/.cache",
+		}, containment.PathReadWrite),
+		AgentHome: containment.AgentHomePolicy{Path: "/home/agent"},
+		Temp:      containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process:   containment.ProcessPolicy{AllowFork: true},
+	}, goldenCredentialFloor(t, "/home/agent"))
+	if err != nil {
+		t.Fatalf("NewContract linux fixture: %v", err)
+	}
+	linuxLaunch, err := linuxspec.Compile(linuxContract, linuxspec.CompileOptions{
+		Platform: platformlinux.Report{
+			RuntimeOS: "linux",
+			Features: platformlinux.FeatureSet{
+				UserNamespaces:    platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				CgroupV2:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				Landlock:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				Seccomp:           platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				NetworkNamespaces: platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile linux fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/linux-native.json", linuxLaunch)
+
+	dockerCfg := sessionConfig{
+		Target:      "claude",
+		ProjectDir:  "/Users/dr/workspace/project",
+		ReadDirs:    []string{"/Users/dr/workspace/reference", "/opt/homebrew/Cellar/go/1.2.3/libexec"},
+		WriteDirs:   []string{"/Users/dr/workspace/project/.cache"},
+		NetworkMode: sessionNetworkDefault,
+		ActiveIntegrations: []string{
+			"go",
+		},
+	}
+	dockerPlan := buildSessionBackendPlanForGOOS(dockerCfg, sessionModeDockerSandbox, "darwin")
+	dockerLaunch, err := buildSandboxLaunchSpecWithPlan("claude", dockerCfg, dockerPlan, defaultSandboxPolicyProfile())
+	if err != nil {
+		t.Fatalf("buildSandboxLaunchSpecWithPlan fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/docker-sandbox.json", goldenDockerLaunchSpecFrom(dockerLaunch))
+}
+
 func TestGoldenIntegrationMergeBaselines(t *testing.T) {
 	good := integrations.Spec{
 		Meta: integrations.Meta{Name: "golden-go", Version: 1},
@@ -180,6 +236,61 @@ func TestGoldenIntegrationMergeBaselines(t *testing.T) {
 	assertGoldenJSON(t, "integrations/merge-output.json", merged)
 	assertGolden(t, "integrations/reject-credential-env.txt", credentialEnvErr)
 	assertGolden(t, "integrations/reject-read-dir.txt", readDirErr)
+}
+
+func goldenCredentialFloor(t *testing.T, home string) containment.CredentialFloor {
+	t.Helper()
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{
+		{Path: home + "/.ssh"},
+		{Path: home + "/.aws"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return floor
+}
+
+type goldenDockerLaunchSpec struct {
+	Name             string                     `json:"name"`
+	Agent            string                     `json:"agent"`
+	ProjectDir       string                     `json:"project_dir"`
+	BackendPlan      sessionBackendPlan         `json:"backend_plan"`
+	Profile          goldenSandboxPolicyProfile `json:"profile"`
+	MountReadDirs    []string                   `json:"mount_read_dirs,omitempty"`
+	MountWriteDirs   []string                   `json:"mount_write_dirs,omitempty"`
+	DockerCreateArgs []string                   `json:"docker_create_args"`
+	NetworkProxyArgs []string                   `json:"network_proxy_args"`
+}
+
+type goldenSandboxPolicyProfile struct {
+	Name       string   `json:"name"`
+	Policy     string   `json:"policy"`
+	AllowHosts []string `json:"allow_hosts"`
+}
+
+func goldenDockerLaunchSpecFrom(spec sandboxLaunchSpec) goldenDockerLaunchSpec {
+	createArgs := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
+	createArgs = append(createArgs, spec.MountWriteDirs...)
+	for _, dir := range spec.MountReadDirs {
+		createArgs = append(createArgs, dir+":ro")
+	}
+
+	networkArgs := []string{"sandbox", "network", "proxy", spec.Name, "--policy", spec.Profile.Policy}
+	for _, host := range spec.Profile.AllowHosts {
+		networkArgs = append(networkArgs, "--allow-host", host)
+	}
+
+	return goldenDockerLaunchSpec{
+		Name:             spec.Name,
+		Agent:            spec.Agent,
+		ProjectDir:       spec.Config.ProjectDir,
+		BackendPlan:      spec.BackendPlan,
+		Profile:          goldenSandboxPolicyProfile{Name: spec.Profile.Name, Policy: spec.Profile.Policy, AllowHosts: append([]string(nil), spec.Profile.AllowHosts...)},
+		MountReadDirs:    append([]string(nil), spec.MountReadDirs...),
+		MountWriteDirs:   append([]string(nil), spec.MountWriteDirs...),
+		DockerCreateArgs: createArgs,
+		NetworkProxyArgs: networkArgs,
+	}
 }
 
 func TestGoldenLaunchMetadataBaseline(t *testing.T) {
