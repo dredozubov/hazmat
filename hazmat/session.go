@@ -1173,40 +1173,18 @@ func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpe
 }
 
 func resolveSessionConfig(project string, readPaths, writePaths []string) (sessionConfig, error) {
-	projectDir, err := resolveDir(project, true)
-	if err != nil {
-		return sessionConfig{}, fmt.Errorf("project: %w", err)
-	}
-	if isCredentialDenyPath(projectDir) {
-		return sessionConfig{}, fmt.Errorf("project dir %q resolves to credential deny zone", projectDir)
-	}
-	if isHostStateDenyPath(projectDir) {
-		return sessionConfig{}, fmt.Errorf("project dir %q resolves to host-state deny zone", projectDir)
-	}
-
-	readDirs, err := resolveReadDirs(readPaths)
+	projectDir, err := resolveProjectRoot(project)
 	if err != nil {
 		return sessionConfig{}, err
 	}
-	for _, dir := range readDirs {
-		if isCredentialDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
-		}
-		if isHostStateDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("read dir %q resolves to host-state deny zone", dir)
-		}
-	}
-	writeDirs, err := resolveReadDirs(writePaths)
+
+	readDirs, err := resolveReadOnlyGrantDirs(readPaths)
 	if err != nil {
-		return sessionConfig{}, fmt.Errorf("write dirs: %w", err)
+		return sessionConfig{}, err
 	}
-	for _, dir := range writeDirs {
-		if isCredentialDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("write dir %q resolves to credential deny zone", dir)
-		}
-		if isHostStateDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("write dir %q resolves to host-state deny zone", dir)
-		}
+	writeDirs, err := resolveReadWriteGrantDirs(writePaths)
+	if err != nil {
+		return sessionConfig{}, err
 	}
 
 	return sessionConfig{
@@ -1257,11 +1235,11 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		cfg.HarnessID = id
 	}
 	applyHarnessStaticSessionEnv(&cfg)
-	cfg.UserReadDirs, err = resolveReadDirs(userReadPaths)
+	cfg.UserReadDirs, err = resolveReadOnlyGrantDirs(userReadPaths)
 	if err != nil {
 		return preparedSession{}, err
 	}
-	cfg.AutoReadDirs, err = resolveReadDirs(autoReadPaths)
+	cfg.AutoReadDirs, err = resolveReadOnlyGrantDirs(autoReadPaths)
 	if err != nil {
 		return preparedSession{}, err
 	}
