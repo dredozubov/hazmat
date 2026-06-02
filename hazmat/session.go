@@ -2206,6 +2206,8 @@ func runPreparedAgentSeatbeltScriptWithUI(prepared preparedSession, ui sessionLa
 	return runAgentSeatbeltScriptWithPlan(prepared.Config, prepared.BackendPlan, ui, script, args...)
 }
 
+var runAgentSeatbeltScriptWithPlan = defaultRunAgentSeatbeltScriptWithPlan
+
 func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI {
 	if !cfg.StatusBar() {
 		ui.showStatusBar = false
@@ -2214,7 +2216,7 @@ func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI 
 	return ui
 }
 
-func runAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, ui sessionLaunchUI, script string, args ...string) error {
+func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, ui sessionLaunchUI, script string, args ...string) error {
 	if hcfg, err := loadConfig(); err == nil {
 		ui = applyStatusBarConfig(ui, hcfg)
 	}

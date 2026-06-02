@@ -203,7 +203,9 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	return plan
 }
 
-func executeSessionMutationPlan(plan sessionMutationPlan) error {
+var executeSessionMutationPlan = defaultExecuteSessionMutationPlan
+
+func defaultExecuteSessionMutationPlan(plan sessionMutationPlan) error {
 	return executeSessionMutationPlanToWriter(os.Stderr, plan)
 }
 

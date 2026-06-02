@@ -86,8 +86,12 @@ func usesManagedAgentPath(path string) bool {
 	return path == agentHome || isWithinDir(agentHome, path)
 }
 
+var agentPathForDirectIO = func(path string) string {
+	return path
+}
+
 func readAgentSecretFile(path string) ([]byte, bool, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(agentPathForDirectIO(path))
 	if err == nil {
 		return raw, true, nil
 	}

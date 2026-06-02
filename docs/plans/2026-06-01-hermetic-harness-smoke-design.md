@@ -1,6 +1,6 @@
 # Hermetic All-Harness Smoke Design
 
-Status: Draft for audit
+Status: Implemented
 Date: 2026-06-01
 Issue: sandboxing-v89x
 

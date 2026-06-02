@@ -12,13 +12,14 @@ are not interchangeable.
 | `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
 | `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
-| `scripts/pre-release-local.sh` | Local release gate, including fast checks and all-harness synthetic e2e smoke | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
+| `scripts/pre-release-local.sh` | Local release gate, including fast checks and hermetic all-harness synthetic e2e smoke | Host | No |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
-| `scripts/e2e-harness-smoke.sh` | Do real harness launch paths still compose with Hermes/Qwen/Cursor state setup and Claude host-owned auth harvest guards? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
+| `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
+| `scripts/e2e-harness-smoke-native.sh` | Does the prepared-host launch-helper and seatbelt path still compose with every managed harness? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
 | `scripts/e2e-vm.sh` | Run the destructive lifecycle test in an isolated macOS VM | VM | Destroys the VM, not your host setup |
@@ -211,12 +212,25 @@ bash scripts/e2e-harness-smoke.sh
 make e2e-harness-smoke
 ```
 
-The smoke does not call real harness services. It takes the shared host-side
-test lock, backs up the touched agent-owned harness binaries, contained
-Hermes/Qwen/Cursor state, and host secret-store files, installs synthetic agent-owned
-binaries, runs the real `hazmat <harness>` launch paths for every managed
-harness, then restores everything it touched. It requires `hazmat init` and
-non-interactive `sudo -n`.
+The smoke does not call real harness services. It creates a disposable fixture
+root, redirects Hazmat's host home and agent home into that root, installs
+synthetic harness binaries there, and runs the real `hazmat <harness>` command
+entrypoints for every managed harness. It does not require `hazmat init`, an
+`agent` account, non-interactive `sudo -n`, or writes to `/Users/agent`.
+
+Use the optional native variant when you specifically need to validate the
+prepared-host launch-helper and seatbelt path:
+
+```bash
+bash scripts/e2e-harness-smoke-native.sh
+make e2e-harness-smoke-native
+```
+
+The native smoke backs up the touched agent-owned harness binaries, contained
+Hermes/Qwen/Cursor state, and host secret-store files, installs synthetic
+agent-owned binaries, runs the native `hazmat <harness>` launch paths, then
+restores everything it touched. It requires `hazmat init` and non-interactive
+`sudo -n`.
 
 The Claude case seeds synthetic host-owned auth, lets the fake contained Claude
 process rewrite the runtime credential file to `{}`, and verifies that Hazmat
@@ -242,7 +256,7 @@ make pre-release-local
 This runs the fast repository gate (`scripts/pre-push`) and then the all-harness
 synthetic e2e smoke. `scripts/release.sh` runs the same local gate before it
 asks Claude to draft `CHANGELOG.md`, so a release cannot proceed locally if the
-prepared-host harness smoke fails.
+hermetic harness smoke fails.
 
 ### Repo-matrix validation
 
@@ -284,8 +298,11 @@ and runs `scripts/e2e.sh` there.
 
 ## Host vs VM Model
 
-- `hazmat check`, `pre-push`, `pre-release-local`, `e2e-bootstrap`, and
-  `e2e-stack-matrix` are host-side verification surfaces.
+- `hazmat check`, `pre-push`, `pre-release-local`, `e2e-bootstrap`, the
+  hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
+  surfaces.
+- `scripts/e2e-harness-smoke-native.sh` is host-side and prepared-host-only:
+  it requires `hazmat init`, an `agent` account, and `sudo -n`.
 - `scripts/e2e.sh` is also host-side, but destructive.
 - `scripts/e2e-vm.sh` is the isolated wrapper for the destructive lifecycle
   test.

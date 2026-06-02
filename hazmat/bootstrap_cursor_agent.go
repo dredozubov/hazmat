@@ -27,6 +27,16 @@ func findInstalledCursorAgentBinaryWith(read func(args ...string) (string, error
 	return "", false
 }
 
+func probeCursorAgentHarness(read func(args ...string) (string, error)) harnessProbe {
+	return probeHarnessBinary(read, findInstalledCursorAgentBinaryWith, "--version")
+}
+
+func cursorAgentHarnessManagedCodeArtifacts() []harnessManagedArtifact {
+	return []harnessManagedArtifact{
+		harnessFileArtifact(agentHome+cursorAgentBinRel, "Cursor Agent executable"),
+	}
+}
+
 func cursorAgentLaunchScript() string {
 	return `cd "$SANDBOX_PROJECT_DIR" && ` +
 		`{ test -x "$HOME` + cursorAgentBinRel + `" || ` +

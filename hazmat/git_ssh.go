@@ -1129,7 +1129,9 @@ func sessionPathExposesFile(cfg sessionConfig, path string) bool {
 	return false
 }
 
-func prepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
+var prepareSessionRuntime = defaultPrepareSessionRuntime
+
+func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
 	var runtimes []preparedSessionRuntime
 	cleanupPrepared := func() {
 		for i := len(runtimes) - 1; i >= 0; i-- {

@@ -41,7 +41,9 @@ func agentCommandArgs(args ...string) []string {
 	return append(full, args...)
 }
 
-func newAgentCommand(args ...string) *exec.Cmd {
+var newAgentCommand = defaultNewAgentCommand
+
+func defaultNewAgentCommand(args ...string) *exec.Cmd {
 	return newSudoCommand(agentCommandArgs(args...)...)
 }
 

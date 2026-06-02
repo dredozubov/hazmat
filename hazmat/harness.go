@@ -210,9 +210,20 @@ var managedHarnessRegistry = []ManagedHarness{
 		Spec:             cursorAgentHarness.Spec(),
 		LaunchCommand:    "hazmat cursor-agent",
 		BootstrapCommand: "hazmat bootstrap cursor-agent",
+		ImportPolicy: harnessImportPolicy{
+			Supported: false,
+			Boundary:  "Cursor Agent v1 has no curated import; host Cursor IDE, ~/.cursor, and auth state boundaries are preserved",
+		},
 		Installed: func() bool {
 			_, ok := findInstalledCursorAgentBinary()
 			return ok
+		},
+		Probe:                probeCursorAgentHarness,
+		ManagedCodeArtifacts: cursorAgentHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + cursorAgentBinRel + " manual Cursor Agent executable",
+			agentHome + "/.cursor and Cursor Agent profile state",
+			"host Cursor IDE state, host ~/.cursor, and host auth settings are not imported",
 		},
 		Bootstrap: func(ui *UI, r *Runner) error {
 			return cursorAgentHarness.Bootstrap(ui, r)
