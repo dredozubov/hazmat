@@ -10,6 +10,27 @@ Every design decision that isn't obvious from reading `hazmat --help`.
 
 **Both Intel and Apple Silicon.** PATH includes `/opt/homebrew` (ARM) and `/usr/local` (x86). Both are always present; the wrong one is harmless dead entries. This PATH block refers to the **agent-side** `.zshrc` that `hazmat init` writes, not to hazmat's own tool resolution — see "Tool resolution" below.
 
+## Remote And Orchestrated Workers
+
+**No remote execution exists today.** Hazmat's implemented trust model is
+local: one controlling user, one local `agent` user, local Seatbelt/pf/user
+isolation, and host-owned credentials. Remote/orchestrated launch envelopes are
+plan-only architecture work until a new TLA+ model, threat-model update, and
+worker admission implementation are reviewed.
+
+**Wire DTOs are never authority.** Any future remote envelope must decode into
+DTOs, verify schema version, canonical bytes, integrity, replay state, worker
+identity, path mapping, accepted capability gaps, cleanup policy, telemetry
+classification, and credential handles, then construct validated types before
+any worker action. Raw CLI flags, API JSON, and saved records are not launch
+authority.
+
+**Credentials cannot cross as raw secrets.** Remote workers may only receive
+modeled credential handles with scoped delivery, lifetime, cleanup, and
+revocation semantics. Until Specs 12/13 or successor specs cover remote handle
+integrity and delivery, remote envelopes must be credential-free. See
+[remote launch envelope schema](plans/2026-06-02-remote-launch-envelope-schema.md).
+
 ## Tool resolution
 
 **Hazmat resolves macOS system utilities by absolute path, not through PATH.** `chmod`, `chown`, `ls`, `sudo`, `dscl`, `pfctl`, `launchctl`, `uname`, `script`, `diff`, `tee` — every invocation goes through path constants defined in `hazmat/hostexec.go` (`/bin/chmod`, `/usr/bin/sudo`, etc.). The guard script `scripts/check-hostexec.sh` (run in CI) forbids bare `exec.Command("chmod"/"sudo"/...)` anywhere else in the source.
