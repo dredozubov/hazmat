@@ -9,6 +9,8 @@ For formal proof scope and governance rules, read
 read [design-assumptions.md](design-assumptions.md). For the historical Phase 1
 direction, read
 [plans/2026-06-02-modular-architecture-direction.md](plans/2026-06-02-modular-architecture-direction.md).
+For the proposed next package split, read
+[plans/2026-06-02-package-split-architecture.md](plans/2026-06-02-package-split-architecture.md).
 
 ## Current State
 
