@@ -19,7 +19,7 @@ Remote/orchestrated execution is a compatibility input, not the first runtime
 target. This split should define what remote may need, take the low-hanging
 package choices that keep those needs reachable, and defer hard properties such
 as envelope signing, worker identity, replay, worker-local path mapping,
-credential handles, cleanup proofs, and control-plane telemetry until a
+credential handles, cleanup proofs, and control-plane records until a
 remote-specific design bead.
 
 This document does not approve moving code, changing behavior, weakening
@@ -50,7 +50,7 @@ frontend input
   -> backend-neutral contract
   -> backend artifact
   -> runtime admission
-  -> launch / cleanup / telemetry
+  -> launch / cleanup / result records
 ```
 
 ## Design Principles
@@ -89,12 +89,20 @@ hazmat/
   internal/
     frontend/cli/              # Cobra commands, rendering, prompts
     legacy/                    # temporary shims during migration
+    runtime/
+      darwin/                  # native launch runtime and SBPL admission
+      docker/                  # Docker Sandbox runtime
+      linux/                   # future Linux native runtime
+    credentialruntime/         # secret store, brokers, materialization effects
+    setup/
+      darwin/                  # host setup/rollback runtime after model approval
     testfixtures/              # shared package test fixtures, no production imports
 
   sessionrequest/              # validated user/API request builders
   sessionplanner/              # pure planning facade
   sessioncontract/             # redaction-safe session plan DTOs
   sessionmeta/                 # stable mode/network/metadata labels
+  hostfacts/                   # explicit host/platform facts for planners
   pathpolicy/                  # canonical paths and deny-zone grant types
   containment/                 # backend-neutral authority contract
     darwin/                    # SBPL compiler package
@@ -102,21 +110,13 @@ hazmat/
     docker/                    # Docker Sandbox spec compiler
 
   sessionbackend/              # backend kinds, gaps, prepared artifact variants
-  credentials/                 # registry descriptors, grant requests, handles
+  credentials/                 # pure registry and scoped descriptor contracts
   harnesses/                   # harness registry and lifecycle metadata
   integrations/                # manifest schema and pure merge/detection rules
   hostmutations/               # permission repair and repo setup plans
-  hooks/                       # repo-local hook manifest/approval contracts
-  backup/                      # snapshot/restore plans and runtime adapters
-  telemetry/                   # event and cleanup-proof DTOs
+  hooks/                       # sensitive repo-local hook contracts; later split
+  backup/                      # snapshot/restore plans and governed runtime adapters
 
-  runtime/
-    darwin/                    # native launch runtime and SBPL admission
-    docker/                    # Docker Sandbox runtime
-    linux/                     # future Linux native runtime
-
-  setup/
-    darwin/                    # host setup/rollback runtime after model approval
 ```
 
 ### Public vs internal packages
@@ -128,6 +128,10 @@ rules should be enforced as if another frontend will call them.
 `internal/frontend/cli` and `internal/legacy` are intentionally not reusable.
 They can depend on Cobra, terminal UI, compatibility shims, and command-specific
 rendering. Reusable packages must never import them.
+
+Effectful runtime and setup packages should also start under `internal/`.
+They can be shared by multiple in-module frontends, but they should not become
+external API until a second frontend exists and the API shape has proved stable.
 
 ## Dependency Graph
 
@@ -143,6 +147,7 @@ flowchart TB
         planner["sessionplanner"]
         contract["sessioncontract"]
         meta["sessionmeta"]
+        facts["hostfacts"]
         paths["pathpolicy"]
         contain["containment"]
         backend["sessionbackend"]
@@ -159,36 +164,49 @@ flowchart TB
     end
 
     subgraph runtimes["Runtimes"]
-        darwinR["runtime/darwin"]
-        dockerR["runtime/docker"]
-        linuxR["runtime/linux"]
-        setupR["setup/darwin"]
+        darwinR["internal/runtime/darwin"]
+        dockerR["internal/runtime/docker"]
+        linuxR["internal/runtime/linux"]
+        credR["internal/credentialruntime"]
+        setupR["internal/setup/darwin"]
         backupR["backup runtime"]
     end
 
     cli --> request
+    cli --> planner
+    cli --> facts
     desktop --> request
+    desktop --> planner
+    desktop --> facts
     request --> paths
     request --> meta
     request --> harness
     request --> integ
+    planner --> facts
     planner --> contract
     planner --> backend
     planner --> contain
     planner --> creds
     planner --> mutations
-    contain --> darwinC
-    contain --> linuxC
-    contain --> dockerC
-    darwinC --> darwinR
-    dockerC --> dockerR
-    linuxC --> linuxR
+    darwinC --> contain
+    linuxC --> contain
+    dockerC --> contain
+    darwinR --> darwinC
+    dockerR --> dockerC
+    linuxR --> linuxC
+    credR --> creds
+    darwinR --> credR
+    dockerR --> credR
     cli --> setupR
     cli --> backupR
 
     style contracts fill:#eef,stroke:#55c,color:#000
     style runtimes fill:#ffe,stroke:#a80,color:#000
 ```
+
+Arrows in this diagram are import dependencies, not runtime call order. Backend
+compiler packages import `containment` for the contract type; `containment`
+must not import its compiler children.
 
 ## Contract vs Runtime Boundary
 
@@ -226,6 +244,7 @@ already passed the constructors and gap checks.
 | --- | --- | --- |
 | `sessionrequest` | `session.go` `sessionConfig`, `harnessSessionOpts`, `resolveSessionConfig` | Validated request builder for project/read/write paths, harness target, network mode, integrations, backend preference, preview/launch mode. |
 | `pathpolicy` | existing `pathpolicy/`, `path_policy.go` shims | Canonical path authority and deny-zone grant constructors. No frontend or runtime imports. |
+| `hostfacts` | scattered globals and probes in `session.go`, `agent_user.go`, `sandbox.go`, integration and harness checks | Explicit host/platform facts collected by frontends and passed into planners. No planner should read `$HOME`, inspect Docker, probe kernels, or check harness installation directly. |
 | `sessionplanner` | existing `sessionplanner/`, `explain_json.go`, `session_backend.go` | Single pure facade producing contract plan, backend plan, host mutation preview, credential descriptors, and warnings from validated request plus explicit facts. |
 | `sessioncontract` | existing `sessioncontract/` | Redaction-safe plan DTOs and versioned JSON shapes for preview/output. |
 | `containment` | existing `containment/`, `native_session_policy.go` | Backend-neutral authority contract, structural credential floor, grant overlap validation, comparable core policy. |
@@ -233,13 +252,16 @@ already passed the constructors and gap checks.
 | `containment/linux` | existing `containment/linux/` | Plan-only Linux launch spec compiler until runtime is modeled and implemented. |
 | `containment/docker` | `sandbox.go` launch spec/profile builders | Docker Sandbox spec compiler from contract/backend plan; no Docker CLI execution. |
 | `sessionbackend` | existing `sessionbackend/` | Backend kinds, gap taxonomy, lifecycle artifact expectations, prepared artifact variants. |
-| `credentials` | `credential_registry.go`, `session_credentials.go`, `secret_store.go`, `config_agent.go`, `github_capability.go`, `git_https_credentials.go`, `git_ssh.go` | Registry descriptors, support status, grant requests, scoped delivery handles, redaction, and cleanup plans. Split descriptor/contract APIs from delivery runtime. |
+| `credentials` | `credential_registry.go`, descriptor portions of `session_credentials.go`, grant/request metadata | Pure registry descriptors, support status, grant requests, scoped delivery handles, redaction contracts, and cleanup plan DTOs. No secret-store, broker, materialization, or file-copy runtime imports. |
+| `internal/credentialruntime` | `secret_store.go`, effectful portions of `session_credentials.go`, `config_agent.go`, `github_capability.go`, `git_https_credentials.go`, `git_ssh.go` | Secret-store access, credential brokers, scoped materialization, file-copy delivery, and cleanup application. Consumes descriptor-package validated plans. |
 | `harnesses` | `harness.go`, `harness_lifecycle.go`, `harness_assets.go`, bootstrap files | Harness registry metadata, managed artifacts, preserved artifacts, install/update/uninstall plans. Runtime install stays effectful. |
 | `integrations` | existing `integrations/`, `integration_manifest.go`, `integration_resolver.go` | Manifest schema, safe merge, detection, read-dir/env validation, repo recommendations. Host tool repair plans go through `hostmutations`. |
 | `hostmutations` | `session_mutation.go`, `workspace_acl.go`, `git_preflight.go`, `repo_setup.go` | Previewable host mutation plans and proof-scope metadata. Applying mutations is runtime-only. |
-| `runtime/darwin` | `native_launch*.go`, `agent_launch.go`, `runner.go`, `cmd/hazmat-launch` interface | Native session admission, policy file lifecycle, launch-helper invocation, cleanup. |
-| `runtime/docker` | `sandbox.go` runtime portions | Docker Sandbox readiness, approval, creation, launch, cleanup. |
-| `setup/darwin` | `init*.go`, `rollback*.go`, `sudoers.go`, `native_account*.go`, `native_service*.go` | Host setup and rollback runtime after model-approved package split. |
+| `backup` | `backup.go`, `snapshots.go`, `kopia_wrapper.go`, `restore.go` | Snapshot and restore plans plus governed runtime adapters. Any split is gated by `MC_BackupSafety`, especially the prior-snapshot-before-overwrite invariant. |
+| `hooks` | `hook_manifest.go`, `hook_approval.go`, `hook_runtime.go`, `hook_cli.go` | Sensitive repo-local hook contracts and approval/runtime wrappers. Do not treat as a routine extraction; `MC_GitHookApproval` governs approval, pinned hooksPath, snapshot execution, drift refusal, and rollback cleanup. |
+| `internal/runtime/darwin` | `native_launch*.go`, `agent_launch.go`, `runner.go`, `cmd/hazmat-launch` interface | Native session admission, policy file lifecycle, launch-helper invocation, cleanup. |
+| `internal/runtime/docker` | `sandbox.go` runtime portions | Docker Sandbox readiness, approval, creation, launch, cleanup. |
+| `internal/setup/darwin` | `init*.go`, `rollback*.go`, `sudoers.go`, `native_account*.go`, `native_service*.go` | Host setup and rollback runtime after model-approved package split. |
 | `internal/frontend/cli` | `main.go`, command files, rendering, prompts | CLI commands, status text, explain rendering, compatibility flags, shell completion. |
 
 ## Remote Scope For This Split
@@ -261,7 +283,7 @@ names the broad future needs:
 - capability-gap admission
 - credential handle lifecycle
 - cleanup proof shape
-- telemetry classification
+- record classification
 
 This split should take the low-hanging pieces that help both local and remote
 without claiming remote execution:
@@ -367,13 +389,18 @@ Admission checks differ by runtime, but the common contract is the same:
 - reject unaccepted capability gaps
 - materialize only scoped credential grants
 - build cleanup before launch
-- emit classified telemetry only
+- emit only classified result and cleanup records
 - fail closed on missing runtime capability
+
+`PreparedLaunch` must become a real authority type before Phase G runtimes
+consume it. Its authority-bearing fields should be unexported, with a separate
+JSON DTO for rendering or persistence, so callers cannot hand-assemble multiple
+artifact variants or bypass `NewPreparedLaunch` gap checks.
 
 ## Import Boundary Rules
 
-The package split needs automated guards, not just documentation. Add a simple
-import-boundary test or script before large movement begins.
+The package split needs automated guards, not just documentation. Add a
+structural import-boundary test before large movement begins.
 
 | Package class | Forbidden imports |
 | --- | --- |
@@ -381,19 +408,19 @@ import-boundary test or script before large movement begins.
 | DTO/schema packages | Runtime packages, credential delivery, host mutation apply code. |
 | Compilers | Frontend packages, prompts, Cobra, direct process launch. |
 | Runtimes | Frontend rendering, Cobra, unvalidated DTO packages as authority. |
+| Credential descriptors | Secret-store, broker, materialization, or file-copy runtime packages. |
 | Frontends | No direct use of low-level compiler internals when a planner/runtime facade exists. |
 
-The first guard can be conservative and textual:
+The guard should use `go list -deps -json` from the start so it catches
+transitive imports and aliases:
 
 ```text
-scripts/check-import-boundaries.sh
+scripts/check-import-boundaries.sh  # or a small Go test wrapper
   pure packages cannot import effect packages
   frontend packages cannot be imported by libraries
   compilers cannot import runtime launchers
+  credential descriptor packages cannot reach secret materialization code
 ```
-
-Later, the guard can move to a Go test that parses `go list -deps -json` and
-checks package paths structurally.
 
 ## Invariant Ownership After Split
 
@@ -402,21 +429,31 @@ checks package paths structurally.
 | Deny-zone project/read/write rejection | `pathpolicy` + `sessionrequest` | `MC_TierPolicyEquivalence`, `MC_Tier3LaunchContainment`, path/session tests. |
 | Non-omittable credential-deny floor | `containment` | `MC_SeatbeltPolicy`, containment tests, backend compiler tests. |
 | SBPL section order | `containment/darwin` | `MC_SeatbeltPolicy`, SBPL goldens. |
-| Native launch fd cleanup | `runtime/darwin` + `cmd/hazmat-launch` | `MC_LaunchFDIsolation`, helper tests. |
+| Native launch fd cleanup | `internal/runtime/darwin` + `cmd/hazmat-launch` | `MC_LaunchFDIsolation`, helper tests. |
 | Preview-vs-launch mutation behavior | `hostmutations` | `MC_SessionPermissionRepairs`, explain/launch tests. |
-| Credential descriptor/delivery mode matching | `credentials` | Specs 12/13, credential registry tests, credential-regression hook. |
+| Credential descriptor/delivery mode matching | `credentials` + `internal/credentialruntime` | Specs 12/13, credential registry tests, credential-regression hook. |
+| Credential descriptors cannot reach materialization | `credentials` descriptor package plus import-boundary guard | Specs 12/13, `go list -deps` import guard, credential-regression hook. |
 | Harness lifecycle metadata cleanup | `harnesses` | `MC_HarnessLifecycle`, harness lifecycle tests. |
 | Backend capability gaps | `sessionbackend` | backend plan goldens, `NewPreparedLaunch` tests. |
-| Docker launch containment | `containment/docker` + `runtime/docker` | `MC_Tier3LaunchContainment`, launch-spec goldens. |
+| Prepared launch artifacts cannot be forged before runtime admission | `sessionbackend` authority type plus separate DTO | `NewPreparedLaunch` tests, import/API review before Phase G. |
+| Docker launch containment | `containment/docker` + `internal/runtime/docker` | `MC_Tier3LaunchContainment`, launch-spec goldens. |
+| Restore never overwrites without a prior snapshot | `backup` | `MC_BackupSafety`, backup/restore tests. |
+| Repo-local hook execution uses approved immutable content and pinned paths | `hooks` | `MC_GitHookApproval`, hook approval/runtime tests. |
 | Remote compatibility stays non-executable | `sessionbackend` + versioned plan DTOs | `GapRemoteLaunch`; new remote model before execution. |
 
 ## Migration Strategy
 
-This must move in small, equivalence-proved beads. The intended sequence is:
+This must move in small, equivalence-proved beads. Every phase must keep
+package-main compatibility shims green where they exist, preserve current CLI
+entrypoints until their release path is proven, and be independently revertible
+without leaving package imports half-moved.
+
+The intended sequence is:
 
 ### Phase A: Guardrails before movement
 
-- Add import-boundary guard for current pure packages.
+- Add the `go list -deps -json` import-boundary guard for current pure
+  packages.
 - Add a package dependency diagram check to docs or CI output.
 - Record remote compatibility as a non-runtime constraint: versioned DTOs,
   explicit facts, redaction-safe descriptors, and gap taxonomy only.
@@ -429,16 +466,29 @@ This must move in small, equivalence-proved beads. The intended sequence is:
 - Move the binary entrypoint to `cmd/hazmat`.
 - Keep compatibility wrappers if release tooling expects the old module-root
   shape during transition.
+- Update operational touchpoints that goldens do not cover: `Makefile`,
+  `scripts/release.sh`, `scripts/e2e*.sh`, pre-push CLI smoke, install paths,
+  and release build commands.
 - No session semantics move in this phase.
 
-### Phase C: Validated request package
+### Phase C: Host facts package
+
+- Extract explicit host/platform fact collection into `hostfacts`.
+- Collect facts in the frontend or host inspection layer, then pass them into
+  planners.
+- Cover agent home, invoker home, Docker availability, kernel/platform probes,
+  harness installed status, and integration marker facts.
+- No planner may call `os.UserHomeDir`, `os/user`, Docker probes, or harness
+  installation checks directly.
+
+### Phase D: Validated request package
 
 - Extract `sessionrequest` around existing `pathpolicy` constructors.
 - Route `resolveSessionConfig` through it as a compatibility shim.
 - Preserve the exact rejected-input set unless the model is updated first.
 - Re-run `MC_TierPolicyEquivalence` and `MC_Tier3LaunchContainment`.
 
-### Phase D: Planner expansion
+### Phase E: Planner expansion
 
 - Expand `sessionplanner` to own the full side-effect-free plan:
   contract plan, backend plan, mutation preview, credential descriptors,
@@ -448,7 +498,7 @@ This must move in small, equivalence-proved beads. The intended sequence is:
 - Keep launch and explain goldens byte-identical.
 - Do not move credential delivery or mutation apply code yet.
 
-### Phase E: Backend compiler packages
+### Phase F: Backend compiler packages
 
 - Move Darwin SBPL compilation into `containment/darwin`.
 - Move Docker spec compilation into `containment/docker`.
@@ -456,24 +506,43 @@ This must move in small, equivalence-proved beads. The intended sequence is:
   prepared artifact boundaries are audited.
 - Re-run governed specs and all goldens.
 
-### Phase F: Credentials and harnesses
+### Phase G: Prepared launch authority
 
-- Split credential registry descriptors from credential delivery runtime.
+- Make `PreparedLaunch` an authority type with unexported artifact fields.
+- Add a separate DTO for JSON/rendering/persistence.
+- Require all runtimes to receive values constructed by `NewPreparedLaunch`.
+- This phase must land before any runtime package accepts `PreparedLaunch`.
+
+### Phase H: Credentials and harnesses
+
+- Split credential registry descriptors into `credentials` and credential
+  delivery effects into `internal/credentialruntime`.
+- Enforce that descriptor packages cannot import secret store, broker,
+  materialization, or file-copy runtime code.
 - Split harness metadata/plans from install/update/uninstall effects.
 - Preserve Specs 8, 12, and 13 invariants.
 - Add explicit DTO-to-validated-type tests for any serialized credential or
   harness lifecycle artifact.
 
-### Phase G: Runtime packages
+### Phase I: Runtime packages
 
-- Move effectful native and Docker launch code behind `runtime/darwin` and
-  `runtime/docker`.
+- Move effectful native and Docker launch code behind `internal/runtime/darwin`
+  and `internal/runtime/docker`.
 - Runtimes accept only `PreparedLaunch`, scoped credential delivery plans, and
   cleanup policy.
 - Future Linux remains plan-only until separately modeled. Remote runtime is
   outside this split and needs its own design/model bead.
 
-### Phase H: Setup and rollback
+### Phase J: Backup and hooks
+
+- Split backup only with `MC_BackupSafety` re-run and explicit preservation of
+  "snapshot before overwrite" behavior.
+- Split repo-local hooks only with `MC_GitHookApproval` re-run and explicit
+  preservation of approved immutable snapshot execution, pinned `core.hooksPath`,
+  drift refusal, and rollback cleanup.
+- These are governed effect surfaces, not routine data-package extractions.
+
+### Phase K: Setup and rollback
 
 - Split setup/rollback only after a model-aware design bead. This code is
   too sensitive to move opportunistically.
@@ -489,6 +558,7 @@ flowchart LR
     plan["sessionplanner.Plan"]
     contract["containment.Contract"]
     backend["sessionbackend.Plan"]
+    selector["Frontend/runtime compiler selection"]
     compiler["Backend compiler"]
     prepared["sessionbackend.PreparedLaunch"]
     runtime["runtime admission"]
@@ -499,9 +569,11 @@ flowchart LR
     request --> plan
     plan --> contract
     plan --> backend
-    contract --> compiler
-    backend --> prepared
+    contract --> selector
+    backend --> selector
+    selector --> compiler
     compiler --> prepared
+    backend --> prepared
     prepared --> runtime
     runtime --> result
 ```
@@ -565,8 +637,8 @@ These are proposed only after audit feedback:
 
 ## Audit Questions
 
-- Should runtime packages be public (`runtime/darwin`) or internal until
-  another frontend exists?
+- When, if ever, should internal runtime packages become public for another
+  frontend?
 - Should `sessionrequest` be separate, or should it live inside
   `sessioncontract` until the API stabilizes?
 - Should `PreparedLaunch` become an authority type with unexported fields and a
@@ -577,7 +649,7 @@ These are proposed only after audit feedback:
   explicit facts, redaction-safe descriptors, gap taxonomy, or canonical test
   fixtures?
 - Which remote properties must stay deferred: signing, replay, worker identity,
-  worker-local path mapping, credential handles, cleanup proofs, telemetry
+  worker-local path mapping, credential handles, cleanup proof format, record
   classification, or all of them?
 - Should setup/rollback stay in `package main` longer than other runtime code
   because it is strongly model-governed?
