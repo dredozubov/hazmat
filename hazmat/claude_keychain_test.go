@@ -7,22 +7,26 @@ import (
 	"testing"
 )
 
-func TestClaudeAgentKeychainPrepareScriptCreatesAndUnlocksWithoutReset(t *testing.T) {
+func TestClaudeAgentKeychainPrepareScriptCreatesOrRepairsManagedKeychain(t *testing.T) {
 	script := claudeAgentKeychainPrepareScript()
 	for _, want := range []string{
+		`marker="$HOME/Library/Keychains/.hazmat-login-keychain"`,
+		`reset_agent_keychain() {`,
 		`if [ ! -e "$kc" ]; then`,
+		`elif [ ! -f "$marker" ]; then`,
+		`elif ! /usr/bin/security unlock-keychain -p "" "$kc" >/dev/null 2>&1; then`,
+		`for kc_file in "$kc" "$kc-shm" "$kc-wal"; do`,
+		`/bin/mv -f "$kc_file" "$backup_dir/$(/usr/bin/basename "$kc_file")"`,
 		`/usr/bin/security create-keychain -p "" "$kc"`,
+		`printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"`,
+		`/usr/bin/security unlock-keychain -p "" "$kc"`,
 		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
 		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
 		`/usr/bin/security default-keychain -s "$kc"`,
-		`/usr/bin/security unlock-keychain -p "" "$kc"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("prepare script missing %q:\n%s", want, script)
 		}
-	}
-	if strings.Contains(script, "mv -f") {
-		t.Fatalf("prepare script must not reset or move an existing keychain:\n%s", script)
 	}
 }
 
@@ -30,9 +34,10 @@ func TestClaudeAgentKeychainResetScriptBacksUpAndRecreates(t *testing.T) {
 	script := claudeAgentKeychainResetScript()
 	for _, want := range []string{
 		`backup_dir="$HOME/Library/Keychains/hazmat-login-keychain-backups/$ts"`,
-		`for path in "$kc" "$kc-shm" "$kc-wal"; do`,
-		`mv -f "$path" "$backup_dir/$(basename "$path")"`,
+		`for kc_file in "$kc" "$kc-shm" "$kc-wal"; do`,
+		`/bin/mv -f "$kc_file" "$backup_dir/$(/usr/bin/basename "$kc_file")"`,
 		`/usr/bin/security create-keychain -p "" "$kc"`,
+		`printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"`,
 		`/usr/bin/security unlock-keychain -p "" "$kc"`,
 	} {
 		if !strings.Contains(script, want) {

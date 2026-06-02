@@ -123,7 +123,8 @@ func resetClaudeAgentKeychain() (string, error) {
 func claudeAgentKeychainPrepareScript() string {
 	return `set -e
 kc="$HOME/Library/Keychains/login.keychain-db"
-mkdir -p "$HOME/Library/Keychains"
+marker="$HOME/Library/Keychains/.hazmat-login-keychain"
+/bin/mkdir -p "$HOME/Library/Keychains"
 
 best_effort_security() {
   "$@" >/dev/null 2>&1 &
@@ -141,9 +142,34 @@ best_effort_security() {
   return 0
 }
 
-if [ ! -e "$kc" ]; then
+reset_agent_keychain() {
+  ts="$(/bin/date +%Y%m%d-%H%M%S)"
+  backup_dir="$HOME/Library/Keychains/hazmat-login-keychain-backups/$ts"
+  moved=0
+  for kc_file in "$kc" "$kc-shm" "$kc-wal"; do
+    if [ -e "$kc_file" ]; then
+      /bin/mkdir -p "$backup_dir"
+      /bin/mv -f "$kc_file" "$backup_dir/$(/usr/bin/basename "$kc_file")"
+      moved=1
+    fi
+  done
+  if [ "$moved" = "1" ]; then
+    echo "Backed up existing agent login keychain: $backup_dir"
+  fi
   /usr/bin/security create-keychain -p "" "$kc"
+  printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"
+  /bin/chmod 0600 "$marker" >/dev/null 2>&1 || true
+}
+
+if [ ! -e "$kc" ]; then
+  reset_agent_keychain
+elif [ ! -f "$marker" ]; then
+  reset_agent_keychain
+elif ! /usr/bin/security unlock-keychain -p "" "$kc" >/dev/null 2>&1; then
+  reset_agent_keychain
 fi
+
+/usr/bin/security unlock-keychain -p "" "$kc"
 
 # Helper-backed maintenance mode can reject this login-keychain preference
 # write even when the default/search-list/unlock path succeeds.
@@ -158,10 +184,11 @@ best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
 func claudeAgentKeychainResetScript() string {
 	return `set -e
 kc="$HOME/Library/Keychains/login.keychain-db"
-ts="$(date +%Y%m%d-%H%M%S)"
+marker="$HOME/Library/Keychains/.hazmat-login-keychain"
+ts="$(/bin/date +%Y%m%d-%H%M%S)"
 backup_dir="$HOME/Library/Keychains/hazmat-login-keychain-backups/$ts"
 
-mkdir -p "$HOME/Library/Keychains"
+/bin/mkdir -p "$HOME/Library/Keychains"
 
 best_effort_security() {
   "$@" >/dev/null 2>&1 &
@@ -180,10 +207,10 @@ best_effort_security() {
 }
 
 moved=0
-for path in "$kc" "$kc-shm" "$kc-wal"; do
-  if [ -e "$path" ]; then
-    mkdir -p "$backup_dir"
-    mv -f "$path" "$backup_dir/$(basename "$path")"
+for kc_file in "$kc" "$kc-shm" "$kc-wal"; do
+  if [ -e "$kc_file" ]; then
+    /bin/mkdir -p "$backup_dir"
+    /bin/mv -f "$kc_file" "$backup_dir/$(/usr/bin/basename "$kc_file")"
     moved=1
   fi
 done
@@ -193,11 +220,13 @@ if [ "$moved" = "1" ]; then
 fi
 
 /usr/bin/security create-keychain -p "" "$kc"
+printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"
+/bin/chmod 0600 "$marker" >/dev/null 2>&1 || true
+/usr/bin/security unlock-keychain -p "" "$kc"
 best_effort_security /usr/bin/security login-keychain -s "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
 best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
-/usr/bin/security unlock-keychain -p "" "$kc"
 echo "Created unlocked agent login keychain: $kc"
 `
 }
