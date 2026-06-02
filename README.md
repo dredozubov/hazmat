@@ -203,6 +203,9 @@ hazmat hooks uninstall
 
 ## Architecture In One Screen
 
+For the full module graph, invariants, and data/user-flow diagrams, read
+[docs/architecture.md](docs/architecture.md).
+
 ```
   You (dr)                          Agent (agent)
   --------                          -------------
@@ -229,6 +232,7 @@ The important property is structural separation. The agent is not "forbidden fro
 |-----|------------------------|
 | [docs/usage.md](docs/usage.md) | Full user guide once you are past the first session |
 | [docs/overview.md](docs/overview.md) | Which tier to use, and when |
+| [docs/architecture.md](docs/architecture.md) | Module graph, authority pipeline, invariants, and data/user-flow diagrams |
 | [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
 | [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor Agent |
 | [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |

@@ -143,6 +143,8 @@ restrictive to most permissive:
 ## What to Read Next
 
 - Read [threat-matrix.md](threat-matrix.md) if you want the risk-by-risk comparison.
+- Read [architecture.md](architecture.md) if you want the module graph,
+  invariants, and data/user-flow diagrams.
 - Read [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) if you want the escape and exfiltration details.
 - Read [incidents-and-cves.md](research/incidents-and-cves.md) if you want the real incidents and CVEs that justify the controls.
 - Read [usage.md](usage.md) once you want command-by-command setup and daily
