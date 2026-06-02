@@ -101,7 +101,8 @@ Current state, not aspirational state:
 
 - **macOS native containment is the default path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
 - **Six harnesses are supported in containment.** Claude Code, Codex, OpenCode, Gemini, Hermes, and Qwen Code. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
-- **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
+- **Harness lifecycle is managed.** `hazmat harness status|update|uninstall` inspects agent-owned harness code, refreshes it through the bootstrap paths, and removes Hazmat-owned code artifacts without deleting auth/profile/session state by default.
+- **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode through every harness entrypoint, plus `hazmat shell` and `hazmat exec`. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 - **27 built-in stack integrations.** Full table in [docs/STACKS.md](docs/STACKS.md); schema and trust-model rules in [docs/integrations.md](docs/integrations.md). Quick groupings:
   - Python: `python-uv`, `python-pip`, `python-poetry`. JS/TS: `node`, `pnpm`, `yarn`, `bun`, `deno`.
   - JVM and mobile: `java-gradle`, `java-maven`, `tla-java`, `android-gradle`, `swift`, `flutter`.
@@ -119,7 +120,6 @@ Hazmat is useful because the boundaries are concrete. That also means the limita
 - **The DNS blocklist is exact-domain, not wildcard.** It is based on `/etc/hosts`, not a full DNS filtering stack. See [docs/design-assumptions.md](docs/design-assumptions.md).
 - **Shared `/tmp` stays shared.** Hazmat does not pretend macOS temp space suddenly became private.
 - **MCP env inheritance and `SSH_AUTH_SOCK` abuse are still category-wide problems.** Some of the hardest issues here are operational, not just architectural. They are called out directly in [docs/threat-matrix.md](docs/threat-matrix.md).
-- **Docker Sandbox mode now covers every harness entrypoint.** `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`, `hazmat hermes`, `hazmat qwen`, `hazmat shell`, and `hazmat exec` can all route into private-daemon Docker Sandbox sessions when the repo needs it.
 
 If you are dealing with hostile repos, long unattended runs, or shared-daemon Docker workflows, the honest answer may be Tier 4, not stretching Tier 2 past what it does well. Start with [docs/overview.md](docs/overview.md).
 

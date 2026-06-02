@@ -29,7 +29,23 @@ hazmat init --bootstrap-agent claude   # one-time setup (~10 min, needs sudo)
 hazmat claude     # launch Claude Code in containment
 ```
 
-That's it. `init` creates a contained environment and lets you choose whether to bootstrap Claude Code, Codex, OpenCode, Gemini, Hermes, or skip agent installation for now. When you bootstrap an agent during init, Hazmat can also ask for reusable provider API keys and git credentials. Import prompts are offered only for harnesses with a supported host-profile import path; Hermes does not import host `~/.hermes`.
+That's it for the Claude path. If you use another supported harness, substitute
+the harness name:
+
+```bash
+hazmat init --bootstrap-agent codex
+hazmat codex
+
+hazmat init --bootstrap-agent qwen
+hazmat qwen
+```
+
+`init` creates a contained environment and lets you choose whether to bootstrap
+Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, or skip agent installation
+for now. When you bootstrap an agent during init, Hazmat can also ask for
+reusable provider API keys and git credentials. Import prompts are offered only
+for harnesses with a supported host-profile import path; Hermes and Qwen do not
+import host `~/.hermes` or host `~/.qwen`.
 
 ```mermaid
 flowchart LR
@@ -41,7 +57,7 @@ flowchart LR
         I4 --> I5["Optional: bootstrap a supported harness"]
         I5 --> I6["Optional: configure provider keys + git creds"]
     end
-    subgraph daily ["Every session (hazmat claude)"]
+    subgraph daily ["Every session (hazmat <harness>)"]
         direction TB
         D1[Snapshot project] --> D2[Generate seatbelt policy]
         D2 --> D3[Resolve integrations and path extensions]
@@ -115,6 +131,7 @@ hazmat explain                      # preview current project
 hazmat explain --json               # machine-readable preview for automation
 hazmat explain --docker=sandbox     # preview Docker Sandbox mode
 hazmat explain --docker=auto        # preview marker-based Docker routing
+hazmat explain --for qwen           # preview a non-Claude harness
 hazmat explain --integration node   # preview with an integration
 hazmat explain --github             # preview explicit GitHub API access
 ```
@@ -135,11 +152,29 @@ read-only access, snapshot excludes, and routing notes.
 ```bash
 cd ~/workspace/my-project
 hazmat claude
+hazmat codex
 hazmat opencode
+hazmat gemini
 hazmat hermes -- --version
+hazmat qwen
 ```
 
 This generates a per-session security policy, switches to the agent user, and launches the agent inside containment. When you exit, the session is cleaned up.
+
+Harness code can be inspected, refreshed, or removed without deleting auth and
+profile state:
+
+```bash
+hazmat harness status
+hazmat harness status codex
+hazmat harness update codex
+hazmat harness uninstall codex --dry-run
+```
+
+The older `hazmat bootstrap <harness>` commands remain compatible aliases for
+install/update. `hazmat harness uninstall <harness>` removes only declared
+Hazmat-owned code artifacts and selected Hazmat metadata by default; auth,
+profile roots, sessions, provider keys, and imported basics are preserved.
 
 ### Denying Network Egress for One Native Session
 
@@ -151,7 +186,10 @@ from that one Seatbelt policy:
 ```bash
 hazmat claude --network none --metadata-json -p "review this packet offline"
 hazmat codex --network none --metadata-json exec "review this packet offline"
+hazmat opencode --network none --metadata-json run "review this packet offline"
+hazmat gemini --network none --metadata-json -p "review this packet offline"
 hazmat hermes --network none --metadata-json -- --version
+hazmat qwen --network none --metadata-json -p "review this packet offline"
 hazmat exec --network none --metadata-json -- /bin/zsh -lc 'make test'
 hazmat explain --network none --json
 ```
@@ -302,10 +340,9 @@ hazmat config docker auto -C ~/workspace/my-project
 
 Docker Sandbox sessions are available through every harness entrypoint:
 `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
-`hazmat hermes`,
-`hazmat shell`, and `hazmat exec`. `--docker=auto` keeps the default native
-path for code-only repos and routes Docker-heavy private-daemon fits into the
-matching harness automatically.
+`hazmat hermes`, `hazmat qwen`, `hazmat shell`, and `hazmat exec`.
+`--docker=auto` keeps the default native path for code-only repos and routes
+Docker-heavy private-daemon fits into the matching harness automatically.
 
 If `.devcontainer/` is the only Docker-related directory, Hazmat stays in
 native containment unless the devcontainer.json positively indicates Docker
@@ -562,41 +599,69 @@ continue to work during the test. This includes common directives such as
 Session-time alias-based Git remotes are still a separate limitation. General
 SSH shells remain unsupported.
 
-## Importing Portable Claude Basics
+## Importing Portable Harness Basics
 
 ```bash
 hazmat config import claude
-hazmat config import claude --dry-run
-hazmat config import claude --overwrite
-hazmat config import claude --skip-existing
+hazmat config import codex
+hazmat config import opencode
+hazmat config import gemini
+
+hazmat config import claude --dry-run      # preview
+hazmat config import opencode --overwrite  # resolve conflicts by replacing
+hazmat config import gemini --skip-existing
 ```
 
-Hazmat treats this as a curated import, not a full Claude migration. It stores Claude sign-in state in `~/.hazmat/secrets/claude/`, imports git identity plus commands and skills, and only materializes file-backed auth into `/Users/agent` while a Claude session is active. Hazmat keeps its own runtime settings, hooks, MCP configuration, plugins, and safety controls.
+Hazmat treats imports as curated basics, not full profile migrations. Supported
+imports store sign-in state in the host-owned secret store, copy a narrow set of
+portable prompt/config assets, and import git identity when available. File-backed
+auth is materialized into `/Users/agent` only for active sessions and is removed
+or harvested on normal exit.
 
-Detailed scope, symlink behavior, conflict handling, and MCP migration guidance live in [claude-import.md](claude-import.md).
+Claude and OpenCode have detailed import notes:
+[claude-import.md](claude-import.md) and [opencode-import.md](opencode-import.md).
+Codex and Gemini import scope is summarized in [harnesses.md](harnesses.md).
+Hermes and Qwen do not import host `~/.hermes` or host `~/.qwen` in v1.
 
 ## Running OpenCode
 
 ```bash
 hazmat bootstrap opencode
 hazmat opencode
-hazmat opencode -p "summarize this repo"
+hazmat opencode run "summarize this repo"
 ```
 
-This is a prototype harness path alongside Claude. It uses the same containment, project preflight, and snapshot flow, but OpenCode keeps its own config and session state.
+OpenCode uses the same containment, project preflight, and snapshot flow as the
+other harnesses, but it keeps its own provider-specific auth and runtime state.
+Use `hazmat config import opencode` when you want to copy supported host basics
+into Hazmat's host-owned secret store.
 
 ## Running Codex
 
 ```bash
 hazmat bootstrap codex
 hazmat codex
-hazmat codex -p "review the recent changes"
+hazmat codex exec "review the recent changes"
 ```
 
 Codex uses the same containment and project preflight model. Runtime state
 lives under the agent user's home directory, while durable imported auth and
 API keys live in Hazmat's host-owned secret store and are materialized only
 for active Codex sessions.
+
+## Running Gemini
+
+```bash
+hazmat bootstrap gemini
+hazmat gemini
+hazmat gemini -p "summarize this repo"
+```
+
+Gemini uses the same containment and project preflight model. File-backed auth
+can be imported or harvested into `~/.hazmat/secrets/gemini/`; modern
+Keychain-backed Gemini OAuth is reported as an external boundary until Hazmat
+has a Keychain adapter for it. For API-key use, store `GEMINI_API_KEY` through
+`hazmat config agent`.
 
 ## Running Hermes
 
@@ -618,18 +683,20 @@ Hermes skills, MCP servers, hooks, or cron-like experiments, the supported full
 reset is `hazmat rollback --delete-user`, then `hazmat init` and
 `hazmat bootstrap hermes`.
 
-## Importing Portable OpenCode Basics
+## Running Qwen Code
 
 ```bash
-hazmat config import opencode
-hazmat config import opencode --dry-run
-hazmat config import opencode --overwrite
-hazmat config import opencode --skip-existing
+hazmat bootstrap qwen
+hazmat qwen
+hazmat qwen -p "summarize this repo"
 ```
 
-Hazmat treats this as a curated import, not a full OpenCode migration. It stores OpenCode sign-in state in `~/.hazmat/secrets/opencode/auth.json`, imports git identity plus commands, agents, and skills, and only materializes file-backed auth into `/Users/agent` while an OpenCode session is active. Hazmat keeps its own runtime settings, plugins, project-local `.opencode` directories, and safety controls separate.
-
-Detailed scope, symlink behavior, and migration guidance live in [opencode-import.md](opencode-import.md).
+Qwen Code is a contained foreground harness. Hazmat installs
+`@qwen-code/qwen-code@latest` into the agent user's local prefix, prepares
+`/Users/agent/.qwen`, and does not import host `~/.qwen` auth or settings in
+v1. Configure Qwen auth inside the contained profile, or use Qwen-supported
+API-key configuration there. Portable `QWEN.md` and `extensions/` assets can
+sync from the host on launch.
 
 ## Uninstalling
 

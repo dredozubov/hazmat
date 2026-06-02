@@ -31,10 +31,10 @@ label before launching Claude. Use Claude normally; exit Claude to finalize the
 bundle.
 
 The debug trace command runs a normal contained harness entrypoint and collects a
-host-side trace bundle around it. Use it when Claude Code, Codex, OpenCode, or
-Gemini behaves differently inside Hazmat and you need evidence for whether the
-trigger is Seatbelt, the agent user, environment variables, network policy,
-credential materialization, or the harness runtime itself.
+host-side trace bundle around it. Use it when Claude Code, Codex, OpenCode,
+Gemini, Hermes, or Qwen behaves differently inside Hazmat and you need evidence
+for whether the trigger is Seatbelt, the agent user, environment variables,
+network policy, credential materialization, or the harness runtime itself.
 
 Supported trace targets:
 

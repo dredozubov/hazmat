@@ -99,6 +99,7 @@ records the consuming harness in explain/session metadata.
   - The import path bypasses this picker entirely.
 - **API key path:** `hazmat config agent` can store `OPENAI_API_KEY` from your invoking shell in `~/.hazmat/secrets/providers/openai-api-key`. Hazmat injects it only into explicitly allowed native sessions. You can also paste an API key in the codex first-run picker (option `3`) or import `auth.json` from the host.
 - **Import from host path:** `hazmat config import codex` stores `~/.codex/auth.json` (covers OAuth and API key) in `~/.hazmat/secrets/codex/auth.json` and imports your git identity. Prompts, rules, and `AGENTS.md` mirror automatically via the harness asset sync at session launch.
+- **Advanced app-server path:** `hazmat codex-app-server` starts Codex as `codex app-server --listen stdio://` inside the normal Hazmat Codex containment path. `hazmat codex-app-shim` is the `CODEX_CLI_PATH` compatibility shim for the stock Codex desktop app. These commands are for app-server integration work, not the ordinary CLI quickstart; see [Codex app-server non-interference](codex-app-server-non-interference.md) before testing against a machine that also uses the stock desktop app.
 - **Verify:** `hazmat codex exec "Reply with only OK"` — runs the codex non-interactive subcommand; should print `OK` and exit cleanly.
 
 ### OpenCode
@@ -244,8 +245,8 @@ then pass `--github` to the session that needs it:
 
 ```bash
 hazmat claude --github -p "review this PR"
-hazmat codex --github "review this PR"
-hazmat opencode --github -p "review this PR"
+hazmat codex --github exec "review this PR"
+hazmat opencode --github run "review this PR"
 hazmat gemini --github -p "review this PR"
 hazmat hermes --github -- chat "review this PR"
 hazmat qwen --github -p "review this PR"

@@ -6,6 +6,20 @@ All notable changes to Hazmat are documented in this file.
 
 ### Added
 - `hazmat harness status|update|uninstall` now exposes per-harness lifecycle management for the agent user. Status reports binary probes, recorded state, import status, credential hints, managed code artifacts, and preserved auth/profile/session boundaries; update shares the existing bootstrap paths; uninstall removes only declared Hazmat-owned code artifacts and selected harness metadata by default.
+- Qwen Code is now a contained harness. `hazmat bootstrap qwen` installs `@qwen-code/qwen-code@latest` into the agent user's local prefix, prepares `/Users/agent/.qwen`, launches Qwen through `hazmat qwen`, applies the configured permission-bypass mode without duplicating `--yolo`, and keeps host `~/.qwen` auth/settings out of the v1 import surface.
+- Hermes is now an experimental foreground-only contained harness. `hazmat bootstrap hermes` verifies a manually installed agent-owned executable, sessions use managed `HERMES_HOME=/Users/agent/.hazmat/hermes`, provider API keys can be delivered through the shared credential registry, and gateway/dashboard/API/server/cron entrypoints are rejected in v1.
+- Shared provider API keys are registry-driven and can be granted to multiple allowed harness consumers without duplicating durable secret files.
+- `hazmat codex-app-server` starts a contained Codex `app-server --listen stdio://` backend, and `hazmat codex-app-shim` provides the `CODEX_CLI_PATH` compatibility entrypoint for the stock Codex desktop app.
+- Developer debug tracing now supports cross-harness trace bundles for Claude, Codex, OpenCode, Gemini, Hermes, and Qwen, with macOS and Linux trace backends behind strict debug-build gates.
+
+### Changed
+- Docker Sandbox routing now covers Claude, Codex, OpenCode, Gemini, Hermes, Qwen, `hazmat shell`, and `hazmat exec` through the shared session backend.
+- Harness launch, asset sync, credential delivery, and integration resolution share more of the same backend/session contract plumbing across native and Docker paths.
+
+### Fixed
+- Native Claude API-key sessions launch in bare mode so newer Claude Code builds do not prompt for the dedicated agent account Keychain.
+- Native Claude OAuth/imported-subscription sessions prepare and unlock the dedicated agent login keychain before launch, with `hazmat claude-keychain doctor|reset` for inspection and recovery.
+- Harness lifecycle and synthetic e2e smoke coverage now protect Hermes/Qwen state setup and Claude host-owned auth harvest behavior during release gates.
 
 ## [0.8.1] - 2026-05-23
 

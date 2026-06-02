@@ -1,4 +1,4 @@
-# Overview: Sandboxing Claude Code Auto Mode on macOS
+# Overview: Choosing a Hazmat Boundary on macOS
 
 Use this file to answer three questions quickly:
 
@@ -8,7 +8,12 @@ Use this file to answer three questions quickly:
 
 ## The Core Problem
 
-Claude Code in auto mode (`--dangerously-skip-permissions`) bypasses all interactive permission checks. A single prompt injection, malicious repository file, compromised MCP server, or bad dependency can execute shell commands and make network calls with the privileges of whatever environment Claude is running in.
+Autonomous agent modes bypass most of the friction that normally slows down a
+mistake. Claude Code `--dangerously-skip-permissions`, Qwen `--yolo`, and
+similar harness modes can execute shell commands and make network calls with the
+privileges of the environment they are running in. A prompt injection, malicious
+repository file, compromised MCP server, or bad dependency can then act as that
+environment.
 
 The point of sandboxing is not to make the agent "behave." It is to limit the blast radius when it does not.
 
@@ -52,8 +57,8 @@ For the attack-by-attack view, read [threat-matrix.md](threat-matrix.md). For co
 
 | Tier | Main boundary | Strengths | Main gaps | Best fit |
 |------|---------------|-----------|-----------|----------|
-| **0** | Claude Code built-in `/sandbox` | Minimal setup, native speed | Not a strong security boundary | Trusted repos, supervised work |
-| **1** | Seatbelt wrapper around Claude | Better filesystem and network policy control | Still same macOS user; limited against broader host exposure | Trusted repos with a bit more rigor |
+| **0** | Harness built-in controls | Minimal setup, native speed | Not a strong security boundary | Trusted repos, supervised work |
+| **1** | Same-user process wrapper | Better filesystem and network policy control | Still same macOS user; limited against broader host exposure | Trusted repos with a bit more rigor |
 | **2** | Dedicated macOS user + `pf` + host-side wrappers | Strong no-VM blast-radius reduction; separate home and configs | Docker is intentionally blocked; container traffic is a different surface | Daily development on non-Docker projects |
 | **3** | Docker Sandboxes / private daemon / devcontainer | Best balance when Docker is required and the repo fits a private daemon | Shared-daemon projects are out of scope; continuity with Tier 2 is still rough | Self-contained Docker repos and medium-to-high risk work |
 | **4** | Full VM | Strongest isolation and recovery story | Highest operational overhead | Untrusted repos, long autonomy, sensitive environments |
@@ -105,11 +110,14 @@ flowchart TD
 
 ## Dedicated-User UX Note
 
-For the dedicated-user setup in [setup-option-a.md](setup-option-a.md), the key UX improvement is the host-side command surface:
+The key UX improvement in Hazmat's dedicated-user setup is that you stay in your
+normal shell while the agent process runs as the isolated `agent` user:
 
-- `claude-hazmat` launches Claude directly in the sandbox
-- `agent-shell` opens an interactive sandboxed shell
-- `agent-exec` runs one-off tools like `make`, `npx`, `uv`, and `uvx`
+- `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
+  `hazmat hermes`, and `hazmat qwen` launch supported harnesses in containment
+- `hazmat shell` opens an interactive contained shell
+- `hazmat exec -- <command>` runs one-off tools like `make`, `npx`, `uv`, and
+  `uvx`
 
 That preserves the boundary without forcing the user to live inside `sudo -u agent -i`.
 
@@ -120,7 +128,9 @@ weakening Tier 2's containment. Repos can still recommend integrations via
 
 ## Claude Code Permission Modes
 
-Claude Code has five permission modes, from most restrictive to most permissive:
+Claude Code remains the clearest example of the application-level permission
+model Hazmat is designed to sit outside. It has five permission modes, from most
+restrictive to most permissive:
 
 | Mode | Behavior |
 |------|----------|
@@ -135,4 +145,7 @@ Claude Code has five permission modes, from most restrictive to most permissive:
 - Read [threat-matrix.md](threat-matrix.md) if you want the risk-by-risk comparison.
 - Read [attack-surface-deep-dive.md](research/attack-surface-deep-dive.md) if you want the escape and exfiltration details.
 - Read [incidents-and-cves.md](research/incidents-and-cves.md) if you want the real incidents and CVEs that justify the controls.
-- Read [setup-option-a.md](setup-option-a.md) or [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) once you know which boundary you want.
+- Read [usage.md](usage.md) once you want command-by-command setup and daily
+  workflow guidance.
+- Read [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) once you know a
+  private-daemon Docker boundary is the right fit.
