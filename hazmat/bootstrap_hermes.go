@@ -100,11 +100,9 @@ skills, cron state, or gateway settings.`,
 }
 
 func runHermesBootstrap(ui *UI, r *Runner) error {
-	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := requireAgentUser(); err != nil {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
-	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	ui.Step("Verify Hermes CLI for agent user")
 	binaryPath, version, err := probeHermesBinary(r.AgentOutput, r.DryRun)

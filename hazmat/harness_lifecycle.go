@@ -611,12 +611,19 @@ func runHarnessUninstall(input string, force bool) error {
 		return err
 	}
 	harness, _ := managedHarnessByID(id)
-	if _, err := requireAgentUser(); err != nil {
-		return err
+	if !flagDryRun {
+		if _, err := requireAgentUser(); err != nil {
+			return err
+		}
 	}
 
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll || force}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
+	if r.DryRun {
+		ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
+		ui.Ok(fmt.Sprintf("Would verify agent user %s exists", agentUser))
+	}
+
 	plan := buildHarnessUninstallPlan(harness, r.AgentOutput)
 	if plan.StateErr != nil {
 		return plan.StateErr

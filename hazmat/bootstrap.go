@@ -28,6 +28,19 @@ func probeClaudeHarness(read func(args ...string) (string, error)) harnessProbe 
 	return probeHarnessBinary(read, findInstalledClaudeBinaryWith, "--version")
 }
 
+func verifyAgentUserForBootstrap(ui *UI, r *Runner) error {
+	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
+	if r != nil && r.DryRun {
+		ui.Ok(fmt.Sprintf("Would verify agent user %s exists", agentUser))
+		return nil
+	}
+	if _, err := requireAgentUser(); err != nil {
+		return err
+	}
+	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
+	return nil
+}
+
 func claudeHarnessManagedCodeArtifacts() []harnessManagedArtifact {
 	return []harnessManagedArtifact{
 		harnessFileArtifact(agentHome+"/.local/bin/claude", "Claude Code executable"),
@@ -181,11 +194,9 @@ This command refreshes the harness binary and leaves existing settings/hooks alo
 
 func runBootstrap(ui *UI, r *Runner) error {
 	// ── Step 1: verify agent user ─────────────────────────────────────────────
-	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := requireAgentUser(); err != nil {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
-	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	// ── Step 2: install/update Claude Code ────────────────────────────────────
 	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{

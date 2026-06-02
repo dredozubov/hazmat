@@ -67,11 +67,9 @@ state, or host Cursor auth settings.`,
 }
 
 func runCursorAgentBootstrap(ui *UI, r *Runner) error {
-	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := requireAgentUser(); err != nil {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
-	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	ui.Step("Verify Cursor Agent CLI for agent user")
 	binaryPath, version, err := probeCursorAgentBinary(r.AgentOutput, r.DryRun)

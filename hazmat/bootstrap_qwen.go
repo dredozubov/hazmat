@@ -82,11 +82,9 @@ This command does not import host ~/.qwen state.`,
 }
 
 func runQwenBootstrap(ui *UI, r *Runner) error {
-	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := requireAgentUser(); err != nil {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
-	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
 		DisplayName:   "Qwen Code",

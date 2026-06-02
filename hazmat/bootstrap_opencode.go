@@ -144,11 +144,9 @@ managed separately via OpenCode itself or 'hazmat config import opencode'.`,
 }
 
 func runOpenCodeBootstrap(ui *UI, r *Runner) error {
-	ui.Step(fmt.Sprintf("Verify agent user %q", agentUser))
-	if _, err := requireAgentUser(); err != nil {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
-	ui.Ok(fmt.Sprintf("Agent user %s exists", agentUser))
 
 	if err := runHarnessInstallOrUpdateStep(ui, r, harnessInstallOrUpdateStep{
 		DisplayName:   "OpenCode",

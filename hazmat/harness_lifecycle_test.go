@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -345,6 +346,68 @@ func TestRunManagedHarnessUpdateCallsBootstrap(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("Bootstrap calls = %d, want 1", calls)
+	}
+}
+
+func TestHarnessUpdateDryRunDoesNotRequireAgentUser(t *testing.T) {
+	restoreDryRun := enableHarnessLifecycleDryRun(t)
+	defer restoreDryRun()
+
+	lookups := 0
+	restoreLookup := stubAgentUserLookup(func() (*user.User, error) {
+		lookups++
+		return nil, errors.New("missing agent user")
+	})
+	defer restoreLookup()
+
+	for _, harness := range managedHarnesses() {
+		if err := runManagedHarnessUpdate(harness); err != nil {
+			t.Fatalf("runManagedHarnessUpdate(%s): %v", harness.Spec.ID, err)
+		}
+	}
+	if lookups != 0 {
+		t.Fatalf("dry-run update performed %d agent user lookups", lookups)
+	}
+}
+
+func TestHarnessUninstallDryRunDoesNotRequireAgentUser(t *testing.T) {
+	restoreDryRun := enableHarnessLifecycleDryRun(t)
+	defer restoreDryRun()
+	restoreState := isolateStateFile(t)
+	defer restoreState()
+
+	lookups := 0
+	restoreLookup := stubAgentUserLookup(func() (*user.User, error) {
+		lookups++
+		return nil, errors.New("missing agent user")
+	})
+	defer restoreLookup()
+
+	if err := runHarnessUninstall(string(HarnessClaude), false); err != nil {
+		t.Fatalf("runHarnessUninstall dry-run: %v", err)
+	}
+	if lookups != 0 {
+		t.Fatalf("dry-run uninstall performed %d agent user lookups", lookups)
+	}
+}
+
+func enableHarnessLifecycleDryRun(t *testing.T) func() {
+	t.Helper()
+	oldDryRun := flagDryRun
+	oldVerbose := flagVerbose
+	flagDryRun = true
+	flagVerbose = false
+	return func() {
+		flagDryRun = oldDryRun
+		flagVerbose = oldVerbose
+	}
+}
+
+func stubAgentUserLookup(fn func() (*user.User, error)) func() {
+	oldLookup := lookupAgentUser
+	lookupAgentUser = fn
+	return func() {
+		lookupAgentUser = oldLookup
 	}
 }
 
