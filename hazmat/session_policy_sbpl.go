@@ -20,6 +20,18 @@ import (
 //     rules are identical to the former static profile
 //   - Credential directories are denied last (last-match wins in SBPL)
 func compileDarwinSBPL(policy nativeSessionPolicy) string {
+	sbpl, err := compileDarwinSBPLChecked(policy)
+	if err != nil {
+		panic(err)
+	}
+	return sbpl
+}
+
+func compileDarwinSBPLChecked(policy nativeSessionPolicy) (string, error) {
+	if err := policy.Validate(); err != nil {
+		return "", fmt.Errorf("invalid containment contract: %w", err)
+	}
+
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 	projectDir := policy.ProjectPath()
@@ -283,5 +295,5 @@ func compileDarwinSBPL(policy nativeSessionPolicy) string {
 		w("(allow file-read* file-write* (literal %q))\n", home+"/Library/Keychains/login.keychain-db-wal")
 	}
 
-	return b.String()
+	return b.String(), nil
 }

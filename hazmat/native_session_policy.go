@@ -60,24 +60,36 @@ func claudeRuntimeTempDir() string {
 }
 
 func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
+	policy, err := buildNativeSessionPolicy(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return policy
+}
+
+func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
+	floor, err := containment.NewCredentialFloor(agentHome, credentialDenySubs)
+	if err != nil {
+		return nativeSessionPolicy{}, err
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project:       containment.PathGrant{Path: cfg.ProjectDir, Access: containment.PathReadWrite},
+		ReadOnlyDirs:  containment.PathGrants(cfg.ReadDirs, containment.PathReadOnly),
+		ReadWriteDirs: containment.PathGrants(cfg.WriteDirs, containment.PathReadWrite),
+		AgentHome:     containment.AgentHomePolicy{Path: agentHome},
+		Temp:          containment.TempPolicy{Path: sessionTempDirOrDefault(cfg.TempDir)},
+		Network:       containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
+		Process:       containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		return nativeSessionPolicy{}, err
+	}
 	return nativeSessionPolicy{
-		Contract: containment.Contract{
-			Project:       containment.PathGrant{Path: cfg.ProjectDir, Access: containment.PathReadWrite},
-			ReadOnlyDirs:  containment.PathGrants(cfg.ReadDirs, containment.PathReadOnly),
-			ReadWriteDirs: containment.PathGrants(cfg.WriteDirs, containment.PathReadWrite),
-			AgentHome:     containment.AgentHomePolicy{Path: agentHome},
-			Temp:          containment.TempPolicy{Path: sessionTempDirOrDefault(cfg.TempDir)},
-			CredentialDenies: nativeCredentialDenies(
-				agentHome,
-				credentialDenySubs,
-			),
-			Network: containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
-			Process: containment.ProcessPolicy{AllowFork: true},
-		},
+		Contract:                 contract,
 		MacOSSecurityFramework:   harnessUsesMacOSSecurityFramework(cfg.HarnessID),
 		MacOSAgentKeychainAccess: cfg.ClaudeKeychainAccess,
 		RuntimeTempDirs:          runtimeTempDirsForHarness(cfg.HarnessID),
-	}
+	}, nil
 }
 
 func sessionTempDirOrDefault(tempDir string) string {
@@ -85,15 +97,4 @@ func sessionTempDirOrDefault(tempDir string) string {
 		return tempDir
 	}
 	return defaultAgentTmpDir
-}
-
-func nativeCredentialDenies(home string, subs []string) []containment.CredentialDeny {
-	if len(subs) == 0 {
-		return nil
-	}
-	denies := make([]containment.CredentialDeny, 0, len(subs))
-	for _, sub := range subs {
-		denies = append(denies, containment.CredentialDeny{Path: home + sub})
-	}
-	return denies
 }

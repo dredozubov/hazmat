@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"hazmat/containment"
 )
 
 func TestResolveDirAcceptsAnyExistingDirectory(t *testing.T) {
@@ -996,6 +998,25 @@ func TestTerminalCapabilitySupportPreservesExplicitTerminfoEnv(t *testing.T) {
 }
 
 // ── generateSBPL ──────────────────────────────────────────────────────────────
+
+func TestCompileDarwinSBPLRejectsUnconstructedCredentialFloor(t *testing.T) {
+	_, err := compileDarwinSBPLChecked(nativeSessionPolicy{
+		Contract: containment.Contract{
+			Project:          containment.PathGrant{Path: "/tmp/project", Access: containment.PathReadWrite},
+			AgentHome:        containment.AgentHomePolicy{Path: agentHome},
+			Temp:             containment.TempPolicy{Path: defaultAgentTmpDir},
+			CredentialDenies: []containment.CredentialDeny{{Path: agentHome + "/.ssh"}},
+			Network:          containment.NetworkPolicy{Mode: sessionNetworkDefault},
+			Process:          containment.ProcessPolicy{AllowFork: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unconstructed contract to fail closed")
+	}
+	if !strings.Contains(err.Error(), "credential deny floor is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestGenerateSBPLProjectOnly(t *testing.T) {
 	cfg := sessionConfig{

@@ -2176,6 +2176,14 @@ func generateSBPL(cfg sessionConfig) string {
 	return compileDarwinSBPL(newNativeSessionPolicy(cfg))
 }
 
+func generateSBPLChecked(cfg sessionConfig) (string, error) {
+	policy, err := buildNativeSessionPolicy(cfg)
+	if err != nil {
+		return "", err
+	}
+	return compileDarwinSBPLChecked(policy)
+}
+
 func runPreparedAgentSeatbeltScript(prepared preparedSession, script string, args ...string) error {
 	return runPreparedAgentSeatbeltScriptWithUI(prepared, sessionLaunchUI{showStatusBar: true}, script, args...)
 }

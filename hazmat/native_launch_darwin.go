@@ -14,7 +14,10 @@ func newNativeLaunchBackend() nativeLaunchBackend {
 }
 
 func (darwinNativeLaunchBackend) PreparePolicy(req nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error) {
-	policy := generateSBPL(req.Config)
+	policy, err := generateSBPLChecked(req.Config)
+	if err != nil {
+		return nativeLaunchPolicyArtifact{}, err
+	}
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
 		return nativeLaunchPolicyArtifact{}, fmt.Errorf("write seatbelt policy: %w", err)

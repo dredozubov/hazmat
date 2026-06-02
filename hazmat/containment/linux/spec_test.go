@@ -11,7 +11,7 @@ import (
 )
 
 func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
-	contract := testContract()
+	contract := testContract(t)
 	report := platformlinux.Report{
 		RuntimeOS: "linux",
 		Features: platformlinux.FeatureSet{
@@ -68,15 +68,39 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsCredentialDenyOverlap(t *testing.T) {
-	contract := testContract()
-	contract.ReadOnlyDirs = append(contract.ReadOnlyDirs, containment.PathGrant{Path: "/home/agent", Access: containment.PathReadOnly})
+func TestNewContractRejectsCredentialDenyOverlap(t *testing.T) {
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/agent/.ssh"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = containment.NewContract(testContractInput(containment.PathGrants([]string{
+		"/opt/sdk",
+		"/workspace",
+		"/home/agent",
+	}, containment.PathReadOnly)), floor)
+	if err == nil {
+		t.Fatal("NewContract succeeded for credential deny overlap")
+	}
+	if !strings.Contains(err.Error(), `"/home/agent" overlaps credential deny path "/home/agent/.ssh"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompileRejectsUnconstructedCredentialFloor(t *testing.T) {
+	contract := containment.Contract{
+		Project:          containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		AgentHome:        containment.AgentHomePolicy{Path: "/home/agent"},
+		Temp:             containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		CredentialDenies: []containment.CredentialDeny{{Path: "/home/agent/.ssh"}},
+		Network:          containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process:          containment.ProcessPolicy{AllowFork: true},
+	}
 
 	_, err := Compile(contract, CompileOptions{})
 	if err == nil {
-		t.Fatal("Compile succeeded for credential deny overlap")
+		t.Fatal("Compile succeeded without structural credential floor")
 	}
-	if !strings.Contains(err.Error(), `"/home/agent" overlaps credential deny path "/home/agent/.ssh"`) {
+	if !strings.Contains(err.Error(), "credential deny floor is required") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -93,7 +117,7 @@ func TestCompileReportsPlatformCapabilityGaps(t *testing.T) {
 		},
 	}
 
-	spec, err := Compile(testContract(), CompileOptions{Platform: report})
+	spec, err := Compile(testContract(t), CompileOptions{Platform: report})
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -113,24 +137,36 @@ func TestCompileReportsPlatformCapabilityGaps(t *testing.T) {
 	}
 }
 
-func testContract() containment.Contract {
-	return containment.Contract{
-		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
-		ReadOnlyDirs: containment.PathGrants([]string{
-			"/opt/sdk",
-			"/workspace",
-		}, containment.PathReadOnly),
+func testContract(t *testing.T) containment.Contract {
+	t.Helper()
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{
+		{Path: "/home/agent/.ssh"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := containment.NewContract(testContractInput(containment.PathGrants([]string{
+		"/opt/sdk",
+		"/workspace",
+	}, containment.PathReadOnly)), floor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func testContractInput(readOnlyDirs []containment.PathGrant) containment.ContractInput {
+	return containment.ContractInput{
+		Project:      containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: readOnlyDirs,
 		ReadWriteDirs: containment.PathGrants([]string{
 			"/workspace/project/tmp",
 			"/var/cache/build",
 		}, containment.PathReadWrite),
 		AgentHome: containment.AgentHomePolicy{Path: "/home/agent"},
 		Temp:      containment.TempPolicy{Path: "/tmp/hazmat-session"},
-		CredentialDenies: []containment.CredentialDeny{
-			{Path: "/home/agent/.ssh"},
-		},
-		Network: containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
-		Process: containment.ProcessPolicy{AllowFork: true},
+		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process:   containment.ProcessPolicy{AllowFork: true},
 	}
 }
 
