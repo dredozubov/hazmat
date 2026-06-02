@@ -213,6 +213,13 @@ Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir
 4=agent home, 5=session temp, 6=project write re-assert, 7=temp socket denies,
 8=credential denies, 9=optional exact Claude agent login keychain exception.
 
+**2026-06-02 modular refactor confirmation:** Phase-1 package refactors moved
+native policy construction through validated `pathpolicy`, `containment`, and
+`sessionplanner` packages without changing the modeled SBPL section order or
+credential-deny boundary. `MC_SeatbeltPolicy` was re-run with TLC and reported
+"No error has been found" across 13,824 generated states, 12,672 distinct
+states, depth 11.
+
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
 native launch path now proves that precondition separately in
@@ -376,6 +383,11 @@ The principle: **Tier 3 must prove its host-side launch boundary explicitly;
 it cannot inherit Tier 2's Seatbelt guarantees by implication.** TLC now
 passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 
+**2026-06-02 modular refactor confirmation:** Re-run as the companion check for
+the validated path constructor move and root/credential-deny handling review.
+`MC_Tier3LaunchContainment` reported "No error has been found" across 33,876
+generated states, 23,580 distinct states, depth 9.
+
 **Change rules:**
 - Any change to Tier 3 mount planning must preserve both properties:
   no credential-zone mounts and no redundant read-only mounts. Update the
@@ -425,6 +437,19 @@ The principle: **Hazmat may share one path-based containment contract across
 tiers, but it must not claim stronger backend identity than the implementation
 actually provides.** TLC passes across all 327,680 reachable states (655,360
 generated, depth 1, 17s).
+
+**2026-06-02 modular refactor confirmation:** The deny-zone rejection move from
+`resolveSessionConfig()` into typed path/request constructors preserved the
+modeled rejected-input set. Before the move, `resolveSessionConfig()` called
+`resolveDir()` / `resolveReadDirs()`, which delegated to
+`pathpolicy.ResolveDir()` -> `Canonicalize()` -> `filepath.EvalSymlinks()`
+before `isCredentialDenyPath()` / `isHostStateDenyPath()` ran. After the move,
+`ResolveProjectRoot`, `ResolveReadOnlyGrant`, and `ResolveReadWriteGrant`
+follow the same canonicalization path before `DenyPolicy.ValidateAllowedPath()`.
+The additional zero-value `DenyPolicy` rejection is a fail-closed constructor
+guard outside the modeled credential-input set. `MC_TierPolicyEquivalence` was
+re-run with TLC and reported "No error has been found" across 655,360 generated
+states, 327,680 distinct states, depth 1.
 
 **Change rules:**
 - Changes to project/read/write root normalization or credential-deny handling
