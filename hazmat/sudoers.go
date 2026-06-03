@@ -1,13 +1,9 @@
 package hazmat
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"os"
+	"hazmat/internal/setup"
 	"os/user"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -21,39 +17,19 @@ func currentUsername() (string, error) {
 }
 
 func launchSudoersEntry(currentUser string) (string, error) {
-	helperPath := launchHelperPath()
-	commandSpec := helperPath
-
-	if launchHelperUsesDigest(helperPath) {
-		data, err := os.ReadFile(helperPath)
-		if err != nil {
-			return "", fmt.Errorf("read %s for sudoers digest: %w", helperPath, err)
-		}
-		sum := sha256.Sum256(data)
-		commandSpec = fmt.Sprintf("sha256:%s %s", hex.EncodeToString(sum[:]), helperPath)
-	}
-
-	return fmt.Sprintf("%s ALL=(%s) NOPASSWD: %s\n", currentUser, agentUser, commandSpec), nil
+	return setup.LaunchSudoersEntry(sudoersEnv(), currentUser)
 }
 
 func agentMaintenanceSudoersEntry(currentUser string) string {
-	return strings.Join([]string{
-		"# Optional hazmat agent-maintenance passwordless rule.",
-		"# Broader than the default launch-helper rule: allows the current user",
-		"# to run arbitrary commands as the agent user without a password.",
-		fmt.Sprintf("%s ALL=(%s) NOPASSWD: ALL", currentUser, agentUser),
-		"",
-	}, "\n")
+	return setup.AgentMaintenanceSudoersEntry(sudoersEnv(), currentUser)
 }
 
 func launchSudoersInstalled() bool {
-	_, err := os.Stat(sudoersFile)
-	return err == nil
+	return setup.LaunchSudoersInstalled(sudoersEnv())
 }
 
 func agentMaintenanceSudoersInstalled() bool {
-	_, err := os.Stat(agentMaintenanceSudoersFile)
-	return err == nil
+	return setup.AgentMaintenanceSudoersInstalled(sudoersEnv())
 }
 
 func genericAgentPasswordlessAvailable() bool {
@@ -61,80 +37,19 @@ func genericAgentPasswordlessAvailable() bool {
 }
 
 func writeManagedSudoersFile(r *Runner, reason, path, content string) error {
-	if err := r.SudoWriteFile(reason, path, content); err != nil {
-		return err
-	}
-	if err := r.Sudo("set "+filepath.Base(path)+" permissions", "chmod", "440", path); err != nil {
-		return err
-	}
-	if err := r.Sudo("validate "+filepath.Base(path)+" syntax", "visudo", "-c", "-f", path); err != nil {
-		sudo("rm", "-f", path) //nolint:errcheck // cleanup after failed validation
-		return fmt.Errorf("sudoers syntax invalid for %s — entry removed: %w", path, err)
-	}
-	return nil
+	return setup.WriteManagedSudoersFile(sudoersEnv(), r, reason, path, content)
 }
 
 func installLaunchSudoers(ui *UI, r *Runner, currentUser string) error {
-	helperPath := launchHelperPath()
-	entry, err := launchSudoersEntry(currentUser)
-	if err != nil {
-		return err
-	}
-	if data, err := r.SudoOutput("cat", sudoersFile); err == nil &&
-		strings.Contains(data, strings.TrimSpace(entry)) {
-		ui.SkipDone(fmt.Sprintf("Sudoers entry already targets %s", helperPath))
-		return nil
-	} else if err == nil && strings.Contains(data, currentUser) {
-		ui.WarnMsg(fmt.Sprintf("Existing sudoers entry does not target %s — replacing with narrow rule", helperPath))
-	}
-
-	if err := writeManagedSudoersFile(r,
-		"write launch-helper sudoers entry for passwordless agent access",
-		sudoersFile,
-		entry,
-	); err != nil {
-		return fmt.Errorf("write launch-helper sudoers: %w", err)
-	}
-
-	ui.Ok(fmt.Sprintf("Sudoers entry written: %s can run %s as %s without password",
-		currentUser, helperPath, agentUser))
-	return nil
+	return setup.InstallLaunchSudoers(sudoersEnv(), ui, r, currentUser)
 }
 
 func installAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser string) error {
-	entry := agentMaintenanceSudoersEntry(currentUser)
-	if data, err := r.SudoOutput("cat", agentMaintenanceSudoersFile); err == nil &&
-		strings.Contains(data, "NOPASSWD: ALL") &&
-		strings.Contains(data, currentUser) {
-		ui.SkipDone(fmt.Sprintf("Optional agent-maintenance sudoers entry already present at %s", agentMaintenanceSudoersFile))
-		return nil
-	} else if err == nil {
-		ui.WarnMsg(fmt.Sprintf("Existing optional agent-maintenance sudoers entry will be replaced at %s", agentMaintenanceSudoersFile))
-	}
-
-	if err := writeManagedSudoersFile(r,
-		"write optional passwordless sudoers entry for generic agent-user commands",
-		agentMaintenanceSudoersFile,
-		entry,
-	); err != nil {
-		return fmt.Errorf("write optional agent-maintenance sudoers: %w", err)
-	}
-
-	ui.Ok(fmt.Sprintf("Optional passwordless sudo enabled: %s can run generic commands as %s without password",
-		currentUser, agentUser))
-	return nil
+	return setup.InstallAgentMaintenanceSudoers(sudoersEnv(), ui, r, currentUser)
 }
 
 func uninstallAgentMaintenanceSudoers(ui *UI, r *Runner) error {
-	if _, err := os.Stat(agentMaintenanceSudoersFile); os.IsNotExist(err) {
-		ui.SkipDone("Optional agent-maintenance sudoers entry not present")
-		return nil
-	}
-	if err := r.Sudo("remove optional agent-maintenance sudoers entry", "rm", "-f", agentMaintenanceSudoersFile); err != nil {
-		return err
-	}
-	ui.Ok(fmt.Sprintf("Removed %s", agentMaintenanceSudoersFile))
-	return nil
+	return setup.UninstallAgentMaintenanceSudoers(sudoersEnv(), ui, r)
 }
 
 func agentMaintenanceSudoersDefaultChoice(ui *UI) string {
@@ -146,6 +61,19 @@ func agentMaintenanceSudoersDefaultChoice(ui *UI) string {
 
 func maybeSetupOptionalAgentMaintenanceSudoers(ui *UI, r *Runner, currentUser string) error {
 	return nativeServiceBackendForHost().MaybeSetupOptionalAgentMaintenanceSudoers(ui, r, currentUser)
+}
+
+func sudoersEnv() setup.SudoersEnv {
+	return setup.SudoersEnv{
+		AgentUser:                   agentUser,
+		SudoersFile:                 sudoersFile,
+		AgentMaintenanceSudoersFile: agentMaintenanceSudoersFile,
+		LaunchHelperPath:            launchHelperPath,
+		LaunchHelperUsesDigest:      launchHelperUsesDigest,
+		RemoveInvalidFile: func(path string) error {
+			return sudo("rm", "-f", path)
+		},
+	}
 }
 
 func newConfigSudoersCmd() *cobra.Command {
