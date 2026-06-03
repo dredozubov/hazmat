@@ -7,6 +7,7 @@ import (
 
 	"hazmat/internal/agententry"
 	"hazmat/internal/frontend/cli"
+	"hazmat/internal/hookruntime"
 
 	"github.com/spf13/cobra"
 )
@@ -117,9 +118,9 @@ func NewRootCommand() *cobra.Command {
 			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
 			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
 			newStackCheckCmd(),
-			newGitHookWrapperCmd(),
-			newGitHookDispatchCmd(),
-			newGitHookFallbackCmd(),
+			hookruntime.NewGitHookWrapperCommand(runProjectHookGitWrapper),
+			hookruntime.NewGitHookDispatchCommand(requestGitHookDispatchForHookRuntime),
+			hookruntime.NewGitHookFallbackCommand(requestGitHookFallbackForHookRuntime),
 		},
 	})
 }
@@ -141,4 +142,12 @@ func requestGitHTTPSCredentialForAgentEntry(socketPath, operation string, payloa
 		Stdout: resp.Stdout,
 		Stderr: resp.Stderr,
 	}, err
+}
+
+func requestGitHookDispatchForHookRuntime(projectDir, hookName string, args []string) error {
+	return runApprovedProjectHook(projectDir, hookType(hookName), args)
+}
+
+func requestGitHookFallbackForHookRuntime(projectDir, hookName string) error {
+	return fallbackProjectHookRefusal(projectDir, hookType(hookName))
 }

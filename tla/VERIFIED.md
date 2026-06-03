@@ -662,10 +662,10 @@ script remain governed by unit tests rather than TLC.
 |-------|-------|
 | Spec | `tla/11_git_hook_approval.md` |
 | TLA+ files | `tla/MC_GitHookApproval.tla`, `tla/MC_GitHookApproval.cfg` |
-| Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/hook_cli.go` |
+| Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/internal/hookruntime/commands.go`, `hazmat/hook_cli.go` |
 | Governed code | `hazmat/rollback.go` — repo-local hook cleanup sweep |
 | Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
-| Status | **Proved and implemented** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup now ship behind the current hook command surface |
+| Status | **Proved, implemented, and re-proved** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup ship behind the current hook command surface, with hook hidden command shells housed in `internal/hookruntime` |
 
 **What this verifies:**
 
@@ -688,8 +688,8 @@ script remain governed by unit tests rather than TLC.
    activation does not grant future filesystem or network capability beyond the
    existing session contract.
 
-TLC passes across 2,179,200 distinct states (127,229,656 generated, depth 9,
-~3m).
+`MC_GitHookApproval` passed on 2026-06-03 with "No error has been found" across
+2,179,200 distinct states (127,229,656 generated, depth 9, 51s).
 
 **Scope boundary:**
 
@@ -945,7 +945,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/internal/state/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/configmodel/ssh.go:ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()`; `hazmat/config.go:runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
-| `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
+| `11_git_hook_approval` | Repo-local hook approval command surface, `hazmat/internal/hookruntime/commands.go`, snapshot execution helpers, and rollback cleanup under `hazmat/` |
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go`; `hazmat/internal/credentialruntime/store.go` |
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
