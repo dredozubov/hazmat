@@ -29,6 +29,7 @@ gives them a dedicated home.
 | File | Functions |
 |------|-----------|
 | `hazmat/harness.go` | `RecordInstalled()`, `RecordBasicsImported()`, `recordHarnessInstalled()`, `recordHarnessImportRun()` |
+| `hazmat/internal/harnessruntime/state.go` | `StateCurrent()`, `RecordInstalled()`, `RecordImportRun()`, `UpdateHarnessState()`, `RemoveHarnessState()` |
 | `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()`, `writeState()` |
 | `hazmat/migrate.go` | `saveState()`, `runDownMigrations()` |
 | `hazmat/bootstrap.go` | Claude bootstrap path |
@@ -128,7 +129,7 @@ Observed result from the 2026-06-03 package-split refactor confirmation run:
 - `25,164,502 states generated`
 - `633,107 distinct states found`
 - `depth 18`
-- `Finished in 1m15s`
+- `Finished in 1m47s`
 
 ## Interpretation
 

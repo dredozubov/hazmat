@@ -290,7 +290,7 @@ func inspectHarnessStateStatus(harness ManagedHarness, state HazmatState, stateE
 			Summary: "not recorded",
 		}
 	}
-	if !harnessStateCurrent(recorded, harness.Spec) {
+	if !harnessruntime.StateCurrent(recorded, harness.Spec) {
 		return harnessStateStatus{
 			Status:       "stale",
 			Summary:      fmt.Sprintf("outdated v%s", recorded.StateVersion),
@@ -390,7 +390,7 @@ func nextHarnessAction(harness ManagedHarness, probe harnessProbe, state HazmatS
 		return "repair state before update"
 	}
 	recorded, ok := state.Harnesses[harness.Spec.ID]
-	if !ok || !harnessStateCurrent(recorded, harness.Spec) {
+	if !ok || !harnessruntime.StateCurrent(recorded, harness.Spec) {
 		return "hazmat harness update " + string(harness.Spec.ID)
 	}
 	return "hazmat harness update " + string(harness.Spec.ID)

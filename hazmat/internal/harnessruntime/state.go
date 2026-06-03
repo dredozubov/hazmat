@@ -27,6 +27,10 @@ type StateStore interface {
 	Remove() error
 }
 
+func StateCurrent(state State, spec harnesses.Spec) bool {
+	return state.StateVersion == spec.StateVersion
+}
+
 func RecordInstalled(store StateStore, spec harnesses.Spec) error {
 	return UpdateHarnessState(store, spec.ID, func(state State) State {
 		state.StateVersion = spec.StateVersion

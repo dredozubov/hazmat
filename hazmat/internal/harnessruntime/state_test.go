@@ -78,6 +78,19 @@ func TestRecordImportRunAtSetsTimestampAndVersion(t *testing.T) {
 	}
 }
 
+func TestStateCurrentMatchesDeclaredSpecVersion(t *testing.T) {
+	spec := harnesses.MustSpec(harnesses.Claude)
+	if !StateCurrent(State{StateVersion: harnesses.ClaudeStateVersion}, spec) {
+		t.Fatal("StateCurrent(current) = false, want true")
+	}
+	if StateCurrent(State{StateVersion: "stale"}, spec) {
+		t.Fatal("StateCurrent(stale) = true, want false")
+	}
+	if StateCurrent(State{}, spec) {
+		t.Fatal("StateCurrent(empty) = true, want false")
+	}
+}
+
 func TestRemoveHarnessStateDeletesHarnessOnlySnapshot(t *testing.T) {
 	store := &fakeStateStore{
 		snapshot: Snapshot{

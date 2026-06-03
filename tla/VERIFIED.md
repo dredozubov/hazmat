@@ -556,7 +556,7 @@ deliberately not importable in Phase 1.
 
 TLC was re-run on 2026-06-03 for the package-split refactor and reported "No
 error has been found" across 633,107 distinct states (25,164,502 generated,
-depth 18, ~1m15s).
+depth 18, ~1m47s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -743,7 +743,7 @@ invocation of a foreign `git` binary outside that managed path.
    the model never exposes another harness's auth artifact under the agent
    home.
 
-TLC passes across 9,238 distinct states (34,723 generated, depth 28, <1s).
+TLC passes across 10,870 distinct states (41,251 generated, depth 29, 4s).
 
 **Scope boundary:**
 
@@ -809,7 +809,7 @@ baseline from a same-content rewrite.
    archive, not only in `/Users/agent`.
 
 TLC passes across 8,351,181 distinct states (30,720,870 generated, depth 33,
-33m24s on the local 10-worker run).
+1h13m on the local 10-worker run).
 
 **Scope boundary:**
 

@@ -109,10 +109,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `34,723 states generated`
+- `41,251 states generated`
 - `10,870 distinct states found`
-- `depth 28`
-- runtime under 1s on the local 10-worker run
+- `depth 29`
+- runtime 4s on the local 10-worker run
 
 ## Change Rules
 

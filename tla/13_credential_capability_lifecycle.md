@@ -123,7 +123,7 @@ Observed TLC result for the promoted model:
 - `30,720,870 states generated`
 - `8,351,181 distinct states found`
 - `depth 33`
-- runtime 33m24s on the standalone local 10-worker run
+- runtime 1h13m on the standalone local 10-worker run
 
 ## Scope Boundary
 
