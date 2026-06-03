@@ -574,7 +574,8 @@ TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
 |-------|-------|
 | Spec | `tla/10_git_ssh_routing.md` |
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
-| Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
+| Governed code | `hazmat/configmodel/ssh.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()` |
+| Governed code | `hazmat/config.go` — `runConfigSSHAdd()`, `runConfigSSHRemove()` |
 | Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `IdentitySourceClassified`, `NoCrossKey` |
 | Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), any-host fallback retirement (sandboxing-qq9b), and typed Git SSH identity-source classification are implemented and covered by the routing model |
@@ -587,7 +588,7 @@ TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
 
 2. **Overlap is a config-set error:** a config where two keys match the
    same host is refused at config save time, not at session time.
-   `ValidateProjectSSHConfig` enforces the spec's
+   `configmodel.ValidateProjectSSHConfig` enforces the spec's
    `OverlapRejectedAtConfigTime` invariant.
 
 3. **Inline keys must declare hosts (legacy fallback retired):** every
@@ -714,7 +715,7 @@ invocation of a foreign `git` binary outside that managed path.
 | Spec | `tla/12_secret_store_recovery.md` |
 | TLA+ files | `tla/MC_SecretStoreRecovery.tla`, `tla/MC_SecretStoreRecovery.cfg` |
 | Governed code | `hazmat/harness_auth_runtime.go` — startup recovery, materialization, harvest, conflict archive |
-| Governed code | `hazmat/secret_store.go` — host/agent secret file read/write/remove helpers |
+| Governed code | `hazmat/secret_store.go`, `hazmat/internal/credentialruntime/store.go` — host/agent secret file read/write/remove helpers |
 | Key invariants | `LatestValueNeverSilentlyLost`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
 | Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value or leaving recovered idle state dependent on `/Users/agent` residue |
 
@@ -771,7 +772,7 @@ baseline from a same-content rewrite.
 |-------|-------|
 | Spec | `tla/13_credential_capability_lifecycle.md` |
 | TLA+ files | `tla/MC_CredentialCapabilityLifecycle.tla`, `tla/MC_CredentialCapabilityLifecycle.cfg` |
-| Governed code | `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
+| Governed code | `hazmat/credentials/registry.go`, `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
 | Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
 | Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
 | Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoAgentResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
@@ -937,10 +938,10 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
-| `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
+| `10_git_ssh_routing` | `hazmat/configmodel/ssh.go:ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()`; `hazmat/config.go:runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
-| `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
-| `13_credential_capability_lifecycle` | `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
+| `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go`; `hazmat/internal/credentialruntime/store.go` |
+| `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 
 ---
