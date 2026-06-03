@@ -29,16 +29,18 @@ func TestImportBoundaries(t *testing.T) {
 	pkgs := loadListedPackages(t)
 
 	purePackages := map[string]bool{
-		"hazmat/containment":       true,
-		"hazmat/containment/linux": true,
-		"hazmat/hostfacts":         true,
-		"hazmat/integrations":      true,
-		"hazmat/pathpolicy":        true,
-		"hazmat/sessionbackend":    true,
-		"hazmat/sessioncontract":   true,
-		"hazmat/sessionmeta":       true,
-		"hazmat/sessionplanner":    true,
-		"hazmat/sessionrequest":    true,
+		"hazmat/containment":        true,
+		"hazmat/containment/darwin": true,
+		"hazmat/containment/docker": true,
+		"hazmat/containment/linux":  true,
+		"hazmat/hostfacts":          true,
+		"hazmat/integrations":       true,
+		"hazmat/pathpolicy":         true,
+		"hazmat/sessionbackend":     true,
+		"hazmat/sessioncontract":    true,
+		"hazmat/sessionmeta":        true,
+		"hazmat/sessionplanner":     true,
+		"hazmat/sessionrequest":     true,
 	}
 	for importPath := range purePackages {
 		pkg, ok := pkgs[importPath]
@@ -57,6 +59,8 @@ func TestImportBoundaries(t *testing.T) {
 	}
 
 	for _, compiler := range []string{
+		"hazmat/containment/darwin",
+		"hazmat/containment/docker",
 		"hazmat/containment/linux",
 	} {
 		pkg, ok := pkgs[compiler]
@@ -66,6 +70,14 @@ func TestImportBoundaries(t *testing.T) {
 		assertNoForbiddenDeps(t, pkg, []string{
 			"hazmat/cmd/hazmat-launch",
 			"hazmat/internal/runtime/",
+		})
+	}
+
+	if pkg, ok := pkgs["hazmat/containment"]; ok {
+		assertNoForbiddenDeps(t, pkg, []string{
+			"hazmat/containment/darwin",
+			"hazmat/containment/docker",
+			"hazmat/containment/linux",
 		})
 	}
 
