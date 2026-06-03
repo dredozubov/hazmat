@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"archive/tar"
@@ -209,15 +209,15 @@ func TestCleanClaudeBundleRelativePath(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{input: ".", want: ""},                                        // skipped
-		{input: "..", wantErr: true},                                  // escape
-		{input: "../escape", wantErr: true},                           // escape
-		{input: "/absolute/path", wantErr: true},                      // absolute
+		{input: ".", want: ""},                   // skipped
+		{input: "..", wantErr: true},             // escape
+		{input: "../escape", wantErr: true},      // escape
+		{input: "/absolute/path", wantErr: true}, // absolute
 		{input: "session/tool-results/foo.txt", want: "session/tool-results/foo.txt"},
 		{input: "session", want: "session"},
-		{input: "session/..", want: ""},                                // cleans to "." — skipped
-		{input: "./session", want: "session"},                         // cleaned
-		{input: "", want: ""},                                         // cleans to "." — skipped
+		{input: "session/..", want: ""},       // cleans to "." — skipped
+		{input: "./session", want: "session"}, // cleaned
+		{input: "", want: ""},                 // cleans to "." — skipped
 	}
 
 	for _, tt := range tests {

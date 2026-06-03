@@ -1,6 +1,6 @@
 //go:build !darwin
 
-package main
+package hazmat
 
 // Unsupported-platform path defaults keep the package buildable while Linux
 // support is still being built. Platform entry points still fail fast via

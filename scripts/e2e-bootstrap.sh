@@ -96,9 +96,9 @@ contained_verbose bash -c "cd hazmat && go test ./..." \
 
 phase "Build (contained)"
 
-contained_verbose bash -c "cd hazmat && go build -trimpath -o /dev/null ." \
-    && pass "go build hazmat (pure Go)" \
-    || fail "go build hazmat"
+contained_verbose bash -c "cd hazmat && go build -trimpath -o /dev/null ./cmd/hazmat" \
+	&& pass "go build hazmat (pure Go)" \
+	|| fail "go build hazmat"
 
 # ── CGO build ───────────────────────────────────────────────────────────────
 
@@ -166,9 +166,9 @@ phase "CLI smoke tests"
 
 # Run CLI subcommands via go run (skipping CGO with -tags nocgo where possible).
 for subcmd in "bootstrap --help" "integration list" "config set --help"; do
-    contained bash -c "cd hazmat && CGO_ENABLED=0 go run -tags nocgo . $subcmd" >/dev/null 2>&1 \
-        && pass "hazmat $subcmd" \
-        || fail "hazmat $subcmd"
+	contained bash -c "cd hazmat && CGO_ENABLED=0 go run -tags nocgo ./cmd/hazmat $subcmd" >/dev/null 2>&1 \
+		&& pass "hazmat $subcmd" \
+		|| fail "hazmat $subcmd"
 done
 
 # ── Credential isolation ────────────────────────────────────────────────────

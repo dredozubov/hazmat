@@ -1,6 +1,6 @@
 //go:build hazmat_debug
 
-package main
+package hazmat
 
 import "github.com/spf13/cobra"
 

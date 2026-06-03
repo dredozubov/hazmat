@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"fmt"
@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"hazmat/internal/frontend/cli"
+
 	"github.com/spf13/cobra"
 )
 
 // version is set at build time via -ldflags:
 //
-//	go build -ldflags "-X main.version=v0.1.0"
+//	go build -ldflags "-X hazmat.version=v0.1.0"
 var version = "dev"
 
 // flagVerbose, flagDryRun, and flagYesAll are persistent flags bound to the
@@ -54,121 +56,85 @@ const (
 	hostShellWrapperName  = "agent-shell"
 )
 
-func main() {
-	root := &cobra.Command{
-		Use:           "hazmat",
-		Short:         "Hazmat — AI agent containment for macOS",
-		Version:       version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			maybeNotifyUpdateAvailable(os.Stderr)
-			defer maybeNotifyUpdateAvailable(os.Stderr)
-			// No subcommand: show status checklist + hint to use --help.
-			if err := runStatus(false); err != nil {
-				return err
-			}
-			cDim.Println("  Run hazmat --help for all commands.")
-			fmt.Println()
-			return nil
-		},
-	}
-
-	root.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false,
-		"Print each command before executing")
-	root.PersistentFlags().BoolVarP(&flagDryRun, "dry-run", "n", false,
-		"Print all commands without executing (implies --verbose)")
-	root.PersistentFlags().BoolVarP(&flagYesAll, "yes", "y", false,
-		"Answer yes to all prompts (for non-interactive / scripted use)")
-
-	// ── Setup ──
-	initCmd := withUpdateNotifications(newInitCmd())
-	initCmd.GroupID = "setup"
-	initCmd.AddCommand(newInitCloudCmd())
-	bootstrapCmd := withUpdateNotifications(newBootstrapCmd())
-	bootstrapCmd.GroupID = "setup"
-	harnessCmd := withUpdateNotifications(newHarnessCmd())
-	harnessCmd.GroupID = "setup"
-	rollbackCmd := withUpdateNotifications(newRollbackCmd())
-	rollbackCmd.GroupID = "setup"
-	checkCmd := withUpdateNotifications(newInitCheckCmd())
-	checkCmd.GroupID = "setup"
-	sandboxCmd := newSandboxCmd()
-	sandboxCmd.GroupID = "setup"
-
-	// ── Run agents ──
-	claudeCmd := withUpdateNotifications(newClaudeCmd())
-	claudeCmd.GroupID = "run"
-	claudeKeychainCmd := newClaudeKeychainCmd()
-	claudeKeychainCmd.GroupID = "run"
-	codexCmd := withUpdateNotifications(newCodexCmd())
-	codexCmd.GroupID = "run"
-	codexAppServerCmd := withUpdateNotifications(newCodexAppServerCmd())
-	codexAppServerCmd.GroupID = "run"
-	codexAppShimCmd := withUpdateNotifications(newCodexAppShimCmd())
-	codexAppShimCmd.GroupID = "run"
-	opencodeCmd := withUpdateNotifications(newOpenCodeCmd())
-	opencodeCmd.GroupID = "run"
-	geminiCmd := withUpdateNotifications(newGeminiCmd())
-	geminiCmd.GroupID = "run"
-	hermesCmd := withUpdateNotifications(newHermesCmd())
-	hermesCmd.GroupID = "run"
-	qwenCmd := withUpdateNotifications(newQwenCmd())
-	qwenCmd.GroupID = "run"
-	cursorAgentCmd := withUpdateNotifications(newCursorAgentCmd())
-	cursorAgentCmd.GroupID = "run"
-	shellCmd := withUpdateNotifications(newShellCmd())
-	shellCmd.GroupID = "run"
-	execCmd := withUpdateNotifications(newExecCmd())
-	execCmd.GroupID = "run"
-	explainCmd := newExplainCmd()
-	explainCmd.GroupID = "run"
-
-	// ── Snapshots ──
-	snapshotsCmd := newSnapshotsCmd()
-	snapshotsCmd.GroupID = "snap"
-	diffCmd := newDiffCmd()
-	diffCmd.GroupID = "snap"
-	restoreCmd := newRestoreCmd()
-	restoreCmd.GroupID = "snap"
-
-	// ── Workspace ──
-	configCmd := newConfigCmd()
-	configCmd.GroupID = "ws"
-	migrateCmd := newMigrateCmd()
-	migrateCmd.GroupID = "ws"
-	integrationCmd := newIntegrationCmd()
-	integrationCmd.GroupID = "ws"
-	backupCmd := newBackupCmd()
-	backupCmd.GroupID = "ws"
-	statusCmd := withUpdateNotifications(newStatusCmd())
-	statusCmd.GroupID = "ws"
-	exportCmd := newExportCmd()
-	exportCmd.GroupID = "ws"
-	hooksCmd := newHooksCmd()
-	hooksCmd.GroupID = "ws"
-
-	root.AddGroup(
-		&cobra.Group{ID: "setup", Title: "Setup:"},
-		&cobra.Group{ID: "run", Title: "Run agents:"},
-		&cobra.Group{ID: "snap", Title: "Snapshots:"},
-		&cobra.Group{ID: "ws", Title: "Workspace:"},
-	)
-	root.AddCommand(
-		initCmd, bootstrapCmd, harnessCmd, rollbackCmd, checkCmd, sandboxCmd,
-		claudeCmd, claudeKeychainCmd, codexCmd, codexAppServerCmd, codexAppShimCmd, opencodeCmd, geminiCmd, hermesCmd, qwenCmd, cursorAgentCmd, shellCmd, execCmd, explainCmd,
-		snapshotsCmd, diffCmd, restoreCmd,
-		configCmd, migrateCmd, integrationCmd, backupCmd, statusCmd, exportCmd, hooksCmd,
-		newConnectCmd(), newGitSSHTransportCmd(), newGitHTTPSCredentialCmd(), newStackCheckCmd(), newCompletionCmd(root),
-		newGitHookWrapperCmd(), newGitHookDispatchCmd(), newGitHookFallbackCmd(),
-	)
-	addDebugCommands(root)
-	root.SetHelpCommandGroupID("ws")
-
-	if err := root.Execute(); err != nil {
+func Main() {
+	if err := NewRootCommand().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func NewRootCommand() *cobra.Command {
+	initCmd := withUpdateNotifications(newInitCmd())
+	initCmd.AddCommand(newInitCloudCmd())
+
+	return cli.NewRootCommand(cli.RootConfig{
+		Version: version,
+		Flags: cli.PersistentFlags{
+			Verbose: &flagVerbose,
+			DryRun:  &flagDryRun,
+			YesAll:  &flagYesAll,
+		},
+		DefaultRun: defaultRootRun,
+		Completion: newCompletionCmd,
+		AddDebug:   addDebugCommands,
+		Setup: []*cobra.Command{
+			initCmd,
+			withUpdateNotifications(newBootstrapCmd()),
+			withUpdateNotifications(newHarnessCmd()),
+			withUpdateNotifications(newRollbackCmd()),
+			withUpdateNotifications(newInitCheckCmd()),
+			newSandboxCmd(),
+		},
+		Run: []*cobra.Command{
+			withUpdateNotifications(newClaudeCmd()),
+			newClaudeKeychainCmd(),
+			withUpdateNotifications(newCodexCmd()),
+			withUpdateNotifications(newCodexAppServerCmd()),
+			withUpdateNotifications(newCodexAppShimCmd()),
+			withUpdateNotifications(newOpenCodeCmd()),
+			withUpdateNotifications(newGeminiCmd()),
+			withUpdateNotifications(newHermesCmd()),
+			withUpdateNotifications(newQwenCmd()),
+			withUpdateNotifications(newCursorAgentCmd()),
+			withUpdateNotifications(newShellCmd()),
+			withUpdateNotifications(newExecCmd()),
+			newExplainCmd(),
+		},
+		Snapshots: []*cobra.Command{
+			newSnapshotsCmd(),
+			newDiffCmd(),
+			newRestoreCmd(),
+		},
+		Workspace: []*cobra.Command{
+			newConfigCmd(),
+			newMigrateCmd(),
+			newIntegrationCmd(),
+			newBackupCmd(),
+			withUpdateNotifications(newStatusCmd()),
+			newExportCmd(),
+			newHooksCmd(),
+		},
+		Hidden: []*cobra.Command{
+			newConnectCmd(),
+			newGitSSHTransportCmd(),
+			newGitHTTPSCredentialCmd(),
+			newStackCheckCmd(),
+			newGitHookWrapperCmd(),
+			newGitHookDispatchCmd(),
+			newGitHookFallbackCmd(),
+		},
+	})
+}
+
+func defaultRootRun(_ *cobra.Command, _ []string) error {
+	maybeNotifyUpdateAvailable(os.Stderr)
+	defer maybeNotifyUpdateAvailable(os.Stderr)
+	if err := runStatus(false); err != nil {
+		return err
+	}
+	cDim.Println("  Run hazmat --help for all commands.")
+	fmt.Println()
+	return nil
 }
 
 // newConnectCmd is a hidden internal subcommand that dials host:port and exits

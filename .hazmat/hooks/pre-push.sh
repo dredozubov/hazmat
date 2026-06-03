@@ -74,7 +74,7 @@ run_smoke() {
 	label="$1"
 	shift
 	echo "pre-push: cli smoke $label..."
-	go run . "$@" >/dev/null
+	go run ./cmd/hazmat "$@" >/dev/null
 }
 
 echo "pre-push: CLI smoke tests..."
@@ -109,7 +109,7 @@ run_smoke "hermes --help" hermes --help
 run_smoke "qwen --help" qwen --help
 run_smoke "cursor-agent --help" cursor-agent --help
 echo "pre-push: cli smoke trace hidden in release build..."
-if go run . trace --help >/tmp/hazmat-trace-help.out 2>/tmp/hazmat-trace-help.err; then
+if go run ./cmd/hazmat trace --help >/tmp/hazmat-trace-help.out 2>/tmp/hazmat-trace-help.err; then
 	echo "pre-push: trace unexpectedly exists in default build" >&2
 	exit 1
 fi

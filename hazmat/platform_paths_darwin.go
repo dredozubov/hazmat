@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package hazmat
 
 // Native platform paths for the current macOS backend. Linux support should
 // replace these through platform-specific files rather than branching at call

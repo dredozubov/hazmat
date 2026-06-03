@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import "github.com/spf13/cobra"
 

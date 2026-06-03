@@ -402,7 +402,7 @@ run_live_smoke() {
 	make_proxy "$PROXY"
 
 	echo "codex-desktop-attach-smoke: building scratch Hazmat binary..."
-	(cd "$REPO_ROOT/hazmat" && go build -o "$HAZMAT_BIN" .)
+	(cd "$REPO_ROOT/hazmat" && go build -o "$HAZMAT_BIN" ./cmd/hazmat)
 	chmod 700 "$HAZMAT_BIN"
 
 	cat >"$SCRATCH/cleanup.sh" <<EOF

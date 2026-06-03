@@ -1,6 +1,6 @@
 //go:build !darwin
 
-package main
+package hazmat
 
 func platformHostToolPaths() hostToolPaths {
 	return hostToolPaths{

@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 // homerHazmatArt is ANSI terminal art of Homer Simpson in a hazmat suit
 // holding the Claude Code logo.  55 chars wide × 33 lines, 24-bit true color.

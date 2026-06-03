@@ -14,7 +14,7 @@ run_smoke() {
 	label="$1"
 	shift
 	echo "debug-trace-cli-smoke: $label..."
-	go run -tags hazmat_debug . "$@" >/dev/null
+	go run -tags hazmat_debug ./cmd/hazmat "$@" >/dev/null
 }
 
 run_smoke "trace --help" trace --help

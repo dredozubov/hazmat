@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 type nativeServiceBackend interface {
 	SetupLaunchHelper(ui *UI, r *Runner) error
