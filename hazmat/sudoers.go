@@ -20,10 +20,6 @@ func launchSudoersEntry(currentUser string) (string, error) {
 	return setup.LaunchSudoersEntry(sudoersEnv(), currentUser)
 }
 
-func agentMaintenanceSudoersEntry(currentUser string) string {
-	return setup.AgentMaintenanceSudoersEntry(sudoersEnv(), currentUser)
-}
-
 func launchSudoersInstalled() bool {
 	return setup.LaunchSudoersInstalled(sudoersEnv())
 }
@@ -34,10 +30,6 @@ func agentMaintenanceSudoersInstalled() bool {
 
 func genericAgentPasswordlessAvailable() bool {
 	return sudoNoPrompt("-u", agentUser, "whoami") == nil
-}
-
-func writeManagedSudoersFile(r *Runner, reason, path, content string) error {
-	return setup.WriteManagedSudoersFile(sudoersEnv(), r, reason, path, content)
 }
 
 func installLaunchSudoers(ui *UI, r *Runner, currentUser string) error {
