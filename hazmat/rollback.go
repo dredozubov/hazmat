@@ -3,7 +3,6 @@ package hazmat
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -109,77 +108,6 @@ func rollbackSudoers(ui *UI, r *Runner) {
 	nativeServiceBackendForHost().RollbackSudoers(ui, r)
 }
 
-func rollbackSeatbelt(ui *UI, r *Runner) {
-	ui.Step("Remove seatbelt profile and wrapper")
-
-	for _, path := range []string{seatbeltWrapperPath} {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			ui.SkipDone(fmt.Sprintf("%s not present", path))
-			continue
-		}
-		if err := r.Sudo("remove seatbelt wrapper", "rm", "-f", path); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed %s", path))
-		}
-	}
-}
-
-func rollbackUserExperience(ui *UI, r *Runner) {
-	ui.Step("Remove command wrappers and shell integration")
-
-	if _, err := os.Stat(agentEnvPath); os.IsNotExist(err) {
-		ui.SkipDone(fmt.Sprintf("%s not present", agentEnvPath))
-	} else if err := r.Sudo("remove agent environment file", "rm", "-f", agentEnvPath); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", agentEnvPath, err))
-	} else {
-		ui.Ok(fmt.Sprintf("Removed %s", agentEnvPath))
-	}
-
-	for _, path := range []string{
-		hostWrapperPath(hostClaudeWrapperName),
-		hostWrapperPath(hostExecWrapperName),
-		hostWrapperPath(hostShellWrapperName),
-	} {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			ui.SkipDone(fmt.Sprintf("%s not present", path))
-			continue
-		}
-		if err := os.Remove(path); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", path, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed %s", path))
-		}
-	}
-
-	agentZshrc := agentHome + "/.zshrc"
-	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
-		strings.Contains(data, agentShellBlockStart) {
-		cleaned := removeManagedBlock(data, agentShellBlockStart, agentShellBlockEnd)
-		if err := r.SudoWriteFile("remove hazmat shell block from agent .zshrc", agentZshrc, cleaned); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed hazmat shell block from %s", agentZshrc))
-		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Hazmat shell block not present in %s", agentZshrc))
-	}
-
-	for _, profile := range supportedUserShellProfiles() {
-		if data, err := os.ReadFile(profile.rcPath); err == nil &&
-			strings.Contains(string(data), userPathBlockStart) {
-			cleaned := removeManagedBlock(string(data), userPathBlockStart, userPathBlockEnd)
-			if err := r.UserWriteFile(profile.rcPath, cleaned); err != nil {
-				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", profile.rcPath, err))
-			} else {
-				ui.Ok(fmt.Sprintf("Removed hazmat PATH block from %s", profile.rcPath))
-			}
-		} else {
-			ui.SkipDone(fmt.Sprintf("Hazmat PATH block not present in %s", profile.rcPath))
-		}
-	}
-}
-
 func rollbackHomeDirTraverse(ui *UI, r *Runner) {
 	ui.Step("Remove home directory traverse ACL")
 
@@ -193,38 +121,6 @@ func rollbackHomeDirTraverse(ui *UI, r *Runner) {
 		}
 	} else {
 		ui.SkipDone("Home traversal ACL not present")
-	}
-}
-
-func rollbackUmask(ui *UI, r *Runner) {
-	ui.Step("Remove umask managed block from shell rc files")
-
-	// Agent .zshrc — only remove the block this tool added.
-	agentZshrc := agentHome + "/.zshrc"
-	if data, err := asAgentOutput("cat", agentZshrc); err == nil &&
-		strings.Contains(data, umaskBlockStart) {
-		cleaned := removeManagedBlock(data, umaskBlockStart, umaskBlockEnd)
-		if err := r.SudoWriteFile("remove umask block from agent .zshrc", agentZshrc, cleaned); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", agentZshrc, err))
-		} else {
-			ui.Ok(fmt.Sprintf("Removed umask block from %s", agentZshrc))
-		}
-	} else {
-		ui.SkipDone(fmt.Sprintf("Umask block not present in %s", agentZshrc))
-	}
-
-	for _, profile := range supportedUserShellProfiles() {
-		if data, err := os.ReadFile(profile.rcPath); err == nil &&
-			strings.Contains(string(data), umaskBlockStart) {
-			cleaned := removeManagedBlock(string(data), umaskBlockStart, umaskBlockEnd)
-			if err := r.UserWriteFile(profile.rcPath, cleaned); err != nil {
-				ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", profile.rcPath, err))
-			} else {
-				ui.Ok(fmt.Sprintf("Removed umask block from %s", profile.rcPath))
-			}
-		} else {
-			ui.SkipDone(fmt.Sprintf("Umask block not present in %s", profile.rcPath))
-		}
 	}
 }
 
