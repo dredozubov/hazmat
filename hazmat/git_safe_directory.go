@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
+	"hazmat/internal/setup"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -313,77 +313,20 @@ func syncHazmatSafeDirectoryConfig(content string, wanted []string) (string, boo
 }
 
 func setupGitSafeDirectory(ui *UI, r *Runner) error {
-	ui.Step("Configure git safe.directory for agent user")
-
-	gitconfig := systemGitConfigPath()
-	if gitconfig == "" {
-		ui.WarnMsg("Could not determine system gitconfig path — skipping")
-		return nil
-	}
-
-	cfg, _ := loadConfig()
-	wanted := managedSafeDirectoryEntries(cfg.SessionReadDirs())
-	if len(wanted) == 0 {
-		ui.SkipDone("No session.read_dirs configured — nothing to add")
-		return nil
-	}
-
-	content, err := os.ReadFile(gitconfig)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read %s: %w", gitconfig, err)
-	}
-
-	updated, changed := syncHazmatSafeDirectoryConfig(string(content), wanted)
-	if !changed {
-		ui.SkipDone(fmt.Sprintf("safe.directory already configured for %d workspace root(s)", len(wanted)))
-		return nil
-	}
-
-	if err := r.Sudo("create system gitconfig directory", "mkdir", "-p", filepath.Dir(gitconfig)); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(gitconfig), err)
-	}
-	if err := r.SudoWriteFile("write hazmat-managed git safe.directory entries", gitconfig, updated); err != nil {
-		return fmt.Errorf("write system gitconfig: %w", err)
-	}
-	if err := r.Sudo("set system gitconfig permissions", "chmod", "644", gitconfig); err != nil {
-		return fmt.Errorf("chmod %s: %w", gitconfig, err)
-	}
-
-	for _, entry := range wanted {
-		ui.Ok(fmt.Sprintf("safe.directory = %s", entry))
-	}
-	ui.Ok(fmt.Sprintf("Written to %s", gitconfig))
-	return nil
+	return setup.SetupGitSafeDirectory(setupGitSafeDirectoryEnv(), ui, r)
 }
 
 func rollbackGitSafeDirectory(ui *UI, r *Runner) {
-	ui.Step("Remove hazmat-managed git safe.directory entries from system gitconfig")
+	setup.RollbackGitSafeDirectory(setupGitSafeDirectoryEnv(), ui, r)
+}
 
-	gitconfig := systemGitConfigPath()
-	if gitconfig == "" {
-		ui.SkipDone("Could not determine system gitconfig path")
-		return
+func setupGitSafeDirectoryEnv() setup.GitSafeDirectoryEnv {
+	return setup.GitSafeDirectoryEnv{
+		SystemGitConfigPath: systemGitConfigPath,
+		ManagedEntries: func() []string {
+			cfg, _ := loadConfig()
+			return managedSafeDirectoryEntries(cfg.SessionReadDirs())
+		},
+		SyncConfig: syncHazmatSafeDirectoryConfig,
 	}
-
-	content, err := os.ReadFile(gitconfig)
-	if err != nil {
-		ui.SkipDone("System gitconfig not readable")
-		return
-	}
-
-	updated, changed := syncHazmatSafeDirectoryConfig(string(content), nil)
-	if !changed {
-		ui.SkipDone("No hazmat-managed safe.directory entries in system gitconfig")
-		return
-	}
-
-	if err := r.SudoWriteFile("remove hazmat-managed git safe.directory entries", gitconfig, updated); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not update %s: %v", gitconfig, err))
-		return
-	}
-	if err := r.Sudo("set system gitconfig permissions", "chmod", "644", gitconfig); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not chmod %s: %v", gitconfig, err))
-		return
-	}
-	ui.Ok(fmt.Sprintf("Removed hazmat-managed safe.directory entries from %s", gitconfig))
 }
