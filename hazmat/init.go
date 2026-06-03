@@ -94,25 +94,6 @@ Use --dry-run to preview all commands without executing anything.`,
 	return cmd
 }
 
-// newInitCheckCmd creates the `hazmat check` command.
-func newInitCheckCmd() *cobra.Command {
-	var full bool
-	cmd := &cobra.Command{
-		Use:   "check",
-		Short: "Verify the setup is working",
-		Long: `Runs the verification suite to check that containment is correctly configured.
-
-By default runs quick checks (no network traffic). Use --full to include
-live network probes that verify firewall rules are active.`,
-		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runTest(!full) // runTest(quick bool): true = skip network
-		},
-	}
-	cmd.Flags().BoolVar(&full, "full", false, "Include live network probes (sends external traffic)")
-	return cmd
-}
-
 // newInitCloudCmd wraps cloud setup as `hazmat init cloud`.
 func newInitCloudCmd() *cobra.Command {
 	return newConfigCloudCmd()
