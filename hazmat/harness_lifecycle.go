@@ -3,8 +3,8 @@ package hazmat
 import (
 	"encoding/json"
 	"fmt"
+	"hazmat/internal/harnessruntime"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,44 +19,20 @@ type harnessProbe struct {
 	MissingReason string
 }
 
-type harnessManagedArtifactKind string
+type harnessManagedArtifactKind = harnessruntime.ArtifactKind
 
 const (
-	harnessArtifactFile harnessManagedArtifactKind = "file"
-	harnessArtifactDir  harnessManagedArtifactKind = "dir"
+	harnessArtifactFile harnessManagedArtifactKind = harnessruntime.ArtifactFile
+	harnessArtifactDir  harnessManagedArtifactKind = harnessruntime.ArtifactDir
 )
 
-type harnessArtifactOwnership string
+type harnessArtifactOwnership = harnessruntime.ArtifactOwnership
 
-const (
-	harnessArtifactOwnedByHazmat harnessArtifactOwnership = "hazmat-owned"
-)
+type harnessArtifactSymlinkPolicy = harnessruntime.ArtifactSymlinkPolicy
 
-type harnessArtifactSymlinkPolicy string
+type harnessManagedArtifact = harnessruntime.Artifact
 
-const (
-	harnessArtifactSymlinkDisallowed harnessArtifactSymlinkPolicy = "disallowed"
-	harnessArtifactSymlinkAllowed    harnessArtifactSymlinkPolicy = "allowed"
-)
-
-type harnessManagedArtifact struct {
-	Path            string
-	Kind            harnessManagedArtifactKind
-	Description     string
-	Ownership       harnessArtifactOwnership
-	SymlinkPolicy   harnessArtifactSymlinkPolicy
-	PackageManager  string
-	PackageName     string
-	CreatedByUpdate bool
-}
-
-type harnessArtifactStatus struct {
-	Artifact    harnessManagedArtifact
-	Exists      bool
-	Symlink     bool
-	PackageName string
-	Drift       string
-}
+type harnessArtifactStatus = harnessruntime.ArtifactStatus
 
 type harnessStateStatus struct {
 	Status       string `json:"status"`
@@ -555,7 +531,7 @@ func harnessStatusForJSON(status harnessStatus) harnessStatusJSON {
 func harnessArtifactStatusesForJSON(statuses []harnessArtifactStatus) []harnessArtifactStatusJSON {
 	out := make([]harnessArtifactStatusJSON, 0, len(statuses))
 	for _, status := range statuses {
-		artifact := normalizeHarnessManagedArtifact(status.Artifact)
+		artifact := harnessruntime.NormalizeArtifact(status.Artifact)
 		out = append(out, harnessArtifactStatusJSON{
 			Path:            artifact.Path,
 			Kind:            artifact.Kind,
@@ -737,136 +713,12 @@ func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 }
 
 func inspectHarnessArtifact(read func(args ...string) (string, error), artifact harnessManagedArtifact) harnessArtifactStatus {
-	artifact = normalizeHarnessManagedArtifact(artifact)
-	status := harnessArtifactStatus{Artifact: artifact}
-	if err := validateHarnessArtifactPath(artifact.Path); err != nil {
-		status.Drift = err.Error()
-		return status
-	}
-
-	exists := harnessArtifactExists(read, artifact.Path)
-	status.Exists = exists
-	if !exists {
-		return status
-	}
-
-	status.Symlink = harnessArtifactIsSymlink(read, artifact.Path)
-	if status.Symlink && artifact.SymlinkPolicy != harnessArtifactSymlinkAllowed {
-		status.Drift = "symlink not allowed"
-		return status
-	}
-
-	switch artifact.Kind {
-	case harnessArtifactFile:
-		if !harnessArtifactIsFile(read, artifact.Path) {
-			status.Drift = "expected file"
-		}
-	case harnessArtifactDir:
-		if status.Symlink {
-			status.Drift = "expected directory, got symlink"
-			return status
-		}
-		if !harnessArtifactIsDir(read, artifact.Path) {
-			status.Drift = "expected directory"
-		}
-	default:
-		status.Drift = "unknown artifact kind " + string(artifact.Kind)
-	}
-	if status.Drift != "" {
-		return status
-	}
-	if artifact.PackageManager == "npm" && artifact.PackageName != "" {
-		packageName, err := inspectNpmPackageName(read, artifact.Path)
-		if err != nil {
-			status.Drift = err.Error()
-			return status
-		}
-		status.PackageName = packageName
-		if packageName != artifact.PackageName {
-			status.Drift = fmt.Sprintf("expected npm package %s, got %s", artifact.PackageName, packageName)
-		}
-	}
-	return status
-}
-
-func normalizeHarnessManagedArtifact(artifact harnessManagedArtifact) harnessManagedArtifact {
-	if artifact.Ownership == "" {
-		artifact.Ownership = harnessArtifactOwnedByHazmat
-	}
-	if artifact.SymlinkPolicy == "" {
-		artifact.SymlinkPolicy = harnessArtifactSymlinkDisallowed
-	}
-	return artifact
-}
-
-func validateHarnessArtifactPath(path string) error {
-	clean := filepath.Clean(path)
-	if clean == filepath.Clean(agentHome) || !usesManagedAgentPath(clean) {
-		return fmt.Errorf("path is outside the managed agent home")
-	}
-	return nil
-}
-
-func harnessArtifactExists(read func(args ...string) (string, error), path string) bool {
-	if _, err := read("/usr/bin/test", "-e", path); err == nil {
-		return true
-	}
-	if _, err := read("/usr/bin/test", "-L", path); err == nil {
-		return true
-	}
-	return false
-}
-
-func harnessArtifactIsSymlink(read func(args ...string) (string, error), path string) bool {
-	_, err := read("/usr/bin/test", "-L", path)
-	return err == nil
-}
-
-func harnessArtifactIsFile(read func(args ...string) (string, error), path string) bool {
-	if _, err := read("/usr/bin/test", "-f", path); err == nil {
-		return true
-	}
-	if harnessArtifactIsSymlink(read, path) {
-		return true
-	}
-	return false
-}
-
-func harnessArtifactIsDir(read func(args ...string) (string, error), path string) bool {
-	_, err := read("/usr/bin/test", "-d", path)
-	return err == nil
-}
-
-func inspectNpmPackageName(read func(args ...string) (string, error), packageDir string) (string, error) {
-	packageJSON := filepath.Join(packageDir, "package.json")
-	raw, err := read("/bin/cat", packageJSON)
-	if err != nil {
-		return "", fmt.Errorf("inspect npm package metadata %s: %v", packageJSON, err)
-	}
-	var payload struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return "", fmt.Errorf("parse npm package metadata %s: %w", packageJSON, err)
-	}
-	name := strings.TrimSpace(payload.Name)
-	if name == "" {
-		return "", fmt.Errorf("npm package metadata %s has no name", packageJSON)
-	}
-	return name, nil
+	return harnessruntime.InspectArtifact(read, agentHome, artifact)
 }
 
 func removeHarnessArtifact(r *Runner, artifact harnessManagedArtifact) error {
-	artifact = normalizeHarnessManagedArtifact(artifact)
-	if err := validateHarnessArtifactPath(artifact.Path); err != nil {
+	if err := harnessruntime.RemoveArtifact(r.AsAgent, agentHome, artifact); err != nil {
 		return err
-	}
-	flag := "-f"
-	if artifact.Kind == harnessArtifactDir {
-		flag = "-rf"
-	}
-	if err := r.AsAgent("remove "+artifact.Description, "/bin/rm", flag, "--", artifact.Path); err != nil {
-		return fmt.Errorf("remove %s: %w", artifact.Path, err)
 	}
 	if r.ui != nil {
 		r.ui.Ok("Removed " + artifact.Path)
@@ -983,74 +835,25 @@ func inspectHarnessCredentialStatus(id HarnessID) harnessCredentialStatus {
 }
 
 func harnessFileArtifact(path, description string) harnessManagedArtifact {
-	return harnessManagedArtifact{
-		Path:            path,
-		Kind:            harnessArtifactFile,
-		Description:     description,
-		Ownership:       harnessArtifactOwnedByHazmat,
-		SymlinkPolicy:   harnessArtifactSymlinkAllowed,
-		CreatedByUpdate: true,
-	}
+	return harnessruntime.FileArtifact(path, description)
 }
 
 func harnessDirArtifact(path, description string) harnessManagedArtifact {
-	return harnessManagedArtifact{
-		Path:            path,
-		Kind:            harnessArtifactDir,
-		Description:     description,
-		Ownership:       harnessArtifactOwnedByHazmat,
-		SymlinkPolicy:   harnessArtifactSymlinkDisallowed,
-		CreatedByUpdate: true,
-	}
+	return harnessruntime.DirArtifact(path, description)
 }
 
 func harnessNpmPackageDirArtifact(path, packageName, description string) harnessManagedArtifact {
-	artifact := harnessDirArtifact(path, description)
-	artifact.PackageManager = "npm"
-	artifact.PackageName = packageName
-	return artifact
+	return harnessruntime.NpmPackageDirArtifact(path, packageName, description)
 }
 
 func harnessSymlinkArtifact(path, description string) harnessManagedArtifact {
-	artifact := harnessFileArtifact(path, description)
-	artifact.SymlinkPolicy = harnessArtifactSymlinkAllowed
-	return artifact
+	return harnessruntime.SymlinkArtifact(path, description)
 }
 
 func harnessRegularFileArtifact(path, description string) harnessManagedArtifact {
-	artifact := harnessFileArtifact(path, description)
-	artifact.SymlinkPolicy = harnessArtifactSymlinkDisallowed
-	return artifact
+	return harnessruntime.RegularFileArtifact(path, description)
 }
 
 func formatHarnessArtifactStatus(status harnessArtifactStatus) string {
-	state := "missing"
-	if status.Exists {
-		state = "present"
-	}
-	if status.Drift != "" {
-		state = "drifted: " + status.Drift
-	}
-	parts := []string{
-		status.Artifact.Description,
-		string(status.Artifact.Kind),
-		string(status.Artifact.Ownership),
-		state,
-	}
-	if status.Artifact.SymlinkPolicy == harnessArtifactSymlinkAllowed {
-		parts = append(parts, "symlink allowed")
-	}
-	if status.Artifact.PackageManager != "" {
-		packageName := status.Artifact.PackageName
-		if packageName == "" {
-			packageName = "unknown"
-		}
-		parts = append(parts, status.Artifact.PackageManager+":"+packageName)
-	}
-	if status.Artifact.CreatedByUpdate {
-		parts = append(parts, "created by update")
-	} else {
-		parts = append(parts, "verified only")
-	}
-	return strings.Join(parts, ", ")
+	return harnessruntime.FormatArtifactStatus(status)
 }

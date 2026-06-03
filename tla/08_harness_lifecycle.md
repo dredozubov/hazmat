@@ -128,7 +128,7 @@ Observed result from the 2026-06-03 package-split refactor confirmation run:
 - `25,164,502 states generated`
 - `633,107 distinct states found`
 - `depth 18`
-- `Finished in 2m45s`
+- `Finished in 47s`
 
 ## Interpretation
 

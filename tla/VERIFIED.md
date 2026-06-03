@@ -527,7 +527,7 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
 | Governed code | `hazmat/harnesses/harnesses.go` — built-in harness IDs, declared state versions, launch/import metadata |
 | Governed code | `hazmat/harness.go` — harness state recording and runtime registry compatibility wrappers |
-| Governed code | `hazmat/internal/harnessruntime/state.go` — harness lifecycle state transition rules |
+| Governed code | `hazmat/internal/harnessruntime/state.go`, `hazmat/internal/harnessruntime/artifact.go` — harness lifecycle state transition rules and managed artifact inspection/removal rules |
 | Governed code | `hazmat/state.go` — state-file persistence and harness runtime store adapter |
 | Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
@@ -556,7 +556,7 @@ deliberately not importable in Phase 1.
 
 TLC was re-run on 2026-06-03 for the package-split refactor and reported "No
 error has been found" across 633,107 distinct states (25,164,502 generated,
-depth 18, ~2m45s).
+depth 18, ~47s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -939,7 +939,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
-| `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
+| `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/configmodel/ssh.go:ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()`; `hazmat/config.go:runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
