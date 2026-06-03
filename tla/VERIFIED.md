@@ -296,7 +296,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Governed code | `hazmat/sudoers.go` — optional current-version sudoers artifact |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
-| Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
+| Governed code | `hazmat/internal/state/state.go`, `hazmat/state.go` — core init version persistence for `~/.hazmat/state.json` (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
 | Status | **Re-Proved** — 72,442 states, 234,101 transitions, 0 errors (3s) |
@@ -528,7 +528,8 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | Governed code | `hazmat/harnesses/harnesses.go` — built-in harness IDs, declared state versions, launch/import metadata |
 | Governed code | `hazmat/harness.go` — harness state recording and runtime registry compatibility wrappers |
 | Governed code | `hazmat/internal/harnessruntime/state.go`, `hazmat/internal/harnessruntime/artifact.go`, `hazmat/internal/harnessruntime/uninstall.go`, `hazmat/internal/harnessruntime/install.go` — harness lifecycle state transition rules and managed artifact install/uninstall rules |
-| Governed code | `hazmat/state.go` — state-file persistence and harness runtime store adapter |
+| Governed code | `hazmat/internal/state/state.go` — host-owned state-file schema, persistence, and harness runtime store implementation |
+| Governed code | `hazmat/state.go` — root compatibility wrappers and migration helper entrypoints |
 | Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
@@ -935,11 +936,11 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
-| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
+| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
-| `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
+| `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/internal/state/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
 | `10_git_ssh_routing` | `hazmat/configmodel/ssh.go:ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()`; `hazmat/config.go:runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |

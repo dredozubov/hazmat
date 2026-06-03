@@ -461,9 +461,9 @@ func formatInstalledHarnessNamesForStatus(installed []ManagedHarness, state Hazm
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {
-	return harnessruntime.RecordInstalled(harnessStateStore{}, spec)
+	return harnessruntime.RecordInstalled(stateStore(), spec)
 }
 
 func recordHarnessImportRun(spec HarnessSpec) error {
-	return harnessruntime.RecordImportRun(harnessStateStore{}, spec)
+	return harnessruntime.RecordImportRun(stateStore(), spec)
 }

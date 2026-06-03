@@ -4,22 +4,11 @@ import (
 	"time"
 
 	"hazmat/harnesses"
+	statestore "hazmat/internal/state"
 )
 
-type State struct {
-	StateVersion    string `json:"state_version,omitempty"`
-	LastImportRunAt string `json:"last_import_run_at,omitempty"`
-}
-
-type Snapshot struct {
-	InitVersion string                 `json:"init_version"`
-	InitDate    string                 `json:"init_date"`
-	Harnesses   map[harnesses.ID]State `json:"harnesses,omitempty"`
-}
-
-func (s Snapshot) HasHarnessState() bool {
-	return len(s.Harnesses) > 0
-}
+type State = statestore.HarnessState
+type Snapshot = statestore.Snapshot
 
 type StateStore interface {
 	Load() (Snapshot, error)

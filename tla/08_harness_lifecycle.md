@@ -30,7 +30,8 @@ gives them a dedicated home.
 |------|-----------|
 | `hazmat/harness.go` | `RecordInstalled()`, `RecordBasicsImported()`, `recordHarnessInstalled()`, `recordHarnessImportRun()` |
 | `hazmat/internal/harnessruntime/state.go` | `StateCurrent()`, `RecordInstalled()`, `RecordImportRun()`, `UpdateHarnessState()`, `RemoveHarnessState()` |
-| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()`, `writeState()` |
+| `hazmat/internal/state/state.go` | `Snapshot`, `HarnessState`, `Store.Load()`, `Store.SaveVersion()`, `Store.Write()`, `Store.Remove()` |
+| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()`, `writeState()` compatibility wrappers and migration helpers |
 | `hazmat/migrate.go` | `saveState()`, `runDownMigrations()` |
 | `hazmat/bootstrap.go` | Claude bootstrap path |
 | `hazmat/bootstrap_codex.go` | Codex bootstrap path |
@@ -160,5 +161,6 @@ about when editing harness bootstrap/import flows.
    any user data beyond declared Hazmat-owned code artifacts.
 4. **Changing dry-run behavior**: if any harness dry-run starts writing state,
    update this model and revisit `DryRunLeavesStateUntouched`.
-5. **Changing how `saveState()` rewrites `~/.hazmat/state.json`**: update this
-   model first. The current proof requires harness metadata preservation.
+5. **Changing how `internal/state.Store.SaveVersion()` or `saveState()` rewrites
+   `~/.hazmat/state.json`**: update this model first. The current proof
+   requires harness metadata preservation.

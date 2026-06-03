@@ -616,7 +616,7 @@ func runHarnessUninstall(input string, force bool) error {
 		return nil
 	}
 	if err := harnessruntime.ExecuteUninstallPlan(plan, harnessruntime.UninstallOptions{
-		Store:     harnessStateStore{},
+		Store:     stateStore(),
 		Remove:    remove,
 		AgentHome: agentHome,
 		Force:     force,
@@ -640,7 +640,7 @@ func buildHarnessUninstallPlan(harness ManagedHarness, read func(args ...string)
 	if harness.ManagedCodeArtifacts != nil {
 		artifacts = harness.ManagedCodeArtifacts()
 	}
-	return harnessruntime.BuildUninstallPlan(harnessStateStore{}, read, agentHome, harness.Spec, artifacts, harness.PreservedArtifacts)
+	return harnessruntime.BuildUninstallPlan(stateStore(), read, agentHome, harness.Spec, artifacts, harness.PreservedArtifacts)
 }
 
 func printHarnessUninstallPlan(plan harnessUninstallPlan) {
