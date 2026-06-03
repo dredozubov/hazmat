@@ -86,6 +86,18 @@ func setupHardeningGaps(ui *UI, r *Runner) error {
 	return setup.SetupHardeningGaps(setupHardeningEnv(), ui, r)
 }
 
+func setupHomeDirTraverse(ui *UI, r *Runner) error {
+	inv := sudoACLInvoker{runner: r, reason: "allow agent to traverse home directory"}
+	return setup.SetupHomeDirTraverse(setup.HomeTraverseEnv{
+		HomeDir:             os.Getenv("HOME"),
+		AllowsAgentTraverse: homeAllowsAgentTraverse,
+		HasAgentTraverseACL: homeHasAgentTraverseACL,
+		EnsureAgentTraverseACL: func(path string) error {
+			return ensureACL(inv, path, agentTraverseGrant)
+		},
+	}, ui)
+}
+
 func setupSeatbelt(ui *UI, r *Runner) error {
 	return setup.SetupSeatbelt(setupToolingEnv(), ui, r)
 }
@@ -100,6 +112,17 @@ func rollbackSeatbelt(ui *UI, r *Runner) {
 
 func rollbackUserExperience(ui *UI, r *Runner) {
 	setup.RollbackUserExperience(setupToolingEnv(), ui, r)
+}
+
+func rollbackHomeDirTraverse(ui *UI, r *Runner) {
+	inv := sudoACLInvoker{runner: r, reason: "remove home directory traverse ACL"}
+	setup.RollbackHomeDirTraverse(setup.HomeTraverseEnv{
+		HomeDir:             os.Getenv("HOME"),
+		HasAgentTraverseACL: homeHasAgentTraverseACL,
+		RemoveAgentTraverseACL: func(path string) error {
+			return removeACL(inv, path, agentTraverseGrant)
+		},
+	}, ui)
 }
 
 func rollbackUmask(ui *UI, r *Runner) {

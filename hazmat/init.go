@@ -485,32 +485,6 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 	return nativeAccountBackendForHost().SetupDevGroup(ui, r, currentUser)
 }
 
-// ── Step 3: Workspace root ────────────────────────────────────────────────────
-
-// setupHomeDirTraverse grants the agent user directory traversal on $HOME
-// so it can reach project directories anywhere under the user's home.
-// This is a one-time ACL on the home directory itself — it does NOT grant
-// read or list access, only execute (traverse).
-func setupHomeDirTraverse(ui *UI, r *Runner) error {
-	ui.Step("Allow agent to traverse home directory")
-
-	homeDir := os.Getenv("HOME")
-	if homeAllowsAgentTraverse(homeDir) {
-		if homeHasAgentTraverseACL(homeDir) {
-			ui.SkipDone("Home directory ACL already allows agent traversal")
-		} else {
-			ui.SkipDone("Home directory permissions already allow agent traversal")
-		}
-	} else {
-		inv := sudoACLInvoker{runner: r, reason: "allow agent to traverse home directory"}
-		if err := ensureACL(inv, homeDir, agentTraverseGrant); err != nil {
-			return fmt.Errorf("set home traversal ACL: %w", err)
-		}
-		ui.Ok("Home directory ACL set — agent can reach project directories")
-	}
-	return nil
-}
-
 // ── Step 3b: Backup scope file ────────────────────────────────────────────────
 
 func setupLocalRepo(ui *UI) error {

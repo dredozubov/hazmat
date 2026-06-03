@@ -108,22 +108,6 @@ func rollbackSudoers(ui *UI, r *Runner) {
 	nativeServiceBackendForHost().RollbackSudoers(ui, r)
 }
 
-func rollbackHomeDirTraverse(ui *UI, r *Runner) {
-	ui.Step("Remove home directory traverse ACL")
-
-	homeDir := os.Getenv("HOME")
-	if homeHasAgentTraverseACL(homeDir) {
-		inv := sudoACLInvoker{runner: r, reason: "remove home directory traverse ACL"}
-		if err := removeACL(inv, homeDir, agentTraverseGrant); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not remove home traversal ACL: %v", err))
-		} else {
-			ui.Ok("Removed home traversal ACL")
-		}
-	} else {
-		ui.SkipDone("Home traversal ACL not present")
-	}
-}
-
 func rollbackLocalRepo(ui *UI) {
 	ui.Step("Remove local snapshot repository")
 
