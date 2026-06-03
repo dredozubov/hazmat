@@ -15,6 +15,7 @@ import (
 	"time"
 
 	dockercompiler "hazmat/containment/docker"
+	launchruntime "hazmat/internal/runtime"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -1227,10 +1228,13 @@ func validateSandboxLaunchConfigPaths(cfg sessionConfig) error {
 }
 
 func preparedSandboxSessionForConfig(cfg sessionConfig) preparedSession {
+	plan := buildSessionBackendPlan(cfg, sessionModeDockerSandbox)
+	runtimeSelection, _ := launchruntime.Select(plan)
 	return preparedSession{
 		Config:      cfg,
 		Mode:        sessionModeDockerSandbox,
-		BackendPlan: buildSessionBackendPlan(cfg, sessionModeDockerSandbox),
+		BackendPlan: plan,
+		Runtime:     runtimeSelection,
 	}
 }
 

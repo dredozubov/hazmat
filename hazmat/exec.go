@@ -1,9 +1,9 @@
 package hazmat
 
 import (
-	"fmt"
 	"os/exec"
 
+	"hazmat/internal/diagnostics"
 	"hazmat/internal/hostexec"
 )
 
@@ -87,22 +87,8 @@ func asAgentShellQuiet(script string) error {
 	return hostexec.AsAgentShellQuiet(hostExecEnv(), script)
 }
 
-// agentTCPConnect tests whether the agent user can reach host:port.
-// It invokes the binary itself as the agent user via Hazmat's helper-backed
-// maintenance path, so the actual TCP dial runs under the agent user's UID
-// and is subject to pf rules.
-// Falls back to bash /dev/tcp if os.Executable() fails (e.g. go run).
 func agentTCPConnect(selfPath, host, port string) bool {
-	if selfPath != "" {
-		err := asAgentQuiet(selfPath, "_connect", host, port)
-		return err == nil
-	}
-	// Fallback: bash's /dev/tcp (bash-specific, but we require macOS+bash)
-	script := fmt.Sprintf(
-		"timeout 3 bash -c 'echo > /dev/tcp/%s/%s' 2>/dev/null",
-		host, port,
-	)
-	return asAgentShellQuiet(script) == nil
+	return diagnostics.AgentTCPConnect(hostExecEnv(), selfPath, host, port)
 }
 
 // runInteractive runs a command with stdin/stdout/stderr connected to the terminal.

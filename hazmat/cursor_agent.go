@@ -50,7 +50,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxCursorAgentSession(prepared, forwarded)
 			}
 			return runPreparedAgentSeatbeltScript(prepared, cursorAgentLaunchScript(), forwarded...)

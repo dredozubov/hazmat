@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"hazmat/configmodel"
+	launchruntime "hazmat/internal/runtime"
 	"hazmat/sessionmeta"
 
 	"github.com/spf13/cobra"
@@ -86,6 +87,7 @@ type preparedSession struct {
 	Config           sessionConfig
 	Mode             sessionMode
 	BackendPlan      sessionBackendPlan
+	Runtime          launchruntime.Selection
 	HostMutationPlan sessionMutationPlan
 }
 
@@ -225,7 +227,7 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxShellSession(prepared)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
@@ -257,7 +259,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxExecSession(prepared, args)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
@@ -325,7 +327,7 @@ Examples:
 				return err
 			}
 
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxClaudeSession(prepared, forwarded)
 			}
 
@@ -412,7 +414,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxOpenCodeSession(prepared, forwarded)
 			}
 			if detectOpenCodeResumeRequest(forwarded).requested {
@@ -676,7 +678,7 @@ func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error
 	if err != nil {
 		return err
 	}
-	if prepared.Mode == sessionModeDockerSandbox {
+	if prepared.Runtime.UsesDockerSandbox() {
 		return runPreparedSandboxCodexSession(prepared, forwarded)
 	}
 	if codexResumeRequested(forwarded) {
@@ -774,7 +776,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxGeminiSession(prepared, forwarded)
 			}
 			if geminiResumeRequested(forwarded) {
@@ -1304,10 +1306,16 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	harnessStateMutationPlan := buildHermesStateRootMutationPlan(cfg)
+	backendPlan := buildSessionBackendPlan(cfg, mode)
+	runtimeSelection, err := launchruntime.Select(backendPlan)
+	if err != nil {
+		return preparedSession{}, err
+	}
 	prepared := preparedSession{
 		Config:           cfg,
 		Mode:             mode,
-		BackendPlan:      buildSessionBackendPlan(cfg, mode),
+		BackendPlan:      backendPlan,
+		Runtime:          runtimeSelection,
 		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {

@@ -78,4 +78,21 @@ func TestPrepareLaunchSessionCarriesBackendPlan(t *testing.T) {
 	if prepared.BackendPlan.NetworkMode != sessionNetworkNone {
 		t.Fatalf("BackendPlan.NetworkMode = %q", prepared.BackendPlan.NetworkMode)
 	}
+	if prepared.Runtime.Backend != sessionbackend.KindDarwinNative || !prepared.Runtime.UsesNativeLaunch() {
+		t.Fatalf("Runtime = %+v, want Darwin native selection", prepared.Runtime)
+	}
+}
+
+func TestPreparedSandboxSessionCarriesRuntimeSelection(t *testing.T) {
+	prepared := preparedSandboxSessionForConfig(sessionConfig{
+		Target:     "claude",
+		ProjectDir: "/workspace/project",
+	})
+
+	if prepared.BackendPlan.Backend != sessionbackend.KindDockerSandbox {
+		t.Fatalf("BackendPlan.Backend = %q", prepared.BackendPlan.Backend)
+	}
+	if prepared.Runtime.Backend != sessionbackend.KindDockerSandbox || !prepared.Runtime.UsesDockerSandbox() {
+		t.Fatalf("Runtime = %+v, want Docker Sandbox selection", prepared.Runtime)
+	}
 }
