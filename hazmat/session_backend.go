@@ -22,8 +22,20 @@ func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos st
 }
 
 func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, facts hostfacts.Facts) sessionBackendPlan {
-	return sessionplanner.BuildBackendPlan(sessionbackend.Input{
-		Target:             cfg.Target,
+	return buildSessionPlanForHostFacts(cfg.Target, cfg, mode, false, facts).Backend
+}
+
+func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool, facts hostfacts.Facts) sessionplanner.Plan {
+	return sessionplanner.Build(sessionplanner.Input{
+		Contract:            buildSessionContractPlanInput(target, cfg, mode, skipSnapshot),
+		Backend:             buildSessionBackendPlanInput(target, cfg, mode, facts),
+		HarnessRequirements: buildSessionHarnessRequirements(cfg),
+	})
+}
+
+func buildSessionBackendPlanInput(target string, cfg sessionConfig, mode sessionMode, facts hostfacts.Facts) sessionbackend.Input {
+	return sessionbackend.Input{
+		Target:             target,
 		Mode:               mode,
 		ProjectDir:         cfg.ProjectDir,
 		ReadOnlyDirs:       cfg.ReadDirs,
@@ -32,7 +44,17 @@ func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, fa
 		Integrations:       cfg.ActiveIntegrations,
 		IntegrationEnvKeys: integrationEnvKeys(cfg.IntegrationEnv),
 		HostFacts:          facts,
-	})
+	}
+}
+
+func buildSessionHarnessRequirements(cfg sessionConfig) []sessionplanner.HarnessRequirement {
+	if cfg.HarnessID == "" {
+		return nil
+	}
+	return []sessionplanner.HarnessRequirement{{
+		ID:     string(cfg.HarnessID),
+		Reason: "session target harness",
+	}}
 }
 
 func currentHostFacts() hostfacts.Facts {

@@ -1,0 +1,165 @@
+{
+  "backend": {
+    "backend": "docker-sandbox",
+    "capability_gaps": [
+      {
+        "feature": "integration-env-passthrough",
+        "reason": "Docker Sandbox launch does not yet support integration env passthrough."
+      }
+    ],
+    "integration_env_keys": [
+      "GOPROXY",
+      "GOROOT"
+    ],
+    "integrations": [
+      "go"
+    ],
+    "lifecycle_artifacts": [
+      {
+        "kind": "docker-sandbox"
+      }
+    ],
+    "mode": "docker-sandbox",
+    "network_mode": "default",
+    "project_dir": "/Users/dr/workspace/project",
+    "read_only_dirs": [
+      "/Users/dr/workspace/reference",
+      "/opt/homebrew/Cellar/go/1.2.3/libexec"
+    ],
+    "read_write_dirs": [
+      "/Users/dr/workspace/project/.cache"
+    ],
+    "target": "shell"
+  },
+  "contract": {
+    "active_integrations": [
+      "go"
+    ],
+    "auto_read_only_dirs": [
+      "/opt/homebrew/Cellar/go/1.2.3/libexec"
+    ],
+    "credential_env_grants": [
+      {
+        "consumer_harness": "codex",
+        "credential_id": "provider.openai.api-key",
+        "env_var": "OPENAI_API_KEY",
+        "redacted": true,
+        "source": "host secret store"
+      }
+    ],
+    "format_version": 1,
+    "git_ssh_key": "id_ed25519",
+    "integration_details": [
+      "go: resolved GOROOT through Homebrew"
+    ],
+    "integration_env_keys": [
+      "GOPROXY",
+      "GOROOT"
+    ],
+    "integration_registry_env_keys": [
+      "GOPROXY"
+    ],
+    "integration_sources": [
+      "go (go.mod)"
+    ],
+    "integration_warnings": [
+      "Go integration warning"
+    ],
+    "mode": "docker-sandbox",
+    "mode_label": "Docker Sandbox",
+    "network_policy": {
+      "cleanup_required": true,
+      "deny_all_egress": false,
+      "effective": "sandbox-profile",
+      "enforced": true,
+      "enforcement": "docker-sandbox-network-profile",
+      "requested": "default"
+    },
+    "planned_host_mutations": [
+      {
+        "detail": "may add bounded collaborative ACLs on /Users/dr/workspace/project",
+        "persistence": "persistent in project",
+        "proof_scope": "TLA+ model + tests/docs",
+        "summary": "project ACL repair"
+      }
+    ],
+    "project_dir": "/Users/dr/workspace/project",
+    "read_only_dirs": [
+      "/Users/dr/workspace/reference",
+      "/opt/homebrew/Cellar/go/1.2.3/libexec"
+    ],
+    "read_write_extensions": [
+      "/Users/dr/workspace/project/.cache"
+    ],
+    "repo_setup_applied": [
+      {
+        "class": "safe",
+        "kind": "read_only",
+        "sources": [
+          "Suggested by project files (go)"
+        ],
+        "value": "/opt/homebrew/Cellar/go/1.2.3/libexec"
+      }
+    ],
+    "repo_setup_pending": [
+      {
+        "class": "explicit",
+        "kind": "write",
+        "sources": [
+          "Learned from previous session denial"
+        ],
+        "value": "/Users/dr/workspace/project/.cache"
+      }
+    ],
+    "repo_setup_summary": "remembered (1 read-only path); additional approval required (1 write path)",
+    "routing_reason": "using Docker Sandbox because --docker=sandbox was requested",
+    "service_access": [
+      "docker"
+    ],
+    "session_notes": [
+      "Docker Sandbox uses a private daemon; integration env passthrough is not delivered in this backend yet."
+    ],
+    "snapshot": {
+      "enabled": true,
+      "excludes": [
+        ".gocache/"
+      ]
+    },
+    "suggested_integrations": [
+      "node"
+    ],
+    "target": "shell",
+    "user_read_only_dirs": [
+      "/Users/dr/workspace/reference"
+    ]
+  },
+  "credential_env_grants": [
+    {
+      "consumer_harness": "codex",
+      "credential_id": "provider.openai.api-key",
+      "env_var": "OPENAI_API_KEY",
+      "redacted": true,
+      "source": "host secret store"
+    }
+  ],
+  "format_version": 1,
+  "host_mutations": [
+    {
+      "detail": "may add bounded collaborative ACLs on /Users/dr/workspace/project",
+      "persistence": "persistent in project",
+      "proof_scope": "TLA+ model + tests/docs",
+      "summary": "project ACL repair"
+    }
+  ],
+  "warnings": [
+    {
+      "message": "Go integration warning",
+      "source": "integration"
+    },
+    {
+      "feature": "integration-env-passthrough",
+      "message": "Docker Sandbox launch does not yet support integration env passthrough.",
+      "source": "backend"
+    }
+  ]
+}

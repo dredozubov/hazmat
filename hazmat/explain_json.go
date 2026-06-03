@@ -1,13 +1,12 @@
 package hazmat
 
 import (
-	"runtime"
 	"sort"
 	"strings"
 
+	"hazmat/hostfacts"
 	linuxplatform "hazmat/platform/linux"
 	"hazmat/sessioncontract"
-	"hazmat/sessionplanner"
 )
 
 const explainJSONFormatVersion = sessioncontract.PlanFormatVersion
@@ -48,7 +47,9 @@ type explainJSONCredentialEnvGrant = sessioncontract.CredentialEnvGrant
 type explainJSONBackup = sessioncontract.Snapshot
 
 func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) explainJSONPreview {
-	return explainJSONPreviewFromPlan(buildSessionContractPlan(target, cfg, mode, skipSnapshot), explainPlatformReport())
+	facts := currentHostFacts()
+	plan := buildSessionPlanForHostFacts(target, cfg, mode, skipSnapshot, facts)
+	return explainJSONPreviewFromPlan(plan.Contract, explainPlatformReport(facts))
 }
 
 func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatform.Report) explainJSONPreview {
@@ -85,7 +86,11 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 }
 
 func buildSessionContractPlan(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.Plan {
-	return sessionplanner.BuildContractPlan(sessioncontract.PlanInput{
+	return sessioncontract.BuildPlan(buildSessionContractPlanInput(target, cfg, mode, skipSnapshot))
+}
+
+func buildSessionContractPlanInput(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.PlanInput {
+	return sessioncontract.PlanInput{
 		Target:                target,
 		Mode:                  mode,
 		ProjectDir:            cfg.ProjectDir,
@@ -114,11 +119,11 @@ func buildSessionContractPlan(target string, cfg sessionConfig, mode sessionMode
 			Excludes: cfg.IntegrationExcludes,
 		},
 		SessionNotes: cfg.SessionNotes,
-	})
+	}
 }
 
-var explainPlatformReport = func() *linuxplatform.Report {
-	if runtime.GOOS != "linux" {
+var explainPlatformReport = func(facts hostfacts.Facts) *linuxplatform.Report {
+	if facts.Normalized().TargetGOOS() != "linux" {
 		return nil
 	}
 	report := linuxplatform.InspectHost()

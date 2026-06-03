@@ -135,6 +135,24 @@ func TestGoldenBackendPlanBaselines(t *testing.T) {
 	}
 }
 
+func TestGoldenSessionPlannerPlanBaselines(t *testing.T) {
+	nativeCfg := goldenSessionConfig()
+	nativeCfg.HarnessID = HarnessCodex
+	dockerCfg := goldenSessionConfig()
+	dockerCfg.RoutingReason = "using Docker Sandbox because --docker=sandbox was requested"
+	dockerCfg.SessionNotes = []string{"Docker Sandbox uses a private daemon; integration env passthrough is not delivered in this backend yet."}
+
+	cases := map[string]any{
+		"planner/native.json": buildSessionPlanForHostFacts("shell", nativeCfg, sessionModeNative, false, hostfacts.ForGOOS("darwin")),
+		"planner/docker.json": buildSessionPlanForHostFacts("shell", dockerCfg, sessionModeDockerSandbox, false, hostfacts.ForGOOS("darwin")),
+	}
+	for name, value := range cases {
+		t.Run(name, func(t *testing.T) {
+			assertGoldenJSON(t, name, value)
+		})
+	}
+}
+
 func TestGoldenLaunchSpecBaselines(t *testing.T) {
 	linuxContract, err := containment.NewContract(containment.ContractInput{
 		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
