@@ -46,9 +46,9 @@ type ArtifactStatus struct {
 	Drift       string
 }
 
-type CommandReader func(args ...string) (string, error)
+type CommandReader = func(args ...string) (string, error)
 
-type ArtifactRemover func(reason string, args ...string) error
+type ArtifactRemover = func(reason string, args ...string) error
 
 func FileArtifact(path, description string) Artifact {
 	return Artifact{
