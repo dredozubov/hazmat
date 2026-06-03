@@ -3,7 +3,7 @@ package hazmat
 import (
 	"fmt"
 	"hazmat/harnesses"
-	"time"
+	"hazmat/internal/harnessruntime"
 )
 
 type HarnessID = harnesses.ID
@@ -26,11 +26,6 @@ const (
 )
 
 type HarnessSpec = harnesses.Spec
-
-type HarnessState struct {
-	StateVersion    string `json:"state_version,omitempty"`
-	LastImportRunAt string `json:"last_import_run_at,omitempty"`
-}
 
 type harnessImportPolicy = harnesses.ImportPolicy
 
@@ -470,16 +465,9 @@ func formatInstalledHarnessNamesForStatus(installed []ManagedHarness, state Hazm
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {
-	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
-		state.StateVersion = spec.StateVersion
-		return state
-	})
+	return harnessruntime.RecordInstalled(harnessStateStore{}, spec)
 }
 
 func recordHarnessImportRun(spec HarnessSpec) error {
-	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
-		state.StateVersion = spec.StateVersion
-		state.LastImportRunAt = time.Now().UTC().Format(time.RFC3339)
-		return state
-	})
+	return harnessruntime.RecordImportRun(harnessStateStore{}, spec)
 }

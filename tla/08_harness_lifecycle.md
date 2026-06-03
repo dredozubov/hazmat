@@ -122,13 +122,13 @@ cd tla/
   MC_HarnessLifecycle.tla
 ```
 
-Observed result:
+Observed result from the 2026-06-03 package-split refactor confirmation run:
 
 - `Model checking completed. No error has been found.`
-- `18,899,708 states generated`
-- `943,528 distinct states found`
-- `depth 15`
-- `Finished in 1m7s`
+- `25,164,502 states generated`
+- `633,107 distinct states found`
+- `depth 18`
+- `Finished in 2m45s`
 
 ## Interpretation
 

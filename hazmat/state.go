@@ -3,6 +3,7 @@ package hazmat
 import (
 	"encoding/json"
 	"fmt"
+	"hazmat/internal/harnessruntime"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,12 +14,12 @@ import (
 // stateFilePath is where hazmat records core init state and harness metadata.
 var stateFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/state.json")
 
+type HarnessState = harnessruntime.State
+
 // HazmatState tracks the installed core version and any managed harness state.
-type HazmatState struct {
-	InitVersion string                     `json:"init_version"`
-	InitDate    string                     `json:"init_date"`
-	Harnesses   map[HarnessID]HarnessState `json:"harnesses,omitempty"`
-}
+type HazmatState = harnessruntime.Snapshot
+
+type harnessStateStore struct{}
 
 func loadState() (HazmatState, error) {
 	data, err := os.ReadFile(stateFilePath)
@@ -46,39 +47,11 @@ func saveState(ver string) error {
 }
 
 func updateHarnessState(id HarnessID, mutate func(HarnessState) HarnessState) error {
-	s, err := loadState()
-	if err != nil {
-		return err
-	}
-	if s.Harnesses == nil {
-		s.Harnesses = make(map[HarnessID]HarnessState)
-	}
-	s.Harnesses[id] = mutate(s.Harnesses[id])
-	return writeState(s)
+	return harnessruntime.UpdateHarnessState(harnessStateStore{}, id, mutate)
 }
 
 func removeHarnessState(id HarnessID) error {
-	s, err := loadState()
-	if err != nil {
-		return err
-	}
-	if s.Harnesses == nil {
-		return nil
-	}
-	if _, ok := s.Harnesses[id]; !ok {
-		return nil
-	}
-	delete(s.Harnesses, id)
-	if len(s.Harnesses) == 0 {
-		s.Harnesses = nil
-	}
-	if s.InitVersion == "" && s.InitDate == "" && len(s.Harnesses) == 0 {
-		if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	return writeState(s)
+	return harnessruntime.RemoveHarnessState(harnessStateStore{}, id)
 }
 
 func writeState(s HazmatState) error {
@@ -93,8 +66,19 @@ func writeState(s HazmatState) error {
 	return os.WriteFile(stateFilePath, append(data, '\n'), 0o600)
 }
 
-func (s HazmatState) hasHarnessState() bool {
-	return len(s.Harnesses) > 0
+func (harnessStateStore) Load() (harnessruntime.Snapshot, error) {
+	return loadState()
+}
+
+func (harnessStateStore) Write(snapshot harnessruntime.Snapshot) error {
+	return writeState(snapshot)
+}
+
+func (harnessStateStore) Remove() error {
+	if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // semverCompare returns -1, 0, or 1 comparing a and b as semver strings.
