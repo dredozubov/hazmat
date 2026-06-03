@@ -1,6 +1,6 @@
 package hazmat
 
-import "fmt"
+import "hazmat/internal/setup"
 
 type rollbackStepContext struct {
 	ui          *UI
@@ -9,114 +9,82 @@ type rollbackStepContext struct {
 	deleteGroup bool
 }
 
-type rollbackStep struct {
-	name        string
-	tlaResource setupRollbackTLAResource
-	run         func(rollbackStepContext)
-}
+type rollbackStep = setup.RollbackStep
 
 func coreRollbackSteps() []rollbackStep {
-	return []rollbackStep{
-		{
-			name:        "rollbackSudoers",
-			tlaResource: tlaResourceSudoers,
-			run: func(ctx rollbackStepContext) {
-				rollbackSudoers(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackLaunchDaemon",
-			tlaResource: tlaResourceLaunchDaemon,
-			run: func(ctx rollbackStepContext) {
-				rollbackLaunchDaemon(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackPfFirewall",
-			tlaResource: tlaResourcePfAnchor,
-			run: func(ctx rollbackStepContext) {
-				rollbackPfFirewall(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackDNSBlocklist",
-			tlaResource: tlaResourceDNSBlocklist,
-			run: func(ctx rollbackStepContext) {
-				rollbackDNSBlocklist(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackSeatbelt",
-			tlaResource: tlaResourceSeatbelt,
-			run: func(ctx rollbackStepContext) {
-				rollbackSeatbelt(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackWrappers",
-			tlaResource: tlaResourceWrappers,
-			run: func(ctx rollbackStepContext) {
-				rollbackUserExperience(ctx.ui, ctx.runner)
-				rollbackZshCompletions(ctx.ui, ctx.runner)
-				rollbackGitSafeDirectory(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackHomeDirTraverse",
-			tlaResource: tlaResourceHomeDirTraverse,
-			run: func(ctx rollbackStepContext) {
-				rollbackHomeDirTraverse(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackUmask",
-			tlaResource: tlaResourceUmask,
-			run: func(ctx rollbackStepContext) {
-				rollbackUmask(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "rollbackLocalRepo",
-			tlaResource: tlaResourceLocalRepo,
-			run: func(ctx rollbackStepContext) {
-				rollbackLocalRepo(ctx.ui)
-			},
-		},
-	}
+	return setup.CoreRollbackSteps(setup.RollbackCallbacks{})
 }
 
 func destructiveRollbackSteps() []rollbackStep {
-	return []rollbackStep{
-		{
-			name:        "rollbackAgentUser",
-			tlaResource: tlaResourceAgentUser,
-			run: func(ctx rollbackStepContext) {
-				if ctx.deleteUser {
-					rollbackAgentUser(ctx.ui, ctx.runner)
-				} else {
-					ctx.ui.WarnMsg(fmt.Sprintf("Agent user '%s' not removed. Use --delete-user to delete the account and %s.", agentUser, agentHome))
-				}
-			},
+	return setup.DestructiveRollbackSteps(setup.RollbackCallbacks{}, rollbackOptions(rollbackStepContext{}))
+}
+
+func runRollbackSteps(ctx rollbackStepContext) error {
+	return setup.RunRollbackSteps(rollbackCallbacks(ctx), rollbackOptions(ctx))
+}
+
+func rollbackCallbacks(ctx rollbackStepContext) setup.RollbackCallbacks {
+	return setup.RollbackCallbacks{
+		Sudoers: func() error {
+			rollbackSudoers(ctx.ui, ctx.runner)
+			return nil
 		},
-		{
-			name:        "rollbackDevGroup",
-			tlaResource: tlaResourceDevGroup,
-			run: func(ctx rollbackStepContext) {
-				if ctx.deleteGroup {
-					rollbackDevGroup(ctx.ui, ctx.runner)
-				} else {
-					ctx.ui.WarnMsg(fmt.Sprintf("Group '%s' not removed. Use --delete-group to delete it.", sharedGroup))
-				}
-			},
+		LaunchDaemon: func() error {
+			rollbackLaunchDaemon(ctx.ui, ctx.runner)
+			return nil
+		},
+		PfFirewall: func() error {
+			rollbackPfFirewall(ctx.ui, ctx.runner)
+			return nil
+		},
+		DNSBlocklist: func() error {
+			rollbackDNSBlocklist(ctx.ui, ctx.runner)
+			return nil
+		},
+		Seatbelt: func() error {
+			rollbackSeatbelt(ctx.ui, ctx.runner)
+			return nil
+		},
+		Wrappers: func() error {
+			rollbackUserExperience(ctx.ui, ctx.runner)
+			rollbackZshCompletions(ctx.ui, ctx.runner)
+			rollbackGitSafeDirectory(ctx.ui, ctx.runner)
+			return nil
+		},
+		HomeDirTraverse: func() error {
+			rollbackHomeDirTraverse(ctx.ui, ctx.runner)
+			return nil
+		},
+		Umask: func() error {
+			rollbackUmask(ctx.ui, ctx.runner)
+			return nil
+		},
+		LocalRepo: func() error {
+			rollbackLocalRepo(ctx.ui)
+			return nil
+		},
+		AgentUser: func() error {
+			rollbackAgentUser(ctx.ui, ctx.runner)
+			return nil
+		},
+		DevGroup: func() error {
+			rollbackDevGroup(ctx.ui, ctx.runner)
+			return nil
 		},
 	}
 }
 
-func runRollbackSteps(ctx rollbackStepContext) {
-	for _, step := range coreRollbackSteps() {
-		step.run(ctx)
-	}
-	for _, step := range destructiveRollbackSteps() {
-		step.run(ctx)
+func rollbackOptions(ctx rollbackStepContext) setup.RollbackOptions {
+	return setup.RollbackOptions{
+		DeleteUser:    ctx.deleteUser,
+		DeleteGroup:   ctx.deleteGroup,
+		AgentUserName: agentUser,
+		AgentHome:     agentHome,
+		GroupName:     sharedGroup,
+		Warn: func(message string) {
+			if ctx.ui != nil {
+				ctx.ui.WarnMsg(message)
+			}
+		},
 	}
 }

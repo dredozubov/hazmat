@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/internal/setup"
 	"os"
 )
 
@@ -12,140 +13,71 @@ type initStepContext struct {
 	bootstrapSelection string
 }
 
-type initStep struct {
-	name        string
-	tlaResource setupRollbackTLAResource
-	run         func(initStepContext) error
-}
+type initStep = setup.InitStep
 
 func initSetupSteps() []initStep {
-	return []initStep{
-		{
-			name:        "setupAgentUser",
-			tlaResource: tlaResourceAgentUser,
-			run: func(ctx initStepContext) error {
-				return setupAgentUser(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupDevGroup",
-			tlaResource: tlaResourceDevGroup,
-			run: func(ctx initStepContext) error {
-				return setupDevGroup(ctx.ui, ctx.runner, ctx.currentUser)
-			},
-		},
-		{
-			name:        "setupHomeDirTraverse",
-			tlaResource: tlaResourceHomeDirTraverse,
-			run: func(ctx initStepContext) error {
-				return setupHomeDirTraverse(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupLocalRepo",
-			tlaResource: tlaResourceLocalRepo,
-			run: func(ctx initStepContext) error {
-				return setupLocalRepo(ctx.ui)
-			},
-		},
-		{
-			name:        "setupHardeningGaps",
-			tlaResource: tlaResourceHardeningGaps,
-			run: func(ctx initStepContext) error {
-				return setupHardeningGaps(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupSeatbelt",
-			tlaResource: tlaResourceSeatbelt,
-			run: func(ctx initStepContext) error {
-				return setupSeatbelt(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupWrappers",
-			tlaResource: tlaResourceWrappers,
-			run: func(ctx initStepContext) error {
-				if err := setupUserExperience(ctx.ui, ctx.runner); err != nil {
-					return err
-				}
-				if err := setupZshCompletions(ctx.ui, ctx.runner); err != nil {
-					return err
-				}
-				return setupGitSafeDirectory(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupPfFirewall",
-			tlaResource: tlaResourcePfAnchor,
-			run: func(ctx initStepContext) error {
-				return setupPfFirewall(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupDNSBlocklist",
-			tlaResource: tlaResourceDNSBlocklist,
-			run: func(ctx initStepContext) error {
-				return setupDNSBlocklist(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupLaunchDaemon",
-			tlaResource: tlaResourceLaunchDaemon,
-			run: func(ctx initStepContext) error {
-				return setupLaunchDaemon(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupLaunchHelper",
-			tlaResource: tlaResourceLaunchHelper,
-			run: func(ctx initStepContext) error {
-				return setupLaunchHelper(ctx.ui, ctx.runner)
-			},
-		},
-		{
-			name:        "setupSudoers",
-			tlaResource: tlaResourceSudoers,
-			run: func(ctx initStepContext) error {
-				return setupSudoers(ctx.ui, ctx.runner, ctx.currentUser)
-			},
-		},
-		{
-			name:        "maybeSetupOptionalAgentMaintenanceSudoers",
-			tlaResource: tlaResourceMaintenanceSudoers,
-			run: func(ctx initStepContext) error {
-				return maybeSetupOptionalAgentMaintenanceSudoers(ctx.ui, ctx.runner, ctx.currentUser)
-			},
-		},
-		{
-			name:        "setupSelectedHarness",
-			tlaResource: tlaResourceClaudeCode,
-			run: func(ctx initStepContext) error {
-				if err := runInitSelectedBootstrap(ctx.ui, ctx.runner, ctx.bootstrapSelection); err != nil {
-					return err
-				}
-				setupAgentConfigPermissions(ctx.bootstrapSelection)
-				return nil
-			},
-		},
-		{
-			name:        "setupAgentCredentials",
-			tlaResource: tlaResourceCredentials,
-			run: func(ctx initStepContext) error {
-				setupAgentCredentials(ctx.ui, ctx.bootstrapSelection)
-				return nil
-			},
-		},
-	}
+	return setup.InitSetupSteps(setup.InitCallbacks{})
 }
 
 func runInitSetupSteps(ctx initStepContext) error {
-	for _, step := range initSetupSteps() {
-		if err := step.run(ctx); err != nil {
-			return err
-		}
-	}
-	return nil
+	return setup.RunInitSetupSteps(setup.InitCallbacks{
+		AgentUser: func() error {
+			return setupAgentUser(ctx.ui, ctx.runner)
+		},
+		DevGroup: func() error {
+			return setupDevGroup(ctx.ui, ctx.runner, ctx.currentUser)
+		},
+		HomeDirTraverse: func() error {
+			return setupHomeDirTraverse(ctx.ui, ctx.runner)
+		},
+		LocalRepo: func() error {
+			return setupLocalRepo(ctx.ui)
+		},
+		HardeningGaps: func() error {
+			return setupHardeningGaps(ctx.ui, ctx.runner)
+		},
+		Seatbelt: func() error {
+			return setupSeatbelt(ctx.ui, ctx.runner)
+		},
+		Wrappers: func() error {
+			if err := setupUserExperience(ctx.ui, ctx.runner); err != nil {
+				return err
+			}
+			if err := setupZshCompletions(ctx.ui, ctx.runner); err != nil {
+				return err
+			}
+			return setupGitSafeDirectory(ctx.ui, ctx.runner)
+		},
+		PfFirewall: func() error {
+			return setupPfFirewall(ctx.ui, ctx.runner)
+		},
+		DNSBlocklist: func() error {
+			return setupDNSBlocklist(ctx.ui, ctx.runner)
+		},
+		LaunchDaemon: func() error {
+			return setupLaunchDaemon(ctx.ui, ctx.runner)
+		},
+		LaunchHelper: func() error {
+			return setupLaunchHelper(ctx.ui, ctx.runner)
+		},
+		Sudoers: func() error {
+			return setupSudoers(ctx.ui, ctx.runner, ctx.currentUser)
+		},
+		OptionalMaintenanceSudoers: func() error {
+			return maybeSetupOptionalAgentMaintenanceSudoers(ctx.ui, ctx.runner, ctx.currentUser)
+		},
+		SelectedHarness: func() error {
+			if err := runInitSelectedBootstrap(ctx.ui, ctx.runner, ctx.bootstrapSelection); err != nil {
+				return err
+			}
+			setupAgentConfigPermissions(ctx.bootstrapSelection)
+			return nil
+		},
+		AgentCredentials: func() error {
+			setupAgentCredentials(ctx.ui, ctx.bootstrapSelection)
+			return nil
+		},
+	})
 }
 
 func setupAgentConfigPermissions(bootstrapSelection string) {

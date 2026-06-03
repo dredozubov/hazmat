@@ -75,12 +75,14 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	// (MC_Migration) proves AgentContained holds during this process.
 	runDownMigrations(ui, r)
 
-	runRollbackSteps(rollbackStepContext{
+	if err := runRollbackSteps(rollbackStepContext{
 		ui:          ui,
 		runner:      r,
 		deleteUser:  deleteUser,
 		deleteGroup: deleteGroup,
-	})
+	}); err != nil {
+		return err
+	}
 	rollbackProjectHooks(ui)
 
 	fmt.Println()
