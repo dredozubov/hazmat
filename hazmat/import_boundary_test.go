@@ -35,6 +35,7 @@ func TestImportBoundaries(t *testing.T) {
 		"hazmat/containment/linux":  true,
 		"hazmat/configmodel":        true,
 		"hazmat/credentials":        true,
+		"hazmat/harnesses":          true,
 		"hazmat/hostfacts":          true,
 		"hazmat/integrations":       true,
 		"hazmat/pathpolicy":         true,

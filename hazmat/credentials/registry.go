@@ -5,18 +5,20 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"hazmat/harnesses"
 )
 
-type HarnessID string
+type HarnessID = harnesses.ID
 
 const (
-	HarnessClaude      HarnessID = "claude"
-	HarnessCodex       HarnessID = "codex"
-	HarnessOpenCode    HarnessID = "opencode"
-	HarnessGemini      HarnessID = "gemini"
-	HarnessHermes      HarnessID = "hermes"
-	HarnessQwen        HarnessID = "qwen"
-	HarnessCursorAgent HarnessID = "cursor-agent"
+	HarnessClaude      HarnessID = harnesses.Claude
+	HarnessCodex       HarnessID = harnesses.Codex
+	HarnessOpenCode    HarnessID = harnesses.OpenCode
+	HarnessGemini      HarnessID = harnesses.Gemini
+	HarnessHermes      HarnessID = harnesses.Hermes
+	HarnessQwen        HarnessID = harnesses.Qwen
+	HarnessCursorAgent HarnessID = harnesses.CursorAgent
 )
 
 type ID string
