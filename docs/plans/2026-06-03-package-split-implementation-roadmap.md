@@ -1,7 +1,7 @@
 # Package Split Implementation Roadmap
 
 **Date:** 2026-06-03
-**Status:** actionable roadmap
+**Status:** completed epic with post-audit follow-ups
 **Epic:** `sandboxing-9fq3`
 **Source design:** [package split architecture](2026-06-02-package-split-architecture.md)
 **Phase K design:** [setup/rollback package split design](2026-06-03-setup-rollback-package-split-design.md)
@@ -10,6 +10,17 @@ This roadmap turns the audited package split design into implementation beads.
 It does not approve semantic behavior changes by itself. Each bead must keep
 the current command behavior and verified invariants intact unless that bead
 explicitly starts with model work.
+
+Post-epic audit note: `sandboxing-9fq3` closed with all 15 implementation
+beads complete, but "package split complete" means scaffolding, import
+guardrails, and peripheral/effect-code relocation. It does not mean the core
+session path has been extracted from `package main`. `session.go` and
+`sandbox.go` still own `resolveSessionConfig()`, `generateSBPL()`,
+`preSessionSnapshot()` ordering, Tier-2/Tier-3 planning,
+`buildSandboxLaunchSpec()`, and `prepareSandboxLaunchWithPlan()`. Follow-up
+beads `sandboxing-vh9q` and `sandboxing-0jp7` track the next model-first core
+extraction and the specific `preSessionSnapshot()` / `generateSBPL()` placement
+reconciliation.
 
 ## Operating Rules
 

@@ -297,7 +297,7 @@ already passed the constructors and gap checks.
 | `sessionmeta` | existing `sessionmeta/` | Stable labels for mode, network, backend, and platform metadata shared by frontends and planners. |
 | `configmodel` | validation portions of `config.go` | Pure config schema and validation, including `ValidateProjectSSHConfig()` and `NormalizedKeys()` routing invariants. `config.go`'s Cobra command handlers move to `internal/frontend/cli`; its cloud-credential persistence (`saveCloudStoredCredential`, `migrateCloudCredentialsIntoSecretStore`, `loadCloud*Key`) moves to `internal/credentialruntime`; neither stays in `configmodel`. |
 | `containment` | existing `containment/`, `native_session_policy.go` | Backend-neutral authority contract, structural credential floor, grant overlap validation, comparable core policy. |
-| `containment/darwin` | `session_policy_sbpl.go`, `native_session_policy.go` | SBPL compiler from `containment.Contract`; no launch execution. |
+| `containment/darwin` | `session_policy_sbpl.go`, `native_session_policy.go` | SBPL compiler support from `containment.Contract`; no launch execution. The current `session.go:generateSBPL()` entrypoint remains a package-main shim until a model-first core-session extraction moves it under its governing specs. |
 | `containment/linux` | existing `containment/linux/` | Plan-only Linux launch spec compiler until runtime is modeled and implemented. |
 | `containment/docker` | `sandbox.go` launch spec/profile builders | Docker Sandbox spec compiler from contract/backend plan; no Docker CLI execution. |
 | `sessionbackend` | existing `sessionbackend/` | Backend kinds, gap taxonomy, lifecycle artifact expectations, prepared artifact variants. Target platform is an explicit input from `hostfacts`; no `runtime.GOOS` fallback in pure planning paths after Phase C/E. |
@@ -308,7 +308,7 @@ already passed the constructors and gap checks.
 | `integrations` | existing `integrations/`, `integration_manifest.go`, `integration_resolver.go` | Manifest schema, safe merge, detection, read-dir/env validation, repo recommendations. Host tool repair plans go through `hostmutations`. |
 | `hostmutations` | `session_mutation.go`, `workspace_acl.go`, `git_preflight.go`, `repo_setup.go` | Previewable host mutation plans and proof-scope metadata. Applying mutations is runtime-only. |
 | `backup` | plan/schema portions of `backup.go`, `snapshots.go`, `restore.go` | Snapshot and restore plan contracts. Any split is gated by `MC_BackupSafety`, especially the prior-snapshot-before-overwrite invariant. |
-| `internal/backupruntime` | `kopia_wrapper.go`, effectful backup/restore portions, `session.go:preSessionSnapshot()` | Snapshot/restore execution and the pre-session snapshot trigger. Must preserve snapshot-before-session ordering across runtime movement. |
+| `internal/backupruntime` | `kopia_wrapper.go`, effectful backup/restore portions | Snapshot/restore execution. The current `session.go:preSessionSnapshot()` trigger remains a package-main core-session shim until a model-first follow-up moves snapshot-before-session ordering under this runtime. |
 | `hooks` | `hook_manifest.go`, approval metadata portions of `hook_approval.go` | Sensitive repo-local hook contracts and approval records. Do not treat as a routine extraction; `MC_GitHookApproval` governs approval, pinned hooksPath, snapshot execution, drift refusal, and rollback cleanup. |
 | `internal/hookruntime` | `hook_runtime.go`, effectful portions of `hook_cli.go`, hook wrapper dispatch/fallback | Repo-local hook installation, wrapper dispatch, approved snapshot execution, and rollback cleanup effects. The hook hidden-command shells stay here; do not add a hookruntime/agententry edge. |
 | `internal/runtime/darwin` | `native_launch*.go`, `agent_launch.go`, `runner.go`, `cmd/hazmat-launch` interface | Native session admission, policy file lifecycle, launch-helper invocation, cleanup. |
@@ -785,6 +785,24 @@ These are proposed only after audit feedback, in phase order:
    only under their governing specs (`MC_SetupRollback`, `MC_Migration`,
    `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`) once the
    earlier facades are stable. Setup/rollback requires a model-aware design bead.
+
+## Post-Epic Audit Scope
+
+The `sandboxing-9fq3` epic completed package scaffolding, import-boundary
+guards, and effect-code relocation. It did not mean `package main` was fully
+thinned or that core session semantics had moved. The post-epic audit confirmed
+that `session.go` and `sandbox.go` still own the main semantic path:
+`resolveSessionConfig()`, `generateSBPL()`, `preSessionSnapshot()` ordering,
+Tier-2/Tier-3 planning, `buildSandboxLaunchSpec()`, and
+`prepareSandboxLaunchWithPlan()`.
+
+Track that residual explicitly:
+
+- `sandboxing-vh9q` — design and execute the next model-first extraction of
+  core session semantics from `package main`.
+- `sandboxing-0jp7` — reconcile the specific placement gaps for
+  `preSessionSnapshot()` and `generateSBPL()` by either moving them under their
+  governing specs or marking them as long-lived shims.
 
 ## Audit Questions
 
