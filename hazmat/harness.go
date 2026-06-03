@@ -2,19 +2,20 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/credentials"
 	"time"
 )
 
-type HarnessID string
+type HarnessID = credentials.HarnessID
 
 const (
-	HarnessClaude                  HarnessID = "claude"
-	HarnessCodex                   HarnessID = "codex"
-	HarnessOpenCode                HarnessID = "opencode"
-	HarnessGemini                  HarnessID = "gemini"
-	HarnessHermes                  HarnessID = "hermes"
-	HarnessQwen                    HarnessID = "qwen"
-	HarnessCursorAgent             HarnessID = "cursor-agent"
+	HarnessClaude                  HarnessID = credentials.HarnessClaude
+	HarnessCodex                   HarnessID = credentials.HarnessCodex
+	HarnessOpenCode                HarnessID = credentials.HarnessOpenCode
+	HarnessGemini                  HarnessID = credentials.HarnessGemini
+	HarnessHermes                  HarnessID = credentials.HarnessHermes
+	HarnessQwen                    HarnessID = credentials.HarnessQwen
+	HarnessCursorAgent             HarnessID = credentials.HarnessCursorAgent
 	claudeHarnessStateVersion                = "1"
 	codexHarnessStateVersion                 = "1"
 	opencodeHarnessStateVersion              = "1"

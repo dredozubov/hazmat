@@ -1,438 +1,121 @@
 package hazmat
 
-import (
-	"fmt"
-	"path"
-	"path/filepath"
-	"strings"
-)
+import "hazmat/credentials"
 
-type credentialID string
-
-type credentialKind string
-
-const (
-	credentialKindProviderAPIKey credentialKind = "provider-api-key"
-	credentialKindHarnessAuth    credentialKind = "harness-auth"
-	credentialKindGitHTTPS       credentialKind = "git-https"
-	credentialKindGitSSHIdentity credentialKind = "git-ssh-identity"
-	credentialKindCloudBackup    credentialKind = "cloud-backup"
-	credentialKindGitHubToken    credentialKind = "github-token"
-	credentialKindIntegrationEnv credentialKind = "integration-env"
-	credentialKindExternalAuth   credentialKind = "external-auth"
-)
-
-type credentialStorageBackend string
+type credentialID = credentials.ID
+type credentialKind = credentials.Kind
+type credentialStorageBackend = credentials.StorageBackend
+type credentialDeliveryMode = credentials.DeliveryMode
+type credentialSupportStatus = credentials.SupportStatus
+type credentialDescriptor = credentials.Descriptor
+type credentialRegistrySummary = credentials.RegistrySummary
 
 const (
-	credentialStorageHostSecretStore credentialStorageBackend = "host-secret-store"
-	credentialStorageExternalFile    credentialStorageBackend = "external-file"
-	credentialStorageKeychain        credentialStorageBackend = "keychain"
-	credentialStorageBroker          credentialStorageBackend = "broker"
-)
-
-type credentialDeliveryMode string
-
-const (
-	credentialDeliveryNone              credentialDeliveryMode = "none"
-	credentialDeliveryEnv               credentialDeliveryMode = "env"
-	credentialDeliveryMaterializedFile  credentialDeliveryMode = "materialized-file"
-	credentialDeliveryBrokeredHelper    credentialDeliveryMode = "brokered-helper"
-	credentialDeliveryExternalReference credentialDeliveryMode = "external-reference"
-)
-
-type credentialSupportStatus string
-
-const (
-	credentialSupportManaged         credentialSupportStatus = "managed"
-	credentialSupportExternal        credentialSupportStatus = "external"
-	credentialSupportAdapterRequired credentialSupportStatus = "adapter-required"
+	credentialKindProviderAPIKey credentialKind = credentials.KindProviderAPIKey
+	credentialKindHarnessAuth    credentialKind = credentials.KindHarnessAuth
+	credentialKindGitHTTPS       credentialKind = credentials.KindGitHTTPS
+	credentialKindGitSSHIdentity credentialKind = credentials.KindGitSSHIdentity
+	credentialKindCloudBackup    credentialKind = credentials.KindCloudBackup
+	credentialKindGitHubToken    credentialKind = credentials.KindGitHubToken
+	credentialKindIntegrationEnv credentialKind = credentials.KindIntegrationEnv
+	credentialKindExternalAuth   credentialKind = credentials.KindExternalAuth
 )
 
 const (
-	credentialProviderAnthropicAPIKey  credentialID = "provider.anthropic.api-key"
-	credentialProviderOpenAIAPIKey     credentialID = "provider.openai.api-key"
-	credentialProviderGeminiAPIKey     credentialID = "provider.gemini.api-key"
-	credentialProviderOpenRouterAPIKey credentialID = "provider.openrouter.api-key"
-
-	credentialHarnessClaudeCredentials credentialID = "harness.claude.credentials"
-	credentialHarnessClaudeState       credentialID = "harness.claude.state"
-	credentialHarnessClaudeKeychain    credentialID = "harness.claude.agent-keychain-oauth"
-	credentialHarnessCodexAuth         credentialID = "harness.codex.auth"
-	credentialHarnessOpenCodeAuth      credentialID = "harness.opencode.auth"
-	credentialHarnessGeminiOAuth       credentialID = "harness.gemini.oauth"
-	credentialHarnessGeminiAccounts    credentialID = "harness.gemini.accounts"
-	credentialHarnessGeminiKeychain    credentialID = "harness.gemini.keychain-oauth"
-
-	credentialGitSSHExternalIdentity    credentialID = "git-ssh.external-identity"
-	credentialGitSSHProvisionedIdentity credentialID = "git-ssh.provisioned-identity"
-	credentialGitHTTPSAgentStore        credentialID = "git-https.agent-store"
-	credentialGitHubAPIToken            credentialID = "github.api-token"
-
-	credentialCloudS3AccessKeyID credentialID = "cloud.s3.access-key-id"
-	credentialCloudS3SecretKey   credentialID = "cloud.s3.secret-key"
-	credentialCloudKopiaRecovery credentialID = "cloud.kopia.recovery-key"
+	credentialStorageHostSecretStore credentialStorageBackend = credentials.StorageHostSecretStore
+	credentialStorageExternalFile    credentialStorageBackend = credentials.StorageExternalFile
+	credentialStorageKeychain        credentialStorageBackend = credentials.StorageKeychain
+	credentialStorageBroker          credentialStorageBackend = credentials.StorageBroker
 )
 
-// credentialDescriptor is the only place a durable credential surface should
-// name both its host-owned storage and its session delivery mode.
-type credentialDescriptor struct {
-	ID                credentialID
-	DisplayName       string
-	Kind              credentialKind
-	Backend           credentialStorageBackend
-	Delivery          credentialDeliveryMode
-	Support           credentialSupportStatus
-	StoreRelPath      string
-	Harness           HarnessID
-	ConsumerHarnesses []HarnessID
-	EnvVar            string
-	AgentPath         string
-	ExternalRef       string
-	LegacyPaths       []string
-	Redacted          bool
-	ConflictArchive   bool
-}
+const (
+	credentialDeliveryNone              credentialDeliveryMode = credentials.DeliveryNone
+	credentialDeliveryEnv               credentialDeliveryMode = credentials.DeliveryEnv
+	credentialDeliveryMaterializedFile  credentialDeliveryMode = credentials.DeliveryMaterializedFile
+	credentialDeliveryBrokeredHelper    credentialDeliveryMode = credentials.DeliveryBrokeredHelper
+	credentialDeliveryExternalReference credentialDeliveryMode = credentials.DeliveryExternalReference
+)
 
-type credentialRegistrySummary struct {
-	ManagedHostSecretStore int
-	ExternalBoundaries     []string
-	AdapterRequired        []string
-}
+const (
+	credentialSupportManaged         credentialSupportStatus = credentials.SupportManaged
+	credentialSupportExternal        credentialSupportStatus = credentials.SupportExternal
+	credentialSupportAdapterRequired credentialSupportStatus = credentials.SupportAdapterRequired
+)
 
-var builtinCredentialRegistry = []credentialDescriptor{
-	{
-		ID:                credentialProviderAnthropicAPIKey,
-		DisplayName:       "Anthropic API key",
-		Kind:              credentialKindProviderAPIKey,
-		Backend:           credentialStorageHostSecretStore,
-		Delivery:          credentialDeliveryEnv,
-		Support:           credentialSupportManaged,
-		StoreRelPath:      "providers/anthropic-api-key",
-		ConsumerHarnesses: []HarnessID{HarnessClaude, HarnessHermes},
-		EnvVar:            "ANTHROPIC_API_KEY",
-		LegacyPaths:       []string{agentZshrcPath},
-		Redacted:          true,
-	},
-	{
-		ID:                credentialProviderOpenAIAPIKey,
-		DisplayName:       "OpenAI API key",
-		Kind:              credentialKindProviderAPIKey,
-		Backend:           credentialStorageHostSecretStore,
-		Delivery:          credentialDeliveryEnv,
-		Support:           credentialSupportManaged,
-		StoreRelPath:      "providers/openai-api-key",
-		ConsumerHarnesses: []HarnessID{HarnessCodex, HarnessHermes},
-		EnvVar:            "OPENAI_API_KEY",
-		LegacyPaths:       []string{agentZshrcPath},
-		Redacted:          true,
-	},
-	{
-		ID:                credentialProviderGeminiAPIKey,
-		DisplayName:       "Gemini API key",
-		Kind:              credentialKindProviderAPIKey,
-		Backend:           credentialStorageHostSecretStore,
-		Delivery:          credentialDeliveryEnv,
-		Support:           credentialSupportManaged,
-		StoreRelPath:      "providers/gemini-api-key",
-		ConsumerHarnesses: []HarnessID{HarnessGemini, HarnessHermes},
-		EnvVar:            "GEMINI_API_KEY",
-		LegacyPaths:       []string{agentZshrcPath},
-		Redacted:          true,
-	},
-	{
-		ID:                credentialProviderOpenRouterAPIKey,
-		DisplayName:       "OpenRouter API key",
-		Kind:              credentialKindProviderAPIKey,
-		Backend:           credentialStorageHostSecretStore,
-		Delivery:          credentialDeliveryEnv,
-		Support:           credentialSupportManaged,
-		StoreRelPath:      "providers/openrouter-api-key",
-		ConsumerHarnesses: []HarnessID{HarnessHermes},
-		EnvVar:            "OPENROUTER_API_KEY",
-		LegacyPaths:       []string{agentZshrcPath},
-		Redacted:          true,
-	},
-	{
-		ID:              credentialHarnessClaudeCredentials,
-		DisplayName:     "Claude credential file",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "claude/credentials.json",
-		Harness:         HarnessClaude,
-		AgentPath:       agentHome + "/.claude/.credentials.json",
-		LegacyPaths:     []string{agentHome + "/.claude/.credentials.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:              credentialHarnessClaudeState,
-		DisplayName:     "Claude account state",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "claude/state.json",
-		Harness:         HarnessClaude,
-		AgentPath:       agentHome + "/.claude.json",
-		LegacyPaths:     []string{agentHome + "/.claude.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:          credentialHarnessClaudeKeychain,
-		DisplayName: "Claude agent Keychain OAuth state",
-		Kind:        credentialKindExternalAuth,
-		Backend:     credentialStorageKeychain,
-		Delivery:    credentialDeliveryExternalReference,
-		Support:     credentialSupportExternal,
-		Harness:     HarnessClaude,
-		ExternalRef: agentHome + "/" + agentLoginKeychainRelPath,
-		Redacted:    true,
-	},
-	{
-		ID:              credentialHarnessCodexAuth,
-		DisplayName:     "Codex auth file",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "codex/auth.json",
-		Harness:         HarnessCodex,
-		AgentPath:       agentHome + "/.codex/auth.json",
-		LegacyPaths:     []string{agentHome + "/.codex/auth.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:              credentialHarnessOpenCodeAuth,
-		DisplayName:     "OpenCode auth file",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "opencode/auth.json",
-		Harness:         HarnessOpenCode,
-		AgentPath:       agentHome + "/.local/share/opencode/auth.json",
-		LegacyPaths:     []string{agentHome + "/.local/share/opencode/auth.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:              credentialHarnessGeminiOAuth,
-		DisplayName:     "Gemini OAuth credentials",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "gemini/oauth_creds.json",
-		Harness:         HarnessGemini,
-		AgentPath:       agentHome + "/.gemini/oauth_creds.json",
-		LegacyPaths:     []string{agentHome + "/.gemini/oauth_creds.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:              credentialHarnessGeminiAccounts,
-		DisplayName:     "Gemini account index",
-		Kind:            credentialKindHarnessAuth,
-		Backend:         credentialStorageHostSecretStore,
-		Delivery:        credentialDeliveryMaterializedFile,
-		Support:         credentialSupportManaged,
-		StoreRelPath:    "gemini/google_accounts.json",
-		Harness:         HarnessGemini,
-		AgentPath:       agentHome + "/.gemini/google_accounts.json",
-		LegacyPaths:     []string{agentHome + "/.gemini/google_accounts.json"},
-		Redacted:        true,
-		ConflictArchive: true,
-	},
-	{
-		ID:          credentialHarnessGeminiKeychain,
-		DisplayName: "Gemini Keychain OAuth state",
-		Kind:        credentialKindExternalAuth,
-		Backend:     credentialStorageKeychain,
-		Delivery:    credentialDeliveryExternalReference,
-		Support:     credentialSupportAdapterRequired,
-		Harness:     HarnessGemini,
-		ExternalRef: "macOS Keychain item owned by Gemini CLI",
-		Redacted:    true,
-	},
-	{
-		ID:          credentialGitSSHExternalIdentity,
-		DisplayName: "Git SSH external identity reference",
-		Kind:        credentialKindGitSSHIdentity,
-		Backend:     credentialStorageExternalFile,
-		Delivery:    credentialDeliveryExternalReference,
-		Support:     credentialSupportExternal,
-		ExternalRef: "host-owned private key path selected by project SSH config or ssh_profiles",
-		Redacted:    true,
-	},
-	{
-		ID:           credentialGitSSHProvisionedIdentity,
-		DisplayName:  "Git SSH provisioned identity root",
-		Kind:         credentialKindGitSSHIdentity,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryBrokeredHelper,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "git-ssh/provisioned",
-		LegacyPaths:  []string{filepath.Join(filepath.Dir(configFilePath), "ssh", "keys")},
-		Redacted:     true,
-	},
-	{
-		ID:           credentialGitHTTPSAgentStore,
-		DisplayName:  "Git HTTPS credential store",
-		Kind:         credentialKindGitHTTPS,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryBrokeredHelper,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "git-https/credentials",
-		LegacyPaths:  []string{gitHTTPSAgentCredentialsPath},
-		Redacted:     true,
-	},
-	{
-		ID:           credentialGitHubAPIToken,
-		DisplayName:  "GitHub API token",
-		Kind:         credentialKindGitHubToken,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryEnv,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "github/token",
-		EnvVar:       "GH_TOKEN",
-		Redacted:     true,
-	},
-	{
-		ID:           credentialCloudS3AccessKeyID,
-		DisplayName:  "Cloud backup S3 access key ID",
-		Kind:         credentialKindCloudBackup,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryNone,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "cloud/s3-access-key-id",
-		LegacyPaths:  []string{configFilePath},
-		Redacted:     true,
-	},
-	{
-		ID:           credentialCloudS3SecretKey,
-		DisplayName:  "Cloud backup S3 secret key",
-		Kind:         credentialKindCloudBackup,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryNone,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "cloud/s3-secret-key",
-		LegacyPaths:  []string{cloudCredentialPath},
-		Redacted:     true,
-	},
-	{
-		ID:           credentialCloudKopiaRecovery,
-		DisplayName:  "Cloud backup recovery key",
-		Kind:         credentialKindCloudBackup,
-		Backend:      credentialStorageHostSecretStore,
-		Delivery:     credentialDeliveryNone,
-		Support:      credentialSupportManaged,
-		StoreRelPath: "cloud/kopia-recovery-key",
-		LegacyPaths:  []string{configFilePath},
-		Redacted:     true,
-	},
+const (
+	credentialProviderAnthropicAPIKey  credentialID = credentials.ProviderAnthropicAPIKey
+	credentialProviderOpenAIAPIKey     credentialID = credentials.ProviderOpenAIAPIKey
+	credentialProviderGeminiAPIKey     credentialID = credentials.ProviderGeminiAPIKey
+	credentialProviderOpenRouterAPIKey credentialID = credentials.ProviderOpenRouterAPIKey
+
+	credentialHarnessClaudeCredentials credentialID = credentials.HarnessClaudeCredentials
+	credentialHarnessClaudeState       credentialID = credentials.HarnessClaudeState
+	credentialHarnessClaudeKeychain    credentialID = credentials.HarnessClaudeKeychain
+	credentialHarnessCodexAuth         credentialID = credentials.HarnessCodexAuth
+	credentialHarnessOpenCodeAuth      credentialID = credentials.HarnessOpenCodeAuth
+	credentialHarnessGeminiOAuth       credentialID = credentials.HarnessGeminiOAuth
+	credentialHarnessGeminiAccounts    credentialID = credentials.HarnessGeminiAccounts
+	credentialHarnessGeminiKeychain    credentialID = credentials.HarnessGeminiKeychain
+
+	credentialGitSSHExternalIdentity    credentialID = credentials.GitSSHExternalIdentity
+	credentialGitSSHProvisionedIdentity credentialID = credentials.GitSSHProvisionedIdentity
+	credentialGitHTTPSAgentStore        credentialID = credentials.GitHTTPSAgentStore
+	credentialGitHubAPIToken            credentialID = credentials.GitHubAPIToken
+
+	credentialCloudS3AccessKeyID credentialID = credentials.CloudS3AccessKeyID
+	credentialCloudS3SecretKey   credentialID = credentials.CloudS3SecretKey
+	credentialCloudKopiaRecovery credentialID = credentials.CloudKopiaRecovery
+)
+
+func credentialRegistryPaths() credentials.RegistryPaths {
+	return credentials.RegistryPaths{
+		AgentHome:                    agentHome,
+		AgentZshrcPath:               agentZshrcPath,
+		AgentLoginKeychainRelPath:    agentLoginKeychainRelPath,
+		ConfigFilePath:               configFilePath,
+		CloudCredentialPath:          cloudCredentialPath,
+		GitHTTPSAgentCredentialsPath: gitHTTPSAgentCredentialsPath,
+	}
 }
 
 func builtinCredentialDescriptors() []credentialDescriptor {
-	descriptors := make([]credentialDescriptor, len(builtinCredentialRegistry))
-	copy(descriptors, builtinCredentialRegistry)
-	return descriptors
+	return credentials.BuiltinDescriptors(credentialRegistryPaths())
 }
 
 func summarizeCredentialRegistry(descriptors []credentialDescriptor) credentialRegistrySummary {
-	var summary credentialRegistrySummary
-	for _, descriptor := range descriptors {
-		switch descriptor.Support {
-		case credentialSupportManaged:
-			if descriptor.Backend == credentialStorageHostSecretStore {
-				summary.ManagedHostSecretStore++
-			}
-		case credentialSupportExternal:
-			summary.ExternalBoundaries = append(summary.ExternalBoundaries, descriptor.DisplayName)
-		case credentialSupportAdapterRequired:
-			summary.AdapterRequired = append(summary.AdapterRequired, descriptor.DisplayName)
-		}
-	}
-	return summary
+	return credentials.SummarizeRegistry(descriptors)
 }
 
 func findCredentialDescriptor(id credentialID) (credentialDescriptor, bool) {
-	for _, descriptor := range builtinCredentialRegistry {
-		if descriptor.ID == id {
-			return descriptor, true
-		}
-	}
-	return credentialDescriptor{}, false
+	return credentials.FindDescriptor(credentialRegistryPaths(), id)
 }
 
 func mustCredentialDescriptor(id credentialID) credentialDescriptor {
-	descriptor, ok := findCredentialDescriptor(id)
-	if !ok {
-		panic(fmt.Sprintf("missing credential descriptor %q", id))
-	}
-	return descriptor
+	return credentials.MustDescriptor(credentialRegistryPaths(), id)
 }
 
 func providerCredentialDescriptorForEnvVar(envVar string) (credentialDescriptor, bool) {
-	for _, descriptor := range builtinCredentialRegistry {
-		if descriptor.Kind == credentialKindProviderAPIKey && descriptor.EnvVar == envVar {
-			return descriptor, true
-		}
-	}
-	return credentialDescriptor{}, false
+	return credentials.ProviderDescriptorForEnvVar(credentialRegistryPaths(), envVar)
 }
 
 func providerCredentialDescriptorForEnvVarAndHarness(envVar string, harness HarnessID) (credentialDescriptor, bool) {
-	descriptor, ok := providerCredentialDescriptorForEnvVar(envVar)
-	if !ok || !descriptor.CanDeliverTo(harness) {
-		return credentialDescriptor{}, false
-	}
-	return descriptor, true
+	return credentials.ProviderDescriptorForEnvVarAndHarness(credentialRegistryPaths(), envVar, harness)
 }
 
 func providerCredentialDescriptorsForHarness(harness HarnessID) []credentialDescriptor {
-	var descriptors []credentialDescriptor
-	for _, descriptor := range builtinCredentialRegistry {
-		if descriptor.Kind != credentialKindProviderAPIKey {
-			continue
-		}
-		if descriptor.CanDeliverTo(harness) {
-			descriptors = append(descriptors, descriptor)
-		}
-	}
-	return descriptors
+	return credentials.ProviderDescriptorsForHarness(credentialRegistryPaths(), harness)
 }
 
 func credentialDescriptorsForHarnessLifecycle(id HarnessID) []credentialDescriptor {
-	var descriptors []credentialDescriptor
-	for _, descriptor := range builtinCredentialRegistry {
-		if descriptor.Harness == id || descriptor.CanDeliverTo(id) {
-			descriptors = append(descriptors, descriptor)
-		}
-	}
-	return descriptors
+	return credentials.DescriptorsForHarnessLifecycle(credentialRegistryPaths(), id)
 }
 
 func providerSecretStorePathForDescriptor(home string, descriptor credentialDescriptor) (string, error) {
-	if descriptor.Kind != credentialKindProviderAPIKey {
-		return "", fmt.Errorf("%s is %s, not %s", descriptor.ID, descriptor.Kind, credentialKindProviderAPIKey)
-	}
-	if descriptor.Backend != credentialStorageHostSecretStore {
-		return "", fmt.Errorf("%s uses %s, not host secret store", descriptor.ID, descriptor.Backend)
-	}
-	return descriptor.StorePathForHome(home)
+	return credentials.ProviderSecretStorePathForDescriptor(home, descriptor)
 }
 
 func credentialStorePathForHome(home string, id credentialID) (string, error) {
-	descriptor, ok := findCredentialDescriptor(id)
-	if !ok {
-		return "", fmt.Errorf("no credential descriptor for %s", id)
-	}
-	return descriptor.StorePathForHome(home)
+	return credentials.StorePathForHome(credentialRegistryPaths(), home, id)
 }
 
 func mustCredentialStorePathForHome(home string, id credentialID) string {
@@ -444,18 +127,7 @@ func mustCredentialStorePathForHome(home string, id credentialID) string {
 }
 
 func credentialStorePathForConfig(id credentialID) (string, error) {
-	descriptor, ok := findCredentialDescriptor(id)
-	if !ok {
-		return "", fmt.Errorf("no credential descriptor for %s", id)
-	}
-	if descriptor.Backend != credentialStorageHostSecretStore {
-		return "", fmt.Errorf("%s uses %s, not host secret store", descriptor.ID, descriptor.Backend)
-	}
-	cleanRelPath, err := cleanCredentialStoreRelPath(descriptor.StoreRelPath)
-	if err != nil {
-		return "", fmt.Errorf("%s store path: %w", descriptor.ID, err)
-	}
-	return filepath.Join(filepath.Dir(configFilePath), "secrets", filepath.FromSlash(cleanRelPath)), nil
+	return credentials.StorePathForConfig(credentialRegistryPaths(), id)
 }
 
 func mustCredentialStorePathForConfig(id credentialID) string {
@@ -466,82 +138,6 @@ func mustCredentialStorePathForConfig(id credentialID) string {
 	return storePath
 }
 
-func (descriptor credentialDescriptor) StorePathForHome(home string) (string, error) {
-	if descriptor.Backend != credentialStorageHostSecretStore {
-		return "", fmt.Errorf("%s uses %s, not host secret store", descriptor.ID, descriptor.Backend)
-	}
-	cleanRelPath, err := cleanCredentialStoreRelPath(descriptor.StoreRelPath)
-	if err != nil {
-		return "", fmt.Errorf("%s store path: %w", descriptor.ID, err)
-	}
-	return filepath.Join(secretStoreDirForHome(home), filepath.FromSlash(cleanRelPath)), nil
-}
-
-func (descriptor credentialDescriptor) AgentMaterializationPath() (string, error) {
-	if descriptor.Delivery != credentialDeliveryMaterializedFile {
-		return "", fmt.Errorf("%s uses %s delivery, not materialized file delivery", descriptor.ID, descriptor.Delivery)
-	}
-	if descriptor.AgentPath == "" {
-		return "", fmt.Errorf("%s materialized file delivery has no agent path", descriptor.ID)
-	}
-	if !usesManagedAgentPath(descriptor.AgentPath) {
-		return "", fmt.Errorf("%s materializes outside managed agent home: %s", descriptor.ID, descriptor.AgentPath)
-	}
-	return descriptor.AgentPath, nil
-}
-
-func (descriptor credentialDescriptor) EnvDeliveryVar() (string, error) {
-	if descriptor.Delivery != credentialDeliveryEnv {
-		return "", fmt.Errorf("%s uses %s delivery, not env delivery", descriptor.ID, descriptor.Delivery)
-	}
-	if descriptor.EnvVar == "" {
-		return "", fmt.Errorf("%s env delivery has no env var", descriptor.ID)
-	}
-	return descriptor.EnvVar, nil
-}
-
-func (descriptor credentialDescriptor) ConsumerHarnessIDs() []HarnessID {
-	if len(descriptor.ConsumerHarnesses) > 0 {
-		consumers := make([]HarnessID, len(descriptor.ConsumerHarnesses))
-		copy(consumers, descriptor.ConsumerHarnesses)
-		return consumers
-	}
-	if descriptor.Harness != "" {
-		return []HarnessID{descriptor.Harness}
-	}
-	return nil
-}
-
-func (descriptor credentialDescriptor) CanDeliverTo(harness HarnessID) bool {
-	if harness == "" {
-		return false
-	}
-	for _, consumer := range descriptor.ConsumerHarnessIDs() {
-		if consumer == harness {
-			return true
-		}
-	}
-	return false
-}
-
 func cleanCredentialStoreRelPath(relPath string) (string, error) {
-	if relPath == "" {
-		return "", fmt.Errorf("path is empty")
-	}
-	slashPath := filepath.ToSlash(relPath)
-	if path.IsAbs(slashPath) {
-		return "", fmt.Errorf("path must be relative: %s", relPath)
-	}
-	parts := strings.Split(slashPath, "/")
-	for _, part := range parts {
-		switch part {
-		case "", ".", "..":
-			return "", fmt.Errorf("path contains invalid component %q: %s", part, relPath)
-		}
-	}
-	clean := path.Clean(slashPath)
-	if clean == "." || strings.HasPrefix(clean, "../") {
-		return "", fmt.Errorf("path escapes secret store: %s", relPath)
-	}
-	return clean, nil
+	return credentials.CleanStoreRelPath(relPath)
 }

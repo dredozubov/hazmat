@@ -33,6 +33,7 @@ func TestImportBoundaries(t *testing.T) {
 		"hazmat/containment/darwin": true,
 		"hazmat/containment/docker": true,
 		"hazmat/containment/linux":  true,
+		"hazmat/credentials":        true,
 		"hazmat/hostfacts":          true,
 		"hazmat/integrations":       true,
 		"hazmat/pathpolicy":         true,
