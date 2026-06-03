@@ -85,8 +85,8 @@ func TestSetupVerificationStepsReferenceMCSetupRollbackResources(t *testing.T) {
 	got := make([]setupRollbackTLAResource, 0, len(setupVerificationSteps()))
 	gotNames := make([]string, 0, len(setupVerificationSteps()))
 	for _, step := range setupVerificationSteps() {
-		got = append(got, step.tlaResource)
-		gotNames = append(gotNames, step.name)
+		got = append(got, step.Resource)
+		gotNames = append(gotNames, step.Name)
 	}
 
 	want := []setupRollbackTLAResource{
