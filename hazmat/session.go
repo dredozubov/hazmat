@@ -1173,24 +1173,15 @@ func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpe
 }
 
 func resolveSessionConfig(project string, readPaths, writePaths []string) (sessionConfig, error) {
-	projectDir, err := resolveProjectRoot(project)
-	if err != nil {
-		return sessionConfig{}, err
-	}
-
-	readDirs, err := resolveReadOnlyGrantDirs(readPaths)
-	if err != nil {
-		return sessionConfig{}, err
-	}
-	writeDirs, err := resolveReadWriteGrantDirs(writePaths)
+	request, err := resolveValidatedSessionRequest(project, readPaths, writePaths)
 	if err != nil {
 		return sessionConfig{}, err
 	}
 
 	return sessionConfig{
-		ProjectDir:     projectDir,
-		ReadDirs:       readDirs,
-		WriteDirs:      writeDirs,
+		ProjectDir:     request.ProjectDir(),
+		ReadDirs:       request.ReadOnlyDirs(),
+		WriteDirs:      request.ReadWriteDirs(),
 		NetworkMode:    sessionNetworkDefault,
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil

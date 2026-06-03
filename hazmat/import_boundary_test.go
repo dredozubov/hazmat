@@ -38,6 +38,7 @@ func TestImportBoundaries(t *testing.T) {
 		"hazmat/sessioncontract":   true,
 		"hazmat/sessionmeta":       true,
 		"hazmat/sessionplanner":    true,
+		"hazmat/sessionrequest":    true,
 	}
 	for importPath := range purePackages {
 		pkg, ok := pkgs[importPath]
