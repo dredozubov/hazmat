@@ -310,7 +310,7 @@ already passed the constructors and gap checks.
 | `backup` | plan/schema portions of `backup.go`, `snapshots.go`, `restore.go` | Snapshot and restore plan contracts. Any split is gated by `MC_BackupSafety`, especially the prior-snapshot-before-overwrite invariant. |
 | `internal/backupruntime` | `kopia_wrapper.go`, effectful backup/restore portions, `session.go:preSessionSnapshot()` | Snapshot/restore execution and the pre-session snapshot trigger. Must preserve snapshot-before-session ordering across runtime movement. |
 | `hooks` | `hook_manifest.go`, approval metadata portions of `hook_approval.go` | Sensitive repo-local hook contracts and approval records. Do not treat as a routine extraction; `MC_GitHookApproval` governs approval, pinned hooksPath, snapshot execution, drift refusal, and rollback cleanup. |
-| `internal/hookruntime` | `hook_runtime.go`, effectful portions of `hook_cli.go`, hook wrapper dispatch/fallback | Repo-local hook installation, wrapper dispatch, approved snapshot execution, and rollback cleanup effects. |
+| `internal/hookruntime` | `hook_runtime.go`, effectful portions of `hook_cli.go`, hook wrapper dispatch/fallback | Repo-local hook installation, wrapper dispatch, approved snapshot execution, and rollback cleanup effects. The hook hidden-command shells stay here; do not add a hookruntime/agententry edge. |
 | `internal/runtime/darwin` | `native_launch*.go`, `agent_launch.go`, `runner.go`, `cmd/hazmat-launch` interface | Native session admission, policy file lifecycle, launch-helper invocation, cleanup. |
 | `internal/runtime/docker` | `sandbox.go` runtime portions | Docker Sandbox readiness, approval, creation, launch, cleanup. |
 | `internal/runtime/linux` | future Linux native launch runtime | Empty or plan-only until `MC_LinuxNativeLaunch` covers concrete runtime behavior and a Linux helper implementation exists. |
@@ -517,7 +517,7 @@ scripts/check-import-boundaries.sh  # or a small Go test wrapper
 | Restore never overwrites without a prior snapshot and sessions snapshot before launch | `backup` + `internal/backupruntime` | `MC_BackupSafety`, backup/restore tests, launch-path snapshot tests. |
 | Repo-local hook execution uses approved immutable content and pinned paths | `hooks` + `internal/hookruntime` | `MC_GitHookApproval`, hook approval/runtime tests. |
 | Check and stackcheck probes exercise governed boundaries without owning policy | `internal/diagnostics` | `MC_SeatbeltPolicy`, `MC_LaunchFDIsolation` (seatbelt/fd probes), `MC_SetupRollback`, `MC_Migration` (pf-firewall/DNS-blocklist boundary probes), diagnostics smoke tests. Note: live network-*enforcement* correctness (pf block, DNS resolution) has no governing TLA spec; only step ordering is modeled, so the live probes are the sole check there. |
-| In-containment helper commands stay agent-side and narrow | `internal/agententry` | `MC_GitSSHRouting` (`_git_ssh_transport`), `MC_CredentialCapabilityLifecycle` (`_git_https_credential`); `MC_GitHookApproval` applies to the hook dispatch/fallback helpers *if* they land here (see the open hook-home decision in Phase I); credential helper tests, hook runtime tests. |
+| In-containment helper commands stay agent-side and narrow | `internal/agententry` | `MC_GitSSHRouting` (`_git_ssh_transport`), `MC_CredentialCapabilityLifecycle` (`_git_https_credential`), credential helper tests. Hook dispatch/fallback stays in `internal/hookruntime` under `MC_GitHookApproval`; no hookruntime/agententry import edge is allowed. |
 | Remote compatibility stays non-executable | `sessionbackend` + versioned plan DTOs | `GapRemoteLaunch`; new remote model before execution. |
 
 ## Migration Strategy
@@ -629,15 +629,11 @@ The intended sequence is:
   the narrow `internal/agententry`.
 - Move the agent-side re-exec helpers `_connect`, `_git_ssh_transport`, and
   `_git_https_credential` into `internal/agententry`.
-- **OPEN DECISION - hook hidden commands.** The hook hidden commands
-  (`_git-hook-wrapper`/`_git-hook-dispatch`/`_git-hook-fallback`) and their
-  dispatch logic are defined in `hook_runtime.go` and depend on hookruntime-
-  internal approval/snapshot/drift validation. Choose ONE home and reconcile the
-  responsibility table, invariant table, and risks table to match: (a) keep them
-  in `internal/hookruntime` and keep no hookruntime/agententry import edge, or
-  (b) move the command shells to `internal/agententry` and also relocate the
-  approval/snapshot reader primitives they call, then add the one required edge.
-  Until resolved, the responsibility table keeps them in `internal/hookruntime`.
+- **Resolved hook-home decision.** Keep `_git-hook-wrapper`,
+  `_git-hook-dispatch`, `_git-hook-fallback`, and their dispatch logic in
+  `internal/hookruntime`. They depend on hookruntime-local
+  approval/snapshot/drift validation and remain governed by
+  `MC_GitHookApproval`; do not create a hookruntime/agententry import edge.
 - Keep agent entrypoints narrow: no frontend rendering, setup runtime, backup
   runtime, or unvalidated config authority imports.
 - Runtimes accept only `PreparedLaunch`, scoped credential delivery plans, and
@@ -742,7 +738,7 @@ policy. The same validated request and planner APIs should determine authority.
 | Pure planners silently depend on the machine running the command. | Target GOOS/platform is a required `hostfacts` field; guard against `runtime.GOOS` in pure packages. |
 | Credential delivery leaks into planner. | `credentials` split into descriptors/plans vs delivery runtime. |
 | Credential descriptors reach materialization code through transitive imports. | `go list -deps -json` guard for `credentials` against `internal/credentialruntime`, secret-store, broker, and file-copy code. |
-| Hidden agent-side re-exec commands are mistaken for CLI frontend code. | Home `_connect`, `_git_ssh_transport`, and `_git_https_credential` in `internal/agententry`; keep hook dispatch/fallback in `internal/hookruntime` until the open hook-home decision is resolved. |
+| Hidden agent-side re-exec commands are mistaken for CLI frontend code. | Home `_connect`, `_git_ssh_transport`, and `_git_https_credential` in `internal/agententry`; keep hook dispatch/fallback in `internal/hookruntime` under `MC_GitHookApproval` and forbid a hookruntime/agententry edge. |
 | Backup snapshot ordering gets split across runtime boundaries. | Keep `preSessionSnapshot()` with `internal/backupruntime` and re-run `MC_BackupSafety` before movement. |
 | Harness state writes (`update/removeHarnessState`) land in the pure `harnesses` package, forcing a contract->runtime import. | Home install/uninstall effects and state writes in `internal/harnessruntime`; keep `harnesses` pure; draw `harnessRuntime -> harnesses`/`internal/state`. |
 | Broad `sudo`/`asAgent` host primitives get swept into the narrow `internal/agententry`, inverting layering. | Split `exec.go`: privileged `sudo*` and `asAgent*` primitives in shared `internal/hostexec`; diagnostics-only helpers stay with diagnostics; `internal/agententry` owns hidden command handlers only. |
@@ -782,7 +778,8 @@ These are proposed only after audit feedback, in phase order:
    `internal/runtime/*` (invoked via a runtime facade), split `exec.go` into
    `internal/hostexec` (sudo/asAgent primitives), `internal/diagnostics`
    (diagnostic probes), and `internal/agententry` (hidden command handlers).
-   Resolve the open hook-home decision here.
+   Hook hidden-command handlers stay in `internal/hookruntime`; no
+   hookruntime/agententry edge is introduced.
 10. **Setup/rollback, backup, hooks, state, diagnostics follow-ups.** Split these
    only under their governing specs (`MC_SetupRollback`, `MC_Migration`,
    `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`) once the
