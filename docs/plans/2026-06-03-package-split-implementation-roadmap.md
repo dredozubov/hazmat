@@ -4,6 +4,7 @@
 **Status:** actionable roadmap
 **Epic:** `sandboxing-9fq3`
 **Source design:** [package split architecture](2026-06-02-package-split-architecture.md)
+**Phase K design:** [setup/rollback package split design](2026-06-03-setup-rollback-package-split-design.md)
 
 This roadmap turns the audited package split design into implementation beads.
 It does not approve semantic behavior changes by itself. Each bead must keep
@@ -39,7 +40,7 @@ work in this roadmap.
 | 10 | `sandboxing-9fq3.10` | Split launch runtimes, `internal/hostexec`, `internal/agententry`, and plan-only `internal/runtime/linux`. | `sandboxing-9fq3.7`, `sandboxing-9fq3.8`, `sandboxing-9fq3.9` | CLI invokes runtimes through a facade. `sudo*`/`asAgent*` live in hostexec. Hidden command handlers live in agententry. |
 | 11 | `sandboxing-9fq3.11` | Split backup, hooks, and state under their governed specs. (Setup/rollback is split separately; see 14/15.) | `sandboxing-9fq3.8`, `sandboxing-9fq3.9`, `sandboxing-9fq3.10` | Preserve `preSessionSnapshot`, hook approval invariants, and state persistence. Re-run `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`/`MC_Migration` as the moved surface requires. |
 | 12 | `sandboxing-9fq3.12` | Split diagnostics and stackcheck into `internal/diagnostics`. | `sandboxing-9fq3.10`, `sandboxing-9fq3.11` | Diagnostics import probed packages only as a client. Reusable packages never import diagnostics. Live network probes remain explicit smoke gates. |
-| 13 | `sandboxing-9fq3.14` | Model-aware setup/rollback split *design* (model-first; no code movement). Setup/rollback is the highest-severity `AgentContained` surface and is on the "what not to move first" list. | `sandboxing-9fq3.11` | Design note names the seam against `internal/state`/`internal/hostexec`, the equivalence/test plan, and whether `MC_SetupRollback`/`MC_Migration` re-run. |
+| 13 | `sandboxing-9fq3.14` | Model-aware setup/rollback split [design](2026-06-03-setup-rollback-package-split-design.md) (model-first; no code movement). Setup/rollback is the highest-severity `AgentContained` surface and is on the "what not to move first" list. | `sandboxing-9fq3.11` | Design note names the seam against `internal/state`/`internal/hostexec`, the equivalence/test plan, and whether `MC_SetupRollback`/`MC_Migration` re-run. |
 | 14 | `sandboxing-9fq3.15` | Split setup/rollback into `internal/setup` per the design bead. | `sandboxing-9fq3.10`, `sandboxing-9fq3.14` | Setup/rollback step ordering and `AgentContained` preserved; `MC_SetupRollback` and `MC_Migration` re-run per the design; goldens and pre-push green. |
 | 15 | `sandboxing-9fq3.13` | Final validation and epic closure. | `sandboxing-9fq3.12`, `sandboxing-9fq3.15` | Import guard passes, graph has no undefined nodes/cycles, no contract-to-runtime violations, governed specs and Go/golden/pre-push gates pass, docs and beads are updated. |
 
