@@ -2,12 +2,10 @@ package hazmat
 
 import (
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"path/filepath"
-	"time"
 
+	"hazmat/internal/agententry"
 	"hazmat/internal/frontend/cli"
 
 	"github.com/spf13/cobra"
@@ -115,9 +113,9 @@ func NewRootCommand() *cobra.Command {
 			newHooksCmd(),
 		},
 		Hidden: []*cobra.Command{
-			newConnectCmd(),
-			newGitSSHTransportCmd(),
-			newGitHTTPSCredentialCmd(),
+			agententry.NewConnectCommand(),
+			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
+			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
 			newStackCheckCmd(),
 			newGitHookWrapperCmd(),
 			newGitHookDispatchCmd(),
@@ -137,68 +135,10 @@ func defaultRootRun(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// newConnectCmd is a hidden internal subcommand that dials host:port and exits
-// 0 on success, 1 on failure. Invoked through Hazmat's helper-backed
-// agent-maintenance path so the TCP dial runs as the agent user. This lets the
-// test command probe network reachability using Go's net.Dial rather than
-// bash's /dev/tcp, without requiring any special setup.
-func newConnectCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "_connect <host> <port>",
-		Hidden: true,
-		Args:   cobra.ExactArgs(2),
-		Run: func(_ *cobra.Command, args []string) {
-			conn, err := net.DialTimeout("tcp",
-				net.JoinHostPort(args[0], args[1]),
-				5*time.Second,
-			)
-			if err != nil {
-				os.Exit(1)
-			}
-			conn.Close() //nolint:errcheck // diagnostic probe; process exits immediately
-		},
-	}
-}
-
-func newGitSSHTransportCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:                "_git_ssh_transport <socket> [ssh-args...]",
-		Hidden:             true,
-		DisableFlagParsing: true,
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) < 2 {
-				return fmt.Errorf("_git_ssh_transport requires a broker socket and ssh arguments")
-			}
-			return nil
-		},
-		Run: func(_ *cobra.Command, args []string) {
-			os.Exit(runGitSSHTransportHelper(args[0], args[1:]))
-		},
-	}
-}
-
-func newGitHTTPSCredentialCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "_git_https_credential <socket> <operation>",
-		Hidden: true,
-		Args:   cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			payload, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return fmt.Errorf("read Git HTTPS credential request from stdin: %w", err)
-			}
-			resp, err := requestGitHTTPSCredential(args[0], args[1], payload)
-			if len(resp.Stdout) > 0 {
-				if _, writeErr := os.Stdout.Write(resp.Stdout); writeErr != nil && err == nil {
-					err = writeErr
-				}
-			}
-			if len(resp.Stderr) > 0 {
-				if _, writeErr := os.Stderr.Write(resp.Stderr); writeErr != nil && err == nil {
-					err = writeErr
-				}
-			}
-			return err
-		},
-	}
+func requestGitHTTPSCredentialForAgentEntry(socketPath, operation string, payload []byte) (agententry.GitHTTPSCredentialResponse, error) {
+	resp, err := requestGitHTTPSCredential(socketPath, operation, payload)
+	return agententry.GitHTTPSCredentialResponse{
+		Stdout: resp.Stdout,
+		Stderr: resp.Stderr,
+	}, err
 }
