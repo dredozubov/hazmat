@@ -15,6 +15,7 @@ import (
 
 type verifiedFunctionRef struct {
 	name string
+	file string
 	line int
 }
 
@@ -24,7 +25,7 @@ func TestVerifiedLedgerGovernedFunctionsExist(t *testing.T) {
 		t.Fatal("VERIFIED.md governed-code function reference scan found no references")
 	}
 
-	functions := loadModuleFunctionNames(t)
+	functions := loadModuleFunctionIndex(t)
 	allowedExternal := map[string]string{
 		"sandbox_init": "Apple Seatbelt C API called through cgo in hazmat-launch",
 	}
@@ -34,10 +35,10 @@ func TestVerifiedLedgerGovernedFunctionsExist(t *testing.T) {
 		if _, ok := allowedExternal[ref.name]; ok {
 			continue
 		}
-		if verifiedFunctionExists(ref.name, functions) {
+		if verifiedFunctionRefExists(ref, functions) {
 			continue
 		}
-		missing = append(missing, ref.name+" at tla/VERIFIED.md:"+strconv.Itoa(ref.line))
+		missing = append(missing, describeMissingVerifiedFunction(ref, functions))
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
@@ -54,7 +55,8 @@ func loadVerifiedLedgerFunctionRefs(t *testing.T) []verifiedFunctionRef {
 		t.Fatalf("read %s: %v", path, err)
 	}
 
-	re := regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\(\)`)
+	fileRe := regexp.MustCompile(`hazmat/[A-Za-z0-9_./*-]+\.go`)
+	fnRe := regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\(\)`)
 	var refs []verifiedFunctionRef
 	inQuickReference := false
 	for idx, line := range strings.Split(string(raw), "\n") {
@@ -70,9 +72,12 @@ func loadVerifiedLedgerFunctionRefs(t *testing.T) []verifiedFunctionRef {
 		if !relevant || !strings.Contains(line, ".go") {
 			continue
 		}
-		for _, match := range re.FindAllStringSubmatch(line, -1) {
+		files := fileRe.FindAllStringIndex(line, -1)
+		for _, match := range fnRe.FindAllStringSubmatchIndex(line, -1) {
+			file := nearestVerifiedLedgerFile(line, files, match[0])
 			refs = append(refs, verifiedFunctionRef{
-				name: match[1],
+				name: line[match[2]:match[3]],
+				file: file,
 				line: lineNo,
 			})
 		}
@@ -80,10 +85,29 @@ func loadVerifiedLedgerFunctionRefs(t *testing.T) []verifiedFunctionRef {
 	return refs
 }
 
-func loadModuleFunctionNames(t *testing.T) map[string]bool {
+func nearestVerifiedLedgerFile(line string, files [][]int, fnStart int) string {
+	file := ""
+	for _, loc := range files {
+		if loc[1] > fnStart {
+			break
+		}
+		file = line[loc[0]:loc[1]]
+	}
+	return file
+}
+
+type verifiedFunctionIndex struct {
+	byName map[string]map[string]bool
+	byFile map[string]map[string]bool
+}
+
+func loadModuleFunctionIndex(t *testing.T) verifiedFunctionIndex {
 	t.Helper()
 
-	functions := make(map[string]bool)
+	functions := verifiedFunctionIndex{
+		byName: make(map[string]map[string]bool),
+		byFile: make(map[string]map[string]bool),
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -103,17 +127,18 @@ func loadModuleFunctionNames(t *testing.T) map[string]bool {
 		if err != nil {
 			return err
 		}
+		ledgerPath := filepath.ToSlash(filepath.Join("hazmat", path))
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok {
 				continue
 			}
-			functions[fn.Name.Name] = true
+			functions.add(ledgerPath, fn.Name.Name)
 			if fn.Recv == nil || len(fn.Recv.List) == 0 {
 				continue
 			}
 			if recv := receiverName(fn.Recv.List[0].Type); recv != "" {
-				functions[recv+"."+fn.Name.Name] = true
+				functions.add(ledgerPath, recv+"."+fn.Name.Name)
 			}
 		}
 		return nil
@@ -122,6 +147,17 @@ func loadModuleFunctionNames(t *testing.T) map[string]bool {
 		t.Fatalf("walk Go sources: %v", err)
 	}
 	return functions
+}
+
+func (idx verifiedFunctionIndex) add(file, name string) {
+	if idx.byName[name] == nil {
+		idx.byName[name] = make(map[string]bool)
+	}
+	idx.byName[name][file] = true
+	if idx.byFile[file] == nil {
+		idx.byFile[file] = make(map[string]bool)
+	}
+	idx.byFile[file][name] = true
 }
 
 func receiverName(expr ast.Expr) string {
@@ -141,12 +177,39 @@ func receiverName(expr ast.Expr) string {
 	}
 }
 
-func verifiedFunctionExists(name string, functions map[string]bool) bool {
-	if functions[name] {
+func verifiedFunctionRefExists(ref verifiedFunctionRef, functions verifiedFunctionIndex) bool {
+	if ref.file != "" && !strings.Contains(ref.file, "*") {
+		return functions.byFile[ref.file][ref.name]
+	}
+	return verifiedFunctionExistsAnywhere(ref.name, functions)
+}
+
+func verifiedFunctionExistsAnywhere(name string, functions verifiedFunctionIndex) bool {
+	if len(functions.byName[name]) > 0 {
 		return true
 	}
 	if idx := strings.LastIndex(name, "."); idx >= 0 {
-		return functions[name[idx+1:]]
+		return len(functions.byName[name[idx+1:]]) > 0
 	}
 	return false
+}
+
+func describeMissingVerifiedFunction(ref verifiedFunctionRef, functions verifiedFunctionIndex) string {
+	location := ref.name + " at tla/VERIFIED.md:" + strconv.Itoa(ref.line)
+	if ref.file == "" || strings.Contains(ref.file, "*") {
+		return location
+	}
+	if files := functions.byName[ref.name]; len(files) > 0 {
+		return location + " cites " + ref.file + " but declaration is in " + strings.Join(sortedKeys(files), ", ")
+	}
+	return location + " cites " + ref.file
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

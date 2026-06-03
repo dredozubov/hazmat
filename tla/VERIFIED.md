@@ -436,7 +436,8 @@ generated states, 23,580 distinct states, depth 9.
 |-------|-------|
 | Spec | `tla/06_tier2_tier3_effective_policy_equivalence.md` |
 | TLA+ files | `tla/MC_TierPolicyEquivalence.tla`, `tla/MC_TierPolicyEquivalence.cfg` |
-| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
+| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()` |
+| Governed code | `hazmat/native_launch.go` — `agentEnvPairs()` |
 | Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()` |
 | Governed code | `hazmat/path_policy.go` — `isCredentialDenyPath()` |
 | Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `NetworkNoneBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
@@ -965,7 +966,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/internal/setup/rollback.go` rollback resource ordering after migration rollback dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
-| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
+| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`; `hazmat/native_launch.go:agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/internal/state/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`; `hazmat/cmd/hazmat-launch/main.go` |
