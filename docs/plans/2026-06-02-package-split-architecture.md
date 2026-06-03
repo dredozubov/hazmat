@@ -316,7 +316,7 @@ already passed the constructors and gap checks.
 | `internal/runtime/linux` | future Linux native launch runtime | Empty or plan-only until `MC_LinuxNativeLaunch` covers concrete runtime behavior and a Linux helper implementation exists. |
 | `internal/agententry` | `main.go` hidden commands `_connect`, `_git_ssh_transport`, `_git_https_credential`; minimal helper command shells in `git_ssh.go`, `git_https_credentials.go` | Agent-side in-containment helper entrypoints. They are not frontend rendering code and must not import frontend, setup, backup, diagnostics, or broad host-runtime packages. Host-side agent execution goes through `internal/hostexec`. |
 | `internal/hostexec` | host execution primitives in `exec.go` (`sudo`, `newSudoCommand`, `sudoOutput`, `sudoWriteFile`, `sudoAppendFile`, `newAgentCommand`, `asAgent*`) | Shared low-level host execution and privilege transition. Importable by setup, native/Docker runtime, backup runtime, harness runtime, credential runtime, and diagnostics. Owns no policy; never imports frontend, planners, or `internal/agententry`. |
-| `internal/diagnostics` | `test.go`, `stackcheck.go`, `exec.go:agentTCPConnect()` | Effectful check and stackcheck probes: SBPL builds, pfctl/DNS/firewall checks, fd-isolation tests, and contained smoke workflows. Governed by the specs for the probes they exercise. |
+| `internal/diagnostics` | `internal/diagnostics/check*.go`, `internal/diagnostics/stackcheck*.go`, `internal/diagnostics/stack_matrix.go`, `exec.go:agentTCPConnect()` | Effectful check and stackcheck probes: stack-matrix runner, check command workflow/order, SBPL builds, pfctl/DNS/firewall checks, fd-isolation tests, and contained smoke workflows. Setup-coupled check probe bodies may remain root callbacks until Phase K splits setup/rollback; reusable packages must still never import diagnostics. Governed by the specs for the probes they exercise. |
 | `internal/state` | `state.go` | Host-owned `state.json` read/write, setup/migration/harness lifecycle metadata persistence, and rollback/migration state transitions. |
 | `internal/setup/darwin` | `init*.go`, `rollback*.go`, `sudoers.go`, `native_account*.go`, `native_service*.go` | Host setup and rollback runtime after model-approved package split. |
 | `internal/frontend/cli` | `main.go`, command files, `config.go` Cobra command handlers, rendering, prompts | CLI commands, status text, explain rendering, compatibility flags, shell completion. |
@@ -664,8 +664,9 @@ The intended sequence is:
 
 ### Phase L: Diagnostics and stackcheck
 
-- Move `test.go` and `stackcheck.go` into `internal/diagnostics` after the
-  probed boundaries have stable facades.
+- Move stackcheck execution into `internal/diagnostics`; move `hazmat check`
+  workflow/order into `internal/diagnostics` with root callbacks only for
+  setup-coupled probe bodies until the Phase K setup/rollback split.
 - Diagnostics may call planners, compilers, and runtimes as a client; those
   packages must never import diagnostics.
 - Re-run the governed specs for any probe whose setup or ordering changes,
