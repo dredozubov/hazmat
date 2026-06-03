@@ -575,15 +575,15 @@ TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
 | Spec | `tla/10_git_ssh_routing.md` |
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
 | Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
-| Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
+| Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `IdentitySourceClassified`, `NoCrossKey` |
 | Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), any-host fallback retirement (sandboxing-qq9b), and typed Git SSH identity-source classification are implemented and covered by the routing model |
 
 **What this verifies:**
 
 1. **Deterministic routing:** for any destination host, a ready config
-   admits at most one configured key. The wrapper's `case` dispatch in
-   `buildGitSSHWrapperScript` matches this one-to-one structure.
+   admits at most one configured key. The transport broker's per-host key
+   selection in `selectSessionGitSSHKey()` matches this one-to-one structure.
 
 2. **Overlap is a config-set error:** a config where two keys match the
    same host is refused at config save time, not at session time.
@@ -937,7 +937,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
-| `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
+| `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
 | `13_credential_capability_lifecycle` | `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |

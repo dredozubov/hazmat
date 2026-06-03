@@ -94,11 +94,13 @@ hazmat/
       docker/                  # Docker Sandbox runtime
       linux/                   # future Linux native runtime
     credentialruntime/         # secret store, brokers, materialization effects
-    agententry/                # hidden in-containment helper commands
+    agententry/                # hidden in-containment helper commands (no sudo primitives)
+    harnessruntime/            # harness install/uninstall effects + state writes
     backupruntime/             # snapshot/restore execution and session trigger
     hookruntime/               # repo-local hook execution and cleanup effects
     diagnostics/               # check/stackcheck probes and security smoke tests
     state/                     # host-owned state.json IO
+    hostexec/                  # shared sudo/asAgent host execution primitives
     setup/
       darwin/                  # host setup/rollback runtime after model approval
     testfixtures/              # shared package test fixtures, no production imports
@@ -178,10 +180,12 @@ flowchart TB
         linuxR["internal/runtime/linux"]
         credR["internal/credentialruntime"]
         agentEntry["internal/agententry"]
+        harnessR["internal/harnessruntime"]
         backupR["internal/backupruntime"]
         hookR["internal/hookruntime"]
         diagR["internal/diagnostics"]
         stateR["internal/state"]
+        hostexecR["internal/hostexec"]
         setupR["internal/setup/darwin"]
     end
 
@@ -204,7 +208,6 @@ flowchart TB
     planner --> contain
     planner --> creds
     planner --> mutations
-    planner --> backupPlan
     darwinC --> contain
     linuxC --> contain
     dockerC --> contain
@@ -218,13 +221,24 @@ flowchart TB
     agentEntry --> credR
     backupR --> backupPlan
     hookR --> hooksPlan
-    hookR --> agentEntry
     diagR --> darwinC
     diagR --> dockerC
     setupR --> stateR
+    harnessR --> harness
+    harnessR --> stateR
+    harnessR --> hostexecR
+    darwinR --> hostexecR
+    setupR --> hostexecR
+    diagR --> darwinR
+    diagR --> backupR
+    diagR --> planner
+    diagR --> hostexecR
+    cli --> darwinR
+    cli --> dockerR
     cli --> setupR
     cli --> backupR
     cli --> hookR
+    cli --> harnessR
 
     style contracts fill:#eef,stroke:#55c,color:#000
     style runtimes fill:#ffe,stroke:#a80,color:#000
@@ -232,7 +246,13 @@ flowchart TB
 
 Arrows in this diagram are import dependencies, not runtime call order. Backend
 compiler packages import `containment` for the contract type; `containment`
-must not import its compiler children.
+must not import its compiler children. Effectful state writes are a runtime
+concern: the pure `harnesses` metadata package never imports `internal/state`;
+`internal/harnessruntime` owns install/uninstall effects and the state writes.
+Privileged host execution (`sudo`/`asAgent` primitives) lives in
+`internal/hostexec`, importable by every runtime that needs it, so the narrow
+`internal/agententry` is not forced to host primitives that setup, backup,
+harness, credentials, and diagnostics also call.
 
 ## Contract vs Runtime Boundary
 
@@ -274,15 +294,16 @@ already passed the constructors and gap checks.
 | `sessionplanner` | existing `sessionplanner/`, `explain_json.go`, `session_backend.go` | Single pure facade producing contract plan, backend plan, host mutation preview, credential descriptors, and warnings from validated request plus explicit facts. |
 | `sessioncontract` | existing `sessioncontract/` | Redaction-safe plan DTOs and versioned JSON shapes for preview/output. |
 | `sessionmeta` | existing `sessionmeta/` | Stable labels for mode, network, backend, and platform metadata shared by frontends and planners. |
-| `configmodel` | validation portions of `config.go` | Pure config schema and validation, including `ValidateProjectSSHConfig()` and `NormalizedKeys()` routing invariants. Command handlers and secret-store effects stay out. |
+| `configmodel` | validation portions of `config.go` | Pure config schema and validation, including `ValidateProjectSSHConfig()` and `NormalizedKeys()` routing invariants. `config.go`'s Cobra command handlers move to `internal/frontend/cli`; its cloud-credential persistence (`saveCloudStoredCredential`, `migrateCloudCredentialsIntoSecretStore`, `loadCloud*Key`) moves to `internal/credentialruntime`; neither stays in `configmodel`. |
 | `containment` | existing `containment/`, `native_session_policy.go` | Backend-neutral authority contract, structural credential floor, grant overlap validation, comparable core policy. |
 | `containment/darwin` | `session_policy_sbpl.go`, `native_session_policy.go` | SBPL compiler from `containment.Contract`; no launch execution. |
 | `containment/linux` | existing `containment/linux/` | Plan-only Linux launch spec compiler until runtime is modeled and implemented. |
 | `containment/docker` | `sandbox.go` launch spec/profile builders | Docker Sandbox spec compiler from contract/backend plan; no Docker CLI execution. |
 | `sessionbackend` | existing `sessionbackend/` | Backend kinds, gap taxonomy, lifecycle artifact expectations, prepared artifact variants. Target platform is an explicit input from `hostfacts`; no `runtime.GOOS` fallback in pure planning paths after Phase C/E. |
 | `credentials` | `credential_registry.go`, descriptor portions of `session_credentials.go`, grant/request metadata | Pure registry descriptors, support status, grant requests, scoped delivery handles, redaction contracts, and cleanup plan DTOs. No secret-store, broker, materialization, or file-copy runtime imports. |
-| `internal/credentialruntime` | `secret_store.go`, effectful portions of `session_credentials.go`, `config_agent.go`, `github_capability.go`, `git_https_credentials.go`, `git_ssh.go` | Secret-store access, credential brokers, scoped materialization, file-copy delivery, and cleanup application. Consumes descriptor-package validated plans. |
-| `harnesses` | `harness.go`, `harness_lifecycle.go`, `harness_assets.go`, bootstrap files | Harness registry metadata, managed artifacts, preserved artifacts, install/update/uninstall plans. Runtime install stays effectful. |
+| `internal/credentialruntime` | `secret_store.go`, effectful portions of `session_credentials.go`, `config_agent.go`, cloud-credential persistence in `config.go`, `github_capability.go`, `git_https_credentials.go`, `git_ssh.go` | Secret-store access, credential brokers, scoped materialization, file-copy delivery, and cleanup application. Consumes descriptor-package validated plans. |
+| `harnesses` | metadata/plan portions of `harness.go`, `harness_lifecycle.go`, `harness_assets.go` | Harness registry metadata, managed artifacts, preserved artifacts, and install/update/uninstall *plans*. Pure: no state writes, no install effects, no `internal/state` import. |
+| `internal/harnessruntime` | effectful install/update/uninstall portions of `harness.go`, `harness_lifecycle.go`, bootstrap files; `update/removeHarnessState` calls | Harness install/update/uninstall execution and the `internal/state` writes those flows perform. Consumes `harnesses` plans; imports `internal/state` and `internal/hostexec`. |
 | `integrations` | existing `integrations/`, `integration_manifest.go`, `integration_resolver.go` | Manifest schema, safe merge, detection, read-dir/env validation, repo recommendations. Host tool repair plans go through `hostmutations`. |
 | `hostmutations` | `session_mutation.go`, `workspace_acl.go`, `git_preflight.go`, `repo_setup.go` | Previewable host mutation plans and proof-scope metadata. Applying mutations is runtime-only. |
 | `backup` | plan/schema portions of `backup.go`, `snapshots.go`, `restore.go` | Snapshot and restore plan contracts. Any split is gated by `MC_BackupSafety`, especially the prior-snapshot-before-overwrite invariant. |
@@ -292,11 +313,12 @@ already passed the constructors and gap checks.
 | `internal/runtime/darwin` | `native_launch*.go`, `agent_launch.go`, `runner.go`, `cmd/hazmat-launch` interface | Native session admission, policy file lifecycle, launch-helper invocation, cleanup. |
 | `internal/runtime/docker` | `sandbox.go` runtime portions | Docker Sandbox readiness, approval, creation, launch, cleanup. |
 | `internal/runtime/linux` | future Linux native launch runtime | Empty or plan-only until `MC_LinuxNativeLaunch` covers concrete runtime behavior and a Linux helper implementation exists. |
-| `internal/agententry` | `main.go` hidden commands `_connect`, `_git_ssh_transport`, `_git_https_credential`; `exec.go`; helper dispatch in `git_ssh.go`, `git_https_credentials.go` | Agent-side in-containment helper entrypoints. They are not frontend rendering code and must not import frontend or broad host-runtime packages. |
-| `internal/diagnostics` | `test.go`, `stackcheck.go` | Effectful check and stackcheck probes: SBPL builds, pfctl/DNS/firewall checks, fd-isolation tests, and contained smoke workflows. Governed by the specs for the probes they exercise. |
+| `internal/agententry` | `main.go` hidden commands `_connect`, `_git_ssh_transport`, `_git_https_credential`; minimal helper command shells in `git_ssh.go`, `git_https_credentials.go` | Agent-side in-containment helper entrypoints. They are not frontend rendering code and must not import frontend, setup, backup, diagnostics, or broad host-runtime packages. Host-side agent execution goes through `internal/hostexec`. |
+| `internal/hostexec` | host execution primitives in `exec.go` (`sudo`, `newSudoCommand`, `sudoOutput`, `sudoWriteFile`, `sudoAppendFile`, `newAgentCommand`, `asAgent*`) | Shared low-level host execution and privilege transition. Importable by setup, native/Docker runtime, backup runtime, harness runtime, credential runtime, and diagnostics. Owns no policy; never imports frontend, planners, or `internal/agententry`. |
+| `internal/diagnostics` | `test.go`, `stackcheck.go`, `exec.go:agentTCPConnect()` | Effectful check and stackcheck probes: SBPL builds, pfctl/DNS/firewall checks, fd-isolation tests, and contained smoke workflows. Governed by the specs for the probes they exercise. |
 | `internal/state` | `state.go` | Host-owned `state.json` read/write, setup/migration/harness lifecycle metadata persistence, and rollback/migration state transitions. |
 | `internal/setup/darwin` | `init*.go`, `rollback*.go`, `sudoers.go`, `native_account*.go`, `native_service*.go` | Host setup and rollback runtime after model-approved package split. |
-| `internal/frontend/cli` | `main.go`, command files, rendering, prompts | CLI commands, status text, explain rendering, compatibility flags, shell completion. |
+| `internal/frontend/cli` | `main.go`, command files, `config.go` Cobra command handlers, rendering, prompts | CLI commands, status text, explain rendering, compatibility flags, shell completion. |
 | `internal/legacy` | temporary wrappers in `package main` | Compatibility shims during movement. Must shrink phase by phase and stay behavior-equivalent. |
 | `internal/testfixtures` | golden fixtures and shared test fixture helpers | Test-only fixtures. No production imports. |
 
@@ -485,7 +507,7 @@ scripts/check-import-boundaries.sh  # or a small Go test wrapper
 | Credential descriptor/delivery mode matching | `credentials` + `internal/credentialruntime` | `MC_SecretStoreRecovery`, `MC_CredentialCapabilityLifecycle`, credential registry tests, credential-regression hook. |
 | Credential descriptors cannot reach materialization | `credentials` descriptor package plus import-boundary guard | `MC_SecretStoreRecovery`, `MC_CredentialCapabilityLifecycle`, `go list -deps` import guard, credential-regression hook. |
 | Git SSH routing is deterministic and does not cross keys | `configmodel` + `internal/credentialruntime` + `internal/agententry` | `MC_GitSSHRouting`, config/git-ssh tests. |
-| Harness lifecycle metadata cleanup and state persistence | `harnesses` + `internal/state` | `MC_HarnessLifecycle`, state tests, harness lifecycle tests. |
+| Harness lifecycle metadata cleanup and state persistence | `harnesses` (pure metadata/plans) + `internal/harnessruntime` + `internal/state` (effect/persistence) | `MC_HarnessLifecycle`, state tests, harness lifecycle tests. The pure `harnesses` package must not import `internal/state`. |
 | Backend capability gaps | `sessionbackend` | backend plan goldens, `NewPreparedLaunch` tests. |
 | Prepared launch artifacts cannot be forged before runtime admission | `sessionbackend` authority type plus separate DTO | `NewPreparedLaunch` tests, import/API review before Phase G. |
 | Prepared launch DTOs do not over-disclose policy/path details | `sessionbackend` DTO plus record-classification review | DTO golden review, future remote model before envelope serialization. |
@@ -493,8 +515,8 @@ scripts/check-import-boundaries.sh  # or a small Go test wrapper
 | Linux native launch remains plan-only until modeled runtime exists | `containment/linux` + `internal/runtime/linux` | `MC_LinuxNativeLaunch`, compile-only tests, no effectful runtime before model update. |
 | Restore never overwrites without a prior snapshot and sessions snapshot before launch | `backup` + `internal/backupruntime` | `MC_BackupSafety`, backup/restore tests, launch-path snapshot tests. |
 | Repo-local hook execution uses approved immutable content and pinned paths | `hooks` + `internal/hookruntime` | `MC_GitHookApproval`, hook approval/runtime tests. |
-| Check and stackcheck probes exercise governed boundaries without owning policy | `internal/diagnostics` | `MC_SeatbeltPolicy`, `MC_LaunchFDIsolation`, diagnostics smoke tests. |
-| In-containment helper commands stay agent-side and narrow | `internal/agententry` | `MC_GitSSHRouting`, credential helper tests, hook runtime tests. |
+| Check and stackcheck probes exercise governed boundaries without owning policy | `internal/diagnostics` | `MC_SeatbeltPolicy`, `MC_LaunchFDIsolation` (seatbelt/fd probes), `MC_SetupRollback`, `MC_Migration` (pf-firewall/DNS-blocklist boundary probes), diagnostics smoke tests. Note: live network-*enforcement* correctness (pf block, DNS resolution) has no governing TLA spec; only step ordering is modeled, so the live probes are the sole check there. |
+| In-containment helper commands stay agent-side and narrow | `internal/agententry` | `MC_GitSSHRouting` (`_git_ssh_transport`), `MC_CredentialCapabilityLifecycle` (`_git_https_credential`); `MC_GitHookApproval` applies to the hook dispatch/fallback helpers *if* they land here (see the open hook-home decision in Phase I); credential helper tests, hook runtime tests. |
 | Remote compatibility stays non-executable | `sessionbackend` + versioned plan DTOs | `GapRemoteLaunch`; new remote model before execution. |
 
 ## Migration Strategy
@@ -576,12 +598,17 @@ The intended sequence is:
 
 ### Phase H: Config, credentials, and harnesses
 
-- Move pure config schema and SSH routing validation into `configmodel`.
+- Move pure config schema and SSH routing validation into `configmodel`; move
+  `config.go`'s Cobra command handlers to `internal/frontend/cli` and its
+  cloud-credential persistence to `internal/credentialruntime`.
 - Split credential registry descriptors into `credentials` and credential
   delivery effects into `internal/credentialruntime`.
 - Enforce that descriptor packages cannot import secret store, broker,
   materialization, or file-copy runtime code.
-- Split harness metadata/plans from install/update/uninstall effects.
+- Split harness metadata/plans (`harnesses`, pure) from install/update/uninstall
+  effects and state writes (`internal/harnessruntime`). The pure `harnesses`
+  package must not import `internal/state`; the state writes
+  (`update/removeHarnessState`) move with the runtime half.
 - Preserve `MC_HarnessLifecycle`, `MC_GitSSHRouting`,
   `MC_SecretStoreRecovery`, and `MC_CredentialCapabilityLifecycle`.
 - Add explicit DTO-to-validated-type tests for any serialized credential or
@@ -590,16 +617,33 @@ The intended sequence is:
 ### Phase I: Runtime and agent entry packages
 
 - Move effectful native and Docker launch code behind `internal/runtime/darwin`
-  and `internal/runtime/docker`.
-- Move hidden in-containment helpers (`_connect`, `_git_ssh_transport`,
-  `_git_https_credential`, and hook dispatch/fallback helpers) into
-  `internal/agententry`.
+  and `internal/runtime/docker`. The frontend invokes them via an explicit
+  runtime-selection facade (`cli -> runtime`); the launch runtimes are not
+  orphan nodes.
+- Split `exec.go`: privileged host and agent maintenance primitives
+  (`sudo*`, `newSudoCommand`, `newAgentCommand`, `asAgent*`) move to
+  `internal/hostexec`, which setup, runtime, backup runtime, harness runtime,
+  credential runtime, and diagnostics import. Diagnostic helpers such as
+  `agentTCPConnect()` move with diagnostics. Do not assign all of `exec.go` to
+  the narrow `internal/agententry`.
+- Move the agent-side re-exec helpers `_connect`, `_git_ssh_transport`, and
+  `_git_https_credential` into `internal/agententry`.
+- **OPEN DECISION - hook hidden commands.** The hook hidden commands
+  (`_git-hook-wrapper`/`_git-hook-dispatch`/`_git-hook-fallback`) and their
+  dispatch logic are defined in `hook_runtime.go` and depend on hookruntime-
+  internal approval/snapshot/drift validation. Choose ONE home and reconcile the
+  responsibility table, invariant table, and risks table to match: (a) keep them
+  in `internal/hookruntime` and keep no hookruntime/agententry import edge, or
+  (b) move the command shells to `internal/agententry` and also relocate the
+  approval/snapshot reader primitives they call, then add the one required edge.
+  Until resolved, the responsibility table keeps them in `internal/hookruntime`.
 - Keep agent entrypoints narrow: no frontend rendering, setup runtime, backup
   runtime, or unvalidated config authority imports.
 - Runtimes accept only `PreparedLaunch`, scoped credential delivery plans, and
   cleanup policy.
-- Future Linux remains plan-only until separately modeled. Remote runtime is
-  outside this split and needs its own design/model bead.
+- Create `internal/runtime/linux` as an empty/plan-only package; it stays
+  plan-only until separately modeled under `MC_LinuxNativeLaunch`. Remote
+  runtime is outside this split and needs its own design/model bead.
 
 ### Phase J: Backup and hooks
 
@@ -697,8 +741,11 @@ policy. The same validated request and planner APIs should determine authority.
 | Pure planners silently depend on the machine running the command. | Target GOOS/platform is a required `hostfacts` field; guard against `runtime.GOOS` in pure packages. |
 | Credential delivery leaks into planner. | `credentials` split into descriptors/plans vs delivery runtime. |
 | Credential descriptors reach materialization code through transitive imports. | `go list -deps -json` guard for `credentials` against `internal/credentialruntime`, secret-store, broker, and file-copy code. |
-| Hidden agent-side re-exec commands are mistaken for CLI frontend code. | Home `_connect`, `_git_ssh_transport`, `_git_https_credential`, and hook dispatch/fallback in `internal/agententry`. |
+| Hidden agent-side re-exec commands are mistaken for CLI frontend code. | Home `_connect`, `_git_ssh_transport`, and `_git_https_credential` in `internal/agententry`; keep hook dispatch/fallback in `internal/hookruntime` until the open hook-home decision is resolved. |
 | Backup snapshot ordering gets split across runtime boundaries. | Keep `preSessionSnapshot()` with `internal/backupruntime` and re-run `MC_BackupSafety` before movement. |
+| Harness state writes (`update/removeHarnessState`) land in the pure `harnesses` package, forcing a contract->runtime import. | Home install/uninstall effects and state writes in `internal/harnessruntime`; keep `harnesses` pure; draw `harnessRuntime -> harnesses`/`internal/state`. |
+| Broad `sudo`/`asAgent` host primitives get swept into the narrow `internal/agententry`, inverting layering. | Split `exec.go`: privileged `sudo*` and `asAgent*` primitives in shared `internal/hostexec`; diagnostics-only helpers stay with diagnostics; `internal/agententry` owns hidden command handlers only. |
+| Launch runtimes have no modeled inbound caller, so the graph never shows the CLI launching a session. | Frontend invokes `internal/runtime/darwin`/`docker` via a runtime-selection facade; draw `cli -> runtime`. |
 | Diagnostics/check probes become a policy owner by accident. | Keep diagnostics as effectful clients of planners/compilers/runtimes; never import diagnostics from reusable packages. |
 | State persistence is stranded between harness, setup, and migration packages. | Move `state.go` behind `internal/state` only with `MC_HarnessLifecycle`, `MC_SetupRollback`, and `MC_Migration` coverage. |
 | Remote scope creeps into the local split. | Keep `GapRemoteLaunch`; define compatibility data only; model admission before runtime code. |
@@ -725,13 +772,20 @@ These are proposed only after audit feedback, in phase order:
 7. **`PreparedLaunch` authority type.** Make artifacts unforgeable and define
    separate DTO disclosure scope before any runtime consumes it.
 8. **Config/credential/harness split.** Move pure SSH routing validation to
-   `configmodel`, descriptors to `credentials`, effects to
-   `internal/credentialruntime`, and harness metadata to `harnesses`.
+   `configmodel`, `config.go` handlers to `internal/frontend/cli` and its cloud-
+   credential persistence to `internal/credentialruntime`, descriptors to
+   `credentials`, delivery effects to `internal/credentialruntime`, harness
+   metadata/plans to `harnesses`, and harness install/state-write effects to
+   `internal/harnessruntime`.
 9. **Runtime and agent-entry split.** Move native/Docker runtimes under
-   `internal/runtime/*` and hidden in-containment helpers under
-   `internal/agententry`.
-10. **Backup/hooks/state/diagnostics follow-ups.** Split these only under their
-   governing specs once the earlier facades are stable.
+   `internal/runtime/*` (invoked via a runtime facade), split `exec.go` into
+   `internal/hostexec` (sudo/asAgent primitives), `internal/diagnostics`
+   (diagnostic probes), and `internal/agententry` (hidden command handlers).
+   Resolve the open hook-home decision here.
+10. **Setup/rollback, backup, hooks, state, diagnostics follow-ups.** Split these
+   only under their governing specs (`MC_SetupRollback`, `MC_Migration`,
+   `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`) once the
+   earlier facades are stable. Setup/rollback requires a model-aware design bead.
 
 ## Audit Questions
 
