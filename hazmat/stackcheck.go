@@ -3,6 +3,7 @@ package hazmat
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
+	"hazmat/internal/diagnostics"
 )
 
 const (
@@ -84,69 +85,6 @@ type stackcheckCheckoutTarget struct {
 	source   string
 }
 
-func newStackCheckCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "stackcheck",
-		Short:  "Internal repo-matrix validation runner",
-		Hidden: true,
-	}
-	cmd.AddCommand(
-		newStackCheckRunCmd(stackcheckModeDetect),
-		newStackCheckRunCmd(stackcheckModeContract),
-		newStackCheckRunCmd(stackcheckModeSmoke),
-	)
-	return cmd
-}
-
-func newStackCheckRunCmd(mode string) *cobra.Command {
-	var opts stackcheckOptions
-	cmd := &cobra.Command{
-		Use:    mode,
-		Short:  fmt.Sprintf("Run stack-matrix %s checks", mode),
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if opts.ManifestPath == "" {
-				opts.ManifestPath = defaultStackMatrixManifestPath()
-			}
-			if opts.WorkspaceRoot == "" {
-				opts.WorkspaceRoot = defaultStackcheckWorkspaceRoot()
-			}
-
-			results, err := runStackCheck(mode, opts)
-			if err != nil {
-				return err
-			}
-
-			enc := json.NewEncoder(cmd.OutOrStdout())
-			enc.SetIndent("", "  ")
-			enc.SetEscapeHTML(false)
-			if err := enc.Encode(results); err != nil {
-				return err
-			}
-
-			fmt.Fprint(cmd.ErrOrStderr(), summarizeStackcheckResults(results))
-			if failed := stackcheckFailureCount(results); failed > 0 {
-				return fmt.Errorf("%d stackcheck repo(s) failed", failed)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&opts.ManifestPath, "manifest", defaultStackMatrixManifestPath(),
-		"Path to the repo corpus manifest")
-	cmd.Flags().StringVar(&opts.WorkspaceRoot, "workspace-root", defaultStackcheckWorkspaceRoot(),
-		"Directory where pinned repo checkouts are stored")
-	cmd.Flags().StringVar(&opts.Track, "track", stackMatrixTrackRequired,
-		`Repo track to run: "required", "informational", or "all"`)
-	cmd.Flags().IntVar(&opts.Wave, "wave", 0,
-		"Only run repos from a specific wave (0 means all waves)")
-	cmd.Flags().StringArrayVar(&opts.IDs, "id", nil,
-		"Run only the named repo id(s) from the manifest")
-	cmd.Flags().BoolVar(&opts.UpstreamHead, "upstream-head", false,
-		"Resolve each repo to its current upstream HEAD instead of the pinned manifest SHA")
-	return cmd
-}
-
 func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, error) {
 	if err := validateStackcheckModePrereqs(mode); err != nil {
 		return stackcheckResultSet{}, err
@@ -194,6 +132,33 @@ func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, er
 	}
 
 	return resultSet, nil
+}
+
+func runStackCheckForDiagnostics(mode string, opts diagnostics.StackcheckOptions, stdout io.Writer, stderr io.Writer) error {
+	results, err := runStackCheck(mode, stackcheckOptions{
+		ManifestPath:  opts.ManifestPath,
+		WorkspaceRoot: opts.WorkspaceRoot,
+		Track:         opts.Track,
+		Wave:          opts.Wave,
+		IDs:           opts.IDs,
+		UpstreamHead:  opts.UpstreamHead,
+	})
+	if err != nil {
+		return err
+	}
+
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(results); err != nil {
+		return err
+	}
+
+	fmt.Fprint(stderr, summarizeStackcheckResults(results))
+	if failed := stackcheckFailureCount(results); failed > 0 {
+		return fmt.Errorf("%d stackcheck repo(s) failed", failed)
+	}
+	return nil
 }
 
 func validateStackcheckModePrereqs(mode string) error {

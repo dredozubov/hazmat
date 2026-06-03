@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"hazmat/internal/agententry"
+	"hazmat/internal/diagnostics"
 	"hazmat/internal/frontend/cli"
 	"hazmat/internal/hookruntime"
 
@@ -117,7 +118,12 @@ func NewRootCommand() *cobra.Command {
 			agententry.NewConnectCommand(),
 			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
 			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
-			newStackCheckCmd(),
+			diagnostics.NewStackCheckCommand(diagnostics.StackcheckCommandConfig{
+				DefaultManifestPath:  defaultStackMatrixManifestPath,
+				DefaultWorkspaceRoot: defaultStackcheckWorkspaceRoot,
+				DefaultTrack:         stackMatrixTrackRequired,
+				Run:                  runStackCheckForDiagnostics,
+			}),
 			hookruntime.NewGitHookWrapperCommand(runProjectHookGitWrapper),
 			hookruntime.NewGitHookDispatchCommand(requestGitHookDispatchForHookRuntime),
 			hookruntime.NewGitHookFallbackCommand(requestGitHookFallbackForHookRuntime),
