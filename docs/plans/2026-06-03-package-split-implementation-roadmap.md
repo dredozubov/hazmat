@@ -34,12 +34,14 @@ work in this roadmap.
 | 5 | `sandboxing-9fq3.5` | Expand pure `sessionplanner` facade and versioned DTO fixtures. | `sandboxing-9fq3.4` | Planner remains side-effect-free. Explain and launch goldens stay byte-identical or reviewed. |
 | 6 | `sandboxing-9fq3.6` | Split backend compilers into `containment/darwin`, `containment/docker`, and plan-only Linux compiler packages. | `sandboxing-9fq3.5` | Compiler packages import `containment`, never the reverse. Add Docker/linux launch-spec goldens before moving compiler code. |
 | 7 | `sandboxing-9fq3.7` | Make `PreparedLaunch` an authority type and define the separate DTO disclosure scope. | `sandboxing-9fq3.6` | Artifacts are unforgeable, construction flows through `NewPreparedLaunch`, and DTOs do not automatically expose full SBPL/path details. |
-| 8 | `sandboxing-9fq3.8` | Split `configmodel`, `credentials`, `internal/credentialruntime`, `harnesses`, and `internal/harnessruntime`. | `sandboxing-9fq3.7` | `harnesses` stays pure and never imports `internal/state`. Preserve `MC_HarnessLifecycle`, `MC_GitSSHRouting`, `MC_SecretStoreRecovery`, and `MC_CredentialCapabilityLifecycle`. |
+| 8 | `sandboxing-9fq3.8` | Split `configmodel`, `credentials`, `internal/credentialruntime`, `harnesses`, and `internal/harnessruntime`; move `config.go` Cobra handlers into the `internal/frontend/cli` package created by `9fq3.2`. | `sandboxing-9fq3.2`, `sandboxing-9fq3.7` | `harnesses` stays pure and never imports `internal/state`. Preserve `MC_HarnessLifecycle`, `MC_GitSSHRouting`, `MC_SecretStoreRecovery`, and `MC_CredentialCapabilityLifecycle`. |
 | 9 | `sandboxing-9fq3.9` | Decide hook hidden-command home. | `sandboxing-9fq3.1` | Decision recorded in docs. Graph, responsibility table, invariant table, risks, and later beads agree. |
 | 10 | `sandboxing-9fq3.10` | Split launch runtimes, `internal/hostexec`, `internal/agententry`, and plan-only `internal/runtime/linux`. | `sandboxing-9fq3.7`, `sandboxing-9fq3.8`, `sandboxing-9fq3.9` | CLI invokes runtimes through a facade. `sudo*`/`asAgent*` live in hostexec. Hidden command handlers live in agententry. |
-| 11 | `sandboxing-9fq3.11` | Split backup, hooks, state, and setup/rollback under their governed specs. | `sandboxing-9fq3.8`, `sandboxing-9fq3.9`, `sandboxing-9fq3.10` | Preserve `preSessionSnapshot`, hook approval invariants, state persistence, setup rollback, and migration ordering. Use model-aware design before setup/rollback movement. |
+| 11 | `sandboxing-9fq3.11` | Split backup, hooks, and state under their governed specs. (Setup/rollback is split separately; see 14/15.) | `sandboxing-9fq3.8`, `sandboxing-9fq3.9`, `sandboxing-9fq3.10` | Preserve `preSessionSnapshot`, hook approval invariants, and state persistence. Re-run `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`/`MC_Migration` as the moved surface requires. |
 | 12 | `sandboxing-9fq3.12` | Split diagnostics and stackcheck into `internal/diagnostics`. | `sandboxing-9fq3.10`, `sandboxing-9fq3.11` | Diagnostics import probed packages only as a client. Reusable packages never import diagnostics. Live network probes remain explicit smoke gates. |
-| 13 | `sandboxing-9fq3.13` | Final validation and epic closure. | `sandboxing-9fq3.12` | Import guard passes, graph has no undefined nodes/cycles, no contract-to-runtime violations, governed specs and Go/golden/pre-push gates pass, docs and beads are updated. |
+| 13 | `sandboxing-9fq3.14` | Model-aware setup/rollback split *design* (model-first; no code movement). Setup/rollback is the highest-severity `AgentContained` surface and is on the "what not to move first" list. | `sandboxing-9fq3.11` | Design note names the seam against `internal/state`/`internal/hostexec`, the equivalence/test plan, and whether `MC_SetupRollback`/`MC_Migration` re-run. |
+| 14 | `sandboxing-9fq3.15` | Split setup/rollback into `internal/setup` per the design bead. | `sandboxing-9fq3.10`, `sandboxing-9fq3.14` | Setup/rollback step ordering and `AgentContained` preserved; `MC_SetupRollback` and `MC_Migration` re-run per the design; goldens and pre-push green. |
+| 15 | `sandboxing-9fq3.13` | Final validation and epic closure. | `sandboxing-9fq3.12`, `sandboxing-9fq3.15` | Import guard passes, graph has no undefined nodes/cycles, no contract-to-runtime violations, governed specs and Go/golden/pre-push gates pass, docs and beads are updated. |
 
 ## Dependency Graph
 
@@ -56,8 +58,10 @@ flowchart TB
     H["9fq3.8 Config/credentials/harnesses"]
     I["9fq3.9 Hook decision"]
     J["9fq3.10 Runtimes/hostexec/agententry"]
-    K["9fq3.11 Backup/hooks/state/setup"]
+    K["9fq3.11 Backup/hooks/state"]
     L["9fq3.12 Diagnostics"]
+    N["9fq3.14 Setup/rollback design"]
+    O["9fq3.15 Setup/rollback split"]
     M["9fq3.13 Final validation"]
 
     epic --> A
@@ -68,6 +72,7 @@ flowchart TB
     E --> F
     F --> G
     G --> H
+    B --> H
     A --> I
     G --> J
     H --> J
@@ -77,7 +82,11 @@ flowchart TB
     J --> K
     J --> L
     K --> L
+    K --> N
+    N --> O
+    J --> O
     L --> M
+    O --> M
 ```
 
 ## Review Gates
