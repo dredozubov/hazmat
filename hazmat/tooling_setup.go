@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -69,6 +70,30 @@ func setupHardeningEnv() setup.HardeningEnv {
 	}
 }
 
+func setupLocalRepoEnv() setup.LocalRepoEnv {
+	return setup.LocalRepoEnv{
+		ConfigFilePath:  configFilePath,
+		LocalConfigFile: localConfigFile,
+		LocalRepoDir:    localRepoDir,
+		DryRun:          flagDryRun,
+		YesAll:          flagYesAll,
+		LoadConfig: func() setup.LocalRepoConfig {
+			cfg, _ := loadConfig()
+			return localRepoConfigView(cfg)
+		},
+		SaveConfig: func() error {
+			cfg, _ := loadConfig()
+			return saveConfig(cfg)
+		},
+		InitLocalRepo: initLocalRepo,
+		PrintConfig:   printBackupConfig,
+		PreviewCreateRepo: func(path string) {
+			faint.Printf("    $ kopia repository create filesystem --path %s\n", path)
+		},
+		OfferCloudSetup: offerCloudBackupSetup,
+	}
+}
+
 func setupShellProfiles() []setup.ShellProfile {
 	profiles := supportedUserShellProfiles()
 	out := make([]setup.ShellProfile, 0, len(profiles))
@@ -80,6 +105,10 @@ func setupShellProfiles() []setup.ShellProfile {
 		})
 	}
 	return out
+}
+
+func setupLocalRepo(ui *UI) error {
+	return setup.SetupLocalRepo(setupLocalRepoEnv(), ui)
 }
 
 func setupHardeningGaps(ui *UI, r *Runner) error {
@@ -125,6 +154,56 @@ func rollbackHomeDirTraverse(ui *UI, r *Runner) {
 	}, ui)
 }
 
+func rollbackLocalRepo(ui *UI) {
+	setup.RollbackLocalRepo(setupLocalRepoEnv(), ui)
+}
+
 func rollbackUmask(ui *UI, r *Runner) {
 	setup.RollbackUmask(setupToolingEnv(), ui, r)
+}
+
+func localRepoConfigView(cfg HazmatConfig) setup.LocalRepoConfig {
+	view := setup.LocalRepoConfig{
+		RepositoryPath: cfg.Backup.Local.Path,
+		KeepLatest:     cfg.Backup.Local.Retention.KeepLatest,
+		KeepDaily:      cfg.Backup.Local.Retention.KeepDaily,
+		KeepWeekly:     cfg.Backup.Local.Retention.KeepWeekly,
+	}
+	if cfg.Backup.Cloud != nil {
+		view.CloudConfigured = true
+		view.CloudEndpoint = cfg.Backup.Cloud.Endpoint
+		view.CloudBucket = cfg.Backup.Cloud.Bucket
+	}
+	return view
+}
+
+func printBackupConfig(cfg setup.LocalRepoConfig) {
+	fmt.Println()
+	cDim.Println("    Snapshots are taken automatically before each session.")
+	fmt.Println()
+	cDim.Printf("    Repository:  %s\n", cfg.RepositoryPath)
+	cDim.Printf("    Retention:   %d latest, %d daily, %d weekly\n",
+		cfg.KeepLatest,
+		cfg.KeepDaily,
+		cfg.KeepWeekly)
+	cDim.Printf("    Excludes:    node_modules/ .venv/ dist/ build/ target/ ...\n")
+	if cfg.CloudConfigured {
+		cDim.Printf("    Cloud:       %s/%s\n", cfg.CloudEndpoint, cfg.CloudBucket)
+	}
+	cDim.Printf("    Config:      %s\n", configFilePath)
+	fmt.Println()
+}
+
+func offerCloudBackupSetup() {
+	innerUI := &UI{}
+	if !innerUI.IsInteractive() {
+		return
+	}
+	if !innerUI.Ask("Set up cloud backup (S3-compatible)?") {
+		return
+	}
+	if err := runConfigCloud("", "", "", false); err != nil {
+		cYellow.Printf("\n    Cloud setup skipped: %v\n", err)
+		fmt.Println("    Configure later: hazmat config cloud")
+	}
 }

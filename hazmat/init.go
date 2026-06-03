@@ -485,68 +485,6 @@ func setupDevGroup(ui *UI, r *Runner, currentUser string) error {
 	return nativeAccountBackendForHost().SetupDevGroup(ui, r, currentUser)
 }
 
-// ── Step 3b: Backup scope file ────────────────────────────────────────────────
-
-func setupLocalRepo(ui *UI) error {
-	ui.Step("Configure snapshot backup")
-
-	// Write config.yaml with defaults if it doesn't exist yet.
-	cfg, _ := loadConfig()
-	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
-		if !flagDryRun {
-			if err := saveConfig(cfg); err != nil {
-				return fmt.Errorf("write config: %w", err)
-			}
-		}
-	}
-
-	if _, err := os.Stat(localConfigFile); err == nil {
-		ui.SkipDone(fmt.Sprintf("Snapshot repository already configured at %s", localRepoDir))
-	} else if flagDryRun {
-		faint.Printf("    $ kopia repository create filesystem --path %s\n", localRepoDir)
-	} else {
-		if err := initLocalRepo(); err != nil {
-			return fmt.Errorf("initialize snapshot repo: %w", err)
-		}
-		ui.Ok(fmt.Sprintf("Snapshot repository created at %s", localRepoDir))
-	}
-
-	printBackupConfig(cfg)
-
-	// Offer cloud setup if interactive, not already configured, and not --yes.
-	if cfg.Backup.Cloud == nil && !flagDryRun && !flagYesAll {
-		innerUI := &UI{}
-		if innerUI.IsInteractive() {
-			if innerUI.Ask("Set up cloud backup (S3-compatible)?") {
-				if err := runConfigCloud("", "", "", false); err != nil {
-					// Non-fatal: user can configure later.
-					cYellow.Printf("\n    Cloud setup skipped: %v\n", err)
-					fmt.Println("    Configure later: hazmat config cloud")
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func printBackupConfig(cfg HazmatConfig) {
-	fmt.Println()
-	cDim.Println("    Snapshots are taken automatically before each session.")
-	fmt.Println()
-	cDim.Printf("    Repository:  %s\n", cfg.Backup.Local.Path)
-	cDim.Printf("    Retention:   %d latest, %d daily, %d weekly\n",
-		cfg.Backup.Local.Retention.KeepLatest,
-		cfg.Backup.Local.Retention.KeepDaily,
-		cfg.Backup.Local.Retention.KeepWeekly)
-	cDim.Printf("    Excludes:    node_modules/ .venv/ dist/ build/ target/ ...\n")
-	if cfg.Backup.Cloud != nil {
-		cDim.Printf("    Cloud:       %s/%s\n", cfg.Backup.Cloud.Endpoint, cfg.Backup.Cloud.Bucket)
-	}
-	cDim.Printf("    Config:      %s\n", configFilePath)
-	fmt.Println()
-}
-
 // ── Step 5b: Install sandbox-launch helper ────────────────────────────────────
 
 // setupLaunchHelper verifies that the sandbox-launch helper is installed and

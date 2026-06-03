@@ -108,23 +108,6 @@ func rollbackSudoers(ui *UI, r *Runner) {
 	nativeServiceBackendForHost().RollbackSudoers(ui, r)
 }
 
-func rollbackLocalRepo(ui *UI) {
-	ui.Step("Remove local snapshot repository")
-
-	if _, err := os.Stat(localRepoDir); os.IsNotExist(err) {
-		ui.SkipDone("Local snapshot repository not present")
-		return
-	}
-
-	// Remove config file and repo directory. Both are user-owned, no sudo.
-	os.Remove(localConfigFile) //nolint:errcheck // best-effort config cleanup during rollback
-	if err := os.RemoveAll(localRepoDir); err != nil {
-		ui.WarnMsg(fmt.Sprintf("Could not remove %s: %v", localRepoDir, err))
-	} else {
-		ui.Ok(fmt.Sprintf("Removed %s", localRepoDir))
-	}
-}
-
 func rollbackProjectHooks(ui *UI) {
 	ui.Step("Remove repo-local git hook approvals and dispatchers")
 
