@@ -58,6 +58,16 @@ func TestBuildPlanReportsLinuxNativeGap(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRequiresExplicitGOOSForNative(t *testing.T) {
+	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative})
+	if plan.Backend != KindUnsupportedNative {
+		t.Fatalf("Backend = %q, want %q", plan.Backend, KindUnsupportedNative)
+	}
+	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != GapNativeLaunch {
+		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
+	}
+}
+
 func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 	plan := BuildPlan(Input{
 		Mode:               sessionmeta.ModeDockerSandbox,

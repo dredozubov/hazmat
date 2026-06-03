@@ -1,7 +1,6 @@
 package sessionbackend
 
 import (
-	"runtime"
 	"sort"
 
 	"hazmat/sessionmeta"
@@ -59,11 +58,7 @@ type Plan struct {
 }
 
 func BuildPlan(input Input) Plan {
-	goos := input.GOOS
-	if goos == "" {
-		goos = runtime.GOOS
-	}
-	backend := BackendFor(input.Mode, goos)
+	backend := BackendFor(input.Mode, input.GOOS)
 	plan := Plan{
 		Target:             input.Target,
 		Mode:               input.Mode,
