@@ -1,6 +1,9 @@
 package sessionbackend
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 const (
 	PreparedArtifactDarwinSeatbelt ArtifactKind = "darwin-seatbelt"
@@ -65,13 +68,42 @@ type AcceptedGap struct {
 // artifact. It is constructible only when capability gaps are absent or all
 // gaps were explicitly accepted.
 type PreparedLaunch struct {
+	plan           Plan
+	artifactKind   ArtifactKind
+	darwinSeatbelt *DarwinSeatbelt
+	linuxLaunch    *LinuxLaunchSpec
+	dockerSandbox  *DockerSandboxSpec
+	remoteEnvelope *RemoteEnvelope
+	acceptedGaps   []AcceptedGap
+}
+
+type PreparedLaunchDTOScope struct {
+	IncludePolicyText        bool
+	IncludeResolvedHostPaths bool
+}
+
+type PreparedLaunchDTO struct {
 	Plan           Plan               `json:"plan"`
 	ArtifactKind   ArtifactKind       `json:"artifact_kind"`
-	DarwinSeatbelt *DarwinSeatbelt    `json:"darwin_seatbelt,omitempty"`
+	DarwinSeatbelt *DarwinSeatbeltDTO `json:"darwin_seatbelt,omitempty"`
 	LinuxLaunch    *LinuxLaunchSpec   `json:"linux_launch,omitempty"`
-	DockerSandbox  *DockerSandboxSpec `json:"docker_sandbox,omitempty"`
+	DockerSandbox  *DockerSandboxDTO  `json:"docker_sandbox,omitempty"`
 	RemoteEnvelope *RemoteEnvelope    `json:"remote_envelope,omitempty"`
 	AcceptedGaps   []AcceptedGap      `json:"accepted_gaps,omitempty"`
+}
+
+type DarwinSeatbeltDTO struct {
+	PolicyPath string `json:"policy_path,omitempty"`
+	Policy     string `json:"policy,omitempty"`
+}
+
+type DockerSandboxDTO struct {
+	Name           string   `json:"name"`
+	Agent          string   `json:"agent"`
+	ProjectDir     string   `json:"project_dir,omitempty"`
+	PolicyProfile  string   `json:"policy_profile"`
+	MountReadDirs  []string `json:"mount_read_dirs,omitempty"`
+	MountWriteDirs []string `json:"mount_write_dirs,omitempty"`
 }
 
 // NewPreparedLaunch validates and constructs a prepared launch artifact.
@@ -89,15 +121,63 @@ func NewPreparedLaunch(plan Plan, variant ArtifactVariant, acceptedGaps []Accept
 	}
 
 	return PreparedLaunch{
-		Plan:           copyPlan(plan),
-		ArtifactKind:   kind,
-		DarwinSeatbelt: copyDarwinSeatbelt(variant.DarwinSeatbelt),
-		LinuxLaunch:    copyLinuxLaunchSpec(variant.LinuxLaunch),
-		DockerSandbox:  copyDockerSandboxSpec(variant.DockerSandbox),
-		RemoteEnvelope: copyRemoteEnvelope(variant.RemoteEnvelope),
-		AcceptedGaps:   accepted,
+		plan:           copyPlan(plan),
+		artifactKind:   kind,
+		darwinSeatbelt: copyDarwinSeatbelt(variant.DarwinSeatbelt),
+		linuxLaunch:    copyLinuxLaunchSpec(variant.LinuxLaunch),
+		dockerSandbox:  copyDockerSandboxSpec(variant.DockerSandbox),
+		remoteEnvelope: copyRemoteEnvelope(variant.RemoteEnvelope),
+		acceptedGaps:   accepted,
 	}, nil
 }
+
+func (p PreparedLaunch) Plan() Plan {
+	return copyPlan(p.plan)
+}
+
+func (p PreparedLaunch) ArtifactKind() ArtifactKind {
+	return p.artifactKind
+}
+
+func (p PreparedLaunch) DarwinSeatbelt() (*DarwinSeatbelt, bool) {
+	return copyDarwinSeatbelt(p.darwinSeatbelt), p.artifactKind == PreparedArtifactDarwinSeatbelt && p.darwinSeatbelt != nil
+}
+
+func (p PreparedLaunch) LinuxLaunch() (*LinuxLaunchSpec, bool) {
+	return copyLinuxLaunchSpec(p.linuxLaunch), p.artifactKind == PreparedArtifactLinuxLaunch && p.linuxLaunch != nil
+}
+
+func (p PreparedLaunch) DockerSandbox() (*DockerSandboxSpec, bool) {
+	return copyDockerSandboxSpec(p.dockerSandbox), p.artifactKind == PreparedArtifactDockerSandbox && p.dockerSandbox != nil
+}
+
+func (p PreparedLaunch) RemoteEnvelope() (*RemoteEnvelope, bool) {
+	return copyRemoteEnvelope(p.remoteEnvelope), p.artifactKind == PreparedArtifactRemoteEnvelope && p.remoteEnvelope != nil
+}
+
+func (p PreparedLaunch) AcceptedGaps() []AcceptedGap {
+	return copyAcceptedGaps(p.acceptedGaps)
+}
+
+// DTO returns a serialization shape with explicit disclosure controls. The
+// zero scope redacts resolved host paths and policy text.
+func (p PreparedLaunch) DTO(scope PreparedLaunchDTOScope) PreparedLaunchDTO {
+	return PreparedLaunchDTO{
+		Plan:           planDTO(p.plan, scope),
+		ArtifactKind:   p.artifactKind,
+		DarwinSeatbelt: darwinSeatbeltDTO(p.darwinSeatbelt, scope),
+		LinuxLaunch:    copyLinuxLaunchSpec(p.linuxLaunch),
+		DockerSandbox:  dockerSandboxDTO(p.dockerSandbox, scope),
+		RemoteEnvelope: copyRemoteEnvelope(p.remoteEnvelope),
+		AcceptedGaps:   copyAcceptedGaps(p.acceptedGaps),
+	}
+}
+
+func (p PreparedLaunch) MarshalJSON() ([]byte, error) {
+	return nil, fmt.Errorf("sessionbackend.PreparedLaunch requires explicit DTO disclosure scope")
+}
+
+var _ json.Marshaler = PreparedLaunch{}
 
 func variantKind(variant ArtifactVariant) (ArtifactKind, int) {
 	var kind ArtifactKind
@@ -161,6 +241,50 @@ func validateAcceptedGaps(gaps []CapabilityGap, accepted []AcceptedGap) ([]Accep
 		}
 	}
 	return copyAcceptedGaps(accepted), nil
+}
+
+func planDTO(plan Plan, scope PreparedLaunchDTOScope) Plan {
+	out := copyPlan(plan)
+	if !scope.IncludeResolvedHostPaths {
+		out.ProjectDir = ""
+		out.ReadOnlyDirs = nil
+		out.ReadWriteDirs = nil
+		for i := range out.LifecycleArtifacts {
+			out.LifecycleArtifacts[i].Path = ""
+		}
+	}
+	return out
+}
+
+func darwinSeatbeltDTO(value *DarwinSeatbelt, scope PreparedLaunchDTOScope) *DarwinSeatbeltDTO {
+	if value == nil {
+		return nil
+	}
+	out := &DarwinSeatbeltDTO{}
+	if scope.IncludeResolvedHostPaths {
+		out.PolicyPath = value.PolicyPath
+	}
+	if scope.IncludePolicyText {
+		out.Policy = value.Policy
+	}
+	return out
+}
+
+func dockerSandboxDTO(value *DockerSandboxSpec, scope PreparedLaunchDTOScope) *DockerSandboxDTO {
+	if value == nil {
+		return nil
+	}
+	out := &DockerSandboxDTO{
+		Name:          value.Name,
+		Agent:         value.Agent,
+		PolicyProfile: value.PolicyProfile,
+	}
+	if scope.IncludeResolvedHostPaths {
+		out.ProjectDir = value.ProjectDir
+		out.MountReadDirs = copyStrings(value.MountReadDirs)
+		out.MountWriteDirs = copyStrings(value.MountWriteDirs)
+	}
+	return out
 }
 
 func copyPlan(plan Plan) Plan {

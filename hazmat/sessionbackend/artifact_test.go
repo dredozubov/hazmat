@@ -1,12 +1,24 @@
 package sessionbackend
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
+
+func TestPreparedLaunchHasNoExportedAuthorityFields(t *testing.T) {
+	typ := reflect.TypeOf(PreparedLaunch{})
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.IsExported() {
+			t.Fatalf("PreparedLaunch field %s is exported", field.Name)
+		}
+	}
+}
 
 func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 	plan := BuildPlan(Input{
@@ -21,13 +33,15 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch: %v", err)
 	}
-	if prepared.ArtifactKind != PreparedArtifactDarwinSeatbelt || prepared.DarwinSeatbelt.PolicyPath != artifact.PolicyPath {
+	darwinSeatbelt, ok := prepared.DarwinSeatbelt()
+	if !ok || prepared.ArtifactKind() != PreparedArtifactDarwinSeatbelt || darwinSeatbelt.PolicyPath != artifact.PolicyPath {
 		t.Fatalf("PreparedLaunch = %+v", prepared)
 	}
 
 	artifact.PolicyPath = "/mutated"
 	plan.ProjectDir = "/mutated"
-	if prepared.DarwinSeatbelt.PolicyPath != "/private/tmp/hazmat.sb" || prepared.Plan.ProjectDir != "/workspace/project" {
+	darwinSeatbelt, _ = prepared.DarwinSeatbelt()
+	if darwinSeatbelt.PolicyPath != "/private/tmp/hazmat.sb" || prepared.Plan().ProjectDir != "/workspace/project" {
 		t.Fatalf("PreparedLaunch aliases caller input: %+v", prepared)
 	}
 }
@@ -85,8 +99,8 @@ func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch with accepted gap: %v", err)
 	}
-	if len(prepared.AcceptedGaps) != 1 || prepared.AcceptedGaps[0].Feature != GapNativeLaunch {
-		t.Fatalf("AcceptedGaps = %+v", prepared.AcceptedGaps)
+	if got := prepared.AcceptedGaps(); len(got) != 1 || got[0].Feature != GapNativeLaunch {
+		t.Fatalf("AcceptedGaps = %+v", got)
 	}
 }
 
@@ -116,7 +130,91 @@ func TestNewPreparedLaunchAllowsRemoteEnvelopePlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch remote envelope: %v", err)
 	}
-	if prepared.ArtifactKind != PreparedArtifactRemoteEnvelope || prepared.RemoteEnvelope.SchemaVersion != 1 {
+	remoteEnvelope, ok := prepared.RemoteEnvelope()
+	if !ok || prepared.ArtifactKind() != PreparedArtifactRemoteEnvelope || remoteEnvelope.SchemaVersion != 1 {
 		t.Fatalf("PreparedLaunch = %+v", prepared)
+	}
+}
+
+func TestPreparedLaunchRequiresExplicitDTOForJSON(t *testing.T) {
+	plan := BuildPlan(Input{
+		Target:       "codex",
+		Mode:         sessionmeta.ModeNative,
+		ProjectDir:   "/workspace/project",
+		ReadOnlyDirs: []string{"/workspace/reference"},
+		HostFacts:    hostfacts.ForGOOS("darwin"),
+	})
+	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
+		DarwinSeatbelt: &DarwinSeatbelt{
+			PolicyPath: "/private/tmp/hazmat.sb",
+			Policy:     `(allow file-read* (subpath "/workspace/project"))`,
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewPreparedLaunch: %v", err)
+	}
+
+	if _, err := json.Marshal(prepared); err == nil || !strings.Contains(err.Error(), "explicit DTO disclosure scope") {
+		t.Fatalf("MarshalJSON error = %v", err)
+	}
+
+	redacted, err := json.Marshal(prepared.DTO(PreparedLaunchDTOScope{}))
+	if err != nil {
+		t.Fatalf("marshal redacted DTO: %v", err)
+	}
+	for _, secret := range []string{"/workspace/project", "/workspace/reference", "/private/tmp/hazmat.sb", "(allow file-read*"} {
+		if strings.Contains(string(redacted), secret) {
+			t.Fatalf("redacted DTO leaked %q: %s", secret, string(redacted))
+		}
+	}
+
+	full, err := json.Marshal(prepared.DTO(PreparedLaunchDTOScope{IncludeResolvedHostPaths: true, IncludePolicyText: true}))
+	if err != nil {
+		t.Fatalf("marshal full DTO: %v", err)
+	}
+	for _, want := range []string{"/workspace/project", "/workspace/reference", "/private/tmp/hazmat.sb", "(allow file-read*"} {
+		if !strings.Contains(string(full), want) {
+			t.Fatalf("full DTO missing %q: %s", want, string(full))
+		}
+	}
+}
+
+func TestPreparedLaunchDockerDTORedactsResolvedHostPaths(t *testing.T) {
+	plan := BuildPlan(Input{
+		Target:        "claude",
+		Mode:          sessionmeta.ModeDockerSandbox,
+		ProjectDir:    "/workspace/project",
+		ReadOnlyDirs:  []string{"/workspace/reference"},
+		ReadWriteDirs: []string{"/workspace/cache"},
+		HostFacts:     hostfacts.ForGOOS("darwin"),
+	})
+	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
+		DockerSandbox: &DockerSandboxSpec{
+			Name:           "hazmat-claude-project-abcdef",
+			Agent:          "claude",
+			ProjectDir:     "/workspace/project",
+			PolicyProfile:  "baseline",
+			MountReadDirs:  []string{"/workspace/reference"},
+			MountWriteDirs: []string{"/workspace/cache"},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewPreparedLaunch: %v", err)
+	}
+
+	redacted := prepared.DTO(PreparedLaunchDTOScope{})
+	if redacted.Plan.ProjectDir != "" || len(redacted.Plan.ReadOnlyDirs) != 0 || len(redacted.Plan.ReadWriteDirs) != 0 {
+		t.Fatalf("redacted plan leaked paths: %+v", redacted.Plan)
+	}
+	if redacted.DockerSandbox.ProjectDir != "" || len(redacted.DockerSandbox.MountReadDirs) != 0 || len(redacted.DockerSandbox.MountWriteDirs) != 0 {
+		t.Fatalf("redacted docker DTO leaked paths: %+v", redacted.DockerSandbox)
+	}
+
+	full := prepared.DTO(PreparedLaunchDTOScope{IncludeResolvedHostPaths: true})
+	if full.Plan.ProjectDir != "/workspace/project" || full.DockerSandbox.ProjectDir != "/workspace/project" {
+		t.Fatalf("full DTO missing project paths: %+v", full)
+	}
+	if len(full.DockerSandbox.MountReadDirs) != 1 || full.DockerSandbox.MountReadDirs[0] != "/workspace/reference" {
+		t.Fatalf("full DTO MountReadDirs = %+v", full.DockerSandbox.MountReadDirs)
 	}
 }
