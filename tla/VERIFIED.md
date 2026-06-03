@@ -115,10 +115,10 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
 | Governed code | `hazmat/init.go` — `runInit()` and root setup resource callbacks not yet split from `package main` |
-| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, and setup verification order |
+| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, setup verification order, and sudoers entry construction/install runtime |
 | Governed code | `hazmat/internal/setup/darwin/*.go` — Darwin account, firewall/DNS/LaunchDaemon/launch-helper, and sudoers-removal setup/rollback runtime effects |
 | Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
-| Governed code | `hazmat/sudoers.go` — launch-helper sudoers entry construction/install, optional agent-maintenance sudoers choice/install, and config command |
+| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice, config command, and compatibility wrappers for sudoers runtime |
 | Governed code | `hazmat/rollback.go` — `runRollback()` and root rollback resource callbacks not yet split from `package main` |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean` |
@@ -145,12 +145,12 @@ The principle: **grant privilege last, revoke privilege first.**
 states (65,662 generated, ~3s with liveness enabled).
 
 **2026-06-03 package-split confirmation:** Phase K moved setup/rollback
-resource ordering and setup verification order into `internal/setup`, and
-moved Darwin account plus service runtime effects into `internal/setup/darwin`
-behind root adapters. No modeled resource order or rollback preservation
-semantics changed. `MC_SetupRollback` was re-run with TLC and reported "No
-error has been found" across the same state space: 65,662 generated states,
-35,005 distinct states, depth 56.
+resource ordering, setup verification order, and sudoers entry runtime into
+`internal/setup`, and moved Darwin account plus service runtime effects into
+`internal/setup/darwin` behind root adapters. No modeled resource order or
+rollback preservation semantics changed. `MC_SetupRollback` was re-run with
+TLC and reported "No error has been found" across the same state space: 65,662
+generated states, 35,005 distinct states, depth 56.
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -307,7 +307,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
 | Governed code | `hazmat/internal/setup/rollback.go` — rollback resource ordering after migration rollback dispatch |
-| Governed code | `hazmat/sudoers.go` — optional current-version sudoers artifact |
+| Governed code | `hazmat/internal/setup/sudoers.go`, `hazmat/sudoers.go` — optional current-version sudoers artifact |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
 | Governed code | `hazmat/internal/state/state.go`, `hazmat/state.go` — core init version persistence for `~/.hazmat/state.json` (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
