@@ -85,10 +85,6 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 	}
 }
 
-func buildSessionContractPlan(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.Plan {
-	return sessioncontract.BuildPlan(buildSessionContractPlanInput(target, cfg, mode, skipSnapshot))
-}
-
 func buildSessionContractPlanInput(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.PlanInput {
 	return sessioncontract.PlanInput{
 		Target:                target,

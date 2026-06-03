@@ -19,34 +19,12 @@ func resolveDir(target string, defaultToCwd bool) (string, error) {
 	return pathpolicy.ResolveDir(target, defaultToCwd)
 }
 
-func resolveProjectRoot(project string) (string, error) {
-	root, err := sessionrequest.ResolveProjectRoot(project, true, currentPathDenyPolicy())
-	if err != nil {
-		if isDenyZoneError(err) {
-			return "", err
-		}
-		return "", fmt.Errorf("project: %w", err)
-	}
-	return root.String(), nil
-}
-
 func resolveReadOnlyGrantDirs(paths []string) ([]string, error) {
 	grants, err := sessionrequest.ResolveReadOnlyGrants(paths, currentPathDenyPolicy())
 	if err != nil {
 		return nil, err
 	}
 	return readOnlyGrantDirs(grants), nil
-}
-
-func resolveReadWriteGrantDirs(paths []string) ([]string, error) {
-	grants, err := sessionrequest.ResolveReadWriteGrants(paths, currentPathDenyPolicy())
-	if err != nil {
-		if isDenyZoneError(err) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("write dirs: %w", err)
-	}
-	return readWriteGrantDirs(grants), nil
 }
 
 func resolveValidatedSessionRequest(project string, readPaths, writePaths []string) (sessionrequest.Request, error) {
@@ -117,17 +95,6 @@ func currentPathDenyPolicy() pathpolicy.DenyPolicy {
 }
 
 func readOnlyGrantDirs(grants []pathpolicy.ReadOnlyGrant) []string {
-	if len(grants) == 0 {
-		return nil
-	}
-	dirs := make([]string, 0, len(grants))
-	for _, grant := range grants {
-		dirs = append(dirs, grant.String())
-	}
-	return dirs
-}
-
-func readWriteGrantDirs(grants []pathpolicy.ReadWriteGrant) []string {
 	if len(grants) == 0 {
 		return nil
 	}
