@@ -62,14 +62,6 @@ func hostWrapperPath(name string) string {
 	return filepath.Join(hostWrapperDir(), name)
 }
 
-func agentEnvContent() string {
-	return setup.AgentEnvContent(defaultAgentPath)
-}
-
-func hostWrapperContent(hazmatBin, subcommand string) string {
-	return setup.HostWrapperContent(hazmatBin, subcommand)
-}
-
 func managedBlock(start, end string, lines ...string) string {
 	return setup.ManagedBlock(start, end, lines...)
 }
