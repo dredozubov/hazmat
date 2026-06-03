@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"bytes"
@@ -62,24 +62,6 @@ func geminiOAuthStorePathForHome(home string) string {
 
 func geminiAccountsStorePathForHome(home string) string {
 	return mustCredentialStorePathForHome(home, credentialHarnessGeminiAccounts)
-}
-
-func readHostStoredSecretFile(path string) ([]byte, bool, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	return raw, true, nil
-}
-
-func writeHostStoredSecretFile(path string, raw []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(path, raw, 0o600)
 }
 
 func usesManagedAgentPath(path string) bool {

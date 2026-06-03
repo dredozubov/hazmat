@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"hazmat/hostfacts"
 	linuxplatform "hazmat/platform/linux"
 )
 
@@ -313,6 +314,6 @@ func TestRenderRepoSetupDetails(t *testing.T) {
 func stubExplainPlatformReport(t *testing.T, report *linuxplatform.Report) func() {
 	t.Helper()
 	saved := explainPlatformReport
-	explainPlatformReport = func() *linuxplatform.Report { return report }
+	explainPlatformReport = func(_ hostfacts.Facts) *linuxplatform.Report { return report }
 	return func() { explainPlatformReport = saved }
 }

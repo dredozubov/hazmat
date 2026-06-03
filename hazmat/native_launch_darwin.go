@@ -1,10 +1,11 @@
 //go:build darwin
 
-package main
+package hazmat
 
 import (
-	"fmt"
 	"os"
+
+	darwinruntime "hazmat/internal/runtime/darwin"
 )
 
 type darwinNativeLaunchBackend struct{}
@@ -14,21 +15,17 @@ func newNativeLaunchBackend() nativeLaunchBackend {
 }
 
 func (darwinNativeLaunchBackend) PreparePolicy(req nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error) {
-	policy := generateSBPL(req.Config)
-	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
-	if err := os.WriteFile(policyFile, []byte(policy), 0o644); err != nil {
-		return nativeLaunchPolicyArtifact{}, fmt.Errorf("write seatbelt policy: %w", err)
+	policy, err := generateSBPLChecked(req.Config)
+	if err != nil {
+		return nativeLaunchPolicyArtifact{}, err
 	}
-	if err := os.Chmod(policyFile, 0o644); err != nil {
-		_ = os.Remove(policyFile)
-		return nativeLaunchPolicyArtifact{}, fmt.Errorf("set seatbelt policy mode: %w", err)
+	artifact, err := darwinruntime.PreparePolicy(policy, os.Getpid())
+	if err != nil {
+		return nativeLaunchPolicyArtifact{}, err
 	}
-
 	return nativeLaunchPolicyArtifact{
-		Path: policyFile,
-		cleanup: func() {
-			_ = os.Remove(policyFile)
-		},
+		Path:    artifact.Path,
+		cleanup: artifact.Cleanup,
 	}, nil
 }
 
@@ -43,40 +40,26 @@ func (b darwinNativeLaunchBackend) CommandSudoArgs(req nativeLaunchCommandReques
 	// sandbox application.
 	// env -i runs *inside* the sandbox so the environment is set after the
 	// privilege boundary is crossed.
-	full := []string{
-		"-u", agentUser,
-		launchHelperPath(), req.Policy.Path,
-	}
-	if req.MetadataJSON != "" {
-		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)
-	}
-	full = append(full, "/usr/bin/env", "-i")
-	full = append(full, b.AgentEnvPairs(nativeLaunchEnvRequest{Config: req.Config, Plan: req.Plan})...)
-	full = append(full, req.RuntimeEnvPairs...)
-	full = append(full, "/bin/zsh", "-lc", req.Script, "zsh")
-	full = append(full, req.Args...)
-	return full
+	return darwinruntime.CommandSudoArgs(darwinruntime.CommandRequest{
+		AgentUser:        agentUser,
+		LaunchHelperPath: launchHelperPath(),
+		PolicyPath:       req.Policy.Path,
+		MetadataJSON:     req.MetadataJSON,
+		EnvPairs:         b.AgentEnvPairs(nativeLaunchEnvRequest{Config: req.Config, Plan: req.Plan}),
+		RuntimeEnvPairs:  req.RuntimeEnvPairs,
+		Script:           req.Script,
+		Args:             req.Args,
+	})
 }
 
 func (darwinNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []string {
 	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
-		Shell:      "/bin/zsh",
-		Path:       defaultAgentPath,
-		TmpDir:     defaultAgentTmpDir,
-		CacheHome:  defaultAgentCacheHome,
-		ConfigHome: defaultAgentConfigHome,
-		DataHome:   defaultAgentDataHome,
-		PlatformPairs: []string{
-			"HOMEBREW_NO_AUTO_UPDATE=1",
-			// CGO compilation: the /usr/bin/cc shim dispatches through
-			// xcode-select which may resolve to Xcode.app (outside the
-			// seatbelt). Set CC/CXX directly to CommandLineTools compilers
-			// and SDKROOT so clang can find system headers without probing
-			// restricted paths.
-			"DEVELOPER_DIR=/Library/Developer/CommandLineTools",
-			"SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
-			"CC=/Library/Developer/CommandLineTools/usr/bin/cc",
-			"CXX=/Library/Developer/CommandLineTools/usr/bin/c++",
-		},
+		Shell:         "/bin/zsh",
+		Path:          defaultAgentPath,
+		TmpDir:        defaultAgentTmpDir,
+		CacheHome:     defaultAgentCacheHome,
+		ConfigHome:    defaultAgentConfigHome,
+		DataHome:      defaultAgentDataHome,
+		PlatformPairs: darwinruntime.PlatformEnvPairs(),
 	})
 }

@@ -1,6 +1,6 @@
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS  ?= -trimpath
-LDFLAGS  := -X main.version=$(VERSION)
+LDFLAGS  := -X hazmat.version=$(VERSION)
 HOST_PLATFORM := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 INSTALL_PLATFORM ?= $(HOST_PLATFORM)
 
@@ -28,7 +28,7 @@ all: hazmat hazmat-launch
 
 hazmat:
 	@rm -f $(HAZMAT_BUILD_BIN)
-	cd $(APP_DIR) && go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat .
+	cd $(APP_DIR) && go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat ./cmd/hazmat
 
 configure-debug-trace:
 	bash scripts/configure-debug-trace.sh

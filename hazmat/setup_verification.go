@@ -1,6 +1,9 @@
-package main
+package hazmat
 
-import "fmt"
+import (
+	"fmt"
+	"hazmat/internal/setup"
+)
 
 type setupVerificationContext struct {
 	ui       *UI
@@ -20,91 +23,45 @@ type setupVerificationBackend interface {
 	verifyHostWrappers(*UI)
 }
 
-type setupVerificationStep struct {
-	name        string
-	tlaResource setupRollbackTLAResource
-	run         func(setupVerificationContext)
-}
+type setupVerificationStep = setup.VerificationStep
 
 func setupVerificationSteps() []setupVerificationStep {
-	return []setupVerificationStep{
-		{
-			name:        "verifyAgentUser",
-			tlaResource: tlaResourceAgentUser,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyAgentUser(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyAgentHome",
-			tlaResource: tlaResourceAgentUser,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyAgentHome(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyHomeDirTraverse",
-			tlaResource: tlaResourceHomeDirTraverse,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyHomeDirTraverse(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyPfAnchorLoaded",
-			tlaResource: tlaResourcePfAnchor,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyPfAnchorLoaded(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyPfEnabled",
-			tlaResource: tlaResourcePfAnchor,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyPfEnabled(ctx.ui)
-			},
-		},
-		{
-			name:        "verifySudoers",
-			tlaResource: tlaResourceSudoers,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifySudoers(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyDNSBlocklist",
-			tlaResource: tlaResourceDNSBlocklist,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyDNSBlocklist(ctx.ui)
-			},
-		},
-		{
-			name:        "verifySeatbeltWrapper",
-			tlaResource: tlaResourceSeatbelt,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifySeatbeltWrapper(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyAgentEnv",
-			tlaResource: tlaResourceWrappers,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyAgentEnv(ctx.ui)
-			},
-		},
-		{
-			name:        "verifyHostWrappers",
-			tlaResource: tlaResourceWrappers,
-			run: func(ctx setupVerificationContext) {
-				ctx.verifier.verifyHostWrappers(ctx.ui)
-			},
-		},
-	}
+	return setup.VerificationSteps(setup.VerificationCallbacks{})
 }
 
-func runSetupVerificationSteps(ctx setupVerificationContext) {
-	for _, step := range setupVerificationSteps() {
-		step.run(ctx)
-	}
+func runSetupVerificationSteps(ctx setupVerificationContext) error {
+	return setup.RunVerificationSteps(setup.VerificationCallbacks{
+		AgentUser: func() {
+			ctx.verifier.verifyAgentUser(ctx.ui)
+		},
+		AgentHome: func() {
+			ctx.verifier.verifyAgentHome(ctx.ui)
+		},
+		HomeDirTraverse: func() {
+			ctx.verifier.verifyHomeDirTraverse(ctx.ui)
+		},
+		PfAnchorLoaded: func() {
+			ctx.verifier.verifyPfAnchorLoaded(ctx.ui)
+		},
+		PfEnabled: func() {
+			ctx.verifier.verifyPfEnabled(ctx.ui)
+		},
+		Sudoers: func() {
+			ctx.verifier.verifySudoers(ctx.ui)
+		},
+		DNSBlocklist: func() {
+			ctx.verifier.verifyDNSBlocklist(ctx.ui)
+		},
+		SeatbeltWrapper: func() {
+			ctx.verifier.verifySeatbeltWrapper(ctx.ui)
+		},
+		AgentEnv: func() {
+			ctx.verifier.verifyAgentEnv(ctx.ui)
+		},
+		HostWrappers: func() {
+			ctx.verifier.verifyHostWrappers(ctx.ui)
+		},
+	})
 }
 
 // verifySetup re-checks key invariants after all steps complete.
@@ -115,8 +72,10 @@ func verifySetup(ui *UI) {
 	ui.Step("Verify setup")
 	fmt.Println()
 
-	runSetupVerificationSteps(setupVerificationContext{
+	if err := runSetupVerificationSteps(setupVerificationContext{
 		ui:       ui,
 		verifier: newSetupVerificationBackend(),
-	})
+	}); err != nil {
+		ui.TestFail(fmt.Sprintf("setup verification misconfigured: %v", err))
+	}
 }

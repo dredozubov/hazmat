@@ -34,7 +34,8 @@ ordering**, not Kopia internals:
 |------|-----------|
 | `hazmat/kopia_wrapper.go` | `initLocalRepo()`, `openLocalRepo()`, `snapshotDir()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()`, `restoreSnapshotTo()` |
 | `hazmat/restore.go` | `runProjectRestore()` |
-| `hazmat/session.go` | `preSessionSnapshot()`, session commands (`shell`, `exec`, `claude`, `opencode`) |
+| `hazmat/internal/backupruntime/session.go` | `PreSessionSnapshot()` |
+| `hazmat/session.go` | `preSessionSnapshot()` wrapper and session commands (`shell`, `exec`, `claude`, `opencode`) |
 | `hazmat/backup.go` | `newBackupCmd()`, `backupBuiltinExcludes` |
 
 ## Operation Paths (as implemented)

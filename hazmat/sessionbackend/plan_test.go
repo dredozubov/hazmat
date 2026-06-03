@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
 
@@ -17,7 +18,7 @@ func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 		NetworkMode:        sessionmeta.NetworkNone,
 		Integrations:       []string{"go"},
 		IntegrationEnvKeys: []string{"GOROOT", "GOPATH"},
-		GOOS:               "darwin",
+		HostFacts:          hostfacts.ForGOOS("darwin"),
 	}
 
 	plan := BuildPlan(input)
@@ -47,11 +48,21 @@ func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 
 func TestBuildPlanReportsLinuxNativeGap(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode: sessionmeta.ModeNative,
-		GOOS: "linux",
+		Mode:      sessionmeta.ModeNative,
+		HostFacts: hostfacts.ForGOOS("linux"),
 	})
 	if plan.Backend != KindLinuxNative {
 		t.Fatalf("Backend = %q", plan.Backend)
+	}
+	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != GapNativeLaunch {
+		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
+	}
+}
+
+func TestBuildPlanRequiresExplicitGOOSForNative(t *testing.T) {
+	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative})
+	if plan.Backend != KindUnsupportedNative {
+		t.Fatalf("Backend = %q, want %q", plan.Backend, KindUnsupportedNative)
 	}
 	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != GapNativeLaunch {
 		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
@@ -62,7 +73,7 @@ func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 	plan := BuildPlan(Input{
 		Mode:               sessionmeta.ModeDockerSandbox,
 		IntegrationEnvKeys: []string{"NPM_CONFIG_REGISTRY", "GOPROXY"},
-		GOOS:               "darwin",
+		HostFacts:          hostfacts.ForGOOS("darwin"),
 	})
 	if plan.Backend != KindDockerSandbox {
 		t.Fatalf("Backend = %q", plan.Backend)
@@ -75,5 +86,12 @@ func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 	}
 	if len(plan.LifecycleArtifacts) != 1 || plan.LifecycleArtifacts[0].Kind != ArtifactDockerSandbox {
 		t.Fatalf("LifecycleArtifacts = %v", plan.LifecycleArtifacts)
+	}
+}
+
+func TestRemoteEnvelopeBackendReportsPlanOnlyGap(t *testing.T) {
+	gaps := capabilityGaps(Input{}, KindRemoteEnvelope)
+	if len(gaps) != 1 || gaps[0].Feature != GapRemoteLaunch {
+		t.Fatalf("capabilityGaps(remote-envelope) = %v", gaps)
 	}
 }

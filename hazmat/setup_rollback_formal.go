@@ -1,22 +1,24 @@
-package main
+package hazmat
 
-type setupRollbackTLAResource string
+import "hazmat/internal/setup"
+
+type setupRollbackTLAResource = setup.Resource
 
 const (
-	tlaResourceAgentUser          setupRollbackTLAResource = "agentUser"
-	tlaResourceDevGroup           setupRollbackTLAResource = "devGroup"
-	tlaResourceHomeDirTraverse    setupRollbackTLAResource = "homeDirTraverse"
-	tlaResourceLocalRepo          setupRollbackTLAResource = "localRepo"
-	tlaResourceHardeningGaps      setupRollbackTLAResource = "umask+hostCredentialModes"
-	tlaResourceUmask              setupRollbackTLAResource = "umask"
-	tlaResourceSeatbelt           setupRollbackTLAResource = "seatbelt"
-	tlaResourceWrappers           setupRollbackTLAResource = "wrappers"
-	tlaResourcePfAnchor           setupRollbackTLAResource = "pfAnchor"
-	tlaResourceDNSBlocklist       setupRollbackTLAResource = "dnsBlocklist"
-	tlaResourceLaunchDaemon       setupRollbackTLAResource = "launchDaemon"
-	tlaResourceLaunchHelper       setupRollbackTLAResource = "launchHelper"
-	tlaResourceSudoers            setupRollbackTLAResource = "sudoers"
-	tlaResourceMaintenanceSudoers setupRollbackTLAResource = "maintenanceSudoers"
-	tlaResourceClaudeCode         setupRollbackTLAResource = "claudeCode"
-	tlaResourceCredentials        setupRollbackTLAResource = "credentials"
+	tlaResourceAgentUser          = setup.ResourceAgentUser
+	tlaResourceDevGroup           = setup.ResourceDevGroup
+	tlaResourceHomeDirTraverse    = setup.ResourceHomeDirTraverse
+	tlaResourceLocalRepo          = setup.ResourceLocalRepo
+	tlaResourceHardeningGaps      = setup.ResourceHardeningGaps
+	tlaResourceUmask              = setup.ResourceUmask
+	tlaResourceSeatbelt           = setup.ResourceSeatbelt
+	tlaResourceWrappers           = setup.ResourceWrappers
+	tlaResourcePfAnchor           = setup.ResourcePfAnchor
+	tlaResourceDNSBlocklist       = setup.ResourceDNSBlocklist
+	tlaResourceLaunchDaemon       = setup.ResourceLaunchDaemon
+	tlaResourceLaunchHelper       = setup.ResourceLaunchHelper
+	tlaResourceSudoers            = setup.ResourceSudoers
+	tlaResourceMaintenanceSudoers = setup.ResourceMaintenanceSudoers
+	tlaResourceClaudeCode         = setup.ResourceClaudeCode
+	tlaResourceCredentials        = setup.ResourceCredentials
 )

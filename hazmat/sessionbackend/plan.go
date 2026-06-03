@@ -1,9 +1,9 @@
 package sessionbackend
 
 import (
-	"runtime"
 	"sort"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
 
@@ -15,6 +15,7 @@ const (
 	KindDockerSandbox      Kind   = "docker-sandbox"
 	KindUnsupportedNative  Kind   = "unsupported-native"
 	GapNativeLaunch        string = "native-launch"
+	GapRemoteLaunch        string = "remote-launch"
 	GapIntegrationEnv      string = "integration-env-passthrough"
 	ArtifactSeatbeltPolicy string = "seatbelt-policy"
 	ArtifactDockerSandbox  string = "docker-sandbox"
@@ -40,7 +41,7 @@ type Input struct {
 	NetworkMode        sessionmeta.NetworkMode
 	Integrations       []string
 	IntegrationEnvKeys []string
-	GOOS               string
+	HostFacts          hostfacts.Facts
 }
 
 type Plan struct {
@@ -58,11 +59,8 @@ type Plan struct {
 }
 
 func BuildPlan(input Input) Plan {
-	goos := input.GOOS
-	if goos == "" {
-		goos = runtime.GOOS
-	}
-	backend := BackendFor(input.Mode, goos)
+	facts := input.HostFacts.Normalized()
+	backend := BackendFor(input.Mode, facts.TargetGOOS())
 	plan := Plan{
 		Target:             input.Target,
 		Mode:               input.Mode,
@@ -109,6 +107,11 @@ func capabilityGaps(input Input, backend Kind) []CapabilityGap {
 		gaps = append(gaps, CapabilityGap{
 			Feature: GapNativeLaunch,
 			Reason:  "Native launch is not implemented for this platform.",
+		})
+	case KindRemoteEnvelope:
+		gaps = append(gaps, CapabilityGap{
+			Feature: GapRemoteLaunch,
+			Reason:  "Remote launch envelopes are plan-only; worker admission and runner semantics are not implemented yet.",
 		})
 	}
 	if backend == KindDockerSandbox && len(input.IntegrationEnvKeys) > 0 {

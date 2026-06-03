@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"bytes"
@@ -79,8 +79,8 @@ func TestConfigSSHUnsetCommandRemovesOnlyProjectConfig(t *testing.T) {
 		t.Fatalf("runConfigSSHAdd: %v", err)
 	}
 
-	unsetCmd := newConfigSSHCmd()
-	unsetCmd.SetArgs([]string{"unset"})
+	unsetCmd := newConfigCmd()
+	unsetCmd.SetArgs([]string{"ssh", "unset"})
 	if err := unsetCmd.Execute(); err != nil {
 		t.Fatalf("unset cmd.Execute: %v", err)
 	}

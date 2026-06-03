@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package hazmat
 
 func platformIntegrationConfig() integrationPlatformConfig {
 	return integrationPlatformConfig{

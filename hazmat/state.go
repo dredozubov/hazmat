@@ -1,100 +1,41 @@
-package main
+package hazmat
 
 import (
-	"encoding/json"
 	"fmt"
+	"hazmat/internal/harnessruntime"
+	statestore "hazmat/internal/state"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // stateFilePath is where hazmat records core init state and harness metadata.
 var stateFilePath = filepath.Join(os.Getenv("HOME"), ".hazmat/state.json")
 
+type HarnessState = statestore.HarnessState
+
 // HazmatState tracks the installed core version and any managed harness state.
-type HazmatState struct {
-	InitVersion string                     `json:"init_version"`
-	InitDate    string                     `json:"init_date"`
-	Harnesses   map[HarnessID]HarnessState `json:"harnesses,omitempty"`
-}
+type HazmatState = statestore.Snapshot
 
 func loadState() (HazmatState, error) {
-	data, err := os.ReadFile(stateFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return HazmatState{}, nil // no state = fresh install
-		}
-		return HazmatState{}, err
-	}
-	var s HazmatState
-	if err := json.Unmarshal(data, &s); err != nil {
-		return HazmatState{}, err
-	}
-	return s, nil
+	return stateStore().Load()
 }
 
 func saveState(ver string) error {
-	s, err := loadState()
-	if err != nil {
-		s = HazmatState{}
-	}
-	s.InitVersion = ver
-	s.InitDate = time.Now().UTC().Format(time.RFC3339)
-	return writeState(s)
+	return stateStore().SaveVersion(ver)
 }
 
 func updateHarnessState(id HarnessID, mutate func(HarnessState) HarnessState) error {
-	s, err := loadState()
-	if err != nil {
-		return err
-	}
-	if s.Harnesses == nil {
-		s.Harnesses = make(map[HarnessID]HarnessState)
-	}
-	s.Harnesses[id] = mutate(s.Harnesses[id])
-	return writeState(s)
+	return harnessruntime.UpdateHarnessState(stateStore(), id, mutate)
 }
 
 func removeHarnessState(id HarnessID) error {
-	s, err := loadState()
-	if err != nil {
-		return err
-	}
-	if s.Harnesses == nil {
-		return nil
-	}
-	if _, ok := s.Harnesses[id]; !ok {
-		return nil
-	}
-	delete(s.Harnesses, id)
-	if len(s.Harnesses) == 0 {
-		s.Harnesses = nil
-	}
-	if s.InitVersion == "" && s.InitDate == "" && len(s.Harnesses) == 0 {
-		if err := os.Remove(stateFilePath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	return writeState(s)
+	return harnessruntime.RemoveHarnessState(stateStore(), id)
 }
 
-func writeState(s HazmatState) error {
-	dir := filepath.Dir(stateFilePath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(stateFilePath, append(data, '\n'), 0o600)
-}
-
-func (s HazmatState) hasHarnessState() bool {
-	return len(s.Harnesses) > 0
+func stateStore() statestore.Store {
+	return statestore.Store{Path: stateFilePath}
 }
 
 // semverCompare returns -1, 0, or 1 comparing a and b as semver strings.

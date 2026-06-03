@@ -1,0 +1,25 @@
+{
+  "backend": "linux-native",
+  "capability_gaps": [
+    {
+      "feature": "native-launch",
+      "reason": "Linux native launch is currently plan-only; the guarded launch helper is not implemented yet."
+    }
+  ],
+  "integration_env_keys": [
+    "GOROOT"
+  ],
+  "integrations": [
+    "go"
+  ],
+  "mode": "native",
+  "network_mode": "none",
+  "project_dir": "/Users/dr/workspace/project",
+  "read_only_dirs": [
+    "/Users/dr/workspace/reference"
+  ],
+  "read_write_dirs": [
+    "/Users/dr/workspace/project/.cache"
+  ],
+  "target": "shell"
+}

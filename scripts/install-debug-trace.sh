@@ -21,7 +21,7 @@ echo "hazmat-debug: building developer trace binary..."
 (
 	cd "$REPO_ROOT/hazmat"
 	# shellcheck disable=SC2086
-	GOFLAGS= go build $GOFLAGS_VALUE -tags hazmat_debug -ldflags "$LDFLAGS_VALUE" -o "$DEBUG_BIN" .
+	GOFLAGS= go build $GOFLAGS_VALUE -tags hazmat_debug -ldflags "$LDFLAGS_VALUE" -o "$DEBUG_BIN" ./cmd/hazmat
 )
 chmod 0755 "$DEBUG_BIN"
 

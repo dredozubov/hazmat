@@ -1,6 +1,7 @@
-package main
+package hazmat
 
 import (
+	"hazmat/internal/setup"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,8 @@ func TestHostCredentialHardeningSpecsCoverCredentialDenySubs(t *testing.T) {
 	t.Parallel()
 
 	specs := make(map[string]struct{})
-	for _, spec := range hostCredentialHardeningSpecs {
-		specs[filepath.ToSlash(spec.rel)] = struct{}{}
+	for _, spec := range setup.HostCredentialHardeningSpecs {
+		specs[filepath.ToSlash(spec.Rel)] = struct{}{}
 	}
 	for _, sub := range credentialDenySubs {
 		rel := strings.TrimPrefix(sub, "/")
@@ -36,10 +37,10 @@ func TestHostCredentialHardeningTargetsRestrictExistingPaths(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 
-	targets, skipped := hostCredentialHardeningTargets(home)
+	targets, skipped := setup.HostCredentialHardeningTargets(home)
 	got := make(map[string]os.FileMode)
 	for _, target := range targets {
-		got[target.path] = target.mode
+		got[target.Path] = target.Mode
 	}
 
 	for path, want := range map[string]os.FileMode{

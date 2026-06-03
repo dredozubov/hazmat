@@ -1,0 +1,54 @@
+{
+  "agent_home": {
+    "path": "/home/agent"
+  },
+  "backend": "linux-native",
+  "capability_gaps": [
+    {
+      "code": "linux-native-launch-helper-missing",
+      "message": "Linux native launch helper is not implemented; spec is plan-only"
+    }
+  ],
+  "credential_denies": [
+    {
+      "path": "/home/agent/.ssh"
+    },
+    {
+      "path": "/home/agent/.aws"
+    }
+  ],
+  "format_version": 1,
+  "mounts": [
+    {
+      "access": "read-write",
+      "source": "/workspace/project",
+      "target": "/workspace/project"
+    },
+    {
+      "access": "read-only",
+      "source": "/opt/sdk",
+      "target": "/opt/sdk"
+    },
+    {
+      "access": "read-only",
+      "source": "/workspace/reference",
+      "target": "/workspace/reference"
+    }
+  ],
+  "network": {
+    "deny_all_egress": true,
+    "loopback": true,
+    "mode": "none",
+    "use_network_namespace": true
+  },
+  "phase": "plan-only",
+  "process": {
+    "close_inherited_fds": true,
+    "drop_capabilities": true,
+    "no_new_privs": true
+  },
+  "temp": {
+    "path": "/tmp/hazmat-session",
+    "tmpfs": true
+  }
+}

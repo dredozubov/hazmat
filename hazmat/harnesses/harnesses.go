@@ -1,0 +1,144 @@
+package harnesses
+
+import "fmt"
+
+type ID string
+
+const (
+	Claude      ID = "claude"
+	Codex       ID = "codex"
+	OpenCode    ID = "opencode"
+	Gemini      ID = "gemini"
+	Hermes      ID = "hermes"
+	Qwen        ID = "qwen"
+	CursorAgent ID = "cursor-agent"
+)
+
+const (
+	ClaudeStateVersion      = "1"
+	CodexStateVersion       = "1"
+	OpenCodeStateVersion    = "1"
+	GeminiStateVersion      = "1"
+	HermesStateVersion      = "1"
+	QwenStateVersion        = "1"
+	CursorAgentStateVersion = "1"
+)
+
+type Spec struct {
+	ID           ID
+	DisplayName  string
+	StateVersion string
+}
+
+type ImportPolicy struct {
+	Supported bool
+	Boundary  string
+}
+
+type Metadata struct {
+	Spec             Spec
+	LaunchCommand    string
+	BootstrapCommand string
+	ImportPolicy     ImportPolicy
+}
+
+var builtinMetadata = []Metadata{
+	{
+		Spec:             Spec{ID: Claude, DisplayName: "Claude Code", StateVersion: ClaudeStateVersion},
+		LaunchCommand:    "hazmat claude",
+		BootstrapCommand: "hazmat bootstrap claude",
+		ImportPolicy: ImportPolicy{
+			Supported: true,
+			Boundary:  "portable Claude auth, settings, hooks, and project basics",
+		},
+	},
+	{
+		Spec:             Spec{ID: Codex, DisplayName: "Codex", StateVersion: CodexStateVersion},
+		LaunchCommand:    "hazmat codex",
+		BootstrapCommand: "hazmat bootstrap codex",
+		ImportPolicy: ImportPolicy{
+			Supported: true,
+			Boundary:  "portable Codex auth, config, prompts, and session basics",
+		},
+	},
+	{
+		Spec:             Spec{ID: OpenCode, DisplayName: "OpenCode", StateVersion: OpenCodeStateVersion},
+		LaunchCommand:    "hazmat opencode",
+		BootstrapCommand: "hazmat bootstrap opencode",
+		ImportPolicy: ImportPolicy{
+			Supported: true,
+			Boundary:  "portable OpenCode auth, config, command, and agent basics",
+		},
+	},
+	{
+		Spec:             Spec{ID: Gemini, DisplayName: "Gemini", StateVersion: GeminiStateVersion},
+		LaunchCommand:    "hazmat gemini",
+		BootstrapCommand: "hazmat bootstrap gemini",
+		ImportPolicy: ImportPolicy{
+			Supported: true,
+			Boundary:  "file-backed Gemini OAuth, accounts, settings, and memory basics; Keychain OAuth remains external",
+		},
+	},
+	{
+		Spec:             Spec{ID: Hermes, DisplayName: "Hermes", StateVersion: HermesStateVersion},
+		LaunchCommand:    "hazmat hermes",
+		BootstrapCommand: "hazmat bootstrap hermes",
+		ImportPolicy: ImportPolicy{
+			Supported: false,
+			Boundary:  "Hermes v1 has no curated import; manual executable, profile roots, and provider state are preserved",
+		},
+	},
+	{
+		Spec:             Spec{ID: Qwen, DisplayName: "Qwen Code", StateVersion: QwenStateVersion},
+		LaunchCommand:    "hazmat qwen",
+		BootstrapCommand: "hazmat bootstrap qwen",
+		ImportPolicy: ImportPolicy{
+			Supported: false,
+			Boundary:  "Qwen v1 has no curated import; contained profile state and host asset sync boundaries are preserved",
+		},
+	},
+	{
+		Spec:             Spec{ID: CursorAgent, DisplayName: "Cursor Agent", StateVersion: CursorAgentStateVersion},
+		LaunchCommand:    "hazmat cursor-agent",
+		BootstrapCommand: "hazmat bootstrap cursor-agent",
+		ImportPolicy: ImportPolicy{
+			Supported: false,
+			Boundary:  "Cursor Agent v1 has no curated import; host Cursor IDE state, host ~/.cursor profile state, and host auth settings are not imported",
+		},
+	},
+}
+
+func BuiltinMetadata() []Metadata {
+	out := make([]Metadata, len(builtinMetadata))
+	copy(out, builtinMetadata)
+	return out
+}
+
+func MetadataByID(id ID) (Metadata, bool) {
+	for _, metadata := range builtinMetadata {
+		if metadata.Spec.ID == id {
+			return metadata, true
+		}
+	}
+	return Metadata{}, false
+}
+
+func MustMetadata(id ID) Metadata {
+	metadata, ok := MetadataByID(id)
+	if !ok {
+		panic(fmt.Sprintf("missing harness metadata %q", id))
+	}
+	return metadata
+}
+
+func SpecByID(id ID) (Spec, bool) {
+	metadata, ok := MetadataByID(id)
+	if !ok {
+		return Spec{}, false
+	}
+	return metadata.Spec, true
+}
+
+func MustSpec(id ID) Spec {
+	return MustMetadata(id).Spec
+}

@@ -1,0 +1,1 @@
+integration "bad-read-dir": read_dir "/Users/agent/.ssh" is a credential deny path

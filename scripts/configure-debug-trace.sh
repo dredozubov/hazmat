@@ -37,7 +37,7 @@ Usage: scripts/configure-debug-trace.sh [--target darwin|linux]
 Checks the host prerequisites required before compiling or running the
 hazmat_debug trace command. A successful check means developers can build with:
 
-  go build -tags hazmat_debug ./hazmat
+  go build -tags hazmat_debug ./hazmat/cmd/hazmat
 EOF
 			exit 0
 			;;
@@ -161,4 +161,4 @@ package main
 
 const traceDebugConfigured = true
 EOF
-echo "configure-debug-trace: build with: go build -tags hazmat_debug ./hazmat"
+echo "configure-debug-trace: build with: go build -tags hazmat_debug ./hazmat/cmd/hazmat"

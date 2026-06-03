@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 type nativeAccountBackend interface {
 	SetupAgentUser(ui *UI, r *Runner) error

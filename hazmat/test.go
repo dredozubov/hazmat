@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"bytes"
@@ -24,58 +24,62 @@ import (
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/upload"
 	"golang.org/x/sys/unix"
+
+	"hazmat/internal/diagnostics"
 )
 
 func runTest(quick bool) error {
 	ui := &UI{}
+	return diagnostics.RunCheck(quick, diagnostics.CheckSuite{
+		Begin: func(quick bool) (diagnostics.CheckContext, error) {
+			fmt.Println()
+			cBold.Println("  ┌──────────────────────────────────────────────┐")
+			cBold.Println("  │  Hazmat verification suite                   │")
+			cBold.Println("  └──────────────────────────────────────────────┘")
+			fmt.Println()
+			fmt.Println("  Modes:")
+			fmt.Println("    hazmat check          Quick checks (no external traffic)")
+			fmt.Println("    hazmat check --full   Full suite including live network probes")
+			fmt.Println()
 
-	fmt.Println()
-	cBold.Println("  ┌──────────────────────────────────────────────┐")
-	cBold.Println("  │  Hazmat verification suite                   │")
-	cBold.Println("  └──────────────────────────────────────────────┘")
-	fmt.Println()
-	fmt.Println("  Modes:")
-	fmt.Println("    hazmat check          Quick checks (no external traffic)")
-	fmt.Println("    hazmat check --full   Full suite including live network probes")
-	fmt.Println()
+			cu, err := user.Current()
+			if err != nil {
+				return diagnostics.CheckContext{}, fmt.Errorf("cannot determine current user: %w", err)
+			}
+			fmt.Printf("  Running as: %s\n", cu.Username)
+			fmt.Printf("  Agent user: %s\n", agentUser)
+			if quick {
+				cYellow.Println("  Quick mode: live network tests skipped")
+			}
+			fmt.Println()
 
-	cu, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("cannot determine current user: %w", err)
-	}
-	fmt.Printf("  Running as: %s\n", cu.Username)
-	fmt.Printf("  Agent user: %s\n", agentUser)
-	if quick {
-		cYellow.Println("  Quick mode: live network tests skipped")
-	}
-	fmt.Println()
-
-	// Resolve the binary path once; used for agent TCP probes.
-	selfPath, _ := os.Executable()
-
-	testAgentUser(ui)
-	testDevGroupAndWorkspace(ui, cu.Username)
-	testUserIsolation(ui, cu.Username)
-	testHardeningGaps(ui)
-	testPasswordlessSudo(ui)
-	testPfFirewallStatic(ui)
-	testPfFirewallLive(ui, quick, selfPath)
-	testDNSBlocklist(ui)
-	testPersistence(ui)
-	testCredentialInventory(ui)
-	testAgentTools(ui)
-	testCommandSurface(ui)
-	testSeatbelt(ui)
-	testProjectToolchain(ui)
-	testLocalSnapshot(ui)
-	testCloudBackup(ui)
-	testCloudRestore(ui)
-	testDecommission(ui)
-
-	if ui.Summary() {
-		os.Exit(1)
-	}
-	return nil
+			selfPath, _ := os.Executable()
+			return diagnostics.CheckContext{
+				CurrentUser: cu.Username,
+				SelfPath:    selfPath,
+			}, nil
+		},
+		AgentUser:            func() { testAgentUser(ui) },
+		DevGroupAndWorkspace: func(currentUser string) { testDevGroupAndWorkspace(ui, currentUser) },
+		UserIsolation:        func(currentUser string) { testUserIsolation(ui, currentUser) },
+		HardeningGaps:        func() { testHardeningGaps(ui) },
+		PasswordlessSudo:     func() { testPasswordlessSudo(ui) },
+		PFFirewallStatic:     func() { testPfFirewallStatic(ui) },
+		PFFirewallLive:       func(quick bool, selfPath string) { testPfFirewallLive(ui, quick, selfPath) },
+		DNSBlocklist:         func() { testDNSBlocklist(ui) },
+		Persistence:          func() { testPersistence(ui) },
+		CredentialInventory:  func() { testCredentialInventory(ui) },
+		AgentTools:           func() { testAgentTools(ui) },
+		CommandSurface:       func() { testCommandSurface(ui) },
+		Seatbelt:             func() { testSeatbelt(ui) },
+		ProjectToolchain:     func() { testProjectToolchain(ui) },
+		LocalSnapshot:        func() { testLocalSnapshot(ui) },
+		CloudBackup:          func() { testCloudBackup(ui) },
+		CloudRestore:         func() { testCloudRestore(ui) },
+		Decommission:         func() { testDecommission(ui) },
+		Finish:               ui.Summary,
+		Exit:                 os.Exit,
+	})
 }
 
 // ── Step 1: Agent user ────────────────────────────────────────────────────────

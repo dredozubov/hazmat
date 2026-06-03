@@ -1,0 +1,25 @@
+{
+  "backend": "unsupported-native",
+  "capability_gaps": [
+    {
+      "feature": "native-launch",
+      "reason": "Native launch is not implemented for this platform."
+    }
+  ],
+  "integration_env_keys": [
+    "GOROOT"
+  ],
+  "integrations": [
+    "go"
+  ],
+  "mode": "native",
+  "network_mode": "none",
+  "project_dir": "/Users/dr/workspace/project",
+  "read_only_dirs": [
+    "/Users/dr/workspace/reference"
+  ],
+  "read_write_dirs": [
+    "/Users/dr/workspace/project/.cache"
+  ],
+  "target": "shell"
+}

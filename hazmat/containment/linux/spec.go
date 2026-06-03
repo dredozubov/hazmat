@@ -5,7 +5,6 @@ package linuxspec
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"hazmat/containment"
 	platformlinux "hazmat/platform/linux"
@@ -126,40 +125,7 @@ func MarshalJSON(spec LaunchSpec) ([]byte, error) {
 }
 
 func validateContract(contract containment.Contract) error {
-	if contract.Project.Path == "" {
-		return fmt.Errorf("project path is required")
-	}
-	if contract.Project.Access != "" && contract.Project.Access != containment.PathReadWrite {
-		return fmt.Errorf("project path must be read-write")
-	}
-	if contract.AgentHome.Path == "" {
-		return fmt.Errorf("agent home path is required")
-	}
-	if contract.Temp.Path == "" {
-		return fmt.Errorf("temp path is required")
-	}
-	switch sessionmeta.NormalizeNetworkMode(contract.Network.Mode) {
-	case sessionmeta.NetworkDefault, sessionmeta.NetworkNone:
-	default:
-		return fmt.Errorf("unsupported network mode %q", contract.Network.Mode)
-	}
-	for _, deny := range contract.CredentialDenies {
-		if deny.Path == "" {
-			return fmt.Errorf("credential deny path is required")
-		}
-		grants := []containment.PathGrant{contract.Project}
-		grants = append(grants, contract.ReadOnlyDirs...)
-		grants = append(grants, contract.ReadWriteDirs...)
-		for _, grant := range grants {
-			if grant.Path == "" {
-				return fmt.Errorf("path grant is required")
-			}
-			if overlapsCredentialDeny(grant.Path, deny.Path) {
-				return fmt.Errorf("path grant %q overlaps credential deny path %q", grant.Path, deny.Path)
-			}
-		}
-	}
-	return nil
+	return contract.Validate()
 }
 
 func compileMounts(contract containment.Contract) []BindMount {
@@ -241,8 +207,4 @@ func capabilityGaps(report platformlinux.Report) []CapabilityGap {
 		}
 	}
 	return gaps
-}
-
-func overlapsCredentialDeny(grantPath, denyPath string) bool {
-	return containment.IsWithinDir(grantPath, denyPath) || containment.IsWithinDir(denyPath, grantPath)
 }

@@ -1,0 +1,102 @@
+{
+  "active_integrations": [
+    "go"
+  ],
+  "auto_read_only_dirs": [
+    "/opt/homebrew/Cellar/go/1.2.3/libexec"
+  ],
+  "credential_env_grants": [
+    {
+      "consumer_harness": "codex",
+      "credential_id": "provider.openai.api-key",
+      "env_var": "OPENAI_API_KEY",
+      "redacted": true,
+      "source": "host secret store"
+    }
+  ],
+  "format_version": 1,
+  "git_ssh_key": "id_ed25519",
+  "integration_details": [
+    "go: resolved GOROOT through Homebrew"
+  ],
+  "integration_env_keys": [
+    "GOPROXY",
+    "GOROOT"
+  ],
+  "integration_registry_env_keys": [
+    "GOPROXY"
+  ],
+  "integration_sources": [
+    "go (go.mod)"
+  ],
+  "integration_warnings": [
+    "Go integration warning"
+  ],
+  "mode": "native",
+  "mode_label": "Native containment",
+  "network_policy": {
+    "cleanup_required": false,
+    "deny_all_egress": false,
+    "effective": "default",
+    "enforced": true,
+    "enforcement": "native-seatbelt",
+    "requested": "default"
+  },
+  "planned_host_mutations": [
+    {
+      "detail": "may add bounded collaborative ACLs on /Users/dr/workspace/project",
+      "persistence": "persistent in project",
+      "proof_scope": "TLA+ model + tests/docs",
+      "summary": "project ACL repair"
+    }
+  ],
+  "project_dir": "/Users/dr/workspace/project",
+  "read_only_dirs": [
+    "/Users/dr/workspace/reference",
+    "/opt/homebrew/Cellar/go/1.2.3/libexec"
+  ],
+  "read_write_extensions": [
+    "/Users/dr/workspace/project/.cache"
+  ],
+  "repo_setup_applied": [
+    {
+      "class": "safe",
+      "kind": "read_only",
+      "sources": [
+        "Suggested by project files (go)"
+      ],
+      "value": "/opt/homebrew/Cellar/go/1.2.3/libexec"
+    }
+  ],
+  "repo_setup_pending": [
+    {
+      "class": "explicit",
+      "kind": "write",
+      "sources": [
+        "Learned from previous session denial"
+      ],
+      "value": "/Users/dr/workspace/project/.cache"
+    }
+  ],
+  "repo_setup_summary": "remembered (1 read-only path); additional approval required (1 write path)",
+  "routing_reason": "staying in native containment because docker: none is configured",
+  "service_access": [
+    "docker"
+  ],
+  "session_notes": [
+    "Docker files detected but disabled by config"
+  ],
+  "snapshot": {
+    "enabled": true,
+    "excludes": [
+      ".gocache/"
+    ]
+  },
+  "suggested_integrations": [
+    "node"
+  ],
+  "target": "shell",
+  "user_read_only_dirs": [
+    "/Users/dr/workspace/reference"
+  ]
+}

@@ -1,44 +1,33 @@
-package main
+package hazmat
 
 import (
 	"fmt"
-	"time"
+	"hazmat/harnesses"
+	"hazmat/internal/harnessruntime"
 )
 
-type HarnessID string
+type HarnessID = harnesses.ID
 
 const (
-	HarnessClaude                  HarnessID = "claude"
-	HarnessCodex                   HarnessID = "codex"
-	HarnessOpenCode                HarnessID = "opencode"
-	HarnessGemini                  HarnessID = "gemini"
-	HarnessHermes                  HarnessID = "hermes"
-	HarnessQwen                    HarnessID = "qwen"
-	HarnessCursorAgent             HarnessID = "cursor-agent"
-	claudeHarnessStateVersion                = "1"
-	codexHarnessStateVersion                 = "1"
-	opencodeHarnessStateVersion              = "1"
-	geminiHarnessStateVersion                = "1"
-	hermesHarnessStateVersion                = "1"
-	qwenHarnessStateVersion                  = "1"
-	cursorAgentHarnessStateVersion           = "1"
+	HarnessClaude                  HarnessID = harnesses.Claude
+	HarnessCodex                   HarnessID = harnesses.Codex
+	HarnessOpenCode                HarnessID = harnesses.OpenCode
+	HarnessGemini                  HarnessID = harnesses.Gemini
+	HarnessHermes                  HarnessID = harnesses.Hermes
+	HarnessQwen                    HarnessID = harnesses.Qwen
+	HarnessCursorAgent             HarnessID = harnesses.CursorAgent
+	claudeHarnessStateVersion                = harnesses.ClaudeStateVersion
+	codexHarnessStateVersion                 = harnesses.CodexStateVersion
+	opencodeHarnessStateVersion              = harnesses.OpenCodeStateVersion
+	geminiHarnessStateVersion                = harnesses.GeminiStateVersion
+	hermesHarnessStateVersion                = harnesses.HermesStateVersion
+	qwenHarnessStateVersion                  = harnesses.QwenStateVersion
+	cursorAgentHarnessStateVersion           = harnesses.CursorAgentStateVersion
 )
 
-type HarnessSpec struct {
-	ID           HarnessID
-	DisplayName  string
-	StateVersion string
-}
+type HarnessSpec = harnesses.Spec
 
-type HarnessState struct {
-	StateVersion    string `json:"state_version,omitempty"`
-	LastImportRunAt string `json:"last_import_run_at,omitempty"`
-}
-
-type harnessImportPolicy struct {
-	Supported bool
-	Boundary  string
-}
+type harnessImportPolicy = harnesses.ImportPolicy
 
 type ManagedHarness struct {
 	Spec                 HarnessSpec
@@ -68,15 +57,16 @@ var hermesHarness = HermesHarness{}
 var qwenHarness = QwenHarness{}
 var cursorAgentHarness = CursorAgentHarness{}
 
+func harnessMetadata(id HarnessID) harnesses.Metadata {
+	return harnesses.MustMetadata(id)
+}
+
 var managedHarnessRegistry = []ManagedHarness{
 	{
-		Spec:             claudeCodeHarness.Spec(),
-		LaunchCommand:    "hazmat claude",
-		BootstrapCommand: "hazmat bootstrap claude",
-		ImportPolicy: harnessImportPolicy{
-			Supported: true,
-			Boundary:  "portable Claude auth, settings, hooks, and project basics",
-		},
+		Spec:             harnessMetadata(HarnessClaude).Spec,
+		LaunchCommand:    harnessMetadata(HarnessClaude).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessClaude).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessClaude).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledClaudeBinary()
 			return ok
@@ -93,13 +83,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             codexHarness.Spec(),
-		LaunchCommand:    "hazmat codex",
-		BootstrapCommand: "hazmat bootstrap codex",
-		ImportPolicy: harnessImportPolicy{
-			Supported: true,
-			Boundary:  "portable Codex auth, config, prompts, and session basics",
-		},
+		Spec:             harnessMetadata(HarnessCodex).Spec,
+		LaunchCommand:    harnessMetadata(HarnessCodex).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessCodex).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessCodex).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledCodexBinary()
 			return ok
@@ -116,13 +103,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             openCodeHarness.Spec(),
-		LaunchCommand:    "hazmat opencode",
-		BootstrapCommand: "hazmat bootstrap opencode",
-		ImportPolicy: harnessImportPolicy{
-			Supported: true,
-			Boundary:  "portable OpenCode auth, config, command, and agent basics",
-		},
+		Spec:             harnessMetadata(HarnessOpenCode).Spec,
+		LaunchCommand:    harnessMetadata(HarnessOpenCode).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessOpenCode).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessOpenCode).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledOpenCodeBinary()
 			return ok
@@ -139,13 +123,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             geminiHarness.Spec(),
-		LaunchCommand:    "hazmat gemini",
-		BootstrapCommand: "hazmat bootstrap gemini",
-		ImportPolicy: harnessImportPolicy{
-			Supported: true,
-			Boundary:  "file-backed Gemini OAuth, accounts, settings, and memory basics; Keychain OAuth remains external",
-		},
+		Spec:             harnessMetadata(HarnessGemini).Spec,
+		LaunchCommand:    harnessMetadata(HarnessGemini).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessGemini).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessGemini).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledGeminiBinary()
 			return ok
@@ -161,13 +142,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             hermesHarness.Spec(),
-		LaunchCommand:    "hazmat hermes",
-		BootstrapCommand: "hazmat bootstrap hermes",
-		ImportPolicy: harnessImportPolicy{
-			Supported: false,
-			Boundary:  "Hermes v1 has no curated import; manual executable, profile roots, and provider state are preserved",
-		},
+		Spec:             harnessMetadata(HarnessHermes).Spec,
+		LaunchCommand:    harnessMetadata(HarnessHermes).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessHermes).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessHermes).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledHermesBinary()
 			return ok
@@ -184,13 +162,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             qwenHarness.Spec(),
-		LaunchCommand:    "hazmat qwen",
-		BootstrapCommand: "hazmat bootstrap qwen",
-		ImportPolicy: harnessImportPolicy{
-			Supported: false,
-			Boundary:  "Qwen v1 has no curated import; contained profile state and host asset sync boundaries are preserved",
-		},
+		Spec:             harnessMetadata(HarnessQwen).Spec,
+		LaunchCommand:    harnessMetadata(HarnessQwen).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessQwen).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessQwen).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledQwenBinary()
 			return ok
@@ -207,13 +182,10 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             cursorAgentHarness.Spec(),
-		LaunchCommand:    "hazmat cursor-agent",
-		BootstrapCommand: "hazmat bootstrap cursor-agent",
-		ImportPolicy: harnessImportPolicy{
-			Supported: false,
-			Boundary:  "Cursor Agent v1 has no curated import; host Cursor IDE, ~/.cursor, and auth state boundaries are preserved",
-		},
+		Spec:             harnessMetadata(HarnessCursorAgent).Spec,
+		LaunchCommand:    harnessMetadata(HarnessCursorAgent).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessCursorAgent).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessCursorAgent).ImportPolicy,
 		Installed: func() bool {
 			_, ok := findInstalledCursorAgentBinary()
 			return ok
@@ -222,7 +194,7 @@ var managedHarnessRegistry = []ManagedHarness{
 		ManagedCodeArtifacts: cursorAgentHarnessManagedCodeArtifacts,
 		PreservedArtifacts: []string{
 			agentHome + cursorAgentBinRel + " manual Cursor Agent executable",
-			agentHome + "/.cursor and Cursor Agent profile state",
+			agentHome + "/.cursor contained Cursor Agent profile state",
 			"host Cursor IDE state, host ~/.cursor, and host auth settings are not imported",
 		},
 		Bootstrap: func(ui *UI, r *Runner) error {
@@ -232,59 +204,31 @@ var managedHarnessRegistry = []ManagedHarness{
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessClaude,
-		DisplayName:  "Claude Code",
-		StateVersion: claudeHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessClaude)
 }
 
 func (CodexHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessCodex,
-		DisplayName:  "Codex",
-		StateVersion: codexHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessCodex)
 }
 
 func (OpenCodeHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessOpenCode,
-		DisplayName:  "OpenCode",
-		StateVersion: opencodeHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessOpenCode)
 }
 
 func (GeminiHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessGemini,
-		DisplayName:  "Gemini",
-		StateVersion: geminiHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessGemini)
 }
 
 func (HermesHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessHermes,
-		DisplayName:  "Hermes",
-		StateVersion: hermesHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessHermes)
 }
 
 func (QwenHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessQwen,
-		DisplayName:  "Qwen Code",
-		StateVersion: qwenHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessQwen)
 }
 
 func (CursorAgentHarness) Spec() HarnessSpec {
-	return HarnessSpec{
-		ID:           HarnessCursorAgent,
-		DisplayName:  "Cursor Agent",
-		StateVersion: cursorAgentHarnessStateVersion,
-	}
+	return harnesses.MustSpec(HarnessCursorAgent)
 }
 
 func (h ClaudeHarness) Bootstrap(ui *UI, r *Runner) error {
@@ -493,10 +437,6 @@ func installedManagedHarnesses() []ManagedHarness {
 	return installed
 }
 
-func harnessStateCurrent(state HarnessState, spec HarnessSpec) bool {
-	return state.StateVersion == spec.StateVersion
-}
-
 func formatInstalledHarnessNameForStatus(harness ManagedHarness, state HazmatState) string {
 	name := harness.Spec.DisplayName
 	if state.Harnesses == nil {
@@ -506,7 +446,7 @@ func formatInstalledHarnessNameForStatus(harness ManagedHarness, state HazmatSta
 	if !ok || recorded.StateVersion == "" {
 		return name + " (state missing)"
 	}
-	if !harnessStateCurrent(recorded, harness.Spec) {
+	if !harnessruntime.StateCurrent(recorded, harness.Spec) {
 		return fmt.Sprintf("%s (state v%s; want v%s)", name, recorded.StateVersion, harness.Spec.StateVersion)
 	}
 	return name
@@ -521,16 +461,9 @@ func formatInstalledHarnessNamesForStatus(installed []ManagedHarness, state Hazm
 }
 
 func recordHarnessInstalled(spec HarnessSpec) error {
-	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
-		state.StateVersion = spec.StateVersion
-		return state
-	})
+	return harnessruntime.RecordInstalled(stateStore(), spec)
 }
 
 func recordHarnessImportRun(spec HarnessSpec) error {
-	return updateHarnessState(spec.ID, func(state HarnessState) HarnessState {
-		state.StateVersion = spec.StateVersion
-		state.LastImportRunAt = time.Now().UTC().Format(time.RFC3339)
-		return state
-	})
+	return harnessruntime.RecordImportRun(stateStore(), spec)
 }

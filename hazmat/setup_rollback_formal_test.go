@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"reflect"
@@ -9,8 +9,8 @@ func TestInitSetupStepsMatchMCSetupRollbackResources(t *testing.T) {
 	got := make([]setupRollbackTLAResource, 0, len(initSetupSteps()))
 	gotNames := make([]string, 0, len(initSetupSteps()))
 	for _, step := range initSetupSteps() {
-		got = append(got, step.tlaResource)
-		gotNames = append(gotNames, step.name)
+		got = append(got, step.Resource)
+		gotNames = append(gotNames, step.Name)
 	}
 
 	want := []setupRollbackTLAResource{
@@ -42,8 +42,8 @@ func TestRollbackStepsMatchMCSetupRollbackResources(t *testing.T) {
 	gotCore := make([]setupRollbackTLAResource, 0, len(coreRollbackSteps()))
 	gotCoreNames := make([]string, 0, len(coreRollbackSteps()))
 	for _, step := range coreRollbackSteps() {
-		gotCore = append(gotCore, step.tlaResource)
-		gotCoreNames = append(gotCoreNames, step.name)
+		gotCore = append(gotCore, step.Resource)
+		gotCoreNames = append(gotCoreNames, step.Name)
 	}
 	wantCore := []setupRollbackTLAResource{
 		tlaResourceSudoers,
@@ -66,8 +66,8 @@ func TestRollbackStepsMatchMCSetupRollbackResources(t *testing.T) {
 	gotDestructive := make([]setupRollbackTLAResource, 0, len(destructiveRollbackSteps()))
 	gotDestructiveNames := make([]string, 0, len(destructiveRollbackSteps()))
 	for _, step := range destructiveRollbackSteps() {
-		gotDestructive = append(gotDestructive, step.tlaResource)
-		gotDestructiveNames = append(gotDestructiveNames, step.name)
+		gotDestructive = append(gotDestructive, step.Resource)
+		gotDestructiveNames = append(gotDestructiveNames, step.Name)
 	}
 	wantDestructive := []setupRollbackTLAResource{
 		tlaResourceAgentUser,
@@ -85,8 +85,8 @@ func TestSetupVerificationStepsReferenceMCSetupRollbackResources(t *testing.T) {
 	got := make([]setupRollbackTLAResource, 0, len(setupVerificationSteps()))
 	gotNames := make([]string, 0, len(setupVerificationSteps()))
 	for _, step := range setupVerificationSteps() {
-		got = append(got, step.tlaResource)
-		gotNames = append(gotNames, step.name)
+		got = append(got, step.Resource)
+		gotNames = append(gotNames, step.Name)
 	}
 
 	want := []setupRollbackTLAResource{

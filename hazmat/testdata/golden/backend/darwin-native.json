@@ -1,0 +1,25 @@
+{
+  "backend": "darwin-native",
+  "integration_env_keys": [
+    "GOROOT"
+  ],
+  "integrations": [
+    "go"
+  ],
+  "lifecycle_artifacts": [
+    {
+      "cleanup_required": true,
+      "kind": "seatbelt-policy"
+    }
+  ],
+  "mode": "native",
+  "network_mode": "none",
+  "project_dir": "/Users/dr/workspace/project",
+  "read_only_dirs": [
+    "/Users/dr/workspace/reference"
+  ],
+  "read_write_dirs": [
+    "/Users/dr/workspace/project/.cache"
+  ],
+  "target": "shell"
+}

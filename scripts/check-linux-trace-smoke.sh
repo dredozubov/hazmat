@@ -60,7 +60,7 @@ docker run --rm --privileged \
 		cd /work/src
 		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 scripts/configure-debug-trace.sh
 		cd /work/src/hazmat
-		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 go build -tags hazmat_debug -o /work/hazmat .
+		GOOS=linux GOARCH='"$GOARCH_VALUE"' CGO_ENABLED=0 go build -tags hazmat_debug -o /work/hazmat ./cmd/hazmat
 		rm -rf /work/out/*
 		script -q -c "/work/hazmat trace codex --out /work/out --name docker-smoke -- --help" /work/wrapper.typescript >/work/trace.out
 		bundle="$(find /work/out -mindepth 1 -maxdepth 1 -type d | head -n 1)"

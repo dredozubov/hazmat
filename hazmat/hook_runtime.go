@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"errors"
@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -43,64 +41,6 @@ type projectHookHooksPathDriftError struct {
 
 func (e *projectHookHooksPathDriftError) Error() string {
 	return fmt.Sprintf("git core.hooksPath drifted to %q (want %q)", e.ConfiguredHooksPath, e.WantedHooksPath)
-}
-
-func newGitHookWrapperCmd() *cobra.Command {
-	var projectDir string
-	cmd := &cobra.Command{
-		Use:    "_git-hook-wrapper",
-		Hidden: true,
-		Args:   cobra.ArbitraryArgs,
-		Run: func(_ *cobra.Command, args []string) {
-			if err := runProjectHookGitWrapper(projectDir, args); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-		},
-	}
-	cmd.Flags().StringVar(&projectDir, "project", "", "Canonical project directory")
-	_ = cmd.MarkFlagRequired("project")
-	return cmd
-}
-
-func newGitHookDispatchCmd() *cobra.Command {
-	var projectDir string
-	var hookName string
-	cmd := &cobra.Command{
-		Use:    "_git-hook-dispatch",
-		Hidden: true,
-		Args:   cobra.ArbitraryArgs,
-		Run: func(_ *cobra.Command, args []string) {
-			if err := runApprovedProjectHook(projectDir, hookType(hookName), args); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-		},
-	}
-	cmd.Flags().StringVar(&projectDir, "project", "", "Canonical project directory")
-	cmd.Flags().StringVar(&hookName, "hook", "", "Hook type")
-	_ = cmd.MarkFlagRequired("project")
-	_ = cmd.MarkFlagRequired("hook")
-	return cmd
-}
-
-func newGitHookFallbackCmd() *cobra.Command {
-	var projectDir string
-	var hookName string
-	cmd := &cobra.Command{
-		Use:    "_git-hook-fallback",
-		Hidden: true,
-		Args:   cobra.ArbitraryArgs,
-		Run: func(_ *cobra.Command, _ []string) {
-			fmt.Fprintln(os.Stderr, fallbackProjectHookRefusal(projectDir, hookType(hookName)))
-			os.Exit(1)
-		},
-	}
-	cmd.Flags().StringVar(&projectDir, "project", "", "Canonical project directory")
-	cmd.Flags().StringVar(&hookName, "hook", "", "Hook type")
-	_ = cmd.MarkFlagRequired("project")
-	_ = cmd.MarkFlagRequired("hook")
-	return cmd
 }
 
 func installProjectHookRuntime(projectDir, hazmatBinPath string) (*projectHookRuntime, error) {

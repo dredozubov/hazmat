@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"bytes"
@@ -16,6 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"hazmat/configmodel"
+	"hazmat/internal/backupruntime"
+	launchruntime "hazmat/internal/runtime"
 	"hazmat/sessionmeta"
 
 	"github.com/spf13/cobra"
@@ -59,14 +62,6 @@ type sessionLaunchUI struct {
 	waitForAltScreen bool
 }
 
-type dockerMode string
-
-const (
-	dockerModeAuto    dockerMode = "auto"
-	dockerModeNone    dockerMode = "none"
-	dockerModeSandbox dockerMode = "sandbox"
-)
-
 type dockerRequestSource string
 
 const (
@@ -93,6 +88,7 @@ type preparedSession struct {
 	Config           sessionConfig
 	Mode             sessionMode
 	BackendPlan      sessionBackendPlan
+	Runtime          launchruntime.Selection
 	HostMutationPlan sessionMutationPlan
 }
 
@@ -232,7 +228,7 @@ func newShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxShellSession(prepared)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
@@ -264,7 +260,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxExecSession(prepared, args)
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
@@ -332,7 +328,7 @@ Examples:
 				return err
 			}
 
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxClaudeSession(prepared, forwarded)
 			}
 
@@ -419,7 +415,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxOpenCodeSession(prepared, forwarded)
 			}
 			if detectOpenCodeResumeRequest(forwarded).requested {
@@ -683,7 +679,7 @@ func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error
 	if err != nil {
 		return err
 	}
-	if prepared.Mode == sessionModeDockerSandbox {
+	if prepared.Runtime.UsesDockerSandbox() {
 		return runPreparedSandboxCodexSession(prepared, forwarded)
 	}
 	if codexResumeRequested(forwarded) {
@@ -781,7 +777,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxGeminiSession(prepared, forwarded)
 			}
 			if geminiResumeRequested(forwarded) {
@@ -1173,46 +1169,15 @@ func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpe
 }
 
 func resolveSessionConfig(project string, readPaths, writePaths []string) (sessionConfig, error) {
-	projectDir, err := resolveDir(project, true)
-	if err != nil {
-		return sessionConfig{}, fmt.Errorf("project: %w", err)
-	}
-	if isCredentialDenyPath(projectDir) {
-		return sessionConfig{}, fmt.Errorf("project dir %q resolves to credential deny zone", projectDir)
-	}
-	if isHostStateDenyPath(projectDir) {
-		return sessionConfig{}, fmt.Errorf("project dir %q resolves to host-state deny zone", projectDir)
-	}
-
-	readDirs, err := resolveReadDirs(readPaths)
+	request, err := resolveValidatedSessionRequest(project, readPaths, writePaths)
 	if err != nil {
 		return sessionConfig{}, err
 	}
-	for _, dir := range readDirs {
-		if isCredentialDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("read dir %q resolves to credential deny zone", dir)
-		}
-		if isHostStateDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("read dir %q resolves to host-state deny zone", dir)
-		}
-	}
-	writeDirs, err := resolveReadDirs(writePaths)
-	if err != nil {
-		return sessionConfig{}, fmt.Errorf("write dirs: %w", err)
-	}
-	for _, dir := range writeDirs {
-		if isCredentialDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("write dir %q resolves to credential deny zone", dir)
-		}
-		if isHostStateDenyPath(dir) {
-			return sessionConfig{}, fmt.Errorf("write dir %q resolves to host-state deny zone", dir)
-		}
-	}
 
 	return sessionConfig{
-		ProjectDir:     projectDir,
-		ReadDirs:       readDirs,
-		WriteDirs:      writeDirs,
+		ProjectDir:     request.ProjectDir(),
+		ReadDirs:       request.ReadOnlyDirs(),
+		WriteDirs:      request.ReadWriteDirs(),
 		NetworkMode:    sessionNetworkDefault,
 		BackupExcludes: snapshotIgnoreRules(nil),
 	}, nil
@@ -1257,11 +1222,11 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		cfg.HarnessID = id
 	}
 	applyHarnessStaticSessionEnv(&cfg)
-	cfg.UserReadDirs, err = resolveReadDirs(userReadPaths)
+	cfg.UserReadDirs, err = resolveReadOnlyGrantDirs(userReadPaths)
 	if err != nil {
 		return preparedSession{}, err
 	}
-	cfg.AutoReadDirs, err = resolveReadDirs(autoReadPaths)
+	cfg.AutoReadDirs, err = resolveReadOnlyGrantDirs(autoReadPaths)
 	if err != nil {
 		return preparedSession{}, err
 	}
@@ -1342,10 +1307,16 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	harnessStateMutationPlan := buildHermesStateRootMutationPlan(cfg)
+	backendPlan := buildSessionBackendPlan(cfg, mode)
+	runtimeSelection, err := launchruntime.Select(backendPlan)
+	if err != nil {
+		return preparedSession{}, err
+	}
 	prepared := preparedSession{
 		Config:           cfg,
 		Mode:             mode,
-		BackendPlan:      buildSessionBackendPlan(cfg, mode),
+		BackendPlan:      backendPlan,
+		Runtime:          runtimeSelection,
 		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
@@ -1728,20 +1699,11 @@ var sharedDaemonSignalMatchers = []sharedDaemonSignalMatcher{
 }
 
 func validDockerMode(mode dockerMode) bool {
-	switch mode {
-	case dockerModeAuto, dockerModeNone, dockerModeSandbox:
-		return true
-	default:
-		return false
-	}
+	return configmodel.ValidDockerMode(mode)
 }
 
 func parseDockerMode(raw string) (dockerMode, error) {
-	mode := dockerMode(strings.ToLower(strings.TrimSpace(raw)))
-	if validDockerMode(mode) {
-		return mode, nil
-	}
-	return "", fmt.Errorf("invalid Docker mode %q (want auto, none, or sandbox)", raw)
+	return configmodel.ParseDockerMode(raw)
 }
 
 func resolveDockerRoutingRequest(projectDir string, opts harnessSessionOpts) (dockerRoutingRequest, error) {
@@ -2198,6 +2160,14 @@ func generateSBPL(cfg sessionConfig) string {
 	return compileDarwinSBPL(newNativeSessionPolicy(cfg))
 }
 
+func generateSBPLChecked(cfg sessionConfig) (string, error) {
+	policy, err := buildNativeSessionPolicy(cfg)
+	if err != nil {
+		return "", err
+	}
+	return compileDarwinSBPLChecked(policy)
+}
+
 func runPreparedAgentSeatbeltScript(prepared preparedSession, script string, args ...string) error {
 	return runPreparedAgentSeatbeltScriptWithUI(prepared, sessionLaunchUI{showStatusBar: true}, script, args...)
 }
@@ -2409,15 +2379,11 @@ func killSessionCommandAfter(cmd *exec.Cmd, waitDone <-chan struct{}, delay time
 // preSessionSnapshot takes an automatic snapshot before a session starts.
 // Warns on failure but never blocks the session.
 func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
-	if skip {
-		return
-	}
-	start := time.Now()
-	fmt.Fprintf(os.Stderr, "  Snapshot: %s ... ", cfg.ProjectDir)
-	if err := snapshotProject(cfg.ProjectDir, command, cfg.BackupExcludes...); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  Warning: pre-session snapshot failed: %v\n", err)
-		fmt.Fprintln(os.Stderr, "  Session will proceed without a restore point.")
-		return
-	}
-	fmt.Fprintf(os.Stderr, "done (%.1fs)\n", time.Since(start).Seconds())
+	backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
+		ProjectDir:     cfg.ProjectDir,
+		Command:        command,
+		BackupExcludes: cfg.BackupExcludes,
+		Skip:           skip,
+		Snapshot:       snapshotProject,
+	})
 }

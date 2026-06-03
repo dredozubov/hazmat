@@ -46,6 +46,7 @@ This boundary now governs the current implementation under:
 - `hazmat/hook_manifest.go`
 - `hazmat/hook_approval.go`
 - `hazmat/hook_runtime.go`
+- `hazmat/internal/hookruntime/commands.go`
 - `hazmat/hook_cli.go`
 - rollback cleanup in `hazmat/rollback.go`
 
@@ -109,7 +110,8 @@ cd tla
 bash check_suite.sh
 ```
 
-Observed TLC result for the promoted model:
+Observed TLC result for the promoted model, re-run on 2026-06-03 after moving
+the hidden hook command shells to `internal/hookruntime`:
 
 - `Model checking completed. No error has been found.`
 - `127,229,656 states generated`

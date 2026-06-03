@@ -29,7 +29,9 @@ gives them a dedicated home.
 | File | Functions |
 |------|-----------|
 | `hazmat/harness.go` | `RecordInstalled()`, `RecordBasicsImported()`, `recordHarnessInstalled()`, `recordHarnessImportRun()` |
-| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()`, `writeState()` |
+| `hazmat/internal/harnessruntime/state.go` | `StateCurrent()`, `RecordInstalled()`, `RecordImportRun()`, `UpdateHarnessState()`, `RemoveHarnessState()` |
+| `hazmat/internal/state/state.go` | `Snapshot`, `HarnessState`, `Store.Load()`, `Store.SaveVersion()`, `Store.Write()`, `Store.Remove()` |
+| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()` compatibility wrappers and migration helpers |
 | `hazmat/migrate.go` | `saveState()`, `runDownMigrations()` |
 | `hazmat/bootstrap.go` | Claude bootstrap path |
 | `hazmat/bootstrap_codex.go` | Codex bootstrap path |
@@ -122,13 +124,13 @@ cd tla/
   MC_HarnessLifecycle.tla
 ```
 
-Observed result:
+Observed result from the 2026-06-03 package-split refactor confirmation run:
 
 - `Model checking completed. No error has been found.`
-- `18,899,708 states generated`
-- `943,528 distinct states found`
-- `depth 15`
-- `Finished in 1m7s`
+- `25,164,502 states generated`
+- `633,107 distinct states found`
+- `depth 18`
+- `Finished in 1m47s`
 
 ## Interpretation
 
@@ -159,5 +161,6 @@ about when editing harness bootstrap/import flows.
    any user data beyond declared Hazmat-owned code artifacts.
 4. **Changing dry-run behavior**: if any harness dry-run starts writing state,
    update this model and revisit `DryRunLeavesStateUntouched`.
-5. **Changing how `saveState()` rewrites `~/.hazmat/state.json`**: update this
-   model first. The current proof requires harness metadata preservation.
+5. **Changing how `internal/state.Store.SaveVersion()` or `saveState()` rewrites
+   `~/.hazmat/state.json`**: update this model first. The current proof
+   requires harness metadata preservation.

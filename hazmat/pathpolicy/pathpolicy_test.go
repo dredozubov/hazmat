@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,128 @@ func TestDenyPolicyHostStateOverlap(t *testing.T) {
 	}
 	if policy.HostStateDenyPath(filepath.Join(home, ".codex", "prompts")) {
 		t.Fatal("expected narrow Codex assets to remain allowed")
+	}
+}
+
+func TestValidatedConstructorsRequireDenyPolicy(t *testing.T) {
+	dir := CanonicalDir{path: t.TempDir()}
+
+	_, err := NewProjectRoot(dir, DenyPolicy{})
+	if err == nil {
+		t.Fatal("expected zero deny policy to fail closed")
+	}
+	if !strings.Contains(err.Error(), "deny policy is required") {
+		t.Fatalf("error = %v, want deny policy requirement", err)
+	}
+}
+
+func TestValidatedConstructorsRejectZeroCanonicalDir(t *testing.T) {
+	policy := DefaultDenyPolicy("/Users/agent", t.TempDir())
+
+	_, err := NewProjectRoot(CanonicalDir{}, policy)
+	if err == nil {
+		t.Fatal("expected zero canonical dir to be rejected")
+	}
+	if !strings.Contains(err.Error(), "canonical dir is required") {
+		t.Fatalf("error = %v, want canonical dir requirement", err)
+	}
+}
+
+func TestValidatedConstructorsRejectCredentialDenyZones(t *testing.T) {
+	home := t.TempDir()
+	policy := DefaultDenyPolicy("/Users/agent", home)
+
+	tests := []struct {
+		name    string
+		resolve func() error
+		want    string
+	}{
+		{
+			name: "project",
+			resolve: func() error {
+				_, err := ResolveProjectRoot(home, false, policy)
+				return err
+			},
+			want: "project dir",
+		},
+		{
+			name: "read",
+			resolve: func() error {
+				_, err := ResolveReadOnlyGrant(home, policy)
+				return err
+			},
+			want: "read dir",
+		},
+		{
+			name: "write",
+			resolve: func() error {
+				_, err := ResolveReadWriteGrant(home, policy)
+				return err
+			},
+			want: "write dir",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.resolve()
+			if err == nil {
+				t.Fatal("expected credential deny zone rejection")
+			}
+			if !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "credential deny zone") {
+				t.Fatalf("error = %v, want %q credential deny zone", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidatedConstructorsRejectHostStateDenyZones(t *testing.T) {
+	home := t.TempDir()
+	hostState := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(hostState, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", hostState, err)
+	}
+	policy := DefaultDenyPolicy("/Users/agent", home)
+
+	tests := []struct {
+		name    string
+		resolve func() error
+		want    string
+	}{
+		{
+			name: "project",
+			resolve: func() error {
+				_, err := ResolveProjectRoot(hostState, false, policy)
+				return err
+			},
+			want: "project dir",
+		},
+		{
+			name: "read",
+			resolve: func() error {
+				_, err := ResolveReadOnlyGrant(hostState, policy)
+				return err
+			},
+			want: "read dir",
+		},
+		{
+			name: "write",
+			resolve: func() error {
+				_, err := ResolveReadWriteGrant(hostState, policy)
+				return err
+			},
+			want: "write dir",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.resolve()
+			if err == nil {
+				t.Fatal("expected host-state deny zone rejection")
+			}
+			if !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "host-state deny zone") {
+				t.Fatalf("error = %v, want %q host-state deny zone", err, tt.want)
+			}
+		})
 	}
 }
 

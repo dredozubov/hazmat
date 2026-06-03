@@ -114,9 +114,12 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 |-------|-------|
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
-| Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
-| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice |
-| Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
+| Governed code | `hazmat/init.go` — `runInit()` and remaining root setup resource callbacks not yet split from `package main` |
+| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, setup verification order, home traversal ACL resource logic, local snapshot repository resource flow, sudoers entry construction/install runtime, managed shell blocks, hardening runtime, zsh completion install/rollback runtime, Git safe.directory setup/rollback flow, and tooling wrapper setup/rollback runtime |
+| Governed code | `hazmat/internal/setup/darwin/*.go` — Darwin account, firewall/DNS/LaunchDaemon/launch-helper, and sudoers-removal setup/rollback runtime effects |
+| Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
+| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice, config command, and compatibility wrappers for sudoers runtime |
+| Governed code | `hazmat/rollback.go` — `runRollback()` and remaining root rollback resource callbacks not yet split from `package main` |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean` |
 | Status | **Fixed and Re-Proved** — containment before privilege in both setup and rollback, including the optional broader maintenance sudoers rule |
@@ -140,6 +143,18 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 The principle: **grant privilege last, revoke privilege first.**
 `AgentContained` and `CanAlwaysReachClean` now pass across all 35,005 reachable
 states (65,662 generated, ~3s with liveness enabled).
+
+**2026-06-03 package-split confirmation:** Phase K moved setup/rollback
+resource ordering, setup verification order, home traversal ACL resource
+logic, local snapshot repository resource flow, sudoers entry runtime, managed
+shell-block rendering, host credential hardening, zsh completion
+install/rollback runtime, Git safe.directory setup/rollback flow,
+seatbelt/tooling wrapper setup, and wrapper/umask rollback runtime into
+`internal/setup`, and moved Darwin account plus service runtime effects into
+`internal/setup/darwin` behind root adapters. No modeled resource order or
+rollback preservation semantics changed. `MC_SetupRollback` was re-run with TLC
+and reported "No error has been found" across the same state space: 65,662
+generated states, 35,005 distinct states, depth 56.
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -213,6 +228,13 @@ Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir
 4=agent home, 5=session temp, 6=project write re-assert, 7=temp socket denies,
 8=credential denies, 9=optional exact Claude agent login keychain exception.
 
+**2026-06-02 modular refactor confirmation:** Phase-1 package refactors moved
+native policy construction through validated `pathpolicy`, `containment`, and
+`sessionplanner` packages without changing the modeled SBPL section order or
+credential-deny boundary. `MC_SeatbeltPolicy` was re-run with TLC and reported
+"No error has been found" across 13,824 generated states, 12,672 distinct
+states, depth 11.
+
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
 native launch path now proves that precondition separately in
@@ -247,10 +269,11 @@ inherited credential-bearing fd still alive.
 | TLA+ files | `tla/MC_BackupSafety.tla`, `tla/MC_BackupSafety.cfg` |
 | Governed code | `hazmat/kopia_wrapper.go` — `openLocalRepo()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()` |
 | Governed code | `hazmat/restore.go` — `runProjectRestore()` |
-| Governed code | `hazmat/session.go` — `preSessionSnapshot()`, session commands |
+| Governed code | `hazmat/internal/backupruntime/session.go` — `PreSessionSnapshot()` |
+| Governed code | `hazmat/session.go` — `preSessionSnapshot()` wrapper and session command ordering |
 | Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt` |
 | Key liveness | `SessionEventuallyLaunches`, `RestoreEventuallyCompletes` |
-| Status | **Fixed** — cloud restore now takes pre-restore snapshot before overwriting |
+| Status | **Fixed and Re-Proved** — cloud restore takes a pre-restore snapshot before overwriting, and the pre-session snapshot trigger package split preserves backup ordering |
 
 **What was found:**
 
@@ -266,7 +289,8 @@ inherited credential-bearing fd still alive.
    `runProjectRestore()`. Failure is non-fatal (warn and proceed).
 
 The principle: **every overwrite must be preceded by a snapshot attempt.**
-`RestoreReversible` now passes across all 395 distinct states (<1s).
+`MC_BackupSafety` passed on 2026-06-03 with "No error has been found" across
+1,134 generated states and 395 distinct states (<1s).
 
 **Change rules:**
 - Adding a new restore path (e.g., restore from external drive) must include a
@@ -286,10 +310,11 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Spec | `tla/04_version_migration.md` |
 | TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
-| Governed code | `hazmat/sudoers.go` — optional current-version sudoers artifact |
+| Governed code | `hazmat/internal/setup/completion.go`, `hazmat/internal/setup/git_safe_directory.go`, `hazmat/internal/setup/rollback.go`, `hazmat/internal/setup/local_repo.go`, `hazmat/internal/setup/tooling.go` — rollback resource ordering and moved artifact removal after migration rollback dispatch |
+| Governed code | `hazmat/internal/setup/sudoers.go`, `hazmat/sudoers.go` — optional current-version sudoers artifact |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
-| Governed code | `~/.hazmat/state.json` — core init version tracking (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
+| Governed code | `hazmat/internal/state/state.go`, `hazmat/state.go` — core init version persistence for `~/.hazmat/state.json` (`harnesses` metadata is modeled separately by `MC_HarnessLifecycle`) |
 | Key invariants | `AgentContained`, `InitComplete`, `VersionConsistent`, `FailureRecoverable`, `MigrationForward`, `RollbackClean`, `RollbackAlwaysAvailable` |
 | Key liveness | `EventuallyComplete` |
 | Status | **Re-Proved** — 72,442 states, 234,101 transitions, 0 errors (3s) |
@@ -313,6 +338,15 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 
 4. **Failure recovery:** From any failed state, the user can either retry
    init (resume migration) or start rollback. No state is permanently stuck.
+
+**2026-06-03 package-split confirmation:** Phase K moved rollback resource
+ordering plus local snapshot repository, completion, Git safe.directory,
+wrapper, and umask artifact removal after migration rollback dispatch into
+`internal/setup` while keeping `runDownMigrations()` before core rollback. No
+migration version graph, artifact set, or state removal semantics changed.
+`MC_Migration` was re-run with TLC and reported "No error has been found"
+across the same state space: 234,101 generated states, 72,442 distinct states,
+depth 18.
 
 **What was found during spec development:**
 
@@ -343,8 +377,8 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 |-------|-------|
 | Spec | `tla/05_tier3_launch_containment.md` |
 | TLA+ files | `tla/MC_Tier3LaunchContainment.tla`, `tla/MC_Tier3LaunchContainment.cfg` |
-| Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
-| Governed code | `hazmat/integration_manifest.go` — `isCredentialDenyPath()` |
+| Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
+| Governed code | `hazmat/path_policy.go` — `isCredentialDenyPath()` |
 | Governed code | `hazmat/session.go` — `isWithinDir()` |
 | Key invariants | `CredentialPathsNeverMounted`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `BackendValidationBeforeLaunch`, `PolicyBeforeLaunch`, `ApprovalBeforeLaunch`, `IntegrationEnvRejected`, `ShellVersionGate`, `ExtraWorkspaceVersionGate` |
 | Status | **Fixed and Proved** — Tier 3 mount planning now rejects credential deny zones, filters covered read-only mounts, and preserves policy-before-launch gating |
@@ -376,6 +410,11 @@ The principle: **Tier 3 must prove its host-side launch boundary explicitly;
 it cannot inherit Tier 2's Seatbelt guarantees by implication.** TLC now
 passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 
+**2026-06-02 modular refactor confirmation:** Re-run as the companion check for
+the validated path constructor move and root/credential-deny handling review.
+`MC_Tier3LaunchContainment` reported "No error has been found" across 33,876
+generated states, 23,580 distinct states, depth 9.
+
 **Change rules:**
 - Any change to Tier 3 mount planning must preserve both properties:
   no credential-zone mounts and no redundant read-only mounts. Update the
@@ -397,9 +436,10 @@ passes across all 23,580 reachable states (33,876 generated, depth 9, ~1s).
 |-------|-------|
 | Spec | `tla/06_tier2_tier3_effective_policy_equivalence.md` |
 | TLA+ files | `tla/MC_TierPolicyEquivalence.tla`, `tla/MC_TierPolicyEquivalence.cfg` |
-| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()` |
-| Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunch()`, `buildSandboxLaunchSpec()` |
-| Governed code | `hazmat/integration_manifest.go` — `isCredentialDenyPath()` |
+| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()` |
+| Governed code | `hazmat/native_launch.go` — `agentEnvPairs()` |
+| Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()` |
+| Governed code | `hazmat/path_policy.go` — `isCredentialDenyPath()` |
 | Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `NetworkNoneBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
 | Status | **Proved** — exact Tier 2/Tier 3 identity is false by design, but the canonical core containment contract is equivalent across both backends |
 
@@ -425,6 +465,19 @@ The principle: **Hazmat may share one path-based containment contract across
 tiers, but it must not claim stronger backend identity than the implementation
 actually provides.** TLC passes across all 327,680 reachable states (655,360
 generated, depth 1, 17s).
+
+**2026-06-02 modular refactor confirmation:** The deny-zone rejection move from
+`resolveSessionConfig()` into typed path/request constructors preserved the
+modeled rejected-input set. Before the move, `resolveSessionConfig()` called
+`resolveDir()` / `resolveReadDirs()`, which delegated to
+`pathpolicy.ResolveDir()` -> `Canonicalize()` -> `filepath.EvalSymlinks()`
+before `isCredentialDenyPath()` / `isHostStateDenyPath()` ran. After the move,
+`ResolveProjectRoot`, `ResolveReadOnlyGrant`, and `ResolveReadWriteGrant`
+follow the same canonicalization path before `DenyPolicy.ValidateAllowedPath()`.
+The additional zero-value `DenyPolicy` rejection is a fail-closed constructor
+guard outside the modeled credential-input set. `MC_TierPolicyEquivalence` was
+re-run with TLC and reported "No error has been found" across 655,360 generated
+states, 327,680 distinct states, depth 1.
 
 **Change rules:**
 - Changes to project/read/write root normalization or credential-deny handling
@@ -500,8 +553,11 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 |-------|-------|
 | Spec | `tla/08_harness_lifecycle.md` |
 | TLA+ files | `tla/MC_HarnessLifecycle.tla`, `tla/MC_HarnessLifecycle.cfg` |
-| Governed code | `hazmat/harness.go` — harness state recording |
-| Governed code | `hazmat/state.go` — `saveState()`, `updateHarnessState()`, `writeState()` |
+| Governed code | `hazmat/harnesses/harnesses.go` — built-in harness IDs, declared state versions, launch/import metadata |
+| Governed code | `hazmat/harness.go` — harness state recording and runtime registry compatibility wrappers |
+| Governed code | `hazmat/internal/harnessruntime/state.go`, `hazmat/internal/harnessruntime/artifact.go`, `hazmat/internal/harnessruntime/uninstall.go`, `hazmat/internal/harnessruntime/install.go` — harness lifecycle state transition rules and managed artifact install/uninstall rules |
+| Governed code | `hazmat/internal/state/state.go` — host-owned state-file schema, persistence, and harness runtime store implementation |
+| Governed code | `hazmat/state.go` — root compatibility wrappers and migration helper entrypoints |
 | Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
@@ -527,8 +583,9 @@ The model includes Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor
 Agent. Hermes, Qwen, and Cursor Agent are modeled as built-in harnesses but are
 deliberately not importable in Phase 1.
 
-TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
-~1m7s).
+TLC was re-run on 2026-06-03 for the package-split refactor and reported "No
+error has been found" across 633,107 distinct states (25,164,502 generated,
+depth 18, ~1m47s).
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -549,20 +606,21 @@ TLC passes across all 943,528 reachable states (18,899,708 generated, depth 15,
 |-------|-------|
 | Spec | `tla/10_git_ssh_routing.md` |
 | TLA+ files | `tla/MC_GitSSHRouting.tla`, `tla/MC_GitSSHRouting.cfg` |
-| Governed code | `hazmat/config.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()` |
-| Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
+| Governed code | `hazmat/configmodel/ssh.go` — `ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()` |
+| Governed code | `hazmat/config.go` — `runConfigSSHAdd()`, `runConfigSSHRemove()` |
+| Governed code | `hazmat/git_ssh.go` — `resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
 | Key invariants | `DeterministicRouting`, `OverlapRejectedAtConfigTime`, `HostsOutsideAllowlistRejected`, `InlineKeysHaveDeclaredHosts`, `SocketsDistinctForPresent`, `NoDanglingProfileRefs`, `NoProfileInlineConflict`, `PresentKeysHaveIdentity`, `IdentitySourceClassified`, `NoCrossKey` |
 | Status | **Proved and Implemented** — multi-key routing (sandboxing-vmg1), reusable profile resolution (sandboxing-nm5o), any-host fallback retirement (sandboxing-qq9b), and typed Git SSH identity-source classification are implemented and covered by the routing model |
 
 **What this verifies:**
 
 1. **Deterministic routing:** for any destination host, a ready config
-   admits at most one configured key. The wrapper's `case` dispatch in
-   `buildGitSSHWrapperScript` matches this one-to-one structure.
+   admits at most one configured key. The transport broker's per-host key
+   selection in `selectSessionGitSSHKey()` matches this one-to-one structure.
 
 2. **Overlap is a config-set error:** a config where two keys match the
    same host is refused at config save time, not at session time.
-   `ValidateProjectSSHConfig` enforces the spec's
+   `configmodel.ValidateProjectSSHConfig` enforces the spec's
    `OverlapRejectedAtConfigTime` invariant.
 
 3. **Inline keys must declare hosts (legacy fallback retired):** every
@@ -630,10 +688,10 @@ script remain governed by unit tests rather than TLC.
 |-------|-------|
 | Spec | `tla/11_git_hook_approval.md` |
 | TLA+ files | `tla/MC_GitHookApproval.tla`, `tla/MC_GitHookApproval.cfg` |
-| Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/hook_cli.go` |
+| Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/internal/hookruntime/commands.go`, `hazmat/hook_cli.go` |
 | Governed code | `hazmat/rollback.go` — repo-local hook cleanup sweep |
 | Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
-| Status | **Proved and implemented** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup now ship behind the current hook command surface |
+| Status | **Proved, implemented, and re-proved** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup ship behind the current hook command surface, with hook hidden command shells housed in `internal/hookruntime` |
 
 **What this verifies:**
 
@@ -656,8 +714,8 @@ script remain governed by unit tests rather than TLC.
    activation does not grant future filesystem or network capability beyond the
    existing session contract.
 
-TLC passes across 2,179,200 distinct states (127,229,656 generated, depth 9,
-~3m).
+`MC_GitHookApproval` passed on 2026-06-03 with "No error has been found" across
+2,179,200 distinct states (127,229,656 generated, depth 9, 51s).
 
 **Scope boundary:**
 
@@ -689,7 +747,7 @@ invocation of a foreign `git` binary outside that managed path.
 | Spec | `tla/12_secret_store_recovery.md` |
 | TLA+ files | `tla/MC_SecretStoreRecovery.tla`, `tla/MC_SecretStoreRecovery.cfg` |
 | Governed code | `hazmat/harness_auth_runtime.go` — startup recovery, materialization, harvest, conflict archive |
-| Governed code | `hazmat/secret_store.go` — host/agent secret file read/write/remove helpers |
+| Governed code | `hazmat/secret_store.go`, `hazmat/internal/credentialruntime/store.go` — host/agent secret file read/write/remove helpers |
 | Key invariants | `LatestValueNeverSilentlyLost`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
 | Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value or leaving recovered idle state dependent on `/Users/agent` residue |
 
@@ -714,7 +772,7 @@ invocation of a foreign `git` binary outside that managed path.
    the model never exposes another harness's auth artifact under the agent
    home.
 
-TLC passes across 9,238 distinct states (34,723 generated, depth 28, <1s).
+TLC passes across 10,870 distinct states (41,251 generated, depth 29, 4s).
 
 **Scope boundary:**
 
@@ -746,7 +804,7 @@ baseline from a same-content rewrite.
 |-------|-------|
 | Spec | `tla/13_credential_capability_lifecycle.md` |
 | TLA+ files | `tla/MC_CredentialCapabilityLifecycle.tla`, `tla/MC_CredentialCapabilityLifecycle.cfg` |
-| Governed code | `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
+| Governed code | `hazmat/credentials/registry.go`, `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
 | Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
 | Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
 | Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoAgentResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
@@ -780,7 +838,7 @@ baseline from a same-content rewrite.
    archive, not only in `/Users/agent`.
 
 TLC passes across 8,351,181 distinct states (30,720,870 generated, depth 33,
-33m24s on the local 10-worker run).
+1h13m on the local 10-worker run).
 
 **Scope boundary:**
 
@@ -809,7 +867,7 @@ future specs, tests, and docs.
 | Spec | `tla/09_launch_fd_isolation.md` |
 | TLA+ files | `tla/MC_LaunchFDIsolation.tla`, `tla/MC_LaunchFDIsolation.cfg` |
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
-| Governed code | `hazmat/session.go` — `runAgentSeatbeltScriptWithUI()`, policy-file generation |
+| Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
 | Key invariants | `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent` |
 | Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only |
@@ -903,19 +961,19 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 
 | Spec | Files governed |
 |------|---------------|
-| `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
+| `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, remaining root setup callbacks; `hazmat/internal/setup/*.go`; `hazmat/internal/setup/darwin/*.go`; `hazmat/native_account*.go`; `hazmat/native_service*.go`; `hazmat/sudoers.go`; `hazmat/rollback.go:runRollback()`, remaining root rollback callbacks |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
-| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
-| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions |
-| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/integration_manifest.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
-| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/integration_manifest.go:isCredentialDenyPath()` |
+| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
+| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/internal/setup/rollback.go` rollback resource ordering after migration rollback dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
+| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
+| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`; `hazmat/native_launch.go:agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
-| `08_harness_lifecycle` | `hazmat/harness.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
-| `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runAgentSeatbeltScriptWithUI()`; `hazmat/cmd/hazmat-launch/main.go` |
-| `10_git_ssh_routing` | `hazmat/config.go:ValidateProjectSSHConfig()`, `NormalizedKeys()`, `runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareSSHIdentityRuntime()`, `buildGitSSHWrapperScript()`, `selectSessionGitSSHKey()` |
-| `11_git_hook_approval` | Repo-local hook approval command surface, snapshot execution helpers, and rollback cleanup under `hazmat/` |
-| `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go` |
-| `13_credential_capability_lifecycle` | `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
+| `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/internal/state/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
+| `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`; `hazmat/cmd/hazmat-launch/main.go` |
+| `10_git_ssh_routing` | `hazmat/configmodel/ssh.go:ValidateProjectSSHConfig()`, `ProjectSSHConfig.NormalizedKeys()`, `ValidateProjectSSHProfileRefs()`, `DetectLegacyFlatSSH()`; `hazmat/config.go:runConfigSSHAdd()`, `runConfigSSHRemove()`; `hazmat/git_ssh.go:resolveProjectSSHKeys()`, `prepareGitSSHRuntime()`, `startGitSSHTransportBroker()`, `runGitSSHTransportHelper()`, `selectSessionGitSSHKey()` |
+| `11_git_hook_approval` | Repo-local hook approval command surface, `hazmat/internal/hookruntime/commands.go`, snapshot execution helpers, and rollback cleanup under `hazmat/` |
+| `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go`; `hazmat/internal/credentialruntime/store.go` |
+| `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 
 ---

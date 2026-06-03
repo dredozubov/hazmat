@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"fmt"
@@ -55,7 +55,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxHermesSession(prepared, forwarded)
 			}
 			return runPreparedAgentSeatbeltScript(prepared, hermesLaunchScript(), forwarded...)

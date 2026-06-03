@@ -1,4 +1,4 @@
-package main
+package hazmat
 
 import (
 	"strings"
@@ -54,7 +54,7 @@ Examples:
 				return err
 			}
 			forwarded = qwenLaunchArgs(forwarded, qwenShouldSkipPermissions())
-			if prepared.Mode == sessionModeDockerSandbox {
+			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxQwenSession(prepared, forwarded)
 			}
 			return runPreparedAgentSeatbeltScript(prepared, qwenLaunchScript(), forwarded...)
