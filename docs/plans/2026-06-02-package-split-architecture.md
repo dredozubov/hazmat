@@ -6,6 +6,7 @@
 **Related docs:**
 [architecture](../architecture.md),
 [modular architecture direction](2026-06-02-modular-architecture-direction.md),
+[implementation roadmap](2026-06-03-package-split-implementation-roadmap.md),
 [remote launch envelope schema](2026-06-02-remote-launch-envelope-schema.md),
 [TLA+ verified areas](../../tla/VERIFIED.md)
 
