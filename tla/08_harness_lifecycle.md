@@ -31,7 +31,7 @@ gives them a dedicated home.
 | `hazmat/harness.go` | `RecordInstalled()`, `RecordBasicsImported()`, `recordHarnessInstalled()`, `recordHarnessImportRun()` |
 | `hazmat/internal/harnessruntime/state.go` | `StateCurrent()`, `RecordInstalled()`, `RecordImportRun()`, `UpdateHarnessState()`, `RemoveHarnessState()` |
 | `hazmat/internal/state/state.go` | `Snapshot`, `HarnessState`, `Store.Load()`, `Store.SaveVersion()`, `Store.Write()`, `Store.Remove()` |
-| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()`, `writeState()` compatibility wrappers and migration helpers |
+| `hazmat/state.go` | `loadState()`, `saveState()`, `updateHarnessState()` compatibility wrappers and migration helpers |
 | `hazmat/migrate.go` | `saveState()`, `runDownMigrations()` |
 | `hazmat/bootstrap.go` | Claude bootstrap path |
 | `hazmat/bootstrap_codex.go` | Codex bootstrap path |

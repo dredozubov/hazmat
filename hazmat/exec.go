@@ -11,10 +11,6 @@ func commandStdout(name string, args ...string) (string, error) {
 	return hostexec.CommandStdout(name, args...)
 }
 
-func commandStdoutCmd(cmd *exec.Cmd) (string, error) {
-	return hostexec.CommandStdoutCmd(cmd)
-}
-
 // newSudoCommand forces sudo to start from / so the target user never inherits
 // a host cwd it cannot traverse yet (for example during bootstrap before ACL
 // repair has happened). sudo itself is resolved to /usr/bin/sudo absolutely

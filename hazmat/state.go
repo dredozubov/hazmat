@@ -34,10 +34,6 @@ func removeHarnessState(id HarnessID) error {
 	return harnessruntime.RemoveHarnessState(stateStore(), id)
 }
 
-func writeState(s HazmatState) error {
-	return stateStore().Write(s)
-}
-
 func stateStore() statestore.Store {
 	return statestore.Store{Path: stateFilePath}
 }
