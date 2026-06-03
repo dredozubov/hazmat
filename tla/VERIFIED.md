@@ -254,10 +254,11 @@ inherited credential-bearing fd still alive.
 | TLA+ files | `tla/MC_BackupSafety.tla`, `tla/MC_BackupSafety.cfg` |
 | Governed code | `hazmat/kopia_wrapper.go` — `openLocalRepo()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()` |
 | Governed code | `hazmat/restore.go` — `runProjectRestore()` |
-| Governed code | `hazmat/session.go` — `preSessionSnapshot()`, session commands |
+| Governed code | `hazmat/internal/backupruntime/session.go` — `PreSessionSnapshot()` |
+| Governed code | `hazmat/session.go` — `preSessionSnapshot()` wrapper and session command ordering |
 | Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt` |
 | Key liveness | `SessionEventuallyLaunches`, `RestoreEventuallyCompletes` |
-| Status | **Fixed** — cloud restore now takes pre-restore snapshot before overwriting |
+| Status | **Fixed and Re-Proved** — cloud restore takes a pre-restore snapshot before overwriting, and the pre-session snapshot trigger package split preserves backup ordering |
 
 **What was found:**
 
@@ -273,7 +274,8 @@ inherited credential-bearing fd still alive.
    `runProjectRestore()`. Failure is non-fatal (warn and proceed).
 
 The principle: **every overwrite must be preceded by a snapshot attempt.**
-`RestoreReversible` now passes across all 395 distinct states (<1s).
+`MC_BackupSafety` passed on 2026-06-03 with "No error has been found" across
+1,134 generated states and 395 distinct states (<1s).
 
 **Change rules:**
 - Adding a new restore path (e.g., restore from external drive) must include a
@@ -935,7 +937,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 |------|---------------|
 | `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
-| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/session.go:preSessionSnapshot()` |
+| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |

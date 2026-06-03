@@ -20,7 +20,8 @@
 \* Governed code:
 \*   hazmat/kopia_wrapper.go — openLocalRepo(), snapshotProject(), runCloudBackup(), runCloudRestore()
 \*   hazmat/restore.go       — runProjectRestore()
-\*   hazmat/session.go       — preSessionSnapshot(), session commands
+\*   hazmat/internal/backupruntime/session.go — PreSessionSnapshot()
+\*   hazmat/session.go       — preSessionSnapshot() wrapper, session commands
 
 EXTENDS Naturals
 

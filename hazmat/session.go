@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"hazmat/configmodel"
+	"hazmat/internal/backupruntime"
 	launchruntime "hazmat/internal/runtime"
 	"hazmat/sessionmeta"
 
@@ -2376,15 +2377,11 @@ func killSessionCommandAfter(cmd *exec.Cmd, waitDone <-chan struct{}, delay time
 // preSessionSnapshot takes an automatic snapshot before a session starts.
 // Warns on failure but never blocks the session.
 func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
-	if skip {
-		return
-	}
-	start := time.Now()
-	fmt.Fprintf(os.Stderr, "  Snapshot: %s ... ", cfg.ProjectDir)
-	if err := snapshotProject(cfg.ProjectDir, command, cfg.BackupExcludes...); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  Warning: pre-session snapshot failed: %v\n", err)
-		fmt.Fprintln(os.Stderr, "  Session will proceed without a restore point.")
-		return
-	}
-	fmt.Fprintf(os.Stderr, "done (%.1fs)\n", time.Since(start).Seconds())
+	backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
+		ProjectDir:     cfg.ProjectDir,
+		Command:        command,
+		BackupExcludes: cfg.BackupExcludes,
+		Skip:           skip,
+		Snapshot:       snapshotProject,
+	})
 }
