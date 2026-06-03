@@ -115,7 +115,7 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
 | Governed code | `hazmat/init.go` — `runInit()` and remaining root setup resource callbacks not yet split from `package main` |
-| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, setup verification order, sudoers entry construction/install runtime, managed shell blocks, and tooling wrapper setup/rollback runtime |
+| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, setup verification order, sudoers entry construction/install runtime, managed shell blocks, hardening runtime, and tooling wrapper setup/rollback runtime |
 | Governed code | `hazmat/internal/setup/darwin/*.go` — Darwin account, firewall/DNS/LaunchDaemon/launch-helper, and sudoers-removal setup/rollback runtime effects |
 | Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
 | Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice, config command, and compatibility wrappers for sudoers runtime |
@@ -146,12 +146,13 @@ states (65,662 generated, ~3s with liveness enabled).
 
 **2026-06-03 package-split confirmation:** Phase K moved setup/rollback
 resource ordering, setup verification order, sudoers entry runtime, managed
-shell-block rendering, seatbelt/tooling wrapper setup, and wrapper/umask
-rollback runtime into `internal/setup`, and moved Darwin account plus service
-runtime effects into `internal/setup/darwin` behind root adapters. No modeled
-resource order or rollback preservation semantics changed. `MC_SetupRollback`
-was re-run with TLC and reported "No error has been found" across the same
-state space: 65,662 generated states, 35,005 distinct states, depth 56.
+shell-block rendering, host credential hardening, seatbelt/tooling wrapper
+setup, and wrapper/umask rollback runtime into `internal/setup`, and moved
+Darwin account plus service runtime effects into `internal/setup/darwin` behind
+root adapters. No modeled resource order or rollback preservation semantics
+changed. `MC_SetupRollback` was re-run with TLC and reported "No error has been
+found" across the same state space: 65,662 generated states, 35,005 distinct
+states, depth 56.
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC

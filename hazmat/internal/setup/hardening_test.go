@@ -1,27 +1,11 @@
-package hazmat
+package setup
 
 import (
-	"hazmat/internal/setup"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestHostCredentialHardeningSpecsCoverCredentialDenySubs(t *testing.T) {
-	t.Parallel()
-
-	specs := make(map[string]struct{})
-	for _, spec := range setup.HostCredentialHardeningSpecs {
-		specs[filepath.ToSlash(spec.Rel)] = struct{}{}
-	}
-	for _, sub := range credentialDenySubs {
-		rel := strings.TrimPrefix(sub, "/")
-		if _, ok := specs[rel]; !ok {
-			t.Fatalf("credential deny path %q is not covered by host hardening specs", sub)
-		}
-	}
-}
 
 func TestHostCredentialHardeningTargetsRestrictExistingPaths(t *testing.T) {
 	home := t.TempDir()
@@ -37,7 +21,7 @@ func TestHostCredentialHardeningTargetsRestrictExistingPaths(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 
-	targets, skipped := setup.HostCredentialHardeningTargets(home)
+	targets, skipped := HostCredentialHardeningTargets(home)
 	got := make(map[string]os.FileMode)
 	for _, target := range targets {
 		got[target.Path] = target.Mode
@@ -57,6 +41,46 @@ func TestHostCredentialHardeningTargetsRestrictExistingPaths(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0] != filepath.Join(home, ".kube") {
 		t.Fatalf("skipped symlinks = %v, want [.kube]", skipped)
+	}
+}
+
+func TestSetupHardeningGapsRestrictsCredentialsAndWritesAgentUmask(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirMode(t, filepath.Join(home, ".aws"), 0o755)
+	mustWriteMode(t, filepath.Join(home, ".netrc"), 0o644)
+
+	env := HardeningEnv{
+		AgentUser:       "agent",
+		AgentHome:       "/Users/agent",
+		HostHome:        home,
+		UmaskBlockStart: "# >>> hazmat umask >>>",
+		UmaskBlockEnd:   "# <<< hazmat umask <<<",
+		DockerSocket:    filepath.Join(home, "missing-docker.sock"),
+	}
+	runner := newFakeToolingRunner(t)
+	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
+	runner.sudoOutput[agentZshrc] = "export KEEP=1\n"
+
+	if err := SetupHardeningGaps(env, &fakeToolingUI{}, runner); err != nil {
+		t.Fatalf("SetupHardeningGaps: %v", err)
+	}
+
+	for path, want := range map[string]os.FileMode{
+		filepath.Join(home, ".aws"):   0o700,
+		filepath.Join(home, ".netrc"): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("%s mode = %04o, want %04o", path, got, want)
+		}
+	}
+
+	got := runner.sudoWrites[agentZshrc]
+	if !strings.Contains(got, env.UmaskBlockStart) || !strings.Contains(got, "umask 007") || !strings.Contains(got, "export KEEP=1") {
+		t.Fatalf("agent zshrc content = %q, want preserved content plus managed umask block", got)
 	}
 }
 

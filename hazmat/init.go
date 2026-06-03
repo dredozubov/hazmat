@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -572,130 +571,6 @@ func printBackupConfig(cfg HazmatConfig) {
 	}
 	cDim.Printf("    Config:      %s\n", configFilePath)
 	fmt.Println()
-}
-
-// ── Step 4: Hardening gaps ────────────────────────────────────────────────────
-
-func setupHardeningGaps(ui *UI, r *Runner) error {
-	ui.Step("Harden known macOS isolation gaps")
-
-	// Docker socket — owned by current user, no sudo needed.
-	dockerSock := os.Getenv("HOME") + "/.docker/run/docker.sock"
-	if info, err := os.Stat(dockerSock); err == nil && info.Mode()&os.ModeSocket != 0 {
-		current := info.Mode().Perm()
-		if current == 0o700 {
-			ui.SkipDone("Docker socket already restricted (700)")
-		} else {
-			if err := r.Chmod(dockerSock, 0o700); err != nil {
-				return fmt.Errorf("chmod docker socket: %w", err)
-			}
-			ui.Ok(fmt.Sprintf("Docker socket restricted to owner only (was %04o)", current))
-		}
-	} else {
-		ui.SkipDone("Docker socket not found (Docker Desktop not running or not installed)")
-	}
-
-	if fixed, skipped, err := hardenHostCredentialPaths(r, os.Getenv("HOME")); err != nil {
-		return err
-	} else {
-		for _, path := range skipped {
-			ui.WarnMsg(fmt.Sprintf("Host credential path is a symlink; leaving unchanged: %s", path))
-		}
-		if fixed == 0 {
-			ui.SkipDone("Host credential paths already restricted")
-		} else {
-			ui.Ok(fmt.Sprintf("Restricted %d host credential path(s) to owner-only access", fixed))
-		}
-	}
-
-	// Restrictive umask for agent user — use a managed block so rollback is precise.
-	agentZshrc := agentHome + "/.zshrc"
-	agentZshrcData, _ := r.SudoOutput("cat", agentZshrc)
-	if strings.Contains(agentZshrcData, umaskBlockStart) {
-		ui.SkipDone("umask 007 already set in agent's .zshrc")
-	} else {
-		updated := upsertManagedBlock(agentZshrcData, umaskBlockStart, umaskBlockEnd, "umask 007")
-		if err := r.SudoWriteFile("write agent umask to .zshrc", agentZshrc, updated); err != nil {
-			return fmt.Errorf("set umask in agent .zshrc: %w", err)
-		}
-		if err := r.Sudo("set agent .zshrc ownership", "chown", agentUser+":staff", agentZshrc); err != nil {
-			return fmt.Errorf("chown agent .zshrc: %w", err)
-		}
-		ui.Ok("Set umask 007 in agent's .zshrc")
-	}
-
-	// Restrictive umask for current user — leave the host shell untouched.
-	ui.SkipDone("Host shell umask left unchanged")
-
-	return nil
-}
-
-type hostCredentialHardeningSpec struct {
-	rel      string
-	dirMode  os.FileMode
-	fileMode os.FileMode
-}
-
-type hostCredentialHardeningTarget struct {
-	path string
-	mode os.FileMode
-}
-
-var hostCredentialHardeningSpecs = []hostCredentialHardeningSpec{
-	{rel: ".ssh", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".aws", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".gnupg", dirMode: 0o700, fileMode: 0o600},
-	{rel: "Library/Keychains", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".config/gh", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".docker", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".kube", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".netrc", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".m2/settings.xml", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".config/gcloud", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".azure", dirMode: 0o700, fileMode: 0o600},
-	{rel: ".oci", dirMode: 0o700, fileMode: 0o600},
-}
-
-func hostCredentialHardeningTargets(home string) ([]hostCredentialHardeningTarget, []string) {
-	var targets []hostCredentialHardeningTarget
-	var skippedSymlinks []string
-	for _, spec := range hostCredentialHardeningSpecs {
-		path := filepath.Join(home, filepath.FromSlash(spec.rel))
-		info, err := os.Lstat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			skippedSymlinks = append(skippedSymlinks, path)
-			continue
-		}
-
-		mode := spec.fileMode
-		if info.IsDir() {
-			mode = spec.dirMode
-		}
-		if mode == 0 || info.Mode().Perm() == mode {
-			continue
-		}
-		targets = append(targets, hostCredentialHardeningTarget{
-			path: path,
-			mode: mode,
-		})
-	}
-	return targets, skippedSymlinks
-}
-
-func hardenHostCredentialPaths(r *Runner, home string) (int, []string, error) {
-	targets, skippedSymlinks := hostCredentialHardeningTargets(home)
-	for _, target := range targets {
-		if err := r.Chmod(target.path, target.mode); err != nil {
-			return 0, skippedSymlinks, fmt.Errorf("chmod host credential path %s: %w", target.path, err)
-		}
-	}
-	return len(targets), skippedSymlinks, nil
 }
 
 // ── Step 5b: Install sandbox-launch helper ────────────────────────────────────

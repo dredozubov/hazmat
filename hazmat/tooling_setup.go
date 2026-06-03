@@ -59,6 +59,16 @@ func setupToolingEnv() setup.ToolingEnv {
 	}
 }
 
+func setupHardeningEnv() setup.HardeningEnv {
+	return setup.HardeningEnv{
+		AgentUser:       agentUser,
+		AgentHome:       agentHome,
+		HostHome:        os.Getenv("HOME"),
+		UmaskBlockStart: umaskBlockStart,
+		UmaskBlockEnd:   umaskBlockEnd,
+	}
+}
+
 func setupShellProfiles() []setup.ShellProfile {
 	profiles := supportedUserShellProfiles()
 	out := make([]setup.ShellProfile, 0, len(profiles))
@@ -70,6 +80,10 @@ func setupShellProfiles() []setup.ShellProfile {
 		})
 	}
 	return out
+}
+
+func setupHardeningGaps(ui *UI, r *Runner) error {
+	return setup.SetupHardeningGaps(setupHardeningEnv(), ui, r)
 }
 
 func setupSeatbelt(ui *UI, r *Runner) error {
