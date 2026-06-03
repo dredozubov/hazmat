@@ -102,13 +102,7 @@ type harnessStatus struct {
 	StateErr         error
 }
 
-type harnessUninstallPlan struct {
-	Harness         ManagedHarness
-	Artifacts       []harnessArtifactStatus
-	Preserved       []string
-	MetadataPresent bool
-	StateErr        error
-}
+type harnessUninstallPlan = harnessruntime.UninstallPlan
 
 const harnessLifecycleStatusFormatVersion = "hazmat.harness.status.v1"
 
@@ -605,29 +599,34 @@ func runHarnessUninstall(input string, force bool) error {
 		return nil
 	}
 	if drift := plan.Drift(); len(drift) > 0 && !force {
-		return fmt.Errorf("refusing to uninstall %s because planned artifacts drifted: %s\nre-run with --force to remove the exact planned paths", harness.Spec.ID, strings.Join(drift, "; "))
+		return fmt.Errorf("refusing to uninstall %s because planned artifacts drifted: %s\nre-run with --force to remove the exact planned paths", plan.Spec.ID, strings.Join(drift, "; "))
 	}
 	if !ui.Ask("Remove these Hazmat-owned harness artifacts?") {
 		fmt.Println()
 		return nil
 	}
 
-	for _, artifact := range plan.Artifacts {
-		if !artifact.Exists {
-			continue
-		}
-		if artifact.Drift != "" && !force {
-			continue
-		}
-		if err := removeHarnessArtifact(r, artifact.Artifact); err != nil {
+	remove := func(reason string, args ...string) error {
+		if err := r.AsAgent(reason, args...); err != nil {
 			return err
 		}
+		if r.ui != nil && len(args) > 0 {
+			r.ui.Ok("Removed " + args[len(args)-1])
+		}
+		return nil
+	}
+	if err := harnessruntime.ExecuteUninstallPlan(plan, harnessruntime.UninstallOptions{
+		Store:     harnessStateStore{},
+		Remove:    remove,
+		AgentHome: agentHome,
+		Force:     force,
+		DryRun:    r.DryRun,
+	}); err != nil {
+		return err
 	}
 	if plan.MetadataPresent {
 		if r.DryRun {
 			cYellow.Printf("  Dry-run: would remove %s harness metadata\n", harness.Spec.ID)
-		} else if err := removeHarnessState(harness.Spec.ID); err != nil {
-			return fmt.Errorf("remove %s harness metadata: %w", harness.Spec.ID, err)
 		} else {
 			ui.Ok(fmt.Sprintf("Removed %s harness metadata", harness.Spec.ID))
 		}
@@ -641,51 +640,12 @@ func buildHarnessUninstallPlan(harness ManagedHarness, read func(args ...string)
 	if harness.ManagedCodeArtifacts != nil {
 		artifacts = harness.ManagedCodeArtifacts()
 	}
-	statuses := make([]harnessArtifactStatus, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		statuses = append(statuses, inspectHarnessArtifact(read, artifact))
-	}
-
-	state, stateErr := loadState()
-	metadataPresent := false
-	if stateErr == nil && state.Harnesses != nil {
-		_, metadataPresent = state.Harnesses[harness.Spec.ID]
-	}
-	preserved := append([]string(nil), harness.PreservedArtifacts...)
-	return harnessUninstallPlan{
-		Harness:         harness,
-		Artifacts:       statuses,
-		Preserved:       preserved,
-		MetadataPresent: metadataPresent,
-		StateErr:        stateErr,
-	}
-}
-
-func (p harnessUninstallPlan) HasWork() bool {
-	if p.MetadataPresent {
-		return true
-	}
-	for _, artifact := range p.Artifacts {
-		if artifact.Exists {
-			return true
-		}
-	}
-	return false
-}
-
-func (p harnessUninstallPlan) Drift() []string {
-	var drift []string
-	for _, artifact := range p.Artifacts {
-		if artifact.Drift != "" {
-			drift = append(drift, fmt.Sprintf("%s: %s", artifact.Artifact.Path, artifact.Drift))
-		}
-	}
-	return drift
+	return harnessruntime.BuildUninstallPlan(harnessStateStore{}, read, agentHome, harness.Spec, artifacts, harness.PreservedArtifacts)
 }
 
 func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 	fmt.Println()
-	cBold.Printf("  Harness uninstall: %s (%s)\n", plan.Harness.Spec.DisplayName, plan.Harness.Spec.ID)
+	cBold.Printf("  Harness uninstall: %s (%s)\n", plan.Spec.DisplayName, plan.Spec.ID)
 	fmt.Println()
 	fmt.Println("  Remove:")
 	if len(plan.Artifacts) == 0 {
@@ -696,9 +656,9 @@ func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 		}
 	}
 	if plan.MetadataPresent {
-		fmt.Printf("    - %s entry in %s\n", plan.Harness.Spec.ID, stateFilePath)
+		fmt.Printf("    - %s entry in %s\n", plan.Spec.ID, stateFilePath)
 	} else {
-		fmt.Printf("    - %s metadata: not recorded\n", plan.Harness.Spec.ID)
+		fmt.Printf("    - %s metadata: not recorded\n", plan.Spec.ID)
 	}
 
 	fmt.Println("  Preserve:")
@@ -714,16 +674,6 @@ func printHarnessUninstallPlan(plan harnessUninstallPlan) {
 
 func inspectHarnessArtifact(read func(args ...string) (string, error), artifact harnessManagedArtifact) harnessArtifactStatus {
 	return harnessruntime.InspectArtifact(read, agentHome, artifact)
-}
-
-func removeHarnessArtifact(r *Runner, artifact harnessManagedArtifact) error {
-	if err := harnessruntime.RemoveArtifact(r.AsAgent, agentHome, artifact); err != nil {
-		return err
-	}
-	if r.ui != nil {
-		r.ui.Ok("Removed " + artifact.Path)
-	}
-	return nil
 }
 
 func probeHarnessBinary(read func(args ...string) (string, error), find func(func(args ...string) (string, error)) (string, bool), versionArgs ...string) harnessProbe {

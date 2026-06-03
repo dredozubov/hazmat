@@ -127,8 +127,8 @@ Observed result from the 2026-06-03 package-split refactor confirmation run:
 - `Model checking completed. No error has been found.`
 - `25,164,502 states generated`
 - `633,107 distinct states found`
-- `depth 18`
-- `Finished in 47s`
+- `depth 19`
+- `Finished in 1m00s`
 
 ## Interpretation
 
