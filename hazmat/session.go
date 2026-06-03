@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"hazmat/configmodel"
 	"hazmat/sessionmeta"
 
 	"github.com/spf13/cobra"
@@ -58,14 +59,6 @@ type sessionLaunchUI struct {
 	showStatusBar    bool
 	waitForAltScreen bool
 }
-
-type dockerMode string
-
-const (
-	dockerModeAuto    dockerMode = "auto"
-	dockerModeNone    dockerMode = "none"
-	dockerModeSandbox dockerMode = "sandbox"
-)
 
 type dockerRequestSource string
 
@@ -1697,20 +1690,11 @@ var sharedDaemonSignalMatchers = []sharedDaemonSignalMatcher{
 }
 
 func validDockerMode(mode dockerMode) bool {
-	switch mode {
-	case dockerModeAuto, dockerModeNone, dockerModeSandbox:
-		return true
-	default:
-		return false
-	}
+	return configmodel.ValidDockerMode(mode)
 }
 
 func parseDockerMode(raw string) (dockerMode, error) {
-	mode := dockerMode(strings.ToLower(strings.TrimSpace(raw)))
-	if validDockerMode(mode) {
-		return mode, nil
-	}
-	return "", fmt.Errorf("invalid Docker mode %q (want auto, none, or sandbox)", raw)
+	return configmodel.ParseDockerMode(raw)
 }
 
 func resolveDockerRoutingRequest(projectDir string, opts harnessSessionOpts) (dockerRoutingRequest, error) {
