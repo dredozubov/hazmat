@@ -114,9 +114,12 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 |-------|-------|
 | Spec | `tla/01_setup_rollback_state_machine.md` |
 | TLA+ files | `tla/MC_SetupRollback.tla`, `tla/MC_SetupRollback.cfg` |
-| Governed code | `hazmat/init.go` — `runInit()`, all `setupX()` functions |
-| Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice |
-| Governed code | `hazmat/rollback.go` — `runRollback()`, all `rollbackX()` functions |
+| Governed code | `hazmat/init.go` — `runInit()` and root setup resource callbacks not yet split from `package main` |
+| Governed code | `hazmat/internal/setup/*.go` — setup/rollback resource labels, ordering, orchestration, and setup verification order |
+| Governed code | `hazmat/internal/setup/darwin/*.go` — Darwin account, firewall/DNS/LaunchDaemon/launch-helper, and sudoers-removal setup/rollback runtime effects |
+| Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
+| Governed code | `hazmat/sudoers.go` — launch-helper sudoers entry construction/install, optional agent-maintenance sudoers choice/install, and config command |
+| Governed code | `hazmat/rollback.go` — `runRollback()` and root rollback resource callbacks not yet split from `package main` |
 | Key invariants | `AgentContained`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
 | Key liveness | `CanAlwaysReachClean` |
 | Status | **Fixed and Re-Proved** — containment before privilege in both setup and rollback, including the optional broader maintenance sudoers rule |
@@ -140,6 +143,14 @@ File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 The principle: **grant privilege last, revoke privilege first.**
 `AgentContained` and `CanAlwaysReachClean` now pass across all 35,005 reachable
 states (65,662 generated, ~3s with liveness enabled).
+
+**2026-06-03 package-split confirmation:** Phase K moved setup/rollback
+resource ordering and setup verification order into `internal/setup`, and
+moved Darwin account plus service runtime effects into `internal/setup/darwin`
+behind root adapters. No modeled resource order or rollback preservation
+semantics changed. `MC_SetupRollback` was re-run with TLC and reported "No
+error has been found" across the same state space: 65,662 generated states,
+35,005 distinct states, depth 56.
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -295,6 +306,7 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 | Spec | `tla/04_version_migration.md` |
 | TLA+ files | `tla/MC_Migration.tla`, `tla/MC_Migration.cfg` |
 | Governed code | `hazmat/init.go` — migration dispatch, `runInit()` |
+| Governed code | `hazmat/internal/setup/rollback.go` — rollback resource ordering after migration rollback dispatch |
 | Governed code | `hazmat/sudoers.go` — optional current-version sudoers artifact |
 | Governed code | `hazmat/migrate.go` — migration functions (per-version) |
 | Governed code | `hazmat/rollback.go` — `runRollback()`, artifact removal ordering |
@@ -322,6 +334,13 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 
 4. **Failure recovery:** From any failed state, the user can either retry
    init (resume migration) or start rollback. No state is permanently stuck.
+
+**2026-06-03 package-split confirmation:** Phase K moved rollback resource
+ordering after migration rollback dispatch into `internal/setup` while keeping
+`runDownMigrations()` before core rollback. No migration version graph,
+artifact set, or state removal semantics changed. `MC_Migration` was re-run
+with TLC and reported "No error has been found" across the same state space:
+234,101 generated states, 72,442 distinct states, depth 18.
 
 **What was found during spec development:**
 
@@ -935,10 +954,10 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 
 | Spec | Files governed |
 |------|---------------|
-| `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, all `setupX()`; `hazmat/rollback.go:runRollback()`, all `rollbackX()` |
+| `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, remaining root setup callbacks; `hazmat/internal/setup/*.go`; `hazmat/internal/setup/darwin/*.go`; `hazmat/native_account*.go`; `hazmat/native_service*.go`; `hazmat/sudoers.go`; `hazmat/rollback.go:runRollback()`, remaining root rollback callbacks |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
 | `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
-| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
+| `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/internal/setup/rollback.go` rollback resource ordering after migration rollback dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunch()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`, `agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunch()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
