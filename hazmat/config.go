@@ -748,42 +748,6 @@ func scrubConfigSecretsForSave(cfg HazmatConfig) HazmatConfig {
 
 // ── Cloud credentials ──────────────────────────────────────────────────────
 
-func cloudCredentialStorePath(id credentialID) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("determine home directory for Hazmat cloud credentials: %w", err)
-	}
-	return credentialStorePathForHome(home, id)
-}
-
-func readCloudStoredCredential(id credentialID) (string, bool, error) {
-	path, err := cloudCredentialStorePath(id)
-	if err != nil {
-		return "", false, err
-	}
-	raw, ok, err := readHostStoredSecretFile(path)
-	if err != nil || !ok {
-		return "", ok, err
-	}
-	value := strings.TrimSpace(string(raw))
-	if value == "" {
-		return "", false, nil
-	}
-	return value, true, nil
-}
-
-func saveCloudStoredCredential(id credentialID, value string) error {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return fmt.Errorf("%s cannot be empty", id)
-	}
-	path, err := cloudCredentialStorePath(id)
-	if err != nil {
-		return err
-	}
-	return writeHostStoredSecretFile(path, []byte(value+"\n"))
-}
-
 func migrateCloudCredentialsIntoSecretStore(cfg *HazmatConfig) (bool, error) {
 	if cfg.Backup.Cloud == nil {
 		return false, nil
