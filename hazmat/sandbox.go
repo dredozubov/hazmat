@@ -16,13 +16,14 @@ import (
 
 	dockercompiler "hazmat/containment/docker"
 	launchruntime "hazmat/internal/runtime"
+	dockerruntime "hazmat/internal/runtime/docker"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	sandboxBackendDockerSandboxes = "docker-sandboxes"
+	sandboxBackendDockerSandboxes = dockerruntime.BackendType
 	sandboxPolicyProfileBaseline  = "baseline"
 )
 
@@ -35,7 +36,7 @@ var (
 	sandboxHostPattern         = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*$`)
 	sandboxNow                 = func() time.Time { return time.Now().UTC() }
 	sandboxProbeFactory        = func() sandboxProbe { return hostSandboxProbe{} }
-	errSandboxNotFound         = errors.New("sandbox not found")
+	errSandboxNotFound         = dockerruntime.ErrSandboxNotFound
 	errSandboxApprovalDeclined = errors.New("Docker Sandbox approval declined")
 )
 
@@ -121,7 +122,9 @@ type sandboxBackendAdapter interface {
 }
 
 type hostSandboxProbe struct{}
-type dockerSandboxesBackend struct{}
+type dockerSandboxesBackend struct {
+	runtime dockerruntime.Backend
+}
 
 func (hostSandboxProbe) LookPath(name string) (string, error) {
 	return exec.LookPath(name)
@@ -145,7 +148,7 @@ func (hostSandboxProbe) Run(name string, args ...string) (string, error) {
 func sandboxBackendAdapterForType(kind string) (sandboxBackendAdapter, error) {
 	switch kind {
 	case sandboxBackendDockerSandboxes:
-		return dockerSandboxesBackend{}, nil
+		return dockerSandboxesBackend{runtime: dockerruntime.NewBackend(os.Stderr)}, nil
 	case "":
 		return nil, fmt.Errorf("sandbox backend type is empty")
 	default:
@@ -169,113 +172,43 @@ func (dockerSandboxesBackend) ValidateLaunchCompatibility(spec sandboxLaunchSpec
 	return nil
 }
 
-func (dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error {
-	status, exists, err := sandboxStatus(probe, spec.Name)
-	if err != nil {
-		return err
-	}
-	if exists {
-		if status != "" && status != "running" {
-			fmt.Fprintf(os.Stderr, "hazmat: removing stopped Docker Sandbox %s\n", spec.Name)
-			out, rmErr := probe.Output("docker", "sandbox", "rm", spec.Name)
-			if rmErr != nil && !sandboxMissing(out) {
-				return fmt.Errorf("remove stopped Docker Sandbox %s: %s", spec.Name, oneLine(out))
-			}
-			exists = false
-		}
-	}
-	if exists {
-		fmt.Fprintf(os.Stderr, "hazmat: reusing Docker Sandbox %s\n", spec.Name)
-	} else {
-		fmt.Fprintf(os.Stderr, "hazmat: creating Docker Sandbox %s (first launch may take a few minutes)\n", spec.Name)
-		args := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
-		args = append(args, spec.MountWriteDirs...)
-		for _, dir := range spec.MountReadDirs {
-			args = append(args, dir+":ro")
-		}
-		if out, err := probe.Run("docker", args...); err != nil {
-			return sandboxActionError(probe, spec.Agent, out, err, "create Docker Sandbox %s", spec.Name)
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "hazmat: applying Docker network policy to %s\n", spec.Name)
-	policyArgs := []string{"sandbox", "network", "proxy", spec.Name, "--policy", spec.Profile.Policy}
-	for _, host := range spec.Profile.AllowHosts {
-		policyArgs = append(policyArgs, "--allow-host", host)
-	}
-	if out, err := probe.Run("docker", policyArgs...); err != nil {
-		return sandboxActionError(probe, spec.Agent, out, err, "apply Docker network policy to %s", spec.Name)
-	}
-	return nil
+func (b dockerSandboxesBackend) PrepareLaunch(probe sandboxProbe, spec sandboxLaunchSpec) error {
+	return b.runtime.PrepareLaunch(probe, dockerRuntimeLaunchSpec(spec))
 }
 
-func sandboxAgentDisplayName(agent string) string {
-	switch agent {
-	case "claude":
-		return "Claude"
-	case "codex":
-		return "Codex"
-	case "opencode":
-		return "OpenCode"
-	case "gemini":
-		return "Gemini"
-	case "hermes":
-		return "Hermes"
-	case "qwen":
-		return "Qwen Code"
-	case "cursor-agent":
-		return "Cursor Agent"
-	case "shell":
-		return "shell"
-	default:
-		if strings.TrimSpace(agent) == "" {
-			return "agent"
-		}
-		return agent
-	}
+func (b dockerSandboxesBackend) RunAgentSession(probe sandboxProbe, agent, sandboxName string, forwarded []string) error {
+	return b.runtime.RunAgentSession(probe, agent, sandboxName, forwarded)
 }
 
-func (dockerSandboxesBackend) RunAgentSession(probe sandboxProbe, agent, sandboxName string, forwarded []string) error {
-	args := []string{"sandbox", "run", sandboxName}
-	if len(forwarded) > 0 {
-		args = append(args, "--")
-		args = append(args, forwarded...)
-	}
-	if out, err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, agent, out, err, "run %s in Docker Sandbox %s", sandboxAgentDisplayName(agent), sandboxName)
-	}
-	return nil
+func (b dockerSandboxesBackend) RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error {
+	return b.runtime.RunShellSession(probe, sandboxName, projectDir)
 }
 
-func (dockerSandboxesBackend) RunShellSession(probe sandboxProbe, sandboxName, projectDir string) error {
-	if out, err := probe.Run("docker", "sandbox", "run", sandboxName, "--",
-		"-lc", `cd "$1" && exec /bin/bash -il`, "bash", projectDir); err != nil {
-		return sandboxActionError(probe, "shell", out, err, "run shell in Docker Sandbox %s", sandboxName)
-	}
-	return nil
+func (b dockerSandboxesBackend) RunExecSession(probe sandboxProbe, sandboxName, projectDir string, commandArgs []string) error {
+	return b.runtime.RunExecSession(probe, sandboxName, projectDir, commandArgs)
 }
 
-func (dockerSandboxesBackend) RunExecSession(probe sandboxProbe, sandboxName, projectDir string, commandArgs []string) error {
-	args := []string{"sandbox", "run", sandboxName, "--",
-		"-lc", `cd "$1" && shift && exec "$@"`, "bash", projectDir}
-	args = append(args, commandArgs...)
-	if out, err := probe.Run("docker", args...); err != nil {
-		return sandboxActionError(probe, "shell", out, err, "run exec session in Docker Sandbox %s", sandboxName)
-	}
-	return nil
-}
-
-func (dockerSandboxesBackend) RemoveManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig) error {
+func (b dockerSandboxesBackend) RemoveManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig) error {
+	managed := make([]dockerruntime.ManagedSandbox, 0, len(sandboxes))
 	for _, sandbox := range sandboxes {
-		out, err := probe.Output("docker", "sandbox", "rm", sandbox.Name)
-		if err != nil {
-			if sandboxMissing(out) {
-				continue
-			}
-			return fmt.Errorf("remove Docker Sandbox %s: %s", sandbox.Name, oneLine(out))
-		}
+		managed = append(managed, dockerruntime.ManagedSandbox{Name: sandbox.Name})
 	}
-	return nil
+	return b.runtime.RemoveManagedSandboxes(probe, managed)
+}
+
+func dockerRuntimeLaunchSpec(spec sandboxLaunchSpec) dockerruntime.LaunchSpec {
+	return dockerruntime.LaunchSpec{
+		Name:       spec.Name,
+		Agent:      spec.Agent,
+		ProjectDir: spec.Config.ProjectDir,
+		Profile: dockerruntime.PolicyProfile{
+			Name:       spec.Profile.Name,
+			Policy:     spec.Profile.Policy,
+			AllowHosts: append([]string(nil), spec.Profile.AllowHosts...),
+		},
+		MountReadDirs:  append([]string(nil), spec.MountReadDirs...),
+		MountWriteDirs: append([]string(nil), spec.MountWriteDirs...),
+	}
 }
 
 func newSandboxCmd() *cobra.Command {
@@ -685,31 +618,7 @@ func sandboxListNames(data string) ([]string, error) {
 }
 
 func sandboxStatus(probe sandboxProbe, name string) (string, bool, error) {
-	out, err := probe.Output("docker", "sandbox", "ls", "--json")
-	if err != nil {
-		return "", false, fmt.Errorf("list Docker Sandboxes: %s", oneLine(out))
-	}
-	var parsed sandboxListResponse
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		return "", false, fmt.Errorf("docker sandbox ls --json did not return valid JSON: %w", err)
-	}
-
-	var sandboxes []sandboxVM
-	switch {
-	case strings.Contains(out, `"sandboxes"`):
-		sandboxes = parsed.Sandboxes
-	case strings.Contains(out, `"vms"`):
-		sandboxes = parsed.VMs
-	default:
-		return "", false, fmt.Errorf(`docker sandbox ls --json did not include a "sandboxes" or "vms" field`)
-	}
-
-	for _, sandbox := range sandboxes {
-		if sandbox.Name == name {
-			return strings.ToLower(sandbox.Status), true, nil
-		}
-	}
-	return "", false, nil
+	return dockerruntime.Status(probe, name)
 }
 
 func extractDockerDesktopSemver(raw string) (semver, error) {
@@ -805,71 +714,6 @@ func formatSandboxBackendLabel(kind string) string {
 	}
 }
 
-func dockerDesktopStatus(probe sandboxProbe) (string, error) {
-	out, err := probe.Output("docker", "desktop", "status")
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) >= 2 && fields[0] == "Status" {
-			return strings.ToLower(fields[1]), nil
-		}
-	}
-	return "", fmt.Errorf("status line not found")
-}
-
-func sandboxActionError(probe sandboxProbe, agent, output string, err error, format string, args ...any) error {
-	base := fmt.Sprintf(format, args...)
-	if output != "" {
-		if sandboxNotFoundError(output) {
-			return fmt.Errorf("%s: %w", base, errSandboxNotFound)
-		}
-		if hint, ok := sandboxAuthErrorHint(agent, output); ok {
-			return fmt.Errorf("%s: %s", base, hint)
-		}
-	}
-	if dockerDesktopClosedPipeError(output, err) {
-		return fmt.Errorf("%s: Docker Desktop failed unexpectedly; if macOS showed a Docker data-access prompt, click Allow and retry; otherwise restart Docker Desktop and retry", base)
-	}
-	status, statusErr := dockerDesktopStatus(probe)
-	if statusErr == nil && status == "stopped" {
-		return fmt.Errorf("%s: Docker Desktop stopped unexpectedly; restart Docker Desktop and retry", base)
-	}
-	return fmt.Errorf("%s", base)
-}
-
-func sandboxAuthErrorHint(agent, output string) (string, bool) {
-	switch agent {
-	case "claude":
-		if claudeSandboxAuthError(output) {
-			return "Claude is not authenticated in Docker Sandboxes; run 'hazmat claude' interactively and type /login, or configure ANTHROPIC_API_KEY in your shell startup files and restart Docker Desktop", true
-		}
-	}
-	return "", false
-}
-
-func sandboxNotFoundError(output string) bool {
-	return strings.Contains(strings.ToLower(output), "no sandbox found")
-}
-
-func claudeSandboxAuthError(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "not logged in") && strings.Contains(lower, "/login")
-}
-
-func dockerDesktopClosedPipeError(output string, err error) bool {
-	var text strings.Builder
-	text.WriteString(strings.ToLower(output))
-	if err != nil {
-		if text.Len() > 0 {
-			text.WriteByte('\n')
-		}
-		text.WriteString(strings.ToLower(err.Error()))
-	}
-	return strings.Contains(text.String(), "io: read/write on closed pipe")
-}
-
 func loadSandboxApprovals() sandboxApprovalsFile {
 	data, err := os.ReadFile(sandboxApprovalsFilePath)
 	if err != nil {
@@ -945,12 +789,6 @@ func removeManagedSandboxes(probe sandboxProbe, sandboxes []ManagedSandboxConfig
 		}
 	}
 	return nil
-}
-
-func sandboxMissing(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "not found") ||
-		strings.Contains(lower, "no such")
 }
 
 func recordSandboxApproval(projectDir, backendType, policyProfile string) error {
@@ -1073,7 +911,7 @@ func runPreparedSandboxCursorAgentSession(prepared preparedSession, forwarded []
 }
 
 func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {
-	return runPreparedSandboxSession(prepared, agent, sandboxAgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
+	return runPreparedSandboxSession(prepared, agent, dockerruntime.AgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
 		return adapter.RunAgentSession(probe, agent, name, forwarded)
 	})
 }
