@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
 
@@ -12,7 +13,7 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 		Target:     "codex",
 		Mode:       sessionmeta.ModeNative,
 		ProjectDir: "/workspace/project",
-		GOOS:       "darwin",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
 	artifact := &DarwinSeatbelt{PolicyPath: "/private/tmp/hazmat.sb"}
 
@@ -32,7 +33,7 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 }
 
 func TestNewPreparedLaunchRejectsMissingOrMultipleArtifacts(t *testing.T) {
-	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative, GOOS: "darwin"})
+	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative, HostFacts: hostfacts.ForGOOS("darwin")})
 
 	_, err := NewPreparedLaunch(plan, ArtifactVariant{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "exactly one artifact") {
@@ -50,8 +51,8 @@ func TestNewPreparedLaunchRejectsMissingOrMultipleArtifacts(t *testing.T) {
 
 func TestNewPreparedLaunchRejectsBackendMismatch(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode: sessionmeta.ModeDockerSandbox,
-		GOOS: "darwin",
+		Mode:      sessionmeta.ModeDockerSandbox,
+		HostFacts: hostfacts.ForGOOS("darwin"),
 	})
 
 	_, err := NewPreparedLaunch(plan, ArtifactVariant{
@@ -64,8 +65,8 @@ func TestNewPreparedLaunchRejectsBackendMismatch(t *testing.T) {
 
 func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode: sessionmeta.ModeNative,
-		GOOS: "linux",
+		Mode:      sessionmeta.ModeNative,
+		HostFacts: hostfacts.ForGOOS("linux"),
 	})
 
 	_, err := NewPreparedLaunch(plan, ArtifactVariant{
@@ -91,8 +92,8 @@ func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 
 func TestNewPreparedLaunchRejectsExtraAcceptedCapabilityGap(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode: sessionmeta.ModeDockerSandbox,
-		GOOS: "darwin",
+		Mode:      sessionmeta.ModeDockerSandbox,
+		HostFacts: hostfacts.ForGOOS("darwin"),
 	})
 
 	_, err := NewPreparedLaunch(plan, ArtifactVariant{

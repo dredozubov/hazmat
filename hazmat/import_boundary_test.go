@@ -31,6 +31,7 @@ func TestImportBoundaries(t *testing.T) {
 	purePackages := map[string]bool{
 		"hazmat/containment":       true,
 		"hazmat/containment/linux": true,
+		"hazmat/hostfacts":         true,
 		"hazmat/integrations":      true,
 		"hazmat/pathpolicy":        true,
 		"hazmat/sessionbackend":    true,

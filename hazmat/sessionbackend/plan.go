@@ -3,6 +3,7 @@ package sessionbackend
 import (
 	"sort"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
 
@@ -40,7 +41,7 @@ type Input struct {
 	NetworkMode        sessionmeta.NetworkMode
 	Integrations       []string
 	IntegrationEnvKeys []string
-	GOOS               string
+	HostFacts          hostfacts.Facts
 }
 
 type Plan struct {
@@ -58,7 +59,8 @@ type Plan struct {
 }
 
 func BuildPlan(input Input) Plan {
-	backend := BackendFor(input.Mode, input.GOOS)
+	facts := input.HostFacts.Normalized()
+	backend := BackendFor(input.Mode, facts.TargetGOOS())
 	plan := Plan{
 		Target:             input.Target,
 		Mode:               input.Mode,

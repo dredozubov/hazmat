@@ -1,8 +1,10 @@
 package hazmat
 
 import (
+	"os"
 	"runtime"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionbackend"
 	"hazmat/sessionplanner"
 )
@@ -10,10 +12,16 @@ import (
 type sessionBackendPlan = sessionbackend.Plan
 
 func buildSessionBackendPlan(cfg sessionConfig, mode sessionMode) sessionBackendPlan {
-	return buildSessionBackendPlanForGOOS(cfg, mode, runtime.GOOS)
+	return buildSessionBackendPlanForHostFacts(cfg, mode, currentHostFacts())
 }
 
 func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos string) sessionBackendPlan {
+	facts := currentHostFacts()
+	facts.Platform.GOOS = goos
+	return buildSessionBackendPlanForHostFacts(cfg, mode, facts)
+}
+
+func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, facts hostfacts.Facts) sessionBackendPlan {
 	return sessionplanner.BuildBackendPlan(sessionbackend.Input{
 		Target:             cfg.Target,
 		Mode:               mode,
@@ -23,6 +31,14 @@ func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos st
 		NetworkMode:        cfg.NetworkMode,
 		Integrations:       cfg.ActiveIntegrations,
 		IntegrationEnvKeys: integrationEnvKeys(cfg.IntegrationEnv),
-		GOOS:               goos,
+		HostFacts:          facts,
 	})
+}
+
+func currentHostFacts() hostfacts.Facts {
+	return hostfacts.Facts{
+		Platform:    hostfacts.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
+		AgentHome:   agentHome,
+		InvokerHome: os.Getenv("HOME"),
+	}.Normalized()
 }

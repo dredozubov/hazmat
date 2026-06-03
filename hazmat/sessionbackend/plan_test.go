@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
 
@@ -17,7 +18,7 @@ func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 		NetworkMode:        sessionmeta.NetworkNone,
 		Integrations:       []string{"go"},
 		IntegrationEnvKeys: []string{"GOROOT", "GOPATH"},
-		GOOS:               "darwin",
+		HostFacts:          hostfacts.ForGOOS("darwin"),
 	}
 
 	plan := BuildPlan(input)
@@ -47,8 +48,8 @@ func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 
 func TestBuildPlanReportsLinuxNativeGap(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode: sessionmeta.ModeNative,
-		GOOS: "linux",
+		Mode:      sessionmeta.ModeNative,
+		HostFacts: hostfacts.ForGOOS("linux"),
 	})
 	if plan.Backend != KindLinuxNative {
 		t.Fatalf("Backend = %q", plan.Backend)
@@ -72,7 +73,7 @@ func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 	plan := BuildPlan(Input{
 		Mode:               sessionmeta.ModeDockerSandbox,
 		IntegrationEnvKeys: []string{"NPM_CONFIG_REGISTRY", "GOPROXY"},
-		GOOS:               "darwin",
+		HostFacts:          hostfacts.ForGOOS("darwin"),
 	})
 	if plan.Backend != KindDockerSandbox {
 		t.Fatalf("Backend = %q", plan.Backend)

@@ -12,6 +12,7 @@ import (
 
 	"hazmat/containment"
 	linuxspec "hazmat/containment/linux"
+	"hazmat/hostfacts"
 	"hazmat/integrations"
 	platformlinux "hazmat/platform/linux"
 	"hazmat/sessionbackend"
@@ -123,7 +124,7 @@ func TestGoldenBackendPlanBaselines(t *testing.T) {
 			NetworkMode:        input.NetworkMode,
 			Integrations:       input.Integrations,
 			IntegrationEnvKeys: input.IntegrationEnvKeys,
-			GOOS:               "darwin",
+			HostFacts:          hostfacts.ForGOOS("darwin"),
 		}),
 	}
 
@@ -392,7 +393,7 @@ func goldenIntegrationMergeError(t *testing.T, spec integrations.Spec, resolved 
 }
 
 func withBackendGOOS(input sessionbackend.Input, goos string) sessionbackend.Input {
-	input.GOOS = goos
+	input.HostFacts = hostfacts.ForGOOS(goos)
 	return input
 }
 

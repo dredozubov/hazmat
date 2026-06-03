@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"hazmat/hostfacts"
 	"hazmat/sessionbackend"
 	"hazmat/sessioncontract"
 	"hazmat/sessionmeta"
@@ -33,7 +34,7 @@ func TestBuildComposesContractAndBackendPlans(t *testing.T) {
 			NetworkMode:        sessionmeta.NetworkNone,
 			Integrations:       []string{"go"},
 			IntegrationEnvKeys: []string{"GOROOT"},
-			GOOS:               "darwin",
+			HostFacts:          hostfacts.ForGOOS("darwin"),
 		},
 	}
 
