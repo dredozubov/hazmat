@@ -1,36 +1,20 @@
-package hazmat
+package diagnostics
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
-
-	"hazmat/internal/diagnostics"
 )
 
 const (
-	stackcheckModeDetect   = "detect"
-	stackcheckModeContract = "contract"
-	stackcheckModeSmoke    = "smoke"
-
 	stackcheckStatusPass = "pass"
 	stackcheckStatusFail = "fail"
 )
-
-type stackcheckOptions struct {
-	ManifestPath  string
-	WorkspaceRoot string
-	Track         string
-	Wave          int
-	IDs           []string
-	UpstreamHead  bool
-}
 
 type stackcheckResultSet struct {
 	ManifestPath  string                 `json:"manifest_path"`
@@ -54,8 +38,8 @@ type stackcheckRepoResult struct {
 	FailureClass    string                    `json:"failure_class,omitempty"`
 	Message         string                    `json:"message,omitempty"`
 	RepoDir         string                    `json:"repo_dir,omitempty"`
-	DetectPreview   *explainJSONPreview       `json:"detect_preview,omitempty"`
-	ContractPreview *explainJSONPreview       `json:"contract_preview,omitempty"`
+	DetectPreview   *stackcheckExplainPreview `json:"detect_preview,omitempty"`
+	ContractPreview *stackcheckExplainPreview `json:"contract_preview,omitempty"`
 	Commands        []stackcheckCommandResult `json:"commands,omitempty"`
 	DurationMS      int64                     `json:"duration_ms"`
 }
@@ -76,8 +60,18 @@ type stackcheckCommandOutcome struct {
 	duration time.Duration
 }
 
+type stackcheckExplainPreview struct {
+	SuggestedIntegrations []string `json:"suggested_integrations,omitempty"`
+	ActiveIntegrations    []string `json:"active_integrations,omitempty"`
+	IntegrationSources    []string `json:"integration_sources,omitempty"`
+}
+
 var stackcheckMissingRequiredFormulas = stackcheckMissingRequiredFormulasImpl
 var stackcheckResolveUpstreamHead = stackcheckResolveUpstreamHeadImpl
+var stackcheckBrewCandidates = []string{
+	"/opt/homebrew/bin/brew",
+	"/usr/local/bin/brew",
+}
 
 type stackcheckCheckoutTarget struct {
 	ref      string
@@ -85,8 +79,8 @@ type stackcheckCheckoutTarget struct {
 	source   string
 }
 
-func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, error) {
-	if err := validateStackcheckModePrereqs(mode); err != nil {
+func runStackCheck(mode string, opts StackcheckOptions, requireInitialized StackcheckInitCheck) (stackcheckResultSet, error) {
+	if err := validateStackcheckModePrereqs(mode, requireInitialized); err != nil {
 		return stackcheckResultSet{}, err
 	}
 
@@ -134,38 +128,14 @@ func runStackCheck(mode string, opts stackcheckOptions) (stackcheckResultSet, er
 	return resultSet, nil
 }
 
-func runStackCheckForDiagnostics(mode string, opts diagnostics.StackcheckOptions, stdout io.Writer, stderr io.Writer) error {
-	results, err := runStackCheck(mode, stackcheckOptions{
-		ManifestPath:  opts.ManifestPath,
-		WorkspaceRoot: opts.WorkspaceRoot,
-		Track:         opts.Track,
-		Wave:          opts.Wave,
-		IDs:           opts.IDs,
-		UpstreamHead:  opts.UpstreamHead,
-	})
-	if err != nil {
-		return err
-	}
-
-	enc := json.NewEncoder(stdout)
-	enc.SetIndent("", "  ")
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(results); err != nil {
-		return err
-	}
-
-	fmt.Fprint(stderr, summarizeStackcheckResults(results))
-	if failed := stackcheckFailureCount(results); failed > 0 {
-		return fmt.Errorf("%d stackcheck repo(s) failed", failed)
-	}
-	return nil
-}
-
-func validateStackcheckModePrereqs(mode string) error {
+func validateStackcheckModePrereqs(mode string, requireInitialized StackcheckInitCheck) error {
 	if mode != stackcheckModeSmoke {
 		return nil
 	}
-	if _, err := requireAgentUser(); err != nil {
+	if requireInitialized == nil {
+		return fmt.Errorf("stackcheck smoke requires local Hazmat initialization: initialization check is not configured")
+	}
+	if err := requireInitialized(); err != nil {
 		return fmt.Errorf("stackcheck smoke requires local Hazmat initialization: %w", err)
 	}
 	return nil
@@ -379,7 +349,7 @@ func stackcheckMissingRequiredFormulasImpl(formulas []string) ([]string, error) 
 }
 
 func stackcheckBrewBinary() (string, error) {
-	for _, candidate := range integrationBrewCandidates {
+	for _, candidate := range stackcheckBrewCandidates {
 		info, err := os.Stat(candidate)
 		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 			continue
@@ -392,7 +362,7 @@ func stackcheckBrewBinary() (string, error) {
 	return "", exec.ErrNotFound
 }
 
-func validateStackcheckDetect(repo stackMatrixRepo, preview explainJSONPreview) (string, string) {
+func validateStackcheckDetect(repo stackMatrixRepo, preview stackcheckExplainPreview) (string, string) {
 	missing, extra := diffStringSets(repo.ExpectedSuggestions, preview.SuggestedIntegrations)
 	if len(missing) > 0 {
 		return "detect_false_negative", fmt.Sprintf("missing suggested integrations: %s", strings.Join(missing, ", "))
@@ -403,7 +373,7 @@ func validateStackcheckDetect(repo stackMatrixRepo, preview explainJSONPreview) 
 	return "", ""
 }
 
-func validateStackcheckContract(repo stackMatrixRepo, preview explainJSONPreview) (string, string) {
+func validateStackcheckContract(repo stackMatrixRepo, preview stackcheckExplainPreview) (string, string) {
 	missing, extra := diffStringSets(repo.Activate, preview.ActiveIntegrations)
 	if len(missing) > 0 || len(extra) > 0 {
 		var parts []string
@@ -445,7 +415,7 @@ func diffStringSets(want, got []string) ([]string, []string) {
 	return missing, extra
 }
 
-func runStackcheckExplain(selfPath, repoDir string, integrations []string) (explainJSONPreview, stackcheckCommandResult, error) {
+func runStackcheckExplain(selfPath, repoDir string, integrations []string) (stackcheckExplainPreview, stackcheckCommandResult, error) {
 	args := []string{"explain", "--json", "--docker=none", "-C", repoDir}
 	for _, integration := range integrations {
 		args = append(args, "--integration", integration)
@@ -453,13 +423,13 @@ func runStackcheckExplain(selfPath, repoDir string, integrations []string) (expl
 	outcome, err := runStackcheckProcess("", selfPath, args...)
 	result := stackcheckCommandResultFromOutcome("explain", append([]string{selfPath}, args...), outcome)
 	if err != nil {
-		return explainJSONPreview{}, result, err
+		return stackcheckExplainPreview{}, result, err
 	}
 
-	var preview explainJSONPreview
+	var preview stackcheckExplainPreview
 	if err := json.Unmarshal([]byte(outcome.stdout), &preview); err != nil {
 		result.Stderr = stackcheckTrimOutput(err.Error())
-		return explainJSONPreview{}, result, err
+		return stackcheckExplainPreview{}, result, err
 	}
 	result.Stdout = ""
 	return preview, result, nil

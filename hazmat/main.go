@@ -119,10 +119,7 @@ func NewRootCommand() *cobra.Command {
 			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
 			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
 			diagnostics.NewStackCheckCommand(diagnostics.StackcheckCommandConfig{
-				DefaultManifestPath:  defaultStackMatrixManifestPath,
-				DefaultWorkspaceRoot: defaultStackcheckWorkspaceRoot,
-				DefaultTrack:         stackMatrixTrackRequired,
-				Run:                  runStackCheckForDiagnostics,
+				RequireInitialized: requireAgentUserForDiagnostics,
 			}),
 			hookruntime.NewGitHookWrapperCommand(runProjectHookGitWrapper),
 			hookruntime.NewGitHookDispatchCommand(requestGitHookDispatchForHookRuntime),
@@ -148,6 +145,11 @@ func requestGitHTTPSCredentialForAgentEntry(socketPath, operation string, payloa
 		Stdout: resp.Stdout,
 		Stderr: resp.Stderr,
 	}, err
+}
+
+func requireAgentUserForDiagnostics() error {
+	_, err := requireAgentUser()
+	return err
 }
 
 func requestGitHookDispatchForHookRuntime(projectDir, hookName string, args []string) error {

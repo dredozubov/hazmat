@@ -82,11 +82,11 @@ func TestStackcheckCommandUsesDefaults(t *testing.T) {
 	}
 }
 
-func TestStackcheckCommandRequiresRunner(t *testing.T) {
+func TestStackcheckCommandRequiresSmokeInitCheck(t *testing.T) {
 	cmd := NewStackCheckCommand(StackcheckCommandConfig{})
-	cmd.SetArgs([]string{"contract"})
+	cmd.SetArgs([]string{"smoke"})
 
 	if err := cmd.Execute(); err == nil {
-		t.Fatal("Execute() succeeded without runner")
+		t.Fatal("Execute() succeeded without smoke init check")
 	}
 }

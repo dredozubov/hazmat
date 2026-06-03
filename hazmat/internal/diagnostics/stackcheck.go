@@ -1,6 +1,7 @@
 package diagnostics
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -23,11 +24,13 @@ type StackcheckOptions struct {
 }
 
 type StackcheckRunner func(mode string, opts StackcheckOptions, stdout io.Writer, stderr io.Writer) error
+type StackcheckInitCheck func() error
 
 type StackcheckCommandConfig struct {
 	DefaultManifestPath  func() string
 	DefaultWorkspaceRoot func() string
 	DefaultTrack         string
+	RequireInitialized   StackcheckInitCheck
 	Run                  StackcheckRunner
 }
 
@@ -46,10 +49,14 @@ func NewStackCheckCommand(cfg StackcheckCommandConfig) *cobra.Command {
 }
 
 func newStackCheckRunCommand(mode string, cfg StackcheckCommandConfig) *cobra.Command {
+	defaultTrack := cfg.DefaultTrack
+	if defaultTrack == "" {
+		defaultTrack = stackMatrixTrackRequired
+	}
 	opts := StackcheckOptions{
-		ManifestPath:  defaultString(cfg.DefaultManifestPath),
-		WorkspaceRoot: defaultString(cfg.DefaultWorkspaceRoot),
-		Track:         cfg.DefaultTrack,
+		ManifestPath:  defaultString(cfg.DefaultManifestPath, defaultStackMatrixManifestPath),
+		WorkspaceRoot: defaultString(cfg.DefaultWorkspaceRoot, defaultStackcheckWorkspaceRoot),
+		Track:         defaultTrack,
 	}
 	cmd := &cobra.Command{
 		Use:    mode,
@@ -58,22 +65,25 @@ func newStackCheckRunCommand(mode string, cfg StackcheckCommandConfig) *cobra.Co
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if opts.ManifestPath == "" {
-				opts.ManifestPath = defaultString(cfg.DefaultManifestPath)
+				opts.ManifestPath = defaultString(cfg.DefaultManifestPath, defaultStackMatrixManifestPath)
 			}
 			if opts.WorkspaceRoot == "" {
-				opts.WorkspaceRoot = defaultString(cfg.DefaultWorkspaceRoot)
+				opts.WorkspaceRoot = defaultString(cfg.DefaultWorkspaceRoot, defaultStackcheckWorkspaceRoot)
 			}
-			if cfg.Run == nil {
-				return fmt.Errorf("stackcheck runner is not configured")
+			run := cfg.Run
+			if run == nil {
+				run = func(mode string, opts StackcheckOptions, stdout io.Writer, stderr io.Writer) error {
+					return runStackCheckForCommand(mode, opts, stdout, stderr, cfg.RequireInitialized)
+				}
 			}
-			return cfg.Run(mode, opts, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return run(mode, opts, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVar(&opts.ManifestPath, "manifest", opts.ManifestPath,
 		"Path to the repo corpus manifest")
 	cmd.Flags().StringVar(&opts.WorkspaceRoot, "workspace-root", opts.WorkspaceRoot,
 		"Directory where pinned repo checkouts are stored")
-	cmd.Flags().StringVar(&opts.Track, "track", cfg.DefaultTrack,
+	cmd.Flags().StringVar(&opts.Track, "track", defaultTrack,
 		`Repo track to run: "required", "informational", or "all"`)
 	cmd.Flags().IntVar(&opts.Wave, "wave", 0,
 		"Only run repos from a specific wave (0 means all waves)")
@@ -84,9 +94,32 @@ func newStackCheckRunCommand(mode string, cfg StackcheckCommandConfig) *cobra.Co
 	return cmd
 }
 
-func defaultString(fn func() string) string {
+func runStackCheckForCommand(mode string, opts StackcheckOptions, stdout io.Writer, stderr io.Writer, requireInitialized StackcheckInitCheck) error {
+	results, err := runStackCheck(mode, opts, requireInitialized)
+	if err != nil {
+		return err
+	}
+
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(results); err != nil {
+		return err
+	}
+
+	fmt.Fprint(stderr, summarizeStackcheckResults(results))
+	if failed := stackcheckFailureCount(results); failed > 0 {
+		return fmt.Errorf("%d stackcheck repo(s) failed", failed)
+	}
+	return nil
+}
+
+func defaultString(fn func() string, fallback func() string) string {
 	if fn == nil {
-		return ""
+		if fallback == nil {
+			return ""
+		}
+		return fallback()
 	}
 	return fn()
 }

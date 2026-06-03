@@ -1,8 +1,7 @@
-package hazmat
+package diagnostics
 
 import (
 	"errors"
-	"os/user"
 	"strings"
 	"testing"
 )
@@ -40,17 +39,17 @@ func TestValidateStackcheckDetect(t *testing.T) {
 		ExpectedSuggestions: []string{"node"},
 	}
 
-	if failureClass, _ := validateStackcheckDetect(repo, explainJSONPreview{
+	if failureClass, _ := validateStackcheckDetect(repo, stackcheckExplainPreview{
 		SuggestedIntegrations: []string{"node"},
 	}); failureClass != "" {
 		t.Fatalf("failureClass = %q, want empty", failureClass)
 	}
 
-	if failureClass, message := validateStackcheckDetect(repo, explainJSONPreview{}); failureClass != "detect_false_negative" || !strings.Contains(message, "missing suggested integrations") {
+	if failureClass, message := validateStackcheckDetect(repo, stackcheckExplainPreview{}); failureClass != "detect_false_negative" || !strings.Contains(message, "missing suggested integrations") {
 		t.Fatalf("failure = (%q, %q)", failureClass, message)
 	}
 
-	if failureClass, message := validateStackcheckDetect(repo, explainJSONPreview{
+	if failureClass, message := validateStackcheckDetect(repo, stackcheckExplainPreview{
 		SuggestedIntegrations: []string{"node", "go"},
 	}); failureClass != "detect_false_positive" || !strings.Contains(message, "unexpected suggested integrations") {
 		t.Fatalf("failure = (%q, %q)", failureClass, message)
@@ -63,21 +62,21 @@ func TestValidateStackcheckContract(t *testing.T) {
 		Activate: []string{"python-uv"},
 	}
 
-	if failureClass, _ := validateStackcheckContract(repo, explainJSONPreview{
+	if failureClass, _ := validateStackcheckContract(repo, stackcheckExplainPreview{
 		ActiveIntegrations: []string{"python-uv"},
 		IntegrationSources: []string{"python-uv (uv.lock)"},
 	}); failureClass != "" {
 		t.Fatalf("failureClass = %q, want empty", failureClass)
 	}
 
-	if failureClass, message := validateStackcheckContract(repo, explainJSONPreview{
+	if failureClass, message := validateStackcheckContract(repo, stackcheckExplainPreview{
 		ActiveIntegrations: []string{"node"},
 		IntegrationSources: []string{"node (package.json)"},
 	}); failureClass != "contract_mismatch" || !strings.Contains(message, "missing active integrations") {
 		t.Fatalf("failure = (%q, %q)", failureClass, message)
 	}
 
-	if failureClass, message := validateStackcheckContract(repo, explainJSONPreview{
+	if failureClass, message := validateStackcheckContract(repo, stackcheckExplainPreview{
 		ActiveIntegrations: []string{"python-uv"},
 	}); failureClass != "" || message != "" {
 		t.Fatalf("failure = (%q, %q)", failureClass, message)
@@ -105,28 +104,20 @@ func TestSummarizeStackcheckResults(t *testing.T) {
 }
 
 func TestValidateStackcheckModePrereqs(t *testing.T) {
-	originalLookup := lookupAgentUser
-	t.Cleanup(func() {
-		lookupAgentUser = originalLookup
-	})
-
-	lookupAgentUser = func() (*user.User, error) {
-		return nil, errors.New("missing")
-	}
-
-	if err := validateStackcheckModePrereqs(stackcheckModeDetect); err != nil {
+	if err := validateStackcheckModePrereqs(stackcheckModeDetect, func() error {
+		return errors.New("should not be called")
+	}); err != nil {
 		t.Fatalf("detect prereq err = %v, want nil", err)
 	}
 
-	err := validateStackcheckModePrereqs(stackcheckModeSmoke)
+	err := validateStackcheckModePrereqs(stackcheckModeSmoke, func() error {
+		return errors.New("missing")
+	})
 	if err == nil || !strings.Contains(err.Error(), "stackcheck smoke requires local Hazmat initialization") {
 		t.Fatalf("smoke prereq err = %v, want init guidance", err)
 	}
 
-	lookupAgentUser = func() (*user.User, error) {
-		return &user.User{Username: agentUser, HomeDir: agentHome}, nil
-	}
-	if err := validateStackcheckModePrereqs(stackcheckModeSmoke); err != nil {
+	if err := validateStackcheckModePrereqs(stackcheckModeSmoke, func() error { return nil }); err != nil {
 		t.Fatalf("smoke prereq err = %v, want nil", err)
 	}
 }
