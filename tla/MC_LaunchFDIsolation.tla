@@ -31,6 +31,7 @@ CONSTANTS
     PolicyFileUsesCloexec
 
 FDs == 0..5
+StdioFDs == 0..2
 InheritedExtraFDs == {3, 4}
 PolicyFD == 5
 
@@ -72,19 +73,19 @@ TypeOK ==
 
 Init ==
     /\ \E inherited \in SUBSET InheritedExtraFDs :
-        hazmatFds = {0, 1, 2} \cup inherited
+        hazmatFds = StdioFDs \cup inherited
     /\ sudoFds = {}
     /\ helperFds = {}
     /\ agentFds = {}
     /\ fdTarget =
         [fd \in FDs |->
-            CASE fd \in {0, 1, 2} -> "stdio"
+            CASE fd \in StdioFDs -> "stdio"
               [] fd = 3 -> "credential"
               [] fd = 4 -> "benign"
               [] OTHER -> "unused"]
     /\ fdOrigin =
         [fd \in FDs |->
-            IF fd \in {0, 1, 2} \cup InheritedExtraFDs
+            IF fd \in StdioFDs \cup InheritedExtraFDs
                 THEN "shell"
                 ELSE "none"]
     /\ fdCloexec = [fd \in FDs |-> FALSE]
@@ -96,7 +97,7 @@ HazmatExecsSudo ==
     /\ stage = "hazmat"
     /\ sudoFds' =
         IF goExecClosesParentFDs
-            THEN {0, 1, 2}
+            THEN StdioFDs
             ELSE hazmatFds
     /\ stage' = "sudo"
     /\ UNCHANGED <<hazmatFds, helperFds, agentFds,
@@ -107,7 +108,7 @@ SudoExecsHelper ==
     /\ stage = "sudo"
     /\ helperFds' =
         IF sudoClosesInheritedFDs
-            THEN {fd \in sudoFds : fd < 3}
+            THEN sudoFds \cap StdioFDs
             ELSE sudoFds
     /\ stage' = "helper"
     /\ UNCHANGED <<hazmatFds, sudoFds, agentFds,
@@ -118,7 +119,7 @@ HelperSanitizesFDTable ==
     /\ stage = "helper"
     /\ helperFds' =
         IF HelperClosesInheritedFDs
-            THEN {fd \in helperFds : fd < 3}
+            THEN helperFds \cap StdioFDs
             ELSE helperFds
     /\ stage' = "helper_sanitized"
     /\ UNCHANGED <<hazmatFds, sudoFds, agentFds,
@@ -177,7 +178,7 @@ HelperFDTableAllowlistedAtSandbox ==
 NoInheritedShellFDsAtSandbox ==
     SandboxReached =>
         \A fd \in helperFds :
-            \/ fd < 3
+            \/ fd \in StdioFDs
             \/ fdOrigin[fd] /= "shell"
 
 \* Credential-bearing descriptors must be gone before sandbox_init(), because
@@ -193,6 +194,6 @@ AgentFDTableAllowlisted ==
         \A fd \in agentFds : fdTarget[fd] \in AllowedAgentTargets
 
 StdioSurvivesToAgent ==
-    stage = "agent" => {0, 1, 2} \subseteq agentFds
+    stage = "agent" => StdioFDs \subseteq agentFds
 
 =============================================================================

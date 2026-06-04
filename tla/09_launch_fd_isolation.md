@@ -114,6 +114,15 @@ Observed result:
 - `depth 7`
 - `Finished in <1s`
 
+2026-06-04 proof-hygiene refactor:
+
+- factored the repeated stdio descriptor set into `StdioFDs`
+- preserved checked obligations: `TypeOK`, `HelperFDTableAllowlistedAtSandbox`,
+  `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`,
+  `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`
+- before metrics: `128 generated`, `112 distinct`, `depth 7`
+- after metrics: `128 generated`, `112 distinct`, `depth 7`
+
 ## Interpretation
 
 This proof does not claim anything about macOS kernel internals or `sudo`
