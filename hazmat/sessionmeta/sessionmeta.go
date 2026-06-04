@@ -93,6 +93,8 @@ func (m NetworkMode) String() string {
 // ContractLabel returns the human-readable session contract label.
 func (m NetworkMode) ContractLabel() string {
 	switch NormalizeNetworkMode(m) {
+	case NetworkDefault:
+		return "default (outbound allowed)"
 	case NetworkNone:
 		return "none (deny outbound IPv4, IPv6, and DNS)"
 	default:
@@ -103,6 +105,8 @@ func (m NetworkMode) ContractLabel() string {
 // Label returns the human-readable runtime mode label.
 func (m Mode) Label() string {
 	switch m {
+	case ModeNative:
+		return "Native containment"
 	case ModeDockerSandbox:
 		return "Docker Sandbox"
 	default:

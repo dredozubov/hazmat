@@ -640,6 +640,8 @@ func repoSetupEffectsFromEvidence(entries []repoSetupStoredEvidence) (safe []rep
 		switch entry.Class {
 		case repoSetupEffectClassExplicit:
 			explicit = append(explicit, effect)
+		case repoSetupEffectClassSafe:
+			safe = append(safe, effect)
 		default:
 			safe = append(safe, effect)
 		}

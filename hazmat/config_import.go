@@ -903,8 +903,10 @@ func applyClaudeImportPlan(plan claudeImportPlan, env claudeImportEnv, r *Runner
 		case claudeImportSkip:
 			result.Skipped = append(result.Skipped, item)
 			continue
-		default:
+		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
 			// New, conflict, and overwrite statuses all flow to apply below.
+		default:
+			return result, fmt.Errorf("unsupported Claude import status %q", item.Status)
 		}
 
 		if err := applyClaudeImportItem(item, env, r); err != nil {

@@ -1386,6 +1386,9 @@ func runGitSSHTransportHelper(socketPath string, args []string) int {
 				return 97
 			}
 			return int(binary.BigEndian.Uint32(payload))
+		case gitSSHFrameStdin, gitSSHFrameStdinEOF:
+			fmt.Fprintf(os.Stderr, "hazmat git-ssh: unexpected broker frame type %d\n", frameType)
+			return 97
 		default:
 			fmt.Fprintf(os.Stderr, "hazmat git-ssh: unexpected broker frame type %d\n", frameType)
 			return 97
@@ -1438,6 +1441,8 @@ func runGitSSHTransportRequest(cfg sessionGitSSHConfig, req gitSSHTransportReque
 					}
 				}
 			case gitSSHFrameStdinEOF:
+				return
+			case gitSSHFrameStdout, gitSSHFrameStderr, gitSSHFrameExit:
 				return
 			default:
 				return

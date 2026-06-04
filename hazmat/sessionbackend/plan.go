@@ -135,6 +135,8 @@ func lifecycleArtifacts(backend Kind) []LifecycleArtifact {
 			Kind:            ArtifactDockerSandbox,
 			CleanupRequired: false,
 		}}
+	case KindLinuxNative, KindUnsupportedNative, KindRemoteEnvelope:
+		return nil
 	default:
 		return nil
 	}

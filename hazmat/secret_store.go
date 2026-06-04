@@ -370,6 +370,8 @@ func applyProviderAPIKeyEnvForSession(cfg *sessionConfig, descriptor credentialD
 	}
 
 	switch source {
+	case configuredAPIKeySourceNone:
+		return nil
 	case configuredAPIKeySourceStore:
 	case configuredAPIKeySourceLegacy:
 		if planOnly {

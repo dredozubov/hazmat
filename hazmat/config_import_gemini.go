@@ -602,8 +602,10 @@ func applyGeminiImportPlan(plan geminiImportPlan, env geminiImportEnv, r *Runner
 		case claudeImportSkip:
 			result.Skipped = append(result.Skipped, item)
 			continue
-		default:
+		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
 			// New, conflict, and overwrite statuses all flow to apply below.
+		default:
+			return result, fmt.Errorf("unsupported Gemini import status %q", item.Status)
 		}
 
 		if err := applyGeminiImportItem(item, env, r); err != nil {

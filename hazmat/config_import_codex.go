@@ -496,8 +496,10 @@ func applyCodexImportPlan(plan codexImportPlan, env codexImportEnv, r *Runner) (
 		case claudeImportSkip:
 			result.Skipped = append(result.Skipped, item)
 			continue
-		default:
+		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
 			// New, conflict, and overwrite statuses all flow to apply below.
+		default:
+			return result, fmt.Errorf("unsupported Codex import status %q", item.Status)
 		}
 
 		if err := applyCodexImportItem(item, env, r); err != nil {

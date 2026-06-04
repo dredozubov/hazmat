@@ -26,7 +26,7 @@ linters:
         # Interactive input — empty result caught downstream.
         - fmt.Scanln
     exhaustive:
-      default-signifies-exhaustive: true
+      default-signifies-exhaustive: false
     gosec:
       excludes:
         # System tool with intentional multi-user permissions and subprocess usage.

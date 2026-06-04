@@ -2028,6 +2028,8 @@ func sessionRoutingExplanation(commandName, projectDir string, request dockerRou
 			reason = "staying in native containment because this project is configured with docker: none"
 		case dockerRequestDefault:
 			reason = "using native containment by default (Docker routing: none)"
+		case dockerRequestLegacySandbox:
+			reason = "staying in native containment because Docker support was disabled for this session"
 		default:
 			reason = "staying in native containment because Docker support was disabled for this session"
 		}
