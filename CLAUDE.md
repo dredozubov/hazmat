@@ -20,6 +20,10 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_HarnessLifecycle` | Built-in harness state recording and rollback cleanup | `RollbackClearsMetadata` — rollback removes the host-owned harness metadata record |
 | `MC_LaunchFDIsolation` | Native helper fd-table hygiene before `sandbox_init()` | `AgentFDTableAllowlisted` — final agent exec sees stdio only |
 | `MC_GitSSHRouting` | Multi-key per-project Git-SSH routing | `DeterministicRouting` — every host maps to at most one key in a ready config |
+| `MC_GitHookApproval` | Repo-local Git hook approval, pinning, and drift refusal | `ApprovedContentOnly` — approved hook execution uses the immutable approved snapshot |
+| `MC_SecretStoreRecovery` | File-backed harness auth crash recovery | `LatestValueNeverSilentlyLost` — recovery never drops the newest host-owned secret value |
+| `MC_CredentialCapabilityLifecycle` | Registry-level credential delivery and cleanup | `DeliveryMatchesRegistry` — delivery mode follows the registered credential capability |
+| `MC_LinuxNativeLaunch` | Future Linux native helper launch ordering | `ExecAfterMetadata` — exec happens only after enforcement and metadata emission |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -72,6 +76,11 @@ tla/                     TLA+ formal verification specs
   MC_SessionPermissionRepairs.* Session-time permission repair contract
   MC_HarnessLifecycle.* Harness state recording + rollback cleanup
   MC_LaunchFDIsolation.* Native helper fd isolation contract
+  MC_GitSSHRouting.*      Git-SSH routing contract
+  MC_GitHookApproval.*    Repo-local Git hook approval contract
+  MC_SecretStoreRecovery.* Harness auth crash recovery contract
+  MC_CredentialCapabilityLifecycle.* Credential delivery/cleanup contract
+  MC_LinuxNativeLaunch.* Linux native launch ordering contract
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
@@ -128,6 +137,18 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Changing Git-SSH routing, per-key host allowlists, or identity-agent socket binding
 → Update `MC_GitSSHRouting.tla` first, run TLC, then implement.
+
+### Changing repo-local Git hook approval, wrapper pinning, or drift handling
+→ Update `MC_GitHookApproval.tla` first, run TLC, then implement.
+
+### Changing file-backed harness auth harvest, residue cleanup, or crash recovery
+→ Update `MC_SecretStoreRecovery.tla` first, run TLC, then implement.
+
+### Changing credential capability registration, delivery modes, or session cleanup
+→ Update `MC_CredentialCapabilityLifecycle.tla` first, run TLC, then implement.
+
+### Changing Linux native helper launch ordering, namespace setup, LSM decisions, or exec gating
+→ Update `MC_LinuxNativeLaunch.tla` first, run TLC, then implement.
 
 ## Key conventions
 
