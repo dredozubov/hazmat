@@ -26,35 +26,12 @@ func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, fa
 }
 
 func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool, facts hostfacts.HostFacts) sessionplanner.Plan {
+	authority := newSessionPlanAuthority(target, cfg, mode, skipSnapshot)
 	return sessionplanner.Build(sessionplanner.Input{
-		Contract:            buildSessionContractPlanInput(target, cfg, mode, skipSnapshot),
-		Backend:             buildSessionBackendPlanInput(target, cfg, mode, facts),
-		HarnessRequirements: buildSessionHarnessRequirements(cfg),
+		Contract:            authority.ContractInput(),
+		Backend:             authority.BackendInput(facts),
+		HarnessRequirements: authority.HarnessRequirements(),
 	})
-}
-
-func buildSessionBackendPlanInput(target string, cfg sessionConfig, mode sessionMode, facts hostfacts.HostFacts) sessionbackend.Input {
-	return sessionbackend.Input{
-		Target:             target,
-		Mode:               mode,
-		ProjectDir:         cfg.ProjectDir,
-		ReadOnlyDirs:       cfg.ReadDirs,
-		ReadWriteDirs:      cfg.WriteDirs,
-		NetworkMode:        cfg.NetworkMode,
-		Integrations:       cfg.ActiveIntegrations,
-		IntegrationEnvKeys: integrationEnvKeys(cfg.IntegrationEnv),
-		HostFacts:          facts,
-	}
-}
-
-func buildSessionHarnessRequirements(cfg sessionConfig) []sessionplanner.HarnessRequirement {
-	if cfg.HarnessID == "" {
-		return nil
-	}
-	return []sessionplanner.HarnessRequirement{{
-		ID:     string(cfg.HarnessID),
-		Reason: "session target harness",
-	}}
 }
 
 func currentHostFacts() hostfacts.HostFacts {

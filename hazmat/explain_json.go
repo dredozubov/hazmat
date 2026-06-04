@@ -85,63 +85,12 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 	}
 }
 
-func buildSessionContractPlanInput(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) sessioncontract.PlanInput {
-	return sessioncontract.PlanInput{
-		Target:                target,
-		Mode:                  mode,
-		ProjectDir:            cfg.ProjectDir,
-		RoutingReason:         cfg.RoutingReason,
-		SuggestedIntegrations: cfg.SuggestedIntegrations,
-		RepoSetupSummary:      repoSetupSummary(cfg.RepoSetup),
-		RepoSetupApplied:      explainJSONRepoSetupEffects(cfg.RepoSetup, true),
-		RepoSetupPending:      explainJSONRepoSetupEffects(cfg.RepoSetup, false),
-		ActiveIntegrations:    cfg.ActiveIntegrations,
-		IntegrationSources:    cfg.IntegrationSources,
-		IntegrationDetails:    cfg.IntegrationDetails,
-		IntegrationWarnings:   cfg.IntegrationWarnings,
-		IntegrationEnv:        cfg.IntegrationEnv,
-		RegistryEnvKeys:       cfg.IntegrationRegistryKeys,
-		CredentialEnvGrants:   explainJSONCredentialEnvGrants(cfg.CredentialEnvGrants),
-		PlannedHostMutations:  cfg.PlannedHostMutations,
-		ReadOnlyDirs:          cfg.ReadDirs,
-		AutoReadOnlyDirs:      cfg.AutoReadDirs,
-		UserReadOnlyDirs:      cfg.UserReadDirs,
-		ReadWriteExtensions:   cfg.WriteDirs,
-		NetworkMode:           cfg.NetworkMode,
-		ServiceAccess:         cfg.ServiceAccess,
-		GitSSHKey:             explainGitSSHKey(cfg.GitSSH),
-		Snapshot: sessioncontract.Snapshot{
-			Enabled:  !skipSnapshot,
-			Excludes: cfg.IntegrationExcludes,
-		},
-		SessionNotes: cfg.SessionNotes,
-	}
-}
-
 var explainPlatformReport = func(facts hostfacts.HostFacts) *linuxplatform.Report {
 	if facts.TargetGOOS() != "linux" {
 		return nil
 	}
 	report := linuxplatform.InspectHost()
 	return &report
-}
-
-func explainJSONCredentialEnvGrants(grants []sessionCredentialEnvGrant) []explainJSONCredentialEnvGrant {
-	normalized := normalizedSessionCredentialEnvGrants(grants)
-	if len(normalized) == 0 {
-		return nil
-	}
-	out := make([]explainJSONCredentialEnvGrant, 0, len(normalized))
-	for _, grant := range normalized {
-		out = append(out, explainJSONCredentialEnvGrant{
-			EnvVar:          grant.EnvVar,
-			CredentialID:    string(grant.CredentialID),
-			Source:          grant.Source,
-			ConsumerHarness: string(grant.ConsumerHarness),
-			Redacted:        true,
-		})
-	}
-	return out
 }
 
 func explainJSONRepoSetupEffects(state *repoSetupState, applied bool) []explainJSONRepoSetupEffect {
