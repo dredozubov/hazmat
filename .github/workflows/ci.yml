@@ -220,7 +220,28 @@ jobs:
 
       - name: Run verified TLA+ suite
         working-directory: tla
-        run: TLA2TOOLS_JAR=~/tla2tools.jar bash check_suite.sh
+        run: |
+          mkdir -p ../proof-artifacts/tlc-logs
+          TLA2TOOLS_JAR=~/tla2tools.jar \
+            TLC_LOG_DIR="$GITHUB_WORKSPACE/proof-artifacts/tlc-logs" \
+            bash check_suite.sh
+
+      - name: Capture TLA+ proof audit
+        if: always()
+        working-directory: tla
+        run: |
+          mkdir -p ../proof-artifacts
+          TLA2TOOLS_JAR=~/tla2tools.jar \
+            bash proof_audit.sh --log-dir "$GITHUB_WORKSPACE/proof-artifacts/tlc-logs" \
+            > ../proof-artifacts/tla-proof-audit.txt
+
+      - name: Upload TLA+ proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tla-proof-artifacts
+          path: proof-artifacts
+          if-no-files-found: warn
 
   e2e:
     name: E2E lifecycle

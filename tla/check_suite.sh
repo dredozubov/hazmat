@@ -21,7 +21,19 @@ run_spec() {
     set -- "$@" -metadir "$metadir"
   fi
 
-  bash ./run_tlc.sh "$@" -config "${spec}.cfg" "${spec}.tla"
+  if [ -n "${TLC_LOG_DIR:-}" ]; then
+    mkdir -p "${TLC_LOG_DIR}"
+    log_path="${TLC_LOG_DIR%/}/${spec}.log"
+    if bash ./run_tlc.sh "$@" -config "${spec}.cfg" "${spec}.tla" >"${log_path}" 2>&1; then
+      cat "${log_path}"
+    else
+      status="$?"
+      cat "${log_path}"
+      return "$status"
+    fi
+  else
+    bash ./run_tlc.sh "$@" -config "${spec}.cfg" "${spec}.tla"
+  fi
 }
 
 run_spec MC_SetupRollback yes
