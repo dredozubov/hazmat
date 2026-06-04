@@ -121,6 +121,17 @@ proof sources. `TRACE_ARTIFACTS.md` records the retention policy, and
 `trace_artifact_check.sh` fails if raw generated trace/state artifacts become
 tracked.
 
+### CI proof tiers
+
+CI separates fast proof hygiene from deep model checking, but the split must not
+weaken promoted-spec coverage. The fast `TLA+ proof hygiene` job checks the
+ownership ledger, trace-artifact policy, and `proof_audit.sh --fail-on-drift`
+inventory/config drift. The deep `TLA+ model checking` job remains mandatory for
+every promoted spec listed in `check_suite.sh`, including liveness checks
+configured there. The 2026-06-04 baseline run `26942387327` measured the deep
+TLA+ job at about 24 minutes, with the verified TLC suite step at about 23m52s;
+the split exists for earlier drift feedback, not for skipping promoted proofs.
+
 ---
 
 ## Verified Subsystems

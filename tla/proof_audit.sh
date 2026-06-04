@@ -6,10 +6,11 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 TLA_DIR="${ROOT_DIR}/tla"
 LOG_DIR=""
+FAIL_ON_DRIFT=0
 
 usage() {
   cat <<'EOF'
-Usage: proof_audit.sh [--log-dir DIR]
+Usage: proof_audit.sh [--fail-on-drift] [--log-dir DIR]
 
 Inventories Hazmat's promoted TLA+ proof base and, when TLC logs are supplied,
 summarizes generated/distinct/depth counters for regression comparison.
@@ -18,6 +19,9 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --fail-on-drift)
+      FAIL_ON_DRIFT=1
+      ;;
     --log-dir)
       shift
       if [ "$#" -eq 0 ]; then
@@ -320,6 +324,16 @@ printf 'promoted_without_cfg: %s\n' "$missing_cfg"
 printf 'unpromoted_tla_specs: %s\n' "$unpromoted_tla"
 printf 'unpromoted_cfg_specs: %s\n' "$unpromoted_cfg"
 echo
+
+if [ "$FAIL_ON_DRIFT" -eq 1 ]; then
+  if [ "$missing_tla" != "-" ] \
+    || [ "$missing_cfg" != "-" ] \
+    || [ "$unpromoted_tla" != "-" ] \
+    || [ "$unpromoted_cfg" != "-" ]; then
+    echo "proof-audit: promoted proof inventory drift detected" >&2
+    exit 1
+  fi
+fi
 
 echo "## Promoted Specs"
 printf '%s\n' 'spec	liveness	tla_bytes	cfg_bytes	tla_gzip_bytes	cfg_gzip_bytes	invariants	properties'

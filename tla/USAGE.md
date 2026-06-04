@@ -63,6 +63,7 @@ TLC_LOG_DIR=/tmp/hazmat-tlc-logs bash check_suite.sh
 ```bash
 cd tla/
 bash proof_audit.sh
+bash proof_audit.sh --fail-on-drift
 bash proof_audit.sh --log-dir /tmp/hazmat-tlc-logs
 ```
 
@@ -70,7 +71,9 @@ The audit reports the promoted `MC_*` suite, checked invariants/properties from
 each `.cfg`, source/gzip sizes, local ignored TLC trace artifacts, tool
 versions, and generated/distinct/depth counters when TLC logs are available.
 Use it before and after structural refactors so source cleanup is compared
-against proof behavior, not just bytes.
+against proof behavior, not just bytes. Use `--fail-on-drift` when the audit
+should exit non-zero for promoted-suite, `.tla`, or `.cfg` inventory drift, as
+CI does in the fast proof-hygiene tier.
 
 ### Check proof ownership
 ```bash
@@ -90,6 +93,26 @@ bash trace_artifact_check.sh
 
 Raw TLC `_TTrace_` files and `tla/states/` are local generated output, not proof
 source. See `TRACE_ARTIFACTS.md` for the retention policy.
+
+### CI proof tiers
+
+CI intentionally splits TLA+ proof work into a fast hygiene tier and a deep TLC
+tier.
+
+- `TLA+ proof hygiene` runs `proof_ownership_check.sh`,
+  `trace_artifact_check.sh`, and `proof_audit.sh --fail-on-drift`. This tier fails quickly on
+  promoted-suite, `.cfg`, ownership-ledger, design-note, or generated-artifact
+  drift before the expensive model-checking job starts.
+- `TLA+ model checking` still runs `check_suite.sh` against every promoted
+  `MC_*.tla` / `MC_*.cfg` pair and uploads per-spec TLC logs plus parsed audit
+  metrics. Do not remove a promoted spec, invariant, property, or liveness flag
+  from `check_suite.sh` to make the fast tier pass.
+
+Decision record: the 2026-06-04 GitHub Actions baseline for run
+`26942387327` completed the TLA+ job in about 24 minutes, with the verified TLC
+suite step taking about 23m52s. The tier split is for earlier drift feedback and
+clearer status ownership; it is not a reduction in mandatory promoted-spec TLC
+coverage.
 
 ### Check one spec (safety)
 ```bash

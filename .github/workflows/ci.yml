@@ -193,8 +193,8 @@ jobs:
             hazmat/hazmat-${{ matrix.goos }}-${{ matrix.goarch }}
             hazmat/hazmat-launch-${{ matrix.goos }}-${{ matrix.goarch }}
 
-  tla-model-check:
-    name: TLA+ model checking
+  tla-proof-hygiene:
+    name: TLA+ proof hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -206,6 +206,27 @@ jobs:
       - name: Check TLA+ trace artifact policy
         working-directory: tla
         run: bash trace_artifact_check.sh
+
+      - name: Capture TLA+ proof inventory
+        working-directory: tla
+        run: |
+          mkdir -p ../proof-artifacts
+          bash proof_audit.sh --fail-on-drift > ../proof-artifacts/tla-proof-inventory.txt
+
+      - name: Upload TLA+ proof hygiene artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tla-proof-hygiene
+          path: proof-artifacts/tla-proof-inventory.txt
+          if-no-files-found: warn
+
+  tla-model-check:
+    name: TLA+ model checking
+    runs-on: ubuntu-latest
+    needs: [tla-proof-hygiene]
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
         with:
