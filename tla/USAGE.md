@@ -67,10 +67,10 @@ bash proof_audit.sh --log-dir /tmp/hazmat-tlc-logs
 ```
 
 The audit reports the promoted `MC_*` suite, checked invariants/properties from
-each `.cfg`, source/gzip sizes, checked-in TLC trace artifacts, tool versions,
-and generated/distinct/depth counters when TLC logs are available. Use it before
-and after structural refactors so source cleanup is compared against proof
-behavior, not just bytes.
+each `.cfg`, source/gzip sizes, local ignored TLC trace artifacts, tool
+versions, and generated/distinct/depth counters when TLC logs are available.
+Use it before and after structural refactors so source cleanup is compared
+against proof behavior, not just bytes.
 
 ### Check proof ownership
 ```bash
@@ -81,6 +81,15 @@ bash proof_ownership_check.sh
 `proof_ownership.tsv` maps every checked invariant/property to its owning
 `VERIFIED.md` section and companion design note. Update it whenever a `.cfg`
 adds, removes, or renames an invariant/property.
+
+### Check trace artifact policy
+```bash
+cd tla/
+bash trace_artifact_check.sh
+```
+
+Raw TLC `_TTrace_` files and `tla/states/` are local generated output, not proof
+source. See `TRACE_ARTIFACTS.md` for the retention policy.
 
 ### Check one spec (safety)
 ```bash

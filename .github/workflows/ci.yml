@@ -203,6 +203,10 @@ jobs:
         working-directory: tla
         run: bash proof_ownership_check.sh
 
+      - name: Check TLA+ trace artifact policy
+        working-directory: tla
+        run: bash trace_artifact_check.sh
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

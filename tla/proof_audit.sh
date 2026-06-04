@@ -305,9 +305,9 @@ echo "## Inventory"
 printf 'promoted_specs: %s\n' "$(wc -l < "${tmpdir}/promoted_specs.txt" | tr -d ' ')"
 printf 'mc_tla_specs: %s\n' "$(wc -l < "${tmpdir}/tla_specs.txt" | tr -d ' ')"
 printf 'mc_cfg_specs: %s\n' "$(wc -l < "${tmpdir}/cfg_specs.txt" | tr -d ' ')"
-printf 'trace_artifacts: %s\n' "$(find "$TLA_DIR" -maxdepth 1 -type f \( -name '*_TTrace_*.tla' -o -name '*_TTrace_*.bin' \) | wc -l | tr -d ' ')"
+printf 'local_trace_artifacts: %s\n' "$(find "$TLA_DIR" -maxdepth 1 -type f \( -name '*_TTrace_*.tla' -o -name '*_TTrace_*.bin' \) | wc -l | tr -d ' ')"
 trace_bytes="$(find "$TLA_DIR" -maxdepth 1 -type f \( -name '*_TTrace_*.tla' -o -name '*_TTrace_*.bin' \) -exec wc -c {} + 2>/dev/null | awk '$NF != "total" {sum += $1} END {print sum + 0}')"
-printf 'trace_bytes: %s\n' "${trace_bytes:-0}"
+printf 'local_trace_bytes: %s\n' "${trace_bytes:-0}"
 echo
 
 echo "## Drift Checks"
@@ -368,7 +368,7 @@ if [ -n "$LOG_DIR" ]; then
   echo
 fi
 
-echo "## Trace Artifacts"
+echo "## Local Trace Artifacts"
 find "$TLA_DIR" -maxdepth 1 -type f \( -name '*_TTrace_*.tla' -o -name '*_TTrace_*.bin' \) \
   | sort \
   | while IFS= read -r trace; do

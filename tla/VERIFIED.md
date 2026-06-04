@@ -113,6 +113,14 @@ removing, or renaming a checked obligation. The check prevents phantom proof
 claims by failing when the `.cfg` files, promoted suite, `VERIFIED.md`, and
 per-spec design notes drift apart.
 
+### TLC trace artifacts
+
+Raw TLC `_TTrace_` modules, `.bin` files, and `tla/states/` files are local
+generated debugging output. They are ignored by Git, may be deleted, and are not
+proof sources. `TRACE_ARTIFACTS.md` records the retention policy, and
+`trace_artifact_check.sh` fails if raw generated trace/state artifacts become
+tracked.
+
 ---
 
 ## Verified Subsystems
