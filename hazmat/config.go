@@ -64,11 +64,11 @@ const (
 
 // PinnedIntegrations returns the configured integration pins (nil if none).
 func (c HazmatConfig) PinnedIntegrations() []IntegrationPin {
-	return c.Integrations.Pinned
+	return cloneIntegrationPins(c.Integrations.Pinned)
 }
 
 func (c HazmatConfig) RejectedIntegrations() []IntegrationRejection {
-	return c.Integrations.Rejected
+	return cloneIntegrationRejections(c.Integrations.Rejected)
 }
 
 func (c HazmatConfig) ProjectPinnedIntegrations(projectDir string) []string {
@@ -87,6 +87,30 @@ func (c HazmatConfig) ProjectRejectedIntegrations(projectDir string) []string {
 		}
 	}
 	return nil
+}
+
+func cloneIntegrationPins(values []IntegrationPin) []IntegrationPin {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]IntegrationPin, len(values))
+	for i, value := range values {
+		out[i] = value
+		out[i].Integrations = append([]string(nil), value.Integrations...)
+	}
+	return out
+}
+
+func cloneIntegrationRejections(values []IntegrationRejection) []IntegrationRejection {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]IntegrationRejection, len(values))
+	for i, value := range values {
+		out[i] = value
+		out[i].Integrations = append([]string(nil), value.Integrations...)
+	}
+	return out
 }
 
 // ── Defaults ────────────────────────────────────────────────────────────────
@@ -114,7 +138,7 @@ func (c HazmatConfig) StatusBar() bool {
 // hazmat config set session.read_dirs.add ~/workspace
 func (c HazmatConfig) SessionReadDirs() []string {
 	if c.Session.ReadDirs != nil {
-		return *c.Session.ReadDirs
+		return append([]string(nil), (*c.Session.ReadDirs)...)
 	}
 	return nil
 }
@@ -137,11 +161,12 @@ func (c HazmatConfig) SandboxBackend() *SandboxBackendConfig {
 	if c.Sandbox.Backend == nil || c.Sandbox.Backend.Type == "" {
 		return nil
 	}
-	return c.Sandbox.Backend
+	backend := *c.Sandbox.Backend
+	return &backend
 }
 
 func (c HazmatConfig) ManagedSandboxes() []ManagedSandboxConfig {
-	return c.Sandbox.Managed
+	return append([]ManagedSandboxConfig(nil), c.Sandbox.Managed...)
 }
 
 func (c HazmatConfig) ProjectDockerMode(projectDir string) (dockerMode, bool) {
