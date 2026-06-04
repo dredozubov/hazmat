@@ -5,8 +5,10 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 TLA_DIR="${ROOT_DIR}/tla"
+ROSTER="${TLA_DIR}/promoted_specs.tsv"
 LOG_DIR=""
 FAIL_ON_DRIFT=0
+EXPECTED_PROMOTED_SPEC_COUNT=14
 
 usage() {
   cat <<'EOF'
@@ -264,6 +266,60 @@ duration_from_log() {
     || true
 }
 
+[ -f "$ROSTER" ] || {
+  echo "error: missing promoted spec roster: $ROSTER" >&2
+  exit 2
+}
+
+awk -F '\t' '
+  BEGIN {
+    expected_header = "spec\tliveness"
+    status = 0
+  }
+  NR == 1 {
+    if ($0 != expected_header) {
+      printf "error: bad promoted spec roster header in %s\n", FILENAME > "/dev/stderr"
+      status = 1
+    }
+    next
+  }
+  NF == 0 { next }
+  NF != 2 {
+    printf "error: bad promoted spec roster column count at %s:%d\n", FILENAME, NR > "/dev/stderr"
+    status = 1
+    next
+  }
+  $1 !~ /^MC_[A-Za-z0-9_]+$/ {
+    printf "error: bad promoted spec name at %s:%d: %s\n", FILENAME, NR, $1 > "/dev/stderr"
+    status = 1
+  }
+  $2 != "yes" && $2 != "no" {
+    printf "error: bad liveness value at %s:%d: %s\n", FILENAME, NR, $2 > "/dev/stderr"
+    status = 1
+  }
+  {
+    print $1 "\t" $2
+  }
+  END {
+    exit status
+  }
+' "$ROSTER" > "${tmpdir}/roster.unsorted.tsv"
+sort "${tmpdir}/roster.unsorted.tsv" > "${tmpdir}/roster.tsv"
+cut -f1 "${tmpdir}/roster.tsv" > "${tmpdir}/rostered_specs.txt"
+
+roster_duplicates="$(uniq -d "${tmpdir}/rostered_specs.txt")"
+if [ -n "$roster_duplicates" ]; then
+  printf '%s\n' "$roster_duplicates" >&2
+  echo "error: duplicate specs in promoted spec roster" >&2
+  exit 2
+fi
+
+roster_count="$(wc -l < "${tmpdir}/rostered_specs.txt" | tr -d ' ')"
+if [ "$roster_count" -ne "$EXPECTED_PROMOTED_SPEC_COUNT" ]; then
+  echo "error: promoted spec roster lists ${roster_count} specs, expected ${EXPECTED_PROMOTED_SPEC_COUNT}" >&2
+  exit 2
+fi
+
 awk '
   /^[ \t]*run_spec[ \t]+MC_/ {
     spec = $2
@@ -306,6 +362,7 @@ fi
 echo
 
 echo "## Inventory"
+printf 'rostered_specs: %s\n' "$roster_count"
 printf 'promoted_specs: %s\n' "$(wc -l < "${tmpdir}/promoted_specs.txt" | tr -d ' ')"
 printf 'mc_tla_specs: %s\n' "$(wc -l < "${tmpdir}/tla_specs.txt" | tr -d ' ')"
 printf 'mc_cfg_specs: %s\n' "$(wc -l < "${tmpdir}/cfg_specs.txt" | tr -d ' ')"
@@ -319,6 +376,26 @@ missing_tla="$(comm -23 "${tmpdir}/promoted_specs.txt" "${tmpdir}/tla_specs.txt"
 missing_cfg="$(comm -23 "${tmpdir}/promoted_specs.txt" "${tmpdir}/cfg_specs.txt" | join_lines)"
 unpromoted_tla="$(comm -13 "${tmpdir}/promoted_specs.txt" "${tmpdir}/tla_specs.txt" | join_lines)"
 unpromoted_cfg="$(comm -13 "${tmpdir}/promoted_specs.txt" "${tmpdir}/cfg_specs.txt" | join_lines)"
+roster_without_promoted="$(comm -23 "${tmpdir}/rostered_specs.txt" "${tmpdir}/promoted_specs.txt" | join_lines)"
+promoted_without_roster="$(comm -13 "${tmpdir}/rostered_specs.txt" "${tmpdir}/promoted_specs.txt" | join_lines)"
+rostered_without_tla="$(comm -23 "${tmpdir}/rostered_specs.txt" "${tmpdir}/tla_specs.txt" | join_lines)"
+rostered_without_cfg="$(comm -23 "${tmpdir}/rostered_specs.txt" "${tmpdir}/cfg_specs.txt" | join_lines)"
+liveness_drift="$(
+  awk -F '\t' '
+    NR == FNR {
+      want[$1] = $2
+      next
+    }
+    ($1 in want) && want[$1] != $2 {
+      print $1
+    }
+  ' "${tmpdir}/roster.tsv" "${tmpdir}/promoted.tsv" | join_lines
+)"
+printf 'roster_without_promoted: %s\n' "$roster_without_promoted"
+printf 'promoted_without_roster: %s\n' "$promoted_without_roster"
+printf 'rostered_without_tla: %s\n' "$rostered_without_tla"
+printf 'rostered_without_cfg: %s\n' "$rostered_without_cfg"
+printf 'roster_liveness_drift: %s\n' "$liveness_drift"
 printf 'promoted_without_tla: %s\n' "$missing_tla"
 printf 'promoted_without_cfg: %s\n' "$missing_cfg"
 printf 'unpromoted_tla_specs: %s\n' "$unpromoted_tla"
@@ -329,7 +406,12 @@ if [ "$FAIL_ON_DRIFT" -eq 1 ]; then
   if [ "$missing_tla" != "-" ] \
     || [ "$missing_cfg" != "-" ] \
     || [ "$unpromoted_tla" != "-" ] \
-    || [ "$unpromoted_cfg" != "-" ]; then
+    || [ "$unpromoted_cfg" != "-" ] \
+    || [ "$roster_without_promoted" != "-" ] \
+    || [ "$promoted_without_roster" != "-" ] \
+    || [ "$rostered_without_tla" != "-" ] \
+    || [ "$rostered_without_cfg" != "-" ] \
+    || [ "$liveness_drift" != "-" ]; then
     echo "proof-audit: promoted proof inventory drift detected" >&2
     exit 1
   fi

@@ -72,8 +72,14 @@ each `.cfg`, source/gzip sizes, local ignored TLC trace artifacts, tool
 versions, and generated/distinct/depth counters when TLC logs are available.
 Use it before and after structural refactors so source cleanup is compared
 against proof behavior, not just bytes. Use `--fail-on-drift` when the audit
-should exit non-zero for promoted-suite, `.tla`, or `.cfg` inventory drift, as
-CI does in the fast proof-hygiene tier.
+should exit non-zero for canonical roster, promoted-suite, `.tla`, or `.cfg`
+inventory drift, as CI does in the fast proof-hygiene tier.
+
+`promoted_specs.tsv` is the checked-in canonical roster for the promoted suite.
+It records the expected `MC_*` specs and whether each one needs liveness flags.
+`proof_audit.sh --fail-on-drift` and `proof_ownership_check.sh` both compare
+this roster against `check_suite.sh`; removing a spec from the live suite or
+changing a liveness setting must be an explicit roster change.
 
 ### Check proof ownership
 ```bash
@@ -100,9 +106,10 @@ CI intentionally splits TLA+ proof work into a fast hygiene tier and a deep TLC
 tier.
 
 - `TLA+ proof hygiene` runs `proof_ownership_check.sh`,
-  `trace_artifact_check.sh`, and `proof_audit.sh --fail-on-drift`. This tier fails quickly on
-  promoted-suite, `.cfg`, ownership-ledger, design-note, or generated-artifact
-  drift before the expensive model-checking job starts.
+  `trace_artifact_check.sh`, and `proof_audit.sh --fail-on-drift`. This tier
+  fails quickly on canonical-roster, promoted-suite, `.cfg`, ownership-ledger,
+  design-note, or generated-artifact drift before the expensive model-checking
+  job starts.
 - `TLA+ model checking` still runs `check_suite.sh` against every promoted
   `MC_*.tla` / `MC_*.cfg` pair and uploads per-spec TLC logs plus parsed audit
   metrics. Do not remove a promoted spec, invariant, property, or liveness flag

@@ -1,0 +1,15 @@
+spec	liveness
+MC_BackupSafety	yes
+MC_CredentialCapabilityLifecycle	no
+MC_GitHookApproval	no
+MC_GitSSHRouting	no
+MC_HarnessLifecycle	no
+MC_LaunchFDIsolation	no
+MC_LinuxNativeLaunch	no
+MC_Migration	yes
+MC_SeatbeltPolicy	no
+MC_SecretStoreRecovery	no
+MC_SessionPermissionRepairs	no
+MC_SetupRollback	yes
+MC_Tier3LaunchContainment	no
+MC_TierPolicyEquivalence	no

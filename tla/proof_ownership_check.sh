@@ -7,6 +7,8 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 TLA_DIR="${ROOT_DIR}/tla"
 LEDGER="${TLA_DIR}/proof_ownership.tsv"
 VERIFIED="${TLA_DIR}/VERIFIED.md"
+ROSTER="${TLA_DIR}/promoted_specs.tsv"
+EXPECTED_PROMOTED_SPEC_COUNT=14
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-proof-ownership.XXXXXX")"
 cleanup() {
@@ -79,8 +81,68 @@ promoted_specs() {
   ' "${TLA_DIR}/check_suite.sh" | sort
 }
 
+promoted_roster() {
+  awk '
+    /^[ \t]*run_spec[ \t]+MC_/ {
+      spec = $2
+      liveness = $3
+      gsub(/"/, "", spec)
+      gsub(/"/, "", liveness)
+      print spec "\t" liveness
+    }
+  ' "${TLA_DIR}/check_suite.sh" | sort
+}
+
 [ -f "$LEDGER" ] || fail "missing ledger ${LEDGER}"
 [ -f "$VERIFIED" ] || fail "missing ${VERIFIED}"
+[ -f "$ROSTER" ] || fail "missing promoted spec roster ${ROSTER}"
+
+awk -F '\t' '
+  BEGIN {
+    expected_header = "spec\tliveness"
+    status = 0
+  }
+  NR == 1 {
+    if ($0 != expected_header) {
+      printf "proof-ownership: bad promoted spec roster header in %s\n", FILENAME > "/dev/stderr"
+      status = 1
+    }
+    next
+  }
+  NF == 0 { next }
+  NF != 2 {
+    printf "proof-ownership: bad promoted spec roster column count at %s:%d\n", FILENAME, NR > "/dev/stderr"
+    status = 1
+    next
+  }
+  $1 !~ /^MC_[A-Za-z0-9_]+$/ {
+    printf "proof-ownership: bad promoted spec name at %s:%d: %s\n", FILENAME, NR, $1 > "/dev/stderr"
+    status = 1
+  }
+  $2 != "yes" && $2 != "no" {
+    printf "proof-ownership: bad liveness value at %s:%d: %s\n", FILENAME, NR, $2 > "/dev/stderr"
+    status = 1
+  }
+  {
+    print $1 "\t" $2
+  }
+  END {
+    exit status
+  }
+' "$ROSTER" > "${tmpdir}/roster.unsorted.tsv"
+sort "${tmpdir}/roster.unsorted.tsv" > "${tmpdir}/roster.tsv"
+cut -f1 "${tmpdir}/roster.tsv" > "${tmpdir}/rostered_specs.txt"
+
+roster_duplicates="$(uniq -d "${tmpdir}/rostered_specs.txt")"
+if [ -n "$roster_duplicates" ]; then
+  printf '%s\n' "$roster_duplicates" >&2
+  fail "duplicate specs in promoted spec roster"
+fi
+
+roster_count="$(wc -l < "${tmpdir}/rostered_specs.txt" | tr -d ' ')"
+if [ "$roster_count" -ne "$EXPECTED_PROMOTED_SPEC_COUNT" ]; then
+  fail "promoted spec roster lists ${roster_count} specs, expected ${EXPECTED_PROMOTED_SPEC_COUNT}"
+fi
 
 cfg_obligations | sort > "${tmpdir}/expected.tsv"
 
@@ -148,6 +210,7 @@ awk -F '\t' -v root="$ROOT_DIR" -v verified="$VERIFIED" '
 sort "${tmpdir}/actual.unsorted.tsv" > "${tmpdir}/actual.tsv"
 sort -u "${tmpdir}/ledger_specs.unsorted.txt" > "${tmpdir}/ledger_specs.txt"
 promoted_specs > "${tmpdir}/promoted_specs.txt"
+promoted_roster > "${tmpdir}/promoted.tsv"
 find "${TLA_DIR}" -maxdepth 1 -type f -name 'MC_*.cfg' \
   | sed 's#.*/##; s#\.cfg$##' \
   | sort > "${tmpdir}/cfg_specs.txt"
@@ -174,6 +237,12 @@ unpromoted_cfg="$(comm -23 "${tmpdir}/cfg_specs.txt" "${tmpdir}/promoted_specs.t
 if [ -n "$unpromoted_cfg" ]; then
   printf '%s\n' "$unpromoted_cfg" >&2
   fail "cfg specs are not promoted in check_suite.sh"
+fi
+
+roster_drift="$(comm -3 "${tmpdir}/roster.tsv" "${tmpdir}/promoted.tsv")"
+if [ -n "$roster_drift" ]; then
+  printf '%s\n' "$roster_drift" >&2
+  fail "check_suite.sh promoted specs diverge from promoted_specs.tsv"
 fi
 
 missing_ledger_specs="$(comm -23 "${tmpdir}/promoted_specs.txt" "${tmpdir}/ledger_specs.txt")"

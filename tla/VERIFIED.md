@@ -113,6 +113,12 @@ removing, or renaming a checked obligation. The check prevents phantom proof
 claims by failing when the `.cfg` files, promoted suite, `VERIFIED.md`, and
 per-spec design notes drift apart.
 
+`promoted_specs.tsv` is the canonical roster for the promoted suite. It records
+the expected `MC_*` specs and liveness setting for each spec, and the fast proof
+hygiene checks compare it against `check_suite.sh`, `.tla` files, and `.cfg`
+files. Removing a promoted spec or changing a liveness setting must be an
+explicit roster change, not just a coordinated deletion from the live suite.
+
 ### TLC trace artifacts
 
 Raw TLC `_TTrace_` modules, `.bin` files, and `tla/states/` files are local
@@ -125,12 +131,13 @@ tracked.
 
 CI separates fast proof hygiene from deep model checking, but the split must not
 weaken promoted-spec coverage. The fast `TLA+ proof hygiene` job checks the
-ownership ledger, trace-artifact policy, and `proof_audit.sh --fail-on-drift`
-inventory/config drift. The deep `TLA+ model checking` job remains mandatory for
-every promoted spec listed in `check_suite.sh`, including liveness checks
-configured there. The 2026-06-04 baseline run `26942387327` measured the deep
-TLA+ job at about 24 minutes, with the verified TLC suite step at about 23m52s;
-the split exists for earlier drift feedback, not for skipping promoted proofs.
+ownership ledger, trace-artifact policy, canonical roster, and
+`proof_audit.sh --fail-on-drift` inventory/config drift. The deep `TLA+ model
+checking` job remains mandatory for every promoted spec listed in
+`check_suite.sh`, including liveness checks configured there. The 2026-06-04
+baseline run `26942387327` measured the deep TLA+ job at about 24 minutes, with
+the verified TLC suite step at about 23m52s; the split exists for earlier drift
+feedback, not for skipping promoted proofs.
 
 ---
 
