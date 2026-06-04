@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -628,10 +629,5 @@ func defaultStackcheckWorkspaceRoot() string {
 }
 
 func asExitError(err error, target **exec.ExitError) bool {
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		return false
-	}
-	*target = exitErr
-	return true
+	return errors.As(err, target)
 }

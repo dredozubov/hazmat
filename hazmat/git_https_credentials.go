@@ -154,9 +154,11 @@ func (s *gitHTTPSCredentialService) handleConn(conn net.Conn) {
 
 	var req gitHTTPSCredentialRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		_ = json.NewEncoder(conn).Encode(gitHTTPSCredentialResponse{
+		if err := json.NewEncoder(conn).Encode(gitHTTPSCredentialResponse{
 			Error: fmt.Sprintf("decode Git HTTPS credential request: %v", err),
-		})
+		}); err != nil {
+			return
+		}
 		return
 	}
 
@@ -165,7 +167,9 @@ func (s *gitHTTPSCredentialService) handleConn(conn net.Conn) {
 	if err != nil {
 		resp.Error = err.Error()
 	}
-	_ = json.NewEncoder(conn).Encode(resp)
+	if err := json.NewEncoder(conn).Encode(resp); err != nil {
+		return
+	}
 }
 
 func requestGitHTTPSCredential(socketPath, operation string, payload []byte) (gitHTTPSCredentialResponse, error) {

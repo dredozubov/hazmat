@@ -237,6 +237,14 @@ func normalizeRepoSetupEvidence(entries []repoSetupStoredEvidence) []repoSetupSt
 	return normalized
 }
 
+func mustMarshalRepoSetupJSON(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("marshal repo setup payload: %v", err))
+	}
+	return data
+}
+
 func (effects repoSetupStoredEffects) normalized() repoSetupStoredEffects {
 	return repoSetupStoredEffects{
 		ReadOnly:         dedupeAndSortStrings(effects.ReadOnly),
@@ -256,7 +264,7 @@ func (effects repoSetupStoredEffects) empty() bool {
 
 func (effects repoSetupStoredEffects) hash() string {
 	normalized := effects.normalized()
-	data, _ := json.Marshal(struct {
+	data := mustMarshalRepoSetupJSON(struct {
 		Version int                    `json:"version"`
 		Effects repoSetupStoredEffects `json:"effects"`
 	}{
@@ -296,7 +304,7 @@ func repoSetupCandidateHash(effects []repoSetupEffect) string {
 			Sources: dedupeAndSortStrings(effect.Sources),
 		})
 	}
-	data, _ := json.Marshal(payload)
+	data := mustMarshalRepoSetupJSON(payload)
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

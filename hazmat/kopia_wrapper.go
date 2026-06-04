@@ -100,7 +100,11 @@ func setRetentionPolicy(ctx context.Context) error {
 	}
 	defer r.Close(ctx)
 
-	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "SetPolicy"})
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		return err
+	}
+	ctx, wr, err := directRepo.NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "SetPolicy"})
 	if err != nil {
 		return err
 	}
@@ -148,6 +152,14 @@ func openLocalRepo(ctx context.Context) (repo.Repository, error) {
 		return nil, fmt.Errorf("open local repo: %w", err)
 	}
 	return r, nil
+}
+
+func requireDirectKopiaRepository(r repo.Repository) (repo.DirectRepository, error) {
+	directRepo, ok := r.(repo.DirectRepository)
+	if !ok {
+		return nil, fmt.Errorf("kopia repository %T does not support direct writes", r)
+	}
+	return directRepo, nil
 }
 
 // ── Snapshot operations ─────────────────────────────────────────────────────
@@ -292,7 +304,11 @@ func snapshotProject(projectDir, command string, ignoreRules ...string) error {
 	defer r.Close(ctx)
 
 	desc := fmt.Sprintf("pre-session (%s)", command)
-	return snapshotDir(ctx, r.(repo.DirectRepository), projectDir, desc, ignoreRules...)
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		return err
+	}
+	return snapshotDir(ctx, directRepo, projectDir, desc, ignoreRules...)
 }
 
 // ── Cloud backup/restore ────────────────────────────────────────────────────
@@ -370,7 +386,11 @@ func updateRetentionFromConfig(cfg HazmatConfig) error {
 	}
 	defer r.Close(ctx)
 
-	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "UpdateRetention"})
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		return err
+	}
+	ctx, wr, err := directRepo.NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "UpdateRetention"})
 	if err != nil {
 		return err
 	}
@@ -412,7 +432,11 @@ func runCloudBackup() error {
 	defer r.Close(ctx)
 
 	fmt.Printf("Backing up %s to cloud...\n", cloudBackupDir)
-	if err := snapshotDir(ctx, r.(repo.DirectRepository), cloudBackupDir, "Hazmat workspace backup"); err != nil {
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		return err
+	}
+	if err := snapshotDir(ctx, directRepo, cloudBackupDir, "Hazmat workspace backup"); err != nil {
 		return err
 	}
 

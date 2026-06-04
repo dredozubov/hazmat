@@ -77,8 +77,8 @@ func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
 }
 
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {
-	readDirsJSON, _ := json.Marshal(cfg.ReadDirs)
-	writeDirsJSON, _ := json.Marshal(cfg.WriteDirs)
+	readDirsJSON := marshalStringSliceEnvValue(cfg.ReadDirs)
+	writeDirsJSON := marshalStringSliceEnvValue(cfg.WriteDirs)
 	tmpDir := env.TmpDir
 	if cfg.TempDir != "" {
 		tmpDir = cfg.TempDir
@@ -102,8 +102,8 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 		"SANDBOX_ACTIVE=1",
 		"SANDBOX_PROJECT_DIR="+cfg.ProjectDir,
 		"SANDBOX_NETWORK_MODE="+normalizeSessionNetworkMode(cfg.NetworkMode).String(),
-		"SANDBOX_READ_DIRS_JSON="+string(readDirsJSON),
-		"SANDBOX_WRITE_DIRS_JSON="+string(writeDirsJSON),
+		"SANDBOX_READ_DIRS_JSON="+readDirsJSON,
+		"SANDBOX_WRITE_DIRS_JSON="+writeDirsJSON,
 	)
 	if home, err := os.UserHomeDir(); err == nil {
 		terminalPairs, _ := terminalCapabilitySupport(home, os.Getenv)
@@ -130,4 +130,12 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 	}
 
 	return pairs
+}
+
+func marshalStringSliceEnvValue(value []string) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }

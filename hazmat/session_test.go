@@ -2091,7 +2091,7 @@ func TestParseClaudeArgsMissingValue(t *testing.T) {
 func TestParseClaudeArgsHelp(t *testing.T) {
 	for _, flag := range []string{"--help", "-h"} {
 		_, _, err := parseClaudeArgs([]string{flag})
-		if err != errClaudeHelp {
+		if !errors.Is(err, errClaudeHelp) {
 			t.Fatalf("parseClaudeArgs(%q) error = %v, want errClaudeHelp", flag, err)
 		}
 	}

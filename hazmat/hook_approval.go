@@ -74,7 +74,7 @@ func loadProjectHookApproval(projectDir string) (*projectHookApprovalRecord, err
 			return &copy, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // no approval record is a normal unapproved state.
 }
 
 func isProjectHookBundleApproved(projectDir, bundleHash string) bool {

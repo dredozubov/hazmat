@@ -95,6 +95,21 @@ type pendingAPIKeyUpdate struct {
 	Value  string
 }
 
+type collectedAPIKeyUpdate struct {
+	value   pendingAPIKeyUpdate
+	present bool
+}
+
+func newCollectedAPIKeyUpdate(envVar, value string) collectedAPIKeyUpdate {
+	return collectedAPIKeyUpdate{
+		value: pendingAPIKeyUpdate{
+			EnvVar: envVar,
+			Value:  value,
+		},
+		present: true,
+	}
+}
+
 // runConfigAgent configures agent credentials. If ui is non-nil, uses its
 // step counter (chained from init). If nil, creates a standalone UI.
 func runConfigAgent(ui *UI) error {
@@ -127,8 +142,8 @@ func runConfigAgent(ui *UI) error {
 		if err != nil {
 			return err
 		}
-		if update != nil {
-			apiKeyUpdates = append(apiKeyUpdates, *update)
+		if update.present {
+			apiKeyUpdates = append(apiKeyUpdates, update.value)
 		}
 	}
 
@@ -252,9 +267,9 @@ func runConfigAgent(ui *UI) error {
 }
 
 // collectHarnessAPIKey runs the read-current / probe-host-env / prompt flow
-// for a single harness API key. Returns a non-nil pending update only when
+// for a single harness API key. Returns a present pending update only when
 // the user provides a new value.
-func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate, error) {
+func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (collectedAPIKeyUpdate, error) {
 	ui.Step(fmt.Sprintf("%s API key", spec.DisplayName))
 	if consumers := providerAPIKeyPromptConsumerLabel(spec); consumers != "" {
 		fmt.Printf("  Used by: %s\n", consumers)
@@ -262,7 +277,7 @@ func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate,
 
 	currentValue, source, err := lookupConfiguredAPIKey(spec)
 	if err != nil {
-		return nil, err
+		return collectedAPIKeyUpdate{}, err
 	}
 	hostKey := os.Getenv(spec.EnvVar)
 
@@ -280,20 +295,20 @@ func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate,
 		if newKey == "" {
 			if source == configuredAPIKeySourceLegacy {
 				ui.SkipDone("API key kept — migrating legacy export into ~/.hazmat/secrets")
-				return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: currentValue}, nil
+				return newCollectedAPIKeyUpdate(spec.EnvVar, currentValue), nil
 			}
 			ui.SkipDone("API key kept")
-			return nil, nil
+			return collectedAPIKeyUpdate{}, nil
 		}
-		return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: newKey}, nil
+		return newCollectedAPIKeyUpdate(spec.EnvVar, newKey), nil
 	case hostKey != "":
 		fmt.Printf("  Found %s in your environment: %s\n", spec.EnvVar, maskHostKey(hostKey))
 		if ui.Ask("Store this key for Hazmat sessions?") {
-			return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: hostKey}, nil
+			return newCollectedAPIKeyUpdate(spec.EnvVar, hostKey), nil
 		}
 		fmt.Printf("  Set it later with 'hazmat config agent', or %s.\n", spec.SkipHint)
 		ui.SkipDone("API key skipped")
-		return nil, nil
+		return collectedAPIKeyUpdate{}, nil
 	default:
 		fmt.Printf("  %s\n", spec.NotFoundHint)
 		fmt.Println()
@@ -303,9 +318,9 @@ func collectHarnessAPIKey(ui *UI, spec harnessAPIKeySpec) (*pendingAPIKeyUpdate,
 		newKey := strings.TrimSpace(string(apiKey))
 		if newKey == "" {
 			ui.SkipDone(fmt.Sprintf("API key skipped — %s", spec.SkipHint))
-			return nil, nil
+			return collectedAPIKeyUpdate{}, nil
 		}
-		return &pendingAPIKeyUpdate{EnvVar: spec.EnvVar, Value: newKey}, nil
+		return newCollectedAPIKeyUpdate(spec.EnvVar, newKey), nil
 	}
 }
 

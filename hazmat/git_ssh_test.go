@@ -200,10 +200,11 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
-	got, err := resolveManagedGitSSH(cfg)
+	resolved, err := resolveManagedGitSSH(cfg)
 	if err != nil {
 		t.Fatalf("resolveManagedGitSSH: %v", err)
 	}
+	got := resolved.ptr()
 	if got == nil {
 		t.Fatal("expected managed Git SSH config")
 	}
@@ -267,10 +268,11 @@ func TestResolveManagedGitSSHUsesProfileIdentityAndInheritsDefaultHosts(t *testi
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
-	got, err := resolveManagedGitSSH(sess)
+	resolved, err := resolveManagedGitSSH(sess)
 	if err != nil {
 		t.Fatalf("resolveManagedGitSSH: %v", err)
 	}
+	got := resolved.ptr()
 	if got == nil {
 		t.Fatal("expected managed Git SSH config")
 	}
@@ -304,10 +306,11 @@ func TestResolveManagedGitSSHUsesProvisionedIdentityReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
-	got, err := resolveManagedGitSSH(cfg)
+	resolved, err := resolveManagedGitSSH(cfg)
 	if err != nil {
 		t.Fatalf("resolveManagedGitSSH: %v", err)
 	}
+	got := resolved.ptr()
 	if got == nil || len(got.Keys) != 1 {
 		t.Fatalf("managed Git SSH config = %+v, want one key", got)
 	}
@@ -388,10 +391,11 @@ func TestResolveManagedGitSSHProjectDeclaredHostsOverrideProfileDefaults(t *test
 	if err != nil {
 		t.Fatalf("resolveSessionConfig: %v", err)
 	}
-	got, err := resolveManagedGitSSH(sess)
+	resolved, err := resolveManagedGitSSH(sess)
 	if err != nil {
 		t.Fatalf("resolveManagedGitSSH: %v", err)
 	}
+	got := resolved.ptr()
 	if !slices.Equal(got.Keys[0].AllowedHosts, []string{"enterprise.internal"}) {
 		t.Fatalf("Keys[0].AllowedHosts = %v, want [enterprise.internal] (declared override)", got.Keys[0].AllowedHosts)
 	}

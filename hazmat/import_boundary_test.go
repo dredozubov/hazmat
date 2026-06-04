@@ -17,12 +17,12 @@ import (
 )
 
 type listedPackage struct {
-	ImportPath string
-	Dir        string
-	Standard   bool
-	Imports    []string
-	Deps       []string
-	GoFiles    []string
+	ImportPath string   `json:"ImportPath"`
+	Dir        string   `json:"Dir"`
+	Standard   bool     `json:"Standard"`
+	Imports    []string `json:"Imports"`
+	Deps       []string `json:"Deps"`
+	GoFiles    []string `json:"GoFiles"`
 }
 
 func TestImportBoundaries(t *testing.T) {

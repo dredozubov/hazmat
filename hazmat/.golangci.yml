@@ -6,6 +6,12 @@ linters:
     - gosec       # security: weak crypto, unsafe usage, bind-to-all
     - bidichk     # Trojan Source detection (bidi Unicode)
     - exhaustive  # switch completeness on enum types
+    - errchkjson       # unchecked JSON encoding/decoding errors
+    - errorlint        # robust error wrapping/comparison/assertion
+    - forcetypeassert  # no unchecked type assertions
+    - gochecksumtype   # sumtype exhaustiveness where annotated
+    - musttag          # JSON-facing structs must declare tags
+    - nilnil           # avoid ambiguous nil value + nil error contracts
 
   settings:
     errcheck:

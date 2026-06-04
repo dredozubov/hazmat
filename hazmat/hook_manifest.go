@@ -114,7 +114,7 @@ func loadProjectHookBundleFromPaths(projectDir, hooksDir, manifestPath string) (
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // missing hook manifests mean no project hook bundle.
 		}
 		return nil, fmt.Errorf("read %s: %w", manifestPath, err)
 	}

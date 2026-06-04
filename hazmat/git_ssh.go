@@ -642,18 +642,42 @@ func resolveSSHConfigProxyJump(value string, seen map[string]struct{}) ([]gitSSH
 	return targets, nil
 }
 
-func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
+type optionalSessionGitSSHConfig struct {
+	value   sessionGitSSHConfig
+	present bool
+}
+
+func optionalSessionGitSSHConfigFromPtr(value *sessionGitSSHConfig) optionalSessionGitSSHConfig {
+	if value == nil {
+		return optionalSessionGitSSHConfig{}
+	}
+	return optionalSessionGitSSHConfig{value: *value, present: true}
+}
+
+func (value optionalSessionGitSSHConfig) ptr() *sessionGitSSHConfig {
+	if !value.present {
+		return nil
+	}
+	config := value.value
+	return &config
+}
+
+func resolveManagedGitSSH(cfg sessionConfig) (optionalSessionGitSSHConfig, error) {
 	fullCfg, err := loadConfig()
 	if err != nil {
-		return nil, err
+		return optionalSessionGitSSHConfig{}, err
 	}
 	if raw := fullCfg.ProjectSSH(cfg.ProjectDir); raw != nil {
 		return resolveProjectSSHKeys(cfg, raw, fullCfg.SSHProfiles)
 	}
 	if raw := fullCfg.ProjectGitSSH(cfg.ProjectDir); raw != nil {
-		return resolveLegacyManagedGitSSH(cfg, raw)
+		resolved, err := resolveLegacyManagedGitSSH(cfg, raw)
+		if err != nil {
+			return optionalSessionGitSSHConfig{}, err
+		}
+		return optionalSessionGitSSHConfigFromPtr(resolved), nil
 	}
-	return nil, nil
+	return optionalSessionGitSSHConfig{}, nil
 }
 
 // resolveProjectSSHKeys walks the normalized key list for a project SSH
@@ -663,16 +687,16 @@ func resolveManagedGitSSH(cfg sessionConfig) (*sessionGitSSHConfig, error) {
 // provisioned secret-store-backed key root for inventory keys. Visibility
 // and containment checks run per-key so a single stray identity blocks the
 // whole session.
-func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles map[string]SSHProfile) (*sessionGitSSHConfig, error) {
+func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles map[string]SSHProfile) (optionalSessionGitSSHConfig, error) {
 	if err := ValidateProjectSSHConfig(*raw); err != nil {
-		return nil, fmt.Errorf("project ssh: %w", err)
+		return optionalSessionGitSSHConfig{}, fmt.Errorf("project ssh: %w", err)
 	}
 	if err := ValidateProjectSSHProfileRefs(*raw, profiles); err != nil {
-		return nil, fmt.Errorf("project ssh: %w", err)
+		return optionalSessionGitSSHConfig{}, fmt.Errorf("project ssh: %w", err)
 	}
 	entries := raw.NormalizedKeys()
 	if len(entries) == 0 {
-		return nil, nil
+		return optionalSessionGitSSHConfig{}, nil
 	}
 
 	resolved := make([]sessionGitSSHKey, 0, len(entries))
@@ -680,7 +704,7 @@ func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles ma
 	for _, entry := range entries {
 		key, err := resolveProjectSSHKeyEntry(cfg, entry, profiles)
 		if err != nil {
-			return nil, err
+			return optionalSessionGitSSHConfig{}, err
 		}
 		resolved = append(resolved, key)
 		names = append(names, key.Name)
@@ -690,10 +714,13 @@ func resolveProjectSSHKeys(cfg sessionConfig, raw *ProjectSSHConfig, profiles ma
 	if len(names) > 1 {
 		displayName = strings.Join(names, "+")
 	}
-	return &sessionGitSSHConfig{
-		DisplayName: displayName,
-		SessionNote: sessionNoteForKeys(resolved),
-		Keys:        resolved,
+	return optionalSessionGitSSHConfig{
+		value: sessionGitSSHConfig{
+			DisplayName: displayName,
+			SessionNote: sessionNoteForKeys(resolved),
+			Keys:        resolved,
+		},
+		present: true,
 	}, nil
 }
 

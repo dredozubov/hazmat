@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -128,7 +129,8 @@ func runDiffSnapshot() error {
 
 	// diff exits 1 when files differ — that's expected, not an error.
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return nil
 		}
 		return err

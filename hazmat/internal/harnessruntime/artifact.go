@@ -244,7 +244,7 @@ func InspectNpmPackageName(read CommandReader, packageDir string) (string, error
 	packageJSON := filepath.Join(packageDir, "package.json")
 	raw, err := read("/bin/cat", packageJSON)
 	if err != nil {
-		return "", fmt.Errorf("inspect npm package metadata %s: %v", packageJSON, err)
+		return "", fmt.Errorf("inspect npm package metadata %s: %w", packageJSON, err)
 	}
 	var payload struct {
 		Name string `json:"name"`

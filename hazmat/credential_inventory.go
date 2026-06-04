@@ -27,6 +27,11 @@ type credentialInventoryFinding struct {
 	Repair string
 }
 
+type optionalCredentialInventoryFinding struct {
+	value   credentialInventoryFinding
+	present bool
+}
+
 type credentialInventoryEntry struct {
 	ID               credentialID
 	DisplayName      string
@@ -231,8 +236,8 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 		finding, err := inspectLegacyProviderExport(descriptor.EnvVar)
 		if err != nil {
 			errors = append(errors, err.Error())
-		} else if finding != nil {
-			findings = append(findings, *finding)
+		} else if finding.present {
+			findings = append(findings, finding.value)
 		}
 	}
 
@@ -311,27 +316,30 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 	return findings, errors
 }
 
-func inspectLegacyProviderExport(envVar string) (*credentialInventoryFinding, error) {
+func inspectLegacyProviderExport(envVar string) (optionalCredentialInventoryFinding, error) {
 	if exists, err := credentialInventoryPathExists(agentZshrcPath); err != nil {
-		return nil, fmt.Errorf("inspect legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
+		return optionalCredentialInventoryFinding{}, fmt.Errorf("inspect legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
 	} else if !exists {
-		return nil, nil
+		return optionalCredentialInventoryFinding{}, nil
 	}
 	data, err := credentialInventoryReadFile(agentZshrcPath)
 	if err != nil {
-		return nil, fmt.Errorf("read legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
+		return optionalCredentialInventoryFinding{}, fmt.Errorf("read legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
 	}
 	prefix := "export " + envVar + "="
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
-			return &credentialInventoryFinding{
-				Path:   agentZshrcPath,
-				Detail: "legacy agent-home provider API-key export",
-				Repair: "run `hazmat config agent` or launch the matching harness once to migrate the API key into ~/.hazmat/secrets/providers/ and remove the old export",
+			return optionalCredentialInventoryFinding{
+				value: credentialInventoryFinding{
+					Path:   agentZshrcPath,
+					Detail: "legacy agent-home provider API-key export",
+					Repair: "run `hazmat config agent` or launch the matching harness once to migrate the API key into ~/.hazmat/secrets/providers/ and remove the old export",
+				},
+				present: true,
 			}, nil
 		}
 	}
-	return nil, nil
+	return optionalCredentialInventoryFinding{}, nil
 }
 
 type legacyCloudCredentialConfig struct {

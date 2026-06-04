@@ -198,7 +198,7 @@ type harnessArgsParser func([]string) (harnessSessionOpts, []string, error)
 func parseHarnessCommandArgs(cmd *cobra.Command, args []string, parser harnessArgsParser) (harnessSessionOpts, []string, bool, error) {
 	opts, forwarded, err := parser(args)
 	if err != nil {
-		if err == errHarnessHelp {
+		if errors.Is(err, errHarnessHelp) {
 			return harnessSessionOpts{}, nil, true, cmd.Help()
 		}
 		return harnessSessionOpts{}, nil, false, err
@@ -1054,7 +1054,7 @@ func watchTranscriptForAltScreen(path string, activate func(), stop <-chan struc
 			chunk := make([]byte, info.Size()-offset)
 			n, err := f.ReadAt(chunk, offset)
 			_ = f.Close()
-			if err != nil && err != io.EOF {
+			if err != nil && !errors.Is(err, io.EOF) {
 				continue
 			}
 
@@ -1264,10 +1264,11 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 
 	progress.Step("checking Git SSH access")
-	cfg.GitSSH, err = resolveManagedGitSSH(cfg)
+	managedGitSSH, err := resolveManagedGitSSH(cfg)
 	if err != nil {
 		return preparedSession{}, err
 	}
+	cfg.GitSSH = managedGitSSH.ptr()
 	if cfg.GitSSH != nil && mode != sessionModeNative {
 		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported for Docker Sandbox sessions yet\nuse %s for a native code session, or clear the project capability with: hazmat config ssh clear -C %s",
 			dockerSessionExample(commandName, cfg.ProjectDir, dockerModeNone),

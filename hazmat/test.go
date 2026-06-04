@@ -1158,8 +1158,13 @@ func testLocalSnapshot(ui *UI) {
 		return
 	}
 	defer r.Close(ctx)
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("local snapshot: repository does not support direct writes: %v", err))
+		return
+	}
 
-	if err := snapshotDir(ctx, r.(repo.DirectRepository), tmpSourceDir, "pre-session (test)"); err != nil {
+	if err := snapshotDir(ctx, directRepo, tmpSourceDir, "pre-session (test)"); err != nil {
 		ui.TestFail(fmt.Sprintf("local snapshot: first snapshot failed: %v", err))
 		return
 	}
@@ -1167,7 +1172,7 @@ func testLocalSnapshot(ui *UI) {
 
 	// 3. Modify source, take incremental snapshot
 	os.WriteFile(filepath.Join(tmpSourceDir, "new.go"), []byte("package main\n"), 0o644)
-	if err := snapshotDir(ctx, r.(repo.DirectRepository), tmpSourceDir, "pre-session (test-2)"); err != nil {
+	if err := snapshotDir(ctx, directRepo, tmpSourceDir, "pre-session (test-2)"); err != nil {
 		ui.TestFail(fmt.Sprintf("local snapshot: incremental snapshot failed: %v", err))
 		return
 	}
@@ -1408,9 +1413,14 @@ func testCloudBackup(ui *UI) {
 	}
 	defer r.Close(ctx)
 	ui.TestPass("Kopia: repository open successful")
+	directRepo, err := requireDirectKopiaRepository(r)
+	if err != nil {
+		ui.TestFail(fmt.Sprintf("Kopia: repository does not support direct writes: %v", err))
+		return
+	}
 
 	// 4. First backup — single file
-	ctx, wr, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test"})
+	ctx, wr, err := directRepo.NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test"})
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("Kopia: could not create writer: %v", err))
 		return
@@ -1455,7 +1465,7 @@ func testCloudBackup(ui *UI) {
 		return
 	}
 
-	ctx2, wr2, err := r.(repo.DirectRepository).NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test-Incr"})
+	ctx2, wr2, err := directRepo.NewDirectWriter(ctx, repo.WriteSessionOptions{Purpose: "Test-Incr"})
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("Kopia: could not create second writer: %v", err))
 		return

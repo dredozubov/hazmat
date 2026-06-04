@@ -786,7 +786,7 @@ func runConfigSet(key, value string) error {
 		if err != nil {
 			return err
 		}
-		cfg.Integrations.Homebrew = parsed
+		cfg.Integrations.Homebrew = parsed.ptr()
 	case "integrations.pin":
 		// Format: "project:name1,name2"
 		parts := strings.SplitN(value, ":", 2)
@@ -1595,10 +1595,11 @@ func runConfigSSHTest(project, host string) error {
 	if err != nil {
 		return err
 	}
-	cfg.GitSSH, err = resolveManagedGitSSH(cfg)
+	managedGitSSH, err := resolveManagedGitSSH(cfg)
 	if err != nil {
 		return err
 	}
+	cfg.GitSSH = managedGitSSH.ptr()
 	if cfg.GitSSH == nil {
 		return fmt.Errorf("no SSH key assigned to %s\nrun:\n  hazmat config ssh add -C %s --name github --host github.com <private-key>", projectDir, projectDir)
 	}
@@ -1995,15 +1996,27 @@ func parseInt(s string) (int, error) {
 	return n, nil
 }
 
-func parseOptionalBool(value string) (*bool, error) {
+type optionalBoolValue struct {
+	value bool
+	set   bool
+}
+
+func (value optionalBoolValue) ptr() *bool {
+	if !value.set {
+		return nil
+	}
+	return boolPtr(value.value)
+}
+
+func parseOptionalBool(value string) (optionalBoolValue, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "enabled", "enable", "true", "1", "yes", "on":
-		return boolPtr(true), nil
+		return optionalBoolValue{value: true, set: true}, nil
 	case "disabled", "disable", "false", "0", "no", "off":
-		return boolPtr(false), nil
+		return optionalBoolValue{value: false, set: true}, nil
 	case "ask", "unset", "default", "auto":
-		return nil, nil
+		return optionalBoolValue{}, nil
 	default:
-		return nil, fmt.Errorf("invalid value %q (want enabled, disabled, or ask)", value)
+		return optionalBoolValue{}, fmt.Errorf("invalid value %q (want enabled, disabled, or ask)", value)
 	}
 }
