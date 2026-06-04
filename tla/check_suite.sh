@@ -36,6 +36,9 @@ run_spec() {
   fi
 }
 
+# This is the promoted proof suite. When adding or removing a promoted spec,
+# update promoted_specs.tsv plus EXPECTED_PROMOTED_SPEC_COUNT in
+# proof_audit.sh and proof_ownership_check.sh in the same change.
 run_spec MC_SetupRollback yes
 run_spec MC_SeatbeltPolicy no
 run_spec MC_BackupSafety yes
