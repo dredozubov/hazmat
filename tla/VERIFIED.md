@@ -104,6 +104,15 @@ listed in each spec's `.md` file. See `USAGE.md` for how to run TLC.
 
 File naming convention: `MC_<slug>.tla` + `MC_<slug>.cfg`.
 
+### Proof obligation ownership
+
+`proof_ownership.tsv` maps every invariant/property listed in promoted
+`MC_*.cfg` files to the owning verified subsystem section below and to the
+companion design note. Run `bash proof_ownership_check.sh` after adding,
+removing, or renaming a checked obligation. The check prevents phantom proof
+claims by failing when the `.cfg` files, promoted suite, `VERIFIED.md`, and
+per-spec design notes drift apart.
+
 ---
 
 ## Verified Subsystems

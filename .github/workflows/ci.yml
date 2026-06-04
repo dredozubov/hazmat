@@ -199,6 +199,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check TLA+ proof ownership ledger
+        working-directory: tla
+        run: bash proof_ownership_check.sh
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

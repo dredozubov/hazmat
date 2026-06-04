@@ -72,6 +72,16 @@ and generated/distinct/depth counters when TLC logs are available. Use it before
 and after structural refactors so source cleanup is compared against proof
 behavior, not just bytes.
 
+### Check proof ownership
+```bash
+cd tla/
+bash proof_ownership_check.sh
+```
+
+`proof_ownership.tsv` maps every checked invariant/property to its owning
+`VERIFIED.md` section and companion design note. Update it whenever a `.cfg`
+adds, removes, or renames an invariant/property.
+
 ### Check one spec (safety)
 ```bash
 cd tla/
