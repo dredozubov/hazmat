@@ -49,12 +49,28 @@ type RemoteEnvelope struct {
 	Digest        string `json:"digest,omitempty"`
 }
 
-// ArtifactVariant carries exactly one prepared backend artifact candidate.
-type ArtifactVariant struct {
-	DarwinSeatbelt *DarwinSeatbelt
-	LinuxLaunch    *LinuxLaunchSpec
-	DockerSandbox  *DockerSandboxSpec
-	RemoteEnvelope *RemoteEnvelope
+// PreparedArtifact is the closed set of prepared backend artifact variants.
+// Callers construct values through the New*Artifact functions in this package.
+type PreparedArtifact interface {
+	preparedArtifact()
+	artifactKind() ArtifactKind
+	applyToPreparedLaunch(*PreparedLaunch)
+}
+
+type darwinSeatbeltArtifact struct {
+	artifact DarwinSeatbelt
+}
+
+type linuxLaunchArtifact struct {
+	artifact LinuxLaunchSpec
+}
+
+type dockerSandboxArtifact struct {
+	artifact DockerSandboxSpec
+}
+
+type remoteEnvelopeArtifact struct {
+	artifact RemoteEnvelope
 }
 
 // AcceptedGap records a deliberate acceptance of one backend capability gap.
@@ -106,12 +122,79 @@ type DockerSandboxDTO struct {
 	MountWriteDirs []string `json:"mount_write_dirs,omitempty"`
 }
 
-// NewPreparedLaunch validates and constructs a prepared launch artifact.
-func NewPreparedLaunch(plan Plan, variant ArtifactVariant, acceptedGaps []AcceptedGap) (PreparedLaunch, error) {
-	kind, count := variantKind(variant)
-	if count != 1 {
-		return PreparedLaunch{}, fmt.Errorf("prepared launch must carry exactly one artifact variant, got %d", count)
+// NewDarwinSeatbeltArtifact returns a prepared macOS Seatbelt artifact variant.
+func NewDarwinSeatbeltArtifact(artifact DarwinSeatbelt) PreparedArtifact {
+	return darwinSeatbeltArtifact{artifact: artifact}
+}
+
+// NewLinuxLaunchArtifact returns a prepared Linux native launch artifact variant.
+func NewLinuxLaunchArtifact(artifact LinuxLaunchSpec) PreparedArtifact {
+	return linuxLaunchArtifact{artifact: artifact}
+}
+
+// NewDockerSandboxArtifact returns a prepared Docker Sandbox artifact variant.
+func NewDockerSandboxArtifact(artifact DockerSandboxSpec) PreparedArtifact {
+	artifact.MountReadDirs = copyStrings(artifact.MountReadDirs)
+	artifact.MountWriteDirs = copyStrings(artifact.MountWriteDirs)
+	return dockerSandboxArtifact{artifact: artifact}
+}
+
+// NewRemoteEnvelopeArtifact returns a prepared remote envelope artifact variant.
+func NewRemoteEnvelopeArtifact(artifact RemoteEnvelope) PreparedArtifact {
+	return remoteEnvelopeArtifact{artifact: artifact}
+}
+
+func (darwinSeatbeltArtifact) preparedArtifact() {}
+
+func (a darwinSeatbeltArtifact) artifactKind() ArtifactKind {
+	return PreparedArtifactDarwinSeatbelt
+}
+
+func (a darwinSeatbeltArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
+	p.darwinSeatbelt = copyDarwinSeatbelt(&a.artifact)
+}
+
+func (linuxLaunchArtifact) preparedArtifact() {}
+
+func (a linuxLaunchArtifact) artifactKind() ArtifactKind {
+	return PreparedArtifactLinuxLaunch
+}
+
+func (a linuxLaunchArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
+	p.linuxLaunch = copyLinuxLaunchSpec(&a.artifact)
+}
+
+func (dockerSandboxArtifact) preparedArtifact() {}
+
+func (a dockerSandboxArtifact) artifactKind() ArtifactKind {
+	return PreparedArtifactDockerSandbox
+}
+
+func (a dockerSandboxArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
+	artifact := copyDockerSandboxSpec(&a.artifact)
+	if artifact != nil {
+		artifact.MountReadDirs = copyStrings(a.artifact.MountReadDirs)
+		artifact.MountWriteDirs = copyStrings(a.artifact.MountWriteDirs)
 	}
+	p.dockerSandbox = artifact
+}
+
+func (remoteEnvelopeArtifact) preparedArtifact() {}
+
+func (a remoteEnvelopeArtifact) artifactKind() ArtifactKind {
+	return PreparedArtifactRemoteEnvelope
+}
+
+func (a remoteEnvelopeArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
+	p.remoteEnvelope = copyRemoteEnvelope(&a.artifact)
+}
+
+// NewPreparedLaunch validates and constructs a prepared launch artifact.
+func NewPreparedLaunch(plan Plan, artifact PreparedArtifact, acceptedGaps []AcceptedGap) (PreparedLaunch, error) {
+	if artifact == nil {
+		return PreparedLaunch{}, fmt.Errorf("prepared launch artifact is required")
+	}
+	kind := artifact.artifactKind()
 	if err := validateArtifactBackend(kind, plan.Backend); err != nil {
 		return PreparedLaunch{}, err
 	}
@@ -120,15 +203,13 @@ func NewPreparedLaunch(plan Plan, variant ArtifactVariant, acceptedGaps []Accept
 		return PreparedLaunch{}, err
 	}
 
-	return PreparedLaunch{
-		plan:           copyPlan(plan),
-		artifactKind:   kind,
-		darwinSeatbelt: copyDarwinSeatbelt(variant.DarwinSeatbelt),
-		linuxLaunch:    copyLinuxLaunchSpec(variant.LinuxLaunch),
-		dockerSandbox:  copyDockerSandboxSpec(variant.DockerSandbox),
-		remoteEnvelope: copyRemoteEnvelope(variant.RemoteEnvelope),
-		acceptedGaps:   accepted,
-	}, nil
+	prepared := PreparedLaunch{
+		plan:         copyPlan(plan),
+		artifactKind: kind,
+		acceptedGaps: accepted,
+	}
+	artifact.applyToPreparedLaunch(&prepared)
+	return prepared, nil
 }
 
 func (p PreparedLaunch) Plan() Plan {
@@ -179,35 +260,16 @@ func (p PreparedLaunch) MarshalJSON() ([]byte, error) {
 
 var _ json.Marshaler = PreparedLaunch{}
 
-func variantKind(variant ArtifactVariant) (ArtifactKind, int) {
-	var kind ArtifactKind
-	count := 0
-	if variant.DarwinSeatbelt != nil {
-		kind = PreparedArtifactDarwinSeatbelt
-		count++
-	}
-	if variant.LinuxLaunch != nil {
-		kind = PreparedArtifactLinuxLaunch
-		count++
-	}
-	if variant.DockerSandbox != nil {
-		kind = PreparedArtifactDockerSandbox
-		count++
-	}
-	if variant.RemoteEnvelope != nil {
-		kind = PreparedArtifactRemoteEnvelope
-		count++
-	}
-	return kind, count
-}
-
 func validateArtifactBackend(kind ArtifactKind, backend Kind) error {
-	want := map[ArtifactKind]Kind{
+	want, ok := map[ArtifactKind]Kind{
 		PreparedArtifactDarwinSeatbelt: KindDarwinNative,
 		PreparedArtifactLinuxLaunch:    KindLinuxNative,
 		PreparedArtifactDockerSandbox:  KindDockerSandbox,
 		PreparedArtifactRemoteEnvelope: KindRemoteEnvelope,
 	}[kind]
+	if !ok {
+		return fmt.Errorf("unsupported prepared artifact kind %q", kind)
+	}
 	if backend != want {
 		return fmt.Errorf("artifact %q does not match backend %q", kind, backend)
 	}

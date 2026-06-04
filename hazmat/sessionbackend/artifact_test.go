@@ -27,9 +27,9 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 		ProjectDir: "/workspace/project",
 		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
-	artifact := &DarwinSeatbelt{PolicyPath: "/private/tmp/hazmat.sb"}
+	artifact := DarwinSeatbelt{PolicyPath: "/private/tmp/hazmat.sb"}
 
-	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{DarwinSeatbelt: artifact}, nil)
+	prepared, err := NewPreparedLaunch(plan, NewDarwinSeatbeltArtifact(artifact), nil)
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch: %v", err)
 	}
@@ -46,20 +46,23 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 	}
 }
 
-func TestNewPreparedLaunchRejectsMissingOrMultipleArtifacts(t *testing.T) {
+func TestNewPreparedLaunchRequiresArtifact(t *testing.T) {
 	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative, HostFacts: hostfacts.ForGOOS("darwin")})
 
-	_, err := NewPreparedLaunch(plan, ArtifactVariant{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "exactly one artifact") {
+	_, err := NewPreparedLaunch(plan, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "artifact is required") {
 		t.Fatalf("missing artifact error = %v", err)
 	}
+}
 
-	_, err = NewPreparedLaunch(plan, ArtifactVariant{
-		DarwinSeatbelt: &DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"},
-		DockerSandbox:  &DockerSandboxSpec{Name: "hazmat"},
-	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "exactly one artifact") {
-		t.Fatalf("multiple artifact error = %v", err)
+func TestPreparedArtifactIsSealed(t *testing.T) {
+	typ := reflect.TypeOf((*PreparedArtifact)(nil)).Elem()
+	method, ok := typ.MethodByName("preparedArtifact")
+	if !ok {
+		t.Fatalf("PreparedArtifact is missing sealing method")
+	}
+	if method.PkgPath == "" {
+		t.Fatalf("PreparedArtifact sealing method is exported")
 	}
 }
 
@@ -69,9 +72,7 @@ func TestNewPreparedLaunchRejectsBackendMismatch(t *testing.T) {
 		HostFacts: hostfacts.ForGOOS("darwin"),
 	})
 
-	_, err := NewPreparedLaunch(plan, ArtifactVariant{
-		DarwinSeatbelt: &DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"},
-	}, nil)
+	_, err := NewPreparedLaunch(plan, NewDarwinSeatbeltArtifact(DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"}), nil)
 	if err == nil || !strings.Contains(err.Error(), `does not match backend "docker-sandbox"`) {
 		t.Fatalf("backend mismatch error = %v", err)
 	}
@@ -83,16 +84,12 @@ func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 		HostFacts: hostfacts.ForGOOS("linux"),
 	})
 
-	_, err := NewPreparedLaunch(plan, ArtifactVariant{
-		LinuxLaunch: &LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"},
-	}, nil)
+	_, err := NewPreparedLaunch(plan, NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"}), nil)
 	if err == nil || !strings.Contains(err.Error(), `capability gap "native-launch" must be accepted`) {
 		t.Fatalf("missing accepted gap error = %v", err)
 	}
 
-	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
-		LinuxLaunch: &LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"},
-	}, []AcceptedGap{{
+	prepared, err := NewPreparedLaunch(plan, NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"}), []AcceptedGap{{
 		Feature:       GapNativeLaunch,
 		Justification: "plan-only Linux launch artifact",
 	}})
@@ -110,9 +107,7 @@ func TestNewPreparedLaunchRejectsExtraAcceptedCapabilityGap(t *testing.T) {
 		HostFacts: hostfacts.ForGOOS("darwin"),
 	})
 
-	_, err := NewPreparedLaunch(plan, ArtifactVariant{
-		DockerSandbox: &DockerSandboxSpec{Name: "hazmat", Agent: "claude", ProjectDir: "/workspace/project", PolicyProfile: "baseline"},
-	}, []AcceptedGap{{Feature: GapNativeLaunch}})
+	_, err := NewPreparedLaunch(plan, NewDockerSandboxArtifact(DockerSandboxSpec{Name: "hazmat", Agent: "claude", ProjectDir: "/workspace/project", PolicyProfile: "baseline"}), []AcceptedGap{{Feature: GapNativeLaunch}})
 	if err == nil || !strings.Contains(err.Error(), "accepted capability gaps require matching plan gaps") {
 		t.Fatalf("extra accepted gap error = %v", err)
 	}
@@ -124,9 +119,7 @@ func TestNewPreparedLaunchAllowsRemoteEnvelopePlaceholder(t *testing.T) {
 		Backend: KindRemoteEnvelope,
 	}
 
-	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
-		RemoteEnvelope: &RemoteEnvelope{SchemaVersion: 1, Digest: "sha256:test"},
-	}, nil)
+	prepared, err := NewPreparedLaunch(plan, NewRemoteEnvelopeArtifact(RemoteEnvelope{SchemaVersion: 1, Digest: "sha256:test"}), nil)
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch remote envelope: %v", err)
 	}
@@ -144,12 +137,10 @@ func TestPreparedLaunchRequiresExplicitDTOForJSON(t *testing.T) {
 		ReadOnlyDirs: []string{"/workspace/reference"},
 		HostFacts:    hostfacts.ForGOOS("darwin"),
 	})
-	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
-		DarwinSeatbelt: &DarwinSeatbelt{
-			PolicyPath: "/private/tmp/hazmat.sb",
-			Policy:     `(allow file-read* (subpath "/workspace/project"))`,
-		},
-	}, nil)
+	prepared, err := NewPreparedLaunch(plan, NewDarwinSeatbeltArtifact(DarwinSeatbelt{
+		PolicyPath: "/private/tmp/hazmat.sb",
+		Policy:     `(allow file-read* (subpath "/workspace/project"))`,
+	}), nil)
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch: %v", err)
 	}
@@ -188,19 +179,19 @@ func TestPreparedLaunchDockerDTORedactsResolvedHostPaths(t *testing.T) {
 		ReadWriteDirs: []string{"/workspace/cache"},
 		HostFacts:     hostfacts.ForGOOS("darwin"),
 	})
-	prepared, err := NewPreparedLaunch(plan, ArtifactVariant{
-		DockerSandbox: &DockerSandboxSpec{
-			Name:           "hazmat-claude-project-abcdef",
-			Agent:          "claude",
-			ProjectDir:     "/workspace/project",
-			PolicyProfile:  "baseline",
-			MountReadDirs:  []string{"/workspace/reference"},
-			MountWriteDirs: []string{"/workspace/cache"},
-		},
-	}, nil)
+	artifact := DockerSandboxSpec{
+		Name:           "hazmat-claude-project-abcdef",
+		Agent:          "claude",
+		ProjectDir:     "/workspace/project",
+		PolicyProfile:  "baseline",
+		MountReadDirs:  []string{"/workspace/reference"},
+		MountWriteDirs: []string{"/workspace/cache"},
+	}
+	prepared, err := NewPreparedLaunch(plan, NewDockerSandboxArtifact(artifact), nil)
 	if err != nil {
 		t.Fatalf("NewPreparedLaunch: %v", err)
 	}
+	artifact.MountReadDirs[0] = "/mutated"
 
 	redacted := prepared.DTO(PreparedLaunchDTOScope{})
 	if redacted.Plan.ProjectDir != "" || len(redacted.Plan.ReadOnlyDirs) != 0 || len(redacted.Plan.ReadWriteDirs) != 0 {
