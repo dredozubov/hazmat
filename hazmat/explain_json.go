@@ -118,8 +118,8 @@ func buildSessionContractPlanInput(target string, cfg sessionConfig, mode sessio
 	}
 }
 
-var explainPlatformReport = func(facts hostfacts.Facts) *linuxplatform.Report {
-	if facts.Normalized().TargetGOOS() != "linux" {
+var explainPlatformReport = func(facts hostfacts.HostFacts) *linuxplatform.Report {
+	if facts.TargetGOOS() != "linux" {
 		return nil
 	}
 	report := linuxplatform.InspectHost()

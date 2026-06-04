@@ -48,6 +48,50 @@ func TestSessionForPlatformCopiesAndOverlays(t *testing.T) {
 	}
 }
 
+func TestNewAuthoritySpecNormalizesAndCopies(t *testing.T) {
+	input := Spec{
+		Meta: Meta{Name: " go ", Version: 1, Description: " Go tools "},
+		Session: Session{
+			ReadDirs:       []string{"/common"},
+			EnvPassthrough: []string{" gopath "},
+			Platforms: map[string]PlatformSession{
+				" LINUX ": {
+					ReadDirs:       []string{"/linux"},
+					EnvPassthrough: []string{" goroot "},
+				},
+			},
+		},
+		Commands: map[string]string{"build": "go build ./..."},
+	}
+
+	authority, err := NewAuthoritySpec(input)
+	if err != nil {
+		t.Fatalf("NewAuthoritySpec: %v", err)
+	}
+	input.Session.ReadDirs[0] = "/mutated"
+	input.Session.Platforms[" LINUX "] = PlatformSession{}
+	input.Commands["build"] = "mutated"
+
+	dto := authority.DTO()
+	if dto.Meta.Name != "go" || dto.Meta.Description != "Go tools" {
+		t.Fatalf("Meta = %+v", dto.Meta)
+	}
+	if !slices.Equal(dto.Session.EnvPassthrough, []string{"GOPATH"}) {
+		t.Fatalf("EnvPassthrough = %v", dto.Session.EnvPassthrough)
+	}
+	if !slices.Equal(dto.Session.Platforms["linux"].EnvPassthrough, []string{"GOROOT"}) {
+		t.Fatalf("linux env = %v", dto.Session.Platforms["linux"].EnvPassthrough)
+	}
+	if dto.Commands["build"] != "go build ./..." {
+		t.Fatalf("Commands = %v", dto.Commands)
+	}
+
+	dto.Commands["build"] = "mutated"
+	if fresh := authority.DTO(); fresh.Commands["build"] != "go build ./..." {
+		t.Fatal("DTO returned storage aliasing authority")
+	}
+}
+
 func TestMergeResolvedDedupesAndSurfacesRegistryKeys(t *testing.T) {
 	items := []Resolved{
 		{
@@ -109,5 +153,27 @@ func TestMergeResolvedDedupesAndSurfacesRegistryKeys(t *testing.T) {
 	}
 	if !slices.Equal(got.Warnings, []string{"warning", "node warning", "runtime warning"}) {
 		t.Fatalf("Warnings = %v", got.Warnings)
+	}
+}
+
+func TestNewResolvedAuthorityRejectsDuplicateResolvedEnvAfterNormalization(t *testing.T) {
+	_, err := NewResolvedAuthority(Resolved{
+		Spec: Spec{Meta: Meta{Name: "go", Version: 1}},
+		ResolvedEnv: map[string]string{
+			" gopath ": "/one",
+			"GOPATH":   "/two",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected duplicate resolved env key to be rejected")
+	}
+}
+
+func TestMergeResolvedRejectsInvalidPlatform(t *testing.T) {
+	_, err := MergeResolved([]Resolved{
+		{Spec: Spec{Meta: Meta{Name: "go", Version: 1}}},
+	}, MergeOptions{Platform: "windows"})
+	if err == nil {
+		t.Fatal("expected unsupported platform to be rejected")
 	}
 }

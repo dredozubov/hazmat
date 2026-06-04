@@ -309,6 +309,11 @@ func loadConfig() (HazmatConfig, error) {
 	if err := ValidateSSHProfiles(cfg.SSHProfiles); err != nil {
 		return cfg, err
 	}
+	sandboxConfig, err := configmodel.NormalizeSandboxConfig(cfg.Sandbox)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Sandbox = sandboxConfig
 	for projectDir, project := range cfg.Projects {
 		if project.SSH == nil {
 			continue

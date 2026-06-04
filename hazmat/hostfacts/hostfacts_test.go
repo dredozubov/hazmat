@@ -48,3 +48,47 @@ func TestForGOOSBuildsPlatformFact(t *testing.T) {
 		t.Fatalf("TargetGOOS = %q", got.TargetGOOS())
 	}
 }
+
+func TestNewHostFactsNormalizesAndCopies(t *testing.T) {
+	input := Facts{
+		Platform: Platform{GOOS: " linux ", GOARCH: " arm64 "},
+		Harnesses: map[string]HarnessStatus{
+			" codex ": {Installed: true},
+		},
+		IntegrationMarkers: []IntegrationMarker{{Name: " go ", Source: "go.mod"}},
+	}
+
+	got, err := New(input)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	input.Harnesses[" codex "] = HarnessStatus{}
+	input.IntegrationMarkers[0] = IntegrationMarker{Name: "node"}
+
+	dto := got.DTO()
+	if dto.Platform.GOOS != "linux" || dto.Platform.GOARCH != "arm64" {
+		t.Fatalf("Platform = %+v", dto.Platform)
+	}
+	if !dto.Harnesses["codex"].Installed {
+		t.Fatalf("Harnesses = %+v", dto.Harnesses)
+	}
+	if dto.IntegrationMarkers[0].Name != "go" || dto.IntegrationMarkers[0].Source != "go.mod" {
+		t.Fatalf("IntegrationMarkers = %+v", dto.IntegrationMarkers)
+	}
+
+	dto.Harnesses["codex"] = HarnessStatus{}
+	if fresh := got.DTO(); !fresh.Harnesses["codex"].Installed {
+		t.Fatal("DTO returned storage aliasing authority")
+	}
+}
+
+func TestNewHostFactsRejectsInvalidIdentifier(t *testing.T) {
+	_, err := New(Facts{
+		Harnesses: map[string]HarnessStatus{
+			"bad key": {Installed: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected invalid harness key to be rejected")
+	}
+}

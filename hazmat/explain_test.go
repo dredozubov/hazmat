@@ -314,6 +314,6 @@ func TestRenderRepoSetupDetails(t *testing.T) {
 func stubExplainPlatformReport(t *testing.T, report *linuxplatform.Report) func() {
 	t.Helper()
 	saved := explainPlatformReport
-	explainPlatformReport = func(_ hostfacts.Facts) *linuxplatform.Report { return report }
+	explainPlatformReport = func(_ hostfacts.HostFacts) *linuxplatform.Report { return report }
 	return func() { explainPlatformReport = saved }
 }

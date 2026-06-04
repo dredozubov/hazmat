@@ -41,7 +41,7 @@ type Input struct {
 	NetworkMode        sessionmeta.NetworkMode
 	Integrations       []string
 	IntegrationEnvKeys []string
-	HostFacts          hostfacts.Facts
+	HostFacts          hostfacts.HostFacts
 }
 
 type Plan struct {

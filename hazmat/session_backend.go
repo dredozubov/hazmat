@@ -16,16 +16,16 @@ func buildSessionBackendPlan(cfg sessionConfig, mode sessionMode) sessionBackend
 }
 
 func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos string) sessionBackendPlan {
-	facts := currentHostFacts()
+	facts := currentHostFacts().DTO()
 	facts.Platform.GOOS = goos
-	return buildSessionBackendPlanForHostFacts(cfg, mode, facts)
+	return buildSessionBackendPlanForHostFacts(cfg, mode, hostfacts.MustNew(facts))
 }
 
-func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, facts hostfacts.Facts) sessionBackendPlan {
+func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, facts hostfacts.HostFacts) sessionBackendPlan {
 	return buildSessionPlanForHostFacts(cfg.Target, cfg, mode, false, facts).Backend
 }
 
-func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool, facts hostfacts.Facts) sessionplanner.Plan {
+func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool, facts hostfacts.HostFacts) sessionplanner.Plan {
 	return sessionplanner.Build(sessionplanner.Input{
 		Contract:            buildSessionContractPlanInput(target, cfg, mode, skipSnapshot),
 		Backend:             buildSessionBackendPlanInput(target, cfg, mode, facts),
@@ -33,7 +33,7 @@ func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode session
 	})
 }
 
-func buildSessionBackendPlanInput(target string, cfg sessionConfig, mode sessionMode, facts hostfacts.Facts) sessionbackend.Input {
+func buildSessionBackendPlanInput(target string, cfg sessionConfig, mode sessionMode, facts hostfacts.HostFacts) sessionbackend.Input {
 	return sessionbackend.Input{
 		Target:             target,
 		Mode:               mode,
@@ -57,10 +57,10 @@ func buildSessionHarnessRequirements(cfg sessionConfig) []sessionplanner.Harness
 	}}
 }
 
-func currentHostFacts() hostfacts.Facts {
-	return hostfacts.Facts{
+func currentHostFacts() hostfacts.HostFacts {
+	return hostfacts.MustNew(hostfacts.Facts{
 		Platform:    hostfacts.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
 		AgentHome:   agentHome,
 		InvokerHome: os.Getenv("HOME"),
-	}.Normalized()
+	})
 }

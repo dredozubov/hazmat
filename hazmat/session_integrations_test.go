@@ -295,7 +295,7 @@ func TestPrepareLaunchSessionResolvesActiveIntegrationsOnce(t *testing.T) {
 			t.Fatalf("integrationFlags = %v, want [custom]", integrationFlags)
 		}
 		return []IntegrationSpec{
-			{Meta: IntegrationMeta{Name: "custom"}},
+			{Meta: IntegrationMeta{Name: "custom", Version: 1}},
 		}, nil
 	}
 	t.Cleanup(func() {

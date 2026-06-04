@@ -40,6 +40,48 @@ type PlatformSession struct {
 	EnvPassthrough []string `yaml:"env_passthrough"`
 }
 
+type Name string
+type PlatformID string
+type EnvKey string
+
+type AuthoritySpec struct {
+	spec Spec
+}
+
+func NewAuthoritySpec(input Spec) (AuthoritySpec, error) {
+	spec, err := normalizeSpec(input)
+	if err != nil {
+		return AuthoritySpec{}, err
+	}
+	if err := ValidateSchema(spec); err != nil {
+		return AuthoritySpec{}, err
+	}
+	return AuthoritySpec{spec: spec}, nil
+}
+
+func (spec AuthoritySpec) DTO() Spec {
+	return cloneSpec(spec.spec)
+}
+
+func (spec AuthoritySpec) Name() Name {
+	return Name(spec.spec.Meta.Name)
+}
+
+func (spec AuthoritySpec) SessionForPlatform(platform PlatformID) PlatformSession {
+	return SessionForPlatform(spec.spec.Session, string(platform))
+}
+
+func NewPlatformID(raw string) (PlatformID, error) {
+	platform := strings.ToLower(strings.TrimSpace(raw))
+	if platform == "" {
+		return PlatformID(""), nil
+	}
+	if _, ok := manifestPlatforms[platform]; !ok {
+		return PlatformID(""), fmt.Errorf("unsupported integration platform %q", raw)
+	}
+	return PlatformID(platform), nil
+}
+
 type Backup struct {
 	Excludes []string `yaml:"excludes"`
 }
@@ -315,10 +357,11 @@ func LoadSpec(data []byte) (Spec, error) {
 	if err := dec.Decode(&spec); err != nil {
 		return Spec{}, fmt.Errorf("parse integration manifest: %w", err)
 	}
-	if err := ValidateSchema(spec); err != nil {
+	authority, err := NewAuthoritySpec(spec)
+	if err != nil {
 		return Spec{}, err
 	}
-	return spec, nil
+	return authority.DTO(), nil
 }
 
 func HasLegacyTopLevelKey(data []byte, key string) bool {
@@ -331,6 +374,69 @@ func copyBoolMap(in map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func normalizeSpec(input Spec) (Spec, error) {
+	out := cloneSpec(input)
+	out.Meta.Name = strings.TrimSpace(out.Meta.Name)
+	out.Meta.Description = strings.TrimSpace(out.Meta.Description)
+	out.Session.EnvPassthrough = normalizeEnvKeyList(out.Session.EnvPassthrough)
+	if out.Session.Platforms != nil {
+		platforms := make(map[string]PlatformSession, len(out.Session.Platforms))
+		for rawPlatform, session := range out.Session.Platforms {
+			platform, err := NewPlatformID(rawPlatform)
+			if err != nil {
+				return Spec{}, err
+			}
+			if platform == "" {
+				return Spec{}, fmt.Errorf("integration %q: empty session platform", out.Meta.Name)
+			}
+			if _, dup := platforms[string(platform)]; dup {
+				return Spec{}, fmt.Errorf("integration %q: duplicate session platform after normalization: %q", out.Meta.Name, platform)
+			}
+			session.EnvPassthrough = normalizeEnvKeyList(session.EnvPassthrough)
+			platforms[string(platform)] = session
+		}
+		out.Session.Platforms = platforms
+	}
+	return out, nil
+}
+
+func cloneSpec(input Spec) Spec {
+	out := input
+	out.Detect.Files = append([]string(nil), input.Detect.Files...)
+	out.Detect.RootDirs = append([]string(nil), input.Detect.RootDirs...)
+	out.Session.ReadDirs = append([]string(nil), input.Session.ReadDirs...)
+	out.Session.EnvPassthrough = append([]string(nil), input.Session.EnvPassthrough...)
+	if input.Session.Platforms != nil {
+		out.Session.Platforms = make(map[string]PlatformSession, len(input.Session.Platforms))
+		for platform, session := range input.Session.Platforms {
+			out.Session.Platforms[platform] = PlatformSession{
+				ReadDirs:       append([]string(nil), session.ReadDirs...),
+				EnvPassthrough: append([]string(nil), session.EnvPassthrough...),
+			}
+		}
+	}
+	out.Backup.Excludes = append([]string(nil), input.Backup.Excludes...)
+	out.Warnings = append([]string(nil), input.Warnings...)
+	if input.Commands != nil {
+		out.Commands = make(map[string]string, len(input.Commands))
+		for key, value := range input.Commands {
+			out.Commands[key] = value
+		}
+	}
+	return out
+}
+
+func normalizeEnvKeyList(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make([]string, len(keys))
+	for i, key := range keys {
+		out[i] = strings.ToUpper(strings.TrimSpace(key))
 	}
 	return out
 }
