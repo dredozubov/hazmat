@@ -228,20 +228,28 @@ fi
 
 ## State Space Sizes (Reference)
 
-| Problem | Model Bounds | Expected States | Runtime |
-|---------|-------------|-----------------|---------|
-| 01 Setup/Rollback | 2 setup, 2 rollback | 29,518 distinct | ~7s with `-lncheck final` |
-| 02 Seatbelt Policy | 7 paths, 4 project choices, resume choices | 768 distinct | <1s |
-| 03 Backup Safety | 3 snapshots, 2 sessions, 2 restores | 395 distinct | <1s |
-| 04 Version Migration | 3 versions, rollback from any state | 44,795 distinct | ~6s with `-lncheck final` |
-| 05 Tier 3 Launch Containment | 8 paths, 4 project choices, 5 read choices, 5 launch-gate booleans | 23,580 distinct | ~1s |
-| 06 Tier 2 vs Tier 3 Policy Equivalence | 11 paths, 5 project choices, 6 read choices, 4 write choices, 5 launch-gate booleans | 163,840 distinct | ~15s |
-| 07 Session Permission Repairs | 4 launch repair classes plus deferred project backfill boundary, native/docker planning, preview/launch/rollback phases | 13,268 distinct | <1s |
-| 08 Harness Lifecycle | 7 harnesses, 4 importable harnesses, dry-run/save/rollback variants | 943,528 distinct | ~1m |
-| 09 Launch FD Isolation | 2 inherited-fd classes, helper cleanup toggle, exec boundary phases | 112 distinct | <1s |
-| 10 Git-SSH Routing | 2 hosts, 2 keys, 2 sockets, 2 profiles, profile/inline identity variants | 884,736 distinct | ~1m |
-| 11 Git Hook Approval | 3 hook types, 2 bundle hashes, wrapper/dispatcher/install/drift lifecycle | 2,179,200 distinct | ~1-4m |
+Reference values below come from GitHub Actions run `26945272162`, where the
+TLA+ proof hygiene job completed in 7s and the deep model-checking job completed
+in about 24m31s. The table is advisory; CI gates proof inventory and TLC
+success, not exact byte or runtime values.
 
-If TLC runs materially longer than the expected runtime for the spec you are
-changing, reduce bounds or run that spec in isolation before widening the
-model.
+| Problem | Model Bounds | Observed Distinct States | Runtime |
+|---------|-------------|--------------------------|---------|
+| 01 Setup/Rollback | 2 setup attempts, 2 rollback attempts | 35,005 | 03s with `-lncheck final` |
+| 02 Seatbelt Policy | Credential/read/temp/network policy choices | 12,672 | 02s |
+| 03 Backup Safety | 3 snapshots, 2 sessions, 2 restores | 395 | 00s with `-lncheck final` |
+| 04 Version Migration | 3 versions, rollback from any state | 72,442 | 04s with `-lncheck final` |
+| 05 Tier 3 Launch Containment | Project/read planning, env, backend, approval, shell/version gates | 23,580 | 01s |
+| 06 Tier 2 vs Tier 3 Policy Equivalence | Tier 2/Tier 3 project/read/write/network/resume choices | 327,680 | 19s |
+| 07 Session Permission Repairs | Native/docker repair planning, preview/launch/rollback phases | 13,268 | 00s |
+| 08 Harness Lifecycle | 7 harnesses, import/save/dry-run/rollback variants | 633,107 | 24s |
+| 09 Launch FD Isolation | 2 inherited-fd classes, helper cleanup toggle, exec boundary phases | 112 | 00s |
+| 10 Git-SSH Routing | 2 hosts, 2 keys, sockets, profiles, profile/inline identity variants | 1,990,656 | 09s |
+| 11 Git Hook Approval | 3 hook types, 2 bundle hashes, wrapper/dispatcher/install/drift lifecycle | 2,179,200 | 59s |
+| 12 Secret Store Recovery | 2 harnesses, 2 secret values, crash/restart recovery phases | 10,870 | 01s |
+| 13 Credential Capability Lifecycle | 5 harnesses, 9 credentials, 2 values, registry delivery classes | 8,351,181 | 22min 11s |
+| 14 Linux Native Launch | 1024 launch/capability input combinations and linear launch stages | 2,842 | 00s |
+
+If TLC runs materially longer than the reference runtime for the spec you are
+changing, run that spec in isolation and compare generated/distinct/depth counts
+before widening the model.
