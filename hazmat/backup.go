@@ -34,6 +34,9 @@ incremental.
 Configure cloud credentials first:
   hazmat init cloud
 
+Cloud configuration alone does not write S3 objects. The bucket remains empty
+until this command successfully creates the first encrypted snapshot.
+
 Local project snapshots happen automatically before every session
 (hazmat claude/exec/shell). Use 'hazmat snapshots' to manage them.
 

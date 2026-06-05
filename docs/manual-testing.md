@@ -270,7 +270,7 @@ These exercise the per-harness scaffolding rather than any one harness.
 - [ ] **Cloud credential storage**
   - Preconditions: disposable S3-compatible test credentials, or run only the config/migration checks without `hazmat backup --cloud`.
   - Steps: configure with `HAZMAT_CLOUD_SECRET_KEY=<secret> HAZMAT_CLOUD_PASSWORD=<recovery> hazmat config cloud --endpoint <endpoint> --bucket <bucket> --access-key <access> --secret-key-from-env`.
-  - Expected: `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
+  - Expected: output says no S3 objects are written until the first backup; `~/.hazmat/secrets/cloud/s3-access-key-id`, `s3-secret-key`, and `kopia-recovery-key` exist with mode `0600`; `~/.hazmat/config.yaml` contains endpoint/bucket but not the access key, secret key, recovery key, `access_key:`, `recovery_key:`, or `password:`. The bucket may still show `0 byte` until `hazmat backup --cloud` succeeds. If an old `~/.hazmat/cloud-credentials` file is present, the next cloud read migrates it into `~/.hazmat/secrets/cloud/s3-secret-key` and removes the legacy file.
 
 - [ ] **Credential inventory and legacy residue**
   - Preconditions: at least one configured provider key or imported harness auth; optional old residue under `/Users/agent/.zshrc`, `/Users/agent/.config/git/credentials`, `~/.hazmat/cloud-credentials`, or `~/.hazmat/ssh/keys` for migration checks.

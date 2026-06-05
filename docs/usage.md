@@ -475,8 +475,8 @@ snapshot excludes such as `node_modules/` or `target/` for the active session.
 ### Cloud backup (encrypted, incremental)
 
 ```bash
-hazmat init cloud              # one-time: configure S3 credentials
-hazmat backup --cloud          # incremental encrypted snapshot
+hazmat init cloud              # one-time: store S3 endpoint and credentials
+hazmat backup --cloud          # first command that writes objects to the bucket
 hazmat restore --cloud         # restore latest snapshot
 ```
 
@@ -484,6 +484,10 @@ Cloud backup keeps endpoint and bucket in `~/.hazmat/config.yaml`.
 Credential material is host-owned under `~/.hazmat/secrets/cloud/`; legacy
 `backup.cloud.access_key`, `backup.cloud.recovery_key`/`password`, and
 `~/.hazmat/cloud-credentials` entries migrate there automatically.
+
+Configuring cloud credentials does not upload a snapshot or initialize visible
+bucket contents. The provider UI can show `0 byte` until `hazmat backup --cloud`
+successfully completes.
 
 ## Updating Credentials
 

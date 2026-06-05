@@ -20,6 +20,10 @@ func newConfigCloudCmd() *cobra.Command {
 		Long: `Set up encrypted cloud backups to S3-compatible storage (Scaleway, AWS,
 Backblaze, MinIO, etc.).
 
+This command stores endpoint and credential metadata only. It does not upload
+workspace data or write S3 objects; the bucket stays empty until the first
+'hazmat backup --cloud'.
+
 Interactive (prompts for each field):
   hazmat config cloud
 
@@ -192,6 +196,7 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 	cGreen.Println("  Cloud backup configured.")
 	fmt.Printf("    Config:      %s\n", configFilePath)
 	fmt.Printf("    Credentials: %s\n", filepath.Join("~", ".hazmat", "secrets", "cloud"))
+	fmt.Println("    No S3 objects are written until the first backup.")
 	cDim.Println("    Run: hazmat backup --cloud")
 	fmt.Println()
 	return nil

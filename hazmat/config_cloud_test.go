@@ -39,8 +39,14 @@ func TestRunConfigCloudStoresSecretsOutsideConfig(t *testing.T) {
 	t.Setenv("HAZMAT_CLOUD_SECRET_KEY", "cloud-secret-key")
 	t.Setenv("HAZMAT_CLOUD_PASSWORD", "cloud-recovery-key")
 
-	if err := runConfigCloud("s3.example.com", "hazmat-backups", "cloud-access-key", true); err != nil {
+	out, err := captureStdout(t, func() error {
+		return runConfigCloud("s3.example.com", "hazmat-backups", "cloud-access-key", true)
+	})
+	if err != nil {
 		t.Fatalf("runConfigCloud: %v", err)
+	}
+	if !strings.Contains(out, "No S3 objects are written until the first backup.") {
+		t.Fatalf("cloud config output did not explain empty bucket behavior:\n%s", out)
 	}
 
 	raw, err := os.ReadFile(configFilePath)

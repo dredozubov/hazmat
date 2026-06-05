@@ -215,6 +215,10 @@ not execute them.
 
 **Snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project directory before launching. The snapshot covers only the write-target directory — not the whole workspace, not read-only dirs. Skip with `--no-backup`.
 
+**Cloud backup is explicit.** `hazmat config cloud` stores endpoint and
+credential metadata but does not upload a snapshot or write S3 objects. The
+bucket can remain visibly empty until `hazmat backup --cloud` completes.
+
 **Project snapshots do not roll back host permission repairs.** The automatic
 pre-session snapshot protects project contents, not host permission metadata
 outside the snapshot boundary. Session-time ACL or Homebrew permission repairs
