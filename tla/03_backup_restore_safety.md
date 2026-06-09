@@ -3,7 +3,7 @@
 ## Problem Statement
 
 Hazmat automatically snapshots project directories before each session and
-supports manual cloud backup/restore of the entire workspace. The system uses
+supports manual cloud backup/restore of selected project directories. The system uses
 Kopia for content-addressed, deduplicated snapshots stored locally and in S3.
 
 The correctness questions are about **data loss prevention** and **operation
@@ -27,6 +27,11 @@ ordering**, not Kopia internals:
 5. **Snapshot ordering** — is the pre-session snapshot always attempted before
    the sandbox boundary is crossed? The snapshot runs as the host user; it
    cannot work inside the sandbox.
+
+6. **Cloud scope** — do cloud backup and cloud restore operate on the selected
+   project directory instead of a canonical workspace root? The old
+   `cloudBackupDir=$HOME/workspace` behavior could unexpectedly upload or
+   overwrite sibling projects.
 
 ## Code Location
 
@@ -62,21 +67,23 @@ hazmat restore [--session=N]
   restoreSnapshotTo(target, projectDir)
 ```
 
-### Cloud restore
+### Cloud project restore
 ```
-hazmat restore --cloud
+hazmat restore --cloud [-C projectDir]
+  resolveDir(projectDir or cwd)
   openCloudRepo()  → loadCloudConfig() + connect to S3
-  listSnapshots(cloudBackupDir)
-  snapshotProject(cloudBackupDir, "pre-cloud-restore")  ← SAFETY NET (was missing)
+  listSnapshots(projectDir)
+  snapshotProject(projectDir, "pre-cloud-restore")  ← SAFETY NET
     failure → warn, proceed
-  restoreSnapshotTo(latest, cloudBackupDir)
+  restoreSnapshotTo(latest, projectDir)
 ```
 
-### Cloud backup
+### Cloud project backup
 ```
-hazmat backup --cloud
+hazmat backup --cloud [-C projectDir]
+  resolveDir(projectDir or cwd)
   openCloudRepo()  → loadCloudConfig() + connect to S3
-  snapshotDir(cloudBackupDir, "Hazmat workspace backup")
+  snapshotDir(projectDir, "Hazmat project cloud backup")
 ```
 
 ## TLA+ Model
@@ -89,7 +96,10 @@ hazmat backup --cloud
 - `sessionPhase` — `"idle"` | `"snapshot_attempted"` | `"in_session"` — session lifecycle
 - `restorePhase` — `"idle"` | `"pre_restore_snap"` | `"restoring"` — restore lifecycle
 - `restoreType` — `"none"` | `"local"` | `"cloud"` — which restore path is active
-- `dataLost` — `BOOLEAN` — tracks whether an overwrite happened without a prior snapshot attempt
+- `preRestoreSnapshotAttempted` — `BOOLEAN` — tracks whether an overwrite is preceded by a pre-restore snapshot attempt
+- `restoreTarget` — `"none"` | `"project"` | `"workspace"` — target currently being restored
+- `preRestoreSnapshotTarget` — `"none"` | `"project"` | `"workspace"` — target snapshotted before restore
+- `lastCloudBackupTarget` — `"none"` | `"project"` | `"workspace"` — target used by the latest cloud backup
 
 ### Actions
 
@@ -104,7 +114,7 @@ hazmat backup --cloud
 - `PreRestoreSnapshotSucceed` — pre-restore snapshot succeeds
 - `PreRestoreSnapshotFail` — pre-restore snapshot fails, restore continues
 - `RestoreComplete` — restore overwrites destination
-- `CloudBackup` — manual cloud backup
+- `CloudBackup` — manual project-scoped cloud backup
 - `RollbackRepo` — remove local repository (during hazmat rollback)
 
 ### Key Design Choices
@@ -128,6 +138,13 @@ hazmat backup --cloud
    session-only integration excludes change what gets snapshotted, but this
    spec models only ordering and non-blocking behavior, not exact file sets.
 
+6. **Cloud operations are project-scoped.** Manual cloud backup and cloud
+   restore resolve the same selected project directory convention as local
+   restore: `-C` when provided, otherwise the current working directory. The
+   TLA+ model includes `"workspace"` as a possible target value only so the
+   `CloudTargetsProject` invariant can catch reintroducing the retired
+   workspace target.
+
 ## What TLC Should Find
 
 ### Invariants to verify
@@ -136,9 +153,11 @@ hazmat backup --cloud
 |-----------|---------|
 | `RestoreReversible` | Every restore (local or cloud) attempts a pre-restore snapshot before overwriting |
 | `SessionNonBlocking` | Snapshot failure leads to session proceeding, never blocking |
-| `RepoBeforeOps` | Snapshot and restore operations only occur when repo is initialized |
+| `RepoBeforeSnapshot` | Pre-session snapshot attempts only occur after local repo initialization |
 | `CloudRequiresConfig` | Cloud backup and cloud restore only occur when cloud is configured |
-| `NoSilentDataLoss` | `dataLost` is never TRUE — overwrites always preceded by snapshot attempt or explicit skip |
+| `NoOverwriteWithoutAttempt` | Restore overwrites are always preceded by a pre-restore snapshot attempt |
+| `CloudTargetsProject` | Cloud backup and cloud restore use the selected project target, not a workspace target |
+| `PreRestoreSnapshotMatchesTarget` | The pre-restore safety snapshot covers the same target that restore overwrites |
 
 ### Liveness
 
@@ -154,4 +173,4 @@ hazmat backup --cloud
 | `MaxSessions` | 2 | Covers: session creates snapshot, then another session or restore |
 | `MaxRestores` | 2 | Covers: restore, then undo-restore |
 
-Expected state space: a few hundred distinct states, <1s runtime.
+Expected state space: under 1,000 distinct states, <1s runtime.

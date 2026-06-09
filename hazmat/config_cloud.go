@@ -197,7 +197,7 @@ func runConfigCloud(endpoint, bucket, accessKey string, secretKeyFromEnv bool) e
 	fmt.Printf("    Config:      %s\n", configFilePath)
 	fmt.Printf("    Credentials: %s\n", filepath.Join("~", ".hazmat", "secrets", "cloud"))
 	fmt.Println("    No S3 objects are written until the first backup.")
-	cDim.Println("    Run: hazmat backup --cloud")
+	cDim.Println("    Run from a project: hazmat backup --cloud")
 	fmt.Println()
 	return nil
 }

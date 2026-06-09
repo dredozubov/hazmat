@@ -422,7 +422,7 @@ func updateRetentionFromConfig(cfg HazmatConfig) error {
 	return wr.Flush(ctx)
 }
 
-func runCloudBackup() error {
+func runCloudBackup(projectDir string) error {
 	ctx := context.Background()
 
 	r, err := openCloudRepo(ctx)
@@ -431,12 +431,12 @@ func runCloudBackup() error {
 	}
 	defer r.Close(ctx)
 
-	fmt.Printf("Backing up %s to cloud...\n", cloudBackupDir)
+	fmt.Printf("Backing up %s to cloud...\n", projectDir)
 	directRepo, err := requireDirectKopiaRepository(r)
 	if err != nil {
 		return err
 	}
-	if err := snapshotDir(ctx, directRepo, cloudBackupDir, "Hazmat workspace backup"); err != nil {
+	if err := snapshotDir(ctx, directRepo, projectDir, "Hazmat project cloud backup"); err != nil {
 		return err
 	}
 
@@ -444,7 +444,7 @@ func runCloudBackup() error {
 	return nil
 }
 
-func runCloudRestore() error {
+func runCloudRestore(projectDir string) error {
 	ctx := context.Background()
 
 	r, err := openCloudRepo(ctx)
@@ -453,25 +453,25 @@ func runCloudRestore() error {
 	}
 	defer r.Close(ctx)
 
-	snapshots, err := listSnapshots(ctx, r, cloudBackupDir)
+	snapshots, err := listSnapshots(ctx, r, projectDir)
 	if err != nil || len(snapshots) == 0 {
-		return fmt.Errorf("no cloud snapshots found for %s", cloudBackupDir)
+		return fmt.Errorf("no cloud snapshots found for %s", projectDir)
 	}
 
 	latest := snapshots[len(snapshots)-1]
 	fmt.Printf("Restoring latest cloud snapshot from %v...\n", latest.StartTime.ToTime())
 
-	// Snapshot current workspace state before restoring so the restore is
+	// Snapshot current project state before restoring so the restore is
 	// reversible. Same pattern as runProjectRestore() in restore.go.
-	fmt.Print("  Snapshotting current workspace state... ")
-	if err := snapshotProject(cloudBackupDir, "pre-cloud-restore"); err != nil {
+	fmt.Print("  Snapshotting current project state... ")
+	if err := snapshotProject(projectDir, "pre-cloud-restore"); err != nil {
 		fmt.Fprintf(os.Stderr, "\n  Warning: could not snapshot current state: %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Proceeding with restore — current state may not be recoverable.")
 	} else {
 		fmt.Println("done")
 	}
 
-	stats, err := restoreSnapshotTo(ctx, r, latest, cloudBackupDir)
+	stats, err := restoreSnapshotTo(ctx, r, latest, projectDir)
 	if err != nil {
 		return err
 	}

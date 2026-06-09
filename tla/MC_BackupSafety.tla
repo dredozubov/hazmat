@@ -3,11 +3,11 @@
 \* snapshot before overwriting, that session snapshot failures never block the
 \* session, and that repository preconditions are always met.
 \*
-\* The model covers three operation paths:
+\* The model covers four operation paths:
 \*   1. Pre-session snapshot (automatic before hazmat claude/exec/shell/opencode)
 \*   2. Local project restore (hazmat restore)
-\*   3. Cloud restore (hazmat restore --cloud)
-\*   4. Cloud backup (hazmat backup --cloud)
+\*   3. Cloud project restore (hazmat restore --cloud)
+\*   4. Cloud project backup (hazmat backup --cloud)
 \*
 \* Pack-specific/configured snapshot ignore rules are intentionally out of model.
 \*
@@ -15,7 +15,7 @@
 \* properties are about ordering (snapshot before overwrite) and graceful
 \* degradation (snapshot failure doesn't block sessions).
 \*
-\* Expected TLC result: No error has been found. (~200-500 states)
+\* Expected TLC result: No error has been found. (<1000 states)
 \*
 \* Governed code:
 \*   hazmat/kopia_wrapper.go — openLocalRepo(), snapshotProject(), runCloudBackup(), runCloudRestore()
@@ -44,7 +44,10 @@ VARIABLES
     restoreAttempts,  \* how many restores have been issued
 
     \* Safety tracking
-    preRestoreSnapshotAttempted  \* BOOLEAN — was a pre-restore snapshot attempted before the current restore?
+    preRestoreSnapshotAttempted, \* BOOLEAN — was a pre-restore snapshot attempted before the current restore?
+    restoreTarget,               \* "none" | "project" | "workspace" — target currently being restored
+    preRestoreSnapshotTarget,     \* "none" | "project" | "workspace" — target snapshotted before restore
+    lastCloudBackupTarget         \* "none" | "project" | "workspace" — target used by the latest cloud backup
 
 CONSTANTS
     MaxSnapshots,
@@ -54,7 +57,8 @@ CONSTANTS
 vars == <<repoState, cloudConfigured, snapshotCount,
           sessionPhase, sessionAttempts,
           restorePhase, restoreType, restoreAttempts,
-          preRestoreSnapshotAttempted>>
+          preRestoreSnapshotAttempted, restoreTarget, preRestoreSnapshotTarget,
+          lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Type invariant
@@ -70,6 +74,9 @@ TypeOK ==
     /\ restoreType   \in {"none", "local", "cloud"}
     /\ restoreAttempts \in 0..MaxRestores
     /\ preRestoreSnapshotAttempted \in BOOLEAN
+    /\ restoreTarget \in {"none", "project", "workspace"}
+    /\ preRestoreSnapshotTarget \in {"none", "project", "workspace"}
+    /\ lastCloudBackupTarget \in {"none", "project", "workspace"}
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Initial state
@@ -85,6 +92,9 @@ Init ==
     /\ restoreType   = "none"
     /\ restoreAttempts = 0
     /\ preRestoreSnapshotAttempted = FALSE
+    /\ restoreTarget = "none"
+    /\ preRestoreSnapshotTarget = "none"
+    /\ lastCloudBackupTarget = "none"
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* External actions — model environment changes
@@ -94,14 +104,18 @@ Init ==
 InitRepo ==
     /\ repoState' = "initialized"
     /\ UNCHANGED <<cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* User runs `hazmat init cloud` to configure S3 credentials.
 ConfigureCloud ==
     /\ ~cloudConfigured
     /\ cloudConfigured' = TRUE
     /\ UNCHANGED <<repoState, snapshotCount, sessionPhase, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Rollback removes the local repository.
 RollbackRepo ==
@@ -110,7 +124,9 @@ RollbackRepo ==
     /\ repoState' = "absent"
     /\ snapshotCount' = 0
     /\ UNCHANGED <<cloudConfigured, sessionPhase, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Session lifecycle — models preSessionSnapshot() + session launch
@@ -131,7 +147,9 @@ BeginSession ==
     \* Auto-init: openLocalRepo() creates repo if absent
     /\ repoState' = "initialized"
     /\ UNCHANGED <<cloudConfigured, snapshotCount,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Begin a session with --no-backup flag.
 BeginSessionNoBackup ==
@@ -141,7 +159,9 @@ BeginSessionNoBackup ==
     /\ sessionPhase'  = "skipped"
     /\ sessionAttempts' = sessionAttempts + 1
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Pre-session snapshot succeeds.
 PreSessionSnapshotSucceed ==
@@ -150,14 +170,18 @@ PreSessionSnapshotSucceed ==
     /\ sessionPhase' = "snapshot_done"
     /\ snapshotCount' = IF snapshotCount < MaxSnapshots THEN snapshotCount + 1 ELSE snapshotCount
     /\ UNCHANGED <<repoState, cloudConfigured, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Pre-session snapshot fails (Kopia error, disk full, etc.).
 PreSessionSnapshotFail ==
     /\ sessionPhase = "snapshot_pending"
     /\ sessionPhase' = "snapshot_failed"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Session launches after snapshot (succeeded, failed, or skipped).
 \* This is the key safety property: session ALWAYS proceeds.
@@ -165,14 +189,18 @@ EnterSession ==
     /\ sessionPhase \in {"snapshot_done", "snapshot_failed", "skipped"}
     /\ sessionPhase' = "in_session"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Session ends, return to idle.
 EndSession ==
     /\ sessionPhase = "in_session"
     /\ sessionPhase' = "idle"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionAttempts,
-                    restorePhase, restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Local restore lifecycle — models runProjectRestore()
@@ -192,16 +220,20 @@ BeginLocalRestore ==
     /\ restoreType' = "local"
     /\ restoreAttempts' = restoreAttempts + 1
     /\ preRestoreSnapshotAttempted' = FALSE
-    /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase, sessionAttempts>>
+    /\ restoreTarget' = "project"
+    /\ preRestoreSnapshotTarget' = "none"
+    /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase,
+                    sessionAttempts, lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Cloud restore lifecycle — models runCloudRestore()
+\* Cloud project restore lifecycle — models runCloudRestore(projectDir)
 \*
 \* Steps: open cloud repo → list snapshots → pre-restore snapshot → restore
 \* Requires cloud configured. Pre-restore snapshot uses LOCAL repo.
 \* ═══════════════════════════════════════════════════════════════════════════════
 
-\* Begin cloud restore. Requires cloud configured.
+\* Begin cloud restore. Requires cloud configured and targets the selected
+\* project, not a canonical workspace root.
 \* Auto-inits local repo for the pre-restore snapshot.
 BeginCloudRestore ==
     /\ restorePhase = "idle"
@@ -212,9 +244,12 @@ BeginCloudRestore ==
     /\ restoreType' = "cloud"
     /\ restoreAttempts' = restoreAttempts + 1
     /\ preRestoreSnapshotAttempted' = FALSE
+    /\ restoreTarget' = "project"
+    /\ preRestoreSnapshotTarget' = "none"
     \* Auto-init local repo for pre-restore snapshot
     /\ repoState' = "initialized"
-    /\ UNCHANGED <<cloudConfigured, snapshotCount, sessionPhase, sessionAttempts>>
+    /\ UNCHANGED <<cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
+                    lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Shared restore steps — pre-restore snapshot + overwrite
@@ -227,17 +262,21 @@ PreRestoreSnapshotSucceed ==
     /\ repoState = "initialized"
     /\ restorePhase' = "pre_snap_done"
     /\ preRestoreSnapshotAttempted' = TRUE
+    /\ preRestoreSnapshotTarget' = restoreTarget
     /\ snapshotCount' = IF snapshotCount < MaxSnapshots THEN snapshotCount + 1 ELSE snapshotCount
     /\ UNCHANGED <<repoState, cloudConfigured, sessionPhase, sessionAttempts,
-                    restoreType, restoreAttempts>>
+                    restoreType, restoreAttempts, restoreTarget,
+                    lastCloudBackupTarget>>
 
 \* Pre-restore snapshot fails. Restore proceeds with warning.
 PreRestoreSnapshotFail ==
     /\ restorePhase = "pre_snap_pending"
     /\ restorePhase' = "pre_snap_failed"
     /\ preRestoreSnapshotAttempted' = TRUE
+    /\ preRestoreSnapshotTarget' = restoreTarget
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
-                    restoreType, restoreAttempts>>
+                    restoreType, restoreAttempts, restoreTarget,
+                    lastCloudBackupTarget>>
 
 \* Begin the actual restore (overwrite destination).
 \* Only proceeds after pre-restore snapshot was attempted (success or failure).
@@ -245,14 +284,16 @@ BeginOverwrite ==
     /\ restorePhase \in {"pre_snap_done", "pre_snap_failed"}
     /\ restorePhase' = "restoring"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
-                    restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restoreType, restoreAttempts, preRestoreSnapshotAttempted,
+                    restoreTarget, preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Restore completes. Return to idle.
 RestoreComplete ==
     /\ restorePhase = "restoring"
     /\ restorePhase' = "done"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
-                    restoreType, restoreAttempts, preRestoreSnapshotAttempted>>
+                    restoreType, restoreAttempts, preRestoreSnapshotAttempted,
+                    restoreTarget, preRestoreSnapshotTarget, lastCloudBackupTarget>>
 
 \* Restore done, return to idle.
 RestoreDone ==
@@ -260,19 +301,25 @@ RestoreDone ==
     /\ restorePhase' = "idle"
     /\ restoreType'  = "none"
     /\ preRestoreSnapshotAttempted' = FALSE
+    /\ restoreTarget' = "none"
+    /\ preRestoreSnapshotTarget' = "none"
     /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase, sessionAttempts,
-                    restoreAttempts>>
+                    restoreAttempts, lastCloudBackupTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
-\* Cloud backup — models runCloudBackup()
-\* Requires cloud configured. Creates a snapshot in the cloud repo.
+\* Cloud backup — models runCloudBackup(projectDir)
+\* Requires cloud configured. Creates a project snapshot in the cloud repo.
 \* ═══════════════════════════════════════════════════════════════════════════════
 
 CloudBackup ==
     /\ sessionPhase = "idle"
     /\ restorePhase = "idle"
     /\ cloudConfigured
-    /\ UNCHANGED vars
+    /\ lastCloudBackupTarget' = "project"
+    /\ UNCHANGED <<repoState, cloudConfigured, snapshotCount, sessionPhase,
+                    sessionAttempts, restorePhase, restoreType, restoreAttempts,
+                    preRestoreSnapshotAttempted, restoreTarget,
+                    preRestoreSnapshotTarget>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Terminal — allow stuttering when all attempts exhausted.
@@ -353,6 +400,17 @@ CloudRequiresConfig ==
 \* without first passing through pre_snap_pending.
 NoOverwriteWithoutAttempt ==
     restorePhase \in {"restoring", "done"} => preRestoreSnapshotAttempted
+
+\* --- Cloud scope: cloud backup and cloud restore are project-scoped. ---
+\* This guards against the old cloudBackupDir=$HOME/workspace behavior.
+CloudTargetsProject ==
+    /\ restoreType = "cloud" => restoreTarget = "project"
+    /\ lastCloudBackupTarget /= "workspace"
+
+\* --- Pre-restore snapshot target matches the target being overwritten. ---
+PreRestoreSnapshotMatchesTarget ==
+    restorePhase \in {"pre_snap_done", "pre_snap_failed", "restoring", "done"}
+        => preRestoreSnapshotTarget = restoreTarget
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Liveness properties

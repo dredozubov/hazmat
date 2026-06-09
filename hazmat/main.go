@@ -3,7 +3,6 @@ package hazmat
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"hazmat/internal/agententry"
 	"hazmat/internal/diagnostics"
@@ -32,11 +31,6 @@ var (
 	agentUID  = "599"
 	sharedGID = "599"
 )
-
-// cloudBackupDir is the directory that `hazmat backup --cloud` snapshots.
-// There is no "managed workspace" concept — any directory is a valid project.
-// This is solely for the cloud backup scope.
-var cloudBackupDir = filepath.Join(os.Getenv("HOME"), "workspace")
 
 // Hazmat configuration shared by the Go-based setup, test, and rollback flows.
 // Native platform paths and host integration defaults live in platform_paths_*.go.

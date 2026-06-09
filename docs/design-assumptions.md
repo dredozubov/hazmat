@@ -176,7 +176,9 @@ TLA+ suite, not just an implementation assumption.
 
 **Projects are arbitrary directories.** Any existing directory can be a Hazmat project via `-C` or the current working directory. Sessions are not confined to a managed workspace root.
 
-**Cloud backup still has a canonical root.** `hazmat backup --cloud` and `hazmat restore --cloud` target `~/workspace`. That path is a backup scope convention, not a session boundary.
+**Cloud backup has no canonical workspace root.** `hazmat backup --cloud` and
+`hazmat restore --cloud` target the selected project directory: `-C` when
+provided, otherwise the current working directory.
 
 **Project = read-write, everything else = read-only.** The `-C` flag selects the writable project directory. `-R` adds extra read-only paths. This is enforced by the seatbelt, not advisory.
 
@@ -211,13 +213,14 @@ not execute them.
 
 ## Backup
 
-**Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for offsite workspace backup. Both configured via `~/.hazmat/config.yaml`.
+**Two modes, one config file.** Local Kopia repo (`~/.local/share/hazmat/repo/`) for automatic per-session project snapshots. Optional cloud Kopia repo (S3-compatible) for explicit offsite project backup. Both configured via `~/.hazmat/config.yaml`.
 
 **Snapshots are automatic.** Every `hazmat claude/exec/shell` snapshots the project directory before launching. The snapshot covers only the write-target directory — not the whole workspace, not read-only dirs. Skip with `--no-backup`.
 
-**Cloud backup is explicit.** `hazmat config cloud` stores endpoint and
-credential metadata but does not upload a snapshot or write S3 objects. The
-bucket can remain visibly empty until `hazmat backup --cloud` completes.
+**Cloud backup is explicit and project-scoped.** `hazmat config cloud` stores
+endpoint and credential metadata but does not upload a snapshot or write S3
+objects. The bucket can remain visibly empty until `hazmat backup --cloud`
+completes for a selected project.
 
 **Project snapshots do not roll back host permission repairs.** The automatic
 pre-session snapshot protects project contents, not host permission metadata

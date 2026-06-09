@@ -12,9 +12,10 @@ import (
 func newRestoreCmd() *cobra.Command {
 	var cloudMode bool
 	var sessionIdx int
+	var project string
 	cmd := &cobra.Command{
 		Use:   "restore [--cloud | --session=N]",
-		Short: "Restore project from snapshot or workspace from cloud",
+		Short: "Restore project from local or cloud snapshot",
 		Long: `Without flags, restores the current project directory from the most recent
 local snapshot (taken automatically before each session).
 
@@ -22,34 +23,41 @@ Current state is snapshotted first ("pre-restore") so the restore is
 reversible.
 
 Use --session=N to restore to N sessions ago (default: 1, the most recent).
-Use --cloud to restore the entire workspace from the latest cloud snapshot.
+Use --cloud to restore the selected project from the latest cloud snapshot for
+that same project.
 
 Examples:
   hazmat restore              Restore project to pre-last-session state
   hazmat restore --session=3  Restore project to 3 sessions ago
-  hazmat restore --cloud      Restore workspace from S3`,
+  hazmat restore --cloud      Restore project from S3
+  hazmat restore --cloud -C ~/workspace/my-app`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if cloudMode {
-				return runCloudRestore()
-			}
-			return runProjectRestore(sessionIdx)
+			return runRestoreCommand(cloudMode, project, sessionIdx, runCloudRestore, runProjectRestore)
 		},
 	}
 	cmd.Flags().BoolVar(&cloudMode, "cloud", false,
-		"Restore entire workspace from latest cloud snapshot")
+		"Restore selected project from latest cloud snapshot")
 	cmd.Flags().IntVar(&sessionIdx, "session", 1,
 		"Which snapshot to restore (1 = most recent, 2 = second most recent, ...)")
+	cmd.Flags().StringVarP(&project, "project", "C", "",
+		"Project directory to restore (default: current directory)")
 	return cmd
 }
 
-func runProjectRestore(sessionIdx int) error {
-	ctx := context.Background()
-
-	projectDir, err := resolveDir("", true)
+func runRestoreCommand(cloudMode bool, project string, sessionIdx int, cloudRestore func(string) error, localRestore func(string, int) error) error {
+	projectDir, err := resolveDir(project, true)
 	if err != nil {
 		return fmt.Errorf("resolve project directory: %w", err)
 	}
+	if cloudMode {
+		return cloudRestore(projectDir)
+	}
+	return localRestore(projectDir, sessionIdx)
+}
+
+func runProjectRestore(projectDir string, sessionIdx int) error {
+	ctx := context.Background()
 
 	r, err := openLocalRepo(ctx)
 	if err != nil {

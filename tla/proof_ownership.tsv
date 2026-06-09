@@ -1,6 +1,8 @@
 spec	kind	obligation	verified_section	design_note	owner
 MC_BackupSafety	invariant	CloudRequiresConfig	3	tla/03_backup_restore_safety.md	backup restore lifecycle
+MC_BackupSafety	invariant	CloudTargetsProject	3	tla/03_backup_restore_safety.md	backup restore lifecycle
 MC_BackupSafety	invariant	NoOverwriteWithoutAttempt	3	tla/03_backup_restore_safety.md	backup restore lifecycle
+MC_BackupSafety	invariant	PreRestoreSnapshotMatchesTarget	3	tla/03_backup_restore_safety.md	backup restore lifecycle
 MC_BackupSafety	invariant	RepoBeforeSnapshot	3	tla/03_backup_restore_safety.md	backup restore lifecycle
 MC_BackupSafety	invariant	RestoreReversible	3	tla/03_backup_restore_safety.md	backup restore lifecycle
 MC_BackupSafety	invariant	TypeOK	3	tla/03_backup_restore_safety.md	backup restore lifecycle

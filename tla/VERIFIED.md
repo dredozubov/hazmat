@@ -306,9 +306,9 @@ inherited credential-bearing fd still alive.
 | Governed code | `hazmat/restore.go` — `runProjectRestore()` |
 | Governed code | `hazmat/internal/backupruntime/session.go` — `PreSessionSnapshot()` |
 | Governed code | `hazmat/session.go` — `preSessionSnapshot()` wrapper and session command ordering |
-| Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt` |
+| Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt`, `CloudTargetsProject`, `PreRestoreSnapshotMatchesTarget` |
 | Key liveness | `SessionEventuallyLaunches`, `RestoreEventuallyCompletes` |
-| Status | **Fixed and Re-Proved** — cloud restore takes a pre-restore snapshot before overwriting, and the pre-session snapshot trigger package split preserves backup ordering |
+| Status | **Fixed and Re-Proved** — cloud restore takes a pre-restore snapshot before overwriting, cloud backup/restore target the selected project instead of a workspace root, and the pre-session snapshot trigger package split preserves backup ordering |
 
 **What was found:**
 
@@ -317,15 +317,23 @@ inherited credential-bearing fd still alive.
    user's current workspace was permanently lost with no undo. The local restore
    path (`runProjectRestore()`) did this correctly.
 
+2. **Cloud scope:** cloud backup/restore retained a hardcoded
+   `cloudBackupDir=$HOME/workspace` target after the session model had moved to
+   arbitrary project directories.
+
 **Fix applied:**
 
-1. Added `snapshotProject(cloudBackupDir, "pre-cloud-restore")` to
-   `runCloudRestore()` before the overwrite, matching the pattern in
+1. Added `snapshotProject(projectDir, "pre-cloud-restore")` to
+   `runCloudRestore(projectDir)` before the overwrite, matching the pattern in
    `runProjectRestore()`. Failure is non-fatal (warn and proceed).
 
+2. Removed the hardcoded cloud workspace target. `hazmat backup --cloud` and
+   `hazmat restore --cloud` now resolve the selected project directory (`-C` or
+   the current working directory) and pass that target into the cloud runtime.
+
 The principle: **every overwrite must be preceded by a snapshot attempt.**
-`MC_BackupSafety` passed on 2026-06-03 with "No error has been found" across
-1,134 generated states and 395 distinct states (<1s).
+`MC_BackupSafety` passed on 2026-06-09 with "No error has been found" across
+1,809 generated states and 657 distinct states (<1s).
 
 **Change rules:**
 - Adding a new restore path (e.g., restore from external drive) must include a
@@ -998,7 +1006,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 |------|---------------|
 | `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, remaining root setup callbacks; `hazmat/internal/setup/*.go`; `hazmat/internal/setup/darwin/*.go`; `hazmat/native_account*.go`; `hazmat/native_service*.go`; `hazmat/sudoers.go`; `hazmat/rollback.go:runRollback()`, remaining root rollback callbacks |
 | `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
-| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
+| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudBackup()`, `runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/internal/setup/rollback.go` rollback resource ordering after migration rollback dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
 | `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
 | `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`; `hazmat/native_launch.go:agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
