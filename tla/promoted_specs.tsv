@@ -1,5 +1,6 @@
 spec	liveness
 MC_BackupSafety	yes
+MC_BeadpostBrokerBoundary	no
 MC_CredentialCapabilityLifecycle	no
 MC_GitHookApproval	no
 MC_GitSSHRouting	no

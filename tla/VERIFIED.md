@@ -223,7 +223,7 @@ successful completion after arbitrary bounded failures.
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
 | Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
 | Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
@@ -269,6 +269,19 @@ native policy construction through validated `pathpolicy`, `containment`, and
 credential-deny boundary. `MC_SeatbeltPolicy` was re-run with TLC and reported
 "No error has been found" across 13,824 generated states, 12,672 distinct
 states, depth 11.
+
+**2026-06-09 attestation-key containment addition (Beadpost broker):** The spec now
+models the dr-owned Beadpost broker HMAC signing key as a host-authority deny target
+(`HostAuthorityPaths` / `HostAuthorityTargets`), kept deliberately separate from
+`CredPaths` / `CredentialTargets` so the Claude keychain exception can never apply to
+it. Section 8 denies read+write for `CredPaths \cup HostAuthorityPaths`, and there is
+NO section-9 re-allow for host-authority paths. `AttestationKeyReadDenied` and
+`AttestationKeyWriteDenied` prove the key directory and file stay denied even when the
+key directory is chosen as `ProjectDir` or a `ReadDir` — both are now in
+`ProjectChoices` / `ReadChoices`, so the case is exercised, not vacuous. Re-run with
+TLC: "No error has been found" across 32,256 generated states, 29,568 distinct, depth
+11. This is Part 1 of 3 for the contained-agent submitter + dr-owned host broker
+attestation boundary (see `docs/plans/2026-06-09-beadpost-attestation-spec-plan.md`).
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
@@ -912,8 +925,8 @@ future specs, tests, and docs.
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
 | Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
-| Key invariants | `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent` |
-| Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only |
+| Key invariants | `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
+| Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the Beadpost broker/attestation-mint ordering is gated behind confirmed containment (design-proved, broker implementation pending) |
 
 **What this verifies:**
 
@@ -931,7 +944,21 @@ future specs, tests, and docs.
 4. **The final agent exec is stdio-only:** helper-opened policy state is
    `CLOEXEC`, so it cannot leak into the actual agent process.
 
-TLC passes across all 112 reachable states (128 generated, depth 7, <1s).
+**2026-06-09 Beadpost broker ordering + authority-fd hygiene (minimal addition):**
+The spec now also proves the launch-order facts for the contained-agent submitter
++ dr-owned host broker design. `BrokerStartsOnlyAfterSandboxConfirmed` and
+`TokenMintedOnlyAfterSandboxConfirmed` establish the chain *sandbox_init success →
+confirmed-containment metadata → broker active → attestation minted*, so a pre-sudo
+"prepared launch" (which is not confirmed containment) can never mint authority.
+`AgentFDTableDoesNotCarryAuthority` adds an `authority` fd-target class and an
+adversarially inherited authority-bearing fd (a leaked broker signing-key fd) and
+proves it is sanitized out before the final agent exec — non-vacuously, mirroring
+`CredentialFDsGoneBeforeSandbox`. Request routing is deliberately out of scope here
+(see `MC_BeadpostBrokerBoundary`). Part 2 of 3 for the attestation boundary; see
+`docs/plans/2026-06-09-beadpost-attestation-spec-plan.md`.
+
+TLC passes with the addition across 416 reachable states (608 generated, depth 10,
+<1s); the original fd-isolation core was 112 reachable states (128 generated, depth 7).
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
@@ -948,6 +975,10 @@ side cleanup is now a proved design rule instead of an implementation detail.
 - Any helper-opened fd that may remain live across the final `exec` must be
   modeled here first. The current proof assumes helper-opened policy state is
   explicitly `CLOEXEC`.
+- The Beadpost broker must not activate, and attestation authority must not be
+  minted, before confirmed containment (`sandbox_init` + emitted metadata). Any
+  change that lets the broker/mint precede confirmation, or that lets an
+  authority-bearing fd reach the agent, must update this spec first.
 
 ---
 
@@ -1000,6 +1031,59 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 
 ---
 
+### 15 — Beadpost Attestation-Boundary Broker
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/15_beadpost_broker_boundary.md` |
+| TLA+ files | `tla/MC_BeadpostBrokerBoundary.tla`, `tla/MC_BeadpostBrokerBoundary.cfg` |
+| Governed code | future `hazmat/beadpost/broker.go` — `DeriveAuthorityFromLaunchFacts()`, `Accept()`, `InvokeDelivery()` |
+| Governed code | future `hazmat/beadpost/session.go` — `ConfirmSandboxBoundary()`, `AllocateBrokerSocket()`, `CloseSession()` |
+| Key invariants | `BrokerSocketOnlyAfterConfirmedSession`, `AcceptedRequestHasConfirmedSession`, `AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`, `NoCrossSessionRequest`, `NoRequestAfterSessionClose`, `HostAuthorityNeverAgentReadable`, `DeliveryOnlyFromAcceptedRequest` |
+| Status | **Design Proved, Implementation Pending** — the contained-agent submitter + dr-owned host broker membrane; broker implementation is gated behind this proof |
+
+**What this verifies:**
+
+1. **Confirmation gates the membrane:** a broker socket exists, and a request is
+   accepted, only for a session whose containment was confirmed. (The launch-time
+   confirmation ordering — `sandbox_init` then metadata — is proved in
+   `MC_LaunchFDIsolation`; this spec treats "confirmed" as the entry gate.)
+
+2. **Authority is derived, never supplied:** the agent submits closed request
+   *content* only. The broker stamps `deliveredAuthority := launchFacts[s]`
+   unconditionally, so authority is never a function of agent input
+   (`AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`).
+
+3. **Host authority is write-once:** no action mutates `launchFacts`; the genesis
+   snapshot witnesses immutability (`HostAuthorityNeverAgentReadable`).
+
+4. **Deterministic per-session binding:** no two sessions share a broker socket
+   (`NoCrossSessionRequest`).
+
+5. **Clean teardown:** a closed session retains no socket, content, authority, or
+   acceptance (`NoRequestAfterSessionClose`); delivery only follows an accepted
+   request (`DeliveryOnlyFromAcceptedRequest`).
+
+TLC passes across all 1,088 reachable states (3,104 generated, depth 9, <1s) with
+2 sessions, 2 projects, 2 tiers, 2 sockets.
+
+**Scope boundary:** `HostAuthorityNeverAgentReadable` is design separation, not
+OS memory/key isolation — that is proved by `MC_SeatbeltPolicy` (attestation-key
+deny) and `MC_LaunchFDIsolation` (authority-fd hygiene). Replay defense, strong-tier
+enforcement, and cross-host token theft are Beadpost-side obligations (tracked
+under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
+`docs/plans/2026-06-09-beadpost-attestation-spec-plan.md`.
+
+**Change rules:**
+- Any change letting agent content influence delivered authority must update
+  `AgentCannotSupplyAuthorityFields` first and re-run TLC.
+- Removing the confirmed-session gate before socket allocation or acceptance
+  requires re-proving the gating invariants (they will fail — this is the firewall).
+- Adding authority fields beyond `(project, tier)` requires extending
+  `AcceptedAuthorityEqualsLaunchFacts`.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -1018,6 +1102,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go`; `hazmat/internal/credentialruntime/store.go` |
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
+| `15_beadpost_broker_boundary` | future `hazmat/beadpost/broker.go`, `hazmat/beadpost/session.go` (contained-agent submitter + dr-owned host broker membrane) |
 
 ---
 

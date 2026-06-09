@@ -53,3 +53,4 @@ run_spec MC_GitSSHRouting no
 run_spec MC_GitHookApproval no
 run_spec MC_SecretStoreRecovery no
 run_spec MC_CredentialCapabilityLifecycle no
+run_spec MC_BeadpostBrokerBoundary no

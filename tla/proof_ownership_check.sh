@@ -8,7 +8,7 @@ TLA_DIR="${ROOT_DIR}/tla"
 LEDGER="${TLA_DIR}/proof_ownership.tsv"
 VERIFIED="${TLA_DIR}/VERIFIED.md"
 ROSTER="${TLA_DIR}/promoted_specs.tsv"
-EXPECTED_PROMOTED_SPEC_COUNT=14
+EXPECTED_PROMOTED_SPEC_COUNT=15
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-proof-ownership.XXXXXX")"
 cleanup() {

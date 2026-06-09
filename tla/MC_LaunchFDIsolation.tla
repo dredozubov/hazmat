@@ -17,6 +17,17 @@
 \*   - hazmat-launch closes every inherited fd >= 3 before sandbox_init()
 \*   - any fd the helper opens itself for policy validation is CLOEXEC
 \*
+\* Beadpost attestation boundary (2026-06-09 minimal addition):
+\*   The contained-agent submitter + dr-owned host broker design requires that
+\*   broker authority and attestation minting happen ONLY after containment is
+\*   actually confirmed, i.e. after sandbox_init() succeeds and the helper emits
+\*   its confirmed-containment metadata line. A pre-sudo "prepared launch" is not
+\*   confirmed containment. This spec adds the minimal launch-order facts
+\*   (metadataEmitted -> brokerActive -> tokenMinted) and proves the broker/mint
+\*   never precede confirmation, plus that no fd carrying host authority material
+\*   (a leaked signing-key fd) survives to the final agent exec. Request routing
+\*   itself is out of scope here (see MC_BeadpostBrokerBoundary).
+\*
 \* Governed code:
 \*   hazmat/native_launch.go — backend-neutral native launch contract
 \*   hazmat/native_launch_darwin.go — Darwin sudo + helper command shape
@@ -35,7 +46,7 @@ StdioFDs == 0..2
 InheritedExtraFDs == {3, 4}
 PolicyFD == 5
 
-Targets == {"stdio", "credential", "benign", "policy", "unused"}
+Targets == {"stdio", "credential", "benign", "policy", "authority", "unused"}
 Origins == {"shell", "helper", "none"}
 Stages == {"hazmat", "sudo", "helper", "helper_sanitized", "policy_opened", "sandboxed", "agent"}
 
@@ -52,12 +63,16 @@ VARIABLES
     fdOrigin,
     fdCloexec,
     goExecClosesParentFDs,
-    sudoClosesInheritedFDs
+    sudoClosesInheritedFDs,
+    metadataEmitted,
+    brokerActive,
+    tokenMinted
 
 vars ==
     <<stage, hazmatFds, sudoFds, helperFds, agentFds,
       fdTarget, fdOrigin, fdCloexec,
-      goExecClosesParentFDs, sudoClosesInheritedFDs>>
+      goExecClosesParentFDs, sudoClosesInheritedFDs,
+      metadataEmitted, brokerActive, tokenMinted>>
 
 TypeOK ==
     /\ stage \in Stages
@@ -70,6 +85,9 @@ TypeOK ==
     /\ fdCloexec \in [FDs -> BOOLEAN]
     /\ goExecClosesParentFDs \in BOOLEAN
     /\ sudoClosesInheritedFDs \in BOOLEAN
+    /\ metadataEmitted \in BOOLEAN
+    /\ brokerActive \in BOOLEAN
+    /\ tokenMinted \in BOOLEAN
 
 Init ==
     /\ \E inherited \in SUBSET InheritedExtraFDs :
@@ -77,12 +95,17 @@ Init ==
     /\ sudoFds = {}
     /\ helperFds = {}
     /\ agentFds = {}
-    /\ fdTarget =
-        [fd \in FDs |->
-            CASE fd \in StdioFDs -> "stdio"
-              [] fd = 3 -> "credential"
-              [] fd = 4 -> "benign"
-              [] OTHER -> "unused"]
+    \* fd 3 carries credential material; fd 4 is an inherited extra fd that may
+    \* adversarially carry host AUTHORITY material (e.g. a leaked broker
+    \* signing-key fd) or be benign. Either way it must be sanitized before
+    \* sandbox_init() and must never reach the final agent exec.
+    /\ \E t4 \in {"benign", "authority"} :
+        fdTarget =
+            [fd \in FDs |->
+                CASE fd \in StdioFDs -> "stdio"
+                  [] fd = 3 -> "credential"
+                  [] fd = 4 -> t4
+                  [] OTHER -> "unused"]
     /\ fdOrigin =
         [fd \in FDs |->
             IF fd \in StdioFDs \cup InheritedExtraFDs
@@ -91,6 +114,9 @@ Init ==
     /\ fdCloexec = [fd \in FDs |-> FALSE]
     /\ goExecClosesParentFDs \in BOOLEAN
     /\ sudoClosesInheritedFDs \in BOOLEAN
+    /\ metadataEmitted = FALSE
+    /\ brokerActive = FALSE
+    /\ tokenMinted = FALSE
     /\ stage = "hazmat"
 
 HazmatExecsSudo ==
@@ -102,7 +128,8 @@ HazmatExecsSudo ==
     /\ stage' = "sudo"
     /\ UNCHANGED <<hazmatFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
 
 SudoExecsHelper ==
     /\ stage = "sudo"
@@ -113,7 +140,8 @@ SudoExecsHelper ==
     /\ stage' = "helper"
     /\ UNCHANGED <<hazmatFds, sudoFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
 
 HelperSanitizesFDTable ==
     /\ stage = "helper"
@@ -124,7 +152,8 @@ HelperSanitizesFDTable ==
     /\ stage' = "helper_sanitized"
     /\ UNCHANGED <<hazmatFds, sudoFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
 
 HelperOpensPolicyFile ==
     /\ stage = "helper_sanitized"
@@ -134,14 +163,48 @@ HelperOpensPolicyFile ==
     /\ fdCloexec' = [fdCloexec EXCEPT ![PolicyFD] = PolicyFileUsesCloexec]
     /\ stage' = "policy_opened"
     /\ UNCHANGED <<hazmatFds, sudoFds, agentFds,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
 
 HelperCallsSandboxInit ==
     /\ stage = "policy_opened"
     /\ stage' = "sandboxed"
     /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
+
+\* After sandbox_init() returns, hazmat-launch emits its confirmed-containment
+\* metadata line. Only at this point is containment actually established (a
+\* pre-sudo "prepared launch" is not confirmed containment).
+HelperEmitsConfirmedContainmentMetadata ==
+    /\ stage = "sandboxed"
+    /\ ~metadataEmitted
+    /\ metadataEmitted' = TRUE
+    /\ UNCHANGED <<stage, hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   brokerActive, tokenMinted>>
+
+\* The dr-owned host broker may activate only after confirmed containment.
+HostBrokerActivates ==
+    /\ metadataEmitted
+    /\ ~brokerActive
+    /\ brokerActive' = TRUE
+    /\ UNCHANGED <<stage, hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, tokenMinted>>
+
+\* The host broker mints attestation authority only after it is active.
+HostMintsToken ==
+    /\ brokerActive
+    /\ ~tokenMinted
+    /\ tokenMinted' = TRUE
+    /\ UNCHANGED <<stage, hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive>>
 
 HelperExecsAgent ==
     /\ stage = "sandboxed"
@@ -149,7 +212,8 @@ HelperExecsAgent ==
     /\ stage' = "agent"
     /\ UNCHANGED <<hazmatFds, sudoFds, helperFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs>>
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
 
 Done ==
     /\ stage = "agent"
@@ -161,6 +225,9 @@ Next ==
     \/ HelperSanitizesFDTable
     \/ HelperOpensPolicyFile
     \/ HelperCallsSandboxInit
+    \/ HelperEmitsConfirmedContainmentMetadata
+    \/ HostBrokerActivates
+    \/ HostMintsToken
     \/ HelperExecsAgent
     \/ Done
 
@@ -195,5 +262,29 @@ AgentFDTableAllowlisted ==
 
 StdioSurvivesToAgent ==
     stage = "agent" => StdioFDs \subseteq agentFds
+
+\* ═══════════════════════════════════════════════════════════════════════════════
+\* Beadpost attestation boundary — confirmed-ordering and authority-fd hygiene
+\* ═══════════════════════════════════════════════════════════════════════════════
+
+\* The host broker becomes active only after containment is confirmed: the helper
+\* must have reached sandbox_init() (stage sandboxed/agent) and emitted the
+\* confirmed-containment metadata. A prepared-but-unconfirmed launch never
+\* activates the broker.
+BrokerStartsOnlyAfterSandboxConfirmed ==
+    brokerActive => (stage \in {"sandboxed", "agent"} /\ metadataEmitted)
+
+\* Attestation minting follows broker activation, which follows confirmation.
+\* (Distinct from BrokerStartsOnlyAfterSandboxConfirmed: this gates the mint, not
+\* the broker, so the chain confirm -> broker -> mint is proved end to end.)
+TokenMintedOnlyAfterSandboxConfirmed ==
+    tokenMinted => (brokerActive /\ metadataEmitted)
+
+\* No fd carrying host authority material (a leaked signing-key fd) survives to
+\* the final agent exec. Non-vacuous: fd 4 may be inherited as "authority", and
+\* the helper's closefrom must remove it before sandbox_init().
+AgentFDTableDoesNotCarryAuthority ==
+    stage = "agent" =>
+        \A fd \in agentFds : fdTarget[fd] /= "authority"
 
 =============================================================================

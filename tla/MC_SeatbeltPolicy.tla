@@ -55,6 +55,8 @@ CONSTANTS
     NetworkChoices, \* subset: network modes ("default", "none")
     ResumeChoices,  \* subset: valid choices for ResumeDir (invoker's session dir or none)
     TempSocketPaths,\* subset: host temp capability/socket paths denied after temp/user allows
+    HostAuthorityPaths,   \* subset: host-owned authority deny roots (broker attestation key dir) — NOT credentials, no keychain-style exception
+    HostAuthorityTargets, \* subset: representative host-authority paths (attestation key dir + file)
     \* Model constant identifiers for abstract paths
     normalProj,     \* /Users/dr/workspace/myproject
     agentHome,      \* /Users/agent
@@ -73,7 +75,9 @@ CONSTANTS
     sessionTempFile,\* /Users/agent/.cache/hazmat/tmp/<session>/artifact
     claudeTempRoot,\* /private/tmp/claude-599 (agent-owned Claude runtime temp)
     claudeTempFile,\* /private/tmp/claude-599/socket
-    codexTempSocket \* /private/tmp/codex-ipc/app.sock
+    codexTempSocket,\* /private/tmp/codex-ipc/app.sock
+    attestationKeyDir, \* /var/lib/hazmat/keys (dr-owned Beadpost broker signing key dir)
+    attestationKeyFile \* /var/lib/hazmat/keys/attestation.key (HMAC signing key)
 
 ASSUME CredPaths \subseteq Paths
 ASSUME CredentialTargets \subseteq Paths
@@ -84,6 +88,8 @@ ASSUME ReadChoices \subseteq Paths
 ASSUME NetworkChoices \subseteq {"default", "none"}
 ASSUME ResumeChoices \ {"none"} \subseteq Paths
 ASSUME TempSocketPaths \subseteq Paths
+ASSUME HostAuthorityPaths \subseteq Paths
+ASSUME HostAuthorityTargets \subseteq Paths
 
 \* Contains(child, parent) = TRUE iff `child` is within (or equal to) `parent`.
 \* Hardcoded containment relation for our abstract path model.
@@ -110,6 +116,7 @@ Contains(child, parent) ==
     \/ (child = claudeTempFile /\ parent = hostTempRoot)
     \/ (child = claudeTempFile /\ parent = claudeTempRoot)
     \/ (child = codexTempSocket /\ parent = hostTempRoot)
+    \/ (child = attestationKeyFile /\ parent = attestationKeyDir)
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Variables
@@ -271,13 +278,16 @@ EmitTempSocketDenies ==
     /\ section' = 8
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
 
-\* Section 8: Credential denies.
-\* Deny both file-read* (exfiltration) and file-write* (planting).
+\* Section 8: Credential and host-authority denies.
+\* Deny both file-read* (exfiltration) and file-write* (planting) for credential
+\* roots AND host-authority roots (the dr-owned Beadpost broker attestation key).
+\* Host-authority paths are denied identically to credentials but, unlike the
+\* keychain, receive NO section-9 re-allow exception.
 EmitCredDenies ==
     /\ section = 8
     /\ rules' = rules \cup
-         {DenyRead(8, p)  : p \in CredPaths} \cup
-         {DenyWrite(8, p) : p \in CredPaths}
+         {DenyRead(8, p)  : p \in CredPaths \cup HostAuthorityPaths} \cup
+         {DenyWrite(8, p) : p \in CredPaths \cup HostAuthorityPaths}
     /\ section' = 9
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
 
@@ -377,6 +387,19 @@ CredentialWriteDenied ==
         \A cred \in CredentialTargets \ AgentKeychainExceptionPaths :
             EffectiveWrite(cred) = "deny_write"
 
+\* --- CRITICAL: host-authority (attestation signing key) read is denied, NO exception ---
+\* The dr-owned Beadpost broker signing key must never be readable by the contained
+\* agent, even when its directory is chosen as ProjectDir or a ReadDir. Unlike the
+\* Claude OAuth keychain, there is NO section-9 re-allow for host-authority paths.
+AttestationKeyReadDenied ==
+    section = 10 =>
+        \A target \in HostAuthorityTargets : EffectiveRead(target) = "deny_read"
+
+\* --- Host-authority (attestation signing key) write is denied, NO exception ---
+AttestationKeyWriteDenied ==
+    section = 10 =>
+        \A target \in HostAuthorityTargets : EffectiveWrite(target) = "deny_write"
+
 \* --- Agent keychain exception is exact and conditional ---
 AgentKeychainExceptionScoped ==
     section = 10 =>
@@ -400,6 +423,7 @@ ReadDirsNoWrite ==
 ProjectDirWritable ==
     section = 10 =>
         \/ projectDir \in CredPaths  \* credential deny overrides — expected
+        \/ projectDir \in HostAuthorityPaths  \* host-authority deny overrides — expected
         \/ EffectiveWrite(projectDir) = "allow_write"
 
 \* --- Read dirs within project are elided (subsumption) ---
