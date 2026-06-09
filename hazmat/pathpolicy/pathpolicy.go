@@ -35,6 +35,7 @@ type DenyPolicy struct {
 	baseHomes              []string
 	credentialDenySubpaths []string
 	hostStateDenySubpaths  []string
+	hostAuthorityDenyPaths []string
 	configured             bool
 }
 
@@ -148,6 +149,47 @@ func (p DenyPolicy) CredentialDenyPath(canonical string) bool {
 	return false
 }
 
+// WithHostAuthorityDenyPaths returns a copy of the policy that additionally
+// denies the given absolute host-authority paths (for example a dr-owned
+// Beadpost broker attestation key). These are dr-owned ABSOLUTE paths, not
+// agent-home-relative subpaths, and they are a deny category distinct from the
+// credential and host-state zones: no keychain-style re-allow exception ever
+// applies to them. Empty and non-absolute entries are ignored.
+func (p DenyPolicy) WithHostAuthorityDenyPaths(paths ...string) DenyPolicy {
+	merged := append([]string(nil), p.hostAuthorityDenyPaths...)
+	seen := make(map[string]struct{}, len(merged)+len(paths))
+	for _, existing := range merged {
+		seen[existing] = struct{}{}
+	}
+	for _, raw := range paths {
+		if strings.TrimSpace(raw) == "" || !filepath.IsAbs(raw) {
+			continue
+		}
+		clean := filepath.Clean(raw)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		merged = append(merged, clean)
+	}
+	p.hostAuthorityDenyPaths = merged
+	return p
+}
+
+// HostAuthorityDenyPath reports whether canonical overlaps a registered
+// host-authority deny path.
+func (p DenyPolicy) HostAuthorityDenyPath(canonical string) bool {
+	for _, denyPath := range p.hostAuthorityDenyPaths {
+		if strings.TrimSpace(denyPath) == "" {
+			continue
+		}
+		if PathsOverlap(canonical, denyPath) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p DenyPolicy) HostStateDenyPath(canonical string) bool {
 	for _, home := range p.baseHomes {
 		if strings.TrimSpace(home) == "" {
@@ -190,6 +232,9 @@ func (p DenyPolicy) ValidateAllowedPath(label, canonical string) error {
 	}
 	if p.HostStateDenyPath(canonical) {
 		return DenyZoneError{Label: label, Path: canonical, Zone: "host-state"}
+	}
+	if p.HostAuthorityDenyPath(canonical) {
+		return DenyZoneError{Label: label, Path: canonical, Zone: "host-authority"}
 	}
 	return nil
 }

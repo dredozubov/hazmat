@@ -147,6 +147,32 @@ func CredentialFloorFromDenies(denies []CredentialDeny) (CredentialFloor, error)
 	return CredentialFloor{denies: out}, nil
 }
 
+// WithHostAuthorityDenies returns a new floor that also denies the given
+// absolute host-authority paths (for example a dr-owned Beadpost broker
+// attestation key). Host-authority paths are dr-owned ABSOLUTE paths, not
+// agent-home credential subpaths; they are appended to the same fail-closed
+// deny floor so backend compilers emit an identical (deny file-read*
+// file-write*) rule for them, and — unlike the agent login keychain — they
+// never receive a post-deny re-allow exception. The receiver floor must
+// already be a configured credential floor.
+func (f CredentialFloor) WithHostAuthorityDenies(paths ...string) (CredentialFloor, error) {
+	if len(f.denies) == 0 {
+		return CredentialFloor{}, fmt.Errorf("credential deny floor is required before adding host-authority denies")
+	}
+	merged := make([]CredentialDeny, len(f.denies), len(f.denies)+len(paths))
+	copy(merged, f.denies)
+	for _, raw := range paths {
+		if strings.TrimSpace(raw) == "" {
+			return CredentialFloor{}, fmt.Errorf("host-authority deny path is required")
+		}
+		if !filepath.IsAbs(raw) {
+			return CredentialFloor{}, fmt.Errorf("host-authority deny path %q must be absolute", raw)
+		}
+		merged = append(merged, CredentialDeny{Path: filepath.Clean(raw), Reason: "host-authority"})
+	}
+	return CredentialFloorFromDenies(merged)
+}
+
 // Denies returns a defensive copy of the floor's credential deny paths.
 func (f CredentialFloor) Denies() []CredentialDeny {
 	if len(f.denies) == 0 {
