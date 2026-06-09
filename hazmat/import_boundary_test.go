@@ -29,6 +29,7 @@ func TestImportBoundaries(t *testing.T) {
 	pkgs := loadListedPackages(t)
 
 	purePackages := map[string]bool{
+		"hazmat/attestationtier":    true,
 		"hazmat/containment":        true,
 		"hazmat/containment/darwin": true,
 		"hazmat/containment/docker": true,
