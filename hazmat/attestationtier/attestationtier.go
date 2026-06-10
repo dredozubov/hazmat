@@ -1,5 +1,5 @@
 // Package attestationtier derives the honest Beadpost containment tier a host
-// broker may assert in a beadpost.containment.attestation.v1 token, from the
+// broker may assert in a beadpost.containment.attestation.v2 token, from the
 // EFFECTIVE enforced launch posture (never the requested posture).
 //
 // It is a pure, library-first over-claim guard: it never returns the strong
