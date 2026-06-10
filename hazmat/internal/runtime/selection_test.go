@@ -60,6 +60,7 @@ func TestSelectKeepsRemoteAndUnsupportedPlanOnly(t *testing.T) {
 	for _, backend := range []sessionbackend.Kind{
 		sessionbackend.KindRemoteEnvelope,
 		sessionbackend.KindUnsupportedNative,
+		sessionbackend.KindAppleContainer,
 	} {
 		selection, err := Select(sessionbackend.Plan{Backend: backend})
 		if err != nil {
