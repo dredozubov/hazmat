@@ -476,4 +476,5 @@ creation, or launch occurs.
 | Docker private-daemon boundary | [tier3-docker-sandboxes.md](tier3-docker-sandboxes.md) |
 | Threat and CVE mapping | [threat-matrix.md](threat-matrix.md), [cve-audit.md](cve-audit.md) |
 | Design assumptions and remote-worker scope | [design-assumptions.md](design-assumptions.md) |
+| Beadpost host-broker attestation contract (operator opt-in) | [beadpost-hostbroker.md](beadpost-hostbroker.md) |
 | Formal verification scope | [../tla/VERIFIED.md](../tla/VERIFIED.md) |

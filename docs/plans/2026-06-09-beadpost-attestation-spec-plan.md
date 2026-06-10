@@ -235,8 +235,8 @@ DeliveryOnlyFromAcceptedRequest ==
 **Registration (new spec — full wiring):**
 - `tla/MC_BeadpostBrokerBoundary.tla` + `.cfg`
 - `tla/15_beadpost_broker_boundary.md` (design note)
-- VERIFIED.md new §15 (Design Proved; governed code = future `hazmat/beadpost/broker.go`,
-  `session.go`)
+- VERIFIED.md new §15 (Design Proved; now Implemented — governed code is
+  `hazmat/hostbroker/session.go`, behind `//go:build beadpost_hostbroker`)
 - `proof_ownership.tsv`: 9 rows (8 invariants + `TypeOK`) under
   `tla/15_beadpost_broker_boundary.md`
 - `check_suite.sh`: `run_spec MC_BeadpostBrokerBoundary no`

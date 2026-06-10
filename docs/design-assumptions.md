@@ -290,3 +290,27 @@ docs rather than the model.
 **Agent user persists by default.** Rollback leaves the agent account unless you pass `--delete-user`. This means `/Users/agent` and all its contents, including harness state such as Claude and OpenCode config, auth, and imported basics, survive rollback.
 
 **pf.conf restoration depends on backup.** Setup creates a timestamped backup of `/etc/pf.conf` before modifying it. Rollback restores from this backup. If the backup is missing or was modified after setup, rollback strips the anchor lines in-place, which is fragile.
+
+## Beadpost Host-Broker Attestation Boundary
+
+**Public Hazmat builds do not include Beadpost host-broker support.** The default
+build compiles dependency-free, fail-closed stubs and links neither
+`local/beadpost-contracts`, the Beadpost root module, nor Dolt. Cross-project
+disclosure is an explicit operator opt-in (`-tags beadpost_hostbroker` plus a
+local, untracked `go.work`). See [beadpost-hostbroker.md](beadpost-hostbroker.md).
+
+**Authority is host-derived, never agent-supplied.** When enabled, a contained
+agent submits request *content* only to a per-session Unix socket that opens only
+after a confirmed sandbox boundary and complete launch facts. Hazmat derives
+project/uid/tier from the launch facts, computes the request fingerprint via the
+shared contract, and mints a short-TTL `beadpost.containment.attestation.v2`
+token. Beadpost (the dr-owned broker, separate process) verifies the token and
+binds token == request == origin-envelope fingerprint; a mismatch or a v1 token
+fails closed. The host-authority HMAC key is shared by the two dr-owned processes
+and denied to the contained agent; responses never carry key/token/attestation.
+
+**Replay is not yet prevented.** A valid v2 token re-verifies within its TTL until
+the nonce-consumption ledger lands (Beadpost `bp-fyg.1`). Strong-tier policy
+enforcement (`bp-fyg.2`) and host binding (`bp-fyg.4`) are likewise open. Hazmat
+must never import the Beadpost root module or Dolt; the boundary is enforced by
+`TestImportBoundaries`.
