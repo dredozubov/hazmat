@@ -204,6 +204,6 @@ All three tools here provide level 1 isolation.
 - **lima-devbox**: Claude Skill for Lima VM setup — [github.com/recodelabs/lima-devbox](https://github.com/recodelabs/lima-devbox)
 - **open-cowork**: Open-source Claude Cowork alternative using Lima
 
-## Future: Apple Containers (macOS 26+)
+## Apple Containers (macOS 26+, Apple silicon)
 
-Apple announced native OCI-compliant container support at WWDC 2025. Each container runs in its own lightweight VM (unlike Docker's shared-kernel model). Written in Swift, built on Virtualization.framework. Version 0.1.0 — not yet ready for production use, but the direction Apple is pushing.
+Apple's native OCI-compliant container runtime (announced WWDC 2025) reached **v1.0.0 GA**. Each container runs in its own lightweight VM (unlike Docker's shared-kernel model). Written in Swift, built on Virtualization.framework. Linux guests only; requires Apple silicon and macOS 26. Hazmat has a design-proved plan for an `apple-container` backend (`docs/plans/2026-06-10-apple-container-backend-design.md`, `tla/MC_AppleContainerLaunch`); network deny/allowlist policy remains an upstream gap, so only default networking is in scope. See [research/vm-tools-comparison.md](research/vm-tools-comparison.md) for the full analysis, including the `container run` vs `container machine` distinction.
