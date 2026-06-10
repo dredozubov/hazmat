@@ -1,0 +1,136 @@
+name: Claude Installer Pin
+
+# Daily drift check for the SHA-256 pin of https://claude.ai/install.sh
+# (claudeInstallerSHA256 in hazmat/bootstrap.go). When upstream publishes a
+# new installer, this job opens a PR that bumps the pin and refreshes the
+# vendored copy in hazmat/testdata/claude-install.sh so the PR diff shows
+# exactly what changed in the script. It never merges anything itself:
+# a human reviewing the script diff is the point of the pin.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * *'
+
+concurrency:
+  group: claude-installer-pin
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  drift:
+    name: Pin drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download live installer
+        run: |
+          curl -fsSL --retry 3 https://claude.ai/install.sh -o /tmp/claude-install.sh
+          test -s /tmp/claude-install.sh
+          head -c 11 /tmp/claude-install.sh | grep -q '^#!/bin/bash' || {
+            echo "Downloaded installer does not look like a bash script; refusing to propose a pin bump." >&2
+            exit 1
+          }
+
+      - name: Compare against pinned hash
+        id: compare
+        run: |
+          live=$(sha256sum /tmp/claude-install.sh | cut -d' ' -f1)
+          pinned=$(grep -oE 'claudeInstallerSHA256 = "[0-9a-f]{64}"' hazmat/bootstrap.go | grep -oE '[0-9a-f]{64}')
+          if [ -z "$pinned" ]; then
+            echo "Could not extract claudeInstallerSHA256 from hazmat/bootstrap.go" >&2
+            exit 1
+          fi
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "live=$live"     >> "$GITHUB_OUTPUT"
+          if [ "$live" = "$pinned" ]; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "Pin is current ($pinned)."
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "Pin is stale: pinned $pinned, live $live."
+          fi
+
+      - name: Skip if a PR for this hash already exists
+        id: existing
+        if: steps.compare.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIVE_HASH: ${{ steps.compare.outputs.live }}
+        run: |
+          branch="ci/claude-installer-pin-${LIVE_HASH:0:12}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          if gh pr list --head "$branch" --state all --json number --jq 'length' | grep -qv '^0$'; then
+            echo "open=true" >> "$GITHUB_OUTPUT"
+            echo "A PR for $branch already exists; nothing to do."
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply pin bump
+        if: steps.compare.outputs.drift == 'true' && steps.existing.outputs.open == 'false'
+        env:
+          PINNED_HASH: ${{ steps.compare.outputs.pinned }}
+          LIVE_HASH: ${{ steps.compare.outputs.live }}
+        run: |
+          sed -i "s/claudeInstallerSHA256 = \"$PINNED_HASH\"/claudeInstallerSHA256 = \"$LIVE_HASH\"/" hazmat/bootstrap.go
+          cp /tmp/claude-install.sh hazmat/testdata/claude-install.sh
+          git diff --stat
+
+      - name: Verify pin and vendored script agree
+        if: steps.compare.outputs.drift == 'true' && steps.existing.outputs.open == 'false'
+        env:
+          LIVE_HASH: ${{ steps.compare.outputs.live }}
+        run: |
+          grep -q "claudeInstallerSHA256 = \"$LIVE_HASH\"" hazmat/bootstrap.go
+          echo "$LIVE_HASH  hazmat/testdata/claude-install.sh" | sha256sum -c -
+
+      - name: Open PR
+        if: steps.compare.outputs.drift == 'true' && steps.existing.outputs.open == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED_HASH: ${{ steps.compare.outputs.pinned }}
+          LIVE_HASH: ${{ steps.compare.outputs.live }}
+          BRANCH: ${{ steps.existing.outputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add hazmat/bootstrap.go hazmat/testdata/claude-install.sh
+          git commit \
+            -m "bootstrap: bump claude installer SHA-256 pin to current install.sh" \
+            -m "Automated drift check: https://claude.ai/install.sh no longer matches the pinned hash. Review the testdata/claude-install.sh diff before merging."
+          git push origin "$BRANCH"
+          printf '%s\n' \
+            'Daily drift check found that `https://claude.ai/install.sh` no longer matches `claudeInstallerSHA256` in `hazmat/bootstrap.go`.' \
+            '' \
+            '| | SHA-256 |' \
+            '|---|---|' \
+            "| pinned | \`$PINNED_HASH\` |" \
+            "| live | \`$LIVE_HASH\` |" \
+            '' \
+            '**Review the diff of `hazmat/testdata/claude-install.sh` in this PR** — that is the full upstream script change being trusted by this bump. Do not merge if the script does anything other than fetch and verify Claude Code releases from `downloads.claude.ai`.' \
+            '' \
+            'To re-verify locally:' \
+            '```' \
+            'curl -fsSL https://claude.ai/install.sh | shasum -a 256' \
+            '```' \
+            '' \
+            'Note: PRs opened with the default `GITHUB_TOKEN` do not trigger CI. Close and reopen this PR to run the checks.' \
+            '' \
+            'Generated by `.github/workflows/claude-installer-pin.yml`.' \
+            > /tmp/pr-body.md
+          gh pr create \
+            --head "$BRANCH" \
+            --title "bootstrap: bump claude installer SHA-256 pin to current install.sh" \
+            --body-file /tmp/pr-body.md
+
+      - name: Fail run on drift
+        if: steps.compare.outputs.drift == 'true'
+        run: |
+          echo "Pin drift detected; see the PR for the proposed bump." >&2
+          exit 1
