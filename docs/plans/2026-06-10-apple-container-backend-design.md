@@ -238,6 +238,16 @@ contract. Diagnostics can print exact commands for the user to run.
 
 ## Identity Model
 
+> **Spike finding (2026-06-10, `sandboxing-ajmn`):** this identity model
+> **fails as specified** on apple/container 1.0.0. The CLI talks XPC to a
+> per-user-session apiserver in the invoking user's launchd GUI domain; the
+> `agent` user (no login session) gets `status: not running`, "unauthorized
+> request" on commands, and cannot bootstrap its own apiserver. The runtime
+> bead is gated on revising this section — see
+> [research/2026-06-10-apple-container-spike.md](../research/2026-06-10-apple-container-spike.md)
+> finding F1 for the options. The rest of this section records the original
+> intent.
+
 The runtime must invoke `container` as Hazmat's dedicated `agent` macOS user,
 not as the invoking host user.
 
@@ -591,11 +601,26 @@ Phase 4: Network profiles or machine mode
 
 ## Open Questions
 
-- Does Apple Container's bind mount ownership behavior preserve writes cleanly
-  when the CLI is run as the macOS `agent` user and the guest process uses the
-  same numeric UID/GID?
-- Can `container run` support a true no-network mode that is stronger than an
-  internal network plus `--no-dns`?
+Several questions were answered by the 2026-06-10 host spike
+([research/2026-06-10-apple-container-spike.md](../research/2026-06-10-apple-container-spike.md)):
+
+- **Answered (F2):** VirtioFS performs host IO as the CLI-invoking user
+  regardless of guest UID; `--user` controls only the in-guest identity. The
+  host-side write boundary is the CLI user's authority, so the open question
+  shifts to the identity model (F1), not mount semantics.
+- **Answered (F3):** `container run --network none` exists at 1.0.0
+  (undocumented, special-cased) and yields a loopback-only guest. Supporting
+  it requires the modeled `SupportedNetworkModes` extension plus gated smoke
+  pinning, not a compiler flag flip.
+- **Answered (F4):** host services bound to `0.0.0.0` are reachable from both
+  default and `--internal` networks; no deny/allowlist claim is possible
+  without phase-2 proxy/firewall model work.
+- **New (F1):** what identity model replaces "CLI as `agent`" given the
+  per-user-session apiserver? Invoking-user CLI with VM+mount-plan boundary,
+  an upstream non-session service identity, or stay plan-only.
+
+Still open:
+
 - Which harness images should Hazmat own, and how should image tags be pinned
   or verified?
 - Should Apple Container support be configured by `--backend`, a narrower

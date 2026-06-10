@@ -146,11 +146,14 @@ Filesystem:
 - Read-only bind mounts via `--mount type=bind,...,readonly`
 - **No equivalent to Seatbelt's per-path deny rules** — the model is mount-only (unmounted paths are invisible, but there are no active deny rules for mounted content)
 
-Network isolation (**significant gaps, still unresolved at 1.0**):
+Network isolation (**significant gaps, still unresolved at 1.0**; Hazmat
+verified these on macOS 26.5 with 1.0.0 — see
+[2026-06-10-apple-container-spike.md](2026-06-10-apple-container-spike.md)):
 - Each container gets its own IP via vmnet
-- Networks can be created and are isolated from each other; `container network create --internal` exists on macOS 26+
-- **No built-in per-container firewall**, no domain allowlist, and no hard "no network namespace" equivalent in the public CLI surface
-- Host gateway reachable from `--internal` networks — "any host service bound to 0.0.0.0 is accessible from inside the agent VM without going through the proxy" ([GitHub discussion #719](https://github.com/apple/container/discussions/719))
+- Networks can be created and are isolated from each other; `container network create --internal` exists on macOS 26+ (mode `hostOnly`, blocks external egress)
+- **No built-in per-container firewall** and no domain allowlist
+- `container run --network none` exists at 1.0.0 (undocumented, special-cased) and yields a loopback-only guest — a real no-network mode, verified by spike
+- Host gateway reachable from `--internal` **and default** networks — "any host service bound to 0.0.0.0 is accessible from inside the agent VM without going through the proxy" ([GitHub discussion #719](https://github.com/apple/container/discussions/719)); spike-confirmed on 1.0.0 with a live listener probe
 - **pf does not filter vmnet-bridged traffic** — host-side firewall rules are ineffective
 - No native DNS blocking or domain allowlisting (workarounds via Squid proxy on dual-homed network); the upstream allowlist discussion for AI agents remains unsettled — users build proxy/PF experiments, maintainers point at capability changes, nothing Hazmat-grade is documented
 - Privileged process inside the VM could bypass guest-side iptables

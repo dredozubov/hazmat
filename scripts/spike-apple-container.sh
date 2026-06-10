@@ -85,9 +85,9 @@ run_probe "container system status" container system status --format json
 section "2. CLI as the dedicated agent user"
 log "Registry/config state separation matters: the agent user must not see"
 log "the invoking user's registry credentials."
-run_probe "whoami as agent" sudo -u agent whoami
-run_probe "container system status as agent" sudo -u agent container system status --format json
-run_probe "container ls as agent" sudo -u agent container ls --format json
+run_probe "whoami as agent" sudo -n -u agent whoami
+run_probe "container system status as agent" sudo -n -u agent container system status --format json
+run_probe "container ls as agent" sudo -n -u agent container ls --format json
 
 section "3. Bind-mount ownership and write semantics"
 echo "host-written" > "${WORKDIR}/host-file.txt"
