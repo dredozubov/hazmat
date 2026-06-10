@@ -11,6 +11,8 @@ import (
 
 	"hazmat/attestationkey"
 	"hazmat/attestationtier"
+
+	"local/beadpost-contracts/contractfixture"
 )
 
 // loadFixedKey writes material to a 0600 file and loads it via the .3 key
@@ -28,48 +30,37 @@ func loadFixedKey(t *testing.T, material string) attestationkey.Key {
 	return key
 }
 
-// TestMintByteCompatibleWithBeadpostGolden pins the Hazmat v2 mint to a golden
-// token produced by beadpost/attestation.SignV2 with identical fixed inputs. If
-// either side's canonical payload or HMAC drifts, this fails — proving the two
-// reimplementations stay byte/schema compatible without a shared dependency.
-func TestMintByteCompatibleWithBeadpostGolden(t *testing.T) {
-	key := loadFixedKey(t, "0123456789abcdef0123456789abcdef")
+// TestMintMatchesContractFixture pins the Hazmat v2 mint to the single shared
+// contractfixture (not a local golden), proving Hazmat and Beadpost agree on the
+// canonical v2 token against one anchor. Hazmat consumes the fixture; it does not
+// reimplement the canonicalization.
+func TestMintMatchesContractFixture(t *testing.T) {
+	key := loadFixedKey(t, string(contractfixture.Key))
+	in := contractfixture.AttestationV2Input
 	tok, err := Mint(MintInput{
-		ProjectPath: "/hazmat/golden/project",
-		AgentUID:    4242,
-		Tier:        attestationtier.Contained,
-		Fingerprint: "sha256:abc123",
-		IssuedAt:    time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-		ExpiresAt:   time.Date(2026, 1, 2, 4, 4, 5, 0, time.UTC),
-		Nonce:       "feedfacecafebeeffeedfacecafebeef",
+		ProjectPath: in.ProjectPath,
+		AgentUID:    in.AgentUID,
+		Tier:        attestationtier.Tier(in.Tier),
+		Fingerprint: in.Fingerprint,
+		IssuedAt:    in.IssuedAt,
+		ExpiresAt:   in.ExpiresAt,
+		Nonce:       in.Nonce,
 	}, key)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-
-	const goldenSignature = "hmac-sha256:42bb77939f1d80333b2975d1074ce1c55012dc88550a66458faac12fe56a242c"
-	if tok.Signature != goldenSignature {
-		t.Fatalf("signature = %q, want Beadpost golden %q", tok.Signature, goldenSignature)
+	if tok != contractfixture.AttestationV2Token {
+		t.Fatalf("token drift vs fixture:\n got: %+v\nwant: %+v", tok, contractfixture.AttestationV2Token)
 	}
-
-	// The full marshaled token must match the Beadpost golden byte-for-byte.
-	const goldenJSON = `{
-  "schema": "beadpost.containment.attestation.v2",
-  "project_path": "/hazmat/golden/project",
-  "agent_uid": 4242,
-  "tier": "contained",
-  "issued_at": "2026-01-02T03:04:05Z",
-  "expires_at": "2026-01-02T04:04:05Z",
-  "nonce": "feedfacecafebeeffeedfacecafebeef",
-  "fingerprint": "sha256:abc123",
-  "signature": "hmac-sha256:42bb77939f1d80333b2975d1074ce1c55012dc88550a66458faac12fe56a242c"
-}`
+	if tok.Signature != contractfixture.AttestationV2Signature {
+		t.Fatalf("signature = %q, want fixture %q", tok.Signature, contractfixture.AttestationV2Signature)
+	}
 	got, err := json.MarshalIndent(tok, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != goldenJSON {
-		t.Fatalf("token JSON not byte-compatible with Beadpost golden:\n got: %s\nwant: %s", got, goldenJSON)
+	if string(got) != contractfixture.AttestationV2JSON {
+		t.Fatalf("token JSON drift vs fixture:\n got: %s\nwant: %s", got, contractfixture.AttestationV2JSON)
 	}
 }
 
