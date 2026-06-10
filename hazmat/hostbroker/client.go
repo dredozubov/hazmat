@@ -7,55 +7,15 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/dredozubov/beadpost-contract/attestation"
+	"github.com/dredozubov/beadpost-contract/hostbrokerwire"
 )
 
 const (
-	// WireSchema mirrors internal/hostbrokerd.Schema (the daemon's versioned IPC
-	// envelope). An unknown response schema fails closed.
-	WireSchema = "beadpost.hostbroker.v1"
-
-	opDeliver = "deliver"
-	opReview  = "review"
-	opDecide  = "decide"
-
 	dialTimeout = 5 * time.Second
 	ioTimeout   = 30 * time.Second
 )
-
-// wireRequest mirrors internal/hostbrokerd.Request. Reimplemented here so Hazmat
-// speaks the contract without importing Beadpost.
-type wireRequest struct {
-	Schema string `json:"schema"`
-	Op     string `json:"op"`
-
-	RegistryPath string `json:"registry_path"`
-	LedgerPath   string `json:"ledger_path"`
-
-	OriginProject string `json:"origin_project"`
-	OriginIssueID string `json:"origin_issue_id"`
-	TargetProject string `json:"target_project"`
-	Fingerprint   string `json:"fingerprint"`
-
-	ExpectedAgentUID int    `json:"expected_agent_uid"`
-	RequiredTier     string `json:"required_tier"`
-
-	Attestation Token `json:"attestation"`
-
-	DryRun bool `json:"dry_run,omitempty"`
-
-	Decision   string `json:"decision,omitempty"`
-	DecidedBy  string `json:"decided_by,omitempty"`
-	Note       string `json:"note,omitempty"`
-	DeferUntil string `json:"defer_until,omitempty"`
-}
-
-// wireResponse mirrors internal/hostbrokerd.Response.
-type wireResponse struct {
-	Schema  string `json:"schema"`
-	OK      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
 
 // Result is the successful broker outcome surfaced to the caller.
 type Result struct {
@@ -87,7 +47,8 @@ type Submission struct {
 }
 
 // Client forwards typed requests to the dr-owned beadpost-broker over its
-// Unix-domain socket. It never reads registry/ledger/policy.
+// Unix-domain socket using the shared beadpost.hostbroker.v1 contract. It never
+// reads registry/ledger/policy.
 type Client struct {
 	socketPath string
 }
@@ -97,26 +58,26 @@ func NewClient(socketPath string) *Client {
 }
 
 func (c *Client) Deliver(ctx context.Context, s Submission) (Result, error) {
-	return c.call(ctx, opDeliver, s)
+	return c.call(ctx, hostbrokerwire.OpDeliver, s)
 }
 
 func (c *Client) Review(ctx context.Context, s Submission) (Result, error) {
-	return c.call(ctx, opReview, s)
+	return c.call(ctx, hostbrokerwire.OpReview, s)
 }
 
 func (c *Client) Decide(ctx context.Context, s Submission) (Result, error) {
-	return c.call(ctx, opDecide, s)
+	return c.call(ctx, hostbrokerwire.OpDecide, s)
 }
 
 func (c *Client) call(ctx context.Context, op string, s Submission) (Result, error) {
 	if c.socketPath == "" {
 		return Result{}, errors.New("broker socket path is not configured")
 	}
-	if s.Attestation.Schema != SchemaV2 {
-		return Result{}, fmt.Errorf("host-broker path requires a %s attestation, got %q", SchemaV2, s.Attestation.Schema)
+	if s.Attestation.Schema != attestation.SchemaV2 {
+		return Result{}, fmt.Errorf("host-broker path requires a %s attestation, got %q", attestation.SchemaV2, s.Attestation.Schema)
 	}
-	req := wireRequest{
-		Schema:        WireSchema,
+	req := hostbrokerwire.Request{
+		Schema:        hostbrokerwire.Schema,
 		Op:            op,
 		RegistryPath:  s.RegistryPath,
 		LedgerPath:    s.LedgerPath,
@@ -139,7 +100,7 @@ func (c *Client) call(ctx context.Context, op string, s Submission) (Result, err
 	return c.roundTrip(ctx, req)
 }
 
-func (c *Client) roundTrip(ctx context.Context, req wireRequest) (Result, error) {
+func (c *Client) roundTrip(ctx context.Context, req hostbrokerwire.Request) (Result, error) {
 	var dialer net.Dialer
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
@@ -162,11 +123,11 @@ func (c *Client) roundTrip(ctx context.Context, req wireRequest) (Result, error)
 		_ = uc.CloseWrite()
 	}
 
-	var resp wireResponse
+	var resp hostbrokerwire.Response
 	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
 		return Result{}, fmt.Errorf("read broker response: %w", err)
 	}
-	if resp.Schema != WireSchema {
+	if resp.Schema != hostbrokerwire.Schema {
 		return Result{}, fmt.Errorf("unexpected broker response schema %q", resp.Schema)
 	}
 	if !resp.OK {

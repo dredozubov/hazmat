@@ -11,6 +11,8 @@ import (
 
 	"hazmat/attestationkey"
 	"hazmat/attestationtier"
+
+	"github.com/dredozubov/beadpost-contract/hostbrokerwire"
 )
 
 // fakeBroker is an in-test Unix-socket server speaking beadpost.hostbroker.v1.
@@ -18,11 +20,11 @@ import (
 // a buffered channel (no shared-memory race with the test goroutine).
 type fakeBroker struct {
 	ln      net.Listener
-	reqCh   chan wireRequest
-	handler func(wireRequest) wireResponse
+	reqCh   chan hostbrokerwire.Request
+	handler func(hostbrokerwire.Request) hostbrokerwire.Response
 }
 
-func startFakeBroker(t *testing.T, handler func(wireRequest) wireResponse) *fakeBroker {
+func startFakeBroker(t *testing.T, handler func(hostbrokerwire.Request) hostbrokerwire.Response) *fakeBroker {
 	t.Helper()
 	// A short dir keeps the socket path under the ~104-byte sun_path limit
 	// (t.TempDir() embeds the long test name and overflows it on macOS).
@@ -36,7 +38,7 @@ func startFakeBroker(t *testing.T, handler func(wireRequest) wireResponse) *fake
 	if err != nil {
 		t.Fatal(err)
 	}
-	fb := &fakeBroker{ln: ln, reqCh: make(chan wireRequest, 1), handler: handler}
+	fb := &fakeBroker{ln: ln, reqCh: make(chan hostbrokerwire.Request, 1), handler: handler}
 	go fb.serve()
 	t.Cleanup(func() { _ = ln.Close() })
 	return fb
@@ -50,7 +52,7 @@ func (fb *fakeBroker) serve() {
 		if err != nil {
 			return
 		}
-		var req wireRequest
+		var req hostbrokerwire.Request
 		if err := json.NewDecoder(conn).Decode(&req); err != nil {
 			_ = conn.Close()
 			continue
@@ -68,21 +70,21 @@ func (fb *fakeBroker) serve() {
 	}
 }
 
-func okHandler(message string) func(wireRequest) wireResponse {
-	return func(wireRequest) wireResponse {
-		return wireResponse{Schema: WireSchema, OK: true, Message: message}
+func okHandler(message string) func(hostbrokerwire.Request) hostbrokerwire.Response {
+	return func(hostbrokerwire.Request) hostbrokerwire.Response {
+		return hostbrokerwire.Response{Schema: hostbrokerwire.Schema, OK: true, Message: message}
 	}
 }
 
 // verifyingHandler simulates the broker: it independently verifies the token
 // against the authority it expects (registry/envelope-derived), rejecting on any
 // mismatch.
-func verifyingHandler(key attestationkey.Key, expect VerifyInput) func(wireRequest) wireResponse {
-	return func(req wireRequest) wireResponse {
+func verifyingHandler(key attestationkey.Key, expect VerifyInput) func(hostbrokerwire.Request) hostbrokerwire.Response {
+	return func(req hostbrokerwire.Request) hostbrokerwire.Response {
 		if err := Verify(req.Attestation, key, expect); err != nil {
-			return wireResponse{Schema: WireSchema, OK: false, Error: err.Error()}
+			return hostbrokerwire.Response{Schema: hostbrokerwire.Schema, OK: false, Error: err.Error()}
 		}
-		return wireResponse{Schema: WireSchema, OK: true, Message: "accepted"}
+		return hostbrokerwire.Response{Schema: hostbrokerwire.Schema, OK: true, Message: "accepted"}
 	}
 }
 
@@ -121,13 +123,13 @@ func TestClientDispatchAndMapping(t *testing.T) {
 		want string
 	}
 	for _, oc := range []opcall{
-		{"deliver", (*Client).Deliver, opDeliver},
-		{"review", (*Client).Review, opReview},
+		{"deliver", (*Client).Deliver, hostbrokerwire.OpDeliver},
+		{"review", (*Client).Review, hostbrokerwire.OpReview},
 		{"decide", func(c *Client, ctx context.Context, s Submission) (Result, error) {
 			s.Decision = "disclosure_grant"
 			s.DecidedBy = "operator-1"
 			return c.Decide(ctx, s)
-		}, opDecide},
+		}, hostbrokerwire.OpDecide},
 	} {
 		t.Run(oc.name, func(t *testing.T) {
 			fb := startFakeBroker(t, okHandler("done-"+oc.name))
@@ -139,7 +141,7 @@ func TestClientDispatchAndMapping(t *testing.T) {
 				t.Fatalf("%s: message = %q", oc.name, res.Message)
 			}
 			got := <-fb.reqCh
-			if got.Schema != WireSchema || got.Op != oc.want {
+			if got.Schema != hostbrokerwire.Schema || got.Op != oc.want {
 				t.Fatalf("%s: schema/op = %q/%q", oc.name, got.Schema, got.Op)
 			}
 			// Authority fields must be carried from the signed token, never blank.
@@ -159,8 +161,8 @@ func TestClientDispatchAndMapping(t *testing.T) {
 func TestClientFailsClosedOnBrokerError(t *testing.T) {
 	key := loadFixedKey(t, "0123456789abcdef0123456789abcdef")
 	tok := mintFor(t, key, t.TempDir(), "sha256:route")
-	fb := startFakeBroker(t, func(wireRequest) wireResponse {
-		return wireResponse{Schema: WireSchema, OK: false, Error: "containment attestation: tier mismatch"}
+	fb := startFakeBroker(t, func(hostbrokerwire.Request) hostbrokerwire.Response {
+		return hostbrokerwire.Response{Schema: hostbrokerwire.Schema, OK: false, Error: "containment attestation: tier mismatch"}
 	})
 	if _, err := NewClient(fb.socketPath()).Deliver(context.Background(), testSubmission(tok)); err == nil {
 		t.Fatal("a broker rejection must surface as an error")
@@ -170,8 +172,8 @@ func TestClientFailsClosedOnBrokerError(t *testing.T) {
 func TestClientRejectsUnexpectedResponseSchema(t *testing.T) {
 	key := loadFixedKey(t, "0123456789abcdef0123456789abcdef")
 	tok := mintFor(t, key, t.TempDir(), "sha256:route")
-	fb := startFakeBroker(t, func(wireRequest) wireResponse {
-		return wireResponse{Schema: "beadpost.hostbroker.v999", OK: true, Message: "x"}
+	fb := startFakeBroker(t, func(hostbrokerwire.Request) hostbrokerwire.Response {
+		return hostbrokerwire.Response{Schema: "beadpost.hostbroker.v999", OK: true, Message: "x"}
 	})
 	if _, err := NewClient(fb.socketPath()).Deliver(context.Background(), testSubmission(tok)); err == nil {
 		t.Fatal("an unexpected response schema must fail closed")
@@ -182,9 +184,9 @@ func TestClientRejectsUnexpectedResponseSchema(t *testing.T) {
 // refuses a non-v2 attestation before dialing the broker.
 func TestClientNeverSendsNonV2(t *testing.T) {
 	dialed := false
-	fb := startFakeBroker(t, func(wireRequest) wireResponse {
+	fb := startFakeBroker(t, func(hostbrokerwire.Request) hostbrokerwire.Response {
 		dialed = true
-		return okHandler("x")(wireRequest{})
+		return okHandler("x")(hostbrokerwire.Request{})
 	})
 	v1 := Token{Schema: "beadpost.containment.attestation.v1", Fingerprint: "sha256:x"}
 	if _, err := NewClient(fb.socketPath()).Deliver(context.Background(), testSubmission(v1)); err == nil {
