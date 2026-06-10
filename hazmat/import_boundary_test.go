@@ -30,6 +30,7 @@ func TestImportBoundaries(t *testing.T) {
 
 	purePackages := map[string]bool{
 		"hazmat/attestationtier":    true,
+		"hazmat/hostbroker":         true,
 		"hazmat/containment":        true,
 		"hazmat/containment/darwin": true,
 		"hazmat/containment/docker": true,
@@ -106,6 +107,16 @@ func TestImportBoundaries(t *testing.T) {
 		assertNoForbiddenDeps(t, pkg, []string{
 			"hazmat/internal/frontend/",
 			"hazmat/cmd/hazmat",
+		})
+	}
+
+	// Arch B: the Hazmat binary (every package, including cmd/) must never link
+	// Beadpost or Dolt. The host-broker client speaks the attestation/IPC
+	// contracts as reimplemented Go, not via a Beadpost import.
+	for _, pkg := range pkgs {
+		assertNoForbiddenDeps(t, pkg, []string{
+			"beadpost",
+			"github.com/dolthub",
 		})
 	}
 }
