@@ -28,6 +28,8 @@ and TLC's exhaustive state exploration are designed to verify.
 | 12 | `12_secret_store_recovery.md` | Host-owned harness secret-store recovery across materialize, refresh, harvest, removal, and crash/restart | **High** |
 | 13 | `13_credential_capability_lifecycle.md` | Registry-level credential delivery modes, session scoping, adapter-required backends, and crash/recovery exposure rules | **High** |
 | 14 | `14_linux_native_launch.md` | Future Linux native helper ordering: spec validation, fd cleanup, namespaces, mounts, network, privileges, LSM/seccomp, metadata, exec | **High** |
+| 15 | `15_beadpost_broker_boundary.md` | Beadpost attestation membrane: confirmed-session gating, derived authority, per-session socket binding, clean teardown | **High** |
+| 16 | `16_apple_container_launch_containment.md` | Apple Container backend launch boundary: mount-plan credential exclusions, admission/network gating, credential artifact cleanup accounting | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

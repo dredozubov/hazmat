@@ -32,6 +32,15 @@ final agent exec keeps only stdio. The suite still does **not** model `sudo`
 internals, Go runtime internals, or kernel behavior beyond that abstract fd
 contract.
 
+Important Apple Container boundary: the current suite now includes a design
+model for the planned `apple-container` backend's host-side launch boundary:
+mount-planner credential exclusions, forbidden-feature rejection, admission
+and network fail-closed gating, and session-scoped credential artifact
+cleanup accounting. It does **not** model Apple Container VM internals,
+VirtioFS ownership mapping, `container machine` persistent mode, or network
+allowlist profiles. No executable Apple Container launch code exists yet;
+the model is the precondition for it.
+
 Important Linux-native boundary: the current suite now includes a design model
 for the future experimental Linux native helper. It proves launch ordering
 across spec validation, fd cleanup, namespace/mount/network setup, privilege
@@ -1083,6 +1092,71 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 
 ---
 
+### 16 — Apple Container Launch Containment
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/16_apple_container_launch_containment.md` |
+| TLA+ files | `tla/MC_AppleContainerLaunch.tla`, `tla/MC_AppleContainerLaunch.cfg` |
+| Governed code | `hazmat/containment/applecontainer` — future plan-only launch spec compiler |
+| Governed code | future `hazmat/internal/runtime/applecontainer` — admission, container lifecycle, credential file materialization/cleanup |
+| Key invariants | `CredentialPathsNeverMounted`, `InvokerHomeNeverMounted`, `AgentHomeNeverMountedWholesale`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `IntegrationEnvRejected`, `SSHForwardingRejected`, `SocketPublishingRejected`, `AdmissionBeforeLaunch`, `UnsupportedNetworkFailsClosed`, `CredentialMaterializationGated`, `CredentialArtifactSessionScoped`, `TerminalCredResidueHandled`, `TerminalContainerHandled`, `ForeignContainersUntouched` |
+| Status | **Design Proved, Implementation Pending** — the `apple-container` backend may add plan-only compilers and docs, but no executable launch code may land until the implementation follows this model (epic `sandboxing-kwm2`) |
+
+**What this verifies:**
+
+1. **Credential deny zones are never mounted:** the mount plan rejects
+   credential paths and parents of credential paths — including the invoking
+   user's home wholesale and the `agent` user's home wholesale — using the
+   same deny-parent posture as the Tier 3 Docker Sandbox planner.
+
+2. **Forbidden launch features fail first:** integration env passthrough,
+   SSH agent forwarding (`--ssh`), and socket publishing are rejected before
+   admission, mount planning, or any credential materialization.
+
+3. **Admission gates launch:** macOS 26+ Apple silicon, approved CLI path,
+   healthy API server, supported version, agent-user execution, and an
+   approved image are modeled as an abstract admission conjunction that must
+   pass before launch.
+
+4. **Unsupported network policies fail closed:** `--network none` and
+   allowlist requests cannot launch with a weaker-than-claimed policy; only
+   `default` is a supported mode in the MVP model.
+
+5. **Credential artifacts are session-scoped and accounted for:** generated
+   env/secret files exist only after admission and network gating, are
+   session-scoped by construction, and at session end are removed or the
+   cleanup failure is recorded — including when `container run` fails after
+   materialization (a mutation test on that path violates
+   `TerminalCredResidueHandled`, confirming non-vacuity).
+
+6. **Cleanup never prunes:** a foreign container chosen at `Init` survives
+   every action (genesis-witness style), so prune-style sweeps cannot be
+   added without breaking the proof.
+
+TLC passes across all 134,720 distinct states (246,528 generated, depth 10,
+~4s).
+
+**Scope boundary:** Apple Container VM internals, VirtioFS UID/GID ownership
+mapping, guest processes, image contents, `container machine` persistent
+mode, and network allowlist/proxy profiles are NOT modeled. The VirtioFS
+ownership question is an explicit host-probe obligation (`sandboxing-ajmn`)
+before the experimental runtime ships.
+
+**Change rules:**
+- Any change to Apple Container mount planning, admission ordering, network
+  gating, or credential artifact lifecycle must update
+  `MC_AppleContainerLaunch.tla` first and re-run TLC before Go changes.
+- Adding a supported network mode requires extending `SupportedNetworkModes`
+  plus new policy-before-launch and network-artifact-cleanup invariants.
+- Adding SSH forwarding, socket publishing, or integration env support
+  requires updating the forbidden-feature gate and rejection invariants first.
+- `container machine` support requires a separate persistent-state model.
+- Any cleanup broader than exact session-owned artifact names must contend
+  with `ForeignContainersUntouched`.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -1102,6 +1176,7 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
+| `16_apple_container_launch_containment` | `hazmat/containment/applecontainer` (future plan-only compiler); future `hazmat/internal/runtime/applecontainer` |
 
 ---
 

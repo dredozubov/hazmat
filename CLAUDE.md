@@ -24,6 +24,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_SecretStoreRecovery` | File-backed harness auth crash recovery | `LatestValueNeverSilentlyLost` — recovery never drops the newest host-owned secret value |
 | `MC_CredentialCapabilityLifecycle` | Registry-level credential delivery and cleanup | `DeliveryMatchesRegistry` — delivery mode follows the registered credential capability |
 | `MC_LinuxNativeLaunch` | Future Linux native helper launch ordering | `ExecAfterMetadata` — exec happens only after enforcement and metadata emission |
+| `MC_AppleContainerLaunch` | Apple Container backend launch boundary | `CredentialPathsNeverMounted` — credential deny zones and their parents are never in the mount plan |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -81,6 +82,7 @@ tla/                     TLA+ formal verification specs
   MC_SecretStoreRecovery.* Harness auth crash recovery contract
   MC_CredentialCapabilityLifecycle.* Credential delivery/cleanup contract
   MC_LinuxNativeLaunch.* Linux native launch ordering contract
+  MC_AppleContainerLaunch.* Apple Container launch boundary contract
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
@@ -149,6 +151,9 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Changing Linux native helper launch ordering, namespace setup, LSM decisions, or exec gating
 → Update `MC_LinuxNativeLaunch.tla` first, run TLC, then implement.
+
+### Changing Apple Container mount planning, admission gating, network policy, or credential artifact cleanup
+→ Update `MC_AppleContainerLaunch.tla` first, run TLC, then implement.
 
 ## Key conventions
 
