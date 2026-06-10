@@ -12,6 +12,7 @@ package hostbroker
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 
 	"hazmat/attestationkey"
@@ -98,3 +99,41 @@ func NewClient(string) *Client { return &Client{} }
 func (*Client) Deliver(context.Context, Submission) (Result, error) { return Result{}, ErrDisabled }
 func (*Client) Review(context.Context, Submission) (Result, error)  { return Result{}, ErrDisabled }
 func (*Client) Decide(context.Context, Submission) (Result, error)  { return Result{}, ErrDisabled }
+
+// LaunchFacts is the host-derived authority for a contained session (.6).
+type LaunchFacts struct {
+	OriginProject string
+	ProjectPath   string
+	AgentUID      int
+	Tier          attestationtier.Tier
+	RegistryPath  string
+	LedgerPath    string
+
+	SandboxConfirmed bool
+}
+
+// Submitter is the .4 host-broker client surface the session forwards to.
+type Submitter interface {
+	Deliver(context.Context, Submission) (Result, error)
+	Review(context.Context, Submission) (Result, error)
+}
+
+// SessionConfig configures a per-session agent socket (.6).
+type SessionConfig struct {
+	Facts           LaunchFacts
+	RuntimeDir      string
+	Submitter       Submitter
+	Key             attestationkey.Key
+	SocketMode      os.FileMode
+	MaxRequestBytes int
+}
+
+// Session is a no-op per-session agent socket in the default build.
+type Session struct{}
+
+// Open always fails closed in the default build: no agent socket is created.
+func Open(SessionConfig) (*Session, error) { return nil, ErrDisabled }
+
+func (*Session) SocketPath() string { return "" }
+
+func (*Session) Close() error { return nil }

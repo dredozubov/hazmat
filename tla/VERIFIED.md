@@ -1037,10 +1037,9 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 |-------|-------|
 | Spec | `tla/15_beadpost_broker_boundary.md` |
 | TLA+ files | `tla/MC_BeadpostBrokerBoundary.tla`, `tla/MC_BeadpostBrokerBoundary.cfg` |
-| Governed code | future `hazmat/beadpost/broker.go` — `DeriveAuthorityFromLaunchFacts()`, `Accept()`, `InvokeDelivery()` |
-| Governed code | future `hazmat/beadpost/session.go` — `ConfirmSandboxBoundary()`, `AllocateBrokerSocket()`, `CloseSession()` |
+| Governed code | `hazmat/hostbroker/session.go` — `Open()`, `confirmSandboxBoundary()`, `allocateBrokerSocket()`, `deriveAuthorityFromLaunchFacts()`, `invokeDelivery()`, `Close()` |
 | Key invariants | `BrokerSocketOnlyAfterConfirmedSession`, `AcceptedRequestHasConfirmedSession`, `AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`, `NoCrossSessionRequest`, `NoRequestAfterSessionClose`, `HostAuthorityNeverAgentReadable`, `DeliveryOnlyFromAcceptedRequest` |
-| Status | **Design Proved, Implementation Pending** — the contained-agent submitter + dr-owned host broker membrane; broker implementation is gated behind this proof |
+| Status | **Design Proved; Implemented (sandboxing-x74u.6)** — the contained-agent submitter + dr-owned host broker membrane. Real implementation behind `//go:build beadpost_hostbroker`; the default/public build ships dependency-free fail-closed stubs and never links the contract module. |
 
 **What this verifies:**
 
@@ -1102,7 +1101,7 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 | `12_secret_store_recovery` | `hazmat/harness_auth_runtime.go`; `hazmat/secret_store.go`; `hazmat/internal/credentialruntime/store.go` |
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
-| `15_beadpost_broker_boundary` | future `hazmat/beadpost/broker.go`, `hazmat/beadpost/session.go` (contained-agent submitter + dr-owned host broker membrane) |
+| `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
 
 ---
 
