@@ -4,6 +4,8 @@ All notable changes to Hazmat are documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-10
+
 ### Added
 - `hazmat harness status|update|uninstall` now exposes per-harness lifecycle management for the agent user. Status reports binary probes, recorded state, import status, credential hints, managed code artifacts, and preserved auth/profile/session boundaries; update shares the existing bootstrap paths; uninstall removes only declared Hazmat-owned code artifacts and selected harness metadata by default.
 - Qwen Code is now a contained harness. `hazmat bootstrap qwen` installs `@qwen-code/qwen-code@latest` into the agent user's local prefix, prepares `/Users/agent/.qwen`, launches Qwen through `hazmat qwen`, applies the configured permission-bypass mode without duplicating `--yolo`, and keeps host `~/.qwen` auth/settings out of the v1 import surface.
@@ -17,6 +19,7 @@ All notable changes to Hazmat are documented in this file.
 - Harness launch, asset sync, credential delivery, and integration resolution share more of the same backend/session contract plumbing across native and Docker paths.
 
 ### Fixed
+- `hazmat init` and `hazmat bootstrap claude` no longer abort with "Claude installer checksum mismatch": the pinned SHA-256 of `https://claude.ai/install.sh` matches the current upstream installer again, and a daily CI drift check now opens a bump PR with a reviewable script diff whenever Anthropic updates the installer. (#11, #12)
 - Native Claude API-key sessions launch in bare mode so newer Claude Code builds do not prompt for the dedicated agent account Keychain.
 - Native Claude OAuth/imported-subscription sessions prepare and unlock the dedicated agent login keychain before launch, with `hazmat claude-keychain doctor|reset` for inspection and recovery.
 - Harness lifecycle and synthetic e2e smoke coverage now protect Hermes/Qwen state setup and Claude host-owned auth harvest behavior during release gates.
@@ -164,7 +167,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/dredozubov/hazmat/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/dredozubov/hazmat/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/dredozubov/hazmat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/dredozubov/hazmat/compare/v0.6.0...v0.7.0
