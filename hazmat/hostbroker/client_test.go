@@ -1,3 +1,5 @@
+//go:build beadpost_hostbroker
+
 package hostbroker
 
 import (
@@ -12,7 +14,7 @@ import (
 	"hazmat/attestationkey"
 	"hazmat/attestationtier"
 
-	"github.com/dredozubov/beadpost-contract/hostbrokerwire"
+	"local/beadpost-contracts/hostbrokerwire"
 )
 
 // fakeBroker is an in-test Unix-socket server speaking beadpost.hostbroker.v1.

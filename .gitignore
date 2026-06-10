@@ -22,3 +22,7 @@ tla/*_TTrace_*.bin
 # Beads is used as local-only task tracking in this repo.
 .beads/
 .beads-credential-key
+
+# Operator-only workspace for -tags beadpost_hostbroker (must not ship in public builds)
+hazmat/go.work
+hazmat/go.work.sum

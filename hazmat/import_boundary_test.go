@@ -111,13 +111,15 @@ func TestImportBoundaries(t *testing.T) {
 	}
 
 	// Arch B: the Hazmat binary (every package, including cmd/) must never link
-	// Beadpost or Dolt. The host-broker client speaks the attestation/IPC
-	// contracts as reimplemented Go, not via a Beadpost import.
+	// the Beadpost root module or Dolt. The shared wire contract
+	// (local/beadpost-contracts) is allowed ONLY in the beadpost_hostbroker build;
+	// the default/public build must not depend on it either.
+	forbidden := []string{"beadpost", "github.com/dolthub"}
+	if !hostbrokerEnabled {
+		forbidden = append(forbidden, "local/beadpost-contracts")
+	}
 	for _, pkg := range pkgs {
-		assertNoForbiddenDeps(t, pkg, []string{
-			"beadpost",
-			"github.com/dolthub",
-		})
+		assertNoForbiddenDeps(t, pkg, forbidden)
 	}
 }
 
@@ -147,12 +149,19 @@ func TestPackageSplitDependencyGraph(t *testing.T) {
 func loadListedPackages(t *testing.T) map[string]listedPackage {
 	t.Helper()
 
-	cmd := exec.Command("go", "list", "-deps", "-json", "./...")
+	args := []string{"list", "-deps", "-json"}
+	if hostbrokerEnabled {
+		// Resolve the dependency graph for the same build the test runs under, so
+		// the tagged build's local/beadpost-contracts edge is visible (and checked).
+		args = append(args, "-tags", "beadpost_hostbroker")
+	}
+	args = append(args, "./...")
+	cmd := exec.Command("go", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("go list -deps -json ./...: %v\n%s", err, stderr.String())
+		t.Fatalf("go list %v: %v\n%s", args, err, stderr.String())
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(out))

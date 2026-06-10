@@ -1,3 +1,5 @@
+//go:build beadpost_hostbroker
+
 package hostbroker
 
 import (

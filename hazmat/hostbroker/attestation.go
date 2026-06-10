@@ -1,3 +1,5 @@
+//go:build beadpost_hostbroker
+
 // Package hostbroker is the Hazmat-side, Dolt-free client for the dr-owned
 // Beadpost host broker. It mints beadpost.containment.attestation.v2 tokens from
 // trusted launch facts + the effective .5 tier + a request fingerprint, and
@@ -6,7 +8,7 @@
 //
 // Arch B: Hazmat does NOT import the Beadpost root module and does NOT read
 // registry/ledger/policy. The v2 attestation, request fingerprint, and IPC
-// schema are the single, shared github.com/dredozubov/beadpost-contract module —
+// schema are the single, shared local/beadpost-contracts module —
 // Hazmat reuses it rather than reimplementing it, and never links Beadpost/Dolt.
 // The HMAC host-authority key (custody: hazmat/attestationkey) is shared by the
 // two dr-owned processes — Hazmat signs, beadpost-broker verifies — and is
@@ -20,7 +22,7 @@ import (
 	"hazmat/attestationkey"
 	"hazmat/attestationtier"
 
-	"github.com/dredozubov/beadpost-contract/attestation"
+	"local/beadpost-contracts/attestation"
 )
 
 // SchemaV2 is the v2 containment attestation schema (shared contract).

@@ -1,3 +1,5 @@
+//go:build beadpost_hostbroker
+
 package hostbroker
 
 import (
@@ -8,8 +10,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/dredozubov/beadpost-contract/attestation"
-	"github.com/dredozubov/beadpost-contract/hostbrokerwire"
+	"local/beadpost-contracts/attestation"
+	"local/beadpost-contracts/hostbrokerwire"
 )
 
 const (

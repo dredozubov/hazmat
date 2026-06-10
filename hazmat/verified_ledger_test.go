@@ -72,6 +72,13 @@ func loadVerifiedLedgerFunctionRefs(t *testing.T) []verifiedFunctionRef {
 		if !relevant || !strings.Contains(line, ".go") {
 			continue
 		}
+		// Governed-code rows explicitly marked "future" document design-pending
+		// governance (Status: Implementation Pending), not functions that exist
+		// yet; they are checked once implemented and the marker is removed.
+		if strings.HasPrefix(line, "| Governed code |") &&
+			strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(line, "| Governed code |")), "future ") {
+			continue
+		}
 		files := fileRe.FindAllStringIndex(line, -1)
 		for _, match := range fnRe.FindAllStringSubmatchIndex(line, -1) {
 			file := nearestVerifiedLedgerFile(line, files, match[0])
