@@ -1098,7 +1098,8 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 |-------|-------|
 | Spec | `tla/16_apple_container_launch_containment.md` |
 | TLA+ files | `tla/MC_AppleContainerLaunch.tla`, `tla/MC_AppleContainerLaunch.cfg` |
-| Governed code | `hazmat/containment/applecontainer` — future plan-only launch spec compiler |
+| Governed code | `hazmat/containment/applecontainer/spec.go` — plan-only launch spec compiler: `Compile()`, `Argv()`, forbidden-feature rejection, network fail-closed, cleanup accounting |
+| Governed code | `hazmat/explain_apple_container.go` — plan-only preview surface (no launch path) |
 | Governed code | future `hazmat/internal/runtime/applecontainer` — admission, container lifecycle, credential file materialization/cleanup |
 | Key invariants | `CredentialPathsNeverMounted`, `InvokerHomeNeverMounted`, `AgentHomeNeverMountedWholesale`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `IntegrationEnvRejected`, `SSHForwardingRejected`, `SocketPublishingRejected`, `AdmissionBeforeLaunch`, `UnsupportedNetworkFailsClosed`, `CredentialMaterializationGated`, `CredentialArtifactSessionScoped`, `TerminalCredResidueHandled`, `TerminalContainerHandled`, `ForeignContainersUntouched` |
 | Status | **Design Proved, Implementation Pending** — the `apple-container` backend may add plan-only compilers and docs, but no executable launch code may land until the implementation follows this model (epic `sandboxing-kwm2`) |
@@ -1176,7 +1177,7 @@ before the experimental runtime ships.
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
-| `16_apple_container_launch_containment` | `hazmat/containment/applecontainer` (future plan-only compiler); future `hazmat/internal/runtime/applecontainer` |
+| `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (plan-only compiler); `hazmat/explain_apple_container.go` (preview surface); future `hazmat/internal/runtime/applecontainer` |
 
 ---
 

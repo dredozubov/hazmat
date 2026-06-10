@@ -137,7 +137,19 @@ hazmat explain --docker=auto        # preview marker-based Docker routing
 hazmat explain --for qwen           # preview a non-Claude harness
 hazmat explain --integration node   # preview with an integration
 hazmat explain --github             # preview explicit GitHub API access
+
+# Plan-only Apple Container backend preview (cannot launch yet):
+hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex
 ```
+
+The `--backend=apple-container` preview compiles the session contract into an
+Apple Container launch spec — image, deterministic container name, non-root
+guest identity, bind mounts, network policy, and cleanup obligations — and
+lists the capability gaps that keep the plan from launching (the runtime is
+not implemented, and host admission probes have not run). Only `hazmat
+explain` accepts the flag; session commands cannot start Apple Container
+sessions. The launch boundary is proved in `tla/MC_AppleContainerLaunch`
+before any runtime work lands.
 
 `hazmat explain` previews these changes but does not apply them. A real session
 may execute the listed host mutations before launch if they are still needed at

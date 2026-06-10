@@ -20,6 +20,8 @@ func newExplainCmd() *cobra.Command {
 	var allowDocker bool
 	var dockerModeValue string
 	var networkModeValue string
+	var backendValue string
+	var imageValue string
 	var outputJSON bool
 
 	cmd := &cobra.Command{
@@ -42,10 +44,11 @@ Examples:
   hazmat explain --for gemini --integration go -C ~/workspace/my-go-project
   hazmat explain --for hermes -C ~/workspace/repo
   hazmat explain --for qwen -C ~/workspace/repo
-  hazmat explain --for cursor-agent -C ~/workspace/repo`,
+  hazmat explain --for cursor-agent -C ~/workspace/repo
+  hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, mode, err := resolveExplainSession(target, harnessSessionOpts{
+			sessionOpts := harnessSessionOpts{
 				project:               project,
 				readDirs:              readDirs,
 				writeDirs:             writeDirs,
@@ -60,7 +63,20 @@ Examples:
 				networkMode:           networkModeValue,
 				networkModeExplicit:   cmd.Flags().Changed("network"),
 				planOnly:              true,
-			})
+			}
+
+			switch backendValue {
+			case "":
+			case explainBackendAppleContainer:
+				return runExplainAppleContainer(cmd, target, imageValue, sessionOpts, outputJSON)
+			default:
+				return fmt.Errorf("unknown preview backend %q (want apple-container)", backendValue)
+			}
+			if imageValue != "" {
+				return fmt.Errorf("--image requires --backend=apple-container")
+			}
+
+			cfg, mode, err := resolveExplainSession(target, sessionOpts)
 			if err != nil {
 				return err
 			}
@@ -105,6 +121,10 @@ Examples:
 		"Preview Docker Sandbox support")
 	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
 		"Preview native containment even if Docker markers are present")
+	cmd.Flags().StringVar(&backendValue, "backend", "",
+		"Preview an alternate plan-only backend (apple-container)")
+	cmd.Flags().StringVar(&imageValue, "image", "",
+		"Explicit Linux image for --backend=apple-container previews")
 	cmd.Flags().BoolVar(&outputJSON, "json", false,
 		"Emit a machine-readable JSON preview instead of human-oriented text")
 	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)

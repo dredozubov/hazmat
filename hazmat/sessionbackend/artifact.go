@@ -10,6 +10,7 @@ const (
 	PreparedArtifactLinuxLaunch    ArtifactKind = "linux-launch-spec"
 	PreparedArtifactDockerSandbox  ArtifactKind = "docker-sandbox-spec"
 	PreparedArtifactRemoteEnvelope ArtifactKind = "remote-envelope"
+	PreparedArtifactAppleContainer ArtifactKind = "apple-container-launch-spec"
 
 	KindRemoteEnvelope Kind = "remote-envelope"
 )
@@ -29,6 +30,17 @@ type LinuxLaunchSpec struct {
 	FormatVersion int    `json:"format_version"`
 	Backend       string `json:"backend"`
 	Phase         string `json:"phase"`
+}
+
+// AppleContainerLaunchSpec is a prepared Apple Container launch artifact
+// summary. The runtime remains plan-only until the Apple Container backend
+// implementation lands (tla/MC_AppleContainerLaunch governs that boundary).
+type AppleContainerLaunchSpec struct {
+	FormatVersion int    `json:"format_version"`
+	Backend       string `json:"backend"`
+	Phase         string `json:"phase"`
+	ContainerName string `json:"container_name,omitempty"`
+	Image         string `json:"image,omitempty"`
 }
 
 // DockerSandboxSpec is a prepared Docker Sandbox artifact.
@@ -73,6 +85,10 @@ type remoteEnvelopeArtifact struct {
 	artifact RemoteEnvelope
 }
 
+type appleContainerArtifact struct {
+	artifact AppleContainerLaunchSpec
+}
+
 // AcceptedGap records a deliberate acceptance of one backend capability gap.
 type AcceptedGap struct {
 	Feature       string `json:"feature"`
@@ -90,6 +106,7 @@ type PreparedLaunch struct {
 	linuxLaunch    *LinuxLaunchSpec
 	dockerSandbox  *DockerSandboxSpec
 	remoteEnvelope *RemoteEnvelope
+	appleContainer *AppleContainerLaunchSpec
 	acceptedGaps   []AcceptedGap
 }
 
@@ -99,13 +116,14 @@ type PreparedLaunchDTOScope struct {
 }
 
 type PreparedLaunchDTO struct {
-	Plan           Plan               `json:"plan"`
-	ArtifactKind   ArtifactKind       `json:"artifact_kind"`
-	DarwinSeatbelt *DarwinSeatbeltDTO `json:"darwin_seatbelt,omitempty"`
-	LinuxLaunch    *LinuxLaunchSpec   `json:"linux_launch,omitempty"`
-	DockerSandbox  *DockerSandboxDTO  `json:"docker_sandbox,omitempty"`
-	RemoteEnvelope *RemoteEnvelope    `json:"remote_envelope,omitempty"`
-	AcceptedGaps   []AcceptedGap      `json:"accepted_gaps,omitempty"`
+	Plan           Plan                      `json:"plan"`
+	ArtifactKind   ArtifactKind              `json:"artifact_kind"`
+	DarwinSeatbelt *DarwinSeatbeltDTO        `json:"darwin_seatbelt,omitempty"`
+	LinuxLaunch    *LinuxLaunchSpec          `json:"linux_launch,omitempty"`
+	DockerSandbox  *DockerSandboxDTO         `json:"docker_sandbox,omitempty"`
+	RemoteEnvelope *RemoteEnvelope           `json:"remote_envelope,omitempty"`
+	AppleContainer *AppleContainerLaunchSpec `json:"apple_container,omitempty"`
+	AcceptedGaps   []AcceptedGap             `json:"accepted_gaps,omitempty"`
 }
 
 type DarwinSeatbeltDTO struct {
@@ -142,6 +160,11 @@ func NewDockerSandboxArtifact(artifact DockerSandboxSpec) PreparedArtifact {
 // NewRemoteEnvelopeArtifact returns a prepared remote envelope artifact variant.
 func NewRemoteEnvelopeArtifact(artifact RemoteEnvelope) PreparedArtifact {
 	return remoteEnvelopeArtifact{artifact: artifact}
+}
+
+// NewAppleContainerArtifact returns a prepared Apple Container launch artifact variant.
+func NewAppleContainerArtifact(artifact AppleContainerLaunchSpec) PreparedArtifact {
+	return appleContainerArtifact{artifact: artifact}
 }
 
 func (darwinSeatbeltArtifact) preparedArtifact() {}
@@ -187,6 +210,16 @@ func (a remoteEnvelopeArtifact) artifactKind() ArtifactKind {
 
 func (a remoteEnvelopeArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
 	p.remoteEnvelope = copyRemoteEnvelope(&a.artifact)
+}
+
+func (appleContainerArtifact) preparedArtifact() {}
+
+func (a appleContainerArtifact) artifactKind() ArtifactKind {
+	return PreparedArtifactAppleContainer
+}
+
+func (a appleContainerArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
+	p.appleContainer = copyAppleContainerLaunchSpec(&a.artifact)
 }
 
 // NewPreparedLaunch validates and constructs a prepared launch artifact.
@@ -236,6 +269,10 @@ func (p PreparedLaunch) RemoteEnvelope() (*RemoteEnvelope, bool) {
 	return copyRemoteEnvelope(p.remoteEnvelope), p.artifactKind == PreparedArtifactRemoteEnvelope && p.remoteEnvelope != nil
 }
 
+func (p PreparedLaunch) AppleContainer() (*AppleContainerLaunchSpec, bool) {
+	return copyAppleContainerLaunchSpec(p.appleContainer), p.artifactKind == PreparedArtifactAppleContainer && p.appleContainer != nil
+}
+
 func (p PreparedLaunch) AcceptedGaps() []AcceptedGap {
 	return copyAcceptedGaps(p.acceptedGaps)
 }
@@ -250,6 +287,7 @@ func (p PreparedLaunch) DTO(scope PreparedLaunchDTOScope) PreparedLaunchDTO {
 		LinuxLaunch:    copyLinuxLaunchSpec(p.linuxLaunch),
 		DockerSandbox:  dockerSandboxDTO(p.dockerSandbox, scope),
 		RemoteEnvelope: copyRemoteEnvelope(p.remoteEnvelope),
+		AppleContainer: copyAppleContainerLaunchSpec(p.appleContainer),
 		AcceptedGaps:   copyAcceptedGaps(p.acceptedGaps),
 	}
 }
@@ -266,6 +304,7 @@ func validateArtifactBackend(kind ArtifactKind, backend Kind) error {
 		PreparedArtifactLinuxLaunch:    KindLinuxNative,
 		PreparedArtifactDockerSandbox:  KindDockerSandbox,
 		PreparedArtifactRemoteEnvelope: KindRemoteEnvelope,
+		PreparedArtifactAppleContainer: KindAppleContainer,
 	}[kind]
 	if !ok {
 		return fmt.Errorf("unsupported prepared artifact kind %q", kind)
@@ -413,6 +452,14 @@ func copyDockerSandboxSpec(value *DockerSandboxSpec) *DockerSandboxSpec {
 }
 
 func copyRemoteEnvelope(value *RemoteEnvelope) *RemoteEnvelope {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
+}
+
+func copyAppleContainerLaunchSpec(value *AppleContainerLaunchSpec) *AppleContainerLaunchSpec {
 	if value == nil {
 		return nil
 	}

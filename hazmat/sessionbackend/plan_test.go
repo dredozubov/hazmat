@@ -95,3 +95,69 @@ func TestRemoteEnvelopeBackendReportsPlanOnlyGap(t *testing.T) {
 		t.Fatalf("capabilityGaps(remote-envelope) = %v", gaps)
 	}
 }
+
+func TestBuildPlanForAppleContainerReportsPlanOnlyGapAndCleanupArtifact(t *testing.T) {
+	plan := BuildPlan(Input{
+		Mode:      sessionmeta.ModeAppleContainer,
+		HostFacts: hostfacts.ForGOOS("darwin"),
+	})
+	if plan.Backend != KindAppleContainer {
+		t.Fatalf("Backend = %q, want %q", plan.Backend, KindAppleContainer)
+	}
+	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != GapAppleContainerLaunch {
+		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
+	}
+	if len(plan.LifecycleArtifacts) != 1 ||
+		plan.LifecycleArtifacts[0].Kind != ArtifactAppleContainer ||
+		!plan.LifecycleArtifacts[0].CleanupRequired {
+		t.Fatalf("LifecycleArtifacts = %v, want cleanup-required apple-container artifact", plan.LifecycleArtifacts)
+	}
+}
+
+func TestBuildPlanReportsAppleContainerIntegrationEnvGap(t *testing.T) {
+	plan := BuildPlan(Input{
+		Mode:               sessionmeta.ModeAppleContainer,
+		IntegrationEnvKeys: []string{"GOPROXY"},
+		HostFacts:          hostfacts.ForGOOS("darwin"),
+	})
+	var features []string
+	for _, gap := range plan.CapabilityGaps {
+		features = append(features, gap.Feature)
+	}
+	if !slices.Contains(features, GapIntegrationEnv) || !slices.Contains(features, GapAppleContainerLaunch) {
+		t.Fatalf("CapabilityGaps = %v, want integration env and plan-only gaps", plan.CapabilityGaps)
+	}
+}
+
+func TestAppleContainerPreparedArtifactMatchesBackend(t *testing.T) {
+	plan := BuildPlan(Input{
+		Mode:      sessionmeta.ModeAppleContainer,
+		HostFacts: hostfacts.ForGOOS("darwin"),
+	})
+	artifact := NewAppleContainerArtifact(AppleContainerLaunchSpec{
+		FormatVersion: 1,
+		Backend:       string(KindAppleContainer),
+		Phase:         "plan-only",
+		ContainerName: "hazmat-codex-project-abc",
+		Image:         "ghcr.io/example/hazmat-codex:sha256-abc",
+	})
+	prepared, err := NewPreparedLaunch(plan, artifact, []AcceptedGap{{
+		Feature:       GapAppleContainerLaunch,
+		Justification: "test fixture",
+	}})
+	if err != nil {
+		t.Fatalf("NewPreparedLaunch: %v", err)
+	}
+	spec, ok := prepared.AppleContainer()
+	if !ok || spec == nil || spec.ContainerName != "hazmat-codex-project-abc" {
+		t.Fatalf("AppleContainer() = %+v, %v", spec, ok)
+	}
+
+	dockerPlan := BuildPlan(Input{
+		Mode:      sessionmeta.ModeDockerSandbox,
+		HostFacts: hostfacts.ForGOOS("darwin"),
+	})
+	if _, err := NewPreparedLaunch(dockerPlan, artifact, nil); err == nil {
+		t.Fatal("NewPreparedLaunch accepted an apple-container artifact for a docker backend")
+	}
+}

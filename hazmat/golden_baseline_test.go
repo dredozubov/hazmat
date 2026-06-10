@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"hazmat/containment"
+	applecontainerspec "hazmat/containment/applecontainer"
 	linuxspec "hazmat/containment/linux"
 	"hazmat/hostfacts"
 	"hazmat/integrations"
@@ -204,6 +205,52 @@ func TestGoldenLaunchSpecBaselines(t *testing.T) {
 		t.Fatalf("buildSandboxLaunchSpecWithPlan fixture: %v", err)
 	}
 	assertGoldenJSON(t, "launch/docker-sandbox.json", goldenDockerLaunchSpecFrom(dockerLaunch))
+
+	appleFloor, err := containment.NewCredentialFloor("/Users/agent", []string{"/.ssh", "/.aws"})
+	if err != nil {
+		t.Fatalf("NewCredentialFloor apple fixture: %v", err)
+	}
+	appleContract, err := containment.NewContract(containment.ContractInput{
+		Project: containment.PathGrant{Path: "/Users/dr/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants([]string{
+			"/Users/dr/reference",
+			"/Users/dr/workspace/project/docs",
+		}, containment.PathReadOnly),
+		AgentHome: containment.AgentHomePolicy{Path: "/Users/agent"},
+		Temp:      containment.TempPolicy{Path: "/Users/agent/tmp/hazmat-session"},
+		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process:   containment.ProcessPolicy{AllowFork: true},
+	}, appleFloor)
+	if err != nil {
+		t.Fatalf("NewContract apple fixture: %v", err)
+	}
+	appleLaunch, err := applecontainerspec.Compile(appleContract, applecontainerspec.CompileOptions{
+		Harness:           "codex",
+		Image:             "ghcr.io/example/hazmat-codex:sha256-abc",
+		SessionID:         "golden-session",
+		Command:           []string{"codex", "--version"},
+		CredentialEnvFile: "/Users/agent/tmp/hazmat-session/credentials.env",
+		Host: applecontainerspec.HostReport{
+			GOOS:                "darwin",
+			GOARCH:              "arm64",
+			MacOSMajorVersion:   26,
+			CLIPath:             "/usr/local/bin/container",
+			CLIVersion:          "1.0.0",
+			CLIVersionSupported: true,
+			APIServerHealthy:    true,
+			RunnableAsAgent:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile apple fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/apple-container.json", appleLaunch)
+
+	appleArgv, err := applecontainerspec.Argv(appleLaunch)
+	if err != nil {
+		t.Fatalf("Argv apple fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/apple-container-argv.json", appleArgv)
 }
 
 func TestGoldenIntegrationMergeBaselines(t *testing.T) {
