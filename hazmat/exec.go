@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"os/exec"
+	"strings"
 
 	"hazmat/internal/diagnostics"
 	"hazmat/internal/hostexec"
@@ -62,27 +63,33 @@ func sudoAppendFile(path, content string) error {
 
 // asAgentQuiet runs args as the agent user via Hazmat's helper-backed
 // maintenance path, discarding stdout/stderr. Returns exit code only.
+// Built through the newAgentCommand seam so tests can interpose every
+// agent exec, not just direct newAgentCommand callers.
 func asAgentQuiet(args ...string) error {
-	return hostexec.AsAgentQuiet(hostExecEnv(), args...)
+	cmd := newAgentCommand(args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run()
 }
 
 // asAgentOutput runs args as the agent user and returns stdout only.
 // This prevents stderr from failed reads like "cat missing-file" from being
 // mistaken for file content by callers that ignore the returned error.
 func asAgentOutput(args ...string) (string, error) {
-	return hostexec.AsAgentOutput(hostExecEnv(), args...)
+	return hostexec.CommandStdoutCmd(newAgentCommand(args...))
 }
 
 // asAgentCombinedOutput runs args as the agent user and returns combined
 // stdout/stderr. Callers should surface stderr intentionally.
 func asAgentCombinedOutput(args ...string) (string, error) {
-	return hostexec.AsAgentCombinedOutput(hostExecEnv(), args...)
+	out, err := newAgentCommand(args...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 // asAgentShellQuiet runs a bash command string as the agent user.
 // Use only with hardcoded scripts — never interpolate user input.
 func asAgentShellQuiet(script string) error {
-	return hostexec.AsAgentShellQuiet(hostExecEnv(), script)
+	return asAgentQuiet("bash", "-c", script)
 }
 
 func agentTCPConnect(selfPath, host, port string) bool {
