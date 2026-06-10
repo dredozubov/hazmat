@@ -1,6 +1,6 @@
 //go:build hazmat_smoke_fixture
 
-package main
+package hazmat
 
 import (
 	"bytes"
