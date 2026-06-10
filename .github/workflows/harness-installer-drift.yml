@@ -1,0 +1,132 @@
+name: Harness Installer Drift
+
+# Daily detect-only check that every supported harness's upstream install
+# source still matches the assumptions baked into the bootstrap code. Each
+# check extracts its URL / package / asset constants from the Go source, so
+# the checks track the code instead of rotting alongside it.
+#
+# Coverage:
+#   claude    — covered separately by claude-installer-pin.yml (pin + auto-PR)
+#   codex     — latest GitHub release must publish the expected installer
+#               asset with a sha256: digest (mirrors resolveLatestCodexInstaller)
+#   opencode  — https://opencode.ai/install must download and look like a
+#               shell script (the installer is intentionally fetched live;
+#               there is no pin to go stale)
+#   gemini    — @google/gemini-cli@latest must resolve on the npm registry
+#   qwen      — @qwen-code/qwen-code@latest must resolve on the npm registry
+#   hermes, cursor-agent — manual installs; nothing is fetched, nothing to check
+#
+# Detect-only: a red run is the signal. This workflow never changes anything.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 7 * * *'
+
+concurrency:
+  group: harness-installer-drift
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Installer drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract installer constants from Go source
+        id: constants
+        run: |
+          fail() { echo "$1" >&2; exit 1; }
+          codex_api=$(grep -oE 'codexLatestReleaseAPI\s+= "[^"]+"' hazmat/bootstrap_codex.go | grep -oE 'https://[^"]+')
+          codex_asset=$(grep -oE 'codexInstallerAssetName\s+= "[^"]+"' hazmat/bootstrap_codex.go | sed -E 's/.*= "([^"]+)"/\1/')
+          opencode_url=$(grep -oE 'opencodeInstallerURL\s+= "[^"]+"' hazmat/bootstrap_opencode.go | grep -oE 'https://[^"]+')
+          gemini_pkg=$(grep -oE 'geminiNpmPackage\s+= "[^"]+"' hazmat/bootstrap_gemini.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
+          qwen_pkg=$(grep -oE 'qwenNpmPackage\s+= "[^"]+"' hazmat/bootstrap_qwen.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
+          [ -n "$codex_api" ]    || fail "could not extract codexLatestReleaseAPI"
+          [ -n "$codex_asset" ]  || fail "could not extract codexInstallerAssetName"
+          [ -n "$opencode_url" ] || fail "could not extract opencodeInstallerURL"
+          [ -n "$gemini_pkg" ]   || fail "could not extract geminiNpmPackage"
+          [ -n "$qwen_pkg" ]     || fail "could not extract qwenNpmPackage"
+          {
+            echo "codex_api=$codex_api"
+            echo "codex_asset=$codex_asset"
+            echo "opencode_url=$opencode_url"
+            echo "gemini_pkg=$gemini_pkg"
+            echo "qwen_pkg=$qwen_pkg"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Codex latest release publishes the expected installer asset
+        id: codex
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEX_API: ${{ steps.constants.outputs.codex_api }}
+          CODEX_ASSET: ${{ steps.constants.outputs.codex_asset }}
+        run: |
+          release=$(gh api "${CODEX_API#https://api.github.com/}")
+          tag=$(jq -r '.tag_name // empty' <<<"$release")
+          [ -n "$tag" ] || { echo "latest Codex release has no tag_name" >&2; exit 1; }
+          asset=$(jq --arg name "$CODEX_ASSET" '.assets[] | select(.name == $name)' <<<"$release")
+          [ -n "$asset" ] || { echo "latest Codex release ($tag) does not publish $CODEX_ASSET" >&2; exit 1; }
+          jq -er '.browser_download_url | select(. != "")' <<<"$asset" >/dev/null \
+            || { echo "Codex installer asset has no download URL" >&2; exit 1; }
+          jq -er '.digest | test("^sha256:[0-9a-f]{64}$")' <<<"$asset" >/dev/null \
+            || { echo "Codex installer asset digest is missing or not sha256:<64-hex> — bootstrap codex would refuse it" >&2; exit 1; }
+          echo "Codex OK: release $tag publishes $CODEX_ASSET with a valid sha256 digest."
+
+      - name: OpenCode installer downloads and looks like a shell script
+        id: opencode
+        continue-on-error: true
+        env:
+          OPENCODE_URL: ${{ steps.constants.outputs.opencode_url }}
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 "$OPENCODE_URL" -o /tmp/opencode-install
+          test -s /tmp/opencode-install
+          head -c 2 /tmp/opencode-install | grep -q '#!' \
+            || { echo "OpenCode installer does not start with a shebang" >&2; exit 1; }
+          echo "OpenCode OK: installer downloads ($(wc -c < /tmp/opencode-install) bytes)."
+
+      - name: Gemini npm package resolves
+        id: gemini
+        continue-on-error: true
+        env:
+          GEMINI_PKG: ${{ steps.constants.outputs.gemini_pkg }}
+        run: |
+          encoded=$(printf '%s' "$GEMINI_PKG" | sed 's|/|%2F|')
+          version=$(curl -fsSL --retry 3 "https://registry.npmjs.org/$encoded/latest" | jq -er '.version')
+          echo "Gemini OK: $GEMINI_PKG@latest resolves to $version."
+
+      - name: Qwen npm package resolves
+        id: qwen
+        continue-on-error: true
+        env:
+          QWEN_PKG: ${{ steps.constants.outputs.qwen_pkg }}
+        run: |
+          encoded=$(printf '%s' "$QWEN_PKG" | sed 's|/|%2F|')
+          version=$(curl -fsSL --retry 3 "https://registry.npmjs.org/$encoded/latest" | jq -er '.version')
+          echo "Qwen OK: $QWEN_PKG@latest resolves to $version."
+
+      - name: Summarize
+        env:
+          CODEX: ${{ steps.codex.outcome }}
+          OPENCODE: ${{ steps.opencode.outcome }}
+          GEMINI: ${{ steps.gemini.outcome }}
+          QWEN: ${{ steps.qwen.outcome }}
+        run: |
+          {
+            echo "## Harness Installer Drift"
+            echo "- codex: $CODEX"
+            echo "- opencode: $OPENCODE"
+            echo "- gemini: $GEMINI"
+            echo "- qwen: $QWEN"
+            echo
+            echo "claude is covered by the Claude Installer Pin workflow; hermes and cursor-agent are manual installs."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODEX" != "success" ] || [ "$OPENCODE" != "success" ] || [ "$GEMINI" != "success" ] || [ "$QWEN" != "success" ]; then
+            echo "One or more harness installer sources drifted from bootstrap assumptions; see step logs." >&2
+            exit 1
+          fi
