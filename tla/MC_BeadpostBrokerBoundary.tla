@@ -17,9 +17,9 @@
 \* Style mirrors MC_GitSSHRouting: finite domains, validation/confirmation before
 \* readiness, deterministic per-session socket binding, no cross-session confusion.
 \*
-\* Governed code (future):
-\*   hazmat/beadpost/broker.go  — DeriveAuthorityFromLaunchFacts(), Accept(), InvokeDelivery()
-\*   hazmat/beadpost/session.go — ConfirmSandboxBoundary(), AllocateBrokerSocket(), CloseSession()
+\* Governed code (implemented, behind //go:build beadpost_hostbroker):
+\*   hazmat/hostbroker/session.go — Open(), confirmSandboxBoundary(),
+\*     allocateBrokerSocket(), deriveAuthorityFromLaunchFacts(), invokeDelivery(), Close()
 
 EXTENDS Naturals, FiniteSets
 
