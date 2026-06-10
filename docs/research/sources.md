@@ -135,7 +135,9 @@
 
 - [Meet Containerization — WWDC 2025 Session 346](https://developer.apple.com/videos/play/wwdc2025/346/)
 - [apple/containerization GitHub](https://github.com/apple/containerization) — Swift framework (Apache 2.0)
-- [apple/container GitHub](https://github.com/apple/container) — CLI tool (Apache 2.0), v0.11.0 as of March 2025
+- [apple/container GitHub](https://github.com/apple/container) — CLI tool (Apache 2.0), v1.0.0 GA as of June 2026; requires macOS 26 + Apple silicon
+- [container command reference](https://github.com/apple/container/blob/main/docs/command-reference.md) — `container run` flag surface (mounts, rootfs, UID/GID, env, limits, network, DNS)
+- [container-machine.md](https://github.com/apple/container/blob/main/docs/container-machine.md) — persistent Linux environment; maps host username/home automatically, `home-mount` defaults to `rw`
 - [Under the hood with Apple's Containerization — Anil Madhavapeddy](https://anil.recoil.org/notes/apple-containerisation) — Best independent technical analysis; startup benchmarks, architecture breakdown
 - [Apple Containers Technical Comparison with Docker — The New Stack](https://thenewstack.io/apple-containers-on-macos-a-technical-comparison-with-docker/)
 - [What You Need To Know About Apple's Container Framework — The New Stack](https://thenewstack.io/what-you-need-to-know-about-apples-new-container-framework/)

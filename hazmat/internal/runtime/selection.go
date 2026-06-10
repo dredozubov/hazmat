@@ -40,6 +40,16 @@ func Select(plan sessionbackend.Plan) (Selection, error) {
 			Native:      true,
 			PlanOnly:    linux.PlanOnly,
 		}, nil
+	case sessionbackend.KindAppleContainer:
+		// The experimental Apple Container runtime exists
+		// (internal/runtime/applecontainer) but launches only through the
+		// gated `hazmat exec --backend=apple-container` path, not the main
+		// session pipeline. For this selector the backend stays plan-only;
+		// wiring it here requires following tla/MC_AppleContainerLaunch.
+		return Selection{
+			Backend:  plan.Backend,
+			PlanOnly: true,
+		}, nil
 	case sessionbackend.KindRemoteEnvelope:
 		return Selection{
 			Backend:  plan.Backend,

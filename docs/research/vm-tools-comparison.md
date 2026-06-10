@@ -11,7 +11,7 @@ Detailed comparison of macOS virtualization tools for sandboxing AI agents.
 | **Tart** | Personal | Fair Source | Hypervisor | macOS + Linux | None | CLI only | Security defaults, CI/CD |
 | **UTM** | Yes | Apache 2.0 | Hypervisor | Any | Manual | GUI only | Interactive desktop VMs |
 | **OrbStack** | Personal | Proprietary | Shared kernel | Linux | Home dir | CLI + GUI | Docker dev convenience |
-| **Apple Containers** | Yes | Open source | MicroVM | Linux | None | Swift API | Future (macOS 26+) |
+| **Apple Containers** | Yes | Open source | MicroVM | Linux | None (`run`) / Home rw (`machine`) | CLI + Swift API | Linux agent sessions (macOS 26+, Apple silicon) |
 
 ## Lima
 
@@ -118,7 +118,7 @@ Lightweight Docker Desktop alternative and Linux VM manager.
 
 ## Apple Containers
 
-Native OCI-compliant Linux container runtime announced at WWDC 2025 (Session 346, "Meet Containerization"). Open source under Apache 2.0. Latest release: **v0.11.0** (March 31, 2025).
+Native OCI-compliant Linux container runtime announced at WWDC 2025 (Session 346, "Meet Containerization"). Open source under Apache 2.0. Status as of 2026-06-10: **v1.0.0, GA** — the 0.x preview line this doc previously tracked (v0.11.0) is obsolete.
 
 Two components:
 - [`apple/containerization`](https://github.com/apple/containerization) — Swift framework providing low-level APIs for image management, VM lifecycle, ext4 filesystem, networking
@@ -129,7 +129,12 @@ Architecture:
 - Boots a Linux kernel (Kata-based, v6.12.28+) with `vminitd` (minimal Swift-compiled static init using musl libc)
 - **Linux guests only** — macOS-native binaries (Mach-O) cannot execute inside these containers
 - **Apple Silicon only** — no Intel Mac support
-- Full networking features require **macOS 26 (Tahoe)**
+- **macOS 26 (Tahoe) required for support** — upstream says `container` is supported on macOS 26 because it relies on new virtualization and networking features; user-defined network commands (`container network create`, including `--internal`) are macOS 26+
+
+Two execution modes — do not conflate them:
+
+- **`container run`** — ephemeral application containers. Nothing from the host is shared unless explicitly requested: bind mounts (`--mount`, with `readonly` support), tmpfs, read-only rootfs, user/UID/GID selection, workdir, env/env-file, CPU/memory limits, capability add/drop, network selection, DNS control, labels, and explicit opt-in socket/SSH forwarding flags. This is the shape Hazmat's planned `apple-container` backend builds on ([design spec](../plans/2026-06-10-apple-container-backend-design.md)).
+- **`container machine`** — a persistent Linux environment (init system, long-lived services), not an application container. It **automatically maps the host username and home directory** into the Linux environment, and its `home-mount` setting **defaults to `rw`** (`ro` and `none` available). A convenient dev box; at its defaults, not an untrusted-agent boundary. See [container-machine.md](https://github.com/apple/container/blob/main/docs/container-machine.md).
 
 Performance:
 - Startup: **200-700ms** (boots a full Linux kernel per container)
@@ -141,21 +146,32 @@ Filesystem:
 - Read-only bind mounts via `--mount type=bind,...,readonly`
 - **No equivalent to Seatbelt's per-path deny rules** — the model is mount-only (unmounted paths are invisible, but there are no active deny rules for mounted content)
 
-Network isolation (**significant gaps**):
+Network isolation (**significant gaps, still unresolved at 1.0**; Hazmat
+verified these on macOS 26.5 with 1.0.0 — see
+[2026-06-10-apple-container-spike.md](2026-06-10-apple-container-spike.md)):
 - Each container gets its own IP via vmnet
-- Networks can be created and are isolated from each other
-- **No built-in per-container firewall** or port/protocol blocking
-- Host gateway reachable from `--internal` networks — "any host service bound to 0.0.0.0 is accessible from inside the agent VM without going through the proxy" ([GitHub discussion #719](https://github.com/apple/container/discussions/719))
+- Networks can be created and are isolated from each other; `container network create --internal` exists on macOS 26+ (mode `hostOnly`, blocks external egress)
+- **No built-in per-container firewall** and no domain allowlist
+- `container run --network none` exists at 1.0.0 (undocumented, special-cased) and yields a loopback-only guest — a real no-network mode, verified by spike
+- Host gateway reachable from `--internal` **and default** networks — "any host service bound to 0.0.0.0 is accessible from inside the agent VM without going through the proxy" ([GitHub discussion #719](https://github.com/apple/container/discussions/719)); spike-confirmed on 1.0.0 with a live listener probe
 - **pf does not filter vmnet-bridged traffic** — host-side firewall rules are ineffective
-- No native DNS blocking or domain allowlisting (workarounds via Squid proxy on dual-homed network)
+- No native DNS blocking or domain allowlisting (workarounds via Squid proxy on dual-homed network); the upstream allowlist discussion for AI agents remains unsettled — users build proxy/PF experiments, maintainers point at capability changes, nothing Hazmat-grade is documented
 - Privileged process inside the VM could bypass guest-side iptables
+
+This is why Hazmat's planned `apple-container` backend supports only `--network default` (reported honestly as outbound-allowed) and fails closed on `--network none` and allowlist requests — proved in `tla/MC_AppleContainerLaunch`.
 
 Security:
 - CVE-2026-20613 fixed in v0.9.0 (first reported CVE)
 - VM-per-container provides hypervisor-level isolation — strongest tier short of separate physical machines
 - But the network isolation gaps are real and documented
 
-**Critical distinction for agent sandboxing:** Apple Containers run **Linux** binaries, not macOS-native processes. Claude Code (Node.js on macOS), Cursor, Gemini CLI, and other macOS-native AI tools cannot run natively inside Apple Containers. You would need Linux builds of these tools — effectively the same tradeoff as Docker. This makes Apple Containers a better Docker, not a replacement for macOS-native sandboxing (Seatbelt, user isolation, pf).
+**Critical distinction for agent sandboxing:** Apple Containers run **Linux** binaries, not macOS-native processes. Claude Code (Node.js on macOS), Cursor, Gemini CLI, and other macOS-native AI tools cannot run natively inside Apple Containers. You would need Linux builds of these tools — effectively the same tradeoff as Docker. This makes Apple Containers a better Docker, not a replacement for macOS-native sandboxing (Seatbelt, user isolation, pf). Hazmat accordingly positions its planned `apple-container` backend as a Linux microVM backend for Linux-compatible agent harnesses, complementing — not replacing — native containment and Docker Sandbox mode.
+
+**Open questions Hazmat must answer empirically before executable support** (tracked in the [backend design spec](../plans/2026-06-10-apple-container-backend-design.md)):
+- VirtioFS bind-mount ownership behavior when the CLI runs as the dedicated macOS `agent` user and the guest process uses a matching numeric UID/GID
+- Whether `container run` can express a true no-network mode stronger than an internal network plus `--no-dns`
+- Registry/credential state separation when the CLI runs as `agent` rather than the invoking user
+- Whether Rosetta-translated x86_64 images are acceptable, or arm64-only is required
 
 **Not a replacement for sandbox-exec.** Apple Containerization is a completely different mechanism: hypervisor VMs vs. process-level kernel sandbox. It does not address the use case of restricting what a macOS-native CLI tool can do. There is no indication Apple intends it as a sandbox-exec successor.
 
@@ -166,6 +182,9 @@ Security:
 - Lume is positioning to integrate with it ([blog](https://cua.ai/blog/lume-to-containerization))
 
 **References:**
+- [apple/container README](https://github.com/apple/container/tree/main)
+- [container command reference](https://github.com/apple/container/blob/main/docs/command-reference.md)
+- [container-machine.md](https://github.com/apple/container/blob/main/docs/container-machine.md)
 - [Meet Containerization — WWDC 2025 Session 346](https://developer.apple.com/videos/play/wwdc2025/346/)
 - [Under the hood with Apple's Containerization — Anil Madhavapeddy](https://anil.recoil.org/notes/apple-containerisation)
 - [Apple Containers Technical Comparison with Docker — The New Stack](https://thenewstack.io/apple-containers-on-macos-a-technical-comparison-with-docker/)

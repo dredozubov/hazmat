@@ -55,6 +55,12 @@ func Derive(p Posture) (Tier, error) {
 		return NativeUncontained, nil
 	case sessionmeta.ModeDockerSandbox:
 		return DockerSandbox, nil
+	case sessionmeta.ModeAppleContainer:
+		// Plan-only backend with outbound-allowed VM networking and no
+		// proven egress deny: it has no attestation tier. Fail closed
+		// rather than implicitly mapping it to a weaker tier; assigning a
+		// tier is a deliberate future decision once the backend launches.
+		return "", fmt.Errorf("attestationtier: apple-container sessions have no attestation tier yet (plan-only backend)")
 	default:
 		return "", fmt.Errorf("attestationtier: unknown session mode %q", p.Mode)
 	}

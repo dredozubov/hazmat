@@ -19,7 +19,8 @@ The short version:
 - Add an executable `apple-container` backend for short-lived Linux agent
   sessions built on `container run`.
 - Keep `container machine` as an explicit future mode, not the default backend.
-- Run the Apple `container` CLI as Hazmat's dedicated macOS `agent` user.
+- Run the Apple `container` CLI as the invoking macOS user (revised
+  2026-06-10: the agent-user model fails on 1.0.0; see Identity Model).
 - Mount only the planned project and explicit read/write grants.
 - Reject broad home exposure, host credential paths, registry credential
   inheritance, SSH forwarding, socket publishing, and unsupported network
@@ -90,9 +91,9 @@ This is the recommended first implementation.
 
 Hazmat adds a pure compiler package that turns `containment.Contract` into an
 Apple Container launch spec. The runtime package then invokes
-`/usr/local/bin/container` through the existing host execution path, as the
-dedicated macOS `agent` user. The runner creates one named container per
-Hazmat session and removes it during cleanup.
+`/usr/local/bin/container` as the invoking macOS user (see Identity Model for
+the revised threat model). The runner creates one named container per Hazmat
+session and removes it during cleanup.
 
 Pros:
 
@@ -101,7 +102,8 @@ Pros:
 - Fits the existing Docker compiler/runtime split.
 - Keeps the first feature testable through generated launch specs and command
   argv snapshots.
-- Preserves Hazmat's host-side user boundary if the CLI runs as `agent`.
+- Keeps the boundary honest: VM isolation plus exact mount planning, stated
+  bluntly in the session contract (no native-parity claim).
 
 Cons:
 
@@ -225,7 +227,8 @@ The Apple Container backend is executable only when all of these are true:
 4. `container system status --format json` reports a healthy API server.
 5. `container system version --format json` reports a supported CLI/API
    version, initially `>= 1.0.0`.
-6. Hazmat can run the CLI as the dedicated `agent` macOS user.
+6. The invoking user's apiserver is reachable (the CLI is per-user-session;
+   spike F1 rules out running it as the dedicated `agent` user on 1.0.0).
 7. The selected image is explicit, pinned or policy-approved, and Linux/arm64
    compatible.
 8. Requested network policy is enforceable by the selected Apple Container
@@ -238,23 +241,46 @@ contract. Diagnostics can print exact commands for the user to run.
 
 ## Identity Model
 
-The runtime must invoke `container` as Hazmat's dedicated `agent` macOS user,
-not as the invoking host user.
+> **Revised 2026-06-10 after the host spike (`sandboxing-ajmn`, decision on
+> `sandboxing-ifkc`).** The original model — run the CLI as the dedicated
+> `agent` macOS user — **fails on apple/container 1.0.0**: the CLI talks XPC
+> to a per-user-session apiserver in the invoking user's launchd GUI domain;
+> the `agent` user (no login session) gets `status: not running`,
+> "unauthorized request" on commands, and cannot bootstrap its own apiserver
+> ([spike finding F1](../research/2026-06-10-apple-container-spike.md)).
+> Waiting on upstream means staying plan-only indefinitely. The decision is
+> to run as the invoking user with blunt contract wording.
 
-This gives the backend the same first host-side boundary as native Hazmat:
+The runtime invokes `container` as the **invoking macOS user**. Hazmat does
+not pretend otherwise. The honest positioning is:
 
-- Apple Container user data, registry state, generated files, logs, and cache
-  state belong to `agent`.
-- Host bind mounts are limited by the ACLs and path grants Hazmat already
-  prepares for `agent`.
-- The invoking user's home directory and registry credentials are not visible
-  to the Apple Container CLI.
+```text
+Apple Container backend: Linux VM-per-session execution with Hazmat-planned
+host mounts. Host file IO occurs as the invoking macOS user. Host account
+isolation is not provided by this backend; use native containment for that.
+```
 
-Inside the Linux VM, Hazmat should run the agent process as a non-root numeric
-UID/GID that preserves write behavior on bind mounts. The first implementation
-must probe how Apple's VirtioFS ownership mapping behaves when the host CLI is
-run as `agent`; do not guess in launch code. Until that probe is pinned by
-tests, the backend remains behind an experimental gate.
+What this means for the threat model:
+
+- The containment boundary is the **VM plus exact mount planning**, not
+  Hazmat's native macOS user-isolation boundary. The guest can read and
+  write exactly the planned mounts, with the invoking user's authority
+  behind VirtioFS (spike F2: host IO is performed as the CLI user
+  regardless of guest UID).
+- Strict mount planning is therefore load-bearing, not defense-in-depth: no
+  home mount, no credential deny paths or parents, no sockets, no SSH
+  forwarding, no arbitrary env inheritance. These remain proved obligations
+  in `tla/MC_AppleContainerLaunch`.
+- The session contract must say `Host identity: invoking user` and must not
+  claim parity with native Hazmat containment.
+- Apple Container registry/cache state belongs to the invoking user; Hazmat
+  must not deliver registry credentials into the guest.
+
+Inside the Linux VM, Hazmat always passes an explicit non-root `--user`
+(default guest root is unacceptable; spike F2 confirmed the guest defaults
+to root without it). The guest UID/GID is the invoking user's numeric
+UID/GID so the in-guest file view matches the host view; VirtioFS ownership
+behavior is pinned by the spike and by gated smoke tests.
 
 Root inside the Linux VM is not equivalent to root on macOS, but root can
 weaken guest-side firewall and file protections. The default harness process
@@ -321,9 +347,10 @@ Allowed in MVP:
 
 - Provider credential material that Hazmat already owns for the selected
   harness, delivered through a generated env-file or generated secret file
-  under `agent`-owned temp state.
-- Session-scoped files with mode `0600`, consumed by `container run`, then
-  deleted by Hazmat after launch or during cleanup.
+  under Hazmat-owned per-session temp state.
+- Session-scoped files with mode `0600` under a Hazmat-owned per-session
+  temp root, consumed by `container run`, then deleted by Hazmat after
+  launch or during cleanup.
 - Redacted session metadata that records credential descriptor names, not
   payloads.
 
@@ -422,10 +449,9 @@ The runtime sequence should be:
    and credentials.
 2. Build the backend-neutral `containment.Contract`.
 3. Compile the Apple Container `LaunchSpec`.
-4. Run host admission checks as the invoking user where safe and as `agent`
-   where needed.
-5. Materialize session-scoped credential files under an `agent`-owned temp
-   root.
+4. Run host admission checks as the invoking user.
+5. Materialize session-scoped credential files under a Hazmat-owned
+   per-session temp root.
 6. Create a deterministic container name:
 
    ```text
@@ -451,8 +477,8 @@ The session contract should make the backend distinction visible:
 Mode:                 Apple Container
 Backend:              apple-container
 Image:                ghcr.io/example/hazmat-codex:sha256-...
-Host identity:        agent macOS user
-Guest identity:       uid 502 gid 20 (non-root)
+Host identity:        invoking user (host account isolation NOT provided)
+Guest identity:       invoking user's numeric uid/gid (non-root)
 Project:              /Users/dr/workspace/app (rw bind mount)
 Read-only grants:     /Users/dr/reference (ro bind mount)
 Read-write grants:    none
@@ -543,8 +569,9 @@ Smoke tests, gated on a macOS 26 Apple silicon host with `container` installed:
 
 Manual security checks:
 
-- Run the CLI as `agent` and confirm registry state does not use the invoking
-  user's credentials.
+- Confirm Hazmat never delivers the invoking user's registry credentials
+  into the guest, and that the launch env contains only the generated
+  session env-file content.
 - Confirm mounted paths are exactly the launch spec's paths.
 - Confirm the guest process is non-root.
 - Confirm host services bound to `0.0.0.0` are not claimed to be blocked in
@@ -591,11 +618,26 @@ Phase 4: Network profiles or machine mode
 
 ## Open Questions
 
-- Does Apple Container's bind mount ownership behavior preserve writes cleanly
-  when the CLI is run as the macOS `agent` user and the guest process uses the
-  same numeric UID/GID?
-- Can `container run` support a true no-network mode that is stronger than an
-  internal network plus `--no-dns`?
+Several questions were answered by the 2026-06-10 host spike
+([research/2026-06-10-apple-container-spike.md](../research/2026-06-10-apple-container-spike.md)):
+
+- **Answered (F2):** VirtioFS performs host IO as the CLI-invoking user
+  regardless of guest UID; `--user` controls only the in-guest identity. The
+  host-side write boundary is the CLI user's authority, so the open question
+  shifts to the identity model (F1), not mount semantics.
+- **Answered (F3):** `container run --network none` exists at 1.0.0
+  (undocumented, special-cased) and yields a loopback-only guest. Supporting
+  it requires the modeled `SupportedNetworkModes` extension plus gated smoke
+  pinning, not a compiler flag flip.
+- **Answered (F4):** host services bound to `0.0.0.0` are reachable from both
+  default and `--internal` networks; no deny/allowlist claim is possible
+  without phase-2 proxy/firewall model work.
+- **New (F1):** what identity model replaces "CLI as `agent`" given the
+  per-user-session apiserver? Invoking-user CLI with VM+mount-plan boundary,
+  an upstream non-session service identity, or stay plan-only.
+
+Still open:
+
 - Which harness images should Hazmat own, and how should image tags be pinned
   or verified?
 - Should Apple Container support be configured by `--backend`, a narrower

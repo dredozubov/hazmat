@@ -1,0 +1,62 @@
+{
+  "backend": "apple-container",
+  "capabilities": {
+    "drop_all": true
+  },
+  "capability_gaps": [
+    {
+      "code": "apple-container-runtime-gated",
+      "message": "Apple Container runtime is experimental; launch requires hazmat exec --backend=apple-container with HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1"
+    }
+  ],
+  "cleanup": {
+    "never_prune": true,
+    "remove_container_by_name": true,
+    "remove_generated_files": [
+      "/Users/agent/tmp/hazmat-session/credentials.env"
+    ]
+  },
+  "command": [
+    "codex",
+    "--version"
+  ],
+  "container_name": "hazmat-codex-project-fb70befcba10",
+  "environment": {
+    "credential_env_file": "/Users/agent/tmp/hazmat-session/credentials.env",
+    "inherit_host_env": false
+  },
+  "format_version": 1,
+  "host_identity": "invoking-user",
+  "image": "ghcr.io/example/hazmat-codex:sha256-abc",
+  "labels": {
+    "dev.hazmat.harness": "codex",
+    "dev.hazmat.session-id": "golden-session"
+  },
+  "mounts": [
+    {
+      "access": "read-write",
+      "source": "/Users/dr/workspace/project",
+      "target": "/Users/dr/workspace/project"
+    },
+    {
+      "access": "read-only",
+      "source": "/Users/dr/reference",
+      "target": "/Users/dr/reference"
+    }
+  ],
+  "network": {
+    "enforcement": "apple-container-vm-network",
+    "mode": "default"
+  },
+  "phase": "plan-only",
+  "resources": {},
+  "rootfs": {
+    "ephemeral": true,
+    "read_only": false
+  },
+  "user": {
+    "gid": 20,
+    "uid": 502
+  },
+  "workdir": "/Users/dr/workspace/project"
+}

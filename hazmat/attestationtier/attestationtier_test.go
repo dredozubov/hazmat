@@ -1,6 +1,7 @@
 package attestationtier
 
 import (
+	"strings"
 	"testing"
 
 	"hazmat/sessionmeta"
@@ -90,5 +91,17 @@ func TestDeriveUnknownModeFailsClosed(t *testing.T) {
 	}
 	if _, err := Derive(Posture{Mode: sessionmeta.Mode(""), CredentialFloorEnforced: true}); err == nil {
 		t.Fatal("empty mode must fail closed")
+	}
+}
+
+func TestDeriveAppleContainerFailsClosed(t *testing.T) {
+	// Plan-only backend without a proven egress deny: no tier, even with a
+	// claimed credential floor. Assigning one is a future deliberate change.
+	_, err := Derive(Posture{Mode: sessionmeta.ModeAppleContainer, CredentialFloorEnforced: true})
+	if err == nil {
+		t.Fatal("apple-container mode must fail closed")
+	}
+	if !strings.Contains(err.Error(), "plan-only backend") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

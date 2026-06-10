@@ -10,15 +10,18 @@ import (
 type Kind string
 
 const (
-	KindDarwinNative       Kind   = "darwin-native"
-	KindLinuxNative        Kind   = "linux-native"
-	KindDockerSandbox      Kind   = "docker-sandbox"
-	KindUnsupportedNative  Kind   = "unsupported-native"
-	GapNativeLaunch        string = "native-launch"
-	GapRemoteLaunch        string = "remote-launch"
-	GapIntegrationEnv      string = "integration-env-passthrough"
-	ArtifactSeatbeltPolicy string = "seatbelt-policy"
-	ArtifactDockerSandbox  string = "docker-sandbox"
+	KindDarwinNative        Kind   = "darwin-native"
+	KindLinuxNative         Kind   = "linux-native"
+	KindDockerSandbox       Kind   = "docker-sandbox"
+	KindAppleContainer      Kind   = "apple-container"
+	KindUnsupportedNative   Kind   = "unsupported-native"
+	GapNativeLaunch         string = "native-launch"
+	GapRemoteLaunch         string = "remote-launch"
+	GapAppleContainerLaunch string = "apple-container-launch"
+	GapIntegrationEnv       string = "integration-env-passthrough"
+	ArtifactSeatbeltPolicy  string = "seatbelt-policy"
+	ArtifactDockerSandbox   string = "docker-sandbox"
+	ArtifactAppleContainer  string = "apple-container-launch-spec"
 )
 
 type CapabilityGap struct {
@@ -81,6 +84,9 @@ func BackendFor(mode sessionmeta.Mode, goos string) Kind {
 	if mode == sessionmeta.ModeDockerSandbox {
 		return KindDockerSandbox
 	}
+	if mode == sessionmeta.ModeAppleContainer {
+		return KindAppleContainer
+	}
 	if mode != sessionmeta.ModeNative {
 		return KindUnsupportedNative
 	}
@@ -103,6 +109,11 @@ func capabilityGaps(input Input, backend Kind) []CapabilityGap {
 			Feature: GapNativeLaunch,
 			Reason:  "Linux native launch is currently plan-only; the guarded launch helper is not implemented yet.",
 		})
+	case KindAppleContainer:
+		gaps = append(gaps, CapabilityGap{
+			Feature: GapAppleContainerLaunch,
+			Reason:  "Apple Container launch is currently plan-only; the runtime is not implemented yet.",
+		})
 	case KindUnsupportedNative:
 		gaps = append(gaps, CapabilityGap{
 			Feature: GapNativeLaunch,
@@ -120,6 +131,12 @@ func capabilityGaps(input Input, backend Kind) []CapabilityGap {
 			Reason:  "Docker Sandbox launch does not yet support integration env passthrough.",
 		})
 	}
+	if backend == KindAppleContainer && len(input.IntegrationEnvKeys) > 0 {
+		gaps = append(gaps, CapabilityGap{
+			Feature: GapIntegrationEnv,
+			Reason:  "Apple Container sessions reject integration env passthrough.",
+		})
+	}
 	return gaps
 }
 
@@ -134,6 +151,14 @@ func lifecycleArtifacts(backend Kind) []LifecycleArtifact {
 		return []LifecycleArtifact{{
 			Kind:            ArtifactDockerSandbox,
 			CleanupRequired: false,
+		}}
+	case KindAppleContainer:
+		// The named session container and generated credential files must be
+		// removed during cleanup (or the failure recorded) once the runtime
+		// exists; the artifact contract records that obligation now.
+		return []LifecycleArtifact{{
+			Kind:            ArtifactAppleContainer,
+			CleanupRequired: true,
 		}}
 	case KindLinuxNative, KindUnsupportedNative, KindRemoteEnvelope:
 		return nil

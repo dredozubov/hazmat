@@ -1,4 +1,5 @@
 spec	liveness
+MC_AppleContainerLaunch	no
 MC_BackupSafety	yes
 MC_BeadpostBrokerBoundary	no
 MC_CredentialCapabilityLifecycle	no

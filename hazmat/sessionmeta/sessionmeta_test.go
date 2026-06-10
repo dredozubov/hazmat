@@ -91,3 +91,27 @@ func TestMarshalLaunchMetadataJSON(t *testing.T) {
 		t.Fatalf("decoded metadata = %+v", decoded)
 	}
 }
+
+func TestBuildNetworkPolicyMetadataForAppleContainer(t *testing.T) {
+	meta := BuildNetworkPolicyMetadata(NetworkDefault, ModeAppleContainer)
+
+	if meta.Requested != "default" || meta.Effective != "default" {
+		t.Fatalf("NetworkPolicy = %+v, want default requested and effective", meta)
+	}
+	if meta.Enforcement != "apple-container-vm-network" {
+		t.Fatalf("NetworkPolicy = %+v, want apple-container-vm-network enforcement", meta)
+	}
+	if meta.DenyAllEgress || len(meta.Denied) != 0 {
+		t.Fatalf("NetworkPolicy = %+v, apple container must not claim deny rules", meta)
+	}
+}
+
+func TestAppleContainerModeLabels(t *testing.T) {
+	if ModeAppleContainer.Label() != "Apple Container" {
+		t.Fatalf("Label = %q", ModeAppleContainer.Label())
+	}
+	want := "default (outbound allowed, Apple Container VM network)"
+	if got := NetworkContractLabel(NetworkDefault, ModeAppleContainer); got != want {
+		t.Fatalf("NetworkContractLabel = %q, want %q", got, want)
+	}
+}

@@ -241,6 +241,8 @@ func newShellCmd() *cobra.Command {
 
 func newExecCmd() *cobra.Command {
 	var flags sessionCommandFlags
+	var backendValue string
+	var imageValue string
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -253,9 +255,24 @@ Examples:
   hazmat exec make test
   hazmat exec -- npm test
   hazmat exec -C ~/workspace/app -- /bin/zsh -lc 'uv run pytest -q'
-  hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'`,
+  hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'
+
+Experimental Apple Container backend (Linux VM-per-session; host file IO as
+the invoking user — no host account isolation; requires
+HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
+  hazmat exec --backend=apple-container --image alpine:latest -- uname -a`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			switch backendValue {
+			case "":
+				if imageValue != "" {
+					return fmt.Errorf("--image requires --backend=apple-container")
+				}
+			case explainBackendAppleContainer:
+				return runAppleContainerExecSession(cmd, flags, imageValue, args)
+			default:
+				return fmt.Errorf("unknown session backend %q (want apple-container)", backendValue)
+			}
 			prepared, err := prepareAndBeginLaunchSession("exec", flags.harnessSessionOpts(cmd), true, false)
 			if err != nil {
 				return err
@@ -268,6 +285,10 @@ Examples:
 		},
 	}
 	bindCommonSessionFlags(cmd, &flags)
+	cmd.Flags().StringVar(&backendValue, "backend", "",
+		"Experimental session backend (apple-container; requires HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1)")
+	cmd.Flags().StringVar(&imageValue, "image", "",
+		"Explicit Linux image for --backend=apple-container")
 	return cmd
 }
 

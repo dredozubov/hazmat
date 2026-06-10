@@ -28,6 +28,9 @@ const (
 	ModeNative Mode = "native"
 	// ModeDockerSandbox runs through Docker Sandboxes.
 	ModeDockerSandbox Mode = "docker-sandbox"
+	// ModeAppleContainer runs a Linux agent session in an Apple Container
+	// microVM. Plan-only: no executable launch path exists yet.
+	ModeAppleContainer Mode = "apple-container"
 )
 
 // LaunchMetadataFormatVersion is the current JSON schema version.
@@ -109,6 +112,8 @@ func (m Mode) Label() string {
 		return "Native containment"
 	case ModeDockerSandbox:
 		return "Docker Sandbox"
+	case ModeAppleContainer:
+		return "Apple Container"
 	default:
 		return "Native containment"
 	}
@@ -118,6 +123,9 @@ func (m Mode) Label() string {
 func NetworkContractLabel(networkMode NetworkMode, mode Mode) string {
 	if mode == ModeDockerSandbox {
 		return "Docker Sandbox profile (deny by default)"
+	}
+	if mode == ModeAppleContainer {
+		return "default (outbound allowed, Apple Container VM network)"
 	}
 	return NormalizeNetworkMode(networkMode).ContractLabel()
 }
@@ -153,6 +161,15 @@ func BuildNetworkPolicyMetadata(networkMode NetworkMode, mode Mode) NetworkPolic
 		meta.Effective = "sandbox-profile"
 		meta.Enforcement = "docker-sandbox-network-profile"
 		meta.CleanupRequired = true
+		meta.DenyAllEgress = false
+		meta.Denied = nil
+	}
+	if mode == ModeAppleContainer {
+		// Honest reporting: Apple Container networking is VM-backed and only
+		// the default outbound-allowed policy is supported. Network none and
+		// allowlists fail closed before launch instead of being claimed here.
+		meta.Effective = NetworkDefault.String()
+		meta.Enforcement = "apple-container-vm-network"
 		meta.DenyAllEgress = false
 		meta.Denied = nil
 	}
