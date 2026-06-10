@@ -9,7 +9,8 @@ spec: `MC_Tier3LaunchContainment` (Docker Sandbox host-side launch boundary).
 
 Hazmat plans an `apple-container` backend that runs Linux agent sessions in
 Apple Container microVMs via `container run`, with the CLI invoked as the
-dedicated macOS `agent` user. Before any executable launch code lands, the
+invoking macOS user (revised 2026-06-10 after spike F1; the boundary is the
+VM plus exact mount planning, stated bluntly in the session contract). Before any executable launch code lands, the
 host-side launch boundary must be proved:
 
 1. credential deny paths **and parents of credential paths** are never part
@@ -18,8 +19,9 @@ host-side launch boundary must be proved:
 2. integration env passthrough, SSH agent forwarding (`--ssh`), and socket
    publishing are rejected before any other launch work;
 3. backend admission (macOS 26+ Apple silicon, approved CLI path, healthy
-   API server, supported version, runnable as `agent`, policy-approved
-   image) happens before launch;
+   API server reachable for the invoking user, supported version,
+   policy-approved image) happens before launch — identity model revised
+   2026-06-10: the CLI runs as the invoking user (spike F1);
 4. network policies the backend cannot enforce (`none`, allowlists) fail
    closed rather than launching with a weaker-than-claimed policy;
 5. generated credential artifacts (env/secret files) are session-scoped,

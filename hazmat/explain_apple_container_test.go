@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-
 	applecontainerspec "hazmat/containment/applecontainer"
 )
 
@@ -59,14 +57,17 @@ func TestExplainAppleContainerJSONEmitsPlanOnlySpec(t *testing.T) {
 	if spec.Environment.InheritHostEnv {
 		t.Fatalf("preview inherits host env: %+v", spec.Environment)
 	}
-	hasRuntimeGap := false
+	hasGateGap := false
 	for _, gap := range spec.CapabilityGaps {
-		if gap.Code == "apple-container-runtime-missing" {
-			hasRuntimeGap = true
+		if gap.Code == "apple-container-runtime-gated" {
+			hasGateGap = true
 		}
 	}
-	if !hasRuntimeGap {
-		t.Fatalf("CapabilityGaps = %+v, want apple-container-runtime-missing", spec.CapabilityGaps)
+	if !hasGateGap {
+		t.Fatalf("CapabilityGaps = %+v, want apple-container-runtime-gated", spec.CapabilityGaps)
+	}
+	if spec.HostIdentity != applecontainerspec.HostIdentityInvokingUser {
+		t.Fatalf("HostIdentity = %q, want invoking-user", spec.HostIdentity)
 	}
 }
 
@@ -86,7 +87,8 @@ func TestExplainAppleContainerTextRendersCapabilityGaps(t *testing.T) {
 		"Backend:              apple-container",
 		"plan-only preview",
 		"Capability gaps (why this plan cannot launch):",
-		"apple-container-runtime-missing",
+		"apple-container-runtime-gated",
+		"Host identity:        invoking user (host account isolation NOT provided)",
 		"Guest identity:       uid 502 gid 20 (non-root)",
 		"never prune",
 	} {
@@ -154,18 +156,57 @@ func TestExplainAppleContainerRejectsDockerRouting(t *testing.T) {
 	}
 }
 
-// The Apple Container backend must remain non-executable: only the plan-only
-// explain command may accept --backend/--image.
-func TestSessionCommandsDoNotAcceptBackendFlag(t *testing.T) {
-	for name, cmd := range map[string]*cobra.Command{
-		"claude": newClaudeCmd(),
-		"exec":   newExecCmd(),
+// The experimental Apple Container backend surface is exec-only: harness
+// commands like claude must not expose --backend/--image.
+func TestHarnessCommandsDoNotAcceptBackendFlag(t *testing.T) {
+	cmd := newClaudeCmd()
+	if cmd.Flags().Lookup("backend") != nil {
+		t.Fatal("claude command exposes --backend; the experimental backend is exec-only")
+	}
+	if cmd.Flags().Lookup("image") != nil {
+		t.Fatal("claude command exposes --image; the experimental backend is exec-only")
+	}
+}
+
+// Without the experimental gate env var, exec refuses to launch and explains
+// the boundary bluntly.
+func TestExecAppleContainerRequiresExperimentalGate(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+	t.Setenv("HAZMAT_EXPERIMENTAL_APPLE_CONTAINER", "")
+
+	cmd := newExecCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--backend=apple-container", "--image", "alpine:latest", "-C", t.TempDir(), "--", "true"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("exec launched without the experimental gate")
+	}
+	for _, want := range []string{
+		"HAZMAT_EXPERIMENTAL_APPLE_CONTAINER",
+		"invoking macOS user",
+		"Host account isolation is",
 	} {
-		if cmd.Flags().Lookup("backend") != nil {
-			t.Fatalf("%s command exposes --backend; Apple Container must stay plan-only", name)
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("gate error missing %q: %v", want, err)
 		}
-		if cmd.Flags().Lookup("image") != nil {
-			t.Fatalf("%s command exposes --image; Apple Container must stay plan-only", name)
-		}
+	}
+}
+
+// With the gate set but no image, exec still refuses.
+func TestExecAppleContainerRequiresImage(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+	t.Setenv("HAZMAT_EXPERIMENTAL_APPLE_CONTAINER", "1")
+
+	cmd := newExecCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--backend=apple-container", "-C", t.TempDir(), "--", "true"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "requires --image") {
+		t.Fatalf("err = %v, want image requirement", err)
 	}
 }

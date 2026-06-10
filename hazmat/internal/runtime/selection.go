@@ -41,9 +41,11 @@ func Select(plan sessionbackend.Plan) (Selection, error) {
 			PlanOnly:    linux.PlanOnly,
 		}, nil
 	case sessionbackend.KindAppleContainer:
-		// Plan-only: the Apple Container runtime is not implemented. The
-		// launch boundary contract is proved in tla/MC_AppleContainerLaunch;
-		// no runtime package may register here before following it.
+		// The experimental Apple Container runtime exists
+		// (internal/runtime/applecontainer) but launches only through the
+		// gated `hazmat exec --backend=apple-container` path, not the main
+		// session pipeline. For this selector the backend stays plan-only;
+		// wiring it here requires following tla/MC_AppleContainerLaunch.
 		return Selection{
 			Backend:  plan.Backend,
 			PlanOnly: true,

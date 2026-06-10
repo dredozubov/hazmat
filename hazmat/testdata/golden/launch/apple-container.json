@@ -5,8 +5,8 @@
   },
   "capability_gaps": [
     {
-      "code": "apple-container-runtime-missing",
-      "message": "Apple Container runtime is not implemented; spec is plan-only"
+      "code": "apple-container-runtime-gated",
+      "message": "Apple Container runtime is experimental; launch requires hazmat exec --backend=apple-container with HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1"
     }
   ],
   "cleanup": {
@@ -26,6 +26,7 @@
     "inherit_host_env": false
   },
   "format_version": 1,
+  "host_identity": "invoking-user",
   "image": "ghcr.io/example/hazmat-codex:sha256-abc",
   "labels": {
     "dev.hazmat.harness": "codex",

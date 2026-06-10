@@ -10,8 +10,11 @@ import (
 	"github.com/spf13/cobra"
 
 	applecontainerspec "hazmat/containment/applecontainer"
+	applecontainerruntime "hazmat/internal/runtime/applecontainer"
 	"hazmat/sessionmeta"
 )
+
+const appleContainerGateEnv = applecontainerruntime.EnvExperimentalGate
 
 // explainBackendAppleContainer is the only non-default value accepted by
 // `hazmat explain --backend`. Session launch commands do not accept the flag:
@@ -71,11 +74,15 @@ func runExplainAppleContainer(cmd *cobra.Command, target, image string, opts har
 }
 
 func printAppleContainerPlan(w io.Writer, spec applecontainerspec.LaunchSpec) {
-	fmt.Fprintf(w, "Mode:                 %s (plan-only preview)\n", sessionmeta.ModeAppleContainer.Label())
+	phaseLabel := "plan-only preview"
+	if spec.Phase == applecontainerspec.PhaseExperimental {
+		phaseLabel = "experimental"
+	}
+	fmt.Fprintf(w, "Mode:                 %s (%s)\n", sessionmeta.ModeAppleContainer.Label(), phaseLabel)
 	fmt.Fprintf(w, "Backend:              %s\n", spec.Backend)
 	fmt.Fprintf(w, "Image:                %s\n", spec.Image)
 	fmt.Fprintf(w, "Container name:       %s\n", spec.ContainerName)
-	fmt.Fprintf(w, "Host identity:        %s macOS user\n", agentUser)
+	fmt.Fprintf(w, "Host identity:        invoking user (host account isolation NOT provided)\n")
 	fmt.Fprintf(w, "Guest identity:       uid %d gid %d (non-root)\n", spec.User.UID, spec.User.GID)
 	for _, mount := range spec.Mounts {
 		access := "rw"
@@ -106,7 +113,9 @@ func printAppleContainerPlan(w io.Writer, spec applecontainerspec.LaunchSpec) {
 			fmt.Fprintf(w, "  - %s: %s\n", gap.Code, gap.Message)
 		}
 	}
-	fmt.Fprintf(w, "\nThe Apple Container backend is plan-only. Hazmat will not launch Apple\nContainer sessions until the proved launch model is implemented.\n")
+	if spec.Phase != applecontainerspec.PhaseExperimental {
+		fmt.Fprintf(w, "\nThis is a plan-only preview. Launch requires the experimental gate:\n  %s=1 hazmat exec --backend=apple-container --image ... -- <command>\n", appleContainerGateEnv)
+	}
 }
 
 func integrationEnvKeyNames(env map[string]string) []string {

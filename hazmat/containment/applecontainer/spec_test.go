@@ -18,7 +18,6 @@ func healthyHost() HostReport {
 		CLIVersion:          "1.0.0",
 		CLIVersionSupported: true,
 		APIServerHealthy:    true,
-		RunnableAsAgent:     true,
 	}
 }
 
@@ -76,6 +75,9 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	if spec.FormatVersion != LaunchSpecFormatVersion || spec.Backend != BackendAppleContainer || spec.Phase != PhasePlanOnly {
 		t.Fatalf("unexpected spec identity: %+v", spec)
 	}
+	if spec.HostIdentity != HostIdentityInvokingUser {
+		t.Fatalf("HostIdentity = %q, want %q", spec.HostIdentity, HostIdentityInvokingUser)
+	}
 	wantMounts := []MountSpec{
 		{Source: "/Users/dr/workspace/project", Target: "/Users/dr/workspace/project", Access: containment.PathReadWrite},
 		{Source: "/Users/dr/reference", Target: "/Users/dr/reference", Access: containment.PathReadOnly},
@@ -113,8 +115,8 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	if spec.Labels[LabelSessionID] != "session-0123456789" || spec.Labels[LabelHarness] != "codex" {
 		t.Fatalf("Labels = %+v", spec.Labels)
 	}
-	if len(spec.CapabilityGaps) != 1 || spec.CapabilityGaps[0].Code != "apple-container-runtime-missing" {
-		t.Fatalf("CapabilityGaps = %+v, want only the plan-only runtime gap", spec.CapabilityGaps)
+	if len(spec.CapabilityGaps) != 1 || spec.CapabilityGaps[0].Code != "apple-container-runtime-gated" {
+		t.Fatalf("CapabilityGaps = %+v, want only the experimental-gate gap", spec.CapabilityGaps)
 	}
 	raw, err := MarshalJSON(spec)
 	if err != nil {
@@ -284,13 +286,12 @@ func TestCompileReportsAdmissionCapabilityGaps(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 	for _, code := range []string{
-		"apple-container-runtime-missing",
+		"apple-container-runtime-gated",
 		"host-not-apple-silicon",
 		"macos-version-unsupported",
 		"container-cli-missing",
 		"container-cli-version-unsupported",
 		"container-api-server-unhealthy",
-		"agent-user-execution-unverified",
 	} {
 		if !hasGap(spec.CapabilityGaps, code) {
 			t.Fatalf("CapabilityGaps missing %q: %+v", code, spec.CapabilityGaps)
@@ -376,4 +377,31 @@ func hasGap(gaps []CapabilityGap, code string) bool {
 		}
 	}
 	return false
+}
+
+func TestCompileExecutableRuntimePhase(t *testing.T) {
+	opts := testOptions()
+	opts.ExecutableRuntime = true
+	spec, err := Compile(testContract(t), opts)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if spec.Phase != PhaseExperimental {
+		t.Fatalf("Phase = %q, want %q", spec.Phase, PhaseExperimental)
+	}
+	if len(spec.CapabilityGaps) != 0 {
+		t.Fatalf("CapabilityGaps = %+v, want none for a healthy executable host", spec.CapabilityGaps)
+	}
+
+	opts.Host = HostReport{}
+	spec, err = Compile(testContract(t), opts)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if len(spec.CapabilityGaps) == 0 {
+		t.Fatal("executable compile with uninspected host must keep admission gaps")
+	}
+	if hasGap(spec.CapabilityGaps, "apple-container-runtime-gated") {
+		t.Fatalf("executable compile must not carry the preview gate gap: %+v", spec.CapabilityGaps)
+	}
 }

@@ -32,6 +32,14 @@ const (
 
 	BackendAppleContainer = "apple-container"
 	PhasePlanOnly         = "plan-only"
+	PhaseExperimental     = "experimental"
+
+	// HostIdentityInvokingUser is the only host identity this backend
+	// supports: the container CLI is per-user-session on 1.0.0, so the CLI
+	// runs as the invoking macOS user. Host account isolation is explicitly
+	// NOT provided by this backend (spike F1, identity model revised
+	// 2026-06-10); the boundary is the VM plus exact mount planning.
+	HostIdentityInvokingUser = "invoking-user"
 
 	// DefaultGuestUID and DefaultGuestGID are the provisional non-root guest
 	// identity from the backend design spec. The VirtioFS ownership probe
@@ -79,9 +87,14 @@ type CompileOptions struct {
 	PublishSockets []string
 
 	// CredentialEnvFile optionally names the planned session-scoped env-file
-	// (path under agent-owned temp state). The compiler records the plan and
-	// the cleanup obligation; it never reads or writes the file.
+	// (path under Hazmat-owned per-session temp state). The compiler records
+	// the plan and the cleanup obligation; it never reads or writes the file.
 	CredentialEnvFile string
+
+	// ExecutableRuntime marks the spec as compiled for the experimental
+	// runtime rather than a plan-only preview. The runtime must still
+	// refuse to launch while any capability gap remains.
+	ExecutableRuntime bool
 
 	// Resources optionally bounds guest CPU/memory.
 	Resources ResourceSpec
@@ -123,6 +136,7 @@ type LaunchSpec struct {
 	FormatVersion  int               `json:"format_version"`
 	Backend        string            `json:"backend"`
 	Phase          string            `json:"phase"`
+	HostIdentity   string            `json:"host_identity"`
 	ContainerName  string            `json:"container_name"`
 	Image          string            `json:"image"`
 	Workdir        string            `json:"workdir"`
@@ -272,11 +286,16 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 		return LaunchSpec{}, fmt.Errorf("credential env-file path %q must be absolute", credEnvFile)
 	}
 
+	phase := PhasePlanOnly
+	if opts.ExecutableRuntime {
+		phase = PhaseExperimental
+	}
 	name := ContainerName(opts.Harness, contract.ProjectPath(), opts.SessionID)
 	spec := LaunchSpec{
 		FormatVersion: LaunchSpecFormatVersion,
 		Backend:       BackendAppleContainer,
-		Phase:         PhasePlanOnly,
+		Phase:         phase,
+		HostIdentity:  HostIdentityInvokingUser,
 		ContainerName: name,
 		Image:         strings.TrimSpace(opts.Image),
 		Workdir:       contract.ProjectPath(),
@@ -307,7 +326,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 			NeverPrune:            true,
 		},
 		Command:        append([]string(nil), opts.Command...),
-		CapabilityGaps: capabilityGaps(opts.Host),
+		CapabilityGaps: capabilityGaps(opts.Host, opts.ExecutableRuntime),
 	}
 	if credEnvFile != "" {
 		spec.Cleanup.RemoveGeneratedFiles = []string{credEnvFile}
@@ -435,11 +454,14 @@ func mountFlag(mount MountSpec) string {
 	return flag
 }
 
-func capabilityGaps(host HostReport) []CapabilityGap {
-	gaps := []CapabilityGap{{
-		Code:    "apple-container-runtime-missing",
-		Message: "Apple Container runtime is not implemented; spec is plan-only",
-	}}
+func capabilityGaps(host HostReport, executable bool) []CapabilityGap {
+	var gaps []CapabilityGap
+	if !executable {
+		gaps = append(gaps, CapabilityGap{
+			Code:    "apple-container-runtime-gated",
+			Message: "Apple Container runtime is experimental; launch requires hazmat exec --backend=apple-container with HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1",
+		})
+	}
 	if host.GOOS != "" && host.GOOS != "darwin" {
 		gaps = append(gaps, CapabilityGap{
 			Code:    "host-not-darwin",
@@ -488,13 +510,7 @@ func capabilityGaps(host HostReport) []CapabilityGap {
 	if !host.APIServerHealthy {
 		gaps = append(gaps, CapabilityGap{
 			Code:    "container-api-server-unhealthy",
-			Message: "container system status has not positively reported a healthy API server",
-		})
-	}
-	if !host.RunnableAsAgent {
-		gaps = append(gaps, CapabilityGap{
-			Code:    "agent-user-execution-unverified",
-			Message: "container CLI execution as the dedicated agent user is not positively verified",
+			Message: "container system status has not positively reported a healthy API server for the invoking user",
 		})
 	}
 	return gaps

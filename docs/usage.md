@@ -145,11 +145,27 @@ hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:la
 The `--backend=apple-container` preview compiles the session contract into an
 Apple Container launch spec — image, deterministic container name, non-root
 guest identity, bind mounts, network policy, and cleanup obligations — and
-lists the capability gaps that keep the plan from launching (the runtime is
-not implemented, and host admission probes have not run). Only `hazmat
-explain` accepts the flag; session commands cannot start Apple Container
-sessions. The launch boundary is proved in `tla/MC_AppleContainerLaunch`
-before any runtime work lands.
+lists the remaining capability gaps. The launch boundary is proved in
+`tla/MC_AppleContainerLaunch`.
+
+An **experimental** executable path exists for `hazmat exec` only, behind an
+explicit gate:
+
+```bash
+HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1 \
+  hazmat exec --backend=apple-container --image alpine:latest -- uname -a
+```
+
+Be clear about what this backend is: Linux VM-per-session execution with
+Hazmat-planned host mounts. Host file IO occurs as the **invoking macOS
+user** (the `container` CLI is per-user-session and cannot run as the agent
+user). Host account isolation is **not** provided by this backend; use
+native containment for that. The strict mount plan is the boundary: no home
+mount, no credential paths or parents, no sockets, no SSH forwarding, no
+host env inheritance, always a non-root guest user. Only `--network
+default` is supported (honestly reported as outbound-allowed; host services
+bound to 0.0.0.0 are reachable from the guest VM network). Requires macOS
+26 on Apple silicon with apple/container >= 1.0.0 running.
 
 `hazmat explain` previews these changes but does not apply them. A real session
 may execute the listed host mutations before launch if they are still needed at

@@ -38,8 +38,10 @@ mount-planner credential exclusions, forbidden-feature rejection, admission
 and network fail-closed gating, and session-scoped credential artifact
 cleanup accounting. It does **not** model Apple Container VM internals,
 VirtioFS ownership mapping, `container machine` persistent mode, or network
-allowlist profiles. No executable Apple Container launch code exists yet;
-the model is the precondition for it.
+allowlist profiles. An experimental runtime follows the modeled ordering
+behind an explicit gate (exec-only, invoking-user identity, no host account
+isolation claim); the main session pipeline still treats the backend as
+plan-only.
 
 Important Linux-native boundary: the current suite now includes a design model
 for the future experimental Linux native helper. It proves launch ordering
@@ -1098,11 +1100,12 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 |-------|-------|
 | Spec | `tla/16_apple_container_launch_containment.md` |
 | TLA+ files | `tla/MC_AppleContainerLaunch.tla`, `tla/MC_AppleContainerLaunch.cfg` |
-| Governed code | `hazmat/containment/applecontainer/spec.go` — plan-only launch spec compiler: `Compile()`, `Argv()`, forbidden-feature rejection, network fail-closed, cleanup accounting |
-| Governed code | `hazmat/explain_apple_container.go` — plan-only preview surface (no launch path) |
-| Governed code | future `hazmat/internal/runtime/applecontainer` — admission, container lifecycle, credential file materialization/cleanup |
+| Governed code | `hazmat/containment/applecontainer/spec.go` — launch spec compiler: `Compile()`, `Argv()`, forbidden-feature rejection, network fail-closed, cleanup accounting |
+| Governed code | `hazmat/internal/runtime/applecontainer/runtime.go` — experimental runtime: `ProbeHost()` admission, `Run()` launch + exact-name cleanup with recorded failures |
+| Governed code | `hazmat/exec_apple_container.go` — gated `hazmat exec --backend=apple-container` session path |
+| Governed code | `hazmat/explain_apple_container.go` — plan-only preview surface |
 | Key invariants | `CredentialPathsNeverMounted`, `InvokerHomeNeverMounted`, `AgentHomeNeverMountedWholesale`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `IntegrationEnvRejected`, `SSHForwardingRejected`, `SocketPublishingRejected`, `AdmissionBeforeLaunch`, `UnsupportedNetworkFailsClosed`, `CredentialMaterializationGated`, `CredentialArtifactSessionScoped`, `TerminalCredResidueHandled`, `TerminalContainerHandled`, `ForeignContainersUntouched` |
-| Status | **Design Proved, Implementation Pending** — the `apple-container` backend may add plan-only compilers and docs, but no executable launch code may land until the implementation follows this model (epic `sandboxing-kwm2`) |
+| Status | **Proved and Implemented (experimental)** — the runtime follows the modeled ordering behind the `HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1` gate, exec-only, with gated macOS 26 smoke coverage (`internal/runtime/applecontainer/smoke_test.go`, green 2026-06-10 on container 1.0.0). Identity model revised 2026-06-10: the CLI runs as the invoking user (spike F1); the contract states bluntly that host account isolation is not provided by this backend |
 
 **What this verifies:**
 
@@ -1116,9 +1119,11 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
    admission, mount planning, or any credential materialization.
 
 3. **Admission gates launch:** macOS 26+ Apple silicon, approved CLI path,
-   healthy API server, supported version, agent-user execution, and an
-   approved image are modeled as an abstract admission conjunction that must
-   pass before launch.
+   healthy API server reachable for the invoking user, supported version,
+   and an approved image are modeled as an abstract admission conjunction
+   that must pass before launch. (Identity model revised 2026-06-10: the CLI
+   runs as the invoking user; host account isolation is explicitly not
+   claimed by this backend.)
 
 4. **Unsupported network policies fail closed:** `--network none` and
    allowlist requests cannot launch with a weaker-than-claimed policy; only
@@ -1177,7 +1182,7 @@ before the experimental runtime ships.
 | `13_credential_capability_lifecycle` | `hazmat/credentials/registry.go`; `hazmat/credential_registry.go`; `hazmat/harness_auth_runtime.go`; future credential backend implementations |
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
-| `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (plan-only compiler); `hazmat/explain_apple_container.go` (preview surface); future `hazmat/internal/runtime/applecontainer` |
+| `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (compiler); `hazmat/internal/runtime/applecontainer/runtime.go` (experimental runtime); `hazmat/exec_apple_container.go` (gated exec path); `hazmat/explain_apple_container.go` (preview) |
 
 ---
 

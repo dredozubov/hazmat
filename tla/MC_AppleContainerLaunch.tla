@@ -7,8 +7,8 @@
 \*      socket publishing before any other work
 \*   2. Validate and plan mounts: reject credential deny paths and parents,
 \*      omit covered read-only grants
-\*   3. Require host admission (macOS 26 Apple silicon, healthy CLI as the
-\*      `agent` user, approved image) before launch
+\*   3. Require host admission (macOS 26 Apple silicon, healthy CLI and
+\*      apiserver for the invoking user, approved image) before launch
 \*   4. Fail closed on network policies the backend cannot enforce
 \*   5. Materialize credential artifacts session-scoped, only after
 \*      admission, and clean them up or record the cleanup failure
@@ -208,8 +208,9 @@ MountInputsFail ==
 
 \* Phase 2: host admission. hostAdmitted abstracts the full admission
 \* conjunction: macOS 26+, Apple silicon, approved CLI path, healthy API
-\* server, supported CLI version, runnable as the `agent` user, and an
-\* explicit policy-approved image.
+\* server reachable for the invoking user, supported CLI version, and an
+\* explicit policy-approved image. (Identity model revised 2026-06-10:
+\* the CLI runs as the invoking user; the agent-user model fails on 1.0.0.)
 AdmissionPass ==
     /\ phase = 2
     /\ hostAdmitted
