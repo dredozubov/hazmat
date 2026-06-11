@@ -150,6 +150,64 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	}
 }
 
+func TestUIDiagnosticReportDoctorFixWithoutYesIsBlocked(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{}
+	ui := &UI{
+		JSON:          true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+		},
+	}
+	ui.stepLabel = "Hardening gaps"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Execution.Mode != "blocked-noninteractive" || plan.Execution.MutationAllowed {
+		t.Fatalf("execution policy = %+v, want blocked noninteractive", plan.Execution)
+	}
+	if plan.Mutating || plan.Mode != "preview" {
+		t.Fatalf("plan header = mode %q mutating=%v, want preview", plan.Mode, plan.Mutating)
+	}
+	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
+		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
+	}
+}
+
+func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{
+		applyEvidence:  []string{"applied managed umask block"},
+		verifyEvidence: []string{"verified umask 007"},
+	}
+	ui := &UI{
+		JSON:          true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "Hardening gaps"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Mode != "executed" || !plan.Mutating || plan.Execution.Mode != "fix-yes" {
+		t.Fatalf("plan execution = mode %q mutating=%v policy=%+v, want executed fix-yes", plan.Mode, plan.Mutating, plan.Execution)
+	}
+	if backend.applyCalls != 1 || backend.verifyCalls != 1 {
+		t.Fatalf("backend calls = apply %d verify %d, want 1/1", backend.applyCalls, backend.verifyCalls)
+	}
+	if len(plan.AppliedReceipts) != 1 || plan.AppliedReceipts[0].RollbackBoundary != "setup.agent-shell" {
+		t.Fatalf("receipts = %+v, want verified rollback-aware receipt", plan.AppliedReceipts)
+	}
+	if len(plan.FailedVerifications) != 0 {
+		t.Fatalf("failed verifications = %+v, want none", plan.FailedVerifications)
+	}
+}
+
 func TestUIChooseBlankInputReturnsDefaultChoice(t *testing.T) {
 	restoreTTY := stubTerminal(t, true)
 	defer restoreTTY()

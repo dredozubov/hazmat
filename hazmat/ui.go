@@ -26,6 +26,10 @@ type UI struct {
 	// RepairExecution records the command-mode policy used when building
 	// diagnostic repair plans.
 	RepairExecution diagnosticRepairExecutionRequest
+	// RepairBackend applies typed diagnostic repairs when doctor execution is
+	// explicitly allowed. A nil backend leaves the plan deterministic and
+	// reports verification failures instead of attempting host mutations.
+	RepairBackend diagnosticRepairBackend
 	// Quick records whether diagnostic live network probes were skipped.
 	Quick bool
 	// JSON suppresses terminal rendering and emits a machine-readable
@@ -242,9 +246,10 @@ func (u *UI) TestSkip(msg string) {
 
 // Summary prints the results table.  Returns true if there were any failures.
 func (u *UI) Summary() bool {
+	repairPlan := u.diagnosticRepairPlan()
 	if u.JSON {
-		u.printJSONReport()
-		return u.Fail > 0
+		u.printJSONReport(repairPlan)
+		return u.Fail > 0 || len(repairPlan.FailedVerifications) > 0
 	}
 
 	fmt.Println()
@@ -267,7 +272,7 @@ func (u *UI) Summary() bool {
 	fmt.Printf("  Skip:  %d\n", u.Skip)
 	fmt.Println()
 
-	u.printRecommendations()
+	u.printRepairPlan(repairPlan)
 
 	switch {
 	case u.Fail > 0:
@@ -278,7 +283,7 @@ func (u *UI) Summary() bool {
 		cGreen.Println("  All checks passed. Hazmat is ready.")
 	}
 	fmt.Println()
-	return u.Fail > 0
+	return u.Fail > 0 || len(repairPlan.FailedVerifications) > 0
 }
 
 func (u *UI) recordFinding(severity uiFindingSeverity, msg string) {
@@ -306,27 +311,98 @@ func (u *UI) recordTypedFinding(severity uiFindingSeverity, def diagnosticFindin
 	})
 }
 
-func (u *UI) printRecommendations() {
-	recommendations := u.recommendations()
-	if len(recommendations) == 0 {
+func (u *UI) printRepairPlan(plan diagnosticRepairPlan) {
+	if len(plan.Items) == 0 && len(plan.ManualItems) == 0 && len(plan.SkippedItems) == 0 {
 		return
 	}
 
-	cBold.Println(u.recommendationSectionTitle())
+	cBold.Println(u.repairPlanSectionTitle(plan))
 	fmt.Println()
-	for i, rec := range recommendations {
-		colorForSeverity(rec.Severity).Printf("  %d. [%s] %s\n", i+1, rec.Severity.Label(), rec.Title)
-		if rec.Step != "" {
-			cDim.Printf("     Check: %s\n", rec.Step)
-		}
-		fmt.Printf("     Action: %s\n", rec.Action)
-		for _, detail := range rec.Details {
-			cDim.Printf("     Affected: %s\n", detail)
-		}
+	cDim.Printf("  Mode: %s (%s)\n", plan.Execution.Mode, plan.Execution.Reason)
+	fmt.Println()
+
+	index := 1
+	for _, item := range plan.Items {
+		u.printRepairPlanItem(index, item)
+		index++
+	}
+	for _, item := range plan.ManualItems {
+		u.printRepairPlanItem(index, item)
+		index++
+	}
+	for _, item := range plan.SkippedItems {
+		u.printRepairPlanItem(index, item)
+		index++
 	}
 	fmt.Println()
-	cDim.Println(u.recommendationFooter())
+	cDim.Println(u.repairPlanFooter(plan))
 	fmt.Println()
+}
+
+func (u *UI) printRepairPlanItem(index int, item diagnosticRepairPlanItem) {
+	colorForSeverityLabel(item.Severity).Printf("  %d. [%s] %s\n", index, item.Severity, item.Title)
+	if item.Status != "" {
+		cDim.Printf("     Status: %s\n", item.Status)
+	}
+	if item.SourceTrust != "" {
+		cDim.Printf("     Source: %s\n", item.SourceTrust)
+	}
+	if item.Action != "" {
+		fmt.Printf("     Action: %s\n", item.Action)
+	}
+	if item.RepairAction != "" {
+		cDim.Printf("     Repair: %s; verify: %s; rollback: %s\n", item.RepairAction, item.Verification, item.RollbackBoundary)
+	}
+	if item.BlockedReason != "" {
+		cDim.Printf("     Blocked: %s\n", item.BlockedReason)
+	}
+	for _, detail := range item.Details {
+		cDim.Printf("     Detail: %s\n", detail)
+	}
+}
+
+func colorForSeverityLabel(label string) *color.Color {
+	switch label {
+	case uiFindingFailure.Label():
+		return colorForSeverity(uiFindingFailure)
+	case uiFindingWarning.Label():
+		return colorForSeverity(uiFindingWarning)
+	default:
+		return color.New()
+	}
+}
+
+func (u *UI) diagnosticRepairPlan() diagnosticRepairPlan {
+	recommendations := u.recommendations()
+	plan := planDiagnosticRepairs(u.findings, recommendations, u.RepairExecution)
+	if !plan.Execution.MutationAllowed {
+		return plan
+	}
+	if plan.Execution.RequiresInteractiveConsent && !u.confirmDiagnosticRepairPlan(plan) {
+		return diagnosticRepairPlanDeclined(plan)
+	}
+	return executeDiagnosticRepairPlan(plan, u.RepairBackend)
+}
+
+func (u *UI) confirmDiagnosticRepairPlan(plan diagnosticRepairPlan) bool {
+	if len(plan.Items) == 0 {
+		return false
+	}
+	return u.Ask(fmt.Sprintf("Apply %d Hazmat repair(s) now?", len(plan.Items)))
+}
+
+func diagnosticRepairPlanDeclined(plan diagnosticRepairPlan) diagnosticRepairPlan {
+	plan.Mode = "declined"
+	plan.Mutating = false
+	plan.Execution.MutationAllowed = false
+	plan.Execution.Mode = "declined"
+	plan.Execution.Reason = "repair execution was declined before mutation"
+	for i := range plan.Items {
+		plan.Items[i].Status = diagnosticRepairStatusSkipped
+		plan.Items[i].BlockedReason = "repair execution declined by user"
+		plan.Items[i].Reason = "no mutation attempted"
+	}
+	return plan
 }
 
 func (u *UI) recommendationSectionTitle() string {
@@ -334,6 +410,13 @@ func (u *UI) recommendationSectionTitle() string {
 		return "━━━ Repair plan preview ━━━"
 	}
 	return "━━━ Repairability report ━━━"
+}
+
+func (u *UI) repairPlanSectionTitle(plan diagnosticRepairPlan) string {
+	if u.RepairExecution.Command == "doctor" && plan.Mutating {
+		return "━━━ Repair execution ━━━"
+	}
+	return u.recommendationSectionTitle()
 }
 
 func (u *UI) recommendationFooter() string {
@@ -344,6 +427,27 @@ func (u *UI) recommendationFooter() string {
 		return "  To apply approved repairs, rerun: hazmat doctor --fix"
 	}
 	return "  For repair planning, run: hazmat doctor. After repairs, rerun: hazmat check --full"
+}
+
+func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
+	if u.RepairExecution.Command != "doctor" {
+		return u.recommendationFooter()
+	}
+	switch plan.Execution.Mode {
+	case "plan-only":
+		return "  To apply approved repairs, rerun: hazmat doctor --fix"
+	case "blocked-noninteractive":
+		return "  Repair execution is blocked; rerun: hazmat doctor --fix --yes"
+	case "declined":
+		return "  No repairs were applied. Rerun hazmat doctor --fix to approve execution."
+	case "fix-yes", "fix-interactive":
+		if len(plan.FailedVerifications) > 0 {
+			return "  Some repairs did not verify. Inspect the evidence above before retrying the same repair."
+		}
+		return "  After approved repairs, rerun: hazmat check --full"
+	default:
+		return u.recommendationFooter()
+	}
 }
 
 func (u *UI) recommendations() []uiRecommendation {
@@ -377,16 +481,20 @@ func recommendationForFinding(f uiFinding) uiRecommendation {
 	}
 }
 
-func (u *UI) printJSONReport() {
+func (u *UI) printJSONReport(plan diagnosticRepairPlan) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(u.diagnosticReport()); err != nil {
+	if err := enc.Encode(u.diagnosticReportWithRepairPlan(plan)); err != nil {
 		fmt.Fprintf(os.Stderr, "emit diagnostic report JSON: %v\n", err)
 	}
 }
 
 func (u *UI) diagnosticReport() uiDiagnosticReport {
+	return u.diagnosticReportWithRepairPlan(u.diagnosticRepairPlan())
+}
+
+func (u *UI) diagnosticReportWithRepairPlan(plan diagnosticRepairPlan) uiDiagnosticReport {
 	recommendations := u.recommendations()
 	return uiDiagnosticReport{
 		FormatVersion:   1,
@@ -395,7 +503,7 @@ func (u *UI) diagnosticReport() uiDiagnosticReport {
 		Totals:          uiDiagnosticTotals{Pass: u.Pass, Fail: u.Fail, Warn: u.Warn, Skip: u.Skip},
 		Findings:        diagnosticFindingJSONs(u.findings),
 		Recommendations: diagnosticRecommendationJSONs(recommendations),
-		RepairPlan:      planDiagnosticRepairs(u.findings, recommendations, u.RepairExecution),
+		RepairPlan:      plan,
 	}
 }
 

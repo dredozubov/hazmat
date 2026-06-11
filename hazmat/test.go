@@ -34,7 +34,7 @@ func runTest(options diagnostics.CheckOptions) error {
 		Command:     options.Command,
 		Fix:         options.Fix,
 		YesAll:      flagYesAll,
-		Interactive: ui.IsInteractive(),
+		Interactive: ui.IsInteractive() && !ui.JSON,
 	}
 	return diagnostics.RunCheck(options.Quick, diagnostics.CheckSuite{
 		Begin: func(quick bool) (diagnostics.CheckContext, error) {

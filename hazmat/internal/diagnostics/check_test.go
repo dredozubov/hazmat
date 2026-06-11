@@ -79,6 +79,22 @@ func TestDoctorCommandFixFlag(t *testing.T) {
 	}
 }
 
+func TestDoctorCommandJSONFixFlags(t *testing.T) {
+	var gotOptions CheckOptions
+	cmd := NewDoctorCommand(func(options CheckOptions) error {
+		gotOptions = options
+		return nil
+	})
+	cmd.SetArgs([]string{"--json", "--fix"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if gotOptions.Command != "doctor" || !gotOptions.JSON || !gotOptions.Fix {
+		t.Fatalf("options = %+v, want doctor json fix", gotOptions)
+	}
+}
+
 func TestDoctorCommandFullDisablesQuickMode(t *testing.T) {
 	var gotQuick = true
 	cmd := NewDoctorCommand(func(options CheckOptions) error {
