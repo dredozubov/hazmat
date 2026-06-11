@@ -115,6 +115,12 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	if len(plan.Items) != 1 || plan.Items[0].RepairAction != "repair.agent-shell.umask" {
 		t.Fatalf("plan items = %+v, want umask repair item", plan.Items)
 	}
+	if !plan.Items[0].ExecutableByHazmat || !plan.Items[0].Privileged || plan.Items[0].Authority != string(diagnosticRepairAuthorityRoot) {
+		t.Fatalf("plan item governance = %+v, want executable privileged root repair", plan.Items[0])
+	}
+	if len(plan.Items[0].Preconditions) == 0 || len(plan.Items[0].TestObligations) == 0 {
+		t.Fatalf("plan item governance = %+v, want preconditions and test obligations", plan.Items[0])
+	}
 	if len(plan.ManualItems) != 1 || plan.ManualItems[0].Status != string(diagnosticRepairManualExternal) {
 		t.Fatalf("manual items = %+v, want docker manual item", plan.ManualItems)
 	}

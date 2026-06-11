@@ -136,20 +136,28 @@ type uiDiagnosticRepairPlan struct {
 }
 
 type uiDiagnosticRepairPlanItem struct {
-	Key              string   `json:"key"`
-	Status           string   `json:"status"`
-	Severity         string   `json:"severity"`
-	FindingID        string   `json:"finding_id,omitempty"`
-	ResourceID       string   `json:"resource_id,omitempty"`
-	Repairability    string   `json:"repairability,omitempty"`
-	Title            string   `json:"title"`
-	Action           string   `json:"action"`
-	RepairAction     string   `json:"repair_action,omitempty"`
-	RepairReceipt    string   `json:"repair_receipt,omitempty"`
-	Verification     string   `json:"verification,omitempty"`
-	RollbackBoundary string   `json:"rollback_boundary,omitempty"`
-	Details          []string `json:"details,omitempty"`
-	Reason           string   `json:"reason,omitempty"`
+	Key                string   `json:"key"`
+	Status             string   `json:"status"`
+	Severity           string   `json:"severity"`
+	FindingID          string   `json:"finding_id,omitempty"`
+	ResourceID         string   `json:"resource_id,omitempty"`
+	Repairability      string   `json:"repairability,omitempty"`
+	Title              string   `json:"title"`
+	Action             string   `json:"action"`
+	Authority          string   `json:"authority,omitempty"`
+	Approval           string   `json:"approval,omitempty"`
+	ExecutableByHazmat bool     `json:"executable_by_hazmat"`
+	Privileged         bool     `json:"privileged"`
+	Reversibility      string   `json:"reversibility,omitempty"`
+	Preconditions      []string `json:"preconditions,omitempty"`
+	TestObligations    []string `json:"test_obligations,omitempty"`
+	RepairAction       string   `json:"repair_action,omitempty"`
+	RepairReceipt      string   `json:"repair_receipt,omitempty"`
+	Verification       string   `json:"verification,omitempty"`
+	RollbackBoundary   string   `json:"rollback_boundary,omitempty"`
+	RollbackModel      string   `json:"rollback_model,omitempty"`
+	Details            []string `json:"details,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
 }
 
 type uiDiagnosticRepairReceipt struct {
@@ -522,21 +530,36 @@ func diagnosticRepairPlanJSON(findings []uiFinding, recommendations []uiRecommen
 
 func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) uiDiagnosticRepairPlanItem {
 	def := rec.Definition
-	return uiDiagnosticRepairPlanItem{
-		Key:              rec.Key,
-		Status:           "planned",
-		Severity:         rec.Severity.Label(),
-		FindingID:        string(def.ID),
-		ResourceID:       string(def.Resource),
-		Repairability:    string(def.Repairability),
-		Title:            rec.Title,
-		Action:           rec.Action,
-		RepairAction:     string(def.RepairAction),
-		RepairReceipt:    string(def.RepairReceipt),
-		Verification:     string(def.Verification),
-		RollbackBoundary: def.RollbackBoundary,
-		Details:          append([]string(nil), rec.Details...),
+	policy, _ := diagnosticRepairClassPolicyFor(def.Repairability)
+	item := uiDiagnosticRepairPlanItem{
+		Key:                rec.Key,
+		Status:             "planned",
+		Severity:           rec.Severity.Label(),
+		FindingID:          string(def.ID),
+		ResourceID:         string(def.Resource),
+		Repairability:      string(def.Repairability),
+		Title:              rec.Title,
+		Action:             rec.Action,
+		Authority:          string(policy.Authority),
+		Approval:           string(policy.Approval),
+		ExecutableByHazmat: policy.ExecutableByHazmat,
+		Preconditions:      append([]string(nil), policy.Preconditions...),
+		TestObligations:    append([]string(nil), policy.TestObligations...),
+		RepairAction:       string(def.RepairAction),
+		RepairReceipt:      string(def.RepairReceipt),
+		Verification:       string(def.Verification),
+		RollbackBoundary:   def.RollbackBoundary,
+		RollbackModel:      policy.RollbackModel,
+		Details:            append([]string(nil), rec.Details...),
 	}
+	if action, ok := diagnosticRepairAction(def.RepairAction); ok {
+		item.Authority = string(action.Authority)
+		item.Privileged = action.Privileged
+		item.Reversibility = string(action.Reversibility)
+		item.Preconditions = append([]string(nil), action.Preconditions...)
+		item.TestObligations = append([]string(nil), action.TestObligations...)
+	}
+	return item
 }
 
 func highestSeverity(a, b uiFindingSeverity) uiFindingSeverity {
