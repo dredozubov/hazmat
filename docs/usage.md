@@ -472,14 +472,16 @@ hazmat opencode -C ~/workspace/proj
 ```bash
 hazmat                          # shows setup progress checklist
 hazmat status                   # same thing
-hazmat check                    # run verification suite with recommended fixes
-hazmat doctor                   # same diagnostics, framed as repair guidance
+hazmat check                    # read-only health and repairability report
+hazmat doctor                   # same diagnostics, framed as a repair plan
 hazmat check --full             # include live network probes
 ```
 
 `hazmat check` validates the current local Hazmat install and containment
-behavior and ends with recommended next actions for any failures or warnings.
-`hazmat doctor` runs the same diagnostics under repair-oriented command naming.
+behavior without mutating host state. It reports typed findings, repairability,
+and the next command to run. `hazmat doctor` runs the same diagnostics under
+repair-oriented command naming and shows the typed repair plan. Plain
+`hazmat doctor` is plan-only; applying repairs requires `hazmat doctor --fix`.
 Neither command is the full repo test suite. For lifecycle e2e, self-hosting,
 repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
 

@@ -312,7 +312,7 @@ func (u *UI) printRecommendations() {
 		return
 	}
 
-	cBold.Println("━━━ Recommended next actions ━━━")
+	cBold.Println(u.recommendationSectionTitle())
 	fmt.Println()
 	for i, rec := range recommendations {
 		colorForSeverity(rec.Severity).Printf("  %d. [%s] %s\n", i+1, rec.Severity.Label(), rec.Title)
@@ -325,8 +325,25 @@ func (u *UI) printRecommendations() {
 		}
 	}
 	fmt.Println()
-	cDim.Println("  After applying fixes, rerun: hazmat check --full")
+	cDim.Println(u.recommendationFooter())
 	fmt.Println()
+}
+
+func (u *UI) recommendationSectionTitle() string {
+	if u.RepairExecution.Command == "doctor" {
+		return "━━━ Repair plan preview ━━━"
+	}
+	return "━━━ Repairability report ━━━"
+}
+
+func (u *UI) recommendationFooter() string {
+	if u.RepairExecution.Command == "doctor" {
+		if u.RepairExecution.Fix {
+			return "  After approved repairs, rerun: hazmat check --full"
+		}
+		return "  To apply approved repairs, rerun: hazmat doctor --fix"
+	}
+	return "  For repair planning, run: hazmat doctor. After repairs, rerun: hazmat check --full"
 }
 
 func (u *UI) recommendations() []uiRecommendation {

@@ -45,8 +45,9 @@ func runTest(options diagnostics.CheckOptions) error {
 				cBold.Println("  └──────────────────────────────────────────────┘")
 				fmt.Println()
 				fmt.Println("  Modes:")
-				fmt.Println("    hazmat check          Quick checks (no external traffic)")
-				fmt.Println("    hazmat check --full   Full suite including live network probes")
+				fmt.Println("    hazmat check          Read-only health report (no external traffic)")
+				fmt.Println("    hazmat check --full   Read-only health report with live network probes")
+				fmt.Println("    hazmat doctor         Show the typed repair plan")
 				fmt.Println()
 			}
 
@@ -99,7 +100,7 @@ func testAgentUser(ui *UI) {
 
 	u, err := user.Lookup(agentUser)
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("User '%s' does not exist — run hazmat init first", agentUser))
+		ui.TestFail(fmt.Sprintf("User '%s' does not exist — baseline setup is missing; inspect setup repairs with hazmat doctor", agentUser))
 		return
 	}
 	ui.TestPass(fmt.Sprintf("User '%s' exists", agentUser))
@@ -483,7 +484,7 @@ func testDNSBlocklist(ui *UI) {
 	if err != nil || !strings.Contains(string(hosts), "AI Agent Blocklist") {
 		ui.TestFailFinding(
 			diagnosticFinding(findingDNSBlocklist),
-			"DNS blocklist not found in /etc/hosts — run hazmat init and enable the DNS blocklist",
+			"DNS blocklist not found in /etc/hosts — Hazmat-managed DNS blocklist is absent",
 		)
 		return
 	}
@@ -820,7 +821,7 @@ func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
 	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
-		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — run hazmat init", seatbeltWrapperPath))
+		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — baseline setup is incomplete", seatbeltWrapperPath))
 	} else if info.Mode()&0o111 == 0 {
 		ui.TestFail(fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath))
 	} else {
@@ -1069,7 +1070,8 @@ func testProjectToolchain(ui *UI) {
 	}
 	ui.TestPass(fmt.Sprintf("Active integrations: %s", strings.Join(names, ", ")))
 
-	// Run integration resolution (includes Homebrew ACL repair).
+	// Run integration resolution to inspect toolchain paths. Check mode is
+	// read-only, so any returned session mutations are only reported here.
 	resolved, _, err := resolveRuntimeIntegrations(projectDir, integrations)
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("Integration resolution failed: %v", err))
@@ -1120,14 +1122,14 @@ func testProjectToolchain(ui *UI) {
 		if out, err := asAgentOutput("bash", "-c", "command -v golangci-lint 2>/dev/null"); err == nil && out != "" {
 			ui.TestPass(fmt.Sprintf("golangci-lint: found at %s", out))
 		} else {
-			// Try to resolve and repair via Homebrew path.
-			lintPath := resolveAndRepairHomebrewTool("golangci-lint")
+			// Try a read-only Homebrew opt/ lookup before reporting drift.
+			lintPath := resolveHomebrewToolForAgent("golangci-lint")
 			if lintPath != "" {
-				ui.TestPass(fmt.Sprintf("golangci-lint: repaired Homebrew access at %s", lintPath))
+				ui.TestPass(fmt.Sprintf("golangci-lint: found via Homebrew and executable by agent at %s", lintPath))
 			} else {
 				ui.TestWarnFinding(
 					diagnosticFinding(findingGolangCILintAccess),
-					"golangci-lint: not accessible by agent (install via Homebrew or fix permissions)",
+					"golangci-lint: not accessible by agent (doctor can plan Homebrew permission repair or installation)",
 				)
 			}
 		}
@@ -1172,10 +1174,17 @@ func testProjectToolchain(ui *UI) {
 	}
 }
 
-// resolveAndRepairHomebrewTool tries to find a tool binary via Homebrew's opt/
-// prefix and apply ACL repair if needed.
-func resolveAndRepairHomebrewTool(tool string) string {
-	for _, prefix := range []string{"/opt/homebrew", "/usr/local"} {
+// resolveHomebrewToolForAgent finds a Homebrew opt/ tool that is already
+// executable by the agent. It never repairs permissions; check mode is read-only.
+func resolveHomebrewToolForAgent(tool string) string {
+	return resolveHomebrewToolForAgentInPrefixes(tool, []string{"/opt/homebrew", "/usr/local"}, pathExecutableByAgent)
+}
+
+func resolveHomebrewToolForAgentInPrefixes(tool string, prefixes []string, executableByAgent func(string) bool) string {
+	if tool == "" || strings.ContainsRune(tool, os.PathSeparator) || executableByAgent == nil {
+		return ""
+	}
+	for _, prefix := range prefixes {
 		optPath := filepath.Join(prefix, "opt", tool)
 		resolved, err := filepath.EvalSymlinks(optPath)
 		if err != nil {
@@ -1185,10 +1194,7 @@ func resolveAndRepairHomebrewTool(tool string) string {
 		if _, err := os.Stat(binPath); err != nil {
 			continue
 		}
-		if pathExecutableByAgent(binPath) {
-			return binPath
-		}
-		if repairHomebrewToolAccess(resolved) && pathExecutableByAgent(binPath) {
+		if executableByAgent(binPath) {
 			return binPath
 		}
 	}
@@ -1318,7 +1324,7 @@ func testLocalSnapshot(ui *UI) {
 	if _, err := os.Stat(localConfigFile); err == nil {
 		ui.TestPass(fmt.Sprintf("local snapshot repo configured at %s", localRepoDir))
 	} else {
-		ui.TestWarn(fmt.Sprintf("local snapshot repo not found at %s — run hazmat init to create it", localRepoDir))
+		ui.TestWarn(fmt.Sprintf("local snapshot repo not found at %s — local backup setup is absent", localRepoDir))
 	}
 }
 

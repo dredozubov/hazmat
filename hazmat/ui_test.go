@@ -61,10 +61,28 @@ func TestUIRecommendationsUseTypedAction(t *testing.T) {
 func TestUIRecommendationsIgnoreUntypedMessages(t *testing.T) {
 	ui := &UI{}
 	ui.stepLabel = "Hardening gaps"
-	ui.recordFinding(uiFindingWarning, "umask 007 not found in agent's .zshrc — run hazmat init")
+	ui.recordFinding(uiFindingWarning, "umask 007 not found in agent's .zshrc")
 
 	if recommendations := ui.recommendations(); len(recommendations) != 0 {
 		t.Fatalf("recommendations = %#v, want none for untyped message", recommendations)
+	}
+}
+
+func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
+	checkUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "check"}}
+	if got := checkUI.recommendationSectionTitle(); got != "━━━ Repairability report ━━━" {
+		t.Fatalf("check title = %q", got)
+	}
+	if got := checkUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor") {
+		t.Fatalf("check footer = %q, want doctor pointer", got)
+	}
+
+	doctorUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "doctor"}}
+	if got := doctorUI.recommendationSectionTitle(); got != "━━━ Repair plan preview ━━━" {
+		t.Fatalf("doctor title = %q", got)
+	}
+	if got := doctorUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor --fix") {
+		t.Fatalf("doctor footer = %q, want --fix pointer", got)
 	}
 }
 
