@@ -55,7 +55,8 @@ make e2e-vm        # same test inside an isolated Lume VM (no system changes)
 
 ```bash
 make test                    # unit tests
-hazmat check                 # integration: verify setup
+hazmat check                 # integration: verify setup and recommended fixes
+hazmat doctor                # same diagnostics, repair-oriented naming
 hazmat check --full          # include live network probes
 ./scripts/e2e.sh             # full lifecycle: init → containment → snapshot → restore → rollback
 ```

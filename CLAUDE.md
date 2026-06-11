@@ -101,7 +101,8 @@ assets/                  Brand images
 ```bash
 make all                 # builds hazmat + hazmat-launch (cgo) with version from git
 make test                # unit tests
-./hazmat/hazmat check    # integration tests
+./hazmat/hazmat check    # integration tests with recommended fixes
+./hazmat/hazmat doctor   # same diagnostics, repair-oriented naming
 ./hazmat/hazmat check --full    # include live network probes
 ```
 
