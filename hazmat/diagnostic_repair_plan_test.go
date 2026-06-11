@@ -36,6 +36,12 @@ func TestPlanDiagnosticRepairsBuildsConsentRepairItem(t *testing.T) {
 	if item.SafetyRationale == "" {
 		t.Fatal("missing safety rationale")
 	}
+	if len(item.ProofLanes) == 0 || item.ProofNotes == "" {
+		t.Fatalf("proof metadata = lanes %v notes %q, want declared proof lane", item.ProofLanes, item.ProofNotes)
+	}
+	if !containsPlanString(item.ProofLanes, string(diagnosticRepairProofTLASetupRollback)) {
+		t.Fatalf("proof lanes = %v, want setup/rollback TLA lane", item.ProofLanes)
+	}
 	if item.SourceTrust != "hazmat-typed-registry" || !containsPlanString(item.Guardrails, "generated-repair-plan") {
 		t.Fatalf("item trust = %q guardrails=%v", item.SourceTrust, item.Guardrails)
 	}

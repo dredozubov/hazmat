@@ -5,6 +5,7 @@ import "fmt"
 type diagnosticRepairAuthority string
 type diagnosticRepairApprovalModel string
 type diagnosticRepairReversibility string
+type diagnosticRepairProofLane string
 
 const (
 	diagnosticRepairAuthorityNone            diagnosticRepairAuthority = "none"
@@ -22,6 +23,17 @@ const (
 
 	diagnosticRepairReversibleByReceipt diagnosticRepairReversibility = "reversible-by-receipt"
 	diagnosticRepairBoundedRollback     diagnosticRepairReversibility = "bounded-rollback"
+
+	diagnosticRepairProofUnitTests                   diagnosticRepairProofLane = "tests.unit"
+	diagnosticRepairProofDirtyStateConvergence       diagnosticRepairProofLane = "tests.dirty-state-convergence"
+	diagnosticRepairProofVerifyAfterAction           diagnosticRepairProofLane = "tests.verify-after-action"
+	diagnosticRepairProofClassification              diagnosticRepairProofLane = "tests.classification"
+	diagnosticRepairProofGuardedRealHostSmoke        diagnosticRepairProofLane = "tests.guarded-real-host-smoke"
+	diagnosticRepairProofSecretScan                  diagnosticRepairProofLane = "tests.secret-scan"
+	diagnosticRepairProofTLASetupRollback            diagnosticRepairProofLane = "tla.MC_SetupRollback"
+	diagnosticRepairProofTLASessionPermissionRepairs diagnosticRepairProofLane = "tla.MC_SessionPermissionRepairs"
+	diagnosticRepairProofTLACredentialCapability     diagnosticRepairProofLane = "tla.MC_CredentialCapabilityLifecycle"
+	diagnosticRepairProofTLASecretStoreRecovery      diagnosticRepairProofLane = "tla.MC_SecretStoreRecovery"
 )
 
 type diagnosticRepairClassPolicy struct {
@@ -32,6 +44,8 @@ type diagnosticRepairClassPolicy struct {
 	RollbackModel      string
 	Preconditions      []string
 	TestObligations    []string
+	ProofLanes         []diagnosticRepairProofLane
+	ProofNotes         string
 }
 
 type diagnosticRepairActionDefinition struct {
@@ -45,6 +59,8 @@ type diagnosticRepairActionDefinition struct {
 	Verification     diagnosticVerificationID
 	RollbackBoundary string
 	TestObligations  []string
+	ProofLanes       []diagnosticRepairProofLane
+	ProofNotes       string
 }
 
 var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepairClassPolicy{
@@ -56,6 +72,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "only for idempotent, non-privileged changes with receipts and verification",
 		Preconditions:      []string{"typed finding", "non-privileged action", "receipt target", "verification target"},
 		TestObligations:    []string{"unit coverage", "idempotence test", "verify-after-action test"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:         "Auto repairs rely on executable tests unless the action touches a verified subsystem, in which case the action-specific lanes add the required TLA spec.",
 	},
 	diagnosticRepairConsent: {
 		Repairability:      diagnosticRepairConsent,
@@ -65,6 +83,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "requires explicit rollback boundary and receipt before mutation",
 		Preconditions:      []string{"typed finding", "user consent", "authority preflight", "receipt target", "verification target"},
 		TestObligations:    []string{"unit coverage", "dirty-state convergence test", "verify-after-action test"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:         "Consent only authorizes execution; action-specific lanes still decide which TLA spec must be updated or rerun before implementation.",
 	},
 	diagnosticRepairManualExternal: {
 		Repairability:      diagnosticRepairManualExternal,
@@ -74,6 +94,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "external system owner controls rollback",
 		Preconditions:      []string{"typed finding", "manual owner identified"},
 		TestObligations:    []string{"classification coverage", "no executable repair action"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofClassification},
+		ProofNotes:         "Manual-external findings stay outside the executor and are tested as classifications.",
 	},
 	diagnosticRepairUnsupported: {
 		Repairability:      diagnosticRepairUnsupported,
@@ -83,6 +105,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "unsupported until a backend adapter or repair action exists",
 		Preconditions:      []string{"typed finding", "unsupported boundary documented"},
 		TestObligations:    []string{"classification coverage", "no executable repair action"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofClassification},
+		ProofNotes:         "Unsupported findings cannot gain execution until a typed action and proof lane are added.",
 	},
 	diagnosticRepairOptional: {
 		Repairability:      diagnosticRepairOptional,
@@ -92,6 +116,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "optional capability outside containment repair",
 		Preconditions:      []string{"typed finding", "workflow need confirmed"},
 		TestObligations:    []string{"classification coverage", "not included in containment repair plan"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofClassification},
+		ProofNotes:         "Optional findings are not containment repairs and stay out of automatic execution.",
 	},
 	diagnosticRepairInformational: {
 		Repairability:      diagnosticRepairInformational,
@@ -101,6 +127,8 @@ var diagnosticRepairClassPolicies = map[diagnosticRepairability]diagnosticRepair
 		RollbackModel:      "no mutation",
 		Preconditions:      []string{"typed finding"},
 		TestObligations:    []string{"classification coverage", "not included in containment repair plan"},
+		ProofLanes:         []diagnosticRepairProofLane{diagnosticRepairProofClassification},
+		ProofNotes:         "Informational findings carry no mutation proof obligation.",
 	},
 }
 
@@ -116,6 +144,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.workspace.setgid",
 		RollbackBoundary: "setup.workspace-permissions",
 		TestObligations:  []string{"workspace permission unit tests", "init-check convergence fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "This changes setup-owned project permissions; executor/init wiring must update or rerun MC_SetupRollback and cover init/check convergence.",
 	},
 	"repair.workspace.access": {
 		ID:               "repair.workspace.access",
@@ -128,6 +158,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.workspace.access",
 		RollbackBoundary: "setup.workspace-permissions",
 		TestObligations:  []string{"workspace ACL unit tests", "dirty workspace convergence fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofTLASessionPermissionRepairs, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Workspace ACL repair crosses setup-owned permissions and session-time permission-repair semantics; both TLA boundaries must stay aligned.",
 	},
 	"repair.agent-home.permissions": {
 		ID:               "repair.agent-home.permissions",
@@ -140,6 +172,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.agent-home.permissions",
 		RollbackBoundary: "setup.agent-account",
 		TestObligations:  []string{"agent-home permission unit tests", "rollback boundary regression"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Agent-home baseline permissions are setup-account state; new executor behavior must be reflected in setup/rollback semantics before mutation.",
 	},
 	"repair.agent-shell.umask": {
 		ID:               "repair.agent-shell.umask",
@@ -152,6 +186,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.agent-shell.umask",
 		RollbackBoundary: "setup.agent-shell",
 		TestObligations:  []string{"managed block unit tests", "idempotent init/check fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Managed shell-block repair is setup-owned state; TLA covers ordering and rollback boundary while convergence tests cover the init/check loop.",
 	},
 	"repair.network.pf": {
 		ID:               "repair.network.pf",
@@ -164,6 +200,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.network.pf",
 		RollbackBoundary: "setup.network-pf",
 		TestObligations:  []string{"pf config unit tests", "static firewall verification fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofGuardedRealHostSmoke, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "PF repair changes setup-owned network containment state; TLA governs privilege/containment ordering and guarded smoke tests cover real host behavior.",
 	},
 	"repair.network.dns-blocklist": {
 		ID:               "repair.network.dns-blocklist",
@@ -176,6 +214,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.network.dns-blocklist",
 		RollbackBoundary: "setup.network-dns-blocklist",
 		TestObligations:  []string{"hosts block unit tests", "DNS blocklist verification fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofGuardedRealHostSmoke, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "DNS blocklist repair changes setup-owned network state; TLA governs setup/rollback boundaries and tests cover concrete hosts-file edits.",
 	},
 	"repair.network.persistence": {
 		ID:               "repair.network.persistence",
@@ -188,6 +228,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.network.persistence",
 		RollbackBoundary: "setup.network-persistence",
 		TestObligations:  []string{"launchd plist unit tests", "persistence verification fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofGuardedRealHostSmoke, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "LaunchDaemon persistence is setup-owned containment state; TLA must cover ordering and rollback scope before doctor/init can mutate it.",
 	},
 	"repair.credential.claude-state": {
 		ID:               "repair.credential.claude-state",
@@ -200,6 +242,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.credential.claude-state",
 		RollbackBoundary: "credentials.host-secret-store",
 		TestObligations:  []string{"credential inventory regression", "secret redaction test"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLACredentialCapability, diagnosticRepairProofTLASecretStoreRecovery, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofSecretScan, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Claude credential-state repair must preserve host-owned secret-store and no-agent-residue guarantees.",
 	},
 	"repair.credential.cloud-secret-key": {
 		ID:               "repair.credential.cloud-secret-key",
@@ -212,6 +256,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.credential.cloud-secret-key",
 		RollbackBoundary: "credentials.host-secret-store",
 		TestObligations:  []string{"credential inventory regression", "secret pattern scan"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLACredentialCapability, diagnosticRepairProofTLASecretStoreRecovery, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofSecretScan, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Cloud credential migration is credential-capability reconciliation, not setup migration; concrete parsing stays in tests and secret scans.",
 	},
 	"repair.credential.residue": {
 		ID:               "repair.credential.residue",
@@ -224,6 +270,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.credential.residue",
 		RollbackBoundary: "credentials.host-secret-store",
 		TestObligations:  []string{"credential inventory regression", "secret redaction test"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLACredentialCapability, diagnosticRepairProofTLASecretStoreRecovery, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofSecretScan, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "Residue cleanup must retain latest host-owned credential material or conflict archives while removing stale agent-side residue.",
 	},
 	"repair.claude.project-permissions": {
 		ID:               "repair.claude.project-permissions",
@@ -236,6 +284,8 @@ var diagnosticRepairActionDefinitions = map[diagnosticRepairActionID]diagnosticR
 		Verification:     "verify.claude.project-permissions",
 		RollbackBoundary: "agent-home.claude-projects",
 		TestObligations:  []string{"Claude project permission unit tests", "resume/export dirty-state fixture"},
+		ProofLanes:       []diagnosticRepairProofLane{diagnosticRepairProofTLASessionPermissionRepairs, diagnosticRepairProofUnitTests, diagnosticRepairProofDirtyStateConvergence, diagnosticRepairProofVerifyAfterAction},
+		ProofNotes:       "This is a host permission repair class; MC_SessionPermissionRepairs must explicitly cover or be extended before executor mutation is enabled.",
 	},
 }
 
@@ -247,6 +297,32 @@ func diagnosticRepairClassPolicyFor(repairability diagnosticRepairability) (diag
 func diagnosticRepairAction(id diagnosticRepairActionID) (diagnosticRepairActionDefinition, bool) {
 	def, ok := diagnosticRepairActionDefinitions[id]
 	return def, ok
+}
+
+func diagnosticRepairProofLaneStrings(lanes []diagnosticRepairProofLane) []string {
+	out := make([]string, 0, len(lanes))
+	for _, lane := range lanes {
+		out = append(out, string(lane))
+	}
+	return out
+}
+
+func validDiagnosticRepairProofLane(lane diagnosticRepairProofLane) bool {
+	switch lane {
+	case diagnosticRepairProofUnitTests,
+		diagnosticRepairProofDirtyStateConvergence,
+		diagnosticRepairProofVerifyAfterAction,
+		diagnosticRepairProofClassification,
+		diagnosticRepairProofGuardedRealHostSmoke,
+		diagnosticRepairProofSecretScan,
+		diagnosticRepairProofTLASetupRollback,
+		diagnosticRepairProofTLASessionPermissionRepairs,
+		diagnosticRepairProofTLACredentialCapability,
+		diagnosticRepairProofTLASecretStoreRecovery:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p diagnosticRepairClassPolicy) Validate() error {
@@ -267,6 +343,17 @@ func (p diagnosticRepairClassPolicy) Validate() error {
 	}
 	if len(p.TestObligations) == 0 {
 		return fmt.Errorf("%s: missing test obligations", p.Repairability)
+	}
+	if len(p.ProofLanes) == 0 {
+		return fmt.Errorf("%s: missing proof lanes", p.Repairability)
+	}
+	for _, lane := range p.ProofLanes {
+		if !validDiagnosticRepairProofLane(lane) {
+			return fmt.Errorf("%s: unknown proof lane %q", p.Repairability, lane)
+		}
+	}
+	if p.ProofNotes == "" {
+		return fmt.Errorf("%s: missing proof notes", p.Repairability)
 	}
 	return nil
 }
@@ -298,6 +385,17 @@ func (a diagnosticRepairActionDefinition) Validate() error {
 	}
 	if len(a.TestObligations) == 0 {
 		return fmt.Errorf("%s: missing test obligations", a.ID)
+	}
+	if len(a.ProofLanes) == 0 {
+		return fmt.Errorf("%s: missing proof lanes", a.ID)
+	}
+	for _, lane := range a.ProofLanes {
+		if !validDiagnosticRepairProofLane(lane) {
+			return fmt.Errorf("%s: unknown proof lane %q", a.ID, lane)
+		}
+	}
+	if a.ProofNotes == "" {
+		return fmt.Errorf("%s: missing proof notes", a.ID)
 	}
 	return nil
 }

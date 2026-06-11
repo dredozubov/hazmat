@@ -32,6 +32,8 @@ type diagnosticRepairPlanItem struct {
 	Reversibility      string   `json:"reversibility,omitempty"`
 	Preconditions      []string `json:"preconditions,omitempty"`
 	TestObligations    []string `json:"test_obligations,omitempty"`
+	ProofLanes         []string `json:"proof_lanes,omitempty"`
+	ProofNotes         string   `json:"proof_notes,omitempty"`
 	RepairAction       string   `json:"repair_action,omitempty"`
 	RepairReceipt      string   `json:"repair_receipt,omitempty"`
 	Verification       string   `json:"verification,omitempty"`
@@ -135,6 +137,8 @@ func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) diagnosticR
 		ExecutableByHazmat: policy.ExecutableByHazmat,
 		Preconditions:      append([]string(nil), policy.Preconditions...),
 		TestObligations:    append([]string(nil), policy.TestObligations...),
+		ProofLanes:         diagnosticRepairProofLaneStrings(policy.ProofLanes),
+		ProofNotes:         policy.ProofNotes,
 		RepairAction:       string(def.RepairAction),
 		RepairReceipt:      string(def.RepairReceipt),
 		Verification:       string(def.Verification),
@@ -149,6 +153,8 @@ func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) diagnosticR
 		item.Reversibility = string(action.Reversibility)
 		item.Preconditions = append([]string(nil), action.Preconditions...)
 		item.TestObligations = append([]string(nil), action.TestObligations...)
+		item.ProofLanes = diagnosticRepairProofLaneStrings(action.ProofLanes)
+		item.ProofNotes = action.ProofNotes
 	}
 	if def.Repairability == diagnosticRepairConsent {
 		item.ConsentPrompt = "Apply repair: " + def.Title + "?"
