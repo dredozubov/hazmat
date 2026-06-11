@@ -542,9 +542,9 @@ func reportCredentialInventoryEntry(ui *UI, entry credentialInventoryEntry) {
 	case credentialInventoryNotConfigured:
 		ui.TestSkip(line)
 	case credentialInventoryAdapterRequired:
-		ui.TestWarn(line)
+		ui.TestWarnWithAction(line, "Do not rely on this credential path until Hazmat has a backend adapter for it, or use a supported credential backend.")
 	case credentialInventoryNeedsRepair:
-		ui.TestWarn(line)
+		ui.TestWarnWithAction(line, strings.Join(entry.RepairHints(), "; "))
 		for _, finding := range entry.AgentResidue {
 			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
 		}

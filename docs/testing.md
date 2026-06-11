@@ -10,7 +10,7 @@ are not interchangeable.
 | Surface | What it answers | Runs where | Destructive? |
 | --- | --- | --- | --- |
 | `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
-| `hazmat check` | Is this local Hazmat install healthy right now? | Host | No |
+| `hazmat check` / `hazmat doctor` | Is this local Hazmat install healthy right now, and what should I fix next? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/pre-release-local.sh` | Local release gate, including fast checks and hermetic all-harness synthetic e2e smoke | Host | No |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
