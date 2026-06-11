@@ -47,10 +47,19 @@ type diagnosticRepairPlanItem struct {
 }
 
 type diagnosticRepairReceipt struct {
-	ID        string `json:"id"`
-	Action    string `json:"action"`
-	Verified  bool   `json:"verified"`
-	CreatedAt string `json:"created_at,omitempty"`
+	ID               string   `json:"id"`
+	Action           string   `json:"action"`
+	ResourceID       string   `json:"resource_id,omitempty"`
+	ResourceOwner    string   `json:"resource_owner,omitempty"`
+	Authority        string   `json:"authority,omitempty"`
+	Reversibility    string   `json:"reversibility,omitempty"`
+	Verification     string   `json:"verification,omitempty"`
+	RollbackBoundary string   `json:"rollback_boundary,omitempty"`
+	RollbackModel    string   `json:"rollback_model,omitempty"`
+	ProofLanes       []string `json:"proof_lanes,omitempty"`
+	Details          []string `json:"details,omitempty"`
+	Verified         bool     `json:"verified"`
+	CreatedAt        string   `json:"created_at,omitempty"`
 }
 
 type diagnosticVerificationFailure struct {

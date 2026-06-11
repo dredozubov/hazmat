@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExecuteDiagnosticRepairPlanRequiresMutationPolicy(t *testing.T) {
@@ -44,6 +45,31 @@ func TestExecuteDiagnosticRepairPlanAppliesAndVerifies(t *testing.T) {
 	}
 	if len(executed.AppliedReceipts) != 1 || !executed.AppliedReceipts[0].Verified {
 		t.Fatalf("receipts = %+v, want verified receipt", executed.AppliedReceipts)
+	}
+	receipt := executed.AppliedReceipts[0]
+	if receipt.ID != "receipt.agent-shell.umask" || receipt.Action != "repair.agent-shell.umask" {
+		t.Fatalf("receipt identity = %+v, want umask repair receipt", receipt)
+	}
+	if receipt.ResourceID != "agent-shell.umask" || receipt.ResourceOwner != "setup.agent-shell" {
+		t.Fatalf("receipt resource = %+v, want agent shell owner", receipt)
+	}
+	if receipt.Authority != string(diagnosticRepairAuthorityRoot) || receipt.Reversibility != string(diagnosticRepairReversibleByReceipt) {
+		t.Fatalf("receipt authority = %+v, want root reversible receipt", receipt)
+	}
+	if receipt.Verification != "verify.agent-shell.umask" || receipt.RollbackBoundary != "setup.agent-shell" {
+		t.Fatalf("receipt rollback contract = %+v, want umask verification and rollback boundary", receipt)
+	}
+	if receipt.RollbackModel == "" {
+		t.Fatalf("receipt rollback model empty: %+v", receipt)
+	}
+	if !containsPlanString(receipt.ProofLanes, string(diagnosticRepairProofTLASetupRollback)) {
+		t.Fatalf("receipt proof lanes = %v, want setup/rollback TLA lane", receipt.ProofLanes)
+	}
+	if !containsPlanString(receipt.Details, "applied managed umask block") || !containsPlanString(receipt.Details, "verified umask 007") {
+		t.Fatalf("receipt details = %v, want apply and verification evidence", receipt.Details)
+	}
+	if _, err := time.Parse(time.RFC3339, receipt.CreatedAt); err != nil {
+		t.Fatalf("receipt created_at = %q, want RFC3339 timestamp: %v", receipt.CreatedAt, err)
 	}
 	if len(executed.FailedVerifications) != 0 {
 		t.Fatalf("failed verifications = %+v, want none", executed.FailedVerifications)

@@ -1,6 +1,9 @@
 package hazmat
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	diagnosticRepairStatusRepaired     = "repaired"
@@ -63,14 +66,36 @@ func executeDiagnosticRepairPlan(plan diagnosticRepairPlan, backend diagnosticRe
 		item.Status = diagnosticRepairStatusRepaired
 		item.BlockedReason = ""
 		item.Reason = "verified after action"
-		plan.AppliedReceipts = append(plan.AppliedReceipts, diagnosticRepairReceipt{
-			ID:       item.RepairReceipt,
-			Action:   item.RepairAction,
-			Verified: true,
-		})
+		plan.AppliedReceipts = append(plan.AppliedReceipts, diagnosticRepairReceiptForItem(*item))
 	}
 
 	return plan
+}
+
+func diagnosticRepairReceiptForItem(item diagnosticRepairPlanItem) diagnosticRepairReceipt {
+	return diagnosticRepairReceipt{
+		ID:               item.RepairReceipt,
+		Action:           item.RepairAction,
+		ResourceID:       item.ResourceID,
+		ResourceOwner:    diagnosticRepairResourceOwner(item.ResourceID),
+		Authority:        item.Authority,
+		Reversibility:    item.Reversibility,
+		Verification:     item.Verification,
+		RollbackBoundary: item.RollbackBoundary,
+		RollbackModel:    item.RollbackModel,
+		ProofLanes:       append([]string(nil), item.ProofLanes...),
+		Details:          append([]string(nil), item.Details...),
+		Verified:         true,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func diagnosticRepairResourceOwner(resourceID string) string {
+	resource, ok := diagnosticResourceDefinitions[diagnosticResourceID(resourceID)]
+	if !ok {
+		return ""
+	}
+	return resource.Owner
 }
 
 func markDiagnosticRepairFailed(item *diagnosticRepairPlanItem, plan *diagnosticRepairPlan, verification string, details []string) {
