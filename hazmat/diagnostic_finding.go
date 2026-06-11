@@ -112,6 +112,13 @@ const (
 	findingWorkspaceAccess                diagnosticFindingID = "workspace.access"
 	findingAgentHomeReadable              diagnosticFindingID = "agent-home.host-readable"
 	findingAgentUmask                     diagnosticFindingID = "agent-shell.umask"
+	findingSetupAgentUser                 diagnosticFindingID = "setup.agent-user"
+	findingSetupAgentHome                 diagnosticFindingID = "setup.agent-home"
+	findingSetupHomeTraverse              diagnosticFindingID = "setup.home-traverse"
+	findingSetupSudoers                   diagnosticFindingID = "setup.sudoers"
+	findingSetupSeatbeltWrapper           diagnosticFindingID = "setup.seatbelt-wrapper"
+	findingSetupAgentEnv                  diagnosticFindingID = "setup.agent-env"
+	findingSetupHostWrappers              diagnosticFindingID = "setup.host-wrappers"
 	findingDockerSocketPermissions        diagnosticFindingID = "docker.socket-permissions"
 	findingPFFirewall                     diagnosticFindingID = "network.pf-firewall"
 	findingDNSBlocklist                   diagnosticFindingID = "network.dns-blocklist"
@@ -150,6 +157,41 @@ var diagnosticResourceDefinitions = map[diagnosticResourceID]diagnosticResourceD
 		ID:           "agent-shell.umask",
 		Owner:        "setup.agent-shell",
 		DesiredState: "agent shells create collaboration files with group access and without world access",
+	},
+	"setup.agent-user": {
+		ID:           "setup.agent-user",
+		Owner:        "setup.agent-account",
+		DesiredState: fmt.Sprintf("dedicated `%s` account exists with the expected hidden agent identity", agentUser),
+	},
+	"setup.agent-home": {
+		ID:           "setup.agent-home",
+		Owner:        "setup.agent-account",
+		DesiredState: fmt.Sprintf("agent home exists at `%s` with setup-owned baseline state", agentHome),
+	},
+	"setup.home-traverse": {
+		ID:           "setup.home-traverse",
+		Owner:        "setup.workspace",
+		DesiredState: fmt.Sprintf("the controlling user's home path lets `%s` traverse to project workspaces", agentUser),
+	},
+	"setup.sudoers": {
+		ID:           "setup.sudoers",
+		Owner:        "setup.privilege",
+		DesiredState: "narrow Hazmat sudoers entries allow only the launch-helper mediated command surface after containment is active",
+	},
+	"setup.seatbelt-wrapper": {
+		ID:           "setup.seatbelt-wrapper",
+		Owner:        "setup.seatbelt",
+		DesiredState: "the Hazmat seatbelt wrapper is installed and executable",
+	},
+	"setup.agent-env": {
+		ID:           "setup.agent-env",
+		Owner:        "setup.wrappers",
+		DesiredState: "agent shell environment files expose Hazmat-managed PATH and aliases",
+	},
+	"setup.host-wrappers": {
+		ID:           "setup.host-wrappers",
+		Owner:        "setup.wrappers",
+		DesiredState: "host-side wrappers are installed and executable from the controlling user PATH",
 	},
 	"docker.socket": {
 		ID:           "docker.socket",
@@ -281,6 +323,90 @@ var diagnosticFindingDefinitions = map[diagnosticFindingID]diagnosticFindingDefi
 		Verification:     "verify.agent-shell.umask",
 		SecurityImpact:   "Permissive defaults can create files that are broader than Hazmat's intended collaboration model.",
 		RollbackBoundary: "setup.agent-shell",
+	}),
+	findingSetupAgentUser: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupAgentUser,
+		Resource:         "setup.agent-user",
+		Title:            "Restore the dedicated agent account",
+		Repairability:    diagnosticRepairConsent,
+		Action:           fmt.Sprintf("Restore the `%s` account through Hazmat setup repair, then verify the account exists before privilege or wrapper checks continue.", agentUser),
+		RepairAction:     "repair.setup.agent-user",
+		RepairReceipt:    "receipt.setup.agent-user",
+		Verification:     "verify.setup.agent-user",
+		SecurityImpact:   "Missing agent account means containment cannot launch and downstream setup checks may report misleading secondary failures.",
+		RollbackBoundary: "setup.agent-account",
+	}),
+	findingSetupAgentHome: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupAgentHome,
+		Resource:         "setup.agent-home",
+		Title:            "Restore the agent home baseline",
+		Repairability:    diagnosticRepairConsent,
+		Action:           fmt.Sprintf("Restore `%s` through Hazmat setup repair, then verify the agent home baseline before launching agents.", agentHome),
+		RepairAction:     "repair.setup.agent-home",
+		RepairReceipt:    "receipt.setup.agent-home",
+		Verification:     "verify.setup.agent-home",
+		SecurityImpact:   "Missing agent home state prevents contained sessions and credential delivery from using the expected account boundary.",
+		RollbackBoundary: "setup.agent-account",
+	}),
+	findingSetupHomeTraverse: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupHomeTraverse,
+		Resource:         "setup.home-traverse",
+		Title:            "Restore host home traversal for workspaces",
+		Repairability:    diagnosticRepairConsent,
+		Action:           fmt.Sprintf("Restore the controlled traverse ACL that lets `%s` reach project workspaces, then verify workspace access directly.", agentUser),
+		RepairAction:     "repair.setup.home-traverse",
+		RepairReceipt:    "receipt.setup.home-traverse",
+		Verification:     "verify.setup.home-traverse",
+		SecurityImpact:   "Missing traversal makes init look complete while the agent cannot reach projects under the controlling user's home.",
+		RollbackBoundary: "setup.workspace-permissions",
+	}),
+	findingSetupSudoers: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupSudoers,
+		Resource:         "setup.sudoers",
+		Title:            "Restore the Hazmat sudoers launch path",
+		Repairability:    diagnosticRepairConsent,
+		Action:           "Restore Hazmat's narrow sudoers entries only after containment prerequisites verify, then verify the launch-helper mediated agent switch.",
+		RepairAction:     "repair.setup.sudoers",
+		RepairReceipt:    "receipt.setup.sudoers",
+		Verification:     "verify.setup.sudoers",
+		SecurityImpact:   "Broken sudoers prevents contained agent launches; premature or broad sudoers would weaken the setup/rollback containment ordering.",
+		RollbackBoundary: "setup.sudoers",
+	}),
+	findingSetupSeatbeltWrapper: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupSeatbeltWrapper,
+		Resource:         "setup.seatbelt-wrapper",
+		Title:            "Restore the seatbelt wrapper",
+		Repairability:    diagnosticRepairConsent,
+		Action:           "Restore the Hazmat seatbelt wrapper and verify it is executable before trusting native containment launches.",
+		RepairAction:     "repair.setup.seatbelt-wrapper",
+		RepairReceipt:    "receipt.setup.seatbelt-wrapper",
+		Verification:     "verify.setup.seatbelt-wrapper",
+		SecurityImpact:   "Missing seatbelt wrapper prevents macOS native policy enforcement for contained sessions.",
+		RollbackBoundary: "setup.seatbelt",
+	}),
+	findingSetupAgentEnv: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupAgentEnv,
+		Resource:         "setup.agent-env",
+		Title:            "Restore the agent shell environment",
+		Repairability:    diagnosticRepairConsent,
+		Action:           "Restore Hazmat's managed agent shell environment files, then verify contained shells see the expected PATH and aliases.",
+		RepairAction:     "repair.setup.agent-env",
+		RepairReceipt:    "receipt.setup.agent-env",
+		Verification:     "verify.setup.agent-env",
+		SecurityImpact:   "Missing agent shell environment breaks contained workflows and can make setup appear complete while launches are unusable.",
+		RollbackBoundary: "setup.wrappers",
+	}),
+	findingSetupHostWrappers: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupHostWrappers,
+		Resource:         "setup.host-wrappers",
+		Title:            "Restore the host command wrappers",
+		Repairability:    diagnosticRepairConsent,
+		Action:           "Restore Hazmat's host-side wrappers, then verify the controlling user can invoke contained command entrypoints.",
+		RepairAction:     "repair.setup.host-wrappers",
+		RepairReceipt:    "receipt.setup.host-wrappers",
+		Verification:     "verify.setup.host-wrappers",
+		SecurityImpact:   "Missing wrappers leave setup incomplete even when lower-level containment resources exist.",
+		RollbackBoundary: "setup.wrappers",
 	}),
 	findingDockerSocketPermissions: mustDiagnosticFinding(diagnosticFindingDefinition{
 		ID:             findingDockerSocketPermissions,

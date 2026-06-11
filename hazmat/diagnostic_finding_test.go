@@ -63,6 +63,27 @@ func TestRepairableDiagnosticFindingRequiresReceipt(t *testing.T) {
 	}
 }
 
+func TestSetupDiagnosticFindingsHaveRepairActions(t *testing.T) {
+	ids := []diagnosticFindingID{
+		findingSetupAgentUser,
+		findingSetupAgentHome,
+		findingSetupHomeTraverse,
+		findingSetupSudoers,
+		findingSetupSeatbeltWrapper,
+		findingSetupAgentEnv,
+		findingSetupHostWrappers,
+	}
+	for _, id := range ids {
+		def := diagnosticFinding(id)
+		if !def.IsHazmatRepairable() {
+			t.Fatalf("%s repairability = %s, want Hazmat-repairable setup finding", id, def.Repairability)
+		}
+		if _, ok := diagnosticRepairAction(def.RepairAction); !ok {
+			t.Fatalf("%s repair action %s missing action definition", id, def.RepairAction)
+		}
+	}
+}
+
 func TestDiagnosticFindingRejectsUnknownRepairability(t *testing.T) {
 	def := diagnosticFindingDefinition{
 		ID:             "test.unknown",

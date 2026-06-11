@@ -10,6 +10,14 @@ func TestDecideDiagnosticRepairExecutionCheckIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestDecideDiagnosticRepairExecutionInitIsPostVerification(t *testing.T) {
+	policy := decideDiagnosticRepairExecution(diagnosticRepairExecutionRequest{Command: "init", Fix: true, YesAll: true})
+
+	if policy.Mode != "post-init-verify" || policy.MutationAllowed || policy.RequiresFix || policy.RequiresYes {
+		t.Fatalf("policy = %+v, want read-only post-init verification", policy)
+	}
+}
+
 func TestDecideDiagnosticRepairExecutionDoctorPlanOnlyByDefault(t *testing.T) {
 	policy := decideDiagnosticRepairExecution(diagnosticRepairExecutionRequest{Command: "doctor"})
 

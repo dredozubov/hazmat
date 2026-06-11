@@ -15,6 +15,8 @@ import (
 
 const initBootstrapSkip = "skip"
 
+var errInitPostVerificationFailed = errors.New("post-init verification found unresolved blockers")
+
 func newInitCmd() *cobra.Command {
 	var agentUIDFlag, sharedGIDFlag, bootstrapAgentFlag string
 	cmd := &cobra.Command{
@@ -250,7 +252,13 @@ func runInitSelectedBootstrap(ui *UI, r *Runner, selection string) error {
 }
 
 func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr error) {
-	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+	ui := &UI{
+		DryRun: flagDryRun,
+		YesAll: flagYesAll,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "init",
+		},
+	}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
 
 	if err := checkPlatform(); err != nil {
@@ -290,6 +298,9 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 
 	defer func() {
 		if retErr != nil && !flagDryRun {
+			if errors.Is(retErr, errInitPostVerificationFailed) {
+				return
+			}
 			fmt.Fprintln(os.Stderr)
 			cRed.Fprintln(os.Stderr, "Setup interrupted — some steps may be incomplete.")
 			fmt.Fprintln(os.Stderr, "See setup-option-a.md § Uninstall / Rollback")
@@ -328,12 +339,14 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	// host-profile import in v1.
 	_ = offerHarnessBasicsImport(ui, r, bootstrapSelection)
 
+	postInitVerificationFailed := false
 	if !flagDryRun {
 		// Record the version so future inits can detect and migrate.
 		if err := saveState(version); err != nil {
 			ui.WarnMsg(fmt.Sprintf("Could not save init state: %v", err))
 		}
 		verifySetup(ui)
+		postInitVerificationFailed = ui.Summary()
 		ui.Logo()
 	}
 
@@ -351,6 +364,10 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		cYellow.Println("  You need this key to restore from cloud backup.")
 		cYellow.Println("  It cannot be recovered if lost.")
 		fmt.Println()
+	}
+
+	if postInitVerificationFailed {
+		return fmt.Errorf("%w; inspect the typed repair plan above or run hazmat doctor", errInitPostVerificationFailed)
 	}
 
 	cGreen.Println("━━━ Setup complete ━━━")

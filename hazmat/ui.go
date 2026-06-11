@@ -406,6 +406,9 @@ func diagnosticRepairPlanDeclined(plan diagnosticRepairPlan) diagnosticRepairPla
 }
 
 func (u *UI) recommendationSectionTitle() string {
+	if u.RepairExecution.Command == "init" {
+		return "━━━ Post-init repair verification ━━━"
+	}
 	if u.RepairExecution.Command == "doctor" {
 		return "━━━ Repair plan preview ━━━"
 	}
@@ -420,6 +423,9 @@ func (u *UI) repairPlanSectionTitle(plan diagnosticRepairPlan) string {
 }
 
 func (u *UI) recommendationFooter() string {
+	if u.RepairExecution.Command == "init" {
+		return "  Init will not retry itself. Inspect blockers above, run hazmat doctor for approved repairs, then rerun hazmat check --full."
+	}
 	if u.RepairExecution.Command == "doctor" {
 		if u.RepairExecution.Fix {
 			return "  After approved repairs, rerun: hazmat check --full"

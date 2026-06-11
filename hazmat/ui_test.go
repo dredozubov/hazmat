@@ -84,6 +84,14 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := doctorUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor --fix") {
 		t.Fatalf("doctor footer = %q, want --fix pointer", got)
 	}
+
+	initUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "init"}}
+	if got := initUI.recommendationSectionTitle(); got != "━━━ Post-init repair verification ━━━" {
+		t.Fatalf("init title = %q", got)
+	}
+	if got := initUI.recommendationFooter(); strings.Contains(got, "hazmat init") || !strings.Contains(got, "hazmat doctor") {
+		t.Fatalf("init footer = %q, want doctor pointer without init loop", got)
+	}
 }
 
 func TestUIDiagnosticReportIncludesTypedMetadata(t *testing.T) {
@@ -147,6 +155,27 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	}
 	if len(plan.AppliedReceipts) != 0 || len(plan.FailedVerifications) != 0 {
 		t.Fatalf("plan execution state = receipts %+v failures %+v, want empty preview", plan.AppliedReceipts, plan.FailedVerifications)
+	}
+}
+
+func TestUIDiagnosticReportInitPostVerificationUsesTypedRepairPlan(t *testing.T) {
+	ui := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "init"}}
+	ui.stepLabel = "Verify setup"
+	ui.TestFailFinding(diagnosticFinding(findingSetupSudoers), "Passwordless sudo not working")
+	ui.TestWarnFinding(diagnosticFinding(findingDNSBlocklist), "DNS blocklist not installed")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Execution.Mode != "post-init-verify" || plan.Execution.MutationAllowed {
+		t.Fatalf("execution policy = %+v, want post-init verification", plan.Execution)
+	}
+	if len(plan.Items) != 2 {
+		t.Fatalf("plan items = %+v, want sudoers and DNS repair blockers", plan.Items)
+	}
+	if plan.Items[0].RepairAction != "repair.setup.sudoers" || plan.Items[0].Status != "planned" {
+		t.Fatalf("first item = %+v, want typed sudoers repair blocker", plan.Items[0])
+	}
+	if strings.Contains(ui.repairPlanFooter(plan), "hazmat init") {
+		t.Fatalf("init footer = %q, want no init retry advice", ui.repairPlanFooter(plan))
 	}
 }
 

@@ -14,45 +14,48 @@ func newSetupVerificationBackend() setupVerificationBackend {
 }
 
 func (unsupportedSetupVerificationBackend) verifyAgentUser(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceAgentUser)
+	verifyUnsupportedSetupFinding(ui, findingSetupAgentUser)
 }
 
 func (unsupportedSetupVerificationBackend) verifyAgentHome(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceAgentUser)
+	verifyUnsupportedSetupFinding(ui, findingSetupAgentHome)
 }
 
 func (unsupportedSetupVerificationBackend) verifyHomeDirTraverse(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceHomeDirTraverse)
+	verifyUnsupportedSetupFinding(ui, findingSetupHomeTraverse)
 }
 
 func (unsupportedSetupVerificationBackend) verifyPfAnchorLoaded(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourcePfAnchor)
+	verifyUnsupportedSetupFinding(ui, findingPFFirewall)
 }
 
 func (unsupportedSetupVerificationBackend) verifyPfEnabled(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourcePfAnchor)
+	verifyUnsupportedSetupFinding(ui, findingPFFirewall)
 }
 
 func (unsupportedSetupVerificationBackend) verifySudoers(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceSudoers)
+	verifyUnsupportedSetupFinding(ui, findingSetupSudoers)
 }
 
 func (unsupportedSetupVerificationBackend) verifyDNSBlocklist(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceDNSBlocklist)
+	verifyUnsupportedSetupFinding(ui, findingDNSBlocklist)
 }
 
 func (unsupportedSetupVerificationBackend) verifySeatbeltWrapper(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceSeatbelt)
+	verifyUnsupportedSetupFinding(ui, findingSetupSeatbeltWrapper)
 }
 
 func (unsupportedSetupVerificationBackend) verifyAgentEnv(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceWrappers)
+	verifyUnsupportedSetupFinding(ui, findingSetupAgentEnv)
 }
 
 func (unsupportedSetupVerificationBackend) verifyHostWrappers(ui *UI) {
-	verifyUnsupportedSetupResource(ui, tlaResourceWrappers)
+	verifyUnsupportedSetupFinding(ui, findingSetupHostWrappers)
 }
 
-func verifyUnsupportedSetupResource(ui *UI, resource setupRollbackTLAResource) {
-	ui.TestFail(fmt.Sprintf("native setup verification for %s is not implemented on %s", resource, runtime.GOOS))
+func verifyUnsupportedSetupFinding(ui *UI, finding diagnosticFindingID) {
+	ui.TestFailFinding(
+		diagnosticFinding(finding),
+		fmt.Sprintf("native setup verification for %s is not implemented on %s", finding, runtime.GOOS),
+	)
 }
