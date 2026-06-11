@@ -90,6 +90,28 @@ type diagnosticFakeRepairResult struct {
 	Verification *diagnosticVerificationFailure
 }
 
+type diagnosticFakeRollbackStatus string
+
+const (
+	diagnosticFakeRollbackRemoved   diagnosticFakeRollbackStatus = "removed"
+	diagnosticFakeRollbackPreserved diagnosticFakeRollbackStatus = "preserved"
+	diagnosticFakeRollbackAbsent    diagnosticFakeRollbackStatus = "absent"
+	diagnosticFakeRollbackManual    diagnosticFakeRollbackStatus = "manual"
+)
+
+type diagnosticFakeRollbackReceipt struct {
+	ResourceID       string
+	ResourceOwner    string
+	RollbackBoundary string
+	Status           diagnosticFakeRollbackStatus
+	Details          []string
+}
+
+type diagnosticFakeRollbackReport struct {
+	Receipts    []diagnosticFakeRollbackReceipt
+	ManualItems []diagnosticRepairPlanItem
+}
+
 func TestDiagnosticFakeHostStateCoversRepairResourceFamilies(t *testing.T) {
 	state := newDiagnosticDirtyHostState()
 
@@ -202,6 +224,46 @@ func TestDiagnosticFakeHostStateApplyPlanConvergesRepairableResources(t *testing
 	}
 }
 
+func TestDiagnosticFakeRollbackPartialSetupReportsRemovedPreservedAndAbsent(t *testing.T) {
+	state := newDiagnosticPartialSetupHostState()
+
+	report := state.rollback(false, false)
+	if state.PF.AnchorFile || state.PF.AnchorLoaded {
+		t.Fatalf("pf state after rollback = %+v, want Hazmat anchor removed", state.PF)
+	}
+	if !state.PF.Enabled {
+		t.Fatalf("pf state after rollback = %+v, want host pf enabled state preserved", state.PF)
+	}
+	if _, ok := state.Users[agentUser]; !ok {
+		t.Fatalf("users after non-destructive rollback = %+v, want agent user preserved", state.Users)
+	}
+	if cred := state.Credentials[credentialHarnessClaudeState]; !cred.HostStorePresent || !cred.AgentResidue {
+		t.Fatalf("Claude credential state after rollback = %+v, want host store and residue preserved for explicit cleanup", cred)
+	}
+
+	assertFakeRollbackReceipt(t, report, "network.pf", diagnosticFakeRollbackRemoved)
+	assertFakeRollbackReceipt(t, report, "network.launchd-persistence", diagnosticFakeRollbackAbsent)
+	assertFakeRollbackReceipt(t, report, "setup.agent-user", diagnosticFakeRollbackPreserved)
+	assertFakeRollbackReceipt(t, report, "credential.claude-state", diagnosticFakeRollbackPreserved)
+}
+
+func TestDiagnosticFakeRollbackKeepsUnsupportedManualCleanupUnclaimed(t *testing.T) {
+	state := newDiagnosticDirtyHostState()
+
+	report := state.rollback(false, false)
+	if !fakeRollbackManualContains(report, findingCredentialAdapterRequired) {
+		t.Fatalf("manual rollback items = %+v, want credential adapter requirement left manual", report.ManualItems)
+	}
+	if cred := state.Credentials[credentialHarnessGeminiKeychain]; !cred.AdapterRequired {
+		t.Fatalf("Gemini credential state after rollback = %+v, want adapter-required manual item still present", cred)
+	}
+	for _, receipt := range report.Receipts {
+		if receipt.ResourceID == "credential.backend-adapter" && receipt.Status == diagnosticFakeRollbackRemoved {
+			t.Fatalf("rollback receipt claims unsupported cleanup was removed: %+v", receipt)
+		}
+	}
+}
+
 func newDiagnosticDirtyHostState() *diagnosticFakeHostState {
 	const project = "/fake/project"
 	const claudeProject = "/Users/agent/.claude/projects/fake"
@@ -258,6 +320,25 @@ func newDiagnosticDirtyHostState() *diagnosticFakeHostState {
 	return state
 }
 
+func newDiagnosticPartialSetupHostState() *diagnosticFakeHostState {
+	state := newDiagnosticDirtyHostState()
+	state.ACLs[state.projectPath] = diagnosticFakeACLState{Setgid: true, GroupWritable: true, AgentCanTraverse: true}
+	state.Files[state.agentHome] = diagnosticFakeFileState{Exists: true, Private: true}
+	state.Files[state.agentHome+"/.zshrc"] = diagnosticFakeFileState{Exists: true, Content: "# hazmat managed\numask 007\n"}
+	state.PF = diagnosticFakePFState{
+		Enabled:      true,
+		AnchorFile:   true,
+		AnchorLoaded: true,
+	}
+	state.DNS = diagnosticFakeDNSState{
+		BlocklistPresent: false,
+		BlockedDomains:   map[string]bool{"ngrok.io": false, "pastebin.com": false},
+	}
+	state.Launchd = diagnosticFakeLaunchdState{}
+	state.Credentials[credentialHarnessClaudeState] = diagnosticFakeCredentialState{HostStorePresent: true, AgentResidue: true}
+	return state
+}
+
 func (s *diagnosticFakeHostState) clone() *diagnosticFakeHostState {
 	cp := *s
 	cp.Users = make(map[string]diagnosticFakeUser, len(s.Users))
@@ -297,6 +378,78 @@ func (s *diagnosticFakeHostState) clone() *diagnosticFakeHostState {
 		cp.Integrations[k] = v
 	}
 	return &cp
+}
+
+func (s *diagnosticFakeHostState) rollback(deleteUser, deleteGroup bool) diagnosticFakeRollbackReport {
+	plan, _ := s.plan(diagnosticRepairExecutionRequest{Command: "rollback"})
+	report := diagnosticFakeRollbackReport{ManualItems: append([]diagnosticRepairPlanItem(nil), plan.ManualItems...)}
+	for _, item := range plan.ManualItems {
+		report.Receipts = append(report.Receipts, diagnosticFakeRollbackReceipt{
+			ResourceID:       item.ResourceID,
+			ResourceOwner:    diagnosticRepairResourceOwner(item.ResourceID),
+			RollbackBoundary: item.RollbackBoundary,
+			Status:           diagnosticFakeRollbackManual,
+			Details:          append([]string(nil), item.Details...),
+		})
+	}
+
+	if s.PF.AnchorFile || s.PF.AnchorLoaded {
+		s.PF.AnchorFile = false
+		s.PF.AnchorLoaded = false
+		report.addReceipt("network.pf", "setup.network-pf", diagnosticFakeRollbackRemoved, "removed Hazmat pf anchor state")
+	} else {
+		report.addReceipt("network.pf", "setup.network-pf", diagnosticFakeRollbackAbsent, "Hazmat pf anchor state was not present")
+	}
+	if s.DNS.BlocklistPresent || fakeAnyDomainBlocked(s.DNS.BlockedDomains) {
+		s.DNS.BlocklistPresent = false
+		for domain := range s.DNS.BlockedDomains {
+			s.DNS.BlockedDomains[domain] = false
+		}
+		report.addReceipt("network.dns-blocklist", "setup.network-dns-blocklist", diagnosticFakeRollbackRemoved, "removed Hazmat DNS blocklist state")
+	} else {
+		report.addReceipt("network.dns-blocklist", "setup.network-dns-blocklist", diagnosticFakeRollbackAbsent, "Hazmat DNS blocklist state was not present")
+	}
+	if s.Launchd.PlistPresent || s.Launchd.Loaded || s.Launchd.PFAnchored {
+		s.Launchd = diagnosticFakeLaunchdState{}
+		report.addReceipt("network.launchd-persistence", "setup.network-persistence", diagnosticFakeRollbackRemoved, "removed Hazmat launchd persistence")
+	} else {
+		report.addReceipt("network.launchd-persistence", "setup.network-persistence", diagnosticFakeRollbackAbsent, "Hazmat launchd persistence was not present")
+	}
+	if file := s.Files[s.agentHome+"/.zshrc"]; fakeFileContains(file, "umask 007") {
+		file.Content = strings.ReplaceAll(file.Content, "umask 007\n", "")
+		s.Files[s.agentHome+"/.zshrc"] = file
+		report.addReceipt("agent-shell.umask", "setup.agent-shell", diagnosticFakeRollbackRemoved, "removed managed umask line")
+	}
+	if deleteUser {
+		delete(s.Users, agentUser)
+		delete(s.Files, s.agentHome)
+		report.addReceipt("setup.agent-user", "setup.agent-account", diagnosticFakeRollbackRemoved, "deleted dedicated agent account")
+	} else {
+		report.addReceipt("setup.agent-user", "setup.agent-account", diagnosticFakeRollbackPreserved, "non-destructive rollback preserves the agent account")
+	}
+	if deleteGroup {
+		delete(s.Groups, sharedGroup)
+		report.addReceipt("workspace.group-inheritance", "setup.workspace-permissions", diagnosticFakeRollbackRemoved, "deleted shared development group")
+	} else {
+		report.addReceipt("workspace.group-inheritance", "setup.workspace-permissions", diagnosticFakeRollbackPreserved, "non-destructive rollback preserves the shared group")
+	}
+	for id, cred := range s.Credentials {
+		if !cred.HostStorePresent && !cred.AgentResidue && !cred.LegacyResidue {
+			continue
+		}
+		report.addReceipt(fakeCredentialRollbackResourceID(id), "credentials.host-secret-store", diagnosticFakeRollbackPreserved, "credential material requires explicit migration or cleanup outside rollback")
+	}
+	return report
+}
+
+func (r *diagnosticFakeRollbackReport) addReceipt(resourceID, boundary string, status diagnosticFakeRollbackStatus, details ...string) {
+	r.Receipts = append(r.Receipts, diagnosticFakeRollbackReceipt{
+		ResourceID:       resourceID,
+		ResourceOwner:    diagnosticRepairResourceOwner(resourceID),
+		RollbackBoundary: boundary,
+		Status:           status,
+		Details:          append([]string(nil), details...),
+	})
 }
 
 func (s *diagnosticFakeHostState) plan(req diagnosticRepairExecutionRequest) (diagnosticRepairPlan, []uiFinding) {
@@ -490,6 +643,26 @@ func fakeAllDomainsBlocked(domains map[string]bool) bool {
 	return true
 }
 
+func fakeAnyDomainBlocked(domains map[string]bool) bool {
+	for _, blocked := range domains {
+		if blocked {
+			return true
+		}
+	}
+	return false
+}
+
+func fakeCredentialRollbackResourceID(id credentialID) string {
+	switch id {
+	case credentialHarnessClaudeState:
+		return "credential.claude-state"
+	case credentialCloudS3SecretKey:
+		return "credential.cloud-secret-key"
+	default:
+		return "credential.residue"
+	}
+}
+
 func fakePlanClassification(plan diagnosticRepairPlan, id diagnosticFindingID) (string, string, bool) {
 	findingID := string(id)
 	for _, item := range plan.Items {
@@ -508,6 +681,28 @@ func fakePlanClassification(plan diagnosticRepairPlan, id diagnosticFindingID) (
 		}
 	}
 	return "", "", false
+}
+
+func assertFakeRollbackReceipt(t *testing.T, report diagnosticFakeRollbackReport, resourceID string, status diagnosticFakeRollbackStatus) {
+	t.Helper()
+	for _, receipt := range report.Receipts {
+		if receipt.ResourceID == resourceID && receipt.Status == status {
+			if receipt.RollbackBoundary == "" {
+				t.Fatalf("receipt = %+v, want rollback boundary", receipt)
+			}
+			return
+		}
+	}
+	t.Fatalf("rollback receipts = %+v, want %s/%s", report.Receipts, resourceID, status)
+}
+
+func fakeRollbackManualContains(report diagnosticFakeRollbackReport, id diagnosticFindingID) bool {
+	for _, item := range report.ManualItems {
+		if item.FindingID == string(id) {
+			return true
+		}
+	}
+	return false
 }
 
 func fakeFindingsContain(findings []uiFinding, id diagnosticFindingID) bool {
