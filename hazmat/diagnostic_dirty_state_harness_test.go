@@ -17,6 +17,8 @@ type diagnosticFakeHostState struct {
 	Launchd      diagnosticFakeLaunchdState
 	Credentials  map[credentialID]diagnosticFakeCredentialState
 	Tools        map[string]diagnosticFakeToolState
+	Optional     diagnosticFakeOptionalState
+	Integrations map[string]diagnosticFakeIntegrationState
 	projectPath  string
 	agentHome    string
 	claudeProj   string
@@ -73,6 +75,15 @@ type diagnosticFakeToolState struct {
 	HomebrewBacked  bool
 }
 
+type diagnosticFakeOptionalState struct {
+	SSHKeyConfigured      bool
+	AnthropicAuthProvided bool
+}
+
+type diagnosticFakeIntegrationState struct {
+	ToolchainResolved bool
+}
+
 type diagnosticFakeRepairResult struct {
 	Action       diagnosticRepairActionID
 	Receipt      diagnosticRepairReceipt
@@ -90,6 +101,9 @@ func TestDiagnosticFakeHostStateCoversRepairResourceFamilies(t *testing.T) {
 	}
 	if len(state.Credentials) == 0 || len(state.Tools) == 0 {
 		t.Fatalf("fake host state missing credentials/tools: %+v %+v", state.Credentials, state.Tools)
+	}
+	if len(state.Integrations) == 0 {
+		t.Fatalf("fake host state missing integrations: %+v", state.Integrations)
 	}
 	if state.DNS.BlockedDomains == nil {
 		t.Fatal("fake host state missing DNS blocked-domain map")
@@ -121,6 +135,43 @@ func TestDiagnosticFakeHostStatePlanningIsReadOnly(t *testing.T) {
 		if !fakeFindingsContain(findings, id) {
 			t.Fatalf("findings missing %s: %+v", id, findings)
 		}
+	}
+}
+
+func TestDiagnosticFakeHostStateCurrentCheckWarningScenarios(t *testing.T) {
+	state := newDiagnosticDirtyHostState()
+	plan, findings := state.plan(diagnosticRepairExecutionRequest{Command: "doctor"})
+	scenarios := []struct {
+		name   string
+		id     diagnosticFindingID
+		bucket string
+		status string
+	}{
+		{"setgid inheritance drift", findingWorkspaceSetgid, "repair", "planned"},
+		{"agent home permissions drift", findingAgentHomeReadable, "repair", "planned"},
+		{"missing agent umask", findingAgentUmask, "repair", "planned"},
+		{"stale Claude state", findingCredentialClaudeStateResidue, "repair", "planned"},
+		{"legacy cloud secret key", findingCredentialCloudSecretKeyLegacy, "repair", "planned"},
+		{"Gemini keychain adapter required", findingCredentialAdapterRequired, "manual", string(diagnosticRepairUnsupported)},
+		{"Claude project permissions", findingClaudeProjectPermissions, "repair", "planned"},
+		{"optional SSH key", findingAgentSSHKey, "skipped", string(diagnosticRepairOptional)},
+		{"optional Anthropic auth", findingAnthropicAPIKey, "skipped", string(diagnosticRepairOptional)},
+		{"beads toolchain resolution", findingIntegrationToolchain, "skipped", string(diagnosticRepairInformational)},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			if !fakeFindingsContain(findings, scenario.id) {
+				t.Fatalf("findings missing %s: %+v", scenario.id, findings)
+			}
+			bucket, status, ok := fakePlanClassification(plan, scenario.id)
+			if !ok {
+				t.Fatalf("plan missing item for %s: %+v", scenario.id, plan)
+			}
+			if bucket != scenario.bucket || status != scenario.status {
+				t.Fatalf("%s classified as %s/%s, want %s/%s", scenario.id, bucket, status, scenario.bucket, scenario.status)
+			}
+		})
 	}
 }
 
@@ -193,6 +244,13 @@ func newDiagnosticDirtyHostState() *diagnosticFakeHostState {
 			"golangci-lint": {AgentExecutable: false, HomebrewBacked: true},
 			"tla2tools.jar": {AgentExecutable: false},
 		},
+		Optional: diagnosticFakeOptionalState{
+			SSHKeyConfigured:      false,
+			AnthropicAuthProvided: false,
+		},
+		Integrations: map[string]diagnosticFakeIntegrationState{
+			"beads": {ToolchainResolved: false},
+		},
 		projectPath: project,
 		agentHome:   agentHome,
 		claudeProj:  claudeProject,
@@ -233,6 +291,10 @@ func (s *diagnosticFakeHostState) clone() *diagnosticFakeHostState {
 	cp.Tools = make(map[string]diagnosticFakeToolState, len(s.Tools))
 	for k, v := range s.Tools {
 		cp.Tools[k] = v
+	}
+	cp.Integrations = make(map[string]diagnosticFakeIntegrationState, len(s.Integrations))
+	for k, v := range s.Integrations {
+		cp.Integrations[k] = v
 	}
 	return &cp
 }
@@ -294,8 +356,17 @@ func (s *diagnosticFakeHostState) probeFindings() []uiFinding {
 	if cred := s.Credentials[credentialHarnessGeminiKeychain]; cred.AdapterRequired {
 		add(uiFindingWarning, findingCredentialAdapterRequired, "fake Gemini Keychain adapter is not available")
 	}
+	if !s.Optional.SSHKeyConfigured {
+		add(uiFindingWarning, findingAgentSSHKey, "fake agent SSH key is not configured")
+	}
+	if !s.Optional.AnthropicAuthProvided {
+		add(uiFindingWarning, findingAnthropicAPIKey, "fake Anthropic API key is not configured")
+	}
 	if claudeACL := s.ACLs[s.claudeProj]; !claudeACL.GroupWritable {
 		add(uiFindingWarning, findingClaudeProjectPermissions, "fake Claude project directory is not group-writable", s.claudeProj)
+	}
+	if integration := s.Integrations["beads"]; !integration.ToolchainResolved {
+		add(uiFindingWarning, findingIntegrationToolchain, "fake beads toolchain metadata is unresolved")
 	}
 	if tool := s.Tools["golangci-lint"]; !tool.AgentExecutable {
 		add(uiFindingWarning, findingGolangCILintAccess, "fake golangci-lint is not executable by the agent")
@@ -417,6 +488,26 @@ func fakeAllDomainsBlocked(domains map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+func fakePlanClassification(plan diagnosticRepairPlan, id diagnosticFindingID) (string, string, bool) {
+	findingID := string(id)
+	for _, item := range plan.Items {
+		if item.FindingID == findingID {
+			return "repair", item.Status, true
+		}
+	}
+	for _, item := range plan.ManualItems {
+		if item.FindingID == findingID {
+			return "manual", item.Status, true
+		}
+	}
+	for _, item := range plan.SkippedItems {
+		if item.FindingID == findingID {
+			return "skipped", item.Status, true
+		}
+	}
+	return "", "", false
 }
 
 func fakeFindingsContain(findings []uiFinding, id diagnosticFindingID) bool {
