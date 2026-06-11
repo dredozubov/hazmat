@@ -155,16 +155,25 @@ func (u *UI) Step(label string) {
 // ── Setup output (no counters) ────────────────────────────────────────────────
 
 func (u *UI) Ok(msg string) {
+	if u.JSON {
+		return
+	}
 	cGreen.Print("  ✓ ")
 	fmt.Println(msg)
 }
 
 func (u *UI) SkipDone(msg string) {
+	if u.JSON {
+		return
+	}
 	cYellow.Print("  → ")
 	fmt.Printf("%s (already done)\n", msg)
 }
 
 func (u *UI) WarnMsg(msg string) {
+	if u.JSON {
+		return
+	}
 	cYellow.Print("  ! ")
 	fmt.Println(msg)
 }

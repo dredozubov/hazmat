@@ -55,6 +55,7 @@ func runTest(options diagnostics.CheckOptions) error {
 			if err != nil {
 				return diagnostics.CheckContext{}, fmt.Errorf("cannot determine current user: %w", err)
 			}
+			ui.RepairBackend = newDiagnosticHostRepairBackend(ui, cu.Username, cu.HomeDir)
 			if !ui.JSON {
 				fmt.Printf("  Running as: %s\n", cu.Username)
 				fmt.Printf("  Agent user: %s\n", agentUser)
@@ -420,10 +421,17 @@ func testPasswordlessSudo(ui *UI) {
 		if strings.TrimSpace(string(out)) == agentUser && err == nil {
 			ui.TestPass("Hazmat helper maintenance path works without password")
 		} else {
-			ui.TestFail(fmt.Sprintf("Launch-helper sudoers rule did not execute %s in maintenance mode", helperPath))
+			ui.TestFailFinding(
+				diagnosticFinding(findingSetupSudoers),
+				fmt.Sprintf("Launch-helper sudoers rule did not execute %s in maintenance mode", helperPath),
+				fmt.Sprintf("output: %s", strings.TrimSpace(string(out))),
+			)
 		}
 	} else {
-		ui.TestFail(fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupSudoers),
+			fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile),
+		)
 	}
 
 	if agentMaintenanceSudoersInstalled() {
@@ -431,7 +439,10 @@ func testPasswordlessSudo(ui *UI) {
 		if genericAgentPasswordlessAvailable() {
 			ui.TestPass(fmt.Sprintf("sudo -u %s works without password", agentUser))
 		} else {
-			ui.TestFail(fmt.Sprintf("sudo -u %s still prompts or fails — check %s", agentUser, agentMaintenanceSudoersFile))
+			ui.TestFailFinding(
+				diagnosticFinding(findingSetupSudoers),
+				fmt.Sprintf("sudo -u %s still prompts or fails — check %s", agentUser, agentMaintenanceSudoersFile),
+			)
 		}
 	} else {
 		ui.TestSkip("Optional agent-maintenance passwordless sudo is disabled — manual generic 'sudo -u agent ...' commands will still prompt")
@@ -517,8 +528,10 @@ func testPfFirewallLive(ui *UI, quick bool, selfPath string) {
 		case !p.wantAllow && !got:
 			ui.TestPass(fmt.Sprintf("Port %s (%s) is BLOCKED for %s", p.port, p.label, agentUser))
 		case !p.wantAllow && got:
-			ui.TestFail(fmt.Sprintf("BLOCK FAILURE: %s connected to port %s (%s not blocked)",
-				agentUser, p.port, p.label))
+			ui.TestFailFinding(
+				diagnosticFinding(findingPFFirewall),
+				fmt.Sprintf("BLOCK FAILURE: %s connected to port %s (%s not blocked)", agentUser, p.port, p.label),
+			)
 		}
 	}
 
@@ -712,12 +725,12 @@ func testAgentTools(ui *UI) {
 	} else if asAgentQuiet("test", "-d", agentHome+"/.ssh") == nil {
 		ui.TestWarnFinding(
 			diagnosticFinding(findingAgentSSHKey),
-			"~/.ssh exists but no id_ed25519.pub — GitHub access may not work",
+			"~/.ssh exists but no id_ed25519.pub — optional Git SSH workflows may need a key",
 		)
 	} else {
 		ui.TestWarnFinding(
 			diagnosticFinding(findingAgentSSHKey),
-			fmt.Sprintf("No SSH key found for agent user — run: sudo -u %s -i, then: ssh-keygen -t ed25519", agentUser),
+			"No SSH key found for agent user — optional unless this project needs Git SSH access",
 		)
 	}
 
@@ -746,7 +759,7 @@ func testAgentTools(ui *UI) {
 		} else {
 			ui.TestWarnFinding(
 				diagnosticFinding(findingAnthropicAPIKey),
-				"ANTHROPIC_API_KEY not configured for Hazmat sessions — hazmat claude will need /login",
+				"ANTHROPIC_API_KEY not configured for Hazmat sessions — optional unless Claude API-key sessions are required",
 			)
 		}
 
@@ -841,21 +854,35 @@ func testCommandSurface(ui *UI) {
 	if asAgentQuiet("test", "-f", agentEnvPath) == nil {
 		ui.TestPass(fmt.Sprintf("Agent env file exists: %s", agentEnvPath))
 	} else {
-		ui.TestFail(fmt.Sprintf("Agent env file missing: %s", agentEnvPath))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupAgentEnv),
+			fmt.Sprintf("Agent env file missing: %s", agentEnvPath),
+		)
 	}
 
 	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "agent-env.zsh") {
 		ui.TestPass("Agent .zshrc sources the hazmat env file")
 	} else {
-		ui.TestFail("Agent .zshrc does not source the hazmat env file")
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupAgentEnv),
+			"Agent .zshrc does not source the hazmat env file",
+		)
 	}
 
 	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
 		path := hostWrapperPath(wrapper)
 		if info, err := os.Stat(path); err != nil {
-			ui.TestFail(fmt.Sprintf("Host wrapper missing: %s", path))
+			ui.TestFailFinding(
+				diagnosticFinding(findingSetupHostWrappers),
+				fmt.Sprintf("Host wrapper missing: %s", path),
+				path,
+			)
 		} else if info.Mode()&0o111 == 0 {
-			ui.TestFail(fmt.Sprintf("Host wrapper not executable: %s", path))
+			ui.TestFailFinding(
+				diagnosticFinding(findingSetupHostWrappers),
+				fmt.Sprintf("Host wrapper not executable: %s", path),
+				path,
+			)
 		} else {
 			ui.TestPass(fmt.Sprintf("Host wrapper is executable: %s", path))
 		}
@@ -871,7 +898,11 @@ func testCommandSurface(ui *UI) {
 	}():
 		ui.TestPass(fmt.Sprintf("%s configures ~/.local/bin in PATH", userZshrc))
 	default:
-		ui.TestWarn(fmt.Sprintf("%s does not appear to expose ~/.local/bin yet — open a new shell after setup", userZshrc))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingSetupHostWrappers),
+			fmt.Sprintf("%s does not appear to expose ~/.local/bin yet — open a new shell after setup", userZshrc),
+			userZshrc,
+		)
 	}
 }
 
@@ -881,9 +912,17 @@ func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
 	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
-		ui.TestFail(fmt.Sprintf("Seatbelt wrapper missing: %s — baseline setup is incomplete", seatbeltWrapperPath))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupSeatbeltWrapper),
+			fmt.Sprintf("Seatbelt wrapper missing: %s — baseline setup is incomplete", seatbeltWrapperPath),
+			seatbeltWrapperPath,
+		)
 	} else if info.Mode()&0o111 == 0 {
-		ui.TestFail(fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupSeatbeltWrapper),
+			fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath),
+			seatbeltWrapperPath,
+		)
 	} else {
 		ui.TestPass(fmt.Sprintf("Seatbelt wrapper is executable: %s", seatbeltWrapperPath))
 	}
