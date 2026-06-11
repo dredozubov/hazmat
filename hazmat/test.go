@@ -212,7 +212,10 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 				if g, err := user.LookupGroupId(gidStr); err == nil && g.Name == sharedGroup {
 					ui.TestPass(fmt.Sprintf("New files inherit '%s' group (setgid working)", sharedGroup))
 				} else {
-					ui.TestWarn(fmt.Sprintf("New file group is gid=%s, expected '%s' — setgid may not be working", gidStr, sharedGroup))
+					ui.TestWarnFinding(
+						diagnosticFinding(findingWorkspaceSetgid),
+						fmt.Sprintf("New file group is gid=%s, expected '%s' — setgid may not be working", gidStr, sharedGroup),
+					)
 				}
 			}
 		}
@@ -296,8 +299,10 @@ func testUserIsolation(ui *UI, currentUser string) {
 	// Check if current user can read files inside agent's home
 	if f, err := os.Open(agentHome + "/.zshrc"); err == nil {
 		f.Close()
-		ui.TestWarn(fmt.Sprintf("%s can read %s's .zshrc — consider: chmod 700 %s",
-			currentUser, agentUser, agentHome))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingAgentHomeReadable),
+			fmt.Sprintf("%s can read %s's .zshrc — consider: chmod 700 %s", currentUser, agentUser, agentHome),
+		)
 	} else {
 		ui.TestPass(fmt.Sprintf("%s cannot read files inside %s's home", currentUser, agentUser))
 	}
@@ -313,8 +318,10 @@ func testHardeningGaps(ui *UI) {
 		if info.Mode().Perm() == 0o700 {
 			ui.TestPass("Docker socket restricted to owner only (700)")
 		} else {
-			ui.TestFail(fmt.Sprintf("Docker socket permissions: %04o (expected 700 — agent could escape via Docker)",
-				info.Mode().Perm()))
+			ui.TestFailFinding(
+				diagnosticFinding(findingDockerSocketPermissions),
+				fmt.Sprintf("Docker socket permissions: %04o (expected 700 — agent could escape via Docker)", info.Mode().Perm()),
+			)
 		}
 	} else {
 		ui.TestSkip("Docker socket not present")
@@ -323,7 +330,10 @@ func testHardeningGaps(ui *UI) {
 	if out, _ := asAgentOutput("cat", agentHome+"/.zshrc"); strings.Contains(out, "umask 007") {
 		ui.TestPass("umask 007 set in agent's .zshrc")
 	} else {
-		ui.TestWarn("umask 007 not found in agent's .zshrc — new files will have permissive defaults")
+		ui.TestWarnFinding(
+			diagnosticFinding(findingAgentUmask),
+			"umask 007 not found in agent's .zshrc — new files will have permissive defaults",
+		)
 	}
 }
 
@@ -365,13 +375,13 @@ func testPfFirewallStatic(ui *UI) {
 	if out, err := sudoOutput("pfctl", "-si"); err == nil && strings.Contains(out, "Status: Enabled") {
 		ui.TestPass("pf is enabled")
 	} else {
-		ui.TestFail("pf is NOT enabled — run: sudo pfctl -e")
+		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf is NOT enabled — run: sudo pfctl -e")
 	}
 
 	if _, err := os.Stat(pfAnchorFile); err == nil {
 		ui.TestPass(fmt.Sprintf("pf anchor file exists: %s", pfAnchorFile))
 	} else {
-		ui.TestFail(fmt.Sprintf("pf anchor file missing: %s", pfAnchorFile))
+		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), fmt.Sprintf("pf anchor file missing: %s", pfAnchorFile))
 	}
 
 	rules, err := pfAnchorRules()
@@ -379,7 +389,7 @@ func testPfFirewallStatic(ui *UI) {
 		n := len(strings.Split(strings.TrimSpace(rules), "\n"))
 		ui.TestPass(fmt.Sprintf("pf anchor loaded with %d rules", n))
 	} else {
-		ui.TestFail(fmt.Sprintf("pf anchor '%s' not loaded or has no block rules", pfAnchorName))
+		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), fmt.Sprintf("pf anchor '%s' not loaded or has no block rules", pfAnchorName))
 	}
 
 	for _, p := range []struct{ port, label string }{
@@ -388,8 +398,10 @@ func testPfFirewallStatic(ui *UI) {
 		if portInAnchor(rules, p.port) {
 			ui.TestPass(fmt.Sprintf("pf anchor blocks port %s (%s)", p.port, p.label))
 		} else {
-			ui.TestWarn(fmt.Sprintf("pf anchor may not block port %s (%s) — verify anchor file",
-				p.port, p.label))
+			ui.TestWarnFinding(
+				diagnosticFinding(findingPFFirewall),
+				fmt.Sprintf("pf anchor may not block port %s (%s) — verify anchor file", p.port, p.label),
+			)
 		}
 	}
 }
@@ -455,7 +467,10 @@ func testDNSBlocklist(ui *UI) {
 
 	hosts, err := os.ReadFile("/etc/hosts")
 	if err != nil || !strings.Contains(string(hosts), "AI Agent Blocklist") {
-		ui.TestFail("DNS blocklist not found in /etc/hosts — run hazmat init and enable the DNS blocklist")
+		ui.TestFailFinding(
+			diagnosticFinding(findingDNSBlocklist),
+			"DNS blocklist not found in /etc/hosts — run hazmat init and enable the DNS blocklist",
+		)
 		return
 	}
 	n := strings.Count(string(hosts), "0.0.0.0 ")
@@ -465,7 +480,10 @@ func testDNSBlocklist(ui *UI) {
 		if checkBlockedDomain(domain) {
 			ui.TestPass(fmt.Sprintf("%s is blocked (resolves to 0.0.0.0 or fails)", domain))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s resolved to a real IP — blocklist not working for this domain", domain))
+			ui.TestFailFinding(
+				diagnosticFinding(findingDNSBlocklist),
+				fmt.Sprintf("%s resolved to a real IP — blocklist not working for this domain", domain),
+			)
 		}
 	}
 }
@@ -478,21 +496,29 @@ func testPersistence(ui *UI) {
 	if _, err := os.Stat(pfDaemonPlist); err == nil {
 		ui.TestPass(fmt.Sprintf("LaunchDaemon plist exists: %s", pfDaemonPlist))
 	} else {
-		ui.TestFail(fmt.Sprintf("LaunchDaemon plist missing: %s — pf rules will not reload on reboot", pfDaemonPlist))
+		ui.TestFailFinding(
+			diagnosticFinding(findingLaunchdPersistence),
+			fmt.Sprintf("LaunchDaemon plist missing: %s — pf rules will not reload on reboot", pfDaemonPlist),
+		)
 	}
 
 	if launchctlLoaded(pfDaemonLabel) {
 		ui.TestPass(fmt.Sprintf("LaunchDaemon '%s' is loaded", pfDaemonLabel))
 	} else {
-		ui.TestWarn(fmt.Sprintf("LaunchDaemon '%s' is not loaded — try: sudo launchctl bootstrap system %s",
-			pfDaemonLabel, pfDaemonPlist))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingLaunchdPersistence),
+			fmt.Sprintf("LaunchDaemon '%s' is not loaded — try: sudo launchctl bootstrap system %s", pfDaemonLabel, pfDaemonPlist),
+		)
 	}
 
 	if data, err := os.ReadFile("/etc/pf.conf"); err == nil &&
 		strings.Contains(string(data), `anchor "agent"`) {
 		ui.TestPass(fmt.Sprintf("/etc/pf.conf references anchor '%s'", pfAnchorName))
 	} else {
-		ui.TestFail(fmt.Sprintf("/etc/pf.conf does not reference anchor '%s'", pfAnchorName))
+		ui.TestFailFinding(
+			diagnosticFinding(findingLaunchdPersistence),
+			fmt.Sprintf("/etc/pf.conf does not reference anchor '%s'", pfAnchorName),
+		)
 	}
 }
 
@@ -542,9 +568,9 @@ func reportCredentialInventoryEntry(ui *UI, entry credentialInventoryEntry) {
 	case credentialInventoryNotConfigured:
 		ui.TestSkip(line)
 	case credentialInventoryAdapterRequired:
-		ui.TestWarnWithAction(line, "Do not rely on this credential path until Hazmat has a backend adapter for it, or use a supported credential backend.")
+		ui.TestWarnFinding(diagnosticCredentialFinding(entry), line)
 	case credentialInventoryNeedsRepair:
-		ui.TestWarnWithAction(line, strings.Join(entry.RepairHints(), "; "))
+		ui.TestWarnFinding(diagnosticCredentialFinding(entry), line)
 		for _, finding := range entry.AgentResidue {
 			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
 		}
@@ -586,16 +612,25 @@ func testAgentTools(ui *UI) {
 	if name != "" && email != "" {
 		ui.TestPass(fmt.Sprintf("Git identity configured: %s <%s>", name, email))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Git identity not fully configured for agent (name=%q, email=%q)", name, email))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingAgentGitIdentity),
+			fmt.Sprintf("Git identity not fully configured for agent (name=%q, email=%q)", name, email),
+		)
 	}
 
 	// SSH key
 	if asAgentQuiet("test", "-f", agentHome+"/.ssh/id_ed25519.pub") == nil {
 		ui.TestPass("SSH key exists (ed25519)")
 	} else if asAgentQuiet("test", "-d", agentHome+"/.ssh") == nil {
-		ui.TestWarn("~/.ssh exists but no id_ed25519.pub — GitHub access may not work")
+		ui.TestWarnFinding(
+			diagnosticFinding(findingAgentSSHKey),
+			"~/.ssh exists but no id_ed25519.pub — GitHub access may not work",
+		)
 	} else {
-		ui.TestWarn(fmt.Sprintf("No SSH key found for agent user — run: sudo -u %s -i, then: ssh-keygen -t ed25519", agentUser))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingAgentSSHKey),
+			fmt.Sprintf("No SSH key found for agent user — run: sudo -u %s -i, then: ssh-keygen -t ed25519", agentUser),
+		)
 	}
 
 	if isManagedHarnessInstalled(HarnessClaude) {
@@ -613,12 +648,18 @@ func testAgentTools(ui *UI) {
 
 		if value, source, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0]); err == nil && value != "" {
 			if source == configuredAPIKeySourceLegacy {
-				ui.TestWarn(fmt.Sprintf("ANTHROPIC_API_KEY still lives in %s — rerun 'hazmat config agent' or launch 'hazmat claude' once to migrate it into ~/.hazmat/secrets", agentZshrcPath))
+				ui.TestWarnFinding(
+					diagnosticFinding(findingAnthropicAPIKey),
+					fmt.Sprintf("ANTHROPIC_API_KEY still lives in %s — rerun 'hazmat config agent' or launch 'hazmat claude' once to migrate it into ~/.hazmat/secrets", agentZshrcPath),
+				)
 			} else {
 				ui.TestPass("ANTHROPIC_API_KEY is stored in Hazmat's host-owned secret store")
 			}
 		} else {
-			ui.TestWarn("ANTHROPIC_API_KEY not configured for Hazmat sessions — hazmat claude will need /login")
+			ui.TestWarnFinding(
+				diagnosticFinding(findingAnthropicAPIKey),
+				"ANTHROPIC_API_KEY not configured for Hazmat sessions — hazmat claude will need /login",
+			)
 		}
 
 		if asAgentQuiet("test", "-f", agentHome+"/.claude/settings.json") == nil {
@@ -642,7 +683,10 @@ func testAgentTools(ui *UI) {
 			if pathHasDevACL(dir, true) || info.Mode().Perm()&0o070 != 0 {
 				ui.TestPass(fmt.Sprintf("%s is group-accessible", dir))
 			} else {
-				ui.TestFail(fmt.Sprintf("%s is not group-accessible — export/resume will fail (mode %04o)", dir, info.Mode().Perm()))
+				ui.TestFailFinding(
+					diagnosticFinding(findingWorkspaceAccess),
+					fmt.Sprintf("%s is not group-accessible — export/resume will fail (mode %04o)", dir, info.Mode().Perm()),
+				)
 			}
 		}
 
@@ -664,7 +708,11 @@ func testAgentTools(ui *UI) {
 				if pathHasDevACL(subdir, true) || info.Mode().Perm()&0o020 != 0 {
 					ui.TestPass(fmt.Sprintf("%s is group-writable", subdir))
 				} else {
-					ui.TestWarn(fmt.Sprintf("%s is not group-writable — resume sync will fail (mode %04o); fix with: sudo chmod 2770 %s", subdir, info.Mode().Perm(), subdir))
+					ui.TestWarnFinding(
+						diagnosticFinding(findingClaudeProjectPermissions),
+						fmt.Sprintf("%s is not group-writable — resume sync will fail (mode %04o); fix with: sudo chmod 2770 %s", subdir, info.Mode().Perm(), subdir),
+						subdir,
+					)
 				}
 			}
 		}
@@ -1004,13 +1052,16 @@ func testProjectToolchain(ui *UI) {
 	for _, r := range resolved {
 		for _, detail := range r.Details {
 			if strings.Contains(detail, "cannot execute") || strings.Contains(detail, "not executable") {
-				ui.TestWarn(detail)
+				ui.TestWarnFinding(diagnosticFinding(findingAgentToolPath), detail)
 			}
 		}
 		if len(r.AdditionalReadDirs) > 0 {
 			ui.TestPass(fmt.Sprintf("%s: resolved toolchain at %s", r.Spec.Meta.Name, strings.Join(r.AdditionalReadDirs, ", ")))
 		} else if r.Source == "" {
-			ui.TestWarn(fmt.Sprintf("%s: no toolchain path resolved — agent may not be able to use this tool", r.Spec.Meta.Name))
+			ui.TestWarnFinding(
+				diagnosticFinding(findingIntegrationToolchain),
+				fmt.Sprintf("%s: no toolchain path resolved — agent may not be able to use this tool", r.Spec.Meta.Name),
+			)
 		}
 	}
 
@@ -1026,7 +1077,10 @@ func testProjectToolchain(ui *UI) {
 			if out, err := asAgentOutput("bash", "-c", "command -v "+tool+" 2>/dev/null"); err == nil && out != "" {
 				ui.TestPass(fmt.Sprintf("%s/%s: %s found at %s", spec.Meta.Name, cmdName, tool, out))
 			} else {
-				ui.TestFail(fmt.Sprintf("%s/%s: %s not found in agent PATH", spec.Meta.Name, cmdName, tool))
+				ui.TestFailFinding(
+					diagnosticFinding(findingAgentToolPath),
+					fmt.Sprintf("%s/%s: %s not found in agent PATH", spec.Meta.Name, cmdName, tool),
+				)
 			}
 		}
 	}
@@ -1044,7 +1098,10 @@ func testProjectToolchain(ui *UI) {
 			if lintPath != "" {
 				ui.TestPass(fmt.Sprintf("golangci-lint: repaired Homebrew access at %s", lintPath))
 			} else {
-				ui.TestWarn("golangci-lint: not accessible by agent (install via Homebrew or fix permissions)")
+				ui.TestWarnFinding(
+					diagnosticFinding(findingGolangCILintAccess),
+					"golangci-lint: not accessible by agent (install via Homebrew or fix permissions)",
+				)
 			}
 		}
 	}
@@ -1080,7 +1137,10 @@ func testProjectToolchain(ui *UI) {
 		if _, err := os.Stat(jarPath); err == nil {
 			ui.TestPass(fmt.Sprintf("tla2tools.jar: found at %s", jarPath))
 		} else {
-			ui.TestWarn(fmt.Sprintf("tla2tools.jar: not found at %s — set TLA2TOOLS_JAR env var", jarPath))
+			ui.TestWarnFinding(
+				diagnosticFinding(findingTLA2ToolsJar),
+				fmt.Sprintf("tla2tools.jar: not found at %s — set TLA2TOOLS_JAR env var", jarPath),
+			)
 		}
 	}
 }

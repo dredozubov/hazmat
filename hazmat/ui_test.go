@@ -9,40 +9,61 @@ import (
 func TestUIRecommendationsGroupClaudeProjectPermissions(t *testing.T) {
 	ui := &UI{}
 	ui.stepLabel = "Agent user tools"
-	ui.recordFinding(uiFindingWarning, "/Users/agent/.claude/projects/a is not group-writable — resume sync will fail (mode 0755); fix with: sudo chmod 2770 /Users/agent/.claude/projects/a", "")
-	ui.recordFinding(uiFindingWarning, "/Users/agent/.claude/projects/b is not group-writable — resume sync will fail (mode 0700); fix with: sudo chmod 2770 /Users/agent/.claude/projects/b", "")
-
-	recommendations := ui.recommendations()
-	if len(recommendations) != 1 {
-		t.Fatalf("recommendations = %d, want 1: %#v", len(recommendations), recommendations)
-	}
-	rec := recommendations[0]
-	if rec.Key != "claude-project-permissions" {
-		t.Fatalf("recommendation key = %q, want claude-project-permissions", rec.Key)
-	}
-	if !strings.Contains(rec.Action, "sudo chmod 2770 <path>") {
-		t.Fatalf("recommendation action = %q, want chmod template", rec.Action)
-	}
-	if len(rec.Details) != 2 {
-		t.Fatalf("recommendation details = %v, want two affected paths", rec.Details)
-	}
-}
-
-func TestUIRecommendationsPreferExplicitAction(t *testing.T) {
-	ui := &UI{}
-	ui.stepLabel = "Credential inventory"
-	ui.recordFinding(
+	ui.recordTypedFinding(
 		uiFindingWarning,
-		"Credential cloud.s3.secret-key: needs-repair backend=host-secret-store delivery=none host-store=absent",
-		"run `hazmat config cloud` or the next cloud backup/restore command to migrate the secret key",
+		diagnosticFinding(findingClaudeProjectPermissions),
+		"/Users/agent/.claude/projects/a is not group-writable — resume sync will fail (mode 0755); fix with: sudo chmod 2770 /Users/agent/.claude/projects/a",
+		"/Users/agent/.claude/projects/a",
+	)
+	ui.recordTypedFinding(
+		uiFindingWarning,
+		diagnosticFinding(findingClaudeProjectPermissions),
+		"/Users/agent/.claude/projects/b is not group-writable — resume sync will fail (mode 0700); fix with: sudo chmod 2770 /Users/agent/.claude/projects/b",
+		"/Users/agent/.claude/projects/b",
 	)
 
 	recommendations := ui.recommendations()
 	if len(recommendations) != 1 {
 		t.Fatalf("recommendations = %d, want 1: %#v", len(recommendations), recommendations)
 	}
-	if recommendations[0].Action != "run `hazmat config cloud` or the next cloud backup/restore command to migrate the secret key" {
-		t.Fatalf("recommendation action = %q", recommendations[0].Action)
+	rec := recommendations[0]
+	if rec.Key != diagnosticFinding(findingClaudeProjectPermissions).RecommendationKey() {
+		t.Fatalf("recommendation key = %q, want %q", rec.Key, diagnosticFinding(findingClaudeProjectPermissions).RecommendationKey())
+	}
+	if strings.Contains(rec.Action, "sudo chmod") {
+		t.Fatalf("recommendation action = %q, should come from typed repair action copy instead of shell recipe", rec.Action)
+	}
+	if len(rec.Details) != 2 {
+		t.Fatalf("recommendation details = %v, want two affected paths", rec.Details)
+	}
+}
+
+func TestUIRecommendationsUseTypedAction(t *testing.T) {
+	ui := &UI{}
+	ui.stepLabel = "Credential inventory"
+	def := diagnosticFinding(findingCredentialCloudSecretKeyLegacy)
+	ui.recordTypedFinding(
+		uiFindingWarning,
+		def,
+		"Credential cloud.s3.secret-key: needs-repair backend=host-secret-store delivery=none host-store=absent",
+	)
+
+	recommendations := ui.recommendations()
+	if len(recommendations) != 1 {
+		t.Fatalf("recommendations = %d, want 1: %#v", len(recommendations), recommendations)
+	}
+	if recommendations[0].Action != def.Action {
+		t.Fatalf("recommendation action = %q, want %q", recommendations[0].Action, def.Action)
+	}
+}
+
+func TestUIRecommendationsIgnoreUntypedMessages(t *testing.T) {
+	ui := &UI{}
+	ui.stepLabel = "Hardening gaps"
+	ui.recordFinding(uiFindingWarning, "umask 007 not found in agent's .zshrc — run hazmat init")
+
+	if recommendations := ui.recommendations(); len(recommendations) != 0 {
+		t.Fatalf("recommendations = %#v, want none for untyped message", recommendations)
 	}
 }
 

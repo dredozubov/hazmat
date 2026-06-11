@@ -44,10 +44,12 @@ const (
 )
 
 type uiFinding struct {
-	Severity uiFindingSeverity
-	Step     string
-	Message  string
-	Action   string
+	Severity   uiFindingSeverity
+	Step       string
+	Message    string
+	Definition diagnosticFindingDefinition
+	Typed      bool
+	Details    []string
 }
 
 type uiRecommendation struct {
@@ -109,23 +111,37 @@ func (u *UI) TestPass(msg string) {
 }
 
 func (u *UI) TestFail(msg string) {
-	u.TestFailWithAction(msg, "")
+	u.Fail++
+	u.recordFinding(uiFindingFailure, msg)
+	cRed.Print("  ✗ ")
+	fmt.Println(msg)
 }
 
 func (u *UI) TestFailWithAction(msg, action string) {
+	u.TestFail(msg)
+}
+
+func (u *UI) TestFailFinding(def diagnosticFindingDefinition, msg string, details ...string) {
 	u.Fail++
-	u.recordFinding(uiFindingFailure, msg, action)
+	u.recordTypedFinding(uiFindingFailure, def, msg, details...)
 	cRed.Print("  ✗ ")
 	fmt.Println(msg)
 }
 
 func (u *UI) TestWarn(msg string) {
-	u.TestWarnWithAction(msg, "")
+	u.Warn++
+	u.recordFinding(uiFindingWarning, msg)
+	cYellow.Print("  ! ")
+	fmt.Println(msg)
 }
 
 func (u *UI) TestWarnWithAction(msg, action string) {
+	u.TestWarn(msg)
+}
+
+func (u *UI) TestWarnFinding(def diagnosticFindingDefinition, msg string, details ...string) {
 	u.Warn++
-	u.recordFinding(uiFindingWarning, msg, action)
+	u.recordTypedFinding(uiFindingWarning, def, msg, details...)
 	cYellow.Print("  ! ")
 	fmt.Println(msg)
 }
@@ -172,12 +188,28 @@ func (u *UI) Summary() bool {
 	return u.Fail > 0
 }
 
-func (u *UI) recordFinding(severity uiFindingSeverity, msg, action string) {
+func (u *UI) recordFinding(severity uiFindingSeverity, msg string) {
 	u.findings = append(u.findings, uiFinding{
 		Severity: severity,
 		Step:     u.stepLabel,
 		Message:  msg,
-		Action:   strings.TrimSpace(action),
+	})
+}
+
+func (u *UI) recordTypedFinding(severity uiFindingSeverity, def diagnosticFindingDefinition, msg string, details ...string) {
+	if err := def.Validate(); err != nil {
+		panic(err)
+	}
+	if len(details) == 0 {
+		details = []string{msg}
+	}
+	u.findings = append(u.findings, uiFinding{
+		Severity:   severity,
+		Step:       u.stepLabel,
+		Message:    msg,
+		Definition: def,
+		Typed:      true,
+		Details:    append([]string(nil), details...),
 	})
 }
 
@@ -208,10 +240,10 @@ func (u *UI) recommendations() []uiRecommendation {
 	recsByKey := make(map[string]int)
 	var recs []uiRecommendation
 	for _, finding := range u.findings {
-		rec := recommendationForFinding(finding)
-		if rec.Action == "" {
+		if !finding.Typed {
 			continue
 		}
+		rec := recommendationForFinding(finding)
 		if idx, ok := recsByKey[rec.Key]; ok {
 			recs[idx].Severity = highestSeverity(recs[idx].Severity, rec.Severity)
 			recs[idx].Details = appendUnique(recs[idx].Details, rec.Details...)
@@ -224,171 +256,14 @@ func (u *UI) recommendations() []uiRecommendation {
 }
 
 func recommendationForFinding(f uiFinding) uiRecommendation {
-	msg := strings.TrimSpace(f.Message)
-	action := strings.TrimSpace(f.Action)
-	key := "finding:" + msg
-	title := titleForFinding(f)
-	details := []string{msg}
-
-	if action == "" {
-		key, title, action, details = inferRecommendation(f)
-	}
-
 	return uiRecommendation{
-		Key:      key,
+		Key:      f.Definition.RecommendationKey(),
 		Severity: f.Severity,
 		Step:     f.Step,
-		Title:    title,
-		Action:   action,
-		Details:  details,
+		Title:    f.Definition.Title,
+		Action:   f.Definition.Action,
+		Details:  append([]string(nil), f.Details...),
 	}
-}
-
-func inferRecommendation(f uiFinding) (key, title, action string, details []string) {
-	msg := strings.TrimSpace(f.Message)
-	lower := strings.ToLower(msg)
-	details = []string{msg}
-
-	if path, ok := claudeProjectPermissionPath(msg); ok {
-		return "claude-project-permissions",
-			"Repair Claude project resume/export permissions",
-			"Run `sudo chmod 2770 <path>` for each affected Claude project directory, then rerun `hazmat check`.",
-			[]string{path}
-	}
-
-	if strings.Contains(lower, "no ssh key found") || strings.Contains(lower, "no id_ed25519.pub") {
-		return "agent-ssh-key",
-			"Create an agent SSH key if Git SSH access is needed",
-			"Create an ed25519 SSH key for the agent user and register the public key with the remote Git provider.",
-			details
-	}
-
-	if command, ok := explicitCommandAction(msg); ok {
-		return "command:" + command,
-			titleForFinding(f),
-			"Run `" + command + "`.",
-			details
-	}
-
-	switch {
-	case strings.Contains(lower, "new file group is gid"):
-		return "workspace-setgid",
-			"Repair workspace group inheritance",
-			fmt.Sprintf("Run `hazmat init` to restore %s-group setup, then verify project directories are group-owned by `%s` and have the setgid bit.", sharedGroup, sharedGroup),
-			details
-	case strings.Contains(lower, "can read agent's .zshrc"):
-		return "agent-home-permissions",
-			"Restrict agent home permissions",
-			fmt.Sprintf("Run `sudo chmod 700 %s` after verifying no intentional shared files depend on broader agent-home access.", agentHome),
-			details
-	case strings.Contains(lower, "docker socket permissions"):
-		return "docker-socket-permissions",
-			"Restrict the Docker socket",
-			"Set the Docker socket to owner-only access (mode 0700) or disable Docker socket exposure before autonomous agent runs.",
-			details
-	case strings.Contains(lower, "pf anchor") || strings.Contains(lower, "/etc/pf.conf"):
-		return "pf-firewall",
-			"Restore and reload the packet-filter rules",
-			"Run `hazmat init` to restore Hazmat-managed pf configuration, then validate with `hazmat check --full`.",
-			details
-	case strings.Contains(lower, "dns blocklist") || strings.Contains(lower, "resolved to a real ip"):
-		return "dns-blocklist",
-			"Restore the DNS blocklist",
-			"Run `hazmat init` and enable the DNS blocklist, then rerun `hazmat check`.",
-			details
-	case strings.Contains(lower, "umask 007"):
-		return "agent-umask",
-			"Restore the agent umask",
-			"Run `hazmat init` to restore the managed agent shell block, or add `umask 007` to the agent shell profile.",
-			details
-	case strings.Contains(lower, "needs-repair") && strings.Contains(lower, "credential"):
-		return "credential-repair",
-			"Repair credential store drift",
-			"Use the detail printed below the credential finding to migrate or remove stale credential material, then rerun `hazmat check`.",
-			details
-	case strings.Contains(lower, "adapter-required") && strings.Contains(lower, "credential"):
-		return "credential-adapter-required",
-			"Avoid credentials without a backend adapter",
-			"Do not rely on this credential path until Hazmat has a backend adapter for it, or use a supported credential backend.",
-			details
-	case strings.Contains(lower, "anthropic_api_key not configured"):
-		return "anthropic-api-key",
-			"Configure Claude authentication for Hazmat sessions",
-			"Run `hazmat config agent` to store an Anthropic API key, or launch `hazmat claude` and complete `/login`.",
-			details
-	case strings.Contains(lower, "git identity not fully configured"):
-		return "agent-git-identity",
-			"Configure the agent Git identity",
-			"Set `user.name` and `user.email` for the agent user's global Git config.",
-			details
-	case strings.Contains(lower, "not found in agent path"):
-		return "agent-tool-path",
-			"Install or expose the missing project tool",
-			"Install the missing tool for the agent user, or update the active integration so its toolchain is readable and on the agent PATH.",
-			details
-	case strings.Contains(lower, "golangci-lint: not accessible"):
-		return "golangci-lint-access",
-			"Expose golangci-lint to the agent user",
-			"Install `golangci-lint` via Homebrew or repair Homebrew permissions so the agent user can execute it.",
-			details
-	case strings.Contains(lower, "no toolchain path resolved"):
-		return "integration-toolchain",
-			"Resolve the active integration toolchain",
-			"Install the integration toolchain, fix its host permissions, or remove/pin integrations in `.hazmat/integrations.yaml`.",
-			details
-	case strings.Contains(lower, "tla2tools.jar"):
-		return "tla2tools-jar",
-			"Expose tla2tools.jar to Hazmat",
-			"Set `TLA2TOOLS_JAR` to a readable tla2tools.jar path or place it at the default `~/workspace/tla2tools.jar` location.",
-			details
-	case strings.Contains(lower, "not group-accessible") || strings.Contains(lower, "workspace acl"):
-		return "workspace-access",
-			"Repair workspace group access",
-			"Run `hazmat init` to restore dev-group membership and workspace ACL defaults, then rerun `hazmat check`.",
-			details
-	default:
-		return "review:" + msg,
-			titleForFinding(f),
-			"Repair this finding and rerun `hazmat check` to confirm the result.",
-			details
-	}
-}
-
-func titleForFinding(f uiFinding) string {
-	msg := strings.TrimSpace(f.Message)
-	if idx := strings.Index(msg, " — "); idx > 0 {
-		msg = msg[:idx]
-	}
-	if f.Step == "" {
-		return msg
-	}
-	return fmt.Sprintf("%s: %s", f.Step, msg)
-}
-
-func explicitCommandAction(msg string) (string, bool) {
-	for _, marker := range []string{"fix with:", "try:", "run:"} {
-		idx := strings.Index(strings.ToLower(msg), marker)
-		if idx < 0 {
-			continue
-		}
-		command := strings.TrimSpace(msg[idx+len(marker):])
-		command = strings.Trim(command, "`'\" ")
-		if command != "" {
-			return command, true
-		}
-	}
-	return "", false
-}
-
-func claudeProjectPermissionPath(msg string) (string, bool) {
-	if !strings.Contains(msg, "/.claude/projects/") || !strings.Contains(msg, "is not group-writable") {
-		return "", false
-	}
-	path, _, found := strings.Cut(msg, " is not group-writable")
-	if !found {
-		return "", false
-	}
-	return strings.TrimSpace(path), true
 }
 
 func highestSeverity(a, b uiFindingSeverity) uiFindingSeverity {
