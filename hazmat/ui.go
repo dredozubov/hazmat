@@ -75,7 +75,7 @@ type uiDiagnosticReport struct {
 	Totals          uiDiagnosticTotals           `json:"totals"`
 	Findings        []uiDiagnosticFinding        `json:"findings"`
 	Recommendations []uiDiagnosticRecommendation `json:"recommendations"`
-	RepairPlan      uiDiagnosticRepairPlan       `json:"repair_plan"`
+	RepairPlan      diagnosticRepairPlan         `json:"repair_plan"`
 }
 
 type uiDiagnosticTotals struct {
@@ -123,53 +123,6 @@ type uiDiagnosticRecommendation struct {
 	Verification     string   `json:"verification,omitempty"`
 	RollbackBoundary string   `json:"rollback_boundary,omitempty"`
 	Details          []string `json:"details,omitempty"`
-}
-
-type uiDiagnosticRepairPlan struct {
-	Mode                string                            `json:"mode"`
-	Mutating            bool                              `json:"mutating"`
-	Items               []uiDiagnosticRepairPlanItem      `json:"items"`
-	ManualItems         []uiDiagnosticRepairPlanItem      `json:"manual_items"`
-	SkippedItems        []uiDiagnosticRepairPlanItem      `json:"skipped_items"`
-	AppliedReceipts     []uiDiagnosticRepairReceipt       `json:"applied_receipts"`
-	FailedVerifications []uiDiagnosticVerificationFailure `json:"failed_verifications"`
-}
-
-type uiDiagnosticRepairPlanItem struct {
-	Key                string   `json:"key"`
-	Status             string   `json:"status"`
-	Severity           string   `json:"severity"`
-	FindingID          string   `json:"finding_id,omitempty"`
-	ResourceID         string   `json:"resource_id,omitempty"`
-	Repairability      string   `json:"repairability,omitempty"`
-	Title              string   `json:"title"`
-	Action             string   `json:"action"`
-	Authority          string   `json:"authority,omitempty"`
-	Approval           string   `json:"approval,omitempty"`
-	ExecutableByHazmat bool     `json:"executable_by_hazmat"`
-	Privileged         bool     `json:"privileged"`
-	Reversibility      string   `json:"reversibility,omitempty"`
-	Preconditions      []string `json:"preconditions,omitempty"`
-	TestObligations    []string `json:"test_obligations,omitempty"`
-	RepairAction       string   `json:"repair_action,omitempty"`
-	RepairReceipt      string   `json:"repair_receipt,omitempty"`
-	Verification       string   `json:"verification,omitempty"`
-	RollbackBoundary   string   `json:"rollback_boundary,omitempty"`
-	RollbackModel      string   `json:"rollback_model,omitempty"`
-	Details            []string `json:"details,omitempty"`
-	Reason             string   `json:"reason,omitempty"`
-}
-
-type uiDiagnosticRepairReceipt struct {
-	ID        string `json:"id"`
-	Action    string `json:"action"`
-	Verified  bool   `json:"verified"`
-	CreatedAt string `json:"created_at,omitempty"`
-}
-
-type uiDiagnosticVerificationFailure struct {
-	Verification string   `json:"verification"`
-	Details      []string `json:"details,omitempty"`
 }
 
 var (
@@ -422,7 +375,7 @@ func (u *UI) diagnosticReport() uiDiagnosticReport {
 		Totals:          uiDiagnosticTotals{Pass: u.Pass, Fail: u.Fail, Warn: u.Warn, Skip: u.Skip},
 		Findings:        diagnosticFindingJSONs(u.findings),
 		Recommendations: diagnosticRecommendationJSONs(recommendations),
-		RepairPlan:      diagnosticRepairPlanJSON(u.findings, recommendations),
+		RepairPlan:      planDiagnosticRepairs(u.findings, recommendations),
 	}
 }
 
@@ -484,82 +437,6 @@ func diagnosticRecommendationJSONs(recommendations []uiRecommendation) []uiDiagn
 		})
 	}
 	return out
-}
-
-func diagnosticRepairPlanJSON(findings []uiFinding, recommendations []uiRecommendation) uiDiagnosticRepairPlan {
-	plan := uiDiagnosticRepairPlan{
-		Mode:                "preview",
-		Mutating:            false,
-		Items:               []uiDiagnosticRepairPlanItem{},
-		ManualItems:         []uiDiagnosticRepairPlanItem{},
-		SkippedItems:        []uiDiagnosticRepairPlanItem{},
-		AppliedReceipts:     []uiDiagnosticRepairReceipt{},
-		FailedVerifications: []uiDiagnosticVerificationFailure{},
-	}
-	for _, rec := range recommendations {
-		item := diagnosticRepairPlanItemForRecommendation(rec)
-		switch rec.Definition.Repairability {
-		case diagnosticRepairAuto, diagnosticRepairConsent:
-			plan.Items = append(plan.Items, item)
-		case diagnosticRepairManualExternal, diagnosticRepairUnsupported:
-			item.Status = string(rec.Definition.Repairability)
-			item.Reason = "not executable by Hazmat"
-			plan.ManualItems = append(plan.ManualItems, item)
-		case diagnosticRepairOptional, diagnosticRepairInformational:
-			item.Status = string(rec.Definition.Repairability)
-			item.Reason = "not required for containment repair"
-			plan.SkippedItems = append(plan.SkippedItems, item)
-		}
-	}
-	for _, finding := range findings {
-		if finding.Typed {
-			continue
-		}
-		plan.SkippedItems = append(plan.SkippedItems, uiDiagnosticRepairPlanItem{
-			Key:      "untyped:" + finding.Message,
-			Status:   "untyped",
-			Severity: finding.Severity.Label(),
-			Title:    finding.Message,
-			Action:   "No repair plan is available until this finding is migrated to typed diagnostic metadata.",
-			Details:  []string{finding.Message},
-			Reason:   "missing typed diagnostic metadata",
-		})
-	}
-	return plan
-}
-
-func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) uiDiagnosticRepairPlanItem {
-	def := rec.Definition
-	policy, _ := diagnosticRepairClassPolicyFor(def.Repairability)
-	item := uiDiagnosticRepairPlanItem{
-		Key:                rec.Key,
-		Status:             "planned",
-		Severity:           rec.Severity.Label(),
-		FindingID:          string(def.ID),
-		ResourceID:         string(def.Resource),
-		Repairability:      string(def.Repairability),
-		Title:              rec.Title,
-		Action:             rec.Action,
-		Authority:          string(policy.Authority),
-		Approval:           string(policy.Approval),
-		ExecutableByHazmat: policy.ExecutableByHazmat,
-		Preconditions:      append([]string(nil), policy.Preconditions...),
-		TestObligations:    append([]string(nil), policy.TestObligations...),
-		RepairAction:       string(def.RepairAction),
-		RepairReceipt:      string(def.RepairReceipt),
-		Verification:       string(def.Verification),
-		RollbackBoundary:   def.RollbackBoundary,
-		RollbackModel:      policy.RollbackModel,
-		Details:            append([]string(nil), rec.Details...),
-	}
-	if action, ok := diagnosticRepairAction(def.RepairAction); ok {
-		item.Authority = string(action.Authority)
-		item.Privileged = action.Privileged
-		item.Reversibility = string(action.Reversibility)
-		item.Preconditions = append([]string(nil), action.Preconditions...)
-		item.TestObligations = append([]string(nil), action.TestObligations...)
-	}
-	return item
 }
 
 func highestSeverity(a, b uiFindingSeverity) uiFindingSeverity {
