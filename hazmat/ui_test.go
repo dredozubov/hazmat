@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -64,6 +65,64 @@ func TestUIRecommendationsIgnoreUntypedMessages(t *testing.T) {
 
 	if recommendations := ui.recommendations(); len(recommendations) != 0 {
 		t.Fatalf("recommendations = %#v, want none for untyped message", recommendations)
+	}
+}
+
+func TestUIDiagnosticReportIncludesTypedMetadata(t *testing.T) {
+	ui := &UI{Quick: true, JSON: true}
+	ui.stepLabel = "Agent user tools"
+	def := diagnosticFinding(findingClaudeProjectPermissions)
+	ui.TestWarnFinding(def, "project dir is not group-writable", "/Users/agent/.claude/projects/a")
+
+	report := ui.diagnosticReport()
+	if report.FormatVersion != 1 || report.Kind != "hazmat.diagnostic_report" || !report.Quick {
+		t.Fatalf("report header = %+v", report)
+	}
+	if report.Totals.Warn != 1 || report.Totals.Fail != 0 {
+		t.Fatalf("report totals = %+v", report.Totals)
+	}
+	if len(report.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1", len(report.Findings))
+	}
+	finding := report.Findings[0]
+	if !finding.Typed || finding.ID != string(def.ID) || finding.RepairReceipt != string(def.RepairReceipt) {
+		t.Fatalf("finding metadata = %+v, want typed %s with receipt %s", finding, def.ID, def.RepairReceipt)
+	}
+	if finding.Resource == nil || finding.Resource.Owner == "" || finding.Resource.DesiredState == "" {
+		t.Fatalf("finding resource = %+v, want owner and desired state", finding.Resource)
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("Marshal(report): %v", err)
+	}
+	if !strings.Contains(string(data), `"repair_receipt":"receipt.claude.project-permissions"`) {
+		t.Fatalf("json report missing repair receipt: %s", data)
+	}
+}
+
+func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
+	ui := &UI{JSON: true}
+	ui.stepLabel = "Mixed findings"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+	ui.TestWarnFinding(diagnosticFinding(findingAgentSSHKey), "ssh key missing")
+	ui.TestFail("legacy untyped failure")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Mutating || plan.Mode != "preview" {
+		t.Fatalf("plan header = %+v, want non-mutating preview", plan)
+	}
+	if len(plan.Items) != 1 || plan.Items[0].RepairAction != "repair.agent-shell.umask" {
+		t.Fatalf("plan items = %+v, want umask repair item", plan.Items)
+	}
+	if len(plan.ManualItems) != 1 || plan.ManualItems[0].Status != string(diagnosticRepairManualExternal) {
+		t.Fatalf("manual items = %+v, want docker manual item", plan.ManualItems)
+	}
+	if len(plan.SkippedItems) != 2 {
+		t.Fatalf("skipped items = %+v, want optional ssh plus untyped finding", plan.SkippedItems)
+	}
+	if len(plan.AppliedReceipts) != 0 || len(plan.FailedVerifications) != 0 {
+		t.Fatalf("plan execution state = receipts %+v failures %+v, want empty preview", plan.AppliedReceipts, plan.FailedVerifications)
 	}
 }
 

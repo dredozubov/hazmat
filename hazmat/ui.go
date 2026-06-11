@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -22,6 +23,11 @@ type UI struct {
 	Skip      int
 	stepLabel string
 	findings  []uiFinding
+	// Quick records whether diagnostic live network probes were skipped.
+	Quick bool
+	// JSON suppresses terminal rendering and emits a machine-readable
+	// diagnostic report from Summary.
+	JSON bool
 	// DryRun causes Ask to skip the prompt and assume yes, so dry-run output
 	// shows the commands that would run for optional steps.
 	DryRun bool
@@ -53,12 +59,109 @@ type uiFinding struct {
 }
 
 type uiRecommendation struct {
-	Key      string
-	Severity uiFindingSeverity
-	Step     string
-	Title    string
-	Action   string
-	Details  []string
+	Key        string
+	Severity   uiFindingSeverity
+	Step       string
+	Definition diagnosticFindingDefinition
+	Title      string
+	Action     string
+	Details    []string
+}
+
+type uiDiagnosticReport struct {
+	FormatVersion   int                          `json:"format_version"`
+	Kind            string                       `json:"kind"`
+	Quick           bool                         `json:"quick"`
+	Totals          uiDiagnosticTotals           `json:"totals"`
+	Findings        []uiDiagnosticFinding        `json:"findings"`
+	Recommendations []uiDiagnosticRecommendation `json:"recommendations"`
+	RepairPlan      uiDiagnosticRepairPlan       `json:"repair_plan"`
+}
+
+type uiDiagnosticTotals struct {
+	Pass int `json:"pass"`
+	Fail int `json:"fail"`
+	Warn int `json:"warn"`
+	Skip int `json:"skip"`
+}
+
+type uiDiagnosticResource struct {
+	ID           string `json:"id,omitempty"`
+	Owner        string `json:"owner,omitempty"`
+	DesiredState string `json:"desired_state,omitempty"`
+}
+
+type uiDiagnosticFinding struct {
+	Severity         string                `json:"severity"`
+	Step             string                `json:"step,omitempty"`
+	Message          string                `json:"message"`
+	Typed            bool                  `json:"typed"`
+	ID               string                `json:"id,omitempty"`
+	Resource         *uiDiagnosticResource `json:"resource,omitempty"`
+	Title            string                `json:"title,omitempty"`
+	Repairability    string                `json:"repairability,omitempty"`
+	Action           string                `json:"action,omitempty"`
+	RepairAction     string                `json:"repair_action,omitempty"`
+	RepairReceipt    string                `json:"repair_receipt,omitempty"`
+	Verification     string                `json:"verification,omitempty"`
+	SecurityImpact   string                `json:"security_impact,omitempty"`
+	RollbackBoundary string                `json:"rollback_boundary,omitempty"`
+	Details          []string              `json:"details,omitempty"`
+}
+
+type uiDiagnosticRecommendation struct {
+	Key              string   `json:"key"`
+	Severity         string   `json:"severity"`
+	Step             string   `json:"step,omitempty"`
+	FindingID        string   `json:"finding_id"`
+	ResourceID       string   `json:"resource_id"`
+	Repairability    string   `json:"repairability"`
+	Title            string   `json:"title"`
+	Action           string   `json:"action"`
+	RepairAction     string   `json:"repair_action,omitempty"`
+	RepairReceipt    string   `json:"repair_receipt,omitempty"`
+	Verification     string   `json:"verification,omitempty"`
+	RollbackBoundary string   `json:"rollback_boundary,omitempty"`
+	Details          []string `json:"details,omitempty"`
+}
+
+type uiDiagnosticRepairPlan struct {
+	Mode                string                            `json:"mode"`
+	Mutating            bool                              `json:"mutating"`
+	Items               []uiDiagnosticRepairPlanItem      `json:"items"`
+	ManualItems         []uiDiagnosticRepairPlanItem      `json:"manual_items"`
+	SkippedItems        []uiDiagnosticRepairPlanItem      `json:"skipped_items"`
+	AppliedReceipts     []uiDiagnosticRepairReceipt       `json:"applied_receipts"`
+	FailedVerifications []uiDiagnosticVerificationFailure `json:"failed_verifications"`
+}
+
+type uiDiagnosticRepairPlanItem struct {
+	Key              string   `json:"key"`
+	Status           string   `json:"status"`
+	Severity         string   `json:"severity"`
+	FindingID        string   `json:"finding_id,omitempty"`
+	ResourceID       string   `json:"resource_id,omitempty"`
+	Repairability    string   `json:"repairability,omitempty"`
+	Title            string   `json:"title"`
+	Action           string   `json:"action"`
+	RepairAction     string   `json:"repair_action,omitempty"`
+	RepairReceipt    string   `json:"repair_receipt,omitempty"`
+	Verification     string   `json:"verification,omitempty"`
+	RollbackBoundary string   `json:"rollback_boundary,omitempty"`
+	Details          []string `json:"details,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+}
+
+type uiDiagnosticRepairReceipt struct {
+	ID        string `json:"id"`
+	Action    string `json:"action"`
+	Verified  bool   `json:"verified"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type uiDiagnosticVerificationFailure struct {
+	Verification string   `json:"verification"`
+	Details      []string `json:"details,omitempty"`
 }
 
 var (
@@ -74,6 +177,9 @@ var (
 func (u *UI) Step(label string) {
 	u.stepNum++
 	u.stepLabel = label
+	if u.JSON {
+		return
+	}
 	fmt.Println()
 	cBlue.Printf("━━━ Step %d: %s ━━━\n", u.stepNum, label)
 }
@@ -106,6 +212,9 @@ func (u *UI) Fatal(msg string) {
 
 func (u *UI) TestPass(msg string) {
 	u.Pass++
+	if u.JSON {
+		return
+	}
 	cGreen.Print("  ✓ ")
 	fmt.Println(msg)
 }
@@ -113,6 +222,9 @@ func (u *UI) TestPass(msg string) {
 func (u *UI) TestFail(msg string) {
 	u.Fail++
 	u.recordFinding(uiFindingFailure, msg)
+	if u.JSON {
+		return
+	}
 	cRed.Print("  ✗ ")
 	fmt.Println(msg)
 }
@@ -124,6 +236,9 @@ func (u *UI) TestFailWithAction(msg, action string) {
 func (u *UI) TestFailFinding(def diagnosticFindingDefinition, msg string, details ...string) {
 	u.Fail++
 	u.recordTypedFinding(uiFindingFailure, def, msg, details...)
+	if u.JSON {
+		return
+	}
 	cRed.Print("  ✗ ")
 	fmt.Println(msg)
 }
@@ -131,6 +246,9 @@ func (u *UI) TestFailFinding(def diagnosticFindingDefinition, msg string, detail
 func (u *UI) TestWarn(msg string) {
 	u.Warn++
 	u.recordFinding(uiFindingWarning, msg)
+	if u.JSON {
+		return
+	}
 	cYellow.Print("  ! ")
 	fmt.Println(msg)
 }
@@ -142,18 +260,29 @@ func (u *UI) TestWarnWithAction(msg, action string) {
 func (u *UI) TestWarnFinding(def diagnosticFindingDefinition, msg string, details ...string) {
 	u.Warn++
 	u.recordTypedFinding(uiFindingWarning, def, msg, details...)
+	if u.JSON {
+		return
+	}
 	cYellow.Print("  ! ")
 	fmt.Println(msg)
 }
 
 func (u *UI) TestSkip(msg string) {
 	u.Skip++
+	if u.JSON {
+		return
+	}
 	cYellow.Print("  → ")
 	fmt.Printf("%s (skipped)\n", msg)
 }
 
 // Summary prints the results table.  Returns true if there were any failures.
 func (u *UI) Summary() bool {
+	if u.JSON {
+		u.printJSONReport()
+		return u.Fail > 0
+	}
+
 	fmt.Println()
 	cBold.Println("━━━ Results ━━━")
 	fmt.Println()
@@ -257,12 +386,156 @@ func (u *UI) recommendations() []uiRecommendation {
 
 func recommendationForFinding(f uiFinding) uiRecommendation {
 	return uiRecommendation{
-		Key:      f.Definition.RecommendationKey(),
-		Severity: f.Severity,
-		Step:     f.Step,
-		Title:    f.Definition.Title,
-		Action:   f.Definition.Action,
-		Details:  append([]string(nil), f.Details...),
+		Key:        f.Definition.RecommendationKey(),
+		Severity:   f.Severity,
+		Step:       f.Step,
+		Definition: f.Definition,
+		Title:      f.Definition.Title,
+		Action:     f.Definition.Action,
+		Details:    append([]string(nil), f.Details...),
+	}
+}
+
+func (u *UI) printJSONReport() {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(u.diagnosticReport()); err != nil {
+		fmt.Fprintf(os.Stderr, "emit diagnostic report JSON: %v\n", err)
+	}
+}
+
+func (u *UI) diagnosticReport() uiDiagnosticReport {
+	recommendations := u.recommendations()
+	return uiDiagnosticReport{
+		FormatVersion:   1,
+		Kind:            "hazmat.diagnostic_report",
+		Quick:           u.Quick,
+		Totals:          uiDiagnosticTotals{Pass: u.Pass, Fail: u.Fail, Warn: u.Warn, Skip: u.Skip},
+		Findings:        diagnosticFindingJSONs(u.findings),
+		Recommendations: diagnosticRecommendationJSONs(recommendations),
+		RepairPlan:      diagnosticRepairPlanJSON(u.findings, recommendations),
+	}
+}
+
+func diagnosticFindingJSONs(findings []uiFinding) []uiDiagnosticFinding {
+	out := make([]uiDiagnosticFinding, 0, len(findings))
+	for _, finding := range findings {
+		item := uiDiagnosticFinding{
+			Severity: finding.Severity.Label(),
+			Step:     finding.Step,
+			Message:  finding.Message,
+			Typed:    finding.Typed,
+		}
+		if finding.Typed {
+			def := finding.Definition
+			item.ID = string(def.ID)
+			item.Resource = diagnosticResourceJSON(def.Resource)
+			item.Title = def.Title
+			item.Repairability = string(def.Repairability)
+			item.Action = def.Action
+			item.RepairAction = string(def.RepairAction)
+			item.RepairReceipt = string(def.RepairReceipt)
+			item.Verification = string(def.Verification)
+			item.SecurityImpact = def.SecurityImpact
+			item.RollbackBoundary = def.RollbackBoundary
+			item.Details = append([]string(nil), finding.Details...)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func diagnosticResourceJSON(id diagnosticResourceID) *uiDiagnosticResource {
+	resource := diagnosticResourceDefinitions[id]
+	return &uiDiagnosticResource{
+		ID:           string(id),
+		Owner:        resource.Owner,
+		DesiredState: resource.DesiredState,
+	}
+}
+
+func diagnosticRecommendationJSONs(recommendations []uiRecommendation) []uiDiagnosticRecommendation {
+	out := make([]uiDiagnosticRecommendation, 0, len(recommendations))
+	for _, rec := range recommendations {
+		def := rec.Definition
+		out = append(out, uiDiagnosticRecommendation{
+			Key:              rec.Key,
+			Severity:         rec.Severity.Label(),
+			Step:             rec.Step,
+			FindingID:        string(def.ID),
+			ResourceID:       string(def.Resource),
+			Repairability:    string(def.Repairability),
+			Title:            rec.Title,
+			Action:           rec.Action,
+			RepairAction:     string(def.RepairAction),
+			RepairReceipt:    string(def.RepairReceipt),
+			Verification:     string(def.Verification),
+			RollbackBoundary: def.RollbackBoundary,
+			Details:          append([]string(nil), rec.Details...),
+		})
+	}
+	return out
+}
+
+func diagnosticRepairPlanJSON(findings []uiFinding, recommendations []uiRecommendation) uiDiagnosticRepairPlan {
+	plan := uiDiagnosticRepairPlan{
+		Mode:                "preview",
+		Mutating:            false,
+		Items:               []uiDiagnosticRepairPlanItem{},
+		ManualItems:         []uiDiagnosticRepairPlanItem{},
+		SkippedItems:        []uiDiagnosticRepairPlanItem{},
+		AppliedReceipts:     []uiDiagnosticRepairReceipt{},
+		FailedVerifications: []uiDiagnosticVerificationFailure{},
+	}
+	for _, rec := range recommendations {
+		item := diagnosticRepairPlanItemForRecommendation(rec)
+		switch rec.Definition.Repairability {
+		case diagnosticRepairAuto, diagnosticRepairConsent:
+			plan.Items = append(plan.Items, item)
+		case diagnosticRepairManualExternal, diagnosticRepairUnsupported:
+			item.Status = string(rec.Definition.Repairability)
+			item.Reason = "not executable by Hazmat"
+			plan.ManualItems = append(plan.ManualItems, item)
+		case diagnosticRepairOptional, diagnosticRepairInformational:
+			item.Status = string(rec.Definition.Repairability)
+			item.Reason = "not required for containment repair"
+			plan.SkippedItems = append(plan.SkippedItems, item)
+		}
+	}
+	for _, finding := range findings {
+		if finding.Typed {
+			continue
+		}
+		plan.SkippedItems = append(plan.SkippedItems, uiDiagnosticRepairPlanItem{
+			Key:      "untyped:" + finding.Message,
+			Status:   "untyped",
+			Severity: finding.Severity.Label(),
+			Title:    finding.Message,
+			Action:   "No repair plan is available until this finding is migrated to typed diagnostic metadata.",
+			Details:  []string{finding.Message},
+			Reason:   "missing typed diagnostic metadata",
+		})
+	}
+	return plan
+}
+
+func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) uiDiagnosticRepairPlanItem {
+	def := rec.Definition
+	return uiDiagnosticRepairPlanItem{
+		Key:              rec.Key,
+		Status:           "planned",
+		Severity:         rec.Severity.Label(),
+		FindingID:        string(def.ID),
+		ResourceID:       string(def.Resource),
+		Repairability:    string(def.Repairability),
+		Title:            rec.Title,
+		Action:           rec.Action,
+		RepairAction:     string(def.RepairAction),
+		RepairReceipt:    string(def.RepairReceipt),
+		Verification:     string(def.Verification),
+		RollbackBoundary: def.RollbackBoundary,
+		Details:          append([]string(nil), rec.Details...),
 	}
 }
 

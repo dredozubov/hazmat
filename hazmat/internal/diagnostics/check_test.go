@@ -3,26 +3,26 @@ package diagnostics
 import "testing"
 
 func TestCheckCommandRunsQuickByDefault(t *testing.T) {
-	var gotQuick bool
+	var gotOptions CheckOptions
 	var called bool
-	cmd := NewCheckCommand(func(quick bool) error {
+	cmd := NewCheckCommand(func(options CheckOptions) error {
 		called = true
-		gotQuick = quick
+		gotOptions = options
 		return nil
 	})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute(): %v", err)
 	}
-	if !called || !gotQuick {
-		t.Fatalf("runner called=%v quick=%v, want called quick", called, gotQuick)
+	if !called || !gotOptions.Quick || gotOptions.JSON {
+		t.Fatalf("runner called=%v options=%+v, want called quick non-json", called, gotOptions)
 	}
 }
 
 func TestCheckCommandFullDisablesQuickMode(t *testing.T) {
 	var gotQuick = true
-	cmd := NewCheckCommand(func(quick bool) error {
-		gotQuick = quick
+	cmd := NewCheckCommand(func(options CheckOptions) error {
+		gotQuick = options.Quick
 		return nil
 	})
 	cmd.SetArgs([]string{"--full"})
@@ -35,10 +35,26 @@ func TestCheckCommandFullDisablesQuickMode(t *testing.T) {
 	}
 }
 
+func TestCheckCommandJSONFlag(t *testing.T) {
+	var gotOptions CheckOptions
+	cmd := NewCheckCommand(func(options CheckOptions) error {
+		gotOptions = options
+		return nil
+	})
+	cmd.SetArgs([]string{"--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if !gotOptions.JSON || !gotOptions.Quick {
+		t.Fatalf("options = %+v, want json quick", gotOptions)
+	}
+}
+
 func TestDoctorCommandFullDisablesQuickMode(t *testing.T) {
 	var gotQuick = true
-	cmd := NewDoctorCommand(func(quick bool) error {
-		gotQuick = quick
+	cmd := NewDoctorCommand(func(options CheckOptions) error {
+		gotQuick = options.Quick
 		return nil
 	})
 	cmd.SetArgs([]string{"--full"})

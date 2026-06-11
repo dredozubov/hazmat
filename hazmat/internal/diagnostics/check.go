@@ -2,7 +2,12 @@ package diagnostics
 
 import "github.com/spf13/cobra"
 
-type CheckRunner func(quick bool) error
+type CheckOptions struct {
+	Quick bool
+	JSON  bool
+}
+
+type CheckRunner func(CheckOptions) error
 
 func NewCheckCommand(run CheckRunner) *cobra.Command {
 	return newCheckCommand("check", "Verify setup and show remediation guidance", `Runs the verification suite to check that containment is correctly configured.
@@ -22,6 +27,7 @@ live network probes that verify firewall rules are active.`, run)
 
 func newCheckCommand(use, short, long string, run CheckRunner) *cobra.Command {
 	var full bool
+	var jsonOutput bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -31,9 +37,10 @@ func newCheckCommand(use, short, long string, run CheckRunner) *cobra.Command {
 			if run == nil {
 				return nil
 			}
-			return run(!full)
+			return run(CheckOptions{Quick: !full, JSON: jsonOutput})
 		},
 	}
 	cmd.Flags().BoolVar(&full, "full", false, "Include live network probes (sends external traffic)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable diagnostic report JSON")
 	return cmd
 }

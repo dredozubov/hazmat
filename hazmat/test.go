@@ -28,30 +28,34 @@ import (
 	"hazmat/internal/diagnostics"
 )
 
-func runTest(quick bool) error {
-	ui := &UI{}
-	return diagnostics.RunCheck(quick, diagnostics.CheckSuite{
+func runTest(options diagnostics.CheckOptions) error {
+	ui := &UI{Quick: options.Quick, JSON: options.JSON}
+	return diagnostics.RunCheck(options.Quick, diagnostics.CheckSuite{
 		Begin: func(quick bool) (diagnostics.CheckContext, error) {
-			fmt.Println()
-			cBold.Println("  ┌──────────────────────────────────────────────┐")
-			cBold.Println("  │  Hazmat verification suite                   │")
-			cBold.Println("  └──────────────────────────────────────────────┘")
-			fmt.Println()
-			fmt.Println("  Modes:")
-			fmt.Println("    hazmat check          Quick checks (no external traffic)")
-			fmt.Println("    hazmat check --full   Full suite including live network probes")
-			fmt.Println()
+			if !ui.JSON {
+				fmt.Println()
+				cBold.Println("  ┌──────────────────────────────────────────────┐")
+				cBold.Println("  │  Hazmat verification suite                   │")
+				cBold.Println("  └──────────────────────────────────────────────┘")
+				fmt.Println()
+				fmt.Println("  Modes:")
+				fmt.Println("    hazmat check          Quick checks (no external traffic)")
+				fmt.Println("    hazmat check --full   Full suite including live network probes")
+				fmt.Println()
+			}
 
 			cu, err := user.Current()
 			if err != nil {
 				return diagnostics.CheckContext{}, fmt.Errorf("cannot determine current user: %w", err)
 			}
-			fmt.Printf("  Running as: %s\n", cu.Username)
-			fmt.Printf("  Agent user: %s\n", agentUser)
-			if quick {
-				cYellow.Println("  Quick mode: live network tests skipped")
+			if !ui.JSON {
+				fmt.Printf("  Running as: %s\n", cu.Username)
+				fmt.Printf("  Agent user: %s\n", agentUser)
+				if quick {
+					cYellow.Println("  Quick mode: live network tests skipped")
+				}
+				fmt.Println()
 			}
-			fmt.Println()
 
 			selfPath, _ := os.Executable()
 			return diagnostics.CheckContext{
@@ -431,8 +435,10 @@ func testPfFirewallLive(ui *UI, quick bool, selfPath string) {
 	}
 
 	for _, p := range probes {
-		fmt.Printf("    Testing %s (port %s, should be %s)...\n",
-			p.label, p.port, map[bool]string{true: "ALLOWED", false: "BLOCKED"}[p.wantAllow])
+		if !ui.JSON {
+			fmt.Printf("    Testing %s (port %s, should be %s)...\n",
+				p.label, p.port, map[bool]string{true: "ALLOWED", false: "BLOCKED"}[p.wantAllow])
+		}
 
 		got := agentTCPConnect(selfPath, p.host, p.port)
 		switch {
@@ -450,7 +456,9 @@ func testPfFirewallLive(ui *UI, quick bool, selfPath string) {
 	}
 
 	// Verify rules are scoped to agent only — current user should still reach 443
-	fmt.Println("    Testing that pf rules are scoped to agent only...")
+	if !ui.JSON {
+		fmt.Println("    Testing that pf rules are scoped to agent only...")
+	}
 	conn, err := net.DialTimeout("tcp", "1.1.1.1:443", 3*time.Second)
 	if err != nil {
 		ui.TestWarn("Current user cannot connect on port 443 either — general network issue, not a sandbox problem")
@@ -570,25 +578,38 @@ func reportCredentialInventoryEntry(ui *UI, entry credentialInventoryEntry) {
 	case credentialInventoryAdapterRequired:
 		ui.TestWarnFinding(diagnosticCredentialFinding(entry), line)
 	case credentialInventoryNeedsRepair:
-		ui.TestWarnFinding(diagnosticCredentialFinding(entry), line)
-		for _, finding := range entry.AgentResidue {
-			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
-		}
-		for _, finding := range entry.LegacyResidue {
-			cDim.Printf("    %s\n", formatCredentialInventoryFinding("legacy residue", finding))
+		details := append([]string{line}, credentialInventoryEntryDetails(entry)...)
+		ui.TestWarnFinding(diagnosticCredentialFinding(entry), line, details...)
+		if !ui.JSON {
+			for _, detail := range details[1:] {
+				cDim.Printf("    %s\n", detail)
+			}
 		}
 	case credentialInventoryError:
 		ui.TestFail(line)
-		for _, errText := range entry.Errors {
-			cDim.Printf("    %s\n", errText)
-		}
-		for _, finding := range entry.AgentResidue {
-			cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
-		}
-		for _, finding := range entry.LegacyResidue {
-			cDim.Printf("    %s\n", formatCredentialInventoryFinding("legacy residue", finding))
+		if !ui.JSON {
+			for _, errText := range entry.Errors {
+				cDim.Printf("    %s\n", errText)
+			}
+			for _, finding := range entry.AgentResidue {
+				cDim.Printf("    %s\n", formatCredentialInventoryFinding("agent-home residue", finding))
+			}
+			for _, finding := range entry.LegacyResidue {
+				cDim.Printf("    %s\n", formatCredentialInventoryFinding("legacy residue", finding))
+			}
 		}
 	}
+}
+
+func credentialInventoryEntryDetails(entry credentialInventoryEntry) []string {
+	var details []string
+	for _, finding := range entry.AgentResidue {
+		details = append(details, formatCredentialInventoryFinding("agent-home residue", finding))
+	}
+	for _, finding := range entry.LegacyResidue {
+		details = append(details, formatCredentialInventoryFinding("legacy residue", finding))
+	}
+	return details
 }
 
 // ── Step 10: Agent user tools ─────────────────────────────────────────────────
