@@ -485,6 +485,42 @@ repair-oriented command naming and shows the typed repair plan. Plain
 Neither command is the full repo test suite. For lifecycle e2e, self-hosting,
 repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
 
+### Diagnostic and Repair Contract
+
+`hazmat check` is always read-only. It does not accept `--fix`, does not repair
+Homebrew permissions, does not edit setup files, and does not use warning text to
+invent shell recipes. Its job is to report health, repairability, and evidence.
+
+`hazmat doctor` is the repair-planning command. By default it is also
+non-mutating. The plan is built from Hazmat-owned finding and repair-action IDs,
+not from strings printed by checks or from repo-controlled metadata. `--json`
+emits the same typed plan for automation, including authority, consent model,
+proof lanes, rollback boundary, verification target, and receipt ID.
+
+`hazmat doctor --fix` is the only diagnostics entrypoint allowed to apply typed
+repairs. Interactive runs may ask for consent before applying a plan.
+Non-interactive mutation requires both `--fix` and `--yes`. Hazmat will not run
+arbitrary shell commands from findings, project files, or recommendation text.
+Repairs that are not wired to the typed executor stay manual, optional,
+unsupported, or informational.
+
+Repair receipts name what Hazmat changed and which verification passed after the
+change. A failed verification is not turned back into a generic "run init"
+recommendation; the report keeps the attempted action, evidence, and next
+classification so the same loop is visible and testable.
+
+`hazmat init` remains the first-time baseline setup command. It owns creating the
+agent account, shared group, network policy, launch helper, shell defaults, and
+other setup resources. It should converge those resources or report a specific
+blocker; it is not the generic answer to every `check` finding. After init,
+use `hazmat check` or `hazmat doctor` to inspect remaining drift.
+
+`hazmat rollback` removes Hazmat-owned setup state. It does not promise to erase
+user data, project files, host-owned credential stores, or session-time
+permission repairs that the verified session-repair contract intentionally
+preserves. Rollback output should call out preserved residue rather than
+implying the machine is byte-for-byte restored.
+
 ## Backup and Restore
 
 ### Local project snapshots
@@ -771,7 +807,9 @@ sudo rm /usr/local/bin/hazmat /usr/local/libexec/hazmat-launch  # if installed v
 
 Your project files are not deleted. Back them up first if needed. Rollback does
 remove Hazmat-managed repo-local Git hook state: host approval records,
-approved snapshots, per-repo wrappers, and managed `.git` dispatchers.
+approved snapshots, per-repo wrappers, and managed `.git` dispatchers. It
+preserves host-owned credential stores and session-time permission repairs unless
+a future receipt-aware rollback path explicitly names them for removal.
 
 ## What the Agent Can and Can't Do
 
