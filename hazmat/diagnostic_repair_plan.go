@@ -5,6 +5,7 @@ import "strings"
 type diagnosticRepairPlan struct {
 	Mode                string                          `json:"mode"`
 	Mutating            bool                            `json:"mutating"`
+	Execution           diagnosticRepairExecutionPolicy `json:"execution"`
 	TrustBoundaries     []diagnosticRepairTrustBoundary `json:"trust_boundaries"`
 	Items               []diagnosticRepairPlanItem      `json:"items"`
 	ManualItems         []diagnosticRepairPlanItem      `json:"manual_items"`
@@ -63,10 +64,11 @@ type diagnosticRepairTrustBoundary struct {
 	PlannerConstraint string `json:"planner_constraint"`
 }
 
-func planDiagnosticRepairs(findings []uiFinding, recommendations []uiRecommendation) diagnosticRepairPlan {
+func planDiagnosticRepairs(findings []uiFinding, recommendations []uiRecommendation, execution diagnosticRepairExecutionRequest) diagnosticRepairPlan {
 	plan := diagnosticRepairPlan{
 		Mode:                "preview",
 		Mutating:            false,
+		Execution:           decideDiagnosticRepairExecution(execution),
 		TrustBoundaries:     diagnosticRepairTrustBoundaries(),
 		Items:               []diagnosticRepairPlanItem{},
 		ManualItems:         []diagnosticRepairPlanItem{},

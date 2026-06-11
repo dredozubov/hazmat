@@ -14,7 +14,7 @@ func TestCheckCommandRunsQuickByDefault(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute(): %v", err)
 	}
-	if !called || !gotOptions.Quick || gotOptions.JSON {
+	if !called || gotOptions.Command != "check" || !gotOptions.Quick || gotOptions.JSON || gotOptions.Fix {
 		t.Fatalf("runner called=%v options=%+v, want called quick non-json", called, gotOptions)
 	}
 }
@@ -48,6 +48,34 @@ func TestCheckCommandJSONFlag(t *testing.T) {
 	}
 	if !gotOptions.JSON || !gotOptions.Quick {
 		t.Fatalf("options = %+v, want json quick", gotOptions)
+	}
+}
+
+func TestCheckCommandRejectsFixFlag(t *testing.T) {
+	cmd := NewCheckCommand(func(CheckOptions) error {
+		t.Fatal("runner should not be called")
+		return nil
+	})
+	cmd.SetArgs([]string{"--fix"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() succeeded, want unknown --fix flag for check")
+	}
+}
+
+func TestDoctorCommandFixFlag(t *testing.T) {
+	var gotOptions CheckOptions
+	cmd := NewDoctorCommand(func(options CheckOptions) error {
+		gotOptions = options
+		return nil
+	})
+	cmd.SetArgs([]string{"--fix"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if gotOptions.Command != "doctor" || !gotOptions.Fix {
+		t.Fatalf("options = %+v, want doctor fix", gotOptions)
 	}
 }
 

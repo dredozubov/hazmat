@@ -23,6 +23,9 @@ type UI struct {
 	Skip      int
 	stepLabel string
 	findings  []uiFinding
+	// RepairExecution records the command-mode policy used when building
+	// diagnostic repair plans.
+	RepairExecution diagnosticRepairExecutionRequest
 	// Quick records whether diagnostic live network probes were skipped.
 	Quick bool
 	// JSON suppresses terminal rendering and emits a machine-readable
@@ -375,7 +378,7 @@ func (u *UI) diagnosticReport() uiDiagnosticReport {
 		Totals:          uiDiagnosticTotals{Pass: u.Pass, Fail: u.Fail, Warn: u.Warn, Skip: u.Skip},
 		Findings:        diagnosticFindingJSONs(u.findings),
 		Recommendations: diagnosticRecommendationJSONs(recommendations),
-		RepairPlan:      planDiagnosticRepairs(u.findings, recommendations),
+		RepairPlan:      planDiagnosticRepairs(u.findings, recommendations, u.RepairExecution),
 	}
 }
 

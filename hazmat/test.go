@@ -29,7 +29,13 @@ import (
 )
 
 func runTest(options diagnostics.CheckOptions) error {
-	ui := &UI{Quick: options.Quick, JSON: options.JSON}
+	ui := &UI{Quick: options.Quick, JSON: options.JSON, DryRun: flagDryRun, YesAll: flagYesAll}
+	ui.RepairExecution = diagnosticRepairExecutionRequest{
+		Command:     options.Command,
+		Fix:         options.Fix,
+		YesAll:      flagYesAll,
+		Interactive: ui.IsInteractive(),
+	}
 	return diagnostics.RunCheck(options.Quick, diagnostics.CheckSuite{
 		Begin: func(quick bool) (diagnostics.CheckContext, error) {
 			if !ui.JSON {

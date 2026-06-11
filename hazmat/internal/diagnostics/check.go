@@ -3,8 +3,10 @@ package diagnostics
 import "github.com/spf13/cobra"
 
 type CheckOptions struct {
-	Quick bool
-	JSON  bool
+	Command string
+	Quick   bool
+	JSON    bool
+	Fix     bool
 }
 
 type CheckRunner func(CheckOptions) error
@@ -14,7 +16,7 @@ func NewCheckCommand(run CheckRunner) *cobra.Command {
 
 By default runs quick checks (no network traffic). Use --full to include
 live network probes that verify firewall rules are active. Failures and warnings
-are summarized as recommended next actions at the end.`, run)
+are summarized as a read-only health and repairability report.`, false, run)
 }
 
 func NewDoctorCommand(run CheckRunner) *cobra.Command {
@@ -22,12 +24,16 @@ func NewDoctorCommand(run CheckRunner) *cobra.Command {
 remediation list for any failures or warnings.
 
 By default runs quick checks (no network traffic). Use --full to include
-live network probes that verify firewall rules are active.`, run)
+live network probes that verify firewall rules are active.
+
+Plain doctor is plan-only. Mutation requires --fix; non-interactive mutation
+requires both --fix and --yes.`, true, run)
 }
 
-func newCheckCommand(use, short, long string, run CheckRunner) *cobra.Command {
+func newCheckCommand(use, short, long string, allowFix bool, run CheckRunner) *cobra.Command {
 	var full bool
 	var jsonOutput bool
+	var fix bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -37,10 +43,13 @@ func newCheckCommand(use, short, long string, run CheckRunner) *cobra.Command {
 			if run == nil {
 				return nil
 			}
-			return run(CheckOptions{Quick: !full, JSON: jsonOutput})
+			return run(CheckOptions{Command: use, Quick: !full, JSON: jsonOutput, Fix: fix})
 		},
 	}
 	cmd.Flags().BoolVar(&full, "full", false, "Include live network probes (sends external traffic)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable diagnostic report JSON")
+	if allowFix {
+		cmd.Flags().BoolVar(&fix, "fix", false, "Apply the typed repair plan after diagnosis")
+	}
 	return cmd
 }

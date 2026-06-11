@@ -10,9 +10,12 @@ func TestPlanDiagnosticRepairsBuildsConsentRepairItem(t *testing.T) {
 	ui.stepLabel = "Hardening gaps"
 	ui.recordTypedFinding(uiFindingWarning, diagnosticFinding(findingAgentUmask), "umask missing")
 
-	plan := planDiagnosticRepairs(ui.findings, ui.recommendations())
+	plan := planDiagnosticRepairs(ui.findings, ui.recommendations(), diagnosticRepairExecutionRequest{Command: "doctor"})
 	if plan.Mutating {
 		t.Fatal("plan mutating = true, want non-mutating preview")
+	}
+	if plan.Execution.Mode != "plan-only" {
+		t.Fatalf("execution policy = %+v, want plan-only doctor", plan.Execution)
 	}
 	if len(plan.TrustBoundaries) == 0 {
 		t.Fatal("plan trust boundaries missing")
@@ -45,7 +48,7 @@ func TestPlanDiagnosticRepairsExplainsBlockedAndSkippedItems(t *testing.T) {
 	ui.recordTypedFinding(uiFindingWarning, diagnosticFinding(findingAgentSSHKey), "ssh key missing")
 	ui.recordFinding(uiFindingWarning, "legacy untyped warning")
 
-	plan := planDiagnosticRepairs(ui.findings, ui.recommendations())
+	plan := planDiagnosticRepairs(ui.findings, ui.recommendations(), diagnosticRepairExecutionRequest{Command: "doctor"})
 	if len(plan.ManualItems) != 1 {
 		t.Fatalf("manual items = %+v, want docker item", plan.ManualItems)
 	}
@@ -81,7 +84,7 @@ func TestPlanDiagnosticRepairsMarksRepoControlledMetadataAsEvidenceOnly(t *testi
 		"beads: no toolchain path resolved",
 	)
 
-	plan := planDiagnosticRepairs(ui.findings, ui.recommendations())
+	plan := planDiagnosticRepairs(ui.findings, ui.recommendations(), diagnosticRepairExecutionRequest{Command: "doctor"})
 	if !hasTrustBoundary(plan, "repo-integration-metadata") || !hasTrustBoundary(plan, "generated-repair-plan") {
 		t.Fatalf("trust boundaries = %+v", plan.TrustBoundaries)
 	}
