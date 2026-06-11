@@ -83,6 +83,12 @@ func runRollback(deleteUser, deleteGroup bool) error {
 		return err
 	}
 	rollbackProjectHooks(ui)
+	if entries, err := inspectCredentialInventory(""); err == nil {
+		printRollbackReceipts(rollbackReceipts(deleteUser, deleteGroup, entries))
+	} else {
+		ui.WarnMsg(fmt.Sprintf("Could not inspect credential inventory for rollback receipts: %v", err))
+		printRollbackReceipts(rollbackReceipts(deleteUser, deleteGroup, nil))
+	}
 
 	fmt.Println()
 	cGreen.Println("  Rollback complete.")
