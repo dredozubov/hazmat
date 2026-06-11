@@ -100,7 +100,11 @@ func testAgentUser(ui *UI) {
 
 	u, err := user.Lookup(agentUser)
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("User '%s' does not exist — baseline setup is missing; inspect setup repairs with hazmat doctor", agentUser))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupAgentUser),
+			fmt.Sprintf("User '%s' does not exist — baseline setup is missing; inspect setup repairs with hazmat doctor", agentUser),
+			fmt.Sprintf("lookup error: %v", err),
+		)
 		return
 	}
 	ui.TestPass(fmt.Sprintf("User '%s' exists", agentUser))
@@ -108,13 +112,20 @@ func testAgentUser(ui *UI) {
 	if u.Uid == agentUID {
 		ui.TestPass(fmt.Sprintf("UID is %s", agentUID))
 	} else {
-		ui.TestFail(fmt.Sprintf("UID is '%s', expected %s", u.Uid, agentUID))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupAgentUser),
+			fmt.Sprintf("UID is '%s', expected %s", u.Uid, agentUID),
+		)
 	}
 
 	if _, err := os.Stat(agentHome); err == nil {
 		ui.TestPass(fmt.Sprintf("Home directory exists: %s", agentHome))
 	} else {
-		ui.TestFail(fmt.Sprintf("Home directory missing: %s", agentHome))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupAgentHome),
+			fmt.Sprintf("Home directory missing: %s", agentHome),
+			fmt.Sprintf("stat error: %v", err),
+		)
 	}
 
 	if info, err := os.Stat(agentHome); err == nil {
@@ -123,7 +134,10 @@ func testAgentUser(ui *UI) {
 			if ownerUID == agentUID {
 				ui.TestPass(fmt.Sprintf("Home directory owned by %s", agentUser))
 			} else {
-				ui.TestFail(fmt.Sprintf("Home directory owned by uid=%s, expected %s", ownerUID, agentUID))
+				ui.TestFailFinding(
+					diagnosticFinding(findingSetupAgentHome),
+					fmt.Sprintf("Home directory owned by uid=%s, expected %s", ownerUID, agentUID),
+				)
 			}
 		}
 	}
@@ -132,7 +146,10 @@ func testAgentUser(ui *UI) {
 		if strings.Contains(out, "1") {
 			ui.TestPass("User is hidden from login screen")
 		} else {
-			ui.TestWarn(fmt.Sprintf("User is NOT hidden from login screen (IsHidden=%s)", strings.TrimSpace(out)))
+			ui.TestWarnFinding(
+				diagnosticFinding(findingSetupAgentUser),
+				fmt.Sprintf("User is NOT hidden from login screen (IsHidden=%s)", strings.TrimSpace(out)),
+			)
 		}
 	}
 }
@@ -169,21 +186,32 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	if _, err := user.LookupGroup(sharedGroup); err == nil {
 		ui.TestPass(fmt.Sprintf("Group '%s' exists", sharedGroup))
 	} else {
-		ui.TestFail(fmt.Sprintf("Group '%s' does not exist", sharedGroup))
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupDevGroup),
+			fmt.Sprintf("Group '%s' does not exist", sharedGroup),
+			fmt.Sprintf("lookup error: %v", err),
+		)
 	}
 
 	for _, u := range []string{currentUser, agentUser} {
 		if ok, _ := groupMembershipContains(sharedGroup, u); ok {
 			ui.TestPass(fmt.Sprintf("%s is a member of '%s'", u, sharedGroup))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s is NOT a member of '%s'", u, sharedGroup))
+			ui.TestFailFinding(
+				diagnosticFinding(findingSetupDevGroup),
+				fmt.Sprintf("%s is NOT a member of '%s'", u, sharedGroup),
+			)
 		}
 	}
 
 	if homeAllowsAgentTraverse(os.Getenv("HOME")) {
 		ui.TestPass(fmt.Sprintf("Home directory ACL lets '%s' traverse to project directories", agentUser))
 	} else {
-		ui.TestWarn(fmt.Sprintf("Home directory access for '%s' not detected — project directories may be unreachable", agentUser))
+		ui.TestWarnFinding(
+			diagnosticFinding(findingSetupHomeTraverse),
+			fmt.Sprintf("Home directory access for '%s' not detected — project directories may be unreachable", agentUser),
+			fmt.Sprintf("home: %s", os.Getenv("HOME")),
+		)
 	}
 
 	workspaceDir, cleanup, err := testWorkspaceFixture("hazmat-check-workspace")
@@ -194,7 +222,11 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	defer cleanup()
 
 	if outcome, err := ensureProjectWritable(workspaceDir); err != nil {
-		ui.TestFail(fmt.Sprintf("check workspace ACL repair failed: %v", err))
+		ui.TestFailFinding(
+			diagnosticFinding(findingWorkspaceAccess),
+			fmt.Sprintf("check workspace ACL repair failed: %v", err),
+			fmt.Sprintf("workspace: %s", workspaceDir),
+		)
 		return
 	} else if outcome.Fixed {
 		ui.TestPass("Check workspace ACL repair applied successfully")
@@ -209,7 +241,12 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		os.Remove(tmpDr)
 		ui.TestPass(fmt.Sprintf("%s can write to check workspace", currentUser))
 	} else {
-		ui.TestFail(fmt.Sprintf("%s cannot write to check workspace", currentUser))
+		ui.TestFailFinding(
+			diagnosticFinding(findingWorkspaceAccess),
+			fmt.Sprintf("%s cannot write to check workspace", currentUser),
+			fmt.Sprintf("workspace: %s", workspaceDir),
+			fmt.Sprintf("write error: %v", err),
+		)
 	}
 
 	// Write test as agent; also check setgid inheritance
@@ -232,7 +269,12 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		}
 		sudo("rm", "-f", tmpAgent) //nolint:errcheck
 	} else {
-		ui.TestFail(fmt.Sprintf("%s cannot write to check workspace", agentUser))
+		ui.TestFailFinding(
+			diagnosticFinding(findingWorkspaceAccess),
+			fmt.Sprintf("%s cannot write to check workspace", agentUser),
+			fmt.Sprintf("workspace: %s", workspaceDir),
+			fmt.Sprintf("write path: %s", tmpAgent),
+		)
 	}
 
 	// Bidirectional access: agent-created file must be readable/writable by controlling user.
@@ -245,14 +287,24 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 			f.Close()
 			ui.TestPass(fmt.Sprintf("%s can READ file created by %s (ACL effective)", currentUser, agentUser))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", currentUser, agentUser))
+			ui.TestFailFinding(
+				diagnosticFinding(findingWorkspaceAccess),
+				fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", currentUser, agentUser),
+				fmt.Sprintf("path: %s", tmpAgentRW),
+				fmt.Sprintf("read error: %v", err),
+			)
 		}
 
 		if f, err := os.OpenFile(tmpAgentRW, os.O_WRONLY|os.O_APPEND, 0); err == nil {
 			f.Close()
 			ui.TestPass(fmt.Sprintf("%s can WRITE file created by %s (ACL effective)", currentUser, agentUser))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", currentUser, agentUser))
+			ui.TestFailFinding(
+				diagnosticFinding(findingWorkspaceAccess),
+				fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", currentUser, agentUser),
+				fmt.Sprintf("path: %s", tmpAgentRW),
+				fmt.Sprintf("write error: %v", err),
+			)
 		}
 	} else {
 		ui.TestWarn(fmt.Sprintf("%s could not create test file — skipping bidirectional write test", agentUser))
@@ -267,13 +319,21 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		if err := asAgentQuiet("cat", tmpUserRW); err == nil {
 			ui.TestPass(fmt.Sprintf("%s can READ file created by %s", agentUser, currentUser))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", agentUser, currentUser))
+			ui.TestFailFinding(
+				diagnosticFinding(findingWorkspaceAccess),
+				fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", agentUser, currentUser),
+				fmt.Sprintf("path: %s", tmpUserRW),
+			)
 		}
 
 		if err := asAgentShellQuiet(fmt.Sprintf("echo test >> %q", tmpUserRW)); err == nil {
 			ui.TestPass(fmt.Sprintf("%s can WRITE file created by %s", agentUser, currentUser))
 		} else {
-			ui.TestFail(fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", agentUser, currentUser))
+			ui.TestFailFinding(
+				diagnosticFinding(findingWorkspaceAccess),
+				fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", agentUser, currentUser),
+				fmt.Sprintf("path: %s", tmpUserRW),
+			)
 		}
 	} else {
 		ui.TestWarn(fmt.Sprintf("%s could not create test file — skipping bidirectional read test", currentUser))

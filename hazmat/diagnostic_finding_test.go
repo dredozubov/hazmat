@@ -67,6 +67,7 @@ func TestSetupDiagnosticFindingsHaveRepairActions(t *testing.T) {
 	ids := []diagnosticFindingID{
 		findingSetupAgentUser,
 		findingSetupAgentHome,
+		findingSetupDevGroup,
 		findingSetupHomeTraverse,
 		findingSetupSudoers,
 		findingSetupSeatbeltWrapper,

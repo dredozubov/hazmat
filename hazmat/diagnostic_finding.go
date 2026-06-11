@@ -114,6 +114,7 @@ const (
 	findingAgentUmask                     diagnosticFindingID = "agent-shell.umask"
 	findingSetupAgentUser                 diagnosticFindingID = "setup.agent-user"
 	findingSetupAgentHome                 diagnosticFindingID = "setup.agent-home"
+	findingSetupDevGroup                  diagnosticFindingID = "setup.dev-group"
 	findingSetupHomeTraverse              diagnosticFindingID = "setup.home-traverse"
 	findingSetupSudoers                   diagnosticFindingID = "setup.sudoers"
 	findingSetupSeatbeltWrapper           diagnosticFindingID = "setup.seatbelt-wrapper"
@@ -167,6 +168,11 @@ var diagnosticResourceDefinitions = map[diagnosticResourceID]diagnosticResourceD
 		ID:           "setup.agent-home",
 		Owner:        "setup.agent-account",
 		DesiredState: fmt.Sprintf("agent home exists at `%s` with setup-owned baseline state", agentHome),
+	},
+	"setup.dev-group": {
+		ID:           "setup.dev-group",
+		Owner:        "setup.workspace",
+		DesiredState: fmt.Sprintf("shared `%s` group exists and contains the controlling user plus `%s`", sharedGroup, agentUser),
 	},
 	"setup.home-traverse": {
 		ID:           "setup.home-traverse",
@@ -347,6 +353,18 @@ var diagnosticFindingDefinitions = map[diagnosticFindingID]diagnosticFindingDefi
 		Verification:     "verify.setup.agent-home",
 		SecurityImpact:   "Missing agent home state prevents contained sessions and credential delivery from using the expected account boundary.",
 		RollbackBoundary: "setup.agent-account",
+	}),
+	findingSetupDevGroup: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:               findingSetupDevGroup,
+		Resource:         "setup.dev-group",
+		Title:            "Restore the shared development group",
+		Repairability:    diagnosticRepairConsent,
+		Action:           fmt.Sprintf("Restore `%s` membership through Hazmat setup repair, then verify host and agent users share workspace access.", sharedGroup),
+		RepairAction:     "repair.setup.dev-group",
+		RepairReceipt:    "receipt.setup.dev-group",
+		Verification:     "verify.setup.dev-group",
+		SecurityImpact:   "Missing shared-group membership prevents host/agent collaboration and makes workspace checks fail downstream.",
+		RollbackBoundary: "setup.workspace-permissions",
 	}),
 	findingSetupHomeTraverse: mustDiagnosticFinding(diagnosticFindingDefinition{
 		ID:               findingSetupHomeTraverse,
