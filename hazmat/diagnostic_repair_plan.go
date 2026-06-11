@@ -1,8 +1,11 @@
 package hazmat
 
+import "strings"
+
 type diagnosticRepairPlan struct {
 	Mode                string                          `json:"mode"`
 	Mutating            bool                            `json:"mutating"`
+	TrustBoundaries     []diagnosticRepairTrustBoundary `json:"trust_boundaries"`
 	Items               []diagnosticRepairPlanItem      `json:"items"`
 	ManualItems         []diagnosticRepairPlanItem      `json:"manual_items"`
 	SkippedItems        []diagnosticRepairPlanItem      `json:"skipped_items"`
@@ -19,6 +22,8 @@ type diagnosticRepairPlanItem struct {
 	Repairability      string   `json:"repairability,omitempty"`
 	Title              string   `json:"title"`
 	Action             string   `json:"action"`
+	SourceTrust        string   `json:"source_trust,omitempty"`
+	Guardrails         []string `json:"guardrails,omitempty"`
 	Authority          string   `json:"authority,omitempty"`
 	Approval           string   `json:"approval,omitempty"`
 	ExecutableByHazmat bool     `json:"executable_by_hazmat"`
@@ -50,10 +55,19 @@ type diagnosticVerificationFailure struct {
 	Details      []string `json:"details,omitempty"`
 }
 
+type diagnosticRepairTrustBoundary struct {
+	ID                string `json:"id"`
+	Surface           string `json:"surface"`
+	ControlledBy      string `json:"controlled_by"`
+	Policy            string `json:"policy"`
+	PlannerConstraint string `json:"planner_constraint"`
+}
+
 func planDiagnosticRepairs(findings []uiFinding, recommendations []uiRecommendation) diagnosticRepairPlan {
 	plan := diagnosticRepairPlan{
 		Mode:                "preview",
 		Mutating:            false,
+		TrustBoundaries:     diagnosticRepairTrustBoundaries(),
 		Items:               []diagnosticRepairPlanItem{},
 		ManualItems:         []diagnosticRepairPlanItem{},
 		SkippedItems:        []diagnosticRepairPlanItem{},
@@ -88,6 +102,8 @@ func planDiagnosticRepairs(findings []uiFinding, recommendations []uiRecommendat
 			Severity:      finding.Severity.Label(),
 			Title:         finding.Message,
 			Action:        "No repair plan is available until this finding is migrated to typed diagnostic metadata.",
+			SourceTrust:   "observed-untyped-text",
+			Guardrails:    []string{"generated-repair-plan"},
 			Authority:     string(diagnosticRepairAuthorityNone),
 			Approval:      string(diagnosticRepairApprovalUnsupported),
 			Details:       []string{finding.Message},
@@ -110,6 +126,8 @@ func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) diagnosticR
 		Repairability:      string(def.Repairability),
 		Title:              rec.Title,
 		Action:             rec.Action,
+		SourceTrust:        diagnosticFindingSourceTrust(def),
+		Guardrails:         diagnosticFindingGuardrailRefs(def),
 		Authority:          string(policy.Authority),
 		Approval:           string(policy.Approval),
 		ExecutableByHazmat: policy.ExecutableByHazmat,
@@ -134,6 +152,63 @@ func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) diagnosticR
 		item.ConsentPrompt = "Apply repair: " + def.Title + "?"
 	}
 	return item
+}
+
+func diagnosticRepairTrustBoundaries() []diagnosticRepairTrustBoundary {
+	return []diagnosticRepairTrustBoundary{
+		{
+			ID:                "repo-integration-metadata",
+			Surface:           ".hazmat/integrations.yaml and integration detector output",
+			ControlledBy:      "repository",
+			Policy:            "repo files may contribute toolchain evidence but cannot approve host mutations, credential access, or privileged repairs",
+			PlannerConstraint: "repo-controlled metadata can only select typed informational or predeclared repair surfaces",
+		},
+		{
+			ID:                "host-config-pins",
+			Surface:           "host-user Hazmat config pins",
+			ControlledBy:      "host user",
+			Policy:            "host config may pin integration choices but does not bypass repair consent",
+			PlannerConstraint: "privileged or credential-affecting repairs still require explicit repair approval",
+		},
+		{
+			ID:                "project-path-canonicalization",
+			Surface:           "project paths and generated affected-path evidence",
+			ControlledBy:      "host observation with repo-influenced paths",
+			Policy:            "paths are evidence only until canonicalized and checked against the repair action boundary",
+			PlannerConstraint: "repair actions must use typed path boundaries, never shell fragments from findings",
+		},
+		{
+			ID:                "generated-repair-plan",
+			Surface:           "diagnostic repair plan",
+			ControlledBy:      "Hazmat typed registry",
+			Policy:            "repair action IDs, authority, receipts, rollback, and verification come from Hazmat code, not repo text",
+			PlannerConstraint: "untyped findings are skipped and cannot synthesize executable actions",
+		},
+	}
+}
+
+func diagnosticFindingSourceTrust(def diagnosticFindingDefinition) string {
+	switch {
+	case strings.HasPrefix(string(def.Resource), "project-toolchain."):
+		return "repo-observed-metadata"
+	case strings.HasPrefix(string(def.Resource), "workspace."), def.Resource == "claude.project-permissions":
+		return "host-observed-path"
+	default:
+		return "hazmat-typed-registry"
+	}
+}
+
+func diagnosticFindingGuardrailRefs(def diagnosticFindingDefinition) []string {
+	refs := []string{"generated-repair-plan"}
+	switch {
+	case strings.HasPrefix(string(def.Resource), "project-toolchain."):
+		refs = append(refs, "repo-integration-metadata")
+	case strings.HasPrefix(string(def.Resource), "workspace."), def.Resource == "claude.project-permissions":
+		refs = append(refs, "project-path-canonicalization")
+	case strings.HasPrefix(string(def.Resource), "credential."):
+		refs = append(refs, "host-config-pins")
+	}
+	return refs
 }
 
 func diagnosticRepairSafetyRationale(def diagnosticFindingDefinition) string {

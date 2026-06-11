@@ -14,6 +14,9 @@ func TestPlanDiagnosticRepairsBuildsConsentRepairItem(t *testing.T) {
 	if plan.Mutating {
 		t.Fatal("plan mutating = true, want non-mutating preview")
 	}
+	if len(plan.TrustBoundaries) == 0 {
+		t.Fatal("plan trust boundaries missing")
+	}
 	if len(plan.Items) != 1 {
 		t.Fatalf("items = %+v, want one repair item", plan.Items)
 	}
@@ -29,6 +32,9 @@ func TestPlanDiagnosticRepairsBuildsConsentRepairItem(t *testing.T) {
 	}
 	if item.SafetyRationale == "" {
 		t.Fatal("missing safety rationale")
+	}
+	if item.SourceTrust != "hazmat-typed-registry" || !containsPlanString(item.Guardrails, "generated-repair-plan") {
+		t.Fatalf("item trust = %q guardrails=%v", item.SourceTrust, item.Guardrails)
 	}
 }
 
@@ -53,12 +59,58 @@ func TestPlanDiagnosticRepairsExplainsBlockedAndSkippedItems(t *testing.T) {
 	for _, item := range plan.SkippedItems {
 		if item.Status == "untyped" {
 			sawUntyped = true
-			if item.BlockedReason == "" || item.ExecutableByHazmat {
+			if item.BlockedReason == "" || item.ExecutableByHazmat || item.RepairAction != "" {
 				t.Fatalf("untyped skipped item = %+v, want blocked non-executable", item)
+			}
+			if item.SourceTrust != "observed-untyped-text" {
+				t.Fatalf("untyped source trust = %q", item.SourceTrust)
 			}
 		}
 	}
 	if !sawUntyped {
 		t.Fatalf("skipped items = %+v, want untyped skipped item", plan.SkippedItems)
 	}
+}
+
+func TestPlanDiagnosticRepairsMarksRepoControlledMetadataAsEvidenceOnly(t *testing.T) {
+	ui := &UI{}
+	ui.stepLabel = "Project toolchain"
+	ui.recordTypedFinding(
+		uiFindingWarning,
+		diagnosticFinding(findingIntegrationToolchain),
+		"beads: no toolchain path resolved",
+	)
+
+	plan := planDiagnosticRepairs(ui.findings, ui.recommendations())
+	if !hasTrustBoundary(plan, "repo-integration-metadata") || !hasTrustBoundary(plan, "generated-repair-plan") {
+		t.Fatalf("trust boundaries = %+v", plan.TrustBoundaries)
+	}
+	if len(plan.SkippedItems) != 1 {
+		t.Fatalf("skipped items = %+v, want informational integration item", plan.SkippedItems)
+	}
+	item := plan.SkippedItems[0]
+	if item.SourceTrust != "repo-observed-metadata" {
+		t.Fatalf("source trust = %q, want repo-observed-metadata", item.SourceTrust)
+	}
+	if !containsPlanString(item.Guardrails, "repo-integration-metadata") || item.ExecutableByHazmat || item.RepairAction != "" {
+		t.Fatalf("integration item = %+v, want guarded non-executable evidence", item)
+	}
+}
+
+func hasTrustBoundary(plan diagnosticRepairPlan, id string) bool {
+	for _, boundary := range plan.TrustBoundaries {
+		if boundary.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPlanString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
