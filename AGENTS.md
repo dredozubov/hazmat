@@ -9,8 +9,11 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
-bd dolt push          # Push beads state
 ```
+
+**This repo intentionally has no Dolt remote for beads.** Beads state is local
+only here; do not run `bd dolt pull` or `bd dolt push` during Hazmat closeout
+unless a remote is explicitly configured later.
 
 ## Non-Interactive Shell Commands
 
@@ -64,8 +67,11 @@ Run `bd prime` at the start of a session or after context compaction to load the
 - `bd create --title="Title" --description="Context" --type=task --priority=2` - Create issue
 - `bd update <id> --claim` - Claim work atomically
 - `bd close <id> --reason="Done"` - Complete work
-- `bd dolt pull` - Pull beads state from the Dolt remote
-- `bd dolt push` - Push beads state to the Dolt remote
+- `bd remember "insight"` - Store durable local project memory for future agents
+
+**Dolt remote policy:** Hazmat intentionally has no Dolt remote configured for
+beads. Use local `bd` state and persistent `bd remember` memories; skip
+`bd dolt pull` / `bd dolt push` unless a remote is explicitly added later.
 
 **Rules:**
 - Create or claim a bead before writing code.
@@ -87,8 +93,7 @@ Run `bd prime` at the start of a session or after context compaction to load the
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd dolt pull
-   bd dolt push
+   # Do not run bd dolt pull/push in this repo; Hazmat has no Dolt remote.
    git push
    git status  # MUST show "up to date with origin"
    ```

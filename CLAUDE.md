@@ -158,6 +158,10 @@ migration from every older version AND during rollback from any intermediate sta
 
 ## Key conventions
 
+- **Beads are local-only in this repo.** Hazmat intentionally has no Dolt
+  remote for `bd`; use local `bd` state and `bd remember` memories, and skip
+  `bd dolt pull` / `bd dolt push` unless a remote is explicitly configured
+  later.
 - **Apple sandbox-exec references stay as-is.** `sandbox-exec`, `sandbox_init`, `sandboxed`, `same-sandbox`, `SANDBOX_*` env vars — these are Apple API names, not our tool.
 - **Agent system identity is separate from tool name.** User `agent`, group `dev`, pf anchor `agent`, sudoers file `agent`.
 - **`hazmat init` is the single entry point for all setup.** Subcommands: `check`, `cloud`. `rollback` is top-level.
