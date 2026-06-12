@@ -244,4 +244,5 @@ design instead of this foreground protocol driver.
 - Evaluate Kimi, Kiro, Kilo, Mistral Vibe, Trae CLI, and Pi only after recording
   their actual transport and fake-server feasibility.
 - Design the separate service-oriented harness boundary for OpenHands and
-  OpenClaw-style platforms before treating them as protocol harnesses.
+  OpenClaw-style platforms before treating them as protocol harnesses:
+  [Service-Oriented Harness Boundary](2026-06-12-service-harness-boundary-design.md).

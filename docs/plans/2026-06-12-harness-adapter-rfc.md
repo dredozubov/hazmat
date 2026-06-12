@@ -238,6 +238,7 @@ model-first designs before they become supported adapter capabilities.
 - Design the ACP/RPC foreground harness driver against this adapter boundary.
   See [ACP/RPC Harness Driver Design](2026-06-12-acp-rpc-harness-driver-design.md).
 - Design the service-oriented boundary for OpenHands and OpenClaw-style
-  platforms without persistent host daemons by default.
+  platforms without persistent host daemons by default. See
+  [Service-Oriented Harness Boundary](2026-06-12-service-harness-boundary-design.md).
 - Refactor current built-in harness metadata toward the adapter categories only
   after status JSON and credential summaries are stable.
