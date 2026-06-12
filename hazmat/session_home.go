@@ -119,6 +119,10 @@ type sessionHomeRuntimePlan struct {
 	AgentHomePolicy containment.AgentHomePolicy
 }
 
+type sessionHomeMaterializationResult struct {
+	CheckedWritebackReceipts []sessionHomeCheckedWritebackReceipt
+}
+
 var newSessionHomeID = defaultSessionHomeID
 
 func defaultSessionHomeID() string {
@@ -416,6 +420,23 @@ func materializeSessionHomeBridges(layout sessionHomeLayout, requirements []sess
 		}
 	}
 	return nil
+}
+
+func materializeSessionHomeLaunchPlan(plan sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+	if err := createSessionHomeLayout(plan.Layout); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	if err := materializeSessionHomeBridges(plan.Layout, plan.BridgeRequirements); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	if err := materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	receipts, err := materializeSessionHomeCheckedWritebackEntries(plan.Layout, plan.Assembly)
+	if err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	return sessionHomeMaterializationResult{CheckedWritebackReceipts: receipts}, nil
 }
 
 func materializeSessionHomeSeedEntries(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {

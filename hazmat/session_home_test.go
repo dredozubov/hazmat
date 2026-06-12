@@ -540,6 +540,98 @@ func TestMaterializeSessionHomeBridgesLinksClaudeAndEnsuresHermesRoot(t *testing
 	}
 }
 
+func TestMaterializeSessionHomeLaunchPlanAssemblesSupportedRuntimePaths(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	writePersistent := func(rel, content string, mode os.FileMode) {
+		t.Helper()
+		path := filepath.Join(persistentHome, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	writePersistent(".zshrc", "export HAZMAT_TEST=1\n", 0o640)
+	writePersistent(".local/bin/tool", "#!/bin/sh\n", 0o700)
+
+	result, err := materializeSessionHomeLaunchPlan(plan)
+	if err != nil {
+		t.Fatalf("materializeSessionHomeLaunchPlan: %v", err)
+	}
+	if len(result.CheckedWritebackReceipts) != 0 {
+		t.Fatalf("CheckedWritebackReceipts = %+v, want none for current manifest", result.CheckedWritebackReceipts)
+	}
+	if _, err := os.Stat(plan.Layout.MarkerPath); err != nil {
+		t.Fatalf("stat marker: %v", err)
+	}
+	copiedShell, err := os.ReadFile(filepath.Join(plan.Layout.Home, ".zshrc"))
+	if err != nil {
+		t.Fatalf("read copied shell config: %v", err)
+	}
+	if string(copiedShell) != "export HAZMAT_TEST=1\n" {
+		t.Fatalf("copied shell config = %q", copiedShell)
+	}
+	claudeRuntime := filepath.Join(plan.Layout.Home, ".claude", "projects")
+	claudePersistent := filepath.Join(persistentHome, ".claude", "projects")
+	target, err := os.Readlink(claudeRuntime)
+	if err != nil {
+		t.Fatalf("read Claude bridge: %v", err)
+	}
+	if target != claudePersistent {
+		t.Fatalf("Claude bridge target = %s, want %s", target, claudePersistent)
+	}
+	if _, err := os.Stat(filepath.Join(persistentHome, ".hazmat", "hermes", "projects")); err != nil {
+		t.Fatalf("stat Hermes persistent root: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); !os.IsNotExist(err) {
+		t.Fatalf("adapter-required .local/bin should not be copied, err=%v", err)
+	}
+}
+
+func TestMaterializeSessionHomeLaunchPlanReturnsCheckedWritebackReceipts(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	checked := sessionHomeAssemblyEntry{
+		RelPath:        ".config/tool/state.json",
+		RuntimePolicy:  sessionHomePolicyCheckedWriteback,
+		PersistentPath: filepath.Join(persistentHome, ".config", "tool", "state.json"),
+		RuntimePath:    filepath.Join(layout.Home, ".config", "tool", "state.json"),
+	}
+	if err := os.MkdirAll(filepath.Dir(checked.PersistentPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(checked.PersistentPath, []byte("state\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := materializeSessionHomeLaunchPlan(sessionHomeLaunchPlan{
+		Layout:   layout,
+		Assembly: []sessionHomeAssemblyEntry{checked},
+	})
+	if err != nil {
+		t.Fatalf("materializeSessionHomeLaunchPlan: %v", err)
+	}
+	if len(result.CheckedWritebackReceipts) != 1 || result.CheckedWritebackReceipts[0].Outcome != sessionHomeWritebackCopiedIn {
+		t.Fatalf("CheckedWritebackReceipts = %+v", result.CheckedWritebackReceipts)
+	}
+	got, err := os.ReadFile(checked.RuntimePath)
+	if err != nil {
+		t.Fatalf("read checked runtime path: %v", err)
+	}
+	if string(got) != "state\n" {
+		t.Fatalf("checked runtime path = %q", got)
+	}
+}
+
 func TestMaterializeSessionHomeBridgesRejectsRuntimeEscape(t *testing.T) {
 	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
 	if err != nil {
@@ -774,6 +866,20 @@ func TestCleanupStaleSessionHomesRemovesOnlyMarkedOldHomes(t *testing.T) {
 	if err := createSessionHomeLayout(oldLayout); err != nil {
 		t.Fatal(err)
 	}
+	persistentBridge := filepath.Join(t.TempDir(), "agent", ".claude", "projects")
+	if err := os.MkdirAll(persistentBridge, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	persistentBridgeFile := filepath.Join(persistentBridge, "session.jsonl")
+	if err := os.WriteFile(persistentBridgeFile, []byte("durable transcript\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(oldLayout.Home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(persistentBridge, filepath.Join(oldLayout.Home, ".claude", "projects")); err != nil {
+		t.Fatal(err)
+	}
 	oldTime := now.Add(-48 * time.Hour)
 	if err := os.Chtimes(oldLayout.MarkerPath, oldTime, oldTime); err != nil {
 		t.Fatal(err)
@@ -809,6 +915,9 @@ func TestCleanupStaleSessionHomesRemovesOnlyMarkedOldHomes(t *testing.T) {
 	}
 	if _, err := os.Stat(oldLayout.SessionDir); !os.IsNotExist(err) {
 		t.Fatalf("old session dir still exists or unexpected error: %v", err)
+	}
+	if got, err := os.ReadFile(persistentBridgeFile); err != nil || string(got) != "durable transcript\n" {
+		t.Fatalf("persistent bridge target was removed or changed: %q err=%v", got, err)
 	}
 }
 
