@@ -236,6 +236,7 @@ model-first designs before they become supported adapter capabilities.
 ## Follow-Ups
 
 - Design the ACP/RPC foreground harness driver against this adapter boundary.
+  See [ACP/RPC Harness Driver Design](2026-06-12-acp-rpc-harness-driver-design.md).
 - Design the service-oriented boundary for OpenHands and OpenClaw-style
   platforms without persistent host daemons by default.
 - Refactor current built-in harness metadata toward the adapter categories only
