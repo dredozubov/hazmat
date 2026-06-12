@@ -15,6 +15,7 @@
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
 #   - release script refuses hazmat claude and push-capable paths without ack
+#   - guarded live wrappers default to disclosure-only output
 #   - release installer refuses unsupported platforms before download/install
 #   - host-side test entrypoints fail fast when another host-side test holds
 #     the shared lock
@@ -44,6 +45,32 @@ assert_fails_with() {
 
     if [ "$status" -eq 0 ]; then
         fail "$label: command unexpectedly succeeded"
+        return
+    fi
+
+    if printf '%s' "$output" | grep -Fq -- "$expected"; then
+        pass "$label"
+    else
+        fail "$label: expected output containing '$expected'"
+        printf '%s\n' "$output" >&2
+    fi
+}
+
+assert_succeeds_with() {
+    local label="$1"
+    local expected="$2"
+    shift 2
+
+    local output=""
+    local status=0
+    set +e
+    output=$("$@" 2>&1)
+    status=$?
+    set -e
+
+    if [ "$status" -ne 0 ]; then
+        fail "$label: command failed with status $status"
+        printf '%s\n' "$output" >&2
         return
     fi
 
@@ -131,6 +158,58 @@ assert_fails_with \
     "release script requires non-dry push ack" \
     "refusing non-dry release without --i-understand-this-may-push-release" \
     bash "$REPO_ROOT/scripts/release.sh" --i-understand-this-runs-hazmat-claude
+
+phase "Disclosure defaults"
+
+assert_succeeds_with \
+    "Codex app-server smoke defaults to disclosure" \
+    "codex-app-server-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-codex-app-server-smoke.sh"
+
+assert_succeeds_with \
+    "Codex desktop attach smoke defaults to disclosure" \
+    "Codex desktop attach smoke host-state disclosure" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh"
+
+assert_succeeds_with \
+    "Claude Workflow export smoke defaults to disclosure" \
+    "claude-workflow-export-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh"
+
+assert_succeeds_with \
+    "session-home activation smoke defaults to disclosure" \
+    "session-home-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh"
+
+assert_succeeds_with \
+    "cache integration smoke defaults to disclosure" \
+    "cache-integration-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh"
+
+assert_succeeds_with \
+    "OpenHands recipe smoke defaults to disclosure" \
+    "openhands-recipe-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh"
+
+assert_succeeds_with \
+    "native harness smoke defaults to disclosure" \
+    "native-harness-smoke: disclosure-only" \
+    bash "$REPO_ROOT/scripts/e2e-harness-smoke-native.sh"
+
+assert_succeeds_with \
+    "macOS trace smoke defaults to disclosure" \
+    "macos-trace-smoke: disclosure-only" \
+    "$REPO_ROOT/scripts/check-macos-trace-smoke.sh"
+
+assert_succeeds_with \
+    "Linux trace smoke defaults to disclosure" \
+    "linux-trace-smoke: disclosure-only" \
+    "$REPO_ROOT/scripts/check-linux-trace-smoke.sh"
+
+assert_succeeds_with \
+    "Apple Container spike defaults to disclosure" \
+    "spike-apple-container: disclosure-only" \
+    bash "$REPO_ROOT/scripts/spike-apple-container.sh"
 
 phase "Platform guards"
 
