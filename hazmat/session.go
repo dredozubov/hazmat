@@ -19,6 +19,7 @@ import (
 	"hazmat/configmodel"
 	"hazmat/internal/backupruntime"
 	launchruntime "hazmat/internal/runtime"
+	"hazmat/internal/sessionflow"
 	"hazmat/sessionmeta"
 
 	"github.com/spf13/cobra"
@@ -1388,28 +1389,58 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 }
 
 func beginPreparedSession(prepared preparedSession, commandName string, skipSnapshot, preflightBeforeSnapshot bool) error {
-	printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
-	printRepoSetupDetails(prepared.Config.RepoSetup)
-	printSessionMutationDetails(prepared.Config.PlannedHostMutations)
-	if prepared.Mode != sessionModeNative {
-		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
-			return err
-		}
-		preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
-		return nil
+	plan, err := sessionflow.New(sessionflow.Input{
+		Mode:                    prepared.Mode,
+		SkipSnapshot:            skipSnapshot,
+		PreflightBeforeSnapshot: preflightBeforeSnapshot,
+	})
+	if err != nil {
+		return err
 	}
+	return runSessionStartupPhases(plan, sessionStartupActions{
+		renderContract: func() {
+			printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
+			printRepoSetupDetails(prepared.Config.RepoSetup)
+			printSessionMutationDetails(prepared.Config.PlannedHostMutations)
+		},
+		executeHostMutations: func() error {
+			return executeSessionMutationPlan(prepared.HostMutationPlan)
+		},
+		snapshot: func(skip bool) {
+			preSessionSnapshot(prepared.Config, commandName, skip)
+		},
+	})
+}
 
-	if preflightBeforeSnapshot {
-		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
-			return err
-		}
-	}
+type sessionStartupActions struct {
+	renderContract       func()
+	executeHostMutations func() error
+	snapshot             func(skip bool)
+}
 
-	preSessionSnapshot(prepared.Config, commandName, skipSnapshot)
-
-	if !preflightBeforeSnapshot {
-		if err := executeSessionMutationPlan(prepared.HostMutationPlan); err != nil {
-			return err
+func runSessionStartupPhases(plan sessionflow.Plan, actions sessionStartupActions) error {
+	for _, phase := range plan.Phases() {
+		switch phase.Kind() {
+		case sessionflow.PhaseRenderContract:
+			if actions.renderContract == nil {
+				return fmt.Errorf("session startup render action is not configured")
+			}
+			actions.renderContract()
+		case sessionflow.PhaseHostMutations:
+			if actions.executeHostMutations == nil {
+				return fmt.Errorf("session startup host mutation action is not configured")
+			}
+			if err := actions.executeHostMutations(); err != nil {
+				return err
+			}
+		case sessionflow.PhaseSnapshot:
+			if actions.snapshot == nil {
+				return fmt.Errorf("session startup snapshot action is not configured")
+			}
+			actions.snapshot(phase.SnapshotSkipped())
+		case sessionflow.PhaseRuntimeLaunch:
+		default:
+			return fmt.Errorf("unsupported session startup phase %q", phase.Kind())
 		}
 	}
 	return nil
