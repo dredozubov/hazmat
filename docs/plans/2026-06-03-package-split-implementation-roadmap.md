@@ -35,6 +35,20 @@ Remote execution remains non-executable; versioned DTOs, explicit host facts,
 redaction-safe descriptors, and capability gaps are the only remote-compatible
 work in this roadmap.
 
+## Deferred Core-Session Shims
+
+The package-split epic did not move the two session-ordering entrypoints below.
+They are intentionally still package-main compatibility shims:
+
+| Shim | Current owner | Runtime it delegates to | Movement gate |
+| --- | --- | --- | --- |
+| `generateSBPL()` / `generateSBPLChecked()` | `hazmat/session.go` and `hazmat/session_policy_sbpl.go` | `hazmat/containment/darwin` SBPL compiler | Move only inside the model-first core-session extraction tracked by `sandboxing-vh9q`, with `MC_SeatbeltPolicy`, `MC_TierPolicyEquivalence`, SBPL goldens, and launch metadata tests re-run or updated. |
+| `preSessionSnapshot()` | `hazmat/session.go` | `hazmat/internal/backupruntime.PreSessionSnapshot()` | Move only when snapshot-before-launch ordering is owned by the next core-session extraction, with `MC_BackupSafety`, backup/restore tests, and launch-path snapshot tests re-run or updated. |
+
+This roadmap should therefore be read as a package-boundary and effect-code
+relocation roadmap, not proof that the core session orchestration path has left
+`package main`.
+
 ## Roadmap
 
 | Order | Bead | Scope | Depends on | Required gates |
@@ -44,12 +58,12 @@ work in this roadmap.
 | 3 | `sandboxing-9fq3.3` | Extract explicit `hostfacts`: agent home, invoker home, target GOOS/platform, Docker/kernel probes, harness status, integration markers. | `sandboxing-9fq3.1` | Planners receive facts explicitly and no longer probe host state directly. |
 | 4 | `sandboxing-9fq3.4` | Extract `sessionrequest` around existing `pathpolicy` constructors. | `sandboxing-9fq3.3` | Rejected-input set preserved. Re-run `MC_TierPolicyEquivalence` and `MC_Tier3LaunchContainment` if governed logic moves. |
 | 5 | `sandboxing-9fq3.5` | Expand pure `sessionplanner` facade and versioned DTO fixtures. | `sandboxing-9fq3.4` | Planner remains side-effect-free. Explain and launch goldens stay byte-identical or reviewed. |
-| 6 | `sandboxing-9fq3.6` | Split backend compilers into `containment/darwin`, `containment/docker`, and plan-only Linux compiler packages. | `sandboxing-9fq3.5` | Compiler packages import `containment`, never the reverse. Add Docker/linux launch-spec goldens before moving compiler code. |
+| 6 | `sandboxing-9fq3.6` | Split backend compiler support into `containment/darwin`, `containment/docker`, and plan-only Linux compiler packages. Keep `session.go:generateSBPL()` as the compatibility shim listed above. | `sandboxing-9fq3.5` | Compiler packages import `containment`, never the reverse. Add Docker/linux launch-spec goldens before moving compiler code. Moving the `generateSBPL()` entrypoint itself remains deferred to `sandboxing-vh9q`. |
 | 7 | `sandboxing-9fq3.7` | Make `PreparedLaunch` an authority type and define the separate DTO disclosure scope. | `sandboxing-9fq3.6` | Artifacts are unforgeable, construction flows through `NewPreparedLaunch`, and DTOs do not automatically expose full SBPL/path details. |
 | 8 | `sandboxing-9fq3.8` | Split `configmodel`, `credentials`, `internal/credentialruntime`, `harnesses`, and `internal/harnessruntime`; move `config.go` Cobra handlers into the `internal/frontend/cli` package created by `9fq3.2`. | `sandboxing-9fq3.2`, `sandboxing-9fq3.7` | `harnesses` stays pure and never imports `internal/state`. Preserve `MC_HarnessLifecycle`, `MC_GitSSHRouting`, `MC_SecretStoreRecovery`, and `MC_CredentialCapabilityLifecycle`. |
 | 9 | `sandboxing-9fq3.9` | Record hook hidden-command home. | `sandboxing-9fq3.1` | Hook wrapper/dispatch/fallback stays in `internal/hookruntime`; no hookruntime/agententry edge is allowed. Graph, responsibility table, invariant table, risks, and later beads agree. |
 | 10 | `sandboxing-9fq3.10` | Split launch runtimes, `internal/hostexec`, `internal/agententry`, and plan-only `internal/runtime/linux`. | `sandboxing-9fq3.7`, `sandboxing-9fq3.8`, `sandboxing-9fq3.9` | CLI invokes runtimes through a facade. `sudo*`/`asAgent*` live in hostexec. Hidden command handlers live in agententry. |
-| 11 | `sandboxing-9fq3.11` | Split backup, hooks, and state under their governed specs. (Setup/rollback is split separately; see 14/15.) | `sandboxing-9fq3.8`, `sandboxing-9fq3.9`, `sandboxing-9fq3.10` | Preserve `preSessionSnapshot`, hook approval invariants, and state persistence. Re-run `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`/`MC_Migration` as the moved surface requires. |
+| 11 | `sandboxing-9fq3.11` | Split backup, hooks, and state under their governed specs. Keep `session.go:preSessionSnapshot()` as the compatibility shim listed above. (Setup/rollback is split separately; see 14/15.) | `sandboxing-9fq3.8`, `sandboxing-9fq3.9`, `sandboxing-9fq3.10` | Preserve `preSessionSnapshot()` call ordering, hook approval invariants, and state persistence. Re-run `MC_BackupSafety`, `MC_GitHookApproval`, `MC_HarnessLifecycle`/`MC_Migration` as the moved surface requires. Moving the `preSessionSnapshot()` entrypoint itself remains deferred to `sandboxing-vh9q`. |
 | 12 | `sandboxing-9fq3.12` | Split diagnostics and stackcheck into `internal/diagnostics`. | `sandboxing-9fq3.10`, `sandboxing-9fq3.11` | Diagnostics import probed packages only as a client. Reusable packages never import diagnostics. Live network probes remain explicit smoke gates. |
 | 13 | `sandboxing-9fq3.14` | Model-aware setup/rollback split [design](2026-06-03-setup-rollback-package-split-design.md) (model-first; no code movement). Setup/rollback is the highest-severity `AgentContained` surface and is on the "what not to move first" list. | `sandboxing-9fq3.11` | Design note names the seam against `internal/state`/`internal/hostexec`, the equivalence/test plan, and whether `MC_SetupRollback`/`MC_Migration` re-run. |
 | 14 | `sandboxing-9fq3.15` | Split setup/rollback into `internal/setup` per the design bead. | `sandboxing-9fq3.10`, `sandboxing-9fq3.14` | Setup/rollback step ordering and `AgentContained` preserved; `MC_SetupRollback` and `MC_Migration` re-run per the design; goldens and pre-push green. |
