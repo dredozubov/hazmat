@@ -235,8 +235,8 @@ successful completion after arbitrary bounded failures.
 | Governed code | `hazmat/session.go` — native session contract construction and legacy `generateSBPL()` compatibility entrypoint |
 | Governed code | `hazmat/containment/darwin/sbpl.go` — Darwin SBPL compiler and rule ordering |
 | Governed code | `hazmat/containment/agent_home_manifest.go` — explicit durable agent-home path manifest projected into section 4 grants |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
-| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `SessionHomeUsableWhenActive`, `SessionHomeSeparateFromCredentials`, `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees, planned session-local HOME layout, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -311,6 +311,15 @@ The concrete durable-path inventory now lives in
 `hazmat/containment/agent_home_manifest.go`, so the current SBPL allowlist and
 the future session-local HOME assembly audit share one manifest seed. This is a
 behavior-preserving projection change; `HOME` still remains `/Users/agent`.
+
+**2026-06-12 session-local HOME model extension:** The spec now models two home
+layout modes. `persistent` preserves the current explicit `/Users/agent`
+durable subtree grants; `session` grants a disposable session-local HOME root
+under `/private/tmp/hazmat-home/<session-id>/home` while persistent agent-home
+subtrees lose implicit section-4 exposure. TLC proves
+`SessionHomeUsableWhenActive`, `SessionHomeSeparateFromCredentials`, and
+`PersistentAgentHomeNotImplicitlyExposedWhenSessionHome` with "No error has
+been found" across 147,456 generated states, 135,168 distinct states, depth 11.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The

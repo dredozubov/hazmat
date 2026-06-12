@@ -8,7 +8,9 @@
 \*   Section 1: Read-only directory allows (user input, filtered)
 \*   Section 2: Project directory read+write allows (user input)
 \*   Section 3: Resume session directory read+write (optional, invoker's ~/.claude/...)
-\*   Section 4: Agent home config allows (static — .claude, .local, .config, etc.)
+\*   Section 4: Home config allows. Current mode emits explicit persistent
+\*              agent-home subtrees; future session-home mode emits a broad
+\*              disposable session-local HOME root.
 \*   Section 5: Session temp root and narrow harness temp root grants
 \*   Section 6: Project write re-assertion (same path as section 2, last allow)
 \*   Section 7: Host temp socket/capability denies
@@ -28,7 +30,9 @@
 \*   1. Credential reads are denied except the explicit agent keychain exception
 \*   2. Credential writes are denied except the explicit agent keychain exception
 \*   3. Read dirs never grant write access
-\*   4. Agent home receives explicit subtree grants, not a blanket home allow
+\*   4. Persistent agent home receives explicit subtree grants, not a blanket
+\*      home allow; session-local HOME can be broadly writable only when it is
+\*      separate from persistent agent home and credential/authority paths
 \*   5. ResumeDir (invoker's session dir) cannot be a credential path
 \*   6. Host temp is not implicitly readable/writable/executable
 \*   7. Session temp remains writable and executable for build tools
@@ -37,7 +41,9 @@
 \*   9. Network mode "none" grants no outbound network or DNS authority
 \*
 \* Governed code:
-\*   hazmat/session.go — generateSBPL(), isWithinDir()
+\*   hazmat/session.go — native session contract construction and legacy generateSBPL() compatibility entrypoint
+\*   hazmat/containment/darwin/sbpl.go — Darwin SBPL compiler and rule ordering
+\*   hazmat/containment/agent_home_manifest.go — durable agent-home manifest projected into section 4
 
 EXTENDS Naturals, FiniteSets
 
@@ -54,6 +60,7 @@ CONSTANTS
     ProjectChoices, \* subset: valid choices for ProjectDir
     ReadChoices,    \* subset: valid choices for ReadDir entries
     NetworkChoices, \* subset: network modes ("default", "none")
+    HomeChoices,    \* subset: home layout modes ("persistent", "session")
     ResumeChoices,  \* subset: valid choices for ResumeDir (invoker's session dir or none)
     TempSocketPaths,\* subset: host temp capability/socket paths denied after temp/user allows
     HostAuthorityPaths,   \* subset: host-owned authority deny roots (broker attestation key dir) — NOT credentials, no keychain-style exception
@@ -61,6 +68,8 @@ CONSTANTS
     \* Model constant identifiers for abstract paths
     normalProj,     \* /Users/dr/workspace/myproject
     agentHome,      \* /Users/agent
+    sessionHome,    \* /private/tmp/hazmat-home/<session-id>/home
+    sessionHomeOtherFile, \* /private/tmp/hazmat-home/<session-id>/home/unlisted.txt
     configDir,      \* /Users/agent/.config
     sshDir,         \* /Users/agent/.ssh
     gcloudDir,      \* /Users/agent/.config/gcloud
@@ -90,6 +99,7 @@ ASSUME AgentHomeSubs \subseteq Paths
 ASSUME ProjectChoices \subseteq Paths
 ASSUME ReadChoices \subseteq Paths
 ASSUME NetworkChoices \subseteq {"default", "none"}
+ASSUME HomeChoices \subseteq {"persistent", "session"}
 ASSUME ResumeChoices \ {"none"} \subseteq Paths
 ASSUME TempSocketPaths \subseteq Paths
 ASSUME HostAuthorityPaths \subseteq Paths
@@ -102,6 +112,7 @@ ASSUME HostAuthorityTargets \subseteq Paths
 Contains(child, parent) ==
     \/ child = parent
     \/ (child = sshDir     /\ parent = agentHome)
+    \/ (child = sessionHomeOtherFile /\ parent = sessionHome)
     \/ (child = configDir  /\ parent = agentHome)
     \/ (child = gcloudDir  /\ parent = agentHome)
     \/ (child = gcloudDir  /\ parent = configDir)
@@ -133,13 +144,14 @@ VARIABLES
     projectDir,   \* chosen project directory (a Path)
     readDirs,     \* chosen read directories (SUBSET Paths)
     networkMode,  \* "default" or "none"
+    homeMode,     \* "persistent" keeps HOME=/Users/agent; "session" uses sessionHome
     resumeDir,    \* chosen resume session directory (a Path or "none")
     agentKeychainAccess, \* whether Claude OAuth gets the exact agent login keychain exception
     rules,        \* set of emitted rules: [section, action, path]
     networkAllows,\* set of emitted network grants
     section       \* 0..10: which section we're generating (10 = done)
 
-vars == <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, rules, networkAllows, section>>
+vars == <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, rules, networkAllows, section>>
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Rule constructors
@@ -160,6 +172,7 @@ TypeOK ==
     /\ projectDir \in Paths
     /\ readDirs   \subseteq Paths
     /\ networkMode \in {"default", "none"}
+    /\ homeMode \in {"persistent", "session"}
     /\ resumeDir  \in Paths \cup {"none"}
     /\ agentKeychainAccess \in BOOLEAN
     /\ section    \in 0..10
@@ -173,6 +186,7 @@ Init ==
     /\ projectDir \in ProjectChoices
     /\ readDirs   \in SUBSET ReadChoices
     /\ networkMode \in NetworkChoices
+    /\ homeMode \in HomeChoices
     /\ resumeDir  \in ResumeChoices
     /\ agentKeychainAccess \in BOOLEAN
     /\ rules      = {}
@@ -193,7 +207,7 @@ EmitSystemLibs ==
        THEN networkAllows \cup {"network_outbound", "dns_lookup", "network_inbound_local"}
        ELSE networkAllows \cup {"network_inbound_local"}
     /\ section' = 1
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, rules>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, rules>>
 
 \* Section 1: Read-only directory allows.
 \* Each read dir gets (allow file-read*) unless subsumed.
@@ -209,14 +223,14 @@ EmitReadDirs ==
             {AllowRead(1, d) : d \in notSubsumed} \cup
             {AllowExec(1, d) : d \in notSubsumed}
     /\ section' = 2
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 2: Project directory read+write.
 EmitProjectDir ==
     /\ section = 2
     /\ rules' = rules \cup {AllowRead(2, projectDir), AllowWrite(2, projectDir), AllowExec(2, projectDir)}
     /\ section' = 3
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 3: Resume session directory read+write (optional).
 \* When --resume or --continue is used, the invoking user's session directory
@@ -230,24 +244,32 @@ EmitResumeDir ==
        THEN rules' = rules \cup {AllowRead(3, resumeDir), AllowWrite(3, resumeDir)}
        ELSE UNCHANGED rules
     /\ section' = 4
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
-\* Section 4: Agent home — explicit durable state/tooling subtrees only.
+\* Section 4: Home config.
 \* HOME remains /Users/agent, but the policy no longer grants the whole home.
 \* AgentHomeSubs represents supported persistent paths such as .claude, .codex,
 \* .agents, .opencode, .gemini, .qwen, .cursor, .config, .cache, and .local.
+\* In future session-local HOME mode, HOME is an assembled disposable directory
+\* under /private/tmp/hazmat-home/<session>. It may be broadly writable because
+\* long-lived credentials and durable transcript stores must not be mounted
+\* below it.
 \* Credential directories are still denied in section 8; section 9 may re-allow
 \* only exact agent login keychain files for Claude OAuth.
 EmitHomeConfig ==
     /\ section = 4
-    /\ rules' = rules \cup
-         \* Only the enumerated persistent subtrees are allowed here. The home
-         \* root and unrelated home files intentionally receive no section-4 rule.
+    /\ IF homeMode = "persistent"
+       THEN rules' = rules \cup
+         \* Only the enumerated persistent subtrees are allowed here. The
+         \* persistent home root and unrelated home files intentionally receive
+         \* no section-4 rule.
          {AllowRead(4, p) : p \in AgentHomeSubs} \cup
          {AllowWrite(4, p) : p \in AgentHomeSubs} \cup
          {AllowExec(4, p) : p \in AgentHomeSubs}
+       ELSE rules' = rules \cup
+         {AllowRead(4, sessionHome), AllowWrite(4, sessionHome), AllowExec(4, sessionHome)}
     /\ section' = 5
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 5: Session temp root and narrow harness runtime temp roots.
 \* Hazmat no longer grants broad /private/tmp or /private/var/folders
@@ -260,7 +282,7 @@ EmitSessionTemp ==
          {AllowRead(5, sessionTempRoot), AllowWrite(5, sessionTempRoot), AllowExec(5, sessionTempRoot)} \cup
          {AllowRead(5, claudeTempRoot), AllowWrite(5, claudeTempRoot)}
     /\ section' = 6
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 6: Project write re-assertion.
 \* When a read-only -R directory is a parent of the project directory,
@@ -271,7 +293,7 @@ EmitProjectWriteReassert ==
     /\ section = 6
     /\ rules' = rules \cup {AllowRead(6, projectDir), AllowWrite(6, projectDir), AllowExec(6, projectDir)}
     /\ section' = 7
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 7: host temp socket/capability denies.
 \* These are explicit defense-in-depth denies so a broad user-granted temp
@@ -283,7 +305,7 @@ EmitTempSocketDenies ==
          {DenyWrite(7, p) : p \in TempSocketPaths} \cup
          {DenyExec(7, p)  : p \in TempSocketPaths}
     /\ section' = 8
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 8: Credential and host-authority denies.
 \* Deny both file-read* (exfiltration) and file-write* (planting) for credential
@@ -296,7 +318,7 @@ EmitCredDenies ==
          {DenyRead(8, p)  : p \in CredPaths \cup HostAuthorityPaths} \cup
          {DenyWrite(8, p) : p \in CredPaths \cup HostAuthorityPaths}
     /\ section' = 9
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Section 9: Exact agent login keychain exception for Claude OAuth.
 \* The broader Keychains deny root remains denied. Only the managed login
@@ -310,7 +332,7 @@ EmitAgentKeychainException ==
             {AllowWrite(9, p) : p \in AgentKeychainExceptionPaths}
        ELSE UNCHANGED rules
     /\ section' = 10
-    /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
+    /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
 \* Terminal.
 Done ==
@@ -436,11 +458,36 @@ NoBroadAgentHomeAllow ==
 
 \* --- Explicit agent-home compatibility subtrees stay usable ---
 AgentHomeSubsUsable ==
-    section = 10 =>
+    section = 10 /\ homeMode = "persistent" =>
         \A p \in AgentHomeSubs :
             /\ EffectiveRead(p) = "allow_read"
             /\ EffectiveWrite(p) = "allow_write"
             /\ EffectiveExec(p) = "allow_exec"
+
+\* --- Session-local HOME is usable only in session-home mode ---
+SessionHomeUsableWhenActive ==
+    section = 10 /\ homeMode = "session" =>
+        /\ EffectiveRead(sessionHomeOtherFile) = "allow_read"
+        /\ EffectiveWrite(sessionHomeOtherFile) = "allow_write"
+        /\ EffectiveExec(sessionHomeOtherFile) = "allow_exec"
+
+\* --- Session-local HOME does not overlap credentials or host authority ---
+SessionHomeSeparateFromCredentials ==
+    section = 10 =>
+        /\ \A target \in CredentialTargets :
+            /\ ~Contains(target, sessionHome)
+            /\ ~Contains(sessionHome, target)
+        /\ \A target \in HostAuthorityTargets :
+            /\ ~Contains(target, sessionHome)
+            /\ ~Contains(sessionHome, target)
+
+\* --- Persistent agent-home paths are not implicitly exposed after HOME moves ---
+PersistentAgentHomeNotImplicitlyExposedWhenSessionHome ==
+    section = 10 /\ homeMode = "session" =>
+        \A p \in AgentHomeSubs :
+            /\ (Contains(p, projectDir) \/ (\E d \in readDirs : Contains(p, d)) \/ EffectiveRead(p) # "allow_read")
+            /\ (Contains(p, projectDir) \/ EffectiveWrite(p) # "allow_write")
+            /\ (Contains(p, projectDir) \/ (\E d \in readDirs : Contains(p, d)) \/ EffectiveExec(p) # "allow_exec")
 
 \* --- Unlisted agent-home content is not implicitly exposed ---
 UnlistedAgentHomeNotImplicitlyReadable ==

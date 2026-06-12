@@ -601,6 +601,10 @@ Implementation note: `hazmat/containment/agent_home_manifest.go` now contains
 the initial durable agent-home manifest and the current Darwin SBPL compiler
 projects section-4 grants from it. This does not move `HOME`; it removes the
 hardcoded-policy-list drift risk before the session-home assembly code lands.
+`tla/MC_SeatbeltPolicy.tla` also models the planned `sessionHome` policy shape:
+the disposable assembled home can be broadly writable for UX, but it must stay
+separate from credential/host-authority paths and must not implicitly expose the
+persistent `/Users/agent` durable state.
 
 #### Resume/export requirements
 

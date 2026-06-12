@@ -101,11 +101,18 @@ section 0 alongside system library and service allows. They are modeled as part
 of the abstract static system surface because they do not change the ordering of
 project/read/temp/credential path rules checked by this spec.
 
-The policy keeps `HOME=/Users/agent`, but section 4 is no longer a blanket
-agent-home allow. It grants explicit durable state/tooling subtrees such as
-`.claude`, `.codex`, `.agents`, `.opencode`, `.gemini`, `.qwen`, `.cursor`,
-`.config`, `.cache`, and `.local`, plus known shell/config files. Credential
-deny paths remain denied later by section 8.
+The current implementation keeps `HOME=/Users/agent`, but section 4 is no
+longer a blanket agent-home allow. It grants explicit durable state/tooling
+subtrees such as `.claude`, `.codex`, `.agents`, `.opencode`, `.gemini`,
+`.qwen`, `.cursor`, `.config`, `.cache`, and `.local`, plus known shell/config
+files. Credential deny paths remain denied later by section 8.
+
+The model now also includes the planned session-local HOME mode for Feature 3B.
+In that mode, section 4 grants a broad disposable `sessionHome` rooted under
+`/private/tmp/hazmat-home/<session-id>/home`, while persistent `/Users/agent`
+durable paths stop receiving implicit section-4 grants. This models the intended
+UX tradeoff: arbitrary tool dotfiles can be written inside the ephemeral home,
+but long-lived agent-home state and credentials are not automatically exposed.
 
 The concrete path inventory for those durable home entries is maintained in
 `hazmat/containment/agent_home_manifest.go`. The Darwin SBPL compiler projects
@@ -118,12 +125,14 @@ but this spec still models and verifies the current behavior where
 
 ### Abstract Path Model
 
-Twenty-three abstract paths with a containment relation:
+Twenty-five abstract paths with a containment relation:
 
 | Path | Represents | Contains |
 |------|-----------|----------|
 | `normalProj` | `/Users/dr/workspace/myproject` | (nothing) |
 | `agentHome` | `/Users/agent` | sshDir, configDir, gcloudDir, keychainDir, keychainDB, keychainSHM, keychainWAL, sessionTempRoot, sessionTempFile, agentStateDir, agentLocalDir, agentOtherFile |
+| `sessionHome` | `/private/tmp/hazmat-home/<session-id>/home` | sessionHomeOtherFile |
+| `sessionHomeOtherFile` | `/private/tmp/hazmat-home/<session-id>/home/unlisted.txt` | (nothing) |
 | `configDir` | `/Users/agent/.config` | gcloudDir |
 | `sshDir` | `/Users/agent/.ssh` | (nothing) |
 | `gcloudDir` | `/Users/agent/.config/gcloud` | (nothing) |
@@ -148,16 +157,20 @@ Twenty-three abstract paths with a containment relation:
 
 ### Nondeterministic Inputs
 
-- `ProjectDir ∈ {normalProj, agentHome, sshDir, configDir, hostTempRoot, hostTempOutside, attestationKeyDir}` — tests dangerous choices, explicit host temp grants, and the host authority key deny root
-- `ReadDirs ⊆ {normalProj, agentHome, outsideRef, hostTempRoot, attestationKeyDir}` — tests broad read dirs, including explicit host temp and host authority key grants
+- `ProjectDir ∈ {normalProj, agentHome, sessionHome, sshDir, configDir, hostTempRoot, hostTempOutside, attestationKeyDir}` — tests dangerous choices, explicit host temp grants, the future session-home root, and the host authority key deny root
+- `ReadDirs ⊆ {normalProj, agentHome, sessionHome, outsideRef, hostTempRoot, attestationKeyDir}` — tests broad read dirs, including explicit host temp, session-home, and host authority key grants
 - `NetworkMode ∈ {default, none}` — tests the default outbound mode and
   per-session deny-all egress mode
+- `HomeMode ∈ {persistent, session}` — tests current `HOME=/Users/agent`
+  policy projection and the planned disposable session-local HOME projection
 - `AgentKeychainAccess ∈ BOOLEAN` — tests native Claude OAuth's exact
   agent-login-keychain exception and the normal no-exception path
 
 ### Variables
 
 - `rules` — set of emitted policy rules `[section, action, path]`
+- `homeMode` — whether section 4 projects persistent agent-home grants or the
+  planned session-local HOME grant
 - `agentKeychainAccess` — whether section 9 is emitted
 - `section` — current policy generation phase (0..10)
 
@@ -180,6 +193,9 @@ the highest section number determines the outcome. This models SBPL semantics.
 | `ReadDirsNoWrite` | Read-only dirs never get file-write* rules |
 | `NoBroadAgentHomeAllow` | Section 4 never emits a broad allow on the agent-home root |
 | `AgentHomeSubsUsable` | Explicit modeled agent-home subtrees remain readable, writable, and executable |
+| `SessionHomeUsableWhenActive` | Disposable session-local HOME content is readable, writable, and executable when session-home mode is active |
+| `SessionHomeSeparateFromCredentials` | Session-local HOME does not contain credential or host-authority paths |
+| `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome` | Moving HOME stops implicit section-4 exposure of persistent agent-home durable paths |
 | `UnlistedAgentHomeNotImplicitlyReadable` | Unlisted agent-home files are not readable unless the user explicitly grants the home as project/read input |
 | `UnlistedAgentHomeNotImplicitlyWritable` | Unlisted agent-home files are not writable unless the user explicitly grants the home as project input |
 | `UnlistedAgentHomeNotImplicitlyExecutable` | Unlisted agent-home files are not executable unless the user explicitly grants the home as project/read input |
@@ -208,21 +224,26 @@ denied. `AttestationKeyReadDenied` and `AttestationKeyWriteDenied` prove the
 host-owned Beadpost broker signing key directory and file stay denied with no
 Keychain exception. `NoBroadAgentHomeAllow` proves the static compatibility
 section has no blanket `/Users/agent` allow; `AgentHomeSubsUsable` preserves the
-explicit modeled home subtrees; and the `UnlistedAgentHomeNotImplicitly*`
-invariants prove unrelated home content is not exposed except through explicit
-user-provided project/read grants. Host temp access is no longer implicit, while
-the agent-owned session temp root remains usable for compiler/runtime artifacts,
-Claude's runtime temp root adds no implicit execute access, and Codex App temp
-socket capability paths stay denied.
+explicit modeled home subtrees in current persistent-home mode; and the
+`UnlistedAgentHomeNotImplicitly*` invariants prove unrelated persistent home
+content is not exposed except through explicit user-provided project/read
+grants. The session-home invariants prove that a disposable assembled HOME can
+remain usable for arbitrary tool state while staying separate from credential
+and host-authority paths, and that moving HOME stops implicit section-4 exposure
+of persistent agent-home durable paths. Host temp access is no longer implicit,
+while the agent-owned session temp root remains usable for compiler/runtime
+artifacts, Claude's runtime temp root adds no implicit execute access, and Codex
+App temp socket capability paths stay denied.
 
 ## Model Bounds
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Paths | 23 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, explicit agent-home subtrees, unlisted agent-home content, outside ref, invoker resume dir, host temp, session temp, Claude runtime temp, Codex temp socket paths, and Beadpost attestation key paths |
-| ProjectChoices | 7 | Includes adversarial choices: agentHome, sshDir, configDir, host temp paths, and attestationKeyDir |
-| ReadChoices | 5 | Includes broad choices: agentHome, hostTempRoot, and attestationKeyDir |
+| Paths | 25 | Covers: normal project, agent home, disposable session home, credential dirs, agent login keychain DB/sidecars, config overlap, explicit agent-home subtrees, unlisted persistent/session-home content, outside ref, invoker resume dir, host temp, session temp, Claude runtime temp, Codex temp socket paths, and Beadpost attestation key paths |
+| ProjectChoices | 8 | Includes adversarial choices: agentHome, sessionHome, sshDir, configDir, host temp paths, and attestationKeyDir |
+| ReadChoices | 6 | Includes broad choices: agentHome, sessionHome, hostTempRoot, and attestationKeyDir |
 | NetworkChoices | 2 | Covers default outbound mode and deny-all egress mode |
+| HomeChoices | 2 | Covers current persistent `HOME=/Users/agent` and planned session-local HOME assembly |
 | AgentKeychainAccess | 2 | Covers both normal credential denial and native Claude OAuth keychain compatibility |
 
-**Confirmed state space:** 32,256 states generated, 29,568 distinct, depth 11. Runtime: <5s.
+**Confirmed state space:** 147,456 states generated, 135,168 distinct, depth 11. Runtime: <10s.
