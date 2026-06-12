@@ -324,10 +324,12 @@ func (u *UI) printRepairPlan(plan diagnosticRepairPlan) {
 	if len(plan.Items) == 0 && len(plan.ManualItems) == 0 && len(plan.SkippedItems) == 0 {
 		return
 	}
+	plan = plan.withSummary()
 
 	cBold.Println(u.repairPlanSectionTitle(plan))
 	fmt.Println()
 	cDim.Printf("  Mode: %s (%s)\n", plan.Execution.Mode, plan.Execution.Reason)
+	cDim.Printf("  Summary: %s\n", diagnosticRepairPlanSummaryLine(plan.Summary))
 	fmt.Println()
 
 	index := 1
@@ -368,6 +370,30 @@ func (u *UI) printRepairPlanItem(index int, item diagnosticRepairPlanItem) {
 	for _, detail := range item.Details {
 		cDim.Printf("     Detail: %s\n", detail)
 	}
+}
+
+func diagnosticRepairPlanSummaryLine(summary diagnosticRepairPlanSummary) string {
+	parts := []string{
+		countLabel(summary.Executable, "executable repair"),
+		countLabel(summary.Manual, "manual item"),
+		countLabel(summary.Skipped, "skipped item"),
+	}
+	if summary.Applied > 0 || summary.FailedVerifications > 0 {
+		parts = append(parts,
+			countLabel(summary.Applied, "applied repair"),
+			countLabel(summary.FailedVerifications, "failed verification"),
+		)
+	}
+	parts = append(parts, countLabel(summary.Remaining, "remaining item"))
+	return strings.Join(parts, ", ")
+}
+
+func countLabel(count int, singular string) string {
+	label := singular
+	if count != 1 {
+		label += "s"
+	}
+	return fmt.Sprintf("%d %s", count, label)
 }
 
 func colorForSeverityLabel(label string) *color.Color {

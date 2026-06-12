@@ -2,9 +2,12 @@ package hazmat
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/fatih/color"
 )
 
 func TestUIRecommendationsGroupClaudeProjectPermissions(t *testing.T) {
@@ -176,6 +179,62 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	if plan.Summary != wantSummary {
 		t.Fatalf("plan summary = %+v, want %+v", plan.Summary, wantSummary)
 	}
+}
+
+func TestUIRepairPlanSummaryLineCountsActionableBuckets(t *testing.T) {
+	got := diagnosticRepairPlanSummaryLine(diagnosticRepairPlanSummary{
+		Executable:          1,
+		Manual:              2,
+		Skipped:             0,
+		Applied:             1,
+		FailedVerifications: 1,
+		Remaining:           3,
+	})
+	want := "1 executable repair, 2 manual items, 0 skipped items, 1 applied repair, 1 failed verification, 3 remaining items"
+	if got != want {
+		t.Fatalf("summary line = %q, want %q", got, want)
+	}
+}
+
+func TestUIPrintRepairPlanIncludesCompactSummary(t *testing.T) {
+	ui := &UI{}
+	ui.stepLabel = "Mixed findings"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+
+	plan := ui.diagnosticReport().RepairPlan
+	out := captureUIOutput(t, func() {
+		ui.printRepairPlan(plan)
+	})
+	if !strings.Contains(out, "Summary: 1 executable repair, 1 manual item, 0 skipped items, 2 remaining items") {
+		t.Fatalf("repair plan output missing compact summary:\n%s", out)
+	}
+	if !strings.Contains(out, "1. [WARN] Restore the agent umask") || !strings.Contains(out, "2. [FAIL] Restrict the Docker socket") {
+		t.Fatalf("repair plan output lost detailed items:\n%s", out)
+	}
+}
+
+func captureUIOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStdout := os.Stdout
+	oldColorOutput := color.Output
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	color.Output = w
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	os.Stdout = oldStdout
+	color.Output = oldColorOutput
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(data)
 }
 
 func TestUIDiagnosticReportInitPostVerificationUsesTypedRepairPlan(t *testing.T) {
