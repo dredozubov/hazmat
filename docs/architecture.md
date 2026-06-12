@@ -6,8 +6,10 @@ to understand how a request becomes a contained agent session.
 
 For formal proof scope and governance rules, read
 [../tla/VERIFIED.md](../tla/VERIFIED.md). For non-obvious product assumptions,
-read [design-assumptions.md](design-assumptions.md). For the historical Phase 1
-direction, read
+read [design-assumptions.md](design-assumptions.md). For the public vocabulary
+that separates advisory DTOs from authority-bearing runtime artifacts, read
+[session-contract-vocabulary.md](session-contract-vocabulary.md). For the
+historical Phase 1 direction, read
 [plans/2026-06-02-modular-architecture-direction.md](plans/2026-06-02-modular-architecture-direction.md).
 For the proposed next package split, read
 [plans/2026-06-02-package-split-architecture.md](plans/2026-06-02-package-split-architecture.md).
