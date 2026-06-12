@@ -570,8 +570,9 @@ func (b *batchRecordingACLBackend) SudoChmod(*Runner, string, ...string) error {
 }
 
 type pathRecordingACLBackend struct {
-	rows  map[string][]ACLRow
-	reads []string
+	rows   map[string][]ACLRow
+	reads  []string
+	chmods [][]string
 }
 
 func (b *pathRecordingACLBackend) ReadACLs(path string) ([]ACLRow, error) {
@@ -579,7 +580,8 @@ func (b *pathRecordingACLBackend) ReadACLs(path string) ([]ACLRow, error) {
 	return b.rows[path], nil
 }
 
-func (b *pathRecordingACLBackend) Chmod(...string) error {
+func (b *pathRecordingACLBackend) Chmod(args ...string) error {
+	b.chmods = append(b.chmods, append([]string(nil), args...))
 	return nil
 }
 
@@ -614,6 +616,62 @@ func TestProjectNeedsACLRepairOnlyChecksRoot(t *testing.T) {
 	}
 	if len(backend.reads) != 1 || backend.reads[0] != projectDir {
 		t.Fatalf("projectNeedsACLRepair read ACLs at %v, want only %s", backend.reads, projectDir)
+	}
+}
+
+func TestInspectCheckWorkspaceReadinessIsReadOnly(t *testing.T) {
+	projectDir := t.TempDir()
+	backend := &pathRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	readiness, err := inspectCheckWorkspaceReadiness(projectDir)
+	if err != nil {
+		t.Fatalf("inspectCheckWorkspaceReadiness: %v", err)
+	}
+	if !readiness.NeedsACLRepair {
+		t.Fatal("NeedsACLRepair = false, want true when root has no dev ACL")
+	}
+	if readiness.ProjectDir != projectDir {
+		t.Fatalf("ProjectDir = %q, want %q", readiness.ProjectDir, projectDir)
+	}
+	if len(backend.reads) != 1 || backend.reads[0] != projectDir {
+		t.Fatalf("ACL reads = %v, want only %s", backend.reads, projectDir)
+	}
+	if len(backend.chmods) != 0 {
+		t.Fatalf("ACL chmods = %v, want none for read-only check inspection", backend.chmods)
+	}
+}
+
+func TestInspectCheckWorkspaceReadinessAcceptsHealthyRootACL(t *testing.T) {
+	projectDir := t.TempDir()
+	backend := &pathRecordingACLBackend{
+		rows: map[string][]ACLRow{
+			projectDir: {rowForGrant(devGroupInheritableGrant)},
+		},
+	}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	readiness, err := inspectCheckWorkspaceReadiness(projectDir)
+	if err != nil {
+		t.Fatalf("inspectCheckWorkspaceReadiness: %v", err)
+	}
+	if readiness.NeedsACLRepair {
+		t.Fatal("NeedsACLRepair = true, want false for healthy root ACL")
+	}
+	if len(backend.chmods) != 0 {
+		t.Fatalf("ACL chmods = %v, want none for read-only check inspection", backend.chmods)
 	}
 }
 

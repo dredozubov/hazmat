@@ -86,12 +86,6 @@ func asAgentCombinedOutput(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// asAgentShellQuiet runs a bash command string as the agent user.
-// Use only with hardcoded scripts — never interpolate user input.
-func asAgentShellQuiet(script string) error {
-	return asAgentQuiet("bash", "-c", script)
-}
-
 func agentTCPConnect(selfPath, host, port string) bool {
 	return diagnostics.AgentTCPConnect(hostExecEnv(), selfPath, host, port)
 }

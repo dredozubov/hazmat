@@ -155,31 +155,26 @@ func testAgentUser(ui *UI) {
 	}
 }
 
-// testWorkspaceDir returns a temporary directory for test fixtures.
-// Tests that need agent access use this instead of os.TempDir(), because on
-// macOS os.TempDir() usually points into /var/folders/... and is private to the
-// invoking user.
-func testWorkspaceDir() string {
-	if info, err := os.Stat("/private/tmp"); err == nil && info.IsDir() {
-		return "/private/tmp"
-	}
-	return os.TempDir()
-}
-
-func testWorkspaceFixture(prefix string) (string, func(), error) {
-	dir := filepath.Join(testWorkspaceDir(), fmt.Sprintf("%s-%d", prefix, os.Getpid()))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", nil, err
-	}
-	cleanup := func() {
-		if err := os.RemoveAll(dir); err != nil {
-			_ = sudo("rm", "-rf", dir)
-		}
-	}
-	return dir, cleanup, nil
-}
-
 // ── Step 2: Dev group and home traverse ──────────────────────────────────────
+
+type checkWorkspaceReadiness struct {
+	ProjectDir     string
+	NeedsACLRepair bool
+}
+
+func inspectCheckWorkspaceReadiness(projectDir string) (checkWorkspaceReadiness, error) {
+	info, err := os.Stat(projectDir)
+	if err != nil {
+		return checkWorkspaceReadiness{}, fmt.Errorf("inspect project workspace %s: %w", projectDir, err)
+	}
+	if !info.IsDir() {
+		return checkWorkspaceReadiness{}, fmt.Errorf("project workspace is not a directory: %s", projectDir)
+	}
+	return checkWorkspaceReadiness{
+		ProjectDir:     projectDir,
+		NeedsACLRepair: projectNeedsACLRepair(projectDir),
+	}, nil
+}
 
 func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	ui.Step("Dev group and home traverse")
@@ -215,129 +210,32 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 		)
 	}
 
-	workspaceDir, cleanup, err := testWorkspaceFixture("hazmat-check-workspace")
+	projectDir, err := os.Getwd()
 	if err != nil {
-		ui.TestFail(fmt.Sprintf("could not create check workspace fixture: %v", err))
-		return
-	}
-	defer cleanup()
-
-	if outcome, err := ensureProjectWritable(workspaceDir); err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingWorkspaceAccess),
-			fmt.Sprintf("check workspace fixture preparation failed: %v", err),
-			fmt.Sprintf("workspace: %s", workspaceDir),
+			fmt.Sprintf("could not resolve current project workspace: %v", err),
 		)
 		return
-	} else if outcome.Fixed {
-		ui.TestPass("Check workspace fixture prepared for host/agent write probes")
-	} else {
-		ui.TestPass("Check workspace ACL already healthy")
 	}
 
-	// Write test as current user
-	tmpDr := fmt.Sprintf("%s/.test_dr_%d", workspaceDir, os.Getpid())
-	if f, err := os.Create(tmpDr); err == nil {
-		f.Close()
-		os.Remove(tmpDr)
-		ui.TestPass(fmt.Sprintf("%s can write to check workspace", currentUser))
-	} else {
+	readiness, err := inspectCheckWorkspaceReadiness(projectDir)
+	if err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingWorkspaceAccess),
-			fmt.Sprintf("%s cannot write to check workspace", currentUser),
-			fmt.Sprintf("workspace: %s", workspaceDir),
-			fmt.Sprintf("write error: %v", err),
+			err.Error(),
+			fmt.Sprintf("workspace: %s", projectDir),
 		)
+		return
 	}
-
-	// Write test as agent; also check setgid inheritance
-	tmpAgent := fmt.Sprintf("%s/.test_agent_%d", workspaceDir, os.Getpid())
-	if err := asAgentQuiet("touch", tmpAgent); err == nil {
-		ui.TestPass(fmt.Sprintf("%s can write to check workspace", agentUser))
-
-		if finfo, err := os.Stat(tmpAgent); err == nil {
-			if st, ok := finfo.Sys().(*syscall.Stat_t); ok {
-				gidStr := strconv.FormatUint(uint64(st.Gid), 10)
-				if g, err := user.LookupGroupId(gidStr); err == nil && g.Name == sharedGroup {
-					ui.TestPass(fmt.Sprintf("New files inherit '%s' group (setgid working)", sharedGroup))
-				} else {
-					ui.TestWarnFinding(
-						diagnosticFinding(findingWorkspaceSetgid),
-						fmt.Sprintf("New file group is gid=%s, expected '%s' — setgid may not be working", gidStr, sharedGroup),
-					)
-				}
-			}
-		}
-		sudo("rm", "-f", tmpAgent) //nolint:errcheck
-	} else {
-		ui.TestFailFinding(
+	if readiness.NeedsACLRepair {
+		ui.TestWarnFinding(
 			diagnosticFinding(findingWorkspaceAccess),
-			fmt.Sprintf("%s cannot write to check workspace", agentUser),
-			fmt.Sprintf("workspace: %s", workspaceDir),
-			fmt.Sprintf("write path: %s", tmpAgent),
+			"Project workspace is missing the inheritable dev-group ACL required for host/agent collaboration",
+			fmt.Sprintf("workspace: %s", readiness.ProjectDir),
 		)
-	}
-
-	// Bidirectional access: agent-created file must be readable/writable by controlling user.
-	// This verifies that the inheritable ACL overrides the agent's umask 007.
-	tmpAgentRW := fmt.Sprintf("%s/.test_agent_rw_%d", workspaceDir, os.Getpid())
-	if err := asAgentShellQuiet(fmt.Sprintf("echo test > %q", tmpAgentRW)); err == nil {
-		defer sudo("rm", "-f", tmpAgentRW) //nolint:errcheck
-
-		if f, err := os.Open(tmpAgentRW); err == nil {
-			f.Close()
-			ui.TestPass(fmt.Sprintf("%s can READ file created by %s (ACL effective)", currentUser, agentUser))
-		} else {
-			ui.TestFailFinding(
-				diagnosticFinding(findingWorkspaceAccess),
-				fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", currentUser, agentUser),
-				fmt.Sprintf("path: %s", tmpAgentRW),
-				fmt.Sprintf("read error: %v", err),
-			)
-		}
-
-		if f, err := os.OpenFile(tmpAgentRW, os.O_WRONLY|os.O_APPEND, 0); err == nil {
-			f.Close()
-			ui.TestPass(fmt.Sprintf("%s can WRITE file created by %s (ACL effective)", currentUser, agentUser))
-		} else {
-			ui.TestFailFinding(
-				diagnosticFinding(findingWorkspaceAccess),
-				fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", currentUser, agentUser),
-				fmt.Sprintf("path: %s", tmpAgentRW),
-				fmt.Sprintf("write error: %v", err),
-			)
-		}
 	} else {
-		ui.TestWarn(fmt.Sprintf("%s could not create test file — skipping bidirectional write test", agentUser))
-	}
-
-	// Bidirectional access: controlling-user-created file must be readable/writable by agent.
-	tmpUserRW := fmt.Sprintf("%s/.test_user_rw_%d", workspaceDir, os.Getpid())
-	if f, err := os.Create(tmpUserRW); err == nil {
-		f.Close()
-		defer os.Remove(tmpUserRW)
-
-		if err := asAgentQuiet("cat", tmpUserRW); err == nil {
-			ui.TestPass(fmt.Sprintf("%s can READ file created by %s", agentUser, currentUser))
-		} else {
-			ui.TestFailFinding(
-				diagnosticFinding(findingWorkspaceAccess),
-				fmt.Sprintf("%s cannot read file created by %s — workspace ACL missing or not inherited", agentUser, currentUser),
-				fmt.Sprintf("path: %s", tmpUserRW),
-			)
-		}
-
-		if err := asAgentShellQuiet(fmt.Sprintf("echo test >> %q", tmpUserRW)); err == nil {
-			ui.TestPass(fmt.Sprintf("%s can WRITE file created by %s", agentUser, currentUser))
-		} else {
-			ui.TestFailFinding(
-				diagnosticFinding(findingWorkspaceAccess),
-				fmt.Sprintf("%s cannot write file created by %s — workspace ACL missing or not inherited", agentUser, currentUser),
-				fmt.Sprintf("path: %s", tmpUserRW),
-			)
-		}
-	} else {
-		ui.TestWarn(fmt.Sprintf("%s could not create test file — skipping bidirectional read test", currentUser))
+		ui.TestPass("Project workspace ACL is ready for host/agent collaboration")
 	}
 }
 
