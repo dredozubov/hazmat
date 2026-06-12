@@ -46,6 +46,15 @@ func TestBuildExplainJSON(t *testing.T) {
 			Remembered: repoSetupStoredEffects{ReadOnly: []string{"/tmp/toolchain"}},
 		},
 	}
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	sessionHomeLaunch, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	sessionHomeRuntime, err := newSessionHomeRuntimePlan(sessionHomeLaunch, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
 	cfg := sessionConfig{
 		ProjectDir:            "/tmp/project",
 		ReadDirs:              []string{"/tmp/auto", "/tmp/user"},
@@ -85,6 +94,7 @@ func TestBuildExplainJSON(t *testing.T) {
 		},
 		RoutingReason: "staying in native containment because docker: none is configured",
 		SessionNotes:  []string{"Docker files detected but disabled by config"},
+		SessionHome:   &sessionHomeRuntime,
 		RepoSetup:     repoSetup,
 	}
 
@@ -149,6 +159,30 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Snapshot.Excludes, []string{".venv/"}) {
 		t.Fatalf("Snapshot.Excludes = %v", got.Snapshot.Excludes)
+	}
+	if got.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want session-local HOME preview")
+	}
+	if got.SessionHome.Status != "experimental-preview" ||
+		got.SessionHome.Mode != "session-local" ||
+		got.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
+		got.SessionHome.PersistentHome != sessionHomeRuntime.AgentHomePolicy.PersistentPath ||
+		got.SessionHome.CleanupRoot != sessionHomeLaunch.Cleanup.Root ||
+		got.SessionHome.CleanupMaxAge != defaultSessionHomeCleanupMaxAge.String() ||
+		!got.SessionHome.ResumeRequested {
+		t.Fatalf("SessionHome = %+v", got.SessionHome)
+	}
+	if !reflect.DeepEqual(got.SessionHome.Phases, []string{
+		"cleanup-stale-session-homes",
+		"generate-or-resolve-session-id",
+		"assemble-session-home",
+		"sync-resume-state",
+		"launch-harness",
+	}) {
+		t.Fatalf("SessionHome.Phases = %#v", got.SessionHome.Phases)
+	}
+	if !reflect.DeepEqual(got.SessionHome.DurableBridgeRoots, sessionHomeRuntime.AgentHomePolicy.DurableBridgeRoots) {
+		t.Fatalf("SessionHome.DurableBridgeRoots = %#v", got.SessionHome.DurableBridgeRoots)
 	}
 	if len(got.PlannedHostMutations) != 1 || got.PlannedHostMutations[0].Summary != "project ACL repair" {
 		t.Fatalf("PlannedHostMutations = %v", got.PlannedHostMutations)
@@ -246,6 +280,62 @@ func TestExplainJSONCommandOutputsStructuredPreview(t *testing.T) {
 	}
 	if !preview.Snapshot.Enabled {
 		t.Fatalf("Snapshot.Enabled = false, want true")
+	}
+}
+
+func TestExplainJSONCommandIncludesExperimentalSessionHomePreview(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+	t.Setenv(experimentalSessionHomeEnv, "1")
+	savedNewSessionHomeID := newSessionHomeID
+	newSessionHomeID = func() string { return "session-123" }
+	t.Cleanup(func() { newSessionHomeID = savedNewSessionHomeID })
+
+	dir := t.TempDir()
+	cmd := newExplainCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--json", "-C", dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	var preview explainJSONPreview
+	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+		t.Fatalf("unmarshal preview: %v\nstdout=%s", err, stdout.String())
+	}
+	if preview.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want experimental session-local HOME preview")
+	}
+	if preview.SessionHome.Status != "experimental-preview" ||
+		preview.SessionHome.Mode != "session-local" ||
+		preview.SessionHome.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") ||
+		preview.SessionHome.PersistentHome != agentHome ||
+		preview.SessionHome.CleanupRoot != defaultSessionHomeRoot ||
+		preview.SessionHome.CleanupMaxAge != defaultSessionHomeCleanupMaxAge.String() ||
+		!preview.SessionHome.ResumeRequested {
+		t.Fatalf("SessionHome = %+v", preview.SessionHome)
+	}
+	if !reflect.DeepEqual(preview.SessionHome.Phases, []string{
+		"cleanup-stale-session-homes",
+		"generate-or-resolve-session-id",
+		"assemble-session-home",
+		"sync-resume-state",
+		"launch-harness",
+	}) {
+		t.Fatalf("SessionHome.Phases = %#v", preview.SessionHome.Phases)
+	}
+	if !reflect.DeepEqual(preview.SessionHome.DurableBridgeRoots, []string{
+		filepath.Join(agentHome, ".claude", "projects"),
+		filepath.Join(agentHome, ".hazmat", "hermes", "projects"),
+	}) {
+		t.Fatalf("SessionHome.DurableBridgeRoots = %#v", preview.SessionHome.DurableBridgeRoots)
 	}
 }
 

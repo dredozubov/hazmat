@@ -38,6 +38,7 @@ type explainJSONPreview struct {
 	ServiceAccess         []string                        `json:"service_access,omitempty"`
 	GitSSHKey             string                          `json:"git_ssh_key,omitempty"`
 	Snapshot              explainJSONBackup               `json:"snapshot"`
+	SessionHome           *explainJSONSessionHome         `json:"session_home,omitempty"`
 	SessionNotes          []string                        `json:"session_notes,omitempty"`
 	Platform              *linuxplatform.Report           `json:"platform,omitempty"`
 }
@@ -45,6 +46,7 @@ type explainJSONPreview struct {
 type explainJSONRepoSetupEffect = sessioncontract.RepoSetupEffect
 type explainJSONCredentialEnvGrant = sessioncontract.CredentialEnvGrant
 type explainJSONBackup = sessioncontract.Snapshot
+type explainJSONSessionHome = sessioncontract.SessionHome
 
 func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool) explainJSONPreview {
 	facts := currentHostFacts()
@@ -80,6 +82,7 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 		ServiceAccess:         plan.ServiceAccess,
 		GitSSHKey:             plan.GitSSHKey,
 		Snapshot:              plan.Snapshot,
+		SessionHome:           plan.SessionHome,
 		SessionNotes:          plan.SessionNotes,
 		Platform:              platform,
 	}

@@ -30,6 +30,7 @@ type sessionPlanAuthority struct {
 	serviceAccess         []string
 	sessionNotes          []string
 	snapshotExcludes      []string
+	sessionHome           *sessionHomeRuntimePlan
 	harnessID             harnesses.ID
 	repoSetup             *repoSetupState
 	gitSSHKey             string
@@ -72,6 +73,7 @@ func newSessionPlanAuthority(target string, cfg sessionConfig, mode sessionMode,
 		serviceAccess:         append([]string(nil), cfg.ServiceAccess...),
 		sessionNotes:          append([]string(nil), cfg.SessionNotes...),
 		snapshotExcludes:      append([]string(nil), cfg.IntegrationExcludes...),
+		sessionHome:           copySessionHomeRuntimePlan(cfg.SessionHome),
 		harnessID:             harnesses.ID(cfg.HarnessID),
 		repoSetup:             cfg.RepoSetup,
 		gitSSHKey:             explainGitSSHKey(cfg.GitSSH),
@@ -108,6 +110,7 @@ func (authority sessionPlanAuthority) ContractInput() sessioncontract.PlanInput 
 			Enabled:  !authority.skipSnapshot,
 			Excludes: append([]string(nil), authority.snapshotExcludes...),
 		},
+		SessionHome:  authority.contractSessionHome(),
 		SessionNotes: append([]string(nil), authority.sessionNotes...),
 	}
 }
@@ -175,6 +178,43 @@ func (authority sessionPlanAuthority) contractCredentialEnvGrants() []sessioncon
 		}
 	}
 	return out
+}
+
+func (authority sessionPlanAuthority) contractSessionHome() *sessioncontract.SessionHome {
+	if authority.sessionHome == nil {
+		return nil
+	}
+	launch := authority.sessionHome.Launch
+	policy := authority.sessionHome.AgentHomePolicy
+	phases := make([]string, len(launch.Phases))
+	for i, phase := range launch.Phases {
+		phases[i] = string(phase)
+	}
+	return &sessioncontract.SessionHome{
+		Enabled:            true,
+		Status:             "experimental-preview",
+		Mode:               string(policy.Mode),
+		Home:               launch.Layout.Home,
+		PersistentHome:     policy.PersistentPath,
+		CleanupRoot:        launch.Cleanup.Root,
+		CleanupMaxAge:      launch.Cleanup.MaxAge.String(),
+		Phases:             phases,
+		ResumeRequested:    launch.ResumeRequested,
+		DurableBridgeRoots: append([]string(nil), policy.DurableBridgeRoots...),
+	}
+}
+
+func copySessionHomeRuntimePlan(value *sessionHomeRuntimePlan) *sessionHomeRuntimePlan {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	out.Launch.Assembly = append([]sessionHomeAssemblyEntry(nil), value.Launch.Assembly...)
+	out.Launch.BridgeRequirements = append([]sessionHomeBridgeRequirement(nil), value.Launch.BridgeRequirements...)
+	out.Launch.Phases = append([]sessionHomeLaunchPhase(nil), value.Launch.Phases...)
+	out.Launch.Blockers = append([]sessionHomeLaunchBlocker(nil), value.Launch.Blockers...)
+	out.AgentHomePolicy.DurableBridgeRoots = append([]string(nil), value.AgentHomePolicy.DurableBridgeRoots...)
+	return &out
 }
 
 func sessionIntegrationNames(values []string) []integrations.Name {

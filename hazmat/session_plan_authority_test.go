@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -8,6 +9,23 @@ import (
 )
 
 func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	sessionHomeLaunch, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	sessionHomeRuntime, err := newSessionHomeRuntimePlan(sessionHomeLaunch, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
+	expectedSessionHomePhases := []string{
+		"cleanup-stale-session-homes",
+		"generate-or-resolve-session-id",
+		"assemble-session-home",
+		"sync-resume-state",
+		"launch-harness",
+	}
+	expectedBridgeRoots := append([]string(nil), sessionHomeRuntime.AgentHomePolicy.DurableBridgeRoots...)
 	cfg := sessionConfig{
 		Target:                  "codex",
 		ProjectDir:              "/workspace/project",
@@ -31,6 +49,7 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 		EmitSessionMetadataJSON: true,
 		RoutingReason:           "test route",
 		SessionNotes:            []string{"note"},
+		SessionHome:             &sessionHomeRuntime,
 		HarnessID:               HarnessCodex,
 	}
 
@@ -38,6 +57,8 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	cfg.ReadDirs[0] = "/mutated"
 	cfg.IntegrationEnv[" gopath "] = "/mutated"
 	cfg.CredentialEnvGrants[0].Source = "mutated"
+	cfg.SessionHome.Launch.Phases[0] = "mutated"
+	cfg.SessionHome.AgentHomePolicy.DurableBridgeRoots[0] = "/mutated"
 
 	contract := authority.ContractInput()
 	if contract.ProjectDir != "/workspace/project" || contract.NetworkMode != sessionNetworkNone {
@@ -69,9 +90,22 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	if contract.Snapshot.Enabled || !slices.Equal(contract.Snapshot.Excludes, []string{"node_modules"}) {
 		t.Fatalf("Snapshot = %+v", contract.Snapshot)
 	}
+	if contract.SessionHome == nil ||
+		contract.SessionHome.Status != "experimental-preview" ||
+		contract.SessionHome.Mode != "session-local" ||
+		contract.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
+		contract.SessionHome.PersistentHome != persistentHome ||
+		!slices.Equal(contract.SessionHome.Phases, expectedSessionHomePhases) ||
+		!slices.Equal(contract.SessionHome.DurableBridgeRoots, expectedBridgeRoots) {
+		t.Fatalf("SessionHome = %+v", contract.SessionHome)
+	}
 
 	contract.IntegrationEnv["GOPATH"] = "/mutated"
-	if fresh := authority.ContractInput(); fresh.IntegrationEnv["GOPATH"] != "/go" {
+	contract.SessionHome.Phases[0] = "mutated"
+	contract.SessionHome.DurableBridgeRoots[0] = "/mutated"
+	if fresh := authority.ContractInput(); fresh.IntegrationEnv["GOPATH"] != "/go" ||
+		fresh.SessionHome.Phases[0] != "cleanup-stale-session-homes" ||
+		fresh.SessionHome.DurableBridgeRoots[0] != expectedBridgeRoots[0] {
 		t.Fatal("ContractInput returned storage aliasing authority")
 	}
 

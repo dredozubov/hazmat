@@ -65,7 +65,19 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 		ServiceAccess:       []string{"git+ssh"},
 		GitSSHKey:           "id_ed25519",
 		Snapshot:            Snapshot{Enabled: true, Excludes: []string{".venv/"}},
-		SessionNotes:        []string{"network none"},
+		SessionHome: &SessionHome{
+			Enabled:            true,
+			Status:             "experimental-preview",
+			Mode:               "session-local",
+			Home:               "/private/tmp/hazmat-home/session-123/home",
+			PersistentHome:     "/Users/agent",
+			CleanupRoot:        "/private/tmp/hazmat-home",
+			CleanupMaxAge:      "24h0m0s",
+			Phases:             []string{"cleanup-stale-session-homes", "assemble-session-home"},
+			ResumeRequested:    true,
+			DurableBridgeRoots: []string{"/Users/agent/.claude/projects"},
+		},
+		SessionNotes: []string{"network none"},
 	}
 
 	plan := BuildPlan(input)
@@ -86,7 +98,12 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 	}
 	input.RepoSetupApplied[0].Sources[0] = "mutated"
 	input.Snapshot.Excludes[0] = "mutated"
-	if plan.RepoSetupApplied[0].Sources[0] != "go" || plan.Snapshot.Excludes[0] != ".venv/" {
+	input.SessionHome.Phases[0] = "mutated"
+	input.SessionHome.DurableBridgeRoots[0] = "/mutated"
+	if plan.RepoSetupApplied[0].Sources[0] != "go" ||
+		plan.Snapshot.Excludes[0] != ".venv/" ||
+		plan.SessionHome.Phases[0] != "cleanup-stale-session-homes" ||
+		plan.SessionHome.DurableBridgeRoots[0] != "/Users/agent/.claude/projects" {
 		t.Fatalf("BuildPlan did not defensively copy nested slices: %+v", plan)
 	}
 }

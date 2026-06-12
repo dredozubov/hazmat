@@ -76,6 +76,7 @@ type PlanInput struct {
 	ServiceAccess         []string
 	GitSSHKey             string
 	Snapshot              Snapshot
+	SessionHome           *SessionHome
 	SessionNotes          []string
 }
 
@@ -107,6 +108,7 @@ type Plan struct {
 	ServiceAccess         []string                          `json:"service_access,omitempty"`
 	GitSSHKey             string                            `json:"git_ssh_key,omitempty"`
 	Snapshot              Snapshot                          `json:"snapshot"`
+	SessionHome           *SessionHome                      `json:"session_home,omitempty"`
 	SessionNotes          []string                          `json:"session_notes,omitempty"`
 }
 
@@ -143,6 +145,21 @@ type Snapshot struct {
 	Excludes []string `json:"excludes,omitempty"`
 }
 
+// SessionHome describes an explicit session-local HOME preview. Persistent
+// mutation and launch execution remain outside the data-only contract.
+type SessionHome struct {
+	Enabled            bool     `json:"enabled"`
+	Status             string   `json:"status,omitempty"`
+	Mode               string   `json:"mode,omitempty"`
+	Home               string   `json:"home,omitempty"`
+	PersistentHome     string   `json:"persistent_home,omitempty"`
+	CleanupRoot        string   `json:"cleanup_root,omitempty"`
+	CleanupMaxAge      string   `json:"cleanup_max_age,omitempty"`
+	Phases             []string `json:"phases,omitempty"`
+	ResumeRequested    bool     `json:"resume_requested,omitempty"`
+	DurableBridgeRoots []string `json:"durable_bridge_roots,omitempty"`
+}
+
 // BuildPlan constructs a defensive-copy session plan from input values.
 func BuildPlan(input PlanInput) Plan {
 	mode := input.Mode
@@ -176,6 +193,7 @@ func BuildPlan(input PlanInput) Plan {
 			Enabled:  input.Snapshot.Enabled,
 			Excludes: copyStrings(input.Snapshot.Excludes),
 		},
+		SessionHome:  copySessionHome(input.SessionHome),
 		SessionNotes: copyStrings(input.SessionNotes),
 	}
 }
@@ -229,4 +247,14 @@ func copyHostMutations(values []HostMutation) []HostMutation {
 	out := make([]HostMutation, len(values))
 	copy(out, values)
 	return out
+}
+
+func copySessionHome(value *SessionHome) *SessionHome {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	out.Phases = copyStrings(value.Phases)
+	out.DurableBridgeRoots = copyStrings(value.DurableBridgeRoots)
+	return &out
 }
