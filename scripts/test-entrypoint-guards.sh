@@ -5,6 +5,7 @@
 # Verifies that:
 #   - scripts/e2e.sh refuses to run without an explicit destructive ack
 #   - make e2e refuses to run without E2E_ACK=1
+#   - live Codex desktop attach smoke refuses to run without its explicit ack
 #   - live cache integration smoke refuses to run without its explicit ack
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
 #   - release installer refuses unsupported platforms before download/install
@@ -39,7 +40,7 @@ assert_fails_with() {
         return
     fi
 
-    if printf '%s' "$output" | grep -Fq "$expected"; then
+    if printf '%s' "$output" | grep -Fq -- "$expected"; then
         pass "$label"
     else
         fail "$label: expected output containing '$expected'"
@@ -58,6 +59,11 @@ assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e
+
+assert_fails_with \
+    "Codex desktop attach smoke requires live ack" \
+    "--run requires --i-understand-this-may-launch-codex-app" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" --run
 
 assert_fails_with \
     "cache integration smoke requires live ack" \

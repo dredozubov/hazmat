@@ -138,7 +138,9 @@ scripts/check-codex-desktop-attach-smoke.sh
 scripts/check-codex-desktop-attach-smoke.sh --print-disclosure
 ```
 
-Before a live run, check whether the machine is in a safe state:
+Before a live run, check whether the machine is in a safe state. This is also
+approval-gated because it performs non-interactive sudo capability probes with
+`sudo -n`:
 
 ```bash
 scripts/check-codex-desktop-attach-smoke.sh --check-prereqs

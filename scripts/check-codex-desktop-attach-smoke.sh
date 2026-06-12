@@ -43,6 +43,10 @@ Options:
 The live run never quits, kills, or reconfigures an already-running Codex app.
 It refuses to run if Codex is already running. Quit the app yourself before an
 approved live probe.
+
+This smoke is sudo-adjacent. The live run may launch Codex App, and
+--check-prereqs performs non-interactive sudo capability probes with sudo -n.
+Agents must ask before running either command.
 EOF
 }
 
