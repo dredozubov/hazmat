@@ -16,6 +16,7 @@ Recipes are a **Community** support surface. They are useful, but they are not a
 - [Codex + uv](codex-uv.md)
 - [OpenCode + Go](opencode-go.md)
 - [Gemini + TLA+](gemini-tla.md)
+- [AGENTS.md Hazmat security snippet](agents-md.md)
 
 ## Database Recipes
 
