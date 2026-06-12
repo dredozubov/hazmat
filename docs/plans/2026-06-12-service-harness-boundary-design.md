@@ -291,8 +291,10 @@ not the primary proof that the boundary works.
 
 ## Follow-Ups
 
-- Evaluate OpenHands against this boundary and decide whether a recipe is enough
-  for the next release.
+- OpenHands has been evaluated against this boundary in
+  [OpenHands Harness Candidate Evaluation](2026-06-12-openhands-harness-evaluation.md).
+  The current decision is recipe-only for the next release; adapter code waits
+  for service lifecycle modeling and fake-service proof.
 - Record OpenClaw as monitor/service-platform research unless a narrow local
   mode emerges.
 - If OpenHands remains strategically important, create the service lifecycle

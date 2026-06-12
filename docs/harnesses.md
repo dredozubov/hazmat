@@ -39,6 +39,9 @@ does not remove the manually installed Hermes executable.
 Future harness additions follow the maintainer-owned adapter boundary in
 [Harness Adapter RFC](plans/2026-06-12-harness-adapter-rfc.md). Hazmat does not
 load arbitrary harness plugins or project-defined harness behavior.
+OpenHands is tracked separately as a service-oriented candidate in
+[OpenHands Harness Candidate Evaluation](plans/2026-06-12-openhands-harness-evaluation.md);
+it is not a supported `hazmat <harness>` command today.
 
 After bootstrap/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
