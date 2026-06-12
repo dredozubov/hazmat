@@ -36,6 +36,10 @@ place unless a future explicit purge flow models and documents a wider delete.
 Hermes is detection-only in v1, so its uninstall clears Hazmat metadata but
 does not remove the manually installed Hermes executable.
 
+Future harness additions follow the maintainer-owned adapter boundary in
+[Harness Adapter RFC](plans/2026-06-12-harness-adapter-rfc.md). Hazmat does not
+load arbitrary harness plugins or project-defined harness behavior.
+
 After bootstrap/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
 `hazmat <harness> exec "prompt"` (codex) /
