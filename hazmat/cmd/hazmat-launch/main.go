@@ -142,7 +142,7 @@ func dieUsage() {
 // (~9 quintillion on macOS when the parent shell has 'ulimit -n unlimited'),
 // which would hang the loop forever.
 func closeInheritedFDs() error {
-	entries, err := os.ReadDir("/dev/fd")
+	entries, err := readDirCloexec("/dev/fd")
 	if err != nil {
 		return fmt.Errorf("read /dev/fd: %w", err)
 	}
@@ -157,6 +157,22 @@ func closeInheritedFDs() error {
 		}
 	}
 	return nil
+}
+
+func readDirCloexec(path string) ([]os.DirEntry, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("wrap fd %d for %q", fd, path)
+	}
+	defer f.Close()
+
+	return f.ReadDir(-1)
 }
 
 // resolveExecPath finds the absolute path for a command. syscall.Exec

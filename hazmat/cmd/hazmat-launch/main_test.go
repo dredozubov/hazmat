@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -234,6 +239,108 @@ func TestParseLaunchModeArgsMetadata(t *testing.T) {
 	if _, _, err := parseLaunchModeArgs(nil); err == nil {
 		t.Fatal("expected missing command to be rejected")
 	}
+}
+
+func TestFDOpeningCallsUseExplicitCloexec(t *testing.T) {
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("glob Go files: %v", err)
+	}
+
+	var findings []string
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				name := selectorCallName(call.Fun)
+				if name == "" {
+					return true
+				}
+				if err := validateFDOpeningCall(fn.Name.Name, call, name); err != nil {
+					pos := fset.Position(call.Pos())
+					findings = append(findings, fmt.Sprintf("%s: %v", pos, err))
+				}
+				return true
+			})
+		}
+	}
+
+	if len(findings) > 0 {
+		t.Fatalf("hazmat-launch fd-opening guard failed:\n%s", strings.Join(findings, "\n"))
+	}
+}
+
+func selectorCallName(expr ast.Expr) string {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return ident.Name + "." + sel.Sel.Name
+}
+
+func validateFDOpeningCall(funcName string, call *ast.CallExpr, name string) error {
+	switch name {
+	case "unix.Open":
+		if len(call.Args) < 2 || !exprMentionsSelector(call.Args[1], "unix", "O_CLOEXEC") {
+			return fmt.Errorf("%s must include unix.O_CLOEXEC in flags", name)
+		}
+	case "unix.Openat":
+		if len(call.Args) < 3 || !exprMentionsSelector(call.Args[2], "unix", "O_CLOEXEC") {
+			return fmt.Errorf("%s must include unix.O_CLOEXEC in flags", name)
+		}
+	case "syscall.Open":
+		if len(call.Args) < 2 || !exprMentionsSelector(call.Args[1], "syscall", "O_CLOEXEC") {
+			return fmt.Errorf("%s must include syscall.O_CLOEXEC in flags", name)
+		}
+	case "os.NewFile":
+		if funcName != "readDirCloexec" && funcName != "readFileCloexec" {
+			return fmt.Errorf("%s is allowed only inside audited CLOEXEC wrappers", name)
+		}
+	case "os.Open", "os.OpenFile", "os.Create", "os.CreateTemp",
+		"os.ReadFile", "os.ReadDir", "os.WriteFile",
+		"unix.Socket", "unix.Socketpair", "syscall.Socket", "syscall.Socketpair":
+		return fmt.Errorf("%s creates an fd without explicit CLOEXEC intent; add an audited CLOEXEC wrapper", name)
+	}
+	return nil
+}
+
+func exprMentionsSelector(expr ast.Expr, pkg, name string) bool {
+	found := false
+	ast.Inspect(expr, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		sel, ok := node.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != name {
+			return true
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if ok && ident.Name == pkg {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 func listOpenFDs(maxFD int) ([]int, error) {
