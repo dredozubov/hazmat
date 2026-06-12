@@ -60,6 +60,8 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".openclaw", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".qoder", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".copilot", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".deepseek", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".codewhale", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},
