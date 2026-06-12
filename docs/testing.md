@@ -16,6 +16,7 @@ are not interchangeable.
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
+| `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -155,6 +156,36 @@ records app-server JSON-RPC method names in `proxy.jsonl` without logging
 request params by default. The method log is the evidence for whether desktop
 side-effect APIs route through the Hazmat-backed backend; unobserved methods
 remain unproven and should be recorded as residual risk.
+
+### Session-home activation smoke
+
+Use this only when validating the experimental session-local HOME activation
+path. It starts a native `hazmat exec` session with
+`HAZMAT_EXPERIMENTAL_SESSION_HOME=activate`, asserts that `HOME` and XDG roots
+point under `/private/tmp/hazmat-home`, writes to the disposable home, and runs
+go, npm, pip, cargo, and git probes inside the contained session.
+
+First check whether the current host is prepared:
+
+```bash
+scripts/check-session-home-activation-smoke.sh --check-prereqs
+```
+
+After explicit approval, run:
+
+```bash
+scripts/check-session-home-activation-smoke.sh
+```
+
+For autonomous gates that should avoid false failures on unprepared machines,
+use:
+
+```bash
+scripts/check-session-home-activation-smoke.sh --skip-if-missing-prereqs
+```
+
+This is a live native Hazmat smoke. It may exercise helper-backed launch
+behavior and must not be run by agents without explicit approval.
 
 ### Adding Credential Surfaces
 
