@@ -82,13 +82,14 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show setup progress and health check",
 		Long: `Shows which setup phases are complete and what to do next.
-Use --full to run the complete health check suite (same as 'hazmat check --quick').`,
+Use --full to run the health check suite with live network probes, matching
+'hazmat check --full'.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runStatus(full)
 		},
 	}
-	cmd.Flags().BoolVar(&full, "full", false, "Run full health checks (same as 'hazmat check --quick')")
+	cmd.Flags().BoolVar(&full, "full", false, "Run health checks with live network probes (same as 'hazmat check --full')")
 	return cmd
 }
 

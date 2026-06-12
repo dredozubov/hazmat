@@ -526,6 +526,12 @@ by checks or from repo-controlled metadata. `--json` emits the same typed plan
 for automation, including authority, consent model, proof lanes, rollback
 boundary, verification target, and receipt ID.
 
+Terminal output includes a compact repair-plan summary before the detailed item
+list: executable repairs, manual items, skipped or informational items, applied
+repairs, failed verifications, and remaining items. JSON reports expose the same
+counts under `repair_plan.summary`, so automation does not need to infer the
+repair outcome by scanning every item array.
+
 `hazmat doctor --fix` is the only diagnostics entrypoint allowed to apply typed
 repairs. Interactive runs may ask for consent before applying a plan.
 Non-interactive mutation requires both `--fix` and `--yes`. Hazmat will not run
