@@ -230,6 +230,7 @@
 (deny file-read* file-write* (subpath "/Users/agent/.langsmith"))
 (deny file-read* file-write* (subpath "/Users/agent/.config/amp"))
 (deny file-read* file-write* (subpath "/Users/agent/.config/devin"))
+(deny file-read* file-write* (subpath "/Users/agent/.config/kilo"))
 (deny file-read* file-write* (subpath "/Users/agent/.kimi-code"))
 (deny file-read* file-write* (subpath "/Users/agent/.kimi"))
 (deny file-read* file-write* (subpath "/Users/agent/.kiro"))

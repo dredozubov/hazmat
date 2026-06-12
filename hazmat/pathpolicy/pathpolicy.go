@@ -28,6 +28,7 @@ var credentialDenySubpaths = []string{
 	"/.langsmith",
 	"/.config/amp",
 	"/.config/devin",
+	"/.config/kilo",
 	"/.kimi-code",
 	"/.kimi",
 	"/.kiro",
