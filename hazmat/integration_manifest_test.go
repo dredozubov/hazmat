@@ -16,6 +16,7 @@ var aiAgentCredentialDenySubs = []string{
 	"/.jupyter",
 	"/.local/share/jupyter/runtime",
 	"/.langsmith",
+	"/.config/amp",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",

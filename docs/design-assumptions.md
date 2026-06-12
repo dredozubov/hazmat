@@ -142,7 +142,7 @@ dropped.
 
 **Seatbelt protects the host user's credentials.** The deny list blocks common host credential roots. The agent cannot read the host user's SSH keys, AWS tokens, GitHub CLI tokens, keychain material, or common cloud/tooling credentials unless a narrower capability explicitly re-allows something.
 
-**The deny list is not exhaustive.** Native sessions deny common host credential locations including `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`, `~/.docker`, `~/.kube`, `~/.netrc`, `~/.m2/settings.xml`, `~/.config/gcloud`, `~/.azure`, `~/.oci`, and credential-bearing AI-agent state such as Continue, Cline, Aider, and Goose local config/session stores. Less common credential stores may still need explicit review before adding read scope.
+**The deny list is not exhaustive.** Native sessions deny common host credential locations including `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/Library/Keychains`, `~/.config/gh`, `~/.docker`, `~/.kube`, `~/.netrc`, `~/.m2/settings.xml`, `~/.config/gcloud`, `~/.azure`, `~/.oci`, and credential-bearing AI-agent state such as Amp, Continue, Cline, Aider, and Goose local config/session stores. Less common credential stores may still need explicit review before adding read scope.
 
 **Credentials in the project directory are exposed.** If your project has `.env`, `.env.local`, or embedded secrets, the agent can read them — the project directory is read-write by design.
 

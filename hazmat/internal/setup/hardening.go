@@ -46,6 +46,7 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".jupyter", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".local/share/jupyter/runtime", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".langsmith", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".config/amp", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},
