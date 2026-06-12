@@ -310,6 +310,10 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Steps: run `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'nc -z -G 5 example.com 443'` and `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'nc -z -G 5 93.184.216.34 443'`; interrupt a third long-running `hazmat exec --network none --metadata-json --no-backup -- /bin/zsh -lc 'sleep 60'` with Ctrl-C; then run a default `hazmat exec --no-backup -- /bin/zsh -lc 'echo OK'`.
   - Expected: DNS-name and direct IPv4 dials both fail in network-none sessions; interruption leaves no per-session firewall/pf state to clean up; the subsequent default session launches normally.
 
+- [ ] **Native `--audit-install` egress report**
+  - Steps: run `hazmat exec --audit-install --no-backup -- /bin/zsh -lc 'npm view left-pad version >/dev/null || true'`.
+  - Expected: command runs under native containment; stderr ends with `hazmat: audit-install egress report`; report is observational and does not claim default-deny HTTPS.
+
 - [ ] **Status bar visible during an interactive session**
   - Steps: `hazmat claude` (or any harness) in a fullscreen terminal; check the bottom row.
   - Expected: `☢ HAZMAT │ <integrations> ... <project>` rendered in the bottom row, doesn't scroll.

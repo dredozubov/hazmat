@@ -95,13 +95,20 @@ This is a blunt instrument. A proper implementation would verify the resolved ve
 
 The axios RAT beaconed to port 8000, which pf already blocks. But a more sophisticated attacker would use port 443. Since blocking all HTTPS is not feasible:
 
-**Proposed:** Add an `--audit-install` mode to `hazmat exec` that:
+**Implemented first slice:** `hazmat exec --audit-install -- <install command>`
+runs native containment as usual, samples established TCP endpoints for the
+agent user from the host side, and prints an observational post-run report.
+It is detection, not prevention.
+
+The fuller target remains:
 1. Snapshots open connections before `npm install`
 2. Runs install with `--ignore-scripts`
 3. Diffs new outbound connections during a subsequent `npm rebuild`
 4. Flags any connections to hosts not in an allowlist (npm registry, github.com, etc.)
 
-This is detection, not prevention — but it closes the forensic gap that the axios dropper exploited (self-deletion made post-mortem analysis impossible).
+This closes part of the forensic gap that the axios dropper exploited
+(self-deletion made post-mortem analysis impossible), without claiming native
+mode has a strict HTTPS allowlist.
 
 ### 6. Verify Claude Code installation integrity
 

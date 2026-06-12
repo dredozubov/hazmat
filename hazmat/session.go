@@ -356,6 +356,7 @@ func newExecCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	var backendValue string
 	var imageValue string
+	var auditInstall bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
 		Short: "Run a command in containment as the agent user",
@@ -367,6 +368,7 @@ separator, Cobra may try to parse the forwarded flags as hazmat flags.
 Examples:
   hazmat exec make test
   hazmat exec -- npm test
+  hazmat exec --audit-install -- npm install
   hazmat exec -C ~/workspace/app -- /bin/zsh -lc 'uv run pytest -q'
   hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'
 
@@ -382,16 +384,30 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 					return fmt.Errorf("--image requires --backend=apple-container")
 				}
 			case explainBackendAppleContainer:
+				if auditInstall {
+					return fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions")
+				}
 				return runAppleContainerExecSession(cmd, flags, imageValue, args)
 			default:
 				return fmt.Errorf("unknown session backend %q (want apple-container)", backendValue)
 			}
-			prepared, err := prepareAndBeginLaunchSession("exec", flags.harnessSessionOpts(cmd), true, false)
+			opts := flags.harnessSessionOpts(cmd)
+			opts.auditInstall = auditInstall
+			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
 			if err != nil {
 				return err
 			}
 			if prepared.Runtime.UsesDockerSandbox() {
+				if auditInstall {
+					return fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions; use --docker=none for install audit")
+				}
 				return runPreparedSandboxExecSession(prepared, args)
+			}
+			if auditInstall {
+				return runAuditInstallExec(os.Stderr, newEgressAuditCollector(), func() error {
+					return runPreparedAgentSeatbeltScript(prepared,
+						`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
+				})
 			}
 			return runPreparedAgentSeatbeltScript(prepared,
 				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
@@ -402,6 +418,8 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 		"Experimental session backend (apple-container; requires HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1)")
 	cmd.Flags().StringVar(&imageValue, "image", "",
 		"Explicit Linux image for --backend=apple-container")
+	cmd.Flags().BoolVar(&auditInstall, "audit-install", false,
+		"Observe agent-user egress during an install command and print a post-run report")
 	return cmd
 }
 
@@ -949,6 +967,7 @@ type harnessSessionOpts struct {
 	networkMode           string
 	networkModeExplicit   bool
 	metadataJSON          bool
+	auditInstall          bool
 	planOnly              bool
 	claudeBareRequested   bool
 }
@@ -1413,6 +1432,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if cfg.NetworkMode == sessionNetworkNone && mode != sessionModeNative {
 		return preparedSession{}, fmt.Errorf("--network none is supported only for native containment; use --docker=none or omit Docker Sandbox routing")
 	}
+	if opts.auditInstall && mode != sessionModeNative {
+		return preparedSession{}, fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions; use --docker=none for install audit")
+	}
 
 	progress.Step("checking Git SSH access")
 	managedGitSSH, err := resolveManagedGitSSH(cfg)
@@ -1428,6 +1450,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	appendHarnessStaticSessionNotes(&cfg)
 	if cfg.NetworkMode == sessionNetworkNone {
 		cfg.SessionNotes = append(cfg.SessionNotes, "--network none denies outbound IPv4, IPv6, and DNS for this native session; external provider/API calls will fail closed.")
+	}
+	if opts.auditInstall {
+		cfg.SessionNotes = append(cfg.SessionNotes, "Install audit is active: Hazmat will observe established TCP endpoints for the agent user from the host side and print an observational egress report after the command exits.")
 	}
 	if cfg.GitSSH != nil {
 		cfg.ServiceAccess = append(cfg.ServiceAccess, "git+ssh")

@@ -413,8 +413,14 @@ forwarded command has flags of its own, insert `--` before it:
 ```bash
 hazmat exec -- make test
 hazmat exec -- /bin/zsh -lc 'uv run pytest -q'
+hazmat exec --audit-install -- npm install
 hazmat exec --docker=none -C ~/workspace/app -- /bin/zsh -lc 'cd frontend && npm run build'
 ```
+
+`hazmat exec --audit-install` is native-only and observational. Hazmat samples
+established TCP endpoints for the agent user from the host side while the
+command runs, then prints a post-run egress report. It does not block the
+package manager or replace `--network none`.
 
 ### Resuming a Conversation Inside Native Containment
 
@@ -482,6 +488,7 @@ Workflow steps whose cache files were not portable.
 ```bash
 hazmat shell                    # interactive shell as the agent user
 hazmat exec npm install         # run a single command
+hazmat exec --audit-install -- npm install
 hazmat exec -C ~/workspace/proj npm test
 hazmat opencode -C ~/workspace/proj
 ```

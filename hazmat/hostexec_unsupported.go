@@ -9,6 +9,7 @@ func platformHostToolPaths() hostToolPaths {
 		chown: "/bin/chown",
 		ls:    "/bin/ls",
 		log:   "/usr/bin/log",
+		lsof:  "/usr/bin/lsof",
 
 		// Darwin-only setup tools fail closed until a real Linux backend owns
 		// account, firewall, and service-manager operations.
