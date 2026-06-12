@@ -25,6 +25,13 @@ protocol client for specific built-in adapters, but it should not accept
 arbitrary protocol descriptors from repos, Open Design registry files, or user
 manifests as executable harness definitions.
 
+The local ACP recipe spike in `sandboxing-bz9f` keeps Phase 0 as documentation
+only: [Local ACP Agent Under Hazmat](../recipes/acp-local-agent.md). A thin
+generic `hazmat acp` wrapper is not justified yet because the existing
+`hazmat exec` path can contain stdio subprocesses, while a generic wrapper would
+invite users to supply executable protocol descriptors, env, credentials, and
+profile behavior outside the reviewed adapter registry.
+
 ## Why Not Generic ACP/RPC Plugins
 
 Protocol agents are not just chat frontends. A protocol driver can decide:

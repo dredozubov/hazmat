@@ -18,6 +18,7 @@ Recipes are a **Community** support surface. They are useful, but they are not a
 - [Gemini + TLA+](gemini-tla.md)
 - [AGENTS.md Hazmat security snippet](agents-md.md)
 - [Local MCP servers under Hazmat](mcp-servers.md)
+- [Local ACP agent under Hazmat](acp-local-agent.md)
 
 ## Database Recipes
 
