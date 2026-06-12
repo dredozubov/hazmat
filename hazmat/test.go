@@ -668,61 +668,24 @@ func testAgentTools(ui *UI) {
 			ui.TestWarn("No ~/.claude/settings.json for agent user — Claude deny rules are not configured")
 		}
 
-		// Verify .claude and .claude/projects are group-accessible by dev
-		// so that export and resume work from the host user.
-		for _, dir := range []string{agentHome + "/.claude", agentHome + "/.claude/projects"} {
-			info, err := os.Stat(dir)
-			if err != nil {
-				if exists, agentErr := agentPathIsDir(dir); agentErr == nil && exists {
-					ui.TestWarnFinding(
-						diagnosticFinding(findingClaudeProjectSharing),
-						fmt.Sprintf("%s is agent-private; host-side Claude export/resume may require helper-backed repair", dir),
-						fmt.Sprintf("path: %s", dir),
-					)
-				} else {
-					ui.TestSkip(fmt.Sprintf("%s does not exist for agent user yet", dir))
-				}
-				continue
-			}
-			if !info.IsDir() {
-				ui.TestFail(fmt.Sprintf("%s is not a directory", dir))
-				continue
-			}
-			if pathHasDevACL(dir, true) || info.Mode().Perm()&0o070 != 0 {
-				ui.TestPass(fmt.Sprintf("%s is group-accessible", dir))
-			} else {
-				ui.TestFailFinding(
-					diagnosticFinding(findingWorkspaceAccess),
-					fmt.Sprintf("%s is not group-accessible — export/resume will fail (mode %04o)", dir, info.Mode().Perm()),
-				)
-			}
+		claudeDir := agentHome + "/.claude"
+		projectsDir := filepath.Join(claudeDir, "projects")
+		if exists, err := agentPathIsDir(claudeDir); err != nil {
+			ui.TestWarn(fmt.Sprintf("Could not verify Claude helper access to %s: %v", claudeDir, err))
+		} else if exists {
+			ui.TestPass(fmt.Sprintf("Claude state directory is helper-readable as agent: %s", claudeDir))
+		} else {
+			ui.TestSkip(fmt.Sprintf("%s does not exist for agent user yet", claudeDir))
 		}
 
-		// Verify project subdirectories under .claude/projects/ are
-		// group-writable so that session sync (resume/export) can
-		// create temp files.  Claude Code may recreate these with a
-		// restrictive mode during sessions.
-		projectsDir := agentHome + "/.claude/projects"
-		if entries, err := os.ReadDir(projectsDir); err == nil {
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				subdir := filepath.Join(projectsDir, e.Name())
-				info, err := os.Stat(subdir)
-				if err != nil {
-					continue
-				}
-				if pathHasDevACL(subdir, true) || info.Mode().Perm()&0o020 != 0 {
-					ui.TestPass(fmt.Sprintf("%s is group-writable", subdir))
-				} else {
-					ui.TestWarnFinding(
-						diagnosticFinding(findingClaudeProjectPermissions),
-						fmt.Sprintf("%s is not group-writable; resume sync will fail (mode %04o)", subdir, info.Mode().Perm()),
-						fmt.Sprintf("path: %s", subdir),
-					)
-				}
-			}
+		if exists, err := agentPathIsDir(projectsDir); err != nil {
+			ui.TestWarn(fmt.Sprintf("Could not verify Claude helper access to %s: %v", projectsDir, err))
+		} else if !exists {
+			ui.TestSkip(fmt.Sprintf("%s does not exist for agent user yet", projectsDir))
+		} else if projects, err := agentReadDirNames(projectsDir); err != nil {
+			ui.TestWarn(fmt.Sprintf("Could not list Claude session projects via helper: %v", err))
+		} else {
+			ui.TestPass(fmt.Sprintf("Claude export/resume session store is helper-backed (%d project dirs)", len(projects)))
 		}
 	} else {
 		ui.TestSkip("Claude Code not installed for agent user (optional — run 'hazmat bootstrap claude' to test it)")
@@ -904,7 +867,7 @@ func testSeatbelt(ui *UI) {
 	// Allowed: write inside the active project directory.
 	testWritePath := fmt.Sprintf("%s/.seatbelt-write-%d", projectDir, os.Getpid())
 	if err := runSandboxed("/usr/bin/touch", testWritePath); err == nil {
-		sudo("rm", "-f", testWritePath) //nolint:errcheck
+		asAgentQuiet("/bin/rm", "-f", testWritePath) //nolint:errcheck
 		ui.TestPass("Seatbelt allows writes inside PROJECT_DIR")
 	} else {
 		ui.TestFail(fmt.Sprintf("Seatbelt unexpectedly denied write inside PROJECT_DIR: %v", err))
@@ -915,7 +878,7 @@ func testSeatbelt(ui *UI) {
 	if err := runSandboxed("/usr/bin/touch", testReadWritePath); err != nil {
 		ui.TestPass("Seatbelt denies writes to read-only directories")
 	} else {
-		sudo("rm", "-f", testReadWritePath) //nolint:errcheck
+		asAgentQuiet("/bin/rm", "-f", testReadWritePath) //nolint:errcheck
 		ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write to a read-only directory")
 	}
 
@@ -956,7 +919,7 @@ func testSeatbelt(ui *UI) {
 		if err := runSandboxed("/usr/bin/touch", credentialWritePath); err != nil {
 			ui.TestPass("Seatbelt denies writes inside credential directories")
 		} else {
-			sudo("rm", "-f", credentialWritePath) //nolint:errcheck
+			asAgentQuiet("/bin/rm", "-f", credentialWritePath) //nolint:errcheck
 			ui.TestFail("CONFINEMENT BREACH: Seatbelt allowed write inside credential directory")
 		}
 	}
@@ -1027,7 +990,7 @@ exit 0`
 	}
 	defer unix.Close(sentinelBFD) //nolint:errcheck
 
-	out, err := newSudoCommand(fdProbeCmd...).CombinedOutput()
+	out, err := newSudoNoPromptCommand(fdProbeCmd...).CombinedOutput()
 	if err != nil {
 		ui.TestFail(fmt.Sprintf("hazmat-launch fd probe failed: %v (%s)", err, strings.TrimSpace(string(out))))
 		return
@@ -1801,5 +1764,5 @@ func checkBlockedDomain(domain string) bool {
 
 // launchctlLoaded returns true if the given label is listed in launchctl.
 func launchctlLoaded(label string) bool {
-	return sudo("launchctl", "list", label) == nil
+	return sudoNoPrompt("launchctl", "list", label) == nil
 }

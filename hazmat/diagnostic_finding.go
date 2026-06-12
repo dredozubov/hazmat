@@ -258,7 +258,7 @@ var diagnosticResourceDefinitions = map[diagnosticResourceID]diagnosticResourceD
 	"claude.project-sharing": {
 		ID:           "claude.project-sharing",
 		Owner:        "agent.tooling",
-		DesiredState: "Claude export/resume sharing is available only when the workflow needs host-side session transfer",
+		DesiredState: "Claude export/resume uses helper-backed session transfer without host readability of the agent home",
 	},
 	"claude.project-permissions": {
 		ID:           "claude.project-permissions",
@@ -543,10 +543,10 @@ var diagnosticFindingDefinitions = map[diagnosticFindingID]diagnosticFindingDefi
 	findingClaudeProjectSharing: mustDiagnosticFinding(diagnosticFindingDefinition{
 		ID:             findingClaudeProjectSharing,
 		Resource:       "claude.project-sharing",
-		Title:          "Prepare Claude export/resume sharing if needed",
+		Title:          "Use helper-backed Claude export/resume",
 		Repairability:  diagnosticRepairOptional,
-		Action:         "Treat host-side Claude export/resume as optional; use Claude bootstrap or a future helper-backed repair when this workflow is required.",
-		SecurityImpact: "Agent-private Claude state does not weaken containment, but host-side export/resume may need a narrower sharing path.",
+		Action:         "Use Hazmat's helper-backed Claude export/resume path instead of broadening host readability of the agent home.",
+		SecurityImpact: "Agent-private Claude state preserves containment while helper-backed transfer keeps optional session workflows usable.",
 	}),
 	findingClaudeProjectPermissions: mustDiagnosticFinding(diagnosticFindingDefinition{
 		ID:               findingClaudeProjectPermissions,

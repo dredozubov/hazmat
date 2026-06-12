@@ -45,7 +45,7 @@ func AgentCommandArgs(env Env, args ...string) []string {
 }
 
 func NewAgentCommand(env Env, args ...string) *exec.Cmd {
-	return NewSudoCommand(env, AgentCommandArgs(env, args...)...)
+	return NewSudoNoPromptCommand(env, AgentCommandArgs(env, args...)...)
 }
 
 func Sudo(env Env, args ...string) error {

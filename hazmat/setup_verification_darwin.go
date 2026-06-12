@@ -64,7 +64,7 @@ func (darwinSetupVerificationBackend) verifyPfEnabled(ui *UI) {
 }
 
 func (darwinSetupVerificationBackend) verifySudoers(ui *UI) {
-	if err := sudo("-u", agentUser, "whoami"); err == nil {
+	if err := sudoNoPrompt("-u", agentUser, "whoami"); err == nil {
 		ui.TestPass(fmt.Sprintf("Passwordless sudo works (%s → %s)", os.Getenv("USER"), agentUser))
 	} else {
 		ui.TestFailFinding(diagnosticFinding(findingSetupSudoers), "Passwordless sudo not working")

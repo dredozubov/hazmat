@@ -34,6 +34,7 @@ func TestNewAgentCommandUsesLaunchHelper(t *testing.T) {
 	}
 	wantArgs := []string{
 		"/usr/bin/sudo",
+		"-n",
 		"-u", "agent",
 		"-H", "/usr/local/libexec/hazmat-launch",
 		"exec",
