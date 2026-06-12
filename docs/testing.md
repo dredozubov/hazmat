@@ -193,6 +193,42 @@ This is a live native Hazmat smoke. Its prerequisite mode and live mode may
 exercise sudo-adjacent host capability checks or helper-backed launch behavior,
 so agents must ask for explicit approval before running either command.
 
+### Claude Workflow export smoke
+
+Use this when validating `hazmat export claude session` against live
+Workflow/subagent sidecar artifacts. The default mode is a disclosure; it prints
+the exact live command shape and exits without running Hazmat or Claude:
+
+```bash
+scripts/check-claude-workflow-export-smoke.sh
+make e2e-claude-workflow-export-smoke
+```
+
+Fixture checks are non-mutating host checks. They verify that the selected
+Hazmat binary, host Claude CLI, and caller-supplied Workflow prompt file are
+present, but do not run `hazmat claude` or host `claude --resume`:
+
+```bash
+HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE=workflow-prompt.txt \
+  scripts/check-claude-workflow-export-smoke.sh --check-fixtures
+```
+
+Live mode is sudo-adjacent because it invokes `hazmat claude`, and it also runs
+host Claude with `--resume`. Agents must ask for explicit approval before
+running:
+
+```bash
+HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE=workflow-prompt.txt \
+  scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
+```
+
+The prompt file should be a task known to create Claude Workflow/subagent
+sidecar artifacts. The live smoke uses a scratch project, exports the contained
+session, checks that the host transcript/sidecar no longer contain stale
+`/Users/agent/.claude/projects` paths, then resumes the exported session with
+host Claude. It does not broaden the export policy for opaque Workflow caches;
+the docs still treat those caches as best-effort.
+
 ### Cache integration smoke
 
 Use this when validating cache-only integrations for Hugging Face, Ollama, or
