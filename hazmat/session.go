@@ -191,7 +191,62 @@ type sessionCommandFlags struct {
 	metadataJSON     bool
 }
 
+type sessionFlagBindingOptions struct {
+	includeHarnessAssetsSync bool
+	includeMetadataJSON      bool
+	skipHarnessAssetsHelp    string
+	noBackupHelp             string
+	githubHelp               string
+	sandboxHelp              string
+	ignoreDockerHelp         string
+}
+
 func bindCommonSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
+	bindSessionFlags(cmd, flags, sessionFlagBindingOptions{
+		includeMetadataJSON: true,
+	})
+}
+
+func bindCommonHarnessSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
+	bindSessionFlags(cmd, flags, sessionFlagBindingOptions{
+		includeHarnessAssetsSync: true,
+		includeMetadataJSON:      true,
+	})
+}
+
+func bindExplainSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
+	bindSessionFlags(cmd, flags, sessionFlagBindingOptions{
+		includeHarnessAssetsSync: true,
+		skipHarnessAssetsHelp:    "Preview without managed harness prompt-asset sync",
+		noBackupHelp:             "Preview without a pre-session snapshot",
+		githubHelp:               "Preview a session with the configured GitHub API token granted as GH_TOKEN",
+		sandboxHelp:              "Preview Docker Sandbox support",
+		ignoreDockerHelp:         "Preview native containment even if Docker markers are present",
+	})
+}
+
+func bindSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags, opts sessionFlagBindingOptions) {
+	noBackupHelp := opts.noBackupHelp
+	if noBackupHelp == "" {
+		noBackupHelp = "Skip pre-session snapshot"
+	}
+	githubHelp := opts.githubHelp
+	if githubHelp == "" {
+		githubHelp = "Grant this session the configured GitHub API token as GH_TOKEN"
+	}
+	sandboxHelp := opts.sandboxHelp
+	if sandboxHelp == "" {
+		sandboxHelp = "Run with Docker Sandbox support"
+	}
+	ignoreDockerHelp := opts.ignoreDockerHelp
+	if ignoreDockerHelp == "" {
+		ignoreDockerHelp = "Continue without Docker support even if Docker markers are present"
+	}
+	skipHarnessAssetsHelp := opts.skipHarnessAssetsHelp
+	if skipHarnessAssetsHelp == "" {
+		skipHarnessAssetsHelp = "Skip managed harness prompt-asset sync for this launch"
+	}
+
 	cmd.Flags().StringVarP(&flags.project, "project", "C", "",
 		"Writable project directory (defaults to current directory)")
 	cmd.Flags().StringArrayVarP(&flags.readDirs, "read", "R", nil,
@@ -201,28 +256,28 @@ func bindCommonSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
 	cmd.Flags().StringArrayVar(&flags.integrationNames, "integration", nil,
 		"Activate a session integration (repeatable, e.g. --integration go)")
 	cmd.Flags().BoolVar(&flags.noBackup, "no-backup", false,
-		"Skip pre-session snapshot")
+		noBackupHelp)
 	cmd.Flags().BoolVar(&flags.github, "github", false,
-		"Grant this session the configured GitHub API token as GH_TOKEN")
+		githubHelp)
 	cmd.Flags().StringVar(&flags.dockerModeValue, "docker", string(dockerModeNone),
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().StringVar(&flags.networkModeValue, "network", string(sessionNetworkDefault),
 		"Native network policy: default or none")
-	cmd.Flags().BoolVar(&flags.metadataJSON, "metadata-json", false,
-		"Emit one machine-readable session metadata JSON line to stderr before launch")
+	if opts.includeMetadataJSON {
+		cmd.Flags().BoolVar(&flags.metadataJSON, "metadata-json", false,
+			"Emit one machine-readable session metadata JSON line to stderr before launch")
+	}
 	cmd.Flags().BoolVar(&flags.useSandbox, "sandbox", false,
-		"Run with Docker Sandbox support")
+		sandboxHelp)
 	cmd.Flags().BoolVar(&flags.allowDocker, "ignore-docker", false,
-		"Continue without Docker support even if Docker markers are present")
+		ignoreDockerHelp)
+	if opts.includeHarnessAssetsSync {
+		cmd.Flags().BoolVar(&flags.skipHarnessSync, "skip-harness-assets-sync", false,
+			skipHarnessAssetsHelp)
+	}
 	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
 	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
 	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
-}
-
-func bindCommonHarnessSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags) {
-	bindCommonSessionFlags(cmd, flags)
-	cmd.Flags().BoolVar(&flags.skipHarnessSync, "skip-harness-assets-sync", false,
-		"Skip managed harness prompt-asset sync for this launch")
 }
 
 func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessionOpts {
@@ -242,6 +297,13 @@ func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessi
 		networkModeExplicit:   cmd.Flags().Changed("network"),
 		metadataJSON:          f.metadataJSON,
 	}
+}
+
+func (f sessionCommandFlags) explainSessionOpts(cmd *cobra.Command) harnessSessionOpts {
+	opts := f.harnessSessionOpts(cmd)
+	opts.metadataJSON = false
+	opts.planOnly = true
+	return opts
 }
 
 type harnessArgsParser func([]string) (harnessSessionOpts, []string, error)

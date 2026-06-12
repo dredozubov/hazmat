@@ -9,17 +9,7 @@ import (
 
 func newExplainCmd() *cobra.Command {
 	var target string
-	var project string
-	var readDirs []string
-	var writeDirs []string
-	var integrationNames []string
-	var skipHarnessAssetsSync bool
-	var noBackup bool
-	var github bool
-	var useSandbox bool
-	var allowDocker bool
-	var dockerModeValue string
-	var networkModeValue string
+	var flags sessionCommandFlags
 	var backendValue string
 	var imageValue string
 	var outputJSON bool
@@ -48,22 +38,7 @@ Examples:
   hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			sessionOpts := harnessSessionOpts{
-				project:               project,
-				readDirs:              readDirs,
-				writeDirs:             writeDirs,
-				integrations:          integrationNames,
-				skipHarnessAssetsSync: skipHarnessAssetsSync,
-				noBackup:              noBackup,
-				github:                github,
-				useSandbox:            useSandbox,
-				allowDocker:           allowDocker,
-				dockerMode:            dockerModeValue,
-				dockerModeExplicit:    cmd.Flags().Changed("docker"),
-				networkMode:           networkModeValue,
-				networkModeExplicit:   cmd.Flags().Changed("network"),
-				planOnly:              true,
-			}
+			sessionOpts := flags.explainSessionOpts(cmd)
 
 			switch backendValue {
 			case "":
@@ -82,14 +57,14 @@ Examples:
 			}
 
 			if outputJSON {
-				preview := buildExplainJSON(target, cfg, mode, noBackup)
+				preview := buildExplainJSON(target, cfg, mode, sessionOpts.noBackup)
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				enc.SetEscapeHTML(false)
 				return enc.Encode(preview)
 			}
 
-			printSessionContract(cfg, mode, noBackup)
+			printSessionContract(cfg, mode, sessionOpts.noBackup)
 			fmt.Fprint(cmd.ErrOrStderr(), renderRepoSetupDetails(cfg.RepoSetup))
 			printSessionMutationDetails(cfg.PlannedHostMutations)
 			fmt.Fprint(cmd.ErrOrStderr(), renderIntegrationDetails(cfg.IntegrationDetails))
@@ -99,37 +74,13 @@ Examples:
 
 	cmd.Flags().StringVar(&target, "for", "claude",
 		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent)")
-	cmd.Flags().StringVarP(&project, "project", "C", "",
-		"Writable project directory (defaults to current directory)")
-	cmd.Flags().StringArrayVarP(&readDirs, "read", "R", nil,
-		"Read-only directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVarP(&writeDirs, "write", "W", nil,
-		"Read-write directory to expose to the agent (repeatable)")
-	cmd.Flags().StringArrayVar(&integrationNames, "integration", nil,
-		"Activate a session integration (repeatable, e.g. --integration go)")
-	cmd.Flags().BoolVar(&skipHarnessAssetsSync, "skip-harness-assets-sync", false,
-		"Preview without managed harness prompt-asset sync")
-	cmd.Flags().BoolVar(&noBackup, "no-backup", false,
-		"Preview without a pre-session snapshot")
-	cmd.Flags().BoolVar(&github, "github", false,
-		"Preview a session with the configured GitHub API token granted as GH_TOKEN")
-	cmd.Flags().StringVar(&dockerModeValue, "docker", string(dockerModeNone),
-		"Docker routing: none (default), sandbox, or auto")
-	cmd.Flags().StringVar(&networkModeValue, "network", string(sessionNetworkDefault),
-		"Native network policy: default or none")
-	cmd.Flags().BoolVar(&useSandbox, "sandbox", false,
-		"Preview Docker Sandbox support")
-	cmd.Flags().BoolVar(&allowDocker, "ignore-docker", false,
-		"Preview native containment even if Docker markers are present")
+	bindExplainSessionFlags(cmd, &flags)
 	cmd.Flags().StringVar(&backendValue, "backend", "",
 		"Preview an alternate plan-only backend (apple-container)")
 	cmd.Flags().StringVar(&imageValue, "image", "",
 		"Explicit Linux image for --backend=apple-container previews")
 	cmd.Flags().BoolVar(&outputJSON, "json", false,
 		"Emit a machine-readable JSON preview instead of human-oriented text")
-	cmd.SetFlagErrorFunc(legacyIntegrationFlagError)
-	_ = cmd.Flags().MarkDeprecated("sandbox", "use --docker=sandbox")
-	_ = cmd.Flags().MarkDeprecated("ignore-docker", "use --docker=none")
 
 	return cmd
 }

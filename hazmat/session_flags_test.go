@@ -50,6 +50,99 @@ func TestCommonHarnessSessionFlagsEnableAssetSyncSkip(t *testing.T) {
 	}
 }
 
+func TestExplainSessionFlagsBuildPlanOnlyOpts(t *testing.T) {
+	var flags sessionCommandFlags
+	cmd := &cobra.Command{Use: "test"}
+	bindExplainSessionFlags(cmd, &flags)
+
+	if flag := cmd.Flags().Lookup("metadata-json"); flag != nil {
+		t.Fatal("explain flags should not expose metadata-json launch output")
+	}
+
+	setFlag := func(name, value string) {
+		t.Helper()
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+	}
+	setFlag("project", "/project")
+	setFlag("read", "/ro")
+	setFlag("write", "/rw")
+	setFlag("integration", "go")
+	setFlag("skip-harness-assets-sync", "true")
+	setFlag("no-backup", "true")
+	setFlag("github", "true")
+	setFlag("docker", "sandbox")
+	setFlag("network", "none")
+
+	opts := flags.explainSessionOpts(cmd)
+	if !opts.planOnly {
+		t.Fatal("explain opts should be plan-only")
+	}
+	if opts.metadataJSON {
+		t.Fatal("explain opts should not request launch metadata JSON")
+	}
+	if opts.project != "/project" {
+		t.Fatalf("project = %q, want /project", opts.project)
+	}
+	if !slices.Equal(opts.readDirs, []string{"/ro"}) {
+		t.Fatalf("readDirs = %v, want [/ro]", opts.readDirs)
+	}
+	if !slices.Equal(opts.writeDirs, []string{"/rw"}) {
+		t.Fatalf("writeDirs = %v, want [/rw]", opts.writeDirs)
+	}
+	if !slices.Equal(opts.integrations, []string{"go"}) {
+		t.Fatalf("integrations = %v, want [go]", opts.integrations)
+	}
+	if !opts.skipHarnessAssetsSync || !opts.noBackup || !opts.github {
+		t.Fatalf("boolean opts = skip:%v noBackup:%v github:%v, want all true", opts.skipHarnessAssetsSync, opts.noBackup, opts.github)
+	}
+	if opts.dockerMode != "sandbox" || !opts.dockerModeExplicit {
+		t.Fatalf("docker opts = mode:%q explicit:%v, want sandbox explicit", opts.dockerMode, opts.dockerModeExplicit)
+	}
+	if opts.networkMode != "none" || !opts.networkModeExplicit {
+		t.Fatalf("network opts = mode:%q explicit:%v, want none explicit", opts.networkMode, opts.networkModeExplicit)
+	}
+}
+
+func TestSessionFlagBindersShareCoreSurface(t *testing.T) {
+	var launchFlags sessionCommandFlags
+	launchCmd := &cobra.Command{Use: "launch"}
+	bindCommonHarnessSessionFlags(launchCmd, &launchFlags)
+
+	var explainFlags sessionCommandFlags
+	explainCmd := &cobra.Command{Use: "explain"}
+	bindExplainSessionFlags(explainCmd, &explainFlags)
+
+	shared := []string{
+		"project",
+		"read",
+		"write",
+		"integration",
+		"skip-harness-assets-sync",
+		"no-backup",
+		"github",
+		"docker",
+		"network",
+		"sandbox",
+		"ignore-docker",
+	}
+	for _, name := range shared {
+		if launchCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("launch flags missing %s", name)
+		}
+		if explainCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("explain flags missing %s", name)
+		}
+	}
+	if launchCmd.Flags().Lookup("metadata-json") == nil {
+		t.Fatal("launch flags missing metadata-json")
+	}
+	if explainCmd.Flags().Lookup("metadata-json") != nil {
+		t.Fatal("explain flags should not include metadata-json")
+	}
+}
+
 func TestParseHarnessCommandArgsRendersHelp(t *testing.T) {
 	var renderedHelp bool
 	cmd := &cobra.Command{
