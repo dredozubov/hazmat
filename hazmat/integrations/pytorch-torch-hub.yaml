@@ -1,0 +1,20 @@
+integration:
+  name: pytorch-torch-hub
+  version: 1
+  description: PyTorch torch.hub cache-only model access
+
+session:
+  read_dirs:
+    - ~/.cache/torch/hub
+    - ~/.cache/torch/checkpoints
+
+warnings:
+  - "Cache-only integration. Use pre-cached torch.hub entries; no provider, cloud, or model-download credentials are exposed."
+
+backup:
+  excludes:
+    - .cache/torch/hub/
+    - .cache/torch/checkpoints/
+
+commands:
+  smoke: python -c 'import torch; print(torch.hub.get_dir())'
