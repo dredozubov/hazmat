@@ -1,0 +1,22 @@
+integration:
+  name: ollama
+  version: 1
+  description: Ollama local model cache access
+
+session:
+  read_dirs:
+    - ~/.ollama/models
+    - ~/.ollama/cache
+    - ~/.ollama/logs
+
+warnings:
+  - "Cache-only integration. OLLAMA_HOST is not passed through; localhost daemon access is governed by network/session policy."
+
+backup:
+  excludes:
+    - .ollama/models/
+    - .ollama/cache/
+    - .ollama/logs/
+
+commands:
+  list: ollama list
