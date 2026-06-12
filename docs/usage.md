@@ -532,6 +532,13 @@ repairs, failed verifications, and remaining items. JSON reports expose the same
 counts under `repair_plan.summary`, so automation does not need to infer the
 repair outcome by scanning every item array.
 
+JSON reports also include `repair_plan.next_steps`. These entries are ordered by
+the intended next action and carry explicit `command`, `mutating`, and
+`requires_approval` fields where a command applies. Read-only `hazmat check`
+reports put the approved repair path before the preview path when executable
+repairs exist, while post-init verification points to `hazmat doctor --fix`
+instead of retrying `hazmat init`.
+
 `hazmat doctor --fix` is the only diagnostics entrypoint allowed to apply typed
 repairs. Interactive runs may ask for consent before applying a plan.
 Non-interactive mutation requires both `--fix` and `--yes`. Hazmat will not run

@@ -135,6 +135,9 @@ func TestUIDiagnosticReportIncludesTypedMetadata(t *testing.T) {
 	if !strings.Contains(string(data), `"summary":{"executable":1,"manual":0,"skipped":0`) {
 		t.Fatalf("json report missing repair plan summary: %s", data)
 	}
+	if !strings.Contains(string(data), `"next_steps":[{"id":"apply-approved-repairs","command":"hazmat doctor --fix"`) {
+		t.Fatalf("json report missing direct repair next step: %s", data)
+	}
 }
 
 func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
@@ -178,6 +181,15 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	}
 	if plan.Summary != wantSummary {
 		t.Fatalf("plan summary = %+v, want %+v", plan.Summary, wantSummary)
+	}
+	if len(plan.NextSteps) != 2 {
+		t.Fatalf("next steps = %+v, want direct fix plus dry-run preview", plan.NextSteps)
+	}
+	if got := plan.NextSteps[0]; got.ID != "apply-approved-repairs" || got.Command != "hazmat doctor --fix" || !got.Mutating || !got.RequiresApproval {
+		t.Fatalf("first next step = %+v, want approved mutating fix path", got)
+	}
+	if got := plan.NextSteps[1]; got.ID != "preview-repair-plan" || got.Command != "hazmat doctor --dry-run" || got.Mutating {
+		t.Fatalf("second next step = %+v, want non-mutating dry-run preview", got)
 	}
 }
 
@@ -256,6 +268,14 @@ func TestUIDiagnosticReportInitPostVerificationUsesTypedRepairPlan(t *testing.T)
 	if strings.Contains(ui.repairPlanFooter(plan), "hazmat init") {
 		t.Fatalf("init footer = %q, want no init retry advice", ui.repairPlanFooter(plan))
 	}
+	if len(plan.NextSteps) != 2 || plan.NextSteps[0].Command != "hazmat doctor --fix" || plan.NextSteps[1].Command != "hazmat doctor --dry-run" {
+		t.Fatalf("post-init next steps = %+v, want doctor repair path without init retry", plan.NextSteps)
+	}
+	for _, step := range plan.NextSteps {
+		if strings.Contains(step.Command, "hazmat init") || strings.Contains(step.Reason, "hazmat init") {
+			t.Fatalf("post-init next step = %+v, want no init retry advice", step)
+		}
+	}
 }
 
 func TestUIDiagnosticReportDoctorFixWithoutYesIsBlocked(t *testing.T) {
@@ -280,6 +300,9 @@ func TestUIDiagnosticReportDoctorFixWithoutYesIsBlocked(t *testing.T) {
 	}
 	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
 		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].Command != "hazmat doctor --fix --yes" || !plan.NextSteps[0].RequiresApproval {
+		t.Fatalf("blocked next steps = %+v, want explicit --yes fix path", plan.NextSteps)
 	}
 }
 
@@ -311,6 +334,9 @@ func TestUIDiagnosticReportDryRunOverridesDoctorFix(t *testing.T) {
 	}
 	if !strings.Contains(ui.repairPlanFooter(plan), "hazmat doctor --fix") {
 		t.Fatalf("dry-run footer = %q, want fix path", ui.repairPlanFooter(plan))
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].Command != "hazmat doctor --fix" || !plan.NextSteps[0].Mutating {
+		t.Fatalf("dry-run next steps = %+v, want approved fix path", plan.NextSteps)
 	}
 }
 
@@ -348,6 +374,9 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	if plan.Summary.Applied != 1 || plan.Summary.Remaining != 0 || plan.Summary.RemainingExecutable != 0 {
 		t.Fatalf("summary = %+v, want one applied repair and no remaining items", plan.Summary)
 	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].Command != "hazmat check --full" || plan.NextSteps[0].Mutating {
+		t.Fatalf("next steps = %+v, want non-mutating full verification", plan.NextSteps)
+	}
 }
 
 func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
@@ -379,6 +408,9 @@ func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	}
 	if strings.Contains(footer, "hazmat init") {
 		t.Fatalf("footer = %q, want no init retry guidance", footer)
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
+		t.Fatalf("next steps = %+v, want non-mutating remaining-item inspection", plan.NextSteps)
 	}
 }
 

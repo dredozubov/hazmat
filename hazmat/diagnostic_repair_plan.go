@@ -7,6 +7,7 @@ type diagnosticRepairPlan struct {
 	Mutating            bool                            `json:"mutating"`
 	Execution           diagnosticRepairExecutionPolicy `json:"execution"`
 	Summary             diagnosticRepairPlanSummary     `json:"summary"`
+	NextSteps           []diagnosticRepairNextStep      `json:"next_steps"`
 	TrustBoundaries     []diagnosticRepairTrustBoundary `json:"trust_boundaries"`
 	Items               []diagnosticRepairPlanItem      `json:"items"`
 	ManualItems         []diagnosticRepairPlanItem      `json:"manual_items"`
@@ -23,6 +24,14 @@ type diagnosticRepairPlanSummary struct {
 	FailedVerifications int `json:"failed_verifications"`
 	RemainingExecutable int `json:"remaining_executable"`
 	Remaining           int `json:"remaining"`
+}
+
+type diagnosticRepairNextStep struct {
+	ID               string `json:"id"`
+	Command          string `json:"command,omitempty"`
+	Mutating         bool   `json:"mutating"`
+	RequiresApproval bool   `json:"requires_approval,omitempty"`
+	Reason           string `json:"reason"`
 }
 
 type diagnosticRepairPlanItem struct {
@@ -260,6 +269,7 @@ func diagnosticRepairSafetyRationale(def diagnosticFindingDefinition) string {
 
 func (plan diagnosticRepairPlan) withSummary() diagnosticRepairPlan {
 	plan.Summary = diagnosticRepairPlanSummaryFor(plan)
+	plan.NextSteps = diagnosticRepairNextStepsFor(plan)
 	return plan
 }
 
@@ -278,4 +288,75 @@ func diagnosticRepairPlanSummaryFor(plan diagnosticRepairPlan) diagnosticRepairP
 	}
 	summary.Remaining = summary.RemainingExecutable + summary.Manual + summary.Skipped
 	return summary
+}
+
+func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairNextStep {
+	var steps []diagnosticRepairNextStep
+	addApplyStep := func(command, reason string) {
+		steps = append(steps, diagnosticRepairNextStep{
+			ID:               "apply-approved-repairs",
+			Command:          command,
+			Mutating:         true,
+			RequiresApproval: true,
+			Reason:           reason,
+		})
+	}
+	addDryRunStep := func() {
+		steps = append(steps, diagnosticRepairNextStep{
+			ID:       "preview-repair-plan",
+			Command:  "hazmat doctor --dry-run",
+			Mutating: false,
+			Reason:   "Preview the typed repair plan without applying host mutations.",
+		})
+	}
+
+	switch plan.Execution.Mode {
+	case "read-only":
+		if plan.Summary.RemainingExecutable > 0 {
+			addApplyStep("hazmat doctor --fix", "Apply executable Hazmat repairs after approval.")
+			addDryRunStep()
+		}
+	case "post-init-verify":
+		if plan.Summary.RemainingExecutable > 0 {
+			addApplyStep("hazmat doctor --fix", "Repair post-init verification findings without rerunning init.")
+			addDryRunStep()
+		}
+	case "plan-only", "dry-run":
+		if plan.Summary.RemainingExecutable > 0 {
+			addApplyStep("hazmat doctor --fix", "Apply the reviewed repair plan after approval.")
+		}
+	case "blocked-noninteractive":
+		if plan.Summary.RemainingExecutable > 0 {
+			addApplyStep("hazmat doctor --fix --yes", "Allow non-interactive repair execution for the approved plan.")
+		}
+	case "declined":
+		if plan.Summary.RemainingExecutable > 0 {
+			addApplyStep("hazmat doctor --fix", "Rerun the repair plan and approve execution.")
+		}
+	case "fix-yes", "fix-interactive":
+		if plan.Summary.FailedVerifications > 0 {
+			steps = append(steps, diagnosticRepairNextStep{
+				ID:       "inspect-failed-verifications",
+				Mutating: false,
+				Reason:   "Inspect failed verification evidence before retrying the same repair.",
+			})
+			return steps
+		}
+		if plan.Summary.Remaining > 0 {
+			steps = append(steps, diagnosticRepairNextStep{
+				ID:       "inspect-remaining-items",
+				Mutating: false,
+				Reason:   "Review manual, optional, or informational findings that remain outside executable repair.",
+			})
+			return steps
+		}
+		steps = append(steps, diagnosticRepairNextStep{
+			ID:       "verify-host",
+			Command:  "hazmat check --full",
+			Mutating: false,
+			Reason:   "Verify the host after approved repairs.",
+		})
+	}
+
+	return steps
 }
