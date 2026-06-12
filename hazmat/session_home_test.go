@@ -78,6 +78,27 @@ func TestApplyExperimentalSessionHomePlanRequiresPlanOnlyNativeSession(t *testin
 	}
 }
 
+func TestExperimentalSessionHomeModeFromEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  experimentalSessionHomeMode
+	}{
+		{"", experimentalSessionHomeDisabled},
+		{"1", experimentalSessionHomePreview},
+		{"preview", experimentalSessionHomePreview},
+		{"plan-only", experimentalSessionHomePreview},
+		{"activate", experimentalSessionHomeActivate},
+		{"launch", experimentalSessionHomeActivate},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv(experimentalSessionHomeEnv, tc.value)
+			if got := experimentalSessionHomeModeFromEnv(); got != tc.want {
+				t.Fatalf("experimentalSessionHomeModeFromEnv() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestApplyExperimentalSessionHomePlanBuildsRuntimePreview(t *testing.T) {
 	t.Setenv(experimentalSessionHomeEnv, "1")
 	savedNewSessionHomeID := newSessionHomeID
@@ -102,6 +123,68 @@ func TestApplyExperimentalSessionHomePlanBuildsRuntimePreview(t *testing.T) {
 	}
 	if len(cfg.SessionNotes) < 2 || !strings.Contains(cfg.SessionNotes[0], "Experimental session-local HOME preview") {
 		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
+func TestApplyExperimentalSessionHomePlanActivateMaterializesWhenReady(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedNewSessionHomeID := newSessionHomeID
+	newSessionHomeID = func() string { return "session-123" }
+	t.Cleanup(func() { newSessionHomeID = savedNewSessionHomeID })
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+	materialized := false
+	savedMaterialize := materializeSessionHomeLaunchPlanForActivation
+	materializeSessionHomeLaunchPlanForActivation = func(plan sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+		materialized = true
+		if plan.readyForActivation() {
+			return sessionHomeMaterializationResult{}, nil
+		}
+		t.Fatalf("activation materializer received blockers: %+v", plan.Blockers)
+		return sessionHomeMaterializationResult{}, nil
+	}
+	t.Cleanup(func() { materializeSessionHomeLaunchPlanForActivation = savedMaterialize })
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{}); err != nil {
+		t.Fatalf("applyExperimentalSessionHomePlan: %v", err)
+	}
+	if !materialized {
+		t.Fatal("activation materializer was not called")
+	}
+	if cfg.SessionHome == nil || cfg.SessionHome.Launch.Layout.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") {
+		t.Fatalf("SessionHome = %+v", cfg.SessionHome)
+	}
+	if !cfg.SessionHome.Launch.readyForActivation() {
+		t.Fatalf("activation plan still has blockers: %+v", cfg.SessionHome.Launch.Blockers)
+	}
+	if len(cfg.SessionNotes) < 1 || !strings.Contains(cfg.SessionNotes[0], "validation activation") {
+		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
+func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(path string) (bool, error) {
+		return strings.HasSuffix(path, filepath.Join(".local", "bin")), nil
+	}
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+	savedMaterialize := materializeSessionHomeLaunchPlanForActivation
+	materializeSessionHomeLaunchPlanForActivation = func(sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+		t.Fatal("activation materializer should not run when blockers remain")
+		return sessionHomeMaterializationResult{}, nil
+	}
+	t.Cleanup(func() { materializeSessionHomeLaunchPlanForActivation = savedMaterialize })
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{})
+	if err == nil || !strings.Contains(err.Error(), "adapter required") {
+		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
+	}
+	if cfg.SessionHome != nil {
+		t.Fatalf("SessionHome = %+v, want nil on activation failure", cfg.SessionHome)
 	}
 }
 

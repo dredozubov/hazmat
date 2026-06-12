@@ -18,6 +18,14 @@ const (
 	sessionHomeMarkerFile           = ".hazmat-session-home"
 )
 
+type experimentalSessionHomeMode string
+
+const (
+	experimentalSessionHomeDisabled experimentalSessionHomeMode = ""
+	experimentalSessionHomePreview  experimentalSessionHomeMode = "preview"
+	experimentalSessionHomeActivate experimentalSessionHomeMode = "activate"
+)
+
 type sessionHomeLayout struct {
 	SessionID  string
 	Root       string
@@ -125,30 +133,51 @@ type sessionHomeMaterializationResult struct {
 
 var newSessionHomeID = defaultSessionHomeID
 
+var (
+	sessionHomeActivationPersistentPathExists     = defaultSessionHomeActivationPersistentPathExists
+	materializeSessionHomeLaunchPlanForActivation = materializeSessionHomeLaunchPlan
+)
+
 func defaultSessionHomeID() string {
 	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 }
 
 func experimentalSessionHomeEnabled() bool {
+	return experimentalSessionHomeModeFromEnv() != experimentalSessionHomeDisabled
+}
+
+func experimentalSessionHomeModeFromEnv() experimentalSessionHomeMode {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(experimentalSessionHomeEnv))) {
 	case "1", "true", "yes", "on":
-		return true
+		return experimentalSessionHomePreview
+	case "preview", "plan", "plan-only":
+		return experimentalSessionHomePreview
+	case "activate", "launch", "exec":
+		return experimentalSessionHomeActivate
 	default:
-		return false
+		return experimentalSessionHomeDisabled
 	}
 }
 
 func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts harnessSessionOpts) error {
-	if !experimentalSessionHomeEnabled() {
+	sessionHomeMode := experimentalSessionHomeModeFromEnv()
+	if sessionHomeMode == experimentalSessionHomeDisabled {
 		return nil
 	}
 	if mode != sessionModeNative {
-		return fmt.Errorf("%s=1 supports native sessions only", experimentalSessionHomeEnv)
+		return fmt.Errorf("%s supports native sessions only", experimentalSessionHomeEnv)
 	}
-	if !opts.planOnly {
-		return fmt.Errorf("%s=1 is currently plan-only; use hazmat explain to inspect the session-local HOME plan", experimentalSessionHomeEnv)
+	activate := sessionHomeMode == experimentalSessionHomeActivate && !opts.planOnly
+	if !opts.planOnly && !activate {
+		return fmt.Errorf("%s=1 is currently plan-only; use hazmat explain to inspect the session-local HOME plan, or set %s=activate for validation-only executable activation", experimentalSessionHomeEnv, experimentalSessionHomeEnv)
 	}
-	launchPlan, err := newSessionHomeLaunchPlan(defaultSessionHomeRoot, newSessionHomeID(), agentHome, true)
+	persistentPathExists := sessionHomePersistentPathExists
+	includeActivationGate := true
+	if activate {
+		persistentPathExists = sessionHomeActivationPersistentPathExists
+		includeActivationGate = false
+	}
+	launchPlan, err := newSessionHomeLaunchPlanWithBlockerInspector(defaultSessionHomeRoot, newSessionHomeID(), agentHome, true, persistentPathExists, includeActivationGate)
 	if err != nil {
 		return err
 	}
@@ -156,11 +185,26 @@ func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts
 	if err != nil {
 		return err
 	}
+	if activate {
+		if !launchPlan.readyForActivation() {
+			return fmt.Errorf("%s=activate cannot launch session-local HOME yet: %s", experimentalSessionHomeEnv, sessionHomeActivationBlockerSummary(launchPlan.Blockers))
+		}
+		if _, err := materializeSessionHomeLaunchPlanForActivation(launchPlan); err != nil {
+			return err
+		}
+	}
 	cfg.SessionHome = &runtimePlan
-	cfg.SessionNotes = append(cfg.SessionNotes,
-		fmt.Sprintf("Experimental session-local HOME preview: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
-		"Session-local HOME launch remains disabled until activation coverage and live validation land.",
-	)
+	if activate {
+		cfg.SessionNotes = append(cfg.SessionNotes,
+			fmt.Sprintf("Experimental session-local HOME validation activation: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
+			"Session-local HOME is active only for validation; keep live smoke coverage before making it default.",
+		)
+	} else {
+		cfg.SessionNotes = append(cfg.SessionNotes,
+			fmt.Sprintf("Experimental session-local HOME preview: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
+			"Session-local HOME launch remains disabled until activation coverage and live validation land.",
+		)
+	}
 	return nil
 }
 
@@ -273,6 +317,10 @@ func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string)
 }
 
 func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequested bool) (sessionHomeLaunchPlan, error) {
+	return newSessionHomeLaunchPlanWithBlockerInspector(root, sessionID, persistentHome, resumeRequested, sessionHomePersistentPathExists, true)
+}
+
+func newSessionHomeLaunchPlanWithBlockerInspector(root, sessionID, persistentHome string, resumeRequested bool, persistentPathExists sessionHomePersistentPathExistsFunc, includeActivationGate bool) (sessionHomeLaunchPlan, error) {
 	layout, err := newSessionHomeLayout(root, sessionID)
 	if err != nil {
 		return sessionHomeLaunchPlan{}, err
@@ -285,7 +333,7 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 	if err != nil {
 		return sessionHomeLaunchPlan{}, err
 	}
-	blockers, err := sessionHomeActivationBlockers(assembly, sessionHomePersistentPathExists)
+	blockers, err := sessionHomeActivationBlockers(assembly, persistentPathExists, includeActivationGate)
 	if err != nil {
 		return sessionHomeLaunchPlan{}, err
 	}
@@ -668,11 +716,22 @@ func sessionHomePersistentPathExists(path string) (bool, error) {
 	return true, nil
 }
 
-func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persistentPathExists sessionHomePersistentPathExistsFunc) ([]sessionHomeLaunchBlocker, error) {
-	blockers := []sessionHomeLaunchBlocker{{
-		RelPath: "session-home",
-		Reason:  sessionHomeBlockerActivationGate,
-	}}
+func defaultSessionHomeActivationPersistentPathExists(path string) (bool, error) {
+	clean := filepath.Clean(path)
+	if clean == filepath.Clean(agentHome) || isWithinDir(filepath.Clean(agentHome), clean) {
+		return agentPathExists(clean)
+	}
+	return sessionHomePersistentPathExists(clean)
+}
+
+func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persistentPathExists sessionHomePersistentPathExistsFunc, includeActivationGate bool) ([]sessionHomeLaunchBlocker, error) {
+	var blockers []sessionHomeLaunchBlocker
+	if includeActivationGate {
+		blockers = append(blockers, sessionHomeLaunchBlocker{
+			RelPath: "session-home",
+			Reason:  sessionHomeBlockerActivationGate,
+		})
+	}
 	for _, entry := range assembly {
 		reason, blocked := sessionHomeActivationBlockerReasonForPolicy(entry.RuntimePolicy)
 		if !blocked {
