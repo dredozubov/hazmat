@@ -14,6 +14,7 @@
 #   - native harness smoke refuses live mode without its explicit ack
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
+#   - release script refuses hazmat claude and push-capable paths without ack
 #   - release installer refuses unsupported platforms before download/install
 #   - host-side test entrypoints fail fast when another host-side test holds
 #     the shared lock
@@ -120,6 +121,16 @@ assert_fails_with \
     "Apple Container spike requires live ack" \
     "refusing live run without --i-understand-this-runs-apple-container-spike" \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh" --run
+
+assert_fails_with \
+    "release script requires hazmat claude ack" \
+    "refusing to run without --i-understand-this-runs-hazmat-claude" \
+    bash "$REPO_ROOT/scripts/release.sh" --dry
+
+assert_fails_with \
+    "release script requires non-dry push ack" \
+    "refusing non-dry release without --i-understand-this-may-push-release" \
+    bash "$REPO_ROOT/scripts/release.sh" --i-understand-this-runs-hazmat-claude
 
 phase "Platform guards"
 

@@ -2,10 +2,10 @@
 # Tag and push a new hazmat release.
 #
 # Usage:
-#   ./scripts/release.sh              # auto-determine version via AI changelog review
-#   ./scripts/release.sh 0.5.0        # explicit version
-#   ./scripts/release.sh 0.5.0 --dry  # show what would happen without doing it
-#   ./scripts/release.sh --dry        # auto-determine version, dry run
+#   ./scripts/release.sh --i-understand-this-runs-hazmat-claude --i-understand-this-may-push-release
+#   ./scripts/release.sh 0.5.0 --i-understand-this-runs-hazmat-claude --i-understand-this-may-push-release
+#   ./scripts/release.sh 0.5.0 --dry --i-understand-this-runs-hazmat-claude
+#   ./scripts/release.sh --dry --i-understand-this-runs-hazmat-claude
 #
 # What happens:
 #   1. Runs the local pre-release gate
@@ -30,6 +30,18 @@ set -euo pipefail
 PROMPT_FILE=""
 RELEASE_PLAN_FILE=""
 RESTORE_CHANGELOG_ON_EXIT=0
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/release.sh [VERSION] --i-understand-this-runs-hazmat-claude --i-understand-this-may-push-release
+  ./scripts/release.sh [VERSION] --dry --i-understand-this-runs-hazmat-claude
+
+The script runs the local pre-release gate and uses hazmat claude to draft the
+CHANGELOG.md update. Non-dry mode can commit, tag, and push after the final
+interactive confirmation.
+EOF
+}
 
 restore_changelog() {
     git restore --staged --worktree --source=HEAD -- CHANGELOG.md
@@ -409,16 +421,53 @@ insert_changelog_section() {
     mv "${tmp}" "${changelog_file}"
 }
 
-# Parse arguments: [version] [--dry]
+# Parse arguments: [version] [--dry] [acknowledgements]
 REQUESTED_VERSION=""
 DRY=""
+ACK_HAZMAT_CLAUDE=0
+ACK_RELEASE_PUSH=0
 for arg in "$@"; do
-    if [ "$arg" = "--dry" ]; then
-        DRY="--dry"
-    elif [ -z "$REQUESTED_VERSION" ]; then
-        REQUESTED_VERSION="$arg"
-    fi
+    case "${arg}" in
+        --dry)
+            DRY="--dry"
+            ;;
+        --i-understand-this-runs-hazmat-claude)
+            ACK_HAZMAT_CLAUDE=1
+            ;;
+        --i-understand-this-may-push-release)
+            ACK_RELEASE_PUSH=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --*)
+            echo "error: unknown argument: ${arg}" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [ -n "${REQUESTED_VERSION}" ]; then
+                echo "error: multiple version arguments: ${REQUESTED_VERSION} and ${arg}" >&2
+                usage >&2
+                exit 2
+            fi
+            REQUESTED_VERSION="${arg}"
+            ;;
+    esac
 done
+
+if [ "${ACK_HAZMAT_CLAUDE}" -ne 1 ]; then
+    echo "release: refusing to run without --i-understand-this-runs-hazmat-claude" >&2
+    usage >&2
+    exit 2
+fi
+
+if [ "${DRY}" != "--dry" ] && [ "${ACK_RELEASE_PUSH}" -ne 1 ]; then
+    echo "release: refusing non-dry release without --i-understand-this-may-push-release" >&2
+    usage >&2
+    exit 2
+fi
 
 # Find the latest tag for diffing
 PREV_TAG="$(git tag --sort=-v:refname | head -1)"

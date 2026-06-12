@@ -408,8 +408,10 @@ make pre-release-local
 
 This runs the fast repository gate (`scripts/pre-push`) and then the all-harness
 synthetic e2e smoke. `scripts/release.sh` runs the same local gate before it
-asks Claude to draft `CHANGELOG.md`, so a release cannot proceed locally if the
-hermetic harness smoke fails.
+asks Hazmat-contained Claude to draft `CHANGELOG.md`, so a release cannot
+proceed locally if the hermetic harness smoke fails. The release script requires
+`--i-understand-this-runs-hazmat-claude`; non-dry mode also requires
+`--i-understand-this-may-push-release`.
 
 ### Repo-matrix validation
 
