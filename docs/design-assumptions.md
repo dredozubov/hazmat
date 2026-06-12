@@ -146,6 +146,14 @@ dropped.
 
 **Credentials in the project directory are exposed.** If your project has `.env`, `.env.local`, or embedded secrets, the agent can read them — the project directory is read-write by design.
 
+**Sensitive review packets need materialized project views.** Hazmat does not
+support live read-only project mounts with repo-internal deny overlays as a
+secret-hiding mechanism. Workflows that need to hide `.env`, inventory,
+profile, or other project-local sensitive files from a reviewer should build a
+manifest-only, filtered-copy, or APFS-clone workspace where those bytes are
+absent before launch. See
+[path deny overlay evaluation](plans/2026-06-12-path-deny-overlay-evaluation.md).
+
 ## Seatbelt (sandbox-exec) Containment
 
 **Defense in depth, not a security boundary.** The seatbelt is a soft sandbox. Apple's SBPL enforcement is undocumented, has known bypasses via mach services, and is not designed as a security jail. It prevents accidental damage and blocks obvious credential access, but a determined adversary in the agent session could likely escape.
