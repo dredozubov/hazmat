@@ -377,13 +377,28 @@ func syncCodexResumeStateFromDirs(hostCodexDir, agentCodexDir string, ensureDir 
 	return synced, nil
 }
 
+func codexResumeStateDir(homeRoot string) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("Codex resume home %q must be absolute", homeRoot)
+	}
+	return filepath.Join(homeRoot, ".codex"), nil
+}
+
 func syncCodexResumeState() error {
+	return syncCodexResumeStateIntoHome(agentHome)
+}
+
+func syncCodexResumeStateIntoHome(homeRoot string) error {
 	home := invokerHome()
 	if home == "" {
 		return nil
 	}
 	hostCodexDir := filepath.Join(home, ".codex")
-	agentCodexDir := filepath.Join(agentHome, ".codex")
+	agentCodexDir, err := codexResumeStateDir(homeRoot)
+	if err != nil {
+		return err
+	}
 
 	synced, err := syncCodexResumeStateFromDirs(hostCodexDir, agentCodexDir, agentEnsureSharedResumeDir)
 	if err != nil {
@@ -511,13 +526,28 @@ func syncGeminiResumeStateFromDirs(hostGeminiDir, agentGeminiDir, projectDir str
 	return synced, nil
 }
 
+func geminiResumeStateDir(homeRoot string) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("Gemini resume home %q must be absolute", homeRoot)
+	}
+	return filepath.Join(homeRoot, ".gemini"), nil
+}
+
 func syncGeminiResumeState(projectDir string) error {
+	return syncGeminiResumeStateIntoHome(agentHome, projectDir)
+}
+
+func syncGeminiResumeStateIntoHome(homeRoot, projectDir string) error {
 	home := invokerHome()
 	if home == "" {
 		return nil
 	}
 	hostGeminiDir := filepath.Join(home, ".gemini")
-	agentGeminiDir := filepath.Join(agentHome, ".gemini")
+	agentGeminiDir, err := geminiResumeStateDir(homeRoot)
+	if err != nil {
+		return err
+	}
 
 	synced, err := syncGeminiResumeStateFromDirs(hostGeminiDir, agentGeminiDir, projectDir, agentEnsureSharedResumeDir)
 	if err != nil {

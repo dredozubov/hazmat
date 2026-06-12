@@ -27,6 +27,26 @@ func TestSanitizePathForClaude(t *testing.T) {
 	}
 }
 
+func TestAgentSessionDirPathUsesExplicitHomeRoot(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "session-home")
+	invokerDir := filepath.Join(t.TempDir(), ".claude", "projects", "-Users-dr-workspace-hazmat")
+
+	got, err := agentSessionDirPath(home, invokerDir)
+	if err != nil {
+		t.Fatalf("agentSessionDirPath: %v", err)
+	}
+	want := filepath.Join(home, ".claude", "projects", "-Users-dr-workspace-hazmat")
+	if got != want {
+		t.Fatalf("agentSessionDirPath = %s, want %s", got, want)
+	}
+}
+
+func TestAgentSessionDirPathRejectsRelativeHomeRoot(t *testing.T) {
+	if _, err := agentSessionDirPath("relative-home", "/Users/dr/.claude/projects/project"); err == nil {
+		t.Fatal("agentSessionDirPath accepted relative home root")
+	}
+}
+
 func TestDetectResumeFlagsNone(t *testing.T) {
 	r, target, c := detectResumeFlags([]string{"-p", "hello", "--model", "sonnet"})
 	if r || c || target != "" {

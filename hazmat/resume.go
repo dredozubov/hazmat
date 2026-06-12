@@ -69,14 +69,31 @@ func invokerSessionDir(projectDir string) string {
 	return ""
 }
 
+func agentSessionDirPath(homeRoot, invokerDir string) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("agent session home %q must be absolute", homeRoot)
+	}
+	dirName := filepath.Base(invokerDir)
+	if dirName == "." || dirName == ".." || strings.Contains(dirName, string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid Claude session directory %q", invokerDir)
+	}
+	return filepath.Join(homeRoot, ".claude", "projects", dirName), nil
+}
+
 // agentSessionDir returns (and ensures existence of) the agent user's session
 // directory for the given project. The directory name must match the invoker's
 // so that Claude Code's sanitizePath produces the same key for the same
 // absolute project path.
 func agentSessionDir(invokerDir string) (string, error) {
-	dirName := filepath.Base(invokerDir)
-	dest := filepath.Join(agentHome, ".claude", "projects", dirName)
+	return agentSessionDirInHome(agentHome, invokerDir)
+}
 
+func agentSessionDirInHome(homeRoot, invokerDir string) (string, error) {
+	dest, err := agentSessionDirPath(homeRoot, invokerDir)
+	if err != nil {
+		return "", err
+	}
 	if err := agentEnsureDir(dest, 0o700); err != nil {
 		return "", fmt.Errorf("create %s: %w (run 'hazmat init' to repair the agent helper)", dest, err)
 	}
@@ -455,12 +472,16 @@ func syncResumeSessionFilesToAgent(srcDir, destDir, resumeTarget string, wantsCo
 // A targeted --resume copies only the requested session. Bare --resume copies
 // the available project sessions so Claude can offer its picker UI.
 func syncResumeSession(projectDir string, resumeTarget string, wantsContinue bool) error {
+	return syncResumeSessionIntoHome(agentHome, projectDir, resumeTarget, wantsContinue)
+}
+
+func syncResumeSessionIntoHome(homeRoot, projectDir string, resumeTarget string, wantsContinue bool) error {
 	srcDir := invokerSessionDir(projectDir)
 	if srcDir == "" {
 		return nil // no sessions to sync — not an error
 	}
 
-	destDir, err := agentSessionDir(srcDir)
+	destDir, err := agentSessionDirInHome(homeRoot, srcDir)
 	if err != nil {
 		return err
 	}

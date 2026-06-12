@@ -620,7 +620,12 @@ The bridge contract is explicit rather than inferred: Claude's
 `.claude/projects` store is a `$HOME`-relative durable root, while Hermes uses
 its existing project-scoped `HERMES_HOME` rooted under the durable
 `.hazmat/hermes/projects` tree. Any future durable external path must add its
-own bridge contract before the session-home launch plan can be built.
+own bridge contract before the session-home launch plan can be built. Claude,
+Codex, and Gemini resume wrappers now also have explicit destination-home
+variants, preserving the current `/Users/agent` behavior while giving the
+future assembly phase a narrow hook for syncing resume state into the assembled
+view after it exists. OpenCode still needs an env-aware import adapter before
+session-local `HOME` can claim resume parity there.
 
 #### Resume/export requirements
 

@@ -54,6 +54,36 @@ func TestCodexResumeRequested(t *testing.T) {
 	}
 }
 
+func TestCodexResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "session-home")
+	got, err := codexResumeStateDir(home)
+	if err != nil {
+		t.Fatalf("codexResumeStateDir: %v", err)
+	}
+	want := filepath.Join(home, ".codex")
+	if got != want {
+		t.Fatalf("codexResumeStateDir = %s, want %s", got, want)
+	}
+	if _, err := codexResumeStateDir("relative-home"); err == nil {
+		t.Fatal("codexResumeStateDir accepted relative home root")
+	}
+}
+
+func TestGeminiResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "session-home")
+	got, err := geminiResumeStateDir(home)
+	if err != nil {
+		t.Fatalf("geminiResumeStateDir: %v", err)
+	}
+	want := filepath.Join(home, ".gemini")
+	if got != want {
+		t.Fatalf("geminiResumeStateDir = %s, want %s", got, want)
+	}
+	if _, err := geminiResumeStateDir("relative-home"); err == nil {
+		t.Fatal("geminiResumeStateDir accepted relative home root")
+	}
+}
+
 func TestSyncCodexResumeStateCopiesIndexAndSessions(t *testing.T) {
 	hostCodex := filepath.Join(t.TempDir(), ".codex")
 	agentCodex := filepath.Join(t.TempDir(), ".codex")
