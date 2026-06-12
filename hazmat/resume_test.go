@@ -535,3 +535,140 @@ func TestSyncResumeSessionFilesRestoresMetadataForIdenticalRegularFiles(t *testi
 		t.Fatalf("dest modtime = %s, want %s", info.ModTime(), srcTime)
 	}
 }
+
+func TestSyncResumeSessionFilesToAgentWritesThroughAgentHelper(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := filepath.Join(t.TempDir(), "agent-dest")
+	srcPath := filepath.Join(srcDir, "pick.jsonl")
+	if err := os.WriteFile(srcPath, []byte("pick"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srcTime := time.Unix(20, 0)
+	if err := os.Chtimes(srcPath, srcTime, srcTime); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreAgentResumeSessionHelpers(t)
+	var statPath string
+	var wroteFile resumeSessionFile
+	var wroteDest string
+	agentResumeSessionFileInfoFunc = func(path string) (agentResumeSessionFileInfo, error) {
+		statPath = path
+		return agentResumeSessionFileInfo{typeLabel: "missing"}, nil
+	}
+	agentWriteResumeSessionFile = func(file resumeSessionFile, dest string) error {
+		wroteFile = file
+		wroteDest = dest
+		return nil
+	}
+	agentRemoveResumeSessionFile = func(path string) error {
+		t.Fatalf("agentRemoveResumeSessionFile should not be called for missing destination, got %s", path)
+		return nil
+	}
+
+	synced, err := syncResumeSessionFilesToAgent(srcDir, destDir, "pick", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFilesToAgent: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+	wantDest := filepath.Join(destDir, "pick.jsonl")
+	if statPath != wantDest || wroteDest != wantDest {
+		t.Fatalf("agent paths stat=%q write=%q, want %q", statPath, wroteDest, wantDest)
+	}
+	if wroteFile.path != srcPath || !wroteFile.modTime.Equal(srcTime) {
+		t.Fatalf("wrote file = %+v, want path %s modtime %s", wroteFile, srcPath, srcTime)
+	}
+	if _, err := os.Stat(wantDest); !os.IsNotExist(err) {
+		t.Fatalf("sync should not create agent destination through host filesystem, stat err=%v", err)
+	}
+}
+
+func TestSyncResumeSessionFilesToAgentPreservesNewerDivergentAgentFile(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := filepath.Join(t.TempDir(), "agent-dest")
+	srcPath := filepath.Join(srcDir, "session.jsonl")
+	if err := os.WriteFile(srcPath, []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srcTime := time.Unix(10, 0)
+	if err := os.Chtimes(srcPath, srcTime, srcTime); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreAgentResumeSessionHelpers(t)
+	agentResumeSessionFileInfoFunc = func(path string) (agentResumeSessionFileInfo, error) {
+		return agentResumeSessionFileInfo{
+			exists:    true,
+			regular:   true,
+			size:      999,
+			modTime:   time.Unix(20, 0),
+			typeLabel: "file",
+		}, nil
+	}
+	agentWriteResumeSessionFile = func(file resumeSessionFile, dest string) error {
+		t.Fatalf("agentWriteResumeSessionFile should not overwrite newer divergent file %s", dest)
+		return nil
+	}
+
+	synced, err := syncResumeSessionFilesToAgent(srcDir, destDir, "", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFilesToAgent: %v", err)
+	}
+	if synced != 0 {
+		t.Fatalf("synced = %d, want 0", synced)
+	}
+}
+
+func TestSyncResumeSessionFilesToAgentReplacesSymlinkViaAgentHelper(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := filepath.Join(t.TempDir(), "agent-dest")
+	if err := os.WriteFile(filepath.Join(srcDir, "session.jsonl"), []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreAgentResumeSessionHelpers(t)
+	var removed []string
+	var wrote []string
+	agentResumeSessionFileInfoFunc = func(path string) (agentResumeSessionFileInfo, error) {
+		return agentResumeSessionFileInfo{exists: true, symlink: true, typeLabel: "symlink"}, nil
+	}
+	agentRemoveResumeSessionFile = func(path string) error {
+		removed = append(removed, path)
+		return nil
+	}
+	agentWriteResumeSessionFile = func(file resumeSessionFile, dest string) error {
+		wrote = append(wrote, dest)
+		return nil
+	}
+
+	synced, err := syncResumeSessionFilesToAgent(srcDir, destDir, "", false)
+	if err != nil {
+		t.Fatalf("syncResumeSessionFilesToAgent: %v", err)
+	}
+	if synced != 1 {
+		t.Fatalf("synced = %d, want 1", synced)
+	}
+	wantDest := filepath.Join(destDir, "session.jsonl")
+	if len(removed) != 1 || removed[0] != wantDest {
+		t.Fatalf("removed = %v, want [%s]", removed, wantDest)
+	}
+	if len(wrote) != 1 || wrote[0] != wantDest {
+		t.Fatalf("wrote = %v, want [%s]", wrote, wantDest)
+	}
+}
+
+func restoreAgentResumeSessionHelpers(t *testing.T) {
+	t.Helper()
+	savedInfo := agentResumeSessionFileInfoFunc
+	savedRemove := agentRemoveResumeSessionFile
+	savedWrite := agentWriteResumeSessionFile
+	savedReadBytes := agentReadFileBytes
+	t.Cleanup(func() {
+		agentResumeSessionFileInfoFunc = savedInfo
+		agentRemoveResumeSessionFile = savedRemove
+		agentWriteResumeSessionFile = savedWrite
+		agentReadFileBytes = savedReadBytes
+	})
+}

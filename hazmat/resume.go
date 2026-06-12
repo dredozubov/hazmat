@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,25 +69,16 @@ func invokerSessionDir(projectDir string) string {
 	return ""
 }
 
-// agentSessionDir returns (and ensures existence of) the agent user's
-// session directory for the given project. The directory name must match
-// the invoker's so that Claude Code's sanitizePath produces the same key
-// for the same absolute project path.
-//
-// Uses Hazmat's helper-backed agent maintenance path to ensure the directory
-// has setgid + group-write (2770). Init sets .claude/projects/ to agent:dev
-// 2770 (setgid), but Claude Code may recreate subdirectories with a
-// restrictive mode during sessions.
+// agentSessionDir returns (and ensures existence of) the agent user's session
+// directory for the given project. The directory name must match the invoker's
+// so that Claude Code's sanitizePath produces the same key for the same
+// absolute project path.
 func agentSessionDir(invokerDir string) (string, error) {
 	dirName := filepath.Base(invokerDir)
 	dest := filepath.Join(agentHome, ".claude", "projects", dirName)
 
-	// Create via the agent helper and enforce setgid + group-write. Claude Code
-	// (running as agent) may have created this subdirectory with a
-	// restrictive mode (e.g. 0700) during a prior session, blocking
-	// the host user from creating temp files for session sync.
-	if err := agentEnsureSharedDir(dest, 0o2770); err != nil {
-		return "", fmt.Errorf("create %s: %w (run 'hazmat init' to fix permissions)", dest, err)
+	if err := agentEnsureDir(dest, 0o700); err != nil {
+		return "", fmt.Errorf("create %s: %w (run 'hazmat init' to repair the agent helper)", dest, err)
 	}
 	return dest, nil
 }
@@ -287,6 +279,171 @@ func syncResumeSessionFiles(srcDir, destDir, resumeTarget string, wantsContinue 
 	return synced, nil
 }
 
+type agentResumeSessionFileInfo struct {
+	exists    bool
+	symlink   bool
+	regular   bool
+	size      int64
+	modTime   time.Time
+	typeLabel string
+}
+
+var (
+	agentResumeSessionFileInfoFunc = defaultAgentResumeSessionFileInfo
+	agentRemoveResumeSessionFile   = defaultAgentRemoveResumeSessionFile
+	agentWriteResumeSessionFile    = defaultAgentWriteResumeSessionFile
+)
+
+func defaultAgentResumeSessionFileInfo(path string) (agentResumeSessionFileInfo, error) {
+	const script = `path=$1
+if [ -L "$path" ]; then
+  printf 'symlink\t0\t0\n'
+elif [ -f "$path" ]; then
+  /usr/bin/stat -f 'file\t%z\t%m\n' "$path"
+elif [ -e "$path" ]; then
+  printf 'other\t0\t0\n'
+else
+  printf 'missing\t0\t0\n'
+fi`
+
+	out, err := asAgentOutput("/bin/sh", "-c", script, "hazmat-agent-resume-stat", path)
+	if err != nil {
+		return agentResumeSessionFileInfo{}, fmt.Errorf("stat agent resume session %s: %w", path, err)
+	}
+
+	fields := strings.Split(strings.TrimSpace(out), "\t")
+	if len(fields) != 3 {
+		return agentResumeSessionFileInfo{}, fmt.Errorf("parse agent resume session stat for %s: %q", path, out)
+	}
+
+	info := agentResumeSessionFileInfo{typeLabel: fields[0]}
+	switch fields[0] {
+	case "missing":
+		return info, nil
+	case "symlink":
+		info.exists = true
+		info.symlink = true
+		return info, nil
+	case "other":
+		info.exists = true
+		return info, nil
+	case "file":
+		info.exists = true
+		info.regular = true
+	default:
+		return agentResumeSessionFileInfo{}, fmt.Errorf("parse agent resume session stat for %s: unknown type %q", path, fields[0])
+	}
+
+	size, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return agentResumeSessionFileInfo{}, fmt.Errorf("parse agent resume session size for %s: %w", path, err)
+	}
+	sec, err := strconv.ParseInt(fields[2], 10, 64)
+	if err != nil {
+		return agentResumeSessionFileInfo{}, fmt.Errorf("parse agent resume session mtime for %s: %w", path, err)
+	}
+	info.size = size
+	info.modTime = time.Unix(sec, 0)
+	return info, nil
+}
+
+func defaultAgentRemoveResumeSessionFile(path string) error {
+	if err := asAgentQuiet("/bin/rm", "-f", path); err != nil {
+		return fmt.Errorf("remove stale agent resume session %s: %w", path, err)
+	}
+	return nil
+}
+
+func defaultAgentWriteResumeSessionFile(file resumeSessionFile, dest string) error {
+	content, err := os.ReadFile(file.path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", file.path, err)
+	}
+
+	tmp := filepath.Join(
+		filepath.Dir(dest),
+		fmt.Sprintf(".%s.tmp-%d-%d", filepath.Base(dest), os.Getpid(), time.Now().UnixNano()),
+	)
+	defer asAgentQuiet("/bin/rm", "-f", tmp) //nolint:errcheck // best-effort temp cleanup after atomic move
+
+	if err := agentWriteFile(tmp, content, 0o600); err != nil {
+		return err
+	}
+	if err := asAgentQuiet("/usr/bin/touch", "-mt", file.modTime.Local().Format("200601021504.05"), tmp); err != nil {
+		return fmt.Errorf("preserve timestamp for %s: %w", tmp, err)
+	}
+	if err := asAgentQuiet("/bin/mv", "-f", tmp, dest); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", tmp, dest, err)
+	}
+	return nil
+}
+
+func agentResumeSessionContentsEqual(srcPath, destPath string) bool {
+	left, err := os.ReadFile(srcPath)
+	if err != nil {
+		return false
+	}
+	right, err := agentReadFileBytes(destPath)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(left, right)
+}
+
+func shouldRefreshAgentResumeSessionFile(src resumeSessionFile, dest string, destInfo agentResumeSessionFileInfo) bool {
+	if !destInfo.exists {
+		return true
+	}
+	if destInfo.symlink {
+		return true
+	}
+	if !destInfo.regular {
+		return false
+	}
+	if src.modTime.After(destInfo.modTime) {
+		return true
+	}
+	if src.modTime.Equal(destInfo.modTime) {
+		return false
+	}
+	return src.size == destInfo.size && agentResumeSessionContentsEqual(src.path, dest)
+}
+
+func syncResumeSessionFilesToAgent(srcDir, destDir, resumeTarget string, wantsContinue bool) (int, error) {
+	files, err := listResumeSessionFiles(srcDir)
+	if err != nil {
+		return 0, err
+	}
+
+	selected := selectResumeSessionFiles(files, resumeTarget, wantsContinue)
+	synced := 0
+	for _, file := range selected {
+		dest := filepath.Join(destDir, file.name)
+
+		info, err := agentResumeSessionFileInfoFunc(dest)
+		if err != nil {
+			return synced, err
+		}
+		if info.exists && !info.symlink && !info.regular {
+			return synced, fmt.Errorf("agent resume destination %s is %s, not a regular file", dest, info.typeLabel)
+		}
+		if !shouldRefreshAgentResumeSessionFile(file, dest, info) {
+			continue
+		}
+		if info.symlink {
+			if err := agentRemoveResumeSessionFile(dest); err != nil {
+				return synced, err
+			}
+		}
+		if err := agentWriteResumeSessionFile(file, dest); err != nil {
+			return synced, err
+		}
+		synced++
+	}
+
+	return synced, nil
+}
+
 // syncResumeSession copies the invoking user's Claude Code sessions into the
 // agent user's session directory. This lets --resume and --continue work
 // without granting the seatbelt direct access to the host transcript store.
@@ -308,7 +465,7 @@ func syncResumeSession(projectDir string, resumeTarget string, wantsContinue boo
 		return err
 	}
 
-	synced, err := syncResumeSessionFiles(srcDir, destDir, resumeTarget, wantsContinue)
+	synced, err := syncResumeSessionFilesToAgent(srcDir, destDir, resumeTarget, wantsContinue)
 	if err != nil {
 		return err
 	}

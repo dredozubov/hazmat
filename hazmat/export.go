@@ -70,7 +70,10 @@ func newExportClaudeSessionCmd() *cobra.Command {
 }
 
 func exportClaudeSession(projectDir, requestedID string) (string, error) {
-	sourceDir := claudeProjectDir(agentHome, projectDir)
+	sourceDir, err := agentClaudeProjectDir(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("discover hazmat Claude session store: %w", err)
+	}
 	if sourceDir == "" {
 		return "", fmt.Errorf("no hazmat Claude sessions found for %s", projectDir)
 	}
@@ -139,31 +142,72 @@ func normalizeClaudeSessionID(id string) (string, error) {
 }
 
 func claudeProjectDir(homeDir, projectDir string) string {
+	dir, _ := lookupClaudeProjectDir(homeDir, projectDir, hostPathIsDir, hostReadDirNames)
+	return dir
+}
+
+func agentClaudeProjectDir(projectDir string) (string, error) {
+	return lookupClaudeProjectDir(agentHome, projectDir, agentPathIsDir, agentReadDirNames)
+}
+
+type claudeProjectDirProbe func(string) (bool, error)
+type claudeProjectDirNamesFunc func(string) ([]string, error)
+
+func lookupClaudeProjectDir(homeDir, projectDir string, isDir claudeProjectDirProbe, dirNames claudeProjectDirNamesFunc) (string, error) {
 	if homeDir == "" {
-		return ""
+		return "", nil
 	}
 
 	claudeDir := filepath.Join(homeDir, ".claude", "projects")
 	sanitized := sanitizePathForClaude(projectDir)
 	if len(sanitized) <= maxSanitizedLength {
 		dir := filepath.Join(claudeDir, sanitized)
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
+		exists, err := isDir(dir)
+		if err != nil {
+			return "", err
 		}
-		return ""
+		if exists {
+			return dir, nil
+		}
+		return "", nil
 	}
 
 	prefix := sanitized[:maxSanitizedLength]
-	entries, err := os.ReadDir(claudeDir)
+	names, err := dirNames(claudeDir)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), prefix+"-") {
-			return filepath.Join(claudeDir, e.Name())
+	for _, name := range names {
+		if name == "" || name == "." || name == ".." || strings.Contains(name, string(os.PathSeparator)) {
+			continue
+		}
+		if strings.HasPrefix(name, prefix+"-") {
+			return filepath.Join(claudeDir, name), nil
 		}
 	}
-	return ""
+	return "", nil
+}
+
+func hostPathIsDir(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, nil
+	}
+	return info.IsDir(), nil
+}
+
+func hostReadDirNames(path string) ([]string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
 }
 
 func ensureInvokerClaudeProjectDir(sourceDir string) (string, error) {

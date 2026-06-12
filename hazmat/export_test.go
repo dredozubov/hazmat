@@ -283,6 +283,80 @@ func TestClaudeProjectDirReturnsEmptyWhenMissing(t *testing.T) {
 	}
 }
 
+func TestAgentClaudeProjectDirExactMatchUsesAgentProbe(t *testing.T) {
+	projectDir := "/Users/dr/workspace/private"
+	want := filepath.Join(agentHome, ".claude", "projects", sanitizePathForClaude(projectDir))
+
+	savedProbe := agentPathProbe
+	savedReadDirNames := agentReadDirNames
+	t.Cleanup(func() {
+		agentPathProbe = savedProbe
+		agentReadDirNames = savedReadDirNames
+	})
+
+	probed := false
+	agentPathProbe = func(flag, path string) (bool, error) {
+		probed = true
+		if flag != "-d" {
+			t.Fatalf("agent path probe flag = %q, want -d", flag)
+		}
+		if path != want {
+			t.Fatalf("agent path probe path = %q, want %q", path, want)
+		}
+		return true, nil
+	}
+	agentReadDirNames = func(path string) ([]string, error) {
+		t.Fatalf("agentReadDirNames should not be called for exact match, got %s", path)
+		return nil, nil
+	}
+
+	got, err := agentClaudeProjectDir(projectDir)
+	if err != nil {
+		t.Fatalf("agentClaudeProjectDir: %v", err)
+	}
+	if got != want {
+		t.Fatalf("agentClaudeProjectDir = %q, want %q", got, want)
+	}
+	if !probed {
+		t.Fatal("agent path probe was not called")
+	}
+}
+
+func TestAgentClaudeProjectDirLongPathUsesAgentDirectoryListing(t *testing.T) {
+	long := "/Users/dr/workspace/" + strings.Repeat("abcdefghij", 25)
+	sanitized := sanitizePathForClaude(long)
+	prefix := sanitized[:maxSanitizedLength]
+	dirName := prefix + "-agenthash"
+	want := filepath.Join(agentHome, ".claude", "projects", dirName)
+
+	savedProbe := agentPathProbe
+	savedReadDirNames := agentReadDirNames
+	t.Cleanup(func() {
+		agentPathProbe = savedProbe
+		agentReadDirNames = savedReadDirNames
+	})
+
+	agentPathProbe = func(flag, path string) (bool, error) {
+		t.Fatalf("agent path probe should not be called for long project paths, got %s %s", flag, path)
+		return false, nil
+	}
+	agentReadDirNames = func(path string) ([]string, error) {
+		wantRoot := filepath.Join(agentHome, ".claude", "projects")
+		if path != wantRoot {
+			t.Fatalf("agentReadDirNames path = %q, want %q", path, wantRoot)
+		}
+		return []string{"bad/name", ".", dirName}, nil
+	}
+
+	got, err := agentClaudeProjectDir(long)
+	if err != nil {
+		t.Fatalf("agentClaudeProjectDir: %v", err)
+	}
+	if got != want {
+		t.Fatalf("agentClaudeProjectDir = %q, want %q", got, want)
+	}
+}
+
 func TestCopyDirTree(t *testing.T) {
 	src := t.TempDir()
 	dest := t.TempDir()

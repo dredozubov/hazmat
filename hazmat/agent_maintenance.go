@@ -9,8 +9,10 @@ import (
 )
 
 var (
-	agentPathProbe = defaultAgentPathProbe
-	agentReadFile  = defaultAgentReadFile
+	agentPathProbe     = defaultAgentPathProbe
+	agentReadDirNames  = defaultAgentReadDirNames
+	agentReadFile      = defaultAgentReadFile
+	agentReadFileBytes = defaultAgentReadFileBytes
 )
 
 func fileModeString(mode os.FileMode) string {
@@ -63,6 +65,45 @@ func defaultAgentReadFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(out), nil
+}
+
+func defaultAgentReadFileBytes(path string) ([]byte, error) {
+	cmd := newAgentCommand("/bin/cat", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func defaultAgentReadDirNames(path string) ([]string, error) {
+	const script = `dir=$1
+if [ ! -d "$dir" ]; then
+  exit 0
+fi
+for entry in "$dir"/*; do
+  [ -d "$entry" ] || continue
+  name=${entry##*/}
+  printf '%s\n' "$name"
+done`
+
+	out, err := asAgentOutput("/bin/sh", "-c", script, "hazmat-agent-read-dir-names", path)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 func agentEnsureDir(path string, mode os.FileMode) error {
