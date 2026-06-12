@@ -18,6 +18,7 @@ are not interchangeable.
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
+| `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -223,6 +224,34 @@ Hugging Face requires `HAZMAT_HF_SMOKE_MODEL` to name a pre-cached model ID or
 path. PyTorch torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
 `HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry. Ollama requires the
 `ollama` CLI and a running host daemon.
+
+### OpenHands recipe smoke
+
+Use this only for the recipe-only OpenHands path. The default mode is a
+disclosure: it prints the exact live command and exits without running Hazmat.
+
+```bash
+scripts/check-openhands-recipe-smoke.sh
+```
+
+Fixture checks are non-mutating host checks. They verify that the selected
+Hazmat binary and OpenHands CLI are present, but do not run `hazmat exec`:
+
+```bash
+scripts/check-openhands-recipe-smoke.sh --check-fixtures
+```
+
+Live mode is sudo-adjacent because it invokes `hazmat exec`. Agents must ask
+for explicit approval before running:
+
+```bash
+scripts/check-openhands-recipe-smoke.sh --run --i-understand-this-runs-hazmat-exec
+```
+
+The live smoke uses a scratch project and runs `openhands --help` under
+`hazmat exec --network none --no-backup`. It does not install OpenHands, import
+host `~/.openhands`, pass a host Docker socket, configure provider credentials,
+or prove first-class `hazmat openhands` support.
 
 ### Adding Credential Surfaces
 
