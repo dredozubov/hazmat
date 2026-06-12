@@ -2329,6 +2329,84 @@ func TestSafeEnvKeysIncludesExpected(t *testing.T) {
 	}
 }
 
+func TestAIMLCacheOnlyIntegrationsDoNotExposeCredentialsOrNetworkSelectors(t *testing.T) {
+	cases := []struct {
+		name     string
+		readDirs []string
+		env      []string
+		deny     []string
+	}{
+		{
+			name: "huggingface",
+			readDirs: []string{
+				"~/.cache/huggingface/hub",
+				"~/.cache/huggingface/datasets",
+				"~/.cache/huggingface/xet",
+			},
+			env: []string{"HF_HOME", "HF_HUB_OFFLINE"},
+			deny: []string{
+				"~/.cache/huggingface/token",
+				"~/.cache/huggingface/stored_tokens",
+				"HF_TOKEN",
+				"HUGGING_FACE_HUB_TOKEN",
+			},
+		},
+		{
+			name: "ollama",
+			readDirs: []string{
+				"~/.ollama/models",
+				"~/.ollama/cache",
+				"~/.ollama/logs",
+			},
+			deny: []string{
+				"~/.ollama/id_ed25519",
+				"OLLAMA_HOST",
+				"OLLAMA_API_KEY",
+			},
+		},
+		{
+			name: "pytorch-torch-hub",
+			readDirs: []string{
+				"~/.cache/torch/hub",
+				"~/.cache/torch/checkpoints",
+			},
+			deny: []string{
+				"TORCH_HOME_TOKEN",
+				"HF_TOKEN",
+				"GITHUB_TOKEN",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := loadBuiltinIntegrationSpec(tc.name)
+			if err != nil {
+				t.Fatalf("loadBuiltinIntegrationSpec(%s): %v", tc.name, err)
+			}
+			if !reflect.DeepEqual(spec.Session.ReadDirs, tc.readDirs) {
+				t.Fatalf("%s read_dirs = %v, want %v", tc.name, spec.Session.ReadDirs, tc.readDirs)
+			}
+			if !reflect.DeepEqual(spec.Session.EnvPassthrough, tc.env) {
+				t.Fatalf("%s env_passthrough = %v, want %v", tc.name, spec.Session.EnvPassthrough, tc.env)
+			}
+			combined := strings.Join(append(append([]string{}, spec.Session.ReadDirs...), spec.Session.EnvPassthrough...), "\n")
+			for _, denied := range tc.deny {
+				if strings.Contains(combined, denied) {
+					t.Fatalf("%s exposes denied selector %q in:\n%s", tc.name, denied, combined)
+				}
+			}
+		})
+	}
+	if !safeEnvKeys["HF_HOME"] || !safeEnvKeys["HF_HUB_OFFLINE"] {
+		t.Fatal("Hugging Face cache selectors must stay in safeEnvKeys")
+	}
+	for _, denied := range []string{"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "OLLAMA_HOST", "OLLAMA_API_KEY"} {
+		if safeEnvKeys[denied] {
+			t.Fatalf("%s must not be allowed as integration env passthrough", denied)
+		}
+	}
+}
+
 // ── credentialDenySubs sync check ──────────────────────────────────────────
 
 func TestCredentialDenySubsMatchSBPL(t *testing.T) {
