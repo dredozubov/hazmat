@@ -97,6 +97,9 @@ func TestApplyExperimentalSessionHomePlanBuildsRuntimePreview(t *testing.T) {
 	if cfg.SessionHome.AgentHomePolicy.Mode != containment.AgentHomeModeSessionLocal {
 		t.Fatalf("AgentHomePolicy mode = %s", cfg.SessionHome.AgentHomePolicy.Mode)
 	}
+	if cfg.SessionHome.Launch.readyForActivation() {
+		t.Fatal("experimental session-home preview is activation-ready before durable mirror sync exists")
+	}
 	if len(cfg.SessionNotes) < 2 || !strings.Contains(cfg.SessionNotes[0], "Experimental session-local HOME preview") {
 		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
 	}
@@ -273,14 +276,29 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 	}
 }
 
-func TestNewSessionHomeLaunchPlanReadyAfterBridgeRequirementsAreModeled(t *testing.T) {
+func TestNewSessionHomeLaunchPlanBlocksActivationUntilDurableMirrorSyncExists(t *testing.T) {
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
-	if !plan.readyForActivation() {
-		t.Fatalf("plan has activation blockers: %+v", plan.Blockers)
+	if plan.readyForActivation() {
+		t.Fatal("plan is activation-ready before durable mirror sync is implemented")
+	}
+	foundZshrc := false
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".zshrc" && blocker.Reason == sessionHomeBlockerDurableMirrorSync {
+			foundZshrc = true
+		}
+		if blocker.Reason != sessionHomeBlockerDurableMirrorSync {
+			t.Fatalf("unexpected activation blocker: %+v", blocker)
+		}
+	}
+	if !foundZshrc {
+		t.Fatalf("activation blockers = %+v, want .zshrc durable mirror blocker", plan.Blockers)
+	}
+	if got := sessionHomeActivationBlockerSummary(plan.Blockers); !strings.Contains(got, "durable mirror sync") {
+		t.Fatalf("blocker summary = %q", got)
 	}
 }
 
@@ -425,6 +443,7 @@ func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
 	for _, want := range []string{
 		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
 		"Persistent HOME:      " + persistentHome,
+		"Session HOME status:  blocked: durable mirror sync",
 		"session-home preview",
 	} {
 		if !strings.Contains(got, want) {

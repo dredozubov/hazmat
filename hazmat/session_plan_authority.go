@@ -193,6 +193,8 @@ func (authority sessionPlanAuthority) contractSessionHome() *sessioncontract.Ses
 	return &sessioncontract.SessionHome{
 		Enabled:            true,
 		Status:             "experimental-preview",
+		ActivationReady:    launch.readyForActivation(),
+		ActivationBlockers: contractSessionHomeBlockers(launch.Blockers),
 		Mode:               string(policy.Mode),
 		Home:               launch.Layout.Home,
 		PersistentHome:     policy.PersistentPath,
@@ -202,6 +204,20 @@ func (authority sessionPlanAuthority) contractSessionHome() *sessioncontract.Ses
 		ResumeRequested:    launch.ResumeRequested,
 		DurableBridgeRoots: append([]string(nil), policy.DurableBridgeRoots...),
 	}
+}
+
+func contractSessionHomeBlockers(blockers []sessionHomeLaunchBlocker) []sessioncontract.SessionHomeBlocker {
+	if len(blockers) == 0 {
+		return nil
+	}
+	out := make([]sessioncontract.SessionHomeBlocker, len(blockers))
+	for i, blocker := range blockers {
+		out[i] = sessioncontract.SessionHomeBlocker{
+			RelPath: blocker.RelPath,
+			Reason:  string(blocker.Reason),
+		}
+	}
+	return out
 }
 
 func copySessionHomeRuntimePlan(value *sessionHomeRuntimePlan) *sessionHomeRuntimePlan {

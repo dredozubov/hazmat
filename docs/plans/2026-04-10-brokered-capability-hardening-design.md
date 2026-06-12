@@ -628,6 +628,10 @@ view after it exists. OpenCode now has the same explicit hook shape, but its
 production importer must run through a constrained env wrapper so
 `opencode import` sees the assembled `HOME` and matching XDG roots without
 allowing arbitrary home overrides.
+Durable mirror entries such as shell RC files, Git config, harness state, and
+toolchain state remain an activation blocker until their copy/sync semantics are
+implemented. The plan can be rendered for review, but it must not be treated as
+launch-ready merely because transcript bridge contracts exist.
 The native launch environment builder also has a pure session-home overlay for
 `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME`; launch still
 uses the persistent `/Users/agent` values until the assembly and bridge

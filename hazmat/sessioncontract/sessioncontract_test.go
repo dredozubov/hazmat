@@ -68,6 +68,8 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 		SessionHome: &SessionHome{
 			Enabled:            true,
 			Status:             "experimental-preview",
+			ActivationReady:    false,
+			ActivationBlockers: []SessionHomeBlocker{{RelPath: ".zshrc", Reason: "durable-mirror-sync"}},
 			Mode:               "session-local",
 			Home:               "/private/tmp/hazmat-home/session-123/home",
 			PersistentHome:     "/Users/agent",
@@ -99,10 +101,12 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 	input.RepoSetupApplied[0].Sources[0] = "mutated"
 	input.Snapshot.Excludes[0] = "mutated"
 	input.SessionHome.Phases[0] = "mutated"
+	input.SessionHome.ActivationBlockers[0].Reason = "mutated"
 	input.SessionHome.DurableBridgeRoots[0] = "/mutated"
 	if plan.RepoSetupApplied[0].Sources[0] != "go" ||
 		plan.Snapshot.Excludes[0] != ".venv/" ||
 		plan.SessionHome.Phases[0] != "cleanup-stale-session-homes" ||
+		plan.SessionHome.ActivationBlockers[0].Reason != "durable-mirror-sync" ||
 		plan.SessionHome.DurableBridgeRoots[0] != "/Users/agent/.claude/projects" {
 		t.Fatalf("BuildPlan did not defensively copy nested slices: %+v", plan)
 	}

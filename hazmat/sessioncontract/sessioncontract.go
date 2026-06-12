@@ -148,16 +148,25 @@ type Snapshot struct {
 // SessionHome describes an explicit session-local HOME preview. Persistent
 // mutation and launch execution remain outside the data-only contract.
 type SessionHome struct {
-	Enabled            bool     `json:"enabled"`
-	Status             string   `json:"status,omitempty"`
-	Mode               string   `json:"mode,omitempty"`
-	Home               string   `json:"home,omitempty"`
-	PersistentHome     string   `json:"persistent_home,omitempty"`
-	CleanupRoot        string   `json:"cleanup_root,omitempty"`
-	CleanupMaxAge      string   `json:"cleanup_max_age,omitempty"`
-	Phases             []string `json:"phases,omitempty"`
-	ResumeRequested    bool     `json:"resume_requested,omitempty"`
-	DurableBridgeRoots []string `json:"durable_bridge_roots,omitempty"`
+	Enabled            bool                 `json:"enabled"`
+	Status             string               `json:"status,omitempty"`
+	ActivationReady    bool                 `json:"activation_ready"`
+	ActivationBlockers []SessionHomeBlocker `json:"activation_blockers,omitempty"`
+	Mode               string               `json:"mode,omitempty"`
+	Home               string               `json:"home,omitempty"`
+	PersistentHome     string               `json:"persistent_home,omitempty"`
+	CleanupRoot        string               `json:"cleanup_root,omitempty"`
+	CleanupMaxAge      string               `json:"cleanup_max_age,omitempty"`
+	Phases             []string             `json:"phases,omitempty"`
+	ResumeRequested    bool                 `json:"resume_requested,omitempty"`
+	DurableBridgeRoots []string             `json:"durable_bridge_roots,omitempty"`
+}
+
+// SessionHomeBlocker describes one unresolved prerequisite for activating a
+// planned session-local HOME.
+type SessionHomeBlocker struct {
+	RelPath string `json:"rel_path,omitempty"`
+	Reason  string `json:"reason"`
 }
 
 // BuildPlan constructs a defensive-copy session plan from input values.
@@ -255,6 +264,16 @@ func copySessionHome(value *SessionHome) *SessionHome {
 	}
 	out := *value
 	out.Phases = copyStrings(value.Phases)
+	out.ActivationBlockers = copySessionHomeBlockers(value.ActivationBlockers)
 	out.DurableBridgeRoots = copyStrings(value.DurableBridgeRoots)
 	return &out
+}
+
+func copySessionHomeBlockers(values []SessionHomeBlocker) []SessionHomeBlocker {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]SessionHomeBlocker, len(values))
+	copy(out, values)
+	return out
 }

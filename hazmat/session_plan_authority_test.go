@@ -26,6 +26,7 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 		"launch-harness",
 	}
 	expectedBridgeRoots := append([]string(nil), sessionHomeRuntime.AgentHomePolicy.DurableBridgeRoots...)
+	expectedBlocker := sessionHomeRuntime.Launch.Blockers[0]
 	cfg := sessionConfig{
 		Target:                  "codex",
 		ProjectDir:              "/workspace/project",
@@ -58,6 +59,7 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	cfg.IntegrationEnv[" gopath "] = "/mutated"
 	cfg.CredentialEnvGrants[0].Source = "mutated"
 	cfg.SessionHome.Launch.Phases[0] = "mutated"
+	cfg.SessionHome.Launch.Blockers[0].Reason = "mutated"
 	cfg.SessionHome.AgentHomePolicy.DurableBridgeRoots[0] = "/mutated"
 
 	contract := authority.ContractInput()
@@ -92,6 +94,10 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	}
 	if contract.SessionHome == nil ||
 		contract.SessionHome.Status != "experimental-preview" ||
+		contract.SessionHome.ActivationReady ||
+		len(contract.SessionHome.ActivationBlockers) == 0 ||
+		contract.SessionHome.ActivationBlockers[0].RelPath != expectedBlocker.RelPath ||
+		contract.SessionHome.ActivationBlockers[0].Reason != string(expectedBlocker.Reason) ||
 		contract.SessionHome.Mode != "session-local" ||
 		contract.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
 		contract.SessionHome.PersistentHome != persistentHome ||
@@ -102,9 +108,11 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 
 	contract.IntegrationEnv["GOPATH"] = "/mutated"
 	contract.SessionHome.Phases[0] = "mutated"
+	contract.SessionHome.ActivationBlockers[0].Reason = "mutated"
 	contract.SessionHome.DurableBridgeRoots[0] = "/mutated"
 	if fresh := authority.ContractInput(); fresh.IntegrationEnv["GOPATH"] != "/go" ||
 		fresh.SessionHome.Phases[0] != "cleanup-stale-session-homes" ||
+		fresh.SessionHome.ActivationBlockers[0].Reason != string(expectedBlocker.Reason) ||
 		fresh.SessionHome.DurableBridgeRoots[0] != expectedBridgeRoots[0] {
 		t.Fatal("ContractInput returned storage aliasing authority")
 	}

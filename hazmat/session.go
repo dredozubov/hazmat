@@ -1594,6 +1594,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	if cfg.SessionHome != nil {
 		fmt.Fprintf(&b, "  Session HOME:         %s (experimental preview)\n", cfg.SessionHome.Launch.Layout.Home)
 		fmt.Fprintf(&b, "  Persistent HOME:      %s\n", cfg.SessionHome.AgentHomePolicy.PersistentPath)
+		if !cfg.SessionHome.Launch.readyForActivation() {
+			fmt.Fprintf(&b, "  Session HOME status:  blocked: %s\n", sessionHomeActivationBlockerSummary(cfg.SessionHome.Launch.Blockers))
+		}
 	}
 	if summary := repoSetupSummary(cfg.RepoSetup); summary != "" {
 		fmt.Fprintf(&b, "  Repo setup:           %s\n", summary)

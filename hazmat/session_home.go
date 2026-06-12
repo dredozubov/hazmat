@@ -60,7 +60,8 @@ const (
 type sessionHomeLaunchBlockerReason string
 
 const (
-	sessionHomeBlockerActivationGate sessionHomeLaunchBlockerReason = "activation-gate"
+	sessionHomeBlockerActivationGate    sessionHomeLaunchBlockerReason = "activation-gate"
+	sessionHomeBlockerDurableMirrorSync sessionHomeLaunchBlockerReason = "durable-mirror-sync"
 )
 
 type sessionHomeLaunchBlocker struct {
@@ -285,11 +286,53 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 		},
 		Phases:          phases,
 		ResumeRequested: resumeRequested,
+		Blockers:        sessionHomeActivationBlockers(assembly),
 	}, nil
 }
 
 func (plan sessionHomeLaunchPlan) readyForActivation() bool {
 	return len(plan.Blockers) == 0
+}
+
+func sessionHomeActivationBlockerSummary(blockers []sessionHomeLaunchBlocker) string {
+	if len(blockers) == 0 {
+		return "ready"
+	}
+	counts := map[sessionHomeLaunchBlockerReason]int{}
+	for _, blocker := range blockers {
+		counts[blocker.Reason]++
+	}
+	var parts []string
+	for _, reason := range []sessionHomeLaunchBlockerReason{
+		sessionHomeBlockerDurableMirrorSync,
+		sessionHomeBlockerActivationGate,
+	} {
+		count := counts[reason]
+		if count == 0 {
+			continue
+		}
+		delete(counts, reason)
+		parts = append(parts, sessionHomeActivationBlockerReasonLabel(reason, count))
+	}
+	for reason, count := range counts {
+		parts = append(parts, sessionHomeActivationBlockerReasonLabel(reason, count))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "; ")
+}
+
+func sessionHomeActivationBlockerReasonLabel(reason sessionHomeLaunchBlockerReason, count int) string {
+	label := string(reason)
+	switch reason {
+	case sessionHomeBlockerDurableMirrorSync:
+		label = "durable mirror sync"
+	case sessionHomeBlockerActivationGate:
+		label = "activation gate"
+	}
+	if count == 1 {
+		return label
+	}
+	return fmt.Sprintf("%s (%d paths)", label, count)
 }
 
 func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {
@@ -385,9 +428,6 @@ func sessionHomeAgentHomePolicy(plan sessionHomeLaunchPlan, persistentHome strin
 }
 
 func newSessionHomeRuntimePlan(plan sessionHomeLaunchPlan, persistentHome string) (sessionHomeRuntimePlan, error) {
-	if !plan.readyForActivation() {
-		return sessionHomeRuntimePlan{}, fmt.Errorf("session-home launch plan has activation blockers: %v", plan.Blockers)
-	}
 	policy, err := sessionHomeAgentHomePolicy(plan, persistentHome)
 	if err != nil {
 		return sessionHomeRuntimePlan{}, err
@@ -396,6 +436,20 @@ func newSessionHomeRuntimePlan(plan sessionHomeLaunchPlan, persistentHome string
 		Launch:          plan,
 		AgentHomePolicy: policy,
 	}, nil
+}
+
+func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry) []sessionHomeLaunchBlocker {
+	var blockers []sessionHomeLaunchBlocker
+	for _, entry := range assembly {
+		if entry.Durability != sessionHomeDurableMirror {
+			continue
+		}
+		blockers = append(blockers, sessionHomeLaunchBlocker{
+			RelPath: entry.RelPath,
+			Reason:  sessionHomeBlockerDurableMirrorSync,
+		})
+	}
+	return blockers
 }
 
 func validateSessionHomeBridgeRequirement(layout sessionHomeLayout, requirement sessionHomeBridgeRequirement) error {

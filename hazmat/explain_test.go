@@ -164,6 +164,9 @@ func TestBuildExplainJSON(t *testing.T) {
 		t.Fatal("SessionHome = nil, want session-local HOME preview")
 	}
 	if got.SessionHome.Status != "experimental-preview" ||
+		got.SessionHome.ActivationReady ||
+		len(got.SessionHome.ActivationBlockers) == 0 ||
+		got.SessionHome.ActivationBlockers[0].Reason != "durable-mirror-sync" ||
 		got.SessionHome.Mode != "session-local" ||
 		got.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
 		got.SessionHome.PersistentHome != sessionHomeRuntime.AgentHomePolicy.PersistentPath ||
@@ -314,6 +317,9 @@ func TestExplainJSONCommandIncludesExperimentalSessionHomePreview(t *testing.T) 
 		t.Fatal("SessionHome = nil, want experimental session-local HOME preview")
 	}
 	if preview.SessionHome.Status != "experimental-preview" ||
+		preview.SessionHome.ActivationReady ||
+		len(preview.SessionHome.ActivationBlockers) == 0 ||
+		preview.SessionHome.ActivationBlockers[0].Reason != "durable-mirror-sync" ||
 		preview.SessionHome.Mode != "session-local" ||
 		preview.SessionHome.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") ||
 		preview.SessionHome.PersistentHome != agentHome ||
