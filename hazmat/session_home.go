@@ -418,6 +418,172 @@ func materializeSessionHomeBridges(layout sessionHomeLayout, requirements []sess
 	return nil
 }
 
+func materializeSessionHomeSeedEntries(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {
+	for _, entry := range assembly {
+		if entry.RuntimePolicy != sessionHomePolicySeedOnly {
+			continue
+		}
+		if err := validateSessionHomeAssemblyEntry(layout, entry); err != nil {
+			return err
+		}
+		if err := materializeSessionHomeSeedEntry(layout, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSessionHomeAssemblyEntry(layout sessionHomeLayout, entry sessionHomeAssemblyEntry) error {
+	if strings.TrimSpace(entry.RelPath) == "" {
+		return fmt.Errorf("session-home assembly rel path is required")
+	}
+	if entry.PersistentPath == "" || !filepath.IsAbs(entry.PersistentPath) {
+		return fmt.Errorf("%s: persistent path %q must be absolute", entry.RelPath, entry.PersistentPath)
+	}
+	if entry.RuntimePath == "" || !filepath.IsAbs(entry.RuntimePath) {
+		return fmt.Errorf("%s: runtime path %q must be absolute", entry.RelPath, entry.RuntimePath)
+	}
+	if !isWithinDir(layout.Home, filepath.Clean(entry.RuntimePath)) {
+		return fmt.Errorf("%s: runtime path %s escapes session home %s", entry.RelPath, entry.RuntimePath, layout.Home)
+	}
+	if isWithinDir(layout.Home, filepath.Clean(entry.PersistentPath)) {
+		return fmt.Errorf("%s: persistent path %s must stay outside session home %s", entry.RelPath, entry.PersistentPath, layout.Home)
+	}
+	return nil
+}
+
+func materializeSessionHomeSeedEntry(layout sessionHomeLayout, entry sessionHomeAssemblyEntry) error {
+	info, err := os.Lstat(entry.PersistentPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%s: inspect seed source: %w", entry.RelPath, err)
+	}
+	return copySessionHomeSeedPath(layout, entry.PersistentPath, entry.RuntimePath, info)
+}
+
+func copySessionHomeSeedPath(layout sessionHomeLayout, src, dest string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s: seed source symlinks are not supported", src)
+	}
+	switch {
+	case info.Mode().IsRegular():
+		return copySessionHomeSeedFile(layout, src, dest, info)
+	case info.IsDir():
+		return copySessionHomeSeedDir(layout, src, dest, info)
+	default:
+		return fmt.Errorf("%s: unsupported seed source type %s", src, info.Mode().String())
+	}
+}
+
+func copySessionHomeSeedFile(layout sessionHomeLayout, src, dest string, info os.FileInfo) error {
+	if err := ensureSessionHomeParentDir(layout, dest); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return fmt.Errorf("%s: seed destination already exists", dest)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("%s: inspect seed destination: %w", dest, err)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("%s: read seed source: %w", src, err)
+	}
+	mode := info.Mode().Perm()
+	if err := os.WriteFile(dest, data, mode); err != nil {
+		return fmt.Errorf("%s: write seed destination: %w", dest, err)
+	}
+	if err := os.Chtimes(dest, info.ModTime(), info.ModTime()); err != nil {
+		return fmt.Errorf("%s: set seed destination timestamp: %w", dest, err)
+	}
+	return nil
+}
+
+func copySessionHomeSeedDir(layout sessionHomeLayout, src, dest string, info os.FileInfo) error {
+	if err := ensureSessionHomeDir(layout, dest); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("%s: read seed source dir: %w", src, err)
+	}
+	for _, child := range entries {
+		childSrc := filepath.Join(src, child.Name())
+		childDest := filepath.Join(dest, child.Name())
+		childInfo, err := os.Lstat(childSrc)
+		if err != nil {
+			return fmt.Errorf("%s: inspect seed child: %w", childSrc, err)
+		}
+		if err := copySessionHomeSeedPath(layout, childSrc, childDest, childInfo); err != nil {
+			return err
+		}
+	}
+	if err := os.Chmod(dest, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("%s: set seed destination mode: %w", dest, err)
+	}
+	if err := os.Chtimes(dest, info.ModTime(), info.ModTime()); err != nil {
+		return fmt.Errorf("%s: set seed destination timestamp: %w", dest, err)
+	}
+	return nil
+}
+
+func ensureSessionHomeParentDir(layout sessionHomeLayout, path string) error {
+	return ensureSessionHomeDir(layout, filepath.Dir(path))
+}
+
+func ensureSessionHomeDir(layout sessionHomeLayout, dir string) error {
+	home := filepath.Clean(layout.Home)
+	if home == "" || !filepath.IsAbs(home) {
+		return fmt.Errorf("session home path %q must be absolute", layout.Home)
+	}
+	info, err := os.Lstat(home)
+	if err != nil {
+		return fmt.Errorf("%s: inspect session home root: %w", home, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s: session home root is a symlink", home)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s: session home root is not a directory", home)
+	}
+	dir = filepath.Clean(dir)
+	if dir == home {
+		return nil
+	}
+	if !isWithinDir(home, dir) {
+		return fmt.Errorf("%s: directory escapes session home %s", dir, home)
+	}
+	rel, err := filepath.Rel(home, dir)
+	if err != nil {
+		return fmt.Errorf("%s: compute session-home relative path: %w", dir, err)
+	}
+	current := home
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(current, 0o700); err != nil {
+				return fmt.Errorf("%s: create session-home dir: %w", current, err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("%s: inspect session-home dir: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s: session-home dir is a symlink", current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s: session-home path is not a directory", current)
+		}
+	}
+	return nil
+}
+
 func sessionHomeAgentHomePolicy(plan sessionHomeLaunchPlan, persistentHome string) (containment.AgentHomePolicy, error) {
 	persistentHome = filepath.Clean(persistentHome)
 	if !filepath.IsAbs(persistentHome) {
@@ -479,8 +645,6 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry) []sessio
 
 func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
 	switch policy {
-	case sessionHomePolicySeedOnly:
-		return sessionHomeBlockerSeedMaterialize, true
 	case sessionHomePolicyAdapterRequired:
 		return sessionHomeBlockerAdapterRequired, true
 	case sessionHomePolicyCheckedWriteback:

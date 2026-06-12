@@ -295,23 +295,20 @@ func TestNewSessionHomeLaunchPlanBlocksActivationUntilRuntimePoliciesAreImplemen
 	if plan.readyForActivation() {
 		t.Fatal("plan is activation-ready before session-home runtime policies are implemented")
 	}
-	foundSeed := false
 	foundAdapter := false
 	for _, blocker := range plan.Blockers {
 		switch {
-		case blocker.RelPath == ".zshrc" && blocker.Reason == sessionHomeBlockerSeedMaterialize:
-			foundSeed = true
 		case blocker.RelPath == ".local/bin" && blocker.Reason == sessionHomeBlockerAdapterRequired:
 			foundAdapter = true
-		case blocker.Reason == sessionHomeBlockerSeedMaterialize || blocker.Reason == sessionHomeBlockerAdapterRequired:
+		case blocker.Reason == sessionHomeBlockerAdapterRequired:
 		default:
 			t.Fatalf("unexpected activation blocker: %+v", blocker)
 		}
 	}
-	if !foundSeed || !foundAdapter {
-		t.Fatalf("activation blockers = %+v, want seed and adapter blockers", plan.Blockers)
+	if !foundAdapter {
+		t.Fatalf("activation blockers = %+v, want adapter blocker", plan.Blockers)
 	}
-	if got := sessionHomeActivationBlockerSummary(plan.Blockers); !strings.Contains(got, "seed materialization") || !strings.Contains(got, "adapter required") {
+	if got := sessionHomeActivationBlockerSummary(plan.Blockers); strings.Contains(got, "seed materialization") || !strings.Contains(got, "adapter required") {
 		t.Fatalf("blocker summary = %q", got)
 	}
 }
@@ -458,7 +455,6 @@ func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
 		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
 		"Persistent HOME:      " + persistentHome,
 		"Session HOME status:  blocked: adapter required",
-		"seed materialization",
 		"session-home preview",
 	} {
 		if !strings.Contains(got, want) {
@@ -573,6 +569,143 @@ func TestMaterializeSessionHomeBridgesRejectsPersistentRootInsideSessionHome(t *
 	}
 	if err := materializeSessionHomeBridges(layout, []sessionHomeBridgeRequirement{req}); err == nil {
 		t.Fatal("materializeSessionHomeBridges accepted a persistent root inside the session home")
+	}
+}
+
+func TestMaterializeSessionHomeSeedEntriesCopiesOnlySeedPolicyPaths(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	if err := createSessionHomeLayout(plan.Layout); err != nil {
+		t.Fatalf("createSessionHomeLayout: %v", err)
+	}
+
+	writeFile := func(rel, content string, mode os.FileMode) {
+		t.Helper()
+		path := filepath.Join(persistentHome, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	writeFile(".zshrc", "export HAZMAT_TEST=1\n", 0o640)
+	writeFile(".gitconfig", "[user]\n\tname = Agent\n", 0o600)
+	writeFile(".config/git/config", "[safe]\n\tdirectory = /workspace/*\n", 0o600)
+	writeFile(".claude/commands/review.md", "review command\n", 0o644)
+	if err := os.Chmod(filepath.Join(persistentHome, ".claude", "commands"), 0o755); err != nil {
+		t.Fatalf("chmod persistent commands dir: %v", err)
+	}
+	writeFile(".local/bin/tool", "#!/bin/sh\n", 0o700)
+	writeFile(".cache/package-cache", "cache\n", 0o600)
+
+	if err := materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly); err != nil {
+		t.Fatalf("materializeSessionHomeSeedEntries: %v", err)
+	}
+
+	for rel, want := range map[string]string{
+		".zshrc":                     "export HAZMAT_TEST=1\n",
+		".gitconfig":                 "[user]\n\tname = Agent\n",
+		".config/git/config":         "[safe]\n\tdirectory = /workspace/*\n",
+		".claude/commands/review.md": "review command\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(plan.Layout.Home, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read copied %s: %v", rel, err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s = %q, want %q", rel, got, want)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".zshrc")); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("copied .zshrc mode err=%v info=%v", err, info)
+	}
+	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".claude")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("created .claude parent mode err=%v info=%v", err, info)
+	}
+	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".claude", "commands")); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("copied commands dir mode err=%v info=%v", err, info)
+	}
+	for _, rel := range []string{".local/bin/tool", ".cache/package-cache"} {
+		if _, err := os.Lstat(filepath.Join(plan.Layout.Home, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("%s should not be seed-copied, err=%v", rel, err)
+		}
+	}
+}
+
+func TestMaterializeSessionHomeSeedEntriesRejectsSeedSymlinks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	if err := createSessionHomeLayout(plan.Layout); err != nil {
+		t.Fatalf("createSessionHomeLayout: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".claude", "commands"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(persistentHome, ".zshrc.real"), []byte("source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(persistentHome, ".zshrc.real"), filepath.Join(persistentHome, ".zshrc")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly)
+	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
+		t.Fatalf("materializeSessionHomeSeedEntries err = %v, want symlink rejection", err)
+	}
+}
+
+func TestMaterializeSessionHomeSeedEntriesRejectsNestedSeedSymlinks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	if err := createSessionHomeLayout(plan.Layout); err != nil {
+		t.Fatalf("createSessionHomeLayout: %v", err)
+	}
+	commands := filepath.Join(persistentHome, ".claude", "commands")
+	if err := os.MkdirAll(commands, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(persistentHome, "outside.md"), []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(persistentHome, "outside.md"), filepath.Join(commands, "link.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly)
+	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
+		t.Fatalf("materializeSessionHomeSeedEntries err = %v, want nested symlink rejection", err)
+	}
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".claude", "commands", "link.md")); !os.IsNotExist(err) {
+		t.Fatalf("nested symlink destination should not exist, err=%v", err)
+	}
+}
+
+func TestMaterializeSessionHomeSeedEntriesRejectsRuntimeEscape(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := sessionHomeAssemblyEntry{
+		RelPath:        ".zshrc",
+		RuntimePolicy:  sessionHomePolicySeedOnly,
+		PersistentPath: filepath.Join(t.TempDir(), "agent", ".zshrc"),
+		RuntimePath:    filepath.Join(layout.SessionDir, "outside", ".zshrc"),
+	}
+	if err := materializeSessionHomeSeedEntries(layout, []sessionHomeAssemblyEntry{entry}); err == nil {
+		t.Fatal("materializeSessionHomeSeedEntries accepted runtime path outside session home")
 	}
 }
 
