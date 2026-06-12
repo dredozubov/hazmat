@@ -210,9 +210,9 @@ rollback preservation semantics changed. `MC_SetupRollback` was re-run with TLC
 and reported "No error has been found" across the same state space: 65,662
 generated states, 35,005 distinct states, depth 56.
 
-**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Goose credential-state expansion:** Host
+**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Trae/Goose credential-state expansion:** Host
 credential hardening now includes Amp config/plugin roots, Devin
-config/auth-adjacent state, Kilo/Kimi/Kiro/Vibe config/credential/session
+config/auth-adjacent state, Kilo/Kimi/Kiro/Vibe/Trae config/credential/session
 roots, and Goose config/session/log roots alongside the existing credential
 deny floor.
 This does not add a setup step; it expands the concrete path set covered by the
@@ -343,14 +343,14 @@ subtrees lose implicit section-4 exposure. TLC proves
 `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome` with "No error has
 been found" across 147,456 generated states, 135,168 distinct states, depth 11.
 
-**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Goose credential-state expansion:** The credential
+**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Trae/Goose credential-state expansion:** The credential
 model now includes representative `ampConfigDir`, `devinConfigDir`,
 `agentCliStateDir`, and `gooseStateDir` leaves after the concrete deny floor
 added `~/.config/amp`, `~/.config/devin`, `~/.config/kilo`, `~/.kimi-code`,
-legacy `~/.kimi`, `~/.kiro`, `~/.vibe`, `~/.config/goose`,
+legacy `~/.kimi`, `~/.kiro`, `~/.vibe`, `~/.traecli`, `~/.config/goose`,
 `~/.local/share/goose`, and `~/.local/state/goose`. `agentCliStateDir` is the
-representative finite-model leaf for Kilo/Kimi/Kiro/Vibe-style external agent
-CLI state roots so the proof does not grow one dimension per vendor.
+representative finite-model leaf for Kilo/Kimi/Kiro/Vibe/Trae-style external
+agent CLI state roots so the proof does not grow one dimension per vendor.
 `MC_SeatbeltPolicy` was re-run with TLC and reported "No error has been found"
 across 7,667,712 generated states, 7,028,736 distinct states, depth 11.
 
@@ -546,10 +546,10 @@ the validated path constructor move and root/credential-deny handling review.
 `MC_Tier3LaunchContainment` reported "No error has been found" across 33,876
 generated states, 23,580 distinct states, depth 9.
 
-**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Goose credential-state expansion:** The abstract
+**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Trae/Goose credential-state expansion:** The abstract
 launch model now includes `ampConfigDir`, `devinConfigDir`, `agentCliStateDir`, and
 `gooseStateDir` as credential leaves, matching the concrete Amp config, Devin
-config, Kilo/Kimi/Kiro/Vibe config/session roots, and Goose config/session/log
+config, Kilo/Kimi/Kiro/Vibe/Trae config/session roots, and Goose config/session/log
 deny roots.
 `MC_Tier3LaunchContainment` was re-run with TLC and reported "No error has
 been found" across 3,270,228 generated states, 1,623,068 distinct states,
@@ -621,10 +621,10 @@ guard outside the modeled credential-input set. `MC_TierPolicyEquivalence` was
 re-run with TLC and reported "No error has been found" across 655,360 generated
 states, 327,680 distinct states, depth 1.
 
-**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Goose credential-state expansion:** The equivalence
+**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Trae/Goose credential-state expansion:** The equivalence
 model now includes `ampConfigDir`, `devinConfigDir`, `agentCliStateDir`, and
 `gooseStateDir` as credential leaves so Tier 2 and Tier 3 reject the new Amp,
-Devin, Kilo/Kimi/Kiro/Vibe, and Goose credential-state roots consistently.
+Devin, Kilo/Kimi/Kiro/Vibe/Trae, and Goose credential-state roots consistently.
 `MC_TierPolicyEquivalence` was re-run with TLC and reported "No error has been
 found" across 18,874,368 generated states, 9,437,184 distinct states, depth 1.
 
@@ -1231,10 +1231,10 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 TLC passes across all 134,720 distinct states (246,528 generated, depth 10,
 ~4s).
 
-**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Goose credential-state expansion:** The Apple
+**2026-06-12 Amp/Devin/Kilo/Kimi/Kiro/Vibe/Trae/Goose credential-state expansion:** The Apple
 Container launch model now includes `ampConfigDir`, `devinConfigDir`,
 `agentCliStateDir`, and `gooseStateDir` as credential leaves, matching the concrete
-Amp config, Devin config, Kilo/Kimi/Kiro/Vibe config/session roots, and Goose
+Amp config, Devin config, Kilo/Kimi/Kiro/Vibe/Trae config/session roots, and Goose
 config/session/log deny roots.
 `MC_AppleContainerLaunch` was re-run with TLC and reported "No error has been
 found" across 18,487,296 generated states, 8,360,000 distinct states, depth 10.

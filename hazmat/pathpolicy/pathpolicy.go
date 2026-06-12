@@ -33,6 +33,7 @@ var credentialDenySubpaths = []string{
 	"/.kimi",
 	"/.kiro",
 	"/.vibe",
+	"/.traecli",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",

@@ -235,6 +235,7 @@
 (deny file-read* file-write* (subpath "/Users/agent/.kimi"))
 (deny file-read* file-write* (subpath "/Users/agent/.kiro"))
 (deny file-read* file-write* (subpath "/Users/agent/.vibe"))
+(deny file-read* file-write* (subpath "/Users/agent/.traecli"))
 (deny file-read* file-write* (subpath "/Users/agent/.continue"))
 (deny file-read* file-write* (subpath "/Users/agent/.cline"))
 (deny file-read* file-write* (subpath "/Users/agent/.aider.conf.yml"))

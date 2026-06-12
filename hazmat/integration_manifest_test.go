@@ -23,6 +23,7 @@ var aiAgentCredentialDenySubs = []string{
 	"/.kimi",
 	"/.kiro",
 	"/.vibe",
+	"/.traecli",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
