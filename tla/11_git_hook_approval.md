@@ -56,6 +56,7 @@ Future changes to that boundary must preserve the properties below.
 
 | Invariant | Meaning |
 |-----------|---------|
+| `ApprovalStateWellFormed` | Approval, snapshot, wrapper, dispatcher, and fallback state stay internally consistent. |
 | `ApprovedContentOnly` | Any approved execution runs bytes from the immutable approved snapshot, not live repo bytes. |
 | `HooksPathPinned` | Approved execution requires the managed `core.hooksPath`. |
 | `WrapperRefusesReroute` | If the wrapper sees `core.hooksPath` drift away from the managed value, it refuses execution. |

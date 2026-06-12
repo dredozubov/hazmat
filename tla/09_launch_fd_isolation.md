@@ -22,6 +22,8 @@ The useful design claim is narrower and stronger:
 - the helper itself closes every inherited fd `>= 3` before sandboxing
 - any fd the helper opens for policy validation is explicitly `CLOEXEC`
 - the final agent process starts with stdio only
+- broker activation and attestation-token minting happen only after confirmed
+  containment metadata, not merely after a prepared host launch
 
 ## Code Location
 
@@ -41,12 +43,12 @@ The model uses six abstract fds:
 |----|---------|
 | `0,1,2` | stdio |
 | `3` | inherited credential-bearing fd |
-| `4` | inherited benign extra fd |
+| `4` | inherited extra fd that may be benign or host-authority-bearing |
 | `5` | helper-opened policy file |
 
 Each fd also tracks:
 
-- target class: `stdio`, `credential`, `benign`, `policy`, `unused`
+- target class: `stdio`, `credential`, `benign`, `policy`, `authority`, `unused`
 - origin: `shell`, `helper`, `none`
 - `CLOEXEC` flag
 
@@ -61,7 +63,9 @@ inheritance matters:
 4. helper fd sanitization
 5. helper policy-file open
 6. `sandbox_init()`
-7. final agent `exec`
+7. confirmed-containment metadata emission
+8. optional host broker activation and token minting
+9. final agent `exec`
 
 Two environment knobs are chosen nondeterministically at `Init`:
 
@@ -82,6 +86,9 @@ The checked config fixes the helper-side design knobs to the intended values:
 | `CredentialFDsGoneBeforeSandbox` | No credential-bearing fd is live when `sandbox_init()` runs |
 | `AgentFDTableAllowlisted` | The final exec'd agent keeps only stdio |
 | `StdioSurvivesToAgent` | The agent still has all three stdio descriptors |
+| `BrokerStartsOnlyAfterSandboxConfirmed` | The host broker cannot activate before `sandbox_init()` succeeds and confirmed-containment metadata is emitted |
+| `TokenMintedOnlyAfterSandboxConfirmed` | Attestation token minting follows broker activation, which follows confirmed containment |
+| `AgentFDTableDoesNotCarryAuthority` | No inherited fd carrying host authority material survives into the final agent process |
 
 ## What This Found
 
@@ -90,6 +97,8 @@ This model makes one design fact explicit:
 - relying on Go's current exec behavior or `sudo`'s current fd cleanup is not a
   proof, because either upstream behavior can be toggled adversarially in the model
 - the first helper-side action must therefore be inherited-fd cleanup
+- a pre-sudo prepared launch is not a confirmed containment boundary; broker
+  authority starts only after `sandbox_init()` and metadata confirmation
 
 With the checked config, TLC passes. With a temporary negative config that sets
 `HelperClosesInheritedFDs = FALSE`, TLC immediately finds a counterexample where
@@ -109,9 +118,9 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `128 states generated`
-- `112 distinct states found`
-- `depth 7`
+- `608 states generated`
+- `416 distinct states found`
+- `depth 10`
 - `Finished in <1s`
 
 2026-06-04 proof-hygiene refactor:
@@ -123,6 +132,17 @@ Observed result:
 - before metrics: `128 generated`, `112 distinct`, `depth 7`
 - after metrics: `128 generated`, `112 distinct`, `depth 7`
 
+2026-06-09 Beadpost broker ordering addition:
+
+- added confirmed-containment metadata, broker activation, and token minting
+  order to the same launch model
+- added an adversarial inherited `authority` fd class to represent host signing
+  material that must never reach the contained agent
+- added checked obligations `BrokerStartsOnlyAfterSandboxConfirmed`,
+  `TokenMintedOnlyAfterSandboxConfirmed`, and
+  `AgentFDTableDoesNotCarryAuthority`
+- current metrics: `608 generated`, `416 distinct`, `depth 10`
+
 ## Interpretation
 
 This proof does not claim anything about macOS kernel internals or `sudo`
@@ -131,6 +151,8 @@ implementation details. It proves a stronger Hazmat-specific boundary:
 - even if upstream exec behavior is less hygienic than expected,
 - and even if `sudo` contributes no cleanup,
 - the helper still reaches `sandbox_init()` with an allowlisted fd table
+- and any host-side broker authority is minted only after confirmed containment
 
 That turns file-descriptor hygiene from an implicit runtime assumption into an
-explicit checked design rule for the native launch path.
+explicit checked design rule for the native launch path, and keeps the
+attestation authority boundary tied to the same confirmed launch event.

@@ -66,6 +66,75 @@ func TestFormalVerificationDocsMentionPromotedSpecs(t *testing.T) {
 	assertSpecSetEqual(t, checkSuite, specsMentionedInFile(t, checkSuite), promoted)
 }
 
+func TestProofDesignNotesMentionOwnedObligations(t *testing.T) {
+	rows := loadProofOwnershipRows(t)
+	if len(rows) == 0 {
+		t.Fatal("proof ownership ledger is empty")
+	}
+
+	noteText := make(map[string]string)
+	var missing []string
+	for _, row := range rows {
+		if row.obligation == "TypeOK" {
+			continue
+		}
+		text, ok := noteText[row.designNote]
+		if !ok {
+			path := filepath.Join("..", row.designNote)
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			text = string(raw)
+			noteText[row.designNote] = text
+		}
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(row.obligation) + `\b`)
+		if !re.MatchString(text) {
+			missing = append(missing, row.spec+" "+row.kind+" "+row.obligation+" -> "+row.designNote)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("design notes do not mention owned proof obligations:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
+func TestVerifiedLedgerMentionsOwnedObligations(t *testing.T) {
+	rows := loadProofOwnershipRows(t)
+	if len(rows) == 0 {
+		t.Fatal("proof ownership ledger is empty")
+	}
+
+	path := filepath.Join("..", "tla", "VERIFIED.md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(raw)
+
+	var missing []string
+	for _, row := range rows {
+		if row.obligation == "TypeOK" {
+			continue
+		}
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(row.obligation) + `\b`)
+		if !re.MatchString(text) {
+			missing = append(missing, row.spec+" "+row.kind+" "+row.obligation)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("VERIFIED.md does not mention owned proof obligations:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
+type proofOwnershipRow struct {
+	spec       string
+	kind       string
+	obligation string
+	designNote string
+}
+
 func loadPromotedSpecs(t *testing.T) map[string]bool {
 	t.Helper()
 	path := filepath.Join("..", "tla", "promoted_specs.tsv")
@@ -93,6 +162,40 @@ func loadPromotedSpecs(t *testing.T) map[string]bool {
 		specs[fields[0]] = true
 	}
 	return specs
+}
+
+func loadProofOwnershipRows(t *testing.T) []proofOwnershipRow {
+	t.Helper()
+	path := filepath.Join("..", "tla", "proof_ownership.tsv")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	var rows []proofOwnershipRow
+	for idx, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if idx == 0 {
+			if line != "spec\tkind\tobligation\tverified_section\tdesign_note\towner" {
+				t.Fatalf("%s: unexpected header %q", path, line)
+			}
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 6 {
+			t.Fatalf("%s:%d: expected six tab-separated columns, got %q", path, idx+1, line)
+		}
+		rows = append(rows, proofOwnershipRow{
+			spec:       fields[0],
+			kind:       fields[1],
+			obligation: fields[2],
+			designNote: fields[4],
+		})
+	}
+	return rows
 }
 
 func specsMentionedInMarkdown(t *testing.T, path string) map[string]bool {

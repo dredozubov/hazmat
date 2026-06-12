@@ -41,6 +41,10 @@ The correctness questions:
    agent-owned login keychain DB and sidecar files, while the broader
    Keychains directory remains denied?
 
+9. **Host authority key protection** — do Beadpost broker attestation keys stay
+   denied even when a user selects the key directory as a project or read dir,
+   and without inheriting the Claude Keychain compatibility exception?
+
 ## Code Location
 
 | File | Functions |
@@ -97,7 +101,7 @@ project/read/temp/credential path rules checked by this spec.
 
 ### Abstract Path Model
 
-Eighteen abstract paths with a containment relation:
+Twenty abstract paths with a containment relation:
 
 | Path | Represents | Contains |
 |------|-----------|----------|
@@ -119,11 +123,13 @@ Eighteen abstract paths with a containment relation:
 | `claudeTempRoot` | `/private/tmp/claude-599` | claudeTempFile |
 | `claudeTempFile` | `/private/tmp/claude-599/socket` | (nothing) |
 | `codexTempSocket` | `/private/tmp/codex-ipc/app.sock` | (nothing) |
+| `attestationKeyDir` | `/var/lib/hazmat/keys` | attestationKeyFile |
+| `attestationKeyFile` | `/var/lib/hazmat/keys/attestation.key` | (nothing) |
 
 ### Nondeterministic Inputs
 
-- `ProjectDir ∈ {normalProj, agentHome, sshDir, configDir, hostTempRoot, hostTempOutside}` — tests dangerous choices and explicit host temp grants
-- `ReadDirs ⊆ {normalProj, agentHome, outsideRef, hostTempRoot}` — tests broad read dirs, including explicit host temp grants
+- `ProjectDir ∈ {normalProj, agentHome, sshDir, configDir, hostTempRoot, hostTempOutside, attestationKeyDir}` — tests dangerous choices, explicit host temp grants, and the host authority key deny root
+- `ReadDirs ⊆ {normalProj, agentHome, outsideRef, hostTempRoot, attestationKeyDir}` — tests broad read dirs, including explicit host temp and host authority key grants
 - `NetworkMode ∈ {default, none}` — tests the default outbound mode and
   per-session deny-all egress mode
 - `AgentKeychainAccess ∈ BOOLEAN` — tests native Claude OAuth's exact
@@ -142,12 +148,14 @@ the highest section number determines the outcome. This models SBPL semantics.
 
 ## What TLC Finds
 
-### Invariants That Pass (12,672 states, <5s)
+### Invariants That Pass
 
 | Invariant | Meaning |
 |-----------|---------|
 | `CredentialReadDenied` | Credential file-read* is denied outside the exact Claude agent keychain exception |
 | `CredentialWriteDenied` | Credential file-write* is denied outside the exact Claude agent keychain exception |
+| `AttestationKeyReadDenied` | Beadpost broker attestation key file-read* is denied with no Claude-style exception |
+| `AttestationKeyWriteDenied` | Beadpost broker attestation key file-write* is denied with no Claude-style exception |
 | `AgentKeychainExceptionScoped` | The optional Claude keychain exception allows only the modeled login keychain DB and sidecar files, and only when requested |
 | `ReadDirsNoWrite` | Read-only dirs never get file-write* rules |
 | `ProjectDirWritable` | Project directory always has write access |
@@ -171,19 +179,21 @@ access and earlier static config allows for all modeled credential paths except
 the explicit Claude agent login keychain files. It also proves that the
 post-deny Keychain exception is absent unless requested and stays limited to the
 login keychain DB plus SQLite sidecars; the broader Keychains directory remains
-denied. Host temp access is no longer implicit, while the agent-owned session
-temp root remains usable for compiler/runtime artifacts, Claude's runtime temp
-root adds no implicit execute access, and Codex App temp socket capability paths
-stay denied.
+denied. `AttestationKeyReadDenied` and `AttestationKeyWriteDenied` prove the
+host-owned Beadpost broker signing key directory and file stay denied with no
+Keychain exception. Host temp access is no longer implicit, while the agent-owned
+session temp root remains usable for compiler/runtime artifacts, Claude's
+runtime temp root adds no implicit execute access, and Codex App temp socket
+capability paths stay denied.
 
 ## Model Bounds
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| Paths | 18 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, outside ref, invoker resume dir, host temp, session temp, Claude runtime temp, and Codex temp socket paths |
-| ProjectChoices | 6 | Includes adversarial choices: agentHome, sshDir, configDir, and host temp paths |
-| ReadChoices | 4 | Includes broad choices: agentHome and hostTempRoot |
+| Paths | 20 | Covers: normal project, agent home, credential dirs, agent login keychain DB/sidecars, config overlap, outside ref, invoker resume dir, host temp, session temp, Claude runtime temp, Codex temp socket paths, and Beadpost attestation key paths |
+| ProjectChoices | 7 | Includes adversarial choices: agentHome, sshDir, configDir, host temp paths, and attestationKeyDir |
+| ReadChoices | 5 | Includes broad choices: agentHome, hostTempRoot, and attestationKeyDir |
 | NetworkChoices | 2 | Covers default outbound mode and deny-all egress mode |
 | AgentKeychainAccess | 2 | Covers both normal credential denial and native Claude OAuth keychain compatibility |
 
-**Confirmed state space:** 13,824 states generated, 12,672 distinct, depth 11. Runtime: <5s.
+**Confirmed state space:** 32,256 states generated, 29,568 distinct, depth 11. Runtime: <5s.

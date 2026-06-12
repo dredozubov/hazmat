@@ -234,7 +234,7 @@ successful completion after arbitrary bounded failures.
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
 | Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
 | Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
@@ -628,7 +628,7 @@ TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
 | Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
 | Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
-| Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
+| Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `UninstallRemovesOnlyCodeAndMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
 | Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
 
 **What this verifies:**
@@ -762,22 +762,26 @@ script remain governed by unit tests rather than TLC.
 
 **What this verifies:**
 
-1. **Approved execution uses immutable snapshot bytes only:** a host-side hook
+1. **Approval state remains well-formed:** `ApprovalStateWellFormed` keeps the
+   approval, snapshot, wrapper, dispatcher, and fallback state internally
+   consistent.
+
+2. **Approved execution uses immutable snapshot bytes only:** a host-side hook
    run that succeeds must execute content from the approved snapshot record,
    not the live repo copy.
 
-2. **`core.hooksPath` reroute is a refusal path:** the primary wrapper boundary
+3. **`core.hooksPath` reroute is a refusal path:** the primary wrapper boundary
    must refuse if the effective `core.hooksPath` drifts away from the
    Hazmat-managed path.
 
-3. **Managed dispatcher drift is fatal, not advisory:** repo drift, approval
+4. **Managed dispatcher drift is fatal, not advisory:** repo drift, approval
    drift, snapshot drift, or managed-layout drift all resolve to refusal rather
    than best-effort execution.
 
-4. **Fallback `.git/hooks` is detection-only:** reaching the default hook path
+5. **Fallback `.git/hooks` is detection-only:** reaching the default hook path
    is modeled as a refusal path, not an alternate approved execution channel.
 
-5. **Hook approval does not widen session policy:** the proof boundary for hook
+6. **Hook approval does not widen session policy:** the proof boundary for hook
    activation does not grant future filesystem or network capability beyond the
    existing session contract.
 

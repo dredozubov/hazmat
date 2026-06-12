@@ -152,7 +152,6 @@ hazmat backup --cloud [-C projectDir]
 | Invariant | Meaning |
 |-----------|---------|
 | `RestoreReversible` | Every restore (local or cloud) attempts a pre-restore snapshot before overwriting |
-| `SessionNonBlocking` | Snapshot failure leads to session proceeding, never blocking |
 | `RepoBeforeSnapshot` | Pre-session snapshot attempts only occur after local repo initialization |
 | `CloudRequiresConfig` | Cloud backup and cloud restore only occur when cloud is configured |
 | `NoOverwriteWithoutAttempt` | Restore overwrites are always preceded by a pre-restore snapshot attempt |
@@ -164,6 +163,7 @@ hazmat backup --cloud [-C projectDir]
 | Property | Meaning |
 |----------|---------|
 | `SessionEventuallyLaunches` | A session command eventually reaches `in_session` state |
+| `RestoreEventuallyCompletes` | A restore that starts eventually reaches completion under the checked fairness assumptions |
 
 ## Model Bounds
 

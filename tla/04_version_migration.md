@@ -56,6 +56,9 @@ when `phase = "failed"`.
 
 ## Invariants
 
+The cfg checks `Safety`, an aggregate obligation that combines the safety
+invariants below so the migration proof has one promoted safety entrypoint.
+
 | Invariant | What it ensures |
 |-----------|----------------|
 | `AgentContained` | Sudoers never exists without pf firewall — during init, migration, failure, AND rollback |
