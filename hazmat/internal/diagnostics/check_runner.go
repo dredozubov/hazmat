@@ -5,12 +5,38 @@ import "fmt"
 type CheckContext struct {
 	CurrentUser string
 	SelfPath    string
+	AgentProbes AgentProbeGate
+}
+
+type AgentProbeGate struct {
+	blocked bool
+	reason  string
+}
+
+func AllowAgentProbes() AgentProbeGate {
+	return AgentProbeGate{}
+}
+
+func BlockAgentProbes(reason string) AgentProbeGate {
+	if reason == "" {
+		reason = "agent-backed probes are unavailable"
+	}
+	return AgentProbeGate{blocked: true, reason: reason}
+}
+
+func (g AgentProbeGate) Allowed() bool {
+	return !g.blocked
+}
+
+func (g AgentProbeGate) Reason() string {
+	return g.reason
 }
 
 type CheckSuite struct {
 	Begin                func(quick bool) (CheckContext, error)
 	AgentUser            func()
 	DevGroupAndWorkspace func(currentUser string)
+	AgentProbesSkipped   func(reason string)
 	UserIsolation        func(currentUser string)
 	HardeningGaps        func()
 	PasswordlessSudo     func()
@@ -43,20 +69,24 @@ func RunCheck(quick bool, suite CheckSuite) error {
 
 	call(suite.AgentUser)
 	callString(suite.DevGroupAndWorkspace, ctx.CurrentUser)
-	callString(suite.UserIsolation, ctx.CurrentUser)
-	call(suite.HardeningGaps)
 	call(suite.PasswordlessSudo)
 	call(suite.PFFirewallStatic)
-	if suite.PFFirewallLive != nil {
-		suite.PFFirewallLive(quick, ctx.SelfPath)
-	}
 	call(suite.DNSBlocklist)
 	call(suite.Persistence)
-	call(suite.CredentialInventory)
-	call(suite.AgentTools)
-	call(suite.CommandSurface)
-	call(suite.Seatbelt)
-	call(suite.ProjectToolchain)
+	if ctx.AgentProbes.Allowed() {
+		callString(suite.UserIsolation, ctx.CurrentUser)
+		call(suite.HardeningGaps)
+		if suite.PFFirewallLive != nil {
+			suite.PFFirewallLive(quick, ctx.SelfPath)
+		}
+		call(suite.CredentialInventory)
+		call(suite.AgentTools)
+		call(suite.CommandSurface)
+		call(suite.Seatbelt)
+		call(suite.ProjectToolchain)
+	} else if suite.AgentProbesSkipped != nil {
+		suite.AgentProbesSkipped(ctx.AgentProbes.Reason())
+	}
 	call(suite.LocalSnapshot)
 	call(suite.CloudBackup)
 	call(suite.CloudRestore)

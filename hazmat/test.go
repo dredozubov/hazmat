@@ -69,10 +69,12 @@ func runTest(options diagnostics.CheckOptions) error {
 			return diagnostics.CheckContext{
 				CurrentUser: cu.Username,
 				SelfPath:    selfPath,
+				AgentProbes: inspectAgentProbeGate(),
 			}, nil
 		},
 		AgentUser:            func() { testAgentUser(ui) },
 		DevGroupAndWorkspace: func(currentUser string) { testDevGroupAndWorkspace(ui, currentUser) },
+		AgentProbesSkipped:   func(reason string) { testAgentProbesSkipped(ui, reason) },
 		UserIsolation:        func(currentUser string) { testUserIsolation(ui, currentUser) },
 		HardeningGaps:        func() { testHardeningGaps(ui) },
 		PasswordlessSudo:     func() { testPasswordlessSudo(ui) },
@@ -102,6 +104,34 @@ func diagnosticModeGuidanceLines() []string {
 		"    hazmat doctor --dry-run",
 		"                          Preview the typed repair plan",
 	}
+}
+
+func inspectAgentProbeGate() diagnostics.AgentProbeGate {
+	var blockers []string
+	if _, err := user.Lookup(agentUser); err != nil {
+		blockers = append(blockers, fmt.Sprintf("agent user %q is missing", agentUser))
+	}
+	if !launchSudoersInstalled() {
+		blockers = append(blockers, fmt.Sprintf("launch-helper sudoers file is missing: %s", sudoersFile))
+	}
+	helperPath := launchHelperPath()
+	if info, err := os.Stat(helperPath); err != nil {
+		blockers = append(blockers, fmt.Sprintf("launch helper is missing: %s", helperPath))
+	} else if info.Mode()&0o111 == 0 {
+		blockers = append(blockers, fmt.Sprintf("launch helper is not executable: %s", helperPath))
+	}
+	if len(blockers) == 0 {
+		return diagnostics.AllowAgentProbes()
+	}
+	return diagnostics.BlockAgentProbes(fmt.Sprintf(
+		"%s. Skipping helper-backed probes so hazmat check stays read-only and non-prompting; run hazmat doctor --fix or preview with hazmat doctor --dry-run.",
+		strings.Join(blockers, "; "),
+	))
+}
+
+func testAgentProbesSkipped(ui *UI, reason string) {
+	ui.Step("Agent-backed probes")
+	ui.TestSkip(reason)
 }
 
 // ── Step 1: Agent user ────────────────────────────────────────────────────────
