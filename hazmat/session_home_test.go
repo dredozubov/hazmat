@@ -397,6 +397,45 @@ func TestMaterializeSessionHomeBridgesRejectsPersistentRootInsideSessionHome(t *
 	}
 }
 
+func TestSessionHomeAgentHomePolicyUsesSessionHomeAndBridgeRoots(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	policy, err := sessionHomeAgentHomePolicy(plan, persistentHome)
+	if err != nil {
+		t.Fatalf("sessionHomeAgentHomePolicy: %v", err)
+	}
+
+	wantRoots := []string{
+		filepath.Join(persistentHome, ".claude", "projects"),
+		filepath.Join(persistentHome, ".hazmat", "hermes", "projects"),
+	}
+	if policy.Path != plan.Layout.Home || policy.Mode != containment.AgentHomeModeSessionLocal || policy.PersistentPath != persistentHome {
+		t.Fatalf("policy = %+v", policy)
+	}
+	if !reflect.DeepEqual(policy.DurableBridgeRoots, wantRoots) {
+		t.Fatalf("DurableBridgeRoots = %#v, want %#v", policy.DurableBridgeRoots, wantRoots)
+	}
+}
+
+func TestSessionHomeAgentHomePolicyRejectsBridgeOutsidePersistentHome(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	plan.BridgeRequirements[0].PersistentRoot = filepath.Join(t.TempDir(), "outside")
+
+	if _, err := sessionHomeAgentHomePolicy(plan, persistentHome); err == nil {
+		t.Fatal("sessionHomeAgentHomePolicy accepted a bridge root outside the persistent home")
+	}
+}
+
 func TestSessionHomeBridgeRequirementsRejectUnknownExternalDurablePath(t *testing.T) {
 	_, err := sessionHomeBridgeRequirements([]sessionHomeAssemblyEntry{
 		{

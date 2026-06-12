@@ -319,6 +319,39 @@ func materializeSessionHomeBridges(layout sessionHomeLayout, requirements []sess
 	return nil
 }
 
+func sessionHomeAgentHomePolicy(plan sessionHomeLaunchPlan, persistentHome string) (containment.AgentHomePolicy, error) {
+	persistentHome = filepath.Clean(persistentHome)
+	if !filepath.IsAbs(persistentHome) {
+		return containment.AgentHomePolicy{}, fmt.Errorf("persistent agent home %q must be absolute", persistentHome)
+	}
+	if plan.Layout.Home == "" || !filepath.IsAbs(plan.Layout.Home) {
+		return containment.AgentHomePolicy{}, fmt.Errorf("session home path %q must be absolute", plan.Layout.Home)
+	}
+	roots := make([]string, 0, len(plan.BridgeRequirements))
+	seen := map[string]struct{}{}
+	for _, requirement := range plan.BridgeRequirements {
+		root := filepath.Clean(requirement.PersistentRoot)
+		if !filepath.IsAbs(root) {
+			return containment.AgentHomePolicy{}, fmt.Errorf("%s: persistent bridge root %q must be absolute", requirement.RelPath, requirement.PersistentRoot)
+		}
+		if !isWithinDir(persistentHome, root) {
+			return containment.AgentHomePolicy{}, fmt.Errorf("%s: persistent bridge root %s is outside %s", requirement.RelPath, root, persistentHome)
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	return containment.AgentHomePolicy{
+		Path:               plan.Layout.Home,
+		Mode:               containment.AgentHomeModeSessionLocal,
+		PersistentPath:     persistentHome,
+		DurableBridgeRoots: roots,
+	}, nil
+}
+
 func validateSessionHomeBridgeRequirement(layout sessionHomeLayout, requirement sessionHomeBridgeRequirement) error {
 	if strings.TrimSpace(requirement.RelPath) == "" {
 		return fmt.Errorf("session-home bridge rel path is required")

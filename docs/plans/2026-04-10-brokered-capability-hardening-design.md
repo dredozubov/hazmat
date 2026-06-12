@@ -640,7 +640,9 @@ primitive and a 24-hour default age.
 At the contract/compiler layer, session-local agent-home mode is explicit and
 disabled by default: persistent mode still projects the durable manifest at
 `/Users/agent`, while session-local mode grants the disposable home broadly and
-only the declared durable bridge roots outside it.
+only the declared durable bridge roots outside it. A pure mapper now turns a
+session-home launch plan into that session-local `AgentHomePolicy`, rejecting
+bridge roots outside the persistent agent home.
 
 #### Resume/export requirements
 
