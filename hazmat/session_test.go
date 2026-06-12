@@ -1733,6 +1733,63 @@ networks:
 	}
 }
 
+func TestHarnessSessionOptsResolvedDockerDetectionCaches(t *testing.T) {
+	dir := t.TempDir()
+	saved := detectDockerProjectForSession
+	calls := 0
+	detectDockerProjectForSession = func(projectDir string) dockerProjectDetection {
+		calls++
+		if projectDir != dir {
+			t.Fatalf("projectDir = %q, want %q", projectDir, dir)
+		}
+		return dockerProjectDetection{HardMarkers: []string{"Dockerfile"}}
+	}
+	t.Cleanup(func() { detectDockerProjectForSession = saved })
+
+	var opts harnessSessionOpts
+	first := opts.resolvedDockerDetection(dir)
+	second := opts.resolvedDockerDetection(dir)
+
+	if calls != 1 {
+		t.Fatalf("detectDockerProjectForSession calls = %d, want 1", calls)
+	}
+	if !slices.Equal(first.HardMarkers, second.HardMarkers) {
+		t.Fatalf("cached detection changed from %v to %v", first.HardMarkers, second.HardMarkers)
+	}
+}
+
+func TestWarnDockerProjectNoneModeSkipsDetection(t *testing.T) {
+	saved := detectDockerProjectForSession
+	detectDockerProjectForSession = func(string) dockerProjectDetection {
+		t.Fatal("warnDockerProject should not inspect Docker markers for docker=none")
+		return dockerProjectDetection{}
+	}
+	t.Cleanup(func() { detectDockerProjectForSession = saved })
+
+	if err := warnDockerProject("claude", t.TempDir(), noneDockerRequest(dockerRequestFlag)); err != nil {
+		t.Fatalf("expected no error for docker=none, got: %v", err)
+	}
+}
+
+func TestResolvePreparedSessionModeReusesDockerDetectionForWarnings(t *testing.T) {
+	dir := t.TempDir()
+	detection := dockerProjectDetection{HardMarkers: []string{"Dockerfile"}}
+	saved := detectDockerProjectForSession
+	detectDockerProjectForSession = func(string) dockerProjectDetection {
+		t.Fatal("resolvePreparedSessionMode must use the provided Docker detection")
+		return dockerProjectDetection{}
+	}
+	t.Cleanup(func() { detectDockerProjectForSession = saved })
+
+	_, err := resolvePreparedSessionMode("claude", dir, autoDockerRequest(), detection, false)
+	if err == nil {
+		t.Fatal("expected Docker marker warning error")
+	}
+	if !strings.Contains(err.Error(), "Dockerfile") {
+		t.Fatalf("expected cached Dockerfile marker in error, got: %v", err)
+	}
+}
+
 func TestResolveSessionSandboxModeHardMarkersNeedHealthyBackend(t *testing.T) {
 	isolateConfig(t)
 

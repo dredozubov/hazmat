@@ -870,6 +870,8 @@ type harnessSessionOpts struct {
 	project               string
 	resolvedProjectDir    string
 	projectDirResolved    bool
+	dockerDetection       dockerProjectDetection
+	dockerDetectionCached bool
 	readDirs              []string
 	writeDirs             []string
 	integrations          []string
@@ -887,6 +889,15 @@ type harnessSessionOpts struct {
 	metadataJSON          bool
 	planOnly              bool
 	claudeBareRequested   bool
+}
+
+func (opts *harnessSessionOpts) resolvedDockerDetection(projectDir string) dockerProjectDetection {
+	if opts.dockerDetectionCached {
+		return opts.dockerDetection
+	}
+	opts.dockerDetection = detectDockerProjectForSession(projectDir)
+	opts.dockerDetectionCached = true
+	return opts.dockerDetection
 }
 
 type claudeOpts = harnessSessionOpts
@@ -1331,7 +1342,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
-	detection := detectDockerProject(cfg.ProjectDir)
+	detection := opts.resolvedDockerDetection(cfg.ProjectDir)
 
 	mode, err := resolvePreparedSessionMode(commandName, cfg.ProjectDir, request, detection, supportsSandbox)
 	if err != nil {
@@ -1437,7 +1448,7 @@ func resolvePreparedSessionMode(commandName, projectDir string, request dockerRo
 	if request.Mode == dockerModeSandbox {
 		return "", fmt.Errorf("%s", unsupportedSandboxTargetMessage(commandName, projectDir, request))
 	}
-	if err := warnDockerProject(commandName, projectDir, request); err != nil {
+	if err := warnDockerProjectWithDetection(commandName, projectDir, request, detection); err != nil {
 		return "", err
 	}
 	return sessionModeNative, nil
@@ -1892,6 +1903,8 @@ func detectDockerProject(projectDir string) dockerProjectDetection {
 	return detection
 }
 
+var detectDockerProjectForSession = detectDockerProject
+
 func detectSharedDaemonSignals(projectDir string) []string {
 	candidates := sharedDaemonCandidateFiles(projectDir)
 	if len(candidates) == 0 {
@@ -2283,8 +2296,14 @@ func warnDockerProject(commandName, projectDir string, request dockerRoutingRequ
 	if request.Mode == dockerModeNone {
 		return nil
 	}
+	return warnDockerProjectWithDetection(commandName, projectDir, request, detectDockerProjectForSession(projectDir))
+}
 
-	detection := detectDockerProject(projectDir)
+func warnDockerProjectWithDetection(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection) error {
+	if request.Mode == dockerModeNone {
+		return nil
+	}
+
 	if !detection.HasHardMarkers() {
 		return nil
 	}
