@@ -46,14 +46,18 @@ the host user's `.codex` state, or any live desktop app process.
 Useful modes:
 
 ```bash
-scripts/check-codex-app-server-smoke.sh --check-prereqs
 scripts/check-codex-app-server-smoke.sh
-scripts/check-codex-app-server-smoke.sh --via-cli-path-shim
+scripts/check-codex-app-server-smoke.sh --check-prereqs
+scripts/check-codex-app-server-smoke.sh --run --i-understand-this-runs-hazmat-codex-app-server
+scripts/check-codex-app-server-smoke.sh --run --via-cli-path-shim --i-understand-this-runs-hazmat-codex-app-server
 scripts/check-codex-app-server-smoke.sh --skip-if-missing-prereqs
 ```
 
-`HAZMAT_CODEX_APP_SERVER_SMOKE=1 scripts/pre-push` opts the smoke into the
-local pre-push gate on prepared macOS hosts.
+The default mode is disclosure-only. `--check-prereqs`,
+`--skip-if-missing-prereqs`, and `--run` are sudo-adjacent because they probe or
+invoke helper-backed native containment. `HAZMAT_CODEX_APP_SERVER_SMOKE=1
+scripts/pre-push` opts the live smoke into the local pre-push gate on prepared
+macOS hosts.
 
 ## Future Desktop Attach Probes
 

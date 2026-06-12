@@ -9,7 +9,9 @@ AGENT_USER="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_USER:-agent}"
 AGENT_HOME="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_HOME:-/Users/agent}"
 CODEX_BIN="$AGENT_HOME/.local/bin/codex"
 LAUNCH_HELPER="${HAZMAT_CODEX_APP_SERVER_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
-MODE="run"
+MODE="disclose"
+ACK=0
+SKIP_IF_MISSING=0
 VIA_SHIM=0
 MISSING_PREREQS=""
 SCRATCH=""
@@ -17,18 +19,22 @@ DENIED_DIR_CREATED=0
 
 usage() {
 	cat <<'EOF'
-Usage: scripts/check-codex-app-server-smoke.sh [--check-prereqs|--skip-if-missing-prereqs] [--via-cli-path-shim]
+Usage: scripts/check-codex-app-server-smoke.sh [options]
 
-Starts a short-lived Hazmat-contained `hazmat codex-app-server --listen stdio://`
-backend and validates JSON-RPC initialize, command execution, project file
-access, filesystem mutation/removal, standalone process execution when exposed
-by the installed app-server, credential path denial, thread shell command
-execution, and --network none behavior.
+Guarded live smoke wrapper for the contained Codex app-server backend.
+
+By default, this script prints the exact live command and exits without running
+Hazmat or sudo-adjacent prerequisite probes. Live mode requires:
+  --run --i-understand-this-runs-hazmat-codex-app-server
 
 Options:
   --check-prereqs           Only check local prerequisites; exit 0 when ready,
                             exit 2 with reasons when the machine is not ready.
   --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
+                            Combine with --run for prepared-host pre-push use.
+  --run                     Run the live app-server smoke.
+  --i-understand-this-runs-hazmat-codex-app-server
+                            Required acknowledgement for --run.
   --via-cli-path-shim       Start the backend through Hazmat's Codex App
                             CODEX_CLI_PATH compatibility shim instead of the
                             direct codex-app-server command.
@@ -36,6 +42,9 @@ Options:
 
 This smoke test never launches, quits, or attaches to the stock Codex desktop
 app. It uses a scratch project and a fake agent-owned credential probe.
+It is sudo-adjacent: live mode invokes a helper-backed Hazmat session, and
+prerequisite checks probe non-interactive sudo with sudo -n. Agents must ask
+before running --check-prereqs, --skip-if-missing-prereqs, or --run.
 EOF
 }
 
@@ -45,7 +54,13 @@ while [ "$#" -gt 0 ]; do
 			MODE="check"
 			;;
 		--skip-if-missing-prereqs)
-			MODE="skip"
+			SKIP_IF_MISSING=1
+			;;
+		--run)
+			MODE="run"
+			;;
+		--i-understand-this-runs-hazmat-codex-app-server)
+			ACK=1
 			;;
 		--via-cli-path-shim)
 			VIA_SHIM=1
@@ -125,8 +140,43 @@ print_missing_prereqs() {
 	printf '%s\n' "$MISSING_PREREQS" >&2
 }
 
+print_disclosure() {
+	cat <<EOF
+codex-app-server-smoke: dry run only
+
+This script starts a short-lived Hazmat-contained Codex app-server backend and
+validates JSON-RPC initialize, command execution, project filesystem access and
+mutation, credential denial, thread shell command execution, optional
+process/spawn coverage, and --network none behavior.
+
+Live mode and prerequisite checks are sudo-adjacent and require explicit
+approval:
+
+  scripts/check-codex-app-server-smoke.sh --check-prereqs
+  scripts/check-codex-app-server-smoke.sh --run --i-understand-this-runs-hazmat-codex-app-server
+  scripts/check-codex-app-server-smoke.sh --run --via-cli-path-shim --i-understand-this-runs-hazmat-codex-app-server
+
+Prepared-host pre-push opt-in:
+  HAZMAT_CODEX_APP_SERVER_SMOKE=1 bash scripts/pre-push
+
+Live smoke shape:
+  hazmat codex-app-server --no-backup --skip-harness-assets-sync \\
+    --network none -C <scratch-project> --listen stdio://
+EOF
+}
+
+if [ "$MODE" = "disclose" ] && [ "$SKIP_IF_MISSING" = "0" ]; then
+	print_disclosure
+	exit 0
+fi
+
+if [ "$MODE" = "run" ] && [ "$ACK" != "1" ]; then
+	echo "codex-app-server-smoke: refusing live run without --i-understand-this-runs-hazmat-codex-app-server" >&2
+	exit 2
+fi
+
 if ! check_prereqs; then
-	if [ "$MODE" = "skip" ]; then
+	if [ "$SKIP_IF_MISSING" = "1" ]; then
 		echo "codex-app-server-smoke: skipped because prerequisites are missing" >&2
 		print_missing_prereqs
 		exit 0
@@ -137,6 +187,11 @@ fi
 
 if [ "$MODE" = "check" ]; then
 	echo "codex-app-server-smoke: prerequisites ok"
+	exit 0
+fi
+
+if [ "$MODE" != "run" ]; then
+	print_disclosure
 	exit 0
 fi
 

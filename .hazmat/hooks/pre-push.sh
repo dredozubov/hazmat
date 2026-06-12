@@ -129,7 +129,7 @@ run_smoke "config ssh unset --help" config ssh unset --help
 
 if [ "${HAZMAT_CODEX_APP_SERVER_SMOKE:-}" = "1" ]; then
 	echo "pre-push: codex app-server smoke..."
-	"$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" --skip-if-missing-prereqs
+	"$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" --run --skip-if-missing-prereqs --i-understand-this-runs-hazmat-codex-app-server
 else
 	echo "pre-push: codex app-server smoke skipped (set HAZMAT_CODEX_APP_SERVER_SMOKE=1 to enable)"
 fi

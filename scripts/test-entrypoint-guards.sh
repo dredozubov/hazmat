@@ -5,6 +5,7 @@
 # Verifies that:
 #   - scripts/e2e.sh refuses to run without an explicit destructive ack
 #   - make e2e refuses to run without E2E_ACK=1
+#   - live Codex app-server smoke refuses to run without its explicit ack
 #   - live Codex desktop attach smoke refuses to run without its explicit ack
 #   - live Claude Workflow export smoke refuses to run without its explicit ack
 #   - live session-home activation smoke refuses to run without its explicit ack
@@ -61,6 +62,11 @@ assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e
+
+assert_fails_with \
+    "Codex app-server smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-hazmat-codex-app-server" \
+    "$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" --run
 
 assert_fails_with \
     "Codex desktop attach smoke requires live ack" \

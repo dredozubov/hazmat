@@ -14,7 +14,7 @@ are not interchangeable.
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/pre-release-local.sh` | Local release gate, including fast checks and hermetic all-harness synthetic e2e smoke | Host | No |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
-| `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
+| `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
@@ -91,6 +91,13 @@ The non-interference rules for backend work and any future desktop attach probe
 are documented in
 [docs/codex-app-server-non-interference.md](codex-app-server-non-interference.md).
 
+The default mode is a disclosure; it prints the exact live command shape and
+exits without running Hazmat or sudo-adjacent prerequisite probes:
+
+```bash
+scripts/check-codex-app-server-smoke.sh
+```
+
 To exercise the Codex App `CODEX_CLI_PATH` compatibility shim without launching
 the desktop app, add `--via-cli-path-shim`. This starts the same backend through
 the root-level `hazmat app-server --analytics-default-enabled` invocation shape
@@ -105,8 +112,8 @@ scripts/check-codex-app-server-smoke.sh --check-prereqs
 Run the smoke strictly when prerequisites are present:
 
 ```bash
-scripts/check-codex-app-server-smoke.sh
-scripts/check-codex-app-server-smoke.sh --via-cli-path-shim
+scripts/check-codex-app-server-smoke.sh --run --i-understand-this-runs-hazmat-codex-app-server
+scripts/check-codex-app-server-smoke.sh --run --via-cli-path-shim --i-understand-this-runs-hazmat-codex-app-server
 ```
 
 For autonomous gates that should avoid false failures on unprepared machines,
@@ -119,8 +126,10 @@ scripts/check-codex-app-server-smoke.sh --skip-if-missing-prereqs
 `--check-prereqs` exits 2 and prints precise missing requirements when the host
 is not ready. `--skip-if-missing-prereqs` prints the same reasons but exits 0.
 The normal run still fails closed on protocol, filesystem, credential, process,
-or network regressions. To include this smoke in the pre-push gate on a prepared
-macOS host, opt in explicitly:
+or network regressions. `--check-prereqs`, `--skip-if-missing-prereqs`, and
+`--run` are sudo-adjacent because they probe or invoke helper-backed native
+containment. To include this smoke in the pre-push gate on a prepared macOS
+host, opt in explicitly:
 
 ```bash
 HAZMAT_CODEX_APP_SERVER_SMOKE=1 bash scripts/pre-push
