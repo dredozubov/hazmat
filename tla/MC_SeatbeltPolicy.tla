@@ -28,12 +28,13 @@
 \*   1. Credential reads are denied except the explicit agent keychain exception
 \*   2. Credential writes are denied except the explicit agent keychain exception
 \*   3. Read dirs never grant write access
-\*   4. ResumeDir (invoker's session dir) cannot be a credential path
-\*   5. Host temp is not implicitly readable/writable/executable
-\*   6. Session temp remains writable and executable for build tools
+\*   4. Agent home receives explicit subtree grants, not a blanket home allow
+\*   5. ResumeDir (invoker's session dir) cannot be a credential path
+\*   6. Host temp is not implicitly readable/writable/executable
+\*   7. Session temp remains writable and executable for build tools
 \*      while narrow harness temp roots remain non-executable
-\*   7. Codex App temp socket/capability paths are denied even if host temp is granted
-\*   8. Network mode "none" grants no outbound network or DNS authority
+\*   8. Codex App temp socket/capability paths are denied even if host temp is granted
+\*   9. Network mode "none" grants no outbound network or DNS authority
 \*
 \* Governed code:
 \*   hazmat/session.go — generateSBPL(), isWithinDir()
@@ -73,6 +74,9 @@ CONSTANTS
     hostTempOutside,\* /private/tmp/outside-host-readable.txt
     sessionTempRoot,\* /Users/agent/.cache/hazmat/tmp/<session>
     sessionTempFile,\* /Users/agent/.cache/hazmat/tmp/<session>/artifact
+    agentStateDir,  \* /Users/agent/.claude (representative allowed durable harness state)
+    agentLocalDir,  \* /Users/agent/.local (representative allowed tool/XDG subtree)
+    agentOtherFile, \* /Users/agent/unlisted.txt (representative unlisted home content)
     claudeTempRoot,\* /private/tmp/claude-599 (agent-owned Claude runtime temp)
     claudeTempFile,\* /private/tmp/claude-599/socket
     codexTempSocket,\* /private/tmp/codex-ipc/app.sock
@@ -111,6 +115,9 @@ Contains(child, parent) ==
     \/ (child = sessionTempRoot /\ parent = agentHome)
     \/ (child = sessionTempFile /\ parent = agentHome)
     \/ (child = sessionTempFile /\ parent = sessionTempRoot)
+    \/ (child = agentStateDir /\ parent = agentHome)
+    \/ (child = agentLocalDir /\ parent = agentHome)
+    \/ (child = agentOtherFile /\ parent = agentHome)
     \/ (child = hostTempOutside /\ parent = hostTempRoot)
     \/ (child = claudeTempRoot /\ parent = hostTempRoot)
     \/ (child = claudeTempFile /\ parent = hostTempRoot)
@@ -225,20 +232,20 @@ EmitResumeDir ==
     /\ section' = 4
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
 
-\* Section 4: Agent home — BROAD read+write allow on entire agent home.
-\* This replaced individual subdirectory allows (.claude, .local, .config, etc.)
-\* because Claude Code needs to access paths that can't be enumerated in advance.
-\* Credential directories are denied in section 8 (last-match-wins overrides this);
-\* section 9 may re-allow only exact agent login keychain files for Claude OAuth.
+\* Section 4: Agent home — explicit durable state/tooling subtrees only.
+\* HOME remains /Users/agent, but the policy no longer grants the whole home.
+\* AgentHomeSubs represents supported persistent paths such as .claude, .codex,
+\* .agents, .opencode, .gemini, .qwen, .cursor, .config, .cache, and .local.
+\* Credential directories are still denied in section 8; section 9 may re-allow
+\* only exact agent login keychain files for Claude OAuth.
 EmitHomeConfig ==
     /\ section = 4
     /\ rules' = rules \cup
-         \* Broad allow on agentHome covers ALL subpaths including AgentHomeSubs
-         \* AND CredPaths. The credential denies in section 8 override this.
-         {AllowRead(4, agentHome), AllowWrite(4, agentHome)} \cup
+         \* Only the enumerated persistent subtrees are allowed here. The home
+         \* root and unrelated home files intentionally receive no section-4 rule.
          {AllowRead(4, p) : p \in AgentHomeSubs} \cup
          {AllowWrite(4, p) : p \in AgentHomeSubs} \cup
-         {AllowExec(4, agentHome)}
+         {AllowExec(4, p) : p \in AgentHomeSubs}
     /\ section' = 5
     /\ UNCHANGED <<projectDir, readDirs, networkMode, resumeDir, agentKeychainAccess, networkAllows>>
 
@@ -416,6 +423,42 @@ AgentKeychainExceptionScoped ==
 ReadDirsNoWrite ==
     section = 10 =>
         ~\E r \in rules : r.section = 1 /\ r.action = "allow_write"
+
+\* --- Agent home is no longer a blanket compatibility grant ---
+\* Section 4 may allow explicit durable state/tooling subtrees, but not the
+\* agent home root itself. User-provided project/read grants are modeled
+\* separately in earlier sections.
+NoBroadAgentHomeAllow ==
+    ~\E r \in rules :
+        /\ r.section = 4
+        /\ r.path = agentHome
+        /\ r.action \in {"allow_read", "allow_write", "allow_exec"}
+
+\* --- Explicit agent-home compatibility subtrees stay usable ---
+AgentHomeSubsUsable ==
+    section = 10 =>
+        \A p \in AgentHomeSubs :
+            /\ EffectiveRead(p) = "allow_read"
+            /\ EffectiveWrite(p) = "allow_write"
+            /\ EffectiveExec(p) = "allow_exec"
+
+\* --- Unlisted agent-home content is not implicitly exposed ---
+UnlistedAgentHomeNotImplicitlyReadable ==
+    section = 10 =>
+        \/ Contains(agentOtherFile, projectDir)
+        \/ \E d \in readDirs : Contains(agentOtherFile, d)
+        \/ EffectiveRead(agentOtherFile) # "allow_read"
+
+UnlistedAgentHomeNotImplicitlyWritable ==
+    section = 10 =>
+        \/ Contains(agentOtherFile, projectDir)
+        \/ EffectiveWrite(agentOtherFile) # "allow_write"
+
+UnlistedAgentHomeNotImplicitlyExecutable ==
+    section = 10 =>
+        \/ Contains(agentOtherFile, projectDir)
+        \/ \E d \in readDirs : Contains(agentOtherFile, d)
+        \/ EffectiveExec(agentOtherFile) # "allow_exec"
 
 \* --- Project dir is writable (unless it IS a credential path) ---
 \* If the user picks a credential dir as their project, the deny wins.

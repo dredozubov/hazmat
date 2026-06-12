@@ -69,7 +69,7 @@ These items matter, but they touch containment, rollback, secret handling, or th
 
 ### Narrow agent-home seatbelt rules without moving HOME (`sandboxing-93r8`)
 
-- Status: `open`
+- Status: `closed`
 - Priority: `P1`
 - Type: `feature`
 - Summary: Implement the low-risk first half of the session-home hardening plan from docs/plans/2026-04-10-brokered-capability-hardening-design.md. Replace the blanket seatbelt allow over /Users/agent with explicit allow rules for the persistent agent-home paths Hazmat intentionally supports, while keeping HOME=/Users/agent and preserving the current durable transcript/export, shell RC, and XDG path layout. This issue is specifically the safe seatbelt-tightening slice and does not move HOME or XDG roots into /private/tmp.
@@ -120,4 +120,3 @@ Hazmat's moat is evidence-backed safety. These items turn incidents and open que
 - Priority: `P2`
 - Type: `task`
 - Summary: Create a repeatable content format that ties real incidents and CVEs to Hazmat's controls and current gaps. The bulletin should answer what happened, why ordinary approval prompts failed, what Hazmat contains, and what remains unsolved. This is meant to feed the evidence-based content flywheel without turning into generic marketing.
-

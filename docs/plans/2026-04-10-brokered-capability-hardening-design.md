@@ -47,11 +47,11 @@ Hazmat's native mode currently combines four main layers:
 3. per-user pf blocklist
 4. host-owned launch orchestration
 
-That stack is useful, but the current runtime still places meaningful authority
+That stack is useful, but before Feature 3A it still placed meaningful authority
 directly inside the contained session:
 
-- the generated seatbelt policy currently grants broad read/write access to the
-  whole `agent` home, then denies selected credential subpaths afterward
+- the generated seatbelt policy granted broad read/write access to the whole
+  `agent` home, then denied selected credential subpaths afterward
 - managed Git-over-SSH currently creates a session-local `ssh-agent` socket and
   a generated `git-ssh` wrapper under an agent-writable runtime directory
 - Claude and OpenCode import flows currently copy sign-in state into

@@ -1069,6 +1069,37 @@ func TestGenerateSBPLIncludesOptLiteral(t *testing.T) {
 	}
 }
 
+func TestGenerateSBPLUsesExplicitAgentHomeGrants(t *testing.T) {
+	cfg := sessionConfig{
+		ProjectDir: "/tmp/myproject",
+	}
+	policy := generateSBPL(cfg)
+
+	for _, forbidden := range []string{
+		`(allow file-read* file-write* (subpath "` + agentHome + `"))`,
+		`(allow process-exec (subpath "` + agentHome + `"))`,
+	} {
+		if strings.Contains(policy, forbidden) {
+			t.Fatalf("policy should not contain broad agent-home grant %q:\n%s", forbidden, policy)
+		}
+	}
+
+	for _, want := range []string{
+		`(allow file-read* file-write* (subpath "` + agentHome + `/.claude"))`,
+		`(allow file-read* file-write* (subpath "` + agentHome + `/.codex"))`,
+		`(allow file-read* file-write* (subpath "` + agentHome + `/.config"))`,
+		`(allow file-read* file-write* (subpath "` + agentHome + `/.local"))`,
+		`(allow file-read* file-write* (literal "` + agentHome + `/.gitconfig"))`,
+		`(allow file-read* file-write* (literal "` + agentHome + `/.zshrc"))`,
+		`(allow process-exec (subpath "` + agentHome + `/.local/bin"))`,
+		`(allow process-exec (subpath "` + agentHome + `/.opencode/bin"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("policy missing explicit agent-home grant %q:\n%s", want, policy)
+		}
+	}
+}
+
 func TestGenerateSBPLWithReadDirs(t *testing.T) {
 	cfg := sessionConfig{
 		ProjectDir: "/tmp/myproject",

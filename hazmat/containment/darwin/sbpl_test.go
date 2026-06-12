@@ -16,11 +16,22 @@ func TestCompileBuildsSeatbeltPolicy(t *testing.T) {
 	for _, want := range []string{
 		`(allow file-read* (subpath "/workspace/reference"))`,
 		`(allow file-read* file-write* (subpath "/workspace/cache"))`,
+		`(allow file-read* file-write* (subpath "/home/agent/.config"))`,
+		`(allow file-read* file-write* (literal "/home/agent/.zshrc"))`,
+		`(allow process-exec (subpath "/home/agent/.local/bin"))`,
 		`(deny file-read* file-write* (subpath "/home/agent/.ssh"))`,
 		`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
 	} {
 		if !strings.Contains(policy, want) {
 			t.Fatalf("policy missing %q\n%s", want, policy)
+		}
+	}
+	for _, forbidden := range []string{
+		`(allow file-read* file-write* (subpath "/home/agent"))`,
+		`(allow process-exec (subpath "/home/agent"))`,
+	} {
+		if strings.Contains(policy, forbidden) {
+			t.Fatalf("policy should not contain broad agent-home grant %q\n%s", forbidden, policy)
 		}
 	}
 }

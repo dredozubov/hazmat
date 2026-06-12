@@ -234,8 +234,8 @@ successful completion after arbitrary bounded failures.
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
 | Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
 | Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
-| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -252,7 +252,7 @@ successful completion after arbitrary bounded failures.
    under the invoker's home (e.g., `/Users/dr/.claude/...`), never under agent home,
    so it cannot overlap with credential paths. `ResumeDirNotCredential` verifies this.
 
-3. Added project write re-assertion (section 5) — when a read-only `-R` directory
+3. Added project write re-assertion (section 6) — when a read-only `-R` directory
    is a parent of the project directory, the project's write access is re-asserted
    as the last allow before credential denies.
 
@@ -270,8 +270,15 @@ successful completion after arbitrary bounded failures.
    representative files and sidecars when native Claude OAuth requests Keychain
    compatibility; the broader Keychains directory remains denied.
 
+7. Replaced the blanket section-4 `/Users/agent` allow with explicit agent-home
+   state/tooling subtrees while keeping `HOME=/Users/agent`. `NoBroadAgentHomeAllow`
+   proves section 4 does not emit a broad home rule, `AgentHomeSubsUsable`
+   preserves modeled durable paths, and the `UnlistedAgentHomeNotImplicitly*`
+   invariants keep unrelated home content denied unless the user explicitly
+   selects it through the project/read surfaces.
+
 Policy sections are now: 0=system libs, 1=read dirs, 2=project r+w, 3=resume dir,
-4=agent home, 5=session temp, 6=project write re-assert, 7=temp socket denies,
+4=explicit agent-home state/tooling, 5=session temp, 6=project write re-assert, 7=temp socket denies,
 8=credential denies, 9=optional exact Claude agent login keychain exception.
 
 **2026-06-02 modular refactor confirmation:** Phase-1 package refactors moved
@@ -293,6 +300,12 @@ key directory is chosen as `ProjectDir` or a `ReadDir` — both are now in
 TLC: "No error has been found" across 32,256 generated states, 29,568 distinct, depth
 11. This is Part 1 of 3 for the contained-agent submitter + dr-owned host broker
 attestation boundary (see `docs/plans/2026-06-09-beadpost-attestation-spec-plan.md`).
+
+**2026-06-12 explicit agent-home grant addition:** The spec now models explicit
+agent-home compatibility subtrees plus an unlisted home file. TLC proves
+`NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, and the
+`UnlistedAgentHomeNotImplicitly*` invariants with "No error has been found"
+across the same 32,256 generated states, 29,568 distinct states, depth 11.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The

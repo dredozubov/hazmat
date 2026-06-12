@@ -110,6 +110,7 @@ MC_SeatbeltPolicy	invariant	HostTempNotImplicitlyWritable	2	tla/02_seatbelt_poli
 MC_SeatbeltPolicy	invariant	NetworkDefaultAllowsOutbound	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	NetworkNoneDeniesDNS	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	NetworkNoneDeniesOutbound	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	NoBroadAgentHomeAllow	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	ProjectDirWritable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	ReadDirSubsumption	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	ReadDirsNoWrite	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
@@ -117,6 +118,10 @@ MC_SeatbeltPolicy	invariant	ResumeDirNotCredential	2	tla/02_seatbelt_policy_stru
 MC_SeatbeltPolicy	invariant	SessionTempWritable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	TempSocketsDenied	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	TypeOK	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	AgentHomeSubsUsable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	UnlistedAgentHomeNotImplicitlyExecutable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	UnlistedAgentHomeNotImplicitlyReadable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	UnlistedAgentHomeNotImplicitlyWritable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SecretStoreRecovery	invariant	CleanRecoveredStateHasNoAgentResidue	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	CleanRecoveredStateKeepsLatestHostOwned	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	IdleClearsSessionBaseline	12	tla/12_secret_store_recovery.md	secret store recovery contract

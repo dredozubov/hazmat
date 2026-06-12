@@ -32,8 +32,8 @@ type CompileOptions struct {
 //     a WriteDirs entry, or another ReadDirs entry)
 //   - Each WriteDirs entry gets read+write (skipped if covered by ProjectDir
 //     or another WriteDirs entry)
-//   - Agent home subtrees, system libraries, tmp, terminal, mach, and network
-//     rules are identical to the former static profile
+//   - Explicit agent-home state/tooling subtrees, system libraries, tmp,
+//     terminal, mach, and network rules are emitted by the static profile
 //   - Credential directories are denied last (last-match wins in SBPL)
 func Compile(contract containment.Contract, opts CompileOptions) (string, error) {
 	if err := contract.Validate(); err != nil {
@@ -53,7 +53,10 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	w("(version 1)\n(deny default)\n\n")
 
 	w(";; ── Process execution ──────────────────────────────────────────────────────\n")
-	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools", home} {
+	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools"} {
+		w("(allow process-exec (subpath %q))\n", p)
+	}
+	for _, p := range agentHomeExecutableSubpaths(home) {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
 	for _, dir := range readDirs {
@@ -136,11 +139,16 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	w("(allow file-read* (subpath %q))\n", projectDir)
 	w("(allow file-write* (subpath %q))\n\n", projectDir)
 
-	w(";; ── Agent home — broad read/write, credential dirs denied below ───────────\n")
-	w(";; A single subpath rule replaces individual subdirectory allows.\n")
-	w(";; Claude Code, Node.js, git, and shell rc files all live here.\n")
+	w(";; ── Agent home — explicit durable state/tooling paths ─────────────────────\n")
+	w(";; HOME stays %s, but the policy does not grant the whole home.\n", home)
 	w(";; Credential directories are denied at the end (last-match-wins).\n")
-	w("(allow file-read* file-write* (subpath %q))\n\n", home)
+	for _, dir := range agentHomeWritableSubpaths(home) {
+		w("(allow file-read* file-write* (subpath %q))\n", dir)
+	}
+	for _, file := range agentHomeWritableFiles(home) {
+		w("(allow file-read* file-write* (literal %q))\n", file)
+	}
+	w("\n")
 
 	w(";; ── Session temp directory ───────────────────────────────────────────────────\n")
 	w(";; Runtime TMPDIR points at this agent-owned per-session root. Do not grant\n")
@@ -312,4 +320,70 @@ func isWithinDir(base, target string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+func agentHomeWritableSubpaths(home string) []string {
+	return agentHomeJoinAll(home, []string{
+		".agents",
+		".bun",
+		".cache",
+		".cargo",
+		".claude",
+		".codex",
+		".config",
+		".cursor",
+		".deno",
+		".gem",
+		".gemini",
+		".gradle",
+		".hazmat",
+		".ivy2",
+		".local",
+		".m2",
+		".node-gyp",
+		".npm",
+		".opencode",
+		".pub-cache",
+		".qwen",
+		".rustup",
+		".sbt",
+		".swiftpm",
+		".terraform.d",
+	})
+}
+
+func agentHomeWritableFiles(home string) []string {
+	return agentHomeJoinAll(home, []string{
+		".bash_profile",
+		".bashrc",
+		".gitconfig",
+		".npmrc",
+		".profile",
+		".pypirc",
+		".zprofile",
+		".zshenv",
+		".zshrc",
+	})
+}
+
+func agentHomeExecutableSubpaths(home string) []string {
+	return agentHomeJoinAll(home, []string{
+		".bun/bin",
+		".cargo/bin",
+		".claude/hooks",
+		".deno/bin",
+		".gem",
+		".local/bin",
+		".local/lib",
+		".opencode/bin",
+		".pub-cache/bin",
+	})
+}
+
+func agentHomeJoinAll(home string, rels []string) []string {
+	out := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		out = append(out, filepath.Join(home, rel))
+	}
+	return out
 }

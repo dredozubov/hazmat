@@ -851,6 +851,12 @@ func testSeatbelt(ui *UI) {
 		ReadDirs:   []string{readDir},
 	}
 	policyContent := generateSBPL(cfg)
+	if strings.Contains(policyContent, `(allow file-read* file-write* (subpath "`+agentHome+`"))`) ||
+		strings.Contains(policyContent, `(allow process-exec (subpath "`+agentHome+`"))`) {
+		ui.TestFail("CONFINEMENT BREACH: Seatbelt policy contains a blanket agent-home allow")
+	} else {
+		ui.TestPass("Seatbelt omits blanket agent-home allow")
+	}
 	policyFile := fmt.Sprintf("/private/tmp/hazmat-%d.sb", os.Getpid())
 	if err := os.WriteFile(policyFile, []byte(policyContent), 0o644); err != nil {
 		ui.TestWarn(fmt.Sprintf("Could not write test seatbelt policy: %v", err))
@@ -883,8 +889,8 @@ func testSeatbelt(ui *UI) {
 	}
 
 	// Denied: read/write inside credential subdirs. The current policy allows
-	// agent HOME runtime state broadly, but credential directories remain
-	// explicit deny zones.
+	// explicit agent HOME runtime state, but credential directories remain
+	// deny zones.
 	credentialProbeDir := agentHome + "/.aws"
 	createdCredentialProbeDir := false
 	credentialProbeReady := true
@@ -938,13 +944,13 @@ func testSeatbelt(ui *UI) {
 		ui.TestWarn(fmt.Sprintf("Could not create read probe in read-only directory: %v", err))
 	}
 
-	// Allowed: read ~/.claude (Claude auth tokens must be accessible).
+	// Allowed: read ~/.claude (durable Claude state must be accessible).
 	claudeDir := agentHome + "/.claude"
 	if _, err := os.Stat(claudeDir); err == nil {
 		if err := runSandboxed("/bin/ls", claudeDir); err == nil {
-			ui.TestPass("Seatbelt allows reads inside ~/.claude (Claude auth accessible)")
+			ui.TestPass("Seatbelt allows reads inside ~/.claude (durable Claude state accessible)")
 		} else {
-			ui.TestFail("Seatbelt denies reads of ~/.claude — Claude auth will fail under confinement")
+			ui.TestFail("Seatbelt denies reads of ~/.claude — durable Claude state will fail under confinement")
 		}
 	} else {
 		ui.TestSkip("~/.claude does not exist for agent — skipping Claude auth read test")
