@@ -224,7 +224,7 @@ func (r *Runner) LaunchctlBootstrap(reason, plist string) error {
 // In dry-run they return an empty string so the step is treated as "not done"
 // and the corresponding commands are shown in the preview output.
 
-// SudoOutput runs a sudo read in non-dry-run mode.
+// SudoOutput runs a non-prompting sudo read in non-dry-run mode.
 // In dry-run it skips the call and returns ("", errDryRun) so the caller's
 // idempotency check fails and the associated commands appear in preview output.
 func (r *Runner) SudoOutput(args ...string) (string, error) {

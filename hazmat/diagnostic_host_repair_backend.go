@@ -168,7 +168,7 @@ func (b *diagnosticHostRepairBackend) verifyWorkspaceRepair(item diagnosticRepai
 
 func (b *diagnosticHostRepairBackend) applyAgentUmask(r *Runner) error {
 	agentZshrc := filepath.Join(agentHome, ".zshrc")
-	data, _ := r.SudoOutput("cat", agentZshrc)
+	data, _ := r.AgentOutput("cat", agentZshrc)
 	updated := setup.UpsertManagedBlock(data, umaskBlockStart, umaskBlockEnd, "umask 007")
 	if err := r.SudoWriteFile("write agent umask to .zshrc", agentZshrc, updated); err != nil {
 		return fmt.Errorf("set umask in agent .zshrc: %w", err)

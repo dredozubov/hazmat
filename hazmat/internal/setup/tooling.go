@@ -112,7 +112,7 @@ func SetupUserExperience(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) 
 	ui.Ok(fmt.Sprintf("Agent toolchain env written to %s", env.AgentEnvPath))
 
 	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
-	agentZshrcData, _ := runner.SudoOutput("cat", agentZshrc)
+	agentZshrcData, _ := runner.AgentOutput("cat", agentZshrc)
 	updatedAgentZshrc := UpsertManagedBlock(agentZshrcData,
 		env.AgentShellBlockStart,
 		env.AgentShellBlockEnd,

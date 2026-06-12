@@ -34,7 +34,8 @@ func TestSetupUserExperienceWritesEnvWrappersAndPathBlock(t *testing.T) {
 	tmp := t.TempDir()
 	env := testToolingEnv(t, tmp)
 	runner := newFakeToolingRunner(t)
-	runner.sudoOutput[filepath.Join(env.AgentHome, ".zshrc")] = "export EXISTING=1\n"
+	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
+	runner.agentOutput[agentZshrc] = "export EXISTING=1\n"
 	ui := &fakeToolingUI{}
 
 	if err := SetupUserExperience(env, ui, runner); err != nil {
@@ -45,10 +46,11 @@ func TestSetupUserExperienceWritesEnvWrappersAndPathBlock(t *testing.T) {
 		t.Fatalf("agent env content = %q, want default agent PATH", got)
 	}
 
-	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
-	if got := runner.sudoWrites[agentZshrc]; !strings.Contains(got, `[[ -f "$HOME/.config/hazmat/agent-env.zsh" ]] && source "$HOME/.config/hazmat/agent-env.zsh"`) {
+	if got := runner.sudoWrites[agentZshrc]; !strings.Contains(got, `[[ -f "$HOME/.config/hazmat/agent-env.zsh" ]] && source "$HOME/.config/hazmat/agent-env.zsh"`) ||
+		!strings.Contains(got, "export EXISTING=1") {
 		t.Fatalf("agent zshrc content missing shell bootstrap:\n%s", got)
 	}
+	assertNoSudoOutputForPath(t, runner, agentZshrc)
 
 	for _, name := range []string{env.HostClaudeWrapperName, env.HostExecWrapperName, env.HostShellWrapperName} {
 		path := filepath.Join(env.HostWrapperDir, name)
@@ -165,10 +167,12 @@ func (fakeToolingUI) WarnMsg(string)  {}
 func (fakeToolingUI) Ok(string)       {}
 
 type fakeToolingRunner struct {
-	t           *testing.T
-	sudoOutput  map[string]string
-	agentOutput map[string]string
-	sudoWrites  map[string]string
+	t               *testing.T
+	sudoOutput      map[string]string
+	agentOutput     map[string]string
+	sudoWrites      map[string]string
+	sudoOutputCalls [][]string
+	agentCalls      [][]string
 }
 
 func newFakeToolingRunner(t *testing.T) *fakeToolingRunner {
@@ -186,6 +190,7 @@ func (r *fakeToolingRunner) Sudo(string, ...string) error {
 }
 
 func (r *fakeToolingRunner) SudoOutput(args ...string) (string, error) {
+	r.sudoOutputCalls = append(r.sudoOutputCalls, append([]string(nil), args...))
 	if len(args) == 2 && args[0] == "cat" {
 		return r.sudoOutput[args[1]], nil
 	}
@@ -198,6 +203,7 @@ func (r *fakeToolingRunner) SudoWriteFile(_ string, path, content string) error 
 }
 
 func (r *fakeToolingRunner) AgentOutput(args ...string) (string, error) {
+	r.agentCalls = append(r.agentCalls, append([]string(nil), args...))
 	if len(args) == 2 && args[0] == "cat" {
 		return r.agentOutput[args[1]], nil
 	}
@@ -214,4 +220,13 @@ func (r *fakeToolingRunner) MkdirAll(path string, mode os.FileMode) error {
 
 func (r *fakeToolingRunner) Chmod(path string, mode os.FileMode) error {
 	return os.Chmod(path, mode)
+}
+
+func assertNoSudoOutputForPath(t *testing.T, runner *fakeToolingRunner, path string) {
+	t.Helper()
+	for _, call := range runner.sudoOutputCalls {
+		if len(call) == 2 && call[0] == "cat" && call[1] == path {
+			t.Fatalf("sudo output read %s; agent-owned files must be read through AgentOutput", path)
+		}
+	}
 }

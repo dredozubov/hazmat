@@ -56,8 +56,12 @@ func SudoNoPrompt(env Env, args ...string) error {
 	return NewSudoNoPromptCommand(env, args...).Run()
 }
 
+func newSudoOutputCommand(env Env, args ...string) *exec.Cmd {
+	return NewSudoNoPromptCommand(env, args...)
+}
+
 func SudoOutput(env Env, args ...string) (string, error) {
-	out, err := NewSudoCommand(env, args...).CombinedOutput()
+	out, err := newSudoOutputCommand(env, args...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 

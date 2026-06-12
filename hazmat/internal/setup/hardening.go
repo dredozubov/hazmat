@@ -75,7 +75,7 @@ func SetupHardeningGaps(env HardeningEnv, ui StepStatusUI, runner ToolingRunner)
 
 	// Restrictive umask for agent user; rollback removes this exact block.
 	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
-	agentZshrcData, _ := runner.SudoOutput("cat", agentZshrc)
+	agentZshrcData, _ := runner.AgentOutput("cat", agentZshrc)
 	if strings.Contains(agentZshrcData, env.UmaskBlockStart) {
 		ui.SkipDone("umask 007 already set in agent's .zshrc")
 	} else {

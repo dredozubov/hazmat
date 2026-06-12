@@ -59,7 +59,7 @@ func TestSetupHardeningGapsRestrictsCredentialsAndWritesAgentUmask(t *testing.T)
 	}
 	runner := newFakeToolingRunner(t)
 	agentZshrc := filepath.Join(env.AgentHome, ".zshrc")
-	runner.sudoOutput[agentZshrc] = "export KEEP=1\n"
+	runner.agentOutput[agentZshrc] = "export KEEP=1\n"
 
 	if err := SetupHardeningGaps(env, &fakeToolingUI{}, runner); err != nil {
 		t.Fatalf("SetupHardeningGaps: %v", err)
@@ -82,6 +82,7 @@ func TestSetupHardeningGapsRestrictsCredentialsAndWritesAgentUmask(t *testing.T)
 	if !strings.Contains(got, env.UmaskBlockStart) || !strings.Contains(got, "umask 007") || !strings.Contains(got, "export KEEP=1") {
 		t.Fatalf("agent zshrc content = %q, want preserved content plus managed umask block", got)
 	}
+	assertNoSudoOutputForPath(t, runner, agentZshrc)
 }
 
 func mustMkdirMode(t *testing.T, path string, mode os.FileMode) {

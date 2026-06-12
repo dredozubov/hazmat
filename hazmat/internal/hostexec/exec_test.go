@@ -52,3 +52,12 @@ func TestNewSudoNoPromptCommandAddsNonInteractiveFlag(t *testing.T) {
 		t.Fatalf("NewSudoNoPromptCommand().Args = %v, want %v", cmd.Args, wantArgs)
 	}
 }
+
+func TestSudoOutputCommandAddsNonInteractiveFlag(t *testing.T) {
+	cmd := newSudoOutputCommand(testEnv(), "cat", "/etc/sudoers.d/agent")
+
+	wantArgs := []string{"/usr/bin/sudo", "-n", "cat", "/etc/sudoers.d/agent"}
+	if !reflect.DeepEqual(cmd.Args, wantArgs) {
+		t.Fatalf("newSudoOutputCommand().Args = %v, want %v", cmd.Args, wantArgs)
+	}
+}
