@@ -86,6 +86,59 @@ func TestReadOnlyDiagnosticsAvoidPromptLikeAdvice(t *testing.T) {
 	}
 }
 
+func TestPreGateDiagnosticsDoNotUseAgentHelperProbes(t *testing.T) {
+	preGateFunctions := map[string]bool{
+		"inspectAgentProbeGate":    true,
+		"testAgentUser":            true,
+		"testDevGroupAndWorkspace": true,
+		"testPasswordlessSudo":     true,
+		"testPfFirewallStatic":     true,
+		"testDNSBlocklist":         true,
+		"testPersistence":          true,
+	}
+	blockedCalls := map[string]string{
+		"agentPathExists":       "pre-gate diagnostics must not switch to the agent helper",
+		"agentPathIsDir":        "pre-gate diagnostics must not switch to the agent helper",
+		"agentPathIsExecutable": "pre-gate diagnostics must not switch to the agent helper",
+		"agentPathIsSymlink":    "pre-gate diagnostics must not switch to the agent helper",
+		"agentReadDirNames":     "pre-gate diagnostics must not switch to the agent helper",
+		"agentReadFile":         "pre-gate diagnostics must not switch to the agent helper",
+		"asAgentCombinedOutput": "pre-gate diagnostics must not switch to the agent helper",
+		"asAgentOutput":         "pre-gate diagnostics must not switch to the agent helper",
+		"asAgentQuiet":          "pre-gate diagnostics must not switch to the agent helper",
+	}
+
+	path := filepath.Join(".", "test.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || !preGateFunctions[fn.Name.Name] {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := diagnosticCallName(call.Fun)
+			if !ok {
+				return true
+			}
+			reason, found := blockedCalls[name]
+			if !found {
+				return true
+			}
+			pos := fset.Position(call.Fun.Pos())
+			t.Fatalf("%s uses %s in %s; %s", pos, name, fn.Name.Name, reason)
+			return false
+		})
+	}
+}
+
 func diagnosticCallName(expr ast.Expr) (string, bool) {
 	switch fun := expr.(type) {
 	case *ast.Ident:
