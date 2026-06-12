@@ -75,6 +75,13 @@ func diagnosticReportAdviceMentions(report uiDiagnosticReport, needle string) bo
 			return true
 		}
 	}
+	for _, step := range report.RepairPlan.NextSteps {
+		if strings.Contains(step.ID, needle) ||
+			strings.Contains(step.Command, needle) ||
+			strings.Contains(step.Reason, needle) {
+			return true
+		}
+	}
 	return false
 }
 
