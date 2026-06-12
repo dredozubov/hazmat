@@ -1,6 +1,9 @@
 package hazmat
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRollbackReceiptsClassifyRemovedPreservedAndManualItems(t *testing.T) {
 	receipts := rollbackReceipts(false, false, []credentialInventoryEntry{
@@ -54,6 +57,23 @@ func TestRollbackCredentialReceiptsIncludeResiduePaths(t *testing.T) {
 	}
 	if !containsPlanString(receipt.Details, "agent residue: /Users/agent/.openai") {
 		t.Fatalf("receipt details = %+v, want agent residue path", receipt.Details)
+	}
+}
+
+func TestRollbackHelpNamesReceiptAndPreservationBoundary(t *testing.T) {
+	cmd := newRollbackCmd()
+	help := cmd.Long
+	normalized := strings.Join(strings.Fields(help), " ")
+	for _, want := range []string{
+		"Rollback prints receipts",
+		"removed, preserved, and manual follow-up items",
+		"Host-owned credential stores",
+		"session-time permission repairs",
+		"Use --dry-run to preview",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("rollback help = %q, want %q", help, want)
+		}
 	}
 }
 

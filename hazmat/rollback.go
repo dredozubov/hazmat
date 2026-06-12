@@ -32,6 +32,9 @@ User and group deletion require explicit flags because they are destructive:
 Your project files are NOT modified or removed. Hazmat-managed repo-local Git
 hook state is cleaned up as part of rollback, including host approvals,
 approved snapshots, per-repo wrappers, and managed .git dispatchers.
+Rollback prints receipts that classify removed, preserved, and manual follow-up
+items. Host-owned credential stores and session-time permission repairs are
+preserved unless a receipt explicitly names them for removal.
 
 Use --dry-run to preview all commands without executing.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
