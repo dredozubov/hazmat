@@ -216,6 +216,36 @@ actual directories they produced.
 - Repo-controlled files must remain unable to widen the Homebrew formula
   allowlist or force Homebrew-backed resolution on.
 
+## 2026-06 macOS Toolchain Survey Addendum
+
+This addendum records the Homebrew/macOS path survey behind the systems, JVM,
+and Swift integration queue. The implementation has since covered the highest
+confidence slices (`cmake`, `haskell-cabal`, `java-gradle`, `java-maven`,
+`swift`); the remaining languages should stay recipes or user manifests until
+their mutable package-store story is narrow enough for a built-in.
+
+| Stack | Markers | Resolution strategy | Stable read dirs | Mutable/cache dirs | Safe env selectors | Decision |
+|---|---|---|---|---|---|---|
+| C / C++ via CMake | `CMakeLists.txt` | Resolve `cmake` from PATH/Homebrew prefix; resolve Apple toolchain with `xcode-select -p`; optionally discover Homebrew `llvm`/`gcc` prefixes only when the active compiler path points there | CMake prefix, Xcode/CLT developer dir, active compiler prefix | `~/.cmake`; project `build/`, `CMakeFiles/`, `_deps/` | `CMAKE_PREFIX_PATH`, `CMAKE_GENERATOR` | Built-in `cmake` is right. Do not pass `CC`, `CXX`, `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, or `LDFLAGS` by default because they can redirect compiler/linker execution. |
+| Haskell / Cabal | `cabal.project`, `*.cabal`, `stack.yaml` | Resolve `ghc` and `cabal` prefixes from the active executables; Homebrew formulas are `ghc` and `cabal-install` | GHC prefix, Cabal executable prefix | Project `dist-newstyle/`, `.stack-work/`; host stores such as `~/.cabal`, `~/.stack` require explicit extensions | None by default | Built-in `haskell-cabal` is right. Package stores remain agent-owned or explicitly granted; do not auto-open host `~/.cabal` / `~/.stack`. |
+| OCaml / opam / Dune | `dune-project`, `dune`, `*.opam`, `opam` | Resolve `ocaml`, `dune`, and `opam` prefixes if present; Homebrew formulas exist for all three, but the useful package state usually lives in opam roots | OCaml/Dune/opam executable prefixes | Default opam root `~/.opam`; project-local `_opam`; `_build/` | Maybe `OPAMROOT`, but only after a mutable-store design | Recipe or user manifest for now. opam is intentionally user-writable package-manager state, so a built-in needs a scoped write/cache model before Hazmat grants it automatically. |
+| Java / Gradle / Maven | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts`, `pom.xml` | Resolve JDK from `JAVA_HOME`, `/usr/libexec/java_home`, or active `java`; Homebrew `openjdk` is keg-only and may also appear under `/Library/Java/JavaVirtualMachines`; resolve Gradle/Maven prefixes separately | JDK home, Gradle/Maven executable prefixes | `.gradle/`, `build/`, `target/`, `out/`; host `~/.gradle` / `~/.m2` require explicit extensions | `JAVA_HOME` | Built-in `java-gradle` and `java-maven` are right. Do not pass `GRADLE_OPTS`, `MAVEN_OPTS`, or `_JAVA_OPTIONS` by default. |
+| Kotlin | `build.gradle.kts`, Kotlin Gradle plugin in Gradle files, `*.kts` scripts | Treat Gradle/Maven Kotlin projects as JVM projects; Homebrew `kotlin` is a standalone compiler formula that depends on OpenJDK | JDK home plus Gradle/Maven prefix; standalone Kotlin prefix only for a future script/compiler recipe | Same as JVM plus project build dirs | `JAVA_HOME` | No separate built-in yet. Kotlin build projects are covered by `java-gradle` / `java-maven`; standalone Kotlin scripts can use a user manifest. |
+| Scala / sbt | `build.sbt`, `project/build.properties`, Scala Gradle/Maven markers | Treat Gradle/Maven Scala projects as JVM projects; Homebrew formulas exist for `scala` and `sbt`, with `sbt` using project `.sbtopts` and global Homebrew sbtopts | JDK home plus Gradle/Maven/sbt prefix | `.bsp/`, `.metals/`, `target/`, `project/target/`, host Coursier/Ivy/sbt caches require explicit extensions | `JAVA_HOME` | Future `scala-sbt` candidate, not part of this slice. Do not auto-open host Coursier/Ivy/sbt caches until a cache/write policy exists. |
+| Swift / SwiftPM | `Package.swift` | Resolve Xcode/CLT with `xcode-select -p`; pass `DEVELOPER_DIR` only as a selector | Xcode/CLT developer dir; SwiftPM/Xcode cache dirs already declared in the manifest | `.build/`, `.swiftpm/`, DerivedData | `DEVELOPER_DIR` | Built-in `swift` is right, but it must keep warning about SwiftPM's nested sandbox and `--disable-sandbox`. |
+
+Cross-cutting conclusion: prefer runtime path probes over formula guesses, then
+use Homebrew prefixes only as a fallback/provenance source for known formulas.
+Do not auto-grant mutable language package stores just because they are common;
+those remain agent-owned, explicit host extensions, or future integration work
+with a narrower cache model.
+
+Sources consulted: Homebrew formula pages for `cmake`, `llvm`, `gcc`, `ghc`,
+`cabal-install`, `opam`, `ocaml`, `dune`, `openjdk`, `gradle`, `maven`,
+`kotlin`, `scala`, and `sbt`; Cabal docs for `dist-newstyle` caching; opam FAQ
+and manual for the default `~/.opam` root; SwiftPM docs for package cache/reset
+behavior.
+
 ## Migration Plan
 
 The migration should separate current pack behavior into three buckets rather
