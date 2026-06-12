@@ -42,6 +42,7 @@ var credentialDenySubpaths = []string{
 	"/.copilot",
 	"/.deepseek",
 	"/.codewhale",
+	"/.grok",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
