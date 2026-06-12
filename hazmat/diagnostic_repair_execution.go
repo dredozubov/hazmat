@@ -34,7 +34,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "hazmat check is a read-only health and repairability report",
-			Examples:        []string{"hazmat check", "hazmat doctor --fix", "hazmat doctor --dry-run"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"},
 		}
 	case command == "init":
 		return diagnosticRepairExecutionPolicy{
@@ -44,7 +44,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "hazmat init has already run setup; remaining findings are post-init verification blockers, not advice to rerun init",
-			Examples:        []string{"hazmat doctor --dry-run", "hazmat doctor --fix --yes", "hazmat check --full"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"},
 		}
 	case req.DryRun:
 		return diagnosticRepairExecutionPolicy{
@@ -54,7 +54,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "global --dry-run previews the typed repair plan and never executes repairs, even when --fix is also supplied",
-			Examples:        []string{"hazmat doctor --dry-run", "hazmat doctor --fix"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run"},
 		}
 	case !req.Fix:
 		return diagnosticRepairExecutionPolicy{
@@ -64,7 +64,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     true,
 			RequiresYes:     false,
 			Reason:          "doctor without --fix diagnoses drift and shows the repair plan without applying it",
-			Examples:        []string{"hazmat doctor --dry-run", "hazmat doctor --dry-run --json", "hazmat doctor --fix"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat doctor --dry-run --json"},
 		}
 	case req.YesAll:
 		return diagnosticRepairExecutionPolicy{
