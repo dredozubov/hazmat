@@ -83,7 +83,7 @@ func (darwinSetupVerificationBackend) verifyDNSBlocklist(ui *UI) {
 }
 
 func (darwinSetupVerificationBackend) verifySeatbeltWrapper(ui *UI) {
-	if info, err := os.Stat(seatbeltWrapperPath); err == nil && info.Mode()&0o111 != 0 {
+	if executable, err := agentPathIsExecutable(seatbeltWrapperPath); err == nil && executable {
 		ui.TestPass(fmt.Sprintf("Seatbelt wrapper installed and executable at %s", seatbeltWrapperPath))
 	} else {
 		ui.TestFailFinding(

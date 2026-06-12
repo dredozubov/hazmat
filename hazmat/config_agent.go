@@ -582,6 +582,10 @@ func hasLegacyGitHTTPSCredentialHelper(path string) bool {
 	if err != nil {
 		return false
 	}
+	return gitConfigDataHasLegacyGitHTTPSCredentialHelper(data)
+}
+
+func gitConfigDataHasLegacyGitHTTPSCredentialHelper(data []byte) bool {
 	for _, line := range strings.Split(string(data), "\n") {
 		value, ok := parseINIKeyValue(strings.TrimSpace(line), "helper")
 		if ok && isLegacyGitHTTPSCredentialHelperValue(value) {

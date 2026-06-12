@@ -8,8 +8,61 @@ import (
 	"strings"
 )
 
+var (
+	agentPathProbe = defaultAgentPathProbe
+	agentReadFile  = defaultAgentReadFile
+)
+
 func fileModeString(mode os.FileMode) string {
 	return fmt.Sprintf("%04o", uint32(mode)&0o7777)
+}
+
+func agentPathExists(path string) (bool, error) {
+	return agentPathProbe("-e", path)
+}
+
+func agentPathIsDir(path string) (bool, error) {
+	return agentPathProbe("-d", path)
+}
+
+func agentPathIsExecutable(path string) (bool, error) {
+	return agentPathProbe("-x", path)
+}
+
+func agentPathIsSymlink(path string) (bool, error) {
+	return agentPathProbe("-L", path)
+}
+
+func defaultAgentPathProbe(testFlag, path string) (bool, error) {
+	const script = `case "$1" in
+  -e|-f|-d|-x|-L) ;;
+  *) exit 64 ;;
+esac
+if test "$1" "$2"; then
+  printf yes
+else
+  printf no
+fi`
+	out, err := asAgentOutput("/bin/sh", "-c", script, "hazmat-agent-path-probe", testFlag, path)
+	if err != nil {
+		return false, err
+	}
+	switch strings.TrimSpace(out) {
+	case "yes":
+		return true, nil
+	case "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected agent path probe output for %s %s: %q", testFlag, path, out)
+	}
+}
+
+func defaultAgentReadFile(path string) ([]byte, error) {
+	out, err := asAgentOutput("/bin/cat", path)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
 }
 
 func agentEnsureDir(path string, mode os.FileMode) error {

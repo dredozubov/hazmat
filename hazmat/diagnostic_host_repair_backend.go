@@ -378,11 +378,18 @@ func verifySetupSudoers() error {
 }
 
 func verifySetupSeatbeltWrapper() error {
-	info, err := os.Stat(seatbeltWrapperPath)
+	exists, err := agentPathExists(seatbeltWrapperPath)
 	if err != nil {
-		return fmt.Errorf("seatbelt wrapper missing: %w", err)
+		return fmt.Errorf("inspect seatbelt wrapper as agent: %w", err)
 	}
-	if info.Mode()&0o111 == 0 {
+	if !exists {
+		return fmt.Errorf("seatbelt wrapper missing: %s", seatbeltWrapperPath)
+	}
+	executable, err := agentPathIsExecutable(seatbeltWrapperPath)
+	if err != nil {
+		return fmt.Errorf("inspect seatbelt wrapper executable bit as agent: %w", err)
+	}
+	if !executable {
 		return fmt.Errorf("seatbelt wrapper is not executable: %s", seatbeltWrapperPath)
 	}
 	return nil

@@ -131,6 +131,7 @@ const (
 	findingAgentSSHKey                    diagnosticFindingID = "agent-tooling.ssh-key"
 	findingAnthropicAPIKey                diagnosticFindingID = "agent-tooling.anthropic-api-key"
 	findingAgentGitIdentity               diagnosticFindingID = "agent-tooling.git-identity"
+	findingClaudeProjectSharing           diagnosticFindingID = "claude.project-sharing"
 	findingClaudeProjectPermissions       diagnosticFindingID = "claude.project-permissions"
 	findingAgentToolPath                  diagnosticFindingID = "project-toolchain.agent-path"
 	findingIntegrationToolchain           diagnosticFindingID = "project-toolchain.integration-toolchain"
@@ -253,6 +254,11 @@ var diagnosticResourceDefinitions = map[diagnosticResourceID]diagnosticResourceD
 		ID:           "agent-tooling.git-identity",
 		Owner:        "agent.tooling",
 		DesiredState: "agent Git identity is configured when the agent account is expected to create commits",
+	},
+	"claude.project-sharing": {
+		ID:           "claude.project-sharing",
+		Owner:        "agent.tooling",
+		DesiredState: "Claude export/resume sharing is available only when the workflow needs host-side session transfer",
 	},
 	"claude.project-permissions": {
 		ID:           "claude.project-permissions",
@@ -533,6 +539,14 @@ var diagnosticFindingDefinitions = map[diagnosticFindingID]diagnosticFindingDefi
 		Repairability:  diagnosticRepairOptional,
 		Action:         "Configure agent Git identity only when commits from the agent account are expected.",
 		SecurityImpact: "Missing Git identity affects developer ergonomics, not containment.",
+	}),
+	findingClaudeProjectSharing: mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:             findingClaudeProjectSharing,
+		Resource:       "claude.project-sharing",
+		Title:          "Prepare Claude export/resume sharing if needed",
+		Repairability:  diagnosticRepairOptional,
+		Action:         "Treat host-side Claude export/resume as optional; use Claude bootstrap or a future helper-backed repair when this workflow is required.",
+		SecurityImpact: "Agent-private Claude state does not weaken containment, but host-side export/resume may need a narrower sharing path.",
 	}),
 	findingClaudeProjectPermissions: mustDiagnosticFinding(diagnosticFindingDefinition{
 		ID:               findingClaudeProjectPermissions,

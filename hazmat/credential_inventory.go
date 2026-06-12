@@ -58,8 +58,10 @@ type credentialInventorySummary struct {
 }
 
 var (
-	credentialInventoryPathExists = credentialInventoryPathExistsOnDisk
-	credentialInventoryReadFile   = os.ReadFile
+	credentialInventoryPathExists      = credentialInventoryPathExistsOnDisk
+	credentialInventoryReadFile        = os.ReadFile
+	credentialInventoryAgentPathExists = agentPathExists
+	credentialInventoryAgentReadFile   = agentReadFile
 )
 
 func inspectCredentialInventory(home string) ([]credentialInventoryEntry, error) {
@@ -202,7 +204,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 		if descriptor.AgentPath == "" {
 			return nil, nil
 		}
-		if exists, err := credentialInventoryPathExists(descriptor.AgentPath); err != nil {
+		if exists, err := credentialInventoryAgentPathExists(descriptor.AgentPath); err != nil {
 			return nil, []string{fmt.Sprintf("inspect agent credential path %s: %v", descriptor.AgentPath, err)}
 		} else if exists {
 			return []credentialInventoryFinding{{
@@ -213,7 +215,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 		}
 	case credentialDeliveryBrokeredHelper:
 		if descriptor.ID == credentialGitHTTPSAgentStore {
-			if exists, err := credentialInventoryPathExists(gitHTTPSAgentCredentialsPath); err != nil {
+			if exists, err := credentialInventoryAgentPathExists(gitHTTPSAgentCredentialsPath); err != nil {
 				return nil, []string{fmt.Sprintf("inspect Git HTTPS credential path %s: %v", gitHTTPSAgentCredentialsPath, err)}
 			} else if exists {
 				return []credentialInventoryFinding{{
@@ -243,7 +245,9 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 
 	switch descriptor.ID {
 	case credentialGitHTTPSAgentStore:
-		if hasLegacyGitHTTPSCredentialHelper(gitHTTPSAgentGitConfigPath) {
+		if hasHelper, err := inspectAgentLegacyGitHTTPSCredentialHelper(gitHTTPSAgentGitConfigPath); err != nil {
+			errors = append(errors, fmt.Sprintf("inspect legacy Git HTTPS helper %s: %v", gitHTTPSAgentGitConfigPath, err))
+		} else if hasHelper {
 			findings = append(findings, credentialInventoryFinding{
 				Path:   gitHTTPSAgentGitConfigPath,
 				Detail: "legacy persistent Git HTTPS credential helper",
@@ -317,12 +321,12 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 }
 
 func inspectLegacyProviderExport(envVar string) (optionalCredentialInventoryFinding, error) {
-	if exists, err := credentialInventoryPathExists(agentZshrcPath); err != nil {
+	if exists, err := credentialInventoryAgentPathExists(agentZshrcPath); err != nil {
 		return optionalCredentialInventoryFinding{}, fmt.Errorf("inspect legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
 	} else if !exists {
 		return optionalCredentialInventoryFinding{}, nil
 	}
-	data, err := credentialInventoryReadFile(agentZshrcPath)
+	data, err := credentialInventoryAgentReadFile(agentZshrcPath)
 	if err != nil {
 		return optionalCredentialInventoryFinding{}, fmt.Errorf("read legacy provider export %s in %s: %w", envVar, agentZshrcPath, err)
 	}
@@ -340,6 +344,21 @@ func inspectLegacyProviderExport(envVar string) (optionalCredentialInventoryFind
 		}
 	}
 	return optionalCredentialInventoryFinding{}, nil
+}
+
+func inspectAgentLegacyGitHTTPSCredentialHelper(path string) (bool, error) {
+	exists, err := credentialInventoryAgentPathExists(path)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	data, err := credentialInventoryAgentReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	return gitConfigDataHasLegacyGitHTTPSCredentialHelper(data), nil
 }
 
 type legacyCloudCredentialConfig struct {

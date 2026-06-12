@@ -78,8 +78,8 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := checkUI.recommendationSectionTitle(); got != "━━━ Repairability report ━━━" {
 		t.Fatalf("check title = %q", got)
 	}
-	if got := checkUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor") {
-		t.Fatalf("check footer = %q, want doctor pointer", got)
+	if got := checkUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor --fix") || !strings.Contains(got, "Preview only: hazmat doctor") {
+		t.Fatalf("check footer = %q, want direct fix path and preview pointer", got)
 	}
 
 	doctorUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "doctor"}}
@@ -94,8 +94,8 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := initUI.recommendationSectionTitle(); got != "━━━ Post-init repair verification ━━━" {
 		t.Fatalf("init title = %q", got)
 	}
-	if got := initUI.recommendationFooter(); strings.Contains(got, "hazmat init") || !strings.Contains(got, "hazmat doctor") {
-		t.Fatalf("init footer = %q, want doctor pointer without init loop", got)
+	if got := initUI.recommendationFooter(); strings.Contains(got, "hazmat init") || !strings.Contains(got, "hazmat doctor --fix") {
+		t.Fatalf("init footer = %q, want doctor fix pointer without init loop", got)
 	}
 }
 

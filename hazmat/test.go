@@ -47,7 +47,8 @@ func runTest(options diagnostics.CheckOptions) error {
 				fmt.Println("  Modes:")
 				fmt.Println("    hazmat check          Read-only health report (no external traffic)")
 				fmt.Println("    hazmat check --full   Read-only health report with live network probes")
-				fmt.Println("    hazmat doctor         Show the typed repair plan")
+				fmt.Println("    hazmat doctor         Preview the typed repair plan")
+				fmt.Println("    hazmat doctor --fix   Apply approved typed repairs")
 				fmt.Println()
 			}
 
@@ -672,7 +673,15 @@ func testAgentTools(ui *UI) {
 		for _, dir := range []string{agentHome + "/.claude", agentHome + "/.claude/projects"} {
 			info, err := os.Stat(dir)
 			if err != nil {
-				ui.TestFail(fmt.Sprintf("%s not accessible from host user — export/resume will fail", dir))
+				if exists, agentErr := agentPathIsDir(dir); agentErr == nil && exists {
+					ui.TestWarnFinding(
+						diagnosticFinding(findingClaudeProjectSharing),
+						fmt.Sprintf("%s is agent-private; host-side Claude export/resume may require helper-backed repair", dir),
+						fmt.Sprintf("path: %s", dir),
+					)
+				} else {
+					ui.TestSkip(fmt.Sprintf("%s does not exist for agent user yet", dir))
+				}
 				continue
 			}
 			if !info.IsDir() {
@@ -809,13 +818,25 @@ func testCommandSurface(ui *UI) {
 func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
-	if info, err := os.Stat(seatbeltWrapperPath); err != nil {
+	if exists, err := agentPathExists(seatbeltWrapperPath); err != nil {
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupSeatbeltWrapper),
+			fmt.Sprintf("Could not inspect seatbelt wrapper as agent: %s — %v", seatbeltWrapperPath, err),
+			seatbeltWrapperPath,
+		)
+	} else if !exists {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupSeatbeltWrapper),
 			fmt.Sprintf("Seatbelt wrapper missing: %s — baseline setup is incomplete", seatbeltWrapperPath),
 			seatbeltWrapperPath,
 		)
-	} else if info.Mode()&0o111 == 0 {
+	} else if executable, err := agentPathIsExecutable(seatbeltWrapperPath); err != nil {
+		ui.TestFailFinding(
+			diagnosticFinding(findingSetupSeatbeltWrapper),
+			fmt.Sprintf("Could not verify seatbelt wrapper executable bit as agent: %s — %v", seatbeltWrapperPath, err),
+			seatbeltWrapperPath,
+		)
+	} else if !executable {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupSeatbeltWrapper),
 			fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath),
@@ -904,22 +925,25 @@ func testSeatbelt(ui *UI) {
 	credentialProbeDir := agentHome + "/.aws"
 	createdCredentialProbeDir := false
 	credentialProbeReady := true
-	if info, err := os.Lstat(credentialProbeDir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+	if isLink, err := agentPathIsSymlink(credentialProbeDir); err == nil && isLink {
 		ui.TestWarn(fmt.Sprintf("Credential deny probe dir is a symlink; skipping credential read/write probe: %s", credentialProbeDir))
 		credentialProbeReady = false
-	} else if os.IsNotExist(err) {
-		if err := sudo("install", "-d", "-o", agentUser, "-g", "staff", "-m", "700", credentialProbeDir); err != nil {
+	} else if exists, err := agentPathExists(credentialProbeDir); err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not inspect credential deny probe dir: %v", err))
+		credentialProbeReady = false
+	} else if !exists {
+		if err := agentEnsureDir(credentialProbeDir, 0o700); err != nil {
 			ui.TestWarn(fmt.Sprintf("Could not create credential deny probe dir: %v", err))
 			credentialProbeReady = false
 		} else {
 			createdCredentialProbeDir = true
-			defer sudo("rmdir", credentialProbeDir) //nolint:errcheck
+			defer asAgentQuiet("/bin/rmdir", credentialProbeDir) //nolint:errcheck
 		}
 	}
 	if credentialProbeReady {
 		credentialProbePath := fmt.Sprintf("%s/hazmat-seatbelt-probe-%d", credentialProbeDir, os.Getpid())
-		if err := sudo("install", "-o", agentUser, "-g", "staff", "-m", "600", "/dev/null", credentialProbePath); err == nil {
-			defer sudo("rm", "-f", credentialProbePath) //nolint:errcheck
+		if err := asAgentQuiet("/usr/bin/install", "-m", "600", "/dev/null", credentialProbePath); err == nil {
+			defer asAgentQuiet("/bin/rm", "-f", credentialProbePath) //nolint:errcheck
 			if err := runSandboxed("/bin/cat", credentialProbePath); err != nil {
 				ui.TestPass("Seatbelt denies reads inside credential directories")
 			} else {

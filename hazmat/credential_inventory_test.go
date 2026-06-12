@@ -19,6 +19,8 @@ func isolateCredentialInventoryTest(t *testing.T) string {
 	savedGitHTTPSAgentGitConfigPath := gitHTTPSAgentGitConfigPath
 	savedPathExists := credentialInventoryPathExists
 	savedReadFile := credentialInventoryReadFile
+	savedAgentPathExists := credentialInventoryAgentPathExists
+	savedAgentReadFile := credentialInventoryAgentReadFile
 
 	configFilePath = filepath.Join(home, ".hazmat", "config.yaml")
 	cloudCredentialPath = filepath.Join(home, ".hazmat", "cloud-credentials")
@@ -26,6 +28,8 @@ func isolateCredentialInventoryTest(t *testing.T) string {
 	gitHTTPSAgentGitConfigPath = filepath.Join(home, "agent", ".gitconfig")
 	credentialInventoryPathExists = credentialInventoryPathExistsOnDisk
 	credentialInventoryReadFile = os.ReadFile
+	credentialInventoryAgentPathExists = credentialInventoryPathExistsOnDisk
+	credentialInventoryAgentReadFile = os.ReadFile
 
 	t.Cleanup(func() {
 		configFilePath = savedConfigPath
@@ -34,6 +38,8 @@ func isolateCredentialInventoryTest(t *testing.T) string {
 		gitHTTPSAgentGitConfigPath = savedGitHTTPSAgentGitConfigPath
 		credentialInventoryPathExists = savedPathExists
 		credentialInventoryReadFile = savedReadFile
+		credentialInventoryAgentPathExists = savedAgentPathExists
+		credentialInventoryAgentReadFile = savedAgentReadFile
 	})
 	return home
 }
@@ -93,13 +99,13 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	realPathExists := credentialInventoryPathExists
-	credentialInventoryPathExists = func(path string) (bool, error) {
+	realAgentPathExists := credentialInventoryAgentPathExists
+	credentialInventoryAgentPathExists = func(path string) (bool, error) {
 		switch path {
 		case agentHome + "/.codex/auth.json", gitHTTPSAgentCredentialsPath:
 			return true, nil
 		default:
-			return realPathExists(path)
+			return realAgentPathExists(path)
 		}
 	}
 
@@ -122,6 +128,49 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 	}
 	if len(gitHTTPS.AgentResidue) != 1 || !strings.Contains(gitHTTPS.AgentResidue[0].Repair, "credential repair") {
 		t.Fatalf("Git HTTPS residue = %v, want broker repair guidance", gitHTTPS.AgentResidue)
+	}
+}
+
+func TestCredentialInventoryUsesAgentProbesForPrivateAgentPaths(t *testing.T) {
+	home := isolateCredentialInventoryTest(t)
+	hostStorePath := mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)
+	if err := os.MkdirAll(filepath.Dir(hostStorePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hostStorePath, []byte(`{"token":"redacted"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	credentialInventoryPathExists = func(path string) (bool, error) {
+		if strings.Contains(path, string(filepath.Separator)+"agent"+string(filepath.Separator)) ||
+			strings.HasPrefix(path, agentHome+"/") {
+			return false, os.ErrPermission
+		}
+		return credentialInventoryPathExistsOnDisk(path)
+	}
+	credentialInventoryAgentPathExists = func(string) (bool, error) {
+		return false, nil
+	}
+	credentialInventoryAgentReadFile = func(path string) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}
+
+	entries, err := inspectCredentialInventory(home)
+	if err != nil {
+		t.Fatalf("inspectCredentialInventory: %v", err)
+	}
+
+	codex := findInventoryEntryForTest(t, entries, credentialHarnessCodexAuth)
+	if got := codex.Status(); got != credentialInventoryConfigured {
+		t.Fatalf("Codex status = %s, want %s; errors=%v", got, credentialInventoryConfigured, codex.Errors)
+	}
+	openCode := findInventoryEntryForTest(t, entries, credentialHarnessOpenCodeAuth)
+	if got := openCode.Status(); got != credentialInventoryNotConfigured {
+		t.Fatalf("OpenCode status = %s, want %s; errors=%v", got, credentialInventoryNotConfigured, openCode.Errors)
+	}
+	provider := findInventoryEntryForTest(t, entries, credentialProviderOpenAIAPIKey)
+	if got := provider.Status(); got != credentialInventoryNotConfigured {
+		t.Fatalf("OpenAI provider status = %s, want %s; errors=%v", got, credentialInventoryNotConfigured, provider.Errors)
 	}
 }
 
