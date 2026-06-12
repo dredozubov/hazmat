@@ -34,7 +34,10 @@ Before you touch any harness flow.
     hazmat status
     ```
   - Expected: every check is green; agent user exists; sudoers + launch helper present.
-  - On failure: run `hazmat init` (interactive) and re-check.
+  - On failure: if Hazmat has never been initialized on this machine, run
+    `hazmat init` (interactive). If init has already run, inspect drift with
+    `hazmat doctor --dry-run` or apply approved repairs with
+    `hazmat doctor --fix`, then re-check.
 
 - [ ] **No leaked agent processes from earlier sessions**
   - Steps:
