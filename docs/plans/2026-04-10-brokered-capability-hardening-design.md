@@ -631,7 +631,10 @@ allowing arbitrary home overrides.
 The native launch environment builder also has a pure session-home overlay for
 `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME`; launch still
 uses the persistent `/Users/agent` values until the assembly and bridge
-materializers are wired.
+materializers are wired. The bridge materializer now creates the Claude
+home-relative symlink bridge and ensures the Hermes persistent env root while
+rejecting runtime paths that escape the session home or persistent roots placed
+inside the ephemeral tree.
 
 #### Resume/export requirements
 

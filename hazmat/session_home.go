@@ -285,6 +285,78 @@ func sessionHomeBridgeRequirementForEntry(entry sessionHomeAssemblyEntry) (sessi
 	}
 }
 
+func materializeSessionHomeBridges(layout sessionHomeLayout, requirements []sessionHomeBridgeRequirement) error {
+	for _, requirement := range requirements {
+		if err := validateSessionHomeBridgeRequirement(layout, requirement); err != nil {
+			return err
+		}
+		switch requirement.Kind {
+		case sessionHomeBridgeHomeRelativeRoot:
+			if err := materializeSessionHomeSymlinkBridge(requirement); err != nil {
+				return err
+			}
+		case sessionHomeBridgeHarnessEnvRoot:
+			if err := os.MkdirAll(requirement.PersistentRoot, 0o700); err != nil {
+				return fmt.Errorf("create persistent bridge root %s: %w", requirement.PersistentRoot, err)
+			}
+		default:
+			return fmt.Errorf("%s: unsupported session-home bridge kind %q", requirement.RelPath, requirement.Kind)
+		}
+	}
+	return nil
+}
+
+func validateSessionHomeBridgeRequirement(layout sessionHomeLayout, requirement sessionHomeBridgeRequirement) error {
+	if strings.TrimSpace(requirement.RelPath) == "" {
+		return fmt.Errorf("session-home bridge rel path is required")
+	}
+	if requirement.PersistentRoot == "" || !filepath.IsAbs(requirement.PersistentRoot) {
+		return fmt.Errorf("%s: persistent bridge root %q must be absolute", requirement.RelPath, requirement.PersistentRoot)
+	}
+	if isWithinDir(layout.Home, filepath.Clean(requirement.PersistentRoot)) {
+		return fmt.Errorf("%s: persistent bridge root %s must stay outside session home %s", requirement.RelPath, requirement.PersistentRoot, layout.Home)
+	}
+	if requirement.RuntimeRoot != "" {
+		runtimeRoot := filepath.Clean(requirement.RuntimeRoot)
+		if !filepath.IsAbs(runtimeRoot) {
+			return fmt.Errorf("%s: runtime bridge root %q must be absolute", requirement.RelPath, requirement.RuntimeRoot)
+		}
+		if !isWithinDir(layout.Home, runtimeRoot) {
+			return fmt.Errorf("%s: runtime bridge root %s escapes session home %s", requirement.RelPath, runtimeRoot, layout.Home)
+		}
+	}
+	if requirement.Kind == sessionHomeBridgeHarnessEnvRoot && requirement.EnvVar == "" {
+		return fmt.Errorf("%s: harness env bridge requires an env var", requirement.RelPath)
+	}
+	return nil
+}
+
+func materializeSessionHomeSymlinkBridge(requirement sessionHomeBridgeRequirement) error {
+	if err := os.MkdirAll(requirement.PersistentRoot, 0o700); err != nil {
+		return fmt.Errorf("create persistent bridge root %s: %w", requirement.PersistentRoot, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(requirement.RuntimeRoot), 0o700); err != nil {
+		return fmt.Errorf("create bridge parent for %s: %w", requirement.RuntimeRoot, err)
+	}
+	existing, err := os.Readlink(requirement.RuntimeRoot)
+	if err == nil {
+		if existing == requirement.PersistentRoot {
+			return nil
+		}
+		return fmt.Errorf("%s: existing symlink points to %s, want %s", requirement.RuntimeRoot, existing, requirement.PersistentRoot)
+	}
+	if !os.IsNotExist(err) {
+		if _, statErr := os.Lstat(requirement.RuntimeRoot); statErr == nil {
+			return fmt.Errorf("%s already exists and is not the expected symlink", requirement.RuntimeRoot)
+		}
+		return fmt.Errorf("inspect bridge root %s: %w", requirement.RuntimeRoot, err)
+	}
+	if err := os.Symlink(requirement.PersistentRoot, requirement.RuntimeRoot); err != nil {
+		return fmt.Errorf("link %s -> %s: %w", requirement.RuntimeRoot, requirement.PersistentRoot, err)
+	}
+	return nil
+}
+
 func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessionHomeAssemblyDurability {
 	switch class {
 	case containment.AgentHomeStateTranscript:

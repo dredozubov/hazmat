@@ -325,6 +325,73 @@ func TestNewSessionHomeLaunchPlanIncludesDurableBridgeRequirements(t *testing.T)
 	}
 }
 
+func TestMaterializeSessionHomeBridgesLinksClaudeAndEnsuresHermesRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	if err := materializeSessionHomeBridges(plan.Layout, plan.BridgeRequirements); err != nil {
+		t.Fatalf("materializeSessionHomeBridges: %v", err)
+	}
+
+	claudeRuntime := filepath.Join(plan.Layout.Home, ".claude", "projects")
+	claudePersistent := filepath.Join(persistentHome, ".claude", "projects")
+	target, err := os.Readlink(claudeRuntime)
+	if err != nil {
+		t.Fatalf("read Claude bridge: %v", err)
+	}
+	if target != claudePersistent {
+		t.Fatalf("Claude bridge target = %s, want %s", target, claudePersistent)
+	}
+
+	hermesPersistent := filepath.Join(persistentHome, ".hazmat", "hermes", "projects")
+	info, err := os.Stat(hermesPersistent)
+	if err != nil {
+		t.Fatalf("stat Hermes persistent root: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("Hermes persistent root is not a directory: %s", hermesPersistent)
+	}
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".hazmat", "hermes", "projects")); !os.IsNotExist(err) {
+		t.Fatalf("Hermes env bridge should not create a runtime HOME path, err=%v", err)
+	}
+}
+
+func TestMaterializeSessionHomeBridgesRejectsRuntimeEscape(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := sessionHomeBridgeRequirement{
+		RelPath:        ".claude/projects",
+		Kind:           sessionHomeBridgeHomeRelativeRoot,
+		PersistentRoot: filepath.Join(t.TempDir(), "agent", ".claude", "projects"),
+		RuntimeRoot:    filepath.Join(layout.SessionDir, "outside"),
+	}
+	if err := materializeSessionHomeBridges(layout, []sessionHomeBridgeRequirement{req}); err == nil {
+		t.Fatal("materializeSessionHomeBridges accepted a runtime bridge outside the session home")
+	}
+}
+
+func TestMaterializeSessionHomeBridgesRejectsPersistentRootInsideSessionHome(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := sessionHomeBridgeRequirement{
+		RelPath:        ".claude/projects",
+		Kind:           sessionHomeBridgeHomeRelativeRoot,
+		PersistentRoot: filepath.Join(layout.Home, ".claude", "projects"),
+		RuntimeRoot:    filepath.Join(layout.Home, ".claude", "projects"),
+	}
+	if err := materializeSessionHomeBridges(layout, []sessionHomeBridgeRequirement{req}); err == nil {
+		t.Fatal("materializeSessionHomeBridges accepted a persistent root inside the session home")
+	}
+}
+
 func TestSessionHomeBridgeRequirementsRejectUnknownExternalDurablePath(t *testing.T) {
 	_, err := sessionHomeBridgeRequirements([]sessionHomeAssemblyEntry{
 		{
