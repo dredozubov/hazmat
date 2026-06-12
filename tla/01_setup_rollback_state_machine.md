@@ -100,8 +100,8 @@ and how many setup/rollback attempts have occurred.
    known AI-agent local state roots such as Amp config/plugins, Devin config
    and auth-adjacent state, external agent roots for Kilo, Kimi, Kiro, Vibe,
    Trae, Pi, Crush, OpenClaw, Qoder, GitHub Copilot CLI,
-   CodeWhale/DeepSeek TUI, Grok Build, and Goose config/session/log state.
-   Core rollback removes the managed umask block but
+   CodeWhale/DeepSeek TUI, Grok Build, OpenHands, and Goose
+   config/session/log state. Core rollback removes the managed umask block but
    intentionally preserves owner-only credential modes because they are host
    security posture, not a Hazmat artifact.
 

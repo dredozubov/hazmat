@@ -33,6 +33,7 @@ var aiAgentCredentialDenySubs = []string{
 	"/.deepseek",
 	"/.codewhale",
 	"/.grok",
+	"/.openhands",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",

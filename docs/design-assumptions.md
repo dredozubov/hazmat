@@ -217,7 +217,7 @@ not execute them.
 
 **Harnesses are explicit, and init no longer installs one by default.** `hazmat init` sets up containment first, then optionally bootstraps a supported harness such as Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent when the operator selects one. The seatbelt still includes explicit support for Claude state in `~/.claude/`, but harness installation itself is now an opt-in step rather than an automatic side effect of init.
 
-**Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Aider, CodeWhale/DeepSeek TUI, Crush, Devin, GitHub Copilot CLI, Grok Build, Kilo, Kimi, Kiro, Mistral Vibe, OpenClaw, Qoder, Trae CLI, Pi, or another unimplemented tool, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
+**Only explicitly implemented harnesses work.** Hazmat now has a harness boundary, but it is still a built-in registry, not a plugin system. To use Aider, CodeWhale/DeepSeek TUI, Crush, Devin, GitHub Copilot CLI, Grok Build, Kilo, Kimi, Kiro, Mistral Vibe, OpenClaw, OpenHands, Qoder, Trae CLI, Pi, or another unimplemented tool, you'd still need code changes for install/config/import behavior and, where necessary, seatbelt-visible state paths.
 
 **The vision is agent-agnostic containment.** The current implementation has explicit harness support because containment (user isolation, pf, seatbelt) is generic, while harness bootstrapping and portable-import scope remain harness-specific.
 

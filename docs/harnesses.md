@@ -41,7 +41,8 @@ Future harness additions follow the maintainer-owned adapter boundary in
 load arbitrary harness plugins or project-defined harness behavior.
 OpenHands is tracked separately as a service-oriented candidate in
 [OpenHands Harness Candidate Evaluation](plans/2026-06-12-openhands-harness-evaluation.md);
-it is not a supported `hazmat <harness>` command today.
+it is not a supported `hazmat <harness>` command today. For current
+recipe-only use, see [OpenHands under Hazmat](recipes/openhands-recipe-only.md).
 
 After bootstrap/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
