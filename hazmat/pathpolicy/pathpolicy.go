@@ -29,6 +29,9 @@ var credentialDenySubpaths = []string{
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
+	"/.config/goose",
+	"/.local/share/goose",
+	"/.local/state/goose",
 	"/Library/Application Support/Claude",
 	"/Library/Application Support/Cursor",
 }

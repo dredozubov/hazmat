@@ -49,6 +49,9 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".config/goose", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".local/share/goose", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".local/state/goose", DirMode: 0o700, FileMode: 0o600},
 	{Rel: "Library/Application Support/Claude", DirMode: 0o700, FileMode: 0o600},
 	{Rel: "Library/Application Support/Cursor", DirMode: 0o700, FileMode: 0o600},
 }

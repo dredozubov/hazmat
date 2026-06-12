@@ -235,6 +235,9 @@
 (deny file-read* file-write* (subpath "/Users/agent/.continue"))
 (deny file-read* file-write* (subpath "/Users/agent/.cline"))
 (deny file-read* file-write* (subpath "/Users/agent/.aider.conf.yml"))
+(deny file-read* file-write* (subpath "/Users/agent/.config/goose"))
+(deny file-read* file-write* (subpath "/Users/agent/.local/share/goose"))
+(deny file-read* file-write* (subpath "/Users/agent/.local/state/goose"))
 (deny file-read* file-write* (subpath "/Users/agent/Library/Application Support/Claude"))
 (deny file-read* file-write* (subpath "/Users/agent/Library/Application Support/Cursor"))
 ;; ── Re-allow agent's empty login keychain (post-deny override) ────────────
