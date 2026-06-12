@@ -5,6 +5,7 @@
 # Verifies that:
 #   - scripts/e2e.sh refuses to run without an explicit destructive ack
 #   - make e2e refuses to run without E2E_ACK=1
+#   - live cache integration smoke refuses to run without its explicit ack
 #   - release installer refuses unsupported platforms before download/install
 #   - host-side test entrypoints fail fast when another host-side test holds
 #     the shared lock
@@ -56,6 +57,11 @@ assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e
+
+assert_fails_with \
+    "cache integration smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-hazmat-exec" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --run
 
 phase "Platform guards"
 

@@ -17,6 +17,7 @@ are not interchangeable.
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host | No |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
+| `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -188,6 +189,40 @@ scripts/check-session-home-activation-smoke.sh --skip-if-missing-prereqs
 This is a live native Hazmat smoke. Its prerequisite mode and live mode may
 exercise sudo-adjacent host capability checks or helper-backed launch behavior,
 so agents must ask for explicit approval before running either command.
+
+### Cache integration smoke
+
+Use this when validating cache-only integrations for Hugging Face, Ollama, or
+PyTorch torch-hub. The default mode is only a disclosure; it prints the selected
+targets, fixture environment, and live command shape without running Hazmat:
+
+```bash
+scripts/check-cache-integration-smoke.sh
+scripts/check-cache-integration-smoke.sh --target huggingface
+```
+
+Fixture checks are non-mutating host checks. They verify the local binary or
+Python package and required fixture environment, but do not run `hazmat exec`:
+
+```bash
+scripts/check-cache-integration-smoke.sh --target huggingface --check-fixtures
+scripts/check-cache-integration-smoke.sh --target ollama --check-fixtures
+scripts/check-cache-integration-smoke.sh --target torch-hub --check-fixtures
+```
+
+Live mode is sudo-adjacent because it invokes `hazmat exec`. Agents must ask
+for explicit approval before running commands in this form:
+
+```bash
+scripts/check-cache-integration-smoke.sh --target huggingface --run --i-understand-this-runs-hazmat-exec
+scripts/check-cache-integration-smoke.sh --target ollama --run --i-understand-this-runs-hazmat-exec
+scripts/check-cache-integration-smoke.sh --target torch-hub --run --i-understand-this-runs-hazmat-exec
+```
+
+Hugging Face requires `HAZMAT_HF_SMOKE_MODEL` to name a pre-cached model ID or
+path. PyTorch torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
+`HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry. Ollama requires the
+`ollama` CLI and a running host daemon.
 
 ### Adding Credential Surfaces
 
