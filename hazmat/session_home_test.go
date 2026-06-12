@@ -182,6 +182,7 @@ func TestNewSessionHomeLaunchPlanOrdersResumeAfterAssemblyBeforeLaunch(t *testin
 	}
 
 	want := []sessionHomeLaunchPhase{
+		sessionHomePhaseCleanupStaleHomes,
 		sessionHomePhaseResolveIdentity,
 		sessionHomePhaseAssembleHome,
 		sessionHomePhaseSyncResumeState,
@@ -196,6 +197,9 @@ func TestNewSessionHomeLaunchPlanOrdersResumeAfterAssemblyBeforeLaunch(t *testin
 	if plan.Layout.Home != filepath.Join(root, "session-123", "home") {
 		t.Fatalf("layout home = %s", plan.Layout.Home)
 	}
+	if plan.Cleanup.Root != root || plan.Cleanup.MaxAge != defaultSessionHomeCleanupMaxAge {
+		t.Fatalf("cleanup = %+v, want root %s age %s", plan.Cleanup, root, defaultSessionHomeCleanupMaxAge)
+	}
 	if len(plan.Assembly) == 0 {
 		t.Fatal("launch plan has no assembly entries")
 	}
@@ -208,6 +212,7 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 	}
 
 	want := []sessionHomeLaunchPhase{
+		sessionHomePhaseCleanupStaleHomes,
 		sessionHomePhaseResolveIdentity,
 		sessionHomePhaseAssembleHome,
 		sessionHomePhaseLaunchHarness,

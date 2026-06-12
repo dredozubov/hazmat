@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	defaultSessionHomeRoot = "/private/tmp/hazmat-home"
-	sessionHomeMarkerFile  = ".hazmat-session-home"
+	defaultSessionHomeRoot          = "/private/tmp/hazmat-home"
+	defaultSessionHomeCleanupMaxAge = 24 * time.Hour
+	sessionHomeMarkerFile           = ".hazmat-session-home"
 )
 
 type sessionHomeLayout struct {
@@ -48,10 +49,11 @@ type sessionHomeAssemblyEntry struct {
 type sessionHomeLaunchPhase string
 
 const (
-	sessionHomePhaseResolveIdentity sessionHomeLaunchPhase = "generate-or-resolve-session-id"
-	sessionHomePhaseAssembleHome    sessionHomeLaunchPhase = "assemble-session-home"
-	sessionHomePhaseSyncResumeState sessionHomeLaunchPhase = "sync-resume-state"
-	sessionHomePhaseLaunchHarness   sessionHomeLaunchPhase = "launch-harness"
+	sessionHomePhaseCleanupStaleHomes sessionHomeLaunchPhase = "cleanup-stale-session-homes"
+	sessionHomePhaseResolveIdentity   sessionHomeLaunchPhase = "generate-or-resolve-session-id"
+	sessionHomePhaseAssembleHome      sessionHomeLaunchPhase = "assemble-session-home"
+	sessionHomePhaseSyncResumeState   sessionHomeLaunchPhase = "sync-resume-state"
+	sessionHomePhaseLaunchHarness     sessionHomeLaunchPhase = "launch-harness"
 )
 
 type sessionHomeLaunchBlockerReason string
@@ -81,10 +83,16 @@ type sessionHomeBridgeRequirement struct {
 	ProjectScoped  bool
 }
 
+type sessionHomeCleanupPlan struct {
+	Root   string
+	MaxAge time.Duration
+}
+
 type sessionHomeLaunchPlan struct {
 	Layout             sessionHomeLayout
 	Assembly           []sessionHomeAssemblyEntry
 	BridgeRequirements []sessionHomeBridgeRequirement
+	Cleanup            sessionHomeCleanupPlan
 	Phases             []sessionHomeLaunchPhase
 	ResumeRequested    bool
 	Blockers           []sessionHomeLaunchBlocker
@@ -211,6 +219,7 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 		return sessionHomeLaunchPlan{}, err
 	}
 	phases := []sessionHomeLaunchPhase{
+		sessionHomePhaseCleanupStaleHomes,
 		sessionHomePhaseResolveIdentity,
 		sessionHomePhaseAssembleHome,
 	}
@@ -223,9 +232,13 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 		Layout:             layout,
 		Assembly:           assembly,
 		BridgeRequirements: bridgeRequirements,
-		Phases:             phases,
-		ResumeRequested:    resumeRequested,
-		Blockers:           sessionHomeLaunchBlockers(assembly),
+		Cleanup: sessionHomeCleanupPlan{
+			Root:   layout.Root,
+			MaxAge: defaultSessionHomeCleanupMaxAge,
+		},
+		Phases:          phases,
+		ResumeRequested: resumeRequested,
+		Blockers:        sessionHomeLaunchBlockers(assembly),
 	}, nil
 }
 

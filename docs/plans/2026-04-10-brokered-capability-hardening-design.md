@@ -634,7 +634,9 @@ uses the persistent `/Users/agent` values until the assembly and bridge
 materializers are wired. The bridge materializer now creates the Claude
 home-relative symlink bridge and ensures the Hermes persistent env root while
 rejecting runtime paths that escape the session home or persistent roots placed
-inside the ephemeral tree.
+inside the ephemeral tree. The launch plan also includes a bounded stale-home
+cleanup phase before identity resolution, using the marker-gated cleanup
+primitive and a 24-hour default age.
 
 #### Resume/export requirements
 
@@ -646,10 +648,11 @@ The following behaviors must remain true after Feature 3B lands:
 
 Required assembly order:
 
-1. generate or resolve the session identity
-2. assemble the session-local home view
-3. sync resume data into the assembled view
-4. launch the harness
+1. clean up stale marked session homes from prior crashed sessions
+2. generate or resolve the session identity
+3. assemble the session-local home view
+4. sync resume data into the assembled view
+5. launch the harness
 
 Transcript state itself should remain on a durable path, not inside the
 ephemeral session home.
