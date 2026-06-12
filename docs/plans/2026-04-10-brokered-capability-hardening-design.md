@@ -583,8 +583,8 @@ Feature 3B is intentionally blocked on several compatibility prerequisites.
 
 #### Persistent-state manifest requirements
 
-The first deliverable of Feature 3B should be a persistence manifest covering
-at least:
+The first deliverable of Feature 3B is a persistence manifest covering at
+least:
 
 - shell RC files
 - `.gitconfig`
@@ -596,6 +596,11 @@ at least:
 This audit is needed because moving `HOME` changes a very large compatibility
 surface. Anything currently persistent through `HOME` or XDG paths becomes
 ephemeral unless the manifest says otherwise.
+
+Implementation note: `hazmat/containment/agent_home_manifest.go` now contains
+the initial durable agent-home manifest and the current Darwin SBPL compiler
+projects section-4 grants from it. This does not move `HOME`; it removes the
+hardcoded-policy-list drift risk before the session-home assembly code lands.
 
 #### Resume/export requirements
 

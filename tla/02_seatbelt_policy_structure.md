@@ -107,6 +107,13 @@ agent-home allow. It grants explicit durable state/tooling subtrees such as
 `.config`, `.cache`, and `.local`, plus known shell/config files. Credential
 deny paths remain denied later by section 8.
 
+The concrete path inventory for those durable home entries is maintained in
+`hazmat/containment/agent_home_manifest.go`. The Darwin SBPL compiler projects
+that manifest into section 4 read/write and executable grants. The same
+manifest is the initial audit seed for the future session-local HOME assembly,
+but this spec still models and verifies the current behavior where
+`HOME=/Users/agent`.
+
 ## TLA+ Model
 
 ### Abstract Path Model

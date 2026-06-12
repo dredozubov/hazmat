@@ -56,7 +56,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools"} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
-	for _, p := range agentHomeExecutableSubpaths(home) {
+	for _, p := range containment.AgentHomeExecutableSubpaths(home) {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
 	for _, dir := range readDirs {
@@ -142,10 +142,10 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	w(";; ── Agent home — explicit durable state/tooling paths ─────────────────────\n")
 	w(";; HOME stays %s, but the policy does not grant the whole home.\n", home)
 	w(";; Credential directories are denied at the end (last-match-wins).\n")
-	for _, dir := range agentHomeWritableSubpaths(home) {
+	for _, dir := range containment.AgentHomeWritableSubpaths(home) {
 		w("(allow file-read* file-write* (subpath %q))\n", dir)
 	}
-	for _, file := range agentHomeWritableFiles(home) {
+	for _, file := range containment.AgentHomeWritableFiles(home) {
 		w("(allow file-read* file-write* (literal %q))\n", file)
 	}
 	w("\n")
@@ -320,70 +320,4 @@ func isWithinDir(base, target string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
-}
-
-func agentHomeWritableSubpaths(home string) []string {
-	return agentHomeJoinAll(home, []string{
-		".agents",
-		".bun",
-		".cache",
-		".cargo",
-		".claude",
-		".codex",
-		".config",
-		".cursor",
-		".deno",
-		".gem",
-		".gemini",
-		".gradle",
-		".hazmat",
-		".ivy2",
-		".local",
-		".m2",
-		".node-gyp",
-		".npm",
-		".opencode",
-		".pub-cache",
-		".qwen",
-		".rustup",
-		".sbt",
-		".swiftpm",
-		".terraform.d",
-	})
-}
-
-func agentHomeWritableFiles(home string) []string {
-	return agentHomeJoinAll(home, []string{
-		".bash_profile",
-		".bashrc",
-		".gitconfig",
-		".npmrc",
-		".profile",
-		".pypirc",
-		".zprofile",
-		".zshenv",
-		".zshrc",
-	})
-}
-
-func agentHomeExecutableSubpaths(home string) []string {
-	return agentHomeJoinAll(home, []string{
-		".bun/bin",
-		".cargo/bin",
-		".claude/hooks",
-		".deno/bin",
-		".gem",
-		".local/bin",
-		".local/lib",
-		".opencode/bin",
-		".pub-cache/bin",
-	})
-}
-
-func agentHomeJoinAll(home string, rels []string) []string {
-	out := make([]string, 0, len(rels))
-	for _, rel := range rels {
-		out = append(out, filepath.Join(home, rel))
-	}
-	return out
 }

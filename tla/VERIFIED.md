@@ -232,8 +232,9 @@ successful completion after arbitrary bounded failures.
 |-------|-------|
 | Spec | `tla/02_seatbelt_policy_structure.md` |
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
-| Governed code | `hazmat/session.go` — `generateSBPL()`, `isWithinDir()` |
-| Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPL()` |
+| Governed code | `hazmat/session.go` — native session contract construction and legacy `generateSBPL()` compatibility entrypoint |
+| Governed code | `hazmat/containment/darwin/sbpl.go` — Darwin SBPL compiler and rule ordering |
+| Governed code | `hazmat/containment/agent_home_manifest.go` — explicit durable agent-home path manifest projected into section 4 grants |
 | Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
 | Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
@@ -306,6 +307,10 @@ agent-home compatibility subtrees plus an unlisted home file. TLC proves
 `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, and the
 `UnlistedAgentHomeNotImplicitly*` invariants with "No error has been found"
 across the same 32,256 generated states, 29,568 distinct states, depth 11.
+The concrete durable-path inventory now lives in
+`hazmat/containment/agent_home_manifest.go`, so the current SBPL allowlist and
+the future session-local HOME assembly audit share one manifest seed. This is a
+behavior-preserving projection change; `HOME` still remains `/Users/agent`.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
