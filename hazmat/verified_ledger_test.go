@@ -46,6 +46,111 @@ func TestVerifiedLedgerGovernedFunctionsExist(t *testing.T) {
 	}
 }
 
+func TestFormalVerificationDocsMentionPromotedSpecs(t *testing.T) {
+	promoted := loadPromotedSpecs(t)
+	if len(promoted) == 0 {
+		t.Fatal("promoted spec roster is empty")
+	}
+
+	docs := []string{
+		filepath.Join("..", "CLAUDE.md"),
+		filepath.Join("..", "tla", "README.md"),
+		filepath.Join("..", "tla", "VERIFIED.md"),
+	}
+	for _, doc := range docs {
+		mentioned := specsMentionedInMarkdown(t, doc)
+		assertSpecSetEqual(t, doc, mentioned, promoted)
+	}
+
+	checkSuite := filepath.Join("..", "tla", "check_suite.sh")
+	assertSpecSetEqual(t, checkSuite, specsMentionedInFile(t, checkSuite), promoted)
+}
+
+func loadPromotedSpecs(t *testing.T) map[string]bool {
+	t.Helper()
+	path := filepath.Join("..", "tla", "promoted_specs.tsv")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	specs := make(map[string]bool)
+	for idx, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if idx == 0 {
+			if line != "spec\tliveness" {
+				t.Fatalf("%s: unexpected header %q", path, line)
+			}
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 2 {
+			t.Fatalf("%s:%d: expected two tab-separated columns, got %q", path, idx+1, line)
+		}
+		specs[fields[0]] = true
+	}
+	return specs
+}
+
+func specsMentionedInMarkdown(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	mentioned := specsMentionedInFile(t, path)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(raw)
+	for spec := range mentioned {
+		if strings.Contains(text, spec+".tla") || strings.Contains(text, spec+".*") {
+			continue
+		}
+		if strings.Contains(text, "`"+spec+"`") {
+			continue
+		}
+		t.Fatalf("%s mentions %s without code formatting, .tla, or .* context", path, spec)
+	}
+	return mentioned
+}
+
+func specsMentionedInFile(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	re := regexp.MustCompile(`\bMC_[A-Za-z0-9_]+\b`)
+	mentioned := make(map[string]bool)
+	for _, spec := range re.FindAllString(string(raw), -1) {
+		mentioned[spec] = true
+	}
+	return mentioned
+}
+
+func assertSpecSetEqual(t *testing.T, label string, got, want map[string]bool) {
+	t.Helper()
+	var missing []string
+	for spec := range want {
+		if !got[spec] {
+			missing = append(missing, spec)
+		}
+	}
+	var extra []string
+	for spec := range got {
+		if !want[spec] {
+			extra = append(extra, spec)
+		}
+	}
+	if len(missing) == 0 && len(extra) == 0 {
+		return
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	t.Fatalf("%s promoted spec references drifted\nmissing: %v\nextra: %v", label, missing, extra)
+}
+
 func loadVerifiedLedgerFunctionRefs(t *testing.T) []verifiedFunctionRef {
 	t.Helper()
 

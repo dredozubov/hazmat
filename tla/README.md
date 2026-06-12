@@ -12,24 +12,24 @@ and TLC's exhaustive state exploration are designed to verify.
 
 ## Verified Specs
 
-| # | File | What it covers | Priority |
-|---|------|----------------|----------|
-| 1 | `01_setup_rollback_state_machine.md` | Setup/rollback ordering, privilege-before-containment hazards, and reversibility | **Critical** |
-| 2 | `02_seatbelt_policy_structure.md` | Seatbelt rule ordering, credential denies, project write re-assertion, and resume-path safety | **High** |
-| 3 | `03_backup_restore_safety.md` | Snapshot/restore ordering and overwrite safety | **High** |
-| 4 | `04_version_migration.md` | Version migration, rollback from any state, and migration recovery | **High** |
-| 5 | `05_tier3_launch_containment.md` | Tier 3 host-side mount planning, gating, and policy-before-launch ordering | **High** |
-| 6 | `06_tier2_tier3_effective_policy_equivalence.md` | Canonical Tier 2/Tier 3 core containment equivalence and intentional exact-identity breaks | **High** |
-| 7 | `07_session_permission_repairs.md` | Session-time host permission repair planning, preview/launch semantics, and rollback persistence | **High** |
-| 8 | `08_harness_lifecycle.md` | Built-in harness bootstrap/import state recording and rollback cleanup semantics | **High** |
-| 9 | `09_launch_fd_isolation.md` | Native helper fd-table cleanup before `sandbox_init()` and stdio-only agent exec | **High** |
-| 10 | `10_git_ssh_routing.md` | Multi-key Git SSH routing, profile resolution, and deterministic host-to-key selection | **High** |
-| 11 | `11_git_hook_approval.md` | Repo-local Git hook approval, immutable approved snapshots, hooksPath pinning, and drift refusal | **High** |
-| 12 | `12_secret_store_recovery.md` | Host-owned harness secret-store recovery across materialize, refresh, harvest, removal, and crash/restart | **High** |
-| 13 | `13_credential_capability_lifecycle.md` | Registry-level credential delivery modes, session scoping, adapter-required backends, and crash/recovery exposure rules | **High** |
-| 14 | `14_linux_native_launch.md` | Future Linux native helper ordering: spec validation, fd cleanup, namespaces, mounts, network, privileges, LSM/seccomp, metadata, exec | **High** |
-| 15 | `15_beadpost_broker_boundary.md` | Beadpost attestation membrane: confirmed-session gating, derived authority, per-session socket binding, clean teardown | **High** |
-| 16 | `16_apple_container_launch_containment.md` | Apple Container backend launch boundary: mount-plan credential exclusions, admission/network gating, credential artifact cleanup accounting | **High** |
+| # | Spec | Design note | What it covers | Priority |
+|---|------|-------------|----------------|----------|
+| 1 | `MC_SetupRollback` | `01_setup_rollback_state_machine.md` | Setup/rollback ordering, privilege-before-containment hazards, and reversibility | **Critical** |
+| 2 | `MC_SeatbeltPolicy` | `02_seatbelt_policy_structure.md` | Seatbelt rule ordering, credential denies, project write re-assertion, and resume-path safety | **High** |
+| 3 | `MC_BackupSafety` | `03_backup_restore_safety.md` | Snapshot/restore ordering and overwrite safety | **High** |
+| 4 | `MC_Migration` | `04_version_migration.md` | Version migration, rollback from any state, and migration recovery | **High** |
+| 5 | `MC_Tier3LaunchContainment` | `05_tier3_launch_containment.md` | Tier 3 host-side mount planning, gating, and policy-before-launch ordering | **High** |
+| 6 | `MC_TierPolicyEquivalence` | `06_tier2_tier3_effective_policy_equivalence.md` | Canonical Tier 2/Tier 3 core containment equivalence and intentional exact-identity breaks | **High** |
+| 7 | `MC_SessionPermissionRepairs` | `07_session_permission_repairs.md` | Session-time host permission repair planning, preview/launch semantics, and rollback persistence | **High** |
+| 8 | `MC_HarnessLifecycle` | `08_harness_lifecycle.md` | Built-in harness bootstrap/import state recording and rollback cleanup semantics | **High** |
+| 9 | `MC_LaunchFDIsolation` | `09_launch_fd_isolation.md` | Native helper fd-table cleanup before `sandbox_init()` and stdio-only agent exec | **High** |
+| 10 | `MC_GitSSHRouting` | `10_git_ssh_routing.md` | Multi-key Git SSH routing, profile resolution, and deterministic host-to-key selection | **High** |
+| 11 | `MC_GitHookApproval` | `11_git_hook_approval.md` | Repo-local Git hook approval, immutable approved snapshots, hooksPath pinning, and drift refusal | **High** |
+| 12 | `MC_SecretStoreRecovery` | `12_secret_store_recovery.md` | Host-owned harness secret-store recovery across materialize, refresh, harvest, removal, and crash/restart | **High** |
+| 13 | `MC_CredentialCapabilityLifecycle` | `13_credential_capability_lifecycle.md` | Registry-level credential delivery modes, session scoping, adapter-required backends, and crash/recovery exposure rules | **High** |
+| 14 | `MC_LinuxNativeLaunch` | `14_linux_native_launch.md` | Future Linux native helper ordering: spec validation, fd cleanup, namespaces, mounts, network, privileges, LSM/seccomp, metadata, exec | **High** |
+| 15 | `MC_BeadpostBrokerBoundary` | `15_beadpost_broker_boundary.md` | Beadpost attestation membrane: confirmed-session gating, derived authority, per-session socket binding, clean teardown | **High** |
+| 16 | `MC_AppleContainerLaunch` | `16_apple_container_launch_containment.md` | Apple Container backend launch boundary: mount-plan credential exclusions, admission/network gating, credential artifact cleanup accounting | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 

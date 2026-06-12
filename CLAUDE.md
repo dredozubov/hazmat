@@ -13,7 +13,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_SetupRollback` | Init step ordering, rollback ordering | `AgentContained` — sudoers never without firewall |
 | `MC_SeatbeltPolicy` | Seatbelt policy structure, credential denies | `CredentialReadDenied` — credential dirs always denied |
 | `MC_BackupSafety` | Snapshot/restore lifecycle | `RestoreReversible` — every overwrite has a prior snapshot |
-| `MC_Migration` | Version upgrades, rollback from any state | `AgentContained` across 44,795 states including partial migrations |
+| `MC_Migration` | Version upgrades, rollback from any state | `AgentContained` through migration and rollback states |
 | `MC_Tier3LaunchContainment` | Tier 3 host-side launch boundary | `CredentialPathsNeverMounted` — Tier 3 never mounts credential zones |
 | `MC_TierPolicyEquivalence` | Tier 2 vs Tier 3 core policy contract | `CanonicalCoreContainmentEquivalent` — canonical core containment matches across both backends |
 | `MC_SessionPermissionRepairs` | Session-time host permission repair planning and rollback persistence | `RollbackPreservesSessionRepairs` — core rollback never reverts an applied session repair |
@@ -24,6 +24,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_SecretStoreRecovery` | File-backed harness auth crash recovery | `LatestValueNeverSilentlyLost` — recovery never drops the newest host-owned secret value |
 | `MC_CredentialCapabilityLifecycle` | Registry-level credential delivery and cleanup | `DeliveryMatchesRegistry` — delivery mode follows the registered credential capability |
 | `MC_LinuxNativeLaunch` | Future Linux native helper launch ordering | `ExecAfterMetadata` — exec happens only after enforcement and metadata emission |
+| `MC_BeadpostBrokerBoundary` | Beadpost broker attestation membrane | `NoAuthorityFromAgent` — authority is derived host-side, never accepted from the contained agent |
 | `MC_AppleContainerLaunch` | Apple Container backend launch boundary | `CredentialPathsNeverMounted` — credential deny zones and their parents are never in the mount plan |
 
 **The workflow: spec first, prove, then implement.**
@@ -82,6 +83,7 @@ tla/                     TLA+ formal verification specs
   MC_SecretStoreRecovery.* Harness auth crash recovery contract
   MC_CredentialCapabilityLifecycle.* Credential delivery/cleanup contract
   MC_LinuxNativeLaunch.* Linux native launch ordering contract
+  MC_BeadpostBrokerBoundary.* Beadpost broker boundary contract
   MC_AppleContainerLaunch.* Apple Container launch boundary contract
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
@@ -118,7 +120,7 @@ make test                # unit tests
 → Update `MC_Migration.tla`: add the version to `Versions`, define `Expected(v)`,
 add `HasMigration` pair. Run TLC. The spec verifies `AgentContained` holds during
 migration from every older version AND during rollback from any intermediate state
-(44,795 states checked).
+within the current model bounds recorded in `tla/VERIFIED.md`.
 
 ### Adding or changing backup/restore paths
 → Update `MC_BackupSafety.tla` first, run TLC, then implement.
@@ -152,6 +154,9 @@ migration from every older version AND during rollback from any intermediate sta
 
 ### Changing Linux native helper launch ordering, namespace setup, LSM decisions, or exec gating
 → Update `MC_LinuxNativeLaunch.tla` first, run TLC, then implement.
+
+### Changing Beadpost broker attestation, authority derivation, or per-session request membrane
+→ Update `MC_BeadpostBrokerBoundary.tla` first, run TLC, then implement.
 
 ### Changing Apple Container mount planning, admission gating, network policy, or credential artifact cleanup
 → Update `MC_AppleContainerLaunch.tla` first, run TLC, then implement.
