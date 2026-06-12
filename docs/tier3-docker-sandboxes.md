@@ -124,6 +124,10 @@ for every repo.
 Known continuity gaps relative to Tier 2:
 
 - integration env passthrough is not supported in Docker Sandbox mode yet
+- managed Git SSH is rejected in Docker Sandbox mode until Hazmat has a
+  container-side adapter for its host-side transport broker. Hazmat must not
+  regain parity by copying private keys into the sandbox or exposing an
+  `ssh-agent` socket.
 - `hazmat claude --resume/--continue` uses sandbox-local history instead of the
   host transcript sync used by native containment
 - read-only parent directories may be rewritten into sibling mounts because

@@ -666,6 +666,11 @@ preserves supported OpenSSH routing such as `ProxyJump`, and performs only Git
 transport commands. The session receives `GIT_SSH_COMMAND`, not a readable
 private key or reusable `ssh-agent` socket.
 
+Docker Sandbox sessions currently fail closed when this capability is enabled.
+The safe parity path is a container-side adapter for the same host-side broker;
+Hazmat must not copy private keys into the sandbox or expose an `ssh-agent`
+socket to regain Git SSH support.
+
 ### Reusable SSH profiles
 
 Define one SSH identity that many projects share. Each profile carries

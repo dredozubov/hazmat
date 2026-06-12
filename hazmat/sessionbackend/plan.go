@@ -19,6 +19,7 @@ const (
 	GapRemoteLaunch         string = "remote-launch"
 	GapAppleContainerLaunch string = "apple-container-launch"
 	GapIntegrationEnv       string = "integration-env-passthrough"
+	GapGitSSHTransport      string = "git-ssh-transport"
 	ArtifactSeatbeltPolicy  string = "seatbelt-policy"
 	ArtifactDockerSandbox   string = "docker-sandbox"
 	ArtifactAppleContainer  string = "apple-container-launch-spec"
@@ -44,6 +45,7 @@ type Input struct {
 	NetworkMode        sessionmeta.NetworkMode
 	Integrations       []string
 	IntegrationEnvKeys []string
+	GitSSHConfigured   bool
 	HostFacts          hostfacts.HostFacts
 }
 
@@ -57,6 +59,7 @@ type Plan struct {
 	NetworkMode        sessionmeta.NetworkMode `json:"network_mode"`
 	Integrations       []string                `json:"integrations,omitempty"`
 	IntegrationEnvKeys []string                `json:"integration_env_keys,omitempty"`
+	GitSSHConfigured   bool                    `json:"git_ssh_configured,omitempty"`
 	CapabilityGaps     []CapabilityGap         `json:"capability_gaps,omitempty"`
 	LifecycleArtifacts []LifecycleArtifact     `json:"lifecycle_artifacts,omitempty"`
 }
@@ -74,6 +77,7 @@ func BuildPlan(input Input) Plan {
 		NetworkMode:        sessionmeta.NormalizeNetworkMode(input.NetworkMode),
 		Integrations:       copyStrings(input.Integrations),
 		IntegrationEnvKeys: sortedStrings(input.IntegrationEnvKeys),
+		GitSSHConfigured:   input.GitSSHConfigured,
 		CapabilityGaps:     capabilityGaps(input, backend),
 		LifecycleArtifacts: lifecycleArtifacts(backend),
 	}
@@ -129,6 +133,12 @@ func capabilityGaps(input Input, backend Kind) []CapabilityGap {
 		gaps = append(gaps, CapabilityGap{
 			Feature: GapIntegrationEnv,
 			Reason:  "Docker Sandbox launch does not yet support integration env passthrough.",
+		})
+	}
+	if backend == KindDockerSandbox && input.GitSSHConfigured {
+		gaps = append(gaps, CapabilityGap{
+			Feature: GapGitSSHTransport,
+			Reason:  "Docker Sandbox launch does not yet provide a container-side adapter for Hazmat's host-side Git SSH transport broker.",
 		})
 	}
 	if backend == KindAppleContainer && len(input.IntegrationEnvKeys) > 0 {

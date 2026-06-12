@@ -89,6 +89,23 @@ func TestBuildPlanReportsDockerIntegrationEnvGap(t *testing.T) {
 	}
 }
 
+func TestBuildPlanReportsDockerGitSSHTransportGap(t *testing.T) {
+	plan := BuildPlan(Input{
+		Mode:             sessionmeta.ModeDockerSandbox,
+		GitSSHConfigured: true,
+		HostFacts:        hostfacts.ForGOOS("darwin"),
+	})
+	if plan.Backend != KindDockerSandbox {
+		t.Fatalf("Backend = %q", plan.Backend)
+	}
+	if !plan.GitSSHConfigured {
+		t.Fatal("GitSSHConfigured = false, want true")
+	}
+	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != GapGitSSHTransport {
+		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
+	}
+}
+
 func TestRemoteEnvelopeBackendReportsPlanOnlyGap(t *testing.T) {
 	gaps := capabilityGaps(Input{}, KindRemoteEnvelope)
 	if len(gaps) != 1 || gaps[0].Feature != GapRemoteLaunch {

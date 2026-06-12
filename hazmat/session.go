@@ -1421,10 +1421,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 	cfg.GitSSH = managedGitSSH.ptr()
 	if cfg.GitSSH != nil && mode != sessionModeNative {
-		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported for Docker Sandbox sessions yet\nuse %s for a native code session, or clear the project capability with: hazmat config ssh clear -C %s",
-			dockerSessionExample(commandName, cfg.ProjectDir, dockerModeNone),
-			cfg.ProjectDir,
-		)
+		return preparedSession{}, unsupportedGitSSHSessionModeError(commandName, cfg.ProjectDir, mode)
 	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
@@ -1493,6 +1490,16 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	return prepared, nil
+}
+
+func unsupportedGitSSHSessionModeError(commandName, projectDir string, mode sessionMode) error {
+	if mode == sessionModeDockerSandbox {
+		return fmt.Errorf("managed Git SSH requires Hazmat's host-side transport broker, but Docker Sandbox sessions do not yet have a container-side broker adapter\nHazmat will not copy private keys or expose an ssh-agent socket into Docker Sandboxes.\nuse %s for a native contained session, or clear the project capability with: hazmat config ssh clear -C %s",
+			dockerSessionExample(commandName, projectDir, dockerModeNone),
+			projectDir,
+		)
+	}
+	return fmt.Errorf("managed Git SSH is not supported for %s sessions yet", mode)
 }
 
 func resolvePreparedSessionMode(commandName, projectDir string, request dockerRoutingRequest, detection dockerProjectDetection, supportsSandbox bool) (sessionMode, error) {

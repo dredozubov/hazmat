@@ -5,8 +5,13 @@
       {
         "feature": "integration-env-passthrough",
         "reason": "Docker Sandbox launch does not yet support integration env passthrough."
+      },
+      {
+        "feature": "git-ssh-transport",
+        "reason": "Docker Sandbox launch does not yet provide a container-side adapter for Hazmat's host-side Git SSH transport broker."
       }
     ],
+    "git_ssh_configured": true,
     "integration_env_keys": [
       "GOPROXY",
       "GOROOT"
@@ -159,6 +164,11 @@
     {
       "feature": "integration-env-passthrough",
       "message": "Docker Sandbox launch does not yet support integration env passthrough.",
+      "source": "backend"
+    },
+    {
+      "feature": "git-ssh-transport",
+      "message": "Docker Sandbox launch does not yet provide a container-side adapter for Hazmat's host-side Git SSH transport broker.",
       "source": "backend"
     }
   ]

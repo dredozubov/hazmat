@@ -1,6 +1,7 @@
 {
   "backend": {
     "backend": "darwin-native",
+    "git_ssh_configured": true,
     "integration_env_keys": [
       "GOPROXY",
       "GOROOT"

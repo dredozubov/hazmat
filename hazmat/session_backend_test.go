@@ -57,6 +57,25 @@ func TestBuildSessionBackendPlanReportsDockerEnvGap(t *testing.T) {
 	}
 }
 
+func TestBuildSessionBackendPlanReportsDockerGitSSHGap(t *testing.T) {
+	cfg := sessionConfig{
+		Target:     "codex",
+		ProjectDir: "/workspace/project",
+		GitSSH:     &sessionGitSSHConfig{DisplayName: "id_ed25519"},
+	}
+
+	plan := buildSessionBackendPlanForGOOS(cfg, sessionModeDockerSandbox, "darwin")
+	if plan.Backend != sessionbackend.KindDockerSandbox {
+		t.Fatalf("Backend = %q", plan.Backend)
+	}
+	if !plan.GitSSHConfigured {
+		t.Fatal("GitSSHConfigured = false, want true")
+	}
+	if len(plan.CapabilityGaps) != 1 || plan.CapabilityGaps[0].Feature != sessionbackend.GapGitSSHTransport {
+		t.Fatalf("CapabilityGaps = %v", plan.CapabilityGaps)
+	}
+}
+
 func TestPrepareLaunchSessionCarriesBackendPlan(t *testing.T) {
 	isolateConfig(t)
 	skipInitCheck(t)

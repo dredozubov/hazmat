@@ -34,6 +34,7 @@ type sessionPlanAuthority struct {
 	harnessID             harnesses.ID
 	repoSetup             *repoSetupState
 	gitSSHKey             string
+	gitSSHConfigured      bool
 }
 
 type sessionCredentialGrantAuthority struct {
@@ -77,6 +78,7 @@ func newSessionPlanAuthority(target string, cfg sessionConfig, mode sessionMode,
 		harnessID:             harnesses.ID(cfg.HarnessID),
 		repoSetup:             cfg.RepoSetup,
 		gitSSHKey:             explainGitSSHKey(cfg.GitSSH),
+		gitSSHConfigured:      cfg.GitSSH != nil,
 	}
 }
 
@@ -126,6 +128,7 @@ func (authority sessionPlanAuthority) BackendInput(facts hostfacts.HostFacts) se
 		NetworkMode:        request.NetworkMode,
 		Integrations:       sessionIntegrationNameStrings(authority.activeIntegrations),
 		IntegrationEnvKeys: authority.integrationEnvKeys(),
+		GitSSHConfigured:   authority.gitSSHConfigured,
 		HostFacts:          facts,
 	}
 }

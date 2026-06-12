@@ -873,7 +873,10 @@ func TestResolvePreparedSessionRejectsManagedGitSSHForSandboxMode(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected sandbox mode to reject managed Git SSH")
 	}
-	if !strings.Contains(err.Error(), "managed Git SSH is not supported for Docker Sandbox sessions yet") {
+	if !strings.Contains(err.Error(), "container-side broker adapter") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "will not copy private keys or expose an ssh-agent socket") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
