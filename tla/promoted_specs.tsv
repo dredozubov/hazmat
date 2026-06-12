@@ -11,6 +11,7 @@ MC_LinuxNativeLaunch	no
 MC_Migration	yes
 MC_SeatbeltPolicy	no
 MC_SecretStoreRecovery	no
+MC_ServiceHarnessLifecycle	no
 MC_SessionPermissionRepairs	no
 MC_SetupRollback	yes
 MC_Tier3LaunchContainment	no

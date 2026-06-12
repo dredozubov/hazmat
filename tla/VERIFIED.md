@@ -78,6 +78,14 @@ and file-backed residue recovery as a precondition to session launch. It still
 does **not** model concrete Keychain APIs, git credential-helper bytes, SSH
 agent liveness, cloud-provider APIs, or exact integration manifest parsing.
 
+Important service-harness boundary: the current suite now includes a design
+model for future OpenHands-style service harnesses: prior-residue recovery,
+fail-closed unsupported features, metadata-before-side-effects, readiness before
+attach, local-only attach authority, typed credential materialization, and
+terminal cleanup accounting. It does **not** model OpenHands internals, HTTP
+request bodies, browser automation, Docker or VM internals, or live service
+protocol behavior.
+
 ---
 
 ## Governance Rules
@@ -1203,6 +1211,61 @@ before the experimental runtime ships.
 
 ---
 
+### 17 — Service Harness Lifecycle
+
+| Field | Value |
+|-------|-------|
+| Spec | `tla/17_service_harness_lifecycle.md` |
+| TLA+ files | `tla/MC_ServiceHarnessLifecycle.tla`, `tla/MC_ServiceHarnessLifecycle.cfg` |
+| Governed code | Future service harness adapter runtime; no production adapter code yet |
+| Governed code | Future `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
+| Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachPolicyLocalOnly`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
+| Status | **Design Proved** — proves the lifecycle boundary future OpenHands-style service adapters must satisfy before implementation |
+
+**What this verifies:**
+
+1. **Recovery gates new service start:** prior service, credential, or attach
+   residue must be recovered before a new service starts, or the failure is
+   recorded and the new service does not launch.
+
+2. **Unsupported features fail closed:** host Docker socket access, host profile
+   import, persistent daemon mode, browser automation, integration env
+   passthrough, LAN-visible bind, localhost bind without a session token,
+   untyped credentials, and container-requiring native service requests cannot
+   reach side effects.
+
+3. **Metadata precedes authority:** current service metadata exists before
+   credential materialization, service start, attach authority, or printed
+   attach details.
+
+4. **Attach waits for readiness:** readiness requires a passed health check, and
+   the active ready/attached phases keep the service running; attach and
+   user-visible attach details happen only after readiness.
+
+5. **Terminal residue is accounted for:** terminal service, credential, attach,
+   or prior residue must be gone or covered by a recorded cleanup failure.
+
+TLC passes across all 875,888 distinct states (2,100,560 generated, depth 10,
+~11s).
+
+**Scope boundary:** OpenHands internals, HTTP/WebSocket payloads, service logs,
+Docker Sandbox or VM internals, browser automation, and concrete service
+protocol behavior are not modeled. This is the Hazmat host/session lifecycle
+boundary for a future service adapter, not proof that OpenHands itself is safe.
+
+**Change rules:**
+- Adding a first-class service harness adapter, service lifecycle phase, service
+  metadata field, port/socket attach policy, or crash-cleanup rule must update
+  `MC_ServiceHarnessLifecycle.tla` first and re-run TLC before implementation.
+- Supporting host Docker socket access, LAN-visible binds, browser automation,
+  host profile import, persistent daemon mode, or untyped credentials requires
+  a deliberate model change; the current model proves those requests fail closed.
+- Native container-requiring services require a separate backend model change.
+- Live service smokes are not proof; they become release gates only after this
+  model and the fake-service lifecycle suite agree on the adapter behavior.
+
+---
+
 ## Quick Reference: Spec → Code Mapping
 
 | Spec | Files governed |
@@ -1223,6 +1286,7 @@ before the experimental runtime ships.
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
 | `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (compiler); `hazmat/internal/runtime/applecontainer/runtime.go` (experimental runtime); `hazmat/exec_apple_container.go` (gated exec path); `hazmat/explain_apple_container.go` (preview) |
+| `17_service_harness_lifecycle` | Future service harness adapter runtime, `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
 
 ---
 
@@ -1239,6 +1303,8 @@ before the experimental runtime ships.
   filter contents, Landlock ruleset shape, and runtime behavior after exec
 - Concrete Keychain APIs, git credential-helper protocol bytes, SSH agent socket
   behavior, cloud provider APIs, and integration manifest parsing
+- OpenHands internals, HTTP/WebSocket payloads, browser automation, Docker or VM
+  internals, and live service protocol behavior
 
 These areas remain governed by tests and documentation rather than the current
 TLC proofs.

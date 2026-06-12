@@ -30,6 +30,7 @@ and TLC's exhaustive state exploration are designed to verify.
 | 14 | `MC_LinuxNativeLaunch` | `14_linux_native_launch.md` | Future Linux native helper ordering: spec validation, fd cleanup, namespaces, mounts, network, privileges, LSM/seccomp, metadata, exec | **High** |
 | 15 | `MC_BeadpostBrokerBoundary` | `15_beadpost_broker_boundary.md` | Beadpost attestation membrane: confirmed-session gating, derived authority, per-session socket binding, clean teardown | **High** |
 | 16 | `MC_AppleContainerLaunch` | `16_apple_container_launch_containment.md` | Apple Container backend launch boundary: mount-plan credential exclusions, admission/network gating, credential artifact cleanup accounting | **High** |
+| 17 | `MC_ServiceHarnessLifecycle` | `17_service_harness_lifecycle.md` | Session-scoped service harness lifecycle: residue recovery, readiness-before-attach, local attach authority, credential and cleanup accounting | **High** |
 
 See `VERIFIED.md` for the authoritative current status, proof boundaries, and change rules for each spec.
 
