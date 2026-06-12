@@ -25,6 +25,8 @@ var aiAgentCredentialDenySubs = []string{
 	"/.vibe",
 	"/.traecli",
 	"/.pi/agent",
+	"/.config/crush",
+	"/.local/share/crush",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
