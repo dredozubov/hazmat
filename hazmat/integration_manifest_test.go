@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+var aiAgentCredentialDenySubs = []string{
+	"/.cache/huggingface/token",
+	"/.cache/huggingface/stored_tokens",
+	"/.ollama/id_ed25519",
+	"/.jupyter",
+	"/.local/share/jupyter/runtime",
+	"/.langsmith",
+	"/.continue",
+	"/.cline",
+	"/.aider.conf.yml",
+	"/Library/Application Support/Claude",
+	"/Library/Application Support/Cursor",
+}
+
 // ── canonicalizePath ───────────────────────────────────────────────────────
 
 func TestCanonicalizePathResolvesSymlinks(t *testing.T) {
@@ -86,6 +100,25 @@ func TestIsCredentialDenyPathChildOfMavenRepoAllowed(t *testing.T) {
 	safe := agentHome + "/.m2/repository"
 	if isCredentialDenyPath(safe) {
 		t.Errorf("isCredentialDenyPath(%q) = true, want false", safe)
+	}
+}
+
+func TestIsCredentialDenyPathChildRejected(t *testing.T) {
+	child := agentHome + "/.jupyter/runtime/kernel.json"
+	if !isCredentialDenyPath(child) {
+		t.Errorf("isCredentialDenyPath(%q) = false, want true", child)
+	}
+}
+
+func TestCredentialDenySubsIncludeAIAgentPaths(t *testing.T) {
+	have := make(map[string]struct{}, len(credentialDenySubs))
+	for _, sub := range credentialDenySubs {
+		have[sub] = struct{}{}
+	}
+	for _, sub := range aiAgentCredentialDenySubs {
+		if _, ok := have[sub]; !ok {
+			t.Errorf("credentialDenySubs missing %q", sub)
+		}
 	}
 }
 
@@ -292,6 +325,82 @@ func TestValidateIntegrationPathsCredentialDirRejected(t *testing.T) {
 	}
 }
 
+func TestValidateIntegrationPathsRejectsNewAIAgentCredentialPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, sub := range aiAgentCredentialDenySubs {
+		t.Run(sub, func(t *testing.T) {
+			path := materializeCredentialDenyPathForTest(t, home, sub)
+			p := IntegrationSpec{
+				Meta:    IntegrationMeta{Name: "bad-ai-agent-credential", Version: 1},
+				Session: IntegrationSession{ReadDirs: []string{path}},
+			}
+			_, err := validateIntegrationPaths(p)
+			if err == nil {
+				t.Fatal("expected credential deny zone rejection")
+			}
+			if !strings.Contains(err.Error(), "credential deny zone") {
+				t.Fatalf("error = %v, want credential deny zone", err)
+			}
+		})
+	}
+}
+
+func TestValidateIntegrationPathsRejectsCredentialDenyChildren(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	child := filepath.Join(home, ".jupyter", "runtime")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("mkdir child credential path: %v", err)
+	}
+
+	p := IntegrationSpec{
+		Meta:    IntegrationMeta{Name: "bad-credential-child", Version: 1},
+		Session: IntegrationSession{ReadDirs: []string{child}},
+	}
+	_, err := validateIntegrationPaths(p)
+	if err == nil {
+		t.Fatal("expected credential deny zone rejection")
+	}
+	if !strings.Contains(err.Error(), "credential deny zone") {
+		t.Fatalf("error = %v, want credential deny zone", err)
+	}
+}
+
+func materializeCredentialDenyPathForTest(t *testing.T, home, sub string) string {
+	t.Helper()
+	path := filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(sub, "/")))
+	if credentialDenySubIsFileForTest(sub) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte("test\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		return path
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+	return path
+}
+
+func credentialDenySubIsFileForTest(sub string) bool {
+	switch sub {
+	case "/.cache/huggingface/token",
+		"/.cache/huggingface/stored_tokens",
+		"/.ollama/id_ed25519",
+		"/.aider.conf.yml",
+		"/.m2/settings.xml",
+		"/.netrc":
+		return true
+	default:
+		return false
+	}
+}
+
 func TestValidateIntegrationPathsSymlinkToCredentialRejected(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -335,14 +444,14 @@ func TestValidateIntegrationPathsSafeDirAccepted(t *testing.T) {
 func TestValidateIntegrationPathsHostStateParentRejected(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	appSupport := filepath.Join(home, "Library", "Application Support")
-	if err := os.MkdirAll(appSupport, 0o755); err != nil {
-		t.Fatalf("mkdir app support: %v", err)
+	httpStorages := filepath.Join(home, "Library", "HTTPStorages")
+	if err := os.MkdirAll(httpStorages, 0o755); err != nil {
+		t.Fatalf("mkdir HTTPStorages: %v", err)
 	}
 
 	p := IntegrationSpec{
 		Meta:    IntegrationMeta{Name: "bad", Version: 1},
-		Session: IntegrationSession{ReadDirs: []string{appSupport}},
+		Session: IntegrationSession{ReadDirs: []string{httpStorages}},
 	}
 	_, err := validateIntegrationPaths(p)
 	if err == nil {
@@ -2212,6 +2321,18 @@ func TestCredentialDenySubsMatchSBPL(t *testing.T) {
 		want := `(deny file-read* file-write* (subpath "` + agentHome + sub + `"))`
 		if !strings.Contains(policy, want) {
 			t.Errorf("credentialDenySubs has %q but generateSBPL does not produce deny rule for it", sub)
+		}
+	}
+}
+
+func TestSBPLEmitsCredentialDeniesForAIAgentPaths(t *testing.T) {
+	cfg := sessionConfig{ProjectDir: "/tmp/test"}
+	policy := generateSBPL(cfg)
+
+	for _, sub := range aiAgentCredentialDenySubs {
+		want := `(deny file-read* file-write* (subpath "` + agentHome + sub + `"))`
+		if !strings.Contains(policy, want) {
+			t.Errorf("generateSBPL missing AI/agent credential deny rule for %q", sub)
 		}
 	}
 }

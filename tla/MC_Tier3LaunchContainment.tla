@@ -33,7 +33,8 @@ CONSTANTS
     safeRefChild,
     invokerHome,
     sshDir,
-    awsDir
+    awsDir,
+    aiCredentialDir
 
 ASSUME CredentialLeaves \subseteq Paths
 ASSUME ProjectChoices \subseteq Paths
@@ -47,10 +48,11 @@ Contains(child, parent) ==
     \/ (child = safeRefChild /\ parent = safeRef)
     \/ (child = sshDir /\ parent = invokerHome)
     \/ (child = awsDir /\ parent = invokerHome)
+    \/ (child = aiCredentialDir /\ parent = invokerHome)
 
-\* A path is unsafe to mount if it is itself a credential path or a parent of one.
+\* A path is unsafe to mount if it overlaps a credential path.
 IsCredentialDenyPath(p) ==
-    \E cred \in CredentialLeaves : Contains(cred, p)
+    \E cred \in CredentialLeaves : Contains(cred, p) \/ Contains(p, cred)
 
 PlannedReadDirs(project, dirs) ==
     {d \in dirs :

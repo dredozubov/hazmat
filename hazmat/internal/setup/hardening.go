@@ -40,6 +40,17 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".config/gcloud", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".azure", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".oci", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".cache/huggingface/token", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".cache/huggingface/stored_tokens", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".ollama/id_ed25519", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".jupyter", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".local/share/jupyter/runtime", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".langsmith", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},
+	{Rel: "Library/Application Support/Claude", DirMode: 0o700, FileMode: 0o600},
+	{Rel: "Library/Application Support/Cursor", DirMode: 0o700, FileMode: 0o600},
 }
 
 func SetupHardeningGaps(env HardeningEnv, ui StepStatusUI, runner ToolingRunner) error {

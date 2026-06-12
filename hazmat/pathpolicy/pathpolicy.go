@@ -20,6 +20,17 @@ var credentialDenySubpaths = []string{
 	"/.config/gcloud",
 	"/.azure",
 	"/.oci",
+	"/.cache/huggingface/token",
+	"/.cache/huggingface/stored_tokens",
+	"/.ollama/id_ed25519",
+	"/.jupyter",
+	"/.local/share/jupyter/runtime",
+	"/.langsmith",
+	"/.continue",
+	"/.cline",
+	"/.aider.conf.yml",
+	"/Library/Application Support/Claude",
+	"/Library/Application Support/Cursor",
 }
 
 var hostStateDenySubpaths = []string{
@@ -138,10 +149,7 @@ func (p DenyPolicy) CredentialDenyPath(canonical string) bool {
 		home = filepath.Clean(home)
 		for _, sub := range p.credentialSubpaths() {
 			denyPath := home + sub
-			if canonical == denyPath {
-				return true
-			}
-			if strings.HasPrefix(denyPath, canonical+"/") {
+			if PathsOverlap(canonical, denyPath) {
 				return true
 			}
 		}

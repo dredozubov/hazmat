@@ -40,6 +40,7 @@ CONSTANTS
     invokerHome,
     sshDir,
     awsDir,
+    aiCredentialDir,
     agentHome,
     agentSecretsDir
 
@@ -56,13 +57,14 @@ Contains(child, parent) ==
     \/ (child = safeRefChild /\ parent = safeRef)
     \/ (child = sshDir /\ parent = invokerHome)
     \/ (child = awsDir /\ parent = invokerHome)
+    \/ (child = aiCredentialDir /\ parent = invokerHome)
     \/ (child = agentSecretsDir /\ parent = agentHome)
 
-\* A path is unsafe to mount if it is itself a credential path or a parent
-\* of one. invokerHome and agentHome are parents of credential leaves, so
+\* A path is unsafe to mount if it overlaps a credential path.
+\* invokerHome and agentHome are parents of credential leaves, so
 \* mounting either wholesale is rejected by construction.
 IsCredentialDenyPath(p) ==
-    \E cred \in CredentialLeaves : Contains(cred, p)
+    \E cred \in CredentialLeaves : Contains(cred, p) \/ Contains(p, cred)
 
 PlannedReadDirs(project, dirs) ==
     {d \in dirs :

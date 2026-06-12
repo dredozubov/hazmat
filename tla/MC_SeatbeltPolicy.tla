@@ -73,6 +73,7 @@ CONSTANTS
     configDir,      \* /Users/agent/.config
     sshDir,         \* /Users/agent/.ssh
     gcloudDir,      \* /Users/agent/.config/gcloud
+    aiCredentialDir,\* /Users/agent/.jupyter (representative AI/agent credential config)
     keychainDir,    \* /Users/agent/Library/Keychains
     keychainDB,     \* /Users/agent/Library/Keychains/login.keychain-db
     keychainSHM,    \* /Users/agent/Library/Keychains/login.keychain-db-shm
@@ -112,6 +113,7 @@ ASSUME HostAuthorityTargets \subseteq Paths
 Contains(child, parent) ==
     \/ child = parent
     \/ (child = sshDir     /\ parent = agentHome)
+    \/ (child = aiCredentialDir /\ parent = agentHome)
     \/ (child = sessionHomeOtherFile /\ parent = sessionHome)
     \/ (child = configDir  /\ parent = agentHome)
     \/ (child = gcloudDir  /\ parent = agentHome)

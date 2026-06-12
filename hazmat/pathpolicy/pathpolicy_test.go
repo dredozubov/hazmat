@@ -45,6 +45,9 @@ func TestDenyPolicyCredentialParentAndSibling(t *testing.T) {
 	if policy.CredentialDenyPath(filepath.Join(home, ".m2", "repository")) {
 		t.Fatal("expected sibling of credential file to remain allowed")
 	}
+	if !policy.CredentialDenyPath(filepath.Join(home, ".jupyter", "runtime", "kernel.json")) {
+		t.Fatal("expected child of credential directory to be denied")
+	}
 }
 
 func TestDenyPolicyHostStateOverlap(t *testing.T) {
