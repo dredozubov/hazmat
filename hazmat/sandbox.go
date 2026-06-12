@@ -111,6 +111,12 @@ type sandboxLaunchSpec struct {
 	MountWriteDirs []string
 }
 
+type sandboxLaunchAdmissionBackend struct {
+	Config  *SandboxBackendConfig
+	Profile sandboxPolicyProfile
+	Version semver
+}
+
 type sandboxBackendAdapter interface {
 	Type() string
 	ValidateLaunchCompatibility(spec sandboxLaunchSpec, backend *SandboxBackendConfig, version semver) error
@@ -972,44 +978,56 @@ func runPreparedSandboxSession(prepared preparedSession, agent, label string, ru
 }
 
 func prepareSandboxLaunchWithPlan(cfg sessionConfig, plan sessionBackendPlan, agent string) (sandboxBackendAdapter, sandboxProbe, string, error) {
-	if len(plan.IntegrationEnvKeys) > 0 {
-		return nil, nil, "", fmt.Errorf("integration env passthrough is not supported with --docker=sandbox yet")
-	}
-
-	probe := sandboxProbeFactory()
-	backend, profile, version, err := loadHealthySandboxLaunchBackend(probe)
+	result, err := dockerruntime.PrepareLaunchAdmission(dockerruntime.AdmissionRequest[sandboxProbe, sandboxLaunchAdmissionBackend, sandboxBackendAdapter, sandboxLaunchSpec]{
+		IntegrationEnvKeys: plan.IntegrationEnvKeys,
+		ProbeFactory:       sandboxProbeFactory,
+		LoadHealthyBackend: func(probe sandboxProbe) (sandboxLaunchAdmissionBackend, error) {
+			backend, profile, version, err := loadHealthySandboxLaunchBackend(probe)
+			if err != nil {
+				return sandboxLaunchAdmissionBackend{}, err
+			}
+			return sandboxLaunchAdmissionBackend{
+				Config:  backend,
+				Profile: profile,
+				Version: version,
+			}, nil
+		},
+		SelectBackendAdapter: func(backend sandboxLaunchAdmissionBackend) (sandboxBackendAdapter, error) {
+			return sandboxBackendAdapterForType(backend.Config.Type)
+		},
+		CompileLaunchSpec: func(backend sandboxLaunchAdmissionBackend) (sandboxLaunchSpec, error) {
+			return buildSandboxLaunchSpecWithPlan(agent, cfg, plan, backend.Profile)
+		},
+		ValidateLaunchCompatibility: func(adapter sandboxBackendAdapter, spec sandboxLaunchSpec, backend sandboxLaunchAdmissionBackend) error {
+			return adapter.ValidateLaunchCompatibility(spec, backend.Config, backend.Version)
+		},
+		VerifyApproval: func(backend sandboxLaunchAdmissionBackend) error {
+			return ensureSandboxApproval(cfg.ProjectDir, backend.Config.Type, backend.Profile)
+		},
+		PrepareSandbox: func(probe sandboxProbe, adapter sandboxBackendAdapter, spec sandboxLaunchSpec) error {
+			return adapter.PrepareLaunch(probe, spec)
+		},
+		RecordManagedSandbox: func(backend sandboxLaunchAdmissionBackend, spec sandboxLaunchSpec) error {
+			if err := recordManagedSandbox(ManagedSandboxConfig{
+				Name:          spec.Name,
+				BackendType:   backend.Config.Type,
+				Agent:         agent,
+				ProjectDir:    cfg.ProjectDir,
+				PolicyProfile: backend.Profile.Name,
+				LastUsedAt:    sandboxNow().Format(time.RFC3339),
+			}); err != nil {
+				return fmt.Errorf("record managed sandbox: %w", err)
+			}
+			return nil
+		},
+		SandboxName: func(spec sandboxLaunchSpec) string {
+			return spec.Name
+		},
+	})
 	if err != nil {
 		return nil, nil, "", err
 	}
-	adapter, err := sandboxBackendAdapterForType(backend.Type)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	spec, err := buildSandboxLaunchSpecWithPlan(agent, cfg, plan, profile)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	if err := adapter.ValidateLaunchCompatibility(spec, backend, version); err != nil {
-		return nil, nil, "", err
-	}
-	if err := ensureSandboxApproval(cfg.ProjectDir, backend.Type, profile); err != nil {
-		return nil, nil, "", err
-	}
-	if err := adapter.PrepareLaunch(probe, spec); err != nil {
-		return nil, nil, "", err
-	}
-	if err := recordManagedSandbox(ManagedSandboxConfig{
-		Name:          spec.Name,
-		BackendType:   backend.Type,
-		Agent:         agent,
-		ProjectDir:    cfg.ProjectDir,
-		PolicyProfile: profile.Name,
-		LastUsedAt:    sandboxNow().Format(time.RFC3339),
-	}); err != nil {
-		return nil, nil, "", fmt.Errorf("record managed sandbox: %w", err)
-	}
-
-	return adapter, probe, spec.Name, nil
+	return result.Adapter, result.Probe, result.SandboxName, nil
 }
 
 func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
