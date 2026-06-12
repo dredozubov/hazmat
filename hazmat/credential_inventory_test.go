@@ -131,6 +131,83 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 	}
 }
 
+func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
+	home := isolateCredentialInventoryTest(t)
+	claudeStorePath := mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
+	if err := os.MkdirAll(filepath.Dir(claudeStorePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claudeStorePath, []byte(`{"userID":"host-user"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	agentPath := mustCredentialDescriptor(credentialHarnessClaudeState).AgentPath
+	credentialInventoryAgentPathExists = func(path string) (bool, error) {
+		return path == agentPath, nil
+	}
+	credentialInventoryAgentReadFile = func(path string) ([]byte, error) {
+		if path != agentPath {
+			return nil, os.ErrNotExist
+		}
+		return []byte(`{"theme":"dark","projects":{}}` + "\n"), nil
+	}
+
+	entries, err := inspectCredentialInventory(home)
+	if err != nil {
+		t.Fatalf("inspectCredentialInventory: %v", err)
+	}
+
+	entry := findInventoryEntryForTest(t, entries, credentialHarnessClaudeState)
+	if got := entry.Status(); got != credentialInventoryConfigured {
+		t.Fatalf("Claude state status = %s, want %s; residue=%v errors=%v", got, credentialInventoryConfigured, entry.AgentResidue, entry.Errors)
+	}
+	if len(entry.AgentResidue) != 0 {
+		t.Fatalf("Claude state agent residue = %v, want none for settings-only state file", entry.AgentResidue)
+	}
+}
+
+func TestCredentialInventoryReportsClaudePortableAuthStateResidue(t *testing.T) {
+	home := isolateCredentialInventoryTest(t)
+	const secretValue = "legacy-user-id"
+	claudeStorePath := mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
+	if err := os.MkdirAll(filepath.Dir(claudeStorePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claudeStorePath, []byte(`{"userID":"host-user"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	agentPath := mustCredentialDescriptor(credentialHarnessClaudeState).AgentPath
+	credentialInventoryAgentPathExists = func(path string) (bool, error) {
+		return path == agentPath, nil
+	}
+	credentialInventoryAgentReadFile = func(path string) ([]byte, error) {
+		if path != agentPath {
+			return nil, os.ErrNotExist
+		}
+		return []byte(`{"theme":"dark","userID":"` + secretValue + `"}` + "\n"), nil
+	}
+
+	entries, err := inspectCredentialInventory(home)
+	if err != nil {
+		t.Fatalf("inspectCredentialInventory: %v", err)
+	}
+
+	entry := findInventoryEntryForTest(t, entries, credentialHarnessClaudeState)
+	if got := entry.Status(); got != credentialInventoryNeedsRepair {
+		t.Fatalf("Claude state status = %s, want %s", got, credentialInventoryNeedsRepair)
+	}
+	if len(entry.AgentResidue) != 1 || !strings.Contains(entry.AgentResidue[0].Detail, "Claude portable auth state") {
+		t.Fatalf("Claude state residue = %v, want portable auth state finding", entry.AgentResidue)
+	}
+
+	rendered := renderInventoryEntryForTest(entry)
+	if strings.Contains(rendered, secretValue) {
+		t.Fatalf("inventory output leaked Claude state value: %s", rendered)
+	}
+	assertNoCredentialInventoryCommandRecipe(t, rendered)
+}
+
 func TestCredentialInventoryUsesAgentProbesForPrivateAgentPaths(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
 	hostStorePath := mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)

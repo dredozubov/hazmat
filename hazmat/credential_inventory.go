@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -204,6 +205,9 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 		if descriptor.AgentPath == "" {
 			return nil, nil
 		}
+		if descriptor.ID == credentialHarnessClaudeState {
+			return inspectClaudeStateAgentResidue(descriptor.AgentPath)
+		}
 		if exists, err := credentialInventoryAgentPathExists(descriptor.AgentPath); err != nil {
 			return nil, []string{fmt.Sprintf("inspect agent credential path %s: %v", descriptor.AgentPath, err)}
 		} else if exists {
@@ -228,6 +232,35 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 	case credentialDeliveryNone, credentialDeliveryEnv, credentialDeliveryExternalReference:
 	}
 	return nil, nil
+}
+
+func inspectClaudeStateAgentResidue(path string) ([]credentialInventoryFinding, []string) {
+	if exists, err := credentialInventoryAgentPathExists(path); err != nil {
+		return nil, []string{fmt.Sprintf("inspect agent credential path %s: %v", path, err)}
+	} else if !exists {
+		return nil, nil
+	}
+
+	raw, err := credentialInventoryAgentReadFile(path)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("inspect Claude state keys %s: %v", path, err)}
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	payload, err := selectClaudeAuthKeys(raw)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("inspect Claude state keys %s: %v", path, err)}
+	}
+	if len(payload) == 0 {
+		return nil, nil
+	}
+
+	return []credentialInventoryFinding{{
+		Path:   path,
+		Detail: "stale agent-home Claude portable auth state",
+		Repair: "Hazmat can harvest these keys into the host-owned secret store during credential repair; non-auth Claude settings may remain in the agent state file",
+	}}, nil
 }
 
 func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legacyCloudCredentialConfig) ([]credentialInventoryFinding, []string) {
