@@ -10,6 +10,7 @@ import (
 
 	"hazmat/hostfacts"
 	linuxplatform "hazmat/platform/linux"
+	"hazmat/sessioncontract"
 )
 
 func TestBuildExplainJSON(t *testing.T) {
@@ -165,8 +166,8 @@ func TestBuildExplainJSON(t *testing.T) {
 	}
 	if got.SessionHome.Status != "experimental-preview" ||
 		got.SessionHome.ActivationReady ||
-		len(got.SessionHome.ActivationBlockers) == 0 ||
-		got.SessionHome.ActivationBlockers[0].Reason != "durable-mirror-sync" ||
+		!sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "seed-materialization") ||
+		!sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "adapter-required") ||
 		got.SessionHome.Mode != "session-local" ||
 		got.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
 		got.SessionHome.PersistentHome != sessionHomeRuntime.AgentHomePolicy.PersistentPath ||
@@ -318,8 +319,8 @@ func TestExplainJSONCommandIncludesExperimentalSessionHomePreview(t *testing.T) 
 	}
 	if preview.SessionHome.Status != "experimental-preview" ||
 		preview.SessionHome.ActivationReady ||
-		len(preview.SessionHome.ActivationBlockers) == 0 ||
-		preview.SessionHome.ActivationBlockers[0].Reason != "durable-mirror-sync" ||
+		!sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "seed-materialization") ||
+		!sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "adapter-required") ||
 		preview.SessionHome.Mode != "session-local" ||
 		preview.SessionHome.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") ||
 		preview.SessionHome.PersistentHome != agentHome ||
@@ -412,4 +413,13 @@ func stubExplainPlatformReport(t *testing.T, report *linuxplatform.Report) func(
 	saved := explainPlatformReport
 	explainPlatformReport = func(_ hostfacts.HostFacts) *linuxplatform.Report { return report }
 	return func() { explainPlatformReport = saved }
+}
+
+func sessionHomeBlockersContainReason(blockers []sessioncontract.SessionHomeBlocker, reason string) bool {
+	for _, blocker := range blockers {
+		if blocker.Reason == reason {
+			return true
+		}
+	}
+	return false
 }

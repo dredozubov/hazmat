@@ -159,6 +159,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 		rel         string
 		class       containment.AgentHomeStateClass
 		durability  sessionHomeAssemblyDurability
+		policy      sessionHomeRuntimePolicy
 		executable  bool
 		bridge      bool
 		persistent  string
@@ -168,6 +169,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			rel:         ".claude/projects",
 			class:       containment.AgentHomeStateTranscript,
 			durability:  sessionHomeDurableExternal,
+			policy:      sessionHomePolicyDurableExternal,
 			bridge:      true,
 			persistent:  filepath.Join(persistentHome, ".claude", "projects"),
 			runtimePath: filepath.Join(layout.Home, ".claude", "projects"),
@@ -176,6 +178,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			rel:         ".hazmat/hermes/projects",
 			class:       containment.AgentHomeStateTranscript,
 			durability:  sessionHomeDurableExternal,
+			policy:      sessionHomePolicyDurableExternal,
 			bridge:      true,
 			persistent:  filepath.Join(persistentHome, ".hazmat", "hermes", "projects"),
 			runtimePath: filepath.Join(layout.Home, ".hazmat", "hermes", "projects"),
@@ -184,25 +187,32 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			rel:        ".local/bin",
 			class:      containment.AgentHomeStateExecutable,
 			durability: sessionHomeDurableMirror,
+			policy:     sessionHomePolicyAdapterRequired,
 			executable: true,
 		},
 		{
 			rel:        ".gitconfig",
 			class:      containment.AgentHomeStateGitConfig,
 			durability: sessionHomeDurableMirror,
+			policy:     sessionHomePolicySeedOnly,
 		},
 		{
 			rel:        ".cache",
 			class:      containment.AgentHomeStateXDGCache,
 			durability: sessionHomeEphemeralCache,
+			policy:     sessionHomePolicyEphemeralCache,
 		},
 	} {
 		entry, ok := byRel[tc.rel]
 		if !ok {
 			t.Fatalf("assembly plan missing %s", tc.rel)
 		}
-		if entry.Class != tc.class || entry.Durability != tc.durability || entry.Executable != tc.executable || entry.RequiresBridge != tc.bridge {
-			t.Fatalf("%s = %+v, want class=%s durability=%s executable=%v bridge=%v", tc.rel, entry, tc.class, tc.durability, tc.executable, tc.bridge)
+		if entry.Class != tc.class ||
+			entry.Durability != tc.durability ||
+			entry.RuntimePolicy != tc.policy ||
+			entry.Executable != tc.executable ||
+			entry.RequiresBridge != tc.bridge {
+			t.Fatalf("%s = %+v, want class=%s durability=%s policy=%s executable=%v bridge=%v", tc.rel, entry, tc.class, tc.durability, tc.policy, tc.executable, tc.bridge)
 		}
 		if tc.persistent != "" && entry.PersistentPath != tc.persistent {
 			t.Fatalf("%s persistent path = %s, want %s", tc.rel, entry.PersistentPath, tc.persistent)
@@ -276,28 +286,32 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 	}
 }
 
-func TestNewSessionHomeLaunchPlanBlocksActivationUntilDurableMirrorSyncExists(t *testing.T) {
+func TestNewSessionHomeLaunchPlanBlocksActivationUntilRuntimePoliciesAreImplemented(t *testing.T) {
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
 	if plan.readyForActivation() {
-		t.Fatal("plan is activation-ready before durable mirror sync is implemented")
+		t.Fatal("plan is activation-ready before session-home runtime policies are implemented")
 	}
-	foundZshrc := false
+	foundSeed := false
+	foundAdapter := false
 	for _, blocker := range plan.Blockers {
-		if blocker.RelPath == ".zshrc" && blocker.Reason == sessionHomeBlockerDurableMirrorSync {
-			foundZshrc = true
-		}
-		if blocker.Reason != sessionHomeBlockerDurableMirrorSync {
+		switch {
+		case blocker.RelPath == ".zshrc" && blocker.Reason == sessionHomeBlockerSeedMaterialize:
+			foundSeed = true
+		case blocker.RelPath == ".local/bin" && blocker.Reason == sessionHomeBlockerAdapterRequired:
+			foundAdapter = true
+		case blocker.Reason == sessionHomeBlockerSeedMaterialize || blocker.Reason == sessionHomeBlockerAdapterRequired:
+		default:
 			t.Fatalf("unexpected activation blocker: %+v", blocker)
 		}
 	}
-	if !foundZshrc {
-		t.Fatalf("activation blockers = %+v, want .zshrc durable mirror blocker", plan.Blockers)
+	if !foundSeed || !foundAdapter {
+		t.Fatalf("activation blockers = %+v, want seed and adapter blockers", plan.Blockers)
 	}
-	if got := sessionHomeActivationBlockerSummary(plan.Blockers); !strings.Contains(got, "durable mirror sync") {
+	if got := sessionHomeActivationBlockerSummary(plan.Blockers); !strings.Contains(got, "seed materialization") || !strings.Contains(got, "adapter required") {
 		t.Fatalf("blocker summary = %q", got)
 	}
 }
@@ -443,7 +457,8 @@ func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
 	for _, want := range []string{
 		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
 		"Persistent HOME:      " + persistentHome,
-		"Session HOME status:  blocked: durable mirror sync",
+		"Session HOME status:  blocked: adapter required",
+		"seed materialization",
 		"session-home preview",
 	} {
 		if !strings.Contains(got, want) {

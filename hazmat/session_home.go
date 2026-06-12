@@ -37,10 +37,21 @@ const (
 	sessionHomeEphemeralCache  sessionHomeAssemblyDurability = "ephemeral-cache"
 )
 
+type sessionHomeRuntimePolicy string
+
+const (
+	sessionHomePolicyEphemeralCache   sessionHomeRuntimePolicy = "ephemeral-cache"
+	sessionHomePolicyDurableExternal  sessionHomeRuntimePolicy = "durable-external"
+	sessionHomePolicySeedOnly         sessionHomeRuntimePolicy = "seed-only"
+	sessionHomePolicyCheckedWriteback sessionHomeRuntimePolicy = "checked-writeback"
+	sessionHomePolicyAdapterRequired  sessionHomeRuntimePolicy = "adapter-required"
+)
+
 type sessionHomeAssemblyEntry struct {
 	RelPath        string
 	Class          containment.AgentHomeStateClass
 	Durability     sessionHomeAssemblyDurability
+	RuntimePolicy  sessionHomeRuntimePolicy
 	PersistentPath string
 	RuntimePath    string
 	Executable     bool
@@ -62,6 +73,9 @@ type sessionHomeLaunchBlockerReason string
 const (
 	sessionHomeBlockerActivationGate    sessionHomeLaunchBlockerReason = "activation-gate"
 	sessionHomeBlockerDurableMirrorSync sessionHomeLaunchBlockerReason = "durable-mirror-sync"
+	sessionHomeBlockerSeedMaterialize   sessionHomeLaunchBlockerReason = "seed-materialization"
+	sessionHomeBlockerAdapterRequired   sessionHomeLaunchBlockerReason = "adapter-required"
+	sessionHomeBlockerCheckedWriteback  sessionHomeLaunchBlockerReason = "checked-writeback"
 )
 
 type sessionHomeLaunchBlocker struct {
@@ -223,6 +237,7 @@ func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string)
 			RelPath:        rel,
 			Class:          class,
 			Durability:     durability,
+			RuntimePolicy:  sessionHomeRuntimePolicyFor(rel, class, durability),
 			PersistentPath: filepath.Join(persistentHome, rel),
 			RuntimePath:    filepath.Join(layout.Home, rel),
 			Executable:     executable[rel],
@@ -304,8 +319,11 @@ func sessionHomeActivationBlockerSummary(blockers []sessionHomeLaunchBlocker) st
 	}
 	var parts []string
 	for _, reason := range []sessionHomeLaunchBlockerReason{
-		sessionHomeBlockerDurableMirrorSync,
+		sessionHomeBlockerSeedMaterialize,
+		sessionHomeBlockerAdapterRequired,
+		sessionHomeBlockerCheckedWriteback,
 		sessionHomeBlockerActivationGate,
+		sessionHomeBlockerDurableMirrorSync,
 	} {
 		count := counts[reason]
 		if count == 0 {
@@ -324,6 +342,12 @@ func sessionHomeActivationBlockerSummary(blockers []sessionHomeLaunchBlocker) st
 func sessionHomeActivationBlockerReasonLabel(reason sessionHomeLaunchBlockerReason, count int) string {
 	label := string(reason)
 	switch reason {
+	case sessionHomeBlockerSeedMaterialize:
+		label = "seed materialization"
+	case sessionHomeBlockerAdapterRequired:
+		label = "adapter required"
+	case sessionHomeBlockerCheckedWriteback:
+		label = "checked writeback"
 	case sessionHomeBlockerDurableMirrorSync:
 		label = "durable mirror sync"
 	case sessionHomeBlockerActivationGate:
@@ -441,15 +465,29 @@ func newSessionHomeRuntimePlan(plan sessionHomeLaunchPlan, persistentHome string
 func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry) []sessionHomeLaunchBlocker {
 	var blockers []sessionHomeLaunchBlocker
 	for _, entry := range assembly {
-		if entry.Durability != sessionHomeDurableMirror {
+		reason, blocked := sessionHomeActivationBlockerReasonForPolicy(entry.RuntimePolicy)
+		if !blocked {
 			continue
 		}
 		blockers = append(blockers, sessionHomeLaunchBlocker{
 			RelPath: entry.RelPath,
-			Reason:  sessionHomeBlockerDurableMirrorSync,
+			Reason:  reason,
 		})
 	}
 	return blockers
+}
+
+func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
+	switch policy {
+	case sessionHomePolicySeedOnly:
+		return sessionHomeBlockerSeedMaterialize, true
+	case sessionHomePolicyAdapterRequired:
+		return sessionHomeBlockerAdapterRequired, true
+	case sessionHomePolicyCheckedWriteback:
+		return sessionHomeBlockerCheckedWriteback, true
+	default:
+		return "", false
+	}
 }
 
 func validateSessionHomeBridgeRequirement(layout sessionHomeLayout, requirement sessionHomeBridgeRequirement) error {
@@ -511,6 +549,25 @@ func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessio
 		return sessionHomeEphemeralCache
 	default:
 		return sessionHomeDurableMirror
+	}
+}
+
+func sessionHomeRuntimePolicyFor(rel string, class containment.AgentHomeStateClass, durability sessionHomeAssemblyDurability) sessionHomeRuntimePolicy {
+	switch durability {
+	case sessionHomeDurableExternal:
+		return sessionHomePolicyDurableExternal
+	case sessionHomeEphemeralCache:
+		return sessionHomePolicyEphemeralCache
+	}
+	switch class {
+	case containment.AgentHomeStateShellConfig, containment.AgentHomeStateGitConfig:
+		return sessionHomePolicySeedOnly
+	}
+	switch rel {
+	case ".claude/commands", ".claude/skills":
+		return sessionHomePolicySeedOnly
+	default:
+		return sessionHomePolicyAdapterRequired
 	}
 }
 
