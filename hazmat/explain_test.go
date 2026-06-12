@@ -167,7 +167,8 @@ func TestBuildExplainJSON(t *testing.T) {
 	if got.SessionHome.Status != "experimental-preview" ||
 		got.SessionHome.ActivationReady ||
 		sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "seed-materialization") ||
-		!sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "adapter-required") ||
+		!sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "activation-gate") ||
+		sessionHomeBlockersContainReason(got.SessionHome.ActivationBlockers, "adapter-required") ||
 		got.SessionHome.Mode != "session-local" ||
 		got.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
 		got.SessionHome.PersistentHome != sessionHomeRuntime.AgentHomePolicy.PersistentPath ||
@@ -320,7 +321,8 @@ func TestExplainJSONCommandIncludesExperimentalSessionHomePreview(t *testing.T) 
 	if preview.SessionHome.Status != "experimental-preview" ||
 		preview.SessionHome.ActivationReady ||
 		sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "seed-materialization") ||
-		!sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "adapter-required") ||
+		!sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "activation-gate") ||
+		sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "adapter-required") ||
 		preview.SessionHome.Mode != "session-local" ||
 		preview.SessionHome.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") ||
 		preview.SessionHome.PersistentHome != agentHome ||

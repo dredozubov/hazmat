@@ -286,30 +286,63 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 	}
 }
 
-func TestNewSessionHomeLaunchPlanBlocksActivationUntilRuntimePoliciesAreImplemented(t *testing.T) {
-	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
+func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".local", "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
 	if plan.readyForActivation() {
-		t.Fatal("plan is activation-ready before session-home runtime policies are implemented")
+		t.Fatal("plan is activation-ready before session-home activation gate is lifted")
 	}
+	foundGate := false
 	foundAdapter := false
 	for _, blocker := range plan.Blockers {
 		switch {
+		case blocker.RelPath == "session-home" && blocker.Reason == sessionHomeBlockerActivationGate:
+			foundGate = true
 		case blocker.RelPath == ".local/bin" && blocker.Reason == sessionHomeBlockerAdapterRequired:
 			foundAdapter = true
-		case blocker.Reason == sessionHomeBlockerAdapterRequired:
+		case blocker.Reason == sessionHomeBlockerAdapterRequired || blocker.Reason == sessionHomeBlockerActivationGate:
 		default:
 			t.Fatalf("unexpected activation blocker: %+v", blocker)
 		}
 	}
-	if !foundAdapter {
-		t.Fatalf("activation blockers = %+v, want adapter blocker", plan.Blockers)
+	if !foundGate || !foundAdapter {
+		t.Fatalf("activation blockers = %+v, want activation gate and adapter blocker", plan.Blockers)
 	}
-	if got := sessionHomeActivationBlockerSummary(plan.Blockers); strings.Contains(got, "seed materialization") || !strings.Contains(got, "adapter required") {
+	if got := sessionHomeActivationBlockerSummary(plan.Blockers); strings.Contains(got, "seed materialization") || !strings.Contains(got, "activation gate") || !strings.Contains(got, "adapter required") {
 		t.Fatalf("blocker summary = %q", got)
+	}
+}
+
+func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) {
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	if plan.readyForActivation() {
+		t.Fatal("plan is activation-ready before session-home activation gate is lifted")
+	}
+	if len(plan.Blockers) != 1 || plan.Blockers[0].Reason != sessionHomeBlockerActivationGate {
+		t.Fatalf("activation blockers = %+v, want only activation gate for absent adapter state", plan.Blockers)
+	}
+	if got := sessionHomeActivationBlockerSummary(plan.Blockers); got != "activation gate" {
+		t.Fatalf("blocker summary = %q", got)
+	}
+}
+
+func TestSessionHomePersistentPathExistsDoesNotProbeAgentHome(t *testing.T) {
+	exists, err := sessionHomePersistentPathExists(filepath.Join(agentHome, ".definitely-private-for-session-home-test"))
+	if err != nil {
+		t.Fatalf("sessionHomePersistentPathExists returned error for agent-home path: %v", err)
+	}
+	if exists {
+		t.Fatal("sessionHomePersistentPathExists reported an unprobed agent-home path as existing")
 	}
 }
 
@@ -454,7 +487,7 @@ func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
 	for _, want := range []string{
 		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
 		"Persistent HOME:      " + persistentHome,
-		"Session HOME status:  blocked: adapter required",
+		"Session HOME status:  blocked: activation gate",
 		"session-home preview",
 	} {
 		if !strings.Contains(got, want) {

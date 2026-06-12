@@ -285,6 +285,10 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 	if err != nil {
 		return sessionHomeLaunchPlan{}, err
 	}
+	blockers, err := sessionHomeActivationBlockers(assembly, sessionHomePersistentPathExists)
+	if err != nil {
+		return sessionHomeLaunchPlan{}, err
+	}
 	phases := []sessionHomeLaunchPhase{
 		sessionHomePhaseCleanupStaleHomes,
 		sessionHomePhaseResolveIdentity,
@@ -305,7 +309,7 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 		},
 		Phases:          phases,
 		ResumeRequested: resumeRequested,
-		Blockers:        sessionHomeActivationBlockers(assembly),
+		Blockers:        blockers,
 	}, nil
 }
 
@@ -649,11 +653,36 @@ func newSessionHomeRuntimePlan(plan sessionHomeLaunchPlan, persistentHome string
 	}, nil
 }
 
-func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry) []sessionHomeLaunchBlocker {
-	var blockers []sessionHomeLaunchBlocker
+type sessionHomePersistentPathExistsFunc func(path string) (bool, error)
+
+func sessionHomePersistentPathExists(path string) (bool, error) {
+	clean := filepath.Clean(path)
+	if clean == filepath.Clean(agentHome) || isWithinDir(filepath.Clean(agentHome), clean) {
+		return false, nil
+	}
+	if _, err := os.Lstat(clean); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persistentPathExists sessionHomePersistentPathExistsFunc) ([]sessionHomeLaunchBlocker, error) {
+	blockers := []sessionHomeLaunchBlocker{{
+		RelPath: "session-home",
+		Reason:  sessionHomeBlockerActivationGate,
+	}}
 	for _, entry := range assembly {
 		reason, blocked := sessionHomeActivationBlockerReasonForPolicy(entry.RuntimePolicy)
 		if !blocked {
+			continue
+		}
+		exists, err := persistentPathExists(entry.PersistentPath)
+		if err != nil {
+			return nil, fmt.Errorf("%s: inspect persistent path for activation blockers: %w", entry.RelPath, err)
+		}
+		if !exists {
 			continue
 		}
 		blockers = append(blockers, sessionHomeLaunchBlocker{
@@ -661,15 +690,13 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry) []sessio
 			Reason:  reason,
 		})
 	}
-	return blockers
+	return blockers, nil
 }
 
 func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
 	switch policy {
 	case sessionHomePolicyAdapterRequired:
 		return sessionHomeBlockerAdapterRequired, true
-	case sessionHomePolicyCheckedWriteback:
-		return sessionHomeBlockerCheckedWriteback, true
 	default:
 		return "", false
 	}
