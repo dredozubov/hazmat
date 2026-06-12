@@ -129,6 +129,11 @@ var safeEnvKeys = map[string]bool{
 
 	"VIRTUAL_ENV": true,
 
+	// Hugging Face selectors only: HF_HOME is a path pointer and
+	// HF_HUB_OFFLINE is a mode flag. Provider tokens remain denied paths.
+	"HF_HOME":        true,
+	"HF_HUB_OFFLINE": true,
+
 	"JAVA_HOME":     true,
 	"TLA2TOOLS_JAR": true,
 

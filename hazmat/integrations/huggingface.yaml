@@ -1,0 +1,21 @@
+integration:
+  name: huggingface
+  version: 1
+  description: Hugging Face cache-only model and dataset access
+
+session:
+  read_dirs:
+    - ~/.cache/huggingface/hub
+    - ~/.cache/huggingface/datasets
+    - ~/.cache/huggingface/xet
+  env_passthrough: [HF_HOME, HF_HUB_OFFLINE]
+
+warnings:
+  - "Cache-only integration. Hugging Face tokens stay denied; configure models to use pre-cached files or explicit offline mode."
+
+backup:
+  excludes:
+    - .cache/huggingface/
+
+commands:
+  smoke: python -c 'from transformers import AutoModel; AutoModel.from_pretrained("MODEL", local_files_only=True)'
