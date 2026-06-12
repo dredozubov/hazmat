@@ -43,8 +43,8 @@ Options:
 This smoke test never launches, quits, or attaches to the stock Codex desktop
 app. It uses a scratch project and a fake agent-owned credential probe.
 It is sudo-adjacent: live mode invokes a helper-backed Hazmat session, and
-prerequisite checks probe non-interactive sudo with sudo -n. Agents must ask
-before running --check-prereqs, --skip-if-missing-prereqs, or --run.
+prerequisite checks probe non-interactive sudo with sudo -n.
+Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run.
 EOF
 }
 

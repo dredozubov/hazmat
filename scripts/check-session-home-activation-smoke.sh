@@ -33,8 +33,8 @@ Options:
 
 This smoke is sudo-adjacent. The live run uses Hazmat native helper-backed
 containment, and --check-prereqs performs a non-interactive sudo capability
-probe with sudo -n. Agents must ask before running --check-prereqs,
---skip-if-missing-prereqs, or --run.
+probe with sudo -n.
+Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run.
 EOF
 }
 

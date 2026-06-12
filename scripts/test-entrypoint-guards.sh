@@ -82,6 +82,43 @@ assert_succeeds_with() {
     fi
 }
 
+assert_help_contains_all() {
+    local label="$1"
+    local command="$2"
+    shift 2
+
+    local output=""
+    local status=0
+    set +e
+    output=$("$command" --help 2>&1)
+    status=$?
+    set -e
+
+    if [ "$status" -ne 0 ]; then
+        fail "$label: --help failed with status $status"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    local missing=""
+    for expected in "$@"; do
+        if ! printf '%s' "$output" | grep -Fq -- "$expected"; then
+            if [ -z "$missing" ]; then
+                missing="$expected"
+            else
+                missing="$missing, $expected"
+            fi
+        fi
+    done
+    if [ -n "$missing" ]; then
+        fail "$label: --help missing $missing"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    pass "$label"
+}
+
 phase "Destructive guards"
 
 assert_fails_with \
@@ -210,6 +247,31 @@ assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
     "spike-apple-container: disclosure-only" \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh"
+
+phase "Sudo-adjacent prereq disclosures"
+
+assert_help_contains_all \
+    "Codex app-server smoke documents sudo-adjacent prereqs" \
+    "$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" \
+    "--check-prereqs" \
+    "--skip-if-missing-prereqs" \
+    "sudo -n" \
+    "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
+
+assert_help_contains_all \
+    "Codex desktop attach smoke documents sudo-adjacent prereqs" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
+    "--check-prereqs" \
+    "sudo -n" \
+    "Agents must ask before running either command"
+
+assert_help_contains_all \
+    "session-home smoke documents sudo-adjacent prereqs" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
+    "--check-prereqs" \
+    "--skip-if-missing-prereqs" \
+    "sudo -n" \
+    "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
 
 phase "Platform guards"
 
