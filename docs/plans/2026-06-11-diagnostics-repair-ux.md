@@ -4,7 +4,7 @@
 
 `hazmat check` is read-only. It reports health, typed findings, repairability, and the next command to use, but it does not accept `--fix` and does not apply repairs.
 
-`hazmat doctor` is also plan-only by default. It runs the same diagnostics, builds the typed repair plan, and explains repairability, authority, preconditions, rollback boundaries, and verification targets.
+`hazmat doctor --dry-run` is the explicit plan-only repair preview. It runs the same diagnostics, builds the typed repair plan, and explains repairability, authority, preconditions, rollback boundaries, and verification targets. Plain `hazmat doctor` remains compatible and non-mutating, but user-facing recommendations should prefer the explicit `--dry-run` spelling.
 
 Mutation requires `hazmat doctor --fix`. In an interactive terminal, `--fix` may ask for per-plan consent before any executor runs. In automation, mutation requires both `--fix` and `--yes`; `hazmat doctor --fix` without a TTY and without `--yes` is blocked by policy.
 
@@ -13,8 +13,8 @@ Mutation requires `hazmat doctor --fix`. In an interactive terminal, `--fix` may
 ```bash
 hazmat check
 hazmat check --json
-hazmat doctor
-hazmat doctor --json
+hazmat doctor --dry-run
+hazmat doctor --dry-run --json
 hazmat doctor --fix
 hazmat doctor --fix --yes
 hazmat doctor --fix --yes --json

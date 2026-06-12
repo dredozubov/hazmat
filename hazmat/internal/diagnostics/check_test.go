@@ -1,6 +1,9 @@
 package diagnostics
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCheckCommandRunsQuickByDefault(t *testing.T) {
 	var gotOptions CheckOptions
@@ -111,5 +114,15 @@ func TestDoctorCommandFullDisablesQuickMode(t *testing.T) {
 	}
 	if gotQuick {
 		t.Fatal("quick = true, want false for --full")
+	}
+}
+
+func TestDoctorCommandHelpNamesExplicitDryRunPreview(t *testing.T) {
+	cmd := NewDoctorCommand(nil)
+	if !strings.Contains(cmd.Long, "hazmat doctor --dry-run") {
+		t.Fatalf("doctor help = %q, want explicit dry-run preview spelling", cmd.Long)
+	}
+	if !strings.Contains(cmd.Long, "--fix") || !strings.Contains(cmd.Long, "--yes") {
+		t.Fatalf("doctor help = %q, want fix and non-interactive consent contract", cmd.Long)
 	}
 }

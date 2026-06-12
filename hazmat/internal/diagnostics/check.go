@@ -26,8 +26,9 @@ repair plan for any failures or warnings.
 By default runs quick checks (no network traffic). Use --full to include
 live network probes that verify firewall rules are active.
 
-Plain doctor is plan-only. Mutation requires --fix; non-interactive mutation
-requires both --fix and --yes.`, true, run)
+Use hazmat doctor --dry-run when you want to spell out non-mutating preview
+behavior. Plain doctor remains compatible and plan-only. Mutation requires
+--fix; non-interactive mutation requires both --fix and --yes.`, true, run)
 }
 
 func newCheckCommand(use, short, long string, allowFix bool, run CheckRunner) *cobra.Command {

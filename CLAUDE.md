@@ -105,9 +105,9 @@ assets/                  Brand images
 ```bash
 make all                 # builds hazmat + hazmat-launch (cgo) with version from git
 make test                # unit tests
-./hazmat/hazmat check    # integration tests with recommended fixes
-./hazmat/hazmat doctor   # same diagnostics, repair-oriented naming
-./hazmat/hazmat check --full    # include live network probes
+./hazmat/hazmat check    # approval-gated local install diagnostics
+./hazmat/hazmat doctor --dry-run   # approval-gated repair-plan preview
+./hazmat/hazmat check --full    # approval-gated live network probes
 ```
 
 ## Approval-gated commands

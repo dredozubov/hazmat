@@ -499,15 +499,18 @@ hazmat opencode -C ~/workspace/proj
 hazmat                          # shows setup progress checklist
 hazmat status                   # same thing
 hazmat check                    # read-only health and repairability report
-hazmat doctor                   # same diagnostics, framed as a repair plan
+hazmat doctor --dry-run         # explicit non-mutating repair plan preview
+hazmat doctor --fix             # apply approved typed repairs
 hazmat check --full             # include live network probes
 ```
 
 `hazmat check` validates the current local Hazmat install and containment
 behavior without mutating host state. It reports typed findings, repairability,
-and the next command to run. `hazmat doctor` runs the same diagnostics under
-repair-oriented command naming and shows the typed repair plan. Plain
-`hazmat doctor` is plan-only; applying repairs requires `hazmat doctor --fix`.
+and the next command to run. `hazmat doctor --dry-run` runs the same diagnostics
+under repair-oriented command naming and shows the typed repair plan without
+applying it. Plain `hazmat doctor` remains compatible and plan-only, but docs
+and recommendations use `--dry-run` when preview behavior matters. Applying
+repairs requires `hazmat doctor --fix`.
 Neither command is the full repo test suite. For lifecycle e2e, self-hosting,
 repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
 
@@ -517,11 +520,11 @@ repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md
 Homebrew permissions, does not edit setup files, and does not use warning text to
 invent shell recipes. Its job is to report health, repairability, and evidence.
 
-`hazmat doctor` is the repair-planning command. By default it is also
-non-mutating. The plan is built from Hazmat-owned finding and repair-action IDs,
-not from strings printed by checks or from repo-controlled metadata. `--json`
-emits the same typed plan for automation, including authority, consent model,
-proof lanes, rollback boundary, verification target, and receipt ID.
+`hazmat doctor --dry-run` is the explicit repair-planning command. The plan is
+built from Hazmat-owned finding and repair-action IDs, not from strings printed
+by checks or from repo-controlled metadata. `--json` emits the same typed plan
+for automation, including authority, consent model, proof lanes, rollback
+boundary, verification target, and receipt ID.
 
 `hazmat doctor --fix` is the only diagnostics entrypoint allowed to apply typed
 repairs. Interactive runs may ask for consent before applying a plan.
@@ -539,7 +542,7 @@ classification so the same loop is visible and testable.
 agent account, shared group, network policy, launch helper, shell defaults, and
 other setup resources. It should converge those resources or report a specific
 blocker; it is not the generic answer to every `check` finding. After init,
-use `hazmat check` or `hazmat doctor` to inspect remaining drift.
+use `hazmat check` or `hazmat doctor --dry-run` to inspect remaining drift.
 
 Historical project ACL backfill is explicit because it can be proportional to
 repo size. Normal launches repair only a bounded shallow ACL set. To preview or
