@@ -66,6 +66,19 @@ func TestCheckCommandRejectsFixFlag(t *testing.T) {
 	}
 }
 
+func TestCheckCommandHelpNamesDirectRepairPath(t *testing.T) {
+	cmd := NewCheckCommand(nil)
+	if !strings.Contains(cmd.Long, "hazmat doctor --fix") {
+		t.Fatalf("check help = %q, want direct doctor --fix repair path", cmd.Long)
+	}
+	if !strings.Contains(cmd.Long, "hazmat doctor --dry-run") {
+		t.Fatalf("check help = %q, want explicit doctor --dry-run preview path", cmd.Long)
+	}
+	if strings.Contains(cmd.Long, "hazmat init") {
+		t.Fatalf("check help = %q, want no init retry guidance", cmd.Long)
+	}
+}
+
 func TestDoctorCommandFixFlag(t *testing.T) {
 	var gotOptions CheckOptions
 	cmd := NewDoctorCommand(func(options CheckOptions) error {
