@@ -186,6 +186,13 @@ The live smoke starts a native `hazmat exec` session with
 point under `/private/tmp/hazmat-home`, writes to the disposable home, and runs
 go, npm, pip, cargo, and git probes inside the contained session.
 
+Managed harness env delivery is also pinned by
+`TestNativeLaunchBaseEnvPairsUsesSessionHomeForEveryManagedHarness`, which
+asserts every managed harness receives the session-local `HOME` and XDG roots
+when a session-home runtime plan is present. That unit test does not replace a
+live harness startup run; it keeps the non-live contract from drifting while
+host-backed validation remains approval-gated.
+
 First check whether the current host is prepared. This is also approval-gated
 because it probes passwordless sudo availability with `sudo -n`:
 

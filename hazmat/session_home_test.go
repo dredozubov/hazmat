@@ -512,6 +512,54 @@ func TestNativeLaunchBaseEnvPairsUsesSessionHomeRuntimePlan(t *testing.T) {
 	}
 }
 
+func TestNativeLaunchBaseEnvPairsUsesSessionHomeForEveryManagedHarness(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	launchPlan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	runtimePlan, err := newSessionHomeRuntimePlan(launchPlan, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
+
+	for _, harness := range managedHarnessRegistry {
+		t.Run(string(harness.Spec.ID), func(t *testing.T) {
+			pairs := agentEnvPairsWithPlan(sessionConfig{
+				ProjectDir:  "/Users/dr/workspace/hazmat",
+				HarnessID:   harness.Spec.ID,
+				SessionHome: &runtimePlan,
+			}, sessionBackendPlan{})
+			values := envPairsMap(pairs)
+
+			for key, want := range map[string]string{
+				"HOME":            launchPlan.Layout.Home,
+				"XDG_CACHE_HOME":  launchPlan.Layout.CacheHome,
+				"XDG_CONFIG_HOME": launchPlan.Layout.ConfigHome,
+				"XDG_DATA_HOME":   launchPlan.Layout.DataHome,
+				"USER":            agentUser,
+				"LOGNAME":         agentUser,
+			} {
+				if values[key] != want {
+					t.Fatalf("%s = %q, want %q in env pairs %#v", key, values[key], want, pairs)
+				}
+			}
+		})
+	}
+}
+
+func envPairsMap(pairs []string) map[string]string {
+	values := map[string]string{}
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	return values
+}
+
 func TestBuildNativeSessionPolicyUsesSessionHomeRuntimePlan(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "hazmat-home")
 	persistentHome := filepath.Join(t.TempDir(), "agent")
