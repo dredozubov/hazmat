@@ -34,6 +34,7 @@ type nativeLaunchCommandRequest struct {
 type nativeLaunchEnvironment struct {
 	Shell         string
 	Path          string
+	Home          string
 	TmpDir        string
 	CacheHome     string
 	ConfigHome    string
@@ -79,12 +80,16 @@ func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {
 	readDirsJSON := marshalStringSliceEnvValue(cfg.ReadDirs)
 	writeDirsJSON := marshalStringSliceEnvValue(cfg.WriteDirs)
+	home := env.Home
+	if home == "" {
+		home = agentHome
+	}
 	tmpDir := env.TmpDir
 	if cfg.TempDir != "" {
 		tmpDir = cfg.TempDir
 	}
 	pairs := []string{
-		"HOME=" + agentHome,
+		"HOME=" + home,
 		"USER=" + agentUser,
 		"LOGNAME=" + agentUser,
 		"SHELL=" + env.Shell,
@@ -130,6 +135,14 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 	}
 
 	return pairs
+}
+
+func nativeLaunchEnvironmentWithSessionHome(env nativeLaunchEnvironment, layout sessionHomeLayout) nativeLaunchEnvironment {
+	env.Home = layout.Home
+	env.CacheHome = layout.CacheHome
+	env.ConfigHome = layout.ConfigHome
+	env.DataHome = layout.DataHome
+	return env
 }
 
 func marshalStringSliceEnvValue(value []string) string {

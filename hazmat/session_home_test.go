@@ -244,6 +244,45 @@ func TestNewSessionHomeLaunchPlanBlocksActivationWhileExternalBridgesRemain(t *t
 	}
 }
 
+func TestNativeLaunchEnvironmentWithSessionHomeOverridesHomeAndXDG(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := nativeLaunchEnvironment{
+		Shell:      "/bin/zsh",
+		Path:       "/usr/bin:/bin",
+		Home:       agentHome,
+		TmpDir:     "/tmp/agent",
+		CacheHome:  defaultAgentCacheHome,
+		ConfigHome: defaultAgentConfigHome,
+		DataHome:   defaultAgentDataHome,
+	}
+
+	env := nativeLaunchEnvironmentWithSessionHome(base, layout)
+	pairs := nativeLaunchBaseEnvPairs(sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}, env)
+	values := map[string]string{}
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+
+	for key, want := range map[string]string{
+		"HOME":            layout.Home,
+		"XDG_CACHE_HOME":  layout.CacheHome,
+		"XDG_CONFIG_HOME": layout.ConfigHome,
+		"XDG_DATA_HOME":   layout.DataHome,
+		"PATH":            base.Path,
+		"TMPDIR":          base.TmpDir,
+	} {
+		if values[key] != want {
+			t.Fatalf("%s = %q, want %q", key, values[key], want)
+		}
+	}
+}
+
 func TestNewSessionHomeLaunchPlanIncludesDurableBridgeRequirements(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "hazmat-home")
 	persistentHome := filepath.Join(t.TempDir(), "agent")

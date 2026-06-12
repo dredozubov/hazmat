@@ -25,6 +25,7 @@ func (unsupportedNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) 
 	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:      "/bin/sh",
 		Path:       defaultAgentPath,
+		Home:       agentHome,
 		TmpDir:     defaultAgentTmpDir,
 		CacheHome:  defaultAgentCacheHome,
 		ConfigHome: defaultAgentConfigHome,

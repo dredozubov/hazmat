@@ -56,6 +56,7 @@ func (darwinNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []str
 	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:         "/bin/zsh",
 		Path:          defaultAgentPath,
+		Home:          agentHome,
 		TmpDir:        defaultAgentTmpDir,
 		CacheHome:     defaultAgentCacheHome,
 		ConfigHome:    defaultAgentConfigHome,
