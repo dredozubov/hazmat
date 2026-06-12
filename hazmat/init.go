@@ -18,6 +18,7 @@ const initBootstrapSkip = "skip"
 var errInitPostVerificationFailed = errors.New("post-init verification found unresolved blockers")
 
 const postInitVerificationAdvice = "inspect the typed repair plan above, preview remaining repairs with hazmat doctor --dry-run, or apply approved repairs with hazmat doctor --fix"
+const statusIncompleteSetupAdvice = "  Fix incomplete setup: hazmat doctor --fix\n  Preview first: hazmat doctor --dry-run\n  First-time setup: hazmat init"
 
 func newInitCmd() *cobra.Command {
 	var agentUIDFlag, sharedGIDFlag, bootstrapAgentFlag string
@@ -175,7 +176,7 @@ func runStatus(full bool) error {
 			fmt.Println("    cd your-project && hazmat shell")
 		}
 	} else {
-		fmt.Println("  Next step: hazmat init")
+		fmt.Println(statusIncompleteSetupAdvice)
 	}
 	fmt.Println()
 

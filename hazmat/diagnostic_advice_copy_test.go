@@ -44,6 +44,21 @@ func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
 	}
 }
 
+func TestStatusIncompleteSetupAdvicePrioritizesDoctorFix(t *testing.T) {
+	if strings.Contains(statusIncompleteSetupAdvice, "Next step: hazmat init") {
+		t.Fatalf("status advice = %q, want no init retry loop", statusIncompleteSetupAdvice)
+	}
+	fixIndex := strings.Index(statusIncompleteSetupAdvice, "hazmat doctor --fix")
+	previewIndex := strings.Index(statusIncompleteSetupAdvice, "hazmat doctor --dry-run")
+	initIndex := strings.Index(statusIncompleteSetupAdvice, "hazmat init")
+	if fixIndex < 0 || previewIndex < 0 || initIndex < 0 {
+		t.Fatalf("status advice = %q, want fix, preview, and first-time init paths", statusIncompleteSetupAdvice)
+	}
+	if fixIndex > previewIndex || previewIndex > initIndex {
+		t.Fatalf("status advice = %q, want fix path before preview before first-time init", statusIncompleteSetupAdvice)
+	}
+}
+
 func hasPlainHazmatDoctorAdvice(text string) bool {
 	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return unicode.IsSpace(r) || strings.ContainsRune(".,;:()[]{}", r)
