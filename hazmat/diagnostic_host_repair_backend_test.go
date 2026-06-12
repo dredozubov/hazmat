@@ -3,6 +3,7 @@ package hazmat
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -78,5 +79,36 @@ func TestUISetupOutputIsSuppressedInJSONMode(t *testing.T) {
 	}
 	if out != "" {
 		t.Fatalf("JSON setup output = %q, want empty", out)
+	}
+}
+
+func TestHostRepairBackendSupportsExecutableRegistryActions(t *testing.T) {
+	var missingApply []string
+	var missingVerify []string
+	for id, action := range diagnosticRepairActionDefinitions {
+		if id != action.ID {
+			t.Fatalf("repair action registry key %q does not match definition ID %q", id, action.ID)
+		}
+		policy, ok := diagnosticRepairClassPolicyFor(action.Repairability)
+		if !ok {
+			t.Fatalf("%s has unknown repairability %q", action.ID, action.Repairability)
+		}
+		if !policy.ExecutableByHazmat {
+			continue
+		}
+		if !diagnosticHostRepairBackendSupportsAction(action.ID) {
+			missingApply = append(missingApply, string(action.ID))
+		}
+		if !diagnosticHostRepairBackendSupportsVerification(action.Verification) {
+			missingVerify = append(missingVerify, string(action.Verification))
+		}
+	}
+	if len(missingApply) > 0 {
+		sort.Strings(missingApply)
+		t.Fatalf("host repair backend missing apply dispatch for executable actions: %v", missingApply)
+	}
+	if len(missingVerify) > 0 {
+		sort.Strings(missingVerify)
+		t.Fatalf("host repair backend missing verification dispatch for executable actions: %v", missingVerify)
 	}
 }

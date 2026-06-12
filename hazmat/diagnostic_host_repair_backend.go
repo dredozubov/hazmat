@@ -33,90 +33,157 @@ func newDiagnosticHostRepairBackend(ui *UI, currentUser, homeDir string) diagnos
 	}
 }
 
+type diagnosticHostRepairApplyHandler func(*diagnosticHostRepairBackend, *Runner, diagnosticRepairActionDefinition, diagnosticRepairPlanItem) error
+type diagnosticHostRepairVerifyHandler func(*diagnosticHostRepairBackend, diagnosticRepairActionDefinition, diagnosticRepairPlanItem) error
+
+var diagnosticHostRepairApplyHandlers = map[diagnosticRepairActionID]diagnosticHostRepairApplyHandler{
+	"repair.workspace.setgid": func(b *diagnosticHostRepairBackend, _ *Runner, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return b.applyWorkspaceRepair(item)
+	},
+	"repair.workspace.access": func(b *diagnosticHostRepairBackend, _ *Runner, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return b.applyWorkspaceRepair(item)
+	},
+	"repair.agent-shell.umask": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyAgentUmask(r)
+	},
+	"repair.setup.agent-user": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupAgentUser(b.ui, r)
+	},
+	"repair.setup.agent-home": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applySetupAgentHome(r)
+	},
+	"repair.setup.dev-group": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupDevGroup(b.ui, r, b.currentUser)
+	},
+	"repair.setup.home-traverse": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupHomeDirTraverse(b.ui, r)
+	},
+	"repair.setup.sudoers": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupSudoers(b.ui, r, b.currentUser)
+	},
+	"repair.setup.seatbelt-wrapper": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupSeatbelt(b.ui, r)
+	},
+	"repair.setup.agent-env": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return setupUserExperience(b.ui, r)
+	},
+	"repair.setup.host-wrappers": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyHostWrappers(r)
+	},
+	"repair.network.pf": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyNetworkPF(r)
+	},
+	"repair.network.dns-blocklist": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyDNSBlocklist(r)
+	},
+	"repair.network.persistence": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyNetworkPersistence(r)
+	},
+	"repair.credential.claude-state": func(b *diagnosticHostRepairBackend, _ *Runner, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyCredentialMigration(action.ID)
+	},
+	"repair.credential.cloud-secret-key": func(b *diagnosticHostRepairBackend, _ *Runner, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyCredentialMigration(action.ID)
+	},
+	"repair.credential.residue": func(b *diagnosticHostRepairBackend, _ *Runner, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.applyCredentialMigration(action.ID)
+	},
+	"repair.claude.project-permissions": func(b *diagnosticHostRepairBackend, r *Runner, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return b.applyClaudeProjectPermissions(r, item)
+	},
+}
+
+var diagnosticHostRepairVerifyHandlers = map[diagnosticVerificationID]diagnosticHostRepairVerifyHandler{
+	"verify.workspace.setgid": func(b *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return b.verifyWorkspaceRepair(item)
+	},
+	"verify.workspace.access": func(b *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return b.verifyWorkspaceRepair(item)
+	},
+	"verify.agent-shell.umask": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifyAgentUmask()
+	},
+	"verify.setup.agent-user": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupAgentUser()
+	},
+	"verify.setup.agent-home": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupAgentHome()
+	},
+	"verify.setup.dev-group": func(b *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupDevGroup(b.currentUser)
+	},
+	"verify.setup.home-traverse": func(b *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupHomeTraverse(b.homeDir)
+	},
+	"verify.setup.sudoers": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupSudoers()
+	},
+	"verify.setup.seatbelt-wrapper": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupSeatbeltWrapper()
+	},
+	"verify.setup.agent-env": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupAgentEnv()
+	},
+	"verify.setup.host-wrappers": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifySetupHostWrappers()
+	},
+	"verify.network.pf": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifyNetworkPF()
+	},
+	"verify.network.dns-blocklist": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifyDNSBlocklist()
+	},
+	"verify.network.persistence": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return verifyNetworkPersistence()
+	},
+	"verify.credential.claude-state": func(b *diagnosticHostRepairBackend, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.verifyCredentialMigration(action.ID)
+	},
+	"verify.credential.cloud-secret-key": func(b *diagnosticHostRepairBackend, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.verifyCredentialMigration(action.ID)
+	},
+	"verify.credential.residue": func(b *diagnosticHostRepairBackend, action diagnosticRepairActionDefinition, _ diagnosticRepairPlanItem) error {
+		return b.verifyCredentialMigration(action.ID)
+	},
+	"verify.claude.project-permissions": func(_ *diagnosticHostRepairBackend, _ diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) error {
+		return verifyClaudeProjectPermissions(item)
+	},
+}
+
+func diagnosticHostRepairBackendSupportsAction(id diagnosticRepairActionID) bool {
+	_, ok := diagnosticHostRepairApplyHandlers[id]
+	return ok
+}
+
+func diagnosticHostRepairBackendSupportsVerification(id diagnosticVerificationID) bool {
+	_, ok := diagnosticHostRepairVerifyHandlers[id]
+	return ok
+}
+
 func (b *diagnosticHostRepairBackend) ApplyDiagnosticRepair(action diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) diagnosticRepairStepResult {
 	r := NewRunner(b.ui, flagVerbose, flagDryRun)
-	var err error
 	evidence := []string{fmt.Sprintf("applying typed repair action %s", action.ID)}
 
-	switch action.ID {
-	case "repair.workspace.setgid", "repair.workspace.access":
-		err = b.applyWorkspaceRepair(item)
-	case "repair.agent-shell.umask":
-		err = b.applyAgentUmask(r)
-	case "repair.setup.agent-user":
-		err = setupAgentUser(b.ui, r)
-	case "repair.setup.agent-home":
-		err = b.applySetupAgentHome(r)
-	case "repair.setup.dev-group":
-		err = setupDevGroup(b.ui, r, b.currentUser)
-	case "repair.setup.home-traverse":
-		err = setupHomeDirTraverse(b.ui, r)
-	case "repair.setup.sudoers":
-		err = setupSudoers(b.ui, r, b.currentUser)
-	case "repair.setup.seatbelt-wrapper":
-		err = setupSeatbelt(b.ui, r)
-	case "repair.setup.agent-env":
-		err = setupUserExperience(b.ui, r)
-	case "repair.setup.host-wrappers":
-		err = b.applyHostWrappers(r)
-	case "repair.network.pf":
-		err = b.applyNetworkPF(r)
-	case "repair.network.dns-blocklist":
-		err = b.applyDNSBlocklist(r)
-	case "repair.network.persistence":
-		err = b.applyNetworkPersistence(r)
-	case "repair.credential.claude-state", "repair.credential.cloud-secret-key", "repair.credential.residue":
-		err = b.applyCredentialMigration(action.ID)
-	case "repair.claude.project-permissions":
-		err = b.applyClaudeProjectPermissions(r, item)
-	default:
-		err = fmt.Errorf("no host repair backend for action %s", action.ID)
+	handler, ok := diagnosticHostRepairApplyHandlers[action.ID]
+	if !ok {
+		return diagnosticRepairStepResult{Evidence: evidence, Err: fmt.Errorf("no host repair backend for action %s", action.ID)}
 	}
-	if err != nil {
+
+	if err := handler(b, r, action, item); err != nil {
 		return diagnosticRepairStepResult{Evidence: evidence, Err: err}
 	}
 	return diagnosticRepairStepResult{Evidence: append(evidence, "repair action completed")}
 }
 
 func (b *diagnosticHostRepairBackend) VerifyDiagnosticRepair(action diagnosticRepairActionDefinition, item diagnosticRepairPlanItem) diagnosticRepairStepResult {
-	var err error
 	evidence := []string{fmt.Sprintf("verifying %s", action.Verification)}
 
-	switch action.Verification {
-	case "verify.workspace.setgid", "verify.workspace.access":
-		err = b.verifyWorkspaceRepair(item)
-	case "verify.agent-shell.umask":
-		err = verifyAgentUmask()
-	case "verify.setup.agent-user":
-		err = verifySetupAgentUser()
-	case "verify.setup.agent-home":
-		err = verifySetupAgentHome()
-	case "verify.setup.dev-group":
-		err = verifySetupDevGroup(b.currentUser)
-	case "verify.setup.home-traverse":
-		err = verifySetupHomeTraverse(b.homeDir)
-	case "verify.setup.sudoers":
-		err = verifySetupSudoers()
-	case "verify.setup.seatbelt-wrapper":
-		err = verifySetupSeatbeltWrapper()
-	case "verify.setup.agent-env":
-		err = verifySetupAgentEnv()
-	case "verify.setup.host-wrappers":
-		err = verifySetupHostWrappers()
-	case "verify.network.pf":
-		err = verifyNetworkPF()
-	case "verify.network.dns-blocklist":
-		err = verifyDNSBlocklist()
-	case "verify.network.persistence":
-		err = verifyNetworkPersistence()
-	case "verify.credential.claude-state", "verify.credential.cloud-secret-key", "verify.credential.residue":
-		err = b.verifyCredentialMigration(action.ID)
-	case "verify.claude.project-permissions":
-		err = verifyClaudeProjectPermissions(item)
-	default:
-		err = fmt.Errorf("no host verification backend for %s", action.Verification)
+	handler, ok := diagnosticHostRepairVerifyHandlers[action.Verification]
+	if !ok {
+		return diagnosticRepairStepResult{Evidence: evidence, Err: fmt.Errorf("no host verification backend for %s", action.Verification)}
 	}
-	if err != nil {
+
+	if err := handler(b, action, item); err != nil {
 		return diagnosticRepairStepResult{Evidence: evidence, Err: err}
 	}
 	return diagnosticRepairStepResult{Evidence: append(evidence, "desired state verified")}
