@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+var inspectProjectHooksForPrompt = inspectProjectHooks
 
 func newHooksCmd() *cobra.Command {
 	var project string
@@ -183,7 +186,10 @@ func runHooksUninstall(project string) error {
 }
 
 func maybePromptProjectHooks(projectDir string) {
-	_, status, err := inspectProjectHooks(projectDir)
+	if !projectHookManifestMayExist(projectDir) {
+		return
+	}
+	_, status, err := inspectProjectHooksForPrompt(projectDir)
 	if err != nil || status.Bundle == nil {
 		return
 	}
@@ -231,6 +237,14 @@ func maybePromptProjectHooks(projectDir string) {
 			fmt.Fprintf(os.Stderr, "hazmat: repair manually with: hazmat hooks install --replace -C %s\n", projectDir)
 		}
 	}
+}
+
+func projectHookManifestMayExist(projectDir string) bool {
+	info, err := os.Stat(filepath.Join(projectDir, projectHooksManifestRelPath))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	return !info.IsDir()
 }
 
 type inspectedProjectHooks struct {

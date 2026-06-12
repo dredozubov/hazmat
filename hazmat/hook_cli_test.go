@@ -75,6 +75,23 @@ hooks:
 	}
 }
 
+func TestMaybePromptProjectHooksSkipsInspectorWithoutManifest(t *testing.T) {
+	projectDir := t.TempDir()
+	called := false
+	saved := inspectProjectHooksForPrompt
+	inspectProjectHooksForPrompt = func(project string) (string, inspectedProjectHooks, error) {
+		called = true
+		return project, inspectedProjectHooks{}, nil
+	}
+	t.Cleanup(func() { inspectProjectHooksForPrompt = saved })
+
+	maybePromptProjectHooks(projectDir)
+
+	if called {
+		t.Fatal("expected no-manifest project to skip full hook inspection")
+	}
+}
+
 func TestMaybePromptProjectHooksSkipsForeignHooksPathOwner(t *testing.T) {
 	setProjectHookApprovalTestPaths(t)
 	setFlagYesAllForTest(t, true)
