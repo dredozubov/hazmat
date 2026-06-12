@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-labelledby="title desc">
+  <title id="title">Hazmat first contained session terminal demo</title>
+  <desc id="desc">A terminal screenshot showing Hazmat init, entering a project, and the native containment session contract printed before launch.</desc>
+  <rect width="1120" height="620" rx="18" fill="#111318"/>
+  <rect x="28" y="28" width="1064" height="564" rx="12" fill="#171a21" stroke="#303642"/>
+  <circle cx="58" cy="57" r="7" fill="#ff5f57"/>
+  <circle cx="82" cy="57" r="7" fill="#ffbd2e"/>
+  <circle cx="106" cy="57" r="7" fill="#28c840"/>
+  <text x="554" y="63" text-anchor="middle" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9aa4b2">hazmat quickstart</text>
+
+  <g font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20">
+    <text x="58" y="112" fill="#7dd3fc">$</text>
+    <text x="86" y="112" fill="#f8fafc">brew install dredozubov/tap/hazmat</text>
+    <text x="58" y="146" fill="#8bdc97">hazmat was successfully installed</text>
+
+    <text x="58" y="194" fill="#7dd3fc">$</text>
+    <text x="86" y="194" fill="#f8fafc">hazmat init --bootstrap-agent claude</text>
+    <text x="58" y="228" fill="#8bdc97">[ok] agent user, sandbox helper, firewall, and rollback are ready</text>
+
+    <text x="58" y="276" fill="#7dd3fc">$</text>
+    <text x="86" y="276" fill="#f8fafc">cd ~/workspace/my-app</text>
+    <text x="58" y="310" fill="#7dd3fc">$</text>
+    <text x="86" y="310" fill="#f8fafc">hazmat claude</text>
+
+    <text x="58" y="360" fill="#f8fafc">hazmat: session</text>
+    <text x="86" y="394" fill="#a7b0bd">Mode:</text>
+    <text x="304" y="394" fill="#f8fafc">Native containment</text>
+    <text x="86" y="428" fill="#a7b0bd">Why this mode:</text>
+    <text x="304" y="428" fill="#f8fafc">using native containment by default</text>
+    <text x="86" y="462" fill="#a7b0bd">Project:</text>
+    <text x="304" y="462" fill="#f8fafc">~/workspace/my-app</text>
+    <text x="86" y="496" fill="#a7b0bd">Integrations:</text>
+    <text x="304" y="496" fill="#f8fafc">node</text>
+    <text x="86" y="530" fill="#a7b0bd">Pre-session snapshot:</text>
+    <text x="304" y="530" fill="#f8fafc">on</text>
+    <text x="58" y="568" fill="#8bdc97">launching Claude Code as /Users/agent...</text>
+  </g>
+</svg>

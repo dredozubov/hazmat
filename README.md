@@ -44,6 +44,10 @@ If you use Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent instead of Cla
 
 Every session starts with a contract. No hidden widening, no vague "secure mode" label.
 
+<p align="center">
+  <img src="assets/session-contract-demo.svg" alt="Terminal demo showing Hazmat init followed by a native containment session contract" width="860">
+</p>
+
 ```
 hazmat: session
   Mode:                 Native containment
