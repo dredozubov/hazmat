@@ -164,7 +164,15 @@ remain unproven and should be recorded as residual risk.
 ### Session-home activation smoke
 
 Use this only when validating the experimental session-local HOME activation
-path. It starts a native `hazmat exec` session with
+path. The default mode is a disclosure; it prints the exact live command shape
+and exits without running Hazmat or sudo-adjacent prerequisite probes:
+
+```bash
+scripts/check-session-home-activation-smoke.sh
+make e2e-session-home-activation-smoke
+```
+
+The live smoke starts a native `hazmat exec` session with
 `HAZMAT_EXPERIMENTAL_SESSION_HOME=activate`, asserts that `HOME` and XDG roots
 point under `/private/tmp/hazmat-home`, writes to the disposable home, and runs
 go, npm, pip, cargo, and git probes inside the contained session.
@@ -179,7 +187,7 @@ scripts/check-session-home-activation-smoke.sh --check-prereqs
 After explicit approval, run:
 
 ```bash
-scripts/check-session-home-activation-smoke.sh
+scripts/check-session-home-activation-smoke.sh --run --i-understand-this-runs-hazmat-exec
 ```
 
 For autonomous gates that should avoid false failures on unprepared machines,
@@ -191,7 +199,8 @@ scripts/check-session-home-activation-smoke.sh --skip-if-missing-prereqs
 
 This is a live native Hazmat smoke. Its prerequisite mode and live mode may
 exercise sudo-adjacent host capability checks or helper-backed launch behavior,
-so agents must ask for explicit approval before running either command.
+so agents must ask for explicit approval before running `--check-prereqs`,
+`--skip-if-missing-prereqs`, or `--run`.
 
 ### Claude Workflow export smoke
 

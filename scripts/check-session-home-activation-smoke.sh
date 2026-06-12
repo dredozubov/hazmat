@@ -7,27 +7,34 @@ REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_SESSION_HOME_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
 AGENT_USER="${HAZMAT_SESSION_HOME_SMOKE_AGENT_USER:-agent}"
 LAUNCH_HELPER="${HAZMAT_SESSION_HOME_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
-MODE="run"
+MODE="disclose"
+ACK=0
 MISSING_PREREQS=""
 SCRATCH=""
 
 usage() {
 	cat <<'EOF'
-Usage: scripts/check-session-home-activation-smoke.sh [--check-prereqs|--skip-if-missing-prereqs]
+Usage: scripts/check-session-home-activation-smoke.sh [options]
 
-Starts a Hazmat native exec session with HAZMAT_EXPERIMENTAL_SESSION_HOME=activate
-and validates the session-local HOME/XDG layout plus go, npm, pip, cargo, and
-git behavior inside the activated session.
+Guarded live smoke wrapper for session-local HOME activation.
+
+By default, this script prints the exact live command and exits without running
+Hazmat or sudo-adjacent prerequisite probes. Live mode requires:
+  --run --i-understand-this-runs-hazmat-exec
 
 Options:
   --check-prereqs           Only check local prerequisites; exit 0 when ready,
                             exit 2 with reasons when the machine is not ready.
   --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
+  --run                     Run the live session-home activation smoke.
+  --i-understand-this-runs-hazmat-exec
+                            Required acknowledgement for --run.
   -h, --help                Show this help.
 
 This smoke is sudo-adjacent. The live run uses Hazmat native helper-backed
 containment, and --check-prereqs performs a non-interactive sudo capability
-probe with sudo -n. Agents must ask before running either command.
+probe with sudo -n. Agents must ask before running --check-prereqs,
+--skip-if-missing-prereqs, or --run.
 EOF
 }
 
@@ -38,6 +45,12 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--skip-if-missing-prereqs)
 			MODE="skip"
+			;;
+		--run)
+			MODE="run"
+			;;
+		--i-understand-this-runs-hazmat-exec)
+			ACK=1
 			;;
 		-h|--help)
 			usage
@@ -108,6 +121,38 @@ print_missing_prereqs() {
 	echo "session-home-smoke: missing prerequisites:" >&2
 	printf '%s\n' "$MISSING_PREREQS" >&2
 }
+
+print_disclosure() {
+	cat <<EOF
+session-home-smoke: dry run only
+
+This script validates HAZMAT_EXPERIMENTAL_SESSION_HOME=activate with a live
+Hazmat native exec session. It checks HOME/XDG placement plus go, npm, pip,
+cargo, and git behavior inside the activated session.
+
+Live mode and prerequisite checks are sudo-adjacent and require explicit
+approval:
+
+  scripts/check-session-home-activation-smoke.sh --check-prereqs
+  scripts/check-session-home-activation-smoke.sh --run --i-understand-this-runs-hazmat-exec
+
+Live smoke shape:
+  HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \\
+    hazmat exec --docker=none --network none --no-backup \\
+      --integration go --integration node --integration python-pip --integration rust \\
+      -C <scratch-project> -- /bin/sh -eu
+EOF
+}
+
+if [ "$MODE" = "disclose" ]; then
+	print_disclosure
+	exit 0
+fi
+
+if [ "$MODE" = "run" ] && [ "$ACK" != "1" ]; then
+	echo "session-home-smoke: refusing live run without --i-understand-this-runs-hazmat-exec" >&2
+	exit 2
+fi
 
 if ! check_prereqs; then
 	if [ "$MODE" = "skip" ]; then

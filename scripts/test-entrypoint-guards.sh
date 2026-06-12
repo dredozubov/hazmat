@@ -7,6 +7,7 @@
 #   - make e2e refuses to run without E2E_ACK=1
 #   - live Codex desktop attach smoke refuses to run without its explicit ack
 #   - live Claude Workflow export smoke refuses to run without its explicit ack
+#   - live session-home activation smoke refuses to run without its explicit ack
 #   - live cache integration smoke refuses to run without its explicit ack
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
 #   - release installer refuses unsupported platforms before download/install
@@ -70,6 +71,11 @@ assert_fails_with \
     "Claude Workflow export smoke requires live ack" \
     "refusing live run without --i-understand-this-runs-hazmat-claude-and-host-claude" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --run
+
+assert_fails_with \
+    "session-home activation smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-hazmat-exec" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" --run
 
 assert_fails_with \
     "cache integration smoke requires live ack" \
