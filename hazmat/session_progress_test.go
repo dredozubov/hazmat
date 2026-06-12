@@ -10,10 +10,22 @@ import (
 
 func TestSessionPreparationProgressRendersStepsAndDone(t *testing.T) {
 	var buf bytes.Buffer
+	times := []time.Time{
+		time.Unix(100, 0),
+		time.Unix(101, 0),
+		time.Unix(102, 0),
+	}
 	progress := &sessionPreparationProgress{
 		w:     &buf,
 		start: time.Unix(100, 0),
-		now:   func() time.Time { return time.Unix(102, 0) },
+		now: func() time.Time {
+			if len(times) == 0 {
+				t.Fatal("unexpected time request")
+			}
+			got := times[0]
+			times = times[1:]
+			return got
+		},
 	}
 
 	progress.Step("resolving launch context")
@@ -30,6 +42,53 @@ func TestSessionPreparationProgressRendersStepsAndDone(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("progress output missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestSessionPreparationProgressProfileRendersPhaseDurations(t *testing.T) {
+	var buf bytes.Buffer
+	times := []time.Time{
+		time.Unix(100, 0),
+		time.Unix(100, int64(400*time.Millisecond)),
+		time.Unix(102, 0),
+	}
+	nextTime := func() time.Time {
+		if len(times) == 0 {
+			t.Fatal("unexpected time request")
+		}
+		got := times[0]
+		times = times[1:]
+		return got
+	}
+	progress := &sessionPreparationProgress{
+		w:       &buf,
+		start:   time.Unix(100, 0),
+		now:     nextTime,
+		profile: true,
+	}
+
+	progress.Step("resolving launch context")
+	progress.Step("checking Docker routing")
+	progress.Done()
+
+	got := buf.String()
+	for _, want := range []string{
+		"hazmat: session startup preparation complete (2.0s)",
+		"hazmat: session startup preparation profile:",
+		"  resolving launch context: 0.4s",
+		"  checking Docker routing: 1.6s",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("profile output missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestSessionPreparationProgressProfileEnvGate(t *testing.T) {
+	t.Setenv("HAZMAT_SESSION_PREP_PROFILE", "yes")
+	progress := newSessionPreparationProgress(&bytes.Buffer{})
+	if !progress.profile {
+		t.Fatal("expected HAZMAT_SESSION_PREP_PROFILE=yes to enable profiling")
 	}
 }
 

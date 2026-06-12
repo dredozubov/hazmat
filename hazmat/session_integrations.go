@@ -40,6 +40,8 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	if err != nil {
 		return preparedSession{}, err
 	}
+	opts.resolvedProjectDir = projectDir
+	opts.projectDirResolved = true
 
 	progress.Step("checking suggested integrations")
 	resolvedIntegrations, err := resolveLaunchIntegrations(projectDir, opts.integrations)

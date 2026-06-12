@@ -95,17 +95,28 @@ type preparedSession struct {
 }
 
 type sessionPreparationProgress struct {
-	w       io.Writer
-	now     func() time.Time
-	start   time.Time
-	started bool
+	w            io.Writer
+	now          func() time.Time
+	start        time.Time
+	started      bool
+	profile      bool
+	currentLabel string
+	currentStart time.Time
+	spans        []sessionPreparationSpan
+}
+
+type sessionPreparationSpan struct {
+	Label    string
+	Duration time.Duration
 }
 
 func newSessionPreparationProgress(w io.Writer) *sessionPreparationProgress {
+	now := time.Now()
 	return &sessionPreparationProgress{
-		w:     w,
-		now:   time.Now,
-		start: time.Now(),
+		w:       w,
+		now:     time.Now,
+		start:   now,
+		profile: sessionPreparationProfileEnabled(),
 	}
 }
 
@@ -113,10 +124,16 @@ func (p *sessionPreparationProgress) Step(label string) {
 	if p == nil || p.w == nil {
 		return
 	}
+	now := p.now()
 	if !p.started {
 		fmt.Fprintln(p.w, "hazmat: preparing session startup")
+		p.start = now
 		p.started = true
+	} else {
+		p.finishCurrent(now)
 	}
+	p.currentLabel = label
+	p.currentStart = now
 	fmt.Fprintf(p.w, "  %s...\n", label)
 }
 
@@ -124,7 +141,39 @@ func (p *sessionPreparationProgress) Done() {
 	if p == nil || p.w == nil || !p.started {
 		return
 	}
-	fmt.Fprintf(p.w, "hazmat: session startup preparation complete (%.1fs)\n", p.now().Sub(p.start).Seconds())
+	now := p.now()
+	p.finishCurrent(now)
+	fmt.Fprintf(p.w, "hazmat: session startup preparation complete (%.1fs)\n", now.Sub(p.start).Seconds())
+	if p.profile && len(p.spans) > 0 {
+		fmt.Fprintln(p.w, "hazmat: session startup preparation profile:")
+		for _, span := range p.spans {
+			fmt.Fprintf(p.w, "  %s: %.1fs\n", span.Label, span.Duration.Seconds())
+		}
+	}
+}
+
+func (p *sessionPreparationProgress) finishCurrent(now time.Time) {
+	if !p.profile || p.currentLabel == "" {
+		return
+	}
+	duration := now.Sub(p.currentStart)
+	if duration < 0 {
+		duration = 0
+	}
+	p.spans = append(p.spans, sessionPreparationSpan{
+		Label:    p.currentLabel,
+		Duration: duration,
+	})
+	p.currentLabel = ""
+}
+
+func sessionPreparationProfileEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("HAZMAT_SESSION_PREP_PROFILE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 type sessionCommandFlags struct {
@@ -819,6 +868,8 @@ Examples:
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
 	project               string
+	resolvedProjectDir    string
+	projectDirResolved    bool
 	readDirs              []string
 	writeDirs             []string
 	integrations          []string
@@ -1218,9 +1269,13 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 
 	progress.Step("resolving project access")
-	projectDir, err := resolveDir(opts.project, true)
-	if err != nil {
-		return preparedSession{}, err
+	projectDir := opts.resolvedProjectDir
+	if !opts.projectDirResolved {
+		var err error
+		projectDir, err = resolveDir(opts.project, true)
+		if err != nil {
+			return preparedSession{}, err
+		}
 	}
 
 	userReadPaths := configuredReadDirs(opts.readDirs)

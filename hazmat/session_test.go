@@ -2910,6 +2910,26 @@ func TestResolvePreparedSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	}
 }
 
+func TestResolvePreparedSessionUsesPreResolvedProjectDir(t *testing.T) {
+	dir, err := resolveDir(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("resolveDir fixture: %v", err)
+	}
+
+	prepared, err := resolvePreparedSessionWithProgress("shell", harnessSessionOpts{
+		project:            "/definitely/missing/hazmat-project",
+		resolvedProjectDir: dir,
+		projectDirResolved: true,
+		planOnly:           true,
+	}, true, nil)
+	if err != nil {
+		t.Fatalf("resolvePreparedSessionWithProgress: %v", err)
+	}
+	if prepared.Config.ProjectDir != dir {
+		t.Fatalf("ProjectDir = %q, want cached %q", prepared.Config.ProjectDir, dir)
+	}
+}
+
 func TestResolveExplainSessionSupportsHarnessSandboxTarget(t *testing.T) {
 	skipInitCheck(t)
 	for _, commandName := range []string{"opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent"} {
