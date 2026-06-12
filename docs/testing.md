@@ -27,6 +27,17 @@ are not interchangeable.
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
 | `scripts/e2e-vm.sh` | Run the destructive lifecycle test in an isolated macOS VM | VM | Destroys the VM, not your host setup |
 
+`hazmat check` and `hazmat doctor --dry-run` are diagnostics, not live smoke
+wrappers. They must stay read-only and non-prompting: no direct sudo probes, no
+`sudo -n` probes, and no helper-backed agent probes until setup readiness is
+observable from unprivileged facts. When the agent user, launch sudoers file, or
+launch helper is missing, the diagnostics should report a repair plan and skip
+agent-backed probes instead of trying to switch users.
+
+Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
+paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed
+launch paths, so agents must ask for exact-command approval before running them.
+
 ## Recommended Local Workflows
 
 ### Fast local loop
@@ -193,8 +204,9 @@ when a session-home runtime plan is present. That unit test does not replace a
 live harness startup run; it keeps the non-live contract from drifting while
 host-backed validation remains approval-gated.
 
-First check whether the current host is prepared. This is also approval-gated
-because it probes passwordless sudo availability with `sudo -n`:
+First check whether the current host is prepared. This script is approval-gated:
+its prerequisite path probes non-interactive agent-user switching with `sudo -n`
+and therefore is sudo-adjacent even though it is non-mutating.
 
 ```bash
 scripts/check-session-home-activation-smoke.sh --check-prereqs
