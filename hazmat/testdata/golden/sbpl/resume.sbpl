@@ -245,6 +245,7 @@
 (deny file-read* file-write* (subpath "/Users/agent/.local/share/crush"))
 (deny file-read* file-write* (subpath "/Users/agent/.openclaw"))
 (deny file-read* file-write* (subpath "/Users/agent/.qoder"))
+(deny file-read* file-write* (subpath "/Users/agent/.copilot"))
 (deny file-read* file-write* (subpath "/Users/agent/.continue"))
 (deny file-read* file-write* (subpath "/Users/agent/.cline"))
 (deny file-read* file-write* (subpath "/Users/agent/.aider.conf.yml"))

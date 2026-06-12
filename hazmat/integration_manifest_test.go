@@ -29,6 +29,7 @@ var aiAgentCredentialDenySubs = []string{
 	"/.local/share/crush",
 	"/.openclaw",
 	"/.qoder",
+	"/.copilot",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",

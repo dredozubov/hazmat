@@ -99,8 +99,8 @@ and how many setup/rollback attempts have occurred.
    the managed umask block. That set includes common cloud/tool credentials and
    known AI-agent local state roots such as Amp config/plugins, Devin config
    and auth-adjacent state, external agent roots for Kilo, Kimi, Kiro, Vibe,
-   Trae, Pi, Crush, OpenClaw, and Qoder, and Goose config/session/log state. Core
-   rollback removes the managed umask block but
+   Trae, Pi, Crush, OpenClaw, Qoder, and GitHub Copilot CLI, and Goose
+   config/session/log state. Core rollback removes the managed umask block but
    intentionally preserves owner-only credential modes because they are host
    security posture, not a Hazmat artifact.
 
