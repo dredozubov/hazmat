@@ -605,6 +605,10 @@ hardcoded-policy-list drift risk before the session-home assembly code lands.
 the disposable assembled home can be broadly writable for UX, but it must stay
 separate from credential/host-authority paths and must not implicitly expose the
 persistent `/Users/agent` durable state.
+`hazmat/session_home.go` contains the initial pure layout and marker-gated
+stale-home cleanup primitives. They are intentionally not wired into native
+launch until the transcript/export and resume-ordering gates below are
+implemented.
 
 #### Resume/export requirements
 
