@@ -431,10 +431,16 @@ func verifyNetworkPF() error {
 	if !strings.Contains(rules, "block") {
 		return fmt.Errorf("pf anchor %s has no block rules", pfAnchorName)
 	}
-	if out, err := sudoOutput("pfctl", "-si"); err != nil || !strings.Contains(out, "Status: Enabled") {
+	if out, err := sudoOutput(hostPfctlPath, "-si"); err != nil || !strings.Contains(out, "Status: Enabled") {
 		return fmt.Errorf("pf is not enabled")
 	}
 	return nil
+}
+
+// pfAnchorRules returns the loaded rules for the agent anchor. This is used by
+// doctor repair verification, not by read-only hazmat check.
+func pfAnchorRules() (string, error) {
+	return sudoOutput(hostPfctlPath, "-a", pfAnchorName, "-sr")
 }
 
 func verifyDNSBlocklist() error {
@@ -448,7 +454,7 @@ func verifyNetworkPersistence() error {
 	if _, err := os.Stat(pfDaemonPlist); err != nil {
 		return fmt.Errorf("LaunchDaemon plist missing: %w", err)
 	}
-	if !launchctlLoaded(pfDaemonLabel) {
+	if !launchctlLoadedPrivileged(pfDaemonLabel) {
 		return fmt.Errorf("LaunchDaemon %s is not loaded", pfDaemonLabel)
 	}
 	data, err := os.ReadFile("/etc/pf.conf")
@@ -459,6 +465,10 @@ func verifyNetworkPersistence() error {
 		return fmt.Errorf("/etc/pf.conf does not reference anchor %s", pfAnchorName)
 	}
 	return nil
+}
+
+func launchctlLoadedPrivileged(label string) bool {
+	return sudoNoPrompt(hostLaunchctlPath, "list", label) == nil
 }
 
 func (b *diagnosticHostRepairBackend) verifyCredentialMigration(actionID diagnosticRepairActionID) error {

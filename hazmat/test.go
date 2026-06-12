@@ -23,7 +23,6 @@ import (
 	"github.com/kopia/kopia/snapshot/restore"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/upload"
-	"golang.org/x/sys/unix"
 
 	"hazmat/internal/diagnostics"
 )
@@ -144,7 +143,7 @@ func testAgentUser(ui *UI) {
 		}
 	}
 
-	if out, err := sudoOutput("dscl", ".", "-read", "/Users/"+agentUser, "IsHidden"); err == nil {
+	if out, err := commandStdout(hostDsclPath, ".", "-read", "/Users/"+agentUser, "IsHidden"); err == nil {
 		if strings.Contains(out, "1") {
 			ui.TestPass("User is hidden from login screen")
 		} else {
@@ -316,14 +315,12 @@ func testPasswordlessSudo(ui *UI) {
 	if launchSudoersInstalled() {
 		ui.TestPass(fmt.Sprintf("Launch-helper sudoers file exists: %s", sudoersFile))
 		helperPath := launchHelperPath()
-		out, err := newSudoNoPromptCommand("-u", agentUser, helperPath, "exec", "/usr/bin/id", "-un").CombinedOutput()
-		if strings.TrimSpace(string(out)) == agentUser && err == nil {
-			ui.TestPass("Hazmat helper maintenance path works without password")
+		if info, err := os.Stat(helperPath); err == nil && info.Mode()&0o111 != 0 {
+			ui.TestPass(fmt.Sprintf("Hazmat helper is installed and executable: %s", helperPath))
 		} else {
 			ui.TestFailFinding(
 				diagnosticFinding(findingSetupSudoers),
-				fmt.Sprintf("Launch-helper sudoers rule did not execute %s in maintenance mode", helperPath),
-				fmt.Sprintf("output: %s", strings.TrimSpace(string(out))),
+				fmt.Sprintf("Hazmat helper missing or not executable: %s", helperPath),
 			)
 		}
 	} else {
@@ -335,16 +332,9 @@ func testPasswordlessSudo(ui *UI) {
 
 	if agentMaintenanceSudoersInstalled() {
 		ui.TestPass(fmt.Sprintf("Optional agent-maintenance sudoers file exists: %s", agentMaintenanceSudoersFile))
-		if genericAgentPasswordlessAvailable() {
-			ui.TestPass(fmt.Sprintf("sudo -u %s works without password", agentUser))
-		} else {
-			ui.TestFailFinding(
-				diagnosticFinding(findingSetupSudoers),
-				fmt.Sprintf("sudo -u %s still prompts or fails — check %s", agentUser, agentMaintenanceSudoersFile),
-			)
-		}
+		ui.TestSkip("Optional agent-maintenance sudoers runtime execution is not probed by read-only check")
 	} else {
-		ui.TestSkip("Optional agent-maintenance passwordless sudo is disabled — manual generic 'sudo -u agent ...' commands will still prompt")
+		ui.TestSkip("Optional agent-maintenance passwordless sudo is disabled")
 	}
 }
 
@@ -353,10 +343,14 @@ func testPasswordlessSudo(ui *UI) {
 func testPfFirewallStatic(ui *UI) {
 	ui.Step("pf firewall (static)")
 
-	if out, err := sudoOutput("pfctl", "-si"); err == nil && strings.Contains(out, "Status: Enabled") {
-		ui.TestPass("pf is enabled")
+	if enabled, observed := pfRuntimeEnabledUnprivileged(); observed {
+		if enabled {
+			ui.TestPass("pf is enabled")
+		} else {
+			ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf is not enabled")
+		}
 	} else {
-		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf is NOT enabled — run: sudo pfctl -e")
+		ui.TestSkip("pf runtime status is not available to read-only check without privileged inspection")
 	}
 
 	if _, err := os.Stat(pfAnchorFile); err == nil {
@@ -365,23 +359,23 @@ func testPfFirewallStatic(ui *UI) {
 		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), fmt.Sprintf("pf anchor file missing: %s", pfAnchorFile))
 	}
 
-	rules, err := pfAnchorRules()
+	rules, err := readPfAnchorFileRules()
 	if err == nil && strings.Contains(rules, "block") {
 		n := len(strings.Split(strings.TrimSpace(rules), "\n"))
-		ui.TestPass(fmt.Sprintf("pf anchor loaded with %d rules", n))
+		ui.TestPass(fmt.Sprintf("pf anchor file contains %d rules", n))
 	} else {
-		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), fmt.Sprintf("pf anchor '%s' not loaded or has no block rules", pfAnchorName))
+		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), fmt.Sprintf("pf anchor '%s' file has no block rules", pfAnchorName))
 	}
 
 	for _, p := range []struct{ port, label string }{
 		{"25", "SMTP"}, {"6667", "IRC"}, {"21", "FTP"}, {"9050", "Tor"},
 	} {
 		if portInAnchor(rules, p.port) {
-			ui.TestPass(fmt.Sprintf("pf anchor blocks port %s (%s)", p.port, p.label))
+			ui.TestPass(fmt.Sprintf("pf anchor file blocks port %s (%s)", p.port, p.label))
 		} else {
 			ui.TestWarnFinding(
 				diagnosticFinding(findingPFFirewall),
-				fmt.Sprintf("pf anchor may not block port %s (%s) — verify anchor file", p.port, p.label),
+				fmt.Sprintf("pf anchor file may not block port %s (%s)", p.port, p.label),
 			)
 		}
 	}
@@ -494,7 +488,7 @@ func testPersistence(ui *UI) {
 	} else {
 		ui.TestWarnFinding(
 			diagnosticFinding(findingLaunchdPersistence),
-			fmt.Sprintf("LaunchDaemon '%s' is not loaded — try: sudo launchctl bootstrap system %s", pfDaemonLabel, pfDaemonPlist),
+			fmt.Sprintf("LaunchDaemon '%s' is not observable as loaded from read-only check", pfDaemonLabel),
 		)
 	}
 
@@ -964,81 +958,6 @@ func testSeatbelt(ui *UI) {
 	} else {
 		ui.TestSkip("~/.claude does not exist for agent — skipping Claude auth read test")
 	}
-
-	fdProbeScript := `for n in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
-if eval "( : <&$n )" 2>/dev/null; then
-printf '%s\n' "$n"
-fi
-done
-exit 0`
-	fdProbeCmd := []string{
-		"-u", agentUser,
-		launchHelperPath(), policyFile,
-		"/usr/bin/env", "-i",
-	}
-	fdProbeCmd = append(fdProbeCmd, agentEnvPairs(cfg)...)
-	fdProbeCmd = append(fdProbeCmd, "/bin/sh", "-c", fdProbeScript)
-
-	sentinelA, err := os.Open("/etc/hosts")
-	if err != nil {
-		ui.TestWarn(fmt.Sprintf("Could not open sentinel fd /etc/hosts: %v", err))
-		return
-	}
-	defer sentinelA.Close()
-	sentinelB, err := os.Open("/bin/sh")
-	if err != nil {
-		ui.TestWarn(fmt.Sprintf("Could not open sentinel fd /bin/sh: %v", err))
-		return
-	}
-	defer sentinelB.Close()
-
-	sentinelAFD, err := duplicateInheritableFD(sentinelA, 28)
-	if err != nil {
-		ui.TestWarn(fmt.Sprintf("Could not prepare sentinel fd for leak probe: %v", err))
-		return
-	}
-	defer unix.Close(sentinelAFD) //nolint:errcheck
-	sentinelBFD, err := duplicateInheritableFD(sentinelB, sentinelAFD+1)
-	if err != nil {
-		ui.TestWarn(fmt.Sprintf("Could not prepare second sentinel fd for leak probe: %v", err))
-		return
-	}
-	defer unix.Close(sentinelBFD) //nolint:errcheck
-
-	out, err := newSudoNoPromptCommand(fdProbeCmd...).CombinedOutput()
-	if err != nil {
-		ui.TestFail(fmt.Sprintf("hazmat-launch fd probe failed: %v (%s)", err, strings.TrimSpace(string(out))))
-		return
-	}
-
-	got := strings.Fields(strings.TrimSpace(string(out)))
-	openFDs := make(map[string]struct{}, len(got))
-	for _, fd := range got {
-		openFDs[fd] = struct{}{}
-	}
-	var leaked []string
-	for _, sentinel := range []int{sentinelAFD, sentinelBFD} {
-		if _, ok := openFDs[strconv.Itoa(sentinel)]; ok {
-			leaked = append(leaked, strconv.Itoa(sentinel))
-		}
-	}
-	if len(leaked) > 0 {
-		ui.TestFail(fmt.Sprintf("CONFINEMENT BREACH: launched agent inherited sentinel fds: %s", strings.Join(leaked, " ")))
-		return
-	}
-	ui.TestPass("hazmat-launch strips inherited non-stdio fds before sandboxing")
-}
-
-func duplicateInheritableFD(f *os.File, minFD int) (int, error) {
-	fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD, minFD)
-	if err != nil {
-		return -1, err
-	}
-	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, 0); err != nil {
-		_ = unix.Close(fd)
-		return -1, err
-	}
-	return fd, nil
 }
 
 // ── Step 12b: Project toolchain ──────────────────────────────────────────────
@@ -1748,11 +1667,6 @@ func testCloudRestore(ui *UI) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// pfAnchorRules returns the loaded rules for the agent anchor.
-func pfAnchorRules() (string, error) {
-	return sudoOutput("pfctl", "-a", pfAnchorName, "-sr")
-}
-
 // portInAnchor returns true if the anchor rules reference the given port
 // using a word-boundary regex, preventing e.g. port "25" matching "250".
 func portInAnchor(rules, port string) bool {
@@ -1779,5 +1693,22 @@ func checkBlockedDomain(domain string) bool {
 
 // launchctlLoaded returns true if the given label is listed in launchctl.
 func launchctlLoaded(label string) bool {
-	return sudoNoPrompt("launchctl", "list", label) == nil
+	_, err := commandStdout(hostLaunchctlPath, "print", "system/"+label)
+	return err == nil
+}
+
+func pfRuntimeEnabledUnprivileged() (bool, bool) {
+	out, err := commandStdout(hostPfctlPath, "-si")
+	if err != nil {
+		return false, false
+	}
+	return strings.Contains(out, "Status: Enabled"), true
+}
+
+func readPfAnchorFileRules() (string, error) {
+	data, err := os.ReadFile(pfAnchorFile)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

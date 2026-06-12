@@ -45,29 +45,37 @@ func (darwinSetupVerificationBackend) verifyHomeDirTraverse(ui *UI) {
 }
 
 func (darwinSetupVerificationBackend) verifyPfAnchorLoaded(ui *UI) {
-	if out, err := sudoOutput("pfctl", "-a", pfAnchorName, "-sr"); err == nil &&
-		strings.Contains(out, "block") {
+	if out, err := readPfAnchorFileRules(); err == nil && strings.Contains(out, "block") {
 		n := len(strings.Split(strings.TrimSpace(out), "\n"))
-		ui.TestPass(fmt.Sprintf("pf anchor loaded with %d rules", n))
+		ui.TestPass(fmt.Sprintf("pf anchor file contains %d rules", n))
 	} else {
-		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf anchor not loaded or empty")
+		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf anchor file missing or empty")
 	}
 }
 
 func (darwinSetupVerificationBackend) verifyPfEnabled(ui *UI) {
-	if out, err := sudoOutput("pfctl", "-si"); err == nil &&
-		strings.Contains(out, "Status: Enabled") {
-		ui.TestPass("pf is enabled")
+	if enabled, observed := pfRuntimeEnabledUnprivileged(); observed {
+		if enabled {
+			ui.TestPass("pf is enabled")
+		} else {
+			ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf is not enabled")
+		}
 	} else {
-		ui.TestFailFinding(diagnosticFinding(findingPFFirewall), "pf is not enabled")
+		ui.TestSkip("pf runtime status is not available to read-only setup verification without privileged inspection")
 	}
 }
 
 func (darwinSetupVerificationBackend) verifySudoers(ui *UI) {
-	if err := sudoNoPrompt("-u", agentUser, "whoami"); err == nil {
-		ui.TestPass(fmt.Sprintf("Passwordless sudo works (%s → %s)", os.Getenv("USER"), agentUser))
+	if launchSudoersInstalled() {
+		ui.TestPass(fmt.Sprintf("Launch-helper sudoers file exists: %s", sudoersFile))
 	} else {
-		ui.TestFailFinding(diagnosticFinding(findingSetupSudoers), "Passwordless sudo not working")
+		ui.TestFailFinding(diagnosticFinding(findingSetupSudoers), fmt.Sprintf("Launch-helper sudoers file missing: %s", sudoersFile))
+	}
+	helperPath := launchHelperPath()
+	if info, err := os.Stat(helperPath); err == nil && info.Mode()&0o111 != 0 {
+		ui.TestPass(fmt.Sprintf("Hazmat helper is installed and executable: %s", helperPath))
+	} else {
+		ui.TestFailFinding(diagnosticFinding(findingSetupSudoers), fmt.Sprintf("Hazmat helper missing or not executable: %s", helperPath))
 	}
 }
 
