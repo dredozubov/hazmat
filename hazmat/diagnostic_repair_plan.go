@@ -6,12 +6,23 @@ type diagnosticRepairPlan struct {
 	Mode                string                          `json:"mode"`
 	Mutating            bool                            `json:"mutating"`
 	Execution           diagnosticRepairExecutionPolicy `json:"execution"`
+	Summary             diagnosticRepairPlanSummary     `json:"summary"`
 	TrustBoundaries     []diagnosticRepairTrustBoundary `json:"trust_boundaries"`
 	Items               []diagnosticRepairPlanItem      `json:"items"`
 	ManualItems         []diagnosticRepairPlanItem      `json:"manual_items"`
 	SkippedItems        []diagnosticRepairPlanItem      `json:"skipped_items"`
 	AppliedReceipts     []diagnosticRepairReceipt       `json:"applied_receipts"`
 	FailedVerifications []diagnosticVerificationFailure `json:"failed_verifications"`
+}
+
+type diagnosticRepairPlanSummary struct {
+	Executable          int `json:"executable"`
+	Manual              int `json:"manual"`
+	Skipped             int `json:"skipped"`
+	Applied             int `json:"applied"`
+	FailedVerifications int `json:"failed_verifications"`
+	RemainingExecutable int `json:"remaining_executable"`
+	Remaining           int `json:"remaining"`
 }
 
 type diagnosticRepairPlanItem struct {
@@ -124,7 +135,7 @@ func planDiagnosticRepairs(findings []uiFinding, recommendations []uiRecommendat
 			BlockedReason: reason,
 		})
 	}
-	return plan
+	return plan.withSummary()
 }
 
 func diagnosticRepairPlanItemForRecommendation(rec uiRecommendation) diagnosticRepairPlanItem {
@@ -245,4 +256,26 @@ func diagnosticRepairSafetyRationale(def diagnosticFindingDefinition) string {
 	default:
 		return "Hazmat cannot plan this repair because the repairability class is unknown."
 	}
+}
+
+func (plan diagnosticRepairPlan) withSummary() diagnosticRepairPlan {
+	plan.Summary = diagnosticRepairPlanSummaryFor(plan)
+	return plan
+}
+
+func diagnosticRepairPlanSummaryFor(plan diagnosticRepairPlan) diagnosticRepairPlanSummary {
+	summary := diagnosticRepairPlanSummary{
+		Executable:          len(plan.Items),
+		Manual:              len(plan.ManualItems),
+		Skipped:             len(plan.SkippedItems),
+		Applied:             len(plan.AppliedReceipts),
+		FailedVerifications: len(plan.FailedVerifications),
+	}
+	for _, item := range plan.Items {
+		if item.Status != diagnosticRepairStatusRepaired {
+			summary.RemainingExecutable++
+		}
+	}
+	summary.Remaining = summary.RemainingExecutable + summary.Manual + summary.Skipped
+	return summary
 }

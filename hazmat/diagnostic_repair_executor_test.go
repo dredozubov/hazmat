@@ -77,6 +77,18 @@ func TestExecuteDiagnosticRepairPlanAppliesAndVerifies(t *testing.T) {
 	if !containsPlanString(executed.Items[0].Details, "verified umask 007") {
 		t.Fatalf("item details = %+v, want verification evidence", executed.Items[0].Details)
 	}
+	wantSummary := diagnosticRepairPlanSummary{
+		Executable:          1,
+		Manual:              0,
+		Skipped:             0,
+		Applied:             1,
+		FailedVerifications: 0,
+		RemainingExecutable: 0,
+		Remaining:           0,
+	}
+	if executed.Summary != wantSummary {
+		t.Fatalf("summary = %+v, want %+v", executed.Summary, wantSummary)
+	}
 }
 
 func TestExecuteDiagnosticRepairPlanFailedVerificationKeepsEvidence(t *testing.T) {
@@ -103,6 +115,18 @@ func TestExecuteDiagnosticRepairPlanFailedVerificationKeepsEvidence(t *testing.T
 	}
 	if executed.Items[0].BlockedReason == "" || executed.Items[0].Reason == "" {
 		t.Fatalf("failed item = %+v, want blocked reason and next classification", executed.Items[0])
+	}
+	wantSummary := diagnosticRepairPlanSummary{
+		Executable:          1,
+		Manual:              0,
+		Skipped:             0,
+		Applied:             0,
+		FailedVerifications: 1,
+		RemainingExecutable: 1,
+		Remaining:           1,
+	}
+	if executed.Summary != wantSummary {
+		t.Fatalf("summary = %+v, want %+v", executed.Summary, wantSummary)
 	}
 }
 

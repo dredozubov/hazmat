@@ -415,7 +415,7 @@ func diagnosticRepairPlanDeclined(plan diagnosticRepairPlan) diagnosticRepairPla
 		plan.Items[i].BlockedReason = "repair execution declined by user"
 		plan.Items[i].Reason = "no mutation attempted"
 	}
-	return plan
+	return plan.withSummary()
 }
 
 func (u *UI) recommendationSectionTitle() string {
@@ -518,6 +518,7 @@ func (u *UI) diagnosticReport() uiDiagnosticReport {
 
 func (u *UI) diagnosticReportWithRepairPlan(plan diagnosticRepairPlan) uiDiagnosticReport {
 	recommendations := u.recommendations()
+	plan = plan.withSummary()
 	return uiDiagnosticReport{
 		FormatVersion:   1,
 		Kind:            "hazmat.diagnostic_report",

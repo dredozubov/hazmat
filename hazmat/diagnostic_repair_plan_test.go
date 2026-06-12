@@ -79,6 +79,18 @@ func TestPlanDiagnosticRepairsExplainsBlockedAndSkippedItems(t *testing.T) {
 	if !sawUntyped {
 		t.Fatalf("skipped items = %+v, want untyped skipped item", plan.SkippedItems)
 	}
+	wantSummary := diagnosticRepairPlanSummary{
+		Executable:          0,
+		Manual:              1,
+		Skipped:             2,
+		Applied:             0,
+		FailedVerifications: 0,
+		RemainingExecutable: 0,
+		Remaining:           3,
+	}
+	if plan.Summary != wantSummary {
+		t.Fatalf("summary = %+v, want %+v", plan.Summary, wantSummary)
+	}
 }
 
 func TestPlanDiagnosticRepairsMarksRepoControlledMetadataAsEvidenceOnly(t *testing.T) {

@@ -129,6 +129,9 @@ func TestUIDiagnosticReportIncludesTypedMetadata(t *testing.T) {
 	if !strings.Contains(string(data), `"repair_receipt":"receipt.claude.project-permissions"`) {
 		t.Fatalf("json report missing repair receipt: %s", data)
 	}
+	if !strings.Contains(string(data), `"summary":{"executable":1,"manual":0,"skipped":0`) {
+		t.Fatalf("json report missing repair plan summary: %s", data)
+	}
 }
 
 func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
@@ -160,6 +163,18 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	}
 	if len(plan.AppliedReceipts) != 0 || len(plan.FailedVerifications) != 0 {
 		t.Fatalf("plan execution state = receipts %+v failures %+v, want empty preview", plan.AppliedReceipts, plan.FailedVerifications)
+	}
+	wantSummary := diagnosticRepairPlanSummary{
+		Executable:          1,
+		Manual:              1,
+		Skipped:             2,
+		Applied:             0,
+		FailedVerifications: 0,
+		RemainingExecutable: 1,
+		Remaining:           4,
+	}
+	if plan.Summary != wantSummary {
+		t.Fatalf("plan summary = %+v, want %+v", plan.Summary, wantSummary)
 	}
 }
 
@@ -270,6 +285,9 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 	if len(plan.FailedVerifications) != 0 {
 		t.Fatalf("failed verifications = %+v, want none", plan.FailedVerifications)
+	}
+	if plan.Summary.Applied != 1 || plan.Summary.Remaining != 0 || plan.Summary.RemainingExecutable != 0 {
+		t.Fatalf("summary = %+v, want one applied repair and no remaining items", plan.Summary)
 	}
 }
 

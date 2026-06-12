@@ -24,7 +24,7 @@ type diagnosticRepairStepResult struct {
 func executeDiagnosticRepairPlan(plan diagnosticRepairPlan, backend diagnosticRepairBackend) diagnosticRepairPlan {
 	if !plan.Execution.MutationAllowed {
 		plan.Mutating = false
-		return plan
+		return plan.withSummary()
 	}
 
 	plan.Mode = "executed"
@@ -69,7 +69,7 @@ func executeDiagnosticRepairPlan(plan diagnosticRepairPlan, backend diagnosticRe
 		plan.AppliedReceipts = append(plan.AppliedReceipts, diagnosticRepairReceiptForItem(*item))
 	}
 
-	return plan
+	return plan.withSummary()
 }
 
 func diagnosticRepairReceiptForItem(item diagnosticRepairPlanItem) diagnosticRepairReceipt {
