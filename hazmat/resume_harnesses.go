@@ -614,14 +614,14 @@ type openCodeSessionSummary struct {
 type openCodeResumeHooks struct {
 	listLatestSessionID func(projectDir string) (string, error)
 	exportSession       func(projectDir, sessionID, dest string) error
-	importSession       func(path string) error
+	importSession       func(homeRoot, path string) error
 }
 
 func defaultOpenCodeResumeHooks() openCodeResumeHooks {
 	return openCodeResumeHooks{
 		listLatestSessionID: listLatestHostOpenCodeSessionID,
 		exportSession:       exportHostOpenCodeSession,
-		importSession:       importAgentOpenCodeSession,
+		importSession:       importAgentOpenCodeSessionIntoHome,
 	}
 }
 
@@ -664,6 +664,17 @@ func exportHostOpenCodeSession(projectDir, sessionID, dest string) error {
 }
 
 func importAgentOpenCodeSession(path string) error {
+	return importAgentOpenCodeSessionIntoHome(agentHome, path)
+}
+
+func importAgentOpenCodeSessionIntoHome(homeRoot, path string) error {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return fmt.Errorf("OpenCode resume home %q must be absolute", homeRoot)
+	}
+	if homeRoot != filepath.Clean(agentHome) {
+		return fmt.Errorf("OpenCode resume import into %s requires an env-aware agent command", homeRoot)
+	}
 	bin, ok := findInstalledOpenCodeBinary()
 	if !ok {
 		return errors.New(openCodeMissingHelp)
@@ -675,6 +686,14 @@ func importAgentOpenCodeSession(path string) error {
 }
 
 func syncOpenCodeResumeStateWithHooks(projectDir string, forwarded []string, hooks openCodeResumeHooks) (string, error) {
+	return syncOpenCodeResumeStateWithHooksIntoHome(agentHome, projectDir, forwarded, hooks)
+}
+
+func syncOpenCodeResumeStateWithHooksIntoHome(homeRoot, projectDir string, forwarded []string, hooks openCodeResumeHooks) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("OpenCode resume home %q must be absolute", homeRoot)
+	}
 	req := detectOpenCodeResumeRequest(forwarded)
 	if !req.requested {
 		return "", nil
@@ -705,17 +724,33 @@ func syncOpenCodeResumeStateWithHooks(projectDir string, forwarded []string, hoo
 	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return "", fmt.Errorf("make OpenCode export readable by agent: %w", err)
 	}
-	if err := hooks.importSession(tmpName); err != nil {
+	if err := hooks.importSession(homeRoot, tmpName); err != nil {
 		return "", err
 	}
 	return sessionID, nil
 }
 
+func openCodeResumeStateDir(homeRoot string) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("OpenCode resume home %q must be absolute", homeRoot)
+	}
+	return filepath.Join(homeRoot, ".local", "share", "opencode"), nil
+}
+
 func syncOpenCodeResumeState(projectDir string, forwarded []string) error {
-	if err := agentEnsureSharedResumeDir(filepath.Join(agentHome, ".local", "share", "opencode")); err != nil {
+	return syncOpenCodeResumeStateIntoHome(agentHome, projectDir, forwarded)
+}
+
+func syncOpenCodeResumeStateIntoHome(homeRoot, projectDir string, forwarded []string) error {
+	stateDir, err := openCodeResumeStateDir(homeRoot)
+	if err != nil {
 		return err
 	}
-	sessionID, err := syncOpenCodeResumeStateWithHooks(projectDir, forwarded, defaultOpenCodeResumeHooks())
+	if err := agentEnsureSharedResumeDir(stateDir); err != nil {
+		return err
+	}
+	sessionID, err := syncOpenCodeResumeStateWithHooksIntoHome(homeRoot, projectDir, forwarded, defaultOpenCodeResumeHooks())
 	if err != nil {
 		return err
 	}

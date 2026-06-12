@@ -624,8 +624,10 @@ own bridge contract before the session-home launch plan can be built. Claude,
 Codex, and Gemini resume wrappers now also have explicit destination-home
 variants, preserving the current `/Users/agent` behavior while giving the
 future assembly phase a narrow hook for syncing resume state into the assembled
-view after it exists. OpenCode still needs an env-aware import adapter before
-session-local `HOME` can claim resume parity there.
+view after it exists. OpenCode now has the same explicit hook shape, but its
+production importer fails closed for non-default homes until Hazmat has an
+env-aware agent command that can run `opencode import` against the assembled
+`HOME`.
 
 #### Resume/export requirements
 

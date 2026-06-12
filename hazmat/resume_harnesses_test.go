@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,6 +82,21 @@ func TestGeminiResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
 	}
 	if _, err := geminiResumeStateDir("relative-home"); err == nil {
 		t.Fatal("geminiResumeStateDir accepted relative home root")
+	}
+}
+
+func TestOpenCodeResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "session-home")
+	got, err := openCodeResumeStateDir(home)
+	if err != nil {
+		t.Fatalf("openCodeResumeStateDir: %v", err)
+	}
+	want := filepath.Join(home, ".local", "share", "opencode")
+	if got != want {
+		t.Fatalf("openCodeResumeStateDir = %s, want %s", got, want)
+	}
+	if _, err := openCodeResumeStateDir("relative-home"); err == nil {
+		t.Fatal("openCodeResumeStateDir accepted relative home root")
 	}
 }
 
@@ -247,7 +263,10 @@ func TestSyncOpenCodeResumeStateWithHooksExplicitSession(t *testing.T) {
 			exportedSession = sessionID
 			return os.WriteFile(dest, []byte(`{"info":{"id":"`+sessionID+`"},"messages":[]}`), 0o600)
 		},
-		importSession: func(path string) error {
+		importSession: func(homeRoot, path string) error {
+			if homeRoot != agentHome {
+				t.Fatalf("homeRoot = %q, want %q", homeRoot, agentHome)
+			}
 			info, err := os.Stat(path)
 			if err != nil {
 				return err
@@ -291,7 +310,10 @@ func TestSyncOpenCodeResumeStateWithHooksContinueUsesLatest(t *testing.T) {
 			}
 			return os.WriteFile(dest, []byte(`{"info":{"id":"ses_latest"},"messages":[]}`), 0o600)
 		},
-		importSession: func(path string) error {
+		importSession: func(homeRoot, path string) error {
+			if homeRoot != agentHome {
+				t.Fatalf("homeRoot = %q, want %q", homeRoot, agentHome)
+			}
 			imported = true
 			return nil
 		},
@@ -306,5 +328,43 @@ func TestSyncOpenCodeResumeStateWithHooksContinueUsesLatest(t *testing.T) {
 	}
 	if sessionID != "ses_latest" || !imported {
 		t.Fatalf("sessionID=%q imported=%v, want ses_latest and imported", sessionID, imported)
+	}
+}
+
+func TestSyncOpenCodeResumeStateWithHooksPassesExplicitHomeRoot(t *testing.T) {
+	projectDir := "/Users/dr/workspace/personal-brand"
+	homeRoot := filepath.Join(t.TempDir(), "session-home")
+	var importedHome string
+	hooks := openCodeResumeHooks{
+		listLatestSessionID: func(string) (string, error) {
+			t.Fatal("listLatestSessionID should not be called for explicit session")
+			return "", nil
+		},
+		exportSession: func(_, _, dest string) error {
+			return os.WriteFile(dest, []byte(`{"info":{"id":"ses_123"},"messages":[]}`), 0o600)
+		},
+		importSession: func(homeRoot, _ string) error {
+			importedHome = homeRoot
+			return nil
+		},
+	}
+
+	sessionID, err := syncOpenCodeResumeStateWithHooksIntoHome(homeRoot, projectDir, []string{"--session", "ses_123"}, hooks)
+	if err != nil {
+		t.Fatalf("syncOpenCodeResumeStateWithHooksIntoHome: %v", err)
+	}
+	if sessionID != "ses_123" || importedHome != homeRoot {
+		t.Fatalf("sessionID=%q importedHome=%q, want ses_123 and %q", sessionID, importedHome, homeRoot)
+	}
+}
+
+func TestImportAgentOpenCodeSessionIntoHomeRejectsNonDefaultHome(t *testing.T) {
+	homeRoot := filepath.Join(t.TempDir(), "session-home")
+	err := importAgentOpenCodeSessionIntoHome(homeRoot, filepath.Join(t.TempDir(), "session.json"))
+	if err == nil {
+		t.Fatal("importAgentOpenCodeSessionIntoHome accepted non-default home")
+	}
+	if !strings.Contains(err.Error(), "env-aware agent command") {
+		t.Fatalf("error = %v, want env-aware agent command guidance", err)
 	}
 }
