@@ -39,6 +39,15 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Sudo-Adjacent Command Consent
+
+Ask the user for explicit approval before running any sudo-adjacent command,
+and name the exact command you want to run. This applies to more than literal
+`sudo`: `hazmat check`, `hazmat doctor --fix`, native helper-backed smokes,
+live harness probes, Codex desktop attach probes, `launchctl`/`pf` paths,
+DTrace/dtruss-style probes, and `git push` when hooks may invoke these gates.
+If approval is needed, ask first; do not try the command speculatively.
+
 ## TLA+ Governance
 
 Changes in verified areas must start from the TLA+ model. For setup/init,

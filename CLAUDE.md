@@ -110,6 +110,15 @@ make test                # unit tests
 ./hazmat/hazmat check --full    # include live network probes
 ```
 
+## Approval-gated commands
+
+Ask the user for explicit approval before running any sudo-adjacent command,
+and name the exact command you want to run. This applies to more than literal
+`sudo`: `hazmat check`, `hazmat doctor --fix`, native helper-backed smokes,
+live harness probes, Codex desktop attach probes, `launchctl`/`pf` paths,
+DTrace/dtruss-style probes, and `git push` when hooks may invoke these gates.
+If approval is needed, ask first; do not try the command speculatively.
+
 ## When to update TLA+ specs
 
 ### Adding or reordering init/rollback steps
