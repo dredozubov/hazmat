@@ -106,6 +106,9 @@ func exportClaudeSession(projectDir, requestedID string) (string, error) {
 	if err := exportAgentClaudeSessionBundle(sourceDir, sessionID, stagingDir); err != nil {
 		return "", err
 	}
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		return "", err
+	}
 	if err := installStagedClaudeSessionBundle(stagingDir, destDir, sessionID); err != nil {
 		return "", err
 	}
@@ -455,6 +458,61 @@ exec /bin/cat -- "$rel"`
 		return fmt.Errorf("rename %s to %s: %w", tmpName, destPath, err)
 	}
 	return nil
+}
+
+func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir string) error {
+	if sourceDir == "" || destDir == "" || sourceDir == destDir {
+		return nil
+	}
+	sourceBytes := []byte(sourceDir)
+
+	return filepath.WalkDir(stagingDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read staged Claude export %s: %w", path, err)
+		}
+		if !bytes.Contains(raw, sourceBytes) {
+			return nil
+		}
+
+		rel, err := filepath.Rel(stagingDir, path)
+		if err != nil {
+			return fmt.Errorf("compute staged Claude export path for %s: %w", path, err)
+		}
+		if isClaudeJSONMetadataPath(rel) {
+			rewritten := bytes.ReplaceAll(raw, sourceBytes, []byte(destDir))
+			return os.WriteFile(path, rewritten, info.Mode().Perm())
+		}
+		if isClaudeSessionSidecarPath(sessionID, rel) {
+			return os.Remove(path)
+		}
+		return fmt.Errorf("staged Claude export file %s contains agent-only path %s in an unsupported format", rel, sourceDir)
+	})
+}
+
+func isClaudeJSONMetadataPath(relPath string) bool {
+	ext := strings.ToLower(filepath.Ext(relPath))
+	return ext == ".json" || ext == ".jsonl"
+}
+
+func isClaudeSessionSidecarPath(sessionID, relPath string) bool {
+	relPath = filepath.ToSlash(filepath.Clean(relPath))
+	prefix := filepath.ToSlash(filepath.Clean(sessionID)) + "/"
+	return strings.HasPrefix(relPath, prefix)
 }
 
 func extractTarArchive(r io.Reader, destDir string) error {

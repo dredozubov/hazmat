@@ -463,8 +463,17 @@ claude --resume "$(hazmat export claude session -C ~/workspace/other-project)" -
 - Defaults to the latest hazmat Claude session for the current project
 - Accepts an optional session ID to export a specific session
 - Copies the transcript and session sidecar directory from the agent user's `~/.claude/projects/...`
+- Rewrites exact agent-side Claude project path prefixes inside copied JSON and JSONL metadata to the host export location
+- Omits opaque Workflow/subagent sidecar files that still contain agent-only paths after export
 - Updates your host Claude `sessions-index.json`
 - Prints the Claude resume ID on stdout for scripting
+
+Workflow/subagent caches are best-effort. Portable JSON/JSONL metadata is kept
+and rebased, but opaque cache files that would send host Claude back to
+`/Users/agent/.claude/projects/...` are deliberately dropped instead of copied
+with stale paths. That means a host-side resume should not try to read
+inaccessible agent-home Workflow artifacts, but Claude may rerun volatile
+Workflow steps whose cache files were not portable.
 
 `--fork-session` is recommended so your host-side continuation cleanly diverges from the contained hazmat session. The export is a point-in-time handoff, not a live sync. If the hazmat session advances later, run the export again before resuming.
 

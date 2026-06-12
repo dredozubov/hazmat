@@ -161,6 +161,86 @@ func TestInstallStagedClaudeSessionBundleCopiesAndReplacesBundleDir(t *testing.T
 	}
 }
 
+func TestNormalizeStagedClaudeSessionBundlePathsRebasesJSONMetadata(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+
+	workflowDir := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1")
+	if err := os.MkdirAll(workflowDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		sessionID + ".jsonl":  `{"type":"tool_result","path":"` + sourceDir + `/` + sessionID + `/subagents/workflows/wf_1/result.json"}` + "\n",
+		"sessions-index.json": `{"version":1,"entries":[{"sessionId":"` + sessionID + `","fullPath":"` + sourceDir + `/` + sessionID + `.jsonl"}]}`,
+		filepath.Join(sessionID, "subagents", "workflows", "wf_1", "cache.json"): `{"artifact":"` + sourceDir + `/` + sessionID + `/subagents/workflows/wf_1/cache.json"}`,
+	}
+	for rel, content := range files {
+		path := filepath.Join(stagingDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+
+	for rel := range files {
+		raw, err := os.ReadFile(filepath.Join(stagingDir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(raw, []byte(sourceDir)) {
+			t.Fatalf("%s still contains source dir: %s", rel, raw)
+		}
+		if !bytes.Contains(raw, []byte(destDir)) {
+			t.Fatalf("%s does not contain destination dir: %s", rel, raw)
+		}
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsOmitsOpaqueWorkflowArtifact(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	opaquePath := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1", "artifact.bin")
+	if err := os.MkdirAll(filepath.Dir(opaquePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(opaquePath, []byte("opaque "+sourceDir), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+	if _, err := os.Stat(opaquePath); !os.IsNotExist(err) {
+		t.Fatalf("opaque workflow artifact should be omitted, stat err=%v", err)
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsRejectsTopLevelOpaqueAgentPath(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	opaquePath := filepath.Join(stagingDir, "unexpected.txt")
+	if err := os.WriteFile(opaquePath, []byte("opaque "+sourceDir), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir)
+	if err == nil || !strings.Contains(err.Error(), "unsupported format") {
+		t.Fatalf("expected unsupported format refusal, got %v", err)
+	}
+}
+
 func TestUpsertClaudeSessionsIndexReplacesExistingEntry(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "sessions-index.json")
 	index := claudeSessionsIndex{
