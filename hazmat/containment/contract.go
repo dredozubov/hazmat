@@ -40,9 +40,27 @@ func PathGrants(paths []string, access PathAccess) []PathGrant {
 	return grants
 }
 
+// AgentHomeMode describes how the agent home is exposed to a session.
+type AgentHomeMode string
+
+const (
+	AgentHomeModePersistentManifest AgentHomeMode = "persistent-manifest"
+	AgentHomeModeSessionLocal       AgentHomeMode = "session-local"
+)
+
 // AgentHomePolicy describes the agent identity's home exposure.
 type AgentHomePolicy struct {
-	Path string `json:"path"`
+	Path               string        `json:"path"`
+	Mode               AgentHomeMode `json:"mode,omitempty"`
+	PersistentPath     string        `json:"persistent_path,omitempty"`
+	DurableBridgeRoots []string      `json:"durable_bridge_roots,omitempty"`
+}
+
+func (p AgentHomePolicy) EffectiveMode() AgentHomeMode {
+	if p.Mode == "" {
+		return AgentHomeModePersistentManifest
+	}
+	return p.Mode
 }
 
 // TempPolicy describes the per-session temp authority.
@@ -190,7 +208,7 @@ func NewContract(input ContractInput, floor CredentialFloor) (Contract, error) {
 		Project:          input.Project,
 		ReadOnlyDirs:     copyPathGrants(input.ReadOnlyDirs),
 		ReadWriteDirs:    copyPathGrants(input.ReadWriteDirs),
-		AgentHome:        input.AgentHome,
+		AgentHome:        copyAgentHomePolicy(input.AgentHome),
 		Temp:             input.Temp,
 		CredentialDenies: floor.Denies(),
 		Network:          input.Network,
@@ -217,6 +235,35 @@ func (c Contract) Validate() error {
 	}
 	if c.AgentHome.Path == "" {
 		return fmt.Errorf("agent home path is required")
+	}
+	switch c.AgentHome.EffectiveMode() {
+	case AgentHomeModePersistentManifest:
+		if c.AgentHome.PersistentPath != "" && filepath.Clean(c.AgentHome.PersistentPath) != filepath.Clean(c.AgentHome.Path) {
+			return fmt.Errorf("persistent agent-home mode must not set a different persistent path")
+		}
+		if len(c.AgentHome.DurableBridgeRoots) > 0 {
+			return fmt.Errorf("persistent agent-home mode must not set durable bridge roots")
+		}
+	case AgentHomeModeSessionLocal:
+		if c.AgentHome.PersistentPath == "" {
+			return fmt.Errorf("session-local agent home requires a persistent path")
+		}
+		if !filepath.IsAbs(c.AgentHome.Path) || !filepath.IsAbs(c.AgentHome.PersistentPath) {
+			return fmt.Errorf("session-local agent home paths must be absolute")
+		}
+		if filepath.Clean(c.AgentHome.Path) == filepath.Clean(c.AgentHome.PersistentPath) {
+			return fmt.Errorf("session-local agent home path must differ from persistent path")
+		}
+		for _, root := range c.AgentHome.DurableBridgeRoots {
+			if !filepath.IsAbs(root) {
+				return fmt.Errorf("durable bridge root %q must be absolute", root)
+			}
+			if IsWithinDir(c.AgentHome.Path, root) {
+				return fmt.Errorf("durable bridge root %q must stay outside session-local home %q", root, c.AgentHome.Path)
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported agent home mode %q", c.AgentHome.Mode)
 	}
 	if c.Temp.Path == "" {
 		return fmt.Errorf("temp path is required")
@@ -417,6 +464,15 @@ func copyPathGrants(grants []PathGrant) []PathGrant {
 	}
 	out := make([]PathGrant, len(grants))
 	copy(out, grants)
+	return out
+}
+
+func copyAgentHomePolicy(policy AgentHomePolicy) AgentHomePolicy {
+	if len(policy.DurableBridgeRoots) == 0 {
+		return policy
+	}
+	out := policy
+	out.DurableBridgeRoots = append([]string(nil), policy.DurableBridgeRoots...)
 	return out
 }
 

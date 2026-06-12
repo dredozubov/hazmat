@@ -36,6 +36,33 @@ func TestCompileBuildsSeatbeltPolicy(t *testing.T) {
 	}
 }
 
+func TestCompileSessionLocalHomePolicy(t *testing.T) {
+	policy, err := Compile(testSessionLocalContract(t), CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	for _, want := range []string{
+		`(allow process-exec (subpath "/private/tmp/hazmat-home/session-123/home"))`,
+		`(allow file-read* file-write* (subpath "/private/tmp/hazmat-home/session-123/home"))`,
+		`(allow file-read* file-write* (subpath "/home/agent/.claude/projects"))`,
+		`(deny file-read* file-write* (subpath "/home/agent/.ssh"))`,
+	} {
+		if !strings.Contains(policy, want) {
+			t.Fatalf("session-local policy missing %q\n%s", want, policy)
+		}
+	}
+	for _, forbidden := range []string{
+		`(allow file-read* file-write* (subpath "/home/agent/.config"))`,
+		`(allow file-read* file-write* (literal "/home/agent/.zshrc"))`,
+		`(allow process-exec (subpath "/home/agent/.local/bin"))`,
+		`(allow file-read* file-write* (subpath "/home/agent"))`,
+	} {
+		if strings.Contains(policy, forbidden) {
+			t.Fatalf("session-local policy should not contain %q\n%s", forbidden, policy)
+		}
+	}
+}
+
 func TestCompileRejectsUnconstructedCredentialFloor(t *testing.T) {
 	contract := containment.Contract{
 		Project:          containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
@@ -72,6 +99,33 @@ func testContract(t *testing.T) containment.Contract {
 		Temp:      containment.TempPolicy{Path: "/tmp/hazmat-session"},
 		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
 		Process:   containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func testSessionLocalContract(t *testing.T) containment.Contract {
+	t.Helper()
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{
+		{Path: "/home/agent/.ssh"},
+		{Path: "/home/agent/.aws"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		AgentHome: containment.AgentHomePolicy{
+			Path:               "/private/tmp/hazmat-home/session-123/home",
+			Mode:               containment.AgentHomeModeSessionLocal,
+			PersistentPath:     "/home/agent",
+			DurableBridgeRoots: []string{"/home/agent/.claude/projects"},
+		},
+		Temp:    containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		Network: containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process: containment.ProcessPolicy{AllowFork: true},
 	}, floor)
 	if err != nil {
 		t.Fatal(err)

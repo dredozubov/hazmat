@@ -56,8 +56,13 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	for _, p := range []string{"/usr/bin", "/bin", "/usr/local", "/opt/homebrew", "/Library/Developer/CommandLineTools"} {
 		w("(allow process-exec (subpath %q))\n", p)
 	}
-	for _, p := range containment.AgentHomeExecutableSubpaths(home) {
-		w("(allow process-exec (subpath %q))\n", p)
+	switch contract.AgentHome.EffectiveMode() {
+	case containment.AgentHomeModePersistentManifest:
+		for _, p := range containment.AgentHomeExecutableSubpaths(home) {
+			w("(allow process-exec (subpath %q))\n", p)
+		}
+	case containment.AgentHomeModeSessionLocal:
+		w("(allow process-exec (subpath %q))\n", home)
 	}
 	for _, dir := range readDirs {
 		w("(allow process-exec (subpath %q))\n", dir)
@@ -139,14 +144,25 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	w("(allow file-read* (subpath %q))\n", projectDir)
 	w("(allow file-write* (subpath %q))\n\n", projectDir)
 
-	w(";; ── Agent home — explicit durable state/tooling paths ─────────────────────\n")
-	w(";; HOME stays %s, but the policy does not grant the whole home.\n", home)
-	w(";; Credential directories are denied at the end (last-match-wins).\n")
-	for _, dir := range containment.AgentHomeWritableSubpaths(home) {
-		w("(allow file-read* file-write* (subpath %q))\n", dir)
-	}
-	for _, file := range containment.AgentHomeWritableFiles(home) {
-		w("(allow file-read* file-write* (literal %q))\n", file)
+	switch contract.AgentHome.EffectiveMode() {
+	case containment.AgentHomeModePersistentManifest:
+		w(";; ── Agent home — explicit durable state/tooling paths ─────────────────────\n")
+		w(";; HOME stays %s, but the policy does not grant the whole home.\n", home)
+		w(";; Credential directories are denied at the end (last-match-wins).\n")
+		for _, dir := range containment.AgentHomeWritableSubpaths(home) {
+			w("(allow file-read* file-write* (subpath %q))\n", dir)
+		}
+		for _, file := range containment.AgentHomeWritableFiles(home) {
+			w("(allow file-read* file-write* (literal %q))\n", file)
+		}
+	case containment.AgentHomeModeSessionLocal:
+		w(";; ── Session-local HOME — disposable assembled home ────────────────────────\n")
+		w(";; HOME points at %s; durable transcript/export roots are explicit bridges.\n", home)
+		w(";; Credential directories remain denied at the end (last-match-wins).\n")
+		w("(allow file-read* file-write* (subpath %q))\n", home)
+		for _, root := range contract.AgentHome.DurableBridgeRoots {
+			w("(allow file-read* file-write* (subpath %q))\n", root)
+		}
 	}
 	w("\n")
 

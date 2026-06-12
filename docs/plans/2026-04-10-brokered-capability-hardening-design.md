@@ -637,6 +637,10 @@ rejecting runtime paths that escape the session home or persistent roots placed
 inside the ephemeral tree. The launch plan also includes a bounded stale-home
 cleanup phase before identity resolution, using the marker-gated cleanup
 primitive and a 24-hour default age.
+At the contract/compiler layer, session-local agent-home mode is explicit and
+disabled by default: persistent mode still projects the durable manifest at
+`/Users/agent`, while session-local mode grants the disposable home broadly and
+only the declared durable bridge roots outside it.
 
 #### Resume/export requirements
 

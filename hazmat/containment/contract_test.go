@@ -47,6 +47,7 @@ func TestContractAncestorMetadataDirsAreSorted(t *testing.T) {
 func TestContractCopiesPathLists(t *testing.T) {
 	readDirs := []string{"/opt/sdk"}
 	grants := PathGrants(readDirs, PathReadOnly)
+	bridgeRoots := []string{"/home/agent/.claude/projects"}
 	readDirs[0] = "/mutated"
 	floorInput := []CredentialDeny{{Path: "/home/agent/.ssh"}}
 	floor, err := CredentialFloorFromDenies(floorInput)
@@ -58,16 +59,22 @@ func TestContractCopiesPathLists(t *testing.T) {
 		Project:       PathGrant{Path: "/workspace/project", Access: PathReadWrite},
 		ReadOnlyDirs:  grants,
 		ReadWriteDirs: PathGrants([]string{"/tmp/cache"}, PathReadWrite),
-		AgentHome:     AgentHomePolicy{Path: "/home/agent"},
-		Temp:          TempPolicy{Path: "/tmp/hazmat"},
-		Network:       NetworkPolicy{Mode: sessionmeta.NetworkDefault},
-		Process:       ProcessPolicy{AllowFork: true},
+		AgentHome: AgentHomePolicy{
+			Path:               "/private/tmp/hazmat-home/session-123/home",
+			Mode:               AgentHomeModeSessionLocal,
+			PersistentPath:     "/home/agent",
+			DurableBridgeRoots: bridgeRoots,
+		},
+		Temp:    TempPolicy{Path: "/tmp/hazmat"},
+		Network: NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process: ProcessPolicy{AllowFork: true},
 	}, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	grants[0].Path = "/changed"
 	floorInput[0].Path = "/changed"
+	bridgeRoots[0] = "/changed"
 
 	if got := contract.ReadOnlyPaths(); !reflect.DeepEqual(got, []string{"/opt/sdk"}) {
 		t.Fatalf("ReadOnlyPaths = %v", got)
@@ -79,6 +86,61 @@ func TestContractCopiesPathLists(t *testing.T) {
 	}
 	if got := contract.CredentialDenyPaths(); !reflect.DeepEqual(got, []string{"/home/agent/.ssh"}) {
 		t.Fatalf("CredentialDenyPaths = %v", got)
+	}
+	if got := contract.AgentHome.DurableBridgeRoots; !reflect.DeepEqual(got, []string{"/home/agent/.claude/projects"}) {
+		t.Fatalf("AgentHome.DurableBridgeRoots = %v", got)
+	}
+	contract.AgentHome.DurableBridgeRoots[0] = "/changed-again"
+	if fresh := mustContractWithFloor(t, ContractInput{
+		Project: PathGrant{Path: "/workspace/project", Access: PathReadWrite},
+		AgentHome: AgentHomePolicy{
+			Path:               "/private/tmp/hazmat-home/session-123/home",
+			Mode:               AgentHomeModeSessionLocal,
+			PersistentPath:     "/home/agent",
+			DurableBridgeRoots: []string{"/home/agent/.claude/projects"},
+		},
+		Temp:    TempPolicy{Path: "/tmp/hazmat"},
+		Network: NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process: ProcessPolicy{AllowFork: true},
+	}, floor); fresh.AgentHome.DurableBridgeRoots[0] != "/home/agent/.claude/projects" {
+		t.Fatalf("AgentHome.DurableBridgeRoots aliasing detected: %v", fresh.AgentHome.DurableBridgeRoots)
+	}
+}
+
+func TestNewContractAcceptsSessionLocalAgentHome(t *testing.T) {
+	contract := mustContract(t, ContractInput{
+		Project: PathGrant{Path: "/workspace/project", Access: PathReadWrite},
+		AgentHome: AgentHomePolicy{
+			Path:               "/private/tmp/hazmat-home/session-123/home",
+			Mode:               AgentHomeModeSessionLocal,
+			PersistentPath:     "/home/agent",
+			DurableBridgeRoots: []string{"/home/agent/.claude/projects"},
+		},
+		Temp:    TempPolicy{Path: "/tmp/hazmat"},
+		Network: NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process: ProcessPolicy{AllowFork: true},
+	})
+
+	if contract.AgentHome.EffectiveMode() != AgentHomeModeSessionLocal {
+		t.Fatalf("mode = %s", contract.AgentHome.EffectiveMode())
+	}
+}
+
+func TestNewContractRejectsSessionLocalBridgeInsideEphemeralHome(t *testing.T) {
+	_, err := NewContract(ContractInput{
+		Project: PathGrant{Path: "/workspace/project", Access: PathReadWrite},
+		AgentHome: AgentHomePolicy{
+			Path:               "/private/tmp/hazmat-home/session-123/home",
+			Mode:               AgentHomeModeSessionLocal,
+			PersistentPath:     "/home/agent",
+			DurableBridgeRoots: []string{"/private/tmp/hazmat-home/session-123/home/.claude/projects"},
+		},
+		Temp:    TempPolicy{Path: "/tmp/hazmat"},
+		Network: NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process: ProcessPolicy{AllowFork: true},
+	}, mustFloor(t))
+	if err == nil {
+		t.Fatal("NewContract accepted a durable bridge inside the ephemeral home")
 	}
 }
 
@@ -204,11 +266,7 @@ func TestIsWithinDir(t *testing.T) {
 
 func mustContract(t *testing.T, input ContractInput) Contract {
 	t.Helper()
-	floor, err := CredentialFloorFromDenies([]CredentialDeny{{Path: "/home/agent/.ssh"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return mustContractWithFloor(t, input, floor)
+	return mustContractWithFloor(t, input, mustFloor(t))
 }
 
 func mustContractWithFloor(t *testing.T, input ContractInput, floor CredentialFloor) Contract {
@@ -218,4 +276,13 @@ func mustContractWithFloor(t *testing.T, input ContractInput, floor CredentialFl
 		t.Fatal(err)
 	}
 	return contract
+}
+
+func mustFloor(t *testing.T) CredentialFloor {
+	t.Helper()
+	floor, err := CredentialFloorFromDenies([]CredentialDeny{{Path: "/home/agent/.ssh"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return floor
 }
