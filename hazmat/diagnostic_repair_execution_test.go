@@ -11,8 +11,8 @@ func TestDecideDiagnosticRepairExecutionCheckIsReadOnly(t *testing.T) {
 	if policy.Mode != "read-only" || policy.MutationAllowed || policy.RequiresFix {
 		t.Fatalf("policy = %+v, want read-only check", policy)
 	}
-	if !slices.Contains(policy.Examples, "hazmat doctor --fix") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") {
-		t.Fatalf("examples = %v, want direct fix path and explicit dry-run preview", policy.Examples)
+	if !slices.Contains(policy.Examples, "hazmat doctor --fix") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") || indexOf(policy.Examples, "hazmat doctor --dry-run") > indexOf(policy.Examples, "hazmat doctor --fix") {
+		t.Fatalf("examples = %v, want explicit dry-run preview before direct fix path", policy.Examples)
 	}
 }
 
@@ -22,7 +22,7 @@ func TestDecideDiagnosticRepairExecutionInitIsPostVerification(t *testing.T) {
 	if policy.Mode != "post-init-verify" || policy.MutationAllowed || policy.RequiresFix || policy.RequiresYes {
 		t.Fatalf("policy = %+v, want read-only post-init verification", policy)
 	}
-	if !slices.Contains(policy.Examples, "hazmat doctor --fix --yes") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") {
+	if slices.Contains(policy.Examples, "hazmat init") || !slices.Contains(policy.Examples, "hazmat doctor --fix --yes") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") {
 		t.Fatalf("examples = %v, want repair path and explicit dry-run preview without init loop", policy.Examples)
 	}
 }
@@ -76,4 +76,13 @@ func TestDecideDiagnosticRepairExecutionAllowsInteractiveFixWithConsent(t *testi
 	if policy.Mode != "fix-interactive" || !policy.MutationAllowed || !policy.RequiresInteractiveConsent {
 		t.Fatalf("policy = %+v, want interactive fix consent", policy)
 	}
+}
+
+func indexOf(values []string, want string) int {
+	for i, value := range values {
+		if value == want {
+			return i
+		}
+	}
+	return len(values)
 }

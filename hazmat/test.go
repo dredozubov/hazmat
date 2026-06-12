@@ -105,7 +105,7 @@ func testAgentUser(ui *UI) {
 	if err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupAgentUser),
-			fmt.Sprintf("User '%s' does not exist — baseline setup is missing; inspect setup repairs with hazmat doctor", agentUser),
+			missingAgentUserRepairAdvice(),
 			fmt.Sprintf("lookup error: %v", err),
 		)
 		return
@@ -155,6 +155,10 @@ func testAgentUser(ui *UI) {
 			)
 		}
 	}
+}
+
+func missingAgentUserRepairAdvice() string {
+	return fmt.Sprintf("User '%s' does not exist — baseline setup is missing; preview setup repairs with hazmat doctor --dry-run or apply approved repairs with hazmat doctor --fix", agentUser)
 }
 
 // ── Step 2: Dev group and home traverse ──────────────────────────────────────

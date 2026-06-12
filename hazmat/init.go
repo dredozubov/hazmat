@@ -17,6 +17,8 @@ const initBootstrapSkip = "skip"
 
 var errInitPostVerificationFailed = errors.New("post-init verification found unresolved blockers")
 
+const postInitVerificationAdvice = "inspect the typed repair plan above, preview remaining repairs with hazmat doctor --dry-run, or apply approved repairs with hazmat doctor --fix"
+
 func newInitCmd() *cobra.Command {
 	var agentUIDFlag, sharedGIDFlag, bootstrapAgentFlag string
 	cmd := &cobra.Command{
@@ -367,7 +369,7 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	}
 
 	if postInitVerificationFailed {
-		return fmt.Errorf("%w; inspect the typed repair plan above or run hazmat doctor", errInitPostVerificationFailed)
+		return fmt.Errorf("%w; %s", errInitPostVerificationFailed, postInitVerificationAdvice)
 	}
 
 	cGreen.Println("━━━ Setup complete ━━━")
