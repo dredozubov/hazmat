@@ -15,11 +15,17 @@ func newNativeLaunchBackend() nativeLaunchBackend {
 }
 
 func (darwinNativeLaunchBackend) PreparePolicy(req nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error) {
-	policy, err := generateSBPLChecked(req.Config)
+	policy, err := buildNativeSessionPolicy(req.Config)
 	if err != nil {
 		return nativeLaunchPolicyArtifact{}, err
 	}
-	artifact, err := darwinruntime.PreparePolicy(policy, os.Getpid())
+	artifact, err := darwinruntime.PreparePolicyArtifact(darwinruntime.PolicyArtifactRequest{
+		Contract:                 policy.Contract,
+		MacOSSecurityFramework:   policy.MacOSSecurityFramework,
+		MacOSAgentKeychainAccess: policy.MacOSAgentKeychainAccess,
+		RuntimeTempDirs:          policy.RuntimeTempDirs,
+		PID:                      os.Getpid(),
+	})
 	if err != nil {
 		return nativeLaunchPolicyArtifact{}, err
 	}

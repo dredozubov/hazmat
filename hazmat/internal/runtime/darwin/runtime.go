@@ -3,6 +3,9 @@ package darwin
 import (
 	"fmt"
 	"os"
+
+	"hazmat/containment"
+	darwincompiler "hazmat/containment/darwin"
 )
 
 const PackagePath = "hazmat/internal/runtime/darwin"
@@ -10,6 +13,29 @@ const PackagePath = "hazmat/internal/runtime/darwin"
 type PolicyArtifact struct {
 	Path    string
 	Cleanup func()
+}
+
+type PolicyArtifactRequest struct {
+	Contract                 containment.Contract
+	MacOSSecurityFramework   bool
+	MacOSAgentKeychainAccess bool
+	RuntimeTempDirs          []string
+	PID                      int
+}
+
+func PreparePolicyArtifact(req PolicyArtifactRequest) (PolicyArtifact, error) {
+	if req.PID <= 0 {
+		return PolicyArtifact{}, fmt.Errorf("policy artifact pid must be positive")
+	}
+	policy, err := darwincompiler.Compile(req.Contract, darwincompiler.CompileOptions{
+		MacOSSecurityFramework:   req.MacOSSecurityFramework,
+		MacOSAgentKeychainAccess: req.MacOSAgentKeychainAccess,
+		RuntimeTempDirs:          append([]string(nil), req.RuntimeTempDirs...),
+	})
+	if err != nil {
+		return PolicyArtifact{}, fmt.Errorf("compile seatbelt policy: %w", err)
+	}
+	return PreparePolicy(policy, req.PID)
 }
 
 func PreparePolicy(policy string, pid int) (PolicyArtifact, error) {
