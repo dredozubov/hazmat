@@ -273,6 +273,38 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 }
 
+func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{
+		applyEvidence:  []string{"applied managed umask block"},
+		verifyEvidence: []string{"verified umask 007"},
+	}
+	ui := &UI{
+		JSON:          true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "Mixed findings"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if len(plan.AppliedReceipts) != 1 || len(plan.ManualItems) != 1 {
+		t.Fatalf("plan = receipts %+v manual %+v, want repaired item plus manual finding", plan.AppliedReceipts, plan.ManualItems)
+	}
+	footer := ui.repairPlanFooter(plan)
+	if !strings.Contains(footer, "Executable repairs verified") || !strings.Contains(footer, "manual action") {
+		t.Fatalf("footer = %q, want explicit unresolved manual finding guidance", footer)
+	}
+	if strings.Contains(footer, "hazmat init") {
+		t.Fatalf("footer = %q, want no init retry guidance", footer)
+	}
+}
+
 func TestUIChooseBlankInputReturnsDefaultChoice(t *testing.T) {
 	restoreTTY := stubTerminal(t, true)
 	defer restoreTTY()
