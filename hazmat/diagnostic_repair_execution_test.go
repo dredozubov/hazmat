@@ -11,8 +11,8 @@ func TestDecideDiagnosticRepairExecutionCheckIsReadOnly(t *testing.T) {
 	if policy.Mode != "read-only" || policy.MutationAllowed || policy.RequiresFix {
 		t.Fatalf("policy = %+v, want read-only check", policy)
 	}
-	if !slices.Contains(policy.Examples, "hazmat doctor --fix") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") || indexOf(policy.Examples, "hazmat doctor --dry-run") > indexOf(policy.Examples, "hazmat doctor --fix") {
-		t.Fatalf("examples = %v, want explicit dry-run preview before direct fix path", policy.Examples)
+	if !slices.Contains(policy.Examples, "hazmat doctor --fix") || !slices.Contains(policy.Examples, "hazmat doctor --dry-run") || indexOf(policy.Examples, "hazmat doctor --fix") > indexOf(policy.Examples, "hazmat doctor --dry-run") {
+		t.Fatalf("examples = %v, want direct fix path before explicit dry-run preview", policy.Examples)
 	}
 }
 

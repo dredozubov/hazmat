@@ -31,6 +31,19 @@ func TestDiagnosticAdviceNamesExplicitDoctorCommands(t *testing.T) {
 	}
 }
 
+func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
+	lines := diagnosticModeGuidanceLines()
+	joined := strings.Join(lines, "\n")
+	fixIndex := strings.Index(joined, "hazmat doctor --fix")
+	previewIndex := strings.Index(joined, "hazmat doctor --dry-run")
+	if fixIndex < 0 || previewIndex < 0 {
+		t.Fatalf("mode guidance = %q, want fix and preview commands", joined)
+	}
+	if fixIndex > previewIndex {
+		t.Fatalf("mode guidance = %q, want fix path before preview path", joined)
+	}
+}
+
 func hasPlainHazmatDoctorAdvice(text string) bool {
 	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return unicode.IsSpace(r) || strings.ContainsRune(".,;:()[]{}", r)

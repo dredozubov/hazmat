@@ -45,11 +45,9 @@ func runTest(options diagnostics.CheckOptions) error {
 				cBold.Println("  └──────────────────────────────────────────────┘")
 				fmt.Println()
 				fmt.Println("  Modes:")
-				fmt.Println("    hazmat check          Read-only health report (no external traffic)")
-				fmt.Println("    hazmat check --full   Read-only health report with live network probes")
-				fmt.Println("    hazmat doctor --dry-run")
-				fmt.Println("                          Preview the typed repair plan")
-				fmt.Println("    hazmat doctor --fix   Apply approved typed repairs")
+				for _, line := range diagnosticModeGuidanceLines() {
+					fmt.Println(line)
+				}
 				fmt.Println()
 			}
 
@@ -94,6 +92,16 @@ func runTest(options diagnostics.CheckOptions) error {
 		Finish:               ui.Summary,
 		Exit:                 os.Exit,
 	})
+}
+
+func diagnosticModeGuidanceLines() []string {
+	return []string{
+		"    hazmat check          Read-only health report (no external traffic)",
+		"    hazmat check --full   Read-only health report with live network probes",
+		"    hazmat doctor --fix   Apply approved typed repairs",
+		"    hazmat doctor --dry-run",
+		"                          Preview the typed repair plan",
+	}
 }
 
 // ── Step 1: Agent user ────────────────────────────────────────────────────────

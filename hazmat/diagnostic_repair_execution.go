@@ -34,7 +34,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "hazmat check is a read-only health and repairability report",
-			Examples:        []string{"hazmat check", "hazmat doctor --dry-run", "hazmat doctor --fix"},
+			Examples:        []string{"hazmat check", "hazmat doctor --fix", "hazmat doctor --dry-run"},
 		}
 	case command == "init":
 		return diagnosticRepairExecutionPolicy{

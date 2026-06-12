@@ -499,8 +499,8 @@ hazmat opencode -C ~/workspace/proj
 hazmat                          # shows setup progress checklist
 hazmat status                   # same thing
 hazmat check                    # read-only health and repairability report
-hazmat doctor --dry-run         # explicit non-mutating repair plan preview
 hazmat doctor --fix             # apply approved typed repairs
+hazmat doctor --dry-run         # explicit non-mutating repair plan preview
 hazmat check --full             # include live network probes
 ```
 
