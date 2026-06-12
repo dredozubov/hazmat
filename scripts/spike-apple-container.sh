@@ -28,10 +28,66 @@ IMAGE="${SPIKE_IMAGE:-alpine:latest}"
 RESULTS_DIR="${SPIKE_RESULTS_DIR:-$(pwd)/spike-apple-container-results}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${RESULTS_DIR}/spike-${STAMP}.md"
-WORKDIR="$(mktemp -d /tmp/hazmat-spike-XXXXXX)"
 NAME_RUN="hazmat-spike-run-$$"
 NAME_NET="hazmat-spike-net-$$"
 NET_NAME="hazmat-spike-internal-$$"
+MODE="disclosure"
+ACK_RUN=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/spike-apple-container.sh
+  scripts/spike-apple-container.sh --run --i-understand-this-runs-apple-container-spike
+
+Default mode is disclosure-only. Live mode runs Apple Container probes, including
+container system/container run/container network operations and sudo -n -u agent
+checks. Agents must ask for explicit approval before running --run.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --run)
+      MODE="run"
+      ;;
+    --i-understand-this-runs-apple-container-spike)
+      ACK_RUN=1
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "spike-apple-container: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [ "$MODE" != "run" ]; then
+  cat <<EOF
+spike-apple-container: disclosure-only
+
+This research spike runs live Apple Container probes, creates exact-named
+containers/networks prefixed hazmat-spike-, bind-mounts a temporary host
+directory, and uses sudo -n -u agent for agent-user separation checks.
+
+To run it, ask for explicit approval for this exact command:
+
+  scripts/spike-apple-container.sh --run --i-understand-this-runs-apple-container-spike
+EOF
+  exit 0
+fi
+
+if [ "$ACK_RUN" -ne 1 ]; then
+  echo "spike-apple-container: refusing live run without --i-understand-this-runs-apple-container-spike" >&2
+  exit 2
+fi
+
+WORKDIR="$(mktemp -d /tmp/hazmat-spike-XXXXXX)"
 
 mkdir -p "${RESULTS_DIR}"
 

@@ -93,12 +93,14 @@ Linux-specific files:
 
 The macOS syscall probes use `sudo -n` so tracing never hangs on a password
 prompt. If sudo credentials or DTrace privileges are not available, trace fails
-before launching the harness. Pre-authorize sudo in a separate terminal before
-running `make hazmat-debug` or the trace wrapper:
+before launching the harness. Pre-authorize sudo in a separate terminal, then
+pass the explicit DTrace acknowledgement before running `make hazmat-debug` or
+the trace wrapper:
 
 ```bash
 sudo -v
-~/.hazmat/bin/hazmat-debug trace claude --name baseline -- --no-backup -p "say ok"
+make hazmat-debug TRACE_ACK=1
+~/.hazmat/bin/hazmat-trace-claude --i-understand-this-runs-sudo-dtrace-probes --name baseline -- --no-backup -p "say ok"
 ```
 
 On Linux, `strace` is required from process start. Missing `strace`,
@@ -115,13 +117,13 @@ system daemons that ordinary Docker traces do not have.
 Debug smoke commands:
 
 ```bash
-scripts/check-macos-trace-smoke.sh
-scripts/check-linux-trace-smoke.sh
+scripts/check-macos-trace-smoke.sh --run --i-understand-this-runs-sudo-dtrace-probes
+scripts/check-linux-trace-smoke.sh --run --i-understand-this-runs-privileged-docker
 ```
 
-These smokes are intentionally not part of normal release gates. They configure
-and build a debug Hazmat binary, then validate a full trace bundle. Missing trace
-dependencies fail the smoke.
+These smokes are intentionally not part of normal release gates. Their default
+mode is disclosure-only. Live mode configures and builds a debug Hazmat binary,
+then validates a full trace bundle. Missing trace dependencies fail the smoke.
 
 Recommended comparison sequence for any harness:
 

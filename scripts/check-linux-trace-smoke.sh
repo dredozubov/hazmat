@@ -5,10 +5,64 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-golang:1.25}"
 GOARCH_VALUE="${HAZMAT_LINUX_TRACE_GOARCH:-$(go env GOHOSTARCH)}"
+MODE="disclosure"
+ACK_RUN=0
 SKIP_IF_MISSING=0
 
-if [ "${1:-}" = "--skip-if-missing-prereqs" ]; then
-	SKIP_IF_MISSING=1
+usage() {
+	cat <<'EOF'
+Usage:
+  scripts/check-linux-trace-smoke.sh
+  scripts/check-linux-trace-smoke.sh --run --i-understand-this-runs-privileged-docker [--skip-if-missing-prereqs]
+
+Default mode is disclosure-only. Live mode runs a privileged Docker container
+for the Linux trace collector smoke. Agents must ask for explicit approval
+before running --run.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--run)
+			MODE="run"
+			;;
+		--i-understand-this-runs-privileged-docker)
+			ACK_RUN=1
+			;;
+		--skip-if-missing-prereqs)
+			SKIP_IF_MISSING=1
+			;;
+		--help|-h)
+			usage
+			exit 0
+			;;
+		*)
+			echo "linux-trace-smoke: unknown argument: $1" >&2
+			usage >&2
+			exit 2
+			;;
+	esac
+	shift
+done
+
+if [ "$MODE" != "run" ]; then
+	cat <<EOF
+linux-trace-smoke: disclosure-only
+
+This live smoke uses Docker with --privileged, bind-mounts the repository
+read-only, installs trace tooling inside the container when needed, and runs the
+Linux hazmat_debug trace collector.
+
+To run it, ask for explicit approval for this exact command:
+
+  scripts/check-linux-trace-smoke.sh --run --i-understand-this-runs-privileged-docker
+EOF
+	exit 0
+fi
+
+if [ "$ACK_RUN" -ne 1 ]; then
+	echo "linux-trace-smoke: refusing live run without --i-understand-this-runs-privileged-docker" >&2
+	exit 2
 fi
 
 skip_or_fail() {

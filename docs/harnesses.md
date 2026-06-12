@@ -254,7 +254,7 @@ the normal launch path:
 
 ```bash
 sudo -v
-make hazmat-debug
+make hazmat-debug TRACE_ACK=1
 ```
 
 For interactive Claude Code sessions, run the installed wrapper from the project
@@ -262,7 +262,7 @@ that reproduces the issue:
 
 ```bash
 cd ~/workspace/project-that-reproduces
-~/.hazmat/bin/hazmat-trace-claude --name claude-interactive-repro
+~/.hazmat/bin/hazmat-trace-claude --i-understand-this-runs-sudo-dtrace-probes --name claude-interactive-repro
 ```
 
 ```bash

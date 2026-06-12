@@ -11,6 +11,10 @@ HAZMAT_DEBUG_ROOT     ?= $(HOME)/.hazmat
 HAZMAT_DEBUG_BINDIR   ?= $(HAZMAT_DEBUG_ROOT)/bin
 HAZMAT_DEBUG_BIN      ?= $(HAZMAT_DEBUG_BINDIR)/hazmat-debug
 HAZMAT_TRACE_CLAUDE_BIN ?= $(HAZMAT_DEBUG_BINDIR)/hazmat-trace-claude
+HAZMAT_CONFIGURE_TRACE_FLAGS :=
+ifeq ($(TRACE_ACK),1)
+HAZMAT_CONFIGURE_TRACE_FLAGS += --i-understand-this-runs-sudo-dtrace-probes
+endif
 USER_PREFIX           ?= $(HOME)/.local
 USER_BINDIR           ?= $(USER_PREFIX)/bin
 USER_LIBEXECDIR       ?= $(USER_PREFIX)/libexec
@@ -31,13 +35,14 @@ hazmat:
 	cd $(APP_DIR) && go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat ./cmd/hazmat
 
 configure-debug-trace:
-	bash scripts/configure-debug-trace.sh
+	bash scripts/configure-debug-trace.sh $(HAZMAT_CONFIGURE_TRACE_FLAGS)
 
 hazmat-debug:
 	HAZMAT_DEBUG_BIN="$(HAZMAT_DEBUG_BIN)" \
 	HAZMAT_TRACE_CLAUDE_BIN="$(HAZMAT_TRACE_CLAUDE_BIN)" \
 	HAZMAT_BUILD_GOFLAGS="$(GOFLAGS)" \
 	HAZMAT_BUILD_LDFLAGS="$(LDFLAGS)" \
+	HAZMAT_CONFIGURE_TRACE_FLAGS="$(HAZMAT_CONFIGURE_TRACE_FLAGS)" \
 	bash scripts/install-debug-trace.sh
 
 test-debug-trace: configure-debug-trace

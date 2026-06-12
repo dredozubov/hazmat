@@ -22,7 +22,7 @@ are not interchangeable.
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
-| `scripts/e2e-harness-smoke-native.sh` | Does the prepared-host launch-helper and seatbelt path still compose with every managed harness? | Prepared macOS host | Temporarily swaps agent harness binaries, then restores |
+| `scripts/e2e-harness-smoke-native.sh` | Does the prepared-host launch-helper and seatbelt path still compose with every managed harness? | Prepared macOS host, explicit approval only | Temporarily swaps agent harness binaries, then restores |
 | `scripts/e2e-stack-matrix.sh` | Do supported stacks detect and behave correctly on real repos? | Host | No |
 | `scripts/e2e.sh` | Does the full install / contain / backup / restore / rollback lifecycle work? | Host | Yes |
 | `scripts/e2e-vm.sh` | Run the destructive lifecycle test in an isolated macOS VM | VM | Destroys the VM, not your host setup |
@@ -375,15 +375,15 @@ Use the optional native variant when you specifically need to validate the
 prepared-host launch-helper and seatbelt path:
 
 ```bash
-bash scripts/e2e-harness-smoke-native.sh
-make e2e-harness-smoke-native
+bash scripts/e2e-harness-smoke-native.sh --run --i-understand-this-runs-native-hazmat-smoke
 ```
 
 The native smoke backs up the touched agent-owned harness binaries, contained
 Hermes/Qwen/Cursor state, and host secret-store files, installs synthetic
 agent-owned binaries, runs the native `hazmat <harness>` launch paths, then
-restores everything it touched. It requires `hazmat init` and non-interactive
-`sudo -n`.
+restores everything it touched. The default invocation is disclosure-only.
+Live mode requires `hazmat init`, an `agent` account, non-interactive `sudo -n`,
+and explicit approval for the exact command above.
 
 The Claude case seeds synthetic host-owned auth, lets the fake contained Claude
 process rewrite the runtime credential file to `{}`, and verifies that Hazmat
@@ -455,7 +455,8 @@ and runs `scripts/e2e.sh` there.
   hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
   surfaces.
 - `scripts/e2e-harness-smoke-native.sh` is host-side and prepared-host-only:
-  it requires `hazmat init`, an `agent` account, and `sudo -n`.
+  default mode is disclosure-only; live mode requires `hazmat init`, an
+  `agent` account, `sudo -n`, and exact-command approval.
 - `scripts/e2e.sh` is also host-side, but destructive.
 - `scripts/e2e-vm.sh` is the isolated wrapper for the destructive lifecycle
   test.

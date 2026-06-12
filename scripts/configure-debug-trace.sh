@@ -5,6 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 TARGET_GOOS="${HAZMAT_TRACE_TARGET_GOOS:-}"
+ACK_DARWIN_DTRACE=0
 if [ -z "$TARGET_GOOS" ]; then
 	if command -v go >/dev/null 2>&1; then
 		TARGET_GOOS="$(go env GOOS)"
@@ -19,6 +20,9 @@ fi
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
+		--i-understand-this-runs-sudo-dtrace-probes)
+			ACK_DARWIN_DTRACE=1
+			;;
 		--target=*)
 			TARGET_GOOS="${1#--target=}"
 			;;
@@ -32,12 +36,15 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--help|-h)
 			cat <<'EOF'
-Usage: scripts/configure-debug-trace.sh [--target darwin|linux]
+Usage: scripts/configure-debug-trace.sh [--target darwin|linux] [--i-understand-this-runs-sudo-dtrace-probes]
 
 Checks the host prerequisites required before compiling or running the
 hazmat_debug trace command. A successful check means developers can build with:
 
   go build -tags hazmat_debug ./hazmat/cmd/hazmat
+
+On Darwin this runs sudo-adjacent DTrace/dtruss prerequisite probes. Agents must
+ask for explicit approval before using --i-understand-this-runs-sudo-dtrace-probes.
 EOF
 			exit 0
 			;;
@@ -116,6 +123,18 @@ EOF
 
 case "$TARGET_GOOS" in
 	darwin)
+		if [ "$ACK_DARWIN_DTRACE" -ne 1 ]; then
+			cat >&2 <<'EOF'
+configure-debug-trace: refusing Darwin DTrace prerequisite probes without --i-understand-this-runs-sudo-dtrace-probes
+
+This check runs sudo-adjacent commands including:
+  /usr/bin/sudo -n -v
+  /usr/bin/sudo -n /usr/bin/dtruss <temporary helper>
+
+Ask for explicit approval before running this exact command.
+EOF
+			exit 2
+		fi
 		require_executable sudo /usr/bin/sudo
 		require_executable uname /usr/bin/uname
 		require_executable sw_vers /usr/bin/sw_vers

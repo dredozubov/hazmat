@@ -12,7 +12,8 @@ debug_bindir="$(dirname "$DEBUG_BIN")"
 trace_bindir="$(dirname "$TRACE_CLAUDE_BIN")"
 
 echo "hazmat-debug: checking trace prerequisites..."
-"$REPO_ROOT/scripts/configure-debug-trace.sh"
+# shellcheck disable=SC2086
+"$REPO_ROOT/scripts/configure-debug-trace.sh" ${HAZMAT_CONFIGURE_TRACE_FLAGS:-}
 
 install -d -m 0755 "$debug_bindir"
 install -d -m 0755 "$trace_bindir"
@@ -35,13 +36,17 @@ TRACE_ROOT=\${HAZMAT_TRACE_ROOT:-"\$HOME/.hazmat/traces"}
 PROJECT=\${HAZMAT_TRACE_PROJECT:-"\$(pwd -P)"}
 NAME=\${HAZMAT_TRACE_NAME:-"claude-interactive-\$(date -u +%Y%m%dT%H%M%SZ)"}
 NO_BACKUP=1
+ACK_DTRACE=0
 
 usage() {
 	cat <<'USAGE'
-Usage: hazmat-trace-claude [--name LABEL] [-C DIR|--project DIR] [--out DIR] [--backup] [-- HAZMAT_OR_CLAUDE_ARGS...]
+Usage: hazmat-trace-claude --i-understand-this-runs-sudo-dtrace-probes [--name LABEL] [-C DIR|--project DIR] [--out DIR] [--backup] [-- HAZMAT_OR_CLAUDE_ARGS...]
 
 Starts an interactive Claude Code session under the developer-only Hazmat trace
 binary. Trace bundles are written under ~/.hazmat/traces by default.
+
+On macOS this is sudo-adjacent because the trace bundle uses DTrace/dtruss.
+Agents must ask for explicit approval before running it.
 USAGE
 }
 
@@ -81,6 +86,10 @@ while [ "\$#" -gt 0 ]; do
 			NO_BACKUP=0
 			shift
 			;;
+		--i-understand-this-runs-sudo-dtrace-probes)
+			ACK_DTRACE=1
+			shift
+			;;
 		--help|-h)
 			usage
 			exit 0
@@ -99,6 +108,11 @@ if [ ! -x "\$DEBUG_BIN" ]; then
 	echo "hazmat-trace-claude: debug binary not found at \$DEBUG_BIN" >&2
 	echo "hazmat-trace-claude: run: cd ~/workspace/hazmat && make hazmat-debug" >&2
 	exit 1
+fi
+
+if [ "\$ACK_DTRACE" -ne 1 ]; then
+	echo "hazmat-trace-claude: refusing DTrace run without --i-understand-this-runs-sudo-dtrace-probes" >&2
+	exit 2
 fi
 
 if ! /usr/bin/sudo -n -v >/dev/null 2>&1; then
@@ -133,7 +147,7 @@ Installed developer trace tools:
 Interactive Claude trace:
   cd <project>
   sudo -v
-  $TRACE_CLAUDE_BIN --name claude-interactive-repro
+  $TRACE_CLAUDE_BIN --i-understand-this-runs-sudo-dtrace-probes --name claude-interactive-repro
 
 These binaries are developer-only and live outside the source checkout.
 EOF

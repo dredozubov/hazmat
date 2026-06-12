@@ -11,6 +11,9 @@
 #   - live session-home activation smoke refuses to run without its explicit ack
 #   - live cache integration smoke refuses to run without its explicit ack
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
+#   - native harness smoke refuses live mode without its explicit ack
+#   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
+#   - Apple Container spike refuses live mode without its explicit ack
 #   - release installer refuses unsupported platforms before download/install
 #   - host-side test entrypoints fail fast when another host-side test holds
 #     the shared lock
@@ -92,6 +95,31 @@ assert_fails_with \
     "OpenHands recipe smoke requires live ack" \
     "refusing live run without --i-understand-this-runs-hazmat-exec" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --run
+
+assert_fails_with \
+    "native harness smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-native-hazmat-smoke" \
+    bash "$REPO_ROOT/scripts/e2e-harness-smoke-native.sh" --run
+
+assert_fails_with \
+    "Darwin trace prerequisite check requires DTrace ack" \
+    "refusing Darwin DTrace prerequisite probes without --i-understand-this-runs-sudo-dtrace-probes" \
+    bash "$REPO_ROOT/scripts/configure-debug-trace.sh" --target darwin
+
+assert_fails_with \
+    "macOS trace smoke requires DTrace ack" \
+    "refusing live run without --i-understand-this-runs-sudo-dtrace-probes" \
+    "$REPO_ROOT/scripts/check-macos-trace-smoke.sh" --run
+
+assert_fails_with \
+    "Linux trace smoke requires privileged Docker ack" \
+    "refusing live run without --i-understand-this-runs-privileged-docker" \
+    "$REPO_ROOT/scripts/check-linux-trace-smoke.sh" --run
+
+assert_fails_with \
+    "Apple Container spike requires live ack" \
+    "refusing live run without --i-understand-this-runs-apple-container-spike" \
+    bash "$REPO_ROOT/scripts/spike-apple-container.sh" --run
 
 phase "Platform guards"
 

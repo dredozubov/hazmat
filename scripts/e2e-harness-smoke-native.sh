@@ -10,7 +10,8 @@ set -euo pipefail
 usage() {
     cat <<EOF
 Usage:
-  bash scripts/e2e-harness-smoke-native.sh [--skip-build]
+  bash scripts/e2e-harness-smoke-native.sh
+  bash scripts/e2e-harness-smoke-native.sh --run --i-understand-this-runs-native-hazmat-smoke [--skip-build]
   bash scripts/e2e-harness-smoke-native.sh --list-harnesses
 
 Runs non-destructive harness smokes for:
@@ -24,6 +25,10 @@ Prepared-host prerequisites:
   - macOS host with hazmat already initialized
   - non-interactive sudo for the current user (sudo -n)
 
+Default mode is disclosure-only. Live mode is sudo-adjacent because it mutates
+and restores /Users/agent harness state and invokes native Hazmat launch paths.
+Agents must ask for explicit approval before running --run.
+
 For the release-blocking hermetic smoke that does not require those
 prerequisites, use:
 
@@ -31,6 +36,8 @@ prerequisites, use:
 EOF
 }
 
+MODE="disclosure"
+ACK_RUN=""
 SKIP_BUILD=""
 LIST_HARNESSES=""
 SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent"
@@ -46,6 +53,12 @@ PROJECT=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --run)
+            MODE="run"
+            ;;
+        --i-understand-this-runs-native-hazmat-smoke)
+            ACK_RUN="1"
+            ;;
         --skip-build)
             SKIP_BUILD="1"
             ;;
@@ -70,6 +83,27 @@ if [ -n "$LIST_HARNESSES" ]; then
         printf '%s\n' "$harness"
     done
     exit 0
+fi
+
+if [ "$MODE" != "run" ]; then
+    cat <<EOF
+native-harness-smoke: disclosure-only
+
+This script validates prepared-host native Hazmat launch plumbing by temporarily
+backing up and replacing agent-owned harness binaries/state, seeding host
+secret-store fixtures, running native hazmat harness commands, and restoring the
+touched paths. It requires hazmat init and non-interactive sudo.
+
+To run the live smoke, ask for explicit approval for this exact command:
+
+  bash scripts/e2e-harness-smoke-native.sh --run --i-understand-this-runs-native-hazmat-smoke
+EOF
+    exit 0
+fi
+
+if [ -z "$ACK_RUN" ]; then
+    echo "native-harness-smoke: refusing live run without --i-understand-this-runs-native-hazmat-smoke" >&2
+    exit 2
 fi
 
 TMPDIR_SMOKE="$(mktemp -d /tmp/hazmat-harness-smoke.XXXXXX)"
