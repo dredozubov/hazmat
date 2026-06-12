@@ -101,19 +101,23 @@ func codexInstallerAssetFromRelease(release codexGitHubRelease) (codexGitHubAsse
 }
 
 func codexInstallerSHA256(asset codexGitHubAsset) (string, error) {
-	digest := strings.TrimSpace(asset.Digest)
+	return githubAssetSHA256("latest Codex installer", asset.Digest)
+}
+
+func githubAssetSHA256(label, rawDigest string) (string, error) {
+	digest := strings.TrimSpace(rawDigest)
 	if digest == "" {
-		return "", fmt.Errorf("latest Codex installer digest is missing")
+		return "", fmt.Errorf("%s digest is missing", label)
 	}
 	if !strings.HasPrefix(digest, "sha256:") {
-		return "", fmt.Errorf("latest Codex installer digest has unexpected format %q", digest)
+		return "", fmt.Errorf("%s digest has unexpected format %q", label, digest)
 	}
 	sum := strings.TrimPrefix(digest, "sha256:")
 	if len(sum) != 64 {
-		return "", fmt.Errorf("latest Codex installer digest has unexpected length %d", len(sum))
+		return "", fmt.Errorf("%s digest has unexpected length %d", label, len(sum))
 	}
 	if _, err := hex.DecodeString(sum); err != nil {
-		return "", fmt.Errorf("latest Codex installer digest is not valid hex: %w", err)
+		return "", fmt.Errorf("%s digest is not valid hex: %w", label, err)
 	}
 	return sum, nil
 }

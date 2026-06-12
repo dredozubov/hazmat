@@ -356,10 +356,10 @@ automated installation is deferred:
 
 The later automated bootstrap should be stricter than the loosest existing
 precedent. Hazmat's current harnesses are mixed: Claude pins a script checksum,
-Codex verifies a published GitHub digest, OpenCode uses a curl-piped installer,
-and Gemini installs an unpinned `@latest` package. Hermes has a richer
-in-process surface than a typical coding CLI, so the preferred target is the
-Codex/Claude end of that spectrum, not the OpenCode/Gemini end.
+Codex and OpenCode verify published GitHub digests, and Gemini installs an
+unpinned `@latest` package. Hermes has a richer in-process surface than a
+typical coding CLI, so the preferred target is the Codex/Claude/OpenCode end
+of that spectrum, not the Gemini end.
 
 The consistent rule is narrower: install is explicit, agent-owned, and never
 performed implicitly during `hazmat hermes` launch.

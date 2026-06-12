@@ -127,7 +127,7 @@ For uninstall:
 |---|---|---|---|---|---|
 | Claude Code | Hazmat downloads official installer and verifies pinned checksum | `/Users/agent/.local/bin/claude` | `/Users/agent/.claude`, `/Users/agent/.claude.json`, provider secrets | Yes | Yes |
 | Codex | Hazmat resolves latest GitHub release and verifies published digest | `/Users/agent/.local/bin/codex` | `/Users/agent/.codex`, `/Users/agent/.agents`, provider secrets | Yes | Yes |
-| OpenCode | Hazmat runs official installer and maintains PATH shim | `/Users/agent/.opencode/bin/opencode`, `/Users/agent/.local/bin/opencode` | `/Users/agent/.config/opencode`, `/Users/agent/.local/share/opencode`, provider secrets | Yes | Yes |
+| OpenCode | Hazmat resolves latest GitHub release, verifies published digest, and maintains PATH shim | `/Users/agent/.opencode/bin/opencode`, `/Users/agent/.local/bin/opencode` | `/Users/agent/.config/opencode`, `/Users/agent/.local/share/opencode`, provider secrets | Yes | Yes |
 | Gemini | Hazmat installs `@google/gemini-cli@latest` into agent local prefix | `/Users/agent/.local/bin/gemini`, npm package dir | `/Users/agent/.gemini`, provider secrets, Keychain boundary | Yes, file-backed only | Yes |
 | Hermes | Hazmat verifies a manual executable only | none in v1 | `/Users/agent/.local/bin/hermes`, `/Users/agent/.hazmat/hermes`, provider secrets | No | No |
 | Qwen Code | Hazmat installs `@qwen-code/qwen-code@latest` into agent local prefix | `/Users/agent/.local/bin/qwen`, npm package dir | `/Users/agent/.qwen`, host `~/.qwen` boundary | No | Yes, portable assets only |

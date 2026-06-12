@@ -9,9 +9,8 @@ name: Harness Installer Drift
 #   claude    — covered separately by claude-installer-pin.yml (pin + auto-PR)
 #   codex     — latest GitHub release must publish the expected installer
 #               asset with a sha256: digest (mirrors resolveLatestCodexInstaller)
-#   opencode  — https://opencode.ai/install must download and look like a
-#               shell script (the installer is intentionally fetched live;
-#               there is no pin to go stale)
+#   opencode  — latest GitHub release must publish the expected CLI archives
+#               with sha256: digests (mirrors resolveLatestOpenCodeArchive)
 #   gemini    — @google/gemini-cli@latest must resolve on the npm registry
 #   qwen      — @qwen-code/qwen-code@latest must resolve on the npm registry
 #   hermes, cursor-agent — manual installs; nothing is fetched, nothing to check
@@ -43,18 +42,18 @@ jobs:
           fail() { echo "$1" >&2; exit 1; }
           codex_api=$(grep -oE 'codexLatestReleaseAPI\s+= "[^"]+"' hazmat/bootstrap_codex.go | grep -oE 'https://[^"]+')
           codex_asset=$(grep -oE 'codexInstallerAssetName\s+= "[^"]+"' hazmat/bootstrap_codex.go | sed -E 's/.*= "([^"]+)"/\1/')
-          opencode_url=$(grep -oE 'opencodeInstallerURL\s+= "[^"]+"' hazmat/bootstrap_opencode.go | grep -oE 'https://[^"]+')
+          opencode_api=$(grep -oE 'openCodeLatestReleaseAPI\s+= "[^"]+"' hazmat/bootstrap_opencode.go | grep -oE 'https://[^"]+')
           gemini_pkg=$(grep -oE 'geminiNpmPackage\s+= "[^"]+"' hazmat/bootstrap_gemini.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
           qwen_pkg=$(grep -oE 'qwenNpmPackage\s+= "[^"]+"' hazmat/bootstrap_qwen.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
           [ -n "$codex_api" ]    || fail "could not extract codexLatestReleaseAPI"
           [ -n "$codex_asset" ]  || fail "could not extract codexInstallerAssetName"
-          [ -n "$opencode_url" ] || fail "could not extract opencodeInstallerURL"
+          [ -n "$opencode_api" ] || fail "could not extract openCodeLatestReleaseAPI"
           [ -n "$gemini_pkg" ]   || fail "could not extract geminiNpmPackage"
           [ -n "$qwen_pkg" ]     || fail "could not extract qwenNpmPackage"
           {
             echo "codex_api=$codex_api"
             echo "codex_asset=$codex_asset"
-            echo "opencode_url=$opencode_url"
+            echo "opencode_api=$opencode_api"
             echo "gemini_pkg=$gemini_pkg"
             echo "qwen_pkg=$qwen_pkg"
           } >> "$GITHUB_OUTPUT"
@@ -78,17 +77,30 @@ jobs:
             || { echo "Codex installer asset digest is missing or not sha256:<64-hex> — bootstrap codex would refuse it" >&2; exit 1; }
           echo "Codex OK: release $tag publishes $CODEX_ASSET with a valid sha256 digest."
 
-      - name: OpenCode installer downloads and looks like a shell script
+      - name: OpenCode latest release publishes verified CLI archives
         id: opencode
         continue-on-error: true
         env:
-          OPENCODE_URL: ${{ steps.constants.outputs.opencode_url }}
+          GH_TOKEN: ${{ github.token }}
+          OPENCODE_API: ${{ steps.constants.outputs.opencode_api }}
         run: |
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 "$OPENCODE_URL" -o /tmp/opencode-install
-          test -s /tmp/opencode-install
-          head -c 2 /tmp/opencode-install | grep -q '#!' \
-            || { echo "OpenCode installer does not start with a shebang" >&2; exit 1; }
-          echo "OpenCode OK: installer downloads ($(wc -c < /tmp/opencode-install) bytes)."
+          release=$(gh api "${OPENCODE_API#https://api.github.com/}")
+          tag=$(jq -r '.tag_name // empty' <<<"$release")
+          [ -n "$tag" ] || { echo "latest OpenCode release has no tag_name" >&2; exit 1; }
+          for asset_name in \
+            opencode-darwin-arm64.zip \
+            opencode-darwin-x64-baseline.zip \
+            opencode-linux-arm64.tar.gz \
+            opencode-linux-x64-baseline.tar.gz
+          do
+            asset=$(jq --arg name "$asset_name" '.assets[] | select(.name == $name)' <<<"$release")
+            [ -n "$asset" ] || { echo "latest OpenCode release ($tag) does not publish $asset_name" >&2; exit 1; }
+            jq -er '.browser_download_url | select(. != "")' <<<"$asset" >/dev/null \
+              || { echo "OpenCode asset $asset_name has no download URL" >&2; exit 1; }
+            jq -er '.digest | test("^sha256:[0-9a-f]{64}$")' <<<"$asset" >/dev/null \
+              || { echo "OpenCode asset $asset_name digest is missing or not sha256:<64-hex>" >&2; exit 1; }
+          done
+          echo "OpenCode OK: release $tag publishes CLI archives with valid sha256 digests."
 
       - name: Gemini npm package resolves
         id: gemini

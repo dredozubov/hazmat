@@ -113,7 +113,7 @@ records the consuming harness in explain/session metadata.
 
 ### OpenCode
 
-- **Install / update:** `hazmat bootstrap opencode`. Downloads via the official OpenCode installer, installs or refreshes the agent-owned OpenCode CLI, prepares the config dir, and links `/Users/agent/.local/bin/opencode`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
+- **Install / update:** `hazmat bootstrap opencode`. Resolves the latest OpenCode GitHub release, verifies the published digest for the selected CLI archive, installs or refreshes the agent-owned OpenCode CLI, prepares the config dir, and links `/Users/agent/.local/bin/opencode`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
 - **Durable auth storage:** `~/.hazmat/secrets/opencode/auth.json`. Hazmat materializes it to `/Users/agent/.local/share/opencode/auth.json` only while an OpenCode session is active. Provider-specific shape; OpenCode supports Anthropic, OpenAI, Google, OpenRouter, Groq, etc.
 - **Subscription / OAuth path:** run `hazmat opencode`, then `opencode auth login` and pick a provider. Each provider has its own OAuth flow; what works in plain `opencode` works inside `hazmat opencode`. File-based auth is harvested into `~/.hazmat/secrets/opencode/auth.json` when the session exits.
 - **API key path:** OpenCode reads provider keys from the same `auth.json`. Either paste them via `opencode auth login` inside the sandbox, or pre-seed them on the host with the OpenCode `auth login` flow and import.

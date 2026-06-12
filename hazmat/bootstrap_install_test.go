@@ -43,16 +43,30 @@ func TestClaudeInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
 }
 
 func TestOpenCodeInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
-	script := openCodeInstallScript()
+	script := openCodeInstallScript(
+		"https://github.com/anomalyco/opencode/releases/download/v1.2.3/opencode-darwin-arm64.zip",
+		strings.Repeat("a", 64),
+		"v1.2.3",
+		"opencode-darwin-arm64.zip",
+	)
 	for _, want := range []string{
-		`curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail "https://opencode.ai/install" -o "$installer"`,
-		`bash "$installer" --no-modify-path`,
+		`release="v1.2.3"`,
+		`asset="opencode-darwin-arm64.zip"`,
+		`echo "Installing OpenCode $release from $asset" >&2`,
+		`curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail "https://github.com/anomalyco/opencode/releases/download/v1.2.3/opencode-darwin-arm64.zip" -o "$archive"`,
+		`actual=$(shasum -a 256 "$archive" | awk '{print $1}')`,
+		`expected="` + strings.Repeat("a", 64) + `"`,
+		`unzip -q "$archive" -d "$extract_dir"`,
+		`install -m 0755 "$extract_dir/opencode" "$HOME/.opencode/bin/opencode"`,
 		`ln -s "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/opencode"`,
 		`test -x "$HOME/.opencode/bin/opencode" || test -x "$HOME/.local/bin/opencode"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("openCodeInstallScript() missing %q in %q", want, script)
 		}
+	}
+	if strings.Contains(script, "https://opencode.ai/install") {
+		t.Fatalf("openCodeInstallScript() still runs the upstream live installer: %q", script)
 	}
 }
 
