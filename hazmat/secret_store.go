@@ -3,8 +3,10 @@ package hazmat
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -86,9 +88,17 @@ func readAgentSecretFile(path string) ([]byte, bool, error) {
 
 	out, agentErr := newAgentCommand("cat", path).Output()
 	if agentErr != nil {
+		if existsErr := newAgentCommand("test", "-e", path).Run(); agentTestReportsAbsent(existsErr) {
+			return nil, false, nil
+		}
 		return nil, false, agentErr
 	}
 	return out, true, nil
+}
+
+func agentTestReportsAbsent(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
 }
 
 func writeAgentSecretFile(path string, raw []byte, mode os.FileMode) error {

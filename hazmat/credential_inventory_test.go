@@ -75,11 +75,12 @@ func TestCredentialInventoryReportsLegacyProviderExportWithoutSecretValue(t *tes
 	if strings.Contains(rendered, secretValue) {
 		t.Fatalf("inventory output leaked secret value: %s", rendered)
 	}
-	for _, want := range []string{"provider.openai.api-key", "host-store=present", "legacy agent-home provider API-key export", "hazmat config agent"} {
+	for _, want := range []string{"provider.openai.api-key", "host-store=present", "legacy agent-home provider API-key export", "credential repair"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("inventory output missing %q:\n%s", want, rendered)
 		}
 	}
+	assertNoCredentialInventoryCommandRecipe(t, rendered)
 }
 
 func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) {
@@ -119,7 +120,7 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 	if got := gitHTTPS.Status(); got != credentialInventoryNeedsRepair {
 		t.Fatalf("Git HTTPS status = %s, want %s", got, credentialInventoryNeedsRepair)
 	}
-	if len(gitHTTPS.AgentResidue) != 1 || !strings.Contains(gitHTTPS.AgentResidue[0].Repair, "migrate the Git HTTPS credentials") {
+	if len(gitHTTPS.AgentResidue) != 1 || !strings.Contains(gitHTTPS.AgentResidue[0].Repair, "credential repair") {
 		t.Fatalf("Git HTTPS residue = %v, want broker repair guidance", gitHTTPS.AgentResidue)
 	}
 }
@@ -164,6 +165,23 @@ func TestCredentialInventoryReportsLegacyCloudCredentialsWithoutSecretValues(t *
 			if strings.Contains(rendered, forbidden) {
 				t.Fatalf("%s inventory output leaked %q:\n%s", id, forbidden, rendered)
 			}
+		}
+		assertNoCredentialInventoryCommandRecipe(t, rendered)
+	}
+}
+
+func assertNoCredentialInventoryCommandRecipe(t *testing.T, rendered string) {
+	t.Helper()
+
+	for _, forbidden := range []string{
+		"hazmat config",
+		"launch the matching harness",
+		"run `",
+		"sudo ",
+		"chmod ",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("inventory output contains command recipe %q:\n%s", forbidden, rendered)
 		}
 	}
 }

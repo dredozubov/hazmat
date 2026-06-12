@@ -208,7 +208,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 			return []credentialInventoryFinding{{
 				Path:   descriptor.AgentPath,
 				Detail: "stale agent-home materialized credential",
-				Repair: "launch the matching harness once so Hazmat can harvest the file back into ~/.hazmat/secrets, or remove the stale file after verifying the host store",
+				Repair: "Hazmat can harvest this into the host-owned secret store during credential repair; remove the stale file only after verifying the host store",
 			}}, nil
 		}
 	case credentialDeliveryBrokeredHelper:
@@ -219,7 +219,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 				return []credentialInventoryFinding{{
 					Path:   gitHTTPSAgentCredentialsPath,
 					Detail: "legacy agent-home Git HTTPS credential store",
-					Repair: "launch a native Hazmat session once to migrate the Git HTTPS credentials into ~/.hazmat/secrets/git-https/credentials, or rotate and remove old PATs from the agent store",
+					Repair: "Hazmat can migrate this into ~/.hazmat/secrets/git-https/credentials during credential repair; rotate and remove old PATs if migration is not desired",
 				}}, nil
 			}
 		}
@@ -247,7 +247,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 			findings = append(findings, credentialInventoryFinding{
 				Path:   gitHTTPSAgentGitConfigPath,
 				Detail: "legacy persistent Git HTTPS credential helper",
-				Repair: "run `hazmat config agent` to remove the persistent helper; Hazmat now injects a brokered helper only while a native session runs",
+				Repair: "Hazmat can remove the persistent helper during credential repair; native sessions inject a brokered helper only while running",
 			})
 		}
 	case credentialGitSSHProvisionedIdentity:
@@ -258,7 +258,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 			findings = append(findings, credentialInventoryFinding{
 				Path:   legacyRoot,
 				Detail: "legacy provisioned Git SSH key root",
-				Repair: "move provisioned key directories into ~/.hazmat/secrets/git-ssh/provisioned/ or re-add them with the typed SSH inventory",
+				Repair: "Move provisioned key directories into ~/.hazmat/secrets/git-ssh/provisioned/ through the typed SSH inventory before removing the legacy root",
 			})
 		}
 	case credentialCloudS3AccessKeyID:
@@ -266,7 +266,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 			findings = append(findings, credentialInventoryFinding{
 				Path:   configFilePath,
 				Detail: "legacy cloud access key field",
-				Repair: "run `hazmat config cloud` or load the cloud config once to migrate the access key into ~/.hazmat/secrets/cloud/s3-access-key-id",
+				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/s3-access-key-id during credential repair so the legacy field is no longer authoritative",
 			})
 		}
 	case credentialCloudKopiaRecovery:
@@ -278,7 +278,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 			findings = append(findings, credentialInventoryFinding{
 				Path:   configFilePath,
 				Detail: "legacy cloud " + field + " field",
-				Repair: "run `hazmat config cloud` or load the cloud config once to migrate the recovery key into ~/.hazmat/secrets/cloud/kopia-recovery-key",
+				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/kopia-recovery-key during credential repair so the legacy field is no longer authoritative",
 			})
 		}
 	case credentialCloudS3SecretKey:
@@ -288,7 +288,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 			findings = append(findings, credentialInventoryFinding{
 				Path:   cloudCredentialPath,
 				Detail: "legacy cloud secret key file",
-				Repair: "run `hazmat config cloud` or the next cloud backup/restore command to migrate the secret key into ~/.hazmat/secrets/cloud/s3-secret-key",
+				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/s3-secret-key during credential repair so the legacy file is no longer authoritative",
 			})
 		}
 	case credentialProviderAnthropicAPIKey,
@@ -333,7 +333,7 @@ func inspectLegacyProviderExport(envVar string) (optionalCredentialInventoryFind
 				value: credentialInventoryFinding{
 					Path:   agentZshrcPath,
 					Detail: "legacy agent-home provider API-key export",
-					Repair: "run `hazmat config agent` or launch the matching harness once to migrate the API key into ~/.hazmat/secrets/providers/ and remove the old export",
+					Repair: "Hazmat can migrate this into ~/.hazmat/secrets/providers/ during credential repair; remove the old export only after verifying the host store",
 				},
 				present: true,
 			}, nil

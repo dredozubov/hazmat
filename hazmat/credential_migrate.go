@@ -27,6 +27,26 @@ type migrateCredentialsOptions struct {
 	DryRun bool
 	Writer io.Writer
 	Home   string
+	Scope  credentialMigrationScope
+}
+
+type credentialMigrationScope string
+
+const (
+	credentialMigrationScopeAll         credentialMigrationScope = ""
+	credentialMigrationScopeCloud       credentialMigrationScope = "cloud"
+	credentialMigrationScopeClaudeState credentialMigrationScope = "claude-state"
+)
+
+func credentialMigrationScopeForRepairAction(actionID diagnosticRepairActionID) credentialMigrationScope {
+	switch actionID {
+	case "repair.credential.cloud-secret-key":
+		return credentialMigrationScopeCloud
+	case "repair.credential.claude-state":
+		return credentialMigrationScopeClaudeState
+	default:
+		return credentialMigrationScopeAll
+	}
 }
 
 type migrateCredentialEventKind string
@@ -105,11 +125,24 @@ func runMigrateCredentials(opts migrateCredentialsOptions) error {
 	}
 
 	report := &migrateCredentialsReport{}
-	migrateCredentialProviderAPIKeys(opts.DryRun, report)
-	migrateCredentialHarnessAuth(home, opts.DryRun, report)
-	migrateCredentialGitHTTPS(home, opts.DryRun, report)
-	migrateCredentialCloud(opts.DryRun, report)
-	migrateCredentialProvisionedGitSSH(opts.DryRun, report)
+	switch opts.Scope {
+	case credentialMigrationScopeCloud:
+		migrateCredentialCloud(opts.DryRun, report)
+	case credentialMigrationScopeClaudeState:
+		migrateCredentialHarnessAuthArtifacts(
+			[]harnessAuthArtifact{claudeStateHarnessAuthArtifact(home)},
+			opts.DryRun,
+			report,
+		)
+	case credentialMigrationScopeAll:
+		migrateCredentialProviderAPIKeys(opts.DryRun, report)
+		migrateCredentialHarnessAuth(home, opts.DryRun, report)
+		migrateCredentialGitHTTPS(home, opts.DryRun, report)
+		migrateCredentialCloud(opts.DryRun, report)
+		migrateCredentialProvisionedGitSSH(opts.DryRun, report)
+	default:
+		return fmt.Errorf("unknown credential migration scope %q", opts.Scope)
+	}
 	reportCredentialMigrationBoundaries(report)
 
 	renderMigrateCredentialsReport(w, opts.DryRun, report)
@@ -247,27 +280,31 @@ func migrateCredentialProviderAPIKeys(dryRun bool, report *migrateCredentialsRep
 func migrateCredentialHarnessAuth(home string, dryRun bool, report *migrateCredentialsReport) {
 	for _, harness := range credentialMigrationHarnesses {
 		artifacts := credentialMigrationHarnessAuthArtifactsForHome(harness, home)
-		if dryRun {
-			notes, errs := previewHarnessAuthArtifactMigration(artifacts)
-			for _, err := range errs {
-				report.err("harness-auth", err)
-			}
-			for _, note := range notes {
-				report.action("harness-auth", note)
-			}
-			continue
-		}
+		migrateCredentialHarnessAuthArtifacts(artifacts, dryRun, report)
+	}
+}
 
-		var notes []string
-		if err := migrateHarnessAuthArtifacts(artifacts, func(note string) {
-			notes = append(notes, note)
-		}); err != nil {
+func migrateCredentialHarnessAuthArtifacts(artifacts []harnessAuthArtifact, dryRun bool, report *migrateCredentialsReport) {
+	if dryRun {
+		notes, errs := previewHarnessAuthArtifactMigration(artifacts)
+		for _, err := range errs {
 			report.err("harness-auth", err)
-			continue
 		}
 		for _, note := range notes {
 			report.action("harness-auth", note)
 		}
+		return
+	}
+
+	var notes []string
+	if err := migrateHarnessAuthArtifacts(artifacts, func(note string) {
+		notes = append(notes, note)
+	}); err != nil {
+		report.err("harness-auth", err)
+		return
+	}
+	for _, note := range notes {
+		report.action("harness-auth", note)
 	}
 }
 

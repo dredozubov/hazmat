@@ -530,11 +530,13 @@ func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportIt
 		case err == nil && equal:
 			status = claudeImportUnchanged
 		case err == nil:
-			if _, statErr := os.Lstat(dest); statErr == nil {
+			if _, statErr := os.Lstat(dest); statErr == nil || os.IsPermission(statErr) {
 				status = claudeImportConflict
 			}
 		case os.IsNotExist(err):
 			status = claudeImportNew
+		case os.IsPermission(err):
+			status = claudeImportConflict
 		default:
 			return nil, nil, fmt.Errorf("compare %s import %s: %w", category, name, err)
 		}

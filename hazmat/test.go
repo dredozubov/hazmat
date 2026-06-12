@@ -225,12 +225,12 @@ func testDevGroupAndWorkspace(ui *UI, currentUser string) {
 	if outcome, err := ensureProjectWritable(workspaceDir); err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingWorkspaceAccess),
-			fmt.Sprintf("check workspace ACL repair failed: %v", err),
+			fmt.Sprintf("check workspace fixture preparation failed: %v", err),
 			fmt.Sprintf("workspace: %s", workspaceDir),
 		)
 		return
 	} else if outcome.Fixed {
-		ui.TestPass("Check workspace ACL repair applied successfully")
+		ui.TestPass("Check workspace fixture prepared for host/agent write probes")
 	} else {
 		ui.TestPass("Check workspace ACL already healthy")
 	}
@@ -373,7 +373,7 @@ func testUserIsolation(ui *UI, currentUser string) {
 		f.Close()
 		ui.TestWarnFinding(
 			diagnosticFinding(findingAgentHomeReadable),
-			fmt.Sprintf("%s can read %s's .zshrc — consider: chmod 700 %s", currentUser, agentUser, agentHome),
+			fmt.Sprintf("%s can read %s's .zshrc; agent home privacy needs a modeled repair boundary", currentUser, agentUser),
 		)
 	} else {
 		ui.TestPass(fmt.Sprintf("%s cannot read files inside %s's home", currentUser, agentUser))
@@ -751,7 +751,7 @@ func testAgentTools(ui *UI) {
 			if source == configuredAPIKeySourceLegacy {
 				ui.TestWarnFinding(
 					diagnosticFinding(findingAnthropicAPIKey),
-					fmt.Sprintf("ANTHROPIC_API_KEY still lives in %s — rerun 'hazmat config agent' or launch 'hazmat claude' once to migrate it into ~/.hazmat/secrets", agentZshrcPath),
+					fmt.Sprintf("ANTHROPIC_API_KEY still lives in %s; Hazmat credential repair can migrate it into ~/.hazmat/secrets when Claude API-key sessions are needed", agentZshrcPath),
 				)
 			} else {
 				ui.TestPass("ANTHROPIC_API_KEY is stored in Hazmat's host-owned secret store")
@@ -811,8 +811,8 @@ func testAgentTools(ui *UI) {
 				} else {
 					ui.TestWarnFinding(
 						diagnosticFinding(findingClaudeProjectPermissions),
-						fmt.Sprintf("%s is not group-writable — resume sync will fail (mode %04o); fix with: sudo chmod 2770 %s", subdir, info.Mode().Perm(), subdir),
-						subdir,
+						fmt.Sprintf("%s is not group-writable; resume sync will fail (mode %04o)", subdir, info.Mode().Perm()),
+						fmt.Sprintf("path: %s", subdir),
 					)
 				}
 			}

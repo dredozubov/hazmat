@@ -13,14 +13,14 @@ func TestUIRecommendationsGroupClaudeProjectPermissions(t *testing.T) {
 	ui.recordTypedFinding(
 		uiFindingWarning,
 		diagnosticFinding(findingClaudeProjectPermissions),
-		"/Users/agent/.claude/projects/a is not group-writable — resume sync will fail (mode 0755); fix with: sudo chmod 2770 /Users/agent/.claude/projects/a",
-		"/Users/agent/.claude/projects/a",
+		"/Users/agent/.claude/projects/a is not group-writable; resume sync will fail (mode 0755)",
+		"path: /Users/agent/.claude/projects/a",
 	)
 	ui.recordTypedFinding(
 		uiFindingWarning,
 		diagnosticFinding(findingClaudeProjectPermissions),
-		"/Users/agent/.claude/projects/b is not group-writable — resume sync will fail (mode 0700); fix with: sudo chmod 2770 /Users/agent/.claude/projects/b",
-		"/Users/agent/.claude/projects/b",
+		"/Users/agent/.claude/projects/b is not group-writable; resume sync will fail (mode 0700)",
+		"path: /Users/agent/.claude/projects/b",
 	)
 
 	recommendations := ui.recommendations()
@@ -36,6 +36,11 @@ func TestUIRecommendationsGroupClaudeProjectPermissions(t *testing.T) {
 	}
 	if len(rec.Details) != 2 {
 		t.Fatalf("recommendation details = %v, want two affected paths", rec.Details)
+	}
+	for _, detail := range rec.Details {
+		if strings.Contains(detail, "sudo chmod") || !strings.HasPrefix(detail, "path: ") {
+			t.Fatalf("recommendation detail = %q, want structured path evidence without shell recipe", detail)
+		}
 	}
 }
 

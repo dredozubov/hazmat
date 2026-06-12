@@ -41,8 +41,6 @@ func (b *diagnosticHostRepairBackend) ApplyDiagnosticRepair(action diagnosticRep
 	switch action.ID {
 	case "repair.workspace.setgid", "repair.workspace.access":
 		err = b.applyWorkspaceRepair(item)
-	case "repair.agent-home.permissions":
-		err = b.applyAgentHomePermissions(r)
 	case "repair.agent-shell.umask":
 		err = b.applyAgentUmask(r)
 	case "repair.setup.agent-user":
@@ -68,7 +66,7 @@ func (b *diagnosticHostRepairBackend) ApplyDiagnosticRepair(action diagnosticRep
 	case "repair.network.persistence":
 		err = b.applyNetworkPersistence(r)
 	case "repair.credential.claude-state", "repair.credential.cloud-secret-key", "repair.credential.residue":
-		err = b.applyCredentialMigration()
+		err = b.applyCredentialMigration(action.ID)
 	case "repair.claude.project-permissions":
 		err = b.applyClaudeProjectPermissions(r, item)
 	default:
@@ -87,8 +85,6 @@ func (b *diagnosticHostRepairBackend) VerifyDiagnosticRepair(action diagnosticRe
 	switch action.Verification {
 	case "verify.workspace.setgid", "verify.workspace.access":
 		err = b.verifyWorkspaceRepair(item)
-	case "verify.agent-home.permissions":
-		err = verifyAgentHomePermissions()
 	case "verify.agent-shell.umask":
 		err = verifyAgentUmask()
 	case "verify.setup.agent-user":
@@ -166,16 +162,6 @@ func (b *diagnosticHostRepairBackend) verifyWorkspaceRepair(item diagnosticRepai
 		if projectNeedsACLRepair(target) {
 			return fmt.Errorf("workspace ACL still missing on %s", target)
 		}
-	}
-	return nil
-}
-
-func (b *diagnosticHostRepairBackend) applyAgentHomePermissions(r *Runner) error {
-	if err := r.Sudo("set agent home ownership", "chown", agentUser+":staff", agentHome); err != nil {
-		return fmt.Errorf("chown agent home: %w", err)
-	}
-	if err := r.Sudo("restrict agent home permissions", "chmod", "700", agentHome); err != nil {
-		return fmt.Errorf("chmod agent home: %w", err)
 	}
 	return nil
 }
@@ -280,12 +266,13 @@ func (b *diagnosticHostRepairBackend) applyNetworkPersistence(r *Runner) error {
 	return nil
 }
 
-func (b *diagnosticHostRepairBackend) applyCredentialMigration() error {
+func (b *diagnosticHostRepairBackend) applyCredentialMigration(actionID diagnosticRepairActionID) error {
 	var out bytes.Buffer
 	if err := runMigrateCredentials(migrateCredentialsOptions{
 		Home:   b.homeDir,
 		DryRun: flagDryRun,
 		Writer: &out,
+		Scope:  credentialMigrationScopeForRepairAction(actionID),
 	}); err != nil {
 		return err
 	}
@@ -304,17 +291,6 @@ func (b *diagnosticHostRepairBackend) applyClaudeProjectPermissions(r *Runner, i
 		if err := r.Sudo("set Claude project group-writable setgid permissions", "chmod", "2770", path); err != nil {
 			return fmt.Errorf("chmod Claude project dir %s: %w", path, err)
 		}
-	}
-	return nil
-}
-
-func verifyAgentHomePermissions() error {
-	info, err := os.Stat(agentHome)
-	if err != nil {
-		return fmt.Errorf("agent home missing: %w", err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("agent home permissions are %04o, want no group/other access", info.Mode().Perm())
 	}
 	return nil
 }
@@ -540,7 +516,7 @@ func dnsBlocklistFullyApplied() bool {
 
 func claudeProjectPermissionRepairPaths(item diagnosticRepairPlanItem) ([]string, error) {
 	root := filepath.Join(agentHome, ".claude", "projects")
-	return boundedRepairDirs(root, diagnosticRepairEvidencePaths(item))
+	return boundedRepairDirs(root, diagnosticRepairEvidencePaths(item, "path:"))
 }
 
 func boundedRepairDirs(root string, candidates []string) ([]string, error) {

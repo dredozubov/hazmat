@@ -359,6 +359,37 @@ func TestScanClaudeImportPlanSkipsBrokenPortableEntries(t *testing.T) {
 	}
 }
 
+func TestScanClaudeImportPlanTreatsInaccessibleAgentPortableDestAsConflict(t *testing.T) {
+	env := testClaudeImportEnv(t)
+
+	hostCommand := filepath.Join(t.TempDir(), "host-command.md")
+	writeTestFile(t, hostCommand, "host version\n")
+	if err := os.MkdirAll(env.hostCommandsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostCommand, filepath.Join(env.hostCommandsDir(), "create-prd.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(env.agentClaudeDir(), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(env.agentClaudeDir(), 0o755)
+	})
+
+	plan, err := scanClaudeImportPlan(env, nil)
+	if err != nil {
+		t.Fatalf("scanClaudeImportPlan: %v", err)
+	}
+	item, ok := plan.firstItem("command")
+	if !ok {
+		t.Fatalf("plan items = %+v, want command item", plan.Items)
+	}
+	if item.Status != claudeImportConflict {
+		t.Fatalf("command status = %s, want %s for inaccessible agent destination", item.Status, claudeImportConflict)
+	}
+}
+
 func TestResolveConflictsFailsWithoutExplicitPolicy(t *testing.T) {
 	env := testClaudeImportEnv(t)
 

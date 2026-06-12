@@ -459,7 +459,7 @@ func updateAgentFile(path string, transform func(string) string, _ os.FileMode) 
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
-		return fmt.Errorf("open %s for writing: %w (run 'hazmat init' to fix permissions)", path, err)
+		return fmt.Errorf("open %s for writing: %w; agent file permissions are not writable by the host collaboration group", path, err)
 	}
 	defer f.Close()
 

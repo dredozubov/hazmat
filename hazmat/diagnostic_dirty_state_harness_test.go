@@ -170,7 +170,7 @@ func TestDiagnosticFakeHostStateCurrentCheckWarningScenarios(t *testing.T) {
 		status string
 	}{
 		{"setgid inheritance drift", findingWorkspaceSetgid, "repair", "planned"},
-		{"agent home permissions drift", findingAgentHomeReadable, "repair", "planned"},
+		{"agent home permissions drift", findingAgentHomeReadable, "manual", string(diagnosticRepairUnsupported)},
 		{"missing agent umask", findingAgentUmask, "repair", "planned"},
 		{"stale Claude state", findingCredentialClaudeStateResidue, "repair", "planned"},
 		{"legacy cloud secret key", findingCredentialCloudSecretKeyLegacy, "repair", "planned"},
@@ -516,7 +516,7 @@ func (s *diagnosticFakeHostState) probeFindings() []uiFinding {
 		add(uiFindingWarning, findingAnthropicAPIKey, "fake Anthropic API key is not configured")
 	}
 	if claudeACL := s.ACLs[s.claudeProj]; !claudeACL.GroupWritable {
-		add(uiFindingWarning, findingClaudeProjectPermissions, "fake Claude project directory is not group-writable", s.claudeProj)
+		add(uiFindingWarning, findingClaudeProjectPermissions, "fake Claude project directory is not group-writable", "path: "+s.claudeProj)
 	}
 	if integration := s.Integrations["beads"]; !integration.ToolchainResolved {
 		add(uiFindingWarning, findingIntegrationToolchain, "fake beads toolchain metadata is unresolved")
@@ -556,10 +556,6 @@ func (s *diagnosticFakeHostState) applyRepair(action diagnosticRepairActionID) d
 		acl.GroupWritable = true
 		acl.AgentCanTraverse = true
 		s.ACLs[s.projectPath] = acl
-	case "repair.agent-home.permissions":
-		file := s.Files[s.agentHome]
-		file.Private = true
-		s.Files[s.agentHome] = file
 	case "repair.agent-shell.umask":
 		file := s.Files[s.agentHome+"/.zshrc"]
 		file.Exists = true

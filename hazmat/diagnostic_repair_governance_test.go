@@ -71,7 +71,6 @@ func TestRepairActionsDeclareExpectedTLALanes(t *testing.T) {
 	}{
 		{"repair.workspace.setgid", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback}},
 		{"repair.workspace.access", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback, diagnosticRepairProofTLASessionPermissionRepairs}},
-		{"repair.agent-home.permissions", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback}},
 		{"repair.agent-shell.umask", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback}},
 		{"repair.network.pf", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback}},
 		{"repair.network.dns-blocklist", []diagnosticRepairProofLane{diagnosticRepairProofTLASetupRollback}},

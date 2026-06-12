@@ -309,6 +309,50 @@ func TestMigrateCredentialsMigratesCloudSecretsAndScrubsConfig(t *testing.T) {
 	}
 }
 
+func TestMigrateCredentialsCloudScopeDoesNotReadHarnessResidue(t *testing.T) {
+	home := isolateCredentialMigrationTest(t)
+	const secretKey = "legacy-secret-do-not-print"
+
+	if err := os.MkdirAll(filepath.Dir(cloudCredentialPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cloudCredentialPath, []byte(secretKey+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	credentialMigrationHarnesses = []HarnessID{HarnessCodex}
+	harnessRead := false
+	credentialMigrationHarnessAuthArtifactsForHome = func(HarnessID, string) []harnessAuthArtifact {
+		harnessRead = true
+		return []harnessAuthArtifact{{
+			Name: "unrelated harness residue",
+			ReadAgent: func(string) (harnessAuthData, bool, error) {
+				t.Fatal("cloud-scoped migration read harness residue")
+				return nil, false, nil
+			},
+		}}
+	}
+
+	var out bytes.Buffer
+	err := runMigrateCredentials(migrateCredentialsOptions{
+		Home:   home,
+		Writer: &out,
+		Scope:  credentialMigrationScopeCloud,
+	})
+	if err != nil {
+		t.Fatalf("runMigrateCredentials cloud scope: %v", err)
+	}
+	if harnessRead {
+		t.Fatal("cloud-scoped migration requested harness artifacts")
+	}
+	raw, err := os.ReadFile(mustCredentialStorePathForHome(home, credentialCloudS3SecretKey))
+	if err != nil {
+		t.Fatalf("read cloud secret store: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) != secretKey {
+		t.Fatalf("cloud secret store = %q, want migrated secret", strings.TrimSpace(string(raw)))
+	}
+}
+
 func TestMigrateCredentialsMovesLegacyProvisionedGitSSHRoot(t *testing.T) {
 	home := isolateCredentialMigrationTest(t)
 	const privateKey = "private-key-do-not-print"
