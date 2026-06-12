@@ -25,8 +25,9 @@ Options:
   --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
   -h, --help                Show this help.
 
-This smoke is sudo-adjacent because the live run uses Hazmat native helper-backed
-containment. Agents must ask before running it.
+This smoke is sudo-adjacent. The live run uses Hazmat native helper-backed
+containment, and --check-prereqs performs a non-interactive sudo capability
+probe with sudo -n. Agents must ask before running either command.
 EOF
 }
 

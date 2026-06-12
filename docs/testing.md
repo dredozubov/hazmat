@@ -165,7 +165,8 @@ path. It starts a native `hazmat exec` session with
 point under `/private/tmp/hazmat-home`, writes to the disposable home, and runs
 go, npm, pip, cargo, and git probes inside the contained session.
 
-First check whether the current host is prepared:
+First check whether the current host is prepared. This is also approval-gated
+because it probes passwordless sudo availability with `sudo -n`:
 
 ```bash
 scripts/check-session-home-activation-smoke.sh --check-prereqs
@@ -184,8 +185,9 @@ use:
 scripts/check-session-home-activation-smoke.sh --skip-if-missing-prereqs
 ```
 
-This is a live native Hazmat smoke. It may exercise helper-backed launch
-behavior and must not be run by agents without explicit approval.
+This is a live native Hazmat smoke. Its prerequisite mode and live mode may
+exercise sudo-adjacent host capability checks or helper-backed launch behavior,
+so agents must ask for explicit approval before running either command.
 
 ### Adding Credential Surfaces
 
