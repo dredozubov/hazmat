@@ -50,6 +50,7 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".config/devin", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".kimi-code", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".kimi", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".kiro", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},
