@@ -22,6 +22,7 @@ the permission-repair subset still needs a precise modeled contract:
 |------|-----------|
 | `hazmat/session_mutation.go` | `buildNativeSessionMutationPlan()`, `mergeSessionMutationPlans()`, `executeSessionMutationPlan()` |
 | `hazmat/workspace_acl.go` | `projectNeedsACLRepair()`, `pendingAgentTraverseTargets()`, `ensureProjectWritable()`, `ensureAgentCanTraverseExposedDirs()` |
+| `hazmat/repair.go` | explicit `hazmat repair project-acl-backfill` operator path |
 | `hazmat/git_preflight.go` | `collectGitPermissionProblems()`, `ensureGitMetadataHealthy()` |
 | `hazmat/integration_resolver.go` | `planHomebrewToolAccessRepair()`, `repairHomebrewToolAccessImpl()` |
 | `hazmat/session.go` | `resolvePreparedSession()`, `beginPreparedSession()` |
@@ -47,6 +48,8 @@ It treats the host as a finite permission state:
 - each repair class may or may not currently be needed
 - full-tree project backfill may independently be needed, but it does not
   drive launch-time mutation planning
+- an operator may explicitly run full-tree project backfill while the model
+  keeps that action outside the automatic session mutation set
 - Homebrew repair has an extra eligibility bit that represents the
   invoker-owned Cellar-root requirement
 - the session mode is `native` or `docker`
@@ -89,8 +92,8 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `31,326 states generated`
-- `13,268 distinct states found`
+- `47,501 states generated`
+- `19,902 distinct states found`
 - `depth 7`
 - `Finished in <1s`
 
@@ -103,7 +106,8 @@ CLI now presents to users:
 - preview is non-mutating
 - native and Docker modes plan different repair classes intentionally
 - project ACL startup repair is bounded; expensive historical backfill stays
-  outside automatic launch planning
+  outside automatic launch planning and is available only through an explicit
+  operator command
 - Homebrew repair is not a generic escape hatch
 - rollback leaves these session-time permission changes in place
 

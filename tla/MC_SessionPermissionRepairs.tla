@@ -34,6 +34,7 @@ VARIABLES
     sessionMode,
     projectBroken,
     projectBackfillNeeded,
+    backfillApplied,
     traverseBroken,
     gitBroken,
     homebrewBroken,
@@ -48,6 +49,7 @@ vars ==
        sessionMode,
        projectBroken,
        projectBackfillNeeded,
+       backfillApplied,
        traverseBroken,
        gitBroken,
        homebrewBroken,
@@ -59,6 +61,9 @@ vars ==
 
 NeedsProject(repairSet) ==
     projectBroken /\ ProjectACL \notin repairSet
+
+NeedsProjectBackfill ==
+    projectBackfillNeeded /\ ~backfillApplied
 
 NeedsTraverse(repairSet) ==
     traverseBroken /\ TraverseACL \notin repairSet
@@ -85,6 +90,8 @@ Init ==
     /\ sessionMode = "unset"
     /\ projectBroken \in BOOLEAN
     /\ projectBackfillNeeded \in BOOLEAN
+    /\ backfillApplied \in BOOLEAN
+    /\ backfillApplied => ~projectBackfillNeeded
     /\ traverseBroken \in BOOLEAN
     /\ gitBroken \in BOOLEAN
     /\ homebrewBroken \in BOOLEAN
@@ -103,6 +110,7 @@ Preview(m) ==
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
                     projectBackfillNeeded,
+                    backfillApplied,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -119,6 +127,7 @@ PlanLaunch(m) ==
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
                     projectBackfillNeeded,
+                    backfillApplied,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -134,6 +143,7 @@ ApplyRepair(r) ==
                     sessionMode,
                     projectBroken,
                     projectBackfillNeeded,
+                    backfillApplied,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -150,6 +160,7 @@ Launch ==
     /\ UNCHANGED << sessionMode,
                     projectBroken,
                     projectBackfillNeeded,
+                    backfillApplied,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -166,6 +177,7 @@ Rollback ==
     /\ UNCHANGED << sessionMode,
                     projectBroken,
                     projectBackfillNeeded,
+                    backfillApplied,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -174,6 +186,23 @@ Rollback ==
                     planned,
                     baseApplied >>
 
+OperatorProjectBackfill ==
+    /\ phase = "idle"
+    /\ NeedsProjectBackfill
+    /\ projectBroken' = FALSE
+    /\ projectBackfillNeeded' = FALSE
+    /\ backfillApplied' = TRUE
+    /\ UNCHANGED << phase,
+                    sessionMode,
+                    traverseBroken,
+                    gitBroken,
+                    homebrewBroken,
+                    homebrewEligible,
+                    applied,
+                    planned,
+                    baseApplied,
+                    rollbackSnapshot >>
+
 Stutter ==
     UNCHANGED vars
 
@@ -181,6 +210,7 @@ Next ==
     \/ \E m \in {"native", "docker"} : Preview(m)
     \/ \E m \in {"native", "docker"} : PlanLaunch(m)
     \/ \E r \in Mutations : ApplyRepair(r)
+    \/ OperatorProjectBackfill
     \/ Launch
     \/ Rollback
     \/ Stutter
@@ -193,6 +223,8 @@ TypeOK ==
     /\ sessionMode \in SessionModes
     /\ projectBroken \in BOOLEAN
     /\ projectBackfillNeeded \in BOOLEAN
+    /\ backfillApplied \in BOOLEAN
+    /\ backfillApplied => ~projectBackfillNeeded
     /\ traverseBroken \in BOOLEAN
     /\ gitBroken \in BOOLEAN
     /\ homebrewBroken \in BOOLEAN

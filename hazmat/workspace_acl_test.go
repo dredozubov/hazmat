@@ -725,6 +725,110 @@ func TestApplyDevACLStartupRepairIsBounded(t *testing.T) {
 	}
 }
 
+func TestCollectProjectACLBackfillTargetsIncludesDeepFilesAndSkipsSymlinks(t *testing.T) {
+	projectDir := t.TempDir()
+	deepDir := filepath.Join(projectDir, "pkg", "deep", "deeper")
+	deepFile := filepath.Join(deepDir, "file.go")
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatalf("mkdir deep tree: %v", err)
+	}
+	if err := os.WriteFile(deepFile, []byte("package pkg"), 0o644); err != nil {
+		t.Fatalf("write deep file: %v", err)
+	}
+	symlinkPath := filepath.Join(projectDir, "linked-file")
+	if err := os.Symlink(deepFile, symlinkPath); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	targets := collectProjectACLBackfillTargets(projectDir)
+
+	if !containsPath(targets.Dirs, deepDir) {
+		t.Fatalf("backfill dirs missing %s in %v", deepDir, targets.Dirs)
+	}
+	if !containsPath(targets.Files, deepFile) {
+		t.Fatalf("backfill files missing %s in %v", deepFile, targets.Files)
+	}
+	if containsPath(targets.Files, symlinkPath) || containsPath(targets.Dirs, symlinkPath) {
+		t.Fatalf("backfill targets should skip symlink %s: dirs=%v files=%v", symlinkPath, targets.Dirs, targets.Files)
+	}
+}
+
+func TestRunProjectACLBackfillDryRunDoesNotChmod(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "file.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	var out strings.Builder
+	if err := runProjectACLBackfillCommand(projectACLBackfillOptions{
+		Project: projectDir,
+		DryRun:  true,
+		Out:     &out,
+	}); err != nil {
+		t.Fatalf("dry-run backfill: %v", err)
+	}
+	if len(backend.chmods) != 0 {
+		t.Fatalf("dry-run chmods = %v, want none", backend.chmods)
+	}
+	if !strings.Contains(out.String(), "Dry run: no ACLs changed") {
+		t.Fatalf("dry-run output missing no-change notice:\n%s", out.String())
+	}
+}
+
+func TestRunProjectACLBackfillYesAppliesDeepFile(t *testing.T) {
+	projectDir := t.TempDir()
+	deepFile := filepath.Join(projectDir, "pkg", "deep", "deeper", "file.go")
+	if err := os.MkdirAll(filepath.Dir(deepFile), 0o755); err != nil {
+		t.Fatalf("mkdir deep tree: %v", err)
+	}
+	if err := os.WriteFile(deepFile, []byte("package pkg"), 0o644); err != nil {
+		t.Fatalf("write deep file: %v", err)
+	}
+
+	backend := &batchRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	var out strings.Builder
+	if err := runProjectACLBackfillCommand(projectACLBackfillOptions{
+		Project: projectDir,
+		YesAll:  true,
+		Out:     &out,
+	}); err != nil {
+		t.Fatalf("apply backfill: %v", err)
+	}
+	resolvedProjectDir, err := resolveDir(projectDir, true)
+	if err != nil {
+		t.Fatalf("resolve project dir: %v", err)
+	}
+	resolvedDeepFile := filepath.Join(resolvedProjectDir, "pkg", "deep", "deeper", "file.go")
+
+	var chmodArgs []string
+	for _, args := range backend.chmods {
+		chmodArgs = append(chmodArgs, args...)
+	}
+	if !containsPath(chmodArgs, resolvedDeepFile) {
+		t.Fatalf("backfill chmods missing deep file %s; chmods=%v", resolvedDeepFile, backend.chmods)
+	}
+	if !strings.Contains(out.String(), "Applied ACLs") {
+		t.Fatalf("apply output missing summary:\n%s", out.String())
+	}
+}
+
 func BenchmarkProjectACLStartupRepairLargeTree(b *testing.B) {
 	projectDir := b.TempDir()
 	for dirIdx := 0; dirIdx < 150; dirIdx++ {

@@ -515,6 +515,19 @@ other setup resources. It should converge those resources or report a specific
 blocker; it is not the generic answer to every `check` finding. After init,
 use `hazmat check` or `hazmat doctor` to inspect remaining drift.
 
+Historical project ACL backfill is explicit because it can be proportional to
+repo size. Normal launches repair only a bounded shallow ACL set. To preview or
+run the full recursive project repair:
+
+```bash
+hazmat repair project-acl-backfill --dry-run -C ~/workspace/my-app
+hazmat repair project-acl-backfill --yes -C ~/workspace/my-app
+```
+
+The backfill command does not use sudo. It applies the collaborative project ACL
+to non-symlink directories and regular files under the selected project, and it
+remains outside automatic launch planning.
+
 `hazmat rollback` removes Hazmat-owned setup state. It does not promise to erase
 user data, project files, host-owned credential stores, or session-time
 permission repairs that the verified session-repair contract intentionally

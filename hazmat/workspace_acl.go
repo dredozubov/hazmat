@@ -334,7 +334,56 @@ func collectProjectACLStartupTargets(root string) projectACLTargetCollection {
 	return result
 }
 
+// collectProjectACLBackfillTargets returns every existing non-symlink regular
+// file and directory under root for an explicit operator-invoked backfill.
+func collectProjectACLBackfillTargets(root string) projectACLTargetCollection {
+	var result projectACLTargetCollection
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", path, err))
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+
+		result.EntriesScanned++
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			result.Dirs = append(result.Dirs, path)
+			return nil
+		}
+
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", path, infoErr))
+			return nil
+		}
+		if info.Mode().IsRegular() {
+			result.Files = append(result.Files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", root, err))
+	}
+	return result
+}
+
 func applyDevACLStartupRepairResult(root string) aclTreeApplyResult {
+	return applyDevACLRepairTargetCollection(root, collectProjectACLStartupTargets(root))
+}
+
+func applyDevACLBackfillRepairResult(root string, targets projectACLTargetCollection) aclTreeApplyResult {
+	return applyDevACLRepairTargetCollection(root, targets)
+}
+
+func applyDevACLRepairTargetCollection(root string, targets projectACLTargetCollection) aclTreeApplyResult {
 	var result aclTreeApplyResult
 	var failures []string
 	inv := directACLInvoker{}
@@ -345,7 +394,6 @@ func applyDevACLStartupRepairResult(root string) aclTreeApplyResult {
 		result.Targets++
 	}
 
-	targets := collectProjectACLStartupTargets(root)
 	result.EntriesScanned = targets.EntriesScanned
 	result.Truncated = targets.Truncated
 	failures = append(failures, targets.Failures...)

@@ -78,6 +78,7 @@ func NewRootCommand() *cobra.Command {
 			withUpdateNotifications(newRollbackCmd()),
 			withUpdateNotifications(diagnostics.NewCheckCommand(runTest)),
 			withUpdateNotifications(diagnostics.NewDoctorCommand(runTest)),
+			withUpdateNotifications(newRepairCmd()),
 			newSandboxCmd(),
 		},
 		Run: []*cobra.Command{

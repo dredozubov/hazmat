@@ -188,8 +188,10 @@ provided, otherwise the current working directory.
 repair bounded collaborative ACLs on the project root and shallow existing
 paths, `.git` metadata, or ancestor paths needed to traverse explicitly exposed
 directories. Project ACL repair is deliberately not a full-tree historical
-backfill on the startup critical path. With Homebrew-backed integration
-resolution enabled, Hazmat may also plan a narrow toolchain permission repair
+backfill on the startup critical path; users who need the full historical
+repair run `hazmat repair project-acl-backfill` explicitly. With
+Homebrew-backed integration resolution enabled, Hazmat may also plan a narrow
+toolchain permission repair
 under a Homebrew Cellar path when local mode bits would otherwise block the
 agent user. For external repos, Hazmat may also add the active repository root
 to the agent user's Git `safe.directory` list so agent-side build tools can
