@@ -1407,7 +1407,16 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 			return executeSessionMutationPlan(prepared.HostMutationPlan)
 		},
 		snapshot: func(skip bool) {
-			preSessionSnapshot(prepared.Config, commandName, skip)
+			backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
+				ProjectDir:     prepared.Config.ProjectDir,
+				Command:        commandName,
+				BackupExcludes: prepared.Config.BackupExcludes,
+				Skip:           skip,
+				Snapshot:       snapshotProject,
+			})
+		},
+		runtimeLaunch: func() error {
+			return nil
 		},
 	})
 }
@@ -1416,6 +1425,7 @@ type sessionStartupActions struct {
 	renderContract       func()
 	executeHostMutations func() error
 	snapshot             func(skip bool)
+	runtimeLaunch        func() error
 }
 
 func runSessionStartupPhases(plan sessionflow.Plan, actions sessionStartupActions) error {
@@ -1439,6 +1449,12 @@ func runSessionStartupPhases(plan sessionflow.Plan, actions sessionStartupAction
 			}
 			actions.snapshot(phase.SnapshotSkipped())
 		case sessionflow.PhaseRuntimeLaunch:
+			if actions.runtimeLaunch == nil {
+				return fmt.Errorf("session startup runtime launch action is not configured")
+			}
+			if err := actions.runtimeLaunch(); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unsupported session startup phase %q", phase.Kind())
 		}

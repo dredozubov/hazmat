@@ -18,7 +18,7 @@ func TestRunSessionStartupPhasesExecutesPlannedOrder(t *testing.T) {
 		{
 			name:  "native default",
 			input: sessionflow.Input{Mode: sessionmeta.ModeNative},
-			want:  []string{"render", "snapshot:false", "mutate"},
+			want:  []string{"render", "snapshot:false", "mutate", "launch"},
 		},
 		{
 			name: "native preflight before snapshot",
@@ -26,12 +26,12 @@ func TestRunSessionStartupPhasesExecutesPlannedOrder(t *testing.T) {
 				Mode:                    sessionmeta.ModeNative,
 				PreflightBeforeSnapshot: true,
 			},
-			want: []string{"render", "mutate", "snapshot:false"},
+			want: []string{"render", "mutate", "snapshot:false", "launch"},
 		},
 		{
 			name:  "docker",
 			input: sessionflow.Input{Mode: sessionmeta.ModeDockerSandbox},
-			want:  []string{"render", "mutate", "snapshot:false"},
+			want:  []string{"render", "mutate", "snapshot:false", "launch"},
 		},
 		{
 			name: "skip snapshot",
@@ -39,7 +39,7 @@ func TestRunSessionStartupPhasesExecutesPlannedOrder(t *testing.T) {
 				Mode:         sessionmeta.ModeNative,
 				SkipSnapshot: true,
 			},
-			want: []string{"render", "snapshot:true", "mutate"},
+			want: []string{"render", "snapshot:true", "mutate", "launch"},
 		},
 	}
 
@@ -64,6 +64,10 @@ func TestRunSessionStartupPhasesExecutesPlannedOrder(t *testing.T) {
 					} else {
 						got = append(got, "snapshot:false")
 					}
+				},
+				runtimeLaunch: func() error {
+					got = append(got, "launch")
+					return nil
 				},
 			})
 			if err != nil {
@@ -97,6 +101,10 @@ func TestRunSessionStartupPhasesStopsOnMutationError(t *testing.T) {
 		snapshot: func(bool) {
 			got = append(got, "snapshot")
 		},
+		runtimeLaunch: func() error {
+			got = append(got, "launch")
+			return nil
+		},
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want %v", err, wantErr)
@@ -113,5 +121,20 @@ func TestRunSessionStartupPhasesRequiresActions(t *testing.T) {
 	}
 	if err := runSessionStartupPhases(plan, sessionStartupActions{}); err == nil {
 		t.Fatal("runSessionStartupPhases succeeded without actions")
+	}
+}
+
+func TestRunSessionStartupPhasesRequiresRuntimeLaunchAction(t *testing.T) {
+	plan, err := sessionflow.New(sessionflow.Input{Mode: sessionmeta.ModeDockerSandbox})
+	if err != nil {
+		t.Fatalf("sessionflow.New: %v", err)
+	}
+	err = runSessionStartupPhases(plan, sessionStartupActions{
+		renderContract:       func() {},
+		executeHostMutations: func() error { return nil },
+		snapshot:             func(bool) {},
+	})
+	if err == nil {
+		t.Fatal("runSessionStartupPhases succeeded without runtime launch action")
 	}
 }
