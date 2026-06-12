@@ -1,9 +1,11 @@
 package hazmat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -745,6 +747,95 @@ func TestMaterializeSessionHomeLaunchPlanReturnsCheckedWritebackReceipts(t *test
 	}
 	if string(got) != "state\n" {
 		t.Fatalf("checked runtime path = %q", got)
+	}
+}
+
+func TestMaterializeSessionHomeLaunchPlanForNativeActivationUsesAgentHooks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlanWithBlockerInspector(root, "session-123", persistentHome, true, func(string) (bool, error) {
+		return false, nil
+	}, false)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlanWithBlockerInspector: %v", err)
+	}
+
+	var ensured []string
+	var copied [][2]string
+	var linked [][2]string
+	savedEnsure := sessionHomeAgentEnsureDir
+	sessionHomeAgentEnsureDir = func(path string, mode os.FileMode) error {
+		ensured = append(ensured, fmt.Sprintf("%s:%04o", path, mode))
+		return nil
+	}
+	t.Cleanup(func() { sessionHomeAgentEnsureDir = savedEnsure })
+	savedCopy := sessionHomeAgentCopyPath
+	sessionHomeAgentCopyPath = func(src, dest string) error {
+		copied = append(copied, [2]string{src, dest})
+		return nil
+	}
+	t.Cleanup(func() { sessionHomeAgentCopyPath = savedCopy })
+	savedSymlink := sessionHomeAgentSymlink
+	sessionHomeAgentSymlink = func(target, link string) error {
+		linked = append(linked, [2]string{target, link})
+		return nil
+	}
+	t.Cleanup(func() { sessionHomeAgentSymlink = savedSymlink })
+
+	result, err := materializeSessionHomeLaunchPlanForNativeActivation(plan)
+	if err != nil {
+		t.Fatalf("materializeSessionHomeLaunchPlanForNativeActivation: %v", err)
+	}
+	if len(result.CheckedWritebackReceipts) != 0 {
+		t.Fatalf("CheckedWritebackReceipts = %+v, want none", result.CheckedWritebackReceipts)
+	}
+	if _, err := os.Stat(plan.Layout.MarkerPath); err != nil {
+		t.Fatalf("stat marker: %v", err)
+	}
+	for _, want := range []string{
+		fmt.Sprintf("%s:%04o", plan.Layout.Home, 0o700),
+		fmt.Sprintf("%s:%04o", plan.Layout.CacheHome, 0o700),
+		fmt.Sprintf("%s:%04o", filepath.Join(persistentHome, ".claude", "projects"), 0o700),
+		fmt.Sprintf("%s:%04o", filepath.Join(persistentHome, ".hazmat", "hermes", "projects"), 0o700),
+	} {
+		if !slices.Contains(ensured, want) {
+			t.Fatalf("ensured dirs = %#v, missing %s", ensured, want)
+		}
+	}
+	if !slices.Contains(copied, [2]string{
+		filepath.Join(persistentHome, ".zshrc"),
+		filepath.Join(plan.Layout.Home, ".zshrc"),
+	}) {
+		t.Fatalf("copied paths = %#v, missing .zshrc seed copy", copied)
+	}
+	if !slices.Contains(linked, [2]string{
+		filepath.Join(persistentHome, ".claude", "projects"),
+		filepath.Join(plan.Layout.Home, ".claude", "projects"),
+	}) {
+		t.Fatalf("linked paths = %#v, missing Claude bridge", linked)
+	}
+}
+
+func TestMaterializeSessionHomeLaunchPlanForNativeActivationRejectsCheckedWriteback(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedEnsure := sessionHomeAgentEnsureDir
+	sessionHomeAgentEnsureDir = func(string, os.FileMode) error { return nil }
+	t.Cleanup(func() { sessionHomeAgentEnsureDir = savedEnsure })
+	checked := sessionHomeAssemblyEntry{
+		RelPath:        ".config/tool/state.json",
+		RuntimePolicy:  sessionHomePolicyCheckedWriteback,
+		PersistentPath: filepath.Join(t.TempDir(), "agent", ".config", "tool", "state.json"),
+		RuntimePath:    filepath.Join(layout.Home, ".config", "tool", "state.json"),
+	}
+	_, err = materializeSessionHomeLaunchPlanForNativeActivation(sessionHomeLaunchPlan{
+		Layout:   layout,
+		Assembly: []sessionHomeAssemblyEntry{checked},
+	})
+	if err == nil || !strings.Contains(err.Error(), "agent-backed receipt materializer") {
+		t.Fatalf("materializeSessionHomeLaunchPlanForNativeActivation err = %v, want checked-writeback rejection", err)
 	}
 }
 

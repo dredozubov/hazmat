@@ -135,7 +135,10 @@ var newSessionHomeID = defaultSessionHomeID
 
 var (
 	sessionHomeActivationPersistentPathExists     = defaultSessionHomeActivationPersistentPathExists
-	materializeSessionHomeLaunchPlanForActivation = materializeSessionHomeLaunchPlan
+	materializeSessionHomeLaunchPlanForActivation = materializeSessionHomeLaunchPlanForNativeActivation
+	sessionHomeAgentEnsureDir                     = agentEnsureDir
+	sessionHomeAgentCopyPath                      = defaultSessionHomeAgentCopyPath
+	sessionHomeAgentSymlink                       = defaultSessionHomeAgentSymlink
 )
 
 func defaultSessionHomeID() string {
@@ -491,6 +494,84 @@ func materializeSessionHomeLaunchPlan(plan sessionHomeLaunchPlan) (sessionHomeMa
 	return sessionHomeMaterializationResult{CheckedWritebackReceipts: receipts}, nil
 }
 
+func materializeSessionHomeLaunchPlanForNativeActivation(plan sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+	if err := createSessionHomeActivationLayout(plan.Layout); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	if err := materializeSessionHomeBridgesForActivation(plan.Layout, plan.BridgeRequirements); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	if err := materializeSessionHomeSeedEntriesForActivation(plan.Layout, plan.Assembly); err != nil {
+		return sessionHomeMaterializationResult{}, err
+	}
+	for _, entry := range plan.Assembly {
+		if entry.RuntimePolicy == sessionHomePolicyCheckedWriteback {
+			return sessionHomeMaterializationResult{}, fmt.Errorf("%s: checked-writeback activation requires an agent-backed receipt materializer", entry.RelPath)
+		}
+	}
+	return sessionHomeMaterializationResult{}, nil
+}
+
+func createSessionHomeActivationLayout(layout sessionHomeLayout) error {
+	if err := os.MkdirAll(layout.SessionDir, 0o711); err != nil {
+		return fmt.Errorf("create session metadata dir: %w", err)
+	}
+	if err := os.Chmod(layout.SessionDir, 0o711); err != nil {
+		return fmt.Errorf("set session metadata dir mode: %w", err)
+	}
+	if err := os.WriteFile(layout.MarkerPath, []byte("hazmat session home\n"), 0o600); err != nil {
+		return fmt.Errorf("write session home marker: %w", err)
+	}
+	for _, dir := range []string{layout.Home, layout.CacheHome, layout.ConfigHome, layout.DataHome} {
+		if err := sessionHomeAgentEnsureDir(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func materializeSessionHomeBridgesForActivation(layout sessionHomeLayout, requirements []sessionHomeBridgeRequirement) error {
+	for _, requirement := range requirements {
+		if err := validateSessionHomeBridgeRequirement(layout, requirement); err != nil {
+			return err
+		}
+		switch requirement.Kind {
+		case sessionHomeBridgeHomeRelativeRoot:
+			if err := sessionHomeAgentEnsureDir(requirement.PersistentRoot, 0o700); err != nil {
+				return err
+			}
+			if err := sessionHomeAgentEnsureDir(filepath.Dir(requirement.RuntimeRoot), 0o700); err != nil {
+				return err
+			}
+			if err := sessionHomeAgentSymlink(requirement.PersistentRoot, requirement.RuntimeRoot); err != nil {
+				return err
+			}
+		case sessionHomeBridgeHarnessEnvRoot:
+			if err := sessionHomeAgentEnsureDir(requirement.PersistentRoot, 0o700); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s: unsupported session-home bridge kind %q", requirement.RelPath, requirement.Kind)
+		}
+	}
+	return nil
+}
+
+func materializeSessionHomeSeedEntriesForActivation(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {
+	for _, entry := range assembly {
+		if entry.RuntimePolicy != sessionHomePolicySeedOnly {
+			continue
+		}
+		if err := validateSessionHomeAssemblyEntry(layout, entry); err != nil {
+			return err
+		}
+		if err := sessionHomeAgentCopyPath(entry.PersistentPath, entry.RuntimePath); err != nil {
+			return fmt.Errorf("%s: copy seed path as agent: %w", entry.RelPath, err)
+		}
+	}
+	return nil
+}
+
 func materializeSessionHomeSeedEntries(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {
 	for _, entry := range assembly {
 		if entry.RuntimePolicy != sessionHomePolicySeedOnly {
@@ -810,6 +891,59 @@ func materializeSessionHomeSymlinkBridge(requirement sessionHomeBridgeRequiremen
 		return fmt.Errorf("link %s -> %s: %w", requirement.RuntimeRoot, requirement.PersistentRoot, err)
 	}
 	return nil
+}
+
+func defaultSessionHomeAgentCopyPath(src, dest string) error {
+	const script = `set -eu
+src=$1
+dest=$2
+if [ -L "$src" ]; then
+  printf '%s\n' "source symlink is not supported: $src" >&2
+  exit 65
+fi
+if [ ! -e "$src" ]; then
+  exit 0
+fi
+if [ -e "$dest" ] || [ -L "$dest" ]; then
+  printf '%s\n' "destination already exists: $dest" >&2
+  exit 66
+fi
+parent=$(/usr/bin/dirname "$dest")
+/bin/mkdir -p "$parent"
+if [ -d "$src" ]; then
+  nested=$(/usr/bin/find "$src" -type l -print -quit)
+  if [ -n "$nested" ]; then
+    printf '%s\n' "nested symlink is not supported: $nested" >&2
+    exit 65
+  fi
+  /bin/cp -pR "$src" "$dest"
+elif [ -f "$src" ]; then
+  /bin/cp -p "$src" "$dest"
+else
+  printf '%s\n' "unsupported seed source: $src" >&2
+  exit 67
+fi`
+	return asAgentQuiet("/bin/sh", "-c", script, "hazmat-session-home-copy", src, dest)
+}
+
+func defaultSessionHomeAgentSymlink(target, link string) error {
+	const script = `set -eu
+target=$1
+link=$2
+if [ -L "$link" ]; then
+  current=$(/usr/bin/readlink "$link")
+  if [ "$current" = "$target" ]; then
+    exit 0
+  fi
+  printf '%s\n' "existing symlink points to $current, want $target" >&2
+  exit 66
+fi
+if [ -e "$link" ]; then
+  printf '%s\n' "bridge path already exists: $link" >&2
+  exit 66
+fi
+/bin/ln -s "$target" "$link"`
+	return asAgentQuiet("/bin/sh", "-c", script, "hazmat-session-home-symlink", target, link)
 }
 
 func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessionHomeAssemblyDurability {
