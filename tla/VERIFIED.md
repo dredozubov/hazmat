@@ -1217,10 +1217,10 @@ before the experimental runtime ships.
 |-------|-------|
 | Spec | `tla/17_service_harness_lifecycle.md` |
 | TLA+ files | `tla/MC_ServiceHarnessLifecycle.tla`, `tla/MC_ServiceHarnessLifecycle.cfg` |
-| Governed code | Future service harness adapter runtime; no production adapter code yet |
-| Governed code | Future `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
+| Governed code | `hazmat/internal/serviceharness/lifecycle.go` — service lifecycle runner, request validation, residue recovery ordering, readiness/attach/cleanup orchestration, and redacted lifecycle events |
+| Governed code | Future `hazmat <service-harness>` command surface and adapter-specific service metadata persistence |
 | Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachPolicyLocalOnly`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
-| Status | **Design Proved** — proves the lifecycle boundary future OpenHands-style service adapters must satisfy before implementation |
+| Status | **Design Proved; first fake-service suite implemented** — proves the lifecycle boundary future OpenHands-style service adapters must satisfy before implementation and pins it with `make e2e-service-harness-smoke` |
 
 **What this verifies:**
 
@@ -1286,7 +1286,7 @@ boundary for a future service adapter, not proof that OpenHands itself is safe.
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
 | `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (compiler); `hazmat/internal/runtime/applecontainer/runtime.go` (experimental runtime); `hazmat/exec_apple_container.go` (gated exec path); `hazmat/explain_apple_container.go` (preview) |
-| `17_service_harness_lifecycle` | Future service harness adapter runtime, `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
+| `17_service_harness_lifecycle` | `hazmat/internal/serviceharness/lifecycle.go`; future service harness adapter runtime, `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
 
 ---
 

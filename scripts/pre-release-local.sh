@@ -12,4 +12,7 @@ bash "$REPO_ROOT/scripts/pre-push"
 echo "pre-release-local: hermetic all-harness e2e smoke..."
 bash "$REPO_ROOT/scripts/e2e-harness-smoke.sh"
 
+echo "pre-release-local: fake service-harness lifecycle smoke..."
+bash "$REPO_ROOT/scripts/e2e-service-harness-smoke.sh"
+
 echo "pre-release-local: all checks passed"

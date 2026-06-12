@@ -26,6 +26,7 @@ Hazmat is a macOS CLI tool that runs AI agents (Claude Code, etc.) inside contai
 | `MC_LinuxNativeLaunch` | Future Linux native helper launch ordering | `ExecAfterMetadata` — exec happens only after enforcement and metadata emission |
 | `MC_BeadpostBrokerBoundary` | Beadpost broker attestation membrane | `NoAuthorityFromAgent` — authority is derived host-side, never accepted from the contained agent |
 | `MC_AppleContainerLaunch` | Apple Container backend launch boundary | `CredentialPathsNeverMounted` — credential deny zones and their parents are never in the mount plan |
+| `MC_ServiceHarnessLifecycle` | OpenHands-style service harness lifecycle | `AttachOnlyAfterReady` — service attach waits for readiness evidence |
 
 **The workflow: spec first, prove, then implement.**
 
@@ -85,6 +86,7 @@ tla/                     TLA+ formal verification specs
   MC_LinuxNativeLaunch.* Linux native launch ordering contract
   MC_BeadpostBrokerBoundary.* Beadpost broker boundary contract
   MC_AppleContainerLaunch.* Apple Container launch boundary contract
+  MC_ServiceHarnessLifecycle.* Service harness lifecycle contract
   check_suite.sh         Run the verified TLA+ suite
 scripts/                 release.sh, e2e.sh, e2e-vm.sh
 docs/                    User-facing documentation
@@ -160,6 +162,9 @@ within the current model bounds recorded in `tla/VERIFIED.md`.
 
 ### Changing Apple Container mount planning, admission gating, network policy, or credential artifact cleanup
 → Update `MC_AppleContainerLaunch.tla` first, run TLC, then implement.
+
+### Changing service harness lifecycle, readiness, attach, or cleanup behavior
+→ Update `MC_ServiceHarnessLifecycle.tla` first, run TLC, then implement.
 
 ## Key conventions
 

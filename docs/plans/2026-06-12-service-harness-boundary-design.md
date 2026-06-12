@@ -289,6 +289,13 @@ Before first-class service support:
 Live OpenHands or OpenClaw testing should be treated as a guarded manual smoke,
 not the primary proof that the boundary works.
 
+The first fake-service lifecycle suite lives in
+`hazmat/internal/serviceharness` and is exposed through
+`make e2e-service-harness-smoke`. It is intentionally independent of a live
+OpenHands install and covers residue recovery, readiness-before-attach,
+local-only attach policy, typed credential gating, crash/hang cleanup, cleanup
+failure accounting, redaction-safe events, and backend compatibility gates.
+
 ## Follow-Ups
 
 - OpenHands has been evaluated against this boundary in
