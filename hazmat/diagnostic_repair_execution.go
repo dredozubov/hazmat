@@ -5,6 +5,7 @@ type diagnosticRepairExecutionRequest struct {
 	Fix         bool
 	YesAll      bool
 	Interactive bool
+	DryRun      bool
 }
 
 type diagnosticRepairExecutionPolicy struct {
@@ -44,6 +45,16 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresYes:     false,
 			Reason:          "hazmat init has already run setup; remaining findings are post-init verification blockers, not advice to rerun init",
 			Examples:        []string{"hazmat init", "hazmat doctor --fix --yes", "hazmat doctor --dry-run", "hazmat check --full"},
+		}
+	case req.DryRun:
+		return diagnosticRepairExecutionPolicy{
+			Command:         command,
+			Mode:            "dry-run",
+			MutationAllowed: false,
+			RequiresFix:     false,
+			RequiresYes:     false,
+			Reason:          "global --dry-run previews the typed repair plan and never executes repairs, even when --fix is also supplied",
+			Examples:        []string{"hazmat doctor --dry-run", "hazmat doctor --fix"},
 		}
 	case !req.Fix:
 		return diagnosticRepairExecutionPolicy{

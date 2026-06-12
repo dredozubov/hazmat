@@ -38,6 +38,22 @@ func TestDecideDiagnosticRepairExecutionDoctorPlanOnlyByDefault(t *testing.T) {
 	}
 }
 
+func TestDecideDiagnosticRepairExecutionDryRunOverridesFix(t *testing.T) {
+	policy := decideDiagnosticRepairExecution(diagnosticRepairExecutionRequest{
+		Command: "doctor",
+		Fix:     true,
+		YesAll:  true,
+		DryRun:  true,
+	})
+
+	if policy.Mode != "dry-run" || policy.MutationAllowed || policy.RequiresFix || policy.RequiresYes {
+		t.Fatalf("policy = %+v, want non-mutating dry-run override", policy)
+	}
+	if !slices.Contains(policy.Examples, "hazmat doctor --dry-run") || !slices.Contains(policy.Examples, "hazmat doctor --fix") {
+		t.Fatalf("examples = %v, want dry-run preview and fix path", policy.Examples)
+	}
+}
+
 func TestDecideDiagnosticRepairExecutionBlocksNonInteractiveFixWithoutYes(t *testing.T) {
 	policy := decideDiagnosticRepairExecution(diagnosticRepairExecutionRequest{Command: "doctor", Fix: true})
 

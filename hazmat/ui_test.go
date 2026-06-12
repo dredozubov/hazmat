@@ -209,6 +209,37 @@ func TestUIDiagnosticReportDoctorFixWithoutYesIsBlocked(t *testing.T) {
 	}
 }
 
+func TestUIDiagnosticReportDryRunOverridesDoctorFix(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{}
+	ui := &UI{
+		JSON:          true,
+		DryRun:        true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "Hardening gaps"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Execution.Mode != "dry-run" || plan.Execution.MutationAllowed || plan.Mutating {
+		t.Fatalf("execution policy = %+v mutating=%v, want non-mutating dry-run", plan.Execution, plan.Mutating)
+	}
+	if plan.Mode != "preview" {
+		t.Fatalf("plan mode = %q, want preview", plan.Mode)
+	}
+	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
+		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
+	}
+	if !strings.Contains(ui.repairPlanFooter(plan), "hazmat doctor --fix") {
+		t.Fatalf("dry-run footer = %q, want fix path", ui.repairPlanFooter(plan))
+	}
+}
+
 func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	backend := &recordingDiagnosticRepairBackend{
 		applyEvidence:  []string{"applied managed umask block"},

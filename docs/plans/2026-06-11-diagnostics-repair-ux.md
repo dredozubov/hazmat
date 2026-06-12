@@ -8,6 +8,9 @@
 
 Mutation requires `hazmat doctor --fix`. In an interactive terminal, `--fix` may ask for per-plan consent before any executor runs. In automation, mutation requires both `--fix` and `--yes`; `hazmat doctor --fix` without a TTY and without `--yes` is blocked by policy.
 
+Global `--dry-run` overrides `--fix`: `hazmat doctor --fix --dry-run` is still
+a non-mutating preview and must not dispatch repair backends.
+
 ## Command Contract
 
 ```bash
@@ -16,6 +19,7 @@ hazmat check --json
 hazmat doctor --dry-run
 hazmat doctor --dry-run --json
 hazmat doctor --fix
+hazmat doctor --fix --dry-run
 hazmat doctor --fix --yes
 hazmat doctor --fix --yes --json
 ```

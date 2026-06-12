@@ -533,6 +533,10 @@ arbitrary shell commands from findings, project files, or recommendation text.
 Repairs that are not wired to the typed executor stay manual, optional,
 unsupported, or informational.
 
+Global `--dry-run` always wins over repair execution. For example,
+`hazmat doctor --fix --dry-run` still produces a non-mutating preview and does
+not dispatch typed repair backends.
+
 Repair receipts name what Hazmat changed and which verification passed after the
 change. A failed verification is not turned back into a generic "run init"
 recommendation; the report keeps the attempted action, evidence, and next

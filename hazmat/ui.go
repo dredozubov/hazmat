@@ -383,7 +383,11 @@ func colorForSeverityLabel(label string) *color.Color {
 
 func (u *UI) diagnosticRepairPlan() diagnosticRepairPlan {
 	recommendations := u.recommendations()
-	plan := planDiagnosticRepairs(u.findings, recommendations, u.RepairExecution)
+	execution := u.RepairExecution
+	if u.DryRun {
+		execution.DryRun = true
+	}
+	plan := planDiagnosticRepairs(u.findings, recommendations, execution)
 	if !plan.Execution.MutationAllowed {
 		return plan
 	}
@@ -449,7 +453,7 @@ func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
 		return u.recommendationFooter()
 	}
 	switch plan.Execution.Mode {
-	case "plan-only":
+	case "plan-only", "dry-run":
 		return "  To apply approved repairs, rerun: hazmat doctor --fix"
 	case "blocked-noninteractive":
 		return "  Repair execution is blocked; rerun: hazmat doctor --fix --yes"
