@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"hazmat/containment"
 )
 
 func TestNewSessionHomeLayoutBuildsXDGPaths(t *testing.T) {
@@ -76,6 +78,97 @@ func TestCreateSessionHomeLayoutCreatesMarkerAndXDGDirs(t *testing.T) {
 	}
 	if !strings.Contains(string(marker), "hazmat session home") {
 		t.Fatalf("marker = %q", marker)
+	}
+}
+
+func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	layout, err := newSessionHomeLayout(root, "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeAssemblyPlan(layout, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeAssemblyPlan: %v", err)
+	}
+
+	byRel := map[string]sessionHomeAssemblyEntry{}
+	for _, entry := range plan {
+		byRel[entry.RelPath] = entry
+		if !strings.HasPrefix(entry.PersistentPath, persistentHome+string(os.PathSeparator)) {
+			t.Fatalf("%s persistent path = %s, want under %s", entry.RelPath, entry.PersistentPath, persistentHome)
+		}
+		if !strings.HasPrefix(entry.RuntimePath, layout.Home+string(os.PathSeparator)) {
+			t.Fatalf("%s runtime path = %s, want under %s", entry.RelPath, entry.RuntimePath, layout.Home)
+		}
+	}
+
+	for _, tc := range []struct {
+		rel         string
+		class       containment.AgentHomeStateClass
+		durability  sessionHomeAssemblyDurability
+		executable  bool
+		bridge      bool
+		persistent  string
+		runtimePath string
+	}{
+		{
+			rel:         ".claude/projects",
+			class:       containment.AgentHomeStateTranscript,
+			durability:  sessionHomeDurableExternal,
+			bridge:      true,
+			persistent:  filepath.Join(persistentHome, ".claude", "projects"),
+			runtimePath: filepath.Join(layout.Home, ".claude", "projects"),
+		},
+		{
+			rel:         ".hazmat/hermes/projects",
+			class:       containment.AgentHomeStateTranscript,
+			durability:  sessionHomeDurableExternal,
+			bridge:      true,
+			persistent:  filepath.Join(persistentHome, ".hazmat", "hermes", "projects"),
+			runtimePath: filepath.Join(layout.Home, ".hazmat", "hermes", "projects"),
+		},
+		{
+			rel:        ".local/bin",
+			class:      containment.AgentHomeStateExecutable,
+			durability: sessionHomeDurableMirror,
+			executable: true,
+		},
+		{
+			rel:        ".gitconfig",
+			class:      containment.AgentHomeStateGitConfig,
+			durability: sessionHomeDurableMirror,
+		},
+		{
+			rel:        ".cache",
+			class:      containment.AgentHomeStateXDGCache,
+			durability: sessionHomeEphemeralCache,
+		},
+	} {
+		entry, ok := byRel[tc.rel]
+		if !ok {
+			t.Fatalf("assembly plan missing %s", tc.rel)
+		}
+		if entry.Class != tc.class || entry.Durability != tc.durability || entry.Executable != tc.executable || entry.RequiresBridge != tc.bridge {
+			t.Fatalf("%s = %+v, want class=%s durability=%s executable=%v bridge=%v", tc.rel, entry, tc.class, tc.durability, tc.executable, tc.bridge)
+		}
+		if tc.persistent != "" && entry.PersistentPath != tc.persistent {
+			t.Fatalf("%s persistent path = %s, want %s", tc.rel, entry.PersistentPath, tc.persistent)
+		}
+		if tc.runtimePath != "" && entry.RuntimePath != tc.runtimePath {
+			t.Fatalf("%s runtime path = %s, want %s", tc.rel, entry.RuntimePath, tc.runtimePath)
+		}
+	}
+}
+
+func TestNewSessionHomeAssemblyPlanRejectsRelativePersistentHome(t *testing.T) {
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSessionHomeAssemblyPlan(layout, "relative-agent-home"); err == nil {
+		t.Fatal("newSessionHomeAssemblyPlan accepted relative persistent home")
 	}
 }
 

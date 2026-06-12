@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	"hazmat/containment"
 )
 
 const (
@@ -22,6 +25,24 @@ type sessionHomeLayout struct {
 	ConfigHome string
 	DataHome   string
 	MarkerPath string
+}
+
+type sessionHomeAssemblyDurability string
+
+const (
+	sessionHomeDurableMirror   sessionHomeAssemblyDurability = "durable-mirror"
+	sessionHomeDurableExternal sessionHomeAssemblyDurability = "durable-external"
+	sessionHomeEphemeralCache  sessionHomeAssemblyDurability = "ephemeral-cache"
+)
+
+type sessionHomeAssemblyEntry struct {
+	RelPath        string
+	Class          containment.AgentHomeStateClass
+	Durability     sessionHomeAssemblyDurability
+	PersistentPath string
+	RuntimePath    string
+	Executable     bool
+	RequiresBridge bool
 }
 
 func newSessionHomeLayout(root, sessionID string) (sessionHomeLayout, error) {
@@ -76,6 +97,70 @@ func createSessionHomeLayout(layout sessionHomeLayout) error {
 		return fmt.Errorf("write session home marker: %w", err)
 	}
 	return nil
+}
+
+func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string) ([]sessionHomeAssemblyEntry, error) {
+	persistentHome = filepath.Clean(persistentHome)
+	if !filepath.IsAbs(persistentHome) {
+		return nil, fmt.Errorf("persistent agent home %q must be absolute", persistentHome)
+	}
+	if err := containment.ValidatePersistentAgentHomeManifest(); err != nil {
+		return nil, err
+	}
+
+	executable := map[string]bool{}
+	for _, entry := range containment.PersistentAgentHomeManifest() {
+		for _, rel := range entry.ExecutableRelPaths {
+			executable[rel] = true
+		}
+	}
+
+	byRel := map[string]sessionHomeAssemblyEntry{}
+	add := func(rel string, class containment.AgentHomeStateClass) {
+		durability := sessionHomeDurabilityForClass(class)
+		byRel[rel] = sessionHomeAssemblyEntry{
+			RelPath:        rel,
+			Class:          class,
+			Durability:     durability,
+			PersistentPath: filepath.Join(persistentHome, rel),
+			RuntimePath:    filepath.Join(layout.Home, rel),
+			Executable:     executable[rel],
+			RequiresBridge: durability == sessionHomeDurableExternal,
+		}
+	}
+	for _, manifestEntry := range containment.PersistentAgentHomeManifest() {
+		add(manifestEntry.RelPath, manifestEntry.Class)
+		for _, covered := range manifestEntry.CoveredPaths {
+			add(covered.RelPath, covered.Class)
+		}
+		for _, rel := range manifestEntry.ExecutableRelPaths {
+			if _, ok := byRel[rel]; !ok {
+				add(rel, containment.AgentHomeStateExecutable)
+			} else {
+				entry := byRel[rel]
+				entry.Executable = true
+				byRel[rel] = entry
+			}
+		}
+	}
+
+	plan := make([]sessionHomeAssemblyEntry, 0, len(byRel))
+	for _, entry := range byRel {
+		plan = append(plan, entry)
+	}
+	sort.Slice(plan, func(i, j int) bool { return plan[i].RelPath < plan[j].RelPath })
+	return plan, nil
+}
+
+func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessionHomeAssemblyDurability {
+	switch class {
+	case containment.AgentHomeStateTranscript:
+		return sessionHomeDurableExternal
+	case containment.AgentHomeStateXDGCache:
+		return sessionHomeEphemeralCache
+	default:
+		return sessionHomeDurableMirror
+	}
 }
 
 func cleanupStaleSessionHomes(root string, now time.Time, maxAge time.Duration) ([]string, error) {

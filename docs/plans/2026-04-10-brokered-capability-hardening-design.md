@@ -608,7 +608,10 @@ persistent `/Users/agent` durable state.
 `hazmat/session_home.go` contains the initial pure layout and marker-gated
 stale-home cleanup primitives. They are intentionally not wired into native
 launch until the transcript/export and resume-ordering gates below are
-implemented.
+implemented. Its assembly plan classifies manifest entries as durable mirrors,
+explicit ephemeral cache, or durable external transcript roots; durable external
+entries are marked as requiring a runtime bridge rather than a blind copy into
+the ephemeral home.
 
 #### Resume/export requirements
 
