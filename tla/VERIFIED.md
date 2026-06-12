@@ -213,8 +213,8 @@ generated states, 35,005 distinct states, depth 56.
 **2026-06-12 Amp/Devin/external-agent/Goose credential-state expansion:** Host
 credential hardening now includes Amp config/plugin roots, Devin
 config/auth-adjacent state, external agent roots for Kilo, Kimi, Kiro, Vibe,
-Trae, Pi, Crush, and OpenClaw, and Goose config/session/log roots alongside the
-existing credential deny floor.
+Trae, Pi, Crush, OpenClaw, and Qoder, and Goose config/session/log roots
+alongside the existing credential deny floor.
 This does not add a setup step; it expands the concrete path set covered by the
 existing persistent `hostCredentialModes` resource. `MC_SetupRollback` was
 re-run with TLC and reported "No error has been found" across the same state
@@ -348,8 +348,8 @@ model now includes representative `ampConfigDir`, `devinConfigDir`,
 `agentCliStateDir`, and `gooseStateDir` leaves after the concrete deny floor
 added `~/.config/amp`, `~/.config/devin`, `~/.config/kilo`, `~/.kimi-code`,
 legacy `~/.kimi`, `~/.kiro`, `~/.vibe`, `~/.traecli`, `~/.pi/agent`,
-`~/.config/crush`, `~/.local/share/crush`, `~/.openclaw`, `~/.config/goose`,
-`~/.local/share/goose`, and `~/.local/state/goose`.
+`~/.config/crush`, `~/.local/share/crush`, `~/.openclaw`, `~/.qoder`,
+`~/.config/goose`, `~/.local/share/goose`, and `~/.local/state/goose`.
 `agentCliStateDir` is the
 representative finite-model leaf for external agent CLI/service state roots so
 the proof does not grow one dimension per vendor.

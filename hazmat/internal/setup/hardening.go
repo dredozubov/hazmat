@@ -58,6 +58,7 @@ var HostCredentialHardeningSpecs = []HostCredentialHardeningSpec{
 	{Rel: ".config/crush", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".local/share/crush", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".openclaw", DirMode: 0o700, FileMode: 0o600},
+	{Rel: ".qoder", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".continue", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".cline", DirMode: 0o700, FileMode: 0o600},
 	{Rel: ".aider.conf.yml", DirMode: 0o700, FileMode: 0o600},

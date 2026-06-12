@@ -38,6 +38,7 @@ var credentialDenySubpaths = []string{
 	"/.config/crush",
 	"/.local/share/crush",
 	"/.openclaw",
+	"/.qoder",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
