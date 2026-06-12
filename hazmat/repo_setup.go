@@ -98,6 +98,11 @@ type repoSetupState struct {
 	currentExplicitEffects []repoSetupEffect
 }
 
+type repoSetupGenericToolRef struct {
+	Name string
+	File string
+}
+
 var repoSetupLogShow = func(start, end time.Time) (string, error) {
 	args := []string{
 		"--style", "compact",
@@ -520,21 +525,24 @@ func repoSetupStateForSession(cfg sessionConfig) (repoSetupState, error) {
 		return repoSetupState{}, err
 	}
 
+	genericSafeEffects := repoSetupGenericPreflightEffects(cfg, integrationProbeFactory())
 	safeSuggestionEffects, candidatePlan, err := repoSetupEffectsFromSuggestedIntegrations(cfg.ProjectDir, cfg.SuggestedIntegrations)
 	if err != nil {
 		return repoSetupState{}, err
 	}
 	safeDenialEffects, explicitDenialEffects := repoSetupEffectsFromEvidence(record.DenialEvidence)
 
-	currentSafeEffects := repoSetupMergeEffects(safeSuggestionEffects, safeDenialEffects)
+	currentSafeEffects := repoSetupMergeEffects(genericSafeEffects, safeSuggestionEffects, safeDenialEffects)
 	currentExplicitEffects := repoSetupMergeEffects(explicitDenialEffects)
 	currentSafe := repoSetupStoredEffectsFromEffects(currentSafeEffects)
 	currentExplicit := repoSetupStoredEffectsFromEffects(currentExplicitEffects)
 
+	genericSafe := repoSetupStoredEffectsFromEffects(genericSafeEffects)
 	suggestionSafe := repoSetupStoredEffectsFromEffects(safeSuggestionEffects)
 	denialSafe := repoSetupStoredEffectsFromEffects(safeDenialEffects)
 
 	var appliedSafe repoSetupStoredEffects
+	appliedSafe = appliedSafe.union(genericSafe.intersection(record.Remembered))
 	if suggestionSafe.subsetOf(record.Remembered) {
 		appliedSafe = appliedSafe.union(suggestionSafe)
 	}
@@ -569,6 +577,238 @@ func repoSetupStateForSession(cfg sessionConfig) (repoSetupState, error) {
 		currentExplicitEffects: currentExplicitEffects,
 	}
 	return state, nil
+}
+
+func repoSetupGenericPreflightEffects(cfg sessionConfig, probe integrationProbe) []repoSetupEffect {
+	if strings.TrimSpace(cfg.ProjectDir) == "" || probe == nil {
+		return nil
+	}
+
+	refs := repoSetupGenericToolRefs(cfg.ProjectDir)
+	if len(refs) == 0 {
+		return nil
+	}
+
+	var effects []repoSetupEffect
+	for _, ref := range refs {
+		if repoSetupGenericToolSkipped(ref.Name) {
+			continue
+		}
+		dir, err := probeCommandPrefix(nil, probe, ref.Name)
+		if err != nil || dir == "" {
+			continue
+		}
+		if dir == cfg.ProjectDir || isWithinDir(cfg.ProjectDir, dir) || isCredentialDenyPath(dir) {
+			continue
+		}
+		if repoSetupPathCoveredBy(dir, cfg.ReadDirs) || repoSetupPathCoveredBy(dir, cfg.WriteDirs) {
+			continue
+		}
+		effects = append(effects, repoSetupEffect{
+			ID:      "ro:" + dir,
+			Class:   repoSetupEffectClassSafe,
+			Kind:    repoSetupEffectReadOnly,
+			Value:   dir,
+			Sources: []string{fmt.Sprintf("Generic repo heuristic (%s references %q)", ref.File, ref.Name)},
+		})
+	}
+	return repoSetupMergeEffects(effects)
+}
+
+func repoSetupGenericToolRefs(projectDir string) []repoSetupGenericToolRef {
+	candidates := []string{"Makefile", "makefile", "GNUmakefile", "justfile", "Justfile", "Taskfile.yml", "Taskfile.yaml"}
+	seen := make(map[string]repoSetupGenericToolRef)
+	var seenFiles []os.FileInfo
+	for _, name := range candidates {
+		path := filepath.Join(projectDir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		duplicateFile := false
+		for _, seenInfo := range seenFiles {
+			if os.SameFile(info, seenInfo) {
+				duplicateFile = true
+				break
+			}
+		}
+		if duplicateFile {
+			continue
+		}
+		seenFiles = append(seenFiles, info)
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, ref := range repoSetupGenericToolRefsFromFile(name, data) {
+			key := ref.File + "\x00" + ref.Name
+			seen[key] = ref
+		}
+	}
+
+	refs := make([]repoSetupGenericToolRef, 0, len(seen))
+	for _, ref := range seen {
+		refs = append(refs, ref)
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].File == refs[j].File {
+			return refs[i].Name < refs[j].Name
+		}
+		return refs[i].File < refs[j].File
+	})
+	return refs
+}
+
+func repoSetupGenericToolRefsFromFile(name string, data []byte) []repoSetupGenericToolRef {
+	lines := strings.Split(string(data), "\n")
+	seen := make(map[string]struct{})
+	var refs []repoSetupGenericToolRef
+	for _, line := range lines {
+		for _, command := range repoSetupCommandNamesFromTaskLine(name, line) {
+			key := name + "\x00" + command
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			refs = append(refs, repoSetupGenericToolRef{Name: command, File: name})
+		}
+	}
+	return refs
+}
+
+func repoSetupCommandNamesFromTaskLine(fileName, line string) []string {
+	if strings.HasPrefix(fileName, "Makefile") || fileName == "makefile" || fileName == "GNUmakefile" {
+		if !strings.HasPrefix(line, "\t") {
+			return nil
+		}
+		line = strings.TrimLeft(line, "\t")
+	} else {
+		if len(line) == len(strings.TrimLeft(line, " \t")) {
+			return nil
+		}
+		line = strings.TrimLeft(line, " \t")
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "cmd: ")
+	}
+
+	line = stripRepoSetupShellComment(line)
+	line = strings.TrimLeft(strings.TrimSpace(line), "@-+")
+	if line == "" {
+		return nil
+	}
+
+	splitter := strings.NewReplacer("&&", "\n", "||", "\n", ";", "\n", "|", "\n")
+	segments := strings.Split(splitter.Replace(line), "\n")
+	seen := make(map[string]struct{})
+	var commands []string
+	for _, segment := range segments {
+		command, ok := repoSetupCommandNameFromSegment(segment)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[command]; exists {
+			continue
+		}
+		seen[command] = struct{}{}
+		commands = append(commands, command)
+	}
+	return commands
+}
+
+func stripRepoSetupShellComment(line string) string {
+	var quote rune
+	for i, r := range line {
+		switch r {
+		case '\'', '"':
+			switch quote {
+			case 0:
+				quote = r
+			case r:
+				quote = 0
+			}
+		case '#':
+			if quote == 0 {
+				return line[:i]
+			}
+		}
+	}
+	return line
+}
+
+func repoSetupCommandNameFromSegment(segment string) (string, bool) {
+	fields := strings.Fields(strings.TrimSpace(segment))
+	for i := 0; i < len(fields); i++ {
+		token := strings.Trim(fields[i], `"'`)
+		token = strings.TrimLeft(token, "@-+")
+		if token == "" || repoSetupShellAssignment(token) {
+			continue
+		}
+		switch token {
+		case "env", "command", "exec", "time", "nice", "arch":
+			continue
+		}
+		if repoSetupValidCommandToken(token) {
+			return token, true
+		}
+	}
+	return "", false
+}
+
+func repoSetupShellAssignment(token string) bool {
+	if strings.HasPrefix(token, "-") {
+		return false
+	}
+	idx := strings.Index(token, "=")
+	if idx <= 0 {
+		return false
+	}
+	for _, r := range token[:idx] {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func repoSetupValidCommandToken(token string) bool {
+	if token == "" || strings.ContainsRune(token, os.PathSeparator) || strings.ContainsAny(token, "$`{}[]()*?=:\\") {
+		return false
+	}
+	for _, r := range token {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func repoSetupGenericToolSkipped(name string) bool {
+	switch name {
+	case "",
+		"alias", "bg", "break", "builtin", "case", "cd", "command", "continue", "do", "done",
+		"echo", "eval", "exec", "exit", "export", "false", "fg", "fi", "for", "function",
+		"if", "jobs", "local", "printf", "pwd", "read", "return", "set", "shift", "test",
+		"then", "true", "type", "ulimit", "umask", "unalias", "unset", "until", "wait",
+		"while",
+		"bash", "fish", "make", "sh", "zsh",
+		"aws", "az", "curl", "docker", "gh", "gcloud", "kubectl", "op", "pass", "scp",
+		"security", "ssh", "sudo", "su", "wget":
+		return true
+	default:
+		return false
+	}
+}
+
+func repoSetupPathCoveredBy(path string, dirs []string) bool {
+	for _, dir := range dirs {
+		if dir == path || isWithinDir(dir, path) {
+			return true
+		}
+	}
+	return false
 }
 
 func repoSetupEffectsFromSuggestedIntegrations(projectDir string, names []string) ([]repoSetupEffect, sessionMutationPlan, error) {

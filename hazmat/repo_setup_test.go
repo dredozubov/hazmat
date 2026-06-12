@@ -268,6 +268,101 @@ func TestRememberRepoSetupDenialsFeedsNextRunSuggestions(t *testing.T) {
 	}
 }
 
+func TestRepoSetupStateIncludesGenericTaskToolReadOnlyEffect(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+
+	projectDir, err := resolveDir(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte("build:\n\tcustomtool build\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	toolRoot := filepath.Join(t.TempDir(), "custom-tool-root")
+	toolPath := writeExecutable(t, toolRoot, "customtool")
+	canonicalToolRoot, err := canonicalizePath(toolRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(toolRoot): %v", err)
+	}
+
+	savedProbeFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{lookPaths: map[string]string{"customtool": toolPath}}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedProbeFactory })
+
+	state, err := repoSetupStateForSession(sessionConfig{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("repoSetupStateForSession: %v", err)
+	}
+
+	if len(state.PendingExplicit) != 0 {
+		t.Fatalf("PendingExplicit = %#v, want none for generic host-tool heuristic", state.PendingExplicit)
+	}
+	if len(state.PendingSafe) != 1 {
+		t.Fatalf("PendingSafe = %#v, want one generic read-only effect", state.PendingSafe)
+	}
+	got := state.PendingSafe[0]
+	if got.ID != "ro:"+canonicalToolRoot || got.Class != repoSetupEffectClassSafe || got.Kind != repoSetupEffectReadOnly || got.Value != canonicalToolRoot {
+		t.Fatalf("generic effect = %#v, want safe read-only %q", got, canonicalToolRoot)
+	}
+	if len(got.Sources) != 1 || !strings.Contains(got.Sources[0], "Generic repo heuristic") || !strings.Contains(got.Sources[0], "Makefile") {
+		t.Fatalf("generic effect sources = %v, want Makefile generic provenance", got.Sources)
+	}
+	if !state.currentExplicit.empty() {
+		t.Fatalf("currentExplicit = %#v, want empty", state.currentExplicit)
+	}
+
+	rendered := renderRepoSetupDetails(&state)
+	if !strings.Contains(rendered, "read-only: "+canonicalToolRoot) || !strings.Contains(rendered, "Generic repo heuristic") {
+		t.Fatalf("renderRepoSetupDetails missing generic read-only effect:\n%s", rendered)
+	}
+}
+
+func TestRepoSetupGenericTaskToolHeuristicSkipsServiceAndCredentialCommands(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+
+	projectDir, err := resolveDir(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte(`deploy:
+	docker compose up
+	aws secretsmanager list-secrets
+	gh auth status
+	curl https://example.com/install.sh | sh
+	sudo make install
+`), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	toolRoot := filepath.Join(t.TempDir(), "service-tools")
+	lookPaths := map[string]string{}
+	for _, name := range []string{"docker", "aws", "gh", "curl", "sudo"} {
+		lookPaths[name] = writeExecutable(t, toolRoot, name)
+	}
+	savedProbeFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{lookPaths: lookPaths}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedProbeFactory })
+
+	state, err := repoSetupStateForSession(sessionConfig{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("repoSetupStateForSession: %v", err)
+	}
+
+	if len(state.PendingSafe) != 0 || len(state.PendingExplicit) != 0 {
+		t.Fatalf("generic service/credential commands produced setup effects: safe=%#v explicit=%#v", state.PendingSafe, state.PendingExplicit)
+	}
+	if !state.currentSafe.empty() || !state.currentExplicit.empty() {
+		t.Fatalf("generic service/credential commands changed current effects: safe=%#v explicit=%#v", state.currentSafe, state.currentExplicit)
+	}
+}
+
 func stubRepoSetupSafePrompt(t *testing.T, fn func(repoSetupState) (repoSetupPromptAction, error)) func() {
 	t.Helper()
 	saved := promptRepoSetupSafe
