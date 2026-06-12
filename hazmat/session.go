@@ -54,6 +54,7 @@ type sessionConfig struct {
 	ClaudeKeychainAccess    bool      // native Claude OAuth path may use the agent login keychain
 	RepoSetup               *repoSetupState
 	TempDir                 string // agent-owned per-session temp dir for native launch
+	SessionHome             *sessionHomeRuntimePlan
 }
 
 type sessionLaunchUI struct {

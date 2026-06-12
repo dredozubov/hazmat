@@ -225,27 +225,14 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 	}
 }
 
-func TestNewSessionHomeLaunchPlanBlocksActivationWhileExternalBridgesRemain(t *testing.T) {
+func TestNewSessionHomeLaunchPlanReadyAfterBridgeRequirementsAreModeled(t *testing.T) {
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
-	if plan.readyForActivation() {
-		t.Fatal("plan is ready for activation while durable external bridge blockers remain")
-	}
-
-	byRel := map[string]sessionHomeLaunchBlocker{}
-	for _, blocker := range plan.Blockers {
-		byRel[blocker.RelPath] = blocker
-		if blocker.Reason != sessionHomeBlockerDurableExternalBridge {
-			t.Fatalf("%s blocker reason = %s", blocker.RelPath, blocker.Reason)
-		}
-	}
-	for _, rel := range []string{".claude/projects", ".hazmat/hermes/projects"} {
-		if _, ok := byRel[rel]; !ok {
-			t.Fatalf("missing launch blocker for %s", rel)
-		}
+	if !plan.readyForActivation() {
+		t.Fatalf("plan has activation blockers: %+v", plan.Blockers)
 	}
 }
 
@@ -285,6 +272,87 @@ func TestNativeLaunchEnvironmentWithSessionHomeOverridesHomeAndXDG(t *testing.T)
 		if values[key] != want {
 			t.Fatalf("%s = %q, want %q", key, values[key], want)
 		}
+	}
+}
+
+func TestNativeLaunchBaseEnvPairsUsesSessionHomeRuntimePlan(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	launchPlan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, false)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	runtimePlan, err := newSessionHomeRuntimePlan(launchPlan, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
+	env := nativeLaunchEnvironment{
+		Shell:      "/bin/zsh",
+		Path:       "/usr/bin:/bin",
+		Home:       agentHome,
+		TmpDir:     "/tmp/agent",
+		CacheHome:  defaultAgentCacheHome,
+		ConfigHome: defaultAgentConfigHome,
+		DataHome:   defaultAgentDataHome,
+	}
+
+	pairs := nativeLaunchBaseEnvPairs(sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat", SessionHome: &runtimePlan}, env)
+	values := map[string]string{}
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+
+	for key, want := range map[string]string{
+		"HOME":            launchPlan.Layout.Home,
+		"XDG_CACHE_HOME":  launchPlan.Layout.CacheHome,
+		"XDG_CONFIG_HOME": launchPlan.Layout.ConfigHome,
+		"XDG_DATA_HOME":   launchPlan.Layout.DataHome,
+	} {
+		if values[key] != want {
+			t.Fatalf("%s = %q, want %q", key, values[key], want)
+		}
+	}
+}
+
+func TestBuildNativeSessionPolicyUsesSessionHomeRuntimePlan(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	launchPlan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, false)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	runtimePlan, err := newSessionHomeRuntimePlan(launchPlan, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
+
+	policy, err := buildNativeSessionPolicy(sessionConfig{
+		ProjectDir:    "/Users/dr/workspace/hazmat",
+		NetworkMode:   sessionNetworkDefault,
+		SessionHome:   &runtimePlan,
+		HarnessID:     HarnessClaude,
+		TempDir:       filepath.Join(root, "session-123", "tmp"),
+		ReadDirs:      []string{"/opt/sdk"},
+		WriteDirs:     []string{"/tmp/cache"},
+		HarnessEnv:    map[string]string{},
+		RepoSetup:     nil,
+		ServiceAccess: nil,
+	})
+	if err != nil {
+		t.Fatalf("buildNativeSessionPolicy: %v", err)
+	}
+	agentHomePolicy := policy.Contract.AgentHome
+	if agentHomePolicy.Mode != containment.AgentHomeModeSessionLocal {
+		t.Fatalf("AgentHome mode = %s", agentHomePolicy.Mode)
+	}
+	if agentHomePolicy.Path != launchPlan.Layout.Home || agentHomePolicy.PersistentPath != persistentHome {
+		t.Fatalf("AgentHome = %+v", agentHomePolicy)
+	}
+	if !reflect.DeepEqual(agentHomePolicy.DurableBridgeRoots, runtimePlan.AgentHomePolicy.DurableBridgeRoots) {
+		t.Fatalf("DurableBridgeRoots = %#v, want %#v", agentHomePolicy.DurableBridgeRoots, runtimePlan.AgentHomePolicy.DurableBridgeRoots)
 	}
 }
 

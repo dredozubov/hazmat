@@ -72,11 +72,15 @@ func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
 	if err != nil {
 		return nativeSessionPolicy{}, err
 	}
+	agentHomePolicy := containment.AgentHomePolicy{Path: agentHome}
+	if cfg.SessionHome != nil {
+		agentHomePolicy = cfg.SessionHome.AgentHomePolicy
+	}
 	contract, err := containment.NewContract(containment.ContractInput{
 		Project:       containment.PathGrant{Path: cfg.ProjectDir, Access: containment.PathReadWrite},
 		ReadOnlyDirs:  containment.PathGrants(cfg.ReadDirs, containment.PathReadOnly),
 		ReadWriteDirs: containment.PathGrants(cfg.WriteDirs, containment.PathReadWrite),
-		AgentHome:     containment.AgentHomePolicy{Path: agentHome},
+		AgentHome:     agentHomePolicy,
 		Temp:          containment.TempPolicy{Path: sessionTempDirOrDefault(cfg.TempDir)},
 		Network:       containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
 		Process:       containment.ProcessPolicy{AllowFork: true},

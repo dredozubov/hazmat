@@ -643,6 +643,10 @@ disabled by default: persistent mode still projects the durable manifest at
 only the declared durable bridge roots outside it. A pure mapper now turns a
 session-home launch plan into that session-local `AgentHomePolicy`, rejecting
 bridge roots outside the persistent agent home.
+`sessionConfig` can carry this runtime plan through native policy and
+environment construction, but production resolution does not populate it yet;
+that keeps the new path disabled by default while making activation wiring
+unit-testable.
 
 #### Resume/export requirements
 

@@ -78,6 +78,9 @@ func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
 }
 
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {
+	if cfg.SessionHome != nil {
+		env = nativeLaunchEnvironmentWithSessionHome(env, cfg.SessionHome.Launch.Layout)
+	}
 	readDirsJSON := marshalStringSliceEnvValue(cfg.ReadDirs)
 	writeDirsJSON := marshalStringSliceEnvValue(cfg.WriteDirs)
 	home := env.Home

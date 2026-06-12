@@ -59,7 +59,7 @@ const (
 type sessionHomeLaunchBlockerReason string
 
 const (
-	sessionHomeBlockerDurableExternalBridge sessionHomeLaunchBlockerReason = "durable-external-bridge-required"
+	sessionHomeBlockerActivationGate sessionHomeLaunchBlockerReason = "activation-gate"
 )
 
 type sessionHomeLaunchBlocker struct {
@@ -96,6 +96,11 @@ type sessionHomeLaunchPlan struct {
 	Phases             []sessionHomeLaunchPhase
 	ResumeRequested    bool
 	Blockers           []sessionHomeLaunchBlocker
+}
+
+type sessionHomeRuntimePlan struct {
+	Launch          sessionHomeLaunchPlan
+	AgentHomePolicy containment.AgentHomePolicy
 }
 
 func newSessionHomeLayout(root, sessionID string) (sessionHomeLayout, error) {
@@ -238,26 +243,11 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 		},
 		Phases:          phases,
 		ResumeRequested: resumeRequested,
-		Blockers:        sessionHomeLaunchBlockers(assembly),
 	}, nil
 }
 
 func (plan sessionHomeLaunchPlan) readyForActivation() bool {
 	return len(plan.Blockers) == 0
-}
-
-func sessionHomeLaunchBlockers(assembly []sessionHomeAssemblyEntry) []sessionHomeLaunchBlocker {
-	blockers := make([]sessionHomeLaunchBlocker, 0)
-	for _, entry := range assembly {
-		if !entry.RequiresBridge {
-			continue
-		}
-		blockers = append(blockers, sessionHomeLaunchBlocker{
-			RelPath: entry.RelPath,
-			Reason:  sessionHomeBlockerDurableExternalBridge,
-		})
-	}
-	return blockers
 }
 
 func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {
@@ -349,6 +339,20 @@ func sessionHomeAgentHomePolicy(plan sessionHomeLaunchPlan, persistentHome strin
 		Mode:               containment.AgentHomeModeSessionLocal,
 		PersistentPath:     persistentHome,
 		DurableBridgeRoots: roots,
+	}, nil
+}
+
+func newSessionHomeRuntimePlan(plan sessionHomeLaunchPlan, persistentHome string) (sessionHomeRuntimePlan, error) {
+	if !plan.readyForActivation() {
+		return sessionHomeRuntimePlan{}, fmt.Errorf("session-home launch plan has activation blockers: %v", plan.Blockers)
+	}
+	policy, err := sessionHomeAgentHomePolicy(plan, persistentHome)
+	if err != nil {
+		return sessionHomeRuntimePlan{}, err
+	}
+	return sessionHomeRuntimePlan{
+		Launch:          plan,
+		AgentHomePolicy: policy,
 	}, nil
 }
 
