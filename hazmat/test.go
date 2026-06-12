@@ -46,7 +46,8 @@ func runTest(options diagnostics.CheckOptions) error {
 				fmt.Println("  Modes:")
 				fmt.Println("    hazmat check          Read-only health report (no external traffic)")
 				fmt.Println("    hazmat check --full   Read-only health report with live network probes")
-				fmt.Println("    hazmat doctor         Preview the typed repair plan")
+				fmt.Println("    hazmat doctor --dry-run")
+				fmt.Println("                          Preview the typed repair plan")
 				fmt.Println("    hazmat doctor --fix   Apply approved typed repairs")
 				fmt.Println()
 			}

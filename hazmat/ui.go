@@ -433,7 +433,7 @@ func (u *UI) repairPlanSectionTitle(plan diagnosticRepairPlan) string {
 
 func (u *UI) recommendationFooter() string {
 	if u.RepairExecution.Command == "init" {
-		return "  Init will not retry itself. To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor."
+		return "  Init will not retry itself. To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
 	}
 	if u.RepairExecution.Command == "doctor" {
 		if u.RepairExecution.Fix {
@@ -441,7 +441,7 @@ func (u *UI) recommendationFooter() string {
 		}
 		return "  To apply approved repairs, rerun: hazmat doctor --fix"
 	}
-	return "  To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor."
+	return "  To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
 }
 
 func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
