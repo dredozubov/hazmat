@@ -1,6 +1,7 @@
 # Problem 11 — Git Hook Approval
 
-**Status:** proved and implemented boundary for `sandboxing-acjx`.
+**Status:** proved and implemented boundary for `sandboxing-acjx`, extended
+for explicit composed hooksPath ownership in `sandboxing-9ks1`.
 This spec is listed in `VERIFIED.md`, wired into `check_suite.sh`, and now
 governs the shipped repo-local Git hook approval command surface.
 
@@ -20,9 +21,9 @@ changing `core.hooksPath`. A useful model therefore has to include:
 1. repo-declared hook set plus bundle hash
 2. host-owned approval record
 3. host-owned immutable approved snapshot
-4. managed `core.hooksPath`
+4. managed `core.hooksPath`, or an explicitly composed existing hooksPath owner
 5. wrapper-mediated host invocation
-6. managed dispatcher execution from approved snapshot
+6. managed or composed dispatcher execution from approved snapshot
 7. fallback dispatcher refusal when Git reaches `.git/hooks`
 8. uninstall / rollback cleanup
 
@@ -37,6 +38,8 @@ This spec governs the future Hazmat-managed host-side hook activation boundary:
 - Hazmat-installed wrapper validates `core.hooksPath`, snapshot hash, and hook
   layout before invoking real Git
 - managed dispatcher executes only approved snapshot bytes
+- explicit composed mode may preserve an existing repo-relative hooksPath owner
+  such as `.beads/hooks` by installing a Hazmat-managed chain block there
 - fallback `.git/hooks/*` dispatcher refuses if Git reaches the default path
 - `hazmat hooks uninstall` and `hazmat rollback` remove approval + snapshot +
   installed dispatchers atomically
@@ -56,11 +59,12 @@ Future changes to that boundary must preserve the properties below.
 
 | Invariant | Meaning |
 |-----------|---------|
-| `ApprovalStateWellFormed` | Approval, snapshot, wrapper, dispatcher, and fallback state stay internally consistent. |
+| `ApprovalStateWellFormed` | Approval, snapshot, wrapper, dispatcher, composed, and fallback state stay internally consistent. |
 | `ApprovedContentOnly` | Any approved execution runs bytes from the immutable approved snapshot, not live repo bytes. |
-| `HooksPathPinned` | Approved execution requires the managed `core.hooksPath`. |
-| `WrapperRefusesReroute` | If the wrapper sees `core.hooksPath` drift away from the managed value, it refuses execution. |
+| `HooksPathPinned` | Approved execution requires a Hazmat-approved hooksPath mode: managed or explicit composed. |
+| `WrapperRefusesReroute` | If the wrapper sees `core.hooksPath` drift away from the approved managed/composed modes, it refuses execution. |
 | `ManagedDispatcherRefusesDrift` | Managed dispatcher refuses if repo hash, approved hash, approved hook set, or manifest validity drifts. |
+| `ComposedDispatcherRefusesDrift` | Composed dispatcher refuses if repo hash, approval state, or the composed Hazmat block drifts. |
 | `FallbackDispatcherOnlyRefuses` | Reaching `.git/hooks` is treated as drift detection, not as an alternate approved execution path. |
 | `RollbackClearsHookInstall` | Removing approval also removes snapshot and installed wrapper / dispatcher state. |
 | `NoImplicitWidening` | Hook approval does not widen future session network or filesystem policy. |
@@ -72,11 +76,18 @@ entrypoints only:
 
 - the Git wrapper Hazmat installs
 - the managed dispatcher path
+- the Hazmat-managed block inside an explicitly composed hooksPath owner
 - the fallback `.git/hooks` drift detector
 
 It does **not** claim to prove behavior for arbitrary direct invocations of a
 foreign `git` binary outside the Hazmat-managed wrapper path. That boundary is
 documented rather than hand-waved away.
+
+It also does not prove safety of the external hooksPath owner's own code. In
+composed mode, existing owner content such as beads hooks remains external
+behavior. The model only proves Hazmat's approved hook execution still comes
+from the immutable Hazmat snapshot and that Hazmat refuses when its composed
+entrypoint drifts.
 
 ## Model Bounds
 
@@ -111,11 +122,10 @@ cd tla
 bash check_suite.sh
 ```
 
-Observed TLC result for the promoted model, re-run on 2026-06-03 after moving
-the hidden hook command shells to `internal/hookruntime`:
+Observed TLC result for the composed hooksPath model, re-run on 2026-06-12:
 
 - `Model checking completed. No error has been found.`
-- `127,229,656 states generated`
-- `2,179,200 distinct states found`
-- `depth 9`
-- runtime around `1-4m` depending on worker count and host
+- `520,417,388 states generated`
+- `8,601,760 distinct states found`
+- `depth 10`
+- runtime `5m25s` with 10 workers on the local host

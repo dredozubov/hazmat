@@ -48,6 +48,7 @@ MC_CredentialCapabilityLifecycle	invariant	NonHostBackendsHaveNoHostStore	13	tla
 MC_CredentialCapabilityLifecycle	invariant	TypeOK	13	tla/13_credential_capability_lifecycle.md	credential capability lifecycle contract
 MC_GitHookApproval	invariant	ApprovalStateWellFormed	11	tla/11_git_hook_approval.md	git hook approval contract
 MC_GitHookApproval	invariant	ApprovedContentOnly	11	tla/11_git_hook_approval.md	git hook approval contract
+MC_GitHookApproval	invariant	ComposedDispatcherRefusesDrift	11	tla/11_git_hook_approval.md	git hook approval contract
 MC_GitHookApproval	invariant	FallbackDispatcherOnlyRefuses	11	tla/11_git_hook_approval.md	git hook approval contract
 MC_GitHookApproval	invariant	HooksPathPinned	11	tla/11_git_hook_approval.md	git hook approval contract
 MC_GitHookApproval	invariant	ManagedDispatcherRefusesDrift	11	tla/11_git_hook_approval.md	git hook approval contract

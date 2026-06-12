@@ -100,7 +100,10 @@ Hazmat's response:
 
 - detects an existing local `core.hooksPath` owner
 - refuses automatic replacement
-- requires an explicit `hazmat hooks install --replace`
+- supports explicit composition with `hazmat hooks install --chain-existing`
+  when the existing owner is a repo-relative hooks path such as `.beads/hooks`
+- requires `hazmat hooks install --replace` only when the user wants Hazmat to
+  take over that owner
 
 ### 6. Drift or tampering in the managed hook layout
 
@@ -113,7 +116,28 @@ Hazmat's response:
 - treats unexpected entries as invalid state
 - refuses rather than trying to merge with unknown files
 
-### 7. Host-state leftovers after uninstall or rollback
+### 7. Composed hook owner drift
+
+Some repos intentionally let another local tool own `core.hooksPath`; beads
+commonly uses `.beads/hooks`. Replacing that owner would break the repo's
+workflow, but ignoring it means Hazmat-approved hooks never run.
+
+Hazmat's response:
+
+- `hazmat hooks install --chain-existing` leaves the existing repo-relative
+  `core.hooksPath` value in place
+- Hazmat inserts a managed block into the declared hook files in that owner
+  path, after any existing shebang
+- the managed block runs the approved Hazmat snapshot first and stops the rest
+  of the hook if Hazmat's approved hook fails
+- Hazmat records hashes of the composed hook files in host-owned approval state
+  and refuses when those files drift
+
+This does not make the external owner safe. Beads or another hook owner remains
+responsible for its own hook body. Hazmat's approval covers the Hazmat-declared
+snapshot and the Hazmat-managed chain block, not arbitrary external hook code.
+
+### 8. Host-state leftovers after uninstall or rollback
 
 If approval records, snapshots, or dispatchers remain after uninstall, the
 system becomes hard to reason about and can accidentally preserve old trust.
@@ -121,10 +145,11 @@ system becomes hard to reason about and can accidentally preserve old trust.
 Hazmat's response:
 
 - `hazmat hooks uninstall` removes approval, snapshot, wrapper, and dispatcher
-  state
+  state; in composed mode it removes only Hazmat's chain block and preserves
+  the external hooksPath owner
 - `hazmat rollback` sweeps the same repo-local hook state
 
-### 8. Accidental policy widening
+### 9. Accidental policy widening
 
 Approving a hook should not implicitly widen future Hazmat session network or
 filesystem policy.

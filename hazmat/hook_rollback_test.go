@@ -23,7 +23,7 @@ hooks:
 		},
 	})
 
-	if err := runHooksInstall(projectDir, false); err != nil {
+	if err := runHooksInstall(projectDir, projectHookRuntimeInstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	runtime, err := buildProjectHookRuntime(projectDir)

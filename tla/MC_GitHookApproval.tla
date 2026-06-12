@@ -8,6 +8,7 @@
 \*   - the host records approval against a specific bundle hash
 \*   - the host snapshots the approved bundle immutably
 \*   - the host installs a git wrapper plus managed + fallback dispatchers
+\*     or explicitly composes into an existing hooksPath owner
 \*   - approved execution is allowed only from the immutable approved snapshot
 \*   - wrapper or dispatcher refuses when hooksPath drifts or the repo changes
 \*   - uninstall / rollback removes approval + snapshot + install state
@@ -30,8 +31,8 @@ CONSTANTS
 ASSUME /\ NoHash \notin Hashes
        /\ NoHook \notin HookTypes
 
-HookPaths == {"default", "managed", "rogue", "disabled"}
-Invokers == {"none", "wrapper", "managed-dispatcher", "fallback-dispatcher"}
+HookPaths == {"default", "managed", "composed", "rogue", "disabled"}
+Invokers == {"none", "wrapper", "managed-dispatcher", "composed-dispatcher", "fallback-dispatcher"}
 Outcomes == {"none", "approved", "refused"}
 
 VARIABLES
@@ -44,9 +45,11 @@ VARIABLES
     snapshotHash,          \* immutable approved snapshot hash
     wrapperInstalled,      \* host-side git wrapper installed
     managedDispatchers,    \* managed-path dispatchers installed by hazmat
+    composedInstalled,     \* Hazmat block installed into an approved existing hooksPath owner
     fallbackDispatchers,   \* .git/hooks fallback dispatchers installed by hazmat
     coreHooksPath,         \* effective local hooksPath value seen by git
     unknownManagedEntries, \* unapproved extra/mutated files in managed hooks dir
+    unknownComposedEntries,\* unapproved mutation in composed hook owner files
     unknownFallbackEntries,\* unapproved extra/mutated files in .git/hooks
     lastHook,              \* last hook kind that tried to run
     lastInvoker,           \* wrapper / managed dispatcher / fallback dispatcher
@@ -64,9 +67,11 @@ vars ==
        snapshotHash,
        wrapperInstalled,
        managedDispatchers,
+       composedInstalled,
        fallbackDispatchers,
        coreHooksPath,
        unknownManagedEntries,
+       unknownComposedEntries,
        unknownFallbackEntries,
        lastHook,
        lastInvoker,
@@ -84,9 +89,11 @@ Init ==
     /\ snapshotHash = NoHash
     /\ wrapperInstalled = FALSE
     /\ managedDispatchers = {}
+    /\ composedInstalled = FALSE
     /\ fallbackDispatchers = {}
     /\ coreHooksPath = "default"
     /\ unknownManagedEntries = FALSE
+    /\ unknownComposedEntries = FALSE
     /\ unknownFallbackEntries = FALSE
     /\ lastHook = NoHook
     /\ lastInvoker = "none"
@@ -113,9 +120,11 @@ RepoEdit ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -131,9 +140,38 @@ ApproveInstall ==
     /\ snapshotHash' = repoHash
     /\ wrapperInstalled' = TRUE
     /\ managedDispatchers' = declaredHooks
+    /\ composedInstalled' = FALSE
     /\ fallbackDispatchers' = declaredHooks
     /\ coreHooksPath' = "managed"
     /\ unknownManagedEntries' = FALSE
+    /\ unknownComposedEntries' = FALSE
+    /\ unknownFallbackEntries' = FALSE
+    /\ lastHook' = NoHook
+    /\ lastInvoker' = "none"
+    /\ lastOutcome' = "none"
+    /\ executedHash' = NoHash
+    /\ UNCHANGED << declaredHooks,
+                    manifestValid,
+                    repoHash,
+                    widenedSessionPolicy >>
+
+\* Explicit composed install: preserve an existing hooksPath owner such as
+\* .beads/hooks, install a Hazmat-managed chain block there, and record that
+\* composed entrypoint as part of host-owned approval state.
+ApproveInstallComposed ==
+    /\ manifestValid
+    /\ declaredHooks # {}
+    /\ approvedHooks' = declaredHooks
+    /\ approvalHash' = repoHash
+    /\ snapshotHooks' = declaredHooks
+    /\ snapshotHash' = repoHash
+    /\ wrapperInstalled' = TRUE
+    /\ managedDispatchers' = {}
+    /\ composedInstalled' = TRUE
+    /\ fallbackDispatchers' = declaredHooks
+    /\ coreHooksPath' = "composed"
+    /\ unknownManagedEntries' = FALSE
+    /\ unknownComposedEntries' = FALSE
     /\ unknownFallbackEntries' = FALSE
     /\ lastHook' = NoHook
     /\ lastInvoker' = "none"
@@ -161,8 +199,10 @@ RewriteHooksPath(newPath) ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -183,9 +223,11 @@ CorruptManagedInstall(newSet) ==
                     snapshotHooks,
                     snapshotHash,
                     wrapperInstalled,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -206,8 +248,10 @@ CorruptFallbackInstall(newSet) ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -228,8 +272,35 @@ AddUnknownManagedEntry ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
+                    unknownComposedEntries,
+                    unknownFallbackEntries,
+                    widenedSessionPolicy >>
+
+CorruptComposedInstall ==
+    /\ approvalHash /= NoHash
+    /\ composedInstalled
+    /\ ~unknownComposedEntries
+    /\ unknownComposedEntries' = TRUE
+    /\ lastHook' = NoHook
+    /\ lastInvoker' = "none"
+    /\ lastOutcome' = "none"
+    /\ executedHash' = NoHash
+    /\ UNCHANGED << declaredHooks,
+                    approvedHooks,
+                    manifestValid,
+                    repoHash,
+                    approvalHash,
+                    snapshotHooks,
+                    snapshotHash,
+                    wrapperInstalled,
+                    managedDispatchers,
+                    composedInstalled,
+                    fallbackDispatchers,
+                    coreHooksPath,
+                    unknownManagedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -250,9 +321,11 @@ AddUnknownFallbackEntry ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     widenedSessionPolicy >>
 
 \* The wrapper is the primary defense. It checks both hook locations, the
@@ -264,11 +337,14 @@ WrapperChecksPass(h) ==
     /\ repoHash = approvalHash
     /\ snapshotHash = approvalHash
     /\ snapshotHooks = approvedHooks
-    /\ managedDispatchers = approvedHooks
     /\ fallbackDispatchers = approvedHooks
-    /\ coreHooksPath = "managed"
-    /\ ~unknownManagedEntries
     /\ ~unknownFallbackEntries
+    /\ \/ /\ coreHooksPath = "managed"
+          /\ managedDispatchers = approvedHooks
+          /\ ~unknownManagedEntries
+       \/ /\ coreHooksPath = "composed"
+          /\ composedInstalled
+          /\ ~unknownComposedEntries
 
 InvokeViaWrapper(h) ==
     /\ h \in HookTypes
@@ -289,9 +365,11 @@ InvokeViaWrapper(h) ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -328,9 +406,53 @@ InvokeViaManagedDispatcher(h) ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
+                    unknownFallbackEntries,
+                    widenedSessionPolicy >>
+
+\* A composed dispatcher is a Hazmat-managed block inside an explicitly
+\* approved existing hooksPath owner, such as .beads/hooks. It preserves the
+\* external hook owner but still executes only the approved Hazmat snapshot.
+ComposedDispatcherChecksPass(h) ==
+    /\ h \in approvedHooks
+    /\ manifestValid
+    /\ declaredHooks = approvedHooks
+    /\ repoHash = approvalHash
+    /\ snapshotHash = approvalHash
+    /\ snapshotHooks = approvedHooks
+    /\ composedInstalled
+    /\ coreHooksPath = "composed"
+    /\ ~unknownComposedEntries
+
+InvokeViaComposedDispatcher(h) ==
+    /\ h \in HookTypes
+    /\ composedInstalled
+    /\ coreHooksPath = "composed"
+    /\ lastHook' = h
+    /\ lastInvoker' = "composed-dispatcher"
+    /\ IF ComposedDispatcherChecksPass(h)
+          THEN /\ lastOutcome' = "approved"
+               /\ executedHash' = snapshotHash
+          ELSE /\ lastOutcome' = "refused"
+               /\ executedHash' = NoHash
+    /\ UNCHANGED << declaredHooks,
+                    approvedHooks,
+                    manifestValid,
+                    repoHash,
+                    approvalHash,
+                    snapshotHooks,
+                    snapshotHash,
+                    wrapperInstalled,
+                    managedDispatchers,
+                    composedInstalled,
+                    fallbackDispatchers,
+                    coreHooksPath,
+                    unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -353,9 +475,11 @@ InvokeViaFallbackDispatcher(h) ==
                     snapshotHash,
                     wrapperInstalled,
                     managedDispatchers,
+                    composedInstalled,
                     fallbackDispatchers,
                     coreHooksPath,
                     unknownManagedEntries,
+                    unknownComposedEntries,
                     unknownFallbackEntries,
                     widenedSessionPolicy >>
 
@@ -367,9 +491,11 @@ RemoveManagedHooks ==
     /\ snapshotHash' = NoHash
     /\ wrapperInstalled' = FALSE
     /\ managedDispatchers' = {}
+    /\ composedInstalled' = FALSE
     /\ fallbackDispatchers' = {}
     /\ coreHooksPath' = "default"
     /\ unknownManagedEntries' = FALSE
+    /\ unknownComposedEntries' = FALSE
     /\ unknownFallbackEntries' = FALSE
     /\ lastHook' = NoHook
     /\ lastInvoker' = "none"
@@ -386,13 +512,16 @@ Stutter ==
 Next ==
     \/ RepoEdit
     \/ ApproveInstall
+    \/ ApproveInstallComposed
     \/ \E p \in HookPaths : RewriteHooksPath(p)
     \/ \E hs \in SUBSET HookTypes : CorruptManagedInstall(hs)
     \/ \E hs \in SUBSET HookTypes : CorruptFallbackInstall(hs)
     \/ AddUnknownManagedEntry
+    \/ CorruptComposedInstall
     \/ AddUnknownFallbackEntry
     \/ \E h \in HookTypes : InvokeViaWrapper(h)
     \/ \E h \in HookTypes : InvokeViaManagedDispatcher(h)
+    \/ \E h \in HookTypes : InvokeViaComposedDispatcher(h)
     \/ \E h \in HookTypes : InvokeViaFallbackDispatcher(h)
     \/ RemoveManagedHooks
     \/ Stutter
@@ -410,9 +539,11 @@ TypeOK ==
     /\ snapshotHash \in Hashes \cup {NoHash}
     /\ wrapperInstalled \in BOOLEAN
     /\ managedDispatchers \subseteq HookTypes
+    /\ composedInstalled \in BOOLEAN
     /\ fallbackDispatchers \subseteq HookTypes
     /\ coreHooksPath \in HookPaths
     /\ unknownManagedEntries \in BOOLEAN
+    /\ unknownComposedEntries \in BOOLEAN
     /\ unknownFallbackEntries \in BOOLEAN
     /\ lastHook \in HookTypes \cup {NoHook}
     /\ lastInvoker \in Invokers
@@ -435,16 +566,17 @@ ApprovedContentOnly ==
         /\ declaredHooks = approvedHooks
         /\ lastHook \in approvedHooks
 
-\* Successful execution requires the managed hooksPath. Any hooksPath drift
-\* must end in refusal rather than execution.
+\* Successful execution requires a Hazmat-approved hooksPath mode: either the
+\* fully managed hooksPath or the explicit composed hooksPath owner. Any other
+\* hooksPath drift must end in refusal rather than execution.
 HooksPathPinned ==
     lastOutcome = "approved" =>
-        coreHooksPath = "managed"
+        coreHooksPath \in {"managed", "composed"}
 
 \* The wrapper is the primary defense against core.hooksPath bypass.
 WrapperRefusesReroute ==
     /\ lastInvoker = "wrapper"
-    /\ coreHooksPath /= "managed"
+    /\ coreHooksPath \notin {"managed", "composed"}
     => lastOutcome = "refused"
 
 \* Managed dispatcher cannot execute once the repo or approval record drifts.
@@ -456,6 +588,19 @@ ManagedDispatcherRefusesDrift ==
         \/ snapshotHooks /= approvedHooks
         \/ ~manifestValid
         \/ unknownManagedEntries)
+    => lastOutcome = "refused"
+
+\* Composed dispatcher cannot execute once the repo, approval record, or
+\* composed hook owner block drifts.
+ComposedDispatcherRefusesDrift ==
+    /\ lastInvoker = "composed-dispatcher"
+    /\ (\/ repoHash /= approvalHash
+        \/ declaredHooks /= approvedHooks
+        \/ snapshotHash /= approvalHash
+        \/ snapshotHooks /= approvedHooks
+        \/ ~manifestValid
+        \/ ~composedInstalled
+        \/ unknownComposedEntries)
     => lastOutcome = "refused"
 
 \* The fallback path is detection-only. If git reaches .git/hooks, Hazmat
@@ -473,6 +618,7 @@ RollbackClearsHookInstall ==
         /\ snapshotHooks = {}
         /\ ~wrapperInstalled
         /\ managedDispatchers = {}
+        /\ ~composedInstalled
         /\ fallbackDispatchers = {}
 
 \* Hook approval must not widen future session network or filesystem policy.

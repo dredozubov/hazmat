@@ -28,10 +28,10 @@ hooks:
 	if err := writeLocalGitHooksPath(projectDir, filepath.Join(projectDir, ".husky")); err != nil {
 		t.Fatal(err)
 	}
-	if err := runHooksInstall(projectDir, false); err == nil || !strings.Contains(err.Error(), "--replace") {
+	if err := runHooksInstall(projectDir, projectHookRuntimeInstallOptions{}); err == nil || !strings.Contains(err.Error(), "--chain-existing") || !strings.Contains(err.Error(), "--replace") {
 		t.Fatalf("expected replace hint, got %v", err)
 	}
-	if err := runHooksInstall(projectDir, true); err != nil {
+	if err := runHooksInstall(projectDir, projectHookRuntimeInstallOptions{ReplaceExisting: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,7 +190,7 @@ hooks:
 		},
 	})
 
-	if err := runHooksInstall(projectDir, false); err != nil {
+	if err := runHooksInstall(projectDir, projectHookRuntimeInstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	approval, err := loadProjectHookApproval(projectDir)

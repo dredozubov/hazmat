@@ -791,8 +791,8 @@ script remain governed by unit tests rather than TLC.
 | TLA+ files | `tla/MC_GitHookApproval.tla`, `tla/MC_GitHookApproval.cfg` |
 | Governed code | `hazmat/hook_manifest.go`, `hazmat/hook_approval.go`, `hazmat/hook_runtime.go`, `hazmat/internal/hookruntime/commands.go`, `hazmat/hook_cli.go` |
 | Governed code | `hazmat/rollback.go` — repo-local hook cleanup sweep |
-| Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
-| Status | **Proved, implemented, and re-proved** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, and rollback cleanup ship behind the current hook command surface, with hook hidden command shells housed in `internal/hookruntime` |
+| Key invariants | `ApprovedContentOnly`, `HooksPathPinned`, `WrapperRefusesReroute`, `ManagedDispatcherRefusesDrift`, `ComposedDispatcherRefusesDrift`, `FallbackDispatcherOnlyRefuses`, `RollbackClearsHookInstall`, `NoImplicitWidening` |
+| Status | **Proved, implemented, and re-proved** — repo-local hook approval, immutable snapshot execution, wrapper / dispatcher refusal, explicit composed hooksPath ownership, and rollback cleanup ship behind the current hook command surface, with hook hidden command shells housed in `internal/hookruntime` |
 
 **What this verifies:**
 
@@ -805,12 +805,12 @@ script remain governed by unit tests rather than TLC.
    not the live repo copy.
 
 3. **`core.hooksPath` reroute is a refusal path:** the primary wrapper boundary
-   must refuse if the effective `core.hooksPath` drifts away from the
-   Hazmat-managed path.
+   must refuse if the effective `core.hooksPath` drifts away from the approved
+   Hazmat-managed path or an explicitly composed hooksPath owner.
 
-4. **Managed dispatcher drift is fatal, not advisory:** repo drift, approval
-   drift, snapshot drift, or managed-layout drift all resolve to refusal rather
-   than best-effort execution.
+4. **Managed and composed dispatcher drift is fatal, not advisory:** repo
+   drift, approval drift, snapshot drift, managed-layout drift, or composed
+   hook block drift all resolve to refusal rather than best-effort execution.
 
 5. **Fallback `.git/hooks` is detection-only:** reaching the default hook path
    is modeled as a refusal path, not an alternate approved execution channel.
@@ -819,15 +819,17 @@ script remain governed by unit tests rather than TLC.
    activation does not grant future filesystem or network capability beyond the
    existing session contract.
 
-`MC_GitHookApproval` passed on 2026-06-03 with "No error has been found" across
-2,179,200 distinct states (127,229,656 generated, depth 9, 51s).
+`MC_GitHookApproval` passed on 2026-06-12 with "No error has been found" across
+8,601,760 distinct states (520,417,388 generated, depth 10, 5m25s).
 
 **Scope boundary:**
 
 The spec models Hazmat-managed host-side entrypoints only: the Git wrapper
-Hazmat installs, the managed dispatcher path, and the fallback `.git/hooks`
-drift detector. It does **not** claim correctness for arbitrary direct
-invocation of a foreign `git` binary outside that managed path.
+Hazmat installs, the managed dispatcher path, the Hazmat-managed block inside
+an explicitly composed hooksPath owner, and the fallback `.git/hooks` drift
+detector. It does **not** claim correctness for arbitrary direct invocation of
+a foreign `git` binary outside that managed path, or safety of the external
+hooksPath owner's own code.
 
 **Change rules:**
 - Changes to repo-local hook approval semantics, approved snapshot execution,

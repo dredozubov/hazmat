@@ -47,15 +47,20 @@ pre-commit, commit-msg, and pre-push.`,
 	})
 
 	var replace bool
+	var chainExisting bool
 	installCmd := &cobra.Command{
 		Use:   "install",
 		Short: "Approve and install repo-local git hooks",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runHooksInstall(project, replace)
+			return runHooksInstall(project, projectHookRuntimeInstallOptions{
+				ReplaceExisting: replace,
+				ChainExisting:   chainExisting,
+			})
 		},
 	}
 	installCmd.Flags().BoolVar(&replace, "replace", false, "Replace an existing local core.hooksPath owner explicitly")
+	installCmd.Flags().BoolVar(&chainExisting, "chain-existing", false, "Preserve the existing local core.hooksPath owner and add a Hazmat-managed chain block")
 	cmd.AddCommand(installCmd)
 
 	cmd.AddCommand(&cobra.Command{
@@ -132,7 +137,7 @@ func runHooksReview(project string) error {
 	return nil
 }
 
-func runHooksInstall(project string, replace bool) error {
+func runHooksInstall(project string, options projectHookRuntimeInstallOptions) error {
 	projectDir, status, err := inspectProjectHooks(project)
 	if err != nil {
 		return err
@@ -154,10 +159,10 @@ func runHooksInstall(project string, replace bool) error {
 	if err != nil {
 		return err
 	}
-	runtime, err := installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath, replace)
+	runtime, err := installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath, options)
 	if err != nil {
-		if !replace && strings.Contains(err.Error(), "refusing to replace it silently") {
-			return fmt.Errorf("%w\nre-run with: hazmat hooks install --replace -C %s", err, projectDir)
+		if !options.ReplaceExisting && !options.ChainExisting && strings.Contains(err.Error(), "refusing to replace it silently") {
+			return fmt.Errorf("%w\nre-run with: hazmat hooks install --chain-existing -C %s\nor take over explicitly with: hazmat hooks install --replace -C %s", err, projectDir, projectDir)
 		}
 		return err
 	}
@@ -165,7 +170,11 @@ func runHooksInstall(project string, replace bool) error {
 	fmt.Println()
 	fmt.Printf("  Installed Hazmat-managed hooks for %s\n", runtime.ProjectDir)
 	fmt.Printf("  Wrapper: %s\n", runtime.WrapperPath)
-	fmt.Printf("  Managed hooksPath: %s\n", runtime.ManagedDir)
+	if runtime.Approval != nil && runtime.Approval.Chain != nil {
+		fmt.Printf("  Chained hooksPath: %s\n", runtime.Approval.Chain.HooksPath)
+	} else {
+		fmt.Printf("  Managed hooksPath: %s\n", runtime.ManagedDir)
+	}
 	fmt.Println()
 	return nil
 }
@@ -234,7 +243,8 @@ func maybePromptProjectHooks(projectDir string) {
 	if _, err := installProjectHookRuntime(projectDir, hazmatBinPath); err != nil {
 		fmt.Fprintf(os.Stderr, "hazmat: warning: could not install repo hooks: %v\n", err)
 		if strings.Contains(err.Error(), "refusing to replace it silently") {
-			fmt.Fprintf(os.Stderr, "hazmat: repair manually with: hazmat hooks install --replace -C %s\n", projectDir)
+			fmt.Fprintf(os.Stderr, "hazmat: repair manually with: hazmat hooks install --chain-existing -C %s\n", projectDir)
+			fmt.Fprintf(os.Stderr, "hazmat: or take over explicitly with: hazmat hooks install --replace -C %s\n", projectDir)
 		}
 	}
 }

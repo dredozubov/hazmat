@@ -323,7 +323,8 @@ declared hook entrypoints.
 hazmat hooks status
 hazmat hooks review
 hazmat hooks install
-hazmat hooks install --replace   # only when another local core.hooksPath owner exists
+hazmat hooks install --chain-existing  # preserve an existing local core.hooksPath owner
+hazmat hooks install --replace         # take over an existing local core.hooksPath owner
 hazmat hooks uninstall
 ```
 
@@ -338,7 +339,16 @@ V1 scope is intentionally narrow:
 - `pre-commit`, `commit-msg`, `pre-push` only
 - explicit install / uninstall through Hazmat
 - refusal when another local `core.hooksPath` owner already exists unless you
-  pass `hazmat hooks install --replace`
+  pass `hazmat hooks install --chain-existing` to preserve it or
+  `hazmat hooks install --replace` to take over
+
+`--chain-existing` is the coexistence path for repos where another tool already
+owns a repo-relative hooks path such as `.beads/hooks`. Hazmat leaves
+`core.hooksPath` pointing there, inserts a Hazmat-managed block into the
+declared hook files, records the resulting file hashes in host-owned approval
+state, and refuses later if that block drifts. The other tool's hook body still
+runs as that tool's responsibility; Hazmat's approval only covers the
+Hazmat-declared snapshot.
 
 V1 does **not** support global hooks, `init.templateDir`, package-manager
 auto-install, `post-*` hooks, or server-side hooks.

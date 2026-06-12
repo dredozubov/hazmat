@@ -172,6 +172,195 @@ hooks:
 	}
 }
 
+func TestInstallProjectHookRuntimeChainsExistingHooksPath(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-commit.sh": "#!/bin/sh\necho approved > \"$HOOK_OUTPUT\"\n",
+		},
+	})
+	beadsHooksDir := filepath.Join(projectDir, ".beads", "hooks")
+	if err := os.MkdirAll(beadsHooksDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	externalHook := "#!/bin/sh\necho beads >> \"$HOOK_OUTPUT\"\n"
+	if err := os.WriteFile(filepath.Join(beadsHooksDir, "pre-commit"), []byte(externalHook), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalGitHooksPath(projectDir, ".beads/hooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := installProjectHookRuntimeWithOptions(projectDir, "/usr/local/bin/hazmat", projectHookRuntimeInstallOptions{ChainExisting: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if hooksPath, err := readLocalGitHooksPath(projectDir); err != nil || hooksPath != ".beads/hooks" {
+		t.Fatalf("core.hooksPath = %q err=%v, want .beads/hooks", hooksPath, err)
+	}
+	approval, err := loadProjectHookApproval(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approval == nil || approval.Chain == nil || approval.Chain.HooksPath != ".beads/hooks" {
+		t.Fatalf("expected chained approval for .beads/hooks, got %+v", approval)
+	}
+	raw, err := os.ReadFile(filepath.Join(beadsHooksDir, "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.HasPrefix(text, "#!/bin/sh\n"+projectHookChainBeginMarker) {
+		t.Fatalf("expected Hazmat block after shebang, got %q", text)
+	}
+	if !strings.Contains(text, "echo beads") {
+		t.Fatalf("expected external hook body to be preserved, got %q", text)
+	}
+	if _, err := os.Stat(filepath.Join(runtime.FallbackDir, "pre-commit")); err != nil {
+		t.Fatalf("expected fallback dispatcher, got %v", err)
+	}
+	if _, err := validateProjectHookRuntime(projectDir); err != nil {
+		t.Fatalf("expected chained runtime to validate, got %v", err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "hook-output.txt")
+	t.Setenv("HOOK_OUTPUT", outputPath)
+	if err := runApprovedProjectHook(projectDir, hookTypePreCommit, nil); err != nil {
+		t.Fatal(err)
+	}
+	output, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(output)), "approved"; got != want {
+		t.Fatalf("approved hook output = %q, want %q", got, want)
+	}
+}
+
+func TestValidateProjectHookRuntimeRejectsChainedHookDrift(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-push
+    script: pre-push.sh
+    purpose: fast local gate
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-push.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+	beadsHooksDir := filepath.Join(projectDir, ".beads", "hooks")
+	if err := os.MkdirAll(beadsHooksDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsHooksDir, "pre-push"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalGitHooksPath(projectDir, ".beads/hooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installProjectHookRuntimeWithOptions(projectDir, "/usr/local/bin/hazmat", projectHookRuntimeInstallOptions{ChainExisting: true}); err != nil {
+		t.Fatal(err)
+	}
+	hookPath := filepath.Join(beadsHooksDir, "pre-push")
+	file, err := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("# drift\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := validateProjectHookRuntime(projectDir); err == nil || !strings.Contains(err.Error(), "drifted from approved hash") {
+		t.Fatalf("expected chained hook drift refusal, got %v", err)
+	}
+}
+
+func TestUninstallProjectHookRuntimeRemovesChainBlockAndKeepsHooksPath(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-commit
+    script: pre-commit.sh
+    purpose: keep staged files clean
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-commit.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+	beadsHooksDir := filepath.Join(projectDir, ".beads", "hooks")
+	if err := os.MkdirAll(beadsHooksDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	externalHook := "#!/bin/sh\necho beads >> \"$HOOK_OUTPUT\"\n"
+	hookPath := filepath.Join(beadsHooksDir, "pre-commit")
+	if err := os.WriteFile(hookPath, []byte(externalHook), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLocalGitHooksPath(projectDir, ".beads/hooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installProjectHookRuntimeWithOptions(projectDir, "/usr/local/bin/hazmat", projectHookRuntimeInstallOptions{ChainExisting: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := uninstallProjectHookRuntime(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if hooksPath, err := readLocalGitHooksPath(projectDir); err != nil || hooksPath != ".beads/hooks" {
+		t.Fatalf("expected chained hooksPath to remain .beads/hooks, got %q err=%v", hooksPath, err)
+	}
+	raw, err := os.ReadFile(hookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, projectHookChainBeginMarker) || strings.Contains(text, projectHookChainEndMarker) {
+		t.Fatalf("expected Hazmat chain block removal, got %q", text)
+	}
+	if !strings.Contains(text, "echo beads") {
+		t.Fatalf("expected external hook body to remain, got %q", text)
+	}
+}
+
 func TestRunApprovedProjectHookRefusesBundleDrift(t *testing.T) {
 	setProjectHookApprovalTestPaths(t)
 	projectDir := initGitHookProject(t, projectHookBundleFixture{

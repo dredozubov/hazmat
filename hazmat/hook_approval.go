@@ -28,10 +28,21 @@ type projectHookApprovalRecord struct {
 	SnapshotDir string                     `yaml:"snapshot_dir"`
 	ApprovedAt  string                     `yaml:"approved_at,omitempty"`
 	Summary     projectHookApprovalSummary `yaml:"summary"`
+	Chain       *projectHookChainApproval  `yaml:"chain,omitempty"`
 }
 
 type projectHookApprovalSummary struct {
 	Hooks []projectHookSummaryEntry `yaml:"hooks"`
+}
+
+type projectHookChainApproval struct {
+	HooksPath string                         `yaml:"hooks_path"`
+	Hooks     []projectHookChainHookApproval `yaml:"hooks"`
+}
+
+type projectHookChainHookApproval struct {
+	Type     hookType `yaml:"type"`
+	FileHash string   `yaml:"file_hash"`
 }
 
 func loadProjectHookApprovals() projectHookApprovalFile {
@@ -71,6 +82,7 @@ func loadProjectHookApproval(projectDir string) (*projectHookApprovalRecord, err
 		if record.ProjectDir == canonicalProjectDir {
 			copy := record
 			copy.Summary.Hooks = append([]projectHookSummaryEntry(nil), record.Summary.Hooks...)
+			copy.Chain = copyProjectHookChainApproval(record.Chain)
 			return &copy, nil
 		}
 	}
@@ -159,6 +171,38 @@ func recordProjectHookApproval(bundle *loadedProjectHookBundle) (*projectHookApp
 	}
 
 	return &record, nil
+}
+
+func updateProjectHookApprovalChain(projectDir string, chain *projectHookChainApproval) (*projectHookApprovalRecord, error) {
+	canonicalProjectDir, err := canonicalizePath(projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	approvals := loadProjectHookApprovals()
+	for i := range approvals.Approvals {
+		if approvals.Approvals[i].ProjectDir != canonicalProjectDir {
+			continue
+		}
+		approvals.Approvals[i].Chain = copyProjectHookChainApproval(chain)
+		record := approvals.Approvals[i]
+		if err := saveProjectHookApprovals(approvals); err != nil {
+			return nil, fmt.Errorf("save hook approvals: %w", err)
+		}
+		record.Summary.Hooks = append([]projectHookSummaryEntry(nil), record.Summary.Hooks...)
+		record.Chain = copyProjectHookChainApproval(record.Chain)
+		return &record, nil
+	}
+	return nil, fmt.Errorf("repo hook bundle is not approved")
+}
+
+func copyProjectHookChainApproval(chain *projectHookChainApproval) *projectHookChainApproval {
+	if chain == nil {
+		return nil
+	}
+	copy := *chain
+	copy.Hooks = append([]projectHookChainHookApproval(nil), chain.Hooks...)
+	return &copy
 }
 
 func removeProjectHookApproval(projectDir string) error {
