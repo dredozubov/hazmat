@@ -646,7 +646,9 @@ bridge roots outside the persistent agent home.
 `sessionConfig` can carry this runtime plan through native policy and
 environment construction, but production resolution does not populate it yet;
 that keeps the new path disabled by default while making activation wiring
-unit-testable.
+unit-testable. `HAZMAT_EXPERIMENTAL_SESSION_HOME=1` currently enables this path
+only for plan-only previews such as `hazmat explain`; executable launches fail
+closed under the gate until live validation and activation coverage land.
 
 #### Resume/export requirements
 

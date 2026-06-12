@@ -1319,6 +1319,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 	appendClaudeBareSessionNote(&cfg, mode)
 	appendClaudeKeychainSessionNote(&cfg, mode, opts.claudeBareRequested)
+	if err := applyExperimentalSessionHomePlan(&cfg, mode, opts); err != nil {
+		return preparedSession{}, err
+	}
 	if !opts.planOnly {
 		if err := applyHarnessAuthArtifacts(&cfg); err != nil {
 			return preparedSession{}, err
@@ -1587,6 +1590,10 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 	fmt.Fprintf(&b, "  Service access:       %s\n", sessionContractList(cfg.ServiceAccess))
 	if cfg.GitSSH != nil && strings.TrimSpace(cfg.GitSSH.DisplayName) != "" {
 		fmt.Fprintf(&b, "  Git SSH key:          %s\n", cfg.GitSSH.DisplayName)
+	}
+	if cfg.SessionHome != nil {
+		fmt.Fprintf(&b, "  Session HOME:         %s (experimental preview)\n", cfg.SessionHome.Launch.Layout.Home)
+		fmt.Fprintf(&b, "  Persistent HOME:      %s\n", cfg.SessionHome.AgentHomePolicy.PersistentPath)
 	}
 	if summary := repoSetupSummary(cfg.RepoSetup); summary != "" {
 		fmt.Fprintf(&b, "  Repo setup:           %s\n", summary)

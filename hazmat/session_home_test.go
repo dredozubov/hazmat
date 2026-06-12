@@ -54,6 +54,54 @@ func TestNewSessionHomeLayoutRejectsUnsafeInputs(t *testing.T) {
 	}
 }
 
+func TestApplyExperimentalSessionHomePlanDisabledByDefault(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "")
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{planOnly: true}); err != nil {
+		t.Fatalf("applyExperimentalSessionHomePlan: %v", err)
+	}
+	if cfg.SessionHome != nil {
+		t.Fatalf("SessionHome = %+v, want nil when gate is disabled", cfg.SessionHome)
+	}
+}
+
+func TestApplyExperimentalSessionHomePlanRequiresPlanOnlyNativeSession(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "1")
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{}); err == nil {
+		t.Fatal("applyExperimentalSessionHomePlan accepted executable native launch")
+	}
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeDockerSandbox, harnessSessionOpts{planOnly: true}); err == nil {
+		t.Fatal("applyExperimentalSessionHomePlan accepted non-native mode")
+	}
+}
+
+func TestApplyExperimentalSessionHomePlanBuildsRuntimePreview(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "1")
+	savedNewSessionHomeID := newSessionHomeID
+	newSessionHomeID = func() string { return "session-123" }
+	t.Cleanup(func() { newSessionHomeID = savedNewSessionHomeID })
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{planOnly: true}); err != nil {
+		t.Fatalf("applyExperimentalSessionHomePlan: %v", err)
+	}
+	if cfg.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want runtime plan")
+	}
+	if got, want := cfg.SessionHome.Launch.Layout.Home, filepath.Join(defaultSessionHomeRoot, "session-123", "home"); got != want {
+		t.Fatalf("SessionHome layout = %s, want %s", got, want)
+	}
+	if cfg.SessionHome.AgentHomePolicy.Mode != containment.AgentHomeModeSessionLocal {
+		t.Fatalf("AgentHomePolicy mode = %s", cfg.SessionHome.AgentHomePolicy.Mode)
+	}
+	if len(cfg.SessionNotes) < 2 || !strings.Contains(cfg.SessionNotes[0], "Experimental session-local HOME preview") {
+		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
 func TestCreateSessionHomeLayoutCreatesMarkerAndXDGDirs(t *testing.T) {
 	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
 	if err != nil {
@@ -353,6 +401,35 @@ func TestBuildNativeSessionPolicyUsesSessionHomeRuntimePlan(t *testing.T) {
 	}
 	if !reflect.DeepEqual(agentHomePolicy.DurableBridgeRoots, runtimePlan.AgentHomePolicy.DurableBridgeRoots) {
 		t.Fatalf("DurableBridgeRoots = %#v, want %#v", agentHomePolicy.DurableBridgeRoots, runtimePlan.AgentHomePolicy.DurableBridgeRoots)
+	}
+}
+
+func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	launchPlan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, false)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	runtimePlan, err := newSessionHomeRuntimePlan(launchPlan, persistentHome)
+	if err != nil {
+		t.Fatalf("newSessionHomeRuntimePlan: %v", err)
+	}
+
+	got := renderSessionContract(sessionConfig{
+		ProjectDir:   "/Users/dr/workspace/hazmat",
+		SessionHome:  &runtimePlan,
+		NetworkMode:  sessionNetworkDefault,
+		SessionNotes: []string{"session-home preview"},
+	}, sessionModeNative, true)
+	for _, want := range []string{
+		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
+		"Persistent HOME:      " + persistentHome,
+		"session-home preview",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderSessionContract missing %q in:\n%s", want, got)
+		}
 	}
 }
 

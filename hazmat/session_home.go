@@ -14,6 +14,7 @@ import (
 const (
 	defaultSessionHomeRoot          = "/private/tmp/hazmat-home"
 	defaultSessionHomeCleanupMaxAge = 24 * time.Hour
+	experimentalSessionHomeEnv      = "HAZMAT_EXPERIMENTAL_SESSION_HOME"
 	sessionHomeMarkerFile           = ".hazmat-session-home"
 )
 
@@ -101,6 +102,47 @@ type sessionHomeLaunchPlan struct {
 type sessionHomeRuntimePlan struct {
 	Launch          sessionHomeLaunchPlan
 	AgentHomePolicy containment.AgentHomePolicy
+}
+
+var newSessionHomeID = defaultSessionHomeID
+
+func defaultSessionHomeID() string {
+	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+}
+
+func experimentalSessionHomeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(experimentalSessionHomeEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts harnessSessionOpts) error {
+	if !experimentalSessionHomeEnabled() {
+		return nil
+	}
+	if mode != sessionModeNative {
+		return fmt.Errorf("%s=1 supports native sessions only", experimentalSessionHomeEnv)
+	}
+	if !opts.planOnly {
+		return fmt.Errorf("%s=1 is currently plan-only; use hazmat explain to inspect the session-local HOME plan", experimentalSessionHomeEnv)
+	}
+	launchPlan, err := newSessionHomeLaunchPlan(defaultSessionHomeRoot, newSessionHomeID(), agentHome, true)
+	if err != nil {
+		return err
+	}
+	runtimePlan, err := newSessionHomeRuntimePlan(launchPlan, agentHome)
+	if err != nil {
+		return err
+	}
+	cfg.SessionHome = &runtimePlan
+	cfg.SessionNotes = append(cfg.SessionNotes,
+		fmt.Sprintf("Experimental session-local HOME preview: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
+		"Session-local HOME launch remains disabled until activation coverage and live validation land.",
+	)
+	return nil
 }
 
 func newSessionHomeLayout(root, sessionID string) (sessionHomeLayout, error) {
