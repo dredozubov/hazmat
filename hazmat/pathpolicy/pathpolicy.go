@@ -27,6 +27,7 @@ var credentialDenySubpaths = []string{
 	"/.local/share/jupyter/runtime",
 	"/.langsmith",
 	"/.config/amp",
+	"/.config/devin",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",

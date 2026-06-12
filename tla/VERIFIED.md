@@ -210,13 +210,14 @@ rollback preservation semantics changed. `MC_SetupRollback` was re-run with TLC
 and reported "No error has been found" across the same state space: 65,662
 generated states, 35,005 distinct states, depth 56.
 
-**2026-06-12 Amp/Goose credential-state expansion:** Host credential hardening
-now includes Amp config/plugin roots and Goose config/session/log roots
-alongside the existing credential deny floor. This does not add a setup step;
-it expands the concrete path set covered by the existing persistent
-`hostCredentialModes` resource. `MC_SetupRollback` was re-run with TLC and
-reported "No error has been found" across the same state space: 65,662
-generated states, 35,005 distinct states, depth 56.
+**2026-06-12 Amp/Devin/Goose credential-state expansion:** Host credential
+hardening now includes Amp config/plugin roots, Devin config/auth-adjacent
+state, and Goose config/session/log roots alongside the existing credential
+deny floor. This does not add a setup step; it expands the concrete path set
+covered by the existing persistent `hostCredentialModes` resource.
+`MC_SetupRollback` was re-run with TLC and reported "No error has been found"
+across the same state space: 65,662 generated states, 35,005 distinct states,
+depth 56.
 
 The bounded-retry model does **not** currently prove `SetupEventuallyCompletes`.
 If setup and rollback attempts are both exhausted after repeated failures, TLC
@@ -341,12 +342,13 @@ subtrees lose implicit section-4 exposure. TLC proves
 `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome` with "No error has
 been found" across 147,456 generated states, 135,168 distinct states, depth 11.
 
-**2026-06-12 Amp/Goose credential-state expansion:** The credential model now
-includes representative `ampConfigDir` and `gooseStateDir` leaves after the
-concrete deny floor added `~/.config/amp`, `~/.config/goose`,
-`~/.local/share/goose`, and `~/.local/state/goose`. `MC_SeatbeltPolicy` was
-re-run with TLC and reported "No error has been found" across 1,622,016
-generated states, 1,486,848 distinct states, depth 11.
+**2026-06-12 Amp/Devin/Goose credential-state expansion:** The credential model
+now includes representative `ampConfigDir`, `devinConfigDir`, and
+`gooseStateDir` leaves after the concrete deny floor added `~/.config/amp`,
+`~/.config/devin`, `~/.config/goose`, `~/.local/share/goose`, and
+`~/.local/state/goose`. `MC_SeatbeltPolicy` was re-run with TLC and reported
+"No error has been found" across 3,538,944 generated states, 3,244,032 distinct
+states, depth 11.
 
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
@@ -540,11 +542,12 @@ the validated path constructor move and root/credential-deny handling review.
 `MC_Tier3LaunchContainment` reported "No error has been found" across 33,876
 generated states, 23,580 distinct states, depth 9.
 
-**2026-06-12 Amp/Goose credential-state expansion:** The abstract launch model
-now includes `ampConfigDir` and `gooseStateDir` as credential leaves, matching
-the concrete Amp config and Goose config/session/log deny roots.
+**2026-06-12 Amp/Devin/Goose credential-state expansion:** The abstract launch
+model now includes `ampConfigDir`, `devinConfigDir`, and `gooseStateDir` as
+credential leaves, matching the concrete Amp config, Devin config, and Goose
+config/session/log deny roots.
 `MC_Tier3LaunchContainment` was re-run with TLC and reported "No error has
-been found" across 577,108 generated states, 316,444 distinct states, depth 9.
+been found" across 1,386,068 generated states, 721,948 distinct states, depth 9.
 
 **Change rules:**
 - Any change to Tier 3 mount planning must preserve both properties:
@@ -612,11 +615,12 @@ guard outside the modeled credential-input set. `MC_TierPolicyEquivalence` was
 re-run with TLC and reported "No error has been found" across 655,360 generated
 states, 327,680 distinct states, depth 1.
 
-**2026-06-12 Amp/Goose credential-state expansion:** The equivalence model now
-includes `ampConfigDir` and `gooseStateDir` as credential leaves so Tier 2 and
-Tier 3 reject the new Amp and Goose credential-state roots consistently.
+**2026-06-12 Amp/Devin/Goose credential-state expansion:** The equivalence
+model now includes `ampConfigDir`, `devinConfigDir`, and `gooseStateDir` as
+credential leaves so Tier 2 and Tier 3 reject the new Amp, Devin, and Goose
+credential-state roots consistently.
 `MC_TierPolicyEquivalence` was re-run with TLC and reported "No error has been
-found" across 3,670,016 generated states, 1,835,008 distinct states, depth 1.
+found" across 8,388,608 generated states, 4,194,304 distinct states, depth 1.
 
 **Change rules:**
 - Changes to project/read/write root normalization or credential-deny handling
@@ -1221,11 +1225,12 @@ under `bp-fyg`), not modeled here. Part 3 of 3 for the attestation boundary; see
 TLC passes across all 134,720 distinct states (246,528 generated, depth 10,
 ~4s).
 
-**2026-06-12 Amp/Goose credential-state expansion:** The Apple Container launch
-model now includes `ampConfigDir` and `gooseStateDir` as credential leaves,
-matching the concrete Amp config and Goose config/session/log deny roots.
+**2026-06-12 Amp/Devin/Goose credential-state expansion:** The Apple Container
+launch model now includes `ampConfigDir`, `devinConfigDir`, and
+`gooseStateDir` as credential leaves, matching the concrete Amp config, Devin
+config, and Goose config/session/log deny roots.
 `MC_AppleContainerLaunch` was re-run with TLC and reported "No error has been
-found" across 3,495,936 generated states, 1,675,328 distinct states, depth 10.
+found" across 8,091,648 generated states, 3,764,288 distinct states, depth 10.
 
 **Scope boundary:** Apple Container VM internals, VirtioFS UID/GID ownership
 mapping, guest processes, image contents, `container machine` persistent

@@ -97,8 +97,9 @@ and how many setup/rollback attempts have occurred.
 4. **Host credential mode repairs are persistent hardening.** Step 4 models
    owner-only mode repairs for existing host credential paths separately from
    the managed umask block. That set includes common cloud/tool credentials and
-   known AI-agent local state roots such as Amp config/plugins and Goose
-   config/session/log state. Core rollback removes the managed umask block but
+   known AI-agent local state roots such as Amp config/plugins, Devin config
+   and auth-adjacent state, and Goose config/session/log state. Core rollback
+   removes the managed umask block but
    intentionally preserves owner-only credential modes because they are host
    security posture, not a Hazmat artifact.
 
