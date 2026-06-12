@@ -192,6 +192,44 @@ func TestCodexLaunchArgsDoesNotAddSkipPermissionsForAppServer(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopAppRequested(t *testing.T) {
+	tests := []struct {
+		name      string
+		forwarded []string
+		want      bool
+	}{
+		{name: "desktop app subcommand", forwarded: []string{"app"}, want: true},
+		{name: "desktop app subcommand with args", forwarded: []string{"app", "--foo"}, want: true},
+		{name: "app-server is separate", forwarded: []string{"app-server", "--listen", "stdio://"}, want: false},
+		{name: "prompt mentioning app", forwarded: []string{"exec", "review app code"}, want: false},
+		{name: "empty argv", forwarded: nil, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexDesktopAppRequested(tc.forwarded); got != tc.want {
+				t.Fatalf("codexDesktopAppRequested(%v) = %v, want %v", tc.forwarded, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexCommandRejectsDesktopAppBeforeLaunch(t *testing.T) {
+	cmd := newCodexCmd()
+	cmd.SetArgs([]string{"app"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected desktop app launch to be rejected")
+	}
+	for _, want := range []string{"desktop GUI launch is not supported", "hazmat codex-app-server", "desktop attach probe"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q should mention %q", err.Error(), want)
+		}
+	}
+}
+
 func TestClaudeLaunchArgsAddsBareForAPIKeyAuth(t *testing.T) {
 	got := claudeLaunchArgs([]string{"-p", "hi"}, true, true)
 	want := []string{"--dangerously-skip-permissions", "--bare", "-p", "hi"}

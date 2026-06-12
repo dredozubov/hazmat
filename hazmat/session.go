@@ -606,6 +606,8 @@ Directory arguments are forwarded unchanged; use -C/--project to change
 the writable project root.
 When resume or fork subcommands are detected, session history from your user
 account is copied into the agent user's Codex session store.
+Codex desktop GUI launch via ` + "`hazmat codex app`" + ` is intentionally
+rejected; use ` + "`hazmat codex-app-server`" + ` for contained app-server work.
 Use --docker=sandbox when this repo needs a private-daemon Docker session.
 Use --docker=auto when you want Hazmat to inspect the repo and route
 Docker-heavy private-daemon fits automatically.
@@ -630,6 +632,9 @@ Examples:
 			}
 			if handled {
 				return nil
+			}
+			if codexDesktopAppRequested(forwarded) {
+				return fmt.Errorf("codex desktop GUI launch is not supported under Hazmat containment; use `hazmat codex-app-server` for contained backend work or `scripts/check-codex-desktop-attach-smoke.sh` for the opt-in desktop attach probe")
 			}
 
 			return runContainedCodexSession(opts, forwarded)
@@ -860,6 +865,10 @@ func codexSkipPermissionsArgs() []string {
 
 func codexAppServerRequested(forwarded []string) bool {
 	return slices.Contains(forwarded, "app-server")
+}
+
+func codexDesktopAppRequested(forwarded []string) bool {
+	return len(forwarded) > 0 && forwarded[0] == "app"
 }
 
 func codexLaunchArgs(forwarded []string, skipPermissions bool) []string {
