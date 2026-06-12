@@ -17,6 +17,7 @@ Recipes are a **Community** support surface. They are useful, but they are not a
 - [OpenCode + Go](opencode-go.md)
 - [Gemini + TLA+](gemini-tla.md)
 - [AGENTS.md Hazmat security snippet](agents-md.md)
+- [Local MCP servers under Hazmat](mcp-servers.md)
 
 ## Database Recipes
 

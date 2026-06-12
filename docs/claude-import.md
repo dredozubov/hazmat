@@ -92,7 +92,10 @@ Hazmat does not import MCP config because MCP state is usually not just "prefere
 - A localhost service referenced from the host setup is unavailable or behaves differently under containment.
 - A copied hook or wrapper command silently depends on shell setup that Hazmat intentionally does not inherit.
 
-That is why Hazmat keeps the MCP story explicit: use Claude's docs to recreate MCP integrations deliberately inside the contained environment.
+That is why Hazmat keeps the MCP story explicit: use Claude's docs to recreate
+MCP integrations deliberately inside the contained environment. For the Hazmat
+side of that workflow, see
+[Local MCP servers under Hazmat](recipes/mcp-servers.md).
 
 ## Recommended Workflow
 
