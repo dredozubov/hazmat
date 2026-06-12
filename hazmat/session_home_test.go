@@ -172,6 +172,78 @@ func TestNewSessionHomeAssemblyPlanRejectsRelativePersistentHome(t *testing.T) {
 	}
 }
 
+func TestNewSessionHomeLaunchPlanOrdersResumeAfterAssemblyBeforeLaunch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	want := []sessionHomeLaunchPhase{
+		sessionHomePhaseResolveIdentity,
+		sessionHomePhaseAssembleHome,
+		sessionHomePhaseSyncResumeState,
+		sessionHomePhaseLaunchHarness,
+	}
+	if !reflect.DeepEqual(plan.Phases, want) {
+		t.Fatalf("phases = %#v, want %#v", plan.Phases, want)
+	}
+	if !plan.ResumeRequested {
+		t.Fatal("ResumeRequested = false, want true")
+	}
+	if plan.Layout.Home != filepath.Join(root, "session-123", "home") {
+		t.Fatalf("layout home = %s", plan.Layout.Home)
+	}
+	if len(plan.Assembly) == 0 {
+		t.Fatal("launch plan has no assembly entries")
+	}
+}
+
+func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), false)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	want := []sessionHomeLaunchPhase{
+		sessionHomePhaseResolveIdentity,
+		sessionHomePhaseAssembleHome,
+		sessionHomePhaseLaunchHarness,
+	}
+	if !reflect.DeepEqual(plan.Phases, want) {
+		t.Fatalf("phases = %#v, want %#v", plan.Phases, want)
+	}
+	if plan.ResumeRequested {
+		t.Fatal("ResumeRequested = true, want false")
+	}
+}
+
+func TestNewSessionHomeLaunchPlanBlocksActivationWhileExternalBridgesRemain(t *testing.T) {
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	if plan.readyForActivation() {
+		t.Fatal("plan is ready for activation while durable external bridge blockers remain")
+	}
+
+	byRel := map[string]sessionHomeLaunchBlocker{}
+	for _, blocker := range plan.Blockers {
+		byRel[blocker.RelPath] = blocker
+		if blocker.Reason != sessionHomeBlockerDurableExternalBridge {
+			t.Fatalf("%s blocker reason = %s", blocker.RelPath, blocker.Reason)
+		}
+	}
+	for _, rel := range []string{".claude/projects", ".hazmat/hermes/projects"} {
+		if _, ok := byRel[rel]; !ok {
+			t.Fatalf("missing launch blocker for %s", rel)
+		}
+	}
+}
+
 func TestCleanupStaleSessionHomesRemovesOnlyMarkedOldHomes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "hazmat-home")
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)

@@ -611,7 +611,11 @@ launch until the transcript/export and resume-ordering gates below are
 implemented. Its assembly plan classifies manifest entries as durable mirrors,
 explicit ephemeral cache, or durable external transcript roots; durable external
 entries are marked as requiring a runtime bridge rather than a blind copy into
-the ephemeral home.
+the ephemeral home. The same file also defines a pure launch-order plan that
+pins the future order as identity resolution, home assembly, optional resume
+sync, and launch. The plan reports activation blockers while durable external
+transcript/export paths still need bridge implementations, so the runtime cannot
+quietly enable session-local `HOME` before those gates are satisfied.
 
 #### Resume/export requirements
 

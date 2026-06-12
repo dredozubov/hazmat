@@ -45,6 +45,34 @@ type sessionHomeAssemblyEntry struct {
 	RequiresBridge bool
 }
 
+type sessionHomeLaunchPhase string
+
+const (
+	sessionHomePhaseResolveIdentity sessionHomeLaunchPhase = "generate-or-resolve-session-id"
+	sessionHomePhaseAssembleHome    sessionHomeLaunchPhase = "assemble-session-home"
+	sessionHomePhaseSyncResumeState sessionHomeLaunchPhase = "sync-resume-state"
+	sessionHomePhaseLaunchHarness   sessionHomeLaunchPhase = "launch-harness"
+)
+
+type sessionHomeLaunchBlockerReason string
+
+const (
+	sessionHomeBlockerDurableExternalBridge sessionHomeLaunchBlockerReason = "durable-external-bridge-required"
+)
+
+type sessionHomeLaunchBlocker struct {
+	RelPath string
+	Reason  sessionHomeLaunchBlockerReason
+}
+
+type sessionHomeLaunchPlan struct {
+	Layout          sessionHomeLayout
+	Assembly        []sessionHomeAssemblyEntry
+	Phases          []sessionHomeLaunchPhase
+	ResumeRequested bool
+	Blockers        []sessionHomeLaunchBlocker
+}
+
 func newSessionHomeLayout(root, sessionID string) (sessionHomeLayout, error) {
 	root = filepath.Clean(root)
 	if !filepath.IsAbs(root) {
@@ -150,6 +178,51 @@ func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string)
 	}
 	sort.Slice(plan, func(i, j int) bool { return plan[i].RelPath < plan[j].RelPath })
 	return plan, nil
+}
+
+func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequested bool) (sessionHomeLaunchPlan, error) {
+	layout, err := newSessionHomeLayout(root, sessionID)
+	if err != nil {
+		return sessionHomeLaunchPlan{}, err
+	}
+	assembly, err := newSessionHomeAssemblyPlan(layout, persistentHome)
+	if err != nil {
+		return sessionHomeLaunchPlan{}, err
+	}
+	phases := []sessionHomeLaunchPhase{
+		sessionHomePhaseResolveIdentity,
+		sessionHomePhaseAssembleHome,
+	}
+	if resumeRequested {
+		phases = append(phases, sessionHomePhaseSyncResumeState)
+	}
+	phases = append(phases, sessionHomePhaseLaunchHarness)
+
+	return sessionHomeLaunchPlan{
+		Layout:          layout,
+		Assembly:        assembly,
+		Phases:          phases,
+		ResumeRequested: resumeRequested,
+		Blockers:        sessionHomeLaunchBlockers(assembly),
+	}, nil
+}
+
+func (plan sessionHomeLaunchPlan) readyForActivation() bool {
+	return len(plan.Blockers) == 0
+}
+
+func sessionHomeLaunchBlockers(assembly []sessionHomeAssemblyEntry) []sessionHomeLaunchBlocker {
+	blockers := make([]sessionHomeLaunchBlocker, 0)
+	for _, entry := range assembly {
+		if !entry.RequiresBridge {
+			continue
+		}
+		blockers = append(blockers, sessionHomeLaunchBlocker{
+			RelPath: entry.RelPath,
+			Reason:  sessionHomeBlockerDurableExternalBridge,
+		})
+	}
+	return blockers
 }
 
 func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessionHomeAssemblyDurability {
