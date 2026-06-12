@@ -232,7 +232,8 @@ successful completion after arbitrary bounded failures.
 |-------|-------|
 | Spec | `tla/02_seatbelt_policy_structure.md` |
 | TLA+ files | `tla/MC_SeatbeltPolicy.tla`, `tla/MC_SeatbeltPolicy.cfg` |
-| Governed code | `hazmat/session.go` — native session contract construction and legacy `generateSBPL()` compatibility entrypoint |
+| Governed code | `hazmat/native_session_policy.go` — `buildNativeSessionPolicy()` native session contract construction |
+| Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPLChecked()` compiler adapter from native policy to Darwin SBPL |
 | Governed code | `hazmat/containment/darwin/sbpl.go` — Darwin SBPL compiler and rule ordering |
 | Governed code | `hazmat/containment/agent_home_manifest.go` — explicit durable agent-home path manifest projected into section 4 grants |
 | Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `SessionHomeUsableWhenActive`, `SessionHomeSeparateFromCredentials`, `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
@@ -328,7 +329,8 @@ native launch path now proves that precondition separately in
 inherited credential-bearing fd still alive.
 
 **Change rules:**
-- Do not reorder the sections in `generateSBPL()` — credential denies MUST be
+- Do not reorder the sections emitted by `compileDarwinSBPLChecked()` /
+  `hazmat/containment/darwin.Compile()` — credential denies MUST be
   the final broad credential boundary. Only the modeled exact Claude agent
   login keychain exception may appear after them.
 - Adding new credential paths to the deny list requires adding them to
@@ -356,7 +358,8 @@ inherited credential-bearing fd still alive.
 | Governed code | `hazmat/kopia_wrapper.go` — `openLocalRepo()`, `snapshotProject()`, `runCloudBackup()`, `runCloudRestore()` |
 | Governed code | `hazmat/restore.go` — `runProjectRestore()` |
 | Governed code | `hazmat/internal/backupruntime/session.go` — `PreSessionSnapshot()` |
-| Governed code | `hazmat/session.go` — `preSessionSnapshot()` wrapper and session command ordering |
+| Governed code | `hazmat/session.go` — `beginPreparedSession()` and `runSessionStartupPhases()` session command ordering |
+| Governed code | `hazmat/exec_apple_container.go` — `runAppleContainerExecSession()` pre-launch snapshot trigger |
 | Key invariants | `RestoreReversible`, `RepoBeforeSnapshot`, `CloudRequiresConfig`, `NoOverwriteWithoutAttempt`, `CloudTargetsProject`, `PreRestoreSnapshotMatchesTarget` |
 | Key liveness | `SessionEventuallyLaunches`, `RestoreEventuallyCompletes` |
 | Status | **Fixed and Re-Proved** — cloud restore takes a pre-restore snapshot before overwriting, cloud backup/restore target the selected project instead of a workspace root, and the pre-session snapshot trigger package split preserves backup ordering |
@@ -390,8 +393,9 @@ The principle: **every overwrite must be preceded by a snapshot attempt.**
 - Adding a new restore path (e.g., restore from external drive) must include a
   pre-restore snapshot step. Add the path to the TLA+ model and verify
   `RestoreReversible` still holds.
-- Changing when `preSessionSnapshot()` is called relative to sandbox entry must
-  preserve the ordering: snapshot before sandbox boundary.
+- Changing when `runSessionStartupPhases()` or `runAppleContainerExecSession()`
+  calls `PreSessionSnapshot()` relative to sandbox entry must preserve the
+  ordering: snapshot before sandbox boundary.
 - Adding new snapshot triggers must ensure `openLocalRepo()` auto-init is
   called first (modeled by `RepoBeforeSnapshot`).
 
@@ -471,7 +475,8 @@ depth 18.
 |-------|-------|
 | Spec | `tla/05_tier3_launch_containment.md` |
 | TLA+ files | `tla/MC_Tier3LaunchContainment.tla`, `tla/MC_Tier3LaunchContainment.cfg` |
-| Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
+| Governed code | `hazmat/internal/runtime/docker/admission.go` — `PrepareLaunchAdmission()` launch-admission ordering |
+| Governed code | `hazmat/sandbox.go` — `buildSandboxLaunchSpecWithPlan()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()` |
 | Governed code | `hazmat/path_policy.go` — `isCredentialDenyPath()` |
 | Governed code | `hazmat/session.go` — `isWithinDir()` |
 | Key invariants | `CredentialPathsNeverMounted`, `ProjectMountedRW`, `PlannedReadDirsMountedRO`, `CoveredReadDirsOmitted`, `NoUnexpectedLaunchEnv`, `BackendValidationBeforeLaunch`, `PolicyBeforeLaunch`, `ApprovalBeforeLaunch`, `IntegrationEnvRejected`, `ShellVersionGate`, `ExtraWorkspaceVersionGate` |
@@ -486,11 +491,11 @@ depth 18.
 2. The initial Tier 3 mount path also did not filter read-only directories
    already covered by the project directory or by another broader read-only
    directory, even though Tier 2 already applies that filtering in
-   `generateSBPL()`.
+   `compileDarwinSBPLChecked()`.
 
 **Fixes applied:**
 
-1. Added `buildSandboxLaunchSpec()` as the explicit Tier 3 mount planner. It
+1. Added `buildSandboxLaunchSpecWithPlan()` as the explicit Tier 3 mount planner. It
    rejects project/read-only mount inputs that resolve to credential deny zones
    and filters read-only mounts already covered by the project or another
    broader reference path.
@@ -530,9 +535,11 @@ generated states, 23,580 distinct states, depth 9.
 |-------|-------|
 | Spec | `tla/06_tier2_tier3_effective_policy_equivalence.md` |
 | TLA+ files | `tla/MC_TierPolicyEquivalence.tla`, `tla/MC_TierPolicyEquivalence.cfg` |
-| Governed code | `hazmat/session.go` — `resolveSessionConfig()`, `generateSBPL()` |
+| Governed code | `hazmat/session.go` — `resolveSessionConfig()` |
+| Governed code | `hazmat/native_session_policy.go` — `buildNativeSessionPolicy()` |
+| Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPLChecked()` |
 | Governed code | `hazmat/native_launch.go` — `agentEnvPairs()` |
-| Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()` |
+| Governed code | `hazmat/sandbox.go` — `prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpecWithPlan()` |
 | Governed code | `hazmat/path_policy.go` — `isCredentialDenyPath()` |
 | Key invariants | `CredentialInputsRejectedInBoth`, `IntegrationEnvBreaksExactIdentity`, `NetworkNoneBreaksExactIdentity`, `ResumeBreaksExactIdentity`, `AncestorRewriteBreaksExactIdentity`, `CanonicalCoreContainmentEquivalent` |
 | Status | **Proved** — exact Tier 2/Tier 3 identity is false by design, but the canonical core containment contract is equivalent across both backends |
@@ -1199,11 +1206,11 @@ before the experimental runtime ships.
 | Spec | Files governed |
 |------|---------------|
 | `01_setup_rollback_state_machine` | `hazmat/init.go:runInit()`, remaining root setup callbacks; `hazmat/internal/setup/*.go`; `hazmat/internal/setup/darwin/*.go`; `hazmat/native_account*.go`; `hazmat/native_service*.go`; `hazmat/sudoers.go`; `hazmat/rollback.go:runRollback()`, remaining root rollback callbacks |
-| `02_seatbelt_policy_structure` | `hazmat/session.go:generateSBPL()`, `isWithinDir()` |
-| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudBackup()`, `runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:preSessionSnapshot()` |
+| `02_seatbelt_policy_structure` | `hazmat/native_session_policy.go:buildNativeSessionPolicy()`, `hazmat/session_policy_sbpl.go:compileDarwinSBPLChecked()`, `hazmat/session.go:isWithinDir()` |
+| `03_backup_restore_safety` | `hazmat/kopia_wrapper.go:runCloudBackup()`, `runCloudRestore()`, `snapshotProject()`; `hazmat/restore.go:runProjectRestore()`; `hazmat/internal/backupruntime/session.go:PreSessionSnapshot()`; `hazmat/session.go:beginPreparedSession()`, `runSessionStartupPhases()`; `hazmat/exec_apple_container.go:runAppleContainerExecSession()` |
 | `04_version_migration` | `hazmat/init.go` migration dispatch; `hazmat/internal/setup/rollback.go` rollback resource ordering after migration rollback dispatch; `hazmat/migrate.go` migration functions; `hazmat/internal/state/state.go`; `hazmat/state.go` |
-| `05_tier3_launch_containment` | `hazmat/sandbox.go:buildSandboxLaunchSpec()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
-| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`, `generateSBPL()`; `hazmat/native_launch.go:agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpec()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
+| `05_tier3_launch_containment` | `hazmat/internal/runtime/docker/admission.go:PrepareLaunchAdmission()`; `hazmat/sandbox.go:buildSandboxLaunchSpecWithPlan()`, `prepareSandboxLaunchWithPlan()`, `loadHealthySandboxLaunchBackend()`, `dockerSandboxesBackend.PrepareLaunch()`; `hazmat/path_policy.go:isCredentialDenyPath()`; `hazmat/session.go:isWithinDir()` |
+| `06_tier2_tier3_effective_policy_equivalence` | `hazmat/session.go:resolveSessionConfig()`; `hazmat/native_session_policy.go:buildNativeSessionPolicy()`; `hazmat/session_policy_sbpl.go:compileDarwinSBPLChecked()`; `hazmat/native_launch.go:agentEnvPairs()`; `hazmat/sandbox.go:prepareSandboxLaunchWithPlan()`, `buildSandboxLaunchSpecWithPlan()`; `hazmat/path_policy.go:isCredentialDenyPath()` |
 | `07_session_permission_repairs` | `hazmat/session_mutation.go`; `hazmat/workspace_acl.go`; `hazmat/git_preflight.go`; `hazmat/integration_resolver.go`; `hazmat/session.go`; `hazmat/explain.go` |
 | `08_harness_lifecycle` | `hazmat/harnesses/harnesses.go`; `hazmat/harness.go`; `hazmat/internal/harnessruntime/state.go`; `hazmat/internal/harnessruntime/artifact.go`; `hazmat/internal/harnessruntime/uninstall.go`; `hazmat/internal/harnessruntime/install.go`; `hazmat/internal/state/state.go`; `hazmat/state.go`; `hazmat/bootstrap*.go`; `hazmat/config_import*.go`; `hazmat/migrate.go` |
 | `09_launch_fd_isolation` | `hazmat/agent_launch.go`; `hazmat/session.go:runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`; `hazmat/cmd/hazmat-launch/main.go` |

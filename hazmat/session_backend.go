@@ -11,20 +11,6 @@ import (
 
 type sessionBackendPlan = sessionbackend.Plan
 
-func buildSessionBackendPlan(cfg sessionConfig, mode sessionMode) sessionBackendPlan {
-	return buildSessionBackendPlanForHostFacts(cfg, mode, currentHostFacts())
-}
-
-func buildSessionBackendPlanForGOOS(cfg sessionConfig, mode sessionMode, goos string) sessionBackendPlan {
-	facts := currentHostFacts().DTO()
-	facts.Platform.GOOS = goos
-	return buildSessionBackendPlanForHostFacts(cfg, mode, hostfacts.MustNew(facts))
-}
-
-func buildSessionBackendPlanForHostFacts(cfg sessionConfig, mode sessionMode, facts hostfacts.HostFacts) sessionBackendPlan {
-	return buildSessionPlanForHostFacts(cfg.Target, cfg, mode, false, facts).Backend
-}
-
 func buildSessionPlanForHostFacts(target string, cfg sessionConfig, mode sessionMode, skipSnapshot bool, facts hostfacts.HostFacts) sessionplanner.Plan {
 	authority := newSessionPlanAuthority(target, cfg, mode, skipSnapshot)
 	return sessionplanner.Build(sessionplanner.Input{

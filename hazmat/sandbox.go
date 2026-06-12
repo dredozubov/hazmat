@@ -1030,10 +1030,6 @@ func prepareSandboxLaunchWithPlan(cfg sessionConfig, plan sessionBackendPlan, ag
 	return result.Adapter, result.Probe, result.SandboxName, nil
 }
 
-func buildSandboxLaunchSpec(agent string, cfg sessionConfig, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
-	return buildSandboxLaunchSpecWithPlan(agent, cfg, buildSessionBackendPlan(cfg, sessionModeDockerSandbox), profile)
-}
-
 func buildSandboxLaunchSpecWithPlan(agent string, cfg sessionConfig, plan sessionBackendPlan, profile sandboxPolicyProfile) (sandboxLaunchSpec, error) {
 	if err := validateSandboxLaunchConfigPaths(cfg); err != nil {
 		return sandboxLaunchSpec{}, err
@@ -1084,7 +1080,7 @@ func validateSandboxLaunchConfigPaths(cfg sessionConfig) error {
 }
 
 func preparedSandboxSessionForConfig(cfg sessionConfig) preparedSession {
-	plan := buildSessionBackendPlan(cfg, sessionModeDockerSandbox)
+	plan := buildSessionPlanForHostFacts(cfg.Target, cfg, sessionModeDockerSandbox, false, currentHostFacts()).Backend
 	runtimeSelection, _ := launchruntime.Select(plan)
 	return preparedSession{
 		Config:      cfg,

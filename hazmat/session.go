@@ -1334,7 +1334,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	harnessStateMutationPlan := buildHermesStateRootMutationPlan(cfg)
-	backendPlan := buildSessionBackendPlan(cfg, mode)
+	backendPlan := buildSessionPlanForHostFacts(cfg.Target, cfg, mode, false, currentHostFacts()).Backend
 	runtimeSelection, err := launchruntime.Select(backendPlan)
 	if err != nil {
 		return preparedSession{}, err
@@ -2236,20 +2236,6 @@ func warnDockerProject(commandName, projectDir string, request dockerRoutingRequ
 	return fmt.Errorf("%s", dockerProjectBlockedMessage(commandName, projectDir, detection))
 }
 
-// generateSBPL keeps the current public test/helper entrypoint while routing
-// session configs through the backend-neutral native policy contract first.
-func generateSBPL(cfg sessionConfig) string {
-	return compileDarwinSBPL(newNativeSessionPolicy(cfg))
-}
-
-func generateSBPLChecked(cfg sessionConfig) (string, error) {
-	policy, err := buildNativeSessionPolicy(cfg)
-	if err != nil {
-		return "", err
-	}
-	return compileDarwinSBPLChecked(policy)
-}
-
 func runPreparedAgentSeatbeltScript(prepared preparedSession, script string, args ...string) error {
 	return runPreparedAgentSeatbeltScriptWithUI(prepared, sessionLaunchUI{showStatusBar: true}, script, args...)
 }
@@ -2456,16 +2442,4 @@ func killSessionCommandAfter(cmd *exec.Cmd, waitDone <-chan struct{}, delay time
 			_ = process.Kill()
 		}
 	}()
-}
-
-// preSessionSnapshot takes an automatic snapshot before a session starts.
-// Warns on failure but never blocks the session.
-func preSessionSnapshot(cfg sessionConfig, command string, skip bool) {
-	backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
-		ProjectDir:     cfg.ProjectDir,
-		Command:        command,
-		BackupExcludes: cfg.BackupExcludes,
-		Skip:           skip,
-		Snapshot:       snapshotProject,
-	})
 }

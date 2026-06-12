@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	applecontainerspec "hazmat/containment/applecontainer"
+	"hazmat/internal/backupruntime"
 	applecontainerruntime "hazmat/internal/runtime/applecontainer"
 )
 
@@ -67,7 +68,13 @@ func runAppleContainerExecSession(cmd *cobra.Command, flags sessionCommandFlags,
 	}
 
 	printAppleContainerSessionContract(cmd.ErrOrStderr(), spec)
-	preSessionSnapshot(cfg, "exec", opts.noBackup)
+	backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
+		ProjectDir:     cfg.ProjectDir,
+		Command:        "exec",
+		BackupExcludes: cfg.BackupExcludes,
+		Skip:           opts.noBackup,
+		Snapshot:       snapshotProject,
+	})
 
 	result, runErr := applecontainerruntime.Run(spec, applecontainerruntime.RunOptions{
 		Stdin:  cmd.InOrStdin(),

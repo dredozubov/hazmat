@@ -74,7 +74,7 @@ func agentEnvPairsWithPlan(cfg sessionConfig, plan sessionBackendPlan) []string 
 }
 
 func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
-	return buildSessionBackendPlan(cfg, sessionModeNative)
+	return buildSessionPlanForHostFacts(cfg.Target, cfg, sessionModeNative, false, currentHostFacts()).Backend
 }
 
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {

@@ -850,7 +850,16 @@ func testSeatbelt(ui *UI) {
 		ProjectDir: projectDir,
 		ReadDirs:   []string{readDir},
 	}
-	policyContent := generateSBPL(cfg)
+	policy, err := buildNativeSessionPolicy(cfg)
+	if err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not build test seatbelt policy: %v", err))
+		return
+	}
+	policyContent, err := compileDarwinSBPLChecked(policy)
+	if err != nil {
+		ui.TestWarn(fmt.Sprintf("Could not compile test seatbelt policy: %v", err))
+		return
+	}
 	if strings.Contains(policyContent, `(allow file-read* file-write* (subpath "`+agentHome+`"))`) ||
 		strings.Contains(policyContent, `(allow process-exec (subpath "`+agentHome+`"))`) {
 		ui.TestFail("CONFINEMENT BREACH: Seatbelt policy contains a blanket agent-home allow")
