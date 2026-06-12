@@ -18,6 +18,8 @@ var aiAgentCredentialDenySubs = []string{
 	"/.langsmith",
 	"/.config/amp",
 	"/.config/devin",
+	"/.kimi-code",
+	"/.kimi",
 	"/.continue",
 	"/.cline",
 	"/.aider.conf.yml",
