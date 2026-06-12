@@ -244,6 +244,63 @@ func TestNewSessionHomeLaunchPlanBlocksActivationWhileExternalBridgesRemain(t *t
 	}
 }
 
+func TestNewSessionHomeLaunchPlanIncludesDurableBridgeRequirements(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	byRel := map[string]sessionHomeBridgeRequirement{}
+	for _, requirement := range plan.BridgeRequirements {
+		byRel[requirement.RelPath] = requirement
+	}
+
+	claude := byRel[".claude/projects"]
+	if claude.Kind != sessionHomeBridgeHomeRelativeRoot {
+		t.Fatalf("Claude bridge kind = %s", claude.Kind)
+	}
+	if claude.PersistentRoot != filepath.Join(persistentHome, ".claude", "projects") {
+		t.Fatalf("Claude persistent root = %s", claude.PersistentRoot)
+	}
+	if claude.RuntimeRoot != filepath.Join(root, "session-123", "home", ".claude", "projects") {
+		t.Fatalf("Claude runtime root = %s", claude.RuntimeRoot)
+	}
+	if claude.EnvVar != "" || claude.ProjectScoped {
+		t.Fatalf("Claude bridge = %+v, want no env var and not project scoped", claude)
+	}
+
+	hermes := byRel[".hazmat/hermes/projects"]
+	if hermes.Kind != sessionHomeBridgeHarnessEnvRoot {
+		t.Fatalf("Hermes bridge kind = %s", hermes.Kind)
+	}
+	if hermes.EnvVar != "HERMES_HOME" || !hermes.ProjectScoped {
+		t.Fatalf("Hermes bridge = %+v, want HERMES_HOME project-scoped env root", hermes)
+	}
+	if hermes.PersistentRoot != filepath.Join(persistentHome, ".hazmat", "hermes", "projects") {
+		t.Fatalf("Hermes persistent root = %s", hermes.PersistentRoot)
+	}
+	if hermes.RuntimeRoot != filepath.Join(root, "session-123", "home", ".hazmat", "hermes", "projects") {
+		t.Fatalf("Hermes runtime root = %s", hermes.RuntimeRoot)
+	}
+}
+
+func TestSessionHomeBridgeRequirementsRejectUnknownExternalDurablePath(t *testing.T) {
+	_, err := sessionHomeBridgeRequirements([]sessionHomeAssemblyEntry{
+		{
+			RelPath:        ".unknown/transcripts",
+			Durability:     sessionHomeDurableExternal,
+			PersistentPath: "/Users/agent/.unknown/transcripts",
+			RuntimePath:    "/private/tmp/hazmat-home/session-123/home/.unknown/transcripts",
+			RequiresBridge: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("sessionHomeBridgeRequirements accepted an unknown durable external bridge")
+	}
+}
+
 func TestCleanupStaleSessionHomesRemovesOnlyMarkedOldHomes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "hazmat-home")
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)

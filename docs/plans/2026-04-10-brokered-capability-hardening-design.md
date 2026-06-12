@@ -616,6 +616,11 @@ pins the future order as identity resolution, home assembly, optional resume
 sync, and launch. The plan reports activation blockers while durable external
 transcript/export paths still need bridge implementations, so the runtime cannot
 quietly enable session-local `HOME` before those gates are satisfied.
+The bridge contract is explicit rather than inferred: Claude's
+`.claude/projects` store is a `$HOME`-relative durable root, while Hermes uses
+its existing project-scoped `HERMES_HOME` rooted under the durable
+`.hazmat/hermes/projects` tree. Any future durable external path must add its
+own bridge contract before the session-home launch plan can be built.
 
 #### Resume/export requirements
 

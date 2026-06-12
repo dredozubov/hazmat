@@ -65,12 +65,29 @@ type sessionHomeLaunchBlocker struct {
 	Reason  sessionHomeLaunchBlockerReason
 }
 
+type sessionHomeBridgeKind string
+
+const (
+	sessionHomeBridgeHomeRelativeRoot sessionHomeBridgeKind = "home-relative-root"
+	sessionHomeBridgeHarnessEnvRoot   sessionHomeBridgeKind = "harness-env-root"
+)
+
+type sessionHomeBridgeRequirement struct {
+	RelPath        string
+	Kind           sessionHomeBridgeKind
+	PersistentRoot string
+	RuntimeRoot    string
+	EnvVar         string
+	ProjectScoped  bool
+}
+
 type sessionHomeLaunchPlan struct {
-	Layout          sessionHomeLayout
-	Assembly        []sessionHomeAssemblyEntry
-	Phases          []sessionHomeLaunchPhase
-	ResumeRequested bool
-	Blockers        []sessionHomeLaunchBlocker
+	Layout             sessionHomeLayout
+	Assembly           []sessionHomeAssemblyEntry
+	BridgeRequirements []sessionHomeBridgeRequirement
+	Phases             []sessionHomeLaunchPhase
+	ResumeRequested    bool
+	Blockers           []sessionHomeLaunchBlocker
 }
 
 func newSessionHomeLayout(root, sessionID string) (sessionHomeLayout, error) {
@@ -189,6 +206,10 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 	if err != nil {
 		return sessionHomeLaunchPlan{}, err
 	}
+	bridgeRequirements, err := sessionHomeBridgeRequirements(assembly)
+	if err != nil {
+		return sessionHomeLaunchPlan{}, err
+	}
 	phases := []sessionHomeLaunchPhase{
 		sessionHomePhaseResolveIdentity,
 		sessionHomePhaseAssembleHome,
@@ -199,11 +220,12 @@ func newSessionHomeLaunchPlan(root, sessionID, persistentHome string, resumeRequ
 	phases = append(phases, sessionHomePhaseLaunchHarness)
 
 	return sessionHomeLaunchPlan{
-		Layout:          layout,
-		Assembly:        assembly,
-		Phases:          phases,
-		ResumeRequested: resumeRequested,
-		Blockers:        sessionHomeLaunchBlockers(assembly),
+		Layout:             layout,
+		Assembly:           assembly,
+		BridgeRequirements: bridgeRequirements,
+		Phases:             phases,
+		ResumeRequested:    resumeRequested,
+		Blockers:           sessionHomeLaunchBlockers(assembly),
 	}, nil
 }
 
@@ -223,6 +245,44 @@ func sessionHomeLaunchBlockers(assembly []sessionHomeAssemblyEntry) []sessionHom
 		})
 	}
 	return blockers
+}
+
+func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {
+	requirements := make([]sessionHomeBridgeRequirement, 0)
+	for _, entry := range assembly {
+		if !entry.RequiresBridge {
+			continue
+		}
+		requirement, err := sessionHomeBridgeRequirementForEntry(entry)
+		if err != nil {
+			return nil, err
+		}
+		requirements = append(requirements, requirement)
+	}
+	return requirements, nil
+}
+
+func sessionHomeBridgeRequirementForEntry(entry sessionHomeAssemblyEntry) (sessionHomeBridgeRequirement, error) {
+	switch entry.RelPath {
+	case ".claude/projects":
+		return sessionHomeBridgeRequirement{
+			RelPath:        entry.RelPath,
+			Kind:           sessionHomeBridgeHomeRelativeRoot,
+			PersistentRoot: entry.PersistentPath,
+			RuntimeRoot:    entry.RuntimePath,
+		}, nil
+	case ".hazmat/hermes/projects":
+		return sessionHomeBridgeRequirement{
+			RelPath:        entry.RelPath,
+			Kind:           sessionHomeBridgeHarnessEnvRoot,
+			PersistentRoot: entry.PersistentPath,
+			RuntimeRoot:    entry.RuntimePath,
+			EnvVar:         "HERMES_HOME",
+			ProjectScoped:  true,
+		}, nil
+	default:
+		return sessionHomeBridgeRequirement{}, fmt.Errorf("%s requires a session-home bridge but has no contract", entry.RelPath)
+	}
 }
 
 func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessionHomeAssemblyDurability {
