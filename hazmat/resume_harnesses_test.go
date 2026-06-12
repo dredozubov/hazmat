@@ -358,13 +358,35 @@ func TestSyncOpenCodeResumeStateWithHooksPassesExplicitHomeRoot(t *testing.T) {
 	}
 }
 
-func TestImportAgentOpenCodeSessionIntoHomeRejectsNonDefaultHome(t *testing.T) {
+func TestAgentResumeHomeEnvCommandArgsUsesSessionHomeXDG(t *testing.T) {
+	homeRoot := filepath.Join(defaultSessionHomeRoot, "session-123", "home")
+	bin := "/Users/agent/.opencode/bin/opencode"
+	got, err := agentResumeHomeEnvCommandArgs(homeRoot, bin, "import", "/tmp/session.json")
+	if err != nil {
+		t.Fatalf("agentResumeHomeEnvCommandArgs: %v", err)
+	}
+	want := []string{
+		"/usr/bin/env",
+		"HOME=" + homeRoot,
+		"XDG_CACHE_HOME=" + filepath.Join(homeRoot, ".cache"),
+		"XDG_CONFIG_HOME=" + filepath.Join(homeRoot, ".config"),
+		"XDG_DATA_HOME=" + filepath.Join(homeRoot, ".local", "share"),
+		bin,
+		"import",
+		"/tmp/session.json",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("agentResumeHomeEnvCommandArgs = %#v, want %#v", got, want)
+	}
+}
+
+func TestImportAgentOpenCodeSessionIntoHomeRejectsUnsafeHome(t *testing.T) {
 	homeRoot := filepath.Join(t.TempDir(), "session-home")
 	err := importAgentOpenCodeSessionIntoHome(homeRoot, filepath.Join(t.TempDir(), "session.json"))
 	if err == nil {
-		t.Fatal("importAgentOpenCodeSessionIntoHome accepted non-default home")
+		t.Fatal("importAgentOpenCodeSessionIntoHome accepted unsafe home")
 	}
-	if !strings.Contains(err.Error(), "env-aware agent command") {
-		t.Fatalf("error = %v, want env-aware agent command guidance", err)
+	if !strings.Contains(err.Error(), "Hazmat session home") {
+		t.Fatalf("error = %v, want Hazmat session home guidance", err)
 	}
 }

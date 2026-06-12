@@ -625,9 +625,9 @@ Codex, and Gemini resume wrappers now also have explicit destination-home
 variants, preserving the current `/Users/agent` behavior while giving the
 future assembly phase a narrow hook for syncing resume state into the assembled
 view after it exists. OpenCode now has the same explicit hook shape, but its
-production importer fails closed for non-default homes until Hazmat has an
-env-aware agent command that can run `opencode import` against the assembled
-`HOME`.
+production importer must run through a constrained env wrapper so
+`opencode import` sees the assembled `HOME` and matching XDG roots without
+allowing arbitrary home overrides.
 
 #### Resume/export requirements
 

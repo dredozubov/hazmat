@@ -668,21 +668,62 @@ func importAgentOpenCodeSession(path string) error {
 }
 
 func importAgentOpenCodeSessionIntoHome(homeRoot, path string) error {
-	homeRoot = filepath.Clean(homeRoot)
-	if !filepath.IsAbs(homeRoot) {
-		return fmt.Errorf("OpenCode resume home %q must be absolute", homeRoot)
-	}
-	if homeRoot != filepath.Clean(agentHome) {
-		return fmt.Errorf("OpenCode resume import into %s requires an env-aware agent command", homeRoot)
+	homeRoot, err := validateAgentResumeHomeRoot(homeRoot)
+	if err != nil {
+		return err
 	}
 	bin, ok := findInstalledOpenCodeBinary()
 	if !ok {
 		return errors.New(openCodeMissingHelp)
 	}
-	if err := asAgentQuiet(bin, "import", path); err != nil {
+	args, err := agentResumeHomeEnvCommandArgs(homeRoot, bin, "import", path)
+	if err != nil {
+		return err
+	}
+	if err := asAgentQuiet(args...); err != nil {
 		return fmt.Errorf("import OpenCode session: %w", err)
 	}
 	return nil
+}
+
+func validateAgentResumeHomeRoot(homeRoot string) (string, error) {
+	homeRoot = filepath.Clean(homeRoot)
+	if !filepath.IsAbs(homeRoot) {
+		return "", fmt.Errorf("agent resume home %q must be absolute", homeRoot)
+	}
+	if homeRoot == filepath.Clean(agentHome) || isPlannedSessionHomeRoot(homeRoot) {
+		return homeRoot, nil
+	}
+	return "", fmt.Errorf("agent resume home %q must be %s or a Hazmat session home under %s", homeRoot, agentHome, defaultSessionHomeRoot)
+}
+
+func isPlannedSessionHomeRoot(homeRoot string) bool {
+	homeRoot = filepath.Clean(homeRoot)
+	rel, err := filepath.Rel(defaultSessionHomeRoot, homeRoot)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return false
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	return len(parts) == 2 && parts[1] == "home" && validateSessionHomeID(parts[0]) == nil
+}
+
+func agentResumeHomeEnvCommandArgs(homeRoot, bin string, args ...string) ([]string, error) {
+	homeRoot, err := validateAgentResumeHomeRoot(homeRoot)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.Clean(bin) != bin || !filepath.IsAbs(bin) {
+		return nil, fmt.Errorf("agent resume command %q must be an absolute clean path", bin)
+	}
+	full := []string{
+		"/usr/bin/env",
+		"HOME=" + homeRoot,
+		"XDG_CACHE_HOME=" + filepath.Join(homeRoot, ".cache"),
+		"XDG_CONFIG_HOME=" + filepath.Join(homeRoot, ".config"),
+		"XDG_DATA_HOME=" + filepath.Join(homeRoot, ".local", "share"),
+		bin,
+	}
+	return append(full, args...), nil
 }
 
 func syncOpenCodeResumeStateWithHooks(projectDir string, forwarded []string, hooks openCodeResumeHooks) (string, error) {
