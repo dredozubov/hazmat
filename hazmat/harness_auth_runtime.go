@@ -28,24 +28,28 @@ type harnessAuthArtifact struct {
 var harnessAuthConflictNow = time.Now
 
 func harnessAuthArtifactsForHome(id HarnessID, home string) []harnessAuthArtifact {
+	return harnessAuthArtifactsForRuntimeHome(id, home, agentHome)
+}
+
+func harnessAuthArtifactsForRuntimeHome(id HarnessID, home, runtimeHome string) []harnessAuthArtifact {
 	switch id {
 	case HarnessClaude:
 		return []harnessAuthArtifact{
-			claudeCredentialsHarnessAuthArtifact(home),
-			claudeStateHarnessAuthArtifact(home),
+			claudeCredentialsHarnessAuthArtifactForRuntimeHome(home, runtimeHome),
+			claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome),
 		}
 	case HarnessCodex:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifactForCredential(home, credentialHarnessCodexAuth),
+			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessCodexAuth, runtimeHome),
 		}
 	case HarnessOpenCode:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifactForCredential(home, credentialHarnessOpenCodeAuth),
+			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessOpenCodeAuth, runtimeHome),
 		}
 	case HarnessGemini:
 		return []harnessAuthArtifact{
-			rawHarnessAuthArtifactForCredential(home, credentialHarnessGeminiOAuth),
-			rawHarnessAuthArtifactForCredential(home, credentialHarnessGeminiAccounts),
+			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessGeminiOAuth, runtimeHome),
+			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessGeminiAccounts, runtimeHome),
 		}
 	default:
 		return nil
@@ -83,10 +87,10 @@ func preserveHarnessAuthConflict(artifact harnessAuthArtifact, data harnessAuthD
 	return path, nil
 }
 
-func rawHarnessAuthArtifactForCredential(home string, id credentialID) harnessAuthArtifact {
+func rawHarnessAuthArtifactForCredentialRuntimeHome(home string, id credentialID, runtimeHome string) harnessAuthArtifact {
 	descriptor := mustCredentialDescriptor(id)
 	storePath := mustCredentialStorePathForHome(home, id)
-	agentPath, err := descriptor.AgentMaterializationPath()
+	agentPath, err := agentMaterializationPathForRuntimeHome(descriptor, runtimeHome)
 	if err != nil {
 		panic(err)
 	}
@@ -94,7 +98,11 @@ func rawHarnessAuthArtifactForCredential(home string, id credentialID) harnessAu
 }
 
 func claudeCredentialsHarnessAuthArtifact(home string) harnessAuthArtifact {
-	artifact := rawHarnessAuthArtifactForCredential(home, credentialHarnessClaudeCredentials)
+	return claudeCredentialsHarnessAuthArtifactForRuntimeHome(home, agentHome)
+}
+
+func claudeCredentialsHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harnessAuthArtifact {
+	artifact := rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessClaudeCredentials, runtimeHome)
 	// Claude updates can rewrite the runtime credential file to an empty
 	// logged-out object. Do not promote that shape over the host-owned store.
 	artifact.Harvestable = isHarvestableClaudeCredentialData
@@ -181,8 +189,12 @@ func rawHarnessAuthArtifact(name, storePath, agentPath string) harnessAuthArtifa
 }
 
 func claudeStateHarnessAuthArtifact(home string) harnessAuthArtifact {
+	return claudeStateHarnessAuthArtifactForRuntimeHome(home, agentHome)
+}
+
+func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harnessAuthArtifact {
 	descriptor := mustCredentialDescriptor(credentialHarnessClaudeState)
-	agentPath, err := descriptor.AgentMaterializationPath()
+	agentPath, err := agentMaterializationPathForRuntimeHome(descriptor, runtimeHome)
 	if err != nil {
 		panic(err)
 	}
@@ -219,6 +231,31 @@ func claudeStateHarnessAuthArtifact(home string) harnessAuthArtifact {
 			return jsonSubsetEqual(left, right)
 		},
 	}
+}
+
+func agentMaterializationPathForRuntimeHome(descriptor credentialDescriptor, runtimeHome string) (string, error) {
+	agentPath, err := descriptor.AgentMaterializationPath()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(runtimeHome) == "" {
+		return agentPath, nil
+	}
+	runtimeHome = filepath.Clean(runtimeHome)
+	if runtimeHome == filepath.Clean(agentHome) {
+		return agentPath, nil
+	}
+	if !filepath.IsAbs(runtimeHome) {
+		return "", fmt.Errorf("%s runtime home %q must be absolute", descriptor.ID, runtimeHome)
+	}
+	rel, err := filepath.Rel(filepath.Clean(agentHome), filepath.Clean(agentPath))
+	if err != nil {
+		return "", fmt.Errorf("%s compute runtime materialization path: %w", descriptor.ID, err)
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("%s materialization path %s is outside %s", descriptor.ID, agentPath, agentHome)
+	}
+	return filepath.Join(runtimeHome, rel), nil
 }
 
 func applyHarnessAuthArtifacts(cfg *sessionConfig) error {
@@ -311,7 +348,11 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 	if err != nil {
 		return preparedSessionRuntime{}, fmt.Errorf("determine home directory for harness auth: %w", err)
 	}
-	return prepareHarnessAuthRuntimeForArtifacts(harnessAuthArtifactsForHome(cfg.HarnessID, home))
+	runtimeHome := agentHome
+	if cfg.SessionHome != nil {
+		runtimeHome = cfg.SessionHome.Launch.Layout.Home
+	}
+	return prepareHarnessAuthRuntimeForArtifacts(harnessAuthArtifactsForRuntimeHome(cfg.HarnessID, home, runtimeHome))
 }
 
 func prepareHarnessAuthRuntimeForArtifacts(artifacts []harnessAuthArtifact) (preparedSessionRuntime, error) {

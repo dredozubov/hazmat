@@ -56,6 +56,68 @@ func TestPrepareHarnessAuthRuntimeMaterializesAndHarvestsRawAuth(t *testing.T) {
 	}
 }
 
+func TestHarnessAuthArtifactsForRuntimeHomeRemapMaterializedPaths(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "host")
+	runtimeHome := filepath.Join(defaultSessionHomeRoot, "session-123", "home")
+
+	artifacts := harnessAuthArtifactsForRuntimeHome(HarnessCodex, home, runtimeHome)
+	if len(artifacts) != 1 {
+		t.Fatalf("Codex artifacts = %d, want 1", len(artifacts))
+	}
+	if got, want := artifacts[0].AgentPath, filepath.Join(runtimeHome, ".codex", "auth.json"); got != want {
+		t.Fatalf("AgentPath = %s, want %s", got, want)
+	}
+	if got, want := artifacts[0].StorePath, filepath.Join(home, ".hazmat", "secrets", "codex", "auth.json"); got != want {
+		t.Fatalf("StorePath = %s, want %s", got, want)
+	}
+
+	persistent := harnessAuthArtifactsForHome(HarnessCodex, home)
+	if len(persistent) != 1 {
+		t.Fatalf("persistent Codex artifacts = %d, want 1", len(persistent))
+	}
+	if got, want := persistent[0].AgentPath, filepath.Join(agentHome, ".codex", "auth.json"); got != want {
+		t.Fatalf("persistent AgentPath = %s, want %s", got, want)
+	}
+}
+
+func TestHarnessAuthArtifactsForRuntimeHomeRemapAllManagedFileHarnesses(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "host")
+	runtimeHome := filepath.Join(defaultSessionHomeRoot, "session-123", "home")
+	want := map[HarnessID][]string{
+		HarnessClaude: {
+			filepath.Join(runtimeHome, ".claude", ".credentials.json"),
+			filepath.Join(runtimeHome, ".claude.json"),
+		},
+		HarnessCodex: {
+			filepath.Join(runtimeHome, ".codex", "auth.json"),
+		},
+		HarnessOpenCode: {
+			filepath.Join(runtimeHome, ".local", "share", "opencode", "auth.json"),
+		},
+		HarnessGemini: {
+			filepath.Join(runtimeHome, ".gemini", "oauth_creds.json"),
+			filepath.Join(runtimeHome, ".gemini", "google_accounts.json"),
+		},
+	}
+
+	for harness, wantPaths := range want {
+		t.Run(string(harness), func(t *testing.T) {
+			artifacts := harnessAuthArtifactsForRuntimeHome(harness, home, runtimeHome)
+			if len(artifacts) != len(wantPaths) {
+				t.Fatalf("%s artifacts = %d, want %d", harness, len(artifacts), len(wantPaths))
+			}
+			for i, wantPath := range wantPaths {
+				if artifacts[i].AgentPath != wantPath {
+					t.Fatalf("%s artifact %d AgentPath = %s, want %s", harness, i, artifacts[i].AgentPath, wantPath)
+				}
+				if !strings.HasPrefix(artifacts[i].StorePath, filepath.Join(home, ".hazmat", "secrets")+string(os.PathSeparator)) {
+					t.Fatalf("%s artifact %d StorePath = %s, want host secret store under %s", harness, i, artifacts[i].StorePath, home)
+				}
+			}
+		})
+	}
+}
+
 func TestPrepareHarnessAuthRuntimePreservesClaudeCredentialsOnLoggedOutRewrite(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")

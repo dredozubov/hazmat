@@ -70,6 +70,24 @@ func usesManagedAgentPath(path string) bool {
 	return path == agentHome || isWithinDir(agentHome, path)
 }
 
+func requiresAgentSecretFileIO(path string) bool {
+	return usesManagedAgentPath(path) || isSessionHomeRuntimePath(path)
+}
+
+func isSessionHomeRuntimePath(path string) bool {
+	clean := filepath.Clean(path)
+	root := filepath.Clean(defaultSessionHomeRoot)
+	if clean == root {
+		return false
+	}
+	rel, err := filepath.Rel(root, clean)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return false
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	return len(parts) >= 3 && parts[1] == "home" && validateSessionHomeID(parts[0]) == nil
+}
+
 var agentPathForDirectIO = func(path string) string {
 	return path
 }
@@ -82,7 +100,7 @@ func readAgentSecretFile(path string) ([]byte, bool, error) {
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
-	if !usesManagedAgentPath(path) {
+	if !requiresAgentSecretFileIO(path) {
 		return nil, false, err
 	}
 
@@ -102,7 +120,7 @@ func agentTestReportsAbsent(err error) bool {
 }
 
 func writeAgentSecretFile(path string, raw []byte, mode os.FileMode) error {
-	if !usesManagedAgentPath(path) {
+	if !requiresAgentSecretFileIO(path) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
@@ -118,7 +136,7 @@ func writeAgentSecretFile(path string, raw []byte, mode os.FileMode) error {
 }
 
 func removeAgentSecretFile(path string) error {
-	if !usesManagedAgentPath(path) {
+	if !requiresAgentSecretFileIO(path) {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}

@@ -12,7 +12,8 @@ Each credential has a registry entry with a storage backend, support status,
 delivery mode, and explicit consumer harness set. That creates a broader correctness
 problem than file recovery alone:
 
-1. only file-backed credentials may be materialized under `/Users/agent`
+1. only file-backed credentials may be materialized under the persistent agent
+   home or an explicit session-local HOME credential target
 2. env credentials must only appear in explicit session env grants
 3. brokered credentials must only appear as broker grants
 4. external-reference credentials must not be silently copied into the file
@@ -58,7 +59,7 @@ boundaries explicit. Those properties are governed here and by
 | `NoCrossHarnessExposure` | During an active session, exposed credentials must list the active harness as a consumer. Global credentials model that by listing all harnesses. |
 | `NoSessionExposureOutsideActivePhase` | Env, broker, and external grants are cleared outside active session phases, including after crash. |
 | `LaunchOnlyAfterRecovery` | Sessions cannot deliver credentials until file-backed residue recovery is complete. |
-| `CleanRecoveredStateHasNoAgentResidue` | A recovered idle state has no modeled credential file left under `/Users/agent`. |
+| `CleanRecoveredStateHasNoCredentialResidue` | A recovered idle state has no modeled credential file left under either the persistent agent home or a session-local HOME target. |
 | `LatestValueNeverSilentlyLost` | Managed host-store values known as latest remain in host storage, agent residue, or conflict archive. |
 | `CleanRecoveredStateKeepsLatestHostOwned` | After recovery, latest managed values are host-owned: primary store or conflict archive. |
 | `IdleClearsSessionState` | Idle state has no active harness, no active grants, and no stale harvest baseline. |
@@ -94,10 +95,14 @@ allows transparent key reuse:
 - `gemini_api` is consumed by Gemini and Hermes
 - `openrouter_api` is consumed by Hermes only
 
-File-backed harness auth remains single-consumer in the model. Codex and
-file-backed Gemini auth use the same implementation class as the two modeled
-file credentials; they are not enumerated separately so the maintained TLC
-suite stays tractable.
+File-backed harness auth remains single-consumer in the model. The runtime
+target is a model constant rather than session state. The maintained config sets
+`RuntimeCredentialTarget = session_home` to prove the new validation-activation
+target class; the pre-existing persistent-agent-home behavior is the same
+transition relation with `RuntimeCredentialTarget = persistent_agent_home`, and
+was the previously promoted proof shape. Codex and file-backed Gemini auth use
+the same implementation class as the two modeled file credentials; they are not
+enumerated separately so the maintained TLC suite stays tractable.
 
 Two file-backed credentials are enough to check cross-harness exposure. Two
 secret values are enough to witness stale residue, refresh, conflict archive,
@@ -120,10 +125,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `30,720,870 states generated`
-- `8,351,181 distinct states found`
+- `30,993,867 states generated`
+- `8,396,541 distinct states found`
 - `depth 33`
-- runtime 1h13m on the standalone local 10-worker run
+- runtime 29m38s on the standalone local 10-worker run
 
 ## Scope Boundary
 
@@ -152,8 +157,11 @@ future specs where the state machine warrants it.
    modeled and proved.
 4. Any future path that creates durable `/Users/agent` credential material must
    be modeled as file delivery and preserve the recovery invariants.
-5. Git HTTPS, cloud backup, SSH identity, and integration/env credential work
+5. Changing whether a managed file credential materializes to the persistent
+   agent home, a session-local HOME, or another runtime target requires updating
+   the target abstraction here before implementation.
+6. Git HTTPS, cloud backup, SSH identity, and integration/env credential work
    should use this model as the lifecycle contract before adding concrete
    backend-specific behavior.
-6. Adding a harness that consumes existing provider API keys requires updating
+7. Adding a harness that consumes existing provider API keys requires updating
    the consumer sets here before implementation.

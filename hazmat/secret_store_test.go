@@ -45,6 +45,25 @@ func TestReadAgentSecretFileTreatsInaccessibleMissingPathAsAbsent(t *testing.T) 
 	}
 }
 
+func TestSessionHomeRuntimeSecretPathsRequireAgentIO(t *testing.T) {
+	sessionPath := filepath.Join(defaultSessionHomeRoot, "session-123", "home", ".codex", "auth.json")
+	if !requiresAgentSecretFileIO(sessionPath) {
+		t.Fatalf("requiresAgentSecretFileIO(%q) = false, want true", sessionPath)
+	}
+
+	outside := filepath.Join(t.TempDir(), "hazmat-home", "session-123", "home", ".codex", "auth.json")
+	if requiresAgentSecretFileIO(outside) {
+		t.Fatalf("requiresAgentSecretFileIO(%q) = true, want false for non-default temp path", outside)
+	}
+}
+
+func TestSessionHomeRuntimeSecretPathsRejectUnsafeSessionID(t *testing.T) {
+	path := filepath.Join(defaultSessionHomeRoot, ".hidden", "home", ".codex", "auth.json")
+	if requiresAgentSecretFileIO(path) {
+		t.Fatalf("requiresAgentSecretFileIO(%q) = true, want false", path)
+	}
+}
+
 func TestReadAgentSecretFileKeepsAgentTestInfrastructureFailuresFatal(t *testing.T) {
 	blocked := filepath.Join(t.TempDir(), "blocked")
 	if err := os.Mkdir(blocked, 0o000); err != nil {

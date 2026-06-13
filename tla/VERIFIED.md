@@ -966,7 +966,7 @@ baseline from a same-content rewrite.
 | Governed code | `hazmat/credentials/registry.go`, `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
 | Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
 | Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
-| Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoAgentResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
+| Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoCredentialResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
 | Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, supported external references are explicit, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving file-backed recovery invariants |
 
 **What this verifies:**

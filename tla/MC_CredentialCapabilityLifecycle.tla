@@ -6,15 +6,16 @@
 \* support status, session delivery mode, and explicit consumer harness set.
 \*
 \* The model intentionally separates durable host storage from session exposure:
-\* - materialized-file credentials may create temporary /Users/agent residue
+\* - materialized-file credentials may create temporary persistent-agent-home
+\*   or session-home residue
 \* - env credentials may only be present in the session env grant set
 \* - brokered credentials may only be present in the broker grant set
 \* - external-reference credentials may only be present as an external grant
 \* - adapter-required credentials are not deliverable at all
 \*
-\* Crash/restart keeps durable host state and agent file residue, but clears
-\* session env/broker/external grants. Startup recovery must reconcile all
-\* leftover materialized-file residue before a new session can launch.
+\* Crash/restart keeps durable host state and credential file residue, but
+\* clears session env/broker/external grants. Startup recovery must reconcile
+\* all leftover materialized-file residue before a new session can launch.
 
 EXTENDS TLC, FiniteSets
 
@@ -36,6 +37,9 @@ CONSTANTS
     ManagedSupport,
     ExternalSupport,
     AdapterRequiredSupport,
+    PersistentAgentHomeTarget,
+    SessionHomeTarget,
+    RuntimeCredentialTarget,
     ClaudeHarness,
     CodexHarness,
     OpenCodeHarness,
@@ -77,6 +81,10 @@ SupportStatuses ==
     {ManagedSupport,
      ExternalSupport,
      AdapterRequiredSupport}
+
+CredentialTargets ==
+    {PersistentAgentHomeTarget,
+     SessionHomeTarget}
 
 CredentialConsumers(c) ==
     IF c \in GlobalCreds THEN Harnesses
@@ -202,6 +210,7 @@ VARIABLES
     delivered,
     host,
     agent,
+    sessionAgent,
     conflicts,
     latest,
     recovered,
@@ -217,6 +226,7 @@ vars ==
        delivered,
        host,
        agent,
+       sessionAgent,
        conflicts,
        latest,
        recovered,
@@ -233,6 +243,7 @@ SessionFileCreds ==
 
 ExposedCreds ==
     {c \in Credentials : agent[c] # NoSecret}
+    \cup {c \in Credentials : sessionAgent[c] # NoSecret}
     \cup envGranted
     \cup brokerGranted
     \cup externalGranted
@@ -241,13 +252,25 @@ LatestKnown(c) ==
     \/ latest[c] = NoSecret
     \/ latest[c] = host[c]
     \/ latest[c] = agent[c]
+    \/ latest[c] = sessionAgent[c]
     \/ latest[c] \in conflicts[c]
 
 InitialLatest ==
     [c \in Credentials |->
         IF c \in ManagedHostCreds
-        THEN IF agent[c] # NoSecret THEN agent[c] ELSE host[c]
+        THEN IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
+             ELSE IF agent[c] # NoSecret THEN agent[c]
+             ELSE host[c]
         ELSE NoSecret]
+
+RuntimeAgent(c) ==
+    IF RuntimeCredentialTarget = PersistentAgentHomeTarget THEN agent[c]
+    ELSE IF RuntimeCredentialTarget = SessionHomeTarget THEN sessionAgent[c]
+    ELSE NoSecret
+
+SingleCredentialResidueTarget ==
+    \/ agent = EmptySecrets
+    \/ sessionAgent = EmptySecrets
 
 Init ==
     /\ phase = "idle"
@@ -258,6 +281,9 @@ Init ==
     /\ \A c \in Credentials \ ManagedHostCreds : host[c] = NoSecret
     /\ agent \in [Credentials -> SecretVals]
     /\ \A c \in Credentials \ ManagedFileCreds : agent[c] = NoSecret
+    /\ sessionAgent \in [Credentials -> SecretVals]
+    /\ \A c \in Credentials \ ManagedFileCreds : sessionAgent[c] = NoSecret
+    /\ SingleCredentialResidueTarget
     /\ conflicts = [c \in Credentials |-> {}]
     /\ latest = InitialLatest
     /\ recovered = {}
@@ -277,6 +303,7 @@ BeginRecover ==
                     delivered,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -286,12 +313,17 @@ BeginRecover ==
                     externalGranted >>
 
 RecoveredHost(c) ==
-    IF agent[c] = NoSecret THEN host[c] ELSE agent[c]
+    IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
+    ELSE IF agent[c] # NoSecret THEN agent[c]
+    ELSE host[c]
+
+RecoveredRuntimeResidue(c) ==
+    IF sessionAgent[c] # NoSecret THEN sessionAgent[c] ELSE agent[c]
 
 RecoveredConflicts(c) ==
-    IF /\ agent[c] # NoSecret
+    IF /\ RecoveredRuntimeResidue(c) # NoSecret
        /\ host[c] # NoSecret
-       /\ host[c] # agent[c]
+       /\ host[c] # RecoveredRuntimeResidue(c)
     THEN conflicts[c] \cup {host[c]}
     ELSE conflicts[c]
 
@@ -300,6 +332,7 @@ RecoverOne(c) ==
     /\ c \in ManagedFileCreds \ recovered
     /\ host' = [host EXCEPT ![c] = RecoveredHost(c)]
     /\ agent' = [agent EXCEPT ![c] = NoSecret]
+    /\ sessionAgent' = [sessionAgent EXCEPT ![c] = NoSecret]
     /\ conflicts' = [conflicts EXCEPT ![c] = RecoveredConflicts(c)]
     /\ recovered' = recovered \cup {c}
     /\ UNCHANGED << phase,
@@ -321,6 +354,7 @@ FinishRecover ==
                     delivered,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -335,8 +369,10 @@ BeginSession(h, grants) ==
     /\ activeCreds = {}
     /\ recovered = ManagedFileCreds
     /\ \A c \in Credentials : agent[c] = NoSecret
+    /\ \A c \in Credentials : sessionAgent[c] = NoSecret
     /\ h \in Harnesses
     /\ grants \in SUBSET EligibleCreds(h)
+    /\ RuntimeCredentialTarget \in CredentialTargets
     /\ phase' = "delivering"
     /\ activeHarness' = h
     /\ activeCreds' = grants
@@ -351,6 +387,7 @@ BeginSession(h, grants) ==
     /\ externalGranted' = {}
     /\ UNCHANGED << host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered >>
@@ -360,10 +397,19 @@ DeliverFile(c) ==
     /\ c \in activeCreds \ delivered
     /\ CredentialDelivery(c) = FileDelivery
     /\ c \in ManagedFileCreds
-    /\ agent' =
-        IF host[c] = NoSecret
-        THEN agent
-        ELSE [agent EXCEPT ![c] = host[c]]
+    /\ IF RuntimeCredentialTarget = PersistentAgentHomeTarget
+       THEN
+        /\ agent' =
+            IF host[c] = NoSecret
+            THEN agent
+            ELSE [agent EXCEPT ![c] = host[c]]
+        /\ sessionAgent' = sessionAgent
+       ELSE
+        /\ sessionAgent' =
+            IF host[c] = NoSecret
+            THEN sessionAgent
+            ELSE [sessionAgent EXCEPT ![c] = host[c]]
+        /\ agent' = agent
     /\ delivered' = delivered \cup {c}
     /\ UNCHANGED << phase,
                     activeHarness,
@@ -388,6 +434,7 @@ DeliverEnv(c) ==
                     activeCreds,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -406,6 +453,7 @@ DeliverBroker(c) ==
                     activeCreds,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -425,6 +473,7 @@ DeliverExternal(c) ==
                     activeCreds,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -441,6 +490,7 @@ StartRunning ==
                     delivered,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -454,7 +504,13 @@ ToolRefresh(c, v) ==
     /\ c \in activeCreds
     /\ c \in ManagedFileCreds
     /\ v \in Values
-    /\ agent' = [agent EXCEPT ![c] = v]
+    /\ IF RuntimeCredentialTarget = PersistentAgentHomeTarget
+       THEN
+        /\ agent' = [agent EXCEPT ![c] = v]
+        /\ sessionAgent' = sessionAgent
+       ELSE
+        /\ sessionAgent' = [sessionAgent EXCEPT ![c] = v]
+        /\ agent' = agent
     /\ latest' = [latest EXCEPT ![c] = v]
     /\ UNCHANGED << phase,
                     activeHarness,
@@ -476,9 +532,15 @@ ToolLogout(c) ==
     /\ phase = "running"
     /\ c \in activeCreds
     /\ c \in ManagedFileCreds
-    /\ agent[c] # NoSecret
-    /\ agent[c] = baseline[c]
-    /\ agent' = [agent EXCEPT ![c] = NoSecret]
+    /\ RuntimeAgent(c) # NoSecret
+    /\ RuntimeAgent(c) = baseline[c]
+    /\ IF RuntimeCredentialTarget = PersistentAgentHomeTarget
+       THEN
+        /\ agent' = [agent EXCEPT ![c] = NoSecret]
+        /\ sessionAgent' = sessionAgent
+       ELSE
+        /\ sessionAgent' = [sessionAgent EXCEPT ![c] = NoSecret]
+        /\ agent' = agent
     /\ UNCHANGED << phase,
                     activeHarness,
                     activeCreds,
@@ -504,6 +566,7 @@ ExternalStoreUpdate(c, v) ==
                     activeCreds,
                     delivered,
                     agent,
+                    sessionAgent,
                     conflicts,
                     recovered,
                     baseline,
@@ -519,6 +582,7 @@ BeginHarvest ==
                     delivered,
                     host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest,
                     recovered,
@@ -530,9 +594,9 @@ BeginHarvest ==
 HarvestConflicts ==
     [c \in Credentials |->
         IF /\ c \in SessionFileCreds
-           /\ agent[c] # NoSecret
+           /\ RuntimeAgent(c) # NoSecret
            /\ host[c] # NoSecret
-           /\ host[c] # agent[c]
+           /\ host[c] # RuntimeAgent(c)
            /\ host[c] # baseline[c]
         THEN conflicts[c] \cup {host[c]}
         ELSE conflicts[c]]
@@ -540,8 +604,8 @@ HarvestConflicts ==
 HarvestHost ==
     [c \in Credentials |->
         IF /\ c \in SessionFileCreds
-           /\ agent[c] # NoSecret
-        THEN agent[c]
+           /\ RuntimeAgent(c) # NoSecret
+        THEN RuntimeAgent(c)
         ELSE host[c]]
 
 Harvest ==
@@ -553,6 +617,7 @@ Harvest ==
                     activeCreds,
                     delivered,
                     agent,
+                    sessionAgent,
                     latest,
                     recovered,
                     baseline,
@@ -563,8 +628,14 @@ Harvest ==
 RemoveOne(c) ==
     /\ phase = "removing"
     /\ c \in SessionFileCreds
-    /\ agent[c] # NoSecret
-    /\ agent' = [agent EXCEPT ![c] = NoSecret]
+    /\ RuntimeAgent(c) # NoSecret
+    /\ IF RuntimeCredentialTarget = PersistentAgentHomeTarget
+       THEN
+        /\ agent' = [agent EXCEPT ![c] = NoSecret]
+        /\ sessionAgent' = sessionAgent
+       ELSE
+        /\ sessionAgent' = [sessionAgent EXCEPT ![c] = NoSecret]
+        /\ agent' = agent
     /\ UNCHANGED << phase,
                     activeHarness,
                     activeCreds,
@@ -580,7 +651,7 @@ RemoveOne(c) ==
 
 FinishRemove ==
     /\ phase = "removing"
-    /\ \A c \in SessionFileCreds : agent[c] = NoSecret
+    /\ \A c \in SessionFileCreds : RuntimeAgent(c) = NoSecret
     /\ phase' = "idle"
     /\ activeHarness' = NoHarness
     /\ activeCreds' = {}
@@ -592,6 +663,7 @@ FinishRemove ==
     /\ externalGranted' = {}
     /\ UNCHANGED << host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest >>
 
@@ -608,6 +680,7 @@ Crash ==
     /\ externalGranted' = {}
     /\ UNCHANGED << host,
                     agent,
+                    sessionAgent,
                     conflicts,
                     latest >>
 
@@ -644,6 +717,8 @@ TypeOK ==
     /\ delivered \subseteq Credentials
     /\ host \in [Credentials -> SecretVals]
     /\ agent \in [Credentials -> SecretVals]
+    /\ sessionAgent \in [Credentials -> SecretVals]
+    /\ SingleCredentialResidueTarget
     /\ conflicts \in [Credentials -> SUBSET Values]
     /\ latest \in [Credentials -> SecretVals]
     /\ recovered \subseteq ManagedFileCreds
@@ -673,11 +748,14 @@ NonHostBackendsHaveNoHostStore ==
         CredentialBackend(c) # HostSecretStore =>
             /\ host[c] = NoSecret
             /\ agent[c] = NoSecret
+            /\ sessionAgent[c] = NoSecret
             /\ latest[c] = NoSecret
 
 DeliveryMatchesRegistry ==
     /\ \A c \in Credentials :
         agent[c] # NoSecret => CredentialDelivery(c) = FileDelivery
+    /\ \A c \in Credentials :
+        sessionAgent[c] # NoSecret => CredentialDelivery(c) = FileDelivery
     /\ \A c \in envGranted : CredentialDelivery(c) = EnvDelivery
     /\ \A c \in brokerGranted : CredentialDelivery(c) = BrokerDelivery
     /\ \A c \in externalGranted :
@@ -693,6 +771,7 @@ AdapterRequiredNeverExposed ==
             /\ c \notin brokerGranted
             /\ c \notin externalGranted
             /\ agent[c] = NoSecret
+            /\ sessionAgent[c] = NoSecret
 
 NoCrossHarnessExposure ==
     phase \in ActivePhases =>
@@ -712,11 +791,12 @@ NoSessionExposureOutsideActivePhase ==
 LaunchOnlyAfterRecovery ==
     phase \in ActivePhases => recovered = ManagedFileCreds
 
-CleanRecoveredStateHasNoAgentResidue ==
+CleanRecoveredStateHasNoCredentialResidue ==
     /\ phase = "idle"
     /\ recovered = ManagedFileCreds
     =>
-    \A c \in Credentials : agent[c] = NoSecret
+    /\ \A c \in Credentials : agent[c] = NoSecret
+    /\ \A c \in Credentials : sessionAgent[c] = NoSecret
 
 LatestValueNeverSilentlyLost ==
     \A c \in ManagedHostCreds : LatestKnown(c)
