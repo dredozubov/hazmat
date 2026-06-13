@@ -10,10 +10,15 @@ var lookupAgentUser = func() (*user.User, error) {
 	return user.Lookup(agentUser)
 }
 
+var statSetupArtifact = os.Stat
+
+const initBaselineAdvice = "fresh host: run 'hazmat init' first"
+const initDriftRepairAdvice = "setup drift: run 'hazmat doctor --fix' (preview: 'hazmat doctor --dry-run')"
+
 func requireAgentUser() (*user.User, error) {
 	agentInfo, err := lookupAgentUser()
 	if err != nil {
-		return nil, fmt.Errorf("agent user %q not found — run 'hazmat init' first", agentUser)
+		return nil, fmt.Errorf("agent user %q not found — %s", agentUser, initBaselineAdvice)
 	}
 	return agentInfo, nil
 }
@@ -23,13 +28,13 @@ func requireAgentUser() (*user.User, error) {
 // sudoers rule (for passwordless hazmat-launch), and launch helper binary.
 var requireInit = func() error {
 	if _, err := lookupAgentUser(); err != nil {
-		return fmt.Errorf("hazmat is not initialized — run 'hazmat init' first")
+		return fmt.Errorf("hazmat is not initialized — %s", initBaselineAdvice)
 	}
-	if _, err := os.Stat(sudoersFile); err != nil {
-		return fmt.Errorf("hazmat is not initialized — sudoers rule missing, run 'hazmat init' first")
+	if _, err := statSetupArtifact(sudoersFile); err != nil {
+		return fmt.Errorf("hazmat setup drift detected — sudoers rule missing; %s", initDriftRepairAdvice)
 	}
-	if _, err := os.Stat(launchHelperPath()); err != nil {
-		return fmt.Errorf("hazmat is not initialized — launch helper missing, run 'hazmat init' first")
+	if _, err := statSetupArtifact(launchHelperPath()); err != nil {
+		return fmt.Errorf("hazmat setup drift detected — launch helper missing; %s", initDriftRepairAdvice)
 	}
 	return nil
 }
