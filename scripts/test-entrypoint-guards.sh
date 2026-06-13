@@ -551,6 +551,12 @@ assert_fails_with \
     env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/missing-openhands" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
 
+assert_fails_with \
+    "OpenHands recipe smoke checks CLI help fixture" \
+    "/usr/bin/false --help failed; verify the OpenHands CLI installation" \
+    env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN=/usr/bin/false \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
+
 phase "Platform guards"
 
 assert_fails_with \

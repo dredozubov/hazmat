@@ -90,6 +90,17 @@ require_command() {
 	esac
 }
 
+command_available() {
+	case "$1" in
+		*/*)
+			[ -x "$1" ]
+			;;
+		*)
+			command -v "$1" >/dev/null 2>&1
+			;;
+	esac
+}
+
 check_fixtures() {
 	MISSING_FIXTURES=""
 
@@ -98,6 +109,9 @@ check_fixtures() {
 	fi
 	require_command mktemp
 	require_command "$OPENHANDS_BIN"
+	if command_available "$OPENHANDS_BIN" && ! "$OPENHANDS_BIN" --help >/dev/null 2>&1; then
+		add_missing_fixture "$OPENHANDS_BIN --help failed; verify the OpenHands CLI installation"
+	fi
 
 	if [ -n "$MISSING_FIXTURES" ]; then
 		return 1
