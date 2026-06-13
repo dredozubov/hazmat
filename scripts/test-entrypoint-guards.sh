@@ -270,6 +270,11 @@ assert_succeeds_with \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh"
 
 assert_succeeds_with \
+    "OpenHands recipe smoke discloses process-mode boundary" \
+    "does not treat OpenHands process mode as the" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh"
+
+assert_succeeds_with \
     "README proof-stack smoke defaults to disclosure" \
     "readme-proof-stack-smoke: dry run only" \
     "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh"

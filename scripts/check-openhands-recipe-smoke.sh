@@ -108,7 +108,8 @@ openhands-recipe-smoke: dry run only
 This script validates the recipe-only OpenHands path with a live hazmat exec
 session. It does not install OpenHands, import host ~/.openhands, pass a host
 Docker socket, configure provider credentials, or claim first-class
-hazmat-openhands support.
+hazmat-openhands support. It also does not treat OpenHands process mode as the
+isolation layer; Hazmat exec is the outer containment boundary.
 
 Live mode is sudo-adjacent and requires explicit approval:
 
