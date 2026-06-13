@@ -259,7 +259,8 @@ Hazmat binary, host Claude CLI, and Workflow prompt file are present, but do
 not run `hazmat claude` or host `claude --resume`. By default the script uses
 `scripts/fixtures/claude-workflow-export-prompt.txt`; set
 `HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE` only when validating a stronger
-local reproduction prompt:
+local reproduction prompt. Agents still need explicit approval before running
+fixture checks because they inspect local Hazmat/Claude tool setup:
 
 ```bash
 scripts/check-claude-workflow-export-smoke.sh --check-fixtures

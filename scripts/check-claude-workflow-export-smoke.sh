@@ -45,8 +45,10 @@ Environment:
   HAZMAT_CLAUDE_WORKFLOW_SMOKE_RESUME_PROMPT
                                             Host-side resume prompt.
 
-The live run is sudo-adjacent because it invokes hazmat claude. It also runs
-host Claude with --resume. Agents must ask for explicit approval before --run.
+Fixture checks inspect local Hazmat/Claude tool setup. The live run is
+sudo-adjacent because it invokes hazmat claude and also runs host Claude with
+--resume. Agents must ask for explicit approval before running
+--check-fixtures, --skip-if-missing-fixtures, or --run.
 EOF
 }
 
@@ -158,7 +160,8 @@ exports the latest contained session into the host Claude store, checks that the
 exported host transcript/sidecar files do not contain stale agent Claude project
 paths, and resumes the exported session with host Claude.
 
-Live mode is sudo-adjacent and requires explicit approval:
+Fixture checks inspect local Hazmat/Claude tool setup. Live mode is
+sudo-adjacent and requires explicit approval:
 
   scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
 
@@ -175,6 +178,8 @@ not present, the script uses an embedded fallback prompt with the same shape.
 
 Fixture check:
   scripts/check-claude-workflow-export-smoke.sh --check-fixtures
+
+Agents must ask before running --check-fixtures, --skip-if-missing-fixtures, or --run.
 EOF
 }
 

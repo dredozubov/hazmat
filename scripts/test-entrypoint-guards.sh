@@ -405,6 +405,15 @@ assert_help_contains_all \
     "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
 
 assert_help_contains_all \
+    "Claude Workflow export smoke documents fixture consent" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" \
+    "--check-fixtures" \
+    "--skip-if-missing-fixtures" \
+    "Fixture checks inspect local Hazmat/Claude tool setup" \
+    "Agents must ask for explicit approval before running" \
+    "--check-fixtures, --skip-if-missing-fixtures, or --run"
+
+assert_help_contains_all \
     "cache integration smoke documents fixture consent" \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" \
     "--check-fixtures" \
