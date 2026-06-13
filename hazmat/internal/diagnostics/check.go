@@ -37,12 +37,13 @@ helper-backed probes, no backup smoke tests, and no external traffic. Use --full
 to include launch-helper validation plus helper-backed, backup, and cloud live
 probes that can send external traffic and are sudo-adjacent in agent workflows.
 
-Use hazmat doctor --dry-run when you want to spell out non-mutating preview
-behavior. Plain doctor remains compatible and plan-only. Mutation requires
---fix; non-interactive mutation requires both --fix and --yes.`, `  hazmat doctor --dry-run
-  hazmat doctor --dry-run --json
-  hazmat doctor --fix
-  hazmat doctor --fix --yes`, true, run)
+Use hazmat doctor --fix to apply executable typed repairs. Non-interactive
+mutation requires both --fix and --yes. Use hazmat doctor --dry-run when you
+want to spell out non-mutating preview behavior; plain doctor remains compatible
+and plan-only.`, `  hazmat doctor --fix
+  hazmat doctor --fix --yes
+  hazmat doctor --dry-run
+  hazmat doctor --dry-run --json`, true, run)
 }
 
 func newCheckCommand(use, short, long, example string, allowFix bool, run CheckRunner) *cobra.Command {

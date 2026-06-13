@@ -157,13 +157,13 @@ func TestDoctorCommandHelpNamesExplicitDryRunPreview(t *testing.T) {
 	if !strings.Contains(cmd.Long, "--fix") || !strings.Contains(cmd.Long, "--yes") {
 		t.Fatalf("doctor help = %q, want fix and non-interactive consent contract", cmd.Long)
 	}
-	if !strings.Contains(cmd.Example, "hazmat doctor --dry-run --json") || !strings.Contains(cmd.Example, "hazmat doctor --fix --yes") {
-		t.Fatalf("doctor examples = %q, want JSON preview and non-interactive fix examples", cmd.Example)
+	if !strings.Contains(cmd.Example, "hazmat doctor --fix") || !strings.Contains(cmd.Example, "hazmat doctor --fix --yes") || !strings.Contains(cmd.Example, "hazmat doctor --dry-run --json") {
+		t.Fatalf("doctor examples = %q, want fix, non-interactive fix, and JSON preview examples", cmd.Example)
 	}
-	previewIndex := strings.Index(cmd.Example, "hazmat doctor --dry-run")
 	fixIndex := strings.Index(cmd.Example, "hazmat doctor --fix")
-	if previewIndex < 0 || fixIndex < 0 || previewIndex > fixIndex {
-		t.Fatalf("doctor examples = %q, want explicit dry-run previews before fix examples", cmd.Example)
+	previewIndex := strings.Index(cmd.Example, "hazmat doctor --dry-run")
+	if fixIndex < 0 || previewIndex < 0 || fixIndex > previewIndex {
+		t.Fatalf("doctor examples = %q, want fix examples before dry-run previews", cmd.Example)
 	}
 	if strings.Contains(cmd.Example, "hazmat init") {
 		t.Fatalf("doctor examples = %q, want no init retry guidance", cmd.Example)
