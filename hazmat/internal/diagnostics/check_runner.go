@@ -57,6 +57,8 @@ type CheckSuite struct {
 	Exit                 func(code int)
 }
 
+const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation"
+
 func RunCheck(quick bool, suite CheckSuite) error {
 	ctx := CheckContext{}
 	if suite.Begin != nil {
@@ -73,7 +75,11 @@ func RunCheck(quick bool, suite CheckSuite) error {
 	call(suite.PFFirewallStatic)
 	call(suite.DNSBlocklist)
 	call(suite.Persistence)
-	if ctx.AgentProbes.Allowed() {
+	if quick {
+		if suite.AgentProbesSkipped != nil {
+			suite.AgentProbesSkipped(QuickAgentProbeSkipReason)
+		}
+	} else if ctx.AgentProbes.Allowed() {
 		callString(suite.UserIsolation, ctx.CurrentUser)
 		call(suite.HardeningGaps)
 		if suite.PFFirewallLive != nil {

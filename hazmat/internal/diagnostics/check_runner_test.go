@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestRunCheckRunsProbesInOrder(t *testing.T) {
+func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 	var got []string
 	suite := CheckSuite{
 		Begin: func(quick bool) (CheckContext, error) {
@@ -23,8 +23,56 @@ func TestRunCheckRunsProbesInOrder(t *testing.T) {
 		HardeningGaps:        func() { got = append(got, "hardening") },
 		PasswordlessSudo:     func() { got = append(got, "sudo") },
 		PFFirewallStatic:     func() { got = append(got, "pf-static") },
+		PFFirewallLive:       func(bool, string) { got = append(got, "pf-live") },
+		DNSBlocklist:         func() { got = append(got, "dns") },
+		Persistence:          func() { got = append(got, "persistence") },
+		CredentialInventory:  func() { got = append(got, "credentials") },
+		AgentTools:           func() { got = append(got, "tools") },
+		CommandSurface:       func() { got = append(got, "commands") },
+		Seatbelt:             func() { got = append(got, "seatbelt") },
+		ProjectToolchain:     func() { got = append(got, "toolchain") },
+		LocalSnapshot:        func() { got = append(got, "local-snapshot") },
+		CloudBackup:          func() { got = append(got, "cloud-backup") },
+		CloudRestore:         func() { got = append(got, "cloud-restore") },
+		Decommission:         func() { got = append(got, "decommission") },
+		Finish: func() bool {
+			got = append(got, "finish")
+			return false
+		},
+	}
+
+	if err := RunCheck(true, suite); err != nil {
+		t.Fatalf("RunCheck(): %v", err)
+	}
+	want := []string{
+		"begin", "agent", "group:dr", "sudo", "pf-static", "dns", "persistence",
+		"skip:" + QuickAgentProbeSkipReason, "local-snapshot", "cloud-backup", "cloud-restore",
+		"decommission", "finish",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+func TestRunCheckFullRunsHelperBackedAgentProbesInOrder(t *testing.T) {
+	var got []string
+	suite := CheckSuite{
+		Begin: func(quick bool) (CheckContext, error) {
+			if quick {
+				t.Fatal("quick = true, want false")
+			}
+			got = append(got, "begin")
+			return CheckContext{CurrentUser: "dr", SelfPath: "/bin/hazmat"}, nil
+		},
+		AgentUser:            func() { got = append(got, "agent") },
+		DevGroupAndWorkspace: func(user string) { got = append(got, "group:"+user) },
+		AgentProbesSkipped:   func(reason string) { got = append(got, "skip:"+reason) },
+		UserIsolation:        func(user string) { got = append(got, "isolation:"+user) },
+		HardeningGaps:        func() { got = append(got, "hardening") },
+		PasswordlessSudo:     func() { got = append(got, "sudo") },
+		PFFirewallStatic:     func() { got = append(got, "pf-static") },
 		PFFirewallLive: func(quick bool, selfPath string) {
-			if !quick || selfPath != "/bin/hazmat" {
+			if quick || selfPath != "/bin/hazmat" {
 				t.Fatalf("pf live args quick=%v selfPath=%q", quick, selfPath)
 			}
 			got = append(got, "pf-live")
@@ -46,7 +94,7 @@ func TestRunCheckRunsProbesInOrder(t *testing.T) {
 		},
 	}
 
-	if err := RunCheck(true, suite); err != nil {
+	if err := RunCheck(false, suite); err != nil {
 		t.Fatalf("RunCheck(): %v", err)
 	}
 	want := []string{
@@ -60,10 +108,13 @@ func TestRunCheckRunsProbesInOrder(t *testing.T) {
 	}
 }
 
-func TestRunCheckSkipsAgentProbesWhenGateBlocked(t *testing.T) {
+func TestRunCheckFullSkipsAgentProbesWhenGateBlocked(t *testing.T) {
 	var got []string
 	suite := CheckSuite{
 		Begin: func(quick bool) (CheckContext, error) {
+			if quick {
+				t.Fatal("quick = true, want false")
+			}
 			got = append(got, "begin")
 			return CheckContext{
 				CurrentUser: "dr",
@@ -93,7 +144,7 @@ func TestRunCheckSkipsAgentProbesWhenGateBlocked(t *testing.T) {
 		Finish:               func() bool { got = append(got, "finish"); return false },
 	}
 
-	if err := RunCheck(true, suite); err != nil {
+	if err := RunCheck(false, suite); err != nil {
 		t.Fatalf("RunCheck(): %v", err)
 	}
 	want := []string{
