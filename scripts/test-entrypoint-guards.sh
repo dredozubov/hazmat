@@ -482,6 +482,12 @@ assert_fails_with \
     env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/usr/bin/false \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
 
+assert_fails_with \
+    "Claude Workflow export smoke rejects relative Claude binary path" \
+    "./claude must be an absolute path or command name" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=./claude \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
 assert_file_contains_all \
     "Claude Workflow export smoke scans escaped agent paths" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" \

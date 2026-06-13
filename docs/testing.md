@@ -268,6 +268,8 @@ host `claude --resume`. By default the script uses
 `HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE` only when validating a stronger
 local reproduction prompt. Prompt fixture paths must be readable regular files;
 if the default prompt fixture is absent, the script uses its embedded fallback.
+When `HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE` is an explicit path, it must be
+absolute; command-name overrides are resolved from `PATH`.
 Agents still need explicit approval before running fixture checks because they
 inspect local Hazmat/Claude tool setup:
 

@@ -91,6 +91,14 @@ add_missing_fixture() {
 require_command() {
 	case "$1" in
 		*/*)
+			case "$1" in
+				/*)
+					;;
+				*)
+					add_missing_fixture "$1 must be an absolute path or command name"
+					return
+					;;
+			esac
 			if [ ! -x "$1" ]; then
 				add_missing_fixture "$1 is missing or not executable"
 			fi
@@ -105,8 +113,11 @@ require_command() {
 
 command_available() {
 	case "$1" in
-		*/*)
+		/*)
 			[ -x "$1" ]
+			;;
+		*/*)
+			return 1
 			;;
 		*)
 			command -v "$1" >/dev/null 2>&1
