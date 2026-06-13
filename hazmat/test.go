@@ -794,9 +794,9 @@ func testCommandSurface(ui *UI) {
 		)
 	}
 
-	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
-		path := hostWrapperPath(wrapper)
-		if err := validateHostWrapper(path); err != nil {
+	for _, wrapper := range managedHostWrapperSpecs() {
+		path := hostWrapperPath(wrapper.Name)
+		if err := validateHostWrapper(path, wrapper.Subcommand); err != nil {
 			ui.TestFailFinding(
 				diagnosticFinding(findingSetupHostWrappers),
 				fmt.Sprintf("Host wrapper drift: %v", err),

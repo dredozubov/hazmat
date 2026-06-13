@@ -277,16 +277,9 @@ func (b *diagnosticHostRepairBackend) applyHostWrappers(r *Runner) error {
 	if resolved, err := filepath.EvalSymlinks(hazmatBin); err == nil {
 		hazmatBin = resolved
 	}
-	for _, wrapper := range []struct {
-		name       string
-		subcommand string
-	}{
-		{name: env.HostClaudeWrapperName, subcommand: "claude"},
-		{name: env.HostExecWrapperName, subcommand: "exec"},
-		{name: env.HostShellWrapperName, subcommand: "shell"},
-	} {
-		path := filepath.Join(env.HostWrapperDir, wrapper.name)
-		if err := r.UserWriteFile(path, setup.HostWrapperContent(hazmatBin, wrapper.subcommand)); err != nil {
+	for _, wrapper := range managedHostWrapperSpecs() {
+		path := filepath.Join(env.HostWrapperDir, wrapper.Name)
+		if err := r.UserWriteFile(path, setup.HostWrapperContent(hazmatBin, wrapper.Subcommand)); err != nil {
 			return fmt.Errorf("write wrapper %s: %w", path, err)
 		}
 		if err := r.Chmod(path, 0o755); err != nil {
@@ -481,9 +474,9 @@ func verifySetupAgentEnv() error {
 }
 
 func verifySetupHostWrappers() error {
-	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
-		path := hostWrapperPath(wrapper)
-		if err := validateHostWrapper(path); err != nil {
+	for _, wrapper := range managedHostWrapperSpecs() {
+		path := hostWrapperPath(wrapper.Name)
+		if err := validateHostWrapper(path, wrapper.Subcommand); err != nil {
 			return err
 		}
 	}

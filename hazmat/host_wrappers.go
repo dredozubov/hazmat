@@ -7,7 +7,20 @@ import (
 	"strings"
 )
 
-func validateHostWrapper(path string) error {
+type hostWrapperSpec struct {
+	Name       string
+	Subcommand string
+}
+
+func managedHostWrapperSpecs() []hostWrapperSpec {
+	return []hostWrapperSpec{
+		{Name: hostClaudeWrapperName, Subcommand: "claude"},
+		{Name: hostExecWrapperName, Subcommand: "exec"},
+		{Name: hostShellWrapperName, Subcommand: "shell"},
+	}
+}
+
+func validateHostWrapper(path, expectedSubcommand string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("host wrapper missing %s: %w", path, err)
@@ -33,6 +46,9 @@ func validateHostWrapper(path string) error {
 	if target.Mode()&0o111 == 0 {
 		return fmt.Errorf("host wrapper %s pins non-executable Hazmat binary: %s", path, pinned)
 	}
+	if !hostWrapperDispatchesSubcommand(string(data), expectedSubcommand) {
+		return fmt.Errorf("host wrapper %s does not dispatch managed subcommand %q", path, expectedSubcommand)
+	}
 	return nil
 }
 
@@ -52,4 +68,14 @@ func hostWrapperPinnedHazmatBin(content string) (string, bool, error) {
 		return value, true, nil
 	}
 	return "", false, nil
+}
+
+func hostWrapperDispatchesSubcommand(content, expectedSubcommand string) bool {
+	want := fmt.Sprintf(`exec "$HAZMAT_BIN" %s "$@"`, expectedSubcommand)
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
 }
