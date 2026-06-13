@@ -59,9 +59,9 @@ make e2e-vm        # same test inside an isolated Lume VM (no system changes)
 
 ```bash
 make test                    # unit tests
-hazmat check                 # integration: verify setup and recommended fixes
-hazmat doctor                # same diagnostics, repair-oriented naming
-hazmat check --full          # include live network probes
+hazmat check                 # read-only quick diagnostic and repair plan
+hazmat doctor --dry-run      # repair-oriented preview, no changes
+hazmat check --full          # sudo-adjacent full validation; ask first in agent workflows
 ./scripts/e2e.sh             # full lifecycle: init → containment → snapshot → restore → rollback
 ```
 
@@ -79,6 +79,8 @@ bash check_suite.sh
 - Follow the commit convention: `<area>: <what changed>` (areas: `cloud`, `ux`, `privilege`, `docker`, `docs`, `test`)
 - One logical change per commit
 - If you change trust-boundary behavior, explain the rationale in the PR description and update the relevant docs.
+- If you change public safety claims in README, docs, release notes, or posts,
+  run the [public copy checklist](docs/public-copy-checklist.md) before merging.
 
 ## Community-Owned Surfaces
 
