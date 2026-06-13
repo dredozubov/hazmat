@@ -64,6 +64,13 @@ Put these in `.env.test` inside the project — they are not secrets in this lay
 - It does not bridge the sandbox to your host's Docker daemon or host's PostgreSQL. The Tier 3 daemon is private to the session.
 - It does not auto-suggest `--docker=sandbox`. The user must opt in explicitly — auto-switching containment modes based on a Dockerfile would surprise users about their effective trust model.
 
+## Proof Story
+
+For community-facing copy, use the owned boundary story in
+[Docker / Database Boundary Proof Story](../outreach/2026-06-13-docker-database-boundary-proof-story.md).
+It keeps the distinction between native containment, private-daemon Docker
+Sandbox mode, and unsupported shared-daemon authority explicit.
+
 ## See also
 
 - [database-sqlite.md](database-sqlite.md) — for simpler workflows that don't need a real daemon.
