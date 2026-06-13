@@ -964,6 +964,18 @@ func TestSuggestIntegrationsRequiresNarrowHuggingFaceMarkers(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsMatchesPyTorchHubMarker(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "hubconf.py"), []byte("dependencies = ['torch']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	if !containsPlanString(suggestions, "pytorch-torch-hub") {
+		t.Fatalf("suggestions = %v, want pytorch-torch-hub", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPythonPipFiresOnPlainRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {

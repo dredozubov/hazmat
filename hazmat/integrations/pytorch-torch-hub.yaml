@@ -3,6 +3,9 @@ integration:
   version: 1
   description: PyTorch torch.hub cache-only model access
 
+detect:
+  files: [hubconf.py]
+
 session:
   read_dirs:
     - ~/.cache/torch/hub
