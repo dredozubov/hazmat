@@ -4,13 +4,16 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -464,7 +467,7 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 	if sourceDir == "" || destDir == "" || sourceDir == destDir {
 		return nil
 	}
-	return filepath.WalkDir(stagingDir, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(stagingDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -513,7 +516,50 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 			return os.Remove(path)
 		}
 		return fmt.Errorf("staged Claude export file %s contains agent-only path %s in an unsupported format", rel, sourceDir)
+	}); err != nil {
+		return err
+	}
+	return pruneEmptyClaudeSessionSidecarDirs(stagingDir, sessionID)
+}
+
+func pruneEmptyClaudeSessionSidecarDirs(stagingDir, sessionID string) error {
+	sidecarDir := filepath.Join(stagingDir, sessionID)
+	info, err := os.Stat(sidecarDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat staged Claude sidecar dir %s: %w", sidecarDir, err)
+	}
+	if !info.IsDir() {
+		return nil
+	}
+
+	var dirs []string
+	if err := filepath.WalkDir(sidecarDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("walk staged Claude sidecar dirs %s: %w", sidecarDir, err)
+	}
+	sort.Slice(dirs, func(i, j int) bool {
+		return len(dirs[i]) > len(dirs[j])
 	})
+	for _, dir := range dirs {
+		if err := os.Remove(dir); err != nil && !os.IsNotExist(err) && !isDirectoryNotEmptyError(err) {
+			return fmt.Errorf("prune empty staged Claude sidecar dir %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func isDirectoryNotEmptyError(err error) bool {
+	return errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST)
 }
 
 func claudeExportMayContainSourcePath(raw []byte, sourceDir string) bool {
