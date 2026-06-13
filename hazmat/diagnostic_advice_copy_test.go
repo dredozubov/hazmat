@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	"hazmat/internal/diagnostics"
 )
 
 func TestDiagnosticAdviceNamesExplicitDoctorCommands(t *testing.T) {
@@ -105,6 +107,29 @@ func TestStatusFullHelpNamesLiveProbes(t *testing.T) {
 	}
 	if strings.Contains(joined, "check --quick") || strings.Contains(joined, "same as 'hazmat check --quick'") {
 		t.Fatalf("status --full help = %q, want no quick-mode equivalence", joined)
+	}
+}
+
+func TestStatusFullDelegatesToFullDiagnosticScheduler(t *testing.T) {
+	saved := runStatusFullDiagnostics
+	defer func() { runStatusFullDiagnostics = saved }()
+
+	var called int
+	var got diagnostics.CheckOptions
+	runStatusFullDiagnostics = func(options diagnostics.CheckOptions) error {
+		called++
+		got = options
+		return nil
+	}
+
+	if err := runStatus(true); err != nil {
+		t.Fatalf("runStatus(true): %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("full diagnostics calls = %d, want 1", called)
+	}
+	if got.Command != "status" || got.Quick || got.JSON || got.Fix {
+		t.Fatalf("full diagnostics options = %+v, want status full non-json non-fix", got)
 	}
 }
 
