@@ -266,8 +266,10 @@ and the Workflow prompt file is readable, but do not run `hazmat claude` or
 host `claude --resume`. By default the script uses
 `scripts/fixtures/claude-workflow-export-prompt.txt`; set
 `HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE` only when validating a stronger
-local reproduction prompt. Agents still need explicit approval before running
-fixture checks because they inspect local Hazmat/Claude tool setup:
+local reproduction prompt. Prompt fixture paths must be readable regular files;
+if the default prompt fixture is absent, the script uses its embedded fallback.
+Agents still need explicit approval before running fixture checks because they
+inspect local Hazmat/Claude tool setup:
 
 ```bash
 scripts/check-claude-workflow-export-smoke.sh --check-fixtures

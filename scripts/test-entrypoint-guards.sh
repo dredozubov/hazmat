@@ -406,8 +406,20 @@ assert_succeeds_with \
 
 assert_fails_with \
     "Claude Workflow export smoke rejects missing prompt override" \
-    "missing-claude-workflow-prompt.txt is not readable" \
+    "missing-claude-workflow-prompt.txt is not a readable regular file" \
     env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/missing-claude-workflow-prompt.txt" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "Claude Workflow export smoke rejects directory prompt override" \
+    "scripts/fixtures is not a readable regular file" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE="$REPO_ROOT/scripts/fixtures" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "Claude Workflow export smoke rejects directory default prompt" \
+    "scripts/fixtures is not a readable regular file" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_DEFAULT_PROMPT_FILE="$REPO_ROOT/scripts/fixtures" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
 
 assert_fails_with \

@@ -149,8 +149,12 @@ check_fixtures() {
 	if command_available "$CLAUDE_BIN" && ! "$CLAUDE_BIN" --version >/dev/null 2>&1; then
 		add_missing_fixture "$CLAUDE_BIN --version failed; verify the host Claude CLI installation"
 	fi
-	if [ -n "$PROMPT_FILE_OVERRIDE" ] && [ ! -r "$PROMPT_FILE" ]; then
-		add_missing_fixture "$PROMPT_FILE is not readable"
+	if [ -n "$PROMPT_FILE_OVERRIDE" ]; then
+		if [ ! -f "$PROMPT_FILE" ] || [ ! -r "$PROMPT_FILE" ]; then
+			add_missing_fixture "$PROMPT_FILE is not a readable regular file"
+		fi
+	elif [ -e "$PROMPT_FILE" ] && { [ ! -f "$PROMPT_FILE" ] || [ ! -r "$PROMPT_FILE" ]; }; then
+		add_missing_fixture "$PROMPT_FILE is not a readable regular file"
 	fi
 
 	if [ -n "$MISSING_FIXTURES" ]; then
