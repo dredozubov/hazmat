@@ -208,15 +208,15 @@ func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts
 	if mode != sessionModeNative {
 		return fmt.Errorf("%s supports native sessions only", experimentalSessionHomeEnv)
 	}
-	activate := sessionHomeMode == experimentalSessionHomeActivate && !opts.planOnly
+	activationRequested := sessionHomeMode == experimentalSessionHomeActivate
+	activate := activationRequested && !opts.planOnly
 	if !opts.planOnly && !activate {
 		return fmt.Errorf("%s=1 is currently plan-only; use hazmat explain to inspect the session-local HOME plan, or set %s=activate for validation-only executable activation", experimentalSessionHomeEnv, experimentalSessionHomeEnv)
 	}
 	persistentPathExists := sessionHomePersistentPathExists
-	includeActivationGate := true
-	if activate {
+	includeActivationGate := !activationRequested
+	if activationRequested {
 		persistentPathExists = sessionHomeActivationPersistentPathExists
-		includeActivationGate = false
 	}
 	launchPlan, err := newSessionHomeLaunchPlanWithBlockerInspector(defaultSessionHomeRoot, newSessionHomeID(), agentHome, true, persistentPathExists, includeActivationGate)
 	if err != nil {
@@ -244,6 +244,11 @@ func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts
 		cfg.SessionNotes = append(cfg.SessionNotes,
 			fmt.Sprintf("Experimental session-local HOME validation activation: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
 			"Session-local HOME is active only for validation; keep live smoke coverage before making it default.",
+		)
+	} else if activationRequested {
+		cfg.SessionNotes = append(cfg.SessionNotes,
+			fmt.Sprintf("Experimental session-local HOME validation preview: HOME=%s with durable transcript bridges under %s.", launchPlan.Layout.Home, agentHome),
+			"Session-local HOME activation was inspected without materializing; use activation_ready and activation_blockers as the launch authority.",
 		)
 	} else {
 		cfg.SessionNotes = append(cfg.SessionNotes,

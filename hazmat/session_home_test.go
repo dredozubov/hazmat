@@ -166,6 +166,64 @@ func TestApplyExperimentalSessionHomePlanActivateMaterializesWhenReady(t *testin
 	}
 }
 
+func TestApplyExperimentalSessionHomePlanActivatePlanOnlyReportsReadinessWithoutMaterializing(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedNewSessionHomeID := newSessionHomeID
+	newSessionHomeID = func() string { return "session-123" }
+	t.Cleanup(func() { newSessionHomeID = savedNewSessionHomeID })
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+	savedMaterialize := materializeSessionHomeLaunchPlanForActivation
+	materializeSessionHomeLaunchPlanForActivation = func(sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+		t.Fatal("plan-only activation explain should not materialize session home")
+		return sessionHomeMaterializationResult{}, nil
+	}
+	t.Cleanup(func() { materializeSessionHomeLaunchPlanForActivation = savedMaterialize })
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{planOnly: true}); err != nil {
+		t.Fatalf("applyExperimentalSessionHomePlan: %v", err)
+	}
+	if cfg.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want activate-mode plan")
+	}
+	if !cfg.SessionHome.Launch.readyForActivation() {
+		t.Fatalf("activate plan-only explain should report real readiness, blockers: %+v", cfg.SessionHome.Launch.Blockers)
+	}
+	if sessionHomeHasBlockerReason(cfg.SessionHome.Launch.Blockers, sessionHomeBlockerActivationGate) {
+		t.Fatalf("activate plan-only explain should not include activation gate blocker: %+v", cfg.SessionHome.Launch.Blockers)
+	}
+	if len(cfg.SessionNotes) < 2 ||
+		!strings.Contains(cfg.SessionNotes[0], "validation preview") ||
+		!strings.Contains(cfg.SessionNotes[1], "without materializing") {
+		t.Fatalf("SessionNotes = %v", cfg.SessionNotes)
+	}
+}
+
+func TestApplyExperimentalSessionHomePlanActivatePlanOnlyReportsRealBlockers(t *testing.T) {
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(path string) (bool, error) {
+		return strings.HasSuffix(path, filepath.Join(".config", "mcp")), nil
+	}
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/hazmat"}
+
+	if err := applyExperimentalSessionHomePlan(&cfg, sessionModeNative, harnessSessionOpts{planOnly: true}); err != nil {
+		t.Fatalf("applyExperimentalSessionHomePlan: %v", err)
+	}
+	if cfg.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want activate-mode plan")
+	}
+	if !sessionHomeHasBlockerReason(cfg.SessionHome.Launch.Blockers, sessionHomeBlockerAdapterRequired) {
+		t.Fatalf("activate plan-only explain blockers = %+v, want adapter-required blocker", cfg.SessionHome.Launch.Blockers)
+	}
+	if sessionHomeHasBlockerReason(cfg.SessionHome.Launch.Blockers, sessionHomeBlockerActivationGate) {
+		t.Fatalf("activate plan-only explain should not include activation gate blocker: %+v", cfg.SessionHome.Launch.Blockers)
+	}
+}
+
 func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testing.T) {
 	t.Setenv(experimentalSessionHomeEnv, "activate")
 	savedExists := sessionHomeActivationPersistentPathExists
@@ -194,6 +252,15 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if cfg.SessionHome != nil {
 		t.Fatalf("SessionHome = %+v, want nil on activation failure", cfg.SessionHome)
 	}
+}
+
+func sessionHomeHasBlockerReason(blockers []sessionHomeLaunchBlocker, reason sessionHomeLaunchBlockerReason) bool {
+	for _, blocker := range blockers {
+		if blocker.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCreateSessionHomeLayoutCreatesMarkerAndXDGDirs(t *testing.T) {
