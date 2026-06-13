@@ -22,9 +22,10 @@ const (
 	seatbeltWrapperPath = agentHome + "/.local/bin/claude-sandboxed"
 	agentEnvPath        = seatbeltProfileDir + "/agent-env.zsh"
 
-	defaultAgentPath       = agentHome + "/.opencode/bin:" + agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-	defaultAgentCacheHome  = agentHome + "/.cache"
-	defaultAgentConfigHome = agentHome + "/.config"
-	defaultAgentDataHome   = agentHome + "/.local/share"
-	defaultAgentTmpDir     = agentHome + "/.cache/hazmat/tmp"
+	defaultAgentPath         = agentHome + "/.opencode/bin:" + agentHome + "/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	defaultAgentCacheHome    = agentHome + "/.cache"
+	defaultAgentConfigHome   = agentHome + "/.config"
+	defaultAgentDataHome     = agentHome + "/.local/share"
+	defaultAgentTmpDir       = agentHome + "/.cache/hazmat/tmp"
+	defaultBrokerRuntimeRoot = "/private/tmp/hazmat-runtime"
 )

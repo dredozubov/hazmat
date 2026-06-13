@@ -554,6 +554,13 @@ assert_file_contains_all \
     "or reinstall Hazmat so the current blocker-detail" \
     "Do not rerun hazmat init."
 
+assert_file_contains_all \
+    "session-home smoke pairs repo binary with repo launch helper" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
+    'DEFAULT_LAUNCH_HELPER="$REPO_ROOT/hazmat/hazmat-launch"' \
+    'LAUNCH_HELPER="${HAZMAT_SESSION_HOME_SMOKE_LAUNCH_HELPER:-$DEFAULT_LAUNCH_HELPER}"' \
+    'HAZMAT_LAUNCH_HELPER="$LAUNCH_HELPER"'
+
 assert_command_contains_all_and_not \
     "session-home JSON extractor preserves nested blocker detail" \
     '"following": {' \

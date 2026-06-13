@@ -6,7 +6,11 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_SESSION_HOME_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
 AGENT_USER="${HAZMAT_SESSION_HOME_SMOKE_AGENT_USER:-agent}"
-LAUNCH_HELPER="${HAZMAT_SESSION_HOME_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
+DEFAULT_LAUNCH_HELPER="$REPO_ROOT/hazmat/hazmat-launch"
+if [ ! -x "$DEFAULT_LAUNCH_HELPER" ]; then
+	DEFAULT_LAUNCH_HELPER="/usr/local/libexec/hazmat-launch"
+fi
+LAUNCH_HELPER="${HAZMAT_SESSION_HOME_SMOKE_LAUNCH_HELPER:-$DEFAULT_LAUNCH_HELPER}"
 SETUP_PREREQ_HELP="fresh host: run hazmat init; setup drift: run hazmat doctor --fix (preview: hazmat doctor --dry-run)"
 MODE="disclose"
 ACK=0
@@ -208,18 +212,8 @@ trap cleanup EXIT INT TERM
 mkdir -p "$PROJECT"
 chmod 755 "$SCRATCH" "$PROJECT"
 
-set +e
-SMOKE_OUTPUT="$(HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \
-	"$HAZMAT" exec \
-		--docker=none \
-		--network none \
-		--no-backup \
-		--integration go \
-		--integration node \
-		--integration python-pip \
-		--integration rust \
-		-C "$PROJECT" \
-		-- /bin/sh -eu <<'SESSION_HOME_SMOKE' 2>&1
+SESSION_SCRIPT="$PROJECT/.session-home-smoke.sh"
+cat >"$SESSION_SCRIPT" <<'SESSION_HOME_SMOKE'
 case "$HOME" in
 	/private/tmp/hazmat-home/*/home)
 		;;
@@ -229,19 +223,61 @@ case "$HOME" in
 		;;
 esac
 
-test "$XDG_CACHE_HOME" = "$HOME/.cache"
-test "$XDG_CONFIG_HOME" = "$HOME/.config"
-test "$XDG_DATA_HOME" = "$HOME/.local/share"
-test -d "$HOME"
-test -f "$HOME/.hazmat-session-home"
+require_env_eq() {
+	name="$1"
+	want="$2"
+	eval "got=\${$name-}"
+	if [ "$got" != "$want" ]; then
+		if [ -z "$got" ]; then
+			got="<unset>"
+		fi
+		echo "session-home-smoke: $name is $got, want $want" >&2
+		exit 12
+	fi
+}
+
+require_env_eq XDG_CACHE_HOME "$HOME/.cache"
+require_env_eq XDG_CONFIG_HOME "$HOME/.config"
+require_env_eq XDG_DATA_HOME "$HOME/.local/share"
+
+require_path() {
+	kind="$1"
+	path="$2"
+	case "$kind" in
+		dir)
+			test -d "$path" && return 0
+			;;
+		file)
+			test -f "$path" && return 0
+			;;
+		*)
+			echo "session-home-smoke: unsupported path assertion kind: $kind" >&2
+			exit 13
+			;;
+	esac
+	echo "session-home-smoke: missing $kind: $path" >&2
+	exit 13
+}
+
+require_path dir "$HOME"
+require_path file "$HOME/.hazmat-session-home"
 
 printf '%s\n' "session-home write probe" >"$HOME/.session-home-write-probe"
-test -f "$HOME/.session-home-write-probe"
+require_path file "$HOME/.session-home-write-probe"
 
-go version >/dev/null
-npm --version >/dev/null
-python3 -m pip --version >/dev/null
-cargo --version >/dev/null
+run_probe() {
+	name="$1"
+	shift
+	if ! "$@" >/dev/null; then
+		echo "session-home-smoke: $name failed" >&2
+		exit 14
+	fi
+}
+
+run_probe "go version" go version
+run_probe "npm --version" npm --version
+run_probe "python3 -m pip --version" python3 -m pip --version
+run_probe "cargo --version" cargo --version
 
 git init -q git-probe
 git -C git-probe config user.email session-home-smoke@example.invalid
@@ -249,11 +285,30 @@ git -C git-probe config user.name "Session Home Smoke"
 printf '%s\n' "tracked" >git-probe/file.txt
 git -C git-probe add file.txt
 git -C git-probe commit -q -m "smoke"
-test "$(git -C git-probe status --porcelain)" = ""
+git_status="$(git -C git-probe status --porcelain)"
+if [ "$git_status" != "" ]; then
+	echo "session-home-smoke: git worktree dirty after commit: $git_status" >&2
+	exit 15
+fi
 
 printf '%s\n' "session-home-smoke: HOME=$HOME"
 printf '%s\n' "session-home-smoke: toolchain matrix ok"
 SESSION_HOME_SMOKE
+chmod 644 "$SESSION_SCRIPT"
+
+set +e
+SMOKE_OUTPUT="$(HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \
+	HAZMAT_LAUNCH_HELPER="$LAUNCH_HELPER" \
+	"$HAZMAT" exec \
+		--docker=none \
+		--network none \
+		--no-backup \
+		--integration go \
+		--integration node \
+		--integration python-pip \
+		--integration rust \
+		-C "$PROJECT" \
+		-- /bin/sh -eu "$SESSION_SCRIPT" 2>&1
 )"
 SMOKE_STATUS=$?
 set -e

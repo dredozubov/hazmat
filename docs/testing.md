@@ -213,6 +213,11 @@ The live smoke starts a native `hazmat exec` session with
 point under `/private/tmp/hazmat-home`, writes to the disposable home, and runs
 go, npm, pip, cargo, and git probes inside the contained session.
 
+By default the wrapper pairs the repo-built `hazmat/hazmat` binary with the
+repo-built `hazmat/hazmat-launch` helper when both exist. Override the binary
+with `HAZMAT_SESSION_HOME_SMOKE_HAZMAT` and the helper with
+`HAZMAT_SESSION_HOME_SMOKE_LAUNCH_HELPER` when validating an installed pair.
+
 Managed harness env delivery is also pinned by
 `TestNativeLaunchBaseEnvPairsUsesSessionHomeForEveryManagedHarness`, which
 asserts every managed harness receives the session-local `HOME` and XDG roots

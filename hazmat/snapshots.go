@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/kopia/kopia/snapshot/restore"
 	"github.com/spf13/cobra"
 )
 
@@ -102,16 +101,7 @@ func runDiffSnapshot() error {
 		return fmt.Errorf("create restore dir: %w", err)
 	}
 
-	output := &restore.FilesystemOutput{
-		TargetPath:           restoreDir,
-		OverwriteFiles:       true,
-		OverwriteDirectories: true,
-	}
-	if err := output.Init(ctx); err != nil {
-		return fmt.Errorf("init restore: %w", err)
-	}
-
-	_, err = restoreSnapshotTo(ctx, r, latest, restoreDir)
+	_, err = restoreSnapshotToForDiff(ctx, r, latest, restoreDir)
 	if err != nil {
 		return fmt.Errorf("restore for diff: %w", err)
 	}

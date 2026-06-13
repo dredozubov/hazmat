@@ -178,6 +178,7 @@ var (
 	sessionHomeActivationPersistentPathExists     = defaultSessionHomeActivationPersistentPathExists
 	materializeSessionHomeLaunchPlanForActivation = materializeSessionHomeLaunchPlanForNativeActivation
 	sessionHomeAgentEnsureDir                     = agentEnsureDir
+	sessionHomeAgentWriteFile                     = agentWriteFile
 	sessionHomeAgentCopyPath                      = defaultSessionHomeAgentCopyPath
 	sessionHomeAgentSymlink                       = defaultSessionHomeAgentSymlink
 )
@@ -303,6 +304,9 @@ func createSessionHomeLayout(layout sessionHomeLayout) error {
 	}
 	if err := os.WriteFile(layout.MarkerPath, []byte("hazmat session home\n"), 0o600); err != nil {
 		return fmt.Errorf("write session home marker: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(layout.Home, sessionHomeMarkerFile), []byte("hazmat session home\n"), 0o600); err != nil {
+		return fmt.Errorf("write runtime session home marker: %w", err)
 	}
 	return nil
 }
@@ -627,19 +631,35 @@ func materializeSessionHomeLaunchPlanForNativeActivation(plan sessionHomeLaunchP
 }
 
 func createSessionHomeActivationLayout(layout sessionHomeLayout) error {
-	if err := os.MkdirAll(layout.SessionDir, 0o711); err != nil {
-		return fmt.Errorf("create session metadata dir: %w", err)
+	if err := os.MkdirAll(layout.Root, 0o733|os.ModeSticky); err != nil {
+		return fmt.Errorf("create session home root: %w", err)
 	}
-	if err := os.Chmod(layout.SessionDir, 0o711); err != nil {
-		return fmt.Errorf("set session metadata dir mode: %w", err)
+	rootInfo, err := os.Lstat(layout.Root)
+	if err != nil {
+		return fmt.Errorf("inspect session home root: %w", err)
 	}
-	if err := os.WriteFile(layout.MarkerPath, []byte("hazmat session home\n"), 0o600); err != nil {
-		return fmt.Errorf("write session home marker: %w", err)
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s: session home root is a symlink", layout.Root)
+	}
+	if !rootInfo.IsDir() {
+		return fmt.Errorf("%s: session home root is not a directory", layout.Root)
+	}
+	if err := os.Chmod(layout.Root, 0o733|os.ModeSticky); err != nil {
+		return fmt.Errorf("set session home root mode: %w", err)
+	}
+	if err := sessionHomeAgentEnsureDir(layout.SessionDir, 0o711); err != nil {
+		return err
+	}
+	if err := sessionHomeAgentWriteFile(layout.MarkerPath, []byte("hazmat session home\n"), 0o600); err != nil {
+		return fmt.Errorf("write session home marker as agent: %w", err)
 	}
 	for _, dir := range []string{layout.Home, layout.CacheHome, layout.ConfigHome, layout.DataHome} {
 		if err := sessionHomeAgentEnsureDir(dir, 0o700); err != nil {
 			return err
 		}
+	}
+	if err := sessionHomeAgentWriteFile(filepath.Join(layout.Home, sessionHomeMarkerFile), []byte("hazmat session home\n"), 0o600); err != nil {
+		return fmt.Errorf("write runtime session home marker as agent: %w", err)
 	}
 	return nil
 }
@@ -1002,7 +1022,7 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 	case containment.AgentHomeStateExecutable:
 		return sessionHomeAdapterDecision{
 			Name:    sessionHomeAdapterExecutableTooling,
-			Outcome: sessionHomeAdapterImplemented,
+			Outcome: sessionHomeAdapterIgnoredEphemeral,
 		}
 	case containment.AgentHomeStateHarnessState:
 		return sessionHomeHarnessStateAdapterDecision(entry.RelPath)
@@ -1043,7 +1063,7 @@ func sessionHomeHarnessStateAdapterDecision(rel string) sessionHomeAdapterDecisi
 	case ".config/mcp":
 		return sessionHomeManualHarnessAdapter(sessionHomeAdapterMCPState)
 	case ".config/opencode":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterOpenCodeState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterOpenCodeState)
 	case ".opencode":
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterOpenCodeState)
 	case ".cursor":
@@ -1092,26 +1112,35 @@ func sessionHomeXDGAdapterPath(rel string) bool {
 }
 
 func sessionHomeToolchainCacheAdapterPath(rel string, kind containment.AgentHomeStateKind) bool {
-	if kind != containment.AgentHomeStateDir {
-		return false
-	}
-	switch rel {
-	case ".bun",
-		".cargo",
-		".deno",
-		".gem",
-		".gradle",
-		".ivy2",
-		".local/lib",
-		".m2",
-		".node-gyp",
-		".npm",
-		".pub-cache",
-		".rustup",
-		".sbt",
-		".swiftpm",
-		".terraform.d":
-		return true
+	switch kind {
+	case containment.AgentHomeStateDir:
+		switch rel {
+		case ".bun",
+			".cargo",
+			".deno",
+			".gem",
+			".gradle",
+			".ivy2",
+			".local/lib",
+			".m2",
+			".node-gyp",
+			".npm",
+			".pub-cache",
+			".rustup",
+			".sbt",
+			".swiftpm",
+			".terraform.d":
+			return true
+		default:
+			return false
+		}
+	case containment.AgentHomeStateFile:
+		switch rel {
+		case ".npmrc", ".pypirc":
+			return true
+		default:
+			return false
+		}
 	default:
 		return false
 	}

@@ -121,6 +121,11 @@ type preparedSessionRuntime struct {
 	Cleanup  func()
 }
 
+var (
+	brokerRuntimeRoot                 = defaultBrokerRuntimeRoot
+	brokerRuntimeAgentEnsureSharedDir = agentEnsureSharedDir
+)
+
 type sshKeyCandidate struct {
 	DirectoryPath  string
 	PrivateKeyPath string
@@ -1241,6 +1246,38 @@ func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
 	return runtime, nil
 }
 
+func prepareSharedBrokerRuntimeDir(prefix string) (string, error) {
+	root := filepath.Clean(brokerRuntimeRoot)
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("broker runtime root %q must be absolute", brokerRuntimeRoot)
+	}
+	if strings.TrimSpace(prefix) == "" || strings.Contains(prefix, string(os.PathSeparator)) {
+		return "", fmt.Errorf("broker runtime prefix %q is invalid", prefix)
+	}
+	if err := os.MkdirAll(root, 0o733|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("create broker runtime root: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return "", fmt.Errorf("inspect broker runtime root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s: broker runtime root is a symlink", root)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s: broker runtime root is not a directory", root)
+	}
+	if err := os.Chmod(root, 0o733|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("set broker runtime root mode: %w", err)
+	}
+
+	runtimeDir := filepath.Join(root, fmt.Sprintf("%s-%d-%d", prefix, os.Getpid(), time.Now().UnixNano()))
+	if err := brokerRuntimeAgentEnsureSharedDir(runtimeDir, 0o2770); err != nil {
+		return "", err
+	}
+	return runtimeDir, nil
+}
+
 func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, error) {
 	runtime := preparedSessionRuntime{
 		Cleanup: func() {},
@@ -1249,8 +1286,8 @@ func prepareGitSSHRuntime(cfg sessionGitSSHConfig) (preparedSessionRuntime, erro
 		return runtime, nil
 	}
 
-	runtimeDir := filepath.Join(seatbeltProfileDir, "git-ssh", fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
-	if err := agentEnsureSharedDir(runtimeDir, 0o2770); err != nil {
+	runtimeDir, err := prepareSharedBrokerRuntimeDir("git-ssh")
+	if err != nil {
 		return runtime, fmt.Errorf("prepare managed git ssh runtime dir: %w", err)
 	}
 

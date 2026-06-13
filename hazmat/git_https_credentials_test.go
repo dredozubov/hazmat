@@ -114,6 +114,45 @@ func TestGitHTTPSCredentialServiceStoreGetErase(t *testing.T) {
 	}
 }
 
+func TestPrepareSharedBrokerRuntimeDirUsesStickyRootAndAgentSharedLeaf(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-runtime")
+	savedRoot := brokerRuntimeRoot
+	brokerRuntimeRoot = root
+	t.Cleanup(func() {
+		brokerRuntimeRoot = savedRoot
+	})
+
+	var ensuredPath string
+	var ensuredMode os.FileMode
+	savedEnsure := brokerRuntimeAgentEnsureSharedDir
+	brokerRuntimeAgentEnsureSharedDir = func(path string, mode os.FileMode) error {
+		ensuredPath = path
+		ensuredMode = mode
+		return nil
+	}
+	t.Cleanup(func() {
+		brokerRuntimeAgentEnsureSharedDir = savedEnsure
+	})
+
+	runtimeDir, err := prepareSharedBrokerRuntimeDir("git-https")
+	if err != nil {
+		t.Fatalf("prepareSharedBrokerRuntimeDir: %v", err)
+	}
+	if !strings.HasPrefix(runtimeDir, root+string(os.PathSeparator)+"git-https-") {
+		t.Fatalf("runtimeDir = %s, want child of %s with git-https prefix", runtimeDir, root)
+	}
+	if ensuredPath != runtimeDir || ensuredMode != 0o2770 {
+		t.Fatalf("agent shared dir ensure = %s %04o, want %s 2770", ensuredPath, ensuredMode, runtimeDir)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat broker root: %v", err)
+	}
+	if info.Mode().Perm() != 0o733 || info.Mode()&os.ModeSticky == 0 {
+		t.Fatalf("broker root mode = %s, want sticky 0733", info.Mode())
+	}
+}
+
 func TestBuildGitHTTPSCredentialHelperScriptUsesBrokerCommand(t *testing.T) {
 	got := buildGitHTTPSCredentialHelperScript("/usr/local/bin/hazmat", "/tmp/hazmat.sock")
 	for _, want := range []string{

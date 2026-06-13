@@ -253,6 +253,17 @@ func listSnapshots(ctx context.Context, r repo.Repository, sourcePath string) ([
 
 // restoreSnapshotTo restores a snapshot to destPath.
 func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapshot.Manifest, destPath string) (*restore.Stats, error) {
+	return restoreSnapshotToWithOutput(ctx, r, manifest, destPath, nil)
+}
+
+func restoreSnapshotToForDiff(ctx context.Context, r repo.Repository, manifest *snapshot.Manifest, destPath string) (*restore.Stats, error) {
+	return restoreSnapshotToWithOutput(ctx, r, manifest, destPath, func(output *restore.FilesystemOutput) {
+		output.SkipOwners = true
+		output.IgnorePermissionErrors = true
+	})
+}
+
+func restoreSnapshotToWithOutput(ctx context.Context, r repo.Repository, manifest *snapshot.Manifest, destPath string, configure func(*restore.FilesystemOutput)) (*restore.Stats, error) {
 	rootEntry, err := snapshotfs.SnapshotRoot(r, manifest)
 	if err != nil {
 		return nil, fmt.Errorf("get snapshot root: %w", err)
@@ -273,6 +284,9 @@ func restoreSnapshotTo(ctx context.Context, r repo.Repository, manifest *snapsho
 		TargetPath:           destPath,
 		OverwriteFiles:       true,
 		OverwriteDirectories: true,
+	}
+	if configure != nil {
+		configure(output)
 	}
 	if err := output.Init(ctx); err != nil {
 		return nil, fmt.Errorf("init restore output: %w", err)

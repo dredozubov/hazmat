@@ -121,6 +121,9 @@ func readGitSafeDirectoryEntriesCommand(cmd *exec.Cmd) ([]string, error) {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			if msg := strings.TrimSpace(string(out)); msg != "" {
+				return nil, fmt.Errorf("%w: %s", err, msg)
+			}
 			return nil, nil
 		}
 		msg := strings.TrimSpace(string(out))
@@ -141,13 +144,8 @@ func systemSafeDirectoryEntries() ([]string, error) {
 }
 
 func agentGlobalSafeDirectoryEntries() ([]string, error) {
-	// Read the agent's gitconfig directly instead of using sudo -u agent.
-	// The file is group-readable by dev, which both users belong to.
 	agentGitconfig := agentHome + "/.gitconfig"
-	cmd, err := hostGitCommand("config", "--file", agentGitconfig, "--get-all", "safe.directory")
-	if err != nil {
-		return nil, err
-	}
+	cmd := newAgentCommand("git", "config", "--file", agentGitconfig, "--get-all", "safe.directory")
 	return readGitSafeDirectoryEntriesCommand(cmd)
 }
 
@@ -184,7 +182,7 @@ func plannedProjectGitSafeDirectory(projectDir string) string {
 }
 
 func appendAgentGlobalSafeDirectoryCommand(repoDir string) *exec.Cmd {
-	return newAgentCommand("git", "config", "--global", "--add", "safe.directory", repoDir)
+	return newAgentCommand("git", "config", "--file", agentHome+"/.gitconfig", "--add", "safe.directory", repoDir)
 }
 
 func appendAgentGlobalSafeDirectoryEntryImpl(repoDir string) error {

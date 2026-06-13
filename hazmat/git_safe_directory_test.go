@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -133,6 +134,23 @@ func TestSafeDirectoryCoversExactAndWildcardEntries(t *testing.T) {
 	}
 }
 
+func TestReadGitSafeDirectoryEntriesTreatsEmptyExitOneAsNoEntries(t *testing.T) {
+	entries, err := readGitSafeDirectoryEntriesCommand(exec.Command("sh", "-c", "exit 1"))
+	if err != nil {
+		t.Fatalf("readGitSafeDirectoryEntriesCommand: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entries = %v, want none", entries)
+	}
+}
+
+func TestReadGitSafeDirectoryEntriesReportsExitOneWarnings(t *testing.T) {
+	_, err := readGitSafeDirectoryEntriesCommand(exec.Command("sh", "-c", "echo permission denied >&2; exit 1"))
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("readGitSafeDirectoryEntriesCommand err = %v, want warning text", err)
+	}
+}
+
 func TestEnsureAgentGitSafeDirectoryAddsExactRepoTrust(t *testing.T) {
 	savedDetect := detectGitRepoTopLevel
 	savedSystem := readSystemGitSafeDirectoryEntries
@@ -197,7 +215,8 @@ func TestAppendAgentGlobalSafeDirectoryCommandUsesRootWorkingDir(t *testing.T) {
 		"exec",
 		"git",
 		"config",
-		"--global",
+		"--file",
+		agentHome + "/.gitconfig",
 		"--add",
 		"safe.directory",
 		repoDir,

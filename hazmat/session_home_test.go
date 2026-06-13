@@ -221,6 +221,13 @@ func TestCreateSessionHomeLayoutCreatesMarkerAndXDGDirs(t *testing.T) {
 	if !strings.Contains(string(marker), "hazmat session home") {
 		t.Fatalf("marker = %q", marker)
 	}
+	runtimeMarker, err := os.ReadFile(filepath.Join(layout.Home, sessionHomeMarkerFile))
+	if err != nil {
+		t.Fatalf("read runtime marker: %v", err)
+	}
+	if !strings.Contains(string(runtimeMarker), "hazmat session home") {
+		t.Fatalf("runtime marker = %q", runtimeMarker)
+	}
 }
 
 func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
@@ -295,7 +302,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			durability:     sessionHomeDurableMirror,
 			policy:         sessionHomePolicyAdapterRequired,
 			adapter:        sessionHomeAdapterExecutableTooling,
-			adapterOutcome: sessionHomeAdapterImplemented,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
 			executable:     true,
 		},
 		{
@@ -340,12 +347,30 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			adapterOutcome: sessionHomeAdapterManualOnly,
 		},
 		{
+			rel:            ".config/opencode",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateHarnessState,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterOpenCodeState,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
+		{
 			rel:            ".local/share",
 			kind:           containment.AgentHomeStateDir,
 			class:          containment.AgentHomeStateXDGData,
 			durability:     sessionHomeDurableMirror,
 			policy:         sessionHomePolicyAdapterRequired,
 			adapter:        sessionHomeAdapterXDGState,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
+		{
+			rel:            ".npmrc",
+			kind:           containment.AgentHomeStateFile,
+			class:          containment.AgentHomeStateToolchainState,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterToolchainCache,
 			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
 		},
 	} {
@@ -469,7 +494,7 @@ func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t
 	}
 }
 
-func TestNewSessionHomeLaunchPlanDoesNotBlockOnImplementedExecutableTooling(t *testing.T) {
+func TestNewSessionHomeLaunchPlanIgnoresEphemeralExecutableTooling(t *testing.T) {
 	persistentHome := filepath.Join(t.TempDir(), "agent")
 	if err := os.MkdirAll(filepath.Join(persistentHome, ".local", "bin"), 0o700); err != nil {
 		t.Fatal(err)
@@ -481,7 +506,7 @@ func TestNewSessionHomeLaunchPlanDoesNotBlockOnImplementedExecutableTooling(t *t
 
 	for _, blocker := range plan.Blockers {
 		if blocker.RelPath == ".local/bin" {
-			t.Fatalf("activation blockers = %+v, want implemented executable tooling not to block", plan.Blockers)
+			t.Fatalf("activation blockers = %+v, want executable tooling ignored until an explicit adapter connects it", plan.Blockers)
 		}
 	}
 }
@@ -491,14 +516,20 @@ func TestNewSessionHomeLaunchPlanIgnoresEphemeralToolchainCacheBlockers(t *testi
 	if err := os.MkdirAll(filepath.Join(persistentHome, ".cargo"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	for _, rel := range []string{".npmrc", ".pypirc"} {
+		if err := os.WriteFile(filepath.Join(persistentHome, rel), []byte("registry config\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
 	for _, blocker := range plan.Blockers {
-		if blocker.RelPath == ".cargo" {
-			t.Fatalf("activation blockers = %+v, want .cargo ignored as ephemeral toolchain cache", plan.Blockers)
+		switch blocker.RelPath {
+		case ".cargo", ".npmrc", ".pypirc":
+			t.Fatalf("activation blockers = %+v, want %s ignored as ephemeral toolchain state", plan.Blockers, blocker.RelPath)
 		}
 	}
 }
@@ -562,43 +593,39 @@ func TestNewSessionHomeLaunchPlanIgnoresSupportedBroadHarnessRoots(t *testing.T)
 	}
 }
 
-func TestNewSessionHomeLaunchPlanKeepsNarrowHarnessStateBlocked(t *testing.T) {
+func TestNewSessionHomeLaunchPlanKeepsMCPStateBlocked(t *testing.T) {
 	persistentHome := filepath.Join(t.TempDir(), "agent")
-	for _, rel := range []string{".config/mcp", ".config/opencode"} {
-		if err := os.MkdirAll(filepath.Join(persistentHome, filepath.FromSlash(rel)), 0o700); err != nil {
-			t.Fatalf("mkdir %s: %v", rel, err)
-		}
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".config", "mcp"), 0o700); err != nil {
+		t.Fatalf("mkdir .config/mcp: %v", err)
 	}
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
 	if err != nil {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
-	want := map[string]struct {
-		adapter sessionHomeAdapterName
-		outcome sessionHomeAdapterOutcome
-	}{
-		".config/mcp": {
-			adapter: sessionHomeAdapterMCPState,
-			outcome: sessionHomeAdapterManualOnly,
-		},
-		".config/opencode": {
-			adapter: sessionHomeAdapterOpenCodeState,
-			outcome: sessionHomeAdapterUnsupported,
-		},
-	}
-	for rel, want := range want {
-		found := false
-		for _, blocker := range plan.Blockers {
-			if blocker.RelPath == rel &&
-				blocker.AdapterName == want.adapter &&
-				blocker.AdapterOutcome == want.outcome {
-				found = true
-				break
-			}
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".config/mcp" &&
+			blocker.AdapterName == sessionHomeAdapterMCPState &&
+			blocker.AdapterOutcome == sessionHomeAdapterManualOnly {
+			return
 		}
-		if !found {
-			t.Fatalf("activation blockers = %+v, missing narrow harness blocker %s adapter %s outcome %s", plan.Blockers, rel, want.adapter, want.outcome)
+	}
+	t.Fatalf("activation blockers = %+v, missing MCP manual-only blocker", plan.Blockers)
+}
+
+func TestNewSessionHomeLaunchPlanIgnoresOpenCodeConfigState(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".config", "opencode"), 0o700); err != nil {
+		t.Fatalf("mkdir .config/opencode: %v", err)
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".config/opencode" {
+			t.Fatalf("activation blockers = %+v, want OpenCode config ignored as empty session-local state", plan.Blockers)
 		}
 	}
 }
@@ -987,12 +1014,8 @@ func TestMaterializeSessionHomeLaunchPlanAssemblesSupportedRuntimePaths(t *testi
 	if _, err := os.Stat(filepath.Join(persistentHome, ".hazmat", "hermes", "projects")); err != nil {
 		t.Fatalf("stat Hermes persistent root: %v", err)
 	}
-	copiedTool := filepath.Join(plan.Layout.Home, ".local", "bin", "tool")
-	if got, err := os.ReadFile(copiedTool); err != nil || string(got) != "#!/bin/sh\n" {
-		t.Fatalf("copied executable tool = %q err=%v", got, err)
-	}
-	if info, err := os.Stat(copiedTool); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("copied executable mode err=%v info=%v", err, info)
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); !os.IsNotExist(err) {
+		t.Fatalf(".local/bin/tool should not be seed-copied without an explicit executable adapter, err=%v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".cache", "package-cache")); !os.IsNotExist(err) {
 		t.Fatalf(".cache/package-cache should not be seed-copied, err=%v", err)
@@ -1048,6 +1071,7 @@ func TestMaterializeSessionHomeLaunchPlanForNativeActivationUsesAgentHooks(t *te
 	}
 
 	var ensured []string
+	var written [][3]string
 	var copied [][2]string
 	var linked [][2]string
 	savedEnsure := sessionHomeAgentEnsureDir
@@ -1056,6 +1080,12 @@ func TestMaterializeSessionHomeLaunchPlanForNativeActivationUsesAgentHooks(t *te
 		return nil
 	}
 	t.Cleanup(func() { sessionHomeAgentEnsureDir = savedEnsure })
+	savedWrite := sessionHomeAgentWriteFile
+	sessionHomeAgentWriteFile = func(path string, content []byte, mode os.FileMode) error {
+		written = append(written, [3]string{path, string(content), fmt.Sprintf("%04o", mode)})
+		return nil
+	}
+	t.Cleanup(func() { sessionHomeAgentWriteFile = savedWrite })
 	savedCopy := sessionHomeAgentCopyPath
 	sessionHomeAgentCopyPath = func(src, dest string) error {
 		copied = append(copied, [2]string{src, dest})
@@ -1076,10 +1106,29 @@ func TestMaterializeSessionHomeLaunchPlanForNativeActivationUsesAgentHooks(t *te
 	if len(result.CheckedWritebackReceipts) != 0 {
 		t.Fatalf("CheckedWritebackReceipts = %+v, want none", result.CheckedWritebackReceipts)
 	}
-	if _, err := os.Stat(plan.Layout.MarkerPath); err != nil {
-		t.Fatalf("stat marker: %v", err)
+	rootInfo, err := os.Stat(plan.Layout.Root)
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	if rootInfo.Mode().Perm() != 0o733 || rootInfo.Mode()&os.ModeSticky == 0 {
+		t.Fatalf("root mode = %s, want sticky 0733", rootInfo.Mode())
+	}
+	if !slices.Contains(written, [3]string{
+		plan.Layout.MarkerPath,
+		"hazmat session home\n",
+		"0600",
+	}) {
+		t.Fatalf("written files = %#v, missing agent-owned marker", written)
+	}
+	if !slices.Contains(written, [3]string{
+		filepath.Join(plan.Layout.Home, sessionHomeMarkerFile),
+		"hazmat session home\n",
+		"0600",
+	}) {
+		t.Fatalf("written files = %#v, missing runtime HOME marker", written)
 	}
 	for _, want := range []string{
+		fmt.Sprintf("%s:%04o", plan.Layout.SessionDir, 0o711),
 		fmt.Sprintf("%s:%04o", plan.Layout.Home, 0o700),
 		fmt.Sprintf("%s:%04o", plan.Layout.CacheHome, 0o700),
 		fmt.Sprintf("%s:%04o", filepath.Join(persistentHome, ".claude", "projects"), 0o700),
@@ -1111,6 +1160,9 @@ func TestMaterializeSessionHomeLaunchPlanForNativeActivationRejectsCheckedWriteb
 	savedEnsure := sessionHomeAgentEnsureDir
 	sessionHomeAgentEnsureDir = func(string, os.FileMode) error { return nil }
 	t.Cleanup(func() { sessionHomeAgentEnsureDir = savedEnsure })
+	savedWrite := sessionHomeAgentWriteFile
+	sessionHomeAgentWriteFile = func(string, []byte, os.FileMode) error { return nil }
+	t.Cleanup(func() { sessionHomeAgentWriteFile = savedWrite })
 	checked := sessionHomeAssemblyEntry{
 		RelPath:        ".config/tool/state.json",
 		RuntimePolicy:  sessionHomePolicyCheckedWriteback,
@@ -1186,7 +1238,6 @@ func TestMaterializeSessionHomeSeedEntriesCopiesOnlySeedPolicyPaths(t *testing.T
 	if err := os.Chmod(filepath.Join(persistentHome, ".claude", "commands"), 0o755); err != nil {
 		t.Fatalf("chmod persistent commands dir: %v", err)
 	}
-	writeFile(".local/bin/tool", "#!/bin/sh\n", 0o700)
 	writeFile(".cache/package-cache", "cache\n", 0o600)
 
 	if err := materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly); err != nil {
@@ -1221,12 +1272,6 @@ func TestMaterializeSessionHomeSeedEntriesCopiesOnlySeedPolicyPaths(t *testing.T
 			t.Fatalf("%s should not be seed-copied, err=%v", rel, err)
 		}
 	}
-	if got, err := os.ReadFile(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); err != nil || string(got) != "#!/bin/sh\n" {
-		t.Fatalf("read copied executable tool = %q err=%v", got, err)
-	}
-	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("copied executable tool mode err=%v info=%v", err, info)
-	}
 }
 
 func TestMaterializeSessionHomeSeedEntriesRejectsSeedSymlinks(t *testing.T) {
@@ -1255,7 +1300,7 @@ func TestMaterializeSessionHomeSeedEntriesRejectsSeedSymlinks(t *testing.T) {
 	}
 }
 
-func TestMaterializeSessionHomeSeedEntriesRejectsExecutableSymlinks(t *testing.T) {
+func TestMaterializeSessionHomeSeedEntriesIgnoresExecutableSymlinks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "hazmat-home")
 	persistentHome := filepath.Join(t.TempDir(), "agent")
 	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
@@ -1275,9 +1320,11 @@ func TestMaterializeSessionHomeSeedEntriesRejectsExecutableSymlinks(t *testing.T
 		t.Fatal(err)
 	}
 
-	err = materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly)
-	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
-		t.Fatalf("materializeSessionHomeSeedEntries err = %v, want executable symlink rejection", err)
+	if err := materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly); err != nil {
+		t.Fatalf("materializeSessionHomeSeedEntries: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".local", "bin")); !os.IsNotExist(err) {
+		t.Fatalf(".local/bin symlink should not be imported without an explicit executable adapter, err=%v", err)
 	}
 }
 

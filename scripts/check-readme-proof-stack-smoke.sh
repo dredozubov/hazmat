@@ -251,8 +251,32 @@ PROOF_STACK_SESSION
 
 	if [ -n "$OUTPUT_DIR" ]; then
 		mkdir -p "$OUTPUT_DIR"
-		printf '%s\n' "$SESSION_OUTPUT" >"$OUTPUT_DIR/readme-proof-stack-session.txt"
-		printf '%s\n' "$DIFF_OUTPUT" >"$OUTPUT_DIR/readme-proof-stack-diff.txt"
+		SCRATCH_REAL="$(CDPATH='' cd -- "$SCRATCH" && pwd -P)"
+		PROJECT_REAL="$(CDPATH='' cd -- "$PROJECT" && pwd -P)"
+		escaped_scratch_real="$(printf '%s\n' "$SCRATCH_REAL" | sed 's/[\/&]/\\&/g')"
+		escaped_project_real="$(printf '%s\n' "$PROJECT_REAL" | sed 's/[\/&]/\\&/g')"
+		escaped_scratch="$(printf '%s\n' "$SCRATCH" | sed 's/[\/&]/\\&/g')"
+		escaped_project="$(printf '%s\n' "$PROJECT" | sed 's/[\/&]/\\&/g')"
+		escaped_secret="$(printf '%s\n' "$SECRET_PATH" | sed 's/[\/&]/\\&/g')"
+		escaped_home="$(printf '%s\n' "$HOME" | sed 's/[\/&]/\\&/g')"
+		printf '%s\n' "$SESSION_OUTPUT" |
+			sed \
+				-e "s/$escaped_project_real/<scratch-project>/g" \
+				-e "s/$escaped_scratch_real/<scratch>/g" \
+				-e "s/$escaped_project/<scratch-project>/g" \
+				-e "s/$escaped_scratch/<scratch>/g" \
+				-e "s/$escaped_secret/<host-secret-fixture>/g" \
+				-e "s/$escaped_home/<host-home>/g" \
+			>"$OUTPUT_DIR/readme-proof-stack-session.txt"
+		printf '%s\n' "$DIFF_OUTPUT" |
+			sed \
+				-e "s/$escaped_project_real/<scratch-project>/g" \
+				-e "s/$escaped_scratch_real/<scratch>/g" \
+				-e "s/$escaped_project/<scratch-project>/g" \
+				-e "s/$escaped_scratch/<scratch>/g" \
+				-e "s/$escaped_secret/<host-secret-fixture>/g" \
+				-e "s/$escaped_home/<host-home>/g" \
+			>"$OUTPUT_DIR/readme-proof-stack-diff.txt"
 		printf 'readme-proof-stack-smoke: wrote sanitized snippets to %s\n' "$OUTPUT_DIR"
 	fi
 }

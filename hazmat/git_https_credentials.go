@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 const (
@@ -61,8 +60,8 @@ func prepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {
 		return runtime, err
 	}
 
-	runtimeDir := filepath.Join(seatbeltProfileDir, "git-https", fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
-	if err := agentEnsureSharedDir(runtimeDir, 0o2770); err != nil {
+	runtimeDir, err := prepareSharedBrokerRuntimeDir("git-https")
+	if err != nil {
 		return runtime, fmt.Errorf("prepare Git HTTPS credential runtime dir: %w", err)
 	}
 

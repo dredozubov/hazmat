@@ -62,21 +62,26 @@ Only `implemented` and `ignored-ephemeral` remove an activation blocker.
 
 Targets: `.cargo`, `.npm`, `.node-gyp`, `.gem`, `.gradle`, `.ivy2`, `.m2`,
 `.pub-cache`, `.rustup`, `.sbt`, `.swiftpm`, `.terraform.d`, `.bun`, `.deno`,
-`.local/lib`, and similar `toolchain-state` roots.
+`.local/lib`, credential-bearing tool config such as `.npmrc` and `.pypirc`,
+and similar `toolchain-state` roots.
 
 Default behavior: `ignored-ephemeral`.
 
 Rationale: package manager caches and build metadata are useful for speed, but
-they are not credentials and should not block the security boundary. Existing
-persistent cache content can remain outside the session. Integrations may still
-grant explicit read-only host cache roots when a project asks for them. Any
-session-created cache content is disposable unless a future package-manager
-adapter owns a narrower checked-writeback contract.
+they are not credentials and should not block the security boundary. Config
+files such as `.npmrc` and `.pypirc` may contain registry tokens, so the initial
+adapter deliberately starts with empty session-local config instead of copying
+or bridging the persistent file. Existing persistent cache and config content
+can remain outside the session. Integrations may still grant explicit read-only
+host cache roots when a project asks for them. Any session-created cache or
+tool config content is disposable unless a future package-manager adapter owns
+a narrower checked-writeback contract.
 
 Tests:
 
 - planner maps known toolchain cache roots to `ignored-ephemeral`;
-- persistent cache existence does not create an activation blocker;
+- persistent cache or credential-bearing tool config existence does not create
+  an activation blocker;
 - no writeback receipt is produced;
 - executable child paths under these roots are not copied back.
 
@@ -85,26 +90,31 @@ Tests:
 Targets: `.local/bin`, `.opencode/bin`, `.claude/hooks`, package-manager `bin`
 children, and other `executable-tooling` entries.
 
-Default behavior: `implemented` as seed-only executable import with no
-writeback.
+Default behavior: `ignored-ephemeral`.
 
 Rationale: persistent executable shims are authority-bearing. If a session can
 rewrite them and Hazmat copies them back, future sessions may run attacker-chosen
 code before any prompt or package-manager command. The first activation
-therefore imports existing executable paths into the session home, preserves
-their executable bits, rejects symlinks, and never writes session mutations back
-to persistent agent state. A future package-manager adapter may add a narrower
-installer/update receipt model.
+therefore starts with empty session-local executable roots. Real installs also
+commonly use symlinks from `.local/bin` into tool-owned directories, so generic
+recursive copy is both fragile and too broad. Harness binaries,
+package-manager bin shims, and installer/update flows must be connected by
+explicit harness or toolchain adapters before they are exposed to a session.
 
-- seed-only executable import for trusted existing files, with no writeback;
+- ignored executable roots for the initial activation path, with no persistent
+  exposure or writeback;
+- future seed-only imports for trusted existing files owned by a specific
+  adapter;
 - future typed installer/update receipts for a specific package manager.
 
 Tests:
 
 - executable persistent paths do not block once the executable-tooling adapter
   is selected;
-- materialization copies existing executable paths into the session home;
-- symlinked executable paths are rejected;
+- materialization does not copy existing executable paths into the session home
+  until a narrower adapter exists;
+- symlinked executable paths are ignored rather than followed or copied by the
+  generic session-home materializer;
 - activation materialization does not produce executable writeback receipts.
 
 ### Harness State Adapter
@@ -117,11 +127,15 @@ Default behavior: supported broad parent roots are `ignored-ephemeral`; narrow
 state surfaces stay `manual-only` or `unsupported` per harness. Current adapter
 labels are explicit (`claude-state`, `codex-state`, `opencode-state`,
 `gemini-state`, `qwen-state`, `mcp-state`, and related roots). This means the
-mere existence of `.claude`, `.codex`, `.opencode`, `.hazmat`, or similar
-supported parents no longer blocks activation: the session gets an empty local
-parent and only explicit child paths are imported, bridged, or materialized.
-Narrow surfaces such as `.config/mcp` and `.config/opencode` still block until
-their owning adapter defines portable config and credential behavior. Managed
+mere existence of `.claude`, `.codex`, `.opencode`, `.config/opencode`,
+`.hazmat`, or similar supported parents no longer blocks activation: the
+session gets an empty local parent/config root and only explicit child paths are
+imported, bridged, or materialized. `.config/opencode` is empty-session state in
+the initial adapter because portable commands/agents/skills and auth state are
+handled by the explicit OpenCode import/secret paths; `opencode.json` and other
+runtime config are not imported. Narrow surfaces such as `.config/mcp` still
+block until their owning adapter defines portable config and credential
+behavior. Managed
 prompt assets are handled separately: launch-time asset sync remaps explicit
 asset destinations into the active session-local `HOME` and does not write the
 persistent harness-assets manifest for ephemeral session homes.
@@ -134,7 +148,7 @@ transcript roots, and volatile caches explicitly.
 
 Tests:
 
-- supported broad harness roots do not block and are not copied from
+- supported broad harness roots and `.config/opencode` do not block and are not copied from
   persistent state;
 - unsupported narrow harness roots keep activation blocked;
 - blocker metadata identifies the owning harness/state surface instead of a
