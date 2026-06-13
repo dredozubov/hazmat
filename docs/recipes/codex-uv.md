@@ -29,6 +29,13 @@ See [docs/harnesses.md](../harnesses.md) for the current auth details and caveat
 - `uv` caches are read-only inputs; if your workflow depends on extra writable host paths, expose them explicitly with `-W`.
 - Keep secrets in the project only if you intend the contained agent to read them.
 
+## Proof Story
+
+For community-facing copy, use the owned proof story in
+[Python / uv Proof Story](../outreach/2026-06-13-python-uv-proof-story.md).
+It ties this recipe to the compatibility row, fixture-backed integration
+evidence, Codex auth caveat, and virtualenv/write-scope caveats.
+
 ## Typical Commands
 
 ```bash
