@@ -512,11 +512,23 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 }
 
 func claudeExportMayContainSourcePath(raw []byte, sourceDir string) bool {
-	if bytes.Contains(raw, []byte(sourceDir)) {
-		return true
+	for _, encoded := range claudeExportSourcePathEncodings(sourceDir) {
+		if bytes.Contains(raw, []byte(encoded)) {
+			return true
+		}
 	}
-	slashEscaped := strings.ReplaceAll(sourceDir, "/", `\/`)
-	return slashEscaped != sourceDir && bytes.Contains(raw, []byte(slashEscaped))
+	return false
+}
+
+func claudeExportSourcePathEncodings(sourceDir string) []string {
+	encodings := []string{sourceDir}
+	for _, slash := range []string{`\/`, `\u002f`, `\u002F`} {
+		encoded := strings.ReplaceAll(sourceDir, "/", slash)
+		if encoded != sourceDir {
+			encodings = append(encodings, encoded)
+		}
+	}
+	return encodings
 }
 
 func rewriteClaudeJSONMetadataPaths(raw []byte, sourceDir, destDir string, jsonl bool) ([]byte, bool, error) {

@@ -204,35 +204,48 @@ func TestNormalizeStagedClaudeSessionBundlePathsRebasesJSONMetadata(t *testing.T
 	}
 }
 
-func TestNormalizeStagedClaudeSessionBundlePathsRebasesSlashEscapedJSONMetadata(t *testing.T) {
-	stagingDir := t.TempDir()
-	sessionID := "1234"
-	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
-	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
-	escapedPath := strings.ReplaceAll(sourceDir+"/"+sessionID+"/subagents/workflows/wf_1/cache.json", "/", `\/`)
-
-	workflowDir := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1")
-	if err := os.MkdirAll(workflowDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	metadataPath := filepath.Join(workflowDir, "cache.json")
-	if err := os.WriteFile(metadataPath, []byte(`{"artifact":"`+escapedPath+`"}`), 0o600); err != nil {
-		t.Fatal(err)
+func TestNormalizeStagedClaudeSessionBundlePathsRebasesEscapedSlashJSONMetadata(t *testing.T) {
+	tests := []struct {
+		name  string
+		slash string
+	}{
+		{name: "solidus", slash: `\/`},
+		{name: "unicode lower", slash: `\u002f`},
+		{name: "unicode upper", slash: `\u002F`},
 	}
 
-	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
-		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stagingDir := t.TempDir()
+			sessionID := "1234"
+			sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+			destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+			escapedPath := strings.ReplaceAll(sourceDir+"/"+sessionID+"/subagents/workflows/wf_1/cache.json", "/", tt.slash)
 
-	raw, err := os.ReadFile(metadataPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(raw, []byte(sourceDir)) || bytes.Contains(raw, []byte(strings.ReplaceAll(sourceDir, "/", `\/`))) {
-		t.Fatalf("slash-escaped metadata still contains source dir: %s", raw)
-	}
-	if !bytes.Contains(raw, []byte(destDir)) {
-		t.Fatalf("slash-escaped metadata does not contain destination dir: %s", raw)
+			workflowDir := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1")
+			if err := os.MkdirAll(workflowDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			metadataPath := filepath.Join(workflowDir, "cache.json")
+			if err := os.WriteFile(metadataPath, []byte(`{"artifact":"`+escapedPath+`"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+				t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+			}
+
+			raw, err := os.ReadFile(metadataPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if claudeExportMayContainSourcePath(raw, sourceDir) {
+				t.Fatalf("escaped metadata still contains source dir: %s", raw)
+			}
+			if !bytes.Contains(raw, []byte(destDir)) {
+				t.Fatalf("escaped metadata does not contain destination dir: %s", raw)
+			}
+		})
 	}
 }
 
