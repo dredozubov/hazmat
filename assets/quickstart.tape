@@ -1,15 +1,16 @@
-# Hazmat quickstart: install → init → first contained session
+# Hazmat quickstart: install → preview → init with Claude → first contained session
 #
 # Shows the complete first-time experience. Someone watching this should
 # think "I could do that in 10 minutes."
 #
 # Prerequisites:
 #   - macOS with Homebrew
-#   - hazmat NOT initialized (reset with: sudo hazmat rollback)
+#   - hazmat NOT initialized (reset manually with approved rollback command)
 #   - hazmat NOT installed via brew (run: brew uninstall hazmat 2>/dev/null)
 #   - ~/workspace/demo-project exists with some source code (ideally with go.mod
 #     or package.json so an integration auto-resolves)
-#   - sudo cached: run `sudo -v` immediately before `vhs assets/quickstart.tape`
+#   - explicit approval to run setup; do not run this from an agent workflow
+#     without asking for the exact sudo-adjacent recording command
 #
 # Timing: Sleep values are estimates for an M-series Mac with a warm
 # Homebrew cache. If a prompt hasn't appeared when the next Type fires,
@@ -38,15 +39,15 @@ Enter
 Wait+Line /hazmat was successfully installed/
 Sleep 1s
 
-# ── Scene 2: Pre-init status — nothing configured yet ─────────────
+# ── Scene 2: Preview before host mutation ─────────────────────────
 
-Type "hazmat --help"
+Type "hazmat init --dry-run"
 Enter
 Sleep 3s
 
-# ── Scene 3: One-time setup ───────────────────────────────────────
+# ── Scene 3: One-time setup with Claude bootstrap ─────────────────
 
-Type "hazmat init"
+Type "hazmat init --bootstrap-agent claude"
 Enter
 Sleep 4s                          # TIMING: banner + intro text
 
@@ -55,9 +56,9 @@ Type "y"
 Enter
 Sleep 3s                          # TIMING: pre-flight checks
 
-# Steps 1–13 run sequentially (user, group, ACLs, snapshots,
-# hardening, seatbelt, wrappers, sandbox-launch, sudoers, pf,
-# DNS blocklist, launchdaemon, verify)
+# Setup steps run sequentially (user, group, ACLs, snapshots,
+# hardening, seatbelt, wrappers, launch helper, sudoers, pf,
+# DNS blocklist, launch daemon, harness bootstrap, verify)
 Wait+Line /API key/
 Sleep 500ms
 
@@ -97,6 +98,11 @@ Type "cd ~/workspace/demo-project"
 Enter
 Sleep 500ms
 
+Type "hazmat explain"
+Enter
+Wait+Line /hazmat: session/
+Sleep 1s
+
 Type "hazmat claude"
 Enter
 Sleep 5s                          # TIMING: snapshot + seatbelt + session contract + launch
@@ -108,7 +114,7 @@ Sleep 8s                          # TIMING: depends on Claude response speed
 Ctrl+C
 Sleep 1.5s
 
-# ── Scene 5: All green ───────────────────────────────────────────
+# ── Scene 5: All green ────────────────────────────────────────────
 
 Type "hazmat --help"
 Enter
