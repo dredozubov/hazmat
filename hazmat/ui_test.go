@@ -483,9 +483,10 @@ func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	ui.stepLabel = "Mixed findings"
 	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
 	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+	ui.TestFailFinding(diagnosticFinding(findingCredentialAdapterRequired), "gemini keychain adapter required")
 
 	plan := ui.diagnosticReport().RepairPlan
-	if len(plan.AppliedReceipts) != 1 || len(plan.ManualItems) != 1 {
+	if len(plan.AppliedReceipts) != 1 || len(plan.ManualItems) != 2 {
 		t.Fatalf("plan = receipts %+v manual %+v, want repaired item plus manual finding", plan.AppliedReceipts, plan.ManualItems)
 	}
 	footer := ui.repairPlanFooter(plan)
@@ -497,6 +498,9 @@ func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	}
 	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
 		t.Fatalf("next steps = %+v, want non-mutating remaining-item inspection", plan.NextSteps)
+	}
+	if !strings.Contains(plan.NextSteps[0].Reason, "unsupported") {
+		t.Fatalf("next step reason = %q, want unsupported remaining findings named", plan.NextSteps[0].Reason)
 	}
 }
 

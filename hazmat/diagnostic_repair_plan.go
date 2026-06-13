@@ -386,7 +386,7 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 			steps = append(steps, diagnosticRepairNextStep{
 				ID:       "inspect-remaining-items",
 				Mutating: false,
-				Reason:   "Review manual, optional, or informational findings that remain outside executable repair.",
+				Reason:   "Review manual, optional, unsupported, or informational findings that remain outside executable repair.",
 			})
 			return steps
 		}
