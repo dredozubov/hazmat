@@ -266,11 +266,13 @@ scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-haz
 ```
 
 The prompt file should be a task known to create Claude Workflow/subagent
-sidecar artifacts. The live smoke uses a scratch project, exports the contained
-session, checks that the host transcript/sidecar no longer contain stale
-`/Users/agent/.claude/projects` paths, then resumes the exported session with
-host Claude. It does not broaden the export policy for opaque Workflow caches;
-the docs still treat those caches as best-effort.
+sidecar artifacts. If the default fixture file is missing and no override is
+set, the script falls back to an embedded prompt with the same Task-tool shape
+so a live pass is not blocked on fixture setup. The live smoke uses a scratch
+project, exports the contained session, checks that the host transcript/sidecar
+no longer contain stale `/Users/agent/.claude/projects` paths, then resumes the
+exported session with host Claude. It does not broaden the export policy for
+opaque Workflow caches; the docs still treat those caches as best-effort.
 
 ### Cache integration smoke
 

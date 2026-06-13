@@ -6,8 +6,9 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
 CLAUDE_BIN="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE:-claude}"
-DEFAULT_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt"
-PROMPT_FILE="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE:-$DEFAULT_PROMPT_FILE}"
+DEFAULT_PROMPT_FILE="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_DEFAULT_PROMPT_FILE:-$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt}"
+PROMPT_FILE_OVERRIDE="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE:-}"
+PROMPT_FILE="${PROMPT_FILE_OVERRIDE:-$DEFAULT_PROMPT_FILE}"
 RESUME_PROMPT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_RESUME_PROMPT:-Inspect this resumed session briefly. If prior Workflow artifacts are unavailable, say so without rerunning the whole task.}"
 AGENT_PROJECT_ROOT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_AGENT_PROJECT_ROOT:-/Users/agent/.claude/projects}"
 MODE="disclose"
@@ -100,6 +101,27 @@ require_command() {
 	esac
 }
 
+default_prompt_text() {
+	cat <<'EOF'
+Create a small reproducible Workflow/subagent artifact for a Hazmat export smoke.
+
+Use the Task tool twice with two separate subagents:
+
+1. Ask one subagent to inspect this scratch project and report the visible top-level files.
+2. Ask another subagent to create a short implementation-risk note for exporting Claude sidecar metadata between users.
+
+After both subagents finish, summarize their results in no more than five sentences. Do not modify files.
+EOF
+}
+
+prompt_text() {
+	if [ -n "$PROMPT_FILE_OVERRIDE" ] || [ -r "$PROMPT_FILE" ]; then
+		cat "$PROMPT_FILE"
+		return
+	fi
+	default_prompt_text
+}
+
 check_fixtures() {
 	MISSING_FIXTURES=""
 
@@ -111,7 +133,7 @@ check_fixtures() {
 	require_command grep
 	require_command head
 	require_command "$CLAUDE_BIN"
-	if [ ! -r "$PROMPT_FILE" ]; then
+	if [ -n "$PROMPT_FILE_OVERRIDE" ] && [ ! -r "$PROMPT_FILE" ]; then
 		add_missing_fixture "$PROMPT_FILE is not readable"
 	fi
 
@@ -147,6 +169,9 @@ Live smoke shape:
 
 Prompt file:
   $PROMPT_FILE
+
+If HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE is unset and the default fixture is
+not present, the script uses an embedded fallback prompt with the same shape.
 
 Fixture check:
   scripts/check-claude-workflow-export-smoke.sh --check-fixtures
@@ -193,7 +218,7 @@ run_smoke() {
 	"$HAZMAT" claude \
 		--no-backup \
 		-C "$PROJECT" \
-		-p "$(cat "$PROMPT_FILE")"
+		-p "$(prompt_text)"
 
 	session_id="$("$HAZMAT" export claude session -C "$PROJECT")"
 	assert_export_has_no_agent_project_paths "$session_id"

@@ -286,6 +286,18 @@ assert_succeeds_with \
     env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
 
+assert_succeeds_with \
+    "Claude Workflow export smoke has an embedded prompt fallback" \
+    "claude-workflow-export-smoke: fixtures ok" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_DEFAULT_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/missing-claude-workflow-prompt.txt" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "Claude Workflow export smoke rejects missing prompt override" \
+    "missing-claude-workflow-prompt.txt is not readable" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/missing-claude-workflow-prompt.txt" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
 assert_file_contains_all \
     "Codex desktop running-process refusal is bounded" \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
