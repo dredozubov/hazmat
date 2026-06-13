@@ -261,6 +261,33 @@ func TestDoctorDryRunManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
 	}
 }
 
+func TestCleanDiagnosticPlanDoesNotSuggestRepairs(t *testing.T) {
+	for _, req := range []diagnosticRepairExecutionRequest{
+		{Command: "check"},
+		{Command: "doctor"},
+		{Command: "doctor", DryRun: true},
+	} {
+		t.Run(req.Command, func(t *testing.T) {
+			ui := &UI{
+				JSON:            true,
+				DryRun:          req.DryRun,
+				RepairExecution: req,
+			}
+
+			plan := ui.diagnosticReport().RepairPlan
+			if plan.Summary.Remaining != 0 || plan.Summary.RemainingExecutable != 0 {
+				t.Fatalf("plan summary = %+v, want clean plan", plan.Summary)
+			}
+			if len(plan.NextSteps) != 0 {
+				t.Fatalf("next steps = %+v, want none for clean plan", plan.NextSteps)
+			}
+			if len(plan.Execution.Examples) != 0 {
+				t.Fatalf("execution examples = %v, want no repair commands for clean plan", plan.Execution.Examples)
+			}
+		})
+	}
+}
+
 func containsExampleWithPrefix(values []string, prefix string) bool {
 	for _, value := range values {
 		if strings.HasPrefix(value, prefix) {
