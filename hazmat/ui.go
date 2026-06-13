@@ -475,6 +475,10 @@ func (u *UI) recommendationFooter() string {
 }
 
 func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
+	plan = plan.withSummary()
+	if plan.Summary.RemainingExecutable == 0 && plan.Summary.Remaining > 0 && plan.Execution.Mode != "fix-yes" && plan.Execution.Mode != "fix-interactive" {
+		return "  No executable Hazmat repairs are available for the remaining findings. Inspect the manual, optional, unsupported, or informational items above."
+	}
 	if u.RepairExecution.Command != "doctor" {
 		return u.recommendationFooter()
 	}

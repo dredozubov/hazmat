@@ -309,29 +309,46 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 			Reason:   "Preview the typed repair plan without applying host mutations.",
 		})
 	}
+	addInspectRemainingStep := func() {
+		steps = append(steps, diagnosticRepairNextStep{
+			ID:       "inspect-remaining-items",
+			Mutating: false,
+			Reason:   "Review manual, optional, unsupported, or informational findings; no executable Hazmat repair is available for them.",
+		})
+	}
 
 	switch plan.Execution.Mode {
 	case "read-only":
 		if plan.Summary.RemainingExecutable > 0 {
 			addApplyStep("hazmat doctor --fix", "Apply executable Hazmat repairs after approval.")
 			addDryRunStep()
+		} else if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
 		}
 	case "post-init-verify":
 		if plan.Summary.RemainingExecutable > 0 {
 			addApplyStep("hazmat doctor --fix", "Repair post-init verification findings without rerunning init.")
 			addDryRunStep()
+		} else if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
 		}
 	case "plan-only", "dry-run":
 		if plan.Summary.RemainingExecutable > 0 {
 			addApplyStep("hazmat doctor --fix", "Apply the reviewed repair plan after approval.")
+		} else if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
 		}
 	case "blocked-noninteractive":
 		if plan.Summary.RemainingExecutable > 0 {
 			addApplyStep("hazmat doctor --fix --yes", "Allow non-interactive repair execution for the approved plan.")
+		} else if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
 		}
 	case "declined":
 		if plan.Summary.RemainingExecutable > 0 {
 			addApplyStep("hazmat doctor --fix", "Rerun the repair plan and approve execution.")
+		} else if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
 		}
 	case "fix-yes", "fix-interactive":
 		if plan.Summary.FailedVerifications > 0 {

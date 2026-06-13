@@ -193,6 +193,52 @@ func TestUIDiagnosticReportRepairPlanBuckets(t *testing.T) {
 	}
 }
 
+func TestCheckManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
+	ui := &UI{JSON: true, RepairExecution: diagnosticRepairExecutionRequest{Command: "check"}}
+	ui.stepLabel = "Manual findings"
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Summary.RemainingExecutable != 0 || len(plan.Items) != 0 || len(plan.ManualItems) != 1 {
+		t.Fatalf("plan summary = %+v items=%+v manual=%+v, want one manual item and no executable repairs", plan.Summary, plan.Items, plan.ManualItems)
+	}
+	footer := ui.repairPlanFooter(plan)
+	if strings.Contains(footer, "hazmat doctor --fix") {
+		t.Fatalf("footer = %q, want no fix command for manual-only plan", footer)
+	}
+	if !strings.Contains(footer, "No executable Hazmat repairs") || !strings.Contains(footer, "manual") {
+		t.Fatalf("footer = %q, want manual-only guidance", footer)
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
+		t.Fatalf("next steps = %+v, want non-mutating inspect step without command", plan.NextSteps)
+	}
+}
+
+func TestDoctorDryRunManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
+	ui := &UI{
+		JSON:   true,
+		DryRun: true,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			DryRun:  true,
+		},
+	}
+	ui.stepLabel = "Manual findings"
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Execution.Mode != "dry-run" || plan.Summary.RemainingExecutable != 0 || len(plan.ManualItems) != 1 {
+		t.Fatalf("plan = mode %q summary %+v manual %+v, want manual-only dry-run", plan.Execution.Mode, plan.Summary, plan.ManualItems)
+	}
+	footer := ui.repairPlanFooter(plan)
+	if strings.Contains(footer, "hazmat doctor --fix") {
+		t.Fatalf("footer = %q, want no fix command for manual-only doctor preview", footer)
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
+		t.Fatalf("next steps = %+v, want non-mutating inspect step without command", plan.NextSteps)
+	}
+}
+
 func TestUIRepairPlanSummaryLineCountsActionableBuckets(t *testing.T) {
 	got := diagnosticRepairPlanSummaryLine(diagnosticRepairPlanSummary{
 		Executable:          1,
