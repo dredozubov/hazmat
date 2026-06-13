@@ -65,7 +65,19 @@ var (
 	credentialInventoryAgentReadFile   = agentReadFile
 )
 
+type credentialInventoryOptions struct {
+	IncludeAgentState bool
+}
+
 func inspectCredentialInventory(home string) ([]credentialInventoryEntry, error) {
+	return inspectCredentialInventoryWithOptions(home, credentialInventoryOptions{IncludeAgentState: true})
+}
+
+func inspectCredentialInventoryHostOnly(home string) ([]credentialInventoryEntry, error) {
+	return inspectCredentialInventoryWithOptions(home, credentialInventoryOptions{})
+}
+
+func inspectCredentialInventoryWithOptions(home string, options credentialInventoryOptions) ([]credentialInventoryEntry, error) {
 	if strings.TrimSpace(home) == "" {
 		var err error
 		home, err = os.UserHomeDir()
@@ -102,10 +114,12 @@ func inspectCredentialInventory(home string) ([]credentialInventoryEntry, error)
 			}
 		}
 
-		agentResidue, agentErrors := inspectDescriptorAgentResidue(descriptor)
-		entry.AgentResidue = append(entry.AgentResidue, agentResidue...)
-		entry.Errors = append(entry.Errors, agentErrors...)
-		legacy, errs := inspectDescriptorLegacyResidue(descriptor, legacyCloud)
+		if options.IncludeAgentState {
+			agentResidue, agentErrors := inspectDescriptorAgentResidue(descriptor)
+			entry.AgentResidue = append(entry.AgentResidue, agentResidue...)
+			entry.Errors = append(entry.Errors, agentErrors...)
+		}
+		legacy, errs := inspectDescriptorLegacyResidue(descriptor, legacyCloud, options)
 		entry.LegacyResidue = append(entry.LegacyResidue, legacy...)
 		entry.Errors = append(entry.Errors, errs...)
 		if legacyCloudErr != nil && descriptor.Kind == credentialKindCloudBackup {
@@ -263,11 +277,11 @@ func inspectClaudeStateAgentResidue(path string) ([]credentialInventoryFinding, 
 	}}, nil
 }
 
-func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legacyCloudCredentialConfig) ([]credentialInventoryFinding, []string) {
+func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legacyCloudCredentialConfig, options credentialInventoryOptions) ([]credentialInventoryFinding, []string) {
 	var findings []credentialInventoryFinding
 	var errors []string
 
-	if descriptor.Kind == credentialKindProviderAPIKey && descriptor.EnvVar != "" {
+	if options.IncludeAgentState && descriptor.Kind == credentialKindProviderAPIKey && descriptor.EnvVar != "" {
 		finding, err := inspectLegacyProviderExport(descriptor.EnvVar)
 		if err != nil {
 			errors = append(errors, err.Error())
@@ -278,6 +292,9 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 
 	switch descriptor.ID {
 	case credentialGitHTTPSAgentStore:
+		if !options.IncludeAgentState {
+			break
+		}
 		if hasHelper, err := inspectAgentLegacyGitHTTPSCredentialHelper(gitHTTPSAgentGitConfigPath); err != nil {
 			errors = append(errors, fmt.Sprintf("inspect legacy Git HTTPS helper %s: %v", gitHTTPSAgentGitConfigPath, err))
 		} else if hasHelper {

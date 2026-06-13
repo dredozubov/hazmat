@@ -131,6 +131,64 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 	}
 }
 
+func TestCredentialInventoryHostOnlySkipsAgentStateProbes(t *testing.T) {
+	home := isolateCredentialInventoryTest(t)
+	openAIStorePath := mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)
+	if err := os.MkdirAll(filepath.Dir(openAIStorePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(openAIStorePath, []byte("host-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(configFilePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFilePath, []byte("backup:\n  cloud:\n    access_key: legacy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	credentialInventoryAgentPathExists = func(path string) (bool, error) {
+		t.Fatalf("host-only credential inventory touched agent path %s", path)
+		return false, nil
+	}
+	credentialInventoryAgentReadFile = func(path string) ([]byte, error) {
+		t.Fatalf("host-only credential inventory read agent path %s", path)
+		return nil, os.ErrNotExist
+	}
+
+	entries, err := inspectCredentialInventoryHostOnly(home)
+	if err != nil {
+		t.Fatalf("inspectCredentialInventoryHostOnly: %v", err)
+	}
+	openAI := findInventoryEntryForTest(t, entries, credentialProviderOpenAIAPIKey)
+	if !openAI.HostStorePresent {
+		t.Fatal("host-only inventory did not report host OpenAI store")
+	}
+	if len(openAI.AgentResidue) != 0 || len(openAI.LegacyResidue) != 0 {
+		t.Fatalf("OpenAI host-only residue = agent:%v legacy:%v, want none without agent probes", openAI.AgentResidue, openAI.LegacyResidue)
+	}
+	cloud := findInventoryEntryForTest(t, entries, credentialCloudS3AccessKeyID)
+	if len(cloud.LegacyResidue) != 1 {
+		t.Fatalf("cloud host legacy residue = %v, want host config residue still reported", cloud.LegacyResidue)
+	}
+}
+
+func TestRunStatusUsesHostOnlyCredentialInventory(t *testing.T) {
+	isolateCredentialInventoryTest(t)
+	credentialInventoryAgentPathExists = func(path string) (bool, error) {
+		t.Fatalf("default status touched agent credential path %s", path)
+		return false, nil
+	}
+	credentialInventoryAgentReadFile = func(path string) ([]byte, error) {
+		t.Fatalf("default status read agent credential path %s", path)
+		return nil, os.ErrNotExist
+	}
+
+	if err := runStatus(false); err != nil {
+		t.Fatalf("runStatus(false): %v", err)
+	}
+}
+
 func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
 	claudeStorePath := mustCredentialStorePathForHome(home, credentialHarnessClaudeState)

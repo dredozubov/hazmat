@@ -146,7 +146,7 @@ func runStatus(full bool) error {
 		cDim.Printf("  [ ] %-24s %s\n", "Claude credentials set", "optional; needed only for hazmat claude")
 	}
 
-	if entries, err := inspectCredentialInventory(""); err == nil {
+	if entries, err := inspectCredentialInventoryHostOnly(""); err == nil {
 		credentialSummary := summarizeCredentialInventory(entries)
 		switch {
 		case credentialSummary.Errors > 0:
