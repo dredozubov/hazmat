@@ -63,6 +63,56 @@ func TestDoctorFixThenCheckDoesNotRecommendInitForSameFinding(t *testing.T) {
 	assertReportHasFinding(t, checkReport, findingAgentUmask)
 }
 
+func TestSessionHomeAdapterBlockersHaveInspectOnlyGuidance(t *testing.T) {
+	for _, req := range []diagnosticRepairExecutionRequest{
+		{Command: "check"},
+		{Command: "doctor", DryRun: true},
+	} {
+		t.Run(req.Command, func(t *testing.T) {
+			ui := &UI{
+				DryRun:          req.DryRun,
+				RepairExecution: req,
+			}
+			ui.stepLabel = "Session HOME"
+			ui.recordTypedFinding(
+				uiFindingFailure,
+				sessionHomeAdapterRequiredDiagnosticFinding(),
+				"session-local HOME activation is blocked by unsupported harness state",
+				"Blocking paths: .codex [harness-state/adapter-required; adapter=codex-state:unsupported]",
+			)
+
+			report := ui.diagnosticReport()
+			plan := report.RepairPlan
+			if plan.Summary.RemainingExecutable != 0 || len(plan.Items) != 0 || len(plan.ManualItems) != 1 {
+				t.Fatalf("plan summary = %+v items=%+v manual=%+v, want one unsupported manual item and no executable repairs", plan.Summary, plan.Items, plan.ManualItems)
+			}
+			if got := plan.ManualItems[0]; got.Status != string(diagnosticRepairUnsupported) || got.RepairAction != "" || got.ExecutableByHazmat {
+				t.Fatalf("manual item = %+v, want unsupported non-executable session-home blocker", got)
+			}
+			if diagnosticReportAdviceMentions(report, "hazmat init") {
+				t.Fatalf("session-home adapter blocker loops back to init: %s", diagnosticReportJSON(t, report))
+			}
+			if diagnosticReportAdviceMentions(report, "hazmat doctor --fix") {
+				t.Fatalf("session-home adapter blocker offers mutating fix: %s", diagnosticReportJSON(t, report))
+			}
+			if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
+				t.Fatalf("next steps = %+v, want inspect-only guidance", plan.NextSteps)
+			}
+		})
+	}
+}
+
+func sessionHomeAdapterRequiredDiagnosticFinding() diagnosticFindingDefinition {
+	return mustDiagnosticFinding(diagnosticFindingDefinition{
+		ID:             "session-home.adapter-required",
+		Resource:       "session-home.activation-blockers",
+		Title:          "Resolve session-home adapter blockers",
+		Repairability:  diagnosticRepairUnsupported,
+		Action:         "Inspect the blocking session-home paths and add typed harness or asset adapters before enabling activation; Hazmat will not copy broad agent-home state.",
+		SecurityImpact: "Unsupported session-home adapters can expose durable harness state or credentials if copied generically, so activation remains fail-closed.",
+	})
+}
+
 func diagnosticReportAdviceMentions(report uiDiagnosticReport, needle string) bool {
 	for _, rec := range report.Recommendations {
 		if strings.Contains(rec.Title, needle) || strings.Contains(rec.Action, needle) || strings.Contains(strings.Join(rec.Details, "\n"), needle) {
