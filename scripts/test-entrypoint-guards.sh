@@ -339,6 +339,24 @@ assert_help_contains_all \
     "sudo -n" \
     "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
 
+assert_help_contains_all \
+    "cache integration smoke documents fixture consent" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" \
+    "--check-fixtures" \
+    "--skip-if-missing-fixtures" \
+    "Fixture checks inspect local tool/cache setup" \
+    "Agents must ask for explicit approval before" \
+    "running --check-fixtures, --skip-if-missing-fixtures, or --run"
+
+assert_help_contains_all \
+    "OpenHands recipe smoke documents fixture consent" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" \
+    "--check-fixtures" \
+    "--skip-if-missing-fixtures" \
+    "Fixture checks inspect local OpenHands/Hazmat tool setup" \
+    "Agents must ask for explicit" \
+    "running --check-fixtures, --skip-if-missing-fixtures, or --run"
+
 phase "Platform guards"
 
 assert_fails_with \

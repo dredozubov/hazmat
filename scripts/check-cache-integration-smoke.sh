@@ -39,8 +39,9 @@ Fixture environment:
   HAZMAT_TORCH_HUB_MODEL          Required for --target torch-hub.
                                   Example: resnet18
 
-The live run is sudo-adjacent because it invokes hazmat exec. Agents must ask
-for explicit approval before running --run.
+Fixture checks inspect local tool/cache setup. The live run is sudo-adjacent
+because it invokes hazmat exec. Agents must ask for explicit approval before
+running --check-fixtures, --skip-if-missing-fixtures, or --run.
 EOF
 }
 

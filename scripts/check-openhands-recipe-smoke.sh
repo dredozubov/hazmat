@@ -33,8 +33,9 @@ Environment:
   HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT  Hazmat binary to run.
   HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN     OpenHands executable name or path.
 
-The live run is sudo-adjacent because it invokes hazmat exec. Agents must ask
-for explicit approval before running --run.
+Fixture checks inspect local OpenHands/Hazmat tool setup. The live run is
+sudo-adjacent because it invokes hazmat exec. Agents must ask for explicit
+approval before running --check-fixtures, --skip-if-missing-fixtures, or --run.
 EOF
 }
 

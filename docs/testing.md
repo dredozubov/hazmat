@@ -287,7 +287,9 @@ make e2e-cache-integration-smoke
 ```
 
 Fixture checks are non-mutating host checks. They verify the local binary or
-Python package and required fixture environment, but do not run `hazmat exec`:
+Python package and required fixture environment, but do not run `hazmat exec`.
+Agents still need explicit approval before running them because they inspect
+local tool/cache setup:
 
 ```bash
 scripts/check-cache-integration-smoke.sh --target huggingface --check-fixtures
@@ -319,7 +321,9 @@ scripts/check-openhands-recipe-smoke.sh
 ```
 
 Fixture checks are non-mutating host checks. They verify that the selected
-Hazmat binary and OpenHands CLI are present, but do not run `hazmat exec`:
+Hazmat binary and OpenHands CLI are present, but do not run `hazmat exec`.
+Agents still need explicit approval before running them because they inspect
+local OpenHands/Hazmat tool setup:
 
 ```bash
 scripts/check-openhands-recipe-smoke.sh --check-fixtures
