@@ -100,7 +100,7 @@ func diagnosticModeGuidanceLines() []string {
 	return []string{
 		"    hazmat check          Read-only health report (no external traffic)",
 		"    hazmat check --full   Read-only health report with live network probes",
-		"    hazmat doctor --fix   Apply approved typed repairs",
+		"    hazmat doctor --fix   Apply approved executable typed repairs",
 		"    hazmat doctor --dry-run",
 		"                          Preview the typed repair plan",
 	}

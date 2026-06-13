@@ -71,6 +71,9 @@ func TestCheckCommandHelpNamesDirectRepairPath(t *testing.T) {
 	if !strings.Contains(cmd.Long, "hazmat doctor --fix") {
 		t.Fatalf("check help = %q, want direct doctor --fix repair path", cmd.Long)
 	}
+	if !strings.Contains(cmd.Long, "executable typed repairs") {
+		t.Fatalf("check help = %q, want repair path qualified by executable typed repairs", cmd.Long)
+	}
 	if !strings.Contains(cmd.Long, "hazmat doctor --dry-run") {
 		t.Fatalf("check help = %q, want explicit doctor --dry-run preview path", cmd.Long)
 	}

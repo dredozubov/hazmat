@@ -18,8 +18,8 @@ By default runs quick checks (no network traffic). Use --full to include
 live network probes that verify firewall rules are active. Failures and warnings
 are summarized as a read-only health and repairability report.
 
-To repair planned items, run hazmat doctor --fix. To preview the typed repair
-plan explicitly, run hazmat doctor --dry-run.`, false, run)
+When executable typed repairs are planned, run hazmat doctor --fix. To preview
+the typed repair plan explicitly, run hazmat doctor --dry-run.`, false, run)
 }
 
 func NewDoctorCommand(run CheckRunner) *cobra.Command {

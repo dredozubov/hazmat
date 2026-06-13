@@ -42,6 +42,9 @@ func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
 	if fixIndex > previewIndex {
 		t.Fatalf("mode guidance = %q, want fix path before preview path", joined)
 	}
+	if !strings.Contains(joined, "executable typed repairs") {
+		t.Fatalf("mode guidance = %q, want fix path scoped to executable typed repairs", joined)
+	}
 }
 
 func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
