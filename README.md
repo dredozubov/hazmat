@@ -61,6 +61,48 @@ approval-gated, and what is formally modeled. Read
 [docs/overview.md](docs/overview.md) before stretching native containment into
 Docker-heavy or hostile-repo workflows.
 
+## Proof Stack
+
+The first proof path is deliberately small: preview the setup, preview the
+session contract, run one contained session, then inspect recovery evidence.
+
+```bash
+hazmat init --dry-run
+PROJECT=/tmp/hazmat-proof-demo
+mkdir -p "$PROJECT"
+printf '%s\n' '# Hazmat proof demo' >"$PROJECT/README.md"
+hazmat explain -C "$PROJECT"
+SECRET="${HAZMAT_PROOF_STACK_SECRET_PATH:-$HOME/.ssh/id_ed25519}"
+test -r "$SECRET"
+hazmat exec --docker=none --network none -C "$PROJECT" -- \
+  /bin/sh -eu -c 'printf "%s\n" contained >proof.txt; ! cat "$1" >/dev/null 2>&1' sh "$SECRET"
+(cd "$PROJECT" && hazmat diff)
+```
+
+The live README smoke captures the same shape without printing secret bytes.
+In the contained session, the project write succeeds and the host secret probe
+fails closed:
+
+```text
+proof-stack: project write ok
+proof-stack: host secret unreadable from contained session: <host-secret-fixture>
+```
+
+The recovery pointer comes from the same demo repo:
+
+```text
+Comparing <scratch-project> against snapshot from <timestamp>
+
+Only in <scratch-project>: proof.txt
+```
+
+The saved redacted snippets are in [docs/proofs](docs/proofs). If Claude is not
+your harness, use the same containment path through [docs/harnesses.md](docs/harnesses.md).
+For project health and breadth, see [docs/compatibility.md](docs/compatibility.md),
+[docs/recipes/README.md](docs/recipes/README.md),
+[docs/public-roadmap.md](docs/public-roadmap.md), and
+[docs/testing.md](docs/testing.md).
+
 ## What a Session Looks Like
 
 Every session starts with a contract. No hidden widening, no vague "secure mode" label.
