@@ -11,6 +11,7 @@
 #   - live session-home activation smoke refuses to run without its explicit ack
 #   - live cache integration smoke refuses to run without its explicit ack
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
+#   - live README proof-stack smoke refuses to run without its explicit ack
 #   - native harness smoke refuses live mode without its explicit ack
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
@@ -192,6 +193,11 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --run
 
 assert_fails_with \
+    "README proof-stack smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-hazmat-exec" \
+    "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" --run
+
+assert_fails_with \
     "native harness smoke requires live ack" \
     "refusing live run without --i-understand-this-runs-native-hazmat-smoke" \
     bash "$REPO_ROOT/scripts/e2e-harness-smoke-native.sh" --run
@@ -257,6 +263,11 @@ assert_succeeds_with \
     "OpenHands recipe smoke defaults to disclosure" \
     "openhands-recipe-smoke: dry run only" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh"
+
+assert_succeeds_with \
+    "README proof-stack smoke defaults to disclosure" \
+    "readme-proof-stack-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh"
 
 assert_succeeds_with \
     "native harness smoke defaults to disclosure" \

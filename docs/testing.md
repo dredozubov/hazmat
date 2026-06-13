@@ -346,6 +346,39 @@ The live smoke uses a scratch project and runs `openhands --help` under
 host `~/.openhands`, pass a host Docker socket, configure provider credentials,
 or prove first-class `hazmat openhands` support.
 
+### README proof-stack smoke
+
+Use this only when capturing the public README proof snippets. The default mode
+is a disclosure; it prints the exact live command and exits without running
+Hazmat:
+
+```bash
+scripts/check-readme-proof-stack-smoke.sh
+```
+
+Fixture checks inspect the selected host secret fixture and local Hazmat binary
+but do not run `hazmat exec`. Agents still need explicit approval before
+running them because they inspect local secret-path setup:
+
+```bash
+scripts/check-readme-proof-stack-smoke.sh --check-fixtures
+```
+
+Live mode is sudo-adjacent because it invokes `hazmat exec`. Agents must ask
+for explicit approval before running:
+
+```bash
+scripts/check-readme-proof-stack-smoke.sh --run --i-understand-this-runs-hazmat-exec
+```
+
+By default the host secret fixture is `$HOME/.ssh/id_ed25519`; override it with
+`HAZMAT_PROOF_STACK_SECRET_PATH` if the machine uses a different private
+fixture. The live smoke creates a scratch demo project, writes `proof.txt`
+inside the contained session, attempts to read the host secret fixture without
+printing its bytes, and then runs `hazmat diff` from the scratch project for
+recovery evidence. Use `--output-dir <dir>` during an approved live run to save
+the sanitized session and diff snippets for README work.
+
 ### Adding Credential Surfaces
 
 New credential handling must be represented in the typed credential registry, or
