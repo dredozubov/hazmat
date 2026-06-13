@@ -36,7 +36,7 @@ Before you touch any harness flow.
   - Expected: every check is green; agent user exists; sudoers + launch helper present.
   - On failure: if Hazmat has never been initialized on this machine, run
     `hazmat init` (interactive). If init has already run, inspect drift with
-    `hazmat doctor --dry-run` or apply approved executable repairs with
+    `hazmat doctor --dry-run` or apply typed executable repairs with
     `hazmat doctor --fix`, then re-check.
 
 - [ ] **No leaked agent processes from earlier sessions**
