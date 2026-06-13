@@ -530,7 +530,8 @@ assert_file_contains_all \
     'add_missing_target_fixture "$1" "python3 cannot import torch"' \
     'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO' \
     'add_missing_target_fixture "$1" "no cached torch.hub repo matching' \
-    'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL'
+    'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL' \
+    'add_missing_target_fixture "$1" "cached torch.hub repo'
 
 assert_fails_with \
     "cache integration smoke checks Ollama daemon fixture" \
@@ -554,6 +555,12 @@ assert_fails_with \
     "cache integration smoke checks torch-hub cache fixture" \
     "no cached torch.hub repo matching pytorch/vision" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HOME="$REPO_ROOT/scripts/fixtures/missing-home" HAZMAT_TORCH_HUB_REPO=pytorch/vision HAZMAT_TORCH_HUB_MODEL=resnet18 \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target torch-hub --check-fixtures
+
+assert_fails_with \
+    "cache integration smoke checks torch-hub callable fixture" \
+    "cached torch.hub repo pytorch/vision does not expose callable resnet18 in hubconf.py" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo TORCH_HOME="$REPO_ROOT/scripts/fixtures/torch-home-empty-callable" HAZMAT_TORCH_HUB_REPO=pytorch/vision HAZMAT_TORCH_HUB_MODEL=resnet18 \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target torch-hub --check-fixtures
 
 assert_help_contains_all \

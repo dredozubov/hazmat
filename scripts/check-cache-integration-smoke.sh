@@ -218,20 +218,38 @@ torch_hub_repo_base_slug() {
 }
 
 torch_hub_repo_cached() {
+	[ -n "$(torch_hub_cached_repo_dir "$1")" ]
+}
+
+torch_hub_cached_repo_dir() {
 	root="$(torch_hub_cache_root)"
 	repo_slug="$(torch_hub_repo_slug "$1")"
 	base_slug="$(torch_hub_repo_base_slug "$1")"
 
 	if [ ! -d "$root" ]; then
-		return 1
+		return
 	fi
 
 	for path in "$root/$repo_slug" "$root/$repo_slug"_* "$root/$base_slug" "$root/$base_slug"_*; do
 		if [ -d "$path" ]; then
-			return 0
+			printf '%s\n' "$path"
+			return
 		fi
 	done
-	return 1
+}
+
+torch_hub_model_callable_cached() {
+	repo_dir="$(torch_hub_cached_repo_dir "$1")"
+	model="$2"
+	if [ -z "$repo_dir" ] || [ ! -r "$repo_dir/hubconf.py" ]; then
+		return 1
+	fi
+	case "$model" in
+		""|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
+			return 1
+			;;
+	esac
+	grep -Eq "^[[:space:]]*def[[:space:]]+$model[[:space:]]*\\(" "$repo_dir/hubconf.py"
 }
 
 check_target_fixtures() {
@@ -265,6 +283,9 @@ check_target_fixtures() {
 			fi
 			if [ -z "${HAZMAT_TORCH_HUB_MODEL:-}" ]; then
 				add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL to a pre-cached torch.hub callable"
+			elif [ -n "${HAZMAT_TORCH_HUB_REPO:-}" ] && torch_hub_repo_cached "$HAZMAT_TORCH_HUB_REPO" &&
+				! torch_hub_model_callable_cached "$HAZMAT_TORCH_HUB_REPO" "$HAZMAT_TORCH_HUB_MODEL"; then
+				add_missing_target_fixture "$1" "cached torch.hub repo $HAZMAT_TORCH_HUB_REPO does not expose callable $HAZMAT_TORCH_HUB_MODEL in hubconf.py"
 			fi
 			;;
 	esac

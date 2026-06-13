@@ -333,7 +333,8 @@ network-disabled live smoke. PyTorch
 torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
 `HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry; fixture checks verify
 that the matching repo cache exists under `TORCH_HOME`, `XDG_CACHE_HOME`, or the
-default `$HOME/.cache/torch/hub` before the network-disabled live smoke. Ollama
+default `$HOME/.cache/torch/hub`, and that `hubconf.py` appears to define the
+requested callable before the network-disabled live smoke. Ollama
 requires the `ollama` CLI and a running host daemon; the fixture check runs
 `ollama list` through the selected binary to catch daemon or `OLLAMA_HOST`
 problems before the live Hazmat session. Override the executable with
