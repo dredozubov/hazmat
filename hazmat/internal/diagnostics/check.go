@@ -20,7 +20,10 @@ external traffic and are sudo-adjacent in agent workflows. Failures and warnings
 are summarized as a read-only health and repairability report.
 
 When executable typed repairs are planned, run hazmat doctor --fix. To preview
-the typed repair plan explicitly, run hazmat doctor --dry-run.`, false, run)
+the typed repair plan explicitly, run hazmat doctor --dry-run.`, `  hazmat check
+  hazmat doctor --fix
+  hazmat doctor --dry-run
+  hazmat check --full`, false, run)
 }
 
 func NewDoctorCommand(run CheckRunner) *cobra.Command {
@@ -33,18 +36,22 @@ external traffic and are sudo-adjacent in agent workflows.
 
 Use hazmat doctor --dry-run when you want to spell out non-mutating preview
 behavior. Plain doctor remains compatible and plan-only. Mutation requires
---fix; non-interactive mutation requires both --fix and --yes.`, true, run)
+--fix; non-interactive mutation requires both --fix and --yes.`, `  hazmat doctor --dry-run
+  hazmat doctor --dry-run --json
+  hazmat doctor --fix
+  hazmat doctor --fix --yes`, true, run)
 }
 
-func newCheckCommand(use, short, long string, allowFix bool, run CheckRunner) *cobra.Command {
+func newCheckCommand(use, short, long, example string, allowFix bool, run CheckRunner) *cobra.Command {
 	var full bool
 	var jsonOutput bool
 	var fix bool
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		Long:  long,
-		Args:  cobra.NoArgs,
+		Use:     use,
+		Short:   short,
+		Long:    long,
+		Example: example,
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if run == nil {
 				return nil

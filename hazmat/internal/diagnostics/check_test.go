@@ -68,7 +68,7 @@ func TestCheckCommandRejectsFixFlag(t *testing.T) {
 
 func TestCheckCommandHelpNamesDirectRepairPath(t *testing.T) {
 	cmd := NewCheckCommand(nil)
-	joined := strings.Join([]string{cmd.Long, cmd.Flags().Lookup("full").Usage}, "\n")
+	joined := strings.Join([]string{cmd.Long, cmd.Example, cmd.Flags().Lookup("full").Usage}, "\n")
 	if !strings.Contains(joined, "helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
 		t.Fatalf("check help = %q, want --full helper-backed sudo-adjacent disclosure", joined)
 	}
@@ -83,6 +83,14 @@ func TestCheckCommandHelpNamesDirectRepairPath(t *testing.T) {
 	}
 	if strings.Contains(cmd.Long, "hazmat init") {
 		t.Fatalf("check help = %q, want no init retry guidance", cmd.Long)
+	}
+	fixIndex := strings.Index(cmd.Example, "hazmat doctor --fix")
+	previewIndex := strings.Index(cmd.Example, "hazmat doctor --dry-run")
+	if fixIndex < 0 || previewIndex < 0 || fixIndex > previewIndex {
+		t.Fatalf("check examples = %q, want fix path before preview path", cmd.Example)
+	}
+	if strings.Contains(cmd.Example, "hazmat init") {
+		t.Fatalf("check examples = %q, want no init retry guidance", cmd.Example)
 	}
 }
 
@@ -139,7 +147,7 @@ func TestDoctorCommandFullDisablesQuickMode(t *testing.T) {
 
 func TestDoctorCommandHelpNamesExplicitDryRunPreview(t *testing.T) {
 	cmd := NewDoctorCommand(nil)
-	joined := strings.Join([]string{cmd.Long, cmd.Flags().Lookup("full").Usage}, "\n")
+	joined := strings.Join([]string{cmd.Long, cmd.Example, cmd.Flags().Lookup("full").Usage}, "\n")
 	if !strings.Contains(joined, "helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
 		t.Fatalf("doctor help = %q, want --full helper-backed sudo-adjacent disclosure", joined)
 	}
@@ -148,5 +156,16 @@ func TestDoctorCommandHelpNamesExplicitDryRunPreview(t *testing.T) {
 	}
 	if !strings.Contains(cmd.Long, "--fix") || !strings.Contains(cmd.Long, "--yes") {
 		t.Fatalf("doctor help = %q, want fix and non-interactive consent contract", cmd.Long)
+	}
+	if !strings.Contains(cmd.Example, "hazmat doctor --dry-run --json") || !strings.Contains(cmd.Example, "hazmat doctor --fix --yes") {
+		t.Fatalf("doctor examples = %q, want JSON preview and non-interactive fix examples", cmd.Example)
+	}
+	previewIndex := strings.Index(cmd.Example, "hazmat doctor --dry-run")
+	fixIndex := strings.Index(cmd.Example, "hazmat doctor --fix")
+	if previewIndex < 0 || fixIndex < 0 || previewIndex > fixIndex {
+		t.Fatalf("doctor examples = %q, want explicit dry-run previews before fix examples", cmd.Example)
+	}
+	if strings.Contains(cmd.Example, "hazmat init") {
+		t.Fatalf("doctor examples = %q, want no init retry guidance", cmd.Example)
 	}
 }
