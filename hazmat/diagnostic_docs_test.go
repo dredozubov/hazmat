@@ -199,3 +199,34 @@ func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageDocsDescribeClaudeExportWorkflowSidecarPolicy(t *testing.T) {
+	data, err := os.ReadFile("../docs/usage.md")
+	if err != nil {
+		t.Fatalf("read usage docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"`hazmat export claude session`",
+		"Copies the transcript and session sidecar directory from the agent user's `~/.claude/projects/...`",
+		"Rewrites portable JSON/JSONL metadata so references to the agent project/session directory point at the installed host-side copy",
+		"Omits opaque Workflow/subagent sidecar files that still contain agent-only paths after export",
+		"Workflow/subagent caches are best-effort",
+		"host-side resume should not try to read inaccessible agent-home Workflow artifacts",
+		"Claude may rerun volatile Workflow steps whose cache files were not portable",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/usage.md missing %q", phrase)
+		}
+	}
+	for _, stale := range []string{
+		"Workflow/subagent caches are preserved across host resume",
+		"host Claude can reuse all contained Workflow cache files",
+		"opaque Workflow caches remain usable after export",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("docs/usage.md overstates Claude export Workflow cache support with %q", stale)
+		}
+	}
+}

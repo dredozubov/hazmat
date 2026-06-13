@@ -469,7 +469,7 @@ claude --resume "$(hazmat export claude session -C ~/workspace/other-project)" -
 - Defaults to the latest hazmat Claude session for the current project
 - Accepts an optional session ID to export a specific session
 - Copies the transcript and session sidecar directory from the agent user's `~/.claude/projects/...`
-- Rewrites exact agent-side Claude project path prefixes inside copied JSON and JSONL metadata to the host export location
+- Rewrites portable JSON/JSONL metadata so references to the agent project/session directory point at the installed host-side copy
 - Omits opaque Workflow/subagent sidecar files that still contain agent-only paths after export
 - Updates your host Claude `sessions-index.json`
 - Prints the Claude resume ID on stdout for scripting
