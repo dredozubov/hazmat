@@ -700,6 +700,12 @@ assert_fails_with \
     env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN=/usr/bin/false \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
 
+assert_succeeds_with \
+    "OpenHands recipe smoke accepts fake CLI fixture" \
+    "openhands-recipe-smoke: fixtures ok" \
+    env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/fake-openhands" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
+
 assert_help_contains_all \
     "README proof-stack smoke documents fixture consent" \
     "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" \

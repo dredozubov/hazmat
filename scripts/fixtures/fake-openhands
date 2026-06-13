@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -eu
+
+case "${1:-}" in
+	--help|-h)
+		printf '%s\n' "fake OpenHands CLI fixture for non-live Hazmat smoke tests"
+		exit 0
+		;;
+	*)
+		printf '%s\n' "fake OpenHands fixture only supports --help" >&2
+		exit 2
+		;;
+esac
