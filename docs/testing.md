@@ -34,9 +34,10 @@ Quick diagnostics also skip local snapshot, cloud backup, and cloud restore live
 validation so the default path does not run backup smoke tests or send external
 traffic. Quick diagnostics should report a repair plan and skip live validation
 instead of trying to switch users or touch external services. Use
-`hazmat check --full` only when you want helper-backed, backup, and cloud live
-validation; that path is sudo-adjacent in agent workflows and requires explicit
-exact-command approval.
+`hazmat check --full` when you want helper-backed, backup, and cloud live
+validation directly, or `hazmat status --full` when you want the setup progress
+checklist first and the same full validation afterward. Both full paths are
+sudo-adjacent in agent workflows and require explicit exact-command approval.
 
 Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
 paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed

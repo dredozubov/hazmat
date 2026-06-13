@@ -501,11 +501,14 @@ hazmat status                   # setup progress checklist
 hazmat check                    # read-only health and repairability report
 hazmat doctor --fix             # apply executable approved typed repairs
 hazmat doctor --dry-run         # explicit non-mutating repair plan preview
+hazmat status --full            # setup progress plus full live validation
 hazmat check --full             # helper-backed, backup, and cloud live probes
 ```
 
 `hazmat status` is the lightweight setup progress checklist. It shows where the
 host is in the setup flow and what the next setup or repair command should be.
+`hazmat status --full` keeps that progress checklist and then runs the same
+approval-gated full validation as `hazmat check --full`.
 
 `hazmat check` validates the current local Hazmat install and containment
 behavior without mutating host state. It reports typed findings, repairability,

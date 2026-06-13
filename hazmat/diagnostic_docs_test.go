@@ -17,8 +17,10 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 		"skip local snapshot, cloud backup, and cloud restore live validation",
 		"does not run backup smoke tests or send external traffic",
 		"hazmat check --full",
+		"hazmat status --full",
 		"helper-backed, backup, and cloud live validation",
-		"requires explicit exact-command approval",
+		"same full validation afterward",
+		"require explicit exact-command approval",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(text, phrase) {
@@ -57,7 +59,9 @@ func TestUsageDocsDistinguishStatusFromCheck(t *testing.T) {
 	required := []string{
 		"hazmat status # setup progress checklist",
 		"hazmat check # read-only health and repairability report",
+		"hazmat status --full # setup progress plus full live validation",
 		"`hazmat status` is the lightweight setup progress checklist",
+		"`hazmat status --full` keeps that progress checklist and then runs the same approval-gated full validation as `hazmat check --full`",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(text, phrase) {
