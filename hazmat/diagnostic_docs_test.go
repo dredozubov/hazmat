@@ -154,3 +154,48 @@ func TestManualTestingHarnessFlowsUseLifecycleUpdateCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
+	data, err := os.ReadFile("../docs/harnesses.md")
+	if err != nil {
+		t.Fatalf("read harness docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"hazmat harness update claude",
+		"hazmat harness update codex",
+		"hazmat harness update opencode",
+		"hazmat harness update gemini",
+		"hazmat harness update hermes",
+		"hazmat harness update qwen",
+		"hazmat harness update cursor-agent",
+		"compatible aliases",
+		"After install/update + auth",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/harnesses.md missing %q", phrase)
+		}
+	}
+	for _, stale := range []string{
+		"| **Claude Code** | 2.1.118 | `hazmat bootstrap claude`",
+		"| **Codex** | 0.118.0 | `hazmat bootstrap codex`",
+		"| **OpenCode** | 1.14.20 | `hazmat bootstrap opencode`",
+		"| **Gemini** | 0.38.2 | `hazmat bootstrap gemini`",
+		"| **Hermes (experimental)** | manual install | `hazmat bootstrap hermes`",
+		"| **Qwen Code** | npm latest | `hazmat bootstrap qwen`",
+		"| **Cursor Agent** | manual install | `hazmat bootstrap cursor-agent`",
+		"**Install / update:** `hazmat bootstrap claude`",
+		"**Install / update:** `hazmat bootstrap codex`",
+		"**Install / update:** `hazmat bootstrap opencode`",
+		"**Install / update:** `hazmat bootstrap gemini`",
+		"**Install / update:** `hazmat bootstrap hermes`",
+		"**Install / update:** `hazmat bootstrap qwen`",
+		"**Install / update:** `hazmat bootstrap cursor-agent`",
+		"After bootstrap/update + auth",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("docs/harnesses.md still uses bootstrap-first phrase %q", stale)
+		}
+	}
+}

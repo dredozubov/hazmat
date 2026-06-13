@@ -12,13 +12,13 @@ The third column shows the **simplest** way to get a working session.
 
 | Harness | Tested | Install | Subscription / OAuth | API key (env var) | Import from host |
 |---|---|---|---|---|---|
-| **Claude Code** | 2.1.118 | `hazmat bootstrap claude` | `/login` inside `hazmat claude` | `ANTHROPIC_API_KEY` via `hazmat config agent` | `hazmat config import claude` |
-| **Codex** | 0.118.0 | `hazmat bootstrap codex` | Device Code in TUI (or import) | `OPENAI_API_KEY` via `hazmat config agent` | `hazmat config import codex` |
-| **OpenCode** | 1.14.20 | `hazmat bootstrap opencode` | per-provider OAuth via `opencode auth login` | per-provider env vars | `hazmat config import opencode` |
-| **Gemini** | 0.38.2 | `hazmat bootstrap gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
-| **Hermes (experimental)** | manual install | `hazmat bootstrap hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
-| **Qwen Code** | npm latest | `hazmat bootstrap qwen` | contained Qwen auth flow only | configure through contained Qwen profile / `.env` | unsupported in v1 |
-| **Cursor Agent** | manual install | `hazmat bootstrap cursor-agent` verifies only | contained Cursor Agent login only | configure through contained Cursor Agent profile; no Hazmat `CURSOR_API_KEY` grant in v1 | unsupported in v1 |
+| **Claude Code** | 2.1.118 | `hazmat harness update claude` | `/login` inside `hazmat claude` | `ANTHROPIC_API_KEY` via `hazmat config agent` | `hazmat config import claude` |
+| **Codex** | 0.118.0 | `hazmat harness update codex` | Device Code in TUI (or import) | `OPENAI_API_KEY` via `hazmat config agent` | `hazmat config import codex` |
+| **OpenCode** | 1.14.20 | `hazmat harness update opencode` | per-provider OAuth via `opencode auth login` | per-provider env vars | `hazmat config import opencode` |
+| **Gemini** | 0.38.2 | `hazmat harness update gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
+| **Hermes (experimental)** | manual install | `hazmat harness update hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
+| **Qwen Code** | npm latest | `hazmat harness update qwen` | contained Qwen auth flow only | configure through contained Qwen profile / `.env` | unsupported in v1 |
+| **Cursor Agent** | manual install | `hazmat harness update cursor-agent` verifies only | contained Cursor Agent login only | configure through contained Cursor Agent profile; no Hazmat `CURSOR_API_KEY` grant in v1 | unsupported in v1 |
 
 Use `hazmat harness status` to inspect every built-in harness at once. For one
 harness, `hazmat harness status codex` shows the agent binary path, version
@@ -44,7 +44,7 @@ OpenHands is tracked separately as a service-oriented candidate in
 it is not a supported `hazmat <harness>` command today. For current
 recipe-only use, see [OpenHands under Hazmat](recipes/openhands-recipe-only.md).
 
-After bootstrap/update + auth: `hazmat <harness>` to launch a session, or
+After install/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat <harness> -p "prompt"` (claude / gemini) /
 `hazmat <harness> exec "prompt"` (codex) /
 `hazmat <harness> run "prompt"` (opencode) /
@@ -95,7 +95,7 @@ records the consuming harness in explain/session metadata.
 
 ### Claude Code
 
-- **Install / update:** `hazmat bootstrap claude`. Downloads the official Anthropic installer, verifies the pinned installer checksum, and installs or refreshes the agent-owned Claude Code CLI at `/Users/agent/.local/bin/claude`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
+- **Install / update:** `hazmat harness update claude`. Downloads the official Anthropic installer, verifies the pinned installer checksum, and installs or refreshes the agent-owned Claude Code CLI at `/Users/agent/.local/bin/claude`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap claude` remains a compatible alias.
 - **Durable auth storage:** `~/.hazmat/secrets/claude/credentials.json` and `~/.hazmat/secrets/claude/state.json`. Hazmat materializes them to `/Users/agent/.claude/.credentials.json` and `/Users/agent/.claude.json` only while a Claude session is active.
 - **Subscription / OAuth path:** run `hazmat claude`, type `/login`. Claude opens a browser for the OAuth handshake; the resulting credentials are harvested back into `~/.hazmat/secrets/claude/` when the session exits.
 - **Agent Keychain path:** newer Claude Code releases may also read/write OAuth state through the agent account login keychain. Before non-`--bare` native Claude launches, Hazmat prepares `/Users/agent/Library/Keychains/login.keychain-db`, makes it the agent user's default/search-list keychain, best-effort sets the login keychain preference, and unlocks it with Hazmat's empty-password keychain profile. If that unlock fails because the existing agent keychain has a different password, run `hazmat claude-keychain reset` to back it up and recreate it. This does not touch your invoking user's keychain.
@@ -106,7 +106,7 @@ records the consuming harness in explain/session metadata.
 
 ### Codex
 
-- **Install / update:** `hazmat bootstrap codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, and installs or refreshes the agent-owned Codex CLI at `/Users/agent/.local/bin/codex`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs.
+- **Install / update:** `hazmat harness update codex`. Downloads the official OpenAI installer, verifies the GitHub-published digest, and installs or refreshes the agent-owned Codex CLI at `/Users/agent/.local/bin/codex`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. Also prepares `/Users/agent/.codex` and `/Users/agent/.agents` shared dirs. `hazmat bootstrap codex` remains a compatible alias.
 - **Durable auth storage:** `~/.hazmat/secrets/codex/auth.json`. Hazmat materializes it to `/Users/agent/.codex/auth.json` only while a Codex session is active. The file holds **both** ChatGPT subscription OAuth tokens and OpenAI API keys.
 - **Subscription / OAuth path:** run `hazmat codex`, use the arrow keys (or type the option number directly) to pick **Sign in with Device Code** in the first-run picker, then press Enter. You complete the code on your host browser; the token is harvested into `~/.hazmat/secrets/codex/auth.json` when the session exits.
   - The import path bypasses this picker entirely.
@@ -118,7 +118,7 @@ records the consuming harness in explain/session metadata.
 
 ### OpenCode
 
-- **Install / update:** `hazmat bootstrap opencode`. Resolves the latest OpenCode GitHub release, verifies the published digest for the selected CLI archive, installs or refreshes the agent-owned OpenCode CLI, prepares the config dir, and links `/Users/agent/.local/bin/opencode`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
+- **Install / update:** `hazmat harness update opencode`. Resolves the latest OpenCode GitHub release, verifies the published digest for the selected CLI archive, installs or refreshes the agent-owned OpenCode CLI, prepares the config dir, and links `/Users/agent/.local/bin/opencode`. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap opencode` remains a compatible alias.
 - **Durable auth storage:** `~/.hazmat/secrets/opencode/auth.json`. Hazmat materializes it to `/Users/agent/.local/share/opencode/auth.json` only while an OpenCode session is active. Provider-specific shape; OpenCode supports Anthropic, OpenAI, Google, OpenRouter, Groq, etc.
 - **Subscription / OAuth path:** run `hazmat opencode`, then `opencode auth login` and pick a provider. Each provider has its own OAuth flow; what works in plain `opencode` works inside `hazmat opencode`. File-based auth is harvested into `~/.hazmat/secrets/opencode/auth.json` when the session exits.
 - **API key path:** OpenCode reads provider keys from the same `auth.json`. Either paste them via `opencode auth login` inside the sandbox, or pre-seed them on the host with the OpenCode `auth login` flow and import.
@@ -128,7 +128,7 @@ records the consuming harness in explain/session metadata.
 
 ### Gemini
 
-- **Install / update:** `hazmat bootstrap gemini`. Installs or refreshes `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works). Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
+- **Install / update:** `hazmat harness update gemini`. Installs or refreshes `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works). Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap gemini` remains a compatible alias.
 - **Durable auth storage:** `~/.hazmat/secrets/gemini/oauth_creds.json` and `~/.hazmat/secrets/gemini/google_accounts.json` for file-based Gemini auth. Hazmat materializes them to `/Users/agent/.gemini/...` only while a Gemini session is active. Modern Keychain-backed Gemini OAuth is an explicit external backend in Hazmat's credential registry; Hazmat does not import or harvest that Keychain item yet.
 - **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; if Gemini writes file-backed auth, Hazmat harvests it into `~/.hazmat/secrets/gemini/` when the session exits. If Gemini stores OAuth only in Keychain, use the API-key path or re-auth in the contained Gemini session until Hazmat has a Keychain adapter.
 - **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into explicitly allowed native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
@@ -137,7 +137,7 @@ records the consuming harness in explain/session metadata.
 
 ### Hermes (experimental)
 
-- **Install / update:** `hazmat bootstrap hermes` is detection-only in v1. It
+- **Install / update:** `hazmat harness update hermes` is detection-only in v1. It
   verifies an agent-owned executable at `/Users/agent/.local/bin/hermes` by
   running `hermes --version`, then records harness state. It does not run an
   upstream install script, curl pipe, npm latest install, pipx install, or host
@@ -153,7 +153,7 @@ records the consuming harness in explain/session metadata.
   the agent home. After running untrusted Hermes skills, MCP servers, hooks, or
   cron-like experiments, the supported full reset for all Hermes project state is
   `hazmat rollback --delete-user` followed by `hazmat init` and
-  `hazmat bootstrap hermes`. A narrower Hermes-only reset command needs a
+  `hazmat harness update hermes`. A narrower Hermes-only reset command needs a
   model-first cleanup design before
   it can be supported.
 - **Provider API key path:** `hazmat config agent` can store
@@ -174,8 +174,8 @@ records the consuming harness in explain/session metadata.
 
 ### Qwen Code
 
-- **Install / update:** `hazmat bootstrap qwen`. Installs or refreshes `@qwen-code/qwen-code@latest` into the agent's `~/.local` prefix via npm. Requires Node.js 20 or newer on the agent's PATH. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself.
-- **Contained profile root:** Qwen uses `/Users/agent/.qwen` for auth, settings, extensions, and session state. Hazmat prepares that directory during bootstrap and does not import host `~/.qwen` auth/settings in v1.
+- **Install / update:** `hazmat harness update qwen`. Installs or refreshes `@qwen-code/qwen-code@latest` into the agent's `~/.local` prefix via npm. Requires Node.js 20 or newer on the agent's PATH. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap qwen` remains a compatible alias.
+- **Contained profile root:** Qwen uses `/Users/agent/.qwen` for auth, settings, extensions, and session state. Hazmat prepares that directory during install/update and does not import host `~/.qwen` auth/settings in v1.
 - **Approval mode:** when `session.skip_permissions` is enabled, `hazmat qwen` prepends `--yolo` unless you already passed `--yolo` or `-y` after `--`. Hazmat remains the containment boundary.
 - **Auth path:** run `hazmat qwen` and use Qwen's own auth/config flow inside the contained session. For API-key setups, keep provider keys in Qwen's contained profile or `.env`; do not rely on host `~/.qwen` being copied.
 - **Asset sync:** Hazmat can sync host `~/.qwen/QWEN.md` and `~/.qwen/extensions/` into the contained profile on launch. It does not sync Qwen settings, auth, sessions, MCP config, or other executable/profile state.
@@ -184,7 +184,7 @@ records the consuming harness in explain/session metadata.
 
 ### Cursor Agent
 
-- **Install / update:** `hazmat bootstrap cursor-agent` is detection-only in
+- **Install / update:** `hazmat harness update cursor-agent` is detection-only in
   v1. It verifies an agent-owned executable at
   `/Users/agent/.local/bin/cursor-agent` by running `cursor-agent --version`,
   then records harness state. It does not run an upstream install script or
@@ -353,10 +353,10 @@ version. Edit on the host instead.
 - **Import says "no basics found to import":** the host doesn't have any of the expected files in its standard locations. Check the **Auth file location** above for the harness — that's the path the import scans.
 - **Import says "Codex auth imported" but `hazmat codex` still asks for sign-in:** check that `~/.hazmat/secrets/codex/auth.json` exists. If an older Hazmat left a stale `/Users/agent/.codex/auth.json`, current Hazmat should recover it automatically on launch. If the stale copy differs from the host-owned copy, the previous host-owned copy is preserved under `~/.hazmat/secrets/codex/auth.json.conflicts/`.
 - **Codex chat hangs on "Reconnecting…":** if you're on a hazmat older than commit `eaaaa1c`, the seatbelt was missing several Security framework allowances. Update and rebuild.
-- **`hazmat bootstrap hermes` says Hermes is not installed:** install or link the Hermes executable as the agent user at `/Users/agent/.local/bin/hermes`, then rerun bootstrap. Hazmat records Hermes as installed only after `hermes --version` succeeds.
+- **`hazmat harness update hermes` says Hermes is not installed:** install or link the Hermes executable as the agent user at `/Users/agent/.local/bin/hermes`, then rerun the update. Hazmat records Hermes as installed only after `hermes --version` succeeds.
 - **`hazmat hermes -- gateway` / `dashboard` / `server` / `cron` is rejected:** v1 supports foreground Hermes sessions only. Run an interactive or prompt-driven foreground command under `hazmat hermes`, or track service supervision as a separate design.
 - **`hazmat qwen` still asks for auth:** run Qwen's auth flow inside `hazmat qwen`, or configure the contained `/Users/agent/.qwen` profile. Hazmat does not import host `~/.qwen` auth/settings in v1.
-- **`hazmat bootstrap cursor-agent` says Cursor Agent is not installed:** install or link the Cursor Agent executable as the agent user at `/Users/agent/.local/bin/cursor-agent`, then rerun bootstrap. Hazmat records Cursor Agent as installed only after `cursor-agent --version` succeeds.
+- **`hazmat harness update cursor-agent` says Cursor Agent is not installed:** install or link the Cursor Agent executable as the agent user at `/Users/agent/.local/bin/cursor-agent`, then rerun the update. Hazmat records Cursor Agent as installed only after `cursor-agent --version` succeeds.
 - **`hazmat cursor-agent` still asks for auth:** run `hazmat cursor-agent -- login`, or configure the contained agent-side Cursor Agent profile. Hazmat does not import host Cursor IDE state, host `~/.cursor`, or host auth settings in v1.
 
 For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).
