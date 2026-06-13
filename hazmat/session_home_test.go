@@ -188,6 +188,9 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .config/mcp [harness-state/adapter-required; adapter=mcp-state:manual-only]") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
 	}
+	if !strings.Contains(err.Error(), "not hazmat init") || !strings.Contains(err.Error(), "hazmat explain --json") {
+		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable non-init guidance", err)
+	}
 	if cfg.SessionHome != nil {
 		t.Fatalf("SessionHome = %+v, want nil on activation failure", cfg.SessionHome)
 	}

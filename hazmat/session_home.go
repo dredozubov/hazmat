@@ -227,7 +227,12 @@ func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts
 	}
 	if activate {
 		if !launchPlan.readyForActivation() {
-			return fmt.Errorf("%s=activate cannot launch session-local HOME yet: %s. %s", experimentalSessionHomeEnv, sessionHomeActivationBlockerSummary(launchPlan.Blockers), sessionHomeActivationBlockerDetails(launchPlan.Blockers))
+			return fmt.Errorf("%s=activate cannot launch session-local HOME yet: %s. %s %s",
+				experimentalSessionHomeEnv,
+				sessionHomeActivationBlockerSummary(launchPlan.Blockers),
+				sessionHomeActivationBlockerDetails(launchPlan.Blockers),
+				sessionHomeActivationBlockerGuidance(launchPlan.Blockers),
+			)
 		}
 		if _, err := materializeSessionHomeLaunchPlanForActivation(launchPlan); err != nil {
 			return err
@@ -471,6 +476,13 @@ func sessionHomeActivationBlockerDetails(blockers []sessionHomeLaunchBlocker) st
 		return "No session-home activation blockers remain."
 	}
 	return "Blocking paths: " + sessionHomeActivationBlockerPathSummary(blockers) + "."
+}
+
+func sessionHomeActivationBlockerGuidance(blockers []sessionHomeLaunchBlocker) string {
+	if len(blockers) == 0 {
+		return "Inspect the structured plan with hazmat explain --json."
+	}
+	return "Inspect the structured plan with hazmat explain --json; adapter-required paths need typed bridge/materializer support or an intentional fail-closed policy, not hazmat init."
 }
 
 func sessionHomeActivationBlockerPathSummary(blockers []sessionHomeLaunchBlocker) string {
