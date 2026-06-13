@@ -79,12 +79,12 @@ func newInitCloudCmd() *cobra.Command {
 	return newConfigCloudCmd()
 }
 
-// newStatusCmd shows a progress checklist and optionally runs health checks.
+// newStatusCmd shows a progress checklist and optionally runs full validation.
 func newStatusCmd() *cobra.Command {
 	var full bool
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show setup progress and health check",
+		Short: "Show setup progress and the next action",
 		Long: `Shows which setup phases are complete and what to do next.
 Use --full to run helper-backed, backup, and cloud live validation, matching 'hazmat check --full'.
 This sends external traffic and is sudo-adjacent in agent workflows.`,
