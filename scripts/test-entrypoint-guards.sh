@@ -494,6 +494,7 @@ assert_file_contains_all \
     "slash-escaped" \
     "unicode-slash-lower" \
     "unicode-slash-upper" \
+    "sessions-index.json" \
     "exported session still references" \
     "matching exported files:" \
     "head -n 12"

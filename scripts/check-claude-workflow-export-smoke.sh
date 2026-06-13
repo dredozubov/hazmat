@@ -186,8 +186,8 @@ claude-workflow-export-smoke: dry run only
 This script validates the live Claude Workflow/subagent export-resume handoff.
 It starts a contained Claude print-mode run from the default or override prompt,
 exports the latest contained session into the host Claude store, checks that the
-exported host transcript/sidecar files do not contain stale agent Claude project
-paths, and resumes the exported session with host Claude.
+exported host transcript, project index, and sidecar files do not contain stale
+agent Claude project paths, and resumes the exported session with host Claude.
 
 Fixture checks inspect local Hazmat/Claude tool setup. Live mode is
 sudo-adjacent and requires explicit approval:
@@ -248,6 +248,7 @@ assert_export_has_no_agent_project_paths() {
 		exit 1
 	fi
 	host_project_dir="$(dirname "$host_transcript")"
+	host_index="$host_project_dir/sessions-index.json"
 	host_sidecar_dir="$host_project_dir/$session_id"
 	if [ ! -d "$host_sidecar_dir" ]; then
 		echo "claude-workflow-export-smoke: exported session has no sidecar directory; prompt may not have produced Workflow/subagent artifacts" >&2
@@ -256,10 +257,16 @@ assert_export_has_no_agent_project_paths() {
 
 	for encoding in literal slash-escaped unicode-slash-lower unicode-slash-upper; do
 		pattern="$(agent_project_root_pattern "$encoding")"
-		if grep -R -F "$pattern" "$host_transcript" "$host_sidecar_dir" >/dev/null 2>&1; then
+		if grep -R -F "$pattern" "$host_transcript" "$host_sidecar_dir" >/dev/null 2>&1 ||
+			{ [ -f "$host_index" ] && grep -F "$pattern" "$host_index" >/dev/null 2>&1; }; then
 			echo "claude-workflow-export-smoke: exported session still references $AGENT_PROJECT_ROOT ($encoding)" >&2
 			echo "claude-workflow-export-smoke: matching exported files:" >&2
-			grep -R -l -F "$pattern" "$host_transcript" "$host_sidecar_dir" 2>/dev/null |
+			{
+				grep -R -l -F "$pattern" "$host_transcript" "$host_sidecar_dir" 2>/dev/null
+				if [ -f "$host_index" ]; then
+					grep -l -F "$pattern" "$host_index" 2>/dev/null || true
+				fi
+			} |
 				sed 's/^/  - /' |
 				head -n 12 >&2
 			exit 1
