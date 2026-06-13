@@ -260,6 +260,11 @@ assert_succeeds_with \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh"
 
 assert_succeeds_with \
+    "cache integration smoke discloses Ollama daemon prerequisite" \
+    "Requires an already-running host Ollama daemon" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama
+
+assert_succeeds_with \
     "OpenHands recipe smoke defaults to disclosure" \
     "openhands-recipe-smoke: dry run only" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh"

@@ -193,6 +193,9 @@ $(selected_targets | sed 's/^/  - /')
 Live smoke shape:
   huggingface: HF_HUB_OFFLINE=1 hazmat exec --network none --integration huggingface -- python3 -c 'AutoModel.from_pretrained(..., local_files_only=True)'
   ollama:      hazmat exec --integration ollama -- ollama list
+               Requires an already-running host Ollama daemon. This target
+               intentionally does not force --network none because ollama list
+               talks to the local daemon endpoint.
   torch-hub:   hazmat exec --network none --integration pytorch-torch-hub -- python3 -c 'torch.hub.load(...)'
 
 Fixture checks:
