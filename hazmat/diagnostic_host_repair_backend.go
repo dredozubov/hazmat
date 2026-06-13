@@ -333,6 +333,13 @@ func (b *diagnosticHostRepairBackend) applyNetworkPersistence(r *Runner) error {
 	return nil
 }
 
+// launchctlLoaded is intentionally scoped to doctor repair execution. Read-only
+// check/status paths must not run launchctl probes.
+func launchctlLoaded(label string) bool {
+	_, err := commandStdout(hostLaunchctlPath, "print", "system/"+label)
+	return err == nil
+}
+
 func (b *diagnosticHostRepairBackend) applyCredentialMigration(actionID diagnosticRepairActionID) error {
 	var out bytes.Buffer
 	if err := runMigrateCredentials(migrateCredentialsOptions{

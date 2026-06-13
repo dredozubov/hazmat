@@ -23,6 +23,7 @@ func TestReadOnlyDiagnosticsDoNotUsePromptingSudo(t *testing.T) {
 		"hostexec.Sudo":                     "read-only diagnostics must not execute sudo probes",
 		"hostexec.SudoAppendFile":           "read-only diagnostics must not mutate host files",
 		"hostexec.SudoWriteFile":            "read-only diagnostics must not mutate host files",
+		"launchctlLoaded":                   "read-only diagnostics must not execute launchctl probes",
 		"newSudoCommand":                    "read-only diagnostics must not execute sudo probes",
 		"newSudoNoPromptCommand":            "read-only diagnostics must not execute sudo probes",
 		"runInteractive":                    "read-only diagnostics must not prompt",
@@ -55,6 +56,47 @@ func TestReadOnlyDiagnosticsDoNotUsePromptingSudo(t *testing.T) {
 			}
 			pos := fset.Position(call.Fun.Pos())
 			t.Fatalf("%s uses %s; %s", pos, name, reason)
+			return false
+		})
+	}
+}
+
+func TestReadOnlyDiagnosticsDoNotUseSudoAdjacentHostProbes(t *testing.T) {
+	files := []string{
+		"test.go",
+		"setup_verification_darwin.go",
+	}
+	blockedCommandArgs := map[string]string{
+		"hostLaunchctlPath": "launchctl state probes are sudo-adjacent and must stay out of read-only diagnostics",
+		"hostPfctlPath":     "PF runtime probes are sudo-adjacent and must stay out of read-only diagnostics",
+	}
+
+	for _, name := range files {
+		path := filepath.Join(".", name)
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := diagnosticCallName(call.Fun)
+			if !ok || name != "commandStdout" || len(call.Args) == 0 {
+				return true
+			}
+			ident, ok := call.Args[0].(*ast.Ident)
+			if !ok {
+				return true
+			}
+			reason, found := blockedCommandArgs[ident.Name]
+			if !found {
+				return true
+			}
+			pos := fset.Position(call.Fun.Pos())
+			t.Fatalf("%s uses commandStdout(%s); %s", pos, ident.Name, reason)
 			return false
 		})
 	}

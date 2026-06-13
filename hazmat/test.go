@@ -527,14 +527,7 @@ func testPersistence(ui *UI) {
 		)
 	}
 
-	if launchctlLoaded(pfDaemonLabel) {
-		ui.TestPass(fmt.Sprintf("LaunchDaemon '%s' is loaded", pfDaemonLabel))
-	} else {
-		ui.TestWarnFinding(
-			diagnosticFinding(findingLaunchdPersistence),
-			fmt.Sprintf("LaunchDaemon '%s' is not observable as loaded from read-only check", pfDaemonLabel),
-		)
-	}
+	ui.TestSkip(fmt.Sprintf("LaunchDaemon '%s' loaded state is not probed by read-only check", pfDaemonLabel))
 
 	if data, err := os.ReadFile("/etc/pf.conf"); err == nil &&
 		strings.Contains(string(data), `anchor "agent"`) {
@@ -1735,18 +1728,8 @@ func checkBlockedDomain(domain string) bool {
 	return false
 }
 
-// launchctlLoaded returns true if the given label is listed in launchctl.
-func launchctlLoaded(label string) bool {
-	_, err := commandStdout(hostLaunchctlPath, "print", "system/"+label)
-	return err == nil
-}
-
 func pfRuntimeEnabledUnprivileged() (bool, bool) {
-	out, err := commandStdout(hostPfctlPath, "-si")
-	if err != nil {
-		return false, false
-	}
-	return strings.Contains(out, "Status: Enabled"), true
+	return false, false
 }
 
 func readPfAnchorFileRules() (string, error) {
