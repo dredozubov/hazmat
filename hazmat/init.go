@@ -17,7 +17,7 @@ const initBootstrapSkip = "skip"
 
 var errInitPostVerificationFailed = errors.New("post-init verification found unresolved blockers")
 
-const postInitVerificationAdvice = "inspect the typed repair plan above, preview remaining repairs with hazmat doctor --dry-run, or apply approved repairs with hazmat doctor --fix"
+const postInitVerificationAdvice = "inspect the typed repair plan above, preview remaining repairs with hazmat doctor --dry-run, or apply approved executable repairs with hazmat doctor --fix"
 const statusIncompleteSetupAdvice = "  Fix incomplete setup: hazmat doctor --fix\n  Preview first: hazmat doctor --dry-run"
 
 func newInitCmd() *cobra.Command {

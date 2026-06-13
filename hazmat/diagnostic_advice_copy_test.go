@@ -27,6 +27,9 @@ func TestDiagnosticAdviceNamesExplicitDoctorCommands(t *testing.T) {
 			if !strings.Contains(advice, "hazmat doctor --dry-run") || !strings.Contains(advice, "hazmat doctor --fix") {
 				t.Fatalf("advice = %q, want preview and fix paths", advice)
 			}
+			if !strings.Contains(advice, "executable repairs") && !strings.Contains(advice, "supported repairs") {
+				t.Fatalf("advice = %q, want doctor --fix path scoped to executable or supported repairs", advice)
+			}
 		})
 	}
 }
