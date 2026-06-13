@@ -575,7 +575,9 @@ classification so the same loop is visible and testable.
 agent account, shared group, network policy, launch helper, shell defaults, and
 other setup resources. It should converge those resources or report a specific
 blocker; it is not the generic answer to every `check` finding. After init,
-use `hazmat check` or `hazmat doctor --dry-run` to inspect remaining drift.
+use `hazmat doctor --fix` to apply executable post-init repairs, `hazmat doctor
+--dry-run` to preview the typed plan, or `hazmat check` when you only want a
+read-only health report.
 
 Historical project ACL backfill is explicit because it can be proportional to
 repo size. Normal launches repair only a bounded shallow ACL set. To preview or

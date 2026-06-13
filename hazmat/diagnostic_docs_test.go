@@ -72,3 +72,24 @@ func TestUsageDocsDistinguishStatusFromCheck(t *testing.T) {
 		t.Fatal("docs/usage.md still equates status with another command")
 	}
 }
+
+func TestUsageDocsUseDirectPostInitRepairPath(t *testing.T) {
+	data, err := os.ReadFile("../docs/usage.md")
+	if err != nil {
+		t.Fatalf("read usage docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"After init, use `hazmat doctor --fix` to apply executable post-init repairs",
+		"`hazmat doctor --dry-run` to preview the typed plan",
+		"`hazmat check` when you only want a read-only health report",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/usage.md missing %q", phrase)
+		}
+	}
+	if strings.Contains(text, "After init, use `hazmat check` or `hazmat doctor --dry-run` to inspect remaining drift") {
+		t.Fatal("docs/usage.md still routes post-init drift through check/dry-run only")
+	}
+}
