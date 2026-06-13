@@ -216,10 +216,12 @@ func contractSessionHomeBlockers(blockers []sessionHomeLaunchBlocker) []sessionc
 	out := make([]sessioncontract.SessionHomeBlocker, len(blockers))
 	for i, blocker := range blockers {
 		out[i] = sessioncontract.SessionHomeBlocker{
-			RelPath:       blocker.RelPath,
-			Reason:        string(blocker.Reason),
-			Class:         string(blocker.Class),
-			RuntimePolicy: string(blocker.RuntimePolicy),
+			RelPath:        blocker.RelPath,
+			Reason:         string(blocker.Reason),
+			Class:          string(blocker.Class),
+			RuntimePolicy:  string(blocker.RuntimePolicy),
+			Adapter:        string(blocker.AdapterName),
+			AdapterOutcome: string(blocker.AdapterOutcome),
 		}
 	}
 	return out

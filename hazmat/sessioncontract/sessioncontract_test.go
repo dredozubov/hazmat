@@ -70,10 +70,12 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 			Status:          "experimental-preview",
 			ActivationReady: false,
 			ActivationBlockers: []SessionHomeBlocker{{
-				RelPath:       ".zshrc",
-				Reason:        "seed-materialization",
-				Class:         "shell-config",
-				RuntimePolicy: "seed-only",
+				RelPath:        ".zshrc",
+				Reason:         "seed-materialization",
+				Class:          "shell-config",
+				RuntimePolicy:  "seed-only",
+				Adapter:        "shell-seed",
+				AdapterOutcome: "unsupported",
 			}},
 			Mode:               "session-local",
 			Home:               "/private/tmp/hazmat-home/session-123/home",
@@ -109,6 +111,8 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 	input.SessionHome.ActivationBlockers[0].Reason = "mutated"
 	input.SessionHome.ActivationBlockers[0].Class = "mutated"
 	input.SessionHome.ActivationBlockers[0].RuntimePolicy = "mutated"
+	input.SessionHome.ActivationBlockers[0].Adapter = "mutated"
+	input.SessionHome.ActivationBlockers[0].AdapterOutcome = "mutated"
 	input.SessionHome.DurableBridgeRoots[0] = "/mutated"
 	if plan.RepoSetupApplied[0].Sources[0] != "go" ||
 		plan.Snapshot.Excludes[0] != ".venv/" ||
@@ -116,6 +120,8 @@ func TestBuildPlanCopiesAndSortsStableFields(t *testing.T) {
 		plan.SessionHome.ActivationBlockers[0].Reason != "seed-materialization" ||
 		plan.SessionHome.ActivationBlockers[0].Class != "shell-config" ||
 		plan.SessionHome.ActivationBlockers[0].RuntimePolicy != "seed-only" ||
+		plan.SessionHome.ActivationBlockers[0].Adapter != "shell-seed" ||
+		plan.SessionHome.ActivationBlockers[0].AdapterOutcome != "unsupported" ||
 		plan.SessionHome.DurableBridgeRoots[0] != "/Users/agent/.claude/projects" {
 		t.Fatalf("BuildPlan did not defensively copy nested slices: %+v", plan)
 	}

@@ -185,7 +185,7 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if err == nil || !strings.Contains(err.Error(), "adapter required") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
 	}
-	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin [executable-tooling/adapter-required]") {
+	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin [executable-tooling/adapter-required; adapter=executable-tooling:unsupported]") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
 	}
 	if cfg.SessionHome != nil {
@@ -244,17 +244,21 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		rel         string
-		class       containment.AgentHomeStateClass
-		durability  sessionHomeAssemblyDurability
-		policy      sessionHomeRuntimePolicy
-		executable  bool
-		bridge      bool
-		persistent  string
-		runtimePath string
+		rel            string
+		kind           containment.AgentHomeStateKind
+		class          containment.AgentHomeStateClass
+		durability     sessionHomeAssemblyDurability
+		policy         sessionHomeRuntimePolicy
+		adapter        sessionHomeAdapterName
+		adapterOutcome sessionHomeAdapterOutcome
+		executable     bool
+		bridge         bool
+		persistent     string
+		runtimePath    string
 	}{
 		{
 			rel:         ".claude/projects",
+			kind:        containment.AgentHomeStateDir,
 			class:       containment.AgentHomeStateTranscript,
 			durability:  sessionHomeDurableExternal,
 			policy:      sessionHomePolicyDurableExternal,
@@ -264,6 +268,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 		},
 		{
 			rel:         ".hazmat/hermes/projects",
+			kind:        containment.AgentHomeStateDir,
 			class:       containment.AgentHomeStateTranscript,
 			durability:  sessionHomeDurableExternal,
 			policy:      sessionHomePolicyDurableExternal,
@@ -272,20 +277,34 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			runtimePath: filepath.Join(layout.Home, ".hazmat", "hermes", "projects"),
 		},
 		{
-			rel:        ".local/bin",
-			class:      containment.AgentHomeStateExecutable,
-			durability: sessionHomeDurableMirror,
-			policy:     sessionHomePolicyAdapterRequired,
-			executable: true,
+			rel:            ".cargo",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateToolchainState,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterToolchainCache,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
+		{
+			rel:            ".local/bin",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateExecutable,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterExecutableTooling,
+			adapterOutcome: sessionHomeAdapterUnsupported,
+			executable:     true,
 		},
 		{
 			rel:        ".gitconfig",
+			kind:       containment.AgentHomeStateFile,
 			class:      containment.AgentHomeStateGitConfig,
 			durability: sessionHomeDurableMirror,
 			policy:     sessionHomePolicySeedOnly,
 		},
 		{
 			rel:        ".cache",
+			kind:       containment.AgentHomeStateDir,
 			class:      containment.AgentHomeStateXDGCache,
 			durability: sessionHomeEphemeralCache,
 			policy:     sessionHomePolicyEphemeralCache,
@@ -295,12 +314,15 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 		if !ok {
 			t.Fatalf("assembly plan missing %s", tc.rel)
 		}
-		if entry.Class != tc.class ||
+		if entry.Kind != tc.kind ||
+			entry.Class != tc.class ||
 			entry.Durability != tc.durability ||
 			entry.RuntimePolicy != tc.policy ||
+			entry.AdapterName != tc.adapter ||
+			entry.AdapterOutcome != tc.adapterOutcome ||
 			entry.Executable != tc.executable ||
 			entry.RequiresBridge != tc.bridge {
-			t.Fatalf("%s = %+v, want class=%s durability=%s policy=%s executable=%v bridge=%v", tc.rel, entry, tc.class, tc.durability, tc.policy, tc.executable, tc.bridge)
+			t.Fatalf("%s = %+v, want kind=%s class=%s durability=%s policy=%s adapter=%s outcome=%s executable=%v bridge=%v", tc.rel, entry, tc.kind, tc.class, tc.durability, tc.policy, tc.adapter, tc.adapterOutcome, tc.executable, tc.bridge)
 		}
 		if tc.persistent != "" && entry.PersistentPath != tc.persistent {
 			t.Fatalf("%s persistent path = %s, want %s", tc.rel, entry.PersistentPath, tc.persistent)
@@ -408,6 +430,23 @@ func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t
 	}
 }
 
+func TestNewSessionHomeLaunchPlanIgnoresEphemeralToolchainCacheBlockers(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".cargo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".cargo" {
+			t.Fatalf("activation blockers = %+v, want .cargo ignored as ephemeral toolchain cache", plan.Blockers)
+		}
+	}
+}
+
 func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) {
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", filepath.Join(t.TempDir(), "agent"), true)
 	if err != nil {
@@ -427,16 +466,20 @@ func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) 
 func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
 	blockers := []sessionHomeLaunchBlocker{
 		{
-			RelPath:       ".npm",
-			Reason:        sessionHomeBlockerAdapterRequired,
-			Class:         containment.AgentHomeStateToolchainState,
-			RuntimePolicy: sessionHomePolicyAdapterRequired,
+			RelPath:        ".npm",
+			Reason:         sessionHomeBlockerAdapterRequired,
+			Class:          containment.AgentHomeStateToolchainState,
+			RuntimePolicy:  sessionHomePolicyAdapterRequired,
+			AdapterName:    sessionHomeAdapterToolchainCache,
+			AdapterOutcome: sessionHomeAdapterUnsupported,
 		},
 		{
-			RelPath:       ".cargo",
-			Reason:        sessionHomeBlockerAdapterRequired,
-			Class:         containment.AgentHomeStateToolchainState,
-			RuntimePolicy: sessionHomePolicyAdapterRequired,
+			RelPath:        ".cargo",
+			Reason:         sessionHomeBlockerAdapterRequired,
+			Class:          containment.AgentHomeStateToolchainState,
+			RuntimePolicy:  sessionHomePolicyAdapterRequired,
+			AdapterName:    sessionHomeAdapterToolchainCache,
+			AdapterOutcome: sessionHomeAdapterUnsupported,
 		},
 		{RelPath: "session-home", Reason: sessionHomeBlockerActivationGate},
 	}
@@ -445,7 +488,7 @@ func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
 	for _, want := range []string{
 		"Blocking paths:",
 		"activation gate: session-home",
-		"adapter required (2 paths): .cargo [toolchain-state/adapter-required], .npm [toolchain-state/adapter-required]",
+		"adapter required (2 paths): .cargo [toolchain-state/adapter-required; adapter=toolchain-cache:unsupported], .npm [toolchain-state/adapter-required; adapter=toolchain-cache:unsupported]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("details = %q, want %q", got, want)

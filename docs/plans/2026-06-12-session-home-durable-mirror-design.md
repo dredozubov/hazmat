@@ -106,6 +106,12 @@ The first activation can ship with zero checked-writeback adapters if all
 currently durable state is covered by `seed-only`, `durable-external`,
 `ephemeral-cache`, or `adapter-required` blockers.
 
+The follow-up adapter architecture is tracked in
+`docs/plans/2026-06-13-session-home-typed-adapters-design.md`. That design keeps
+activation fail-closed for executable, broad harness, and broad XDG state while
+allowing harmless toolchain cache roots to become explicit ephemeral session
+state rather than setup drift.
+
 ## Testing Architecture
 
 Pure planner tests must fail when a manifest entry has no runtime policy.

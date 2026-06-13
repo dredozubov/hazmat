@@ -55,11 +55,38 @@ const (
 	sessionHomePolicyAdapterRequired  sessionHomeRuntimePolicy = "adapter-required"
 )
 
+type sessionHomeAdapterName string
+
+const (
+	sessionHomeAdapterToolchainCache    sessionHomeAdapterName = "toolchain-cache"
+	sessionHomeAdapterExecutableTooling sessionHomeAdapterName = "executable-tooling"
+	sessionHomeAdapterHarnessState      sessionHomeAdapterName = "harness-state"
+	sessionHomeAdapterXDGState          sessionHomeAdapterName = "xdg-state"
+	sessionHomeAdapterUnknown           sessionHomeAdapterName = "unknown"
+)
+
+type sessionHomeAdapterOutcome string
+
+const (
+	sessionHomeAdapterImplemented      sessionHomeAdapterOutcome = "implemented"
+	sessionHomeAdapterIgnoredEphemeral sessionHomeAdapterOutcome = "ignored-ephemeral"
+	sessionHomeAdapterManualOnly       sessionHomeAdapterOutcome = "manual-only"
+	sessionHomeAdapterUnsupported      sessionHomeAdapterOutcome = "unsupported"
+)
+
+type sessionHomeAdapterDecision struct {
+	Name    sessionHomeAdapterName
+	Outcome sessionHomeAdapterOutcome
+}
+
 type sessionHomeAssemblyEntry struct {
 	RelPath        string
+	Kind           containment.AgentHomeStateKind
 	Class          containment.AgentHomeStateClass
 	Durability     sessionHomeAssemblyDurability
 	RuntimePolicy  sessionHomeRuntimePolicy
+	AdapterName    sessionHomeAdapterName
+	AdapterOutcome sessionHomeAdapterOutcome
 	PersistentPath string
 	RuntimePath    string
 	Executable     bool
@@ -87,10 +114,12 @@ const (
 )
 
 type sessionHomeLaunchBlocker struct {
-	RelPath       string
-	Reason        sessionHomeLaunchBlockerReason
-	Class         containment.AgentHomeStateClass
-	RuntimePolicy sessionHomeRuntimePolicy
+	RelPath        string
+	Reason         sessionHomeLaunchBlockerReason
+	Class          containment.AgentHomeStateClass
+	RuntimePolicy  sessionHomeRuntimePolicy
+	AdapterName    sessionHomeAdapterName
+	AdapterOutcome sessionHomeAdapterOutcome
 }
 
 type sessionHomeBridgeKind string
@@ -280,13 +309,24 @@ func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string)
 	}
 
 	byRel := map[string]sessionHomeAssemblyEntry{}
-	add := func(rel string, class containment.AgentHomeStateClass) {
+	add := func(rel string, kind containment.AgentHomeStateKind, class containment.AgentHomeStateClass) {
 		durability := sessionHomeDurabilityForClass(class)
+		runtimePolicy := sessionHomeRuntimePolicyFor(rel, class, durability)
+		adapterDecision := sessionHomeAdapterDecisionForEntry(sessionHomeAssemblyEntry{
+			RelPath:       rel,
+			Kind:          kind,
+			Class:         class,
+			Durability:    durability,
+			RuntimePolicy: runtimePolicy,
+		})
 		byRel[rel] = sessionHomeAssemblyEntry{
 			RelPath:        rel,
+			Kind:           kind,
 			Class:          class,
 			Durability:     durability,
-			RuntimePolicy:  sessionHomeRuntimePolicyFor(rel, class, durability),
+			RuntimePolicy:  runtimePolicy,
+			AdapterName:    adapterDecision.Name,
+			AdapterOutcome: adapterDecision.Outcome,
 			PersistentPath: filepath.Join(persistentHome, rel),
 			RuntimePath:    filepath.Join(layout.Home, rel),
 			Executable:     executable[rel],
@@ -294,13 +334,13 @@ func newSessionHomeAssemblyPlan(layout sessionHomeLayout, persistentHome string)
 		}
 	}
 	for _, manifestEntry := range containment.PersistentAgentHomeManifest() {
-		add(manifestEntry.RelPath, manifestEntry.Class)
+		add(manifestEntry.RelPath, manifestEntry.Kind, manifestEntry.Class)
 		for _, covered := range manifestEntry.CoveredPaths {
-			add(covered.RelPath, covered.Class)
+			add(covered.RelPath, manifestEntry.Kind, covered.Class)
 		}
 		for _, rel := range manifestEntry.ExecutableRelPaths {
 			if _, ok := byRel[rel]; !ok {
-				add(rel, containment.AgentHomeStateExecutable)
+				add(rel, containment.AgentHomeStateDir, containment.AgentHomeStateExecutable)
 			} else {
 				entry := byRel[rel]
 				entry.Executable = true
@@ -460,10 +500,14 @@ func sessionHomeActivationBlockerPathList(reason sessionHomeLaunchBlockerReason,
 }
 
 func sessionHomeActivationBlockerPathLabel(blocker sessionHomeLaunchBlocker) string {
-	if blocker.Class == "" && blocker.RuntimePolicy == "" {
+	if blocker.Class == "" && blocker.RuntimePolicy == "" && blocker.AdapterName == "" && blocker.AdapterOutcome == "" {
 		return blocker.RelPath
 	}
-	return fmt.Sprintf("%s [%s/%s]", blocker.RelPath, blocker.Class, blocker.RuntimePolicy)
+	label := fmt.Sprintf("%s/%s", blocker.Class, blocker.RuntimePolicy)
+	if blocker.AdapterName != "" || blocker.AdapterOutcome != "" {
+		label = fmt.Sprintf("%s; adapter=%s:%s", label, blocker.AdapterName, blocker.AdapterOutcome)
+	}
+	return fmt.Sprintf("%s [%s]", blocker.RelPath, label)
 }
 
 func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {
@@ -862,7 +906,7 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persiste
 		})
 	}
 	for _, entry := range assembly {
-		reason, blocked := sessionHomeActivationBlockerReasonForPolicy(entry.RuntimePolicy)
+		reason, blocked := sessionHomeActivationBlockerReasonForEntry(entry)
 		if !blocked {
 			continue
 		}
@@ -874,13 +918,30 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persiste
 			continue
 		}
 		blockers = append(blockers, sessionHomeLaunchBlocker{
-			RelPath:       entry.RelPath,
-			Reason:        reason,
-			Class:         entry.Class,
-			RuntimePolicy: entry.RuntimePolicy,
+			RelPath:        entry.RelPath,
+			Reason:         reason,
+			Class:          entry.Class,
+			RuntimePolicy:  entry.RuntimePolicy,
+			AdapterName:    entry.AdapterName,
+			AdapterOutcome: entry.AdapterOutcome,
 		})
 	}
 	return blockers, nil
+}
+
+func sessionHomeActivationBlockerReasonForEntry(entry sessionHomeAssemblyEntry) (sessionHomeLaunchBlockerReason, bool) {
+	reason, blocked := sessionHomeActivationBlockerReasonForPolicy(entry.RuntimePolicy)
+	if !blocked {
+		return "", false
+	}
+	switch entry.AdapterOutcome {
+	case sessionHomeAdapterImplemented, sessionHomeAdapterIgnoredEphemeral:
+		return "", false
+	case sessionHomeAdapterManualOnly, sessionHomeAdapterUnsupported:
+		return reason, true
+	default:
+		return reason, true
+	}
 }
 
 func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
@@ -891,6 +952,79 @@ func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy
 		return sessionHomeBlockerAdapterRequired, true
 	default:
 		return sessionHomeBlockerAdapterRequired, true
+	}
+}
+
+func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionHomeAdapterDecision {
+	if entry.RuntimePolicy != sessionHomePolicyAdapterRequired {
+		return sessionHomeAdapterDecision{}
+	}
+	switch entry.Class {
+	case containment.AgentHomeStateToolchainState:
+		if sessionHomeToolchainCacheAdapterPath(entry.RelPath, entry.Kind) {
+			return sessionHomeAdapterDecision{
+				Name:    sessionHomeAdapterToolchainCache,
+				Outcome: sessionHomeAdapterIgnoredEphemeral,
+			}
+		}
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterToolchainCache,
+			Outcome: sessionHomeAdapterUnsupported,
+		}
+	case containment.AgentHomeStateExecutable:
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterExecutableTooling,
+			Outcome: sessionHomeAdapterUnsupported,
+		}
+	case containment.AgentHomeStateHarnessState:
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterHarnessState,
+			Outcome: sessionHomeAdapterUnsupported,
+		}
+	case containment.AgentHomeStateXDGConfig, containment.AgentHomeStateXDGData:
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterXDGState,
+			Outcome: sessionHomeAdapterManualOnly,
+		}
+	case containment.AgentHomeStateShellConfig,
+		containment.AgentHomeStateGitConfig,
+		containment.AgentHomeStateTranscript,
+		containment.AgentHomeStateXDGCache:
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterUnknown,
+			Outcome: sessionHomeAdapterUnsupported,
+		}
+	default:
+		return sessionHomeAdapterDecision{
+			Name:    sessionHomeAdapterUnknown,
+			Outcome: sessionHomeAdapterUnsupported,
+		}
+	}
+}
+
+func sessionHomeToolchainCacheAdapterPath(rel string, kind containment.AgentHomeStateKind) bool {
+	if kind != containment.AgentHomeStateDir {
+		return false
+	}
+	switch rel {
+	case ".bun",
+		".cargo",
+		".deno",
+		".gem",
+		".gradle",
+		".ivy2",
+		".local/lib",
+		".m2",
+		".node-gyp",
+		".npm",
+		".pub-cache",
+		".rustup",
+		".sbt",
+		".swiftpm",
+		".terraform.d":
+		return true
+	default:
+		return false
 	}
 }
 
