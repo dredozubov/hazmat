@@ -245,8 +245,8 @@ Safe wording:
 
 - "Rollback and snapshots are recovery tools, not permission boundaries."
 - "`hazmat check` should be read-only and non-prompting in quick mode."
-- "`hazmat doctor --dry-run` explains the repair plan; `doctor --fix` applies
-  typed executable repairs."
+- "`hazmat doctor --fix` applies approved typed executable repairs;
+  `doctor --dry-run` previews the plan."
 - "Full validation and prepared-host smokes are sudo-adjacent and require
   explicit approval."
 - "If a session crashes with materialized file-backed credentials, startup

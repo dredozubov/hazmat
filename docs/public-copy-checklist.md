@@ -50,7 +50,7 @@ expectation.
 | "formally verified Hazmat" | "specific setup, rollback, launch, credential, and policy invariants are model-backed" |
 | "Docker support" | "Docker Sandbox for private-daemon workflows; native containment refuses host Docker socket shortcuts" |
 | "Linux support" | "Linux native launch remains readiness-gated" |
-| "doctor fixes it" | "`doctor --dry-run` explains the repair plan; `doctor --fix` applies typed executable repairs" |
+| "doctor fixes it" | "`doctor --fix` applies approved typed executable repairs; `doctor --dry-run` previews the plan" |
 
 ## Evidence Gate
 
