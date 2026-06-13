@@ -73,8 +73,9 @@ are **Recipes**, **Compatibility reports**, **RFCs**, and **Security research**.
 
 [docs/discussions.md](discussions.md) defines what belongs in each category,
 what should stay in Issues, and what must use the private security reporting
-path. The GitHub repository setting still needs to be enabled manually by a
-repo maintainer.
+path. [docs/community-labels.md](community-labels.md) defines the label map for
+turning community posts into issues or PRs. The GitHub repository setting still
+needs to be enabled manually by a repo maintainer.
 
 ## Public Roadmap
 

@@ -100,6 +100,10 @@ action is concrete. Good conversion examples:
 - an RFC becomes a design note under `docs/plans/`
 - a security research post becomes an incident-to-control writeup
 
+Use [docs/community-labels.md](community-labels.md) when converting a thread
+into an issue or bead so evidence, design-first work, and private security
+routing stay distinct.
+
 Close or redirect Discussions that ask Hazmat to:
 
 - import broad host profiles as a shortcut
