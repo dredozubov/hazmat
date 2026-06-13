@@ -44,6 +44,7 @@ These are the best places for wider contribution:
 - compatibility reports
 - harness bring-up notes and docs
 - incident repros and evidence gathering
+- incident-to-control bulletins
 - UX and onboarding docs
 - benchmark and drift data
 
@@ -57,6 +58,11 @@ If you want a low-risk first contribution:
 4. Tighten docs, examples, screenshots, or troubleshooting.
 
 If you want to work closer to the core, read [docs/design-assumptions.md](design-assumptions.md), [docs/testing.md](testing.md), and [tla/VERIFIED.md](../tla/VERIFIED.md) first so the review conversation starts on concrete ground.
+
+If you want to turn public security evidence into project work, use
+[docs/incident-to-control-bulletin.md](incident-to-control-bulletin.md). It
+keeps incident writeups tied to concrete controls, gaps, and follow-up beads
+instead of generic risk summaries.
 
 ## GitHub Surfaces
 
