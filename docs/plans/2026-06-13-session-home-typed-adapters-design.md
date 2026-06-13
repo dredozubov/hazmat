@@ -85,23 +85,27 @@ Tests:
 Targets: `.local/bin`, `.opencode/bin`, `.claude/hooks`, package-manager `bin`
 children, and other `executable-tooling` entries.
 
-Default behavior: `unsupported`.
+Default behavior: `implemented` as seed-only executable import with no
+writeback.
 
 Rationale: persistent executable shims are authority-bearing. If a session can
 rewrite them and Hazmat copies them back, future sessions may run attacker-chosen
-code before any prompt or package-manager command. The first activation should
-not persist executable mutations. A future adapter may support one of two
-explicit models:
+code before any prompt or package-manager command. The first activation
+therefore imports existing executable paths into the session home, preserves
+their executable bits, rejects symlinks, and never writes session mutations back
+to persistent agent state. A future package-manager adapter may add a narrower
+installer/update receipt model.
 
 - seed-only executable import for trusted existing files, with no writeback;
-- typed installer/update receipts for a specific package manager.
+- future typed installer/update receipts for a specific package manager.
 
 Tests:
 
-- executable persistent paths keep activation blocked until a concrete adapter
+- executable persistent paths do not block once the executable-tooling adapter
   is selected;
-- blocker metadata names `executable-tooling` and the unsupported adapter;
-- activation materialization refuses executable writeback receipts.
+- materialization copies existing executable paths into the session home;
+- symlinked executable paths are rejected;
+- activation materialization does not produce executable writeback receipts.
 
 ### Harness State Adapter
 
@@ -175,8 +179,8 @@ reason first, then include class/policy/adapter labels for each path.
    without touching the filesystem.
 3. Change activation blocker computation so existing toolchain cache roots with
    `ignored-ephemeral` no longer block activation.
-4. Keep executable tooling, broad harness state, and broad XDG data/config
-   blocked until their adapters become implemented.
+4. Keep broad harness state and any unsupported narrow paths blocked until
+   their adapters become implemented.
 5. Add hermetic tests for every manifest class and for the user-observed live
    failure classes.
 6. Only after non-live tests prove the plan, ask for approval to run the live

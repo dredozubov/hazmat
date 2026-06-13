@@ -170,7 +170,7 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	t.Setenv(experimentalSessionHomeEnv, "activate")
 	savedExists := sessionHomeActivationPersistentPathExists
 	sessionHomeActivationPersistentPathExists = func(path string) (bool, error) {
-		return strings.HasSuffix(path, filepath.Join(".local", "bin")), nil
+		return strings.HasSuffix(path, filepath.Join(".config", "mcp")), nil
 	}
 	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
 	savedMaterialize := materializeSessionHomeLaunchPlanForActivation
@@ -185,7 +185,7 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if err == nil || !strings.Contains(err.Error(), "adapter required") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
 	}
-	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin [executable-tooling/adapter-required; adapter=executable-tooling:unsupported]") {
+	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .config/mcp [harness-state/adapter-required; adapter=harness-state:unsupported]") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
 	}
 	if cfg.SessionHome != nil {
@@ -292,7 +292,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			durability:     sessionHomeDurableMirror,
 			policy:         sessionHomePolicyAdapterRequired,
 			adapter:        sessionHomeAdapterExecutableTooling,
-			adapterOutcome: sessionHomeAdapterUnsupported,
+			adapterOutcome: sessionHomeAdapterImplemented,
 			executable:     true,
 		},
 		{
@@ -416,7 +416,7 @@ func TestNewSessionHomeLaunchPlanOmitsResumeSyncWhenNotRequested(t *testing.T) {
 
 func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t *testing.T) {
 	persistentHome := filepath.Join(t.TempDir(), "agent")
-	if err := os.MkdirAll(filepath.Join(persistentHome, ".local", "bin"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".config", "mcp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
@@ -433,7 +433,7 @@ func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t
 		switch {
 		case blocker.RelPath == "session-home" && blocker.Reason == sessionHomeBlockerActivationGate:
 			foundGate = true
-		case blocker.RelPath == ".local/bin" && blocker.Reason == sessionHomeBlockerAdapterRequired:
+		case blocker.RelPath == ".config/mcp" && blocker.Reason == sessionHomeBlockerAdapterRequired:
 			foundAdapter = true
 		case blocker.Reason == sessionHomeBlockerAdapterRequired || blocker.Reason == sessionHomeBlockerActivationGate:
 		default:
@@ -445,6 +445,23 @@ func TestNewSessionHomeLaunchPlanBlocksActivationOnGateAndExistingAdapterState(t
 	}
 	if got := sessionHomeActivationBlockerSummary(plan.Blockers); strings.Contains(got, "seed materialization") || !strings.Contains(got, "activation gate") || !strings.Contains(got, "adapter required") {
 		t.Fatalf("blocker summary = %q", got)
+	}
+}
+
+func TestNewSessionHomeLaunchPlanDoesNotBlockOnImplementedExecutableTooling(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".local", "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".local/bin" {
+			t.Fatalf("activation blockers = %+v, want implemented executable tooling not to block", plan.Blockers)
+		}
 	}
 }
 
@@ -888,8 +905,15 @@ func TestMaterializeSessionHomeLaunchPlanAssemblesSupportedRuntimePaths(t *testi
 	if _, err := os.Stat(filepath.Join(persistentHome, ".hazmat", "hermes", "projects")); err != nil {
 		t.Fatalf("stat Hermes persistent root: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); !os.IsNotExist(err) {
-		t.Fatalf("adapter-required .local/bin should not be copied, err=%v", err)
+	copiedTool := filepath.Join(plan.Layout.Home, ".local", "bin", "tool")
+	if got, err := os.ReadFile(copiedTool); err != nil || string(got) != "#!/bin/sh\n" {
+		t.Fatalf("copied executable tool = %q err=%v", got, err)
+	}
+	if info, err := os.Stat(copiedTool); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("copied executable mode err=%v info=%v", err, info)
+	}
+	if _, err := os.Lstat(filepath.Join(plan.Layout.Home, ".cache", "package-cache")); !os.IsNotExist(err) {
+		t.Fatalf(".cache/package-cache should not be seed-copied, err=%v", err)
 	}
 }
 
@@ -1110,10 +1134,16 @@ func TestMaterializeSessionHomeSeedEntriesCopiesOnlySeedPolicyPaths(t *testing.T
 	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".claude", "commands")); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("copied commands dir mode err=%v info=%v", err, info)
 	}
-	for _, rel := range []string{".local/bin/tool", ".cache/package-cache"} {
+	for _, rel := range []string{".cache/package-cache"} {
 		if _, err := os.Lstat(filepath.Join(plan.Layout.Home, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("%s should not be seed-copied, err=%v", rel, err)
 		}
+	}
+	if got, err := os.ReadFile(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); err != nil || string(got) != "#!/bin/sh\n" {
+		t.Fatalf("read copied executable tool = %q err=%v", got, err)
+	}
+	if info, err := os.Stat(filepath.Join(plan.Layout.Home, ".local", "bin", "tool")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("copied executable tool mode err=%v info=%v", err, info)
 	}
 }
 
@@ -1140,6 +1170,32 @@ func TestMaterializeSessionHomeSeedEntriesRejectsSeedSymlinks(t *testing.T) {
 	err = materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly)
 	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
 		t.Fatalf("materializeSessionHomeSeedEntries err = %v, want symlink rejection", err)
+	}
+}
+
+func TestMaterializeSessionHomeSeedEntriesRejectsExecutableSymlinks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "hazmat-home")
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	plan, err := newSessionHomeLaunchPlan(root, "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+	if err := createSessionHomeLayout(plan.Layout); err != nil {
+		t.Fatalf("createSessionHomeLayout: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".local"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(persistentHome, "tool-real"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(persistentHome, "tool-real"), filepath.Join(persistentHome, ".local", "bin")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = materializeSessionHomeSeedEntries(plan.Layout, plan.Assembly)
+	if err == nil || !strings.Contains(err.Error(), "symlinks are not supported") {
+		t.Fatalf("materializeSessionHomeSeedEntries err = %v, want executable symlink rejection", err)
 	}
 }
 

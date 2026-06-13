@@ -651,7 +651,7 @@ func materializeSessionHomeBridgesForActivation(layout sessionHomeLayout, requir
 
 func materializeSessionHomeSeedEntriesForActivation(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {
 	for _, entry := range assembly {
-		if entry.RuntimePolicy != sessionHomePolicySeedOnly {
+		if !sessionHomeCopiesIntoSession(entry) {
 			continue
 		}
 		if err := validateSessionHomeAssemblyEntry(layout, entry); err != nil {
@@ -666,7 +666,7 @@ func materializeSessionHomeSeedEntriesForActivation(layout sessionHomeLayout, as
 
 func materializeSessionHomeSeedEntries(layout sessionHomeLayout, assembly []sessionHomeAssemblyEntry) error {
 	for _, entry := range assembly {
-		if entry.RuntimePolicy != sessionHomePolicySeedOnly {
+		if !sessionHomeCopiesIntoSession(entry) {
 			continue
 		}
 		if err := validateSessionHomeAssemblyEntry(layout, entry); err != nil {
@@ -677,6 +677,14 @@ func materializeSessionHomeSeedEntries(layout sessionHomeLayout, assembly []sess
 		}
 	}
 	return nil
+}
+
+func sessionHomeCopiesIntoSession(entry sessionHomeAssemblyEntry) bool {
+	if entry.RuntimePolicy == sessionHomePolicySeedOnly {
+		return true
+	}
+	return entry.AdapterName == sessionHomeAdapterExecutableTooling &&
+		entry.AdapterOutcome == sessionHomeAdapterImplemented
 }
 
 func validateSessionHomeAssemblyEntry(layout sessionHomeLayout, entry sessionHomeAssemblyEntry) error {
@@ -974,7 +982,7 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 	case containment.AgentHomeStateExecutable:
 		return sessionHomeAdapterDecision{
 			Name:    sessionHomeAdapterExecutableTooling,
-			Outcome: sessionHomeAdapterUnsupported,
+			Outcome: sessionHomeAdapterImplemented,
 		}
 	case containment.AgentHomeStateHarnessState:
 		return sessionHomeAdapterDecision{
