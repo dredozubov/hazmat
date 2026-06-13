@@ -49,6 +49,9 @@ func TestDoctorFixThenCheckDoesNotRecommendInitForSameFinding(t *testing.T) {
 	if diagnosticReportAdviceMentions(doctorReport, "hazmat init") {
 		t.Fatalf("doctor report loops back to init: %s", diagnosticReportJSON(t, doctorReport))
 	}
+	if diagnosticReportAdviceMentions(doctorReport, "hazmat doctor --fix") {
+		t.Fatalf("doctor report offers mutating retry after failed verification: %s", diagnosticReportJSON(t, doctorReport))
+	}
 
 	checkUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "check"}}
 	checkUI.stepLabel = "Hardening gaps"
@@ -79,6 +82,11 @@ func diagnosticReportAdviceMentions(report uiDiagnosticReport, needle string) bo
 		if strings.Contains(step.ID, needle) ||
 			strings.Contains(step.Command, needle) ||
 			strings.Contains(step.Reason, needle) {
+			return true
+		}
+	}
+	for _, example := range report.RepairPlan.Execution.Examples {
+		if strings.Contains(example, needle) {
 			return true
 		}
 	}

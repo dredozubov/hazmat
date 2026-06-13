@@ -293,9 +293,16 @@ func diagnosticRepairPlanSummaryFor(plan diagnosticRepairPlan) diagnosticRepairP
 
 func diagnosticRepairExecutionExamplesForPlan(plan diagnosticRepairPlan) []string {
 	examples := append([]string(nil), plan.Execution.Examples...)
+	if plan.Summary.FailedVerifications > 0 {
+		return filterMutatingDiagnosticExamples(examples)
+	}
 	if plan.Summary.RemainingExecutable > 0 || plan.Summary.Remaining == 0 {
 		return examples
 	}
+	return filterMutatingDiagnosticExamples(examples)
+}
+
+func filterMutatingDiagnosticExamples(examples []string) []string {
 	var filtered []string
 	for _, example := range examples {
 		if strings.HasPrefix(example, "hazmat doctor --fix") {
