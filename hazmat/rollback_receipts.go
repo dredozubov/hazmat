@@ -66,7 +66,7 @@ func rollbackCredentialReceipts(entries []credentialInventoryEntry) []rollbackRe
 }
 
 func rollbackCredentialDetails(entry credentialInventoryEntry) []string {
-	details := []string{fmt.Sprintf("preserved credential residue for %s; preview supported repairs with hazmat doctor --dry-run, apply them with hazmat doctor --fix, or run hazmat config migration before cleanup", entry.ID)}
+	details := []string{fmt.Sprintf("preserved credential residue for %s; apply supported repairs with hazmat doctor --fix, preview them with hazmat doctor --dry-run, or run hazmat config migration before cleanup", entry.ID)}
 	for _, finding := range entry.AgentResidue {
 		details = append(details, fmt.Sprintf("agent residue: %s", finding.Path))
 	}

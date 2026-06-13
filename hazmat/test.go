@@ -206,7 +206,7 @@ func testAgentUser(ui *UI) {
 }
 
 func missingAgentUserRepairAdvice() string {
-	return fmt.Sprintf("User '%s' does not exist — baseline setup is missing; preview setup repairs with hazmat doctor --dry-run or apply approved executable repairs with hazmat doctor --fix", agentUser)
+	return fmt.Sprintf("User '%s' does not exist — baseline setup is missing; apply approved executable repairs with hazmat doctor --fix or preview setup repairs with hazmat doctor --dry-run", agentUser)
 }
 
 // ── Step 2: Dev group and home traverse ──────────────────────────────────────
