@@ -570,7 +570,7 @@ func (u *UI) diagnosticReportWithRepairPlan(plan diagnosticRepairPlan) uiDiagnos
 		Quick:           u.Quick,
 		Totals:          uiDiagnosticTotals{Pass: u.Pass, Fail: u.Fail, Warn: u.Warn, Skip: u.Skip},
 		Findings:        diagnosticFindingJSONs(u.findings),
-		Recommendations: diagnosticRecommendationJSONs(recommendations),
+		Recommendations: diagnosticRecommendationJSONsForPlan(recommendations, plan),
 		RepairPlan:      plan,
 	}
 }
@@ -612,9 +612,18 @@ func diagnosticResourceJSON(id diagnosticResourceID) *uiDiagnosticResource {
 	}
 }
 
-func diagnosticRecommendationJSONs(recommendations []uiRecommendation) []uiDiagnosticRecommendation {
+func diagnosticRecommendationJSONsForPlan(recommendations []uiRecommendation, plan diagnosticRepairPlan) []uiDiagnosticRecommendation {
+	repaired := map[string]struct{}{}
+	for _, item := range plan.Items {
+		if item.Status == diagnosticRepairStatusRepaired {
+			repaired[item.Key] = struct{}{}
+		}
+	}
 	out := make([]uiDiagnosticRecommendation, 0, len(recommendations))
 	for _, rec := range recommendations {
+		if _, ok := repaired[rec.Key]; ok {
+			continue
+		}
 		def := rec.Definition
 		out = append(out, uiDiagnosticRecommendation{
 			Key:              rec.Key,

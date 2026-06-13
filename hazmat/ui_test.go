@@ -465,9 +465,13 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	ui.stepLabel = "Hardening gaps"
 	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
 
-	plan := ui.diagnosticReport().RepairPlan
+	report := ui.diagnosticReport()
+	plan := report.RepairPlan
 	if plan.Mode != "executed" || !plan.Mutating || plan.Execution.Mode != "fix-yes" {
 		t.Fatalf("plan execution = mode %q mutating=%v policy=%+v, want executed fix-yes", plan.Mode, plan.Mutating, plan.Execution)
+	}
+	if len(report.Recommendations) != 0 {
+		t.Fatalf("recommendations = %+v, want repaired item omitted from legacy recommendations", report.Recommendations)
 	}
 	if backend.applyCalls != 1 || backend.verifyCalls != 1 {
 		t.Fatalf("backend calls = apply %d verify %d, want 1/1", backend.applyCalls, backend.verifyCalls)
