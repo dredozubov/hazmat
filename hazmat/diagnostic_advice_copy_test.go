@@ -94,8 +94,8 @@ func TestStatusFullHelpNamesLiveNetworkProbes(t *testing.T) {
 		t.Fatal("status --full flag missing")
 	}
 	joined := strings.Join([]string{cmd.Long, flag.Usage}, "\n")
-	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "live network probes") {
-		t.Fatalf("status --full help = %q, want check --full and live network probe wording", joined)
+	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "helper-backed live validation") || !strings.Contains(joined, "sudo-adjacent") {
+		t.Fatalf("status --full help = %q, want check --full and helper-backed sudo-adjacent wording", joined)
 	}
 	if strings.Contains(joined, "check --quick") || strings.Contains(joined, "same as 'hazmat check --quick'") {
 		t.Fatalf("status --full help = %q, want no quick-mode equivalence", joined)

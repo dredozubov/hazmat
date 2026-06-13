@@ -30,7 +30,7 @@ type UI struct {
 	// explicitly allowed. A nil backend leaves the plan deterministic and
 	// reports verification failures instead of attempting host mutations.
 	RepairBackend diagnosticRepairBackend
-	// Quick records whether diagnostic live network probes were skipped.
+	// Quick records whether diagnostic helper-backed live probes were skipped.
 	Quick bool
 	// JSON suppresses terminal rendering and emits a machine-readable
 	// diagnostic report from Summary.
@@ -467,7 +467,7 @@ func (u *UI) recommendationFooter() string {
 	}
 	if u.RepairExecution.Command == "doctor" {
 		if u.RepairExecution.Fix {
-			return "  After approved repairs, rerun: hazmat check --full"
+			return "  After approved repairs, rerun helper-backed verification with approval: hazmat check --full"
 		}
 		return "  To apply approved executable repairs, rerun: hazmat doctor --fix"
 	}
@@ -496,7 +496,7 @@ func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
 		if len(plan.ManualItems) > 0 || len(plan.SkippedItems) > 0 {
 			return "  Executable repairs verified. Some findings still need manual action or are informational; inspect the remaining plan items before treating the host as clean."
 		}
-		return "  After approved repairs, rerun: hazmat check --full"
+		return "  After approved repairs, rerun helper-backed verification with approval: hazmat check --full"
 	default:
 		return u.recommendationFooter()
 	}

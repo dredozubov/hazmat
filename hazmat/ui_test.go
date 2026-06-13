@@ -453,6 +453,9 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	if len(plan.NextSteps) != 1 || plan.NextSteps[0].Command != "hazmat check --full" || plan.NextSteps[0].Mutating {
 		t.Fatalf("next steps = %+v, want non-mutating full verification", plan.NextSteps)
 	}
+	if !strings.Contains(plan.NextSteps[0].Reason, "helper-backed live validation") || !strings.Contains(plan.NextSteps[0].Reason, "ask before running") {
+		t.Fatalf("next step reason = %q, want helper-backed approval disclosure", plan.NextSteps[0].Reason)
+	}
 }
 
 func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {

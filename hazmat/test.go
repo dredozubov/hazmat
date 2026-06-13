@@ -60,7 +60,7 @@ func runTest(options diagnostics.CheckOptions) error {
 				fmt.Printf("  Running as: %s\n", cu.Username)
 				fmt.Printf("  Agent user: %s\n", agentUser)
 				if quick {
-					cYellow.Println("  Quick mode: live network tests skipped")
+					cYellow.Println("  Quick mode: helper-backed live probes skipped")
 				}
 				fmt.Println()
 			}
@@ -99,7 +99,7 @@ func runTest(options diagnostics.CheckOptions) error {
 func diagnosticModeGuidanceLines() []string {
 	return []string{
 		"    hazmat check          Read-only health report (no external traffic)",
-		"    hazmat check --full   Read-only health report with live network probes",
+		"    hazmat check --full   Helper-backed live probes (sudo-adjacent)",
 		"    hazmat doctor --fix   Apply approved executable typed repairs",
 		"    hazmat doctor --dry-run",
 		"                          Preview the typed repair plan",

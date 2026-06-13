@@ -15,8 +15,9 @@ func NewCheckCommand(run CheckRunner) *cobra.Command {
 	return newCheckCommand("check", "Verify setup and show a read-only repairability report", `Runs the verification suite to check that containment is correctly configured.
 
 By default runs quick checks (no network traffic). Use --full to include
-live network probes that verify firewall rules are active. Failures and warnings
-are summarized as a read-only health and repairability report.
+helper-backed live network probes that send external traffic and are
+sudo-adjacent in agent workflows. Failures and warnings are summarized as a
+read-only health and repairability report.
 
 When executable typed repairs are planned, run hazmat doctor --fix. To preview
 the typed repair plan explicitly, run hazmat doctor --dry-run.`, false, run)
@@ -27,7 +28,8 @@ func NewDoctorCommand(run CheckRunner) *cobra.Command {
 repair plan for any failures or warnings.
 
 By default runs quick checks (no network traffic). Use --full to include
-live network probes that verify firewall rules are active.
+helper-backed live network probes that send external traffic and are
+sudo-adjacent in agent workflows.
 
 Use hazmat doctor --dry-run when you want to spell out non-mutating preview
 behavior. Plain doctor remains compatible and plan-only. Mutation requires
@@ -50,7 +52,7 @@ func newCheckCommand(use, short, long string, allowFix bool, run CheckRunner) *c
 			return run(CheckOptions{Command: use, Quick: !full, JSON: jsonOutput, Fix: fix})
 		},
 	}
-	cmd.Flags().BoolVar(&full, "full", false, "Include live network probes (sends external traffic)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include helper-backed live network probes (sends external traffic; sudo-adjacent in agent workflows)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit machine-readable diagnostic report JSON")
 	if allowFix {
 		cmd.Flags().BoolVar(&fix, "fix", false, "Apply the typed repair plan after diagnosis")

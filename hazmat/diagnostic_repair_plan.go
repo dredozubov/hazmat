@@ -394,7 +394,7 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 			ID:       "verify-host",
 			Command:  "hazmat check --full",
 			Mutating: false,
-			Reason:   "Verify the host after approved repairs.",
+			Reason:   "Verify the host after approved repairs with helper-backed live validation; ask before running in agent workflows.",
 		})
 	}
 
