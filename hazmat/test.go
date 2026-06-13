@@ -101,8 +101,8 @@ func runTest(options diagnostics.CheckOptions) error {
 
 func diagnosticModeGuidanceLines() []string {
 	return []string{
-		"    hazmat check          Read-only health report (no external traffic)",
-		"    hazmat check --full   Helper-backed live probes (sudo-adjacent)",
+		"    hazmat check          Quick health report (no backup smokes or external traffic)",
+		"    hazmat check --full   Helper-backed, backup, and cloud live probes (sudo-adjacent)",
 		"    hazmat doctor --fix   Apply approved executable typed repairs",
 		"    hazmat doctor --dry-run",
 		"                          Preview the typed repair plan",
