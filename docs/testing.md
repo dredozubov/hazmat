@@ -405,11 +405,13 @@ scripts/check-readme-proof-stack-smoke.sh --run --i-understand-this-runs-hazmat-
 
 By default the host secret fixture is `$HOME/.ssh/id_ed25519`; override it with
 `HAZMAT_PROOF_STACK_SECRET_PATH` if the machine uses a different private
-fixture. The live smoke creates a scratch demo project, writes `proof.txt`
-inside the contained session, attempts to read the host secret fixture without
-printing its bytes, and then runs `hazmat diff` from the scratch project for
-recovery evidence. Use `--output-dir <dir>` during an approved live run to save
-the sanitized session and diff snippets for README work.
+fixture. The secret fixture path must be absolute, so the proof cannot pass
+only because a relative path was resolved inside the scratch project. The live
+smoke creates a scratch demo project, writes `proof.txt` inside the contained
+session, attempts to read the host secret fixture without printing its bytes,
+and then runs `hazmat diff` from the scratch project for recovery evidence. Use
+`--output-dir <dir>` during an approved live run to save the sanitized session
+and diff snippets for README work.
 
 ### Adding Credential Surfaces
 

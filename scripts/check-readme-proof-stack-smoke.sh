@@ -132,6 +132,14 @@ check_fixtures() {
 	require_command mktemp
 	require_command git
 
+	case "$SECRET_PATH" in
+		/*)
+			;;
+		*)
+			add_missing_fixture "$SECRET_PATH must be an absolute host secret fixture path"
+			;;
+	esac
+
 	if [ ! -e "$SECRET_PATH" ]; then
 		add_missing_fixture "$SECRET_PATH does not exist; set HAZMAT_PROOF_STACK_SECRET_PATH to an existing host secret fixture"
 	elif [ ! -f "$SECRET_PATH" ]; then
