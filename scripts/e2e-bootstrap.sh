@@ -35,7 +35,7 @@ phase() { printf "\n\033[1m── %s ──\033[0m\n\n" "$1"; }
 acquire_hazmat_test_suite_lock "scripts/e2e-bootstrap.sh"
 
 if ! id agent >/dev/null 2>&1; then
-    echo "error: agent user does not exist — run 'hazmat init' first" >&2
+    echo "error: agent user does not exist — fresh host: run 'hazmat init' first; setup drift: run 'hazmat doctor --fix' (preview: 'hazmat doctor --dry-run')" >&2
     exit 1
 fi
 

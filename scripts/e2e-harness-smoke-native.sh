@@ -233,7 +233,7 @@ if [ "$(/usr/bin/uname -s)" != "Darwin" ]; then
 fi
 
 if ! /usr/bin/id agent >/dev/null 2>&1; then
-    die "agent user does not exist; run hazmat init first"
+    die "agent user does not exist; fresh host: run hazmat init first; setup drift: run hazmat doctor --fix (preview: hazmat doctor --dry-run)"
 fi
 
 if ! sudo -n true >/dev/null 2>&1; then
