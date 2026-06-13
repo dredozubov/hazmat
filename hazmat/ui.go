@@ -450,8 +450,12 @@ func diagnosticRepairPlanDeclined(plan diagnosticRepairPlan) diagnosticRepairPla
 func diagnosticRepairPlanNoExecutable(plan diagnosticRepairPlan) diagnosticRepairPlan {
 	plan.Mutating = false
 	plan.Execution.MutationAllowed = false
+	plan.Execution.RequiresFix = false
+	plan.Execution.RequiresYes = false
+	plan.Execution.RequiresInteractiveConsent = false
 	plan.Execution.Mode = "no-executable"
 	plan.Execution.Reason = "no executable repairs were planned; no mutation attempted"
+	plan.Execution.Examples = nil
 	return plan.withSummary()
 }
 

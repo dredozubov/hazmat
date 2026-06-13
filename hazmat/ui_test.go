@@ -509,6 +509,9 @@ func TestDoctorFixYesCleanPlanIsNonMutatingNoop(t *testing.T) {
 	if plan.Mode != "preview" || plan.Mutating || plan.Execution.MutationAllowed {
 		t.Fatalf("plan = mode %q mutating=%v execution=%+v, want non-mutating clean preview", plan.Mode, plan.Mutating, plan.Execution)
 	}
+	if plan.Execution.RequiresFix || plan.Execution.RequiresYes || plan.Execution.RequiresInteractiveConsent {
+		t.Fatalf("execution policy = %+v, want no mutation prerequisites for clean no-op", plan.Execution)
+	}
 	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
 		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
 	}
@@ -538,6 +541,9 @@ func TestDoctorFixYesManualOnlyPlanIsNonMutatingInspectOnly(t *testing.T) {
 	plan := ui.diagnosticReport().RepairPlan
 	if plan.Mode != "preview" || plan.Mutating || plan.Execution.MutationAllowed {
 		t.Fatalf("plan = mode %q mutating=%v execution=%+v, want non-mutating manual-only preview", plan.Mode, plan.Mutating, plan.Execution)
+	}
+	if plan.Execution.RequiresFix || plan.Execution.RequiresYes || plan.Execution.RequiresInteractiveConsent {
+		t.Fatalf("execution policy = %+v, want no mutation prerequisites for manual-only no-op", plan.Execution)
 	}
 	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
 		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
