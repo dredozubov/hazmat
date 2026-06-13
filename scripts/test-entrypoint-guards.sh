@@ -250,6 +250,11 @@ assert_succeeds_with \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh"
 
 assert_succeeds_with \
+    "Claude Workflow export smoke discloses default prompt fallback" \
+    "default or override prompt" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh"
+
+assert_succeeds_with \
     "session-home activation smoke defaults to disclosure" \
     "session-home-smoke: dry run only" \
     "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh"

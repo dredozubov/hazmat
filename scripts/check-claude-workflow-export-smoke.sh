@@ -153,7 +153,7 @@ print_disclosure() {
 claude-workflow-export-smoke: dry run only
 
 This script validates the live Claude Workflow/subagent export-resume handoff.
-It starts a contained Claude print-mode run from a caller-provided prompt,
+It starts a contained Claude print-mode run from the default or override prompt,
 exports the latest contained session into the host Claude store, checks that the
 exported host transcript/sidecar files do not contain stale agent Claude project
 paths, and resumes the exported session with host Claude.
