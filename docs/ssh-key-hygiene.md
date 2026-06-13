@@ -2,8 +2,8 @@
 
 Hazmat's SSH support is intentionally narrow: it gives a project a specific
 Git-over-SSH capability, not general SSH shell access. Every key you assign
-with `hazmat config ssh set ...` should be treated as delegated authority for
-that project.
+with `hazmat config ssh add ...` should be treated as delegated authority for
+the configured project and destination hosts.
 
 The safest mental model is simple:
 
@@ -15,17 +15,35 @@ The safest mental model is simple:
 ## The Core Rules
 
 1. Use a dedicated key for Hazmat, not the same key you use in your own shell.
-2. Split keys by blast radius, not convenience. Separate keys for:
-   - personal GitHub
-   - company GitHub
-   - staging servers
-   - production servers
-   - bastions
+2. Split keys by blast radius, not convenience.
 3. Prefer read-only or narrowly-scoped credentials by default.
-4. If a key must reach multiple systems, those systems should belong to the
+4. Give each configured project key an explicit host list. Hazmat rejects the
+   old any-host fallback.
+5. If a key must reach multiple systems, those systems should belong to the
    same trust domain.
-5. Pin host keys. Hazmat reads `known_hosts` from the same directory as the
+6. Pin host keys. Hazmat reads `known_hosts` from the same directory as the
    selected private key, so the directory layout is part of the security model.
+
+Separate keys for personal GitHub, company GitHub, staging, production, and
+bastions. A key that can push production code should not also be the key an
+agent uses for routine repo work.
+
+## What Hazmat Does With The Key
+
+Hazmat does not copy the private key into the contained session and does not
+expose `SSH_AUTH_SOCK`. Native sessions receive `GIT_SSH_COMMAND`, which routes
+Git transport through a host-side broker. The broker selects the configured key
+by destination host and runs Git SSH transport only.
+
+That means:
+
+- Git fetch, pull, clone, and push can work when the project has a matching
+  key and host.
+- Arbitrary SSH shells are still unsupported.
+- Docker Sandbox mode currently fails closed for managed Git SSH until a
+  container-side adapter exists.
+- A successful `hazmat config ssh test` proves the Git host route works; it is
+  not a promise that general SSH access is available in the agent session.
 
 ## Recommended Directory Layout
 
@@ -52,8 +70,9 @@ trust domain:
 Then assign the exact private key you want:
 
 ```bash
-hazmat config ssh set ~/.config/hazmat/ssh/github-work/id_ed25519
-hazmat config ssh test --host github.com
+hazmat config ssh add -C ~/workspace/my-project \
+    --name github --host github.com ~/.config/hazmat/ssh/github-work/id_ed25519
+hazmat config ssh test -C ~/workspace/my-project --host github.com
 ```
 
 If you keep everything in `~/.ssh`, Hazmat can use that too. You just lose some
@@ -66,8 +85,8 @@ per-target `known_hosts` files.
 | --- | --- | --- |
 | One GitHub repo | Deploy key | Repo-scoped, simple, read-only by default |
 | Several repos in one org | GitHub App if HTTPS is acceptable; otherwise machine user or SSH CA | Better scoping than one broad personal key |
-| One SSH server | Dedicated Unix account + dedicated key | Clear blast radius |
-| Fleet of servers you control | SSH CA + short-lived user certs | Strongest operational model |
+| One Git SSH server | Dedicated Unix account + dedicated key | Clear blast radius for Git transport |
+| Fleet of Git SSH servers you control | SSH CA + short-lived user certs | Strongest operational model |
 
 ## GitHub Guidance
 
@@ -225,6 +244,7 @@ Avoid these patterns:
 
 - assigning your personal all-purpose `~/.ssh/id_ed25519` to Hazmat
 - reusing one production-capable key across unrelated projects
+- configuring a key without a host scope
 - sharing one `known_hosts` file across unrelated trust domains if you want
   strong separation
 - treating `hazmat config ssh test` success as proof that arbitrary SSH shell
@@ -241,21 +261,23 @@ ssh-keygen -t ed25519 -f ~/.config/hazmat/ssh/my-repo/id_ed25519 -C "hazmat my-r
 # Add the public key as a deploy key in GitHub, then pin GitHub host keys
 # into ~/.config/hazmat/ssh/my-repo/known_hosts.
 
-hazmat config ssh set ~/.config/hazmat/ssh/my-repo/id_ed25519
-hazmat config ssh test --host github.com
+hazmat config ssh add -C ~/workspace/my-repo \
+    --name github --host github.com ~/.config/hazmat/ssh/my-repo/id_ed25519
+hazmat config ssh test -C ~/workspace/my-repo --host github.com
 ```
 
-### One remote server
+### One remote Git server
 
 ```bash
 mkdir -p ~/.config/hazmat/ssh/staging-box
 ssh-keygen -t ed25519 -f ~/.config/hazmat/ssh/staging-box/id_ed25519 -C "hazmat staging-box"
 
-# Install the public key on the server account and pin that server's host key
-# into ~/.config/hazmat/ssh/staging-box/known_hosts.
+# Install the public key on the Git server account and pin that server's host
+# key into ~/.config/hazmat/ssh/staging-box/known_hosts.
 
-hazmat config ssh set ~/.config/hazmat/ssh/staging-box/id_ed25519
-hazmat config ssh test --host staging-box
+hazmat config ssh add -C ~/workspace/my-project \
+    --name staging --host staging-box ~/.config/hazmat/ssh/staging-box/id_ed25519
+hazmat config ssh test -C ~/workspace/my-project --host staging-box
 ```
 
 The key point is the same in both cases: one key directory, one trust domain,
