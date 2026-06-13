@@ -83,6 +83,31 @@ func TestInitHelpUsesDoctorForPostInitRepairPath(t *testing.T) {
 	}
 }
 
+func TestBootstrapClaudeHelpPrefersHarnessLifecycleAndDriftRepair(t *testing.T) {
+	cmd := newBootstrapClaudeCmd()
+	text := strings.Join(strings.Fields(strings.Join([]string{cmd.Short, cmd.Long}, "\n")), " ")
+	required := []string{
+		"hazmat harness update claude",
+		"On a fresh host, run 'hazmat init' first",
+		"If setup already ran but helper artifacts drifted, run",
+		"hazmat doctor --fix",
+		"hazmat doctor --dry-run",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("bootstrap claude help missing %q:\n%s", phrase, text)
+		}
+	}
+	for _, stale := range []string{
+		"Run once after 'hazmat init'",
+		"run 'hazmat init' first if not",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("bootstrap claude help still uses stale phrase %q:\n%s", stale, text)
+		}
+	}
+}
+
 func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
 	if strings.Contains(statusIncompleteSetupAdvice, "hazmat init") {
 		t.Fatalf("status advice = %q, want no init retry loop in repair advice", statusIncompleteSetupAdvice)

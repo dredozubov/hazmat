@@ -172,13 +172,19 @@ func newBootstrapClaudeCmd() *cobra.Command {
 		Long: `Install or update Claude Code for the agent user, write a default settings.json with
 allow/deny rules, and create a PreToolUse hook skeleton.
 
-Run once after 'hazmat init'. Uses the passwordless sudo rule configured
-during init for the Hazmat helper. Hazmat-owned bootstrap steps run through
-that narrow helper path; the broader optional agent-maintenance sudoers rule
-is only for manual generic 'sudo -u agent ...' commands.
+Prefer the lifecycle command:
+
+  hazmat harness update claude
+
+This compatibility alias requires baseline setup. On a fresh host, run
+'hazmat init' first. If setup already ran but helper artifacts drifted, run
+'hazmat doctor --fix' (preview: 'hazmat doctor --dry-run'). Hazmat-owned
+bootstrap steps run through the narrow helper path configured by setup; the
+broader optional agent-maintenance sudoers rule is only for manual generic
+'sudo -u agent ...' commands.
 
 Steps:
-  1. Verify the agent user exists (run 'hazmat init' first if not)
+  1. Verify the agent user exists and setup helper path is usable
   2. Install or update Claude Code under ~/.local/bin/claude for the agent user
   3. Write ~/.claude/settings.json (0600) if not already present
   4. Create ~/.claude/hooks/ (0700) and a PreToolUse hook (0700) if absent
