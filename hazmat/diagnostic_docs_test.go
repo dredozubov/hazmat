@@ -93,3 +93,26 @@ func TestUsageDocsUseDirectPostInitRepairPath(t *testing.T) {
 		t.Fatal("docs/usage.md still routes post-init drift through check/dry-run only")
 	}
 }
+
+func TestManualTestingCredentialFlowExercisesDoctorRepair(t *testing.T) {
+	data, err := os.ReadFile("../docs/manual-testing.md")
+	if err != nil {
+		t.Fatalf("read manual testing docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"Credential inventory and legacy residue",
+		"run `hazmat doctor --dry-run`",
+		"typed executable repairs",
+		"run `hazmat doctor --fix` and approve the credential repair plan",
+		"Use `hazmat migrate credentials --dry-run` only when validating the scoped lower-level migration command directly",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/manual-testing.md missing %q", phrase)
+		}
+	}
+	if strings.Contains(text, "Steps: run `hazmat migrate credentials --dry-run`; run `hazmat migrate credentials`; run `hazmat check`") {
+		t.Fatal("docs/manual-testing.md still makes migration command the primary credential repair path")
+	}
+}

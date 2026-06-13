@@ -282,7 +282,7 @@ These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **Credential inventory and legacy residue**
   - Preconditions: at least one configured provider key or imported harness auth; optional old residue under `/Users/agent/.zshrc`, `/Users/agent/.config/git/credentials`, `~/.hazmat/cloud-credentials`, or `~/.hazmat/ssh/keys` for migration checks.
-  - Steps: run `hazmat migrate credentials --dry-run`; run `hazmat migrate credentials`; run `hazmat check`; inspect the "Credential inventory" section.
+  - Steps: run `hazmat doctor --dry-run`; confirm credential residue appears as typed executable repairs; run `hazmat doctor --fix` and approve the credential repair plan; run `hazmat check` and inspect the "Credential inventory" section. Use `hazmat migrate credentials --dry-run` only when validating the scoped lower-level migration command directly.
   - Expected: every credential surface is reported by registry ID with backend, delivery mode, and host-store presence/absence. Legacy locations are migrated or produce actionable repair guidance. Output must not contain raw API keys, OAuth tokens, PATs, S3 keys, recovery keys, or SSH private-key material.
 
 - [ ] **Git HTTPS credential broker**
