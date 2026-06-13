@@ -241,8 +241,11 @@ session-home-smoke: activation stopped before the toolchain matrix.
 session-home-smoke: inspect the listed Blocking paths above; adapter-required
 session-home-smoke: durable state needs a typed bridge/materializer or an
 session-home-smoke: intentional fail-closed policy. Do not rerun hazmat init.
-session-home-smoke: if no Blocking paths were printed, rebuild/reinstall
-session-home-smoke: Hazmat so the current blocker-detail diagnostics are used.
+session-home-smoke: if no Blocking paths were printed, rebuild and rerun the
+session-home-smoke: repo binary:
+session-home-smoke:   make && HAZMAT_SESSION_HOME_SMOKE_HAZMAT="$PWD/hazmat/hazmat" scripts/check-session-home-activation-smoke.sh --run --i-understand-this-runs-hazmat-exec
+session-home-smoke: or reinstall Hazmat so the current blocker-detail
+session-home-smoke: diagnostics are used.
 EOF
 			;;
 	esac
