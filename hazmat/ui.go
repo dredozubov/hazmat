@@ -613,15 +613,15 @@ func diagnosticResourceJSON(id diagnosticResourceID) *uiDiagnosticResource {
 }
 
 func diagnosticRecommendationJSONsForPlan(recommendations []uiRecommendation, plan diagnosticRepairPlan) []uiDiagnosticRecommendation {
-	repaired := map[string]struct{}{}
+	handledByPlan := map[string]struct{}{}
 	for _, item := range plan.Items {
-		if item.Status == diagnosticRepairStatusRepaired {
-			repaired[item.Key] = struct{}{}
+		if item.Status == diagnosticRepairStatusRepaired || item.Status == diagnosticRepairStatusStillFailing {
+			handledByPlan[item.Key] = struct{}{}
 		}
 	}
 	out := make([]uiDiagnosticRecommendation, 0, len(recommendations))
 	for _, rec := range recommendations {
-		if _, ok := repaired[rec.Key]; ok {
+		if _, ok := handledByPlan[rec.Key]; ok {
 			continue
 		}
 		def := rec.Definition

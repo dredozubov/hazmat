@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -493,6 +494,41 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 	if footer := ui.repairPlanFooter(plan); !strings.Contains(footer, "full live validation") || !strings.Contains(footer, "hazmat check --full") {
 		t.Fatalf("repair footer = %q, want approval-gated full validation pointer", footer)
+	}
+}
+
+func TestUIDiagnosticReportDoctorFixYesFailedVerificationOmitsLegacyRecommendation(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{
+		applyEvidence:  []string{"applied managed umask block"},
+		verifyEvidence: []string{"observed umask 022"},
+		verifyErr:      errors.New("umask still wrong"),
+	}
+	ui := &UI{
+		JSON:          true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "Hardening gaps"
+	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
+
+	report := ui.diagnosticReport()
+	plan := report.RepairPlan
+	if len(report.Recommendations) != 0 {
+		t.Fatalf("recommendations = %+v, want attempted repair item represented only by repair_plan", report.Recommendations)
+	}
+	if len(plan.Items) != 1 || plan.Items[0].Status != diagnosticRepairStatusStillFailing {
+		t.Fatalf("plan items = %+v, want still-failing attempted repair", plan.Items)
+	}
+	if len(plan.FailedVerifications) != 1 {
+		t.Fatalf("failed verifications = %+v, want one failed verification", plan.FailedVerifications)
+	}
+	if diagnosticReportAdviceMentions(report, "hazmat doctor --fix") {
+		t.Fatalf("doctor report offers mutating retry after failed verification: %s", diagnosticReportJSON(t, report))
 	}
 }
 
