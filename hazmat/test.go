@@ -776,7 +776,7 @@ func managedHarnessNotInstalledMessage(displayName string, harness HarnessID) st
 func testCommandSurface(ui *UI) {
 	ui.Step("Command surface")
 
-	if err := validateAgentEnvFile(agentReadFile); err == nil {
+	if err := validateAgentEnvFile(agentReadFileBytes); err == nil {
 		ui.TestPass(fmt.Sprintf("Agent env file matches Hazmat-managed template: %s", agentEnvPath))
 	} else {
 		ui.TestFailFinding(
@@ -830,32 +830,14 @@ func testCommandSurface(ui *UI) {
 func testSeatbelt(ui *UI) {
 	ui.Step("Seatbelt confinement")
 
-	if exists, err := agentPathExists(seatbeltWrapperPath); err != nil {
+	if err := validateSeatbeltWrapperFile(agentReadFileBytes, agentPathIsExecutable); err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupSeatbeltWrapper),
-			fmt.Sprintf("Could not inspect seatbelt wrapper as agent: %s — %v", seatbeltWrapperPath, err),
-			seatbeltWrapperPath,
-		)
-	} else if !exists {
-		ui.TestFailFinding(
-			diagnosticFinding(findingSetupSeatbeltWrapper),
-			fmt.Sprintf("Seatbelt wrapper missing: %s — baseline setup is incomplete", seatbeltWrapperPath),
-			seatbeltWrapperPath,
-		)
-	} else if executable, err := agentPathIsExecutable(seatbeltWrapperPath); err != nil {
-		ui.TestFailFinding(
-			diagnosticFinding(findingSetupSeatbeltWrapper),
-			fmt.Sprintf("Could not verify seatbelt wrapper executable bit as agent: %s — %v", seatbeltWrapperPath, err),
-			seatbeltWrapperPath,
-		)
-	} else if !executable {
-		ui.TestFailFinding(
-			diagnosticFinding(findingSetupSeatbeltWrapper),
-			fmt.Sprintf("Seatbelt wrapper not executable: %s", seatbeltWrapperPath),
+			fmt.Sprintf("Seatbelt wrapper drift: %v", err),
 			seatbeltWrapperPath,
 		)
 	} else {
-		ui.TestPass(fmt.Sprintf("Seatbelt wrapper is executable: %s", seatbeltWrapperPath))
+		ui.TestPass(fmt.Sprintf("Seatbelt wrapper matches Hazmat-managed template: %s", seatbeltWrapperPath))
 	}
 
 	if _, err := os.Stat("/usr/bin/sandbox-exec"); err != nil {

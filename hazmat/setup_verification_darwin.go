@@ -91,21 +91,21 @@ func (darwinSetupVerificationBackend) verifyDNSBlocklist(ui *UI) {
 }
 
 func (darwinSetupVerificationBackend) verifySeatbeltWrapper(ui *UI) {
-	if executable, err := agentPathIsExecutable(seatbeltWrapperPath); err == nil && executable {
-		ui.TestPass(fmt.Sprintf("Seatbelt wrapper installed and executable at %s", seatbeltWrapperPath))
-	} else {
+	if err := validateSeatbeltWrapperFile(agentReadFileBytes, agentPathIsExecutable); err != nil {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupSeatbeltWrapper),
-			fmt.Sprintf("Seatbelt wrapper missing or not executable: %s", seatbeltWrapperPath),
+			fmt.Sprintf("Seatbelt wrapper drift: %v", err),
 			seatbeltWrapperPath,
 		)
+	} else {
+		ui.TestPass(fmt.Sprintf("Seatbelt wrapper matches Hazmat-managed template: %s", seatbeltWrapperPath))
 	}
 }
 
 func (darwinSetupVerificationBackend) verifyAgentEnv(ui *UI) {
 	// Agent shell env is advisory — wrappers work without it but PATH and
 	// aliases inside agent-shell will be incomplete.
-	if err := validateAgentEnvFile(agentReadFile); err == nil {
+	if err := validateAgentEnvFile(agentReadFileBytes); err == nil {
 		ui.TestPass(fmt.Sprintf("Agent shell env matches Hazmat-managed template: %s", agentEnvPath))
 	} else {
 		ui.TestWarnFinding(

@@ -445,25 +445,11 @@ func verifySetupSudoers() error {
 }
 
 func verifySetupSeatbeltWrapper() error {
-	exists, err := agentPathExists(seatbeltWrapperPath)
-	if err != nil {
-		return fmt.Errorf("inspect seatbelt wrapper as agent: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("seatbelt wrapper missing: %s", seatbeltWrapperPath)
-	}
-	executable, err := agentPathIsExecutable(seatbeltWrapperPath)
-	if err != nil {
-		return fmt.Errorf("inspect seatbelt wrapper executable bit as agent: %w", err)
-	}
-	if !executable {
-		return fmt.Errorf("seatbelt wrapper is not executable: %s", seatbeltWrapperPath)
-	}
-	return nil
+	return validateSeatbeltWrapperFile(agentReadFileBytes, agentPathIsExecutable)
 }
 
 func verifySetupAgentEnv() error {
-	if err := validateAgentEnvFile(agentReadFile); err != nil {
+	if err := validateAgentEnvFile(agentReadFileBytes); err != nil {
 		return err
 	}
 	out, _ := asAgentOutput("cat", filepath.Join(agentHome, ".zshrc"))

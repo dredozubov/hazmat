@@ -53,15 +53,15 @@ func TestDarwinSetupVerificationRejectsWrongHostWrapperSubcommand(t *testing.T) 
 }
 
 func TestDarwinSetupVerificationReportsAgentEnvDriftThroughAgentRead(t *testing.T) {
-	savedRead := agentReadFile
-	agentReadFile = func(path string) ([]byte, error) {
+	savedRead := agentReadFileBytes
+	agentReadFileBytes = func(path string) ([]byte, error) {
 		if path != agentEnvPath {
-			t.Fatalf("agentReadFile path = %q, want %q", path, agentEnvPath)
+			t.Fatalf("agentReadFileBytes path = %q, want %q", path, agentEnvPath)
 		}
 		stale := strings.Replace(setup.AgentEnvContent(defaultAgentPath), `export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"`+"\n", "", 1)
 		return []byte(stale), nil
 	}
-	t.Cleanup(func() { agentReadFile = savedRead })
+	t.Cleanup(func() { agentReadFileBytes = savedRead })
 
 	ui := &UI{}
 	darwinSetupVerificationBackend{}.verifyAgentEnv(ui)
@@ -78,5 +78,44 @@ func TestDarwinSetupVerificationReportsAgentEnvDriftThroughAgentRead(t *testing.
 	}
 	if !found {
 		t.Fatalf("setup verification report missing agent env drift detail: %s", diagnosticReportJSON(t, report))
+	}
+}
+
+func TestDarwinSetupVerificationReportsSeatbeltWrapperDriftThroughAgentRead(t *testing.T) {
+	savedRead := agentReadFileBytes
+	savedExecutable := agentPathProbe
+	agentReadFileBytes = func(path string) ([]byte, error) {
+		if path != seatbeltWrapperPath {
+			t.Fatalf("agentReadFileBytes path = %q, want %q", path, seatbeltWrapperPath)
+		}
+		stale := strings.Replace(seatbeltWrapperContent, "CLAUDE_BIN=/Users/agent/.local/bin/claude", "CLAUDE_BIN=/tmp/claude", 1)
+		return []byte(stale), nil
+	}
+	agentPathProbe = func(flag, path string) (bool, error) {
+		if flag != "-x" || path != seatbeltWrapperPath {
+			t.Fatalf("agentPathProbe(%q, %q), want -x %q", flag, path, seatbeltWrapperPath)
+		}
+		return true, nil
+	}
+	t.Cleanup(func() {
+		agentReadFileBytes = savedRead
+		agentPathProbe = savedExecutable
+	})
+
+	ui := &UI{}
+	darwinSetupVerificationBackend{}.verifySeatbeltWrapper(ui)
+	report := ui.diagnosticReport()
+	assertReportHasFinding(t, report, findingSetupSeatbeltWrapper)
+	if !diagnosticReportAdviceMentions(report, "hazmat doctor --fix") {
+		t.Fatalf("setup verification report does not point at doctor repair: %s", diagnosticReportJSON(t, report))
+	}
+	var found bool
+	for _, finding := range report.Findings {
+		if strings.Contains(finding.Message, "seatbelt wrapper content drifted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("setup verification report missing seatbelt drift detail: %s", diagnosticReportJSON(t, report))
 	}
 }

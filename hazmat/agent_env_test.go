@@ -31,3 +31,15 @@ func TestValidateAgentEnvFileSurfacesReadFailure(t *testing.T) {
 		t.Fatalf("validateAgentEnvFile() = %v, want wrapped read failure", err)
 	}
 }
+
+func TestValidateAgentEnvFileAcceptsNewlineTerminatedRead(t *testing.T) {
+	err := validateAgentEnvFile(func(path string) ([]byte, error) {
+		if path != agentEnvPath {
+			t.Fatalf("read path = %q, want %q", path, agentEnvPath)
+		}
+		return []byte(setup.AgentEnvContent(defaultAgentPath)), nil
+	})
+	if err != nil {
+		t.Fatalf("validateAgentEnvFile() = %v, want nil", err)
+	}
+}
