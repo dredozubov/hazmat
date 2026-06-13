@@ -1,6 +1,8 @@
 package hazmat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
@@ -69,6 +71,32 @@ func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
 	}
 	if fixIndex > previewIndex {
 		t.Fatalf("status advice = %q, want fix path before preview", statusIncompleteSetupAdvice)
+	}
+}
+
+func TestStatusCredentialInventoryAdviceUsesDoctorRepairPath(t *testing.T) {
+	isolateCredentialInventoryTest(t)
+	if err := os.MkdirAll(filepath.Dir(configFilePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFilePath, []byte("backup:\n  cloud:\n    access_key: legacy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	out := captureUIOutput(t, func() {
+		runErr = runStatus(false)
+	})
+	if runErr != nil {
+		t.Fatalf("runStatus(false): %v", runErr)
+	}
+	if strings.Contains(out, "run hazmat check") {
+		t.Fatalf("status output routes credential drift through check:\n%s", out)
+	}
+	for _, want := range []string{"Credential inventory", "legacy host credential items", "hazmat doctor --fix", "hazmat doctor --dry-run"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status output missing %q:\n%s", want, out)
+		}
 	}
 }
 

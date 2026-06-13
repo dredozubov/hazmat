@@ -150,9 +150,9 @@ func runStatus(full bool) error {
 		credentialSummary := summarizeCredentialInventory(entries)
 		switch {
 		case credentialSummary.Errors > 0:
-			cYellow.Printf("  [!] %-24s %d inventory errors; run hazmat check\n", "Credential inventory", credentialSummary.Errors)
+			cYellow.Printf("  [!] %-24s %d host inventory errors; preview with hazmat doctor --dry-run\n", "Credential inventory", credentialSummary.Errors)
 		case credentialSummary.NeedsRepair > 0:
-			cYellow.Printf("  [→] %-24s %d legacy/residue items; run hazmat check\n", "Credential inventory", credentialSummary.NeedsRepair)
+			cYellow.Printf("  [→] %-24s %d legacy host credential items; hazmat doctor --fix (preview: hazmat doctor --dry-run)\n", "Credential inventory", credentialSummary.NeedsRepair)
 		default:
 			cGreen.Printf("  [✓] %-24s %d configured, %d optional unset, %d adapter-required\n", "Credential inventory", credentialSummary.Configured, credentialSummary.NotConfigured, credentialSummary.AdapterRequired)
 		}
