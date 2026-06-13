@@ -117,16 +117,16 @@ func (darwinSetupVerificationBackend) verifyAgentEnv(ui *UI) {
 }
 
 func (darwinSetupVerificationBackend) verifyHostWrappers(ui *UI) {
-	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
-		path := hostWrapperPath(wrapper)
-		if info, err := os.Stat(path); err == nil && info.Mode()&0o111 != 0 {
-			ui.TestPass(fmt.Sprintf("Host wrapper installed: %s", path))
-		} else {
+	for _, wrapper := range managedHostWrapperSpecs() {
+		path := hostWrapperPath(wrapper.Name)
+		if err := validateHostWrapper(path, wrapper.Subcommand); err != nil {
 			ui.TestFailFinding(
 				diagnosticFinding(findingSetupHostWrappers),
-				fmt.Sprintf("Host wrapper missing or not executable: %s", path),
+				fmt.Sprintf("Host wrapper drift: %v", err),
 				path,
 			)
+		} else {
+			ui.TestPass(fmt.Sprintf("Host wrapper installed with executable Hazmat target: %s", path))
 		}
 	}
 }
