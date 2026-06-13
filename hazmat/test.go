@@ -644,7 +644,7 @@ func testAgentTools(ui *UI) {
 	ui.Step("Agent user tools")
 
 	if len(installedManagedHarnesses()) == 0 {
-		ui.TestSkip("No AI coding agent harness installed yet (optional — run 'hazmat bootstrap claude|codex|opencode')")
+		ui.TestSkip(noManagedHarnessesInstalledMessage())
 	} else {
 		var installed []string
 		for _, harness := range installedManagedHarnesses() {
@@ -690,7 +690,7 @@ func testAgentTools(ui *UI) {
 		}(); out != "" {
 			ui.TestPass(fmt.Sprintf("Claude Code is in agent's PATH: %s", out))
 		} else {
-			ui.TestWarn(fmt.Sprintf("Claude Code expected but not found for agent user — run 'hazmat bootstrap claude' or verify %s", claudeInstallerURL))
+			ui.TestWarn(fmt.Sprintf("Claude Code expected but not found for agent user — run 'hazmat harness update claude' or verify %s", claudeInstallerURL))
 		}
 
 		if value, source, err := lookupConfiguredAPIKey(harnessAPIKeyPrompts[0]); err == nil && value != "" {
@@ -735,7 +735,7 @@ func testAgentTools(ui *UI) {
 			ui.TestPass(fmt.Sprintf("Claude export/resume session store is helper-backed (%d project dirs)", len(projects)))
 		}
 	} else {
-		ui.TestSkip("Claude Code not installed for agent user (optional — run 'hazmat bootstrap claude' to test it)")
+		ui.TestSkip(managedHarnessNotInstalledMessage("Claude Code", HarnessClaude))
 	}
 
 	// OpenCode
@@ -747,7 +747,7 @@ func testAgentTools(ui *UI) {
 	}(); out != "" {
 		ui.TestPass(fmt.Sprintf("OpenCode is in agent's PATH: %s", out))
 	} else {
-		ui.TestSkip("OpenCode not installed for agent user (optional — run 'hazmat bootstrap opencode' to test it)")
+		ui.TestSkip(managedHarnessNotInstalledMessage("OpenCode", HarnessOpenCode))
 	}
 
 	// Codex
@@ -759,8 +759,16 @@ func testAgentTools(ui *UI) {
 	}(); out != "" {
 		ui.TestPass(fmt.Sprintf("Codex is in agent's PATH: %s", out))
 	} else {
-		ui.TestSkip("Codex not installed for agent user (optional — run 'hazmat bootstrap codex' to test it)")
+		ui.TestSkip(managedHarnessNotInstalledMessage("Codex", HarnessCodex))
 	}
+}
+
+func noManagedHarnessesInstalledMessage() string {
+	return "No AI coding agent harness installed yet (optional; inspect choices with 'hazmat harness status' and install only needed harnesses with 'hazmat harness update <harness>')"
+}
+
+func managedHarnessNotInstalledMessage(displayName string, harness HarnessID) string {
+	return fmt.Sprintf("%s not installed for agent user (optional; run 'hazmat harness update %s' only if this workflow needs it)", displayName, harness)
 }
 
 // ── Step 11: Command surface ─────────────────────────────────────────────────
