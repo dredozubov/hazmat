@@ -64,10 +64,10 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.1 Claude Code
 
-- [ ] **Bootstrap**
-  - Steps: `hazmat bootstrap claude`
+- [ ] **Harness update / install**
+  - Steps: `hazmat harness update claude`
   - Expected: each step ✓; `/Users/agent/.local/bin/claude` exists; `claude --version` (run as agent: `sudo -n -u agent -H /Users/agent/.local/bin/claude --version`) prints a version.
-  - On failure: re-run with `-v`; check the bootstrap script error.
+  - On failure: re-run with `-v`; check the harness update script error. The older `hazmat bootstrap claude` alias should follow the same path only when explicitly testing compatibility.
 
 - [ ] **Subscription path** (`/login`)
   - Preconditions: a Claude Pro/Max subscription on the host.
@@ -87,8 +87,8 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.2 Codex
 
-- [ ] **Bootstrap**
-  - Steps: `hazmat bootstrap codex`
+- [ ] **Harness update / install**
+  - Steps: `hazmat harness update codex`
   - Expected: each step ✓; `/Users/agent/.codex` and `/Users/agent/.agents` both prepared as `agent:dev 2770`.
   - On failure: check that the GitHub installer URL is reachable; `curl --head` it manually.
 
@@ -110,8 +110,8 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.3 OpenCode
 
-- [ ] **Bootstrap**
-  - Steps: `hazmat bootstrap opencode`
+- [ ] **Harness update / install**
+  - Steps: `hazmat harness update opencode`
   - Expected: each step ✓; PATH shim at `/Users/agent/.local/bin/opencode` → `/Users/agent/.opencode/bin/opencode`; `opencode.json` written.
 
 - [ ] **Subscription / per-provider auth path**
@@ -129,9 +129,9 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.4 Gemini
 
-- [ ] **Bootstrap**
+- [ ] **Harness update / install**
   - Preconditions: Node.js available on agent PATH (Homebrew node satisfies this).
-  - Steps: `hazmat bootstrap gemini`
+  - Steps: `hazmat harness update gemini`
   - Expected: each step ✓; `/Users/agent/.local/bin/gemini` linked from npm prefix; `/Users/agent/.gemini` prepared.
   - On failure: check `node --version` works for the agent: `sudo -n -u agent -H bash -lc 'node --version'`.
 
@@ -152,14 +152,14 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.5 Hermes (experimental)
 
-- [ ] **Bootstrap detects a missing binary without mutating state**
-  - Steps: on a machine without `/Users/agent/.local/bin/hermes`, run `hazmat bootstrap hermes`.
+- [ ] **Harness update detects a missing binary without mutating state**
+  - Steps: on a machine without `/Users/agent/.local/bin/hermes`, run `hazmat harness update hermes`.
   - Expected: the command exits with manual install guidance, does not run an upstream installer, and does not record Hermes as installed.
 
-- [ ] **Bootstrap verifies a manually installed binary**
+- [ ] **Harness update verifies a manually installed binary**
   - Preconditions: an agent-owned Hermes executable is present at `/Users/agent/.local/bin/hermes`.
-  - Steps: `sudo -n -u agent -H /Users/agent/.local/bin/hermes --version` → `hazmat bootstrap hermes`.
-  - Expected: `hermes --version` succeeds as the agent user; bootstrap records Hermes only after that version probe succeeds; re-running bootstrap is idempotent.
+  - Steps: `sudo -n -u agent -H /Users/agent/.local/bin/hermes --version` → `hazmat harness update hermes`.
+  - Expected: `hermes --version` succeeds as the agent user; harness update records Hermes only after that version probe succeeds; re-running the update is idempotent.
 
 - [ ] **Provider key reuse**
   - Preconditions: one or more of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` is set in the invoking shell.
@@ -181,10 +181,10 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.6 Qwen Code
 
-- [ ] **Bootstrap**
+- [ ] **Harness update / install**
   - Preconditions: Node.js 20 or newer available on the agent PATH.
-  - Steps: `hazmat bootstrap qwen`
-  - Expected: each step ✓; `/Users/agent/.local/bin/qwen` exists; `/Users/agent/.qwen` is prepared; bootstrap does not import host `~/.qwen`.
+  - Steps: `hazmat harness update qwen`
+  - Expected: each step ✓; `/Users/agent/.local/bin/qwen` exists; `/Users/agent/.qwen` is prepared; harness update does not import host `~/.qwen`.
   - On failure: check `node --version` works for the agent: `sudo -n -u agent -H bash -lc 'node --version'`.
 
 - [ ] **Contained auth path**
@@ -207,10 +207,10 @@ harness for a smoke pass; run every supported path before a release.
 
 ### 2.7 Cursor Agent
 
-- [ ] **Bootstrap**
+- [ ] **Harness update / install**
   - Preconditions: Cursor Agent CLI is installed or linked for the agent user at `/Users/agent/.local/bin/cursor-agent`.
-  - Steps: `hazmat bootstrap cursor-agent`
-  - Expected: each step ✓; bootstrap records Cursor Agent after `cursor-agent --version`; bootstrap does not import host Cursor IDE state, host `~/.cursor`, or host auth settings.
+  - Steps: `hazmat harness update cursor-agent`
+  - Expected: each step ✓; harness update records Cursor Agent after `cursor-agent --version`; harness update does not import host Cursor IDE state, host `~/.cursor`, or host auth settings.
 
 - [ ] **Contained auth path**
   - Steps: `hazmat cursor-agent -- login` → complete Cursor Agent's auth/config flow inside the contained session → exit.
@@ -242,7 +242,7 @@ These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **Harness lifecycle CLI**
   - Steps: run `hazmat harness status`; for each built-in harness, run `hazmat harness status <harness>` and `hazmat harness update <harness> --dry-run`; on a disposable agent setup, run `hazmat harness uninstall <harness> --dry-run`.
-  - Expected: list status shows all six harnesses; detail status shows binary/probe, recorded state, import status, credential hint, managed-code paths, and preserved data. Update dry-run follows the same path as bootstrap without mutating state. Uninstall dry-run lists only declared Hazmat-owned code artifacts plus metadata removal and says auth/profile/session data is preserved. Hermes does not claim Hazmat owns or removes the manual Hermes binary; Qwen preserves `/Users/agent/.qwen` profile state while only declaring Hazmat-owned npm code artifacts.
+  - Expected: list status shows all seven harnesses; detail status shows binary/probe, recorded state, import status, credential hint, managed-code paths, and preserved data. Update dry-run follows the same install/update path as the bootstrap compatibility aliases without mutating state. Uninstall dry-run lists only declared Hazmat-owned code artifacts plus metadata removal and says auth/profile/session data is preserved. Hermes does not claim Hazmat owns or removes the manual Hermes binary; Qwen preserves `/Users/agent/.qwen` profile state while only declaring Hazmat-owned npm code artifacts.
 
 - [ ] **Docker Sandbox support across harnesses**
   - Preconditions: repo with a `Dockerfile`.
@@ -339,8 +339,8 @@ These verify that earlier-fixed bugs stay fixed.
   - Expected: the run succeeds; after exit `~/.hazmat/secrets/codex/auth.json` exists and `/Users/agent/.codex/auth.json` is gone again.
   - On failure: check the session notes for a migration warning or mismatch warning from the harness auth runtime.
 
-- [ ] **Codex bootstrap creates `~/.agents` shared dir** (regression: `sandboxing-3u4a`)
-  - Steps: `sudo -u agent rm -rf /Users/agent/.agents` → `hazmat bootstrap codex`
+- [ ] **Codex harness update creates `~/.agents` shared dir** (regression: `sandboxing-3u4a`)
+  - Steps: `sudo -u agent rm -rf /Users/agent/.agents` → `hazmat harness update codex`
   - Expected: re-creates `/Users/agent/.agents` as `agent:dev 2770`; subsequent `hazmat codex` does not fail with `mkdir /Users/agent/.agents: permission denied`.
 
 - [ ] **`hazmat-launch` does not hang in non-TTY shells** (regression: `sandboxing-qfv6`)
@@ -352,7 +352,7 @@ These verify that earlier-fixed bugs stay fixed.
   - On failure: check `closeInheritedFDs` is using `/dev/fd` enumeration (not iterating to RLIMIT_NOFILE); `ps -u agent` should not show stuck `hazmat-launch exec ...` processes after the run.
 
 - [ ] **Config-agent with multiple harnesses installed**
-  - Preconditions: claude + codex + gemini + hermes + qwen + cursor-agent all bootstrapped.
+  - Preconditions: claude + codex + gemini + hermes + qwen + cursor-agent all installed or verified through `hazmat harness update <harness>`.
   - Steps: `hazmat config agent`
   - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Gemini, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode, Qwen, and Cursor Agent are intentionally skipped in v1 (no single Hazmat-managed provider env var).
 

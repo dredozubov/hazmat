@@ -116,3 +116,41 @@ func TestManualTestingCredentialFlowExercisesDoctorRepair(t *testing.T) {
 		t.Fatal("docs/manual-testing.md still makes migration command the primary credential repair path")
 	}
 }
+
+func TestManualTestingHarnessFlowsUseLifecycleUpdateCommands(t *testing.T) {
+	data, err := os.ReadFile("../docs/manual-testing.md")
+	if err != nil {
+		t.Fatalf("read manual testing docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"hazmat harness update claude",
+		"hazmat harness update codex",
+		"hazmat harness update opencode",
+		"hazmat harness update gemini",
+		"hazmat harness update hermes",
+		"hazmat harness update qwen",
+		"hazmat harness update cursor-agent",
+		"list status shows all seven harnesses",
+		"bootstrap compatibility aliases",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/manual-testing.md missing %q", phrase)
+		}
+	}
+	for _, stale := range []string{
+		"Steps: `hazmat bootstrap claude`",
+		"Steps: `hazmat bootstrap codex`",
+		"Steps: `hazmat bootstrap opencode`",
+		"Steps: `hazmat bootstrap gemini`",
+		"run `hazmat bootstrap hermes`",
+		"Steps: `hazmat bootstrap qwen`",
+		"Steps: `hazmat bootstrap cursor-agent`",
+		"list status shows all six harnesses",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("docs/manual-testing.md still uses bootstrap-first checklist phrase %q", stale)
+		}
+	}
+}
