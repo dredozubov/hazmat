@@ -920,6 +920,50 @@ func TestSuggestIntegrationsSkipsAuxiliaryPlaygroundAndScriptsMarkers(t *testing
 	}
 }
 
+func TestSuggestIntegrationsMatchesHuggingFaceModelMarkers(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"uv.lock":               "version = 1",
+		"config.json":           `{"model_type":"bert"}`,
+		"tokenizer_config.json": `{"tokenizer_class":"BertTokenizer"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	for _, want := range []string{"python-uv", "huggingface"} {
+		if !containsPlanString(suggestions, want) {
+			t.Fatalf("suggestions = %v, want %s", suggestions, want)
+		}
+	}
+}
+
+func TestSuggestIntegrationsRequiresNarrowHuggingFaceMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"name":"generic"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docsDir := filepath.Join(dir, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"config.json":           `{"model_type":"bert"}`,
+		"tokenizer_config.json": `{"tokenizer_class":"BertTokenizer"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(docsDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write docs/%s: %v", name, err)
+		}
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	if containsPlanString(suggestions, "huggingface") {
+		t.Fatalf("did not expect huggingface suggestion from generic root config or docs-only markers, got %v", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPythonPipFiresOnPlainRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {

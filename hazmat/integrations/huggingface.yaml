@@ -3,6 +3,15 @@ integration:
   version: 1
   description: Hugging Face cache-only model and dataset access
 
+detect:
+  files:
+    - config.json
+    - tokenizer_config.json
+    - model_index.json
+    - adapter_config.json
+    - adapter_model.safetensors
+    - sentence_bert_config.json
+
 session:
   read_dirs:
     - ~/.cache/huggingface/hub

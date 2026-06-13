@@ -572,6 +572,26 @@ func (index projectDetectIndex) hasFileWithSiblingPattern(pattern, siblingPatter
 	return false
 }
 
+func (index projectDetectIndex) hasFileWithSiblingPatternForIntegration(integrationName, pattern, siblingPattern string) bool {
+	if pattern == "" || siblingPattern == "" {
+		return false
+	}
+	for _, file := range index.Files {
+		if !detectFileMatches(pattern, file.Name) {
+			continue
+		}
+		if file.Depth > 1 && !integrationSuggestsFromNestedPath(integrationName, file.Rel) {
+			continue
+		}
+		for _, sibling := range index.ByDir[file.Dir] {
+			if detectFileMatches(siblingPattern, sibling) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func detectPatternHasWildcard(pattern string) bool {
 	return strings.ContainsAny(pattern, "*?[")
 }
@@ -630,6 +650,8 @@ func integrationSuggestionMatchesIndex(index projectDetectIndex, spec Integratio
 			}
 		}
 		return false
+	case "huggingface":
+		return index.matchesHuggingFaceMarkers()
 	default:
 		for _, f := range spec.Detect.Files {
 			if index.matchesDetectFile(spec.Meta.Name, f) {
@@ -638,6 +660,21 @@ func integrationSuggestionMatchesIndex(index projectDetectIndex, spec Integratio
 		}
 		return false
 	}
+}
+
+func (index projectDetectIndex) matchesHuggingFaceMarkers() bool {
+	if index.hasFileWithSiblingPatternForIntegration("huggingface", "config.json", "tokenizer_config.json") {
+		return true
+	}
+	if index.hasFileWithSiblingPatternForIntegration("huggingface", "adapter_config.json", "adapter_model.safetensors") {
+		return true
+	}
+	for _, f := range []string{"model_index.json", "sentence_bert_config.json"} {
+		if index.matchesDetectFile("huggingface", f) {
+			return true
+		}
+	}
+	return false
 }
 
 // suggestIntegrations checks detect.files against the project directory and returns
