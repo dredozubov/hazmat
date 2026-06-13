@@ -186,7 +186,7 @@ func applyExperimentalSessionHomePlan(cfg *sessionConfig, mode sessionMode, opts
 	}
 	if activate {
 		if !launchPlan.readyForActivation() {
-			return fmt.Errorf("%s=activate cannot launch session-local HOME yet: %s", experimentalSessionHomeEnv, sessionHomeActivationBlockerSummary(launchPlan.Blockers))
+			return fmt.Errorf("%s=activate cannot launch session-local HOME yet: %s. %s", experimentalSessionHomeEnv, sessionHomeActivationBlockerSummary(launchPlan.Blockers), sessionHomeActivationBlockerDetails(launchPlan.Blockers))
 		}
 		if _, err := materializeSessionHomeLaunchPlanForActivation(launchPlan); err != nil {
 			return err
@@ -412,6 +412,42 @@ func sessionHomeActivationBlockerReasonLabel(reason sessionHomeLaunchBlockerReas
 		return label
 	}
 	return fmt.Sprintf("%s (%d paths)", label, count)
+}
+
+func sessionHomeActivationBlockerDetails(blockers []sessionHomeLaunchBlocker) string {
+	if len(blockers) == 0 {
+		return "No session-home activation blockers remain."
+	}
+	byReason := map[sessionHomeLaunchBlockerReason][]string{}
+	for _, blocker := range blockers {
+		byReason[blocker.Reason] = append(byReason[blocker.Reason], blocker.RelPath)
+	}
+	var parts []string
+	for _, reason := range []sessionHomeLaunchBlockerReason{
+		sessionHomeBlockerSeedMaterialize,
+		sessionHomeBlockerAdapterRequired,
+		sessionHomeBlockerCheckedWriteback,
+		sessionHomeBlockerActivationGate,
+		sessionHomeBlockerDurableMirrorSync,
+	} {
+		paths := byReason[reason]
+		if len(paths) == 0 {
+			continue
+		}
+		delete(byReason, reason)
+		parts = append(parts, sessionHomeActivationBlockerPathList(reason, paths))
+	}
+	for reason, paths := range byReason {
+		parts = append(parts, sessionHomeActivationBlockerPathList(reason, paths))
+	}
+	sort.Strings(parts)
+	return "Blocking paths: " + strings.Join(parts, "; ") + "."
+}
+
+func sessionHomeActivationBlockerPathList(reason sessionHomeLaunchBlockerReason, paths []string) string {
+	paths = append([]string(nil), paths...)
+	sort.Strings(paths)
+	return fmt.Sprintf("%s: %s", sessionHomeActivationBlockerReasonLabel(reason, len(paths)), strings.Join(paths, ", "))
 }
 
 func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {

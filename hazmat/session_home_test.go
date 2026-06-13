@@ -185,6 +185,9 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if err == nil || !strings.Contains(err.Error(), "adapter required") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
 	}
+	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin") {
+		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
+	}
 	if cfg.SessionHome != nil {
 		t.Fatalf("SessionHome = %+v, want nil on activation failure", cfg.SessionHome)
 	}
@@ -418,6 +421,25 @@ func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) 
 	}
 	if got := sessionHomeActivationBlockerSummary(plan.Blockers); got != "activation gate" {
 		t.Fatalf("blocker summary = %q", got)
+	}
+}
+
+func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
+	blockers := []sessionHomeLaunchBlocker{
+		{RelPath: ".npm", Reason: sessionHomeBlockerAdapterRequired},
+		{RelPath: ".cargo", Reason: sessionHomeBlockerAdapterRequired},
+		{RelPath: "session-home", Reason: sessionHomeBlockerActivationGate},
+	}
+
+	got := sessionHomeActivationBlockerDetails(blockers)
+	for _, want := range []string{
+		"Blocking paths:",
+		"activation gate: session-home",
+		"adapter required (2 paths): .cargo, .npm",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("details = %q, want %q", got, want)
+		}
 	}
 }
 
