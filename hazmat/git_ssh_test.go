@@ -823,6 +823,33 @@ func TestGitSSHTransportFramesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStartGitSSHTransportBrokerRoutesRuntimeDriftToDoctor(t *testing.T) {
+	runtimeFile := filepath.Join(t.TempDir(), "runtime-file")
+	if err := os.WriteFile(runtimeFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write runtime fixture: %v", err)
+	}
+
+	broker, err := startGitSSHTransportBroker(sessionGitSSHConfig{}, runtimeFile)
+	if err == nil {
+		if broker != nil {
+			broker.Close()
+		}
+		t.Fatal("startGitSSHTransportBroker succeeded, want runtime-dir error")
+	}
+	for _, want := range []string{
+		"check shared runtime directory permissions",
+		"hazmat doctor --fix",
+		"hazmat doctor --dry-run",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, missing %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "rerun hazmat init") {
+		t.Fatalf("error = %q, want no init retry advice for setup drift", err)
+	}
+}
+
 func TestResolvePreparedSessionAddsManagedGitSSHNotes(t *testing.T) {
 	isolateConfig(t)
 	skipInitCheck(t)

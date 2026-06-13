@@ -1287,12 +1287,12 @@ func startGitSSHTransportBroker(cfg sessionGitSSHConfig, runtimeDir string) (*gi
 	socketPath := filepath.Join(runtimeDir, "transport.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("start managed git ssh transport broker listener at %s: %w; check shared runtime directory permissions and rerun hazmat init if setup drifted", socketPath, err)
+		return nil, fmt.Errorf("start managed git ssh transport broker listener at %s: %w; check shared runtime directory permissions; %s", socketPath, err, initDriftRepairAdvice)
 	}
 	if err := os.Chmod(socketPath, 0o660); err != nil {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
-		return nil, fmt.Errorf("set managed git ssh transport broker socket mode at %s: %w; check shared runtime directory permissions and rerun hazmat init if setup drifted", socketPath, err)
+		return nil, fmt.Errorf("set managed git ssh transport broker socket mode at %s: %w; check shared runtime directory permissions; %s", socketPath, err, initDriftRepairAdvice)
 	}
 
 	service := &gitSSHTransportBroker{
