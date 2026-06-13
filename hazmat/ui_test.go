@@ -484,14 +484,17 @@ func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
 	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
 	ui.TestFailFinding(diagnosticFinding(findingCredentialAdapterRequired), "gemini keychain adapter required")
+	ui.TestWarnFinding(diagnosticFinding(findingAgentSSHKey), "optional ssh key missing")
 
 	plan := ui.diagnosticReport().RepairPlan
-	if len(plan.AppliedReceipts) != 1 || len(plan.ManualItems) != 2 {
-		t.Fatalf("plan = receipts %+v manual %+v, want repaired item plus manual finding", plan.AppliedReceipts, plan.ManualItems)
+	if len(plan.AppliedReceipts) != 1 || len(plan.ManualItems) != 2 || len(plan.SkippedItems) != 1 {
+		t.Fatalf("plan = receipts %+v manual %+v skipped %+v, want repaired item plus manual and skipped findings", plan.AppliedReceipts, plan.ManualItems, plan.SkippedItems)
 	}
 	footer := ui.repairPlanFooter(plan)
-	if !strings.Contains(footer, "Executable repairs verified") || !strings.Contains(footer, "manual action") {
-		t.Fatalf("footer = %q, want explicit unresolved manual finding guidance", footer)
+	for _, want := range []string{"Executable repairs verified", "manual", "optional", "unsupported", "informational"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer = %q, want %q in unresolved non-executable guidance", footer, want)
+		}
 	}
 	if strings.Contains(footer, "hazmat init") {
 		t.Fatalf("footer = %q, want no init retry guidance", footer)

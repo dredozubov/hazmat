@@ -494,7 +494,7 @@ func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
 			return "  Some repairs did not verify. Inspect the evidence above before retrying the same repair."
 		}
 		if len(plan.ManualItems) > 0 || len(plan.SkippedItems) > 0 {
-			return "  Executable repairs verified. Some findings still need manual action or are informational; inspect the remaining plan items before treating the host as clean."
+			return "  Executable repairs verified. Some findings remain manual, optional, unsupported, or informational; inspect the remaining plan items before treating the host as clean."
 		}
 		return "  After approved repairs, rerun full live validation with approval: hazmat check --full"
 	default:
