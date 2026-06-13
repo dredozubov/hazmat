@@ -318,6 +318,12 @@ assert_file_contains_all \
     "additional matching process(es)"
 
 assert_file_contains_all \
+    "Codex app-server missing CLI guidance uses harness lifecycle" \
+    "$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" \
+    "Codex CLI is not installed" \
+    "run hazmat harness update codex"
+
+assert_file_contains_all \
     "Codex desktop missing CLI guidance uses harness lifecycle" \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
     "Codex CLI is not installed" \

@@ -100,11 +100,13 @@ func TestInspectManagedHarnessStatusClassifiesLifecycleStates(t *testing.T) {
 		stateErr    error
 		credentials harnessCredentialStatus
 		want        harnessLifecycleStatus
+		wantAction  string
 	}{
 		{
-			name:  "not installed",
-			probe: harnessProbe{MissingReason: "missing"},
-			want:  harnessLifecycleNotInstalled,
+			name:       "not installed",
+			probe:      harnessProbe{MissingReason: "missing"},
+			want:       harnessLifecycleNotInstalled,
+			wantAction: "hazmat harness update test",
 		},
 		{
 			name:  "recorded missing binary",
@@ -112,7 +114,8 @@ func TestInspectManagedHarnessStatusClassifiesLifecycleStates(t *testing.T) {
 			state: HazmatState{Harnesses: map[HarnessID]HarnessState{
 				HarnessID("test"): {StateVersion: "2"},
 			}},
-			want: harnessLifecycleRecordedMissingBinary,
+			want:       harnessLifecycleRecordedMissingBinary,
+			wantAction: "hazmat harness update test",
 		},
 		{
 			name:  "installed unrecorded",
@@ -162,6 +165,9 @@ func TestInspectManagedHarnessStatusClassifiesLifecycleStates(t *testing.T) {
 			status := inspectManagedHarnessStatus(harness, tc.state, tc.stateErr, fakeHarnessRead(nil, nil))
 			if status.LifecycleStatus != tc.want {
 				t.Fatalf("LifecycleStatus = %q, want %q", status.LifecycleStatus, tc.want)
+			}
+			if tc.wantAction != "" && status.NextAction != tc.wantAction {
+				t.Fatalf("NextAction = %q, want %q", status.NextAction, tc.wantAction)
 			}
 		})
 	}

@@ -384,7 +384,7 @@ func classifyHarnessLifecycleStatus(probe harnessProbe, state harnessStateStatus
 
 func nextHarnessAction(harness ManagedHarness, probe harnessProbe, state HazmatState, stateErr error) string {
 	if !probe.Installed {
-		return harness.BootstrapCommand
+		return "hazmat harness update " + string(harness.Spec.ID)
 	}
 	if stateErr != nil {
 		return "repair state before update"

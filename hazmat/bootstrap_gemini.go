@@ -9,7 +9,7 @@ import (
 const (
 	geminiBinRel      = "/.local/bin/gemini"
 	geminiNpmPackage  = "@google/gemini-cli@latest"
-	geminiMissingHelp = "Error: Gemini CLI not installed for agent user. Run: hazmat bootstrap gemini"
+	geminiMissingHelp = "Error: Gemini CLI not installed for agent user. Run: hazmat harness update gemini"
 	geminiStateDirRel = "/.gemini"
 )
 

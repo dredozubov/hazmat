@@ -17,7 +17,7 @@ const (
 	hermesBinRel          = "/.local/bin/hermes"
 	hermesStateDirRel     = "/.hazmat/hermes"
 	hermesProjectsDirRel  = hermesStateDirRel + "/projects"
-	hermesMissingHelp     = "Error: Hermes not installed for agent user. Run: hazmat bootstrap hermes"
+	hermesMissingHelp     = "Error: Hermes not installed for agent user. Run: hazmat harness update hermes"
 	hermesFallbackProject = "unknown-project"
 )
 

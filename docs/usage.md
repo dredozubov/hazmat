@@ -786,7 +786,7 @@ Hermes and Qwen do not import host `~/.hermes` or host `~/.qwen` in v1.
 ## Running OpenCode
 
 ```bash
-hazmat bootstrap opencode
+hazmat harness update opencode
 hazmat opencode
 hazmat opencode run "summarize this repo"
 ```
@@ -799,7 +799,7 @@ into Hazmat's host-owned secret store.
 ## Running Codex
 
 ```bash
-hazmat bootstrap codex
+hazmat harness update codex
 hazmat codex
 hazmat codex exec "review the recent changes"
 ```
@@ -812,7 +812,7 @@ for active Codex sessions.
 ## Running Gemini
 
 ```bash
-hazmat bootstrap gemini
+hazmat harness update gemini
 hazmat gemini
 hazmat gemini -p "summarize this repo"
 ```
@@ -826,13 +826,13 @@ has a Keychain adapter for it. For API-key use, store `GEMINI_API_KEY` through
 ## Running Hermes
 
 ```bash
-hazmat bootstrap hermes
+hazmat harness update hermes
 hazmat hermes
 hazmat hermes -- --version
 hazmat hermes -- chat "summarize this repo"
 ```
 
-Hermes support is experimental and foreground-only. `hazmat bootstrap hermes`
+Hermes support is experimental and foreground-only. `hazmat harness update hermes`
 verifies a manually installed `/Users/agent/.local/bin/hermes`; it does not run
 an upstream installer or import host `~/.hermes`. Hermes sessions use a
 project-scoped `HERMES_HOME=/Users/agent/.hazmat/hermes/projects/<project-hash>`,
@@ -842,12 +842,12 @@ in v1. Ordinary `hazmat rollback` preserves that managed Hermes profile tree
 with the rest of the agent home; after untrusted Hermes skills, MCP servers,
 hooks, or cron-like experiments, the supported full reset is
 `hazmat rollback --delete-user`, then `hazmat init` and
-`hazmat bootstrap hermes`.
+`hazmat harness update hermes`.
 
 ## Running Qwen Code
 
 ```bash
-hazmat bootstrap qwen
+hazmat harness update qwen
 hazmat qwen
 hazmat qwen -p "summarize this repo"
 ```
@@ -862,14 +862,14 @@ sync from the host on launch.
 ## Running Cursor Agent
 
 ```bash
-hazmat bootstrap cursor-agent
+hazmat harness update cursor-agent
 hazmat cursor-agent
 hazmat cursor-agent -- --version
 hazmat cursor-agent --print --output-format stream-json --force --trust
 ```
 
 Cursor Agent support is foreground/headless and verification-only in v1.
-`hazmat bootstrap cursor-agent` verifies a manually installed
+`hazmat harness update cursor-agent` verifies a manually installed
 `/Users/agent/.local/bin/cursor-agent`; it does not run an upstream installer,
 import host Cursor IDE state, copy host `~/.cursor`, or grant `CURSOR_API_KEY`.
 Run `hazmat cursor-agent -- login` or configure Cursor Agent inside the

@@ -200,6 +200,41 @@ func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
 	}
 }
 
+func TestUsageDocsUseHarnessLifecycleQuickstarts(t *testing.T) {
+	data, err := os.ReadFile("../docs/usage.md")
+	if err != nil {
+		t.Fatalf("read usage docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"hazmat harness update opencode",
+		"hazmat harness update codex",
+		"hazmat harness update gemini",
+		"hazmat harness update hermes",
+		"hazmat harness update qwen",
+		"hazmat harness update cursor-agent",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/usage.md missing %q", phrase)
+		}
+	}
+	for _, stale := range []string{
+		"## Running OpenCode ```bash hazmat bootstrap opencode",
+		"## Running Codex ```bash hazmat bootstrap codex",
+		"## Running Gemini ```bash hazmat bootstrap gemini",
+		"## Running Hermes ```bash hazmat bootstrap hermes",
+		"## Running Qwen Code ```bash hazmat bootstrap qwen",
+		"## Running Cursor Agent ```bash hazmat bootstrap cursor-agent",
+		"`hazmat bootstrap hermes` verifies",
+		"`hazmat bootstrap cursor-agent` verifies",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("docs/usage.md still uses bootstrap-first quickstart phrase %q", stale)
+		}
+	}
+}
+
 func TestUsageDocsDescribeClaudeExportWorkflowSidecarPolicy(t *testing.T) {
 	data, err := os.ReadFile("../docs/usage.md")
 	if err != nil {

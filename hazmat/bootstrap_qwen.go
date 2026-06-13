@@ -9,7 +9,7 @@ import (
 const (
 	qwenBinRel      = "/.local/bin/qwen"
 	qwenNpmPackage  = "@qwen-code/qwen-code@latest"
-	qwenMissingHelp = "Error: Qwen Code not installed for agent user. Run: hazmat bootstrap qwen"
+	qwenMissingHelp = "Error: Qwen Code not installed for agent user. Run: hazmat harness update qwen"
 	qwenStateDirRel = "/.qwen"
 )
 

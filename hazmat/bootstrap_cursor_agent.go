@@ -12,7 +12,7 @@ var errCursorAgentBinaryMissing = errors.New("Cursor Agent binary missing")
 
 const (
 	cursorAgentBinRel      = "/.local/bin/cursor-agent"
-	cursorAgentMissingHelp = "Error: Cursor Agent not installed for agent user. Run: hazmat bootstrap cursor-agent"
+	cursorAgentMissingHelp = "Error: Cursor Agent not installed for agent user. Run: hazmat harness update cursor-agent"
 )
 
 func findInstalledCursorAgentBinary() (string, bool) {

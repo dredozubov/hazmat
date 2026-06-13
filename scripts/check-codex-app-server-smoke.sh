@@ -125,7 +125,7 @@ check_prereqs() {
 		if ! sudo -n -u "$AGENT_USER" /usr/bin/true >/dev/null 2>&1; then
 			add_missing_prereq "passwordless non-interactive sudo to '$AGENT_USER' is unavailable"
 		elif ! sudo -n -u "$AGENT_USER" test -x "$CODEX_BIN" >/dev/null 2>&1; then
-			add_missing_prereq "Codex CLI is not installed for '$AGENT_USER' at $CODEX_BIN; run hazmat bootstrap codex"
+			add_missing_prereq "Codex CLI is not installed for '$AGENT_USER' at $CODEX_BIN; run hazmat harness update codex"
 		fi
 	fi
 

@@ -17,7 +17,7 @@ const (
 	codexLatestInstallerURL   = "https://github.com/openai/codex/releases/latest/download/install.sh"
 	codexInstallerAssetName   = "install.sh"
 	codexBinRel               = "/.local/bin/codex"
-	codexMissingHelp          = "Error: Codex not installed for agent user. Run: hazmat bootstrap codex"
+	codexMissingHelp          = "Error: Codex not installed for agent user. Run: hazmat harness update codex"
 	codexStateDirRel          = "/.codex"
 	codexGitHubAPIAccept      = "application/vnd.github+json"
 	codexGitHubRequestTimeout = 15 * time.Second

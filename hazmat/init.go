@@ -215,14 +215,14 @@ func initBootstrapChoices() []UIChoice {
 		{
 			Key:         initBootstrapSkip,
 			Label:       "Skip harness install",
-			Description: "Set up containment only. Install a coding agent later with 'hazmat bootstrap ...'.",
+			Description: "Set up containment only. Install a coding agent later with 'hazmat harness update <harness>'.",
 		},
 	}
 	for _, harness := range managedHarnesses() {
 		choices = append(choices, UIChoice{
 			Key:         string(harness.Spec.ID),
 			Label:       "Install " + harness.Spec.DisplayName,
-			Description: fmt.Sprintf("Bootstrap %s during init and make it ready for 'cd your-project && %s'.", harness.Spec.DisplayName, harness.LaunchCommand),
+			Description: fmt.Sprintf("Install/update %s during init and make it ready for 'cd your-project && %s'.", harness.Spec.DisplayName, harness.LaunchCommand),
 		})
 	}
 	return choices
@@ -398,7 +398,7 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
 	default:
 		fmt.Println("    cd your-project && hazmat shell")
-		fmt.Println("    hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
+		fmt.Println("    hazmat harness update claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
 	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
@@ -416,7 +416,7 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		fmt.Println("  Update creds:   hazmat cursor-agent -- login or set up contained Cursor Agent auth")
 		fmt.Println("  Cursor state:   contained under /Users/agent; host Cursor state is not imported")
 	default:
-		fmt.Println("  Install agent:  hazmat bootstrap claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
+		fmt.Println("  Install agent:  hazmat harness update claude|codex|opencode|gemini|hermes|qwen|cursor-agent")
 	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")

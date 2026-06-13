@@ -80,7 +80,7 @@ Non-interactive runs do not guess. If conflicts exist, pass an explicit policy:
 
 ## Recommended Workflow
 
-1. Run `hazmat bootstrap opencode`
+1. Run `hazmat harness update opencode`
 2. Run `hazmat config import opencode --dry-run`
 3. Import the portable basics
 4. Start `hazmat opencode`

@@ -883,6 +883,6 @@ func (u *UI) Banner(currentUser string) {
 	fmt.Println()
 	fmt.Println("  After setup:")
 	fmt.Println("    cd your-project && hazmat shell")
-	fmt.Println("    hazmat bootstrap claude|codex|opencode")
+	fmt.Println("    hazmat harness update claude|codex|opencode")
 	fmt.Println()
 }

@@ -16,7 +16,7 @@ const (
 	openCodeLatestArchiveBaseURL = "https://github.com/anomalyco/opencode/releases/latest/download/"
 	openCodeCurrentBinRel        = "/.opencode/bin/opencode"
 	openCodeLegacyBinRel         = "/.local/bin/opencode"
-	openCodeMissingHelp          = "Error: OpenCode not installed for agent user. Run: hazmat bootstrap opencode"
+	openCodeMissingHelp          = "Error: OpenCode not installed for agent user. Run: hazmat harness update opencode"
 	openCodeGitHubAPIAccept      = "application/vnd.github+json"
 	openCodeGitHubRequestTimeout = 15 * time.Second
 )
