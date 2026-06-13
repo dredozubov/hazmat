@@ -98,6 +98,8 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 		len(contract.SessionHome.ActivationBlockers) == 0 ||
 		contract.SessionHome.ActivationBlockers[0].RelPath != expectedBlocker.RelPath ||
 		contract.SessionHome.ActivationBlockers[0].Reason != string(expectedBlocker.Reason) ||
+		contract.SessionHome.ActivationBlockers[0].Class != string(expectedBlocker.Class) ||
+		contract.SessionHome.ActivationBlockers[0].RuntimePolicy != string(expectedBlocker.RuntimePolicy) ||
 		contract.SessionHome.Mode != "session-local" ||
 		contract.SessionHome.Home != sessionHomeLaunch.Layout.Home ||
 		contract.SessionHome.PersistentHome != persistentHome ||
@@ -109,10 +111,14 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	contract.IntegrationEnv["GOPATH"] = "/mutated"
 	contract.SessionHome.Phases[0] = "mutated"
 	contract.SessionHome.ActivationBlockers[0].Reason = "mutated"
+	contract.SessionHome.ActivationBlockers[0].Class = "mutated"
+	contract.SessionHome.ActivationBlockers[0].RuntimePolicy = "mutated"
 	contract.SessionHome.DurableBridgeRoots[0] = "/mutated"
 	if fresh := authority.ContractInput(); fresh.IntegrationEnv["GOPATH"] != "/go" ||
 		fresh.SessionHome.Phases[0] != "cleanup-stale-session-homes" ||
 		fresh.SessionHome.ActivationBlockers[0].Reason != string(expectedBlocker.Reason) ||
+		fresh.SessionHome.ActivationBlockers[0].Class != string(expectedBlocker.Class) ||
+		fresh.SessionHome.ActivationBlockers[0].RuntimePolicy != string(expectedBlocker.RuntimePolicy) ||
 		fresh.SessionHome.DurableBridgeRoots[0] != expectedBridgeRoots[0] {
 		t.Fatal("ContractInput returned storage aliasing authority")
 	}

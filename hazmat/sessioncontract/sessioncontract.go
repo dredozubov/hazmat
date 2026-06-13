@@ -165,8 +165,10 @@ type SessionHome struct {
 // SessionHomeBlocker describes one unresolved prerequisite for activating a
 // planned session-local HOME.
 type SessionHomeBlocker struct {
-	RelPath string `json:"rel_path,omitempty"`
-	Reason  string `json:"reason"`
+	RelPath       string `json:"rel_path,omitempty"`
+	Reason        string `json:"reason"`
+	Class         string `json:"class,omitempty"`
+	RuntimePolicy string `json:"runtime_policy,omitempty"`
 }
 
 // BuildPlan constructs a defensive-copy session plan from input values.

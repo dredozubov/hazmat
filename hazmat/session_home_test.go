@@ -185,7 +185,7 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if err == nil || !strings.Contains(err.Error(), "adapter required") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
 	}
-	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin") {
+	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .local/bin [executable-tooling/adapter-required]") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
 	}
 	if cfg.SessionHome != nil {
@@ -426,8 +426,18 @@ func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) 
 
 func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
 	blockers := []sessionHomeLaunchBlocker{
-		{RelPath: ".npm", Reason: sessionHomeBlockerAdapterRequired},
-		{RelPath: ".cargo", Reason: sessionHomeBlockerAdapterRequired},
+		{
+			RelPath:       ".npm",
+			Reason:        sessionHomeBlockerAdapterRequired,
+			Class:         containment.AgentHomeStateToolchainState,
+			RuntimePolicy: sessionHomePolicyAdapterRequired,
+		},
+		{
+			RelPath:       ".cargo",
+			Reason:        sessionHomeBlockerAdapterRequired,
+			Class:         containment.AgentHomeStateToolchainState,
+			RuntimePolicy: sessionHomePolicyAdapterRequired,
+		},
 		{RelPath: "session-home", Reason: sessionHomeBlockerActivationGate},
 	}
 
@@ -435,7 +445,7 @@ func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
 	for _, want := range []string{
 		"Blocking paths:",
 		"activation gate: session-home",
-		"adapter required (2 paths): .cargo, .npm",
+		"adapter required (2 paths): .cargo [toolchain-state/adapter-required], .npm [toolchain-state/adapter-required]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("details = %q, want %q", got, want)

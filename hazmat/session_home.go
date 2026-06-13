@@ -87,8 +87,10 @@ const (
 )
 
 type sessionHomeLaunchBlocker struct {
-	RelPath string
-	Reason  sessionHomeLaunchBlockerReason
+	RelPath       string
+	Reason        sessionHomeLaunchBlockerReason
+	Class         containment.AgentHomeStateClass
+	RuntimePolicy sessionHomeRuntimePolicy
 }
 
 type sessionHomeBridgeKind string
@@ -422,9 +424,9 @@ func sessionHomeActivationBlockerDetails(blockers []sessionHomeLaunchBlocker) st
 }
 
 func sessionHomeActivationBlockerPathSummary(blockers []sessionHomeLaunchBlocker) string {
-	byReason := map[sessionHomeLaunchBlockerReason][]string{}
+	byReason := map[sessionHomeLaunchBlockerReason][]sessionHomeLaunchBlocker{}
 	for _, blocker := range blockers {
-		byReason[blocker.Reason] = append(byReason[blocker.Reason], blocker.RelPath)
+		byReason[blocker.Reason] = append(byReason[blocker.Reason], blocker)
 	}
 	var parts []string
 	for _, reason := range []sessionHomeLaunchBlockerReason{
@@ -434,24 +436,34 @@ func sessionHomeActivationBlockerPathSummary(blockers []sessionHomeLaunchBlocker
 		sessionHomeBlockerActivationGate,
 		sessionHomeBlockerDurableMirrorSync,
 	} {
-		paths := byReason[reason]
-		if len(paths) == 0 {
+		reasonBlockers := byReason[reason]
+		if len(reasonBlockers) == 0 {
 			continue
 		}
 		delete(byReason, reason)
-		parts = append(parts, sessionHomeActivationBlockerPathList(reason, paths))
+		parts = append(parts, sessionHomeActivationBlockerPathList(reason, reasonBlockers))
 	}
-	for reason, paths := range byReason {
-		parts = append(parts, sessionHomeActivationBlockerPathList(reason, paths))
+	for reason, reasonBlockers := range byReason {
+		parts = append(parts, sessionHomeActivationBlockerPathList(reason, reasonBlockers))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "; ")
 }
 
-func sessionHomeActivationBlockerPathList(reason sessionHomeLaunchBlockerReason, paths []string) string {
-	paths = append([]string(nil), paths...)
+func sessionHomeActivationBlockerPathList(reason sessionHomeLaunchBlockerReason, blockers []sessionHomeLaunchBlocker) string {
+	paths := make([]string, 0, len(blockers))
+	for _, blocker := range blockers {
+		paths = append(paths, sessionHomeActivationBlockerPathLabel(blocker))
+	}
 	sort.Strings(paths)
 	return fmt.Sprintf("%s: %s", sessionHomeActivationBlockerReasonLabel(reason, len(paths)), strings.Join(paths, ", "))
+}
+
+func sessionHomeActivationBlockerPathLabel(blocker sessionHomeLaunchBlocker) string {
+	if blocker.Class == "" && blocker.RuntimePolicy == "" {
+		return blocker.RelPath
+	}
+	return fmt.Sprintf("%s [%s/%s]", blocker.RelPath, blocker.Class, blocker.RuntimePolicy)
 }
 
 func sessionHomeBridgeRequirements(assembly []sessionHomeAssemblyEntry) ([]sessionHomeBridgeRequirement, error) {
@@ -862,8 +874,10 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persiste
 			continue
 		}
 		blockers = append(blockers, sessionHomeLaunchBlocker{
-			RelPath: entry.RelPath,
-			Reason:  reason,
+			RelPath:       entry.RelPath,
+			Reason:        reason,
+			Class:         entry.Class,
+			RuntimePolicy: entry.RuntimePolicy,
 		})
 	}
 	return blockers, nil
