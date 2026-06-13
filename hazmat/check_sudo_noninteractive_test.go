@@ -145,6 +145,7 @@ func TestPreGateDiagnosticsDoNotUseAgentHelperProbes(t *testing.T) {
 		"agentPathIsSymlink":    "pre-gate diagnostics must not switch to the agent helper",
 		"agentReadDirNames":     "pre-gate diagnostics must not switch to the agent helper",
 		"agentReadFile":         "pre-gate diagnostics must not switch to the agent helper",
+		"agentReadFileBytes":    "pre-gate diagnostics must not switch to the agent helper",
 		"asAgentCombinedOutput": "pre-gate diagnostics must not switch to the agent helper",
 		"asAgentOutput":         "pre-gate diagnostics must not switch to the agent helper",
 		"asAgentQuiet":          "pre-gate diagnostics must not switch to the agent helper",
