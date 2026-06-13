@@ -91,6 +91,7 @@ check_prereqs() {
 	require_command sudo
 	require_command id
 	require_command mktemp
+	require_command awk
 
 	if [ ! -x "$HAZMAT" ]; then
 		add_missing_prereq "$HAZMAT is missing or not executable; run make first"
@@ -142,7 +143,8 @@ print_session_home_explain_block() {
 	}
 
 	echo "session-home-smoke: plan-only session_home detail from hazmat explain --json:" >&2
-	printf '%s\n' "$explain_output" | sed -n '/^  "session_home": {/,/^  }[,]*$/p' >&2
+	printf '%s\n' "$explain_output" |
+		awk -v key=session_home -f "$REPO_ROOT/scripts/lib/extract-json-object.awk" >&2
 	return 0
 }
 

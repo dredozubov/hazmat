@@ -1,0 +1,22 @@
+{
+  "command": "exec",
+  "session_home": {
+    "mode": "activate",
+    "enabled": false,
+    "activation_blockers": [
+      {
+        "path": ".npm",
+        "class": "toolchain-state",
+        "adapter": "toolchain-cache",
+        "detail": "adapter required"
+      }
+    ],
+    "phase": {
+      "name": "activation",
+      "status": "blocked"
+    }
+  },
+  "following": {
+    "should_not_print": true
+  }
+}

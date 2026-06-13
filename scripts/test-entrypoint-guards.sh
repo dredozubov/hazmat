@@ -180,6 +180,60 @@ assert_file_not_contains_any() {
     pass "$label"
 }
 
+assert_command_contains_all_and_not() {
+    local label="$1"
+    local forbidden="$2"
+    shift 2
+
+    local expected=()
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        expected+=("$1")
+        shift
+    done
+    if [ "$#" -eq 0 ]; then
+        fail "$label: missing -- command separator"
+        return
+    fi
+    shift
+
+    local output=""
+    local status=0
+    set +e
+    output=$("$@" 2>&1)
+    status=$?
+    set -e
+
+    if [ "$status" -ne 0 ]; then
+        fail "$label: command failed with status $status"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    local missing=""
+    for want in "${expected[@]}"; do
+        if ! printf '%s' "$output" | grep -Fq -- "$want"; then
+            if [ -z "$missing" ]; then
+                missing="$want"
+            else
+                missing="$missing, $want"
+            fi
+        fi
+    done
+    if [ -n "$missing" ]; then
+        fail "$label: missing $missing"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    if printf '%s' "$output" | grep -Fq -- "$forbidden"; then
+        fail "$label: found forbidden text $forbidden"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    pass "$label"
+}
+
 assert_file_order() {
     local label="$1"
     local path="$2"
@@ -485,6 +539,7 @@ assert_file_contains_all \
     "session-home smoke explains activation blockers" \
     "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
     "hazmat explain --json" \
+    "extract-json-object.awk" \
     "plan-only session_home detail" \
     "activation stopped before the toolchain matrix" \
     "activation_blockers above" \
@@ -492,6 +547,16 @@ assert_file_contains_all \
     'HAZMAT_SESSION_HOME_SMOKE_HAZMAT="$PWD/hazmat/hazmat"' \
     "or reinstall Hazmat so the current blocker-detail" \
     "Do not rerun hazmat init."
+
+assert_command_contains_all_and_not \
+    "session-home JSON extractor preserves nested blocker detail" \
+    '"following": {' \
+    '"session_home": {' \
+    '"activation_blockers": [' \
+    '"path": ".npm"' \
+    '"adapter": "toolchain-cache"' \
+    -- \
+    awk -v key=session_home -f "$REPO_ROOT/scripts/lib/extract-json-object.awk" "$REPO_ROOT/scripts/fixtures/session-home-explain.json"
 
 phase "Sudo-adjacent prereq disclosures"
 
