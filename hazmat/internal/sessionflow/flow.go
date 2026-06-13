@@ -62,9 +62,8 @@ func New(input Input) (Plan, error) {
 		}}, nil
 	case sessionmeta.ModeAppleContainer:
 		return Plan{}, fmt.Errorf("unsupported session startup mode %q", input.Mode)
-	default:
-		return Plan{}, fmt.Errorf("unsupported session startup mode %q", input.Mode)
 	}
+	return Plan{}, fmt.Errorf("unsupported session startup mode %q", input.Mode)
 }
 
 func nativePhases(input Input) []Phase {

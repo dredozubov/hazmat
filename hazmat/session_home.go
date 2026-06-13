@@ -957,9 +957,8 @@ func sessionHomeActivationBlockerReasonForEntry(entry sessionHomeAssemblyEntry) 
 		return "", false
 	case sessionHomeAdapterManualOnly, sessionHomeAdapterUnsupported:
 		return reason, true
-	default:
-		return reason, true
 	}
+	return reason, true
 }
 
 func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
@@ -968,9 +967,8 @@ func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy
 		return "", false
 	case sessionHomePolicyAdapterRequired:
 		return sessionHomeBlockerAdapterRequired, true
-	default:
-		return sessionHomeBlockerAdapterRequired, true
 	}
+	return sessionHomeBlockerAdapterRequired, true
 }
 
 func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionHomeAdapterDecision {
@@ -1015,11 +1013,10 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 			Name:    sessionHomeAdapterUnknown,
 			Outcome: sessionHomeAdapterUnsupported,
 		}
-	default:
-		return sessionHomeAdapterDecision{
-			Name:    sessionHomeAdapterUnknown,
-			Outcome: sessionHomeAdapterUnsupported,
-		}
+	}
+	return sessionHomeAdapterDecision{
+		Name:    sessionHomeAdapterUnknown,
+		Outcome: sessionHomeAdapterUnsupported,
 	}
 }
 
@@ -1217,21 +1214,23 @@ func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessio
 		containment.AgentHomeStateToolchainState,
 		containment.AgentHomeStateExecutable:
 		return sessionHomeDurableMirror
-	default:
-		return sessionHomeDurableMirror
 	}
+	return sessionHomeDurableMirror
 }
 
 func sessionHomeRuntimePolicyFor(rel string, class containment.AgentHomeStateClass, durability sessionHomeAssemblyDurability) sessionHomeRuntimePolicy {
 	switch durability {
 	case sessionHomeDurableMirror:
+		return sessionHomeRuntimePolicyForDurableMirror(rel, class)
 	case sessionHomeDurableExternal:
 		return sessionHomePolicyDurableExternal
 	case sessionHomeEphemeralCache:
 		return sessionHomePolicyEphemeralCache
-	default:
-		return sessionHomePolicyAdapterRequired
 	}
+	return sessionHomePolicyAdapterRequired
+}
+
+func sessionHomeRuntimePolicyForDurableMirror(rel string, class containment.AgentHomeStateClass) sessionHomeRuntimePolicy {
 	switch class {
 	case containment.AgentHomeStateShellConfig, containment.AgentHomeStateGitConfig:
 		return sessionHomePolicySeedOnly
