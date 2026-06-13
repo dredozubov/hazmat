@@ -283,16 +283,9 @@ func (u *UI) Summary() bool {
 
 	u.printRepairPlan(repairPlan)
 
-	switch {
-	case u.Fail > 0:
-		cRed.Println("  Hazmat is NOT fully operational. Fix failures before running an agent autonomously.")
-	case u.Warn > 0:
-		cYellow.Println("  Hazmat is operational with warnings. Review warnings before running an agent autonomously.")
-	default:
-		cGreen.Println("  All checks passed. Hazmat is ready.")
-	}
+	failed := u.printFinalStatus(repairPlan)
 	fmt.Println()
-	return u.Fail > 0 || len(repairPlan.FailedVerifications) > 0
+	return failed
 }
 
 func (u *UI) recordFinding(severity uiFindingSeverity, msg string) {
@@ -474,6 +467,38 @@ func (u *UI) repairPlanSectionTitle(plan diagnosticRepairPlan) string {
 		return "━━━ Repair execution ━━━"
 	}
 	return u.recommendationSectionTitle()
+}
+
+func (u *UI) printFinalStatus(plan diagnosticRepairPlan) bool {
+	plan = plan.withSummary()
+	if u.RepairExecution.Command == "doctor" && u.RepairExecution.Fix {
+		switch {
+		case len(plan.FailedVerifications) > 0:
+			cRed.Println("  Hazmat repairs did not fully verify. Fix failures before running an agent autonomously.")
+			return true
+		case plan.Summary.RemainingExecutable > 0:
+			cRed.Println("  Hazmat still has executable repair findings. Review the repair execution before running an agent autonomously.")
+			return true
+		case plan.Summary.Remaining > 0:
+			cYellow.Println("  Executable repairs verified, with remaining manual, optional, unsupported, or informational findings.")
+			return false
+		default:
+			cGreen.Println("  Executable repairs verified. Rerun full live validation before treating the host as clean.")
+			return false
+		}
+	}
+
+	switch {
+	case u.Fail > 0:
+		cRed.Println("  Hazmat is NOT fully operational. Fix failures before running an agent autonomously.")
+		return true
+	case u.Warn > 0:
+		cYellow.Println("  Hazmat is operational with warnings. Review warnings before running an agent autonomously.")
+		return false
+	default:
+		cGreen.Println("  All checks passed. Hazmat is ready.")
+		return false
+	}
 }
 
 func (u *UI) recommendationFooter() string {

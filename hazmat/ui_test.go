@@ -497,6 +497,41 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 }
 
+func TestUISummaryDoctorFixDoesNotKeepPreRepairWarningFooter(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{
+		applyEvidence:  []string{"reloaded pf"},
+		verifyEvidence: []string{"desired state verified"},
+	}
+	ui := &UI{
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "pf firewall"
+	ui.TestWarnFinding(diagnosticFinding(findingPFFirewall), "pf anchor file may not block port 25 (SMTP)")
+
+	var failed bool
+	out := captureUIOutput(t, func() {
+		failed = ui.Summary()
+	})
+	if failed {
+		t.Fatalf("Summary() failed after verified repair:\n%s", out)
+	}
+	if strings.Contains(out, "Hazmat is operational with warnings") {
+		t.Fatalf("summary kept stale warning footer after verified repair:\n%s", out)
+	}
+	if !strings.Contains(out, "Summary: 1 executable repair, 0 manual items, 0 skipped items, 1 applied repair, 0 failed verifications, 0 remaining items") {
+		t.Fatalf("summary missing post-repair zero-remaining receipt:\n%s", out)
+	}
+	if !strings.Contains(out, "Executable repairs verified. Rerun full live validation before treating the host as clean.") {
+		t.Fatalf("summary missing post-repair final status:\n%s", out)
+	}
+}
+
 func TestUIDiagnosticReportDoctorFixYesFailedVerificationOmitsLegacyRecommendation(t *testing.T) {
 	backend := &recordingDiagnosticRepairBackend{
 		applyEvidence:  []string{"applied managed umask block"},
