@@ -85,7 +85,7 @@ func withUpdateNotifications(cmd *cobra.Command) *cobra.Command {
 	run := cmd.Run
 	if runE != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) (err error) {
-			if skipUpdateNotificationForArgs(args) {
+			if skipUpdateNotificationForCommand(cmd) || skipUpdateNotificationForArgs(args) {
 				return runE(cmd, args)
 			}
 			maybeNotifyUpdateAvailable(os.Stderr)
@@ -96,7 +96,7 @@ func withUpdateNotifications(cmd *cobra.Command) *cobra.Command {
 	}
 	if run != nil {
 		cmd.Run = func(cmd *cobra.Command, args []string) {
-			if skipUpdateNotificationForArgs(args) {
+			if skipUpdateNotificationForCommand(cmd) || skipUpdateNotificationForArgs(args) {
 				run(cmd, args)
 				return
 			}
@@ -106,6 +106,18 @@ func withUpdateNotifications(cmd *cobra.Command) *cobra.Command {
 		}
 	}
 	return cmd
+}
+
+func skipUpdateNotificationForCommand(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.Name() {
+	case "check", "doctor", "status":
+		return true
+	default:
+		return false
+	}
 }
 
 func skipUpdateNotificationForArgs(args []string) bool {

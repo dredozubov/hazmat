@@ -165,6 +165,52 @@ func TestWithUpdateNotificationsPrintsAtStartAndExit(t *testing.T) {
 	}
 }
 
+func TestWithUpdateNotificationsSkipsDiagnosticCommands(t *testing.T) {
+	for _, name := range []string{"check", "doctor", "status"} {
+		t.Run(name, func(t *testing.T) {
+			isolateUpdateCheck(t)
+
+			var hits int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits++
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"version":"v0.8.0"}`))
+			}))
+			defer server.Close()
+			updateCheckURL = server.URL
+			updateCheckClient = server.Client()
+
+			var called bool
+			cmd := withUpdateNotifications(&cobra.Command{
+				Use:  name,
+				Args: cobra.NoArgs,
+				RunE: func(_ *cobra.Command, _ []string) error {
+					called = true
+					return nil
+				},
+			})
+			stderr := captureStderr(t, func() {
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("execute command: %v", err)
+				}
+			})
+
+			if !called {
+				t.Fatal("wrapped command did not run")
+			}
+			if hits != 0 {
+				t.Fatalf("metadata hits = %d, want 0 for diagnostic command", hits)
+			}
+			if stderr != "" {
+				t.Fatalf("stderr = %q, want no update notification", stderr)
+			}
+			if _, err := os.Stat(updateCheckStatePath); !os.IsNotExist(err) {
+				t.Fatalf("state file err = %v, want not exist", err)
+			}
+		})
+	}
+}
+
 func TestWithUpdateNotificationsSkipsHelpArgs(t *testing.T) {
 	isolateUpdateCheck(t)
 
