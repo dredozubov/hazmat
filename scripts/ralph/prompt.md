@@ -40,7 +40,7 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
-bd dolt push          # Push beads state
+# Hazmat has no Dolt remote; do not run bd dolt pull/push.
 ```
 
 #### Non-Interactive Shell Commands
@@ -82,15 +82,18 @@ When ending a work session, complete ALL steps:
 1. File issues for remaining work
 2. Run quality gates (tests, linters, builds)
 3. Update issue status — close finished work
-4. Push to remote:
+4. Remote sync is approval-gated because `git push` hooks may invoke
+   sudo-adjacent checks. After explicit user approval for the exact command
+   `git push`, run:
    ```bash
    git pull --rebase
-   bd dolt pull
-   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
-5. Work is NOT complete until `git push` succeeds
+   If approval is absent, stop after local commits/status and state:
+   "Approval needed for exact command: `git push`." Do not claim remote
+   completion.
+5. Do not say work is remotely complete until the approved `git push` succeeds.
 
 ## Task Management: Beads
 

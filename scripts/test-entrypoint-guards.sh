@@ -150,6 +150,66 @@ assert_file_contains_all() {
     pass "$label"
 }
 
+assert_file_not_contains_any() {
+    local label="$1"
+    local path="$2"
+    shift 2
+
+    if [ ! -r "$path" ]; then
+        fail "$label: $path is not readable"
+        return
+    fi
+
+    local text=""
+    text="$(cat "$path")"
+    local found=""
+    for unexpected in "$@"; do
+        if printf '%s' "$text" | grep -Fq -- "$unexpected"; then
+            if [ -z "$found" ]; then
+                found="$unexpected"
+            else
+                found="$found, $unexpected"
+            fi
+        fi
+    done
+    if [ -n "$found" ]; then
+        fail "$label: found forbidden text $found"
+        return
+    fi
+
+    pass "$label"
+}
+
+phase "Agent closeout guidance"
+
+assert_file_contains_all \
+    "AGENTS.md gates git push closeout" \
+    "$REPO_ROOT/AGENTS.md" \
+    'Do not run `git push` unless' \
+    'Approval needed for exact command: `git push`.' \
+    'Do not run bd dolt pull/push in this repo'
+
+assert_file_not_contains_any \
+    "AGENTS.md avoids unconditional push mandate" \
+    "$REPO_ROOT/AGENTS.md" \
+    'NEVER stop before pushing' \
+    'NEVER say "ready to push when you are"' \
+    'Work is NOT complete until `git push` succeeds'
+
+assert_file_contains_all \
+    "Ralph prompt gates git push closeout" \
+    "$REPO_ROOT/scripts/ralph/prompt.md" \
+    'Hazmat has no Dolt remote; do not run bd dolt pull/push.' \
+    'Remote sync is approval-gated' \
+    'Approval needed for exact command: `git push`.'
+
+assert_file_not_contains_any \
+    "Ralph prompt avoids Dolt and unconditional push" \
+    "$REPO_ROOT/scripts/ralph/prompt.md" \
+    '   bd dolt pull' \
+    '   bd dolt push' \
+    'Work is NOT complete until `git push` succeeds'
+
 phase "Destructive guards"
 
 assert_fails_with \

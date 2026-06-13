@@ -92,26 +92,35 @@ beads. Use local `bd` state and persistent `bd remember` memories; skip
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, complete all local closeout steps below. Remote
+sync is required for a fully landed session, but `git push` is sudo-adjacent in
+this repo because hooks may invoke gated checks. Do not run `git push` unless
+the user explicitly approves that exact command.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **Remote sync (approval-gated)** - After explicit approval for `git push`,
+   run:
    ```bash
    git pull --rebase
    # Do not run bd dolt pull/push in this repo; Hazmat has no Dolt remote.
    git push
    git status  # MUST show "up to date with origin"
    ```
+   If approval is absent, stop after local commits/status and state:
+   "Approval needed for exact command: `git push`." Do not claim remote
+   completion.
 5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
+6. **Verify** - All changes committed, and pushed only when the approved push succeeds
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Do not run `git push` without explicit approval for the exact command.
+- Do not say work is remotely complete until `git push` succeeds.
+- If push approval is absent, report the local commit/status and the exact
+  approval needed: `git push`.
+- If an approved push fails, resolve and retry only commands that are not
+  approval-gated; ask again before rerunning any sudo-adjacent command.
