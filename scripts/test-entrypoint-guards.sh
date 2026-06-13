@@ -666,6 +666,12 @@ assert_fails_with \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_HF_SMOKE_MODEL="$REPO_ROOT/scripts/fixtures/huggingface-model-without-config" \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
 
+assert_succeeds_with \
+    "cache integration smoke accepts fake Hugging Face fixture" \
+    "cache-integration-smoke: fixtures ok" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo PATH="$REPO_ROOT/scripts/fixtures/fake-bin:$PATH" HAZMAT_HF_SMOKE_MODEL="$REPO_ROOT/scripts/fixtures/huggingface-model-with-config" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
+
 assert_fails_with \
     "cache integration smoke checks torch-hub cache fixture" \
     "no cached torch.hub repo matching pytorch/vision" \
