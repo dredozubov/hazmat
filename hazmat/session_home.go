@@ -61,6 +61,16 @@ const (
 	sessionHomeAdapterToolchainCache    sessionHomeAdapterName = "toolchain-cache"
 	sessionHomeAdapterExecutableTooling sessionHomeAdapterName = "executable-tooling"
 	sessionHomeAdapterHarnessState      sessionHomeAdapterName = "harness-state"
+	sessionHomeAdapterAgentAssets       sessionHomeAdapterName = "agent-assets"
+	sessionHomeAdapterClaudeState       sessionHomeAdapterName = "claude-state"
+	sessionHomeAdapterCodexState        sessionHomeAdapterName = "codex-state"
+	sessionHomeAdapterCursorState       sessionHomeAdapterName = "cursor-state"
+	sessionHomeAdapterGeminiState       sessionHomeAdapterName = "gemini-state"
+	sessionHomeAdapterHazmatState       sessionHomeAdapterName = "hazmat-state"
+	sessionHomeAdapterHermesState       sessionHomeAdapterName = "hermes-state"
+	sessionHomeAdapterMCPState          sessionHomeAdapterName = "mcp-state"
+	sessionHomeAdapterOpenCodeState     sessionHomeAdapterName = "opencode-state"
+	sessionHomeAdapterQwenState         sessionHomeAdapterName = "qwen-state"
 	sessionHomeAdapterXDGState          sessionHomeAdapterName = "xdg-state"
 	sessionHomeAdapterUnknown           sessionHomeAdapterName = "unknown"
 )
@@ -985,10 +995,7 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 			Outcome: sessionHomeAdapterImplemented,
 		}
 	case containment.AgentHomeStateHarnessState:
-		return sessionHomeAdapterDecision{
-			Name:    sessionHomeAdapterHarnessState,
-			Outcome: sessionHomeAdapterUnsupported,
-		}
+		return sessionHomeHarnessStateAdapterDecision(entry.RelPath)
 	case containment.AgentHomeStateXDGConfig, containment.AgentHomeStateXDGData:
 		if sessionHomeXDGAdapterPath(entry.RelPath) {
 			return sessionHomeAdapterDecision{
@@ -1013,6 +1020,47 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 			Name:    sessionHomeAdapterUnknown,
 			Outcome: sessionHomeAdapterUnsupported,
 		}
+	}
+}
+
+func sessionHomeHarnessStateAdapterDecision(rel string) sessionHomeAdapterDecision {
+	switch rel {
+	case ".agents":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterAgentAssets)
+	case ".claude":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterClaudeState)
+	case ".codex":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterCodexState)
+	case ".config/mcp":
+		return sessionHomeManualHarnessAdapter(sessionHomeAdapterMCPState)
+	case ".config/opencode", ".opencode":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterOpenCodeState)
+	case ".cursor":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterCursorState)
+	case ".gemini":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterGeminiState)
+	case ".hazmat":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHazmatState)
+	case ".hazmat/hermes":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHermesState)
+	case ".qwen":
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterQwenState)
+	default:
+		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHarnessState)
+	}
+}
+
+func sessionHomeUnsupportedHarnessAdapter(name sessionHomeAdapterName) sessionHomeAdapterDecision {
+	return sessionHomeAdapterDecision{
+		Name:    name,
+		Outcome: sessionHomeAdapterUnsupported,
+	}
+}
+
+func sessionHomeManualHarnessAdapter(name sessionHomeAdapterName) sessionHomeAdapterDecision {
+	return sessionHomeAdapterDecision{
+		Name:    name,
+		Outcome: sessionHomeAdapterManualOnly,
 	}
 }
 

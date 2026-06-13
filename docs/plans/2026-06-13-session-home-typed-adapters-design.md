@@ -113,7 +113,11 @@ Targets: `.agents`, `.codex`, `.cursor`, `.gemini`, `.opencode`, `.qwen`,
 `.config/opencode`, `.config/mcp`, and broad `.hazmat` harness state outside
 explicit transcript bridges.
 
-Default behavior: `manual-only` or `unsupported` per harness.
+Default behavior: `manual-only` or `unsupported` per harness. Current adapter
+labels are explicit (`claude-state`, `codex-state`, `opencode-state`,
+`gemini-state`, `qwen-state`, `mcp-state`, and related roots), but broad roots
+still block activation until credential materialization and portable asset
+mapping are session-home-aware.
 
 Rationale: broad harness state may contain auth tokens, sockets, remembered tool
 permissions, plugins, MCP descriptors, or remote-control state. The only safe
@@ -123,6 +127,8 @@ credential delivery, transcript roots, and volatile caches explicitly.
 Tests:
 
 - unsupported harness roots keep activation blocked;
+- blocker metadata identifies the owning harness/state surface instead of a
+  generic adapter-required bucket;
 - known transcript roots stay `durable-external`;
 - known prompt/config assets that are already classified as seed-only remain
   seed-only;

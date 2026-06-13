@@ -185,7 +185,7 @@ func TestApplyExperimentalSessionHomePlanActivateFailsClosedOnBlockers(t *testin
 	if err == nil || !strings.Contains(err.Error(), "adapter required") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want adapter blocker", err)
 	}
-	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .config/mcp [harness-state/adapter-required; adapter=harness-state:unsupported]") {
+	if !strings.Contains(err.Error(), "Blocking paths: adapter required: .config/mcp [harness-state/adapter-required; adapter=mcp-state:manual-only]") {
 		t.Fatalf("applyExperimentalSessionHomePlan err = %v, want actionable blocker path", err)
 	}
 	if cfg.SessionHome != nil {
@@ -317,6 +317,24 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			policy:         sessionHomePolicyAdapterRequired,
 			adapter:        sessionHomeAdapterXDGState,
 			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
+		{
+			rel:            ".codex",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateHarnessState,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterCodexState,
+			adapterOutcome: sessionHomeAdapterUnsupported,
+		},
+		{
+			rel:            ".config/mcp",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateHarnessState,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterMCPState,
+			adapterOutcome: sessionHomeAdapterManualOnly,
 		},
 		{
 			rel:            ".local/share",
@@ -513,12 +531,46 @@ func TestNewSessionHomeLaunchPlanKeepsCoveredHarnessXDGStateBlocked(t *testing.T
 
 	for _, blocker := range plan.Blockers {
 		if blocker.RelPath == ".config/mcp" &&
-			blocker.AdapterName == sessionHomeAdapterHarnessState &&
-			blocker.AdapterOutcome == sessionHomeAdapterUnsupported {
+			blocker.AdapterName == sessionHomeAdapterMCPState &&
+			blocker.AdapterOutcome == sessionHomeAdapterManualOnly {
 			return
 		}
 	}
 	t.Fatalf("activation blockers = %+v, want covered harness XDG state blocked", plan.Blockers)
+}
+
+func TestNewSessionHomeLaunchPlanLabelsHarnessStateByOwner(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	for _, rel := range []string{".codex", ".gemini", ".qwen", ".hazmat/hermes"} {
+		if err := os.MkdirAll(filepath.Join(persistentHome, filepath.FromSlash(rel)), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	want := map[string]sessionHomeAdapterName{
+		".codex":         sessionHomeAdapterCodexState,
+		".gemini":        sessionHomeAdapterGeminiState,
+		".qwen":          sessionHomeAdapterQwenState,
+		".hazmat/hermes": sessionHomeAdapterHermesState,
+	}
+	for rel, adapter := range want {
+		found := false
+		for _, blocker := range plan.Blockers {
+			if blocker.RelPath == rel &&
+				blocker.AdapterName == adapter &&
+				blocker.AdapterOutcome == sessionHomeAdapterUnsupported {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("activation blockers = %+v, missing %s adapter %s", plan.Blockers, rel, adapter)
+		}
+	}
 }
 
 func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) {
