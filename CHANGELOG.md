@@ -1,6 +1,8 @@
 # Changelog
 
 All notable changes to Hazmat are documented in this file.
+Safety-facing entries should follow the proof/caveat convention in
+[docs/release-notes.md](docs/release-notes.md).
 
 ## [Unreleased]
 
