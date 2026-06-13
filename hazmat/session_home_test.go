@@ -746,6 +746,73 @@ func TestSessionHomeActivationBlockerDetailsGroupsPaths(t *testing.T) {
 	}
 }
 
+func TestSessionHomeActivationBlockerGuidanceIsReasonAware(t *testing.T) {
+	tests := []struct {
+		name     string
+		blockers []sessionHomeLaunchBlocker
+		want     []string
+		notWant  []string
+	}{
+		{
+			name: "activation gate only",
+			blockers: []sessionHomeLaunchBlocker{
+				{RelPath: "session-home", Reason: sessionHomeBlockerActivationGate},
+			},
+			want: []string{
+				"activation-gate blockers mean the current mode is preview-only",
+				"use activate mode only after the structured plan is ready",
+				"not hazmat init",
+			},
+			notWant: []string{
+				"adapter-required paths need typed bridge",
+			},
+		},
+		{
+			name: "adapter required",
+			blockers: []sessionHomeLaunchBlocker{
+				{RelPath: ".codex", Reason: sessionHomeBlockerAdapterRequired},
+			},
+			want: []string{
+				"adapter-required paths need typed bridge/materializer support",
+				"not hazmat init",
+			},
+		},
+		{
+			name: "mixed mirror and writeback",
+			blockers: []sessionHomeLaunchBlocker{
+				{RelPath: ".gitconfig", Reason: sessionHomeBlockerSeedMaterialize},
+				{RelPath: ".cache", Reason: sessionHomeBlockerDurableMirrorSync},
+				{RelPath: ".state", Reason: sessionHomeBlockerCheckedWriteback},
+			},
+			want: []string{
+				"seed materialization blockers need implemented seed-copy rules",
+				"durable mirror sync blockers need mirror materialization and cleanup semantics",
+				"checked writeback blockers need a verified adapter writeback plan",
+				"not hazmat init",
+			},
+			notWant: []string{
+				"adapter-required paths need typed bridge",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sessionHomeActivationBlockerGuidance(tt.blockers)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("guidance = %q, want %q", got, want)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(got, notWant) {
+					t.Fatalf("guidance = %q, did not want %q", got, notWant)
+				}
+			}
+		})
+	}
+}
+
 func TestSessionHomePersistentPathExistsDoesNotProbeAgentHome(t *testing.T) {
 	exists, err := sessionHomePersistentPathExists(filepath.Join(agentHome, ".definitely-private-for-session-home-test"))
 	if err != nil {

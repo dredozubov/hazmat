@@ -491,7 +491,40 @@ func sessionHomeActivationBlockerGuidance(blockers []sessionHomeLaunchBlocker) s
 	if len(blockers) == 0 {
 		return "Inspect the structured plan with hazmat explain --json."
 	}
-	return "Inspect the structured plan with hazmat explain --json; adapter-required paths need typed bridge/materializer support or an intentional fail-closed policy, not hazmat init."
+	reasons := map[sessionHomeLaunchBlockerReason]struct{}{}
+	for _, blocker := range blockers {
+		reasons[blocker.Reason] = struct{}{}
+	}
+	var guidance []string
+	for _, reason := range []sessionHomeLaunchBlockerReason{
+		sessionHomeBlockerAdapterRequired,
+		sessionHomeBlockerSeedMaterialize,
+		sessionHomeBlockerCheckedWriteback,
+		sessionHomeBlockerDurableMirrorSync,
+		sessionHomeBlockerActivationGate,
+	} {
+		if _, ok := reasons[reason]; !ok {
+			continue
+		}
+		switch reason {
+		case sessionHomeBlockerAdapterRequired:
+			guidance = append(guidance, "adapter-required paths need typed bridge/materializer support or an intentional fail-closed policy")
+		case sessionHomeBlockerSeedMaterialize:
+			guidance = append(guidance, "seed materialization blockers need implemented seed-copy rules before activation")
+		case sessionHomeBlockerCheckedWriteback:
+			guidance = append(guidance, "checked writeback blockers need a verified adapter writeback plan before activation")
+		case sessionHomeBlockerDurableMirrorSync:
+			guidance = append(guidance, "durable mirror sync blockers need mirror materialization and cleanup semantics before activation")
+		case sessionHomeBlockerActivationGate:
+			guidance = append(guidance, "activation-gate blockers mean the current mode is preview-only; use activate mode only after the structured plan is ready")
+		}
+		delete(reasons, reason)
+	}
+	for reason := range reasons {
+		guidance = append(guidance, fmt.Sprintf("%s blockers need explicit support before activation", reason))
+	}
+	sort.Strings(guidance)
+	return "Inspect the structured plan with hazmat explain --json; " + strings.Join(guidance, "; ") + ", not hazmat init."
 }
 
 func sessionHomeActivationBlockerPathSummary(blockers []sessionHomeLaunchBlocker) string {
