@@ -49,6 +49,38 @@ Do not claim a live smoke passed unless the exact command was approved and the
 output was captured safely. Prepared-host and desktop attach smokes are not
 generic tests; they are machine-context evidence.
 
+## Community Evidence
+
+Community contributions should be visible in release notes when they add
+durable evidence or user value:
+
+- recipes with exact commands and caveats;
+- compatibility reports with host, harness, stack, mode, evidence, and
+  limitations;
+- integration proposals that stayed inside the manifest contract;
+- docs/UX fixes backed by confusing output, screenshots, or setup traces;
+- public incident-to-control evidence that changed docs, tests, or beads.
+
+Use a dedicated section when a release includes community evidence:
+
+```md
+### Community Evidence
+- <contributor or report link> added <recipe, compatibility row, caveat,
+  incident mapping, or docs fix>. Evidence: <link>. Caveat: <scope limit>.
+```
+
+Rules:
+
+- Do not publish names for private security reports without coordinated
+  disclosure agreement.
+- Do not imply community ownership of seatbelt, `pf`, setup/rollback,
+  credential delivery, launch helpers, broker protocols, Docker routing, or
+  TLA-governed behavior.
+- Do not promote a recipe, compatibility report, or integration proposal to
+  "supported" without maintainer review and evidence.
+- Pair broad community claims with `docs/community.md` and
+  `docs/community-labels.md` so readers understand the ownership model.
+
 ## Wording Rules
 
 Use:

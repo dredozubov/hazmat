@@ -87,6 +87,13 @@ Hazmat uses `bd` internally for issue tracking. The public roadmap is a curated 
 
 The roadmap is intentionally curated. Not every internal bead belongs in the public output.
 
+## Release Notes
+
+Community evidence can appear in release notes when it adds a durable recipe,
+compatibility row, integration caveat, docs/UX fix, or incident-to-control
+mapping. The convention lives in [docs/release-notes.md](release-notes.md).
+Recognition does not imply community ownership of Hazmat's trust boundary.
+
 ## Sponsor Lanes
 
 The project already has a funding link, but the work benefits from clearer lanes.
