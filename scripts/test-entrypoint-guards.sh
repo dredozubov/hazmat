@@ -180,6 +180,32 @@ assert_file_not_contains_any() {
     pass "$label"
 }
 
+assert_file_order() {
+    local label="$1"
+    local path="$2"
+    local before="$3"
+    local after="$4"
+
+    if [ ! -r "$path" ]; then
+        fail "$label: $path is not readable"
+        return
+    fi
+
+    local before_line=""
+    local after_line=""
+    before_line="$(grep -n -F -- "$before" "$path" | head -n 1 | cut -d: -f1)"
+    after_line="$(grep -n -F -- "$after" "$path" | head -n 1 | cut -d: -f1)"
+    if [ -z "$before_line" ] || [ -z "$after_line" ]; then
+        fail "$label: missing order markers"
+        return
+    fi
+    if [ "$before_line" -lt "$after_line" ]; then
+        pass "$label"
+    else
+        fail "$label: expected '$before' before '$after'"
+    fi
+}
+
 phase "Agent closeout guidance"
 
 assert_file_contains_all \
@@ -401,6 +427,12 @@ assert_file_contains_all \
     "Matching process sample:" \
     "... truncated " \
     "additional matching process(es)"
+
+assert_file_order \
+    "Codex desktop checks running app before sudo probe" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
+    'running="$(running_codex_processes || :)"' \
+    'sudo -n -u "$AGENT_USER"'
 
 assert_file_contains_all \
     "Codex app-server missing CLI guidance uses harness lifecycle" \

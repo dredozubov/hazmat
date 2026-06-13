@@ -181,6 +181,12 @@ check_prereqs() {
 	if [ ! -x /usr/bin/grep ]; then
 		add_missing_prereq "/usr/bin/grep is missing or not executable"
 	fi
+	if [ -x /bin/ps ] && [ -x /usr/bin/awk ]; then
+		running="$(running_codex_processes || :)"
+		if [ -n "$running" ]; then
+			add_missing_prereq "$(running_codex_process_summary "$running")"
+		fi
+	fi
 	if [ ! -d "$APP_BUNDLE" ]; then
 		add_missing_prereq "$APP_BUNDLE is not installed"
 	elif [ ! -x "$APP_BUNDLE/Contents/MacOS/Codex" ]; then
@@ -206,11 +212,6 @@ check_prereqs() {
 		elif ! sudo -n -u "$AGENT_USER" test -x "$CODEX_BIN" >/dev/null 2>&1; then
 			add_missing_prereq "Codex CLI is not installed for '$AGENT_USER' at $CODEX_BIN; run hazmat harness update codex"
 		fi
-	fi
-
-	running="$(running_codex_processes || :)"
-	if [ -n "$running" ]; then
-		add_missing_prereq "$(running_codex_process_summary "$running")"
 	fi
 
 	if [ -n "$MISSING_PREREQS" ]; then

@@ -179,7 +179,8 @@ approval-gated because it performs non-interactive sudo capability probes with
 scripts/check-codex-desktop-attach-smoke.sh --check-prereqs
 ```
 
-`--check-prereqs` fails closed if Codex App is already running. The script never
+`--check-prereqs` fails closed if Codex App is already running, and performs
+that process check before any `sudo -n` capability probe. The script never
 quits or kills the app for you. After explicit approval and after quitting any
 existing Codex App instance manually, run:
 
