@@ -31,7 +31,8 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 		CommandSurface:       func() { got = append(got, "commands") },
 		Seatbelt:             func() { got = append(got, "seatbelt") },
 		ProjectToolchain:     func() { got = append(got, "toolchain") },
-		LocalSnapshot:        func() { got = append(got, "local-snapshot") },
+		LocalSnapshot:        func() { t.Fatal("LocalSnapshot called in quick mode") },
+		LocalSnapshotSkipped: func(reason string) { got = append(got, "local-snapshot-skip:"+reason) },
 		CloudBackup:          func() { t.Fatal("CloudBackup called in quick mode") },
 		CloudBackupSkipped:   func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
 		CloudRestore:         func() { t.Fatal("CloudRestore called in quick mode") },
@@ -48,7 +49,8 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 	}
 	want := []string{
 		"begin", "agent", "group:dr", "sudo", "pf-static", "dns", "persistence",
-		"skip:" + QuickAgentProbeSkipReason, "local-snapshot",
+		"skip:" + QuickAgentProbeSkipReason,
+		"local-snapshot-skip:" + QuickLocalSnapshotSkipReason,
 		"cloud-backup-skip:" + QuickCloudBackupSkipReason,
 		"cloud-restore-skip:" + QuickCloudRestoreSkipReason,
 		"decommission", "finish",
@@ -89,6 +91,9 @@ func TestRunCheckFullRunsHelperBackedAgentProbesInOrder(t *testing.T) {
 		Seatbelt:            func() { got = append(got, "seatbelt") },
 		ProjectToolchain:    func() { got = append(got, "toolchain") },
 		LocalSnapshot:       func() { got = append(got, "local-snapshot") },
+		LocalSnapshotSkipped: func(reason string) {
+			got = append(got, "local-snapshot-skip:"+reason)
+		},
 		CloudBackup:         func() { got = append(got, "cloud-backup") },
 		CloudBackupSkipped:  func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
 		CloudRestore:        func() { got = append(got, "cloud-restore") },
@@ -144,6 +149,7 @@ func TestRunCheckFullSkipsAgentProbesWhenGateBlocked(t *testing.T) {
 		Seatbelt:             func() { got = append(got, "seatbelt") },
 		ProjectToolchain:     func() { got = append(got, "toolchain") },
 		LocalSnapshot:        func() { got = append(got, "local-snapshot") },
+		LocalSnapshotSkipped: func(reason string) { got = append(got, "local-snapshot-skip:"+reason) },
 		CloudBackup:          func() { got = append(got, "cloud-backup") },
 		CloudBackupSkipped:   func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
 		CloudRestore:         func() { got = append(got, "cloud-restore") },

@@ -50,6 +50,7 @@ type CheckSuite struct {
 	Seatbelt             func()
 	ProjectToolchain     func()
 	LocalSnapshot        func()
+	LocalSnapshotSkipped func(reason string)
 	CloudBackup          func()
 	CloudBackupSkipped   func(reason string)
 	CloudRestore         func()
@@ -60,6 +61,7 @@ type CheckSuite struct {
 }
 
 const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation"
+const QuickLocalSnapshotSkipReason = "local snapshot live validation skipped in quick mode; use hazmat check --full for local backup validation"
 const QuickCloudBackupSkipReason = "cloud backup live validation skipped in quick mode; use hazmat check --full for cloud backup validation"
 const QuickCloudRestoreSkipReason = "cloud restore live validation skipped in quick mode; use hazmat check --full for cloud restore validation"
 
@@ -97,11 +99,12 @@ func RunCheck(quick bool, suite CheckSuite) error {
 	} else if suite.AgentProbesSkipped != nil {
 		suite.AgentProbesSkipped(ctx.AgentProbes.Reason())
 	}
-	call(suite.LocalSnapshot)
 	if quick {
+		callString(suite.LocalSnapshotSkipped, QuickLocalSnapshotSkipReason)
 		callString(suite.CloudBackupSkipped, QuickCloudBackupSkipReason)
 		callString(suite.CloudRestoreSkipped, QuickCloudRestoreSkipReason)
 	} else {
+		call(suite.LocalSnapshot)
 		call(suite.CloudBackup)
 		call(suite.CloudRestore)
 	}

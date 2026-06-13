@@ -88,6 +88,7 @@ func runTest(options diagnostics.CheckOptions) error {
 		Seatbelt:             func() { testSeatbelt(ui) },
 		ProjectToolchain:     func() { testProjectToolchain(ui) },
 		LocalSnapshot:        func() { testLocalSnapshot(ui) },
+		LocalSnapshotSkipped: func(reason string) { testLocalSnapshotSkipped(ui, reason) },
 		CloudBackup:          func() { testCloudBackup(ui) },
 		CloudBackupSkipped:   func(reason string) { testCloudBackupSkipped(ui, reason) },
 		CloudRestore:         func() { testCloudRestore(ui) },
@@ -1296,6 +1297,11 @@ func testLocalSnapshot(ui *UI) {
 	} else {
 		ui.TestWarn(fmt.Sprintf("local snapshot repo not found at %s — local backup setup is absent", localRepoDir))
 	}
+}
+
+func testLocalSnapshotSkipped(ui *UI, reason string) {
+	ui.Step("Local Snapshot (Kopia)")
+	ui.TestSkip(reason)
 }
 
 // ── Step 15: Decommission coverage ────────────────────────────────────────────

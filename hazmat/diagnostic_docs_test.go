@@ -11,13 +11,13 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read testing docs: %v", err)
 	}
-	text := string(data)
+	text := strings.Join(strings.Fields(string(data)), " ")
 	required := []string{
 		"no helper-backed agent probes in the default quick mode",
-		"skip cloud backup and cloud restore live validation",
-		"does not send external traffic",
+		"skip local snapshot, cloud backup, and cloud restore live validation",
+		"does not run backup smoke tests or send external traffic",
 		"hazmat check --full",
-		"helper-backed and cloud live validation",
+		"helper-backed, backup, and cloud live validation",
 		"requires explicit exact-command approval",
 	}
 	for _, phrase := range required {
