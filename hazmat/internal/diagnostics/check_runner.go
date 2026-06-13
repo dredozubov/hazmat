@@ -33,35 +33,37 @@ func (g AgentProbeGate) Reason() string {
 }
 
 type CheckSuite struct {
-	Begin                func(quick bool) (CheckContext, error)
-	AgentUser            func()
-	DevGroupAndWorkspace func(currentUser string)
-	AgentProbesSkipped   func(reason string)
-	UserIsolation        func(currentUser string)
-	HardeningGaps        func()
-	PasswordlessSudo     func()
-	PFFirewallStatic     func()
-	PFFirewallLive       func(quick bool, selfPath string)
-	DNSBlocklist         func()
-	Persistence          func()
-	CredentialInventory  func()
-	AgentTools           func()
-	CommandSurface       func()
-	Seatbelt             func()
-	ProjectToolchain     func()
-	LocalSnapshot        func()
-	LocalSnapshotSkipped func(reason string)
-	CloudBackup          func()
-	CloudBackupSkipped   func(reason string)
-	CloudRestore         func()
-	CloudRestoreSkipped  func(reason string)
-	Decommission         func()
-	Finish               func() bool
-	Exit                 func(code int)
+	Begin                   func(quick bool) (CheckContext, error)
+	AgentUser               func()
+	DevGroupAndWorkspace    func(currentUser string)
+	AgentProbesSkipped      func(reason string)
+	UserIsolation           func(currentUser string)
+	HardeningGaps           func()
+	PasswordlessSudo        func()
+	PasswordlessSudoSkipped func(reason string)
+	PFFirewallStatic        func()
+	PFFirewallLive          func(quick bool, selfPath string)
+	DNSBlocklist            func()
+	Persistence             func()
+	CredentialInventory     func()
+	AgentTools              func()
+	CommandSurface          func()
+	Seatbelt                func()
+	ProjectToolchain        func()
+	LocalSnapshot           func()
+	LocalSnapshotSkipped    func(reason string)
+	CloudBackup             func()
+	CloudBackupSkipped      func(reason string)
+	CloudRestore            func()
+	CloudRestoreSkipped     func(reason string)
+	Decommission            func()
+	Finish                  func() bool
+	Exit                    func(code int)
 }
 
 const quickFullValidationApprovalNote = "hazmat check --full is sudo-adjacent in agent workflows and requires exact-command approval"
 
+const QuickPasswordlessSudoSkipReason = "passwordless sudo validation skipped in quick mode; use hazmat check --full for sudo-adjacent launch-helper validation after approval (" + quickFullValidationApprovalNote + ")"
 const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation after approval (" + quickFullValidationApprovalNote + ")"
 const QuickLocalSnapshotSkipReason = "local snapshot live validation skipped in quick mode; use hazmat check --full for local backup validation after approval (" + quickFullValidationApprovalNote + ")"
 const QuickCloudBackupSkipReason = "cloud backup live validation skipped in quick mode; use hazmat check --full for cloud backup validation after approval (" + quickFullValidationApprovalNote + ")"
@@ -79,7 +81,11 @@ func RunCheck(quick bool, suite CheckSuite) error {
 
 	call(suite.AgentUser)
 	callString(suite.DevGroupAndWorkspace, ctx.CurrentUser)
-	call(suite.PasswordlessSudo)
+	if quick {
+		callString(suite.PasswordlessSudoSkipped, QuickPasswordlessSudoSkipReason)
+	} else {
+		call(suite.PasswordlessSudo)
+	}
 	call(suite.PFFirewallStatic)
 	call(suite.DNSBlocklist)
 	call(suite.Persistence)

@@ -14,10 +14,11 @@ type CheckRunner func(CheckOptions) error
 func NewCheckCommand(run CheckRunner) *cobra.Command {
 	return newCheckCommand("check", "Verify setup and show a read-only repairability report", `Runs the verification suite to check that containment is correctly configured.
 
-By default runs quick checks (no backup smoke tests or external traffic). Use
---full to include helper-backed, backup, and cloud live probes that can send
-external traffic and are sudo-adjacent in agent workflows. Failures and warnings
-are summarized as a read-only health and repairability report.
+By default runs quick checks: no sudo-adjacent launch-helper validation, no
+helper-backed probes, no backup smoke tests, and no external traffic. Use --full
+to include helper-backed, backup, and cloud live probes that can send external
+traffic and are sudo-adjacent in agent workflows. Failures and warnings are
+summarized as a read-only health and repairability report.
 
 When executable typed repairs are planned, run hazmat doctor --fix. To preview
 the typed repair plan explicitly, run hazmat doctor --dry-run.`, `  hazmat check
@@ -30,9 +31,10 @@ func NewDoctorCommand(run CheckRunner) *cobra.Command {
 	return newCheckCommand("doctor", "Diagnose setup and show the typed repair plan", `Runs the same diagnostic suite as hazmat check and ends with the typed
 repair plan for any failures or warnings.
 
-By default runs quick checks (no backup smoke tests or external traffic). Use
---full to include helper-backed, backup, and cloud live probes that can send
-external traffic and are sudo-adjacent in agent workflows.
+By default runs quick checks: no sudo-adjacent launch-helper validation, no
+helper-backed probes, no backup smoke tests, and no external traffic. Use --full
+to include helper-backed, backup, and cloud live probes that can send external
+traffic and are sudo-adjacent in agent workflows.
 
 Use hazmat doctor --dry-run when you want to spell out non-mutating preview
 behavior. Plain doctor remains compatible and plan-only. Mutation requires

@@ -78,6 +78,9 @@ func runTest(options diagnostics.CheckOptions) error {
 		UserIsolation:        func(currentUser string) { testUserIsolation(ui, currentUser) },
 		HardeningGaps:        func() { testHardeningGaps(ui) },
 		PasswordlessSudo:     func() { testPasswordlessSudo(ui) },
+		PasswordlessSudoSkipped: func(reason string) {
+			testPasswordlessSudoSkipped(ui, reason)
+		},
 		PFFirewallStatic:     func() { testPfFirewallStatic(ui) },
 		PFFirewallLive:       func(quick bool, selfPath string) { testPfFirewallLive(ui, quick, selfPath) },
 		DNSBlocklist:         func() { testDNSBlocklist(ui) },
@@ -141,6 +144,11 @@ func inspectAgentProbeGate() diagnostics.AgentProbeGate {
 
 func testAgentProbesSkipped(ui *UI, reason string) {
 	ui.Step("Agent-backed probes")
+	ui.TestSkip(reason)
+}
+
+func testPasswordlessSudoSkipped(ui *UI, reason string) {
+	ui.Step("Passwordless sudoers")
 	ui.TestSkip(reason)
 }
 

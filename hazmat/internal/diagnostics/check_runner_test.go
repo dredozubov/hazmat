@@ -22,7 +22,10 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 		AgentProbesSkipped:   func(reason string) { got = append(got, "skip:"+reason) },
 		UserIsolation:        func(user string) { got = append(got, "isolation:"+user) },
 		HardeningGaps:        func() { got = append(got, "hardening") },
-		PasswordlessSudo:     func() { got = append(got, "sudo") },
+		PasswordlessSudo:     func() { t.Fatal("PasswordlessSudo called in quick mode") },
+		PasswordlessSudoSkipped: func(reason string) {
+			got = append(got, "sudo-skip:"+reason)
+		},
 		PFFirewallStatic:     func() { got = append(got, "pf-static") },
 		PFFirewallLive:       func(bool, string) { got = append(got, "pf-live") },
 		DNSBlocklist:         func() { got = append(got, "dns") },
@@ -49,7 +52,8 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 		t.Fatalf("RunCheck(): %v", err)
 	}
 	want := []string{
-		"begin", "agent", "group:dr", "sudo", "pf-static", "dns", "persistence",
+		"begin", "agent", "group:dr", "sudo-skip:" + QuickPasswordlessSudoSkipReason,
+		"pf-static", "dns", "persistence",
 		"skip:" + QuickAgentProbeSkipReason,
 		"local-snapshot-skip:" + QuickLocalSnapshotSkipReason,
 		"cloud-backup-skip:" + QuickCloudBackupSkipReason,
@@ -63,10 +67,11 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 
 func TestQuickSkipReasonsDiscloseFullValidationApprovalGate(t *testing.T) {
 	reasons := map[string]string{
-		"agent probes":   QuickAgentProbeSkipReason,
-		"local snapshot": QuickLocalSnapshotSkipReason,
-		"cloud backup":   QuickCloudBackupSkipReason,
-		"cloud restore":  QuickCloudRestoreSkipReason,
+		"passwordless sudo": QuickPasswordlessSudoSkipReason,
+		"agent probes":      QuickAgentProbeSkipReason,
+		"local snapshot":    QuickLocalSnapshotSkipReason,
+		"cloud backup":      QuickCloudBackupSkipReason,
+		"cloud restore":     QuickCloudRestoreSkipReason,
 	}
 	for name, reason := range reasons {
 		t.Run(name, func(t *testing.T) {
