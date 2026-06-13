@@ -492,6 +492,67 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 }
 
+func TestDoctorFixYesCleanPlanIsNonMutatingNoop(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{}
+	ui := &UI{
+		JSON:          true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Mode != "preview" || plan.Mutating || plan.Execution.MutationAllowed {
+		t.Fatalf("plan = mode %q mutating=%v execution=%+v, want non-mutating clean preview", plan.Mode, plan.Mutating, plan.Execution)
+	}
+	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
+		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
+	}
+	if !strings.Contains(plan.Execution.Reason, "no executable repairs") {
+		t.Fatalf("execution reason = %q, want no-executable explanation", plan.Execution.Reason)
+	}
+	if len(plan.NextSteps) != 0 || len(plan.Execution.Examples) != 0 {
+		t.Fatalf("next steps = %+v examples = %v, want no repair guidance for clean plan", plan.NextSteps, plan.Execution.Examples)
+	}
+}
+
+func TestDoctorFixYesManualOnlyPlanIsNonMutatingInspectOnly(t *testing.T) {
+	backend := &recordingDiagnosticRepairBackend{}
+	ui := &UI{
+		JSON:          true,
+		YesAll:        true,
+		RepairBackend: backend,
+		RepairExecution: diagnosticRepairExecutionRequest{
+			Command: "doctor",
+			Fix:     true,
+			YesAll:  true,
+		},
+	}
+	ui.stepLabel = "Manual findings"
+	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
+
+	plan := ui.diagnosticReport().RepairPlan
+	if plan.Mode != "preview" || plan.Mutating || plan.Execution.MutationAllowed {
+		t.Fatalf("plan = mode %q mutating=%v execution=%+v, want non-mutating manual-only preview", plan.Mode, plan.Mutating, plan.Execution)
+	}
+	if backend.applyCalls != 0 || backend.verifyCalls != 0 {
+		t.Fatalf("backend calls = apply %d verify %d, want none", backend.applyCalls, backend.verifyCalls)
+	}
+	if plan.Summary.RemainingExecutable != 0 || len(plan.Items) != 0 || len(plan.ManualItems) != 1 {
+		t.Fatalf("plan summary = %+v items=%+v manual=%+v, want one manual item and no executable repairs", plan.Summary, plan.Items, plan.ManualItems)
+	}
+	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
+		t.Fatalf("next steps = %+v, want inspect-only guidance", plan.NextSteps)
+	}
+	if len(plan.Execution.Examples) != 0 {
+		t.Fatalf("execution examples = %v, want no repair commands for manual-only fix request", plan.Execution.Examples)
+	}
+}
+
 func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	backend := &recordingDiagnosticRepairBackend{
 		applyEvidence:  []string{"applied managed umask block"},

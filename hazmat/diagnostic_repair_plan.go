@@ -376,6 +376,10 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 		} else if plan.Summary.Remaining > 0 {
 			addInspectRemainingStep()
 		}
+	case "no-executable":
+		if plan.Summary.Remaining > 0 {
+			addInspectRemainingStep()
+		}
 	case "fix-yes", "fix-interactive":
 		if plan.Summary.FailedVerifications > 0 {
 			steps = append(steps, diagnosticRepairNextStep{

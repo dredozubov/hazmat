@@ -417,6 +417,9 @@ func (u *UI) diagnosticRepairPlan() diagnosticRepairPlan {
 	if !plan.Execution.MutationAllowed {
 		return plan
 	}
+	if len(plan.Items) == 0 {
+		return diagnosticRepairPlanNoExecutable(plan)
+	}
 	if plan.Execution.RequiresInteractiveConsent && !u.confirmDiagnosticRepairPlan(plan) {
 		return diagnosticRepairPlanDeclined(plan)
 	}
@@ -441,6 +444,14 @@ func diagnosticRepairPlanDeclined(plan diagnosticRepairPlan) diagnosticRepairPla
 		plan.Items[i].BlockedReason = "repair execution declined by user"
 		plan.Items[i].Reason = "no mutation attempted"
 	}
+	return plan.withSummary()
+}
+
+func diagnosticRepairPlanNoExecutable(plan diagnosticRepairPlan) diagnosticRepairPlan {
+	plan.Mutating = false
+	plan.Execution.MutationAllowed = false
+	plan.Execution.Mode = "no-executable"
+	plan.Execution.Reason = "no executable repairs were planned; no mutation attempted"
 	return plan.withSummary()
 }
 
