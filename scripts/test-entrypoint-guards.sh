@@ -528,6 +528,7 @@ assert_file_contains_all \
     'add_missing_target_fixture "$1" "$OLLAMA_BIN list failed; start the Ollama daemon or check OLLAMA_HOST"' \
     'add_missing_target_fixture "$1" "python3 cannot import torch"' \
     'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO' \
+    'add_missing_target_fixture "$1" "no cached torch.hub repo matching' \
     'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL'
 
 assert_fails_with \
@@ -535,6 +536,12 @@ assert_fails_with \
     "/bin/sh list failed; start the Ollama daemon or check OLLAMA_HOST" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN=/bin/sh \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
+
+assert_fails_with \
+    "cache integration smoke checks torch-hub cache fixture" \
+    "no cached torch.hub repo matching pytorch/vision" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HOME="$REPO_ROOT/scripts/fixtures/missing-home" HAZMAT_TORCH_HUB_REPO=pytorch/vision HAZMAT_TORCH_HUB_MODEL=resnet18 \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target torch-hub --check-fixtures
 
 assert_help_contains_all \
     "OpenHands recipe smoke documents fixture consent" \

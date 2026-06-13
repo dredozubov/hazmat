@@ -327,11 +327,13 @@ scripts/check-cache-integration-smoke.sh --target torch-hub --run --i-understand
 
 Hugging Face requires `HAZMAT_HF_SMOKE_MODEL` to name a pre-cached model ID or
 path. PyTorch torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
-`HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry. Ollama requires the
-`ollama` CLI and a running host daemon; the fixture check runs `ollama list`
-through the selected binary to catch daemon or `OLLAMA_HOST` problems before the
-live Hazmat session. Override the executable with `HAZMAT_OLLAMA_SMOKE_BIN`
-when validating a non-default Ollama path.
+`HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry; fixture checks verify
+that the matching repo cache exists under `TORCH_HOME`, `XDG_CACHE_HOME`, or the
+default `$HOME/.cache/torch/hub` before the network-disabled live smoke. Ollama
+requires the `ollama` CLI and a running host daemon; the fixture check runs
+`ollama list` through the selected binary to catch daemon or `OLLAMA_HOST`
+problems before the live Hazmat session. Override the executable with
+`HAZMAT_OLLAMA_SMOKE_BIN` when validating a non-default Ollama path.
 
 ### OpenHands recipe smoke
 

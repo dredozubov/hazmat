@@ -171,6 +171,41 @@ raise SystemExit(0 if importlib.util.find_spec(sys.argv[1]) is not None else 1)
 PY
 }
 
+torch_hub_cache_root() {
+	if [ -n "${TORCH_HOME:-}" ]; then
+		printf '%s/hub\n' "$TORCH_HOME"
+	elif [ -n "${XDG_CACHE_HOME:-}" ]; then
+		printf '%s/torch/hub\n' "$XDG_CACHE_HOME"
+	else
+		printf '%s/.cache/torch/hub\n' "$HOME"
+	fi
+}
+
+torch_hub_repo_slug() {
+	printf '%s\n' "$1" | sed 's/[\/:]/_/g'
+}
+
+torch_hub_repo_base_slug() {
+	printf '%s\n' "$1" | sed 's/:.*$//' | sed 's/[\/:]/_/g'
+}
+
+torch_hub_repo_cached() {
+	root="$(torch_hub_cache_root)"
+	repo_slug="$(torch_hub_repo_slug "$1")"
+	base_slug="$(torch_hub_repo_base_slug "$1")"
+
+	if [ ! -d "$root" ]; then
+		return 1
+	fi
+
+	for path in "$root/$repo_slug" "$root/$repo_slug"_* "$root/$base_slug" "$root/$base_slug"_*; do
+		if [ -d "$path" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 check_target_fixtures() {
 	case "$1" in
 		huggingface)
@@ -195,6 +230,8 @@ check_target_fixtures() {
 			fi
 			if [ -z "${HAZMAT_TORCH_HUB_REPO:-}" ]; then
 				add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO to a pre-cached torch.hub repo"
+			elif ! torch_hub_repo_cached "$HAZMAT_TORCH_HUB_REPO"; then
+				add_missing_target_fixture "$1" "no cached torch.hub repo matching $HAZMAT_TORCH_HUB_REPO under $(torch_hub_cache_root); pre-cache before live smoke"
 			fi
 			if [ -z "${HAZMAT_TORCH_HUB_MODEL:-}" ]; then
 				add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL to a pre-cached torch.hub callable"
