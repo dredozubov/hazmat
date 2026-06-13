@@ -76,6 +76,9 @@ func installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath string, opti
 	if options.ReplaceExisting && options.ChainExisting {
 		return nil, fmt.Errorf("--replace and --chain-existing cannot be used together")
 	}
+	if err := validateProjectHookHazmatBinaryPath(hazmatBinPath, runtime.ProjectDir); err != nil {
+		return nil, err
+	}
 	if options.ChainExisting {
 		return installProjectHookRuntimeChained(runtime, hazmatBinPath, configuredHooksPath)
 	}
@@ -126,6 +129,9 @@ func installProjectHookRuntimeWithOptions(projectDir, hazmatBinPath string, opti
 }
 
 func installProjectHookRuntimeChained(runtime *projectHookRuntime, hazmatBinPath, configuredHooksPath string) (*projectHookRuntime, error) {
+	if err := validateProjectHookHazmatBinaryPath(hazmatBinPath, runtime.ProjectDir); err != nil {
+		return nil, err
+	}
 	chainHooksPath, chainDir, err := resolveProjectHookChainHooksPath(runtime.ProjectDir, configuredHooksPath)
 	if err != nil {
 		return nil, err
@@ -404,6 +410,29 @@ func projectHookDeclaredTypes(bundle *loadedProjectHookBundle, approval *project
 		return types
 	}
 	return nil
+}
+
+func validateProjectHookHazmatBinaryPath(path, projectDir string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("hazmat hook runtime requires a stable Hazmat binary path")
+	}
+	if projectHookHazmatBinaryPathIsEphemeral(path) {
+		return fmt.Errorf("hazmat hook runtime cannot use ephemeral Hazmat binary %q; run make install, then reinstall hooks with: hazmat hooks install -C %s", path, shellQuote([]string{projectDir})[0])
+	}
+	return nil
+}
+
+func projectHookHazmatBinaryPathIsEphemeral(path string) bool {
+	clean := filepath.Clean(path)
+	if strings.HasSuffix(filepath.Base(clean), ".test") {
+		return true
+	}
+	for _, component := range strings.Split(filepath.ToSlash(clean), "/") {
+		if strings.HasPrefix(component, "go-build") {
+			return true
+		}
+	}
+	return false
 }
 
 func sortHookTypes(types []hookType) {

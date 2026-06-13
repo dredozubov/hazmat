@@ -53,6 +53,41 @@ hooks:
 	}
 }
 
+func TestInstallProjectHookRuntimeRejectsEphemeralHazmatBinary(t *testing.T) {
+	setProjectHookApprovalTestPaths(t)
+	projectDir := initGitHookProject(t, projectHookBundleFixture{
+		manifest: `version: 1
+hooks:
+  - type: pre-push
+    script: pre-push.sh
+    purpose: fast local gate
+    interpreter: sh
+`,
+		files: map[string]string{
+			"pre-push.sh": "#!/bin/sh\nexit 0\n",
+		},
+	})
+
+	bundle, err := loadProjectHookBundle(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordProjectHookApproval(bundle); err != nil {
+		t.Fatal(err)
+	}
+
+	ephemeral := filepath.Join(t.TempDir(), "go-build123", "b001", "exe", "hazmat")
+	canonicalProjectDir, err := canonicalizePath(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installProjectHookRuntime(projectDir, ephemeral); err == nil ||
+		!strings.Contains(err.Error(), "ephemeral Hazmat binary") ||
+		!strings.Contains(err.Error(), "hazmat hooks install -C "+canonicalProjectDir) {
+		t.Fatalf("expected ephemeral binary reinstall guidance, got %v", err)
+	}
+}
+
 func TestValidateProjectHookRuntimeRejectsHooksPathDrift(t *testing.T) {
 	setProjectHookApprovalTestPaths(t)
 	projectDir := initGitHookProject(t, projectHookBundleFixture{

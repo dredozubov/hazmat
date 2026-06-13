@@ -238,13 +238,18 @@ func setProjectHookApprovalTestPaths(t *testing.T) {
 
 	oldApprovals := projectHookApprovalsFilePath
 	oldSnapshots := projectHookSnapshotsRootDir
+	oldExecutablePath := projectHookExecutablePath
 
 	root := t.TempDir()
 	projectHookApprovalsFilePath = filepath.Join(root, "hook-approvals.yaml")
 	projectHookSnapshotsRootDir = filepath.Join(root, "git-hooks")
+	projectHookExecutablePath = func() (string, error) {
+		return "/usr/local/bin/hazmat", nil
+	}
 
 	t.Cleanup(func() {
 		projectHookApprovalsFilePath = oldApprovals
 		projectHookSnapshotsRootDir = oldSnapshots
+		projectHookExecutablePath = oldExecutablePath
 	})
 }

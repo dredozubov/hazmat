@@ -12,6 +12,7 @@ import (
 )
 
 var inspectProjectHooksForPrompt = inspectProjectHooks
+var projectHookExecutablePath = os.Executable
 
 func newHooksCmd() *cobra.Command {
 	var project string
@@ -155,7 +156,7 @@ func runHooksInstall(project string, options projectHookRuntimeInstallOptions) e
 		}
 	}
 
-	hazmatBinPath, err := os.Executable()
+	hazmatBinPath, err := projectHookExecutablePath()
 	if err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func maybePromptProjectHooks(projectDir string) {
 		return
 	}
 
-	hazmatBinPath, err := os.Executable()
+	hazmatBinPath, err := projectHookExecutablePath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hazmat: warning: locate hazmat binary: %v\n", err)
 		return
