@@ -197,6 +197,16 @@ request params by default. The method log is the evidence for whether desktop
 side-effect APIs route through the Hazmat-backed backend; unobserved methods
 remain unproven and should be recorded as residual risk.
 
+The proxy privacy boundary has a non-live self-test. This does not launch
+Codex, does not run Hazmat, and does not inspect host Codex state. It generates
+the temporary `CODEX_CLI_PATH` proxy, drives it against a fake local backend,
+and verifies that request logs contain method names and sorted `paramKeys`
+without raw request params:
+
+```bash
+scripts/check-codex-desktop-attach-smoke.sh --self-test-proxy
+```
+
 ### Session-home activation smoke
 
 Use this only when validating the experimental session-local HOME activation

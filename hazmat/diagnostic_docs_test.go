@@ -45,6 +45,27 @@ func TestTestingDocsMarkdownCodeFencesAreBalanced(t *testing.T) {
 	}
 }
 
+func TestTestingDocsDescribeCodexDesktopProxySelfTest(t *testing.T) {
+	data, err := os.ReadFile("../docs/testing.md")
+	if err != nil {
+		t.Fatalf("read testing docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"scripts/check-codex-desktop-attach-smoke.sh --self-test-proxy",
+		"does not launch Codex",
+		"does not run Hazmat",
+		"fake local backend",
+		"method names and sorted `paramKeys`",
+		"without raw request params",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/testing.md missing %q", phrase)
+		}
+	}
+}
+
 func TestUsageDocsExplainNonMutatingApprovalGatedNextSteps(t *testing.T) {
 	data, err := os.ReadFile("../docs/usage.md")
 	if err != nil {
