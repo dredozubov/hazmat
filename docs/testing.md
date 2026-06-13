@@ -281,6 +281,7 @@ targets, fixture environment, and live command shape without running Hazmat:
 ```bash
 scripts/check-cache-integration-smoke.sh
 scripts/check-cache-integration-smoke.sh --target huggingface
+make e2e-cache-integration-smoke
 ```
 
 Fixture checks are non-mutating host checks. They verify the local binary or
