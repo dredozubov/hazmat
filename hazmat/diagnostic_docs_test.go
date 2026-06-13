@@ -108,6 +108,32 @@ func TestUsageDocsUseDirectPostInitRepairPath(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsRepairUXDesignNoteIsFixFirst(t *testing.T) {
+	data, err := os.ReadFile("../docs/plans/2026-06-11-diagnostics-repair-ux.md")
+	if err != nil {
+		t.Fatalf("read diagnostics repair UX design note: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"`hazmat doctor --fix` is the primary actionable repair path",
+		"user-facing recommendations should lead with `hazmat doctor --fix`",
+		"`hazmat doctor --dry-run` only as the optional preview path",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("diagnostics repair UX design note missing %q", phrase)
+		}
+	}
+	if strings.Contains(text, "user-facing recommendations should prefer the explicit `--dry-run` spelling") {
+		t.Fatal("diagnostics repair UX design note still prefers dry-run recommendations")
+	}
+	fixIndex := strings.Index(string(data), "hazmat doctor --fix")
+	previewIndex := strings.Index(string(data), "hazmat doctor --dry-run")
+	if fixIndex < 0 || previewIndex < 0 || fixIndex > previewIndex {
+		t.Fatalf("diagnostics repair UX design note should present fix before dry-run preview")
+	}
+}
+
 func TestManualTestingCredentialFlowExercisesDoctorRepair(t *testing.T) {
 	data, err := os.ReadFile("../docs/manual-testing.md")
 	if err != nil {
