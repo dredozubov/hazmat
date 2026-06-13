@@ -497,12 +497,15 @@ hazmat opencode -C ~/workspace/proj
 
 ```bash
 hazmat                          # shows setup progress checklist
-hazmat status                   # same thing
+hazmat status                   # setup progress checklist
 hazmat check                    # read-only health and repairability report
 hazmat doctor --fix             # apply executable approved typed repairs
 hazmat doctor --dry-run         # explicit non-mutating repair plan preview
 hazmat check --full             # helper-backed, backup, and cloud live probes
 ```
+
+`hazmat status` is the lightweight setup progress checklist. It shows where the
+host is in the setup flow and what the next setup or repair command should be.
 
 `hazmat check` validates the current local Hazmat install and containment
 behavior without mutating host state. It reports typed findings, repairability,
