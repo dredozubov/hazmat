@@ -82,7 +82,7 @@ This command does not import host ~/.qwen state.`,
 }
 
 func runQwenBootstrap(ui *UI, r *Runner) error {
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

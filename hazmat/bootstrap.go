@@ -199,8 +199,8 @@ This command refreshes the harness binary and leaves existing settings/hooks alo
 }
 
 func runBootstrap(ui *UI, r *Runner) error {
-	// ── Step 1: verify agent user ─────────────────────────────────────────────
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	// ── Step 1: verify agent user and prepare toolchain directories ───────────
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

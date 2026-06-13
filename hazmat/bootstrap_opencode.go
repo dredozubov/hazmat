@@ -329,7 +329,7 @@ managed separately via OpenCode itself or 'hazmat config import opencode'.`,
 }
 
 func runOpenCodeBootstrap(ui *UI, r *Runner) error {
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

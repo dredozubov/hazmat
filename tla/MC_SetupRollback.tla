@@ -38,7 +38,8 @@
 \*   3: localRepo          setupLocalRepo
 \*   4: umask + hostCredentialModes setupHardeningGaps
 \*   5: seatbelt           setupSeatbelt
-\*   6: wrappers           setupUserExperience + zsh completions + git safe.directory
+\*   6: wrappers           setupUserExperience + agent-owned XDG/toolchain parents
+\*                         + zsh completions + git safe.directory
 \*   7: pfAnchor           setupPfFirewall           ← containment before privilege
 \*   8: dnsBlocklist       setupDNSBlocklist
 \*   9: launchDaemon       setupLaunchDaemon
@@ -92,7 +93,7 @@ VARIABLES
     umask,           \* managed umask block in agent .zshrc
     hostCredentialModes, \* owner-only mode repairs for host credential paths
     seatbelt,        \* claude-sandboxed wrapper in agent's .local/bin
-    wrappers,        \* host wrappers + agent env
+    wrappers,        \* host wrappers + agent env + agent-owned XDG/toolchain parents
     \* Phase 4: Network (containment before privilege)
     pfAnchor,        \* /etc/pf.anchors/agent + /etc/pf.conf + pfctl loaded
     dnsBlocklist,    \* /etc/hosts entries

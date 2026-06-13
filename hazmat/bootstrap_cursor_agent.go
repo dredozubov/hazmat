@@ -67,7 +67,7 @@ state, or host Cursor auth settings.`,
 }
 
 func runCursorAgentBootstrap(ui *UI, r *Runner) error {
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

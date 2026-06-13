@@ -31,29 +31,31 @@ type ShellProfile struct {
 }
 
 type ToolingEnv struct {
-	AgentUser             string
-	AgentHome             string
-	SeatbeltProfileDir    string
-	SeatbeltWrapperPath   string
-	SeatbeltWrapper       string
-	AgentEnvPath          string
-	DefaultAgentPath      string
-	DefaultAgentCacheHome string
-	DefaultAgentDataHome  string
-	HostWrapperDir        string
-	HostClaudeWrapperName string
-	HostExecWrapperName   string
-	HostShellWrapperName  string
-	AgentShellBlockStart  string
-	AgentShellBlockEnd    string
-	UserPathBlockStart    string
-	UserPathBlockEnd      string
-	UmaskBlockStart       string
-	UmaskBlockEnd         string
-	ShellName             string
-	ShellProfiles         []ShellProfile
-	Executable            func() (string, error)
-	EvalSymlinks          func(string) (string, error)
+	AgentUser              string
+	AgentHome              string
+	SeatbeltProfileDir     string
+	SeatbeltWrapperPath    string
+	SeatbeltWrapper        string
+	AgentEnvPath           string
+	DefaultAgentPath       string
+	DefaultAgentCacheHome  string
+	DefaultAgentConfigHome string
+	DefaultAgentDataHome   string
+	DefaultAgentStateHome  string
+	HostWrapperDir         string
+	HostClaudeWrapperName  string
+	HostExecWrapperName    string
+	HostShellWrapperName   string
+	AgentShellBlockStart   string
+	AgentShellBlockEnd     string
+	UserPathBlockStart     string
+	UserPathBlockEnd       string
+	UmaskBlockStart        string
+	UmaskBlockEnd          string
+	ShellName              string
+	ShellProfiles          []ShellProfile
+	Executable             func() (string, error)
+	EvalSymlinks           func(string) (string, error)
 }
 
 func SetupSeatbelt(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) error {
@@ -89,15 +91,8 @@ func SetupSeatbelt(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) error 
 func SetupUserExperience(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) error {
 	ui.Step("Install command wrappers and toolchain env")
 
-	for _, dir := range []string{
-		env.DefaultAgentCacheHome,
-		env.DefaultAgentDataHome,
-		filepath.Join(env.AgentHome, ".npm"),
-	} {
-		if err := runner.Sudo("create agent directory",
-			"install", "-d", "-o", env.AgentUser, "-g", "staff", "-m", "755", dir); err != nil {
-			return fmt.Errorf("ensure %s: %w", dir, err)
-		}
+	if err := EnsureAgentToolchainDirs(env, runner); err != nil {
+		return err
 	}
 
 	if err := runner.SudoWriteFile("write agent toolchain env", env.AgentEnvPath, AgentEnvContent(env.DefaultAgentPath)); err != nil {
@@ -180,6 +175,49 @@ func SetupUserExperience(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) 
 	ui.Ok(fmt.Sprintf("Added %s PATH block to %s", env.HostWrapperDir, profile.RCPath))
 
 	return nil
+}
+
+// EnsureAgentToolchainDirs creates and repairs agent-owned XDG/toolchain roots.
+func EnsureAgentToolchainDirs(env ToolingEnv, runner ToolingRunner) error {
+	for _, dir := range agentToolchainDirs(env) {
+		if err := runner.Sudo("create agent directory",
+			"install", "-d", "-o", env.AgentUser, "-g", "staff", "-m", "755", dir); err != nil {
+			return fmt.Errorf("ensure %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func agentToolchainDirs(env ToolingEnv) []string {
+	dirs := []string{
+		env.DefaultAgentCacheHome,
+		env.DefaultAgentConfigHome,
+		filepath.Dir(env.AgentEnvPath),
+		filepath.Join(env.AgentHome, ".local"),
+		filepath.Join(env.AgentHome, ".local", "bin"),
+		filepath.Join(env.AgentHome, ".local", "lib"),
+		env.DefaultAgentDataHome,
+		env.DefaultAgentStateHome,
+		filepath.Join(env.AgentHome, ".npm"),
+	}
+	return compactUniquePaths(dirs)
+}
+
+func compactUniquePaths(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "." || path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
 }
 
 func RollbackSeatbelt(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) {
@@ -300,9 +338,10 @@ export PATH="%s"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 
-mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$HOME/.npm" >/dev/null 2>&1 || true
+mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$HOME/.npm" >/dev/null 2>&1 || true
 
 if [[ -x "$HOME/.local/bin/claude-sandboxed" ]]; then
   alias claude="$HOME/.local/bin/claude-sandboxed"

@@ -80,6 +80,34 @@ func TestSetupUserExperienceWritesEnvWrappersAndPathBlock(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentToolchainDirsRepairsParentsBeforeChildren(t *testing.T) {
+	env := testToolingEnv(t, t.TempDir())
+	runner := newFakeToolingRunner(t)
+
+	if err := EnsureAgentToolchainDirs(env, runner); err != nil {
+		t.Fatalf("EnsureAgentToolchainDirs: %v", err)
+	}
+
+	got := installDirPaths(runner.sudoCalls)
+	want := []string{
+		env.DefaultAgentCacheHome,
+		env.DefaultAgentConfigHome,
+		filepath.Dir(env.AgentEnvPath),
+		filepath.Join(env.AgentHome, ".local"),
+		filepath.Join(env.AgentHome, ".local", "bin"),
+		filepath.Join(env.AgentHome, ".local", "lib"),
+		env.DefaultAgentDataHome,
+		env.DefaultAgentStateHome,
+		filepath.Join(env.AgentHome, ".npm"),
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("agent toolchain dirs:\nwant %q\ngot  %q", want, got)
+	}
+
+	assertPathBefore(t, got, filepath.Join(env.AgentHome, ".local"), env.DefaultAgentStateHome)
+	assertPathBefore(t, got, env.DefaultAgentConfigHome, filepath.Dir(env.AgentEnvPath))
+}
+
 func TestRollbackUserExperienceRemovesManagedBlocksAndHostWrappers(t *testing.T) {
 	tmp := t.TempDir()
 	env := testToolingEnv(t, tmp)
@@ -130,26 +158,28 @@ func testToolingEnv(t *testing.T, tmp string) ToolingEnv {
 		t.Fatal(err)
 	}
 	return ToolingEnv{
-		AgentUser:             "agent",
-		AgentHome:             "/Users/agent",
-		SeatbeltProfileDir:    "/Users/agent/.config/hazmat",
-		SeatbeltWrapperPath:   "/Users/agent/.local/bin/claude-sandboxed",
-		SeatbeltWrapper:       "#!/bin/bash\n",
-		AgentEnvPath:          "/Users/agent/.config/hazmat/agent-env.zsh",
-		DefaultAgentPath:      "/agent/bin:/usr/bin",
-		DefaultAgentCacheHome: "/Users/agent/.cache",
-		DefaultAgentDataHome:  "/Users/agent/.local/share",
-		HostWrapperDir:        hostWrapperDir,
-		HostClaudeWrapperName: "claude-hazmat",
-		HostExecWrapperName:   "agent-exec",
-		HostShellWrapperName:  "agent-shell",
-		AgentShellBlockStart:  "# >>> hazmat agent shell >>>",
-		AgentShellBlockEnd:    "# <<< hazmat agent shell <<<",
-		UserPathBlockStart:    "# >>> hazmat user path >>>",
-		UserPathBlockEnd:      "# <<< hazmat user path <<<",
-		UmaskBlockStart:       "# >>> hazmat umask >>>",
-		UmaskBlockEnd:         "# <<< hazmat umask <<<",
-		ShellName:             "zsh",
+		AgentUser:              "agent",
+		AgentHome:              "/Users/agent",
+		SeatbeltProfileDir:     "/Users/agent/.config/hazmat",
+		SeatbeltWrapperPath:    "/Users/agent/.local/bin/claude-sandboxed",
+		SeatbeltWrapper:        "#!/bin/bash\n",
+		AgentEnvPath:           "/Users/agent/.config/hazmat/agent-env.zsh",
+		DefaultAgentPath:       "/agent/bin:/usr/bin",
+		DefaultAgentCacheHome:  "/Users/agent/.cache",
+		DefaultAgentConfigHome: "/Users/agent/.config",
+		DefaultAgentDataHome:   "/Users/agent/.local/share",
+		DefaultAgentStateHome:  "/Users/agent/.local/state",
+		HostWrapperDir:         hostWrapperDir,
+		HostClaudeWrapperName:  "claude-hazmat",
+		HostExecWrapperName:    "agent-exec",
+		HostShellWrapperName:   "agent-shell",
+		AgentShellBlockStart:   "# >>> hazmat agent shell >>>",
+		AgentShellBlockEnd:     "# <<< hazmat agent shell <<<",
+		UserPathBlockStart:     "# >>> hazmat user path >>>",
+		UserPathBlockEnd:       "# <<< hazmat user path <<<",
+		UmaskBlockStart:        "# >>> hazmat umask >>>",
+		UmaskBlockEnd:          "# <<< hazmat umask <<<",
+		ShellName:              "zsh",
 		ShellProfiles: []ShellProfile{
 			{
 				Name:           "zsh",
@@ -178,6 +208,7 @@ type fakeToolingRunner struct {
 	sudoOutput      map[string]string
 	agentOutput     map[string]string
 	sudoWrites      map[string]string
+	sudoCalls       [][]string
 	sudoOutputCalls [][]string
 	agentCalls      [][]string
 }
@@ -192,7 +223,8 @@ func newFakeToolingRunner(t *testing.T) *fakeToolingRunner {
 	}
 }
 
-func (r *fakeToolingRunner) Sudo(string, ...string) error {
+func (r *fakeToolingRunner) Sudo(_ string, args ...string) error {
+	r.sudoCalls = append(r.sudoCalls, append([]string(nil), args...))
 	return nil
 }
 
@@ -235,5 +267,36 @@ func assertNoSudoOutputForPath(t *testing.T, runner *fakeToolingRunner, path str
 		if len(call) == 2 && call[0] == "cat" && call[1] == path {
 			t.Fatalf("sudo output read %s; agent-owned files must be read through AgentOutput", path)
 		}
+	}
+}
+
+func installDirPaths(calls [][]string) []string {
+	var paths []string
+	for _, call := range calls {
+		if len(call) == 9 &&
+			call[0] == "install" &&
+			call[1] == "-d" &&
+			call[2] == "-o" &&
+			call[4] == "-g" &&
+			call[6] == "-m" {
+			paths = append(paths, call[8])
+		}
+	}
+	return paths
+}
+
+func assertPathBefore(t *testing.T, paths []string, before, after string) {
+	t.Helper()
+	beforeIndex, afterIndex := -1, -1
+	for i, path := range paths {
+		switch path {
+		case before:
+			beforeIndex = i
+		case after:
+			afterIndex = i
+		}
+	}
+	if beforeIndex < 0 || afterIndex < 0 || beforeIndex >= afterIndex {
+		t.Fatalf("path order = %v, want %s before %s", paths, before, after)
 	}
 }

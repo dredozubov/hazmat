@@ -191,7 +191,7 @@ for the agent user. Codex keeps its own auth and runtime state under ~/.codex.`,
 }
 
 func runCodexBootstrap(ui *UI, r *Runner) error {
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

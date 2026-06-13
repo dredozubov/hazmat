@@ -26,6 +26,7 @@ const (
 	defaultAgentCacheHome    = agentHome + "/.cache"
 	defaultAgentConfigHome   = agentHome + "/.config"
 	defaultAgentDataHome     = agentHome + "/.local/share"
+	defaultAgentStateHome    = agentHome + "/.local/state"
 	defaultAgentTmpDir       = agentHome + "/.cache/hazmat/tmp"
 	defaultBrokerRuntimeRoot = "/private/tmp/hazmat-runtime"
 )

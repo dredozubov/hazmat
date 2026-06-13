@@ -36,27 +36,29 @@ exec "$CLAUDE_BIN" "$@"
 
 func setupToolingEnv() setup.ToolingEnv {
 	return setup.ToolingEnv{
-		AgentUser:             agentUser,
-		AgentHome:             agentHome,
-		SeatbeltProfileDir:    seatbeltProfileDir,
-		SeatbeltWrapperPath:   seatbeltWrapperPath,
-		SeatbeltWrapper:       seatbeltWrapperContent,
-		AgentEnvPath:          agentEnvPath,
-		DefaultAgentPath:      defaultAgentPath,
-		DefaultAgentCacheHome: defaultAgentCacheHome,
-		DefaultAgentDataHome:  defaultAgentDataHome,
-		HostWrapperDir:        hostWrapperDir(),
-		HostClaudeWrapperName: hostClaudeWrapperName,
-		HostExecWrapperName:   hostExecWrapperName,
-		HostShellWrapperName:  hostShellWrapperName,
-		AgentShellBlockStart:  agentShellBlockStart,
-		AgentShellBlockEnd:    agentShellBlockEnd,
-		UserPathBlockStart:    userPathBlockStart,
-		UserPathBlockEnd:      userPathBlockEnd,
-		UmaskBlockStart:       umaskBlockStart,
-		UmaskBlockEnd:         umaskBlockEnd,
-		ShellName:             filepath.Base(os.Getenv("SHELL")),
-		ShellProfiles:         setupShellProfiles(),
+		AgentUser:              agentUser,
+		AgentHome:              agentHome,
+		SeatbeltProfileDir:     seatbeltProfileDir,
+		SeatbeltWrapperPath:    seatbeltWrapperPath,
+		SeatbeltWrapper:        seatbeltWrapperContent,
+		AgentEnvPath:           agentEnvPath,
+		DefaultAgentPath:       defaultAgentPath,
+		DefaultAgentCacheHome:  defaultAgentCacheHome,
+		DefaultAgentConfigHome: defaultAgentConfigHome,
+		DefaultAgentDataHome:   defaultAgentDataHome,
+		DefaultAgentStateHome:  defaultAgentStateHome,
+		HostWrapperDir:         hostWrapperDir(),
+		HostClaudeWrapperName:  hostClaudeWrapperName,
+		HostExecWrapperName:    hostExecWrapperName,
+		HostShellWrapperName:   hostShellWrapperName,
+		AgentShellBlockStart:   agentShellBlockStart,
+		AgentShellBlockEnd:     agentShellBlockEnd,
+		UserPathBlockStart:     userPathBlockStart,
+		UserPathBlockEnd:       userPathBlockEnd,
+		UmaskBlockStart:        umaskBlockStart,
+		UmaskBlockEnd:          umaskBlockEnd,
+		ShellName:              filepath.Base(os.Getenv("SHELL")),
+		ShellProfiles:          setupShellProfiles(),
 	}
 }
 
@@ -133,6 +135,18 @@ func setupSeatbelt(ui *UI, r *Runner) error {
 
 func setupUserExperience(ui *UI, r *Runner) error {
 	return setup.SetupUserExperience(setupToolingEnv(), ui, r)
+}
+
+func prepareAgentUserForBootstrap(ui *UI, r *Runner) error {
+	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+		return err
+	}
+	ui.Step("Prepare agent toolchain directories")
+	if err := setup.EnsureAgentToolchainDirs(setupToolingEnv(), r); err != nil {
+		return err
+	}
+	ui.Ok("Agent toolchain directories are ready")
+	return nil
 }
 
 func rollbackSeatbelt(ui *UI, r *Runner) {

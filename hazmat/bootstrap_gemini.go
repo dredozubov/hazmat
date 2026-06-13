@@ -80,7 +80,7 @@ auth and runtime state under ~/.gemini.`,
 }
 
 func runGeminiBootstrap(ui *UI, r *Runner) error {
-	if err := verifyAgentUserForBootstrap(ui, r); err != nil {
+	if err := prepareAgentUserForBootstrap(ui, r); err != nil {
 		return err
 	}
 

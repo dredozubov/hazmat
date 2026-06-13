@@ -47,7 +47,7 @@ Step  2: setupHomeDirTraverse  → homeDirTraverse
 Step  3: setupLocalRepo        → localRepo
 Step  4: setupHardeningGaps    → umask + hostCredentialModes
 Step  5: setupSeatbelt         → seatbelt
-Step  6: setupUserExperience   → wrappers
+Step  6: setupUserExperience   → wrappers (host wrappers, agent env, agent-owned XDG/toolchain parents)
 Step  7: setupPfFirewall       → pfAnchor      ← firewall activates
 Step  8: setupDNSBlocklist     → dnsBlocklist
 Step  9: setupLaunchDaemon     → launchDaemon
@@ -105,7 +105,14 @@ and how many setup/rollback attempts have occurred.
    intentionally preserves owner-only credential modes because they are host
    security posture, not a Hazmat artifact.
 
-5. **Harness/session ergonomics are outside this setup model.** Optional
+5. **The wrappers resource owns agent toolchain/XDG parent directories.**
+   `setupUserExperience` creates and repairs the parent directories that make
+   the agent shell environment usable, including `~/.config`, `~/.local`, and
+   child cache/data/bin/npm paths. Those directories are modeled as part of the
+   existing `wrappers` resource rather than as a separate setup phase, so
+   partial setup and rollback reasoning keeps the same ordering boundary.
+
+6. **Harness/session ergonomics are outside this setup model.** Optional
    harness-specific commands such as `hazmat bootstrap opencode`, curated
    import flows, and session-only integration activation are not part of
    `runInit()`. They are modeled separately where applicable and are still
