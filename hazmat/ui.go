@@ -463,15 +463,15 @@ func (u *UI) repairPlanSectionTitle(plan diagnosticRepairPlan) string {
 
 func (u *UI) recommendationFooter() string {
 	if u.RepairExecution.Command == "init" {
-		return "  Init will not retry itself. To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
+		return "  Init will not retry itself. To apply executable planned repairs, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
 	}
 	if u.RepairExecution.Command == "doctor" {
 		if u.RepairExecution.Fix {
 			return "  After approved repairs, rerun: hazmat check --full"
 		}
-		return "  To apply approved repairs, rerun: hazmat doctor --fix"
+		return "  To apply approved executable repairs, rerun: hazmat doctor --fix"
 	}
-	return "  To repair planned items, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
+	return "  To apply executable planned repairs, run: hazmat doctor --fix. Preview only: hazmat doctor --dry-run."
 }
 
 func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
@@ -484,7 +484,7 @@ func (u *UI) repairPlanFooter(plan diagnosticRepairPlan) string {
 	}
 	switch plan.Execution.Mode {
 	case "plan-only", "dry-run":
-		return "  To apply approved repairs, rerun: hazmat doctor --fix"
+		return "  To apply approved executable repairs, rerun: hazmat doctor --fix"
 	case "blocked-noninteractive":
 		return "  Repair execution is blocked; rerun: hazmat doctor --fix --yes"
 	case "declined":

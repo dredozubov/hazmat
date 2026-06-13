@@ -84,6 +84,9 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := checkUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor --fix") || !strings.Contains(got, "Preview only: hazmat doctor --dry-run") {
 		t.Fatalf("check footer = %q, want direct fix path and explicit dry-run preview pointer", got)
 	}
+	if got := checkUI.recommendationFooter(); !strings.Contains(got, "executable planned repairs") {
+		t.Fatalf("check footer = %q, want fix path scoped to executable planned repairs", got)
+	}
 
 	doctorUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "doctor"}}
 	if got := doctorUI.recommendationSectionTitle(); got != "━━━ Repair plan preview ━━━" {
@@ -92,6 +95,9 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := doctorUI.recommendationFooter(); !strings.Contains(got, "hazmat doctor --fix") {
 		t.Fatalf("doctor footer = %q, want --fix pointer", got)
 	}
+	if got := doctorUI.recommendationFooter(); !strings.Contains(got, "executable repairs") {
+		t.Fatalf("doctor footer = %q, want fix path scoped to executable repairs", got)
+	}
 
 	initUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "init"}}
 	if got := initUI.recommendationSectionTitle(); got != "━━━ Post-init repair verification ━━━" {
@@ -99,6 +105,9 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	}
 	if got := initUI.recommendationFooter(); strings.Contains(got, "hazmat init") || !strings.Contains(got, "hazmat doctor --fix") || !strings.Contains(got, "hazmat doctor --dry-run") {
 		t.Fatalf("init footer = %q, want doctor fix and dry-run pointers without init loop", got)
+	}
+	if got := initUI.recommendationFooter(); !strings.Contains(got, "executable planned repairs") {
+		t.Fatalf("init footer = %q, want fix path scoped to executable planned repairs", got)
 	}
 }
 
@@ -398,6 +407,9 @@ func TestUIDiagnosticReportDryRunOverridesDoctorFix(t *testing.T) {
 	}
 	if !strings.Contains(ui.repairPlanFooter(plan), "hazmat doctor --fix") {
 		t.Fatalf("dry-run footer = %q, want fix path", ui.repairPlanFooter(plan))
+	}
+	if !strings.Contains(ui.repairPlanFooter(plan), "executable repairs") {
+		t.Fatalf("dry-run footer = %q, want executable repair scope", ui.repairPlanFooter(plan))
 	}
 	if len(plan.NextSteps) != 1 || plan.NextSteps[0].Command != "hazmat doctor --fix" || !plan.NextSteps[0].Mutating {
 		t.Fatalf("dry-run next steps = %+v, want approved fix path", plan.NextSteps)
