@@ -26,6 +26,13 @@ hazmat config set integrations.pin "~/workspace/my-next-app:node"
 - If the repo uses a shared host daemon or a devcontainer workflow that requires Docker control, move the Docker part outside Hazmat or use Tier 4 instead.
 - For extra read-only docs or design refs, add `-R` explicitly rather than widening scope globally.
 
+## Proof Story
+
+For community-facing copy, use the owned proof story in
+[Next.js / Node Proof Story](../outreach/2026-06-13-nextjs-node-proof-story.md).
+It ties this recipe to the compatibility row, session-contract angle, and
+Docker/package-manager caveats.
+
 ## Why This Recipe Exists
 
 Next.js is a common case where people do not need the full Docker story to get value. Native containment plus the `node` integration is the simplest safe default.
