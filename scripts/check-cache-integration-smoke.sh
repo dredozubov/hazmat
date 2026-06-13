@@ -190,13 +190,21 @@ huggingface_model_cache_dir() {
 huggingface_model_cached() {
 	model="$1"
 	if [ -e "$model" ]; then
-		[ -d "$model" ] && [ -r "$model" ]
+		[ -d "$model" ] && [ -r "$model/config.json" ]
 		return
 	fi
 
 	root="$(huggingface_hub_cache_root)"
 	cache_dir="$root/$(huggingface_model_cache_dir "$model")"
-	[ -d "$cache_dir/snapshots" ]
+	if [ ! -d "$cache_dir/snapshots" ]; then
+		return 1
+	fi
+	for snapshot in "$cache_dir"/snapshots/*; do
+		if [ -r "$snapshot/config.json" ]; then
+			return 0
+		fi
+	done
+	return 1
 }
 
 torch_hub_cache_root() {
@@ -262,7 +270,7 @@ check_target_fixtures() {
 			if [ -z "${HAZMAT_HF_SMOKE_MODEL:-}" ]; then
 				add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL to a pre-cached Hugging Face model ID or path"
 			elif ! huggingface_model_cached "$HAZMAT_HF_SMOKE_MODEL"; then
-				add_missing_target_fixture "$1" "no usable local Hugging Face model path or cached snapshots for $HAZMAT_HF_SMOKE_MODEL under $(huggingface_hub_cache_root); pre-cache before live smoke"
+				add_missing_target_fixture "$1" "no usable local Hugging Face model config or cached snapshot config for $HAZMAT_HF_SMOKE_MODEL under $(huggingface_hub_cache_root); pre-cache before live smoke"
 			fi
 			;;
 		ollama)

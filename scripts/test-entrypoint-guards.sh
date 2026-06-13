@@ -530,7 +530,7 @@ assert_file_contains_all \
     'add_missing_fixture "[$target] $*"' \
     'add_missing_target_fixture "$1" "python3 cannot import transformers"' \
     'add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL' \
-    'add_missing_target_fixture "$1" "no usable local Hugging Face model path or cached snapshots' \
+    'add_missing_target_fixture "$1" "no usable local Hugging Face model config or cached snapshot config' \
     'require_target_command "$1" "$OLLAMA_BIN"' \
     'add_missing_target_fixture "$1" "$OLLAMA_BIN list failed; start the Ollama daemon or check OLLAMA_HOST"' \
     'add_missing_target_fixture "$1" "python3 cannot import torch"' \
@@ -547,14 +547,20 @@ assert_fails_with \
 
 assert_fails_with \
     "cache integration smoke checks Hugging Face cache fixture" \
-    "no usable local Hugging Face model path or cached snapshots for sentence-transformers/all-MiniLM-L6-v2" \
+    "no usable local Hugging Face model config or cached snapshot config for sentence-transformers/all-MiniLM-L6-v2" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HOME="$REPO_ROOT/scripts/fixtures/missing-home" HAZMAT_HF_SMOKE_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
 
 assert_fails_with \
     "cache integration smoke rejects Hugging Face file path fixture" \
-    "no usable local Hugging Face model path or cached snapshots for $REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" \
+    "no usable local Hugging Face model config or cached snapshot config for $REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_HF_SMOKE_MODEL="$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
+
+assert_fails_with \
+    "cache integration smoke rejects Hugging Face directory without config" \
+    "no usable local Hugging Face model config or cached snapshot config for $REPO_ROOT/scripts/fixtures/huggingface-model-without-config" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_HF_SMOKE_MODEL="$REPO_ROOT/scripts/fixtures/huggingface-model-without-config" \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
 
 assert_fails_with \
