@@ -249,6 +249,41 @@ func TestNormalizeStagedClaudeSessionBundlePathsRebasesEscapedSlashJSONMetadata(
 	}
 }
 
+func TestNormalizeStagedClaudeSessionBundlePathsRebasesDecodedEscapedJSONMetadata(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	encodedPath := encodeClaudeJSONPathForPrefilterBypass(sourceDir + "/" + sessionID + "/subagents/workflows/wf_1/cache.json")
+
+	workflowDir := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1")
+	if err := os.MkdirAll(workflowDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(workflowDir, "cache.json")
+	if err := os.WriteFile(metadataPath, []byte(`{"artifact":"`+encodedPath+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if claudeExportMayContainSourcePath([]byte(encodedPath), sourceDir) {
+		t.Fatal("test fixture should bypass byte-level source path detection")
+	}
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+
+	raw, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claudeExportMayContainSourcePath(raw, sourceDir) {
+		t.Fatalf("decoded escaped metadata still contains source dir: %s", raw)
+	}
+	if !bytes.Contains(raw, []byte(destDir)) {
+		t.Fatalf("decoded escaped metadata does not contain destination dir: %s", raw)
+	}
+}
+
 func TestNormalizeStagedClaudeSessionBundlePathsRejectsMalformedJSONMetadata(t *testing.T) {
 	stagingDir := t.TempDir()
 	sessionID := "1234"
@@ -277,8 +312,26 @@ func TestNormalizeStagedClaudeSessionBundlePathsRejectsAgentPathInJSONKey(t *tes
 	}
 
 	err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir)
-	if err == nil || !strings.Contains(err.Error(), "still contains agent-only path") {
+	if err == nil || !strings.Contains(err.Error(), "outside JSON string values") {
 		t.Fatalf("expected JSON key agent-path refusal, got %v", err)
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsRejectsDecodedAgentPathInJSONKey(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, "sessions-index.json")
+	encodedKey := encodeClaudeJSONPathForPrefilterBypass(sourceDir + "/key")
+	content := `{"` + encodedKey + `":"unsupported","fullPath":"` + sourceDir + `/` + sessionID + `.jsonl"}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir)
+	if err == nil || !strings.Contains(err.Error(), "outside JSON string values") {
+		t.Fatalf("expected decoded JSON key agent-path refusal, got %v", err)
 	}
 }
 
@@ -317,6 +370,10 @@ func TestNormalizeStagedClaudeSessionBundlePathsRejectsTopLevelOpaqueAgentPath(t
 	if err == nil || !strings.Contains(err.Error(), "unsupported format") {
 		t.Fatalf("expected unsupported format refusal, got %v", err)
 	}
+}
+
+func encodeClaudeJSONPathForPrefilterBypass(path string) string {
+	return strings.NewReplacer("/", `\u002f`, "U", `\u0055`).Replace(path)
 }
 
 func TestUpsertClaudeSessionsIndexReplacesExistingEntry(t *testing.T) {

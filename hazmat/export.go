@@ -479,30 +479,29 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 			return nil
 		}
 
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read staged Claude export %s: %w", path, err)
-		}
-		if !claudeExportMayContainSourcePath(raw, sourceDir) {
-			return nil
-		}
-
 		rel, err := filepath.Rel(stagingDir, path)
 		if err != nil {
 			return fmt.Errorf("compute staged Claude export path for %s: %w", path, err)
 		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read staged Claude export %s: %w", path, err)
+		}
 		if isClaudeJSONMetadataPath(rel) {
-			rewritten, changed, err := rewriteClaudeJSONMetadataPaths(raw, sourceDir, destDir, strings.EqualFold(filepath.Ext(rel), ".jsonl"))
+			rewritten, changed, residual, err := rewriteClaudeJSONMetadataPaths(raw, sourceDir, destDir, strings.EqualFold(filepath.Ext(rel), ".jsonl"))
 			if err != nil {
 				return fmt.Errorf("rewrite staged Claude export metadata %s: %w", rel, err)
 			}
-			if !changed {
+			if residual {
 				return fmt.Errorf("staged Claude export metadata %s contains agent-only path %s outside JSON string values", rel, sourceDir)
 			}
-			if claudeExportMayContainSourcePath(rewritten, sourceDir) {
-				return fmt.Errorf("staged Claude export metadata %s still contains agent-only path %s after JSON value rewrite", rel, sourceDir)
+			if !changed {
+				return nil
 			}
 			return os.WriteFile(path, rewritten, info.Mode().Perm())
+		}
+		if !claudeExportMayContainSourcePath(raw, sourceDir) {
+			return nil
 		}
 		if isClaudeSessionSidecarPath(sessionID, rel) {
 			return os.Remove(path)
@@ -531,17 +530,18 @@ func claudeExportSourcePathEncodings(sourceDir string) []string {
 	return encodings
 }
 
-func rewriteClaudeJSONMetadataPaths(raw []byte, sourceDir, destDir string, jsonl bool) ([]byte, bool, error) {
+func rewriteClaudeJSONMetadataPaths(raw []byte, sourceDir, destDir string, jsonl bool) ([]byte, bool, bool, error) {
 	if jsonl {
 		return rewriteClaudeJSONLMetadataPaths(raw, sourceDir, destDir)
 	}
 	return rewriteClaudeJSONObjectMetadataPaths(raw, sourceDir, destDir)
 }
 
-func rewriteClaudeJSONLMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, error) {
+func rewriteClaudeJSONLMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, bool, error) {
 	lines := bytes.SplitAfter(raw, []byte("\n"))
 	rewritten := make([]byte, 0, len(raw))
 	changedAny := false
+	residualAny := false
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue
@@ -553,39 +553,41 @@ func rewriteClaudeJSONLMetadataPaths(raw []byte, sourceDir, destDir string) ([]b
 			continue
 		}
 
-		next, changed, err := rewriteClaudeJSONObjectMetadataPaths(record, sourceDir, destDir)
+		next, changed, residual, err := rewriteClaudeJSONObjectMetadataPaths(record, sourceDir, destDir)
 		if err != nil {
-			return nil, false, err
+			return nil, false, false, err
 		}
 		changedAny = changedAny || changed
+		residualAny = residualAny || residual
 		rewritten = append(rewritten, next...)
 		if hasNewline {
 			rewritten = append(rewritten, '\n')
 		}
 	}
-	return rewritten, changedAny, nil
+	return rewritten, changedAny, residualAny, nil
 }
 
-func rewriteClaudeJSONObjectMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, error) {
+func rewriteClaudeJSONObjectMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, bool, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var value any
 	if err := dec.Decode(&value); err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	if err := ensureNoTrailingJSONTokens(dec); err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 
 	changed := rewriteClaudeJSONValueStrings(&value, sourceDir, destDir)
+	residual := claudeJSONValueContainsSourcePath(value, sourceDir)
 	if !changed {
-		return raw, false, nil
+		return raw, false, residual, nil
 	}
 	out, err := json.Marshal(value)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
-	return out, true, nil
+	return out, true, residual, nil
 }
 
 func ensureNoTrailingJSONTokens(dec *json.Decoder) error {
@@ -623,6 +625,29 @@ func rewriteClaudeJSONValueStrings(value *any, sourceDir, destDir string) bool {
 			}
 		}
 		return changed
+	default:
+		return false
+	}
+}
+
+func claudeJSONValueContainsSourcePath(value any, sourceDir string) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, sourceDir)
+	case []any:
+		for _, entry := range v {
+			if claudeJSONValueContainsSourcePath(entry, sourceDir) {
+				return true
+			}
+		}
+		return false
+	case map[string]any:
+		for key, entry := range v {
+			if strings.Contains(key, sourceDir) || claudeJSONValueContainsSourcePath(entry, sourceDir) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
