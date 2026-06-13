@@ -269,6 +269,7 @@ func diagnosticRepairSafetyRationale(def diagnosticFindingDefinition) string {
 
 func (plan diagnosticRepairPlan) withSummary() diagnosticRepairPlan {
 	plan.Summary = diagnosticRepairPlanSummaryFor(plan)
+	plan.Execution.Examples = diagnosticRepairExecutionExamplesForPlan(plan)
 	plan.NextSteps = diagnosticRepairNextStepsFor(plan)
 	return plan
 }
@@ -288,6 +289,21 @@ func diagnosticRepairPlanSummaryFor(plan diagnosticRepairPlan) diagnosticRepairP
 	}
 	summary.Remaining = summary.RemainingExecutable + summary.Manual + summary.Skipped
 	return summary
+}
+
+func diagnosticRepairExecutionExamplesForPlan(plan diagnosticRepairPlan) []string {
+	examples := append([]string(nil), plan.Execution.Examples...)
+	if plan.Summary.RemainingExecutable > 0 || plan.Summary.Remaining == 0 {
+		return examples
+	}
+	var filtered []string
+	for _, example := range examples {
+		if strings.HasPrefix(example, "hazmat doctor --fix") {
+			continue
+		}
+		filtered = append(filtered, example)
+	}
+	return filtered
 }
 
 func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairNextStep {

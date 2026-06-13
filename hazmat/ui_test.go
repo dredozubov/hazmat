@@ -212,6 +212,12 @@ func TestCheckManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
 	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
 		t.Fatalf("next steps = %+v, want non-mutating inspect step without command", plan.NextSteps)
 	}
+	if containsExampleWithPrefix(plan.Execution.Examples, "hazmat doctor --fix") {
+		t.Fatalf("execution examples = %v, want no fix command for manual-only plan", plan.Execution.Examples)
+	}
+	if !containsPlanString(plan.Execution.Examples, "hazmat doctor --dry-run") {
+		t.Fatalf("execution examples = %v, want non-mutating preview retained", plan.Execution.Examples)
+	}
 }
 
 func TestDoctorDryRunManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
@@ -237,6 +243,18 @@ func TestDoctorDryRunManualOnlyPlanDoesNotPointAtFix(t *testing.T) {
 	if len(plan.NextSteps) != 1 || plan.NextSteps[0].ID != "inspect-remaining-items" || plan.NextSteps[0].Command != "" || plan.NextSteps[0].Mutating {
 		t.Fatalf("next steps = %+v, want non-mutating inspect step without command", plan.NextSteps)
 	}
+	if containsExampleWithPrefix(plan.Execution.Examples, "hazmat doctor --fix") {
+		t.Fatalf("execution examples = %v, want no fix command for manual-only doctor preview", plan.Execution.Examples)
+	}
+}
+
+func containsExampleWithPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestUIRepairPlanSummaryLineCountsActionableBuckets(t *testing.T) {
