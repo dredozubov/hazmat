@@ -97,6 +97,32 @@ require_command() {
 	fi
 }
 
+validate_output_dir_fixture() {
+	if [ -z "$OUTPUT_DIR" ]; then
+		return
+	fi
+
+	if [ -e "$OUTPUT_DIR" ] && [ ! -d "$OUTPUT_DIR" ]; then
+		add_missing_fixture "$OUTPUT_DIR exists but is not a directory"
+		return
+	fi
+
+	parent="$OUTPUT_DIR"
+	while [ ! -e "$parent" ]; do
+		next_parent="$(dirname "$parent")"
+		if [ "$next_parent" = "$parent" ]; then
+			break
+		fi
+		parent="$next_parent"
+	done
+
+	if [ ! -d "$parent" ]; then
+		add_missing_fixture "$OUTPUT_DIR has no existing directory ancestor"
+	elif [ ! -w "$parent" ]; then
+		add_missing_fixture "$OUTPUT_DIR cannot be created because $parent is not writable"
+	fi
+}
+
 check_fixtures() {
 	MISSING_FIXTURES=""
 
@@ -113,6 +139,7 @@ check_fixtures() {
 	elif [ ! -r "$SECRET_PATH" ]; then
 		add_missing_fixture "$SECRET_PATH is not readable by the invoking user"
 	fi
+	validate_output_dir_fixture
 
 	if [ -n "$MISSING_FIXTURES" ]; then
 		return 1

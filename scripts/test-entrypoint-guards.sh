@@ -564,6 +564,21 @@ assert_fails_with \
     env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN=/usr/bin/false \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
 
+assert_help_contains_all \
+    "README proof-stack smoke documents fixture consent" \
+    "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" \
+    "--check-fixtures" \
+    "--skip-if-missing-fixtures" \
+    "Fixture checks inspect local Hazmat setup and the selected host secret fixture" \
+    "Agents must ask" \
+    "--skip-if-missing-fixtures, or --run"
+
+assert_fails_with \
+    "README proof-stack smoke validates output dir fixture" \
+    "claude-workflow-export-prompt.txt exists but is not a directory" \
+    env HAZMAT_README_PROOF_STACK_SMOKE_HAZMAT=/bin/echo HAZMAT_PROOF_STACK_SECRET_PATH="$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" \
+    "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" --output-dir "$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" --check-fixtures
+
 phase "Platform guards"
 
 assert_fails_with \

@@ -381,9 +381,10 @@ Hazmat:
 scripts/check-readme-proof-stack-smoke.sh
 ```
 
-Fixture checks inspect the selected host secret fixture and local Hazmat binary
-but do not run `hazmat exec`. Agents still need explicit approval before
-running them because they inspect local secret-path setup:
+Fixture checks inspect the selected host secret fixture, local Hazmat binary,
+and any requested `--output-dir` destination, but do not run `hazmat exec` or
+create the output directory. Agents still need explicit approval before running
+them because they inspect local secret-path setup:
 
 ```bash
 scripts/check-readme-proof-stack-smoke.sh --check-fixtures
