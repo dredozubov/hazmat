@@ -33,7 +33,8 @@ Environment:
   HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT  Hazmat binary to run.
   HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN     OpenHands executable name or path.
 
-Fixture checks inspect local OpenHands/Hazmat tool setup. The live run is
+Fixture checks inspect host-side OpenHands/Hazmat tool setup only; contained
+agent PATH and policy are proved by the approved live run. The live run is
 sudo-adjacent because it invokes hazmat exec. Agents must ask for explicit
 approval before running --check-fixtures, --skip-if-missing-fixtures, or --run.
 EOF
@@ -154,6 +155,10 @@ Live smoke shape:
 
 Fixture check:
   scripts/check-openhands-recipe-smoke.sh --check-fixtures
+
+Fixture checks are host-side only. They do not prove the OpenHands command is
+reachable from the contained agent PATH; the approved live hazmat exec run is
+the recipe proof.
 EOF
 }
 

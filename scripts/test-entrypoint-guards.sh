@@ -677,7 +677,8 @@ assert_help_contains_all \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" \
     "--check-fixtures" \
     "--skip-if-missing-fixtures" \
-    "Fixture checks inspect local OpenHands/Hazmat tool setup" \
+    "Fixture checks inspect host-side OpenHands/Hazmat tool setup only" \
+    "agent PATH and policy are proved by the approved live run" \
     "Agents must ask for explicit" \
     "running --check-fixtures, --skip-if-missing-fixtures, or --run"
 

@@ -367,9 +367,10 @@ scripts/check-openhands-recipe-smoke.sh
 Fixture checks are non-mutating host checks. They verify that the selected
 Hazmat binary and OpenHands CLI are present, and run the selected OpenHands
 binary with `--help` to catch a broken local installation before the live
-contained run. They do not run `hazmat exec`. Agents still need explicit
-approval before running them because they inspect local OpenHands/Hazmat tool
-setup:
+contained run. They do not run `hazmat exec`, do not prove that a command-name
+override is reachable from the contained agent PATH, and remain optional when
+the OpenHands CLI is absent. Agents still need explicit approval before running
+them because they inspect local OpenHands/Hazmat tool setup:
 
 ```bash
 scripts/check-openhands-recipe-smoke.sh --check-fixtures
