@@ -98,18 +98,11 @@ func runStatus(full bool) error {
 	cBold.Println("  Hazmat — AI agent containment for macOS")
 	fmt.Println()
 
-	containmentConfigured := func() bool {
-		if _, err := user.Lookup(agentUser); err != nil {
-			return false
-		}
-		if _, err := os.Stat(sudoersFile); err != nil {
-			return false
-		}
-		if _, err := os.Stat(pfAnchorFile); err != nil {
-			return false
-		}
-		return true
-	}
+	agentUserPresent := userExists(agentUser)
+	sudoersPresent := fileExists(sudoersFile)
+	pfAnchorPresent := fileExists(pfAnchorFile)
+	containmentConfigured := agentUserPresent && sudoersPresent && pfAnchorPresent
+	containmentStatus := containmentStatusAction(agentUserPresent, sudoersPresent, pfAnchorPresent)
 	installedHarnesses := installedManagedHarnesses()
 	state, stateErr := loadState()
 	claudeConfigured := func() bool {
@@ -117,11 +110,11 @@ func runStatus(full bool) error {
 		return err == nil && value != ""
 	}
 
-	allDone := containmentConfigured()
+	allDone := containmentConfigured
 	if allDone {
-		cGreen.Printf("  [✓] %-24s %s\n", "Containment configured", "hazmat init")
+		cGreen.Printf("  [✓] %-24s %s\n", "Containment configured", containmentStatus)
 	} else {
-		cYellow.Printf("  [→] %-24s %s   ◀ next\n", "Containment configured", "hazmat init")
+		cYellow.Printf("  [→] %-24s %s   ◀ next\n", "Containment configured", containmentStatus)
 	}
 
 	if len(installedHarnesses) == 0 {
@@ -190,6 +183,26 @@ func runStatus(full bool) error {
 	}
 
 	return nil
+}
+
+func userExists(name string) bool {
+	_, err := user.Lookup(name)
+	return err == nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func containmentStatusAction(agentUserPresent, sudoersPresent, pfAnchorPresent bool) string {
+	if agentUserPresent && sudoersPresent && pfAnchorPresent {
+		return "hazmat init"
+	}
+	if agentUserPresent || sudoersPresent || pfAnchorPresent {
+		return "hazmat doctor --fix"
+	}
+	return "hazmat init"
 }
 
 // runInit is the top-level entry point.  Named return so defer can inspect

@@ -58,6 +58,29 @@ func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
 	}
 }
 
+func TestContainmentStatusActionDistinguishesFreshSetupFromDrift(t *testing.T) {
+	if got := containmentStatusAction(false, false, false); got != "hazmat init" {
+		t.Fatalf("fresh status action = %q, want hazmat init", got)
+	}
+	if got := containmentStatusAction(true, true, true); got != "hazmat init" {
+		t.Fatalf("complete status action = %q, want hazmat init as completed setup row", got)
+	}
+	for name, flags := range map[string][3]bool{
+		"agent user only": {true, false, false},
+		"sudoers only":    {false, true, false},
+		"pf only":         {false, false, true},
+		"agent sudoers":   {true, true, false},
+		"agent pf":        {true, false, true},
+		"sudoers pf":      {false, true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := containmentStatusAction(flags[0], flags[1], flags[2]); got != "hazmat doctor --fix" {
+				t.Fatalf("partial status action = %q, want hazmat doctor --fix", got)
+			}
+		})
+	}
+}
+
 func TestStatusFullHelpNamesLiveNetworkProbes(t *testing.T) {
 	cmd := newStatusCmd()
 	flag := cmd.Flags().Lookup("full")
