@@ -391,10 +391,11 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 			return steps
 		}
 		steps = append(steps, diagnosticRepairNextStep{
-			ID:       "verify-host",
-			Command:  "hazmat check --full",
-			Mutating: false,
-			Reason:   "Verify the host after approved repairs with helper-backed live validation; ask before running in agent workflows.",
+			ID:               "verify-host",
+			Command:          "hazmat check --full",
+			Mutating:         false,
+			RequiresApproval: true,
+			Reason:           "Verify the host after approved repairs with helper-backed live validation; ask before running in agent workflows.",
 		})
 	}
 
