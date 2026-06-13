@@ -294,6 +294,13 @@ assert_file_contains_all \
     "... truncated " \
     "additional matching process(es)"
 
+assert_file_contains_all \
+    "session-home smoke explains activation blockers" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
+    "activation stopped before the toolchain matrix" \
+    "inspect the listed Blocking paths above" \
+    "Do not rerun hazmat init."
+
 phase "Sudo-adjacent prereq disclosures"
 
 assert_help_contains_all \

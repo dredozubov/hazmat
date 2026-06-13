@@ -182,17 +182,18 @@ trap cleanup EXIT INT TERM
 mkdir -p "$PROJECT"
 chmod 755 "$SCRATCH" "$PROJECT"
 
-HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \
+set +e
+SMOKE_OUTPUT="$(HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \
 	"$HAZMAT" exec \
-	--docker=none \
-	--network none \
-	--no-backup \
-	--integration go \
-	--integration node \
-	--integration python-pip \
-	--integration rust \
-	-C "$PROJECT" \
-	-- /bin/sh -eu <<'SESSION_HOME_SMOKE'
+		--docker=none \
+		--network none \
+		--no-backup \
+		--integration go \
+		--integration node \
+		--integration python-pip \
+		--integration rust \
+		-C "$PROJECT" \
+		-- /bin/sh -eu <<'SESSION_HOME_SMOKE' 2>&1
 case "$HOME" in
 	/private/tmp/hazmat-home/*/home)
 		;;
@@ -227,3 +228,21 @@ test "$(git -C git-probe status --porcelain)" = ""
 printf '%s\n' "session-home-smoke: HOME=$HOME"
 printf '%s\n' "session-home-smoke: toolchain matrix ok"
 SESSION_HOME_SMOKE
+)"
+SMOKE_STATUS=$?
+set -e
+
+printf '%s\n' "$SMOKE_OUTPUT"
+if [ "$SMOKE_STATUS" -ne 0 ]; then
+	case "$SMOKE_OUTPUT" in
+		*"cannot launch session-local HOME yet"*)
+			cat >&2 <<'EOF'
+session-home-smoke: activation stopped before the toolchain matrix.
+session-home-smoke: inspect the listed Blocking paths above; adapter-required
+session-home-smoke: durable state needs a typed bridge/materializer or an
+session-home-smoke: intentional fail-closed policy. Do not rerun hazmat init.
+EOF
+			;;
+	esac
+	exit "$SMOKE_STATUS"
+fi
