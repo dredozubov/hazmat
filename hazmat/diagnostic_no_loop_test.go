@@ -63,6 +63,24 @@ func TestDoctorFixThenCheckDoesNotRecommendInitForSameFinding(t *testing.T) {
 	assertReportHasFinding(t, checkReport, findingAgentUmask)
 }
 
+func TestMissingAgentUserCheckUsesRepairPlanAsCommandAuthority(t *testing.T) {
+	ui := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "check"}}
+	ui.stepLabel = "Agent user"
+	ui.TestFailFinding(diagnosticFinding(findingSetupAgentUser), missingAgentUserRepairAdvice())
+	ui.TestSkip("agent user \"agent\" is missing. Skipping helper-backed probes so hazmat check stays read-only and non-prompting; baseline setup is missing; inspect the typed repair plan below before running live helper-backed validation.")
+
+	report := ui.diagnosticReport()
+	if diagnosticReportAdviceMentions(report, "hazmat init") {
+		t.Fatalf("missing-agent check mixes init with repair plan command authority: %s", diagnosticReportJSON(t, report))
+	}
+	if !diagnosticReportAdviceMentions(report, "hazmat doctor --fix") {
+		t.Fatalf("missing-agent check does not expose executable repair path: %s", diagnosticReportJSON(t, report))
+	}
+	if len(report.RepairPlan.NextSteps) == 0 || report.RepairPlan.NextSteps[0].Command != "hazmat doctor --fix" {
+		t.Fatalf("next steps = %+v, want repair_plan to own doctor --fix command", report.RepairPlan.NextSteps)
+	}
+}
+
 func TestSessionHomeAdapterBlockersHaveInspectOnlyGuidance(t *testing.T) {
 	for _, req := range []diagnosticRepairExecutionRequest{
 		{Command: "check"},

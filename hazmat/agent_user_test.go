@@ -103,7 +103,7 @@ func TestRequireInitMissingAgentUserKeepsFreshSetupGuidance(t *testing.T) {
 	}
 }
 
-func TestInspectAgentProbeGateMissingAgentUserKeepsFreshSetupGuidance(t *testing.T) {
+func TestInspectAgentProbeGateMissingAgentUserDefersToRepairPlan(t *testing.T) {
 	originalLookup := lookupAgentUser
 	originalStat := statSetupArtifact
 	t.Cleanup(func() {
@@ -123,11 +123,13 @@ func TestInspectAgentProbeGateMissingAgentUserKeepsFreshSetupGuidance(t *testing
 		t.Fatal("agent probe gate allowed probes, want blocked for missing agent user")
 	}
 	reason := gate.Reason()
-	if !strings.Contains(reason, "run hazmat init first") {
-		t.Fatalf("reason = %q, want fresh setup guidance", reason)
+	if !strings.Contains(reason, "baseline setup is missing") || !strings.Contains(reason, "typed repair plan") {
+		t.Fatalf("reason = %q, want baseline context that defers to repair plan", reason)
 	}
-	if strings.Contains(reason, "hazmat doctor --fix") {
-		t.Fatalf("reason = %q, missing baseline user should not be classified as setup drift", reason)
+	for _, stale := range []string{"hazmat init", "hazmat doctor --fix", "hazmat doctor --dry-run"} {
+		if strings.Contains(reason, stale) {
+			t.Fatalf("reason = %q, skip reason should not compete with repair_plan command %q", reason, stale)
+		}
 	}
 }
 

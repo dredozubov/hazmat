@@ -130,7 +130,7 @@ func inspectAgentProbeGate() diagnostics.AgentProbeGate {
 	}
 	advice := "setup drift: run hazmat doctor --fix or preview with hazmat doctor --dry-run"
 	if missingBaseline {
-		advice = "run hazmat init first"
+		advice = "baseline setup is missing; inspect the typed repair plan below before running live helper-backed validation"
 	}
 	return diagnostics.BlockAgentProbes(fmt.Sprintf(
 		"%s. Skipping helper-backed probes so hazmat check stays read-only and non-prompting; %s.",
