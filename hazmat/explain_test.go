@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"hazmat/hostfacts"
@@ -345,6 +346,105 @@ func TestExplainJSONCommandIncludesExperimentalSessionHomePreview(t *testing.T) 
 		filepath.Join(agentHome, ".hazmat", "hermes", "projects"),
 	}) {
 		t.Fatalf("SessionHome.DurableBridgeRoots = %#v", preview.SessionHome.DurableBridgeRoots)
+	}
+}
+
+func TestExplainJSONCommandIncludesActivationSessionHomeReadiness(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedNewSessionHomeID := newSessionHomeID
+	newSessionHomeID = func() string { return "session-123" }
+	t.Cleanup(func() { newSessionHomeID = savedNewSessionHomeID })
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+	savedMaterialize := materializeSessionHomeLaunchPlanForActivation
+	materializeSessionHomeLaunchPlanForActivation = func(sessionHomeLaunchPlan) (sessionHomeMaterializationResult, error) {
+		t.Fatal("plan-only explain should not materialize session-local HOME")
+		return sessionHomeMaterializationResult{}, nil
+	}
+	t.Cleanup(func() { materializeSessionHomeLaunchPlanForActivation = savedMaterialize })
+
+	dir := t.TempDir()
+	cmd := newExplainCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--json", "-C", dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	var preview explainJSONPreview
+	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+		t.Fatalf("unmarshal preview: %v\nstdout=%s", err, stdout.String())
+	}
+	if preview.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want activation session-local HOME preview")
+	}
+	if preview.SessionHome.Status != "experimental-preview" ||
+		!preview.SessionHome.ActivationReady ||
+		sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "activation-gate") ||
+		sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "adapter-required") ||
+		preview.SessionHome.Home != filepath.Join(defaultSessionHomeRoot, "session-123", "home") {
+		t.Fatalf("SessionHome = %+v", preview.SessionHome)
+	}
+}
+
+func TestExplainJSONCommandIncludesActivationSessionHomeBlockers(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+	t.Setenv(experimentalSessionHomeEnv, "activate")
+	savedExists := sessionHomeActivationPersistentPathExists
+	sessionHomeActivationPersistentPathExists = func(path string) (bool, error) {
+		return strings.HasSuffix(path, filepath.Join(".config", "mcp")), nil
+	}
+	t.Cleanup(func() { sessionHomeActivationPersistentPathExists = savedExists })
+
+	dir := t.TempDir()
+	cmd := newExplainCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--json", "-C", dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	var preview explainJSONPreview
+	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+		t.Fatalf("unmarshal preview: %v\nstdout=%s", err, stdout.String())
+	}
+	if preview.SessionHome == nil {
+		t.Fatal("SessionHome = nil, want activation session-local HOME preview")
+	}
+	if preview.SessionHome.ActivationReady ||
+		sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "activation-gate") ||
+		!sessionHomeBlockersContainReason(preview.SessionHome.ActivationBlockers, "adapter-required") {
+		t.Fatalf("SessionHome = %+v", preview.SessionHome)
+	}
+	if len(preview.SessionHome.ActivationBlockers) != 1 {
+		t.Fatalf("ActivationBlockers = %+v, want one blocker", preview.SessionHome.ActivationBlockers)
+	}
+	blocker := preview.SessionHome.ActivationBlockers[0]
+	if blocker.RelPath != filepath.Join(".config", "mcp") ||
+		blocker.Reason != "adapter-required" ||
+		blocker.Class != "harness-state" ||
+		blocker.RuntimePolicy != "adapter-required" ||
+		blocker.Adapter != "mcp-state" ||
+		blocker.AdapterOutcome != "manual-only" {
+		t.Fatalf("ActivationBlocker = %+v", blocker)
 	}
 }
 
