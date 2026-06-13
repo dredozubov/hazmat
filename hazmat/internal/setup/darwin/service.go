@@ -482,11 +482,12 @@ func (e ServiceEnv) launchHelperPath() string {
 
 func launchHelperMissingError(helperPath string) error {
 	return fmt.Errorf("%s not found.\n\n"+
-		"Install Hazmat before running setup:\n\n"+
+		"Install the Hazmat launch helper source before running setup repair:\n\n"+
 		"  make install\n\n"+
 		"Or install system-wide:\n\n"+
 		"  sudo make install-system\n\n"+
-		"Then re-run: hazmat init", helperPath)
+		"Fresh host: run hazmat init.\n"+
+		"Setup drift: run hazmat doctor --fix, or preview with hazmat doctor --dry-run.", helperPath)
 }
 
 // latestPfConfBackup returns the most-recent /etc/pf.conf.backup.YYYYMMDDHHMMSS, or "".
