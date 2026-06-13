@@ -1737,9 +1737,10 @@ func testCloudRestoreSkipped(ui *UI, reason string) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // portInAnchor returns true if the anchor rules reference the given port
-// using a word-boundary regex, preventing e.g. port "25" matching "250".
+// using token boundaries, preventing e.g. port "25" matching "250".
 func portInAnchor(rules, port string) bool {
-	re := regexp.MustCompile(`port = ` + regexp.QuoteMeta(port) + `\b`)
+	quoted := regexp.QuoteMeta(port)
+	re := regexp.MustCompile(`\bport\s*(?:=\s*)?(?:\{[^}]*\b` + quoted + `\b[^}]*\}|\b` + quoted + `\b)`)
 	return re.MatchString(rules)
 }
 
