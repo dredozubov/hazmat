@@ -976,6 +976,18 @@ func TestSuggestIntegrationsMatchesPyTorchHubMarker(t *testing.T) {
 	}
 }
 
+func TestSuggestIntegrationsMatchesOllamaModelfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Modelfile"), []byte("FROM llama3.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suggestions := suggestIntegrations(dir, nil)
+	if !containsPlanString(suggestions, "ollama") {
+		t.Fatalf("suggestions = %v, want ollama", suggestions)
+	}
+}
+
 func TestSuggestIntegrationsPythonPipFiresOnPlainRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("requests==2.32.5\n"), 0o644); err != nil {

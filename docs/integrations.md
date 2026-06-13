@@ -154,6 +154,7 @@ and compared for exact equality. This means `~/workspace/my-app` and
 | `python-poetry` | `poetry.lock` | `~/.local/share/pypoetry` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `python-uv` | `uv.lock` | `~/.local/share/uv`, `~/.cache/uv` | `VIRTUAL_ENV` | `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.uv-cache/`, `*.pyc`, `dist/`, `*.egg-info/` |
 | `huggingface` | Hugging Face model metadata markers (`config.json` plus `tokenizer_config.json`, `model_index.json`, `adapter_config.json` plus `adapter_model.safetensors`, or `sentence_bert_config.json`) | `~/.cache/huggingface/hub`, `~/.cache/huggingface/datasets`, `~/.cache/huggingface/xet` | `HF_HOME`, `HF_HUB_OFFLINE` | `.cache/huggingface/` |
+| `ollama` | `Modelfile` | `~/.ollama/models`, `~/.ollama/cache`, `~/.ollama/logs` | — | `.ollama/models/`, `.ollama/cache/`, `.ollama/logs/` |
 | `pytorch-torch-hub` | `hubconf.py` | `~/.cache/torch/hub`, `~/.cache/torch/checkpoints` | — | `.cache/torch/hub/`, `.cache/torch/checkpoints/` |
 | `rust` | `Cargo.toml` | resolved Rust sysroot | `RUSTUP_HOME`, `CARGO_HOME`, `CARGO_TARGET_DIR` | `target/` |
 | `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` | resolved JDK home and Gradle prefix | `JAVA_HOME` | `.gradle/`, `build/`, `out/`, `target/`, `*.class` |

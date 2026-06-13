@@ -3,6 +3,9 @@ integration:
   version: 1
   description: Ollama local model cache access
 
+detect:
+  files: [Modelfile]
+
 session:
   read_dirs:
     - ~/.ollama/models
