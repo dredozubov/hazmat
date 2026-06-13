@@ -707,6 +707,12 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" --output-dir "$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" --check-fixtures
 
 assert_fails_with \
+    "README proof-stack smoke rejects relative Hazmat binary path" \
+    "./hazmat/hazmat must be an absolute Hazmat binary path" \
+    env HAZMAT_README_PROOF_STACK_SMOKE_HAZMAT=./hazmat/hazmat HAZMAT_PROOF_STACK_SECRET_PATH="$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt" \
+    "$REPO_ROOT/scripts/check-readme-proof-stack-smoke.sh" --check-fixtures
+
+assert_fails_with \
     "README proof-stack smoke rejects relative secret fixture" \
     "scripts/fixtures/claude-workflow-export-prompt.txt must be an absolute host secret fixture path" \
     env HAZMAT_README_PROOF_STACK_SMOKE_HAZMAT=/bin/echo HAZMAT_PROOF_STACK_SECRET_PATH=scripts/fixtures/claude-workflow-export-prompt.txt \

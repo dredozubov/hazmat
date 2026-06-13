@@ -397,7 +397,10 @@ scripts/check-readme-proof-stack-smoke.sh
 Fixture checks inspect the selected host secret fixture, local Hazmat binary,
 and any requested `--output-dir` destination, but do not run `hazmat exec` or
 create the output directory. Agents still need explicit approval before running
-them because they inspect local secret-path setup:
+them because they inspect local secret-path setup. The
+`HAZMAT_README_PROOF_STACK_SMOKE_HAZMAT` override must be an absolute path
+because the live smoke changes into the scratch project before capturing
+recovery evidence with `hazmat diff`:
 
 ```bash
 scripts/check-readme-proof-stack-smoke.sh --check-fixtures

@@ -126,6 +126,13 @@ validate_output_dir_fixture() {
 check_fixtures() {
 	MISSING_FIXTURES=""
 
+	case "$HAZMAT" in
+		/*)
+			;;
+		*)
+			add_missing_fixture "$HAZMAT must be an absolute Hazmat binary path"
+			;;
+	esac
 	if [ ! -x "$HAZMAT" ]; then
 		add_missing_fixture "$HAZMAT is missing or not executable; run make first"
 	fi
