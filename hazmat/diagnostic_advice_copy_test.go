@@ -52,8 +52,8 @@ func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
 	if !strings.Contains(joined, "executable typed repairs") {
 		t.Fatalf("mode guidance = %q, want fix path scoped to executable typed repairs", joined)
 	}
-	if !strings.Contains(joined, "no backup smokes or external traffic") {
-		t.Fatalf("mode guidance = %q, want quick check backup/external traffic boundary", joined)
+	if !strings.Contains(joined, "no helper-backed probes, backup smokes, or external traffic") {
+		t.Fatalf("mode guidance = %q, want quick check helper/backup/external traffic boundary", joined)
 	}
 	if !strings.Contains(joined, "Helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
 		t.Fatalf("mode guidance = %q, want full check live-probe disclosure", joined)
