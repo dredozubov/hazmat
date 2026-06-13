@@ -125,6 +125,9 @@ func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
 	if fixIndex > previewIndex {
 		t.Fatalf("status advice = %q, want fix path before preview", statusIncompleteSetupAdvice)
 	}
+	if strings.Contains(statusIncompleteSetupAdvice, "Preview first") {
+		t.Fatalf("status advice = %q, want preview wording that does not precede the fix path", statusIncompleteSetupAdvice)
+	}
 }
 
 func TestStatusCredentialInventoryAdviceUsesDoctorRepairPath(t *testing.T) {

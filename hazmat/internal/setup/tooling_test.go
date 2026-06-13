@@ -23,7 +23,7 @@ func TestHostWrapperContentPinsExecutable(t *testing.T) {
 		`HAZMAT_BIN="/opt/hazmat/bin/hazmat"`,
 		`exec "$HAZMAT_BIN" shell "$@"`,
 		`Setup drift detected: refresh Hazmat-owned wrappers with "hazmat doctor --fix".`,
-		`Preview first with "hazmat doctor --dry-run".`,
+		`Preview the repair plan with "hazmat doctor --dry-run".`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("wrapper content missing %q:\n%s", want, got)
@@ -31,6 +31,9 @@ func TestHostWrapperContentPinsExecutable(t *testing.T) {
 	}
 	if strings.Contains(got, "hazmat init") {
 		t.Fatalf("wrapper content routes runtime drift back to init:\n%s", got)
+	}
+	if strings.Contains(got, "Preview first") {
+		t.Fatalf("wrapper content makes dry-run the first step for setup drift:\n%s", got)
 	}
 }
 

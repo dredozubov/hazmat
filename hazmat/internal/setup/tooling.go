@@ -324,7 +324,7 @@ HAZMAT_BIN=%q
 if [[ ! -x "$HAZMAT_BIN" ]]; then
   printf 'error: hazmat binary not found: %%s\n' "$HAZMAT_BIN" >&2
   printf 'Setup drift detected: refresh Hazmat-owned wrappers with "hazmat doctor --fix".\n' >&2
-  printf 'Preview first with "hazmat doctor --dry-run".\n' >&2
+  printf 'Preview the repair plan with "hazmat doctor --dry-run".\n' >&2
   exit 1
 fi
 
