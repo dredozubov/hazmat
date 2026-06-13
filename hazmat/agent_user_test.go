@@ -103,6 +103,63 @@ func TestRequireInitMissingAgentUserKeepsFreshSetupGuidance(t *testing.T) {
 	}
 }
 
+func TestInspectAgentProbeGateMissingAgentUserKeepsFreshSetupGuidance(t *testing.T) {
+	originalLookup := lookupAgentUser
+	originalStat := statSetupArtifact
+	t.Cleanup(func() {
+		lookupAgentUser = originalLookup
+		statSetupArtifact = originalStat
+	})
+
+	lookupAgentUser = func() (*user.User, error) {
+		return nil, errors.New("missing")
+	}
+	statSetupArtifact = func(string) (os.FileInfo, error) {
+		return fakeExecutableFileInfo{}, nil
+	}
+
+	gate := inspectAgentProbeGate()
+	if gate.Allowed() {
+		t.Fatal("agent probe gate allowed probes, want blocked for missing agent user")
+	}
+	reason := gate.Reason()
+	if !strings.Contains(reason, "run hazmat init first") {
+		t.Fatalf("reason = %q, want fresh setup guidance", reason)
+	}
+	if strings.Contains(reason, "hazmat doctor --fix") {
+		t.Fatalf("reason = %q, missing baseline user should not be classified as setup drift", reason)
+	}
+}
+
+func TestInspectAgentProbeGatePartialSetupDriftUsesDoctorRepairPath(t *testing.T) {
+	originalLookup := lookupAgentUser
+	originalStat := statSetupArtifact
+	t.Cleanup(func() {
+		lookupAgentUser = originalLookup
+		statSetupArtifact = originalStat
+	})
+
+	lookupAgentUser = func() (*user.User, error) {
+		return &user.User{Username: agentUser, HomeDir: agentHome}, nil
+	}
+	statSetupArtifact = func(path string) (os.FileInfo, error) {
+		if path == sudoersFile {
+			return nil, errors.New("missing")
+		}
+		return fakeExecutableFileInfo{}, nil
+	}
+
+	gate := inspectAgentProbeGate()
+	if gate.Allowed() {
+		t.Fatal("agent probe gate allowed probes, want blocked for partial setup drift")
+	}
+	reason := gate.Reason()
+	assertSetupDriftAdvice(t, reason)
+	if strings.Contains(reason, "run hazmat init first") {
+		t.Fatalf("reason = %q, want no init retry advice for setup drift", reason)
+	}
+}
+
 func assertSetupDriftAdvice(t *testing.T, text string) {
 	t.Helper()
 	for _, want := range []string{
@@ -127,3 +184,9 @@ func (fakeFileInfo) Mode() os.FileMode  { return 0 }
 func (fakeFileInfo) ModTime() time.Time { return time.Time{} }
 func (fakeFileInfo) IsDir() bool        { return false }
 func (fakeFileInfo) Sys() any           { return nil }
+
+type fakeExecutableFileInfo struct {
+	fakeFileInfo
+}
+
+func (fakeExecutableFileInfo) Mode() os.FileMode { return 0o755 }

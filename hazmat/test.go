@@ -111,14 +111,16 @@ func diagnosticModeGuidanceLines() []string {
 
 func inspectAgentProbeGate() diagnostics.AgentProbeGate {
 	var blockers []string
-	if _, err := user.Lookup(agentUser); err != nil {
+	missingBaseline := false
+	if _, err := lookupAgentUser(); err != nil {
+		missingBaseline = true
 		blockers = append(blockers, fmt.Sprintf("agent user %q is missing", agentUser))
 	}
-	if !launchSudoersInstalled() {
+	if _, err := statSetupArtifact(sudoersFile); err != nil {
 		blockers = append(blockers, fmt.Sprintf("launch-helper sudoers file is missing: %s", sudoersFile))
 	}
 	helperPath := launchHelperPath()
-	if info, err := os.Stat(helperPath); err != nil {
+	if info, err := statSetupArtifact(helperPath); err != nil {
 		blockers = append(blockers, fmt.Sprintf("launch helper is missing: %s", helperPath))
 	} else if info.Mode()&0o111 == 0 {
 		blockers = append(blockers, fmt.Sprintf("launch helper is not executable: %s", helperPath))
@@ -126,9 +128,14 @@ func inspectAgentProbeGate() diagnostics.AgentProbeGate {
 	if len(blockers) == 0 {
 		return diagnostics.AllowAgentProbes()
 	}
+	advice := "setup drift: run hazmat doctor --fix or preview with hazmat doctor --dry-run"
+	if missingBaseline {
+		advice = "run hazmat init first"
+	}
 	return diagnostics.BlockAgentProbes(fmt.Sprintf(
-		"%s. Skipping helper-backed probes so hazmat check stays read-only and non-prompting; run hazmat doctor --fix or preview with hazmat doctor --dry-run.",
+		"%s. Skipping helper-backed probes so hazmat check stays read-only and non-prompting; %s.",
 		strings.Join(blockers, "; "),
+		advice,
 	))
 }
 
