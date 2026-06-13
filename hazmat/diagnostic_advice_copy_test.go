@@ -60,6 +60,29 @@ func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
 	}
 }
 
+func TestInitHelpUsesDoctorForPostInitRepairPath(t *testing.T) {
+	cmd := newInitCmd()
+	text := strings.Join([]string{cmd.Short, cmd.Long}, "\n")
+	required := []string{
+		"hazmat doctor --fix                         # Apply executable post-init repairs",
+		"hazmat doctor --dry-run                     # Preview the typed repair plan",
+		"hazmat check                                # Read-only health report",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("init help missing %q:\n%s", phrase, text)
+		}
+	}
+	if strings.Contains(text, "hazmat check                                # Verify the setup") {
+		t.Fatalf("init help still presents check as setup verification:\n%s", text)
+	}
+	fixIndex := strings.Index(text, "hazmat doctor --fix")
+	checkIndex := strings.Index(text, "hazmat check")
+	if fixIndex < 0 || checkIndex < 0 || fixIndex > checkIndex {
+		t.Fatalf("init help should present post-init fix path before read-only check:\n%s", text)
+	}
+}
+
 func TestStatusIncompleteSetupAdviceUsesDoctorRepairPath(t *testing.T) {
 	if strings.Contains(statusIncompleteSetupAdvice, "hazmat init") {
 		t.Fatalf("status advice = %q, want no init retry loop in repair advice", statusIncompleteSetupAdvice)

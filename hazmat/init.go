@@ -49,7 +49,9 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init --bootstrap-agent qwen          # Also install Qwen Code
   hazmat init --bootstrap-agent cursor-agent  # Verify manually installed Cursor Agent CLI
   hazmat init --yes                           # Non-interactive; install maintenance sudoers by default
-  hazmat check                                # Verify the setup
+  hazmat doctor --fix                         # Apply executable post-init repairs
+  hazmat doctor --dry-run                     # Preview the typed repair plan
+  hazmat check                                # Read-only health report
   hazmat rollback                             # Undo everything
   hazmat config agent                         # Configure agent API keys + git identity
   hazmat init cloud                           # Configure S3 cloud backup
