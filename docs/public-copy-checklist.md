@@ -70,8 +70,8 @@ follow-up bead instead of public copy.
 Allowed:
 
 - "`hazmat check` quick mode is read-only and non-prompting."
-- "`hazmat doctor --dry-run` previews the repair plan."
 - "`hazmat doctor --fix` applies typed executable repairs."
+- "`hazmat doctor --dry-run` previews the repair plan."
 
 Requires explicit sudo-adjacent caveat:
 
