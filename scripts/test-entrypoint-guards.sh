@@ -299,6 +299,7 @@ assert_file_contains_all \
     "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
     "activation stopped before the toolchain matrix" \
     "inspect the listed Blocking paths above" \
+    "if no Blocking paths were printed, rebuild/reinstall" \
     "Do not rerun hazmat init."
 
 phase "Sudo-adjacent prereq disclosures"
