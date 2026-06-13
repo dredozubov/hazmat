@@ -13,12 +13,13 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 	}
 	text := strings.Join(strings.Fields(string(data)), " ")
 	required := []string{
+		"no sudo-adjacent launch-helper validation",
 		"no helper-backed agent probes in the default quick mode",
 		"skip local snapshot, cloud backup, and cloud restore live validation",
 		"does not run backup smoke tests or send external traffic",
 		"hazmat check --full",
 		"hazmat status --full",
-		"helper-backed, backup, and cloud live validation",
+		"sudo-adjacent launch-helper validation plus helper-backed, backup, and cloud live validation",
 		"same full validation afterward",
 		"require explicit exact-command approval",
 		"For setup prerequisites, the message distinguishes a fresh host",
@@ -72,6 +73,7 @@ func TestUsageDocsDistinguishStatusFromCheck(t *testing.T) {
 		"hazmat status # setup progress checklist",
 		"hazmat check # read-only health and repairability report",
 		"hazmat status --full # setup progress plus full live validation",
+		"hazmat check --full # sudo-adjacent launch-helper, helper-backed, backup, and cloud live validation",
 		"`hazmat status` is the lightweight setup progress checklist",
 		"`hazmat status --full` keeps that progress checklist and then runs the same approval-gated full validation as `hazmat check --full`",
 	}

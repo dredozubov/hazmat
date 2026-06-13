@@ -502,7 +502,7 @@ hazmat check                    # read-only health and repairability report
 hazmat doctor --fix             # apply executable approved typed repairs
 hazmat doctor --dry-run         # explicit non-mutating repair plan preview
 hazmat status --full            # setup progress plus full live validation
-hazmat check --full             # helper-backed, backup, and cloud live probes
+hazmat check --full             # sudo-adjacent launch-helper, helper-backed, backup, and cloud live validation
 ```
 
 `hazmat status` is the lightweight setup progress checklist. It shows where the
@@ -520,9 +520,10 @@ repairs requires `hazmat doctor --fix`.
 Neither command is the full repo test suite. For lifecycle e2e, self-hosting,
 repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
 
-`hazmat check --full` adds helper-backed, backup, and cloud live validation. It
-can send external traffic and is sudo-adjacent for agent workflows, so
-automation should ask for explicit approval before running it.
+`hazmat check --full` adds sudo-adjacent launch-helper validation plus
+helper-backed, backup, and cloud live validation. It can send external traffic
+and is sudo-adjacent for agent workflows, so automation should ask for explicit
+approval before running it.
 
 ### Diagnostic and Repair Contract
 

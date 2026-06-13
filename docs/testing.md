@@ -29,15 +29,17 @@ are not interchangeable.
 
 `hazmat check` and `hazmat doctor --dry-run` are diagnostics, not live smoke
 wrappers. They must stay read-only and non-prompting: no direct sudo probes, no
-`sudo -n` probes, and no helper-backed agent probes in the default quick mode.
-Quick diagnostics also skip local snapshot, cloud backup, and cloud restore live
-validation so the default path does not run backup smoke tests or send external
-traffic. Quick diagnostics should report a repair plan and skip live validation
-instead of trying to switch users or touch external services. Use
-`hazmat check --full` when you want helper-backed, backup, and cloud live
-validation directly, or `hazmat status --full` when you want the setup progress
-checklist first and the same full validation afterward. Both full paths are
-sudo-adjacent in agent workflows and require explicit exact-command approval.
+`sudo -n` probes, no sudo-adjacent launch-helper validation, and no
+helper-backed agent probes in the default quick mode. Quick diagnostics also
+skip local snapshot, cloud backup, and cloud restore live validation so the
+default path does not run backup smoke tests or send external traffic. Quick
+diagnostics should report a repair plan and skip live validation instead of
+trying to switch users or touch external services. Use `hazmat check --full`
+when you want sudo-adjacent launch-helper validation plus helper-backed, backup,
+and cloud live validation directly, or `hazmat status --full` when you want the
+setup progress checklist first and the same full validation afterward. Both full
+paths are sudo-adjacent in agent workflows and require explicit exact-command
+approval.
 
 Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
 paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed
