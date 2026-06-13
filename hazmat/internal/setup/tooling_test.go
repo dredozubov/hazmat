@@ -22,11 +22,15 @@ func TestHostWrapperContentPinsExecutable(t *testing.T) {
 	for _, want := range []string{
 		`HAZMAT_BIN="/opt/hazmat/bin/hazmat"`,
 		`exec "$HAZMAT_BIN" shell "$@"`,
-		`Re-run "hazmat init" to refresh the wrappers.`,
+		`Setup drift detected: refresh Hazmat-owned wrappers with "hazmat doctor --fix".`,
+		`Preview first with "hazmat doctor --dry-run".`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("wrapper content missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "hazmat init") {
+		t.Fatalf("wrapper content routes runtime drift back to init:\n%s", got)
 	}
 }
 
