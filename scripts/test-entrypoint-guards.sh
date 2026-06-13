@@ -390,7 +390,9 @@ assert_file_contains_all \
     "slash-escaped" \
     "unicode-slash-lower" \
     "unicode-slash-upper" \
-    "exported session still references"
+    "exported session still references" \
+    "matching exported files:" \
+    "head -n 12"
 
 assert_file_contains_all \
     "Codex desktop running-process refusal is bounded" \

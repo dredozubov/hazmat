@@ -229,6 +229,10 @@ assert_export_has_no_agent_project_paths() {
 		pattern="$(agent_project_root_pattern "$encoding")"
 		if grep -R -F "$pattern" "$host_transcript" "$host_sidecar_dir" >/dev/null 2>&1; then
 			echo "claude-workflow-export-smoke: exported session still references $AGENT_PROJECT_ROOT ($encoding)" >&2
+			echo "claude-workflow-export-smoke: matching exported files:" >&2
+			grep -R -l -F "$pattern" "$host_transcript" "$host_sidecar_dir" 2>/dev/null |
+				sed 's/^/  - /' |
+				head -n 12 >&2
 			exit 1
 		fi
 	done

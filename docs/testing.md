@@ -285,8 +285,10 @@ set, the script falls back to an embedded prompt with the same Task-tool shape
 so a live pass is not blocked on fixture setup. The live smoke uses a scratch
 project, exports the contained session, checks that the host transcript/sidecar
 no longer contain stale `/Users/agent/.claude/projects` paths, then resumes the
-exported session with host Claude. It does not broaden the export policy for
-opaque Workflow caches; the docs still treat those caches as best-effort.
+exported session with host Claude. If stale agent paths remain, the smoke prints
+a bounded list of matching exported files without dumping file contents. It does
+not broaden the export policy for opaque Workflow caches; the docs still treat
+those caches as best-effort.
 
 ### Cache integration smoke
 
