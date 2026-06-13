@@ -64,8 +64,9 @@ func TestDiagnosticModeGuidanceShowsFixBeforePreview(t *testing.T) {
 		!strings.Contains(quickDiagnosticValidationSkipLine, "helper-backed probes") {
 		t.Fatalf("quick banner = %q, want sudo-adjacent and helper-backed skip disclosure", quickDiagnosticValidationSkipLine)
 	}
-	if !strings.Contains(joined, "Helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
-		t.Fatalf("mode guidance = %q, want full check live-probe disclosure", joined)
+	if !strings.Contains(joined, "Launch-helper validation plus helper-backed, backup, and cloud live probes") ||
+		!strings.Contains(joined, "sudo-adjacent") {
+		t.Fatalf("mode guidance = %q, want full check launch-helper/live-probe disclosure", joined)
 	}
 }
 

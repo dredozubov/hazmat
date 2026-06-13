@@ -69,8 +69,8 @@ func TestCheckCommandRejectsFixFlag(t *testing.T) {
 func TestCheckCommandHelpNamesDirectRepairPath(t *testing.T) {
 	cmd := NewCheckCommand(nil)
 	joined := strings.Join([]string{cmd.Long, cmd.Example, cmd.Flags().Lookup("full").Usage}, "\n")
-	if !strings.Contains(joined, "helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
-		t.Fatalf("check help = %q, want --full helper-backed sudo-adjacent disclosure", joined)
+	if !strings.Contains(joined, "launch-helper validation plus helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
+		t.Fatalf("check help = %q, want --full launch-helper/helper-backed sudo-adjacent disclosure", joined)
 	}
 	if !strings.Contains(cmd.Long, "hazmat doctor --fix") {
 		t.Fatalf("check help = %q, want direct doctor --fix repair path", cmd.Long)
@@ -148,8 +148,8 @@ func TestDoctorCommandFullDisablesQuickMode(t *testing.T) {
 func TestDoctorCommandHelpNamesExplicitDryRunPreview(t *testing.T) {
 	cmd := NewDoctorCommand(nil)
 	joined := strings.Join([]string{cmd.Long, cmd.Example, cmd.Flags().Lookup("full").Usage}, "\n")
-	if !strings.Contains(joined, "helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
-		t.Fatalf("doctor help = %q, want --full helper-backed sudo-adjacent disclosure", joined)
+	if !strings.Contains(joined, "launch-helper validation plus helper-backed, backup, and cloud live probes") || !strings.Contains(joined, "sudo-adjacent") {
+		t.Fatalf("doctor help = %q, want --full launch-helper/helper-backed sudo-adjacent disclosure", joined)
 	}
 	if !strings.Contains(cmd.Long, "hazmat doctor --dry-run") {
 		t.Fatalf("doctor help = %q, want explicit dry-run preview spelling", cmd.Long)

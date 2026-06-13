@@ -107,7 +107,7 @@ func runTest(options diagnostics.CheckOptions) error {
 func diagnosticModeGuidanceLines() []string {
 	return []string{
 		"    hazmat check          Quick health report (no sudo-adjacent launch-helper validation, helper-backed probes, backup smokes, or external traffic)",
-		"    hazmat check --full   Helper-backed, backup, and cloud live probes (sudo-adjacent)",
+		"    hazmat check --full   Launch-helper validation plus helper-backed, backup, and cloud live probes (sudo-adjacent)",
 		"    hazmat doctor --fix   Apply approved executable typed repairs",
 		"    hazmat doctor --dry-run",
 		"                          Preview the typed repair plan",
