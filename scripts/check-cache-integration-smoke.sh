@@ -5,6 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
+OLLAMA_BIN="${HAZMAT_OLLAMA_SMOKE_BIN:-ollama}"
 MODE="disclose"
 TARGET="all"
 ACK=0
@@ -38,6 +39,7 @@ Fixture environment:
                                   Example: pytorch/vision
   HAZMAT_TORCH_HUB_MODEL          Required for --target torch-hub.
                                   Example: resnet18
+  HAZMAT_OLLAMA_SMOKE_BIN         Ollama executable name or path.
 
 Fixture checks inspect local tool/cache setup. The live run is sudo-adjacent
 because it invokes hazmat exec. Agents must ask for explicit approval before
@@ -113,17 +115,46 @@ add_missing_fixture() {
 }
 
 require_command() {
-	if ! command -v "$1" >/dev/null 2>&1; then
-		add_missing_fixture "$1 is not on PATH"
-	fi
+	case "$1" in
+		*/*)
+			if [ ! -x "$1" ]; then
+				add_missing_fixture "$1 is missing or not executable"
+			fi
+			;;
+		*)
+			if ! command -v "$1" >/dev/null 2>&1; then
+				add_missing_fixture "$1 is not on PATH"
+			fi
+			;;
+	esac
 }
 
 require_target_command() {
 	target="$1"
 	command="$2"
-	if ! command -v "$command" >/dev/null 2>&1; then
-		add_missing_fixture "[$target] $command is not on PATH"
-	fi
+	case "$command" in
+		*/*)
+			if [ ! -x "$command" ]; then
+				add_missing_fixture "[$target] $command is missing or not executable"
+			fi
+			;;
+		*)
+			if ! command -v "$command" >/dev/null 2>&1; then
+				add_missing_fixture "[$target] $command is not on PATH"
+			fi
+			;;
+	esac
+}
+
+command_available() {
+	case "$1" in
+		*/*)
+			[ -x "$1" ]
+			;;
+		*)
+			command -v "$1" >/dev/null 2>&1
+			;;
+	esac
 }
 
 add_missing_target_fixture() {
@@ -152,7 +183,10 @@ check_target_fixtures() {
 			fi
 			;;
 		ollama)
-			require_target_command "$1" ollama
+			require_target_command "$1" "$OLLAMA_BIN"
+			if command_available "$OLLAMA_BIN" && ! "$OLLAMA_BIN" list >/dev/null 2>&1; then
+				add_missing_target_fixture "$1" "$OLLAMA_BIN list failed; start the Ollama daemon or check OLLAMA_HOST"
+			fi
 			;;
 		torch-hub)
 			require_target_command "$1" python3
@@ -206,7 +240,7 @@ $(selected_targets | sed 's/^/  - /')
 
 Live smoke shape:
   huggingface: HF_HUB_OFFLINE=1 hazmat exec --network none --integration huggingface -- python3 -c 'AutoModel.from_pretrained(..., local_files_only=True)'
-  ollama:      hazmat exec --integration ollama -- ollama list
+  ollama:      hazmat exec --integration ollama -- $OLLAMA_BIN list
                Requires an already-running host Ollama daemon. This target
                intentionally does not force --network none because ollama list
                talks to the local daemon endpoint.
@@ -253,7 +287,7 @@ run_ollama() {
 		--no-backup \
 		--integration ollama \
 		-C "$project" \
-		-- ollama list
+		-- "$OLLAMA_BIN" list
 }
 
 run_torch_hub() {

@@ -524,10 +524,17 @@ assert_file_contains_all \
     'add_missing_fixture "[$target] $*"' \
     'add_missing_target_fixture "$1" "python3 cannot import transformers"' \
     'add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL' \
-    'require_target_command "$1" ollama' \
+    'require_target_command "$1" "$OLLAMA_BIN"' \
+    'add_missing_target_fixture "$1" "$OLLAMA_BIN list failed; start the Ollama daemon or check OLLAMA_HOST"' \
     'add_missing_target_fixture "$1" "python3 cannot import torch"' \
     'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO' \
     'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL'
+
+assert_fails_with \
+    "cache integration smoke checks Ollama daemon fixture" \
+    "/bin/sh list failed; start the Ollama daemon or check OLLAMA_HOST" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN=/bin/sh \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
 
 assert_help_contains_all \
     "OpenHands recipe smoke documents fixture consent" \
