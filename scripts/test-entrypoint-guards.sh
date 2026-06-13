@@ -690,6 +690,12 @@ assert_succeeds_with \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo PATH="$REPO_ROOT/scripts/fixtures/fake-bin:$PATH" TORCH_HOME="$REPO_ROOT/scripts/fixtures/torch-home-callable" HAZMAT_TORCH_HUB_REPO=pytorch/vision HAZMAT_TORCH_HUB_MODEL=resnet18 \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target torch-hub --check-fixtures
 
+assert_succeeds_with \
+    "cache integration smoke accepts all fake fixtures" \
+    "cache-integration-smoke: fixtures ok" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo PATH="$REPO_ROOT/scripts/fixtures/fake-bin:$PATH" HAZMAT_OLLAMA_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/fake-ollama" HAZMAT_HF_SMOKE_MODEL="$REPO_ROOT/scripts/fixtures/huggingface-model-with-config" TORCH_HOME="$REPO_ROOT/scripts/fixtures/torch-home-callable" HAZMAT_TORCH_HUB_REPO=pytorch/vision HAZMAT_TORCH_HUB_MODEL=resnet18 \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target all --check-fixtures
+
 assert_help_contains_all \
     "OpenHands recipe smoke documents fixture consent" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" \
