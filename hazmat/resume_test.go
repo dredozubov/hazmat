@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,32 @@ func TestAgentSessionDirPathUsesExplicitHomeRoot(t *testing.T) {
 func TestAgentSessionDirPathRejectsRelativeHomeRoot(t *testing.T) {
 	if _, err := agentSessionDirPath("relative-home", "/Users/dr/.claude/projects/project"); err == nil {
 		t.Fatal("agentSessionDirPath accepted relative home root")
+	}
+}
+
+func TestAgentSessionDirInHomeRoutesHelperDriftToDoctor(t *testing.T) {
+	savedEnsureDir := resumeAgentEnsureDir
+	t.Cleanup(func() {
+		resumeAgentEnsureDir = savedEnsureDir
+	})
+	resumeAgentEnsureDir = func(string, os.FileMode) error {
+		return errors.New("helper unavailable")
+	}
+
+	_, err := agentSessionDirInHome(t.TempDir(), "/Users/dr/.claude/projects/-Users-dr-workspace-hazmat")
+	if err == nil {
+		t.Fatal("agentSessionDirInHome succeeded, want helper drift error")
+	}
+	for _, want := range []string{
+		"hazmat doctor --fix",
+		"hazmat doctor --dry-run",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, missing %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "hazmat init") {
+		t.Fatalf("error = %q, want no init retry advice for helper drift", err)
 	}
 }
 

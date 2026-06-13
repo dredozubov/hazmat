@@ -28,6 +28,8 @@ func sanitizePathForClaude(name string) string {
 
 const maxSanitizedLength = 200
 
+var resumeAgentEnsureDir = agentEnsureDir
+
 // invokerHome returns the home directory of the user who invoked hazmat
 // (the real user, not the agent).
 func invokerHome() string {
@@ -86,8 +88,8 @@ func agentSessionDirInHome(homeRoot, invokerDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := agentEnsureDir(dest, 0o700); err != nil {
-		return "", fmt.Errorf("create %s: %w (run 'hazmat init' to repair the agent helper)", dest, err)
+	if err := resumeAgentEnsureDir(dest, 0o700); err != nil {
+		return "", fmt.Errorf("create %s: %w (%s)", dest, err, initDriftRepairAdvice)
 	}
 	return dest, nil
 }
