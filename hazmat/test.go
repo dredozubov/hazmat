@@ -796,20 +796,14 @@ func testCommandSurface(ui *UI) {
 
 	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
 		path := hostWrapperPath(wrapper)
-		if info, err := os.Stat(path); err != nil {
+		if err := validateHostWrapper(path); err != nil {
 			ui.TestFailFinding(
 				diagnosticFinding(findingSetupHostWrappers),
-				fmt.Sprintf("Host wrapper missing: %s", path),
-				path,
-			)
-		} else if info.Mode()&0o111 == 0 {
-			ui.TestFailFinding(
-				diagnosticFinding(findingSetupHostWrappers),
-				fmt.Sprintf("Host wrapper not executable: %s", path),
+				fmt.Sprintf("Host wrapper drift: %v", err),
 				path,
 			)
 		} else {
-			ui.TestPass(fmt.Sprintf("Host wrapper is executable: %s", path))
+			ui.TestPass(fmt.Sprintf("Host wrapper is installed with an executable Hazmat target: %s", path))
 		}
 	}
 

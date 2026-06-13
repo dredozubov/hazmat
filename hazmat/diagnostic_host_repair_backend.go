@@ -483,12 +483,8 @@ func verifySetupAgentEnv() error {
 func verifySetupHostWrappers() error {
 	for _, wrapper := range []string{hostClaudeWrapperName, hostExecWrapperName, hostShellWrapperName} {
 		path := hostWrapperPath(wrapper)
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("host wrapper missing %s: %w", path, err)
-		}
-		if info.Mode()&0o111 == 0 {
-			return fmt.Errorf("host wrapper not executable: %s", path)
+		if err := validateHostWrapper(path); err != nil {
+			return err
 		}
 	}
 	return nil
