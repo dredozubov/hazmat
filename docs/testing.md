@@ -348,6 +348,10 @@ local OpenHands/Hazmat tool setup:
 scripts/check-openhands-recipe-smoke.sh --check-fixtures
 ```
 
+When `HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN` is an explicit path, missing or
+non-executable overrides are reported as path fixture failures instead of PATH
+lookup failures.
+
 Live mode is sudo-adjacent because it invokes `hazmat exec`. Agents must ask
 for explicit approval before running:
 

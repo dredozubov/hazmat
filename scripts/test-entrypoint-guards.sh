@@ -538,6 +538,12 @@ assert_help_contains_all \
     "Agents must ask for explicit" \
     "running --check-fixtures, --skip-if-missing-fixtures, or --run"
 
+assert_fails_with \
+    "OpenHands recipe smoke qualifies explicit binary path fixture failures" \
+    "missing-openhands is missing or not executable" \
+    env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/missing-openhands" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
+
 phase "Platform guards"
 
 assert_fails_with \

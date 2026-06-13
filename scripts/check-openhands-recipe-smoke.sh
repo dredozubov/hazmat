@@ -76,9 +76,18 @@ add_missing_fixture() {
 }
 
 require_command() {
-	if ! command -v "$1" >/dev/null 2>&1; then
-		add_missing_fixture "$1 is not on PATH"
-	fi
+	case "$1" in
+		*/*)
+			if [ ! -x "$1" ]; then
+				add_missing_fixture "$1 is missing or not executable"
+			fi
+			;;
+		*)
+			if ! command -v "$1" >/dev/null 2>&1; then
+				add_missing_fixture "$1 is not on PATH"
+			fi
+			;;
+	esac
 }
 
 check_fixtures() {
