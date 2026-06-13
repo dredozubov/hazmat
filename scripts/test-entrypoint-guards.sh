@@ -119,6 +119,36 @@ assert_help_contains_all() {
     pass "$label"
 }
 
+assert_file_contains_all() {
+    local label="$1"
+    local path="$2"
+    shift 2
+
+    if [ ! -r "$path" ]; then
+        fail "$label: $path is not readable"
+        return
+    fi
+
+    local text=""
+    text="$(cat "$path")"
+    local missing=""
+    for expected in "$@"; do
+        if ! printf '%s' "$text" | grep -Fq -- "$expected"; then
+            if [ -z "$missing" ]; then
+                missing="$expected"
+            else
+                missing="$missing, $expected"
+            fi
+        fi
+    done
+    if [ -n "$missing" ]; then
+        fail "$label: missing $missing"
+        return
+    fi
+
+    pass "$label"
+}
+
 phase "Destructive guards"
 
 assert_fails_with \
@@ -247,6 +277,22 @@ assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
     "spike-apple-container: disclosure-only" \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh"
+
+phase "Fixture and refusal UX guards"
+
+assert_succeeds_with \
+    "Claude Workflow export smoke has a default fixture" \
+    "claude-workflow-export-smoke: fixtures ok" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
+assert_file_contains_all \
+    "Codex desktop running-process refusal is bounded" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
+    "Codex App appears to be running (" \
+    "Matching process sample:" \
+    "... truncated " \
+    "additional matching process(es)"
 
 phase "Sudo-adjacent prereq disclosures"
 
