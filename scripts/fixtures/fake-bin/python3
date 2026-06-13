@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -eu
+
+# Non-live fixture for scripts/check-cache-integration-smoke.sh. The smoke
+# script uses python3 only to check import availability during fixture checks.
+exit 0
