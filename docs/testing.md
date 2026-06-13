@@ -261,8 +261,9 @@ make e2e-claude-workflow-export-smoke
 ```
 
 Fixture checks are non-mutating host checks. They verify that the selected
-Hazmat binary, host Claude CLI, and Workflow prompt file are present, but do
-not run `hazmat claude` or host `claude --resume`. By default the script uses
+Hazmat binary exists, the host Claude CLI is present and answers `--version`,
+and the Workflow prompt file is readable, but do not run `hazmat claude` or
+host `claude --resume`. By default the script uses
 `scripts/fixtures/claude-workflow-export-prompt.txt`; set
 `HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE` only when validating a stronger
 local reproduction prompt. Agents still need explicit approval before running

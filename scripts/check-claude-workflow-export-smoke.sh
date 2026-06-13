@@ -103,6 +103,17 @@ require_command() {
 	esac
 }
 
+command_available() {
+	case "$1" in
+		*/*)
+			[ -x "$1" ]
+			;;
+		*)
+			command -v "$1" >/dev/null 2>&1
+			;;
+	esac
+}
+
 default_prompt_text() {
 	cat <<'EOF'
 Create a small reproducible Workflow/subagent artifact for a Hazmat export smoke.
@@ -135,6 +146,9 @@ check_fixtures() {
 	require_command grep
 	require_command head
 	require_command "$CLAUDE_BIN"
+	if command_available "$CLAUDE_BIN" && ! "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+		add_missing_fixture "$CLAUDE_BIN --version failed; verify the host Claude CLI installation"
+	fi
 	if [ -n "$PROMPT_FILE_OVERRIDE" ] && [ ! -r "$PROMPT_FILE" ]; then
 		add_missing_fixture "$PROMPT_FILE is not readable"
 	fi

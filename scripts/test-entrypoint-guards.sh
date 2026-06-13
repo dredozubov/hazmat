@@ -410,6 +410,12 @@ assert_fails_with \
     env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/missing-claude-workflow-prompt.txt" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
 
+assert_fails_with \
+    "Claude Workflow export smoke checks CLI version fixture" \
+    "/usr/bin/false --version failed; verify the host Claude CLI installation" \
+    env HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE=/usr/bin/false \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
+
 assert_file_contains_all \
     "Claude Workflow export smoke scans escaped agent paths" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" \
