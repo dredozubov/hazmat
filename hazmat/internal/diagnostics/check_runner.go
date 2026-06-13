@@ -60,10 +60,12 @@ type CheckSuite struct {
 	Exit                 func(code int)
 }
 
-const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation"
-const QuickLocalSnapshotSkipReason = "local snapshot live validation skipped in quick mode; use hazmat check --full for local backup validation"
-const QuickCloudBackupSkipReason = "cloud backup live validation skipped in quick mode; use hazmat check --full for cloud backup validation"
-const QuickCloudRestoreSkipReason = "cloud restore live validation skipped in quick mode; use hazmat check --full for cloud restore validation"
+const quickFullValidationApprovalNote = "hazmat check --full is sudo-adjacent in agent workflows and requires exact-command approval"
+
+const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation after approval (" + quickFullValidationApprovalNote + ")"
+const QuickLocalSnapshotSkipReason = "local snapshot live validation skipped in quick mode; use hazmat check --full for local backup validation after approval (" + quickFullValidationApprovalNote + ")"
+const QuickCloudBackupSkipReason = "cloud backup live validation skipped in quick mode; use hazmat check --full for cloud backup validation after approval (" + quickFullValidationApprovalNote + ")"
+const QuickCloudRestoreSkipReason = "cloud restore live validation skipped in quick mode; use hazmat check --full for cloud restore validation after approval (" + quickFullValidationApprovalNote + ")"
 
 func RunCheck(quick bool, suite CheckSuite) error {
 	ctx := CheckContext{}

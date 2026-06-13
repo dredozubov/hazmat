@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,28 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+func TestQuickSkipReasonsDiscloseFullValidationApprovalGate(t *testing.T) {
+	reasons := map[string]string{
+		"agent probes":   QuickAgentProbeSkipReason,
+		"local snapshot": QuickLocalSnapshotSkipReason,
+		"cloud backup":   QuickCloudBackupSkipReason,
+		"cloud restore":  QuickCloudRestoreSkipReason,
+	}
+	for name, reason := range reasons {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"hazmat check --full",
+				"sudo-adjacent",
+				"exact-command approval",
+			} {
+				if !strings.Contains(reason, want) {
+					t.Fatalf("reason = %q, want %q", reason, want)
+				}
+			}
+		})
 	}
 }
 
