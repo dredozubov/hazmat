@@ -538,12 +538,14 @@ repair outcome by scanning every item array.
 
 JSON reports also include `repair_plan.next_steps`. These entries are ordered by
 the intended next action and carry explicit `command`, `mutating`, and
-`requires_approval` fields where a command applies. Read-only `hazmat check`
-reports put the approved repair path before the preview path when executable
-repairs exist, while post-init verification points to `hazmat doctor --fix`
-instead of retrying `hazmat init`. If a plan has remaining findings but no
-executable Hazmat repairs, `next_steps` uses `inspect-remaining-items` with no
-mutating command, and `repair_plan.execution.examples` omits the mutating fix
+`requires_approval` fields where a command applies. `requires_approval` is not
+limited to mutating repairs: sudo-adjacent verification such as `hazmat check
+--full` can be non-mutating and still require exact-command approval. Read-only
+`hazmat check` reports put the approved repair path before the preview path when
+executable repairs exist, while post-init verification points to `hazmat doctor
+--fix` instead of retrying `hazmat init`. If a plan has remaining findings but
+no executable Hazmat repairs, `next_steps` uses `inspect-remaining-items` with
+no mutating command, and `repair_plan.execution.examples` omits the mutating fix
 command so automation does not offer a repair path that cannot change the
 machine.
 

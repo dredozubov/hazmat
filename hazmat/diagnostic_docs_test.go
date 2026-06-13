@@ -27,3 +27,21 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 		t.Fatal("docs/testing.md still describes the old setup-gated helper probe boundary")
 	}
 }
+
+func TestUsageDocsExplainNonMutatingApprovalGatedNextSteps(t *testing.T) {
+	data, err := os.ReadFile("../docs/usage.md")
+	if err != nil {
+		t.Fatalf("read usage docs: %v", err)
+	}
+	text := strings.Join(strings.Fields(string(data)), " ")
+	required := []string{
+		"`requires_approval` is not limited to mutating repairs",
+		"hazmat check --full",
+		"non-mutating and still require exact-command approval",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("docs/usage.md missing %q", phrase)
+		}
+	}
+}
