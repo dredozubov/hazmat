@@ -88,14 +88,14 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show setup progress and the next action",
 		Long: `Shows which setup phases are complete and what to do next.
-Use --full to run helper-backed, backup, and cloud live validation, matching 'hazmat check --full'.
+Use --full to run launch-helper validation plus helper-backed, backup, and cloud live validation, matching 'hazmat check --full'.
 This sends external traffic and is sudo-adjacent in agent workflows.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runStatus(full)
 		},
 	}
-	cmd.Flags().BoolVar(&full, "full", false, "Run helper-backed, backup, and cloud live validation (same as 'hazmat check --full'; sudo-adjacent in agent workflows)")
+	cmd.Flags().BoolVar(&full, "full", false, "Run launch-helper validation plus helper-backed, backup, and cloud live validation (same as 'hazmat check --full'; sudo-adjacent in agent workflows)")
 	return cmd
 }
 

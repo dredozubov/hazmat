@@ -402,7 +402,7 @@ func diagnosticRepairNextStepsFor(plan diagnosticRepairPlan) []diagnosticRepairN
 			Command:          "hazmat check --full",
 			Mutating:         false,
 			RequiresApproval: true,
-			Reason:           "Verify the host after approved repairs with helper-backed, backup, and cloud live validation; ask before running in agent workflows.",
+			Reason:           "Verify the host after approved repairs with launch-helper validation plus helper-backed, backup, and cloud live validation; ask before running in agent workflows.",
 		})
 	}
 

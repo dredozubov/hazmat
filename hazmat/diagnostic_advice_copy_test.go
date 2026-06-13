@@ -197,7 +197,7 @@ func TestStatusFullHelpNamesLiveProbes(t *testing.T) {
 	if strings.Contains(cmd.Short, "health check") {
 		t.Fatalf("status short help = %q, want default status distinct from health check", cmd.Short)
 	}
-	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "helper-backed, backup, and cloud live validation") || !strings.Contains(joined, "sudo-adjacent") {
+	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "launch-helper validation plus helper-backed, backup, and cloud live validation") || !strings.Contains(joined, "sudo-adjacent") {
 		t.Fatalf("status --full help = %q, want check --full and helper-backed sudo-adjacent wording", joined)
 	}
 	if strings.Contains(joined, "check --quick") || strings.Contains(joined, "same as 'hazmat check --quick'") {
