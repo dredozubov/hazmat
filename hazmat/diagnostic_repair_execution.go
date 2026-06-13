@@ -34,7 +34,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "hazmat check is a read-only health and repairability report",
-			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run"},
 		}
 	case command == "init":
 		return diagnosticRepairExecutionPolicy{
@@ -44,7 +44,7 @@ func decideDiagnosticRepairExecution(req diagnosticRepairExecutionRequest) diagn
 			RequiresFix:     false,
 			RequiresYes:     false,
 			Reason:          "hazmat init has already run setup; remaining findings are post-init verification blockers, not advice to rerun init",
-			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"},
+			Examples:        []string{"hazmat doctor --fix", "hazmat doctor --dry-run"},
 		}
 	case req.DryRun:
 		return diagnosticRepairExecutionPolicy{

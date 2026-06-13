@@ -11,7 +11,7 @@ func TestDecideDiagnosticRepairExecutionCheckIsReadOnly(t *testing.T) {
 	if policy.Mode != "read-only" || policy.MutationAllowed || policy.RequiresFix {
 		t.Fatalf("policy = %+v, want read-only check", policy)
 	}
-	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"}
+	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run"}
 	if !slices.Equal(policy.Examples, wantExamples) {
 		t.Fatalf("examples = %v, want %v", policy.Examples, wantExamples)
 	}
@@ -23,7 +23,7 @@ func TestDecideDiagnosticRepairExecutionInitIsPostVerification(t *testing.T) {
 	if policy.Mode != "post-init-verify" || policy.MutationAllowed || policy.RequiresFix || policy.RequiresYes {
 		t.Fatalf("policy = %+v, want read-only post-init verification", policy)
 	}
-	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run", "hazmat check --full"}
+	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run"}
 	if !slices.Equal(policy.Examples, wantExamples) {
 		t.Fatalf("examples = %v, want %v without init loop", policy.Examples, wantExamples)
 	}
