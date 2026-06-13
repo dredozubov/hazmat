@@ -776,12 +776,12 @@ func managedHarnessNotInstalledMessage(displayName string, harness HarnessID) st
 func testCommandSurface(ui *UI) {
 	ui.Step("Command surface")
 
-	if asAgentQuiet("test", "-f", agentEnvPath) == nil {
-		ui.TestPass(fmt.Sprintf("Agent env file exists: %s", agentEnvPath))
+	if err := validateAgentEnvFile(agentReadFile); err == nil {
+		ui.TestPass(fmt.Sprintf("Agent env file matches Hazmat-managed template: %s", agentEnvPath))
 	} else {
 		ui.TestFailFinding(
 			diagnosticFinding(findingSetupAgentEnv),
-			fmt.Sprintf("Agent env file missing: %s", agentEnvPath),
+			fmt.Sprintf("Agent env drift: %v", err),
 		)
 	}
 

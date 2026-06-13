@@ -51,3 +51,32 @@ func TestDarwinSetupVerificationRejectsWrongHostWrapperSubcommand(t *testing.T) 
 		t.Fatalf("setup verification report missing wrong-subcommand detail: %s", diagnosticReportJSON(t, report))
 	}
 }
+
+func TestDarwinSetupVerificationReportsAgentEnvDriftThroughAgentRead(t *testing.T) {
+	savedRead := agentReadFile
+	agentReadFile = func(path string) ([]byte, error) {
+		if path != agentEnvPath {
+			t.Fatalf("agentReadFile path = %q, want %q", path, agentEnvPath)
+		}
+		stale := strings.Replace(setup.AgentEnvContent(defaultAgentPath), `export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"`+"\n", "", 1)
+		return []byte(stale), nil
+	}
+	t.Cleanup(func() { agentReadFile = savedRead })
+
+	ui := &UI{}
+	darwinSetupVerificationBackend{}.verifyAgentEnv(ui)
+	report := ui.diagnosticReport()
+	assertReportHasFinding(t, report, findingSetupAgentEnv)
+	if !diagnosticReportAdviceMentions(report, "hazmat doctor --fix") {
+		t.Fatalf("setup verification report does not point at doctor repair: %s", diagnosticReportJSON(t, report))
+	}
+	var found bool
+	for _, finding := range report.Findings {
+		if strings.Contains(finding.Message, "agent env content drifted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("setup verification report missing agent env drift detail: %s", diagnosticReportJSON(t, report))
+	}
+}

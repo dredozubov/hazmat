@@ -463,8 +463,8 @@ func verifySetupSeatbeltWrapper() error {
 }
 
 func verifySetupAgentEnv() error {
-	if err := asAgentQuiet("test", "-f", agentEnvPath); err != nil {
-		return fmt.Errorf("agent env file missing: %w", err)
+	if err := validateAgentEnvFile(agentReadFile); err != nil {
+		return err
 	}
 	out, _ := asAgentOutput("cat", filepath.Join(agentHome, ".zshrc"))
 	if !strings.Contains(out, "agent-env.zsh") {

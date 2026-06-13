@@ -105,12 +105,12 @@ func (darwinSetupVerificationBackend) verifySeatbeltWrapper(ui *UI) {
 func (darwinSetupVerificationBackend) verifyAgentEnv(ui *UI) {
 	// Agent shell env is advisory — wrappers work without it but PATH and
 	// aliases inside agent-shell will be incomplete.
-	if _, err := os.Stat(agentEnvPath); err == nil {
-		ui.TestPass(fmt.Sprintf("Agent shell env installed at %s", agentEnvPath))
+	if err := validateAgentEnvFile(agentReadFile); err == nil {
+		ui.TestPass(fmt.Sprintf("Agent shell env matches Hazmat-managed template: %s", agentEnvPath))
 	} else {
 		ui.TestWarnFinding(
 			diagnosticFinding(findingSetupAgentEnv),
-			fmt.Sprintf("Agent shell env missing: %s", agentEnvPath),
+			fmt.Sprintf("Agent shell env drift: %v", err),
 			agentEnvPath,
 		)
 	}
