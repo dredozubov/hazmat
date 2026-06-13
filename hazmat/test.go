@@ -490,7 +490,7 @@ func testPfFirewallLive(ui *UI, quick bool, selfPath string) {
 func testDNSBlocklist(ui *UI) {
 	ui.Step("DNS blocklist")
 
-	hosts, err := os.ReadFile("/etc/hosts")
+	hosts, err := readDNSBlocklistHosts()
 	if err != nil || !strings.Contains(string(hosts), "AI Agent Blocklist") {
 		ui.TestFailFinding(
 			diagnosticFinding(findingDNSBlocklist),
@@ -501,8 +501,13 @@ func testDNSBlocklist(ui *UI) {
 	n := strings.Count(string(hosts), "0.0.0.0 ")
 	ui.TestPass(fmt.Sprintf("DNS blocklist present in /etc/hosts (%d entries)", n))
 
-	for _, domain := range []string{"ngrok.io", "pastebin.com", "webhook.site", "transfer.sh"} {
-		if checkBlockedDomain(domain) {
+	if ui.Quick {
+		ui.TestSkip("Live DNS resolver probes skipped in quick mode")
+		return
+	}
+
+	for _, domain := range dnsBlocklistProbeDomains {
+		if dnsBlocklistDomainBlocked(domain) {
 			ui.TestPass(fmt.Sprintf("%s is blocked (resolves to 0.0.0.0 or fails)", domain))
 		} else {
 			ui.TestFailFinding(
@@ -512,6 +517,14 @@ func testDNSBlocklist(ui *UI) {
 		}
 	}
 }
+
+var dnsBlocklistProbeDomains = []string{"ngrok.io", "pastebin.com", "webhook.site", "transfer.sh"}
+
+var readDNSBlocklistHosts = func() ([]byte, error) {
+	return os.ReadFile("/etc/hosts")
+}
+
+var dnsBlocklistDomainBlocked = checkBlockedDomain
 
 // ── Step 9: Persistence ───────────────────────────────────────────────────────
 
