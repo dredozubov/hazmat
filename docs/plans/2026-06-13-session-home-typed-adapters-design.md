@@ -121,7 +121,10 @@ mere existence of `.claude`, `.codex`, `.opencode`, `.hazmat`, or similar
 supported parents no longer blocks activation: the session gets an empty local
 parent and only explicit child paths are imported, bridged, or materialized.
 Narrow surfaces such as `.config/mcp` and `.config/opencode` still block until
-their owning adapter defines portable config and credential behavior.
+their owning adapter defines portable config and credential behavior. Managed
+prompt assets are handled separately: launch-time asset sync remaps explicit
+asset destinations into the active session-local `HOME` and does not write the
+persistent harness-assets manifest for ephemeral session homes.
 
 Rationale: broad harness state may contain auth tokens, sockets, remembered tool
 permissions, plugins, MCP descriptors, or remote-control state. The safe parent
@@ -139,6 +142,8 @@ Tests:
 - known transcript roots stay `durable-external`;
 - known prompt/config assets that are already classified as seed-only remain
   seed-only;
+- managed prompt-asset sync targets the active session-local home and leaves
+  persistent agent state untouched;
 - diagnostics do not claim `doctor --fix` can repair broad harness state.
 
 ### XDG Data And Config Adapter

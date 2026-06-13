@@ -1488,7 +1488,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 	progress.Step("planning harness asset sync")
-	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(commandName, mode, opts)
+	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(cfg, commandName, mode, opts)
 	if err != nil {
 		return preparedSession{}, err
 	}

@@ -457,6 +457,67 @@ func TestResolvePreparedSessionPlansHarnessAssetSyncForHarnessCommands(t *testin
 	}
 }
 
+func TestHarnessAssetSessionMutationTargetsSessionHome(t *testing.T) {
+	env := isolateHarnessAssets(t)
+	isolateConfig(t)
+
+	hostFile := filepath.Join(env.hostHome, ".claude", "CLAUDE.md")
+	persistentDest := filepath.Join(env.agentHome, ".claude", "CLAUDE.md")
+	harnessAssetSpecs[HarnessClaude] = []harnessAssetSpec{
+		{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: hostFile, AgentPath: persistentDest},
+	}
+	writeHarnessAssetTestFile(t, hostFile, "session-home asset\n")
+
+	layout, err := newSessionHomeLayout(filepath.Join(t.TempDir(), "hazmat-home"), "session-123")
+	if err != nil {
+		t.Fatalf("newSessionHomeLayout: %v", err)
+	}
+	runtimePlan := sessionHomeRuntimePlan{
+		Launch: sessionHomeLaunchPlan{
+			Layout: layout,
+		},
+	}
+	plan, err := buildHarnessAssetSessionMutationPlan(sessionConfig{
+		SessionHome: &runtimePlan,
+	}, "claude", sessionModeNative, harnessSessionOpts{})
+	if err != nil {
+		t.Fatalf("buildHarnessAssetSessionMutationPlan: %v", err)
+	}
+	if len(plan.Mutations) != 1 {
+		t.Fatalf("mutations = %d, want 1", len(plan.Mutations))
+	}
+	mutation := plan.Mutations[0]
+	if mutation.Metadata.Persistence != "session-local home only" {
+		t.Fatalf("persistence = %q, want session-local", mutation.Metadata.Persistence)
+	}
+	if !strings.Contains(mutation.Metadata.Detail, layout.Home) {
+		t.Fatalf("detail = %q, want session home path", mutation.Metadata.Detail)
+	}
+
+	exec, err := mutation.Apply()
+	if err != nil {
+		t.Fatalf("apply harness asset mutation: %v", err)
+	}
+	if exec.AppliedMessage == "" {
+		t.Fatal("AppliedMessage is empty, want sync confirmation")
+	}
+
+	sessionDest := filepath.Join(layout.Home, ".claude", "CLAUDE.md")
+	raw, err := os.ReadFile(sessionDest)
+	if err != nil {
+		t.Fatalf("read session-local asset: %v", err)
+	}
+	if string(raw) != "session-home asset\n" {
+		t.Fatalf("session-local asset = %q", raw)
+	}
+	if _, err := os.Stat(persistentDest); !os.IsNotExist(err) {
+		t.Fatalf("persistent agent asset should not be materialized, err=%v", err)
+	}
+	if _, err := os.Stat(harnessAssetsFilePath); !os.IsNotExist(err) {
+		t.Fatalf("session-local asset sync should not write persistent manifest, err=%v", err)
+	}
+}
+
 func TestResolvePreparedSessionSkipsHarnessAssetSyncWhenDisabled(t *testing.T) {
 	env := isolateHarnessAssets(t)
 	isolateConfig(t)

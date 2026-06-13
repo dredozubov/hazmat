@@ -33,6 +33,7 @@ type harnessAssetSpec struct {
 	Kind      harnessAssetKind
 	HostPath  string
 	AgentPath string
+	destRoot  string
 }
 
 type harnessAssetsState struct {
@@ -175,7 +176,7 @@ func harnessIDForCommand(commandName string) (HarnessID, bool) {
 	}
 }
 
-func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, opts harnessSessionOpts) (sessionMutationPlan, error) {
+func buildHarnessAssetSessionMutationPlan(cfg sessionConfig, commandName string, mode sessionMode, opts harnessSessionOpts) (sessionMutationPlan, error) {
 	if mode != sessionModeNative || opts.skipHarnessAssetsSync || !harnessAssetsEnabled() {
 		return sessionMutationPlan{}, nil
 	}
@@ -185,7 +186,9 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 		return sessionMutationPlan{}, nil
 	}
 
-	preview, err := previewHarnessAssetSync(harnessID)
+	destRoot := harnessAssetDestinationRoot(cfg)
+	sessionLocal := cfg.SessionHome != nil
+	preview, err := previewHarnessAssetSyncForDestination(harnessID, destRoot, sessionLocal)
 	if err != nil {
 		return sessionMutationPlan{}, err
 	}
@@ -203,12 +206,18 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 	plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 		Metadata: sessionMutation{
 			Summary:     fmt.Sprintf("%s asset sync", displayName),
-			Detail:      fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, harnessAssetAgentHome, preview.Result.changeSummary()),
-			Persistence: "persistent in agent home",
+			Detail:      fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, destRoot, preview.Result.changeSummary()),
+			Persistence: harnessAssetMutationPersistence(sessionLocal),
 			ProofScope:  sessionMutationProofScopeTestsDocs,
 		},
 		Apply: func() (sessionMutationExecution, error) {
-			result, err := syncHarnessAssetsWithPreview(harnessID, preview)
+			var result harnessAssetSyncResult
+			var err error
+			if sessionLocal {
+				result, err = syncEphemeralHarnessAssetsWithPreview(harnessID, destRoot, preview)
+			} else {
+				result, err = syncHarnessAssetsWithPreview(harnessID, preview)
+			}
 			if err != nil {
 				return sessionMutationExecution{}, err
 			}
@@ -226,12 +235,43 @@ func buildHarnessAssetSessionMutationPlan(commandName string, mode sessionMode, 
 	return plan, nil
 }
 
+func harnessAssetDestinationRoot(cfg sessionConfig) string {
+	if cfg.SessionHome != nil && cfg.SessionHome.Launch.Layout.Home != "" {
+		return cfg.SessionHome.Launch.Layout.Home
+	}
+	return harnessAssetAgentHome
+}
+
+func harnessAssetMutationPersistence(sessionLocal bool) string {
+	if sessionLocal {
+		return "session-local home only"
+	}
+	return "persistent in agent home"
+}
+
 func previewHarnessAssetSync(harnessID HarnessID) (harnessAssetSyncPreview, error) {
-	state, err := loadHarnessAssetsState()
+	return previewHarnessAssetSyncForDestination(harnessID, harnessAssetAgentHome, false)
+}
+
+func previewHarnessAssetSyncForDestination(harnessID HarnessID, destRoot string, sessionLocal bool) (harnessAssetSyncPreview, error) {
+	desired, warnings, err := collectDesiredHarnessAssetsForPreview(harnessID, destRoot, sessionLocal)
 	if err != nil {
 		return harnessAssetSyncPreview{}, err
 	}
-	desired, warnings, err := collectDesiredHarnessAssetsForSync(harnessID)
+	if sessionLocal {
+		result, err := diffEphemeralHarnessAssetState(desired)
+		if err != nil {
+			return harnessAssetSyncPreview{}, err
+		}
+		result.Warnings = append(result.Warnings, warnings...)
+		return harnessAssetSyncPreview{
+			Desired:  desired,
+			Result:   result,
+			Warnings: append([]string(nil), warnings...),
+		}, nil
+	}
+
+	state, err := loadHarnessAssetsState()
 	if err != nil {
 		return harnessAssetSyncPreview{}, err
 	}
@@ -247,8 +287,52 @@ func previewHarnessAssetSync(harnessID HarnessID) (harnessAssetSyncPreview, erro
 	}, nil
 }
 
+func collectDesiredHarnessAssetsForPreview(harnessID HarnessID, destRoot string, sessionLocal bool) (map[string]harnessAssetDesiredEntry, []string, error) {
+	if !sessionLocal && filepath.Clean(destRoot) == filepath.Clean(harnessAssetAgentHome) {
+		return collectDesiredHarnessAssetsForSync(harnessID)
+	}
+	return collectDesiredHarnessAssetsForDestination(harnessID, destRoot)
+}
+
 func syncHarnessAssets(harnessID HarnessID) (harnessAssetSyncResult, error) {
 	return syncHarnessAssetsWithPreview(harnessID, harnessAssetSyncPreview{})
+}
+
+func syncEphemeralHarnessAssetsWithPreview(harnessID HarnessID, destRoot string, preview harnessAssetSyncPreview) (harnessAssetSyncResult, error) {
+	var result harnessAssetSyncResult
+	desired := preview.Desired
+	warnings := append([]string(nil), preview.Warnings...)
+	var err error
+	if desired == nil || !harnessAssetPreviewIsFresh(desired) {
+		desired, warnings, err = collectDesiredHarnessAssetsForDestination(harnessID, destRoot)
+		if err != nil {
+			return result, err
+		}
+	}
+	result.Warnings = append(result.Warnings, warnings...)
+
+	for _, destPath := range sortedDesiredHarnessAssetDestPaths(desired) {
+		entry := desired[destPath]
+		match, err := harnessAssetDestMatches(destPath, entry)
+		switch {
+		case os.IsNotExist(err):
+			if err := installHarnessAssetEntry(entry); err != nil {
+				return result, err
+			}
+			result.Added++
+		case err == nil && match:
+			result.Adopted++
+		default:
+			result.Conflicts++
+			if err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("skipped unmanaged asset %s: %v", destPath, err))
+			} else {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("skipped unmanaged asset %s because it differs from the managed source", destPath))
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncPreview) (harnessAssetSyncResult, error) {
@@ -371,6 +455,10 @@ func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncP
 	return result, nil
 }
 
+func diffEphemeralHarnessAssetState(desired map[string]harnessAssetDesiredEntry) (harnessAssetSyncResult, error) {
+	return diffHarnessAssetState(harnessAssetHarnessEntries{}, desired)
+}
+
 func diffHarnessAssetState(existing harnessAssetHarnessEntries, desired map[string]harnessAssetDesiredEntry) (harnessAssetSyncResult, error) {
 	var result harnessAssetSyncResult
 
@@ -410,7 +498,14 @@ func diffHarnessAssetState(existing harnessAssetHarnessEntries, desired map[stri
 }
 
 func collectDesiredHarnessAssets(harnessID HarnessID) (map[string]harnessAssetDesiredEntry, []string, error) {
-	specs := harnessAssetSpecs[harnessID]
+	return collectDesiredHarnessAssetsForDestination(harnessID, harnessAssetAgentHome)
+}
+
+func collectDesiredHarnessAssetsForDestination(harnessID HarnessID, destRoot string) (map[string]harnessAssetDesiredEntry, []string, error) {
+	specs, err := harnessAssetSpecsForDestination(harnessID, destRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	desired := make(map[string]harnessAssetDesiredEntry)
 	var warnings []string
 
@@ -426,6 +521,32 @@ func collectDesiredHarnessAssets(harnessID HarnessID) (map[string]harnessAssetDe
 	}
 
 	return desired, warnings, nil
+}
+
+func harnessAssetSpecsForDestination(harnessID HarnessID, destRoot string) ([]harnessAssetSpec, error) {
+	destRoot = filepath.Clean(destRoot)
+	if !filepath.IsAbs(destRoot) {
+		return nil, fmt.Errorf("harness asset destination root %q must be absolute", destRoot)
+	}
+	specs := harnessAssetSpecs[harnessID]
+	if destRoot == filepath.Clean(harnessAssetAgentHome) {
+		return specs, nil
+	}
+	out := make([]harnessAssetSpec, 0, len(specs))
+	for _, spec := range specs {
+		cleanAgentPath := filepath.Clean(spec.AgentPath)
+		if !isWithinDir(harnessAssetAgentHome, cleanAgentPath) {
+			return nil, fmt.Errorf("harness asset destination %q must stay within %s before session-home remap", spec.AgentPath, harnessAssetAgentHome)
+		}
+		rel, err := filepath.Rel(filepath.Clean(harnessAssetAgentHome), cleanAgentPath)
+		if err != nil {
+			return nil, fmt.Errorf("compute harness asset relative destination for %q: %w", spec.AgentPath, err)
+		}
+		spec.AgentPath = filepath.Join(destRoot, rel)
+		spec.destRoot = destRoot
+		out = append(out, spec)
+	}
+	return out, nil
 }
 
 func collectDesiredHarnessAssetEntries(spec harnessAssetSpec) ([]harnessAssetDesiredEntry, []string, error) {
@@ -465,7 +586,7 @@ func collectDesiredHarnessAssetFile(spec harnessAssetSpec) (harnessAssetDesiredE
 	if !info.Mode().IsRegular() {
 		return harnessAssetDesiredEntry{}, fmt.Sprintf("skipped %s: unsupported source type %s", expandTilde(spec.HostPath), info.Mode().String()), false, nil
 	}
-	if err := validateHarnessAssetDestPath(spec.AgentPath); err != nil {
+	if err := validateHarnessAssetSpecDestPath(spec, spec.AgentPath); err != nil {
 		return harnessAssetDesiredEntry{}, "", false, err
 	}
 
@@ -502,7 +623,7 @@ func collectDesiredHarnessAssetDir(spec harnessAssetSpec) ([]harnessAssetDesired
 	if !info.IsDir() {
 		return nil, []string{fmt.Sprintf("skipped %s: unsupported source type %s", expandTilde(spec.HostPath), info.Mode().String())}, nil
 	}
-	if err := validateHarnessAssetDestPath(spec.AgentPath); err != nil {
+	if err := validateHarnessAssetSpecDestPath(spec, spec.AgentPath); err != nil {
 		return nil, nil, err
 	}
 
@@ -536,7 +657,7 @@ func collectDesiredHarnessAssetDir(spec harnessAssetSpec) ([]harnessAssetDesired
 		}
 
 		destPath := filepath.Join(spec.AgentPath, name)
-		if err := validateHarnessAssetDestPath(destPath); err != nil {
+		if err := validateHarnessAssetSpecDestPath(spec, destPath); err != nil {
 			return nil, nil, err
 		}
 
@@ -609,11 +730,27 @@ func resolveHarnessAssetTopLevelPath(path, allowedRoot string) (string, os.FileI
 }
 
 func validateHarnessAssetDestPath(destPath string) error {
+	return validateHarnessAssetDestPathWithin(destPath, harnessAssetAgentHome)
+}
+
+func validateHarnessAssetSpecDestPath(spec harnessAssetSpec, destPath string) error {
+	destRoot := spec.destRoot
+	if destRoot == "" {
+		destRoot = harnessAssetAgentHome
+	}
+	return validateHarnessAssetDestPathWithin(destPath, destRoot)
+}
+
+func validateHarnessAssetDestPathWithin(destPath, destRoot string) error {
 	if strings.TrimSpace(destPath) == "" {
 		return fmt.Errorf("empty harness asset destination path")
 	}
-	if !isWithinDir(harnessAssetAgentHome, destPath) {
-		return fmt.Errorf("harness asset destination %q must stay within %s", destPath, harnessAssetAgentHome)
+	destRoot = filepath.Clean(destRoot)
+	if !filepath.IsAbs(destRoot) {
+		return fmt.Errorf("harness asset destination root %q must be absolute", destRoot)
+	}
+	if !isWithinDir(destRoot, destPath) {
+		return fmt.Errorf("harness asset destination %q must stay within %s", destPath, destRoot)
 	}
 	return nil
 }
@@ -994,7 +1131,7 @@ func summarizeHarnessAssetWarnings(warnings []string) string {
 }
 
 func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {
-	if err := validateHarnessAssetDestPath(entry.DestPath); err != nil {
+	if err := validateHarnessAssetSpecDestPath(entry.Spec, entry.DestPath); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(entry.DestPath), 0o2770); err != nil {
