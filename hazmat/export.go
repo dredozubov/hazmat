@@ -490,9 +490,15 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 		if isClaudeJSONMetadataPath(rel) {
 			rewritten, changed, residual, err := rewriteClaudeJSONMetadataPaths(raw, sourceDir, destDir, strings.EqualFold(filepath.Ext(rel), ".jsonl"))
 			if err != nil {
+				if isClaudeSessionSidecarPath(sessionID, rel) {
+					return os.Remove(path)
+				}
 				return fmt.Errorf("rewrite staged Claude export metadata %s: %w", rel, err)
 			}
 			if residual {
+				if isClaudeSessionSidecarPath(sessionID, rel) {
+					return os.Remove(path)
+				}
 				return fmt.Errorf("staged Claude export metadata %s contains agent-only path %s outside JSON string values", rel, sourceDir)
 			}
 			if !changed {

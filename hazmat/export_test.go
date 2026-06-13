@@ -335,6 +335,71 @@ func TestNormalizeStagedClaudeSessionBundlePathsRejectsDecodedAgentPathInJSONKey
 	}
 }
 
+func TestNormalizeStagedClaudeSessionBundlePathsOmitsSidecarJSONWithAgentPathInKey(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1", "cache.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"` + sourceDir + `/key":"unsupported","artifact":"` + sourceDir + `/` + sessionID + `/subagents/workflows/wf_1/cache.json"}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("sidecar JSON with unsupported agent path should be omitted, stat err=%v", err)
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsOmitsMalformedSidecarJSONWithAgentPath(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1", "cache.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"artifact":"` + sourceDir + `/` + sessionID + `/subagents/workflows/wf_1/cache.json"`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("malformed sidecar JSON with agent path should be omitted, stat err=%v", err)
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsOmitsMalformedSidecarJSONWithoutAgentPath(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, sessionID, "subagents", "workflows", "wf_1", "cache.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"artifact":"truncated"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir); err != nil {
+		t.Fatalf("normalizeStagedClaudeSessionBundlePaths: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("malformed sidecar JSON should be omitted, stat err=%v", err)
+	}
+}
+
 func TestNormalizeStagedClaudeSessionBundlePathsOmitsOpaqueWorkflowArtifact(t *testing.T) {
 	stagingDir := t.TempDir()
 	sessionID := "1234"
