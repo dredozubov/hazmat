@@ -204,6 +204,39 @@ func TestNormalizeStagedClaudeSessionBundlePathsRebasesJSONMetadata(t *testing.T
 	}
 }
 
+func TestNormalizeStagedClaudeSessionBundlePathsRejectsMalformedJSONMetadata(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, sessionID+".jsonl")
+	if err := os.WriteFile(path, []byte(`{"path":"`+sourceDir+`/`+sessionID+`.jsonl"`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir)
+	if err == nil || !strings.Contains(err.Error(), "rewrite staged Claude export metadata") {
+		t.Fatalf("expected malformed JSON metadata refusal, got %v", err)
+	}
+}
+
+func TestNormalizeStagedClaudeSessionBundlePathsRejectsAgentPathInJSONKey(t *testing.T) {
+	stagingDir := t.TempDir()
+	sessionID := "1234"
+	sourceDir := "/Users/agent/.claude/projects/-Users-dr-workspace-app"
+	destDir := filepath.Join(t.TempDir(), "-Users-dr-workspace-app")
+	path := filepath.Join(stagingDir, "sessions-index.json")
+	content := `{"` + sourceDir + `/key":"unsupported","fullPath":"` + sourceDir + `/` + sessionID + `.jsonl"}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, destDir)
+	if err == nil || !strings.Contains(err.Error(), "still contains agent-only path") {
+		t.Fatalf("expected JSON key agent-path refusal, got %v", err)
+	}
+}
+
 func TestNormalizeStagedClaudeSessionBundlePathsOmitsOpaqueWorkflowArtifact(t *testing.T) {
 	stagingDir := t.TempDir()
 	sessionID := "1234"

@@ -494,7 +494,16 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 			return fmt.Errorf("compute staged Claude export path for %s: %w", path, err)
 		}
 		if isClaudeJSONMetadataPath(rel) {
-			rewritten := bytes.ReplaceAll(raw, sourceBytes, []byte(destDir))
+			rewritten, changed, err := rewriteClaudeJSONMetadataPaths(raw, sourceDir, destDir, strings.EqualFold(filepath.Ext(rel), ".jsonl"))
+			if err != nil {
+				return fmt.Errorf("rewrite staged Claude export metadata %s: %w", rel, err)
+			}
+			if !changed {
+				return fmt.Errorf("staged Claude export metadata %s contains agent-only path %s outside JSON string values", rel, sourceDir)
+			}
+			if bytes.Contains(rewritten, sourceBytes) {
+				return fmt.Errorf("staged Claude export metadata %s still contains agent-only path %s after JSON value rewrite", rel, sourceDir)
+			}
 			return os.WriteFile(path, rewritten, info.Mode().Perm())
 		}
 		if isClaudeSessionSidecarPath(sessionID, rel) {
@@ -502,6 +511,103 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 		}
 		return fmt.Errorf("staged Claude export file %s contains agent-only path %s in an unsupported format", rel, sourceDir)
 	})
+}
+
+func rewriteClaudeJSONMetadataPaths(raw []byte, sourceDir, destDir string, jsonl bool) ([]byte, bool, error) {
+	if jsonl {
+		return rewriteClaudeJSONLMetadataPaths(raw, sourceDir, destDir)
+	}
+	return rewriteClaudeJSONObjectMetadataPaths(raw, sourceDir, destDir)
+}
+
+func rewriteClaudeJSONLMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, error) {
+	lines := bytes.SplitAfter(raw, []byte("\n"))
+	rewritten := make([]byte, 0, len(raw))
+	changedAny := false
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		hasNewline := bytes.HasSuffix(line, []byte("\n"))
+		record := bytes.TrimSuffix(line, []byte("\n"))
+		if len(bytes.TrimSpace(record)) == 0 {
+			rewritten = append(rewritten, line...)
+			continue
+		}
+
+		next, changed, err := rewriteClaudeJSONObjectMetadataPaths(record, sourceDir, destDir)
+		if err != nil {
+			return nil, false, err
+		}
+		changedAny = changedAny || changed
+		rewritten = append(rewritten, next...)
+		if hasNewline {
+			rewritten = append(rewritten, '\n')
+		}
+	}
+	return rewritten, changedAny, nil
+}
+
+func rewriteClaudeJSONObjectMetadataPaths(raw []byte, sourceDir, destDir string) ([]byte, bool, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil {
+		return nil, false, err
+	}
+	if err := ensureNoTrailingJSONTokens(dec); err != nil {
+		return nil, false, err
+	}
+
+	changed := rewriteClaudeJSONValueStrings(&value, sourceDir, destDir)
+	if !changed {
+		return raw, false, nil
+	}
+	out, err := json.Marshal(value)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, true, nil
+}
+
+func ensureNoTrailingJSONTokens(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values in metadata record")
+		}
+		return err
+	}
+	return nil
+}
+
+func rewriteClaudeJSONValueStrings(value *any, sourceDir, destDir string) bool {
+	switch v := (*value).(type) {
+	case string:
+		if !strings.Contains(v, sourceDir) {
+			return false
+		}
+		*value = strings.ReplaceAll(v, sourceDir, destDir)
+		return true
+	case []any:
+		changed := false
+		for i := range v {
+			changed = rewriteClaudeJSONValueStrings(&v[i], sourceDir, destDir) || changed
+		}
+		return changed
+	case map[string]any:
+		changed := false
+		for key := range v {
+			entry := v[key]
+			if rewriteClaudeJSONValueStrings(&entry, sourceDir, destDir) {
+				v[key] = entry
+				changed = true
+			}
+		}
+		return changed
+	default:
+		return false
+	}
 }
 
 func isClaudeJSONMetadataPath(relPath string) bool {
