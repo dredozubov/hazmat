@@ -54,7 +54,7 @@ The correctness questions:
 | File | Functions |
 |------|-----------|
 | `hazmat/session.go` | `generateSBPL()`, `isWithinDir()` |
-| `hazmat/session_policy_sbpl.go` | `compileDarwinSBPL()` |
+| `hazmat/session_policy_sbpl.go` | `compileDarwinSBPLChecked()` |
 
 ## Policy Section Ordering (as implemented)
 

@@ -663,10 +663,6 @@ func exportHostOpenCodeSession(projectDir, sessionID, dest string) error {
 	return nil
 }
 
-func importAgentOpenCodeSession(path string) error {
-	return importAgentOpenCodeSessionIntoHome(agentHome, path)
-}
-
 func importAgentOpenCodeSessionIntoHome(homeRoot, path string) error {
 	homeRoot, err := validateAgentResumeHomeRoot(homeRoot)
 	if err != nil {

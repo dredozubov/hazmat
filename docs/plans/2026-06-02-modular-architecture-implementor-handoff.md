@@ -58,7 +58,7 @@ Each bead names: **goal · governing spec(s) · files · definition of done**. T
 ### `sandboxing-ip8g` — structural credential-deny floor + typed path-grant variants
 - **Goal:** typed/constructor-backed containment path grants, adapters that preserve current JSON, and a **structural** credential-deny floor. Closes **F1**.
 - **Governing specs:** **Spec 2** (deny floor is the last broad credential boundary), **Spec 6** (comparable core contract across tiers).
-- **Files:** `containment/contract.go` (add constructor; make `CredentialDenies` derived, not free-set), the sole floor assembler `hazmat/native_session_policy.go` `newNativeSessionPolicy()` (lines ~62–99 — today the only place the floor is injected), backend compilers `hazmat/session_policy_sbpl.go` `compileDarwinSBPL`.
+- **Files:** `containment/contract.go` (add constructor; make `CredentialDenies` derived, not free-set), the sole floor assembler `hazmat/native_session_policy.go` `buildNativeSessionPolicy()` (lines ~62–99 — today the only place the floor is injected), backend compilers `hazmat/session_policy_sbpl.go` `compileDarwinSBPLChecked`.
 - **Watch the SBPL ordering:** the deny floor MUST stay the final broad credential boundary (CLAUDE.md: *"Do not reorder the sections in generateSBPL()"*). The documented post-deny keychain re-allow overrides (visible in `testdata/golden/sbpl/claude-keychain.sbpl` tail) are intentional and must survive. Any reorder shows up as a golden diff — if you see one you didn't author, stop.
 - **Done when:** `containment.Contract` cannot be constructed without a floor; backend compilers re-assert/verify it (fail closed on an under-populated contract); JSON adapters keep `backend/*.json` and `explain/*.json` goldens byte-identical; `MC_SeatbeltPolicy` green.
 
@@ -88,8 +88,8 @@ Each bead names: **goal · governing spec(s) · files · definition of done**. T
 | Backend-neutral contract (F1) | `hazmat/containment/contract.go` — `Contract` struct (~74–85), no constructor |
 | Deny-zone predicates (F2) | `hazmat/path_policy.go:23` `isCredentialDenyPath`, `:27` `isHostStateDenyPath` |
 | Deny-zone rejection call site | `hazmat/session.go` `resolveSessionConfig` (~1175, checks at 1180–1208) |
-| Sole credential-floor assembler | `hazmat/native_session_policy.go` `newNativeSessionPolicy()` (~62–99) |
-| Darwin SBPL compiler | `hazmat/session_policy_sbpl.go` `compileDarwinSBPL` (~22); ancestor-metadata emit (~90); deny emit (~255–260) |
+| Sole credential-floor assembler | `hazmat/native_session_policy.go` `buildNativeSessionPolicy()` (~62–99) |
+| Darwin SBPL compiler | `hazmat/session_policy_sbpl.go` `compileDarwinSBPLChecked` (~22); ancestor-metadata emit (~90); deny emit (~255–260) |
 | Tier-3 (Docker) launch spec | `hazmat/sandbox.go` `buildSandboxLaunchSpec` (~1167) — raw `sessionConfig`, not `Contract` |
 | Explain/preview JSON | `hazmat/session.go` `buildExplainJSON`, `generateSBPL` (~2195) |
 | Existing subpackages | `hazmat/{pathpolicy,sessioncontract,containment,sessionbackend}/` (+`containment/linux/`) |

@@ -60,6 +60,8 @@ func New(input Input) (Plan, error) {
 			{kind: PhaseSnapshot, snapshotSkip: input.SkipSnapshot},
 			{kind: PhaseRuntimeLaunch},
 		}}, nil
+	case sessionmeta.ModeAppleContainer:
+		return Plan{}, fmt.Errorf("unsupported session startup mode %q", input.Mode)
 	default:
 		return Plan{}, fmt.Errorf("unsupported session startup mode %q", input.Mode)
 	}

@@ -81,14 +81,6 @@ func agentSessionDirPath(homeRoot, invokerDir string) (string, error) {
 	return filepath.Join(homeRoot, ".claude", "projects", dirName), nil
 }
 
-// agentSessionDir returns (and ensures existence of) the agent user's session
-// directory for the given project. The directory name must match the invoker's
-// so that Claude Code's sanitizePath produces the same key for the same
-// absolute project path.
-func agentSessionDir(invokerDir string) (string, error) {
-	return agentSessionDirInHome(agentHome, invokerDir)
-}
-
 func agentSessionDirInHome(homeRoot, invokerDir string) (string, error) {
 	dest, err := agentSessionDirPath(homeRoot, invokerDir)
 	if err != nil {

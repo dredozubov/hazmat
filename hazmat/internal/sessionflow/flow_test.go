@@ -134,10 +134,10 @@ func phaseBefore(phases []Phase, first, second PhaseKind) bool {
 	firstIndex := -1
 	secondIndex := -1
 	for i, phase := range phases {
-		switch phase.Kind() {
-		case first:
+		if phase.Kind() == first {
 			firstIndex = i
-		case second:
+		}
+		if phase.Kind() == second {
 			secondIndex = i
 		}
 	}

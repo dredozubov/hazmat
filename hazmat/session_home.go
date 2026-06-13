@@ -145,10 +145,6 @@ func defaultSessionHomeID() string {
 	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 }
 
-func experimentalSessionHomeEnabled() bool {
-	return experimentalSessionHomeModeFromEnv() != experimentalSessionHomeDisabled
-}
-
 func experimentalSessionHomeModeFromEnv() experimentalSessionHomeMode {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(experimentalSessionHomeEnv))) {
 	case "1", "true", "yes", "on":
@@ -835,10 +831,12 @@ func sessionHomeActivationBlockers(assembly []sessionHomeAssemblyEntry, persiste
 
 func sessionHomeActivationBlockerReasonForPolicy(policy sessionHomeRuntimePolicy) (sessionHomeLaunchBlockerReason, bool) {
 	switch policy {
+	case sessionHomePolicyEphemeralCache, sessionHomePolicyDurableExternal, sessionHomePolicySeedOnly, sessionHomePolicyCheckedWriteback:
+		return "", false
 	case sessionHomePolicyAdapterRequired:
 		return sessionHomeBlockerAdapterRequired, true
 	default:
-		return "", false
+		return sessionHomeBlockerAdapterRequired, true
 	}
 }
 
@@ -952,6 +950,14 @@ func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessio
 		return sessionHomeDurableExternal
 	case containment.AgentHomeStateXDGCache:
 		return sessionHomeEphemeralCache
+	case containment.AgentHomeStateShellConfig,
+		containment.AgentHomeStateGitConfig,
+		containment.AgentHomeStateHarnessState,
+		containment.AgentHomeStateXDGConfig,
+		containment.AgentHomeStateXDGData,
+		containment.AgentHomeStateToolchainState,
+		containment.AgentHomeStateExecutable:
+		return sessionHomeDurableMirror
 	default:
 		return sessionHomeDurableMirror
 	}
@@ -959,14 +965,24 @@ func sessionHomeDurabilityForClass(class containment.AgentHomeStateClass) sessio
 
 func sessionHomeRuntimePolicyFor(rel string, class containment.AgentHomeStateClass, durability sessionHomeAssemblyDurability) sessionHomeRuntimePolicy {
 	switch durability {
+	case sessionHomeDurableMirror:
 	case sessionHomeDurableExternal:
 		return sessionHomePolicyDurableExternal
 	case sessionHomeEphemeralCache:
 		return sessionHomePolicyEphemeralCache
+	default:
+		return sessionHomePolicyAdapterRequired
 	}
 	switch class {
 	case containment.AgentHomeStateShellConfig, containment.AgentHomeStateGitConfig:
 		return sessionHomePolicySeedOnly
+	case containment.AgentHomeStateHarnessState,
+		containment.AgentHomeStateTranscript,
+		containment.AgentHomeStateXDGCache,
+		containment.AgentHomeStateXDGConfig,
+		containment.AgentHomeStateXDGData,
+		containment.AgentHomeStateToolchainState,
+		containment.AgentHomeStateExecutable:
 	}
 	switch rel {
 	case ".claude/commands", ".claude/skills":

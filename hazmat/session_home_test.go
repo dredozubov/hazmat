@@ -587,7 +587,7 @@ func TestBuildNativeSessionPolicyUsesSessionHomeRuntimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildNativeSessionPolicy: %v", err)
 	}
-	agentHomePolicy := policy.Contract.AgentHome
+	agentHomePolicy := policy.AgentHome
 	if agentHomePolicy.Mode != containment.AgentHomeModeSessionLocal {
 		t.Fatalf("AgentHome mode = %s", agentHomePolicy.Mode)
 	}

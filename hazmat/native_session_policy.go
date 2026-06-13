@@ -59,14 +59,6 @@ func claudeRuntimeTempDir() string {
 	return "/private/tmp/claude-" + agentInfo.Uid
 }
 
-func newNativeSessionPolicy(cfg sessionConfig) nativeSessionPolicy {
-	policy, err := buildNativeSessionPolicy(cfg)
-	if err != nil {
-		panic(err)
-	}
-	return policy
-}
-
 func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
 	floor, err := containment.NewCredentialFloor(agentHome, credentialDenySubs)
 	if err != nil {
