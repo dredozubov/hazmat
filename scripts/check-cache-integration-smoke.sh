@@ -118,6 +118,20 @@ require_command() {
 	fi
 }
 
+require_target_command() {
+	target="$1"
+	command="$2"
+	if ! command -v "$command" >/dev/null 2>&1; then
+		add_missing_fixture "[$target] $command is not on PATH"
+	fi
+}
+
+add_missing_target_fixture() {
+	target="$1"
+	shift
+	add_missing_fixture "[$target] $*"
+}
+
 python_import_available() {
 	python3 - "$1" <<'PY' >/dev/null 2>&1
 import importlib.util
@@ -129,27 +143,27 @@ PY
 check_target_fixtures() {
 	case "$1" in
 		huggingface)
-			require_command python3
+			require_target_command "$1" python3
 			if command -v python3 >/dev/null 2>&1 && ! python_import_available transformers; then
-				add_missing_fixture "python3 cannot import transformers"
+				add_missing_target_fixture "$1" "python3 cannot import transformers"
 			fi
 			if [ -z "${HAZMAT_HF_SMOKE_MODEL:-}" ]; then
-				add_missing_fixture "set HAZMAT_HF_SMOKE_MODEL to a pre-cached Hugging Face model ID or path"
+				add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL to a pre-cached Hugging Face model ID or path"
 			fi
 			;;
 		ollama)
-			require_command ollama
+			require_target_command "$1" ollama
 			;;
 		torch-hub)
-			require_command python3
+			require_target_command "$1" python3
 			if command -v python3 >/dev/null 2>&1 && ! python_import_available torch; then
-				add_missing_fixture "python3 cannot import torch"
+				add_missing_target_fixture "$1" "python3 cannot import torch"
 			fi
 			if [ -z "${HAZMAT_TORCH_HUB_REPO:-}" ]; then
-				add_missing_fixture "set HAZMAT_TORCH_HUB_REPO to a pre-cached torch.hub repo"
+				add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO to a pre-cached torch.hub repo"
 			fi
 			if [ -z "${HAZMAT_TORCH_HUB_MODEL:-}" ]; then
-				add_missing_fixture "set HAZMAT_TORCH_HUB_MODEL to a pre-cached torch.hub callable"
+				add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL to a pre-cached torch.hub callable"
 			fi
 			;;
 	esac

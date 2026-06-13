@@ -518,6 +518,17 @@ assert_help_contains_all \
     "Agents must ask for explicit approval before" \
     "running --check-fixtures, --skip-if-missing-fixtures, or --run"
 
+assert_file_contains_all \
+    "cache integration smoke qualifies target fixture failures" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" \
+    'add_missing_fixture "[$target] $*"' \
+    'add_missing_target_fixture "$1" "python3 cannot import transformers"' \
+    'add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL' \
+    'require_target_command "$1" ollama' \
+    'add_missing_target_fixture "$1" "python3 cannot import torch"' \
+    'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_REPO' \
+    'add_missing_target_fixture "$1" "set HAZMAT_TORCH_HUB_MODEL'
+
 assert_help_contains_all \
     "OpenHands recipe smoke documents fixture consent" \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" \

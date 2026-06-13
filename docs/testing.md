@@ -306,7 +306,9 @@ make e2e-cache-integration-smoke
 Fixture checks are non-mutating host checks. They verify the local binary or
 Python package and required fixture environment, but do not run `hazmat exec`.
 Agents still need explicit approval before running them because they inspect
-local tool/cache setup:
+local tool/cache setup. When `--target all` is used, missing fixture messages
+are prefixed with the target name, such as `[huggingface]` or `[torch-hub]`, so
+the missing local cache setup is attributable:
 
 ```bash
 scripts/check-cache-integration-smoke.sh --target huggingface --check-fixtures
