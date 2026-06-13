@@ -623,6 +623,12 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
 
 assert_fails_with \
+    "cache integration smoke rejects relative Ollama binary path" \
+    "[ollama] ./ollama must be an absolute path or command name" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN=./ollama \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
+
+assert_fails_with \
     "cache integration smoke checks Hugging Face cache fixture" \
     "no usable local Hugging Face model config or cached snapshot config for sentence-transformers/all-MiniLM-L6-v2" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HOME="$REPO_ROOT/scripts/fixtures/missing-home" HAZMAT_HF_SMOKE_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
@@ -665,6 +671,12 @@ assert_fails_with \
     "OpenHands recipe smoke qualifies explicit binary path fixture failures" \
     "missing-openhands is missing or not executable" \
     env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/missing-openhands" \
+    "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "OpenHands recipe smoke rejects relative binary path" \
+    "./openhands must be an absolute path or command name" \
+    env HAZMAT_OPENHANDS_RECIPE_SMOKE_HAZMAT=/bin/echo HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN=./openhands \
     "$REPO_ROOT/scripts/check-openhands-recipe-smoke.sh" --check-fixtures
 
 assert_fails_with \

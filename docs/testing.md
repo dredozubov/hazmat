@@ -341,7 +341,9 @@ requested callable before the network-disabled live smoke. Ollama
 requires the `ollama` CLI and a running host daemon; the fixture check runs
 `ollama list` through the selected binary to catch daemon or `OLLAMA_HOST`
 problems before the live Hazmat session. Override the executable with
-`HAZMAT_OLLAMA_SMOKE_BIN` when validating a non-default Ollama path.
+`HAZMAT_OLLAMA_SMOKE_BIN` when validating a non-default Ollama path. Explicit
+path overrides must be absolute because the live command executes from a
+scratch project inside containment.
 
 ### OpenHands recipe smoke
 
@@ -365,7 +367,8 @@ scripts/check-openhands-recipe-smoke.sh --check-fixtures
 
 When `HAZMAT_OPENHANDS_RECIPE_SMOKE_BIN` is an explicit path, missing or
 non-executable overrides are reported as path fixture failures instead of PATH
-lookup failures.
+lookup failures. Explicit path overrides must be absolute because the live
+command executes from a scratch project inside containment.
 
 Live mode is sudo-adjacent because it invokes `hazmat exec`. Agents must ask
 for explicit approval before running:
