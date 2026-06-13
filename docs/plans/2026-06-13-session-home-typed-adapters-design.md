@@ -1,6 +1,6 @@
 # Session-Home Typed Adapter Architecture
 
-Status: Proposed
+Status: Implemented initial adapter registry; live validation pending
 Date: 2026-06-13
 Parent issue: `sandboxing-ywqd`
 Blocking issue: `sandboxing-gabh`
@@ -109,24 +109,31 @@ Tests:
 
 ### Harness State Adapter
 
-Targets: `.agents`, `.codex`, `.cursor`, `.gemini`, `.opencode`, `.qwen`,
-`.config/opencode`, `.config/mcp`, and broad `.hazmat` harness state outside
-explicit transcript bridges.
+Targets: `.agents`, `.claude`, `.codex`, `.cursor`, `.gemini`, `.opencode`,
+`.qwen`, `.config/opencode`, `.config/mcp`, and broad `.hazmat` harness state
+outside explicit transcript bridges.
 
-Default behavior: `manual-only` or `unsupported` per harness. Current adapter
+Default behavior: supported broad parent roots are `ignored-ephemeral`; narrow
+state surfaces stay `manual-only` or `unsupported` per harness. Current adapter
 labels are explicit (`claude-state`, `codex-state`, `opencode-state`,
-`gemini-state`, `qwen-state`, `mcp-state`, and related roots), but broad roots
-still block activation until credential materialization and portable asset
-mapping are session-home-aware.
+`gemini-state`, `qwen-state`, `mcp-state`, and related roots). This means the
+mere existence of `.claude`, `.codex`, `.opencode`, `.hazmat`, or similar
+supported parents no longer blocks activation: the session gets an empty local
+parent and only explicit child paths are imported, bridged, or materialized.
+Narrow surfaces such as `.config/mcp` and `.config/opencode` still block until
+their owning adapter defines portable config and credential behavior.
 
 Rationale: broad harness state may contain auth tokens, sockets, remembered tool
-permissions, plugins, MCP descriptors, or remote-control state. The only safe
-default is to require the owning harness adapter to select portable config,
-credential delivery, transcript roots, and volatile caches explicitly.
+permissions, plugins, MCP descriptors, or remote-control state. The safe parent
+directory behavior is therefore to start with an empty session-local root and
+let the owning harness adapter select portable config, credential delivery,
+transcript roots, and volatile caches explicitly.
 
 Tests:
 
-- unsupported harness roots keep activation blocked;
+- supported broad harness roots do not block and are not copied from
+  persistent state;
+- unsupported narrow harness roots keep activation blocked;
 - blocker metadata identifies the owning harness/state surface instead of a
   generic adapter-required bucket;
 - known transcript roots stay `durable-external`;

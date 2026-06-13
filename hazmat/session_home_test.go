@@ -328,7 +328,7 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			durability:     sessionHomeDurableMirror,
 			policy:         sessionHomePolicyAdapterRequired,
 			adapter:        sessionHomeAdapterCodexState,
-			adapterOutcome: sessionHomeAdapterUnsupported,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
 		},
 		{
 			rel:            ".config/mcp",
@@ -542,9 +542,9 @@ func TestNewSessionHomeLaunchPlanKeepsCoveredHarnessXDGStateBlocked(t *testing.T
 	t.Fatalf("activation blockers = %+v, want covered harness XDG state blocked", plan.Blockers)
 }
 
-func TestNewSessionHomeLaunchPlanLabelsHarnessStateByOwner(t *testing.T) {
+func TestNewSessionHomeLaunchPlanIgnoresSupportedBroadHarnessRoots(t *testing.T) {
 	persistentHome := filepath.Join(t.TempDir(), "agent")
-	for _, rel := range []string{".codex", ".gemini", ".qwen", ".hazmat/hermes"} {
+	for _, rel := range []string{".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".qwen"} {
 		if err := os.MkdirAll(filepath.Join(persistentHome, filepath.FromSlash(rel)), 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", rel, err)
 		}
@@ -554,24 +554,51 @@ func TestNewSessionHomeLaunchPlanLabelsHarnessStateByOwner(t *testing.T) {
 		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
 	}
 
-	want := map[string]sessionHomeAdapterName{
-		".codex":         sessionHomeAdapterCodexState,
-		".gemini":        sessionHomeAdapterGeminiState,
-		".qwen":          sessionHomeAdapterQwenState,
-		".hazmat/hermes": sessionHomeAdapterHermesState,
+	for _, blocker := range plan.Blockers {
+		switch blocker.RelPath {
+		case ".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".qwen":
+			t.Fatalf("activation blockers = %+v, want supported broad harness root %s ignored as empty session-local state", plan.Blockers, blocker.RelPath)
+		}
 	}
-	for rel, adapter := range want {
+}
+
+func TestNewSessionHomeLaunchPlanKeepsNarrowHarnessStateBlocked(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	for _, rel := range []string{".config/mcp", ".config/opencode"} {
+		if err := os.MkdirAll(filepath.Join(persistentHome, filepath.FromSlash(rel)), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	want := map[string]struct {
+		adapter sessionHomeAdapterName
+		outcome sessionHomeAdapterOutcome
+	}{
+		".config/mcp": {
+			adapter: sessionHomeAdapterMCPState,
+			outcome: sessionHomeAdapterManualOnly,
+		},
+		".config/opencode": {
+			adapter: sessionHomeAdapterOpenCodeState,
+			outcome: sessionHomeAdapterUnsupported,
+		},
+	}
+	for rel, want := range want {
 		found := false
 		for _, blocker := range plan.Blockers {
 			if blocker.RelPath == rel &&
-				blocker.AdapterName == adapter &&
-				blocker.AdapterOutcome == sessionHomeAdapterUnsupported {
+				blocker.AdapterName == want.adapter &&
+				blocker.AdapterOutcome == want.outcome {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Fatalf("activation blockers = %+v, missing %s adapter %s", plan.Blockers, rel, adapter)
+			t.Fatalf("activation blockers = %+v, missing narrow harness blocker %s adapter %s outcome %s", plan.Blockers, rel, want.adapter, want.outcome)
 		}
 	}
 }

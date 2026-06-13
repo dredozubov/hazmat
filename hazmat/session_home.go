@@ -1035,27 +1035,36 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 func sessionHomeHarnessStateAdapterDecision(rel string) sessionHomeAdapterDecision {
 	switch rel {
 	case ".agents":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterAgentAssets)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterAgentAssets)
 	case ".claude":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterClaudeState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterClaudeState)
 	case ".codex":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterCodexState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterCodexState)
 	case ".config/mcp":
 		return sessionHomeManualHarnessAdapter(sessionHomeAdapterMCPState)
-	case ".config/opencode", ".opencode":
+	case ".config/opencode":
 		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterOpenCodeState)
+	case ".opencode":
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterOpenCodeState)
 	case ".cursor":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterCursorState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterCursorState)
 	case ".gemini":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterGeminiState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterGeminiState)
 	case ".hazmat":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHazmatState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterHazmatState)
 	case ".hazmat/hermes":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHermesState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterHermesState)
 	case ".qwen":
-		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterQwenState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterQwenState)
 	default:
 		return sessionHomeUnsupportedHarnessAdapter(sessionHomeAdapterHarnessState)
+	}
+}
+
+func sessionHomeIgnoredHarnessAdapter(name sessionHomeAdapterName) sessionHomeAdapterDecision {
+	return sessionHomeAdapterDecision{
+		Name:    name,
+		Outcome: sessionHomeAdapterIgnoredEphemeral,
 	}
 }
 
