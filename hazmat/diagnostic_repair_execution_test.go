@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +11,24 @@ func TestDecideDiagnosticRepairExecutionCheckIsReadOnly(t *testing.T) {
 
 	if policy.Mode != "read-only" || policy.MutationAllowed || policy.RequiresFix {
 		t.Fatalf("policy = %+v, want read-only check", policy)
+	}
+	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run"}
+	if !slices.Equal(policy.Examples, wantExamples) {
+		t.Fatalf("examples = %v, want %v", policy.Examples, wantExamples)
+	}
+}
+
+func TestDecideDiagnosticRepairExecutionStatusIsReadOnly(t *testing.T) {
+	policy := decideDiagnosticRepairExecution(diagnosticRepairExecutionRequest{Command: "status"})
+
+	if policy.Mode != "read-only" || policy.MutationAllowed || policy.RequiresFix || policy.RequiresYes {
+		t.Fatalf("policy = %+v, want read-only status", policy)
+	}
+	if policy.Command != "status" {
+		t.Fatalf("command = %q, want status", policy.Command)
+	}
+	if !strings.Contains(policy.Reason, "hazmat status --full") {
+		t.Fatalf("reason = %q, want status-specific read-only reason", policy.Reason)
 	}
 	wantExamples := []string{"hazmat doctor --fix", "hazmat doctor --dry-run"}
 	if !slices.Equal(policy.Examples, wantExamples) {
