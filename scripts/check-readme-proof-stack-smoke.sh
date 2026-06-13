@@ -267,6 +267,8 @@ PROOF_STACK_SESSION
 				-e "s/$escaped_scratch/<scratch>/g" \
 				-e "s/$escaped_secret/<host-secret-fixture>/g" \
 				-e "s/$escaped_home/<host-home>/g" \
+			| sed -E \
+				-e 's/\([0-9]+(\.[0-9]+)?s\)/(<duration>)/g' \
 			>"$OUTPUT_DIR/readme-proof-stack-session.txt"
 		printf '%s\n' "$DIFF_OUTPUT" |
 			sed \
@@ -276,6 +278,8 @@ PROOF_STACK_SESSION
 				-e "s/$escaped_scratch/<scratch>/g" \
 				-e "s/$escaped_secret/<host-secret-fixture>/g" \
 				-e "s/$escaped_home/<host-home>/g" \
+			| sed -E \
+				-e 's/snapshot from [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/snapshot from <timestamp>/g' \
 			>"$OUTPUT_DIR/readme-proof-stack-diff.txt"
 		printf 'readme-proof-stack-smoke: wrote sanitized snippets to %s\n' "$OUTPUT_DIR"
 	fi

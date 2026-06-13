@@ -11,7 +11,7 @@ hazmat: preparing session startup
   planning host repairs...
   collecting repo setup...
   finalizing repo setup...
-hazmat: session startup preparation complete (0.2s)
+hazmat: session startup preparation complete (<duration>)
 hazmat: session
   Mode:                 Native containment
   Why this mode:        staying in native containment because --docker=none was requested
@@ -33,12 +33,12 @@ hazmat: planned host changes
   - git metadata ACL repair: may add collaborative ACLs under <scratch-project>/.git before launch if current metadata permissions are broken (persistent in project; proof scope: TLA+ model + tests/docs)
   - git safe.directory trust: may add <scratch-project> to the agent user's Git safe.directory list so agent-side tools can read repository metadata (persistent in agent home; proof scope: tests/docs)
 
-  Snapshot: <scratch-project> ... done (0.2s)
+  Snapshot: <scratch-project> ... done (<duration>)
   Running project ACL repair...
-  Fixed bounded project permissions for agent access (0.0s)
+  Fixed bounded project permissions for agent access (<duration>)
   Running git metadata ACL repair...
-  Fixed Git metadata permissions for collaborative access (0.1s)
+  Fixed Git metadata permissions for collaborative access (<duration>)
   Running git safe.directory trust...
-  Trusted project repo for agent-side Git metadata access (0.1s)
+  Trusted project repo for agent-side Git metadata access (<duration>)
 proof-stack: project write ok
 proof-stack: host secret unreadable from contained session: <host-secret-fixture>
