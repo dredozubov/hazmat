@@ -133,6 +133,22 @@ running_codex_processes() {
 	'
 }
 
+running_codex_process_summary() {
+	processes="$1"
+	count="$(printf '%s\n' "$processes" | /usr/bin/awk 'NF { count++ } END { print count + 0 }')"
+	sample="$(printf '%s\n' "$processes" | /usr/bin/awk 'NF { print; shown++ } shown == 12 { exit }')"
+	if [ "$count" -gt 12 ]; then
+		sample="$sample
+... truncated $((count - 12)) additional matching process(es)"
+	fi
+	cat <<EOF
+Codex App appears to be running ($count matching process(es)).
+Quit Codex App manually before the live smoke, then rerun this command.
+Matching process sample:
+$sample
+EOF
+}
+
 open_supports_env() {
 	/usr/bin/open --help 2>&1 | /usr/bin/grep -q -- '--env'
 }
@@ -193,8 +209,7 @@ check_prereqs() {
 
 	running="$(running_codex_processes || :)"
 	if [ -n "$running" ]; then
-		add_missing_prereq "Codex App appears to be running. Quit it manually before the live smoke:
-$running"
+		add_missing_prereq "$(running_codex_process_summary "$running")"
 	fi
 
 	if [ -n "$MISSING_PREREQS" ]; then
