@@ -982,6 +982,12 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 			Outcome: sessionHomeAdapterUnsupported,
 		}
 	case containment.AgentHomeStateXDGConfig, containment.AgentHomeStateXDGData:
+		if sessionHomeXDGAdapterPath(entry.RelPath) {
+			return sessionHomeAdapterDecision{
+				Name:    sessionHomeAdapterXDGState,
+				Outcome: sessionHomeAdapterIgnoredEphemeral,
+			}
+		}
 		return sessionHomeAdapterDecision{
 			Name:    sessionHomeAdapterXDGState,
 			Outcome: sessionHomeAdapterManualOnly,
@@ -999,6 +1005,15 @@ func sessionHomeAdapterDecisionForEntry(entry sessionHomeAssemblyEntry) sessionH
 			Name:    sessionHomeAdapterUnknown,
 			Outcome: sessionHomeAdapterUnsupported,
 		}
+	}
+}
+
+func sessionHomeXDGAdapterPath(rel string) bool {
+	switch rel {
+	case ".config", ".local", ".local/share":
+		return true
+	default:
+		return false
 	}
 }
 

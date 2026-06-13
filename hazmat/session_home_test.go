@@ -309,6 +309,24 @@ func TestNewSessionHomeAssemblyPlanClassifiesDurability(t *testing.T) {
 			durability: sessionHomeEphemeralCache,
 			policy:     sessionHomePolicyEphemeralCache,
 		},
+		{
+			rel:            ".config",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateXDGConfig,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterXDGState,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
+		{
+			rel:            ".local/share",
+			kind:           containment.AgentHomeStateDir,
+			class:          containment.AgentHomeStateXDGData,
+			durability:     sessionHomeDurableMirror,
+			policy:         sessionHomePolicyAdapterRequired,
+			adapter:        sessionHomeAdapterXDGState,
+			adapterOutcome: sessionHomeAdapterIgnoredEphemeral,
+		},
 	} {
 		entry, ok := byRel[tc.rel]
 		if !ok {
@@ -445,6 +463,45 @@ func TestNewSessionHomeLaunchPlanIgnoresEphemeralToolchainCacheBlockers(t *testi
 			t.Fatalf("activation blockers = %+v, want .cargo ignored as ephemeral toolchain cache", plan.Blockers)
 		}
 	}
+}
+
+func TestNewSessionHomeLaunchPlanIgnoresEphemeralXDGRootBlockers(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	for _, rel := range []string{".config", filepath.Join(".local", "share")} {
+		if err := os.MkdirAll(filepath.Join(persistentHome, rel), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".config" || blocker.RelPath == ".local" || blocker.RelPath == ".local/share" {
+			t.Fatalf("activation blockers = %+v, want broad XDG roots ignored as ephemeral session state", plan.Blockers)
+		}
+	}
+}
+
+func TestNewSessionHomeLaunchPlanKeepsCoveredHarnessXDGStateBlocked(t *testing.T) {
+	persistentHome := filepath.Join(t.TempDir(), "agent")
+	if err := os.MkdirAll(filepath.Join(persistentHome, ".config", "mcp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := newSessionHomeLaunchPlan(filepath.Join(t.TempDir(), "hazmat-home"), "session-123", persistentHome, true)
+	if err != nil {
+		t.Fatalf("newSessionHomeLaunchPlan: %v", err)
+	}
+
+	for _, blocker := range plan.Blockers {
+		if blocker.RelPath == ".config/mcp" &&
+			blocker.AdapterName == sessionHomeAdapterHarnessState &&
+			blocker.AdapterOutcome == sessionHomeAdapterUnsupported {
+			return
+		}
+	}
+	t.Fatalf("activation blockers = %+v, want covered harness XDG state blocked", plan.Blockers)
 }
 
 func TestNewSessionHomeLaunchPlanDoesNotReportMissingAdapterState(t *testing.T) {

@@ -129,16 +129,21 @@ Tests:
 Targets: `.local/share`, broad `.config`, and other `xdg-data` or `xdg-config`
 entries not covered by a narrower path rule.
 
-Default behavior: `manual-only`.
+Default behavior: `ignored-ephemeral` for broad `.config`, `.local`, and
+`.local/share` roots; `manual-only` for future XDG paths that are not covered by
+the initial manifest.
 
 Rationale: broad XDG data/config trees mix harmless preferences with auth,
 plugin, cache, and runtime state. Hazmat should not import the whole tree. Each
 covered path needs a narrower adapter or should remain unavailable in the
-session-local home.
+session-local home. Because activation already points `XDG_CONFIG_HOME` and
+`XDG_DATA_HOME` at session-local directories, ignoring existing broad XDG roots
+is safer than blocking on them or copying them.
 
 Tests:
 
-- broad XDG paths remain blocked with manual-only guidance;
+- broad XDG paths do not block activation and are not copied from persistent
+  state;
 - covered Git config stays seed-only;
 - covered harness config follows its harness adapter;
 - plan-only output does not host-read private XDG contents.
