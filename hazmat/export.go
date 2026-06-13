@@ -464,8 +464,6 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 	if sourceDir == "" || destDir == "" || sourceDir == destDir {
 		return nil
 	}
-	sourceBytes := []byte(sourceDir)
-
 	return filepath.WalkDir(stagingDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -485,7 +483,7 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 		if err != nil {
 			return fmt.Errorf("read staged Claude export %s: %w", path, err)
 		}
-		if !bytes.Contains(raw, sourceBytes) {
+		if !claudeExportMayContainSourcePath(raw, sourceDir) {
 			return nil
 		}
 
@@ -501,7 +499,7 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 			if !changed {
 				return fmt.Errorf("staged Claude export metadata %s contains agent-only path %s outside JSON string values", rel, sourceDir)
 			}
-			if bytes.Contains(rewritten, sourceBytes) {
+			if claudeExportMayContainSourcePath(rewritten, sourceDir) {
 				return fmt.Errorf("staged Claude export metadata %s still contains agent-only path %s after JSON value rewrite", rel, sourceDir)
 			}
 			return os.WriteFile(path, rewritten, info.Mode().Perm())
@@ -511,6 +509,14 @@ func normalizeStagedClaudeSessionBundlePaths(stagingDir, sessionID, sourceDir, d
 		}
 		return fmt.Errorf("staged Claude export file %s contains agent-only path %s in an unsupported format", rel, sourceDir)
 	})
+}
+
+func claudeExportMayContainSourcePath(raw []byte, sourceDir string) bool {
+	if bytes.Contains(raw, []byte(sourceDir)) {
+		return true
+	}
+	slashEscaped := strings.ReplaceAll(sourceDir, "/", `\/`)
+	return slashEscaped != sourceDir && bytes.Contains(raw, []byte(slashEscaped))
 }
 
 func rewriteClaudeJSONMetadataPaths(raw []byte, sourceDir, destDir string, jsonl bool) ([]byte, bool, error) {
