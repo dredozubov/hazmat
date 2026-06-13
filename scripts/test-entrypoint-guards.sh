@@ -586,8 +586,16 @@ assert_help_contains_all \
     "Codex desktop attach smoke documents sudo-adjacent prereqs" \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
     "--check-prereqs" \
+    "--self-test-proxy" \
     "sudo -n" \
-    "Agents must ask before running either command"
+    "Agents must ask before running --check-prereqs or --run" \
+    "--self-test-proxy is" \
+    "local and does not launch Codex or run Hazmat"
+
+assert_succeeds_with \
+    "Codex desktop attach proxy self-test avoids raw params" \
+    "codex-desktop-attach-smoke: proxy self-test ok" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" --self-test-proxy
 
 assert_help_contains_all \
     "session-home smoke documents sudo-adjacent prereqs" \

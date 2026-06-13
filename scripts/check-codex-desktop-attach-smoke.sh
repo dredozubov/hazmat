@@ -30,6 +30,8 @@ Options:
   --print-disclosure                Print the required host-state disclosure.
   --check-prereqs                   Check non-invasive prerequisites; exits 2
                                     when a live run is not currently safe.
+  --self-test-proxy                 Non-live proxy privacy self-test. Does not
+                                    launch Codex or run Hazmat.
   --run                             Launch the stock Codex desktop app with a
                                     temporary CODEX_CLI_PATH recorder/proxy.
   --i-understand-this-may-launch-codex-app
@@ -47,7 +49,8 @@ approved live probe.
 
 This smoke is sudo-adjacent. The live run may launch Codex App, and
 --check-prereqs performs non-interactive sudo capability probes with sudo -n.
-Agents must ask before running either command.
+Agents must ask before running --check-prereqs or --run. --self-test-proxy is
+local and does not launch Codex or run Hazmat.
 EOF
 }
 
@@ -395,6 +398,63 @@ if (counts.size === 0) {
 NODE
 }
 
+run_proxy_self_test() {
+	if ! command -v node >/dev/null 2>&1; then
+		echo "codex-desktop-attach-smoke: node is required for proxy self-test" >&2
+		exit 2
+	fi
+	if ! command -v mktemp >/dev/null 2>&1; then
+		echo "codex-desktop-attach-smoke: mktemp is required for proxy self-test" >&2
+		exit 2
+	fi
+
+	SCRATCH="$(mktemp -d /tmp/hazmat-codex-desktop-proxy-self-test.XXXXXX)"
+	chmod 700 "$SCRATCH"
+	LOG="$SCRATCH/proxy.jsonl"
+	STDERR_LOG="$SCRATCH/app-server.stderr.log"
+	PROXY="$SCRATCH/codex-cli-proxy"
+	FAKE_BACKEND="$SCRATCH/fake-backend"
+	: >"$LOG"
+	: >"$STDERR_LOG"
+	chmod 600 "$LOG" "$STDERR_LOG"
+	make_proxy "$PROXY"
+	cat >"$FAKE_BACKEND" <<'EOF'
+#!/bin/sh
+set -eu
+IFS= read -r _request || exit 0
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}'
+EOF
+	chmod 700 "$FAKE_BACKEND"
+
+	request='{"jsonrpc":"2.0","id":1,"method":"fs/writeFile","params":{"path":"/tmp/should-not-log","content":"SECRET_PARAM_SHOULD_NOT_LOG"}}'
+	if ! printf '%s\n' "$request" | env \
+		HAZMAT_CODEX_DESKTOP_SMOKE_PROXY_LOG="$LOG" \
+		HAZMAT_CODEX_DESKTOP_SMOKE_APP_SERVER_STDERR_LOG="$STDERR_LOG" \
+		HAZMAT_CODEX_DESKTOP_SMOKE_HAZMAT_BIN="$FAKE_BACKEND" \
+		HAZMAT_CODEX_APP_SHIM_PROJECT="$SCRATCH/project" \
+		HAZMAT_CODEX_APP_SHIM_NETWORK=none \
+		HAZMAT_CODEX_APP_SHIM_NO_BACKUP=true \
+		HAZMAT_CODEX_APP_SHIM_SKIP_ASSETS_SYNC=true \
+		"$PROXY" app-server --listen stdio:// >/dev/null; then
+		echo "codex-desktop-attach-smoke: proxy self-test invocation failed" >&2
+		exit 2
+	fi
+
+	if ! grep -Fq '"method":"fs/writeFile"' "$LOG"; then
+		echo "codex-desktop-attach-smoke: proxy self-test did not log request method" >&2
+		exit 2
+	fi
+	if ! grep -Fq '"paramKeys":["content","path"]' "$LOG"; then
+		echo "codex-desktop-attach-smoke: proxy self-test did not log sorted param keys" >&2
+		exit 2
+	fi
+	if grep -Fq 'SECRET_PARAM_SHOULD_NOT_LOG' "$LOG" || grep -Fq '"params"' "$LOG"; then
+		echo "codex-desktop-attach-smoke: proxy self-test logged raw params without opt-in" >&2
+		exit 2
+	fi
+	echo "codex-desktop-attach-smoke: proxy self-test ok"
+}
+
 run_live_smoke() {
 	if [ "$APPROVED" != "1" ]; then
 		print_disclosure >&2
@@ -482,6 +542,9 @@ while [ "$#" -gt 0 ]; do
 		--check-prereqs)
 			MODE="check"
 			;;
+		--self-test-proxy)
+			MODE="self-test-proxy"
+			;;
 		--run)
 			MODE="run"
 			;;
@@ -544,6 +607,9 @@ case "$MODE" in
 			exit 2
 		fi
 		echo "codex-desktop-attach-smoke: prerequisites ok"
+		;;
+	self-test-proxy)
+		run_proxy_self_test
 		;;
 	run)
 		run_live_smoke
