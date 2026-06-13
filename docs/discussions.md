@@ -114,8 +114,8 @@ A repo maintainer still needs to do the GitHub-side setup:
 
 1. Enable Discussions in repository settings.
 2. Create the four categories above.
-3. Pin a starter post that links to this document, [docs/community.md](community.md),
-   [docs/compatibility.md](compatibility.md), and [SECURITY.md](../SECURITY.md).
+3. Pin the starter post in
+   [docs/discussions-starter-prompt.md](discussions-starter-prompt.md).
 4. Keep issue templates enabled for concrete bugs, compatibility reports,
    integration requests, harness requests, and docs / UX problems.
 5. Keep private security reporting as the only route for vulnerabilities.
