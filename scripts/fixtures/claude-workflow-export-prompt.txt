@@ -1,0 +1,8 @@
+Create a small reproducible Workflow/subagent artifact for a Hazmat export smoke.
+
+Use the Task tool twice with two separate subagents:
+
+1. Ask one subagent to inspect this scratch project and report the visible top-level files.
+2. Ask another subagent to create a short implementation-risk note for exporting Claude sidecar metadata between users.
+
+After both subagents finish, summarize their results in no more than five sentences. Do not modify files.

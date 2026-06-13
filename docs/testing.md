@@ -247,12 +247,14 @@ make e2e-claude-workflow-export-smoke
 ```
 
 Fixture checks are non-mutating host checks. They verify that the selected
-Hazmat binary, host Claude CLI, and caller-supplied Workflow prompt file are
-present, but do not run `hazmat claude` or host `claude --resume`:
+Hazmat binary, host Claude CLI, and Workflow prompt file are present, but do
+not run `hazmat claude` or host `claude --resume`. By default the script uses
+`scripts/fixtures/claude-workflow-export-prompt.txt`; set
+`HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE` only when validating a stronger
+local reproduction prompt:
 
 ```bash
-HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE=workflow-prompt.txt \
-  scripts/check-claude-workflow-export-smoke.sh --check-fixtures
+scripts/check-claude-workflow-export-smoke.sh --check-fixtures
 ```
 
 Live mode is sudo-adjacent because it invokes `hazmat claude`, and it also runs
@@ -260,8 +262,7 @@ host Claude with `--resume`. Agents must ask for explicit approval before
 running:
 
 ```bash
-HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE=workflow-prompt.txt \
-  scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
+scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
 ```
 
 The prompt file should be a task known to create Claude Workflow/subagent

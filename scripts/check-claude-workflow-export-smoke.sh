@@ -6,7 +6,8 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
 CLAUDE_BIN="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE:-claude}"
-PROMPT_FILE="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE:-}"
+DEFAULT_PROMPT_FILE="$REPO_ROOT/scripts/fixtures/claude-workflow-export-prompt.txt"
+PROMPT_FILE="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE:-$DEFAULT_PROMPT_FILE}"
 RESUME_PROMPT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_RESUME_PROMPT:-Inspect this resumed session briefly. If prior Workflow artifacts are unavailable, say so without rerunning the whole task.}"
 AGENT_PROJECT_ROOT="${HAZMAT_CLAUDE_WORKFLOW_SMOKE_AGENT_PROJECT_ROOT:-/Users/agent/.claude/projects}"
 MODE="disclose"
@@ -35,7 +36,9 @@ Options:
 Environment:
   HAZMAT_CLAUDE_WORKFLOW_SMOKE_HAZMAT       Hazmat binary to run.
   HAZMAT_CLAUDE_WORKFLOW_SMOKE_CLAUDE       Host Claude executable name/path.
-  HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE  Required prompt file for live run.
+  HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE  Optional prompt file override for
+                                            live run. Defaults to
+                                            scripts/fixtures/claude-workflow-export-prompt.txt.
                                             It should produce Workflow/subagent
                                             sidecar artifacts in Claude Code.
   HAZMAT_CLAUDE_WORKFLOW_SMOKE_RESUME_PROMPT
@@ -108,9 +111,7 @@ check_fixtures() {
 	require_command grep
 	require_command head
 	require_command "$CLAUDE_BIN"
-	if [ -z "$PROMPT_FILE" ]; then
-		add_missing_fixture "set HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE to a prompt that creates Workflow/subagent artifacts"
-	elif [ ! -r "$PROMPT_FILE" ]; then
+	if [ ! -r "$PROMPT_FILE" ]; then
 		add_missing_fixture "$PROMPT_FILE is not readable"
 	fi
 
@@ -137,13 +138,15 @@ paths, and resumes the exported session with host Claude.
 
 Live mode is sudo-adjacent and requires explicit approval:
 
-  HAZMAT_CLAUDE_WORKFLOW_SMOKE_PROMPT_FILE=<workflow-prompt.txt> \\
-    scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
+  scripts/check-claude-workflow-export-smoke.sh --run --i-understand-this-runs-hazmat-claude-and-host-claude
 
 Live smoke shape:
-  hazmat claude --no-backup -C <scratch-project> -p "\$(cat <workflow-prompt.txt>)"
+  hazmat claude --no-backup -C <scratch-project> -p "\$(cat $DEFAULT_PROMPT_FILE)"
   hazmat export claude session -C <scratch-project>
   claude --resume <exported-session-id> --fork-session -p <resume-prompt>
+
+Prompt file:
+  $PROMPT_FILE
 
 Fixture check:
   scripts/check-claude-workflow-export-smoke.sh --check-fixtures
