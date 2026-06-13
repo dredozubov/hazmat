@@ -32,8 +32,10 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 		Seatbelt:             func() { got = append(got, "seatbelt") },
 		ProjectToolchain:     func() { got = append(got, "toolchain") },
 		LocalSnapshot:        func() { got = append(got, "local-snapshot") },
-		CloudBackup:          func() { got = append(got, "cloud-backup") },
-		CloudRestore:         func() { got = append(got, "cloud-restore") },
+		CloudBackup:          func() { t.Fatal("CloudBackup called in quick mode") },
+		CloudBackupSkipped:   func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
+		CloudRestore:         func() { t.Fatal("CloudRestore called in quick mode") },
+		CloudRestoreSkipped:  func(reason string) { got = append(got, "cloud-restore-skip:"+reason) },
 		Decommission:         func() { got = append(got, "decommission") },
 		Finish: func() bool {
 			got = append(got, "finish")
@@ -46,7 +48,9 @@ func TestRunCheckQuickSkipsHelperBackedAgentProbes(t *testing.T) {
 	}
 	want := []string{
 		"begin", "agent", "group:dr", "sudo", "pf-static", "dns", "persistence",
-		"skip:" + QuickAgentProbeSkipReason, "local-snapshot", "cloud-backup", "cloud-restore",
+		"skip:" + QuickAgentProbeSkipReason, "local-snapshot",
+		"cloud-backup-skip:" + QuickCloudBackupSkipReason,
+		"cloud-restore-skip:" + QuickCloudRestoreSkipReason,
 		"decommission", "finish",
 	}
 	if !slices.Equal(got, want) {
@@ -86,7 +90,9 @@ func TestRunCheckFullRunsHelperBackedAgentProbesInOrder(t *testing.T) {
 		ProjectToolchain:    func() { got = append(got, "toolchain") },
 		LocalSnapshot:       func() { got = append(got, "local-snapshot") },
 		CloudBackup:         func() { got = append(got, "cloud-backup") },
+		CloudBackupSkipped:  func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
 		CloudRestore:        func() { got = append(got, "cloud-restore") },
+		CloudRestoreSkipped: func(reason string) { got = append(got, "cloud-restore-skip:"+reason) },
 		Decommission:        func() { got = append(got, "decommission") },
 		Finish: func() bool {
 			got = append(got, "finish")
@@ -139,7 +145,9 @@ func TestRunCheckFullSkipsAgentProbesWhenGateBlocked(t *testing.T) {
 		ProjectToolchain:     func() { got = append(got, "toolchain") },
 		LocalSnapshot:        func() { got = append(got, "local-snapshot") },
 		CloudBackup:          func() { got = append(got, "cloud-backup") },
+		CloudBackupSkipped:   func(reason string) { got = append(got, "cloud-backup-skip:"+reason) },
 		CloudRestore:         func() { got = append(got, "cloud-restore") },
+		CloudRestoreSkipped:  func(reason string) { got = append(got, "cloud-restore-skip:"+reason) },
 		Decommission:         func() { got = append(got, "decommission") },
 		Finish:               func() bool { got = append(got, "finish"); return false },
 	}

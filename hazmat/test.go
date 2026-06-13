@@ -89,7 +89,9 @@ func runTest(options diagnostics.CheckOptions) error {
 		ProjectToolchain:     func() { testProjectToolchain(ui) },
 		LocalSnapshot:        func() { testLocalSnapshot(ui) },
 		CloudBackup:          func() { testCloudBackup(ui) },
+		CloudBackupSkipped:   func(reason string) { testCloudBackupSkipped(ui, reason) },
 		CloudRestore:         func() { testCloudRestore(ui) },
+		CloudRestoreSkipped:  func(reason string) { testCloudRestoreSkipped(ui, reason) },
 		Decommission:         func() { testDecommission(ui) },
 		Finish:               ui.Summary,
 		Exit:                 os.Exit,
@@ -1611,6 +1613,11 @@ func testCloudBackup(ui *UI) {
 	}
 }
 
+func testCloudBackupSkipped(ui *UI, reason string) {
+	ui.Step("Cloud Backup (Go-native Kopia)")
+	ui.TestSkip(reason)
+}
+
 // ── Step 16: Cloud Restore ──────────────────────────────────────────────────
 
 func testCloudRestore(ui *UI) {
@@ -1713,6 +1720,11 @@ func testCloudRestore(ui *UI) {
 	if allMatch {
 		ui.TestPass("Kopia: round-trip content verification passed — all files match")
 	}
+}
+
+func testCloudRestoreSkipped(ui *UI, reason string) {
+	ui.Step("Cloud Restore (Go-native Kopia)")
+	ui.TestSkip(reason)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

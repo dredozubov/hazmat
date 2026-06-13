@@ -501,7 +501,7 @@ hazmat status                   # same thing
 hazmat check                    # read-only health and repairability report
 hazmat doctor --fix             # apply executable approved typed repairs
 hazmat doctor --dry-run         # explicit non-mutating repair plan preview
-hazmat check --full             # helper-backed live probes; sends external traffic
+hazmat check --full             # helper-backed and cloud live probes; sends external traffic
 ```
 
 `hazmat check` validates the current local Hazmat install and containment
@@ -514,9 +514,9 @@ repairs requires `hazmat doctor --fix`.
 Neither command is the full repo test suite. For lifecycle e2e, self-hosting,
 repo-matrix, VM-backed verification, and CI mapping, see [testing.md](testing.md).
 
-`hazmat check --full` adds helper-backed live validation. It can send external
-traffic and is sudo-adjacent for agent workflows, so automation should ask for
-explicit approval before running it.
+`hazmat check --full` adds helper-backed and cloud live validation. It can send
+external traffic and is sudo-adjacent for agent workflows, so automation should
+ask for explicit approval before running it.
 
 ### Diagnostic and Repair Contract
 

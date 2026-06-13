@@ -14,8 +14,10 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 	text := string(data)
 	required := []string{
 		"no helper-backed agent probes in the default quick mode",
+		"skip cloud backup and cloud restore live validation",
+		"does not send external traffic",
 		"hazmat check --full",
-		"helper-backed live validation",
+		"helper-backed and cloud live validation",
 		"requires explicit exact-command approval",
 	}
 	for _, phrase := range required {

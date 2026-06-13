@@ -30,10 +30,12 @@ are not interchangeable.
 `hazmat check` and `hazmat doctor --dry-run` are diagnostics, not live smoke
 wrappers. They must stay read-only and non-prompting: no direct sudo probes, no
 `sudo -n` probes, and no helper-backed agent probes in the default quick mode.
-Quick diagnostics should report a repair plan and skip agent-backed probes
-instead of trying to switch users. Use `hazmat check --full` only when you want
-helper-backed live validation; that path is sudo-adjacent in agent workflows and
-requires explicit exact-command approval.
+Quick diagnostics also skip cloud backup and cloud restore live validation so
+the default path does not send external traffic. Quick diagnostics should report
+a repair plan and skip live validation instead of trying to switch users or
+touch external services. Use `hazmat check --full` only when you want
+helper-backed and cloud live validation; that path is sudo-adjacent in agent
+workflows and requires explicit exact-command approval.
 
 Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
 paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed

@@ -87,14 +87,14 @@ func TestContainmentStatusActionDistinguishesFreshSetupFromDrift(t *testing.T) {
 	}
 }
 
-func TestStatusFullHelpNamesLiveNetworkProbes(t *testing.T) {
+func TestStatusFullHelpNamesLiveProbes(t *testing.T) {
 	cmd := newStatusCmd()
 	flag := cmd.Flags().Lookup("full")
 	if flag == nil {
 		t.Fatal("status --full flag missing")
 	}
 	joined := strings.Join([]string{cmd.Long, flag.Usage}, "\n")
-	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "helper-backed live validation") || !strings.Contains(joined, "sudo-adjacent") {
+	if !strings.Contains(joined, "hazmat check --full") || !strings.Contains(joined, "helper-backed and cloud live validation") || !strings.Contains(joined, "sudo-adjacent") {
 		t.Fatalf("status --full help = %q, want check --full and helper-backed sudo-adjacent wording", joined)
 	}
 	if strings.Contains(joined, "check --quick") || strings.Contains(joined, "same as 'hazmat check --quick'") {

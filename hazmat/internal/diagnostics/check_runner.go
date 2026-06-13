@@ -51,13 +51,17 @@ type CheckSuite struct {
 	ProjectToolchain     func()
 	LocalSnapshot        func()
 	CloudBackup          func()
+	CloudBackupSkipped   func(reason string)
 	CloudRestore         func()
+	CloudRestoreSkipped  func(reason string)
 	Decommission         func()
 	Finish               func() bool
 	Exit                 func(code int)
 }
 
 const QuickAgentProbeSkipReason = "helper-backed agent probes skipped in quick mode; use hazmat check --full for live helper-backed validation"
+const QuickCloudBackupSkipReason = "cloud backup live validation skipped in quick mode; use hazmat check --full for cloud backup validation"
+const QuickCloudRestoreSkipReason = "cloud restore live validation skipped in quick mode; use hazmat check --full for cloud restore validation"
 
 func RunCheck(quick bool, suite CheckSuite) error {
 	ctx := CheckContext{}
@@ -94,8 +98,13 @@ func RunCheck(quick bool, suite CheckSuite) error {
 		suite.AgentProbesSkipped(ctx.AgentProbes.Reason())
 	}
 	call(suite.LocalSnapshot)
-	call(suite.CloudBackup)
-	call(suite.CloudRestore)
+	if quick {
+		callString(suite.CloudBackupSkipped, QuickCloudBackupSkipReason)
+		callString(suite.CloudRestoreSkipped, QuickCloudRestoreSkipReason)
+	} else {
+		call(suite.CloudBackup)
+		call(suite.CloudRestore)
+	}
 	call(suite.Decommission)
 
 	if suite.Finish != nil && suite.Finish() {
