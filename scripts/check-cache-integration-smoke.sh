@@ -171,6 +171,33 @@ raise SystemExit(0 if importlib.util.find_spec(sys.argv[1]) is not None else 1)
 PY
 }
 
+huggingface_hub_cache_root() {
+	if [ -n "${HF_HUB_CACHE:-}" ]; then
+		printf '%s\n' "$HF_HUB_CACHE"
+	elif [ -n "${HF_HOME:-}" ]; then
+		printf '%s/hub\n' "$HF_HOME"
+	elif [ -n "${XDG_CACHE_HOME:-}" ]; then
+		printf '%s/huggingface/hub\n' "$XDG_CACHE_HOME"
+	else
+		printf '%s/.cache/huggingface/hub\n' "$HOME"
+	fi
+}
+
+huggingface_model_cache_dir() {
+	printf 'models--%s\n' "$(printf '%s\n' "$1" | sed 's:/:--:g')"
+}
+
+huggingface_model_cached() {
+	model="$1"
+	if [ -e "$model" ]; then
+		return 0
+	fi
+
+	root="$(huggingface_hub_cache_root)"
+	cache_dir="$root/$(huggingface_model_cache_dir "$model")"
+	[ -d "$cache_dir" ]
+}
+
 torch_hub_cache_root() {
 	if [ -n "${TORCH_HOME:-}" ]; then
 		printf '%s/hub\n' "$TORCH_HOME"
@@ -215,6 +242,8 @@ check_target_fixtures() {
 			fi
 			if [ -z "${HAZMAT_HF_SMOKE_MODEL:-}" ]; then
 				add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL to a pre-cached Hugging Face model ID or path"
+			elif ! huggingface_model_cached "$HAZMAT_HF_SMOKE_MODEL"; then
+				add_missing_target_fixture "$1" "no cached Hugging Face model matching $HAZMAT_HF_SMOKE_MODEL under $(huggingface_hub_cache_root); pre-cache before live smoke"
 			fi
 			;;
 		ollama)

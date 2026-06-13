@@ -326,7 +326,10 @@ scripts/check-cache-integration-smoke.sh --target torch-hub --run --i-understand
 ```
 
 Hugging Face requires `HAZMAT_HF_SMOKE_MODEL` to name a pre-cached model ID or
-path. PyTorch torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
+path; fixture checks verify that local paths exist or that the matching Hub
+cache exists under `HF_HUB_CACHE`, `HF_HOME`, `XDG_CACHE_HOME`, or the default
+`$HOME/.cache/huggingface/hub` before the network-disabled live smoke. PyTorch
+torch-hub requires `HAZMAT_TORCH_HUB_REPO` and
 `HAZMAT_TORCH_HUB_MODEL` to name a pre-cached hub entry; fixture checks verify
 that the matching repo cache exists under `TORCH_HOME`, `XDG_CACHE_HOME`, or the
 default `$HOME/.cache/torch/hub` before the network-disabled live smoke. Ollama

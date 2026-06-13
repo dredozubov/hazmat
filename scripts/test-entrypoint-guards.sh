@@ -524,6 +524,7 @@ assert_file_contains_all \
     'add_missing_fixture "[$target] $*"' \
     'add_missing_target_fixture "$1" "python3 cannot import transformers"' \
     'add_missing_target_fixture "$1" "set HAZMAT_HF_SMOKE_MODEL' \
+    'add_missing_target_fixture "$1" "no cached Hugging Face model matching' \
     'require_target_command "$1" "$OLLAMA_BIN"' \
     'add_missing_target_fixture "$1" "$OLLAMA_BIN list failed; start the Ollama daemon or check OLLAMA_HOST"' \
     'add_missing_target_fixture "$1" "python3 cannot import torch"' \
@@ -536,6 +537,12 @@ assert_fails_with \
     "/bin/sh list failed; start the Ollama daemon or check OLLAMA_HOST" \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN=/bin/sh \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
+
+assert_fails_with \
+    "cache integration smoke checks Hugging Face cache fixture" \
+    "no cached Hugging Face model matching sentence-transformers/all-MiniLM-L6-v2" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HOME="$REPO_ROOT/scripts/fixtures/missing-home" HAZMAT_HF_SMOKE_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target huggingface --check-fixtures
 
 assert_fails_with \
     "cache integration smoke checks torch-hub cache fixture" \
