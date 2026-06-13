@@ -243,6 +243,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/integration-contributor-flow.md](docs/integration-contributor-flow.md) | How users discover integrations and turn missing stack support into PR-shaped work |
 | [docs/integration-author-kit.md](docs/integration-author-kit.md) | How to propose integrations without turning them into policy escapes |
 | [docs/community.md](docs/community.md) | Support tiers, ownership model, sponsor lanes, and contribution surfaces |
+| [docs/discussions.md](docs/discussions.md) | GitHub Discussions categories, routing rules, and security-report boundaries |
 | [docs/public-roadmap.md](docs/public-roadmap.md) | Curated public roadmap exported from beads issues |
 | [docs/compatibility.md](docs/compatibility.md) | Compatibility status meanings, matrix shape, and reporting flow |
 | [docs/recipes/README.md](docs/recipes/README.md) | Community-expandable recipes for common harness + stack workflows |

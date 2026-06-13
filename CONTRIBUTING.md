@@ -38,6 +38,10 @@ Use the GitHub issue templates for:
 
 Include your macOS version (`sw_vers`) and Hazmat version (`hazmat --version`) whenever possible.
 
+When GitHub Discussions are enabled, use them for recipe drafts, compatibility
+confirmation threads, RFCs, and public security research that is safe to discuss
+openly. The category rules live in [docs/discussions.md](docs/discussions.md).
+
 ## Security Reports
 
 If you find a containment bypass, credential leak, sandbox escape, or other security issue, do **not** open a public GitHub issue. Use the private reporting path in [SECURITY.md](SECURITY.md).

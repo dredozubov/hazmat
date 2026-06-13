@@ -62,14 +62,13 @@ If you want to work closer to the core, read [docs/design-assumptions.md](design
 
 The repo now uses structured issue templates for bugs, compatibility reports, integration requests, harness requests, and docs / UX problems.
 
-The next GitHub-native step is enabling Discussions with these categories:
+The next GitHub-native step is enabling Discussions. The intended categories
+are **Recipes**, **Compatibility reports**, **RFCs**, and **Security research**.
 
-- **Recipes**
-- **Compatibility reports**
-- **RFCs**
-- **Security research**
-
-That manual repo-setting work is tracked separately so the docs and issue flow can land first.
+[docs/discussions.md](discussions.md) defines what belongs in each category,
+what should stay in Issues, and what must use the private security reporting
+path. The GitHub repository setting still needs to be enabled manually by a
+repo maintainer.
 
 ## Public Roadmap
 
