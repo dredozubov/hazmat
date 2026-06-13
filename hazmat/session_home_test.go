@@ -643,6 +643,7 @@ func TestRenderSessionContractShowsExperimentalSessionHome(t *testing.T) {
 		"Session HOME:         " + launchPlan.Layout.Home + " (experimental preview)",
 		"Persistent HOME:      " + persistentHome,
 		"Session HOME status:  blocked: activation gate",
+		"Session HOME blockers: activation gate: session-home",
 		"session-home preview",
 	} {
 		if !strings.Contains(got, want) {

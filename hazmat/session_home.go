@@ -418,6 +418,10 @@ func sessionHomeActivationBlockerDetails(blockers []sessionHomeLaunchBlocker) st
 	if len(blockers) == 0 {
 		return "No session-home activation blockers remain."
 	}
+	return "Blocking paths: " + sessionHomeActivationBlockerPathSummary(blockers) + "."
+}
+
+func sessionHomeActivationBlockerPathSummary(blockers []sessionHomeLaunchBlocker) string {
 	byReason := map[sessionHomeLaunchBlockerReason][]string{}
 	for _, blocker := range blockers {
 		byReason[blocker.Reason] = append(byReason[blocker.Reason], blocker.RelPath)
@@ -441,7 +445,7 @@ func sessionHomeActivationBlockerDetails(blockers []sessionHomeLaunchBlocker) st
 		parts = append(parts, sessionHomeActivationBlockerPathList(reason, paths))
 	}
 	sort.Strings(parts)
-	return "Blocking paths: " + strings.Join(parts, "; ") + "."
+	return strings.Join(parts, "; ")
 }
 
 func sessionHomeActivationBlockerPathList(reason sessionHomeLaunchBlockerReason, paths []string) string {

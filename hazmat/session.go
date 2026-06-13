@@ -1812,6 +1812,7 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 		fmt.Fprintf(&b, "  Persistent HOME:      %s\n", cfg.SessionHome.AgentHomePolicy.PersistentPath)
 		if !cfg.SessionHome.Launch.readyForActivation() {
 			fmt.Fprintf(&b, "  Session HOME status:  blocked: %s\n", sessionHomeActivationBlockerSummary(cfg.SessionHome.Launch.Blockers))
+			fmt.Fprintf(&b, "  Session HOME blockers: %s\n", sessionHomeActivationBlockerPathSummary(cfg.SessionHome.Launch.Blockers))
 		}
 	}
 	if summary := repoSetupSummary(cfg.RepoSetup); summary != "" {
