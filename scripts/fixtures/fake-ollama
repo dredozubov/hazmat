@@ -1,0 +1,18 @@
+#!/bin/sh
+
+set -eu
+
+case "${1:-}" in
+	list)
+		printf '%s\n' "NAME ID SIZE MODIFIED"
+		exit 0
+		;;
+	--help|-h)
+		printf '%s\n' "fake Ollama CLI fixture for non-live Hazmat smoke tests"
+		exit 0
+		;;
+	*)
+		printf '%s\n' "fake Ollama fixture only supports list and --help" >&2
+		exit 2
+		;;
+esac

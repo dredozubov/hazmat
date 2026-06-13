@@ -642,6 +642,12 @@ assert_fails_with \
     env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN=./ollama \
     "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
 
+assert_succeeds_with \
+    "cache integration smoke accepts fake Ollama fixture" \
+    "cache-integration-smoke: fixtures ok" \
+    env HAZMAT_CACHE_INTEGRATION_SMOKE_HAZMAT=/bin/echo HAZMAT_OLLAMA_SMOKE_BIN="$REPO_ROOT/scripts/fixtures/fake-ollama" \
+    "$REPO_ROOT/scripts/check-cache-integration-smoke.sh" --target ollama --check-fixtures
+
 assert_fails_with \
     "cache integration smoke checks Hugging Face cache fixture" \
     "no usable local Hugging Face model config or cached snapshot config for sentence-transformers/all-MiniLM-L6-v2" \
