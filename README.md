@@ -5,17 +5,23 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Run AI coding agents with full autonomy on macOS without giving them your real account.</strong><br>
-  User isolation + kernel sandbox + firewall + rollback
+  <strong>Run full-autonomy coding agents on your Mac without giving them your real account.</strong><br>
+  Visible session contract + dedicated macOS user + OS-level containment
 </p>
 
 ---
 
-I built Hazmat because manual approval mode was the worst of both worlds. It broke agent flow, and it still was not a real security boundary.
+Hazmat shows the session contract first, then runs the agent as a dedicated
+macOS user inside OS-level containment.
 
-If an agent gets prompt-injected, runs a poisoned dependency, or follows malicious repo instructions, the important question is not whether it asked politely. The important question is what it can reach.
+Approval prompts slow agents down, but they do not change what a running process
+can reach. If an agent gets prompt-injected, runs a poisoned dependency, or
+follows malicious repo instructions, the important question is not whether it
+asked politely. The important question is what it can reach.
 
-Hazmat changes that blast radius. The agent runs as a dedicated macOS user inside OS-level containment, not as you.
+Hazmat changes that blast radius. It does not make arbitrary agent autonomy
+safe; it makes the host authority boundary explicit and lower than your real
+account.
 
 ## Start Here
 
@@ -28,17 +34,32 @@ cd your-project
 hazmat claude
 ```
 
-That gets you:
+Preview before changing the Mac:
+
+```bash
+hazmat init --dry-run    # setup preview
+hazmat explain           # session-contract preview for this project
+```
+
+If you use Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent instead of
+Claude, start with [docs/harnesses.md](docs/harnesses.md).
+
+## Proof Today
+
+Current state, with caveats linked nearby:
 
 - a dedicated `agent` macOS user
 - a per-session seatbelt policy
-- firewall and DNS hardening
-- automatic pre-session snapshot and restore
-- a session contract that tells you exactly what the agent can touch
+- a credential deny floor and host-owned secret store
+- `pf` firewall and DNS hardening
+- pre-session snapshots, diff, and recovery commands
+- seven documented harness paths
+- Docker Sandbox routing for private-daemon Docker workflows
 
-If you want to preview before changing anything, run `hazmat init --dry-run` or `hazmat explain`.
-
-If you use Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent instead of Claude, start with [docs/harnesses.md](docs/harnesses.md).
+Read [docs/testing.md](docs/testing.md) for what is automated, what is
+approval-gated, and what is formally modeled. Read
+[docs/overview.md](docs/overview.md) before stretching native containment into
+Docker-heavy or hostile-repo workflows.
 
 ## What a Session Looks Like
 
