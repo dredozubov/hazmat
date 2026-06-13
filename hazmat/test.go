@@ -27,6 +27,8 @@ import (
 	"hazmat/internal/diagnostics"
 )
 
+const quickDiagnosticValidationSkipLine = "Quick mode: sudo-adjacent launch-helper validation, helper-backed probes, backup, and cloud live validation skipped"
+
 func runTest(options diagnostics.CheckOptions) error {
 	ui := &UI{Quick: options.Quick, JSON: options.JSON, DryRun: flagDryRun, YesAll: flagYesAll}
 	ui.RepairExecution = diagnosticRepairExecutionRequest{
@@ -60,7 +62,7 @@ func runTest(options diagnostics.CheckOptions) error {
 				fmt.Printf("  Running as: %s\n", cu.Username)
 				fmt.Printf("  Agent user: %s\n", agentUser)
 				if quick {
-					cYellow.Println("  Quick mode: helper-backed, backup, and cloud live validation skipped")
+					cYellow.Println("  " + quickDiagnosticValidationSkipLine)
 				}
 				fmt.Println()
 			}
@@ -104,7 +106,7 @@ func runTest(options diagnostics.CheckOptions) error {
 
 func diagnosticModeGuidanceLines() []string {
 	return []string{
-		"    hazmat check          Quick health report (no helper-backed probes, backup smokes, or external traffic)",
+		"    hazmat check          Quick health report (no sudo-adjacent launch-helper validation, helper-backed probes, backup smokes, or external traffic)",
 		"    hazmat check --full   Helper-backed, backup, and cloud live probes (sudo-adjacent)",
 		"    hazmat doctor --fix   Apply approved executable typed repairs",
 		"    hazmat doctor --dry-run",
