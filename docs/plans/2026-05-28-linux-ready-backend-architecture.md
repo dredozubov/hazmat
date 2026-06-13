@@ -12,6 +12,10 @@ backend-neutral session contract as macOS and Docker Sandbox sessions. It
 should not become a forked CLI path or a pile of `if runtime.GOOS == "linux"`
 branches.
 
+For the run-agent provider release gates that turn this architecture into
+testable user-facing readiness criteria, see
+[Linux Run-Agent Provider Readiness Gates](2026-06-13-linux-run-agent-readiness-gates.md).
+
 The reusable decomposition has two jobs:
 
 1. Let other local tools and automation services plan Hazmat sessions without

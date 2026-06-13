@@ -43,6 +43,11 @@ Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
 paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed
 launch paths, so agents must ask for exact-command approval before running them.
 
+Linux native run-agent support is still plan-only/experimental. Its provider
+readiness gates live in
+[docs/plans/2026-06-13-linux-run-agent-readiness-gates.md](plans/2026-06-13-linux-run-agent-readiness-gates.md)
+and must be satisfied before user-facing Linux native launch support is claimed.
+
 ## Recommended Local Workflows
 
 ### Fast local loop
