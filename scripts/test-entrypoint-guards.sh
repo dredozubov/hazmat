@@ -352,6 +352,19 @@ assert_file_contains_all \
     "Codex CLI is not installed" \
     "run hazmat harness update codex"
 
+for smoke_script in \
+    "$REPO_ROOT/scripts/check-codex-app-server-smoke.sh" \
+    "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
+    "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh"
+do
+    assert_file_contains_all \
+        "$(basename "$smoke_script") distinguishes fresh setup from drift repair" \
+        "$smoke_script" \
+        "fresh host: run hazmat init" \
+        "setup drift: run hazmat doctor --fix" \
+        "preview: hazmat doctor --dry-run"
+done
+
 assert_file_contains_all \
     "session-home smoke explains activation blockers" \
     "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \

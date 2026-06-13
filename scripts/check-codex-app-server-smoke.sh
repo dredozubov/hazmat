@@ -9,6 +9,7 @@ AGENT_USER="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_USER:-agent}"
 AGENT_HOME="${HAZMAT_CODEX_APP_SERVER_SMOKE_AGENT_HOME:-/Users/agent}"
 CODEX_BIN="$AGENT_HOME/.local/bin/codex"
 LAUNCH_HELPER="${HAZMAT_CODEX_APP_SERVER_SMOKE_LAUNCH_HELPER:-/usr/local/libexec/hazmat-launch}"
+SETUP_PREREQ_HELP="fresh host: run hazmat init; setup drift: run hazmat doctor --fix (preview: hazmat doctor --dry-run)"
 MODE="disclose"
 ACK=0
 SKIP_IF_MISSING=0
@@ -109,7 +110,7 @@ check_prereqs() {
 		add_missing_prereq "/usr/bin/nc is required for the network-none probe"
 	fi
 	if [ ! -x "$LAUNCH_HELPER" ]; then
-		add_missing_prereq "$LAUNCH_HELPER is missing or not executable; run hazmat init"
+		add_missing_prereq "$LAUNCH_HELPER is missing or not executable; $SETUP_PREREQ_HELP"
 	fi
 	if [ ! -x /usr/bin/sandbox-exec ]; then
 		add_missing_prereq "/usr/bin/sandbox-exec is missing; native seatbelt support is unavailable"
@@ -117,7 +118,7 @@ check_prereqs() {
 
 	if command -v id >/dev/null 2>&1; then
 		if ! id -u "$AGENT_USER" >/dev/null 2>&1; then
-			add_missing_prereq "agent user '$AGENT_USER' does not exist; run hazmat init"
+			add_missing_prereq "agent user '$AGENT_USER' does not exist; $SETUP_PREREQ_HELP"
 		fi
 	fi
 

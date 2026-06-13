@@ -146,6 +146,9 @@ scripts/check-codex-app-server-smoke.sh --skip-if-missing-prereqs
 
 `--check-prereqs` exits 2 and prints precise missing requirements when the host
 is not ready. `--skip-if-missing-prereqs` prints the same reasons but exits 0.
+For setup prerequisites, the message distinguishes a fresh host (`hazmat init`)
+from drift in an already-initialized host (`hazmat doctor --fix`, with
+`hazmat doctor --dry-run` as preview).
 The normal run still fails closed on protocol, filesystem, credential, process,
 or network regressions. `--check-prereqs`, `--skip-if-missing-prereqs`, and
 `--run` are sudo-adjacent because they probe or invoke helper-backed native

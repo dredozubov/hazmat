@@ -21,6 +21,8 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 		"helper-backed, backup, and cloud live validation",
 		"same full validation afterward",
 		"require explicit exact-command approval",
+		"For setup prerequisites, the message distinguishes a fresh host",
+		"from drift in an already-initialized host (`hazmat doctor --fix`, with `hazmat doctor --dry-run` as preview)",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(text, phrase) {
@@ -29,6 +31,16 @@ func TestTestingDocsMatchQuickHelperProbeBoundary(t *testing.T) {
 	}
 	if strings.Contains(text, "no helper-backed agent probes until setup readiness") {
 		t.Fatal("docs/testing.md still describes the old setup-gated helper probe boundary")
+	}
+}
+
+func TestTestingDocsMarkdownCodeFencesAreBalanced(t *testing.T) {
+	data, err := os.ReadFile("../docs/testing.md")
+	if err != nil {
+		t.Fatalf("read testing docs: %v", err)
+	}
+	if got := strings.Count(string(data), "```"); got%2 != 0 {
+		t.Fatalf("docs/testing.md has %d Markdown code fences, want an even count", got)
 	}
 }
 
