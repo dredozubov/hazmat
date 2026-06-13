@@ -320,6 +320,14 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --check-fixtures
 
 assert_file_contains_all \
+    "Claude Workflow export smoke scans escaped agent paths" \
+    "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" \
+    "slash-escaped" \
+    "unicode-slash-lower" \
+    "unicode-slash-upper" \
+    "exported session still references"
+
+assert_file_contains_all \
     "Codex desktop running-process refusal is bounded" \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" \
     "Codex App appears to be running (" \

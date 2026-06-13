@@ -189,6 +189,23 @@ find_exported_session_path() {
 	find "$HOME/.claude/projects" -type f -name "$1.jsonl" -print 2>/dev/null | head -n 1
 }
 
+agent_project_root_pattern() {
+	case "$1" in
+		literal)
+			printf '%s\n' "$AGENT_PROJECT_ROOT"
+			;;
+		slash-escaped)
+			printf '%s\n' "$AGENT_PROJECT_ROOT" | sed 's:/:\\/:g'
+			;;
+		unicode-slash-lower)
+			printf '%s\n' "$AGENT_PROJECT_ROOT" | sed 's:/:\\u002f:g'
+			;;
+		unicode-slash-upper)
+			printf '%s\n' "$AGENT_PROJECT_ROOT" | sed 's:/:\\u002F:g'
+			;;
+	esac
+}
+
 assert_export_has_no_agent_project_paths() {
 	session_id="$1"
 	host_transcript="$(find_exported_session_path "$session_id")"
@@ -203,10 +220,13 @@ assert_export_has_no_agent_project_paths() {
 		exit 1
 	fi
 
-	if grep -R -F "$AGENT_PROJECT_ROOT" "$host_transcript" "$host_sidecar_dir" >/dev/null 2>&1; then
-		echo "claude-workflow-export-smoke: exported session still references $AGENT_PROJECT_ROOT" >&2
-		exit 1
-	fi
+	for encoding in literal slash-escaped unicode-slash-lower unicode-slash-upper; do
+		pattern="$(agent_project_root_pattern "$encoding")"
+		if grep -R -F "$pattern" "$host_transcript" "$host_sidecar_dir" >/dev/null 2>&1; then
+			echo "claude-workflow-export-smoke: exported session still references $AGENT_PROJECT_ROOT ($encoding)" >&2
+			exit 1
+		fi
+	done
 }
 
 run_smoke() {
