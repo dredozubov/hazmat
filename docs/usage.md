@@ -537,7 +537,11 @@ the intended next action and carry explicit `command`, `mutating`, and
 `requires_approval` fields where a command applies. Read-only `hazmat check`
 reports put the approved repair path before the preview path when executable
 repairs exist, while post-init verification points to `hazmat doctor --fix`
-instead of retrying `hazmat init`.
+instead of retrying `hazmat init`. If a plan has remaining findings but no
+executable Hazmat repairs, `next_steps` uses `inspect-remaining-items` with no
+mutating command, and `repair_plan.execution.examples` omits the mutating fix
+command so automation does not offer a repair path that cannot change the
+machine.
 
 `hazmat doctor --fix` is the only diagnostics entrypoint allowed to apply typed
 repairs. Interactive runs may ask for consent before applying a plan.
