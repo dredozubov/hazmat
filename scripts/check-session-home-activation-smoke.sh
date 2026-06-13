@@ -123,6 +123,29 @@ print_missing_prereqs() {
 	printf '%s\n' "$MISSING_PREREQS" >&2
 }
 
+print_session_home_explain_block() {
+	explain_output="$(HAZMAT_EXPERIMENTAL_SESSION_HOME=activate \
+		"$HAZMAT" explain \
+			--json \
+			--for exec \
+			--docker=none \
+			--network none \
+			--no-backup \
+			--integration go \
+			--integration node \
+			--integration python-pip \
+			--integration rust \
+			-C "$PROJECT" 2>&1)" || {
+		echo "session-home-smoke: plan-only blocker detail failed:" >&2
+		printf '%s\n' "$explain_output" >&2
+		return 1
+	}
+
+	echo "session-home-smoke: plan-only session_home detail from hazmat explain --json:" >&2
+	printf '%s\n' "$explain_output" | sed -n '/^  "session_home": {/,/^  }[,]*$/p' >&2
+	return 0
+}
+
 print_disclosure() {
 	cat <<EOF
 session-home-smoke: dry run only
@@ -237,12 +260,15 @@ printf '%s\n' "$SMOKE_OUTPUT"
 if [ "$SMOKE_STATUS" -ne 0 ]; then
 	case "$SMOKE_OUTPUT" in
 		*"cannot launch session-local HOME yet"*)
+			print_session_home_explain_block || true
 			cat >&2 <<'EOF'
 session-home-smoke: activation stopped before the toolchain matrix.
-session-home-smoke: inspect the listed Blocking paths above; adapter-required
+session-home-smoke: inspect the listed Blocking paths or session_home
+session-home-smoke: activation_blockers above; adapter-required
 session-home-smoke: durable state needs a typed bridge/materializer or an
 session-home-smoke: intentional fail-closed policy. Do not rerun hazmat init.
-session-home-smoke: if no Blocking paths were printed, rebuild and rerun the
+session-home-smoke: if no Blocking paths or session_home details were printed,
+session-home-smoke: rebuild and rerun the
 session-home-smoke: repo binary:
 session-home-smoke:   make && HAZMAT_SESSION_HOME_SMOKE_HAZMAT="$PWD/hazmat/hazmat" scripts/check-session-home-activation-smoke.sh --run --i-understand-this-runs-hazmat-exec
 session-home-smoke: or reinstall Hazmat so the current blocker-detail

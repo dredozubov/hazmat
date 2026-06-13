@@ -432,9 +432,11 @@ done
 assert_file_contains_all \
     "session-home smoke explains activation blockers" \
     "$REPO_ROOT/scripts/check-session-home-activation-smoke.sh" \
+    "hazmat explain --json" \
+    "plan-only session_home detail" \
     "activation stopped before the toolchain matrix" \
-    "inspect the listed Blocking paths above" \
-    "if no Blocking paths were printed, rebuild and rerun the" \
+    "activation_blockers above" \
+    "if no Blocking paths or session_home details were printed" \
     'HAZMAT_SESSION_HOME_SMOKE_HAZMAT="$PWD/hazmat/hazmat"' \
     "or reinstall Hazmat so the current blocker-detail" \
     "Do not rerun hazmat init."

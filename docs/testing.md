@@ -231,6 +231,11 @@ After explicit approval, run:
 scripts/check-session-home-activation-smoke.sh --run --i-understand-this-runs-hazmat-exec
 ```
 
+If activation stops before the toolchain matrix, the wrapper runs a plan-only
+`hazmat explain --json` with the same binary and scratch project and prints the
+`session_home` block. Use the `activation_blockers` there as the authoritative
+next engineering input; do not rerun `hazmat init` for adapter-required state.
+
 For autonomous gates that should avoid false failures on unprepared machines,
 use:
 
