@@ -95,8 +95,8 @@ Recommendation:
   `hazmat init --dry-run` for setup preview.
 - Add a compact "Using another harness?" link line before the detailed proof
   section, not after it.
-- Route failed setup/check experiences to `hazmat doctor --dry-run` language
-  only once doctor/check UX is fully consistent.
+- Route failed setup/check experiences directly to `hazmat doctor --fix`, with
+  `hazmat doctor --dry-run` framed only as the preview path.
 
 ### Is It Alive And Credible?
 
