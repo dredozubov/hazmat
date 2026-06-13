@@ -60,7 +60,7 @@ func runTest(options diagnostics.CheckOptions) error {
 				fmt.Printf("  Running as: %s\n", cu.Username)
 				fmt.Printf("  Agent user: %s\n", agentUser)
 				if quick {
-					cYellow.Println("  Quick mode: helper-backed live probes skipped")
+					cYellow.Println("  Quick mode: helper-backed, backup, and cloud live validation skipped")
 				}
 				fmt.Println()
 			}

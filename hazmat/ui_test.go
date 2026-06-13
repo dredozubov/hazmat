@@ -98,6 +98,10 @@ func TestUIRecommendationFramingDistinguishesCheckAndDoctor(t *testing.T) {
 	if got := doctorUI.recommendationFooter(); !strings.Contains(got, "executable repairs") {
 		t.Fatalf("doctor footer = %q, want fix path scoped to executable repairs", got)
 	}
+	doctorFixUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "doctor", Fix: true}}
+	if got := doctorFixUI.recommendationFooter(); !strings.Contains(got, "full live validation") || !strings.Contains(got, "hazmat check --full") {
+		t.Fatalf("doctor fix footer = %q, want approval-gated full validation pointer", got)
+	}
 
 	initUI := &UI{RepairExecution: diagnosticRepairExecutionRequest{Command: "init"}}
 	if got := initUI.recommendationSectionTitle(); got != "━━━ Post-init repair verification ━━━" {
@@ -455,6 +459,9 @@ func TestUIDiagnosticReportDoctorFixYesExecutesSharedPlan(t *testing.T) {
 	}
 	if !strings.Contains(plan.NextSteps[0].Reason, "helper-backed, backup, and cloud live validation") || !strings.Contains(plan.NextSteps[0].Reason, "ask before running") {
 		t.Fatalf("next step reason = %q, want full live-validation approval disclosure", plan.NextSteps[0].Reason)
+	}
+	if footer := ui.repairPlanFooter(plan); !strings.Contains(footer, "full live validation") || !strings.Contains(footer, "hazmat check --full") {
+		t.Fatalf("repair footer = %q, want approval-gated full validation pointer", footer)
 	}
 }
 
