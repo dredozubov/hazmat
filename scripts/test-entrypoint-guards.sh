@@ -14,6 +14,7 @@
 #   - live README proof-stack smoke refuses to run without its explicit ack
 #   - native harness smoke refuses live mode without its explicit ack
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
+#   - Linux-in-Apple-Container smoke refuses live mode without its explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
 #   - release script refuses hazmat claude and push-capable paths without ack
 #   - guarded live wrappers default to disclosure-only output
@@ -384,6 +385,11 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-linux-trace-smoke.sh" --run
 
 assert_fails_with \
+    "Linux Apple Container smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-apple-container-linux-tests" \
+    bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --run
+
+assert_fails_with \
     "Apple Container spike requires live ack" \
     "refusing live run without --i-understand-this-runs-apple-container-spike" \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh" --run
@@ -464,6 +470,11 @@ assert_succeeds_with \
     "Linux trace smoke defaults to disclosure" \
     "linux-trace-smoke: disclosure-only" \
     "$REPO_ROOT/scripts/check-linux-trace-smoke.sh"
+
+assert_succeeds_with \
+    "Linux Apple Container smoke defaults to disclosure" \
+    "linux-apple-container-smoke: disclosure-only" \
+    bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh"
 
 assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
@@ -630,6 +641,15 @@ assert_help_contains_all \
     "--skip-if-missing-prereqs" \
     "sudo -n" \
     "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
+
+assert_help_contains_all \
+    "Linux Apple Container smoke documents approval-gated prereqs" \
+    "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" \
+    "--check-prereqs" \
+    "--skip-if-missing-prereqs" \
+    "container system status" \
+    "Agents must ask for explicit approval before running" \
+    "--check-prereqs, --skip-if-missing-prereqs, or --run"
 
 assert_help_contains_all \
     "Claude Workflow export smoke documents fixture consent" \

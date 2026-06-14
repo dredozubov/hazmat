@@ -14,6 +14,7 @@ are not interchangeable.
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/pre-release-local.sh` | Local release gate, including fast checks, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
+| `scripts/check-linux-apple-container-smoke.sh` | Do selected Linux Hazmat Go test binaries pass inside Apple Container on macOS? | Prepared macOS 26 Apple silicon host, explicit approval only | Creates short-lived Apple Container sessions |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
@@ -99,6 +100,45 @@ If you install the repo-local hooks with `hazmat hooks install -C .` (or
 The legacy `scripts/pre-commit`, `scripts/pre-push`, and `scripts/check-fast.sh`
 entrypoints remain as compatibility wrappers for manual runs and older docs, but
 they are no longer the source of truth for Git hook installation.
+
+### Linux tests in Apple Container
+
+Use this when you want Linux runtime test execution from a prepared macOS 26
+Apple silicon host without switching to a separate Linux VM. The default mode is
+a disclosure and does not invoke Apple Container:
+
+```bash
+scripts/check-linux-apple-container-smoke.sh
+make linux-apple-container-smoke
+```
+
+Before a live run, check whether the current host is prepared:
+
+```bash
+scripts/check-linux-apple-container-smoke.sh --check-prereqs
+```
+
+After explicit approval, run the focused Linux package set:
+
+```bash
+scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
+```
+
+The wrapper cross-compiles selected test binaries for `linux/arm64` by default,
+mounts the repo and generated binaries read-only, and runs each package in an
+exact-named short-lived Apple Container. It defaults to `--network none` and the
+`golang:1.25` image. Pre-pull that image if you want the live smoke itself to
+avoid registry access.
+
+To broaden the run, override the package set:
+
+```bash
+HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' \
+  scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
+```
+
+`--check-prereqs`, `--skip-if-missing-prereqs`, and `--run` are approval-gated
+because they inspect or invoke local Apple Container host state.
 
 ### Codex app-server smoke
 

@@ -566,6 +566,8 @@ Smoke tests, gated on a macOS 26 Apple silicon host with `container` installed:
 - verify container is removed after normal exit
 - interrupt a running session and verify best-effort cleanup
 - verify `--network none` fails closed
+- run selected Linux Go test binaries through
+  `scripts/check-linux-apple-container-smoke.sh`
 
 Manual security checks:
 
