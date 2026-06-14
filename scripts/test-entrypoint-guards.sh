@@ -400,6 +400,11 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
 
 assert_fails_with \
+    "privileged install ownership rollback check requires live ack" \
+    "refusing rollback residue check without --i-understand-this-checks-privileged-install-ownership" \
+    bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --after-rollback
+
+assert_fails_with \
     "make linux-apple-container-test requires APPLE_CONTAINER_ACK=1" \
     "Refusing to run live Apple Container Linux tests." \
     make -C "$REPO_ROOT/hazmat" linux-apple-container-test
@@ -675,6 +680,7 @@ assert_help_contains_all \
     "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" \
     "--check-prereqs" \
     "--skip-if-missing-prereqs" \
+    "--after-rollback" \
     "sudo -n" \
     "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
 

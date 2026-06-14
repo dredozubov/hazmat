@@ -139,7 +139,8 @@ Required checks:
   agent home.
 
 The approval-gated wrapper for the real-host check is
-`scripts/check-privileged-install-ownership.sh`.
+`scripts/check-privileged-install-ownership.sh`. Use `--run` after setup and
+`--after-rollback` after rollback.
 
 Apple Container Linux tests do not prove this property: they run as the invoking
 UID/GID and do not exercise sudo-backed install ownership.

@@ -24,8 +24,10 @@ Options:
                             exit 2 with reasons when the host is not ready.
   --skip-if-missing-prereqs Skip with exit 0 when prerequisites are missing.
   --run                     Verify post-init ownership and agent write probes.
+  --after-rollback          Verify rollback left no root-owned setup residue.
   --i-understand-this-checks-privileged-install-ownership
-                            Required acknowledgement for --run.
+                            Required acknowledgement for --run and
+                            --after-rollback.
   -h, --help                Show this help.
 
 This check is sudo-adjacent. Prereq and live modes inspect local agent setup,
@@ -44,6 +46,9 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--run)
 			MODE="run"
+			;;
+		--after-rollback)
+			MODE="after-rollback"
 			;;
 		--i-understand-this-checks-privileged-install-ownership)
 			ACK=1
@@ -139,6 +144,30 @@ run_check() {
 	echo "privileged-install-ownership: ownership and agent write probes ok"
 }
 
+run_after_rollback_check() {
+	failed=0
+	for path in $(ownership_paths); do
+		if [ ! -e "$path" ]; then
+			continue
+		fi
+		got="$(stat_owner_group "$path")"
+		case "$got" in
+			root:*)
+				echo "privileged-install-ownership: rollback left root-owned residue: $path ($got)" >&2
+				failed=1
+				;;
+			*)
+				echo "privileged-install-ownership: rollback residue remains but is not root-owned: $path ($got)" >&2
+				failed=1
+				;;
+		esac
+	done
+	if [ "$failed" -ne 0 ]; then
+		exit 1
+	fi
+	echo "privileged-install-ownership: rollback residue check ok"
+}
+
 case "$MODE" in
 	disclose)
 		usage
@@ -171,5 +200,12 @@ case "$MODE" in
 			exit 2
 		fi
 		run_check
+		;;
+	after-rollback)
+		if [ "$ACK" -ne 1 ]; then
+			echo "privileged-install-ownership: refusing rollback residue check without --i-understand-this-checks-privileged-install-ownership" >&2
+			exit 2
+		fi
+		run_after_rollback_check
 		;;
 esac
