@@ -136,6 +136,9 @@ Required checks:
 - The rollback half asserts no residual root-owned setup path remains under the
   agent home.
 
+The approval-gated wrapper for the real-host check is
+`scripts/check-privileged-install-ownership.sh`.
+
 Apple Container Linux tests do not prove this property: they run as the invoking
 UID/GID and do not exercise sudo-backed install ownership.
 

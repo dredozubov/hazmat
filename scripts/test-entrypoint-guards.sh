@@ -395,6 +395,11 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --go-test
 
 assert_fails_with \
+    "privileged install ownership check requires live ack" \
+    "refusing live run without --i-understand-this-checks-privileged-install-ownership" \
+    bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
+
+assert_fails_with \
     "make linux-apple-container-test requires APPLE_CONTAINER_ACK=1" \
     "Refusing to run live Apple Container Linux tests." \
     make -C "$REPO_ROOT/hazmat" linux-apple-container-test
@@ -664,6 +669,14 @@ assert_help_contains_all \
     "Default: ./..." \
     "Agents must ask for explicit approval before running" \
     "--check-prereqs, --skip-if-missing-prereqs, --run, or --go-test"
+
+assert_help_contains_all \
+    "privileged install ownership check documents sudo-adjacent prereqs" \
+    "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" \
+    "--check-prereqs" \
+    "--skip-if-missing-prereqs" \
+    "sudo -n" \
+    "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
 
 assert_succeeds_with \
     "Linux Apple Container smoke default packages list for linux" \

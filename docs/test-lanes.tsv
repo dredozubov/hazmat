@@ -31,6 +31,7 @@ scripts/check-linux-compile.sh	os-linux	-
 scripts/check-linux-trace-smoke.sh	live-approved	os-linux
 scripts/check-macos-trace-smoke.sh	live-approved	os-macos
 scripts/check-openhands-recipe-smoke.sh	live-approved	product-workflows
+scripts/check-privileged-install-ownership.sh	privileged-install-ownership	live-approved
 scripts/check-readme-proof-stack-smoke.sh	live-approved	product-workflows
 scripts/check-secret-patterns.sh	source-safety	-
 scripts/check-session-home-activation-smoke.sh	live-approved	product-workflows
