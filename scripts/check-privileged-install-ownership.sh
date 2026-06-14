@@ -32,7 +32,8 @@ Options:
 
 This check is sudo-adjacent. Prereq and live modes inspect local agent setup,
 use sudo -n, and run mkdir/rmdir probes as the agent user.
-Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run.
+Agents must ask before running --check-prereqs, --skip-if-missing-prereqs,
+--run, or --after-rollback.
 EOF
 }
 
@@ -158,7 +159,6 @@ run_after_rollback_check() {
 				;;
 			*)
 				echo "privileged-install-ownership: rollback residue remains but is not root-owned: $path ($got)" >&2
-				failed=1
 				;;
 		esac
 	done

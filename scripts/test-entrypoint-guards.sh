@@ -682,7 +682,8 @@ assert_help_contains_all \
     "--skip-if-missing-prereqs" \
     "--after-rollback" \
     "sudo -n" \
-    "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs, or --run"
+    "Agents must ask before running --check-prereqs, --skip-if-missing-prereqs," \
+    "--run, or --after-rollback."
 
 assert_succeeds_with \
     "Linux Apple Container smoke default packages list for linux" \

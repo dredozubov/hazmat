@@ -96,6 +96,11 @@ assert_file_absent() {
     fi
 }
 
+check_privileged_install_ownership() {
+    bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" "$@" \
+        --i-understand-this-checks-privileged-install-ownership
+}
+
 # ── Build ────────────────────────────────────────────────────────────────────
 
 phase "Build"
@@ -115,6 +120,9 @@ phase "Unit tests"
 
 phase "Phase 1: Fresh install"
 "$HAZMAT" init --yes && pass "hazmat init completed" || fail "hazmat init failed"
+check_privileged_install_ownership --run \
+    && pass "privileged install ownership verified after init" \
+    || fail "privileged install ownership check failed after init"
 
 if [ -n "$QUICK" ]; then
     "$HAZMAT" check && pass "hazmat check passed" \
@@ -266,6 +274,9 @@ phase "Phase 6: Rollback"
 "$HAZMAT" rollback --delete-user --delete-group --yes \
     && pass "hazmat rollback completed" \
     || fail "hazmat rollback failed"
+check_privileged_install_ownership --after-rollback \
+    && pass "privileged install ownership rollback residue check passed" \
+    || fail "privileged install ownership rollback residue check failed"
 
 # Every artifact must be gone
 ! id agent > /dev/null 2>&1 \

@@ -20,7 +20,7 @@ or with a product-facing scenario flow.
 | `scripts/pre-release-local.sh` | Local release gate, including fast checks, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-linux-apple-container-smoke.sh` | Do selected Linux Hazmat Go test binaries and container-native `go test` pass inside Apple Container on macOS? | Prepared macOS 26 Apple silicon host, explicit approval only | Creates short-lived Apple Container sessions |
-| `scripts/check-privileged-install-ownership.sh` | Do setup-created agent-writeable directories have the expected agent uid/gid and accept agent write probes after init? | Disposable prepared host, explicit approval only | Runs `sudo -n` and agent-user mkdir/rmdir probes |
+| `scripts/check-privileged-install-ownership.sh` | Do setup-created agent-writeable directories have the expected agent uid/gid after init, accept agent write probes, and avoid root-owned rollback residue? | Disposable prepared host; explicit approval when invoked directly; also runs inside destructive `scripts/e2e.sh` | Runs `sudo -n`, stat probes, and agent-user mkdir/rmdir probes |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
@@ -661,9 +661,11 @@ HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
 make e2e E2E_ACK=1
 ```
 
-This script runs `hazmat init`, exercises containment and restore behavior,
-then runs `hazmat rollback --delete-user --delete-group --yes` before re-initializing.
-It is intentionally destructive to the local Hazmat setup.
+This script runs `hazmat init`, verifies privileged install ownership on the
+real host, exercises containment and restore behavior, then runs
+`hazmat rollback --delete-user --delete-group --yes` and verifies there is no
+root-owned ownership-lane residue before re-initializing. It is intentionally
+destructive to the local Hazmat setup.
 
 ### VM-backed lifecycle
 
