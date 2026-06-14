@@ -17,7 +17,7 @@ or with a product-facing scenario flow.
 | `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
 | `hazmat check` / `hazmat doctor --dry-run` | Is this local Hazmat install healthy right now, and what should I fix next? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
-| `scripts/pre-release-local.sh` | Local release gate, including fast checks, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
+| `scripts/pre-release-local.sh` | Local release gate, including fast checks, package-boundary guard, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-linux-apple-container-smoke.sh` | Do selected Linux Hazmat Go test binaries and container-native `go test` pass inside Apple Container on macOS? | Prepared macOS 26 Apple silicon host, explicit approval only | Creates short-lived Apple Container sessions |
 | `scripts/check-privileged-install-ownership.sh` | Do setup-created agent-writeable directories have the expected agent uid/gid after init, accept agent write probes, and avoid root-owned rollback residue? | Disposable prepared host; explicit approval when invoked directly; also runs inside destructive `scripts/e2e.sh` | Runs `sudo -n`, stat probes, and agent-user mkdir/rmdir probes |
@@ -608,10 +608,11 @@ make pre-release-local
 scripts/pre-release-audit.sh
 ```
 
-This runs the fast repository gate (`scripts/pre-push`) and then the all-harness
-synthetic e2e smoke. `scripts/release.sh` runs the same local gate before it
-asks Hazmat-contained Claude to draft `CHANGELOG.md`, so a release cannot
-proceed locally if the hermetic harness smoke fails. The release script requires
+This runs the fast repository gate (`scripts/pre-push`), the package-boundary
+guard, the all-harness synthetic e2e smoke, and the fake service-harness
+lifecycle smoke. `scripts/release.sh` runs the same local gate before it asks
+Hazmat-contained Claude to draft `CHANGELOG.md`, so a release cannot proceed
+locally if the hermetic harness smoke fails. The release script requires
 `--i-understand-this-runs-hazmat-claude`; non-dry mode also requires
 `--i-understand-this-may-push-release`. `scripts/pre-release-audit.sh` writes a
 markdown evidence record for the lane results and any skipped live/disposable
@@ -624,9 +625,9 @@ bash scripts/pre-release-local.sh --vm
 make pre-release-local PRERELEASE_ARGS=--vm
 ```
 
-The VM lane runs `scripts/e2e-vm.sh --quick`. First run creates a reusable
-Lume base VM, so it can take a long time. Cache the IPSW once before the first
-VM install:
+The VM lane runs `scripts/e2e-vm.sh --quick`. First run creates or resumes a
+reusable Lume base VM, so it can take a long time. Cache the IPSW once before
+the first VM install:
 
 ```bash
 bash scripts/e2e-vm.sh --step download --quick
@@ -658,49 +659,36 @@ Use this only on a disposable host setup, or prefer the VM wrapper below:
 
 ```bash
 HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+bash scripts/e2e.sh --vm --quick
 make e2e E2E_ACK=1
 ```
 
-This script runs `hazmat init`, verifies privileged install ownership on the
-real host, exercises containment and restore behavior, then runs
-`hazmat rollback --delete-user --delete-group --yes` and verifies there is no
-root-owned ownership-lane residue before re-initializing. It is intentionally
-destructive to the local Hazmat setup.
+In host mode, this script runs `hazmat init`, verifies privileged install
+ownership on the real host, exercises containment and restore behavior, then
+runs `hazmat rollback --delete-user --delete-group --yes` and verifies there is
+no root-owned ownership-lane residue before re-initializing. It is
+intentionally destructive to the local Hazmat setup.
+
+Use `--vm` for the same lifecycle inside an isolated Lume VM. The compatibility
+wrapper `scripts/e2e-vm.sh` delegates to `scripts/e2e.sh --vm` so the host and
+VM lifecycle cannot drift.
 
 ### VM-backed lifecycle
 
 This is the safer local release-grade path:
 
 ```bash
-bash scripts/e2e-vm.sh --quick
+bash scripts/e2e.sh --vm --quick
 ```
 
-The VM wrapper provisions a Lume macOS guest, copies the repo into the guest,
-and runs `scripts/e2e.sh` there.
-
-The base VM setup is intentionally split into restartable steps:
-
-```bash
-bash scripts/e2e-vm.sh --step download --quick # download/cache IPSW once
-bash scripts/e2e-vm.sh --step install --quick  # install macOS base only
-bash scripts/e2e-vm.sh --step setup --quick    # run/retry Setup Assistant
-bash scripts/e2e-vm.sh --step base --quick     # install Go and readiness marker
-bash scripts/e2e-vm.sh --quick                 # clone base and run lifecycle
-```
-
-Use `--reset-vm-base` only when you intentionally want to delete the cached
-base VM. It does not delete the cached IPSW. By default the IPSW cache lives
-under `${XDG_CACHE_HOME:-$HOME/.cache}/hazmat/e2e-vm/ipsw`; override it with
-`HAZMAT_E2E_IPSW_CACHE_DIR`, or use `HAZMAT_E2E_IPSW=/path/to/file.ipsw` to
-provide a manually managed restore image.
+The VM mode provisions a Lume macOS guest, copies the repo into the guest, and
+runs the same `scripts/e2e.sh` lifecycle there.
 
 ## Host vs VM Model
 
-- `hazmat check`, `pre-push`, default `pre-release-local`, `e2e-bootstrap`,
-  the hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
+- `hazmat check`, `pre-push`, `pre-release-local`, `e2e-bootstrap`, the
+  hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
   surfaces.
-- `pre-release-local --vm` adds the isolated VM lifecycle gate and should be
-  treated as the release-grade local lifecycle procedure.
 - `scripts/e2e-harness-smoke-native.sh` is host-side and prepared-host-only:
   default mode is disclosure-only; live mode requires `hazmat init`, an
   `agent` account, `sudo -n`, and exact-command approval.

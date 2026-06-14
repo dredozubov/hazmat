@@ -325,6 +325,11 @@ assert_help_contains_all \
     "bash scripts/e2e-vm.sh --step setup --quick"
 
 assert_fails_with \
+    "scripts/e2e.sh rejects VM keep outside VM mode" \
+    "--keep is only valid with --vm" \
+    env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --keep
+
+assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e

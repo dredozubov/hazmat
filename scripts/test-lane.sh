@@ -126,7 +126,7 @@ case "$1" in
 		exit 2
 		;;
 	destructive-lifecycle)
-		echo "test-lane: destructive-lifecycle must run through scripts/e2e-vm.sh or scripts/e2e.sh with explicit approval." >&2
+		echo "test-lane: destructive-lifecycle must run through scripts/e2e.sh --vm or host-side scripts/e2e.sh with explicit approval." >&2
 		exit 2
 		;;
 	drift)

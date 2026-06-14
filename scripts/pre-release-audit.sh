@@ -79,9 +79,9 @@ cat >"$OUTPUT_PATH" <<EOF
 | release-artifacts | \`scripts/test-lane.sh release-artifacts\` or release workflow preflight/build | pending | |
 | tla-proof-hygiene | CI \`tla-proof-hygiene\` or \`scripts/test-lane.sh tla-proof-hygiene\` | pending | |
 | tla-model-check | CI \`tla-model-check\` or \`scripts/test-lane.sh tla-model-check\` | pending | |
-| privileged-install-ownership | \`scripts/check-privileged-install-ownership.sh --run ...\` and \`--after-rollback ...\` on disposable host | pending | |
+| privileged-install-ownership | \`scripts/e2e.sh --vm --quick\` lifecycle, or direct \`scripts/check-privileged-install-ownership.sh --run ...\` and \`--after-rollback ...\` on disposable host | pending | |
 | live-approved | Relevant wrapper(s), exact command approval required | pending | |
-| destructive-lifecycle | \`scripts/e2e-vm.sh --quick\` or documented skip | pending | |
+| destructive-lifecycle | \`scripts/e2e.sh --vm --quick\` or documented skip | pending | |
 
 ## Lane Registry Snapshot
 

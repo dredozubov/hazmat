@@ -353,8 +353,9 @@ bash scripts/pre-release-local.sh
 make linux-apple-container-test APPLE_CONTAINER_ACK=1
 ```
 
-The first command is non-live. The second command is Apple Container live
-execution and remains approval-gated.
+The first command runs the VM destructive lifecycle by default; set
+`HAZMAT_PRERELEASE_SKIP_E2E_VM=1` only with an audit-recorded skip reason. The
+second command is Apple Container live execution and remains approval-gated.
 
 ## CI Flow
 

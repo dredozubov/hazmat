@@ -9,11 +9,12 @@
 # Usage:
 #   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh
 #   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+#   bash scripts/e2e.sh --vm --quick
 #
 # Warning:
 #   This script is destructive to the local Hazmat setup. It runs init,
 #   rollback --delete-user --delete-group, and then re-inits again. Prefer
-#   scripts/e2e-vm.sh for isolated local verification.
+#   scripts/e2e.sh --vm for isolated local verification.
 #
 # Prerequisites:
 #   - macOS with sudo access
@@ -26,13 +27,21 @@ usage() {
 Usage:
   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh
   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+  bash scripts/e2e.sh --vm --quick
 
 This host-side lifecycle test is destructive to the current Hazmat setup.
-Prefer scripts/e2e-vm.sh for isolated local verification.
+Prefer --vm for isolated local verification.
+
+Options:
+  --quick    Skip live network probes inside the lifecycle.
+  --vm       Run this lifecycle inside an isolated Lume macOS VM.
+  --keep     With --vm, keep the test VM for debugging instead of deleting it.
 EOF
 }
 
 QUICK=""
+RUN_IN_VM=""
+KEEP_VM=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -48,6 +57,12 @@ while [ "$#" -gt 0 ]; do
         --quick)
             QUICK="1"
             ;;
+        --vm)
+            RUN_IN_VM="1"
+            ;;
+        --keep)
+            KEEP_VM="1"
+            ;;
         --help|-h)
             usage
             exit 0
@@ -61,9 +76,144 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ -n "$KEEP_VM" ] && [ -z "$RUN_IN_VM" ]; then
+    echo "error: --keep is only valid with --vm" >&2
+    usage >&2
+    exit 2
+fi
+
+run_e2e_vm() {
+    local base_vm="${HAZMAT_E2E_BASE_VM:-hazmat-e2e-base}"
+    local test_vm="${HAZMAT_E2E_TEST_VM:-hazmat-e2e-$$}"
+    local vm_user="${HAZMAT_E2E_VM_USER:-lume}"
+    local vm_pass="${HAZMAT_E2E_VM_PASS:-lume}"
+    local vm_ip=""
+    local guest_repo="/tmp/hazmat-repo"
+
+    get_vm_ip() {
+        local vm="$1"
+        local ip
+        ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
+        if [ -z "$ip" ]; then
+            ip=$(lume get "$vm" 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1 || true)
+        fi
+        echo "$ip"
+    }
+
+    wait_for_ssh() {
+        local vm="$1"
+        echo "Waiting for SSH on $vm..."
+        for _ in $(seq 1 90); do
+            local ip
+            ip=$(get_vm_ip "$vm")
+            if [ -n "$ip" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" true 2>/dev/null; then
+                echo "SSH ready at $vm_user@$ip"
+                return 0
+            fi
+            sleep 2
+        done
+        echo "Error: VM did not become reachable via SSH within 180s"
+        return 1
+    }
+
+    vm_ssh_to() {
+        local ip="$1"
+        shift
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$vm_user@$ip" "$@"
+    }
+
+    cleanup_vm() {
+        if [ -n "$KEEP_VM" ]; then
+            echo ""
+            echo "VM $test_vm kept alive for debugging."
+            echo "  SSH:     ssh $vm_user@$vm_ip"
+            echo "  Destroy: lume stop $test_vm && lume delete $test_vm --force"
+            return
+        fi
+        echo "Cleaning up VM $test_vm..."
+        lume stop "$test_vm" 2>/dev/null || true
+        lume delete "$test_vm" --force 2>/dev/null || true
+    }
+    trap cleanup_vm EXIT
+
+    if ! command -v lume >/dev/null 2>&1; then
+        echo "Error: lume not found. Install with: brew install lume"
+        exit 1
+    fi
+
+    if lume get "$base_vm" >/dev/null 2>&1; then
+        echo "Base VM $base_vm already exists."
+    else
+        local host_version preset base_pid base_ip
+        host_version=$(sw_vers -productVersion | cut -d. -f1)
+        case "$host_version" in
+            26) preset="tahoe" ;;
+            15) preset="sequoia" ;;
+            *) preset="tahoe" ;;
+        esac
+
+        echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
+        echo "Host macOS $host_version -> using '$preset' preset."
+        echo "This downloads macOS from Apple and runs unattended Setup Assistant."
+        lume create "$base_vm" \
+            --os macOS \
+            --ipsw latest \
+            --cpu 4 \
+            --memory 8GB \
+            --disk-size 50GB \
+            --unattended "$preset" \
+            --no-display
+        echo "Base VM $base_vm created."
+
+        echo "Installing Go in base VM..."
+        lume run "$base_vm" --no-display &
+        base_pid=$!
+
+        wait_for_ssh "$base_vm"
+
+        base_ip=$(get_vm_ip "$base_vm")
+        vm_ssh_to "$base_ip" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        vm_ssh_to "$base_ip" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'
+        vm_ssh_to "$base_ip" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"
+
+        lume stop "$base_vm"
+        wait "$base_pid" || true
+        echo "Base VM ready with Go + passwordless sudo."
+    fi
+
+    echo "Cloning $base_vm -> $test_vm..."
+    lume clone "$base_vm" "$test_vm"
+
+    echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
+    lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" &
+
+    wait_for_ssh "$test_vm"
+    vm_ip=$(get_vm_ip "$test_vm")
+
+    echo "Copying repo to VM local disk..."
+    vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+
+    echo ""
+    echo "════════════════════════════════════════════════════════"
+    echo "  Running E2E tests inside VM ($test_vm)"
+    echo "════════════════════════════════════════════════════════"
+    echo ""
+
+    local quick_arg=""
+    if [ -n "$QUICK" ]; then
+        quick_arg="--quick"
+    fi
+    vm_ssh_to "$vm_ip" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+}
+
+if [ -n "$RUN_IN_VM" ]; then
+    run_e2e_vm
+    exit 0
+fi
+
 if [ -z "${CI:-}" ] && [ "${HAZMAT_E2E_ACK_DESTRUCTIVE:-}" != "1" ]; then
     echo "error: scripts/e2e.sh is destructive to the local Hazmat setup." >&2
-    echo "Run with HAZMAT_E2E_ACK_DESTRUCTIVE=1, or prefer scripts/e2e-vm.sh for isolated verification." >&2
+    echo "Run with HAZMAT_E2E_ACK_DESTRUCTIVE=1, or prefer scripts/e2e.sh --vm for isolated verification." >&2
     exit 1
 fi
 

@@ -309,7 +309,7 @@ jobs:
           cache-dependency-path: ${{ env.GO_CACHE_DEP }}
 
       - name: E2E lifecycle test
-        run: bash scripts/e2e.sh --quick
+        run: HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
 
   e2e-bootstrap:
     name: E2E bootstrap
