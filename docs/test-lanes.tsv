@@ -51,4 +51,5 @@ scripts/release.sh	release-artifacts	product-workflows
 scripts/spike-apple-container.sh	live-approved	os-linux
 scripts/test-credential-regressions.sh	source-safety	-
 scripts/test-entrypoint-guards.sh	cli-ux	source-safety
+scripts/test-lane.sh	product-workflows	source-safety,package-boundaries,package-contracts,cli-ux,release-artifacts
 scripts/test-secret-patterns.sh	source-safety	-

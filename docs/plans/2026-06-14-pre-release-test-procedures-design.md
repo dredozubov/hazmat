@@ -49,7 +49,9 @@ stable audit labels; scripts and CI jobs may be reorganized as long as the lane
 contract remains clear. The checked-in registry is
 [docs/test-lanes.tsv](../test-lanes.tsv), and
 `TestEveryEntrypointMapsToALane` fails when a top-level `scripts/*.sh` entrypoint
-or `.github/workflows/ci.yml` job lacks a primary lane.
+or `.github/workflows/ci.yml` job lacks a primary lane. The local non-live lane
+aggregator is `scripts/test-lane.sh`; it refuses approval-gated lanes and
+points to their exact wrappers instead.
 
 | Lane | Procedure | Primary owner | Runs where | Release status |
 | --- | --- | --- | --- | --- |
