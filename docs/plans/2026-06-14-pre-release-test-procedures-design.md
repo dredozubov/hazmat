@@ -46,7 +46,10 @@ Rejected alternatives:
 
 Every automated test entrypoint should map to one or more lanes. Lane names are
 stable audit labels; scripts and CI jobs may be reorganized as long as the lane
-contract remains clear.
+contract remains clear. The checked-in registry is
+[docs/test-lanes.tsv](../test-lanes.tsv), and
+`TestEveryEntrypointMapsToALane` fails when a top-level `scripts/*.sh` entrypoint
+or `.github/workflows/ci.yml` job lacks a primary lane.
 
 | Lane | Procedure | Primary owner | Runs where | Release status |
 | --- | --- | --- | --- | --- |
@@ -400,7 +403,8 @@ Move tests in small, reviewable chunks:
 
 0. Extract SBPL, planner, and Docker-launch producers under the core-session
    extraction plan before moving their root-private goldens.
-1. Add lane labels to docs and scripts without changing behavior.
+1. Add lane labels to `docs/test-lanes.tsv` and keep
+   `TestEveryEntrypointMapsToALane` green.
 2. Keep `package-boundaries` green in CI and local pre-release.
 3. Move backend plan and prepared-launch goldens from root tests to
    `sessionbackend`.
