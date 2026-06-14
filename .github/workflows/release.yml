@@ -8,9 +8,39 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: hazmat/go.mod
+          cache-dependency-path: hazmat/go.sum
+
+      - name: Vet
+        working-directory: hazmat
+        run: go vet ./...
+
+      - name: Unit tests
+        working-directory: hazmat
+        run: go test ./...
+
+      - name: Package boundary guard
+        run: bash scripts/check-import-boundaries.sh
+
+      - name: Test entrypoint guards
+        run: bash scripts/test-entrypoint-guards.sh
+
+      - name: CLI smoke tests
+        working-directory: hazmat
+        run: bash ../scripts/check-cli-smoke.sh
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: macos-latest
+    needs: preflight
     strategy:
       matrix:
         include:

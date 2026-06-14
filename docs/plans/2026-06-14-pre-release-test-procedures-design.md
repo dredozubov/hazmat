@@ -249,10 +249,11 @@ Evidence:
 - install/refusal tests
 - release workflow artifact checks
 
-Current release workflow caveat: `.github/workflows/release.yml` builds and
-publishes tag artifacts, but it does not run the full test suite itself. Until a
-release precondition job is added there, tags must be cut only from commits that
-already passed blocking CI and the local pre-release gate.
+`.github/workflows/release.yml` has a release preflight job before artifact
+builds. It runs macOS vet/tests, package-boundary checks, entrypoint guards, and
+CLI smoke tests on the tagged commit. Tags should still be cut only from commits
+that already passed blocking CI and the local pre-release gate, because release
+preflight is a final artifact guard, not a replacement for the full CI matrix.
 
 ## OS Mapping
 

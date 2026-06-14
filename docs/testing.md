@@ -749,6 +749,9 @@ Current GitHub Actions coverage:
   - wave-1 repo-matrix smoke on push
 - `.github/workflows/stack-matrix-drift.yml`
   - non-blocking scheduled drift checks against upstream heads
+- `.github/workflows/release.yml`
+  - release preflight on the tagged commit before artifact builds
+  - Darwin artifact build, checksums, GitHub release creation, and Homebrew tap update
 
 The target CI shape is lane-based: source safety, package-boundary checks, Linux
 and macOS package tests, CLI/product-flow checks, release artifact checks, TLA
@@ -768,5 +771,8 @@ the lane contracts and audit checklist.
   verified TLA+ setup/rollback model.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
+- Do not treat release preflight as a replacement for pull-request/main CI. It
+  protects tag artifacts on the final commit, but it does not run every matrix
+  and live/disposable-host lane.
 - Do not use `scripts/e2e.sh` casually on a machine where you want to preserve
   the current Hazmat init state.
