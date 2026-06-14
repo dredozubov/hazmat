@@ -8,6 +8,7 @@ CONTAINER_BIN="${HAZMAT_APPLE_CONTAINER_BIN:-container}"
 IMAGE="${HAZMAT_LINUX_APPLE_CONTAINER_IMAGE:-golang:1.25}"
 PACKAGES="${HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES:-./platform/linux ./containment/linux ./internal/runtime ./internal/runtime/linux ./internal/runtime/applecontainer}"
 TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_TEST_ARGS:--test.v}"
+GO_TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS:-$PACKAGES}"
 NETWORK="${HAZMAT_LINUX_APPLE_CONTAINER_NETWORK:-none}"
 GOARCH_VALUE="${HAZMAT_LINUX_APPLE_CONTAINER_GOARCH:-}"
 MODE="disclosure"
@@ -24,10 +25,12 @@ Usage:
   scripts/check-linux-apple-container-smoke.sh --compile-tests
   scripts/check-linux-apple-container-smoke.sh --check-prereqs
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests [--skip-if-missing-prereqs]
+  scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests [--skip-if-missing-prereqs]
 
-Default mode is disclosure-only. Live mode cross-compiles selected Go test
-binaries for linux/<arch>, then runs them in Apple Container with the repository
-and generated test-binary directory mounted read-only.
+Default mode is disclosure-only. The focused live smoke cross-compiles selected
+Go test binaries for linux/<arch>, then runs them in Apple Container. The
+container-native Linux suite runs `go test` inside Apple Container against a
+writable copy of the repository.
 
 Options:
   --check-packages               Check that the selected package set lists for linux/<arch>.
@@ -35,8 +38,9 @@ Options:
   --check-prereqs                Check host-side Apple Container prerequisites.
   --skip-if-missing-prereqs      Exit 0 when prerequisites are absent.
   --run                          Run the live Linux test smoke.
+  --go-test                      Run container-native `go test`.
   --i-understand-this-runs-apple-container-linux-tests
-                                 Required acknowledgement for --run.
+                                 Required acknowledgement for --run and --go-test.
   -h, --help                     Show this help.
 
 Environment:
@@ -46,11 +50,13 @@ Environment:
   HAZMAT_LINUX_APPLE_CONTAINER_NETWORK       container run network. Default: none
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES      Space-separated Go package patterns.
   HAZMAT_LINUX_APPLE_CONTAINER_TEST_ARGS     Args passed to each compiled test binary.
+  HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS  Args passed to container-native go test.
+                                             Default: focused Linux package set.
 
 Prereq checks inspect local Apple Container setup with `container system status`.
 The live run creates short-lived exact-named containers and may pull the
 configured image. Agents must ask for explicit approval before running
---check-prereqs, --skip-if-missing-prereqs, or --run.
+--check-prereqs, --skip-if-missing-prereqs, --run, or --go-test.
 EOF
 }
 
@@ -73,6 +79,9 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--run)
 			MODE="run"
+			;;
+		--go-test)
+			MODE="go-test"
 			;;
 		--i-understand-this-runs-apple-container-linux-tests)
 			ACK_RUN=1
@@ -200,9 +209,10 @@ print_disclosure() {
 linux-apple-container-smoke: disclosure-only
 
 This live smoke cross-compiles selected Hazmat Go test binaries for Linux and
-runs them inside Apple Container. It bind-mounts the repository read-only and
-uses exact-named short-lived containers; it does not run hazmat init, hazmat
-doctor, helper-backed native containment, Docker, or sudo.
+runs them inside Apple Container. It can also run a container-native Linux
+go test suite against a writable copy of the repository. It bind-mounts the
+repository read-only, uses exact-named short-lived containers, and does not run
+hazmat init, hazmat doctor, helper-backed native containment, Docker, or sudo.
 
 Default package set:
   $PACKAGES
@@ -212,6 +222,9 @@ configured image if it is not already present. Ask for explicit approval for
 this exact command before running it:
 
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
+
+Container-native local Linux test-suite:
+  scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
 
 Prereq check:
   scripts/check-linux-apple-container-smoke.sh --check-prereqs
@@ -224,6 +237,7 @@ Compile-only check:
 
 Common override:
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
+  HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...' scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
 EOF
 }
 
@@ -286,6 +300,70 @@ run_smoke() {
 	done
 }
 
+run_go_test_suite() {
+	if [ -z "$GOARCH_VALUE" ]; then
+		GOARCH_VALUE="$(host_arch_default)"
+	fi
+	TMPDIR_LINUX_APPLE_CONTAINER="$(mktemp -d)"
+	mkdir -p "$TMPDIR_LINUX_APPLE_CONTAINER/work"
+
+	gomodcache="$(cd "$APP_DIR" && go env GOMODCACHE)"
+	container_gomodcache="/work/gomodcache"
+	mount_module_cache=0
+	if [ -n "$gomodcache" ] && [ -d "$gomodcache" ]; then
+		mount_module_cache=1
+		container_gomodcache="/go/pkg/mod"
+	fi
+
+	container_name="hazmat-linux-go-test-$$"
+	echo "linux-apple-container-smoke: run go test $GO_TEST_ARGS in $IMAGE"
+	if [ "$mount_module_cache" -eq 1 ]; then
+		# shellcheck disable=SC2086
+		"$(container_cmd)" run --rm \
+			--name "$container_name" \
+			--network "$NETWORK" \
+			--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly" \
+			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/work,target=/work" \
+			--mount "type=bind,source=$gomodcache,target=/go/pkg/mod,readonly" \
+			--workdir /work \
+			"$IMAGE" \
+			sh -eu -c "$container_go_test_script" sh "$container_gomodcache" $GO_TEST_ARGS
+	else
+		# shellcheck disable=SC2086
+		"$(container_cmd)" run --rm \
+			--name "$container_name" \
+			--network "$NETWORK" \
+			--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly" \
+			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/work,target=/work" \
+			--workdir /work \
+			"$IMAGE" \
+			sh -eu -c "$container_go_test_script" sh "$container_gomodcache" $GO_TEST_ARGS
+	fi
+}
+
+container_go_test_script='
+gomodcache="$1"
+shift
+mkdir -p /work/src /work/gocache /work/tmp /work/home "$gomodcache"
+tar -C /hazmat-src \
+	--exclude ./.git \
+	--exclude ./.beads \
+	--exclude ./spike-apple-container-results \
+	--exclude ./tla/states \
+	-cf - . | tar -C /work/src -xf -
+cd /work/src/hazmat
+GOOS=linux \
+GOARCH="$(go env GOHOSTARCH)" \
+CGO_ENABLED=0 \
+GOWORK=off \
+HOME=/work/home \
+GOCACHE=/work/gocache \
+GOMODCACHE="$gomodcache" \
+GOTMPDIR=/work/tmp \
+GOFLAGS="-mod=readonly ${GOFLAGS:-}" \
+go test "$@"
+'
+
 case "$MODE" in
 	disclosure)
 		print_disclosure
@@ -331,5 +409,21 @@ case "$MODE" in
 			exit 2
 		fi
 		run_smoke
+		;;
+	go-test)
+		if [ "$ACK_RUN" -ne 1 ]; then
+			echo "linux-apple-container-smoke: refusing live go-test without --i-understand-this-runs-apple-container-linux-tests" >&2
+			exit 2
+		fi
+		if ! check_prereqs; then
+			if [ "$SKIP_IF_MISSING" -eq 1 ]; then
+				echo "linux-apple-container-smoke: skipped because prerequisites are missing" >&2
+				print_missing_prereqs
+				exit 0
+			fi
+			print_missing_prereqs
+			exit 2
+		fi
+		run_go_test_suite
 		;;
 esac

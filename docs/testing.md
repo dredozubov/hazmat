@@ -14,7 +14,7 @@ are not interchangeable.
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
 | `scripts/pre-release-local.sh` | Local release gate, including fast checks, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
-| `scripts/check-linux-apple-container-smoke.sh` | Do selected Linux Hazmat Go test binaries pass inside Apple Container on macOS? | Prepared macOS 26 Apple silicon host, explicit approval only | Creates short-lived Apple Container sessions |
+| `scripts/check-linux-apple-container-smoke.sh` | Do selected Linux Hazmat Go test binaries and container-native `go test` pass inside Apple Container on macOS? | Prepared macOS 26 Apple silicon host, explicit approval only | Creates short-lived Apple Container sessions |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
@@ -132,16 +132,36 @@ exact-named short-lived Apple Container. It defaults to `--network none` and the
 `golang:1.25` image. Pre-pull that image if you want the live smoke itself to
 avoid registry access.
 
+For the local Linux suite, run actual `go test` inside Apple Container:
+
+```bash
+scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
+make linux-apple-container-test APPLE_CONTAINER_ACK=1
+```
+
+The container-native path mounts the repo read-only, copies it without `.git`,
+`.beads`, Apple Container spike output, or `tla/states` to `/work/src` inside a
+writable temp mount, uses isolated `HOME`, `GOCACHE`, and `GOTMPDIR`, disables
+local `go.work` with `GOWORK=off`, and mounts the host Go module cache read-only
+when present. It defaults to the focused Linux package set with
+`GOFLAGS=-mod=readonly` and `--network none`; use
+`HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS` to broaden or narrow the package set
+or test filter. `HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...'` is useful
+for Linux-portability discovery, but the full tree still contains Darwin and
+host-assumption tests that are not part of the local Linux suite yet.
+
 To broaden the run, override the package set:
 
 ```bash
 HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' \
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
+HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...' \
+  scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
 ```
 
 `--check-packages` and `--compile-tests` are non-live sanity checks.
-`--check-prereqs`, `--skip-if-missing-prereqs`, and `--run` are approval-gated
-because they inspect or invoke local Apple Container host state.
+`--check-prereqs`, `--skip-if-missing-prereqs`, `--run`, and `--go-test` are
+approval-gated because they inspect or invoke local Apple Container host state.
 
 ### Codex app-server smoke
 
