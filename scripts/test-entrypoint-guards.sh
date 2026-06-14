@@ -646,6 +646,7 @@ assert_help_contains_all \
     "Linux Apple Container smoke documents approval-gated prereqs" \
     "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" \
     "--check-packages" \
+    "--compile-tests" \
     "--check-prereqs" \
     "--skip-if-missing-prereqs" \
     "container system status" \
@@ -656,6 +657,12 @@ assert_succeeds_with \
     "Linux Apple Container smoke default packages list for linux" \
     "linux-apple-container-smoke: packages ok" \
     bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --check-packages
+
+assert_succeeds_with \
+    "Linux Apple Container smoke skips packages without tests" \
+    "linux-apple-container-smoke: skip hazmat/internal/runtime/linux; no compiled test binary" \
+    env HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES=./internal/runtime/linux \
+    bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --compile-tests
 
 assert_help_contains_all \
     "Claude Workflow export smoke documents fixture consent" \

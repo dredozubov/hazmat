@@ -21,6 +21,7 @@ usage() {
 Usage:
   scripts/check-linux-apple-container-smoke.sh
   scripts/check-linux-apple-container-smoke.sh --check-packages
+  scripts/check-linux-apple-container-smoke.sh --compile-tests
   scripts/check-linux-apple-container-smoke.sh --check-prereqs
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests [--skip-if-missing-prereqs]
 
@@ -30,6 +31,7 @@ and generated test-binary directory mounted read-only.
 
 Options:
   --check-packages               Check that the selected package set lists for linux/<arch>.
+  --compile-tests                Compile selected linux/<arch> test binaries without running containers.
   --check-prereqs                Check host-side Apple Container prerequisites.
   --skip-if-missing-prereqs      Exit 0 when prerequisites are absent.
   --run                          Run the live Linux test smoke.
@@ -59,6 +61,9 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--check-packages)
 			MODE="packages"
+			;;
+		--compile-tests)
+			MODE="compile"
 			;;
 		--skip-if-missing-prereqs)
 			SKIP_IF_MISSING=1
@@ -214,6 +219,9 @@ Prereq check:
 Package-set check:
   scripts/check-linux-apple-container-smoke.sh --check-packages
 
+Compile-only check:
+  scripts/check-linux-apple-container-smoke.sh --compile-tests
+
 Common override:
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
 EOF
@@ -235,6 +243,7 @@ safe_container_fragment() {
 }
 
 run_smoke() {
+	run_mode="${1:-run}"
 	if [ -z "$GOARCH_VALUE" ]; then
 		GOARCH_VALUE="$(host_arch_default)"
 	fi
@@ -255,6 +264,13 @@ run_smoke() {
 			cd "$APP_DIR"
 			GOOS=linux GOARCH="$GOARCH_VALUE" CGO_ENABLED=0 go test -c "$import_path" -o "$binary"
 		)
+		if [ ! -x "$binary" ]; then
+			echo "linux-apple-container-smoke: skip $import_path; no compiled test binary"
+			continue
+		fi
+		if [ "$run_mode" = "compile-only" ]; then
+			continue
+		fi
 
 		container_name="hazmat-linux-test-$(safe_container_fragment "$import_path")-$$"
 		echo "linux-apple-container-smoke: run $import_path in $IMAGE"
@@ -294,6 +310,11 @@ case "$MODE" in
 			exit 0
 		fi
 		exit 1
+		;;
+	compile)
+		run_smoke compile-only
+		echo "linux-apple-container-smoke: compile ok"
+		exit 0
 		;;
 	run)
 		if [ "$ACK_RUN" -ne 1 ]; then
