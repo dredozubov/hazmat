@@ -3,6 +3,7 @@ package setup
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -108,6 +109,23 @@ func TestEnsureAgentToolchainDirsRepairsParentsBeforeChildren(t *testing.T) {
 	assertPathBefore(t, got, env.DefaultAgentConfigHome, filepath.Dir(env.AgentEnvPath))
 }
 
+func TestAgentToolchainDirsCoverAgentWritableSetupParents(t *testing.T) {
+	for name, home := range map[string]string{
+		"darwin": "/Users/agent",
+		"linux":  "/home/agent",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := testToolingEnvForHome(t, t.TempDir(), home)
+			repairTargets := pathSet(agentToolchainDirs(env))
+			for _, path := range requiredAgentWritableSetupParents(env) {
+				if !repairTargets[filepath.Clean(path)] {
+					t.Fatalf("agentToolchainDirs missing writable setup parent %q; targets=%v", path, sortedPathSet(repairTargets))
+				}
+			}
+		})
+	}
+}
+
 func TestRollbackUserExperienceRemovesManagedBlocksAndHostWrappers(t *testing.T) {
 	tmp := t.TempDir()
 	env := testToolingEnv(t, tmp)
@@ -149,6 +167,11 @@ func TestRollbackUserExperienceRemovesManagedBlocksAndHostWrappers(t *testing.T)
 
 func testToolingEnv(t *testing.T, tmp string) ToolingEnv {
 	t.Helper()
+	return testToolingEnvForHome(t, tmp, "/Users/agent")
+}
+
+func testToolingEnvForHome(t *testing.T, tmp, agentHome string) ToolingEnv {
+	t.Helper()
 	hostWrapperDir := filepath.Join(tmp, "bin")
 	if err := os.MkdirAll(hostWrapperDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -159,16 +182,16 @@ func testToolingEnv(t *testing.T, tmp string) ToolingEnv {
 	}
 	return ToolingEnv{
 		AgentUser:              "agent",
-		AgentHome:              "/Users/agent",
-		SeatbeltProfileDir:     "/Users/agent/.config/hazmat",
-		SeatbeltWrapperPath:    "/Users/agent/.local/bin/claude-sandboxed",
+		AgentHome:              agentHome,
+		SeatbeltProfileDir:     filepath.Join(agentHome, ".config", "hazmat"),
+		SeatbeltWrapperPath:    filepath.Join(agentHome, ".local", "bin", "claude-sandboxed"),
 		SeatbeltWrapper:        "#!/bin/bash\n",
-		AgentEnvPath:           "/Users/agent/.config/hazmat/agent-env.zsh",
+		AgentEnvPath:           filepath.Join(agentHome, ".config", "hazmat", "agent-env.zsh"),
 		DefaultAgentPath:       "/agent/bin:/usr/bin",
-		DefaultAgentCacheHome:  "/Users/agent/.cache",
-		DefaultAgentConfigHome: "/Users/agent/.config",
-		DefaultAgentDataHome:   "/Users/agent/.local/share",
-		DefaultAgentStateHome:  "/Users/agent/.local/state",
+		DefaultAgentCacheHome:  filepath.Join(agentHome, ".cache"),
+		DefaultAgentConfigHome: filepath.Join(agentHome, ".config"),
+		DefaultAgentDataHome:   filepath.Join(agentHome, ".local", "share"),
+		DefaultAgentStateHome:  filepath.Join(agentHome, ".local", "state"),
 		HostWrapperDir:         hostWrapperDir,
 		HostClaudeWrapperName:  "claude-hazmat",
 		HostExecWrapperName:    "agent-exec",
@@ -194,6 +217,81 @@ func testToolingEnv(t *testing.T, tmp string) ToolingEnv {
 			return "/opt/hazmat/bin/hazmat", nil
 		},
 	}
+}
+
+func requiredAgentWritableSetupParents(env ToolingEnv) []string {
+	agentWrittenPaths := []string{
+		env.AgentEnvPath,
+		filepath.Join(env.AgentHome, ".zshrc"),
+		filepath.Join(env.AgentHome, ".npmrc"),
+		filepath.Join(env.AgentHome, ".config", "pip", "pip.conf"),
+		filepath.Join(env.AgentHome, ".local", "bin", "claude"),
+		filepath.Join(env.AgentHome, ".local", "bin", "claude-sandboxed"),
+		filepath.Join(env.AgentHome, ".local", "bin", "codex"),
+		filepath.Join(env.AgentHome, ".local", "bin", "gemini"),
+		filepath.Join(env.AgentHome, ".local", "bin", "hermes"),
+		filepath.Join(env.AgentHome, ".local", "bin", "opencode"),
+		filepath.Join(env.AgentHome, ".local", "bin", "qwen"),
+		filepath.Join(env.AgentHome, ".local", "lib", "node_modules"),
+		filepath.Join(env.AgentHome, ".local", "share", "opencode", "auth.json"),
+		filepath.Join(env.AgentHome, ".npm", "_cacache"),
+	}
+	parents := []string{
+		env.DefaultAgentCacheHome,
+		env.DefaultAgentConfigHome,
+		env.DefaultAgentDataHome,
+		env.DefaultAgentStateHome,
+		filepath.Join(env.AgentHome, ".local"),
+	}
+	for _, path := range agentWrittenPaths {
+		parent := firstRepairTargetForAgentPath(env.AgentHome, path)
+		if parent == filepath.Clean(env.AgentHome) {
+			continue
+		}
+		parents = append(parents, parent)
+	}
+	return compactUniquePaths(parents)
+}
+
+func firstRepairTargetForAgentPath(home, path string) string {
+	home = filepath.Clean(home)
+	path = filepath.Clean(path)
+	rel, err := filepath.Rel(home, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.Dir(path)
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) == 0 || parts[0] == "." {
+		return home
+	}
+	switch parts[0] {
+	case ".cache", ".config", ".npm":
+		return filepath.Join(home, parts[0])
+	case ".local":
+		if len(parts) >= 2 {
+			return filepath.Join(home, ".local", parts[1])
+		}
+		return filepath.Join(home, ".local")
+	default:
+		return filepath.Dir(path)
+	}
+}
+
+func pathSet(paths []string) map[string]bool {
+	out := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		out[filepath.Clean(path)] = true
+	}
+	return out
+}
+
+func sortedPathSet(paths map[string]bool) []string {
+	out := make([]string, 0, len(paths))
+	for path := range paths {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type fakeToolingUI struct{}
