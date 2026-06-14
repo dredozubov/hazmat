@@ -115,6 +115,7 @@ make linux-apple-container-smoke
 Before a live run, check whether the current host is prepared:
 
 ```bash
+scripts/check-linux-apple-container-smoke.sh --check-packages
 scripts/check-linux-apple-container-smoke.sh --check-prereqs
 ```
 
@@ -137,8 +138,9 @@ HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' \
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
 ```
 
-`--check-prereqs`, `--skip-if-missing-prereqs`, and `--run` are approval-gated
-because they inspect or invoke local Apple Container host state.
+`--check-packages` is a non-live package-list sanity check. `--check-prereqs`,
+`--skip-if-missing-prereqs`, and `--run` are approval-gated because they inspect
+or invoke local Apple Container host state.
 
 ### Codex app-server smoke
 

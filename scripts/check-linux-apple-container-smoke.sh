@@ -6,7 +6,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 APP_DIR="$REPO_ROOT/hazmat"
 CONTAINER_BIN="${HAZMAT_APPLE_CONTAINER_BIN:-container}"
 IMAGE="${HAZMAT_LINUX_APPLE_CONTAINER_IMAGE:-golang:1.25}"
-PACKAGES="${HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES:-./platform/linux ./containment/linux ./internal/runtime/linux ./internal/runtime/selection ./internal/debugtrace}"
+PACKAGES="${HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES:-./platform/linux ./containment/linux ./internal/runtime ./internal/runtime/linux ./internal/runtime/applecontainer}"
 TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_TEST_ARGS:--test.v}"
 NETWORK="${HAZMAT_LINUX_APPLE_CONTAINER_NETWORK:-none}"
 GOARCH_VALUE="${HAZMAT_LINUX_APPLE_CONTAINER_GOARCH:-}"
@@ -20,6 +20,7 @@ usage() {
 	cat <<'EOF'
 Usage:
   scripts/check-linux-apple-container-smoke.sh
+  scripts/check-linux-apple-container-smoke.sh --check-packages
   scripts/check-linux-apple-container-smoke.sh --check-prereqs
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests [--skip-if-missing-prereqs]
 
@@ -28,6 +29,7 @@ binaries for linux/<arch>, then runs them in Apple Container with the repository
 and generated test-binary directory mounted read-only.
 
 Options:
+  --check-packages               Check that the selected package set lists for linux/<arch>.
   --check-prereqs                Check host-side Apple Container prerequisites.
   --skip-if-missing-prereqs      Exit 0 when prerequisites are absent.
   --run                          Run the live Linux test smoke.
@@ -54,6 +56,9 @@ while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--check-prereqs)
 			MODE="check"
+			;;
+		--check-packages)
+			MODE="packages"
 			;;
 		--skip-if-missing-prereqs)
 			SKIP_IF_MISSING=1
@@ -169,6 +174,17 @@ check_prereqs() {
 	return 0
 }
 
+check_packages() {
+	if [ -z "$GOARCH_VALUE" ]; then
+		GOARCH_VALUE="$(host_arch_default)"
+	fi
+	(
+		cd "$APP_DIR"
+		# shellcheck disable=SC2086
+		GOOS=linux GOARCH="$GOARCH_VALUE" CGO_ENABLED=0 go list $PACKAGES >/dev/null
+	)
+}
+
 print_missing_prereqs() {
 	echo "linux-apple-container-smoke: missing prerequisites:" >&2
 	printf '%s\n' "$MISSING_PREREQS" >&2
@@ -194,6 +210,9 @@ this exact command before running it:
 
 Prereq check:
   scripts/check-linux-apple-container-smoke.sh --check-prereqs
+
+Package-set check:
+  scripts/check-linux-apple-container-smoke.sh --check-packages
 
 Common override:
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
@@ -268,6 +287,13 @@ case "$MODE" in
 		fi
 		print_missing_prereqs
 		exit 2
+		;;
+	packages)
+		if check_packages; then
+			echo "linux-apple-container-smoke: packages ok"
+			exit 0
+		fi
+		exit 1
 		;;
 	run)
 		if [ "$ACK_RUN" -ne 1 ]; then

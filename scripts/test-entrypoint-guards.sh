@@ -645,11 +645,17 @@ assert_help_contains_all \
 assert_help_contains_all \
     "Linux Apple Container smoke documents approval-gated prereqs" \
     "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" \
+    "--check-packages" \
     "--check-prereqs" \
     "--skip-if-missing-prereqs" \
     "container system status" \
     "Agents must ask for explicit approval before running" \
     "--check-prereqs, --skip-if-missing-prereqs, or --run"
+
+assert_succeeds_with \
+    "Linux Apple Container smoke default packages list for linux" \
+    "linux-apple-container-smoke: packages ok" \
+    bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --check-packages
 
 assert_help_contains_all \
     "Claude Workflow export smoke documents fixture consent" \
