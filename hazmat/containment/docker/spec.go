@@ -40,6 +40,25 @@ type LaunchSpec struct {
 	MountWriteDirs []string            `json:"mount_write_dirs,omitempty"`
 }
 
+// DockerCreateArgs returns the Docker Sandbox create argv represented by spec.
+func DockerCreateArgs(spec LaunchSpec) []string {
+	createArgs := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.ProjectDir}
+	createArgs = append(createArgs, spec.MountWriteDirs...)
+	for _, dir := range spec.MountReadDirs {
+		createArgs = append(createArgs, dir+":ro")
+	}
+	return createArgs
+}
+
+// NetworkProxyArgs returns the Docker Sandbox network proxy argv represented by spec.
+func NetworkProxyArgs(spec LaunchSpec) []string {
+	networkArgs := []string{"sandbox", "network", "proxy", spec.Name, "--policy", spec.Profile.Policy}
+	for _, host := range spec.Profile.AllowHosts {
+		networkArgs = append(networkArgs, "--allow-host", host)
+	}
+	return networkArgs
+}
+
 func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, error) {
 	if err := contract.Validate(); err != nil {
 		return LaunchSpec{}, fmt.Errorf("invalid containment contract: %w", err)

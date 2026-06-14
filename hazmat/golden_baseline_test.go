@@ -5,78 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"hazmat/hostfacts"
 	"hazmat/integrations"
 )
 
 var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
-
-func TestGoldenDarwinSBPLBaselines(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin SBPL golden baselines are macOS-specific")
-	}
-	oldLookup := lookupAgentUser
-	lookupAgentUser = func() (*user.User, error) {
-		return &user.User{Uid: "777", Username: agentUser, HomeDir: agentHome}, nil
-	}
-	t.Cleanup(func() { lookupAgentUser = oldLookup })
-
-	cases := map[string]sessionConfig{
-		"sbpl/default.sbpl": {
-			ProjectDir: "/Users/dr/workspace/project",
-			TempDir:    agentHome + "/.cache/hazmat/tmp/golden-default",
-		},
-		"sbpl/network-none.sbpl": {
-			ProjectDir:  "/Users/dr/workspace/project",
-			NetworkMode: sessionNetworkNone,
-			HarnessID:   HarnessCodex,
-			TempDir:     agentHome + "/.cache/hazmat/tmp/golden-network-none",
-		},
-		"sbpl/resume.sbpl": {
-			ProjectDir:   "/Users/dr/workspace/project",
-			HarnessID:    HarnessClaude,
-			TempDir:      agentHome + "/.cache/hazmat/tmp/golden-resume",
-			SessionNotes: []string{"Resume: synced 1 session from host user"},
-		},
-		"sbpl/read-parent-reassert.sbpl": {
-			ProjectDir: "/Users/dr/workspace/project",
-			ReadDirs:   []string{"/Users/dr/workspace"},
-			TempDir:    agentHome + "/.cache/hazmat/tmp/golden-read-parent",
-		},
-		"sbpl/integration-env.sbpl": {
-			ProjectDir:         "/Users/dr/workspace/project",
-			ReadDirs:           []string{"/opt/homebrew/Cellar/go/1.2.3/libexec"},
-			ActiveIntegrations: []string{"go"},
-			IntegrationEnv: map[string]string{
-				"GOROOT": "/opt/homebrew/Cellar/go/1.2.3/libexec",
-			},
-			TempDir: agentHome + "/.cache/hazmat/tmp/golden-integration-env",
-		},
-		"sbpl/codex-native-tls.sbpl": {
-			ProjectDir: "/Users/dr/workspace/project",
-			HarnessID:  HarnessCodex,
-			TempDir:    agentHome + "/.cache/hazmat/tmp/golden-codex-native-tls",
-		},
-		"sbpl/claude-keychain.sbpl": {
-			ProjectDir:           "/Users/dr/workspace/project",
-			HarnessID:            HarnessClaude,
-			ClaudeKeychainAccess: true,
-			TempDir:              agentHome + "/.cache/hazmat/tmp/golden-claude-keychain",
-		},
-	}
-
-	for name, cfg := range cases {
-		t.Run(name, func(t *testing.T) {
-			assertGolden(t, name, generateSBPL(cfg))
-		})
-	}
-}
 
 func TestGoldenExplainJSONBaselines(t *testing.T) {
 	restorePlatform := stubExplainPlatformReport(t, nil)
@@ -96,43 +32,6 @@ func TestGoldenExplainJSONBaselines(t *testing.T) {
 			assertGoldenJSON(t, name, value)
 		})
 	}
-}
-
-func TestGoldenSessionPlannerPlanBaselines(t *testing.T) {
-	nativeCfg := goldenSessionConfig()
-	nativeCfg.HarnessID = HarnessCodex
-	dockerCfg := goldenSessionConfig()
-	dockerCfg.RoutingReason = "using Docker Sandbox because --docker=sandbox was requested"
-	dockerCfg.SessionNotes = []string{"Docker Sandbox uses a private daemon; integration env passthrough is not delivered in this backend yet."}
-
-	cases := map[string]any{
-		"planner/native.json": buildSessionPlanForHostFacts("shell", nativeCfg, sessionModeNative, false, hostfacts.ForGOOS("darwin")),
-		"planner/docker.json": buildSessionPlanForHostFacts("shell", dockerCfg, sessionModeDockerSandbox, false, hostfacts.ForGOOS("darwin")),
-	}
-	for name, value := range cases {
-		t.Run(name, func(t *testing.T) {
-			assertGoldenJSON(t, name, value)
-		})
-	}
-}
-
-func TestGoldenDockerLaunchSpecBaseline(t *testing.T) {
-	dockerCfg := sessionConfig{
-		Target:      "claude",
-		ProjectDir:  "/Users/dr/workspace/project",
-		ReadDirs:    []string{"/Users/dr/workspace/reference", "/opt/homebrew/Cellar/go/1.2.3/libexec"},
-		WriteDirs:   []string{"/Users/dr/workspace/project/.cache"},
-		NetworkMode: sessionNetworkDefault,
-		ActiveIntegrations: []string{
-			"go",
-		},
-	}
-	dockerPlan := buildSessionBackendPlanForGOOS(dockerCfg, sessionModeDockerSandbox, "darwin")
-	dockerLaunch, err := buildSandboxLaunchSpecWithPlan("claude", dockerCfg, dockerPlan, defaultSandboxPolicyProfile())
-	if err != nil {
-		t.Fatalf("buildSandboxLaunchSpecWithPlan fixture: %v", err)
-	}
-	assertGoldenJSON(t, "launch/docker-sandbox.json", goldenDockerLaunchSpecFrom(dockerLaunch))
 }
 
 func TestGoldenIntegrationMergeBaselines(t *testing.T) {
@@ -184,49 +83,6 @@ func TestGoldenIntegrationMergeBaselines(t *testing.T) {
 	assertGoldenJSON(t, "integrations/merge-output.json", merged)
 	assertGolden(t, "integrations/reject-credential-env.txt", credentialEnvErr)
 	assertGolden(t, "integrations/reject-read-dir.txt", readDirErr)
-}
-
-type goldenDockerLaunchSpec struct {
-	Name             string                     `json:"name"`
-	Agent            string                     `json:"agent"`
-	ProjectDir       string                     `json:"project_dir"`
-	BackendPlan      sessionBackendPlan         `json:"backend_plan"`
-	Profile          goldenSandboxPolicyProfile `json:"profile"`
-	MountReadDirs    []string                   `json:"mount_read_dirs,omitempty"`
-	MountWriteDirs   []string                   `json:"mount_write_dirs,omitempty"`
-	DockerCreateArgs []string                   `json:"docker_create_args"`
-	NetworkProxyArgs []string                   `json:"network_proxy_args"`
-}
-
-type goldenSandboxPolicyProfile struct {
-	Name       string   `json:"name"`
-	Policy     string   `json:"policy"`
-	AllowHosts []string `json:"allow_hosts"`
-}
-
-func goldenDockerLaunchSpecFrom(spec sandboxLaunchSpec) goldenDockerLaunchSpec {
-	createArgs := []string{"sandbox", "create", "--name", spec.Name, spec.Agent, spec.Config.ProjectDir}
-	createArgs = append(createArgs, spec.MountWriteDirs...)
-	for _, dir := range spec.MountReadDirs {
-		createArgs = append(createArgs, dir+":ro")
-	}
-
-	networkArgs := []string{"sandbox", "network", "proxy", spec.Name, "--policy", spec.Profile.Policy}
-	for _, host := range spec.Profile.AllowHosts {
-		networkArgs = append(networkArgs, "--allow-host", host)
-	}
-
-	return goldenDockerLaunchSpec{
-		Name:             spec.Name,
-		Agent:            spec.Agent,
-		ProjectDir:       spec.Config.ProjectDir,
-		BackendPlan:      spec.BackendPlan,
-		Profile:          goldenSandboxPolicyProfile{Name: spec.Profile.Name, Policy: spec.Profile.Policy, AllowHosts: append([]string(nil), spec.Profile.AllowHosts...)},
-		MountReadDirs:    append([]string(nil), spec.MountReadDirs...),
-		MountWriteDirs:   append([]string(nil), spec.MountWriteDirs...),
-		DockerCreateArgs: createArgs,
-		NetworkProxyArgs: networkArgs,
-	}
 }
 
 func TestGoldenLaunchMetadataBaseline(t *testing.T) {

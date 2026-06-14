@@ -408,8 +408,9 @@ Use this checklist during review:
 
 Move tests in small, reviewable chunks:
 
-0. Extract SBPL, planner, and Docker-launch producers under the core-session
-   extraction plan before moving their root-private goldens.
+0. SBPL, planner, and Docker-launch goldens now exercise exported package
+   producers directly: `containment/darwin.Compile`, `sessionplanner.Build`,
+   and `containment/docker.Compile` plus Docker argv derivation helpers.
 1. Add lane labels to `docs/test-lanes.tsv` and keep
    `TestEveryEntrypointMapsToALane` green.
 2. Keep `package-boundaries` green in CI and local pre-release.
@@ -417,10 +418,12 @@ Move tests in small, reviewable chunks:
 4. Linux and Apple Container launch goldens now live with their exported
    compilers under `containment/linux/testdata/golden` and
    `containment/applecontainer/testdata/golden`.
-5. Move remaining Docker launch and SBPL compiler goldens only after their
-   producers leave package main through the governed extraction work.
-6. Move request/contract/planner fixtures to `sessionrequest`,
-   `sessioncontract`, and `sessionplanner`.
+5. Docker launch and SBPL compiler goldens now live under
+   `containment/docker/testdata/golden` and
+   `containment/darwin/testdata/golden`.
+6. Planner fixtures now live under `sessionplanner/testdata/golden`;
+   request/contract fixtures should move to `sessionrequest` and
+   `sessioncontract` when they gain standalone product-shape baselines.
 7. Keep root package tests only for CLI orchestration, product scenarios, and
    compatibility shims that cannot move yet.
 8. Add CI jobs for Linux `go test ./...` and lane-named macOS tests.

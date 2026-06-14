@@ -1,12 +1,18 @@
 package darwin
 
 import (
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"hazmat/containment"
+	"hazmat/pathpolicy"
 	"hazmat/sessionmeta"
 )
+
+var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func TestCompileBuildsSeatbeltPolicy(t *testing.T) {
 	policy, err := Compile(testContract(t), CompileOptions{MacOSSecurityFramework: true})
@@ -33,6 +39,70 @@ func TestCompileBuildsSeatbeltPolicy(t *testing.T) {
 		if strings.Contains(policy, forbidden) {
 			t.Fatalf("policy should not contain broad agent-home grant %q\n%s", forbidden, policy)
 		}
+	}
+}
+
+func TestGoldenDarwinSBPLBaselines(t *testing.T) {
+	agentHome := "/Users/agent"
+	cases := map[string]struct {
+		projectDir string
+		readDirs   []string
+		tempDir    string
+		network    sessionmeta.NetworkMode
+		options    CompileOptions
+	}{
+		"sbpl/default.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-default",
+		},
+		"sbpl/network-none.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-network-none",
+			network:    sessionmeta.NetworkNone,
+			options:    CompileOptions{MacOSSecurityFramework: true},
+		},
+		"sbpl/resume.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-resume",
+			options: CompileOptions{
+				MacOSSecurityFramework: true,
+				RuntimeTempDirs:        []string{"/private/tmp/claude-777"},
+			},
+		},
+		"sbpl/read-parent-reassert.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			readDirs:   []string{"/Users/dr/workspace"},
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-read-parent",
+		},
+		"sbpl/integration-env.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			readDirs:   []string{"/opt/homebrew/Cellar/go/1.2.3/libexec"},
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-integration-env",
+		},
+		"sbpl/codex-native-tls.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-codex-native-tls",
+			options:    CompileOptions{MacOSSecurityFramework: true},
+		},
+		"sbpl/claude-keychain.sbpl": {
+			projectDir: "/Users/dr/workspace/project",
+			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-claude-keychain",
+			options: CompileOptions{
+				MacOSSecurityFramework:   true,
+				MacOSAgentKeychainAccess: true,
+				RuntimeTempDirs:          []string{"/private/tmp/claude-777"},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			policy, err := Compile(goldenContract(t, tc.projectDir, tc.readDirs, tc.tempDir, tc.network), tc.options)
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			assertGolden(t, name, policy)
+		})
 	}
 }
 
@@ -131,4 +201,49 @@ func testSessionLocalContract(t *testing.T) containment.Contract {
 		t.Fatal(err)
 	}
 	return contract
+}
+
+func goldenContract(t *testing.T, projectDir string, readDirs []string, tempDir string, network sessionmeta.NetworkMode) containment.Contract {
+	t.Helper()
+	agentHome := "/Users/agent"
+	floor, err := containment.NewCredentialFloor(agentHome, pathpolicy.CredentialDenySubpaths())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if network == "" {
+		network = sessionmeta.NetworkDefault
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project:      containment.PathGrant{Path: projectDir, Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants(readDirs, containment.PathReadOnly),
+		AgentHome:    containment.AgentHomePolicy{Path: agentHome},
+		Temp:         containment.TempPolicy{Path: tempDir},
+		Network:      containment.NetworkPolicy{Mode: network},
+		Process:      containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func assertGolden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "golden", filepath.FromSlash(name))
+	if *updateGoldenBaselines {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", path, err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v\nRun `go test ./containment/darwin -update-golden` from hazmat/ to refresh baselines.", path, err)
+	}
+	if got != string(want) {
+		t.Fatalf("%s changed; run `go test ./containment/darwin -update-golden` only after reviewing the diff.\n--- want\n%s\n--- got\n%s", name, string(want), got)
+	}
 }
