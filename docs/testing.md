@@ -5,6 +5,11 @@ are not interchangeable.
 
 > **Looking for the human-driven checklist?** [docs/manual-testing.md](manual-testing.md) is the release-time / post-harness-change verification list — preconditions, per-harness flows (subscription / API key / host import), cross-cutting features, regression scenarios, and recovery moves. Use it for things this automated matrix can't reach (browser OAuth, terminal UI input, real network).
 
+The auditable pre-release lane model is documented in
+[docs/plans/2026-06-14-pre-release-test-procedures-design.md](plans/2026-06-14-pre-release-test-procedures-design.md).
+Use that design to decide whether a test belongs with a package-owned contract
+or with a product-facing scenario flow.
+
 ## Test Matrix
 
 | Surface | What it answers | Runs where | Destructive? |
@@ -743,6 +748,11 @@ Current GitHub Actions coverage:
   - wave-1 repo-matrix smoke on push
 - `.github/workflows/stack-matrix-drift.yml`
   - non-blocking scheduled drift checks against upstream heads
+
+The target CI shape is lane-based: source safety, Linux and macOS package tests,
+CLI/product-flow checks, release artifact checks, TLA proof hygiene, and optional
+self-hosted Apple Container or disposable-VM lanes. See the pre-release test
+procedure design for the lane contracts and audit checklist.
 
 ## Important Warnings
 
