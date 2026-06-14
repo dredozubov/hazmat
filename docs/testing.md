@@ -142,20 +142,19 @@ make linux-apple-container-test APPLE_CONTAINER_ACK=1
 The container-native path mounts the repo read-only, copies it without `.git`,
 `.beads`, Apple Container spike output, or `tla/states` to `/work/src` inside a
 writable temp mount, uses isolated `HOME`, `GOCACHE`, and `GOTMPDIR`, disables
-local `go.work` with `GOWORK=off`, and mounts the host Go module cache read-only
-when present. It defaults to the focused Linux package set with
+local `go.work` with `GOWORK=off`, runs as the invoking UID/GID instead of root,
+mounts a writable `/private/tmp` compatibility directory, and mounts the host Go
+module cache read-only when present. It defaults to `go test ./...` with
 `GOFLAGS=-mod=readonly` and `--network none`; use
-`HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS` to broaden or narrow the package set
-or test filter. `HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...'` is useful
-for Linux-portability discovery, but the full tree still contains Darwin and
-host-assumption tests that are not part of the local Linux suite yet.
+`HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS` to narrow the package set or test
+filter while debugging.
 
-To broaden the run, override the package set:
+To override either package set:
 
 ```bash
 HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' \
   scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
-HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...' \
+HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./platform/linux ./containment/linux' \
   scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
 ```
 

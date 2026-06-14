@@ -97,8 +97,8 @@ func TestPrepareLaunchSessionCarriesBackendPlan(t *testing.T) {
 	if prepared.BackendPlan.NetworkMode != sessionNetworkNone {
 		t.Fatalf("BackendPlan.NetworkMode = %q", prepared.BackendPlan.NetworkMode)
 	}
-	if prepared.Runtime.Backend != sessionbackend.KindDarwinNative || !prepared.Runtime.UsesNativeLaunch() {
-		t.Fatalf("Runtime = %+v, want Darwin native selection", prepared.Runtime)
+	if prepared.Runtime.Backend != prepared.BackendPlan.Backend || !prepared.Runtime.UsesNativeLaunch() {
+		t.Fatalf("Runtime = %+v, want native selection for backend %q", prepared.Runtime, prepared.BackendPlan.Backend)
 	}
 }
 

@@ -661,6 +661,7 @@ assert_help_contains_all \
     "--go-test" \
     "--skip-if-missing-prereqs" \
     "container system status" \
+    "Default: ./..." \
     "Agents must ask for explicit approval before running" \
     "--check-prereqs, --skip-if-missing-prereqs, --run, or --go-test"
 
@@ -678,7 +679,10 @@ assert_succeeds_with \
 assert_file_contains_all \
     "Linux Apple Container go-test uses writable container workspace" \
     "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" \
+    '--user "$guest_user"' \
     '--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly"' \
+    "target=/private/tmp" \
+    "--warning=no-file-changed" \
     "--exclude ./tla/states" \
     "--exclude ./spike-apple-container-results" \
     "GOWORK=off" \

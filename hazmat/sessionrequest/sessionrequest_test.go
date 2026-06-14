@@ -10,13 +10,14 @@ import (
 )
 
 func TestNewBuildsTypedRequestAndDedupsGrants(t *testing.T) {
-	project := t.TempDir()
+	root := t.TempDir()
+	project := mkdir(t, root, "project")
 	readDir := mkdir(t, project, "read")
 	writeDir := mkdir(t, project, "write")
 	wantProject := canonical(t, project)
 	wantRead := canonical(t, readDir)
 	wantWrite := canonical(t, writeDir)
-	policy := pathpolicy.DefaultDenyPolicy(filepath.Join(project, "agent"), filepath.Join(project, "home"))
+	policy := pathpolicy.DefaultDenyPolicy(filepath.Join(root, "agent"), filepath.Join(root, "home"))
 
 	request, err := New(Input{
 		Project:        project,

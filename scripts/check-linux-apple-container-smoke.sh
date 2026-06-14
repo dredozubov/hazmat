@@ -8,7 +8,7 @@ CONTAINER_BIN="${HAZMAT_APPLE_CONTAINER_BIN:-container}"
 IMAGE="${HAZMAT_LINUX_APPLE_CONTAINER_IMAGE:-golang:1.25}"
 PACKAGES="${HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES:-./platform/linux ./containment/linux ./internal/runtime ./internal/runtime/linux ./internal/runtime/applecontainer}"
 TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_TEST_ARGS:--test.v}"
-GO_TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS:-$PACKAGES}"
+GO_TEST_ARGS="${HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS:-./...}"
 NETWORK="${HAZMAT_LINUX_APPLE_CONTAINER_NETWORK:-none}"
 GOARCH_VALUE="${HAZMAT_LINUX_APPLE_CONTAINER_GOARCH:-}"
 MODE="disclosure"
@@ -51,7 +51,7 @@ Environment:
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES      Space-separated Go package patterns.
   HAZMAT_LINUX_APPLE_CONTAINER_TEST_ARGS     Args passed to each compiled test binary.
   HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS  Args passed to container-native go test.
-                                             Default: focused Linux package set.
+                                             Default: ./...
 
 Prereq checks inspect local Apple Container setup with `container system status`.
 The live run creates short-lived exact-named containers and may pull the
@@ -237,7 +237,7 @@ Compile-only check:
 
 Common override:
   HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES='./...' scripts/check-linux-apple-container-smoke.sh --run --i-understand-this-runs-apple-container-linux-tests
-  HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./...' scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
+  HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./platform/linux ./containment/linux' scripts/check-linux-apple-container-smoke.sh --go-test --i-understand-this-runs-apple-container-linux-tests
 EOF
 }
 
@@ -305,7 +305,7 @@ run_go_test_suite() {
 		GOARCH_VALUE="$(host_arch_default)"
 	fi
 	TMPDIR_LINUX_APPLE_CONTAINER="$(mktemp -d)"
-	mkdir -p "$TMPDIR_LINUX_APPLE_CONTAINER/work"
+	mkdir -p "$TMPDIR_LINUX_APPLE_CONTAINER/work" "$TMPDIR_LINUX_APPLE_CONTAINER/private-tmp"
 
 	gomodcache="$(cd "$APP_DIR" && go env GOMODCACHE)"
 	container_gomodcache="/work/gomodcache"
@@ -316,14 +316,17 @@ run_go_test_suite() {
 	fi
 
 	container_name="hazmat-linux-go-test-$$"
+	guest_user="$(id -u):$(id -g)"
 	echo "linux-apple-container-smoke: run go test $GO_TEST_ARGS in $IMAGE"
 	if [ "$mount_module_cache" -eq 1 ]; then
 		# shellcheck disable=SC2086
 		"$(container_cmd)" run --rm \
 			--name "$container_name" \
+			--user "$guest_user" \
 			--network "$NETWORK" \
 			--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly" \
 			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/work,target=/work" \
+			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/private-tmp,target=/private/tmp" \
 			--mount "type=bind,source=$gomodcache,target=/go/pkg/mod,readonly" \
 			--workdir /work \
 			"$IMAGE" \
@@ -332,9 +335,11 @@ run_go_test_suite() {
 		# shellcheck disable=SC2086
 		"$(container_cmd)" run --rm \
 			--name "$container_name" \
+			--user "$guest_user" \
 			--network "$NETWORK" \
 			--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly" \
 			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/work,target=/work" \
+			--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER/private-tmp,target=/private/tmp" \
 			--workdir /work \
 			"$IMAGE" \
 			sh -eu -c "$container_go_test_script" sh "$container_gomodcache" $GO_TEST_ARGS
@@ -346,6 +351,7 @@ gomodcache="$1"
 shift
 mkdir -p /work/src /work/gocache /work/tmp /work/home "$gomodcache"
 tar -C /hazmat-src \
+	--warning=no-file-changed \
 	--exclude ./.git \
 	--exclude ./.beads \
 	--exclude ./spike-apple-container-results \

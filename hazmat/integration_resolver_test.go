@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -1335,6 +1336,10 @@ func buildFakeCellarBinary(t *testing.T, root, formula, version, exe string) str
 }
 
 func TestResolveBeadsIntegrationPlansRepairsForBdAndDolt(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Homebrew permission repair planning depends on macOS user and Cellar ownership semantics")
+	}
+
 	prefix := t.TempDir()
 	bdReal := buildFakeCellarBinary(t, prefix, "beads", "1.0.0", "beads")
 	doltReal := buildFakeCellarBinary(t, prefix, "dolt", "1.85.0", "dolt")

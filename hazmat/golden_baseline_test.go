@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -23,6 +24,9 @@ import (
 var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func TestGoldenDarwinSBPLBaselines(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin SBPL golden baselines are macOS-specific")
+	}
 	oldLookup := lookupAgentUser
 	lookupAgentUser = func() (*user.User, error) {
 		return &user.User{Uid: "777", Username: agentUser, HomeDir: agentHome}, nil
@@ -295,7 +299,7 @@ func TestGoldenIntegrationMergeBaselines(t *testing.T) {
 	readDirErr := goldenIntegrationMergeError(t, integrations.Spec{
 		Meta: integrations.Meta{Name: "bad-read-dir", Version: 1},
 		Session: integrations.Session{
-			ReadDirs: []string{agentHome + "/.ssh"},
+			ReadDirs: []string{"/Users/agent/.ssh"},
 		},
 	}, integrations.Resolved{})
 
