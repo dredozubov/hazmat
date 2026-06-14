@@ -605,6 +605,7 @@ Run this before cutting a release:
 ```bash
 bash scripts/pre-release-local.sh
 make pre-release-local
+scripts/pre-release-audit.sh
 ```
 
 This runs the fast repository gate (`scripts/pre-push`) and then the all-harness
@@ -612,7 +613,9 @@ synthetic e2e smoke. `scripts/release.sh` runs the same local gate before it
 asks Hazmat-contained Claude to draft `CHANGELOG.md`, so a release cannot
 proceed locally if the hermetic harness smoke fails. The release script requires
 `--i-understand-this-runs-hazmat-claude`; non-dry mode also requires
-`--i-understand-this-may-push-release`.
+`--i-understand-this-may-push-release`. `scripts/pre-release-audit.sh` writes a
+markdown evidence record for the lane results and any skipped live/disposable
+host checks; it does not run tests itself.
 
 For the release-grade local lifecycle gate, include the isolated VM lane:
 

@@ -46,6 +46,7 @@ scripts/e2e.sh	destructive-lifecycle	live-approved
 scripts/export-public-roadmap.sh	product-workflows	-
 scripts/install-debug-trace.sh	live-approved	os-macos
 scripts/install.sh	release-artifacts	-
+scripts/pre-release-audit.sh	release-artifacts	source-safety,package-boundaries,package-contracts,product-workflows
 scripts/pre-release-local.sh	product-workflows	source-safety,package-boundaries,release-artifacts
 scripts/release.sh	release-artifacts	product-workflows
 scripts/spike-apple-container.sh	live-approved	os-linux
