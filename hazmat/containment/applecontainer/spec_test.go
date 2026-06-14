@@ -2,12 +2,18 @@ package applecontainer
 
 import (
 	"bytes"
+	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"hazmat/containment"
 	"hazmat/sessionmeta"
 )
+
+var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func healthyHost() HostReport {
 	return HostReport{
@@ -65,6 +71,54 @@ func testContract(t *testing.T) containment.Contract {
 		t.Fatalf("NewContract: %v", err)
 	}
 	return contract
+}
+
+func TestGoldenAppleContainerLaunchSpecBaselines(t *testing.T) {
+	floor, err := containment.NewCredentialFloor("/Users/agent", []string{"/.ssh", "/.aws"})
+	if err != nil {
+		t.Fatalf("NewCredentialFloor fixture: %v", err)
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project: containment.PathGrant{Path: "/Users/dr/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants([]string{
+			"/Users/dr/reference",
+			"/Users/dr/workspace/project/docs",
+		}, containment.PathReadOnly),
+		AgentHome: containment.AgentHomePolicy{Path: "/Users/agent"},
+		Temp:      containment.TempPolicy{Path: "/Users/agent/tmp/hazmat-session"},
+		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkDefault},
+		Process:   containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		t.Fatalf("NewContract fixture: %v", err)
+	}
+	spec, err := Compile(contract, CompileOptions{
+		Harness:           "codex",
+		Image:             "ghcr.io/example/hazmat-codex:sha256-abc",
+		SessionID:         "golden-session",
+		Command:           []string{"codex", "--version"},
+		CredentialEnvFile: "/Users/agent/tmp/hazmat-session/credentials.env",
+		Host: HostReport{
+			GOOS:                "darwin",
+			GOARCH:              "arm64",
+			MacOSMajorVersion:   26,
+			CLIPath:             "/usr/local/bin/container",
+			CLIVersion:          "1.0.0",
+			CLIVersionSupported: true,
+			APIServerHealthy:    true,
+			RunnableAsAgent:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/apple-container.json", spec)
+
+	argv, err := Argv(spec)
+	if err != nil {
+		t.Fatalf("Argv fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/apple-container-argv.json", argv)
 }
 
 func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
@@ -377,6 +431,49 @@ func hasGap(gaps []CapabilityGap, code string) bool {
 		}
 	}
 	return false
+}
+
+func assertGoldenJSON(t *testing.T, name string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+	assertGolden(t, name, prettyJSON(t, data)+"\n")
+}
+
+func prettyJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatalf("unmarshal JSON: %v\n%s", err, string(data))
+	}
+	out, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal indent JSON: %v", err)
+	}
+	return string(out)
+}
+
+func assertGolden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "golden", filepath.FromSlash(name))
+	if *updateGoldenBaselines {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", path, err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v\nRun `go test ./containment/applecontainer -update-golden` from hazmat/ to refresh baselines.", path, err)
+	}
+	if got != string(want) {
+		t.Fatalf("%s changed; run `go test ./containment/applecontainer -update-golden` only after reviewing the diff.\n--- want\n%s\n--- got\n%s", name, string(want), got)
+	}
 }
 
 func TestCompileExecutableRuntimePhase(t *testing.T) {

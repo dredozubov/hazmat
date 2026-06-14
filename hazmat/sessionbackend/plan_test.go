@@ -1,12 +1,18 @@
 package sessionbackend
 
 import (
+	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
 	"hazmat/hostfacts"
 	"hazmat/sessionmeta"
 )
+
+var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 	input := Input{
@@ -43,6 +49,42 @@ func TestBuildPlanForDarwinNativeCopiesInputs(t *testing.T) {
 	input.ReadOnlyDirs[0] = "/mutated"
 	if plan.ReadOnlyDirs[0] != "/opt/sdk" {
 		t.Fatal("BuildPlan returned storage aliasing input")
+	}
+}
+
+func TestGoldenBackendPlanBaselines(t *testing.T) {
+	input := Input{
+		Target:             "shell",
+		Mode:               sessionmeta.ModeNative,
+		ProjectDir:         "/Users/dr/workspace/project",
+		ReadOnlyDirs:       []string{"/Users/dr/workspace/reference"},
+		ReadWriteDirs:      []string{"/Users/dr/workspace/project/.cache"},
+		NetworkMode:        sessionmeta.NetworkNone,
+		Integrations:       []string{"go"},
+		IntegrationEnvKeys: []string{"GOROOT"},
+	}
+
+	cases := map[string]Plan{
+		"backend/darwin-native.json": BuildPlan(withGOOS(input, "darwin")),
+		"backend/linux-native.json":  BuildPlan(withGOOS(input, "linux")),
+		"backend/unsupported.json":   BuildPlan(withGOOS(input, "plan9")),
+		"backend/docker.json": BuildPlan(Input{
+			Target:             input.Target,
+			Mode:               sessionmeta.ModeDockerSandbox,
+			ProjectDir:         input.ProjectDir,
+			ReadOnlyDirs:       input.ReadOnlyDirs,
+			ReadWriteDirs:      input.ReadWriteDirs,
+			NetworkMode:        input.NetworkMode,
+			Integrations:       input.Integrations,
+			IntegrationEnvKeys: input.IntegrationEnvKeys,
+			HostFacts:          hostfacts.ForGOOS("darwin"),
+		}),
+	}
+
+	for name, plan := range cases {
+		t.Run(name, func(t *testing.T) {
+			assertGoldenJSON(t, name, plan)
+		})
 	}
 }
 
@@ -143,6 +185,54 @@ func TestBuildPlanReportsAppleContainerIntegrationEnvGap(t *testing.T) {
 	}
 	if !slices.Contains(features, GapIntegrationEnv) || !slices.Contains(features, GapAppleContainerLaunch) {
 		t.Fatalf("CapabilityGaps = %v, want integration env and plan-only gaps", plan.CapabilityGaps)
+	}
+}
+
+func withGOOS(input Input, goos string) Input {
+	input.HostFacts = hostfacts.ForGOOS(goos)
+	return input
+}
+
+func assertGoldenJSON(t *testing.T, name string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+	assertGolden(t, name, prettyJSON(t, data)+"\n")
+}
+
+func prettyJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatalf("unmarshal JSON: %v\n%s", err, string(data))
+	}
+	out, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal indent JSON: %v", err)
+	}
+	return string(out)
+}
+
+func assertGolden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "golden", filepath.FromSlash(name))
+	if *updateGoldenBaselines {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", path, err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v\nRun `go test ./sessionbackend -update-golden` from hazmat/ to refresh baselines.", path, err)
+	}
+	if got != string(want) {
+		t.Fatalf("%s changed; run `go test ./sessionbackend -update-golden` only after reviewing the diff.\n--- want\n%s\n--- got\n%s", name, string(want), got)
 	}
 }
 

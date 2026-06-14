@@ -2,6 +2,10 @@ package linuxspec
 
 import (
 	"bytes"
+	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +13,8 @@ import (
 	platformlinux "hazmat/platform/linux"
 	"hazmat/sessionmeta"
 )
+
+var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
 
 func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	contract := testContract(t)
@@ -66,6 +72,42 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"backend": "linux-native"`)) {
 		t.Fatalf("marshaled spec missing backend:\n%s", string(raw))
 	}
+}
+
+func TestGoldenLinuxLaunchSpecBaseline(t *testing.T) {
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants([]string{
+			"/opt/sdk",
+			"/workspace/reference",
+		}, containment.PathReadOnly),
+		ReadWriteDirs: containment.PathGrants([]string{
+			"/workspace/project/.cache",
+		}, containment.PathReadWrite),
+		AgentHome: containment.AgentHomePolicy{Path: "/home/agent"},
+		Temp:      containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process:   containment.ProcessPolicy{AllowFork: true},
+	}, goldenCredentialFloor(t, "/home/agent"))
+	if err != nil {
+		t.Fatalf("NewContract fixture: %v", err)
+	}
+	spec, err := Compile(contract, CompileOptions{
+		Platform: platformlinux.Report{
+			RuntimeOS: "linux",
+			Features: platformlinux.FeatureSet{
+				UserNamespaces:    platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				CgroupV2:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				Landlock:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				Seccomp:           platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				NetworkNamespaces: platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile fixture: %v", err)
+	}
+	assertGoldenJSON(t, "launch/linux-native.json", spec)
 }
 
 func TestNewContractRejectsCredentialDenyOverlap(t *testing.T) {
@@ -170,6 +212,18 @@ func testContractInput(readOnlyDirs []containment.PathGrant) containment.Contrac
 	}
 }
 
+func goldenCredentialFloor(t *testing.T, home string) containment.CredentialFloor {
+	t.Helper()
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{
+		{Path: home + "/.ssh"},
+		{Path: home + "/.aws"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return floor
+}
+
 func availableFeature() platformlinux.FeatureReport {
 	return platformlinux.FeatureReport{State: platformlinux.FeatureAvailable}
 }
@@ -181,4 +235,47 @@ func hasGap(gaps []CapabilityGap, code string) bool {
 		}
 	}
 	return false
+}
+
+func assertGoldenJSON(t *testing.T, name string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+	assertGolden(t, name, prettyJSON(t, data)+"\n")
+}
+
+func prettyJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatalf("unmarshal JSON: %v\n%s", err, string(data))
+	}
+	out, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal indent JSON: %v", err)
+	}
+	return string(out)
+}
+
+func assertGolden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "golden", filepath.FromSlash(name))
+	if *updateGoldenBaselines {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", path, err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v\nRun `go test ./containment/linux -update-golden` from hazmat/ to refresh baselines.", path, err)
+	}
+	if got != string(want) {
+		t.Fatalf("%s changed; run `go test ./containment/linux -update-golden` only after reviewing the diff.\n--- want\n%s\n--- got\n%s", name, string(want), got)
+	}
 }

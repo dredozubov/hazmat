@@ -11,14 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"hazmat/containment"
-	applecontainerspec "hazmat/containment/applecontainer"
-	linuxspec "hazmat/containment/linux"
 	"hazmat/hostfacts"
 	"hazmat/integrations"
-	platformlinux "hazmat/platform/linux"
-	"hazmat/sessionbackend"
-	"hazmat/sessionmeta"
 )
 
 var updateGoldenBaselines = flag.Bool("update-golden", false, "update golden baseline files")
@@ -104,42 +98,6 @@ func TestGoldenExplainJSONBaselines(t *testing.T) {
 	}
 }
 
-func TestGoldenBackendPlanBaselines(t *testing.T) {
-	input := sessionbackend.Input{
-		Target:             "shell",
-		Mode:               sessionmeta.ModeNative,
-		ProjectDir:         "/Users/dr/workspace/project",
-		ReadOnlyDirs:       []string{"/Users/dr/workspace/reference"},
-		ReadWriteDirs:      []string{"/Users/dr/workspace/project/.cache"},
-		NetworkMode:        sessionmeta.NetworkNone,
-		Integrations:       []string{"go"},
-		IntegrationEnvKeys: []string{"GOROOT"},
-	}
-
-	cases := map[string]sessionbackend.Plan{
-		"backend/darwin-native.json": sessionbackend.BuildPlan(withBackendGOOS(input, "darwin")),
-		"backend/linux-native.json":  sessionbackend.BuildPlan(withBackendGOOS(input, "linux")),
-		"backend/unsupported.json":   sessionbackend.BuildPlan(withBackendGOOS(input, "plan9")),
-		"backend/docker.json": sessionbackend.BuildPlan(sessionbackend.Input{
-			Target:             input.Target,
-			Mode:               sessionmeta.ModeDockerSandbox,
-			ProjectDir:         input.ProjectDir,
-			ReadOnlyDirs:       input.ReadOnlyDirs,
-			ReadWriteDirs:      input.ReadWriteDirs,
-			NetworkMode:        input.NetworkMode,
-			Integrations:       input.Integrations,
-			IntegrationEnvKeys: input.IntegrationEnvKeys,
-			HostFacts:          hostfacts.ForGOOS("darwin"),
-		}),
-	}
-
-	for name, plan := range cases {
-		t.Run(name, func(t *testing.T) {
-			assertGoldenJSON(t, name, plan)
-		})
-	}
-}
-
 func TestGoldenSessionPlannerPlanBaselines(t *testing.T) {
 	nativeCfg := goldenSessionConfig()
 	nativeCfg.HarnessID = HarnessCodex
@@ -158,41 +116,7 @@ func TestGoldenSessionPlannerPlanBaselines(t *testing.T) {
 	}
 }
 
-func TestGoldenLaunchSpecBaselines(t *testing.T) {
-	linuxContract, err := containment.NewContract(containment.ContractInput{
-		Project: containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
-		ReadOnlyDirs: containment.PathGrants([]string{
-			"/opt/sdk",
-			"/workspace/reference",
-		}, containment.PathReadOnly),
-		ReadWriteDirs: containment.PathGrants([]string{
-			"/workspace/project/.cache",
-		}, containment.PathReadWrite),
-		AgentHome: containment.AgentHomePolicy{Path: "/home/agent"},
-		Temp:      containment.TempPolicy{Path: "/tmp/hazmat-session"},
-		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
-		Process:   containment.ProcessPolicy{AllowFork: true},
-	}, goldenCredentialFloor(t, "/home/agent"))
-	if err != nil {
-		t.Fatalf("NewContract linux fixture: %v", err)
-	}
-	linuxLaunch, err := linuxspec.Compile(linuxContract, linuxspec.CompileOptions{
-		Platform: platformlinux.Report{
-			RuntimeOS: "linux",
-			Features: platformlinux.FeatureSet{
-				UserNamespaces:    platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
-				CgroupV2:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
-				Landlock:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
-				Seccomp:           platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
-				NetworkNamespaces: platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Compile linux fixture: %v", err)
-	}
-	assertGoldenJSON(t, "launch/linux-native.json", linuxLaunch)
-
+func TestGoldenDockerLaunchSpecBaseline(t *testing.T) {
 	dockerCfg := sessionConfig{
 		Target:      "claude",
 		ProjectDir:  "/Users/dr/workspace/project",
@@ -209,52 +133,6 @@ func TestGoldenLaunchSpecBaselines(t *testing.T) {
 		t.Fatalf("buildSandboxLaunchSpecWithPlan fixture: %v", err)
 	}
 	assertGoldenJSON(t, "launch/docker-sandbox.json", goldenDockerLaunchSpecFrom(dockerLaunch))
-
-	appleFloor, err := containment.NewCredentialFloor("/Users/agent", []string{"/.ssh", "/.aws"})
-	if err != nil {
-		t.Fatalf("NewCredentialFloor apple fixture: %v", err)
-	}
-	appleContract, err := containment.NewContract(containment.ContractInput{
-		Project: containment.PathGrant{Path: "/Users/dr/workspace/project", Access: containment.PathReadWrite},
-		ReadOnlyDirs: containment.PathGrants([]string{
-			"/Users/dr/reference",
-			"/Users/dr/workspace/project/docs",
-		}, containment.PathReadOnly),
-		AgentHome: containment.AgentHomePolicy{Path: "/Users/agent"},
-		Temp:      containment.TempPolicy{Path: "/Users/agent/tmp/hazmat-session"},
-		Network:   containment.NetworkPolicy{Mode: sessionmeta.NetworkDefault},
-		Process:   containment.ProcessPolicy{AllowFork: true},
-	}, appleFloor)
-	if err != nil {
-		t.Fatalf("NewContract apple fixture: %v", err)
-	}
-	appleLaunch, err := applecontainerspec.Compile(appleContract, applecontainerspec.CompileOptions{
-		Harness:           "codex",
-		Image:             "ghcr.io/example/hazmat-codex:sha256-abc",
-		SessionID:         "golden-session",
-		Command:           []string{"codex", "--version"},
-		CredentialEnvFile: "/Users/agent/tmp/hazmat-session/credentials.env",
-		Host: applecontainerspec.HostReport{
-			GOOS:                "darwin",
-			GOARCH:              "arm64",
-			MacOSMajorVersion:   26,
-			CLIPath:             "/usr/local/bin/container",
-			CLIVersion:          "1.0.0",
-			CLIVersionSupported: true,
-			APIServerHealthy:    true,
-			RunnableAsAgent:     true,
-		},
-	})
-	if err != nil {
-		t.Fatalf("Compile apple fixture: %v", err)
-	}
-	assertGoldenJSON(t, "launch/apple-container.json", appleLaunch)
-
-	appleArgv, err := applecontainerspec.Argv(appleLaunch)
-	if err != nil {
-		t.Fatalf("Argv apple fixture: %v", err)
-	}
-	assertGoldenJSON(t, "launch/apple-container-argv.json", appleArgv)
 }
 
 func TestGoldenIntegrationMergeBaselines(t *testing.T) {
@@ -306,18 +184,6 @@ func TestGoldenIntegrationMergeBaselines(t *testing.T) {
 	assertGoldenJSON(t, "integrations/merge-output.json", merged)
 	assertGolden(t, "integrations/reject-credential-env.txt", credentialEnvErr)
 	assertGolden(t, "integrations/reject-read-dir.txt", readDirErr)
-}
-
-func goldenCredentialFloor(t *testing.T, home string) containment.CredentialFloor {
-	t.Helper()
-	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{
-		{Path: home + "/.ssh"},
-		{Path: home + "/.aws"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return floor
 }
 
 type goldenDockerLaunchSpec struct {
@@ -459,11 +325,6 @@ func goldenIntegrationMergeError(t *testing.T, spec integrations.Spec, resolved 
 		t.Fatalf("MergeResolved(%s) succeeded, want error", spec.Meta.Name)
 	}
 	return err.Error() + "\n"
-}
-
-func withBackendGOOS(input sessionbackend.Input, goos string) sessionbackend.Input {
-	input.HostFacts = hostfacts.ForGOOS(goos)
-	return input
 }
 
 func assertGoldenJSON(t *testing.T, name string, value any) {

@@ -413,12 +413,12 @@ Move tests in small, reviewable chunks:
 1. Add lane labels to `docs/test-lanes.tsv` and keep
    `TestEveryEntrypointMapsToALane` green.
 2. Keep `package-boundaries` green in CI and local pre-release.
-3. Move backend plan and prepared-launch goldens from root tests to
-   `sessionbackend`.
-4. Move Linux and Apple Container launch goldens whose producers are already
-   exported to `containment/linux` and `containment/applecontainer`.
-5. Move remaining containment compiler goldens only after their producers leave
-   package main through the governed extraction work.
+3. Backend plan goldens now live under `sessionbackend/testdata/golden`.
+4. Linux and Apple Container launch goldens now live with their exported
+   compilers under `containment/linux/testdata/golden` and
+   `containment/applecontainer/testdata/golden`.
+5. Move remaining Docker launch and SBPL compiler goldens only after their
+   producers leave package main through the governed extraction work.
 6. Move request/contract/planner fixtures to `sessionrequest`,
    `sessioncontract`, and `sessionplanner`.
 7. Keep root package tests only for CLI orchestration, product scenarios, and
