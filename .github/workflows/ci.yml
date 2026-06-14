@@ -71,8 +71,8 @@ jobs:
           version: v2.11.4
           working-directory: hazmat
 
-  go-test:
-    name: Test & vet
+  go-test-macos:
+    name: Test & vet (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -94,8 +94,8 @@ jobs:
         working-directory: hazmat
         run: bash ../scripts/check-cli-smoke.sh
 
-  linux-compile:
-    name: Linux compile-only
+  go-test-linux:
+    name: Test & compile (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -105,8 +105,26 @@ jobs:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache-dependency-path: ${{ env.GO_CACHE_DEP }}
 
+      - name: Unit tests
+        working-directory: hazmat
+        run: go test ./...
+
       - name: Compile unsupported Linux backend
         run: bash scripts/check-linux-compile.sh
+
+  package-boundaries:
+    name: Package boundary guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Check package import boundaries
+        run: bash scripts/check-import-boundaries.sh
 
   test-entrypoint-guards:
     name: Test entrypoint guards
@@ -281,7 +299,7 @@ jobs:
   e2e:
     name: E2E lifecycle
     runs-on: macos-14
-    needs: [go-test, linux-compile, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
     steps:
       - uses: actions/checkout@v5
 
@@ -296,7 +314,7 @@ jobs:
   e2e-bootstrap:
     name: E2E bootstrap
     runs-on: macos-14
-    needs: [go-test, linux-compile, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
@@ -340,7 +358,7 @@ jobs:
     name: Repo matrix smoke
     if: github.event_name == 'push'
     runs-on: macos-14
-    needs: [go-test, linux-compile, go-build, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, repo-matrix-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:

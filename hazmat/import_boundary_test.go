@@ -29,24 +29,25 @@ func TestImportBoundaries(t *testing.T) {
 	pkgs := loadListedPackages(t)
 
 	purePackages := map[string]bool{
-		"hazmat/attestationtier":      true,
-		"hazmat/hostbroker":           true,
-		"hazmat/containment":          true,
-		"hazmat/containment/darwin":   true,
-		"hazmat/containment/docker":   true,
-		"hazmat/containment/linux":    true,
-		"hazmat/configmodel":          true,
-		"hazmat/credentials":          true,
-		"hazmat/harnesses":            true,
-		"hazmat/hostfacts":            true,
-		"hazmat/integrations":         true,
-		"hazmat/pathpolicy":           true,
-		"hazmat/sessionbackend":       true,
-		"hazmat/sessioncontract":      true,
-		"hazmat/sessionmeta":          true,
-		"hazmat/sessionplanner":       true,
-		"hazmat/sessionrequest":       true,
-		"hazmat/internal/sessionflow": true,
+		"hazmat/attestationtier":            true,
+		"hazmat/hostbroker":                 true,
+		"hazmat/containment":                true,
+		"hazmat/containment/applecontainer": true,
+		"hazmat/containment/darwin":         true,
+		"hazmat/containment/docker":         true,
+		"hazmat/containment/linux":          true,
+		"hazmat/configmodel":                true,
+		"hazmat/credentials":                true,
+		"hazmat/harnesses":                  true,
+		"hazmat/hostfacts":                  true,
+		"hazmat/integrations":               true,
+		"hazmat/pathpolicy":                 true,
+		"hazmat/sessionbackend":             true,
+		"hazmat/sessioncontract":            true,
+		"hazmat/sessionmeta":                true,
+		"hazmat/sessionplanner":             true,
+		"hazmat/sessionrequest":             true,
+		"hazmat/internal/sessionflow":       true,
 	}
 	for importPath := range purePackages {
 		pkg, ok := pkgs[importPath]
@@ -64,11 +65,13 @@ func TestImportBoundaries(t *testing.T) {
 		assertNoRuntimeGOOS(t, pkg)
 	}
 
-	for _, compiler := range []string{
-		"hazmat/containment/darwin",
-		"hazmat/containment/docker",
-		"hazmat/containment/linux",
-	} {
+	compilerPackages := map[string]bool{
+		"hazmat/containment/applecontainer": true,
+		"hazmat/containment/darwin":         true,
+		"hazmat/containment/docker":         true,
+		"hazmat/containment/linux":          true,
+	}
+	for compiler := range compilerPackages {
 		pkg, ok := pkgs[compiler]
 		if !ok {
 			t.Fatalf("compiler package %s is not listed by go list", compiler)
@@ -81,10 +84,19 @@ func TestImportBoundaries(t *testing.T) {
 
 	if pkg, ok := pkgs["hazmat/containment"]; ok {
 		assertNoForbiddenDeps(t, pkg, []string{
+			"hazmat/containment/applecontainer",
 			"hazmat/containment/darwin",
 			"hazmat/containment/docker",
 			"hazmat/containment/linux",
 		})
+	}
+	for importPath := range pkgs {
+		if !strings.HasPrefix(importPath, "hazmat/containment/") {
+			continue
+		}
+		if !compilerPackages[importPath] {
+			t.Fatalf("containment backend package %s is not classified in TestImportBoundaries", importPath)
+		}
 	}
 
 	for _, descriptor := range []string{

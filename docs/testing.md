@@ -737,8 +737,9 @@ Current GitHub Actions coverage:
 
 - `.github/workflows/ci.yml`
   - lint
-  - Go vet and unit tests
-  - Linux compile-only gate for the unsupported backend
+  - Go vet and unit tests on macOS
+  - Linux `go test ./...` plus compile-only gate for the unsupported backend
+  - package import-boundary and package-split guardrails
   - CLI help/smoke checks via `scripts/check-cli-smoke.sh`
   - test-entrypoint guard regression checks
   - self-hosting bootstrap on macOS (`--skip-tla`)
@@ -749,10 +750,11 @@ Current GitHub Actions coverage:
 - `.github/workflows/stack-matrix-drift.yml`
   - non-blocking scheduled drift checks against upstream heads
 
-The target CI shape is lane-based: source safety, Linux and macOS package tests,
-CLI/product-flow checks, release artifact checks, TLA proof hygiene, and optional
-self-hosted Apple Container or disposable-VM lanes. See the pre-release test
-procedure design for the lane contracts and audit checklist.
+The target CI shape is lane-based: source safety, package-boundary checks, Linux
+and macOS package tests, CLI/product-flow checks, release artifact checks, TLA
+proof hygiene plus deep TLC model checking, and optional self-hosted Apple
+Container or disposable-VM lanes. See the pre-release test procedure design for
+the lane contracts and audit checklist.
 
 ## Important Warnings
 
@@ -761,8 +763,9 @@ procedure design for the lane contracts and audit checklist.
   fail fast instead of racing on local build outputs or Hazmat state.
 - CI initializes Hazmat with `--bootstrap-agent skip` for containment-only
   jobs, so those lanes do not depend on vendor-specific agent downloads.
-- Linux CI is intentionally compile-only until Linux setup/rollback resources
-  are implemented and mapped to the verified TLA+ setup/rollback model.
+- Linux CI runs package tests and compile checks, but Linux setup/rollback
+  remains blocked until Linux resources are implemented and mapped to the
+  verified TLA+ setup/rollback model.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
 - Do not use `scripts/e2e.sh` casually on a machine where you want to preserve

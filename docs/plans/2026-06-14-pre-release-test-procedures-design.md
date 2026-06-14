@@ -22,7 +22,7 @@ product-level coverage.
 
 Use a two-axis test model:
 
-- **Ownership axis:** package tests live next to the package that owns the
+- **Package-ownership axis:** package tests live next to the package that owns the
   invariant. Examples: `containment` owns authority contracts,
   `containment/darwin` owns SBPL compilation, `sessionbackend` owns backend
   plan and prepared-launch DTO invariants, and `sessionrequest` owns request
@@ -51,12 +51,16 @@ contract remains clear.
 | Lane | Procedure | Primary owner | Runs where | Release status |
 | --- | --- | --- | --- | --- |
 | `source-safety` | Secret scans, credential-regression scans, gitleaks, staged diff sanity, shell syntax. | Repository scripts and hooks | Linux or macOS | Required |
+| `package-boundaries` | Import-boundary, dependency-graph, package-split, and VERIFIED.md governed-code checks. | Package architecture guard | Linux CI and local pre-release | Required |
 | `package-contracts` | Package-local `go test` for invariant and DTO tests. Golden fixtures live with the producing package where possible. | Go packages | Linux and macOS | Required |
 | `os-linux` | Linux `go test ./...`, Linux compile checks, Linux-specific runtime/package tests. | Linux-capable packages | Ubuntu CI, Apple Container locally | Required before claiming Linux compatibility |
 | `os-macos` | macOS `go test ./...`, Darwin SBPL, launch-helper shape, Keychain/Seatbelt non-live tests. | Darwin-capable packages and root orchestration | macOS CI/local | Required before macOS release |
 | `cli-ux` | CLI help, refusal messages, JSON output compatibility, approval-gate copy, diagnostic guidance. | CLI/root product surface | Linux or macOS unless OS-specific | Required |
 | `product-workflows` | Hermetic scenario flows: session planning, explain, harness command generation, fake harness lifecycle, repo-matrix contract. | Root orchestration plus scenario fixtures | Linux or macOS depending on flow | Required |
 | `release-artifacts` | Build, file-type checks, package layout, install/refusal policy, checksums, Homebrew formula assumptions. | Release scripts and CI | macOS for current artifacts | Required |
+| `tla-proof-hygiene` | Proof ownership, trace artifact policy, and promoted-spec inventory drift checks. | TLA proof ledger | Ubuntu CI | Required |
+| `tla-model-check` | Deep TLC run over promoted specs with proof audit artifacts. | TLA specs | Ubuntu CI | Required |
+| `privileged-install-ownership` | Real-host uid/gid and writeability checks for agent-owned setup paths after init and rollback. | Setup/runtime ownership | Disposable prepared host | Required for release candidates and setup-path changes |
 | `live-approved` | Prepared-host native/harness smokes that may use helper-backed launch, `sudo -n`, Apple Container, or local agent state. | Smoke wrapper owners | Prepared hosts only, exact approval required | Required only when the changed surface depends on it |
 | `destructive-lifecycle` | Full setup, containment, backup/restore, rollback, and reinstall lifecycle. | Lifecycle/e2e scripts | Disposable VM or disposable host only | Required for release candidates when feasible |
 | `drift` | Scheduled external drift checks for installers, stack matrix upstream heads, and ecosystem assumptions. | Scheduled CI workflows | CI only | Non-blocking signal unless promoted |
@@ -88,6 +92,49 @@ goldens should be reserved for user-facing CLI or cross-package scenario output.
 If a test is hard to place, that is design feedback. Either the production code
 boundary is unclear, or the test is actually a product scenario and should be
 named as such.
+
+`scripts/check-import-boundaries.sh` is the first-class entrypoint for the
+`package-boundaries` lane. It must stay blocking in CI and in local pre-release
+before any package split or golden migration deletes old root-package coverage.
+
+## Relationship to Prior Work
+
+This document complements, but does not replace, the package-split and
+core-session extraction plans:
+
+- [2026-06-03 package split implementation roadmap](2026-06-03-package-split-implementation-roadmap.md)
+- [2026-06-12 core session extraction design](2026-06-12-core-session-extraction-design.md)
+
+Those plans remain authoritative for semantic code movement. This document only
+defines test ownership, product-flow coverage, and pre-release audit procedure.
+It does not authorize over-exporting package-main internals to move tests. When
+a moved function is governed by `tla/VERIFIED.md`, update the governed-code
+reference in the same commit and keep
+`TestVerifiedLedgerGovernedFunctionsExist` green.
+
+## Privileged Install Ownership Outcomes
+
+Issue-17-class failures are real filesystem ownership outcomes, not command
+shape failures. The required property is: every setup-created parent directory
+that an agent process must write is owned by the expected agent uid/gid, and the
+agent can create a probe child there after setup. Rollback must not leave
+root-owned residue under the agent home.
+
+Required checks:
+
+- A hermetic package-contract invariant derives setup chown targets from the
+  actual agent-written path set instead of mirroring a production literal.
+- The invariant is OS-parameterized for the Darwin `/Users/agent` and future
+  Linux `/home/agent` path sets.
+- The `privileged-install-ownership` lane runs on a disposable prepared host
+  for changes touching setup, bootstrap, tooling, or platform path ownership.
+- The real-host lane stats every required directory and verifies an agent-owned
+  mkdir probe succeeds.
+- The rollback half asserts no residual root-owned setup path remains under the
+  agent home.
+
+Apple Container Linux tests do not prove this property: they run as the invoking
+UID/GID and do not exercise sudo-backed install ownership.
 
 ## Product-Facing Flow Procedures
 
@@ -199,6 +246,11 @@ Evidence:
 - install/refusal tests
 - release workflow artifact checks
 
+Current release workflow caveat: `.github/workflows/release.yml` builds and
+publishes tag artifacts, but it does not run the full test suite itself. Until a
+release precondition job is added there, tags must be cut only from commits that
+already passed blocking CI and the local pre-release gate.
+
 ## OS Mapping
 
 ### Linux
@@ -220,14 +272,14 @@ make linux-apple-container-test APPLE_CONTAINER_ACK=1
 Current CI baseline:
 
 ```bash
+cd hazmat && go test ./...
 bash scripts/check-linux-compile.sh
 ```
 
-Target CI baseline:
+Local Apple Container baseline:
 
 ```bash
-cd hazmat && go test ./...
-bash scripts/check-linux-compile.sh
+make linux-apple-container-test APPLE_CONTAINER_ACK=1
 ```
 
 Linux setup, rollback, install artifacts, native launch, firewall, account, and
@@ -263,19 +315,25 @@ The release owner should collect evidence in this order:
 
 1. **Source safety:** run the fast repository gate and confirm staged/working
    tree scans pass.
-2. **Package contracts:** run full package tests on the supported host and the
+2. **Package boundaries:** run the import-boundary and package-split guard.
+3. **Package contracts:** run full package tests on the supported host and the
    Linux lane where available.
-3. **OS lanes:** run macOS `go test ./...`; run Linux `go test ./...` through
+4. **OS lanes:** run macOS `go test ./...`; run Linux `go test ./...` through
    CI or Apple Container.
-4. **Product workflows:** run hermetic harness smoke, repo-matrix contract, CLI
+5. **Product workflows:** run hermetic harness smoke, repo-matrix contract, CLI
    smoke, and entrypoint guards.
-5. **Release artifacts:** build supported artifacts and verify file type,
+6. **TLA gates:** run proof hygiene and deep TLC model checking for every
+   promoted spec, and rerun affected specs before implementation when a verified
+   area changes.
+7. **Release artifacts:** build supported artifacts and verify file type,
    package contents, checksums, and unsupported-platform refusal.
-6. **Live-approved checks:** run only the prepared-host smokes relevant to the
+8. **Privileged install ownership:** for setup-path changes and release
+   candidates, run the real-host ownership lane or block the release.
+9. **Live-approved checks:** run only the prepared-host smokes relevant to the
    changed surface, after exact approval.
-7. **Destructive lifecycle:** for release candidates, run the lifecycle suite in
+10. **Destructive lifecycle:** for release candidates, run the lifecycle suite in
    a disposable VM or document why it was intentionally skipped.
-8. **Audit record:** record commands, OS/arch, pass/fail result, skipped lanes,
+11. **Audit record:** record commands, OS/arch, pass/fail result, skipped lanes,
    and the reason for every skip.
 
 Minimum local release gate today:
@@ -295,6 +353,7 @@ CI should be organized by lane, not by historical script names.
 Recommended blocking jobs:
 
 - `source-safety` on Ubuntu.
+- `package-boundaries` on Ubuntu with `bash scripts/check-import-boundaries.sh`.
 - `go-test-linux` on Ubuntu with `cd hazmat && go test ./...`.
 - `go-test-macos` on macOS with `cd hazmat && go test ./...`.
 - `lint` on macOS or Ubuntu, matching the supported local toolchain.
@@ -303,6 +362,7 @@ Recommended blocking jobs:
 - `repo-matrix-contract` on macOS.
 - `release-build-darwin` on macOS for Darwin artifacts.
 - `tla-proof-hygiene` on Ubuntu.
+- `tla-model-check` on Ubuntu, after proof hygiene.
 
 Recommended optional jobs:
 
@@ -320,12 +380,17 @@ Use this checklist during review:
 - Every changed production package has package-local tests for its invariants.
 - Every changed user-facing promise maps to a product flow test or documented
   manual/live-approved procedure.
+- The package-boundary guard is green before and after test relocation.
 - Every live wrapper defaults to disclosure-only.
 - Every sudo-adjacent or host-mutating path requires exact approval.
+- Setup-path changes include issue-17-class uid/gid and writeability evidence.
 - Linux lanes do not rely on Darwin-only paths, users, Homebrew state, or
   Seatbelt behavior.
 - macOS lanes do not claim Linux setup/rollback/install support.
 - Golden fixtures live with the package or product surface that produces them.
+- Governed-code references in `tla/VERIFIED.md` move in the same commit as
+  governed functions.
+- Deep TLC model checking remains blocking for promoted specs.
 - Release artifacts are tested for the currently supported OS set only.
 - Skipped lanes have explicit reasons in the release audit record.
 
@@ -333,17 +398,25 @@ Use this checklist during review:
 
 Move tests in small, reviewable chunks:
 
+0. Extract SBPL, planner, and Docker-launch producers under the core-session
+   extraction plan before moving their root-private goldens.
 1. Add lane labels to docs and scripts without changing behavior.
-2. Move backend plan and prepared-launch goldens from root tests to
+2. Keep `package-boundaries` green in CI and local pre-release.
+3. Move backend plan and prepared-launch goldens from root tests to
    `sessionbackend`.
-3. Move containment compiler goldens to `containment/*`.
-4. Move request/contract/planner fixtures to `sessionrequest`,
+4. Move Linux and Apple Container launch goldens whose producers are already
+   exported to `containment/linux` and `containment/applecontainer`.
+5. Move remaining containment compiler goldens only after their producers leave
+   package main through the governed extraction work.
+6. Move request/contract/planner fixtures to `sessionrequest`,
    `sessioncontract`, and `sessionplanner`.
-5. Keep root package tests only for CLI orchestration, product scenarios, and
+7. Keep root package tests only for CLI orchestration, product scenarios, and
    compatibility shims that cannot move yet.
-6. Add CI jobs for Linux `go test ./...` and lane-named macOS tests.
-7. Add release audit output once lane commands are stable.
+8. Add CI jobs for Linux `go test ./...` and lane-named macOS tests.
+9. Add release audit output once lane commands are stable.
 
 Each migration commit should keep both macOS `go test ./...` and Linux
-Apple Container `go test ./...` green before deleting the old root-package
-coverage.
+Apple Container `go test ./...` green before deleting old root-package coverage.
+Green tests are not enough by themselves: deletion also requires
+assertion-equivalence, either by identical golden bytes or by keeping both tests
+for one commit and comparing the moved fixture output.
