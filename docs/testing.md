@@ -713,16 +713,19 @@ If you want the strongest local release signal, prefer the VM path plus CI.
 
 ## Linux Support Test Plan
 
-Until `sandboxing-pk5x` implements Linux setup and rollback resources, Linux
-testing stays compile-only plus unit coverage for platform dispatch. Do not
-enable Linux install or release artifacts from a compile-only result.
+Until Linux setup and rollback resources are implemented, Linux testing stays
+compile-only plus unit coverage for platform dispatch. Do not enable Linux
+install or release artifacts from a compile-only result. The model-first gate
+has a checked resource-ordering contract in `tla/MC_SetupRollback` with
+`Platform = "linux"`: Linux sudoers privilege requires firewall policy,
+resolver policy, and service-manager persistence to all be active.
 
 The first Linux implementation should land behind four gates:
 
-1. **Model first:** extend `MC_SetupRollback` or add a scoped Linux setup /
-   rollback model for Linux-owned resources such as users, groups, systemd
-   units, firewall/DNS policy, sudoers, helper installation, and rollback
-   cleanup.
+1. **Model first:** keep `MC_SetupRollback` green for the Linux interpretation
+   and extend it before adding any new Linux-owned setup resource such as users,
+   groups, systemd units, firewall/DNS policy, sudoers, helper installation, or
+   rollback cleanup.
 2. **Linux unit lane:** run normal Go unit tests on `ubuntu-latest`, including
    mocked platform backend tests for Linux account, service, ACL, launch, and
    integration resolver behavior.

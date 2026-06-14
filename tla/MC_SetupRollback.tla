@@ -71,7 +71,10 @@
 \* Network and service mechanics are scoped to pfAnchor, dnsBlocklist,
 \* launchDaemon, launchHelper, sudoers, and maintenanceSudoers resources:
 \* Darwin pf/hosts/launchctl/sudoers behavior can be replaced by Linux
-\* nftables/systemd/resolver behavior only behind those resources.
+\* nftables/systemd/resolver/sudoers behavior only behind those resources.
+\* When Platform = "linux", pfAnchor means the Linux firewall policy is active,
+\* dnsBlocklist means the Linux resolver/hosts policy is active, and
+\* launchDaemon means the Linux service-manager persistence unit is active.
 \* Linux install/release artifacts remain disabled until those Linux resource
 \* actions are implemented behind the native backends and checked against this
 \* model.
@@ -116,7 +119,8 @@ VARIABLES
 
 CONSTANTS
     MaxSetupAttempts,
-    MaxRollbackAttempts
+    MaxRollbackAttempts,
+    Platform
 
 vars == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCredentialModes, seatbelt,
           wrappers, launchHelper, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
@@ -155,6 +159,11 @@ TypeOK ==
     /\ rollbackAttempts \in 0..MaxRollbackAttempts
     /\ rollbackStep   \in 0..11
     /\ rollbackMode   \in {"none", "core", "destructive"}
+
+PlatformOK ==
+    Platform \in {"darwin", "linux"}
+
+ASSUME PlatformOK
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Initial state — clean system
@@ -387,6 +396,13 @@ Next ==
 AgentContained ==
     (sudoers \/ maintenanceSudoers) => pfAnchor
 
+\* Linux privileged launch requires the whole containment bundle, not just the
+\* firewall resource: firewall policy, resolver policy, and service-manager
+\* persistence must all precede sudoers.
+LinuxPrivilegeRequiresContainment ==
+    Platform # "linux" \/
+        ((sudoers \/ maintenanceSudoers) => (pfAnchor /\ dnsBlocklist /\ launchDaemon))
+
 \* No orphaned artifacts after a complete destructive rollback.
 NoOrphanedArtifacts ==
     (phase = "idle" /\ rollbackMode = "none" /\ ~agentUser /\ ~devGroup) =>
@@ -410,6 +426,7 @@ AgentDepsRequireUser ==
 Safety ==
     /\ TypeOK
     /\ AgentContained
+    /\ LinuxPrivilegeRequiresContainment
     /\ NoOrphanedArtifacts
     /\ SudoersRequiresHelper
     /\ PrivilegeRequiresAgentUser

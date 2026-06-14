@@ -112,7 +112,16 @@ and how many setup/rollback attempts have occurred.
    existing `wrappers` resource rather than as a separate setup phase, so
    partial setup and rollback reasoning keeps the same ordering boundary.
 
-6. **Harness/session ergonomics are outside this setup model.** Optional
+6. **Linux setup reuses the same resource boundary.** The model is currently
+   checked with `Platform = "linux"` before Linux privileged lifecycle or
+   release artifacts are enabled. Under that interpretation, `pfAnchor` means
+   the Linux firewall policy is active, `dnsBlocklist` means the Linux resolver
+   / hosts policy is active, and `launchDaemon` means the Linux service-manager
+   persistence unit is active. `LinuxPrivilegeRequiresContainment` proves that
+   either sudoers rule can exist only after all three Linux containment
+   resources are present.
+
+7. **Harness/session ergonomics are outside this setup model.** Optional
    harness-specific commands such as `hazmat bootstrap opencode`, curated
    import flows, and session-only integration activation are not part of
    `runInit()`. They are modeled separately where applicable and are still
@@ -144,6 +153,7 @@ still guarantees a path back to a clean state.
 | Invariant | Meaning |
 |-----------|---------|
 | `NoOrphanedArtifacts` | Destructive rollback leaves no hazmat artifacts, including optional maintenance sudoers |
+| `LinuxPrivilegeRequiresContainment` | On Linux, sudoers requires firewall, resolver policy, and service persistence |
 | `SudoersRequiresHelper` | The narrow launch-helper sudoers rule only exists when launch helper is present |
 | `PrivilegeRequiresAgentUser` | Any passwordless sudoers rule requires the agent user |
 | `AgentDepsRequireUser` | Agent-owned resources require agent user |
@@ -167,3 +177,14 @@ exit, not eventual successful completion after arbitrary bounded failures.
 **Confirmed state space:** 65,662 states generated, 35,005 distinct. Runtime: ~3 seconds
 with `-lncheck final`. All checked safety invariants plus `CanAlwaysReachClean`
 pass after the fix.
+
+**2026-06-14 Linux setup interpretation:** `MC_SetupRollback.cfg` is now checked
+with `Platform = "linux"` and includes `LinuxPrivilegeRequiresContainment`.
+Under that interpretation, Linux sudoers privilege may exist only when the
+firewall policy, resolver / hosts policy, and service-manager persistence
+resources are all active. Re-run with TLC using `-lncheck final`: "No error has
+been found" across 65,662 generated states, 35,005 distinct states, depth 56.
+This satisfies the model-first gate for future Linux setup/rollback design, but
+does not enable Linux privileged lifecycle, artifact install, or release
+packaging without the corresponding backend implementation and disposable-host
+tests.
