@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 )
 
@@ -48,9 +49,48 @@ type nativeLaunchEnvironment struct {
 
 var launchHelperSupportsDirectExec = launchHelperSupportsDirectExecImpl
 
+const launchHelperCapabilityScanLimit = 2 << 20
+
 func launchHelperSupportsDirectExecImpl(path string) bool {
-	data, err := os.ReadFile(path)
-	return err == nil && bytes.Contains(data, []byte("--hazmat-direct-exec"))
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	return readerContainsWithin(file, []byte("--hazmat-direct-exec"), launchHelperCapabilityScanLimit)
+}
+
+func readerContainsWithin(r io.Reader, marker []byte, limit int64) bool {
+	if len(marker) == 0 || limit <= 0 {
+		return false
+	}
+	buf := make([]byte, 64*1024+len(marker)-1)
+	carry := 0
+	remaining := limit
+	for remaining > 0 {
+		readSize := len(buf) - carry
+		if int64(readSize) > remaining {
+			readSize = int(remaining)
+		}
+		n, err := r.Read(buf[carry : carry+readSize])
+		if n > 0 {
+			window := buf[:carry+n]
+			if bytes.Contains(window, marker) {
+				return true
+			}
+			carry = min(len(marker)-1, len(window))
+			copy(buf[:carry], window[len(window)-carry:])
+			remaining -= int64(n)
+		}
+		if n == 0 && err == nil {
+			return false
+		}
+		if err != nil {
+			return false
+		}
+	}
+	return false
 }
 
 func nativeLaunchSudoArgs(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, script string, args ...string) []string {
