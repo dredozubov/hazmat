@@ -209,7 +209,15 @@ func pathWritableByCurrentUser(path string) bool {
 	return syscall.Access(path, 0x2) == nil // W_OK
 }
 
-func pathWritableByAgent(path string, requireInherit bool) bool {
+type gitAgentWriteProbe struct {
+	agentUIDLoaded bool
+	agentUIDValid  bool
+	agentUID       uint32
+
+	groupMembership map[uint32]bool
+}
+
+func (p *gitAgentWriteProbe) pathWritable(path string, requireInherit bool) bool {
 	if requireInherit {
 		return pathHasDevACL(path, true)
 	}
@@ -226,25 +234,56 @@ func pathWritableByAgent(path string, requireInherit bool) bool {
 		return false
 	}
 
+	agentUID, ok := p.lookupAgentUID()
+	if !ok {
+		return false
+	}
+
+	groupHasAgent := p.groupHasAgent(stat.Gid)
+	return writableByAgentMode(info.Mode(), stat.Uid, agentUID, groupHasAgent)
+}
+
+func (p *gitAgentWriteProbe) lookupAgentUID() (uint32, bool) {
+	if p.agentUIDLoaded {
+		return p.agentUID, p.agentUIDValid
+	}
+	p.agentUIDLoaded = true
 	agentInfo, err := user.Lookup(agentUser)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	agentUID64, err := strconv.ParseUint(agentInfo.Uid, 10, 32)
 	if err != nil {
-		return false
+		return 0, false
 	}
+	p.agentUID = uint32(agentUID64)
+	p.agentUIDValid = true
+	return p.agentUID, true
+}
 
-	groupHasAgent := false
-	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
-		groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
+func (p *gitAgentWriteProbe) groupHasAgent(gid uint32) bool {
+	if p.groupMembership == nil {
+		p.groupMembership = make(map[uint32]bool)
 	}
+	if member, ok := p.groupMembership[gid]; ok {
+		return member
+	}
+	member := false
+	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10)); err == nil {
+		member, _ = groupMembershipContains(group.Name, agentUser)
+	}
+	p.groupMembership[gid] = member
+	return member
+}
 
-	return writableByAgentMode(info.Mode(), stat.Uid, uint32(agentUID64), groupHasAgent)
+func pathWritableByAgent(path string, requireInherit bool) bool {
+	var probe gitAgentWriteProbe
+	return probe.pathWritable(path, requireInherit)
 }
 
 func collectGitPermissionProblems(gitDir string) []string {
 	var problems []string
+	var agentWrite gitAgentWriteProbe
 	for _, req := range gitPathRequirements(gitDir) {
 		_, err := os.Stat(req.path)
 		if err != nil {
@@ -260,7 +299,7 @@ func collectGitPermissionProblems(gitDir string) []string {
 		if !pathWritableByCurrentUser(req.path) {
 			problems = append(problems, fmt.Sprintf("host user cannot write %s", req.path))
 		}
-		if !pathWritableByAgent(req.path, req.requireInherit) {
+		if !agentWrite.pathWritable(req.path, req.requireInherit) {
 			want := "write"
 			if req.requireInherit {
 				want = "write with inheritable dev ACL"

@@ -123,6 +123,81 @@ func TestCollectGitPermissionProblemsSkipsOptionalMissingPaths(t *testing.T) {
 	}
 }
 
+func TestGitAgentWriteProbeSkipsAgentLookupForInheritableACLCheck(t *testing.T) {
+	projectDir := t.TempDir()
+	backend := &batchRecordingACLBackend{}
+	savedACLFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedACLFactory
+	})
+
+	var probe gitAgentWriteProbe
+	if probe.pathWritable(projectDir, true) {
+		t.Fatal("pathWritable() = true without dev ACL, want false")
+	}
+	if probe.agentUIDLoaded {
+		t.Fatal("inheritable ACL check should not load agent UID")
+	}
+}
+
+func TestGitAgentWriteProbeCachesGroupMembership(t *testing.T) {
+	projectDir := t.TempDir()
+	paths := []string{
+		filepath.Join(projectDir, "one"),
+		filepath.Join(projectDir, "two"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("x"), 0o620); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o620); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	aclBackend := &batchRecordingACLBackend{}
+	savedACLFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return aclBackend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedACLFactory
+	})
+
+	accountBackend := &recordingNativeAccountBackend{member: true}
+	savedAccountFactory := nativeAccountBackendFactory
+	nativeAccountBackendFactory = func() nativeAccountBackend {
+		return accountBackend
+	}
+	t.Cleanup(func() {
+		nativeAccountBackendFactory = savedAccountFactory
+	})
+
+	var probe gitAgentWriteProbe
+	probe.agentUIDLoaded = true
+	probe.agentUIDValid = true
+	probe.agentUID = ^uint32(0)
+
+	for _, path := range paths {
+		if !probe.pathWritable(path, false) {
+			t.Fatalf("pathWritable(%q) = false, want true from cached group membership", path)
+		}
+	}
+
+	groupMembershipCalls := 0
+	for _, call := range accountBackend.calls {
+		if strings.HasPrefix(call, "groupMembershipContains:") {
+			groupMembershipCalls++
+		}
+	}
+	if groupMembershipCalls != 1 {
+		t.Fatalf("groupMembershipContains calls = %d (%v), want 1", groupMembershipCalls, accountBackend.calls)
+	}
+}
+
 func TestGitMetadataACLTargetsSkipObjectFiles(t *testing.T) {
 	projectDir := t.TempDir()
 	gitDir := filepath.Join(projectDir, ".git")
