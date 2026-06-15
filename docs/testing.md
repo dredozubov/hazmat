@@ -68,6 +68,11 @@ launch helper and may apply approved host repairs; ask for exact-command
 approval before running it. Treat helper or lower-level rewrites as justified
 only when the profile shows sudo/helper, policy application, or exec handoff is
 the remaining bottleneck after Go-side preparation costs are accounted for.
+For broker timing, make sure the helper selected by `HAZMAT_LAUNCH_HELPER` or
+the installed default supports `--hazmat-session-temp` and
+`--hazmat-direct-exec`; Hazmat caches that capability scan under
+`~/.hazmat/launch-helper-capabilities.json` using the helper file identity, so
+helper upgrades force a fresh scan.
 
 Linux native run-agent support is still plan-only/experimental. Its provider
 readiness gates live in

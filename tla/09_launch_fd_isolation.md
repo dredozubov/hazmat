@@ -231,6 +231,10 @@ Observed result:
   The experimental default path can start the per-uid broker once through the
   proved `hazmat-launch exec` startup boundary and retry the broker request; an
   explicitly configured socket remains fail-fast if it cannot be used.
+- the broker client now sends direct-exec launches as argv plus working
+  directory, without also carrying the shell-script field. That preserves the
+  broker's request validation rule that direct exec and shell launches are
+  mutually exclusive while allowing capable helpers to skip the shell wrapper.
 - the host-side broker supervisor removes only stale Unix socket path residue
   before startup: live sockets are left intact and reported, and non-socket or
   symlink paths are refused. This does not change the fd invariants, but keeps
@@ -243,6 +247,10 @@ Observed result:
   per-launch `sudo`.
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
+- live explicit-broker profiling with a checkout-built helper that supports
+  `--hazmat-session-temp` and `--hazmat-direct-exec`: profiled warm launches
+  observed `0.07s`, `0.08s`, and `0.10s` real time, with broker command time
+  `30-49ms`. This is implementation evidence, not a new model obligation.
 
 ## Interpretation
 

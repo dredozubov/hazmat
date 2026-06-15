@@ -1123,14 +1123,21 @@ confirmed-containment metadata replay, stdout/stderr replay, nonzero exit
 status, and post-session repair/denial recording while avoiding per-launch
 `sudo` when a broker is already running. The experimental default path can start
 the per-uid broker once through that same proved startup boundary and retry the
-request; explicitly configured sockets remain fail-fast. The supervisor removes
+request; explicitly configured sockets remain fail-fast. Broker direct-exec
+requests now carry argv plus working directory without also carrying the shell
+script field, preserving request validation's direct-exec/shell mutual
+exclusion while allowing capable helpers to skip the shell wrapper. The
+supervisor removes
 stale socket path residue before startup, but refuses live sockets, symlinks,
 and non-socket paths so crash leftovers do not force a sudo fallback while
 active or suspicious paths are not clobbered. The default per-uid broker runtime
 directory is revalidated through the same agent-side shared-directory
 preparation even when it already exists, repairing mode/group drift before
 broker startup so the experimental path stays on the proved broker startup
-boundary instead of silently falling back to per-launch `sudo`. Interactive
+boundary instead of silently falling back to per-launch `sudo`. Helper
+capability detection is cached by helper path, size, mode, mtime, device, and
+inode so compatible helpers can avoid repeated binary scans; helper replacement
+forces a fresh bounded scan. Interactive
 stdio/session transport and default-on lifecycle remain future governed work
 under this same model.
 

@@ -70,6 +70,67 @@ func TestReadLaunchHelperCapabilitiesUsesBoundedMarkerScan(t *testing.T) {
 	}
 }
 
+func TestLaunchHelperCapabilitiesUsesMatchingDiskCache(t *testing.T) {
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "hazmat-launch")
+	if err := os.WriteFile(helper, []byte("helper without markers"), 0o755); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+	fingerprint, ok := currentLaunchHelperFingerprint(helper)
+	if !ok {
+		t.Fatal("helper fingerprint was not cacheable")
+	}
+
+	cachePath := filepath.Join(dir, "cache", "launch-helper-capabilities.json")
+	restore := replaceLaunchHelperCapabilityCacheForTest(t, cachePath)
+	defer restore()
+	if err := saveLaunchHelperCapabilityDiskCache(cachePath, launchHelperCapabilityDiskCache{
+		Version: 1,
+		Entries: map[string]launchHelperCapabilityDiskEntry{
+			helper: {
+				Fingerprint: fingerprint,
+				Capabilities: launchHelperCapabilities{
+					DirectExec:  true,
+					SessionTemp: true,
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save disk cache: %v", err)
+	}
+
+	got := launchHelperCapabilitiesFor(helper)
+	if !got.DirectExec || !got.SessionTemp {
+		t.Fatalf("launchHelperCapabilitiesFor() = %+v, want disk-cached capabilities", got)
+	}
+}
+
+func TestLaunchHelperCapabilitiesInvalidatesStaleDiskCache(t *testing.T) {
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "hazmat-launch")
+	if err := os.WriteFile(helper, []byte("--hazmat-session-temp\x00--hazmat-direct-exec"), 0o755); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	cachePath := filepath.Join(dir, "cache", "launch-helper-capabilities.json")
+	restore := replaceLaunchHelperCapabilityCacheForTest(t, cachePath)
+	defer restore()
+	first := launchHelperCapabilitiesFor(helper)
+	if !first.DirectExec || !first.SessionTemp {
+		t.Fatalf("first capabilities = %+v, want both capabilities", first)
+	}
+
+	clearLaunchHelperCapabilityMemoryCacheForTest()
+	if err := os.WriteFile(helper, []byte("replacement helper without capability markers and different size"), 0o755); err != nil {
+		t.Fatalf("replace helper: %v", err)
+	}
+
+	got := launchHelperCapabilitiesFor(helper)
+	if got.DirectExec || got.SessionTemp {
+		t.Fatalf("stale disk cache was used after helper replacement: %+v", got)
+	}
+}
+
 func TestNativeLaunchBaseEnvPairsCanSkipGoModCacheProbe(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -149,4 +210,22 @@ func TestNativeLaunchBaseEnvPairsIncludesGoModCacheByDefault(t *testing.T) {
 	if !containsString(pairs, "GOMODCACHE="+resolvedModCache) {
 		t.Fatalf("GOMODCACHE missing from env pairs: %v", pairs)
 	}
+}
+
+func replaceLaunchHelperCapabilityCacheForTest(t *testing.T, path string) func() {
+	t.Helper()
+	clearLaunchHelperCapabilityMemoryCacheForTest()
+	oldPath := launchHelperCapabilityDiskCachePath
+	launchHelperCapabilityDiskCachePath = func() string { return path }
+	return func() {
+		clearLaunchHelperCapabilityMemoryCacheForTest()
+		launchHelperCapabilityDiskCachePath = oldPath
+	}
+}
+
+func clearLaunchHelperCapabilityMemoryCacheForTest() {
+	launchHelperCapabilityCache.Range(func(key, _ any) bool {
+		launchHelperCapabilityCache.Delete(key)
+		return true
+	})
 }

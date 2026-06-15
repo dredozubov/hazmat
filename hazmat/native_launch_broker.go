@@ -97,8 +97,10 @@ func launchBrokerBufferedEligible(ui sessionLaunchUI) bool {
 func nativeLaunchBrokerRequestWithMetadataPlanAndRuntime(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON, launchHelperTempDir, script string, args ...string) launchbroker.LaunchRequest {
 	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPath())
 	workingDir := ""
+	requestScript := script
 	if directExec {
 		workingDir = cfg.ProjectDir
+		requestScript = ""
 	}
 	return launchbroker.LaunchRequest{
 		PolicyPath:      policy.Path,
@@ -108,7 +110,7 @@ func nativeLaunchBrokerRequestWithMetadataPlanAndRuntime(cfg sessionConfig, plan
 		SessionTempDir:  launchHelperTempDir,
 		EnvPairs:        newNativeLaunchBackend().AgentEnvPairs(nativeLaunchEnvRequest{Config: cfg, Plan: plan}),
 		RuntimeEnvPairs: append([]string(nil), runtimeEnvPairs...),
-		Script:          script,
+		Script:          requestScript,
 		Args:            append([]string(nil), args...),
 	}
 }

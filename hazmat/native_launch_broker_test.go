@@ -110,7 +110,7 @@ func TestNativeLaunchBrokerRequestMirrorsNativeLaunchShape(t *testing.T) {
 	if req.PolicyPath != policy.Path || req.MetadataJSON != `{"kind":"hazmat.session"}` {
 		t.Fatalf("policy/metadata = %q/%q", req.PolicyPath, req.MetadataJSON)
 	}
-	if !req.DirectExec || req.WorkingDir != cfg.ProjectDir || req.Script != nativeDirectProjectExecScript {
+	if !req.DirectExec || req.WorkingDir != cfg.ProjectDir || req.Script != "" {
 		t.Fatalf("direct exec fields = direct=%v working=%q script=%q", req.DirectExec, req.WorkingDir, req.Script)
 	}
 	if !reflect.DeepEqual(req.RuntimeEnvPairs, []string{"RUNTIME_ENV=1"}) {

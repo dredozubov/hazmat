@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
+	"syscall"
 )
 
 type nativeLaunchBackend interface {
@@ -55,10 +57,29 @@ var launchHelperSupportsSessionTemp = launchHelperSupportsSessionTempImpl
 const launchHelperCapabilityScanLimit = 2 << 20
 
 var launchHelperCapabilityCache sync.Map
+var launchHelperCapabilityDiskCachePath = defaultLaunchHelperCapabilityDiskCachePath
 
 type launchHelperCapabilities struct {
 	DirectExec  bool
 	SessionTemp bool
+}
+
+type launchHelperFileFingerprint struct {
+	Size            int64  `json:"size"`
+	Mode            uint32 `json:"mode"`
+	ModTimeUnixNano int64  `json:"mod_time_unix_nano"`
+	Dev             uint64 `json:"dev"`
+	Ino             uint64 `json:"ino"`
+}
+
+type launchHelperCapabilityDiskCache struct {
+	Version int                                        `json:"version"`
+	Entries map[string]launchHelperCapabilityDiskEntry `json:"entries"`
+}
+
+type launchHelperCapabilityDiskEntry struct {
+	Fingerprint  launchHelperFileFingerprint `json:"fingerprint"`
+	Capabilities launchHelperCapabilities    `json:"capabilities"`
 }
 
 func launchHelperSupportsDirectExecImpl(path string) bool {
@@ -73,18 +94,34 @@ func launchHelperCapabilitiesFor(path string) launchHelperCapabilities {
 	if cached, ok := launchHelperCapabilityCache.Load(path); ok {
 		return cached.(launchHelperCapabilities)
 	}
-	caps := readLaunchHelperCapabilities(path)
+	if fingerprint, ok := currentLaunchHelperFingerprint(path); ok {
+		if caps, ok := readLaunchHelperCapabilityDiskCache(path, fingerprint); ok {
+			launchHelperCapabilityCache.Store(path, caps)
+			return caps
+		}
+	}
+	caps, fingerprint, cacheable := readLaunchHelperCapabilitiesWithFingerprint(path)
+	if cacheable {
+		writeLaunchHelperCapabilityDiskCache(path, fingerprint, caps)
+	}
 	launchHelperCapabilityCache.Store(path, caps)
 	return caps
 }
 
 func readLaunchHelperCapabilities(path string) launchHelperCapabilities {
+	caps, _, _ := readLaunchHelperCapabilitiesWithFingerprint(path)
+	return caps
+}
+
+func readLaunchHelperCapabilitiesWithFingerprint(path string) (launchHelperCapabilities, launchHelperFileFingerprint, bool) {
 	file, err := os.Open(path)
 	if err != nil {
-		return launchHelperCapabilities{}
+		return launchHelperCapabilities{}, launchHelperFileFingerprint{}, false
 	}
 	defer file.Close()
 
+	info, statErr := file.Stat()
+	fingerprint, cacheable := launchHelperFingerprintFromFileInfo(info, statErr)
 	markers := map[string][]byte{
 		"direct_exec":  []byte("--hazmat-direct-exec"),
 		"session_temp": []byte("--hazmat-session-temp"),
@@ -93,7 +130,122 @@ func readLaunchHelperCapabilities(path string) launchHelperCapabilities {
 	return launchHelperCapabilities{
 		DirectExec:  found["direct_exec"],
 		SessionTemp: found["session_temp"],
+	}, fingerprint, cacheable
+}
+
+func defaultLaunchHelperCapabilityDiskCachePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
 	}
+	return filepath.Join(home, ".hazmat", "launch-helper-capabilities.json")
+}
+
+func currentLaunchHelperFingerprint(path string) (launchHelperFileFingerprint, bool) {
+	info, err := os.Stat(path)
+	return launchHelperFingerprintFromFileInfo(info, err)
+}
+
+func launchHelperFingerprintFromFileInfo(info os.FileInfo, err error) (launchHelperFileFingerprint, bool) {
+	if err != nil || info == nil || !info.Mode().IsRegular() {
+		return launchHelperFileFingerprint{}, false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return launchHelperFileFingerprint{}, false
+	}
+	return launchHelperFileFingerprint{
+		Size:            info.Size(),
+		Mode:            uint32(info.Mode().Perm()),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+		Dev:             uint64(stat.Dev),
+		Ino:             uint64(stat.Ino),
+	}, true
+}
+
+func readLaunchHelperCapabilityDiskCache(path string, fingerprint launchHelperFileFingerprint) (launchHelperCapabilities, bool) {
+	cachePath := launchHelperCapabilityDiskCachePath()
+	if cachePath == "" {
+		return launchHelperCapabilities{}, false
+	}
+	cache, err := loadLaunchHelperCapabilityDiskCache(cachePath)
+	if err != nil || cache.Version != 1 {
+		return launchHelperCapabilities{}, false
+	}
+	entry, ok := cache.Entries[path]
+	if !ok || entry.Fingerprint != fingerprint {
+		return launchHelperCapabilities{}, false
+	}
+	return entry.Capabilities, true
+}
+
+func writeLaunchHelperCapabilityDiskCache(path string, fingerprint launchHelperFileFingerprint, caps launchHelperCapabilities) {
+	cachePath := launchHelperCapabilityDiskCachePath()
+	if cachePath == "" {
+		return
+	}
+	cache, err := loadLaunchHelperCapabilityDiskCache(cachePath)
+	if err != nil || cache.Version != 1 {
+		cache = launchHelperCapabilityDiskCache{Version: 1}
+	}
+	if cache.Entries == nil || len(cache.Entries) > 32 {
+		cache.Entries = make(map[string]launchHelperCapabilityDiskEntry)
+	}
+	cache.Entries[path] = launchHelperCapabilityDiskEntry{
+		Fingerprint:  fingerprint,
+		Capabilities: caps,
+	}
+	_ = saveLaunchHelperCapabilityDiskCache(cachePath, cache)
+}
+
+func loadLaunchHelperCapabilityDiskCache(path string) (launchHelperCapabilityDiskCache, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return launchHelperCapabilityDiskCache{}, err
+	}
+	var cache launchHelperCapabilityDiskCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return launchHelperCapabilityDiskCache{}, err
+	}
+	return cache, nil
+}
+
+func saveLaunchHelperCapabilityDiskCache(path string, cache launchHelperCapabilityDiskCache) error {
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".launch-helper-capabilities-*.json")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Chmod(0o600); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func readerContainsWithin(r io.Reader, marker []byte, limit int64) bool {
