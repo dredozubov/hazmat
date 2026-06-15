@@ -56,6 +56,17 @@ func (p *fakeIntegrationProbe) Output(name string, args ...string) (string, erro
 	return "", fmt.Errorf("unexpected command: %s", key)
 }
 
+type javaLauncherStubProbe struct {
+	fakeIntegrationProbe
+}
+
+func (p *javaLauncherStubProbe) Output(name string, args ...string) (string, error) {
+	if name == "java" {
+		panic("java launcher stub should not be executed during integration resolution")
+	}
+	return p.fakeIntegrationProbe.Output(name, args...)
+}
+
 func writeExecutable(t *testing.T, root, name string) string {
 	t.Helper()
 	binDir := filepath.Join(root, "bin")
@@ -1220,6 +1231,67 @@ func TestBrewPrefixUsesOptPrefixBeforeProbe(t *testing.T) {
 	}
 	if result.Formula != "openjdk" {
 		t.Fatalf("brewPrefix(openjdk) Formula = %q, want openjdk", result.Formula)
+	}
+}
+
+func TestResolveTLAJavaIntegrationSkipsMacOSLauncherStub(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS launcher stub behavior is Darwin-specific")
+	}
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+	stubIntegrationEnv(t, map[string]string{"JAVA_HOME": ""})
+	if err := runConfigSet("integrations.homebrew", "enabled"); err != nil {
+		t.Fatalf("runConfigSet enabled: %v", err)
+	}
+
+	brewRoot := filepath.Join(t.TempDir(), "homebrew")
+	brewBin := filepath.Join(brewRoot, "bin", "brew")
+	openJDKPrefix := filepath.Join(brewRoot, "opt", "openjdk")
+	javaHome := filepath.Join(openJDKPrefix, "libexec", "openjdk.jdk", "Contents", "Home")
+	if err := os.MkdirAll(filepath.Dir(brewBin), 0o755); err != nil {
+		t.Fatalf("mkdir brew bin: %v", err)
+	}
+	if err := os.WriteFile(brewBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write brew bin: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(javaHome, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir javaHome: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(javaHome, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write java binary: %v", err)
+	}
+
+	savedCandidates := integrationBrewCandidates
+	integrationBrewCandidates = []string{brewBin}
+	t.Cleanup(func() { integrationBrewCandidates = savedCandidates })
+	savedJavaHomePath := integrationJavaHomePath
+	integrationJavaHomePath = ""
+	t.Cleanup(func() { integrationJavaHomePath = savedJavaHomePath })
+
+	ctx := &integrationResolveContext{
+		ProjectDir: t.TempDir(),
+		Probe: &javaLauncherStubProbe{
+			fakeIntegrationProbe: fakeIntegrationProbe{
+				lookPaths: map[string]string{"java": "/usr/bin/java"},
+			},
+		},
+	}
+	integration, err := loadBuiltinIntegrationSpec("tla-java")
+	if err != nil {
+		t.Fatalf("loadBuiltinIntegrationSpec(tla-java): %v", err)
+	}
+
+	resolved, err := resolveTLAJavaIntegration(ctx, integration)
+	if err != nil {
+		t.Fatalf("resolveTLAJavaIntegration: %v", err)
+	}
+	want, err := canonicalizePath(javaHome)
+	if err != nil {
+		t.Fatalf("canonicalizePath(javaHome): %v", err)
+	}
+	if got := resolved.ResolvedEnv["JAVA_HOME"]; got != want {
+		t.Fatalf("ResolvedEnv[JAVA_HOME] = %q, want %q", got, want)
 	}
 }
 

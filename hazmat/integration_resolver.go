@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -67,6 +69,7 @@ var (
 	integrationProbeExtraEnv         = append([]string(nil), integrationPlatform.ProbeEnv...)
 	integrationAgentExecCheck        = func(path string) bool { return pathExecutableByAgent(path) }
 	integrationGetenv                = os.Getenv
+	agentExecutableFacts             = newAgentExecutableFactCache()
 	homebrewConsentPrompt            = func() (bool, bool) {
 		if flagDryRun {
 			return false, false
@@ -1209,11 +1212,13 @@ func (ctx *integrationResolveContext) resolveJavaHome() (string, string, error) 
 		}
 	}
 
-	if output, err := ctx.Probe.Output("java", "-XshowSettings:properties", "-version"); err == nil && output != "" {
-		if javaHome := parseJavaHome(output); javaHome != "" {
-			dir, err := validatedJavaHome(ctx, javaHome)
-			if err == nil && dir != "" {
-				return dir, "tla-java (java runtime)", nil
+	if javaPath, err := ctx.Probe.LookPath("java"); err == nil && javaPath != "" && !javaLauncherStubExecutable(javaPath) {
+		if output, err := ctx.Probe.Output("java", "-XshowSettings:properties", "-version"); err == nil && output != "" {
+			if javaHome := parseJavaHome(output); javaHome != "" {
+				dir, err := validatedJavaHome(ctx, javaHome)
+				if err == nil && dir != "" {
+					return dir, "tla-java (java runtime)", nil
+				}
 			}
 		}
 	}
@@ -1268,6 +1273,22 @@ func validatedJavaHome(ctx *integrationResolveContext, path string) (string, err
 func javaLauncherStubHome(dir string) bool {
 	switch filepath.Clean(dir) {
 	case "/usr", "/usr/bin":
+		return true
+	default:
+		return false
+	}
+}
+
+func javaLauncherStubExecutable(path string) bool {
+	if goruntime.GOOS != "darwin" {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != "" {
+		path = resolved
+	}
+	switch filepath.Clean(path) {
+	case "/usr/bin/java",
+		"/System/Library/Frameworks/JavaVM.framework/Versions/Current/Commands/java":
 		return true
 	default:
 		return false
@@ -1337,7 +1358,71 @@ func renderIntegrationDetails(details []string) string {
 	return b.String()
 }
 
+type agentExecutableFactCache struct {
+	mu              sync.Mutex
+	agentUID        uint32
+	agentUIDLoaded  bool
+	agentUIDOK      bool
+	groupMembership map[uint32]bool
+}
+
+func newAgentExecutableFactCache() *agentExecutableFactCache {
+	return &agentExecutableFactCache{
+		groupMembership: make(map[uint32]bool),
+	}
+}
+
+func (c *agentExecutableFactCache) agentUIDValue() (uint32, bool) {
+	c.mu.Lock()
+	if c.agentUIDLoaded {
+		uid, ok := c.agentUID, c.agentUIDOK
+		c.mu.Unlock()
+		return uid, ok
+	}
+	c.mu.Unlock()
+
+	agentInfo, err := user.Lookup(agentUser)
+	if err != nil {
+		return 0, false
+	}
+	agentUID64, err := strconv.ParseUint(agentInfo.Uid, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+
+	agentUID := uint32(agentUID64)
+	c.mu.Lock()
+	c.agentUID = agentUID
+	c.agentUIDLoaded = true
+	c.agentUIDOK = true
+	c.mu.Unlock()
+	return agentUID, true
+}
+
+func (c *agentExecutableFactCache) groupContainsAgent(gid uint32) bool {
+	c.mu.Lock()
+	if hasAgent, ok := c.groupMembership[gid]; ok {
+		c.mu.Unlock()
+		return hasAgent
+	}
+	c.mu.Unlock()
+
+	hasAgent := false
+	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10)); err == nil {
+		hasAgent, _ = groupMembershipContains(group.Name, agentUser)
+	}
+
+	c.mu.Lock()
+	c.groupMembership[gid] = hasAgent
+	c.mu.Unlock()
+	return hasAgent
+}
+
 func pathExecutableByAgent(path string) bool {
+	return pathExecutableByAgentWithFacts(path, agentExecutableFacts)
+}
+
+func pathExecutableByAgentWithFacts(path string, facts *agentExecutableFactCache) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		var pathErr *os.PathError
@@ -1351,28 +1436,23 @@ func pathExecutableByAgent(path string) bool {
 		return false
 	}
 
-	agentInfo, err := user.Lookup(agentUser)
-	if err != nil {
+	if facts == nil {
 		return false
 	}
-	agentUID64, err := strconv.ParseUint(agentInfo.Uid, 10, 32)
-	if err != nil {
-		return false
-	}
-	agentUID := uint32(agentUID64)
-
-	if !agentHasPathExecute(filepath.Dir(path), agentUID) {
+	agentUID, ok := facts.agentUIDValue()
+	if !ok {
 		return false
 	}
 
-	groupHasAgent := false
-	if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
-		groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
+	if !agentHasPathExecute(filepath.Dir(path), agentUID, facts) {
+		return false
 	}
+
+	groupHasAgent := facts.groupContainsAgent(stat.Gid)
 	return executableByAgentMode(info.Mode(), stat.Uid, agentUID, groupHasAgent)
 }
 
-func agentHasPathExecute(path string, agentUID uint32) bool {
+func agentHasPathExecute(path string, agentUID uint32, facts *agentExecutableFactCache) bool {
 	path = filepath.Clean(path)
 	if path == "." || path == "" {
 		return false
@@ -1389,10 +1469,7 @@ func agentHasPathExecute(path string, agentUID uint32) bool {
 		if !ok {
 			return false
 		}
-		groupHasAgent := false
-		if group, err := user.LookupGroupId(strconv.FormatUint(uint64(stat.Gid), 10)); err == nil {
-			groupHasAgent, _ = groupMembershipContains(group.Name, agentUser)
-		}
+		groupHasAgent := facts.groupContainsAgent(stat.Gid)
 		if !executableByAgentMode(info.Mode(), stat.Uid, agentUID, groupHasAgent) {
 			return false
 		}
