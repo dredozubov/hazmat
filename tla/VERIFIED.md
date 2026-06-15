@@ -1044,9 +1044,10 @@ future specs, tests, and docs.
 | Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract, helper command plan, buffered helper executor, service lifecycle wrapper |
 | Governed code | `hazmat/internal/runtime/darwin/runtime.go` — shared helper argv builder used by both sudo and broker command paths |
 | Governed code | `hazmat/internal/agententry/commands.go`, `hazmat/launch_broker_agent_entry.go` — hidden agent-side launch broker command and signal-aware service runner |
-| Governed future code | persistent native launch broker executor wiring — agent-side service command/supervision, interactive stdio/session transport, fd sanitation before `sandbox_init()` |
-| Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
-| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, and has a typed service lifecycle wrapper; agent-side service command/supervision and interactive stdio/session transport remain pending |
+| Governed code | `hazmat/launch_broker_supervisor.go` — host-side broker startup command construction through `hazmat-launch exec` and fake-startable supervision |
+| Governed future code | persistent native launch broker executor wiring — interactive stdio/session transport and CLI/session integration |
+| Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `BrokerFDTableDropsHostInheritedFDs`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
+| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, has a typed service lifecycle wrapper, and has a host-side start plan that routes long-lived broker startup through `hazmat-launch exec`; interactive stdio/session transport and CLI/session integration remain pending |
 
 **What this verifies:**
 
@@ -1070,6 +1071,10 @@ future specs, tests, and docs.
    cannot fork or enter the launch executor path until the host request is
    authenticated.
 
+6. **Broker startup has its own fd cleanup boundary:** the long-lived broker
+   must not enter its listening/serving state while retaining host-origin
+   non-stdio descriptors inherited from the supervisor startup chain.
+
 **2026-06-09 Beadpost broker ordering + authority-fd hygiene (minimal addition):**
 The spec now also proves the launch-order facts for the contained-agent submitter
 + dr-owned host broker design. `BrokerStartsOnlyAfterSandboxConfirmed` and
@@ -1088,12 +1093,14 @@ TLC passes with the addition across 416 reachable states (608 generated, depth 1
 
 **2026-06-15 persistent launch broker path:** The spec now includes a brokered
 steady-state launch mode alongside `sudo -> hazmat-launch`. It models a
-long-lived agent broker forking a launch child that may inherit broker-owned
-listener/request descriptors plus an adversarial authority fd. The same
-launch-child fd cleanup must remove those descriptors before `sandbox_init()`,
-and `BrokerLaunchRequiresAuthenticatedPeer` proves a brokered launch cannot
-reach that child path before host-peer authentication. TLC passes across 864
-reachable states (1,248 generated, depth 11, <15s on the local run).
+long-lived agent broker startup chain that may inherit host-origin
+credential/authority fds, proves those are dropped before the broker listens
+(`BrokerFDTableDropsHostInheritedFDs`), and still models each launch child
+inheriting broker-owned listener/request descriptors before child-side cleanup.
+The same launch-child fd cleanup must remove those descriptors before
+`sandbox_init()`, and `BrokerLaunchRequiresAuthenticatedPeer` proves a brokered
+launch cannot reach that child path before host-peer authentication. TLC passes
+across 928 reachable states (1,312 generated, depth 13, <1s on the local run).
 
 The concrete broker request boundary now lives in
 `hazmat/internal/runtime/launchbroker`: Unix peer authentication precedes
@@ -1106,9 +1113,11 @@ helper executor returns exit code/stdout/stderr and fails closed if requested
 confirmed-containment metadata is not observed on helper stderr. The service
 wrapper owns Unix socket readiness, cancellation, and cleanup while wiring the
 helper executor as the default handler. The hidden `_launch_broker` agent-entry
-command starts that service with a signal-aware context. Host-side supervision
-and interactive stdio/session transport remain future governed work under this
-same model.
+command starts that service with a signal-aware context. The host-side broker
+start plan/supervisor starts `_launch_broker` through `hazmat-launch exec`,
+reusing the proved helper fd-cleanup boundary before the long-lived broker opens
+its socket. Interactive stdio/session transport and CLI/session integration
+remain future governed work under this same model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
@@ -1128,6 +1137,9 @@ side cleanup is now a proved design rule instead of an implementation detail.
   explicitly `CLOEXEC`.
 - A persistent launch broker must authenticate the host peer before it forks a
   launch child or accepts a policy/command request for execution.
+- A persistent launch broker must be started through `hazmat-launch exec` or an
+  equivalent fd-cleaning boundary before it listens; relying on Go or sudo fd
+  inheritance behavior is not sufficient.
 - The Beadpost broker must not activate, and attestation authority must not be
   minted, before confirmed containment (`sandbox_init` + emitted metadata). Any
   change that lets the broker/mint precede confirmation, or that lets an

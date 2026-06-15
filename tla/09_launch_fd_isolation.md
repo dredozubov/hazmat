@@ -20,10 +20,13 @@ This spec treats the upstream launch chain as partially adversarial:
 - `sudo` may or may not apply `closefrom`-style cleanup before execing the helper
 - a persistent agent-owned launch broker may hold its listener, accepted request
   socket, and other broker-owned non-stdio fds when it forks a launch child
+- broker startup may inherit host-origin non-stdio fds unless it is routed
+  through Hazmat's fd-cleaning helper exec boundary
 
 The useful design claim is narrower and stronger:
 
 - the launch executor closes every inherited fd `>= 3` before sandboxing
+- the long-lived launch broker closes startup-inherited fds before listening
 - any fd the helper opens for policy validation is explicitly `CLOEXEC`
 - helper-side session temp preparation leaves no additional live descriptors at
   `sandbox_init()`
@@ -42,7 +45,8 @@ The useful design claim is narrower and stronger:
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
 | `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
 | `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
-| future launch broker executor wiring | launch-child fork, fd sanitation before `sandbox_init()` |
+| `hazmat/launch_broker_supervisor.go` | host-side broker startup command construction through `hazmat-launch exec` |
+| future launch broker executor wiring | interactive stdio/session transport and CLI/session integration |
 
 ## TLA+ Model
 
@@ -72,16 +76,18 @@ The state machine follows the actual native launch chain at the point where fd
 inheritance matters:
 
 1. `hazmat`
-2. either `sudo -> hazmat-launch`, or an authenticated request to a persistent
-   agent-owned launch broker
-3. launch child/executor
-4. executor fd sanitization
-5. executor policy-file open
-6. optional executor-side session temp preparation, leaving no extra live fds
-7. `sandbox_init()`
-8. confirmed-containment metadata emission
-9. optional host broker activation and token minting
-10. final agent `exec`
+2. either `sudo -> hazmat-launch`, or startup of a persistent agent-owned
+   launch broker through a fd-cleaning helper exec boundary
+3. broker startup fd sanitization before listening
+4. authenticated request to the persistent broker
+5. launch child/executor
+6. executor fd sanitization
+7. executor policy-file open
+8. optional executor-side session temp preparation, leaving no extra live fds
+9. `sandbox_init()`
+10. confirmed-containment metadata emission
+11. optional host broker activation and token minting
+12. final agent `exec`
 
 Two environment knobs are chosen nondeterministically at `Init`:
 
@@ -93,12 +99,14 @@ The checked config fixes the helper-side design knobs to the intended values:
 - `HelperClosesInheritedFDs = TRUE`
 - `PolicyFileUsesCloexec = TRUE`
 - `BrokerAuthenticatesPeer = TRUE`
+- `BrokerStartupClosesInheritedFDs = TRUE`
 
 ## What TLC Checks
 
 | Invariant | Meaning |
 |-----------|---------|
 | `BrokerLaunchRequiresAuthenticatedPeer` | A brokered launch cannot fork/reach the executor path until the host peer is authenticated |
+| `BrokerFDTableDropsHostInheritedFDs` | Once the persistent broker is listening or serving, it no longer holds host-origin non-stdio fds inherited during startup |
 | `HelperFDTableAllowlistedAtSandbox` | Once sandboxing starts, the helper holds only stdio plus its helper-opened policy fd |
 | `NoInheritedShellFDsAtSandbox` | No shell-origin fd `>= 3` survives into or past `sandbox_init()` |
 | `CredentialFDsGoneBeforeSandbox` | No credential-bearing fd is live when `sandbox_init()` runs |
@@ -117,6 +125,9 @@ This model makes one design fact explicit:
   behaviors are adversarial or explicitly modeled with extra live fds
 - the first launch-child action must therefore be inherited-fd cleanup,
   regardless of whether the child came from `sudo` or the persistent broker
+- the persistent broker itself also needs a startup fd cleanup boundary before
+  it listens, otherwise it can retain leaked host credential/authority fds even
+  though each child still sanitizes before `sandbox_init()`
 - the persistent broker path is viable only if request authentication precedes
   forking the launch child
 - a pre-sudo prepared launch is not a confirmed containment boundary; broker
@@ -140,9 +151,9 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `608 states generated`
-- `416 distinct states found`
-- `depth 10`
+- `1,312 states generated`
+- `928 distinct states found`
+- `depth 13`
 - `Finished in <1s`
 
 2026-06-04 proof-hygiene refactor:
@@ -177,10 +188,13 @@ Observed result:
 
 - added a brokered launch mode alongside the existing `sudo -> hazmat-launch`
   mode
-- modeled the broker child inheriting broker-owned listener/request fds plus an
-  adversarial authority fd before it performs fd sanitation
-- added checked obligation `BrokerLaunchRequiresAuthenticatedPeer`
-- current metrics: `1,248 generated`, `864 distinct`, `depth 11`
+- modeled broker startup inheriting host-origin credential/authority fds before
+  the fd-cleaning helper exec boundary drops them
+- modeled the broker child inheriting broker-owned listener/request fds before
+  it performs fd sanitation
+- added checked obligations `BrokerLaunchRequiresAuthenticatedPeer` and
+  `BrokerFDTableDropsHostInheritedFDs`
+- current metrics: `1,312 generated`, `928 distinct`, `depth 13`
 
 2026-06-15 broker transport boundary:
 
@@ -205,6 +219,9 @@ Observed result:
   handler
 - added the hidden agent-entry `_launch_broker` command and production runner
   that starts the service under a cancellable signal-aware context
+- added a host-side broker start plan/supervisor that starts `_launch_broker`
+  through `hazmat-launch exec`, reusing the proved startup fd cleanup boundary
+  before the long-lived broker opens its socket
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 
@@ -215,7 +232,8 @@ implementation details. It proves a stronger Hazmat-specific boundary:
 
 - even if upstream exec behavior is less hygienic than expected,
 - even if `sudo` contributes no cleanup,
-- and even if a persistent broker child inherits broker-owned/request/authority
+- even if broker startup would otherwise inherit host credential/authority fds,
+- and even if a persistent broker child inherits broker-owned listener/request
   fds,
 - the launch executor still reaches `sandbox_init()` with an allowlisted fd table
 - and any host-side broker authority is minted only after confirmed containment

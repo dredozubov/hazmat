@@ -14,9 +14,12 @@
 \*   1. Go's exec path may or may not collapse hazmat -> sudo to stdio only.
 \*   2. sudo may or may not apply closefrom-style cleanup before execing the helper.
 \*   3. a persistent launch broker child may inherit broker-owned descriptors.
+\*   4. broker startup may inherit host descriptors unless routed through the
+\*      same fd-cleaning helper exec boundary.
 \*
 \* The proved design obligations are:
 \*   - the launch executor closes every inherited fd >= 3 before sandbox_init()
+\*   - the long-lived broker closes startup-inherited fds before listening
 \*   - any fd the helper opens itself for policy validation is CLOEXEC
 \*   - the brokered path authenticates the peer before forking a launch child
 \*
@@ -40,13 +43,15 @@
 \*   hazmat/cmd/hazmat-launch/main.go — helper-side fd sanitization, policy read, sandbox_init, exec
 \*   hazmat/internal/runtime/launchbroker/*.go — authenticated broker request and child-plan fd cleanup contract
 \*   hazmat/internal/agententry/commands.go, hazmat/launch_broker_agent_entry.go — agent-side broker service entrypoint
+\*   hazmat/launch_broker_supervisor.go — host-side broker startup command construction
 
 EXTENDS Naturals, FiniteSets
 
 CONSTANTS
     HelperClosesInheritedFDs,
     PolicyFileUsesCloexec,
-    BrokerAuthenticatesPeer
+    BrokerAuthenticatesPeer,
+    BrokerStartupClosesInheritedFDs
 
 FDs == 0..7
 StdioFDs == 0..2
@@ -57,7 +62,7 @@ BrokerConnFD == 7
 
 Targets == {"stdio", "credential", "benign", "policy", "authority", "broker_socket", "broker_request", "unused"}
 Origins == {"shell", "helper", "broker", "none"}
-Stages == {"hazmat", "sudo", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
+Stages == {"hazmat", "sudo", "broker_starting", "broker_listening", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
 LaunchModes == {"unset", "sudo_helper", "brokered"}
 
 AllowedHelperTargetsAtSandbox == {"stdio", "policy"}
@@ -156,17 +161,43 @@ HazmatExecsSudo ==
                    goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
-HazmatRequestsLaunchBroker ==
+HazmatStartsLaunchBroker ==
     /\ stage = "hazmat"
     /\ launchMode = "unset"
     /\ launchMode' = "brokered"
-    \* The long-lived agent broker may hold its listener, the accepted request,
-    \* and one extra non-stdio descriptor (fd 4) that may be benign or authority.
-    \* The forked launch child must sanitize all of these before sandbox_init().
-    /\ brokerFds' = StdioFDs \cup {4, BrokerListenFD, BrokerConnFD}
+    \* Starting the long-lived agent broker may inherit the same host-origin fds
+    \* as the invoking hazmat process. The startup path must sanitize them before
+    \* the broker opens its listener and accepts launch requests.
+    /\ brokerFds' = hazmatFds
+    /\ stage' = "broker_starting"
+    /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
+
+BrokerStartupSanitizesFDTable ==
+    /\ stage = "broker_starting"
+    /\ launchMode = "brokered"
+    /\ brokerFds' =
+        IF BrokerStartupClosesInheritedFDs
+            THEN brokerFds \cap StdioFDs
+            ELSE brokerFds
+    /\ stage' = "broker_listening"
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
+
+BrokerAcceptsAuthenticatedLaunch ==
+    /\ stage = "broker_listening"
+    /\ launchMode = "brokered"
+    \* After startup cleanup, the broker may open its listener and hold the
+    \* accepted request socket. The forked launch child must still sanitize
+    \* broker-owned descriptors before sandbox_init().
+    /\ brokerFds' = brokerFds \cup {BrokerListenFD, BrokerConnFD}
     /\ peerAuthenticated' = BrokerAuthenticatesPeer
     /\ stage' = "broker"
-    /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
                    goExecClosesParentFDs, sudoClosesInheritedFDs,
                    metadataEmitted, brokerActive, tokenMinted>>
@@ -283,7 +314,9 @@ Done ==
 
 Next ==
     \/ HazmatExecsSudo
-    \/ HazmatRequestsLaunchBroker
+    \/ HazmatStartsLaunchBroker
+    \/ BrokerStartupSanitizesFDTable
+    \/ BrokerAcceptsAuthenticatedLaunch
     \/ SudoExecsHelper
     \/ BrokerForksLaunchChild
     \/ HelperSanitizesFDTable
@@ -309,6 +342,16 @@ HelperFDTableAllowlistedAtSandbox ==
 BrokerLaunchRequiresAuthenticatedPeer ==
     launchMode = "brokered" /\ stage \in {"helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
         peerAuthenticated
+
+\* The long-lived broker must not retain host-origin non-stdio descriptors once
+\* it is listening or serving requests. Child cleanup protects sandbox_init(),
+\* but broker startup cleanup keeps the unsandboxed steady-state service from
+\* holding a leaked credential or authority fd indefinitely.
+BrokerFDTableDropsHostInheritedFDs ==
+    launchMode = "brokered" /\ stage \in {"broker_listening", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
+        \A fd \in brokerFds :
+            \/ fd \in StdioFDs
+            \/ fdOrigin[fd] /= "shell"
 
 \* No shell-origin fd >= 3 may survive to the helper once sandboxing starts.
 NoInheritedShellFDsAtSandbox ==

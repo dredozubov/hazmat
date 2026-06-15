@@ -29,6 +29,8 @@ type LaunchBrokerRequest struct {
 
 type LaunchBrokerRunner func(context.Context, LaunchBrokerRequest) error
 
+const LaunchBrokerCommandName = "_launch_broker"
+
 // NewConnectCommand returns the hidden command used by diagnostics to probe
 // host:port reachability as the agent user.
 func NewConnectCommand() *cobra.Command {
@@ -107,7 +109,7 @@ func NewGitHTTPSCredentialCommand(request GitHTTPSCredentialRequester) *cobra.Co
 
 func NewLaunchBrokerCommand(run LaunchBrokerRunner) *cobra.Command {
 	return &cobra.Command{
-		Use:    "_launch_broker <socket> <expected-peer-uid> <launch-helper>",
+		Use:    LaunchBrokerCommandName + " <socket> <expected-peer-uid> <launch-helper>",
 		Hidden: true,
 		Args:   cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
