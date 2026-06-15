@@ -1045,9 +1045,10 @@ future specs, tests, and docs.
 | Governed code | `hazmat/internal/runtime/darwin/runtime.go` — shared helper argv builder used by both sudo and broker command paths |
 | Governed code | `hazmat/internal/agententry/commands.go`, `hazmat/launch_broker_agent_entry.go` — hidden agent-side launch broker command and signal-aware service runner |
 | Governed code | `hazmat/launch_broker_supervisor.go` — host-side broker startup command construction through `hazmat-launch exec` and fake-startable supervision |
-| Governed future code | persistent native launch broker executor wiring — interactive stdio/session transport and CLI/session integration |
+| Governed code | `hazmat/native_launch_broker.go`, `hazmat/session.go` — opt-in host-side broker client path for buffered non-interactive launches |
+| Governed future code | persistent native launch broker executor wiring — interactive stdio/session transport and default persistent broker lifecycle |
 | Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `BrokerFDTableDropsHostInheritedFDs`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
-| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, has a typed service lifecycle wrapper, and has a host-side start plan that routes long-lived broker startup through `hazmat-launch exec`; interactive stdio/session transport and CLI/session integration remain pending |
+| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, has a typed service lifecycle wrapper, has a host-side start plan that routes long-lived broker startup through `hazmat-launch exec`, and has opt-in host-side buffered launch client wiring; interactive stdio/session transport and default persistent broker lifecycle remain pending |
 
 **What this verifies:**
 
@@ -1116,8 +1117,13 @@ helper executor as the default handler. The hidden `_launch_broker` agent-entry
 command starts that service with a signal-aware context. The host-side broker
 start plan/supervisor starts `_launch_broker` through `hazmat-launch exec`,
 reusing the proved helper fd-cleanup boundary before the long-lived broker opens
-its socket. Interactive stdio/session transport and CLI/session integration
-remain future governed work under this same model.
+its socket. The host-side broker client path can now route buffered
+non-interactive launches through a configured broker socket, preserving
+confirmed-containment metadata replay, stdout/stderr replay, nonzero exit
+status, and post-session repair/denial recording while avoiding per-launch
+`sudo` when a broker is already running. Interactive stdio/session transport and
+default persistent broker lifecycle remain future governed work under this same
+model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where

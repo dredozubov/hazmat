@@ -44,6 +44,7 @@
 \*   hazmat/internal/runtime/launchbroker/*.go — authenticated broker request and child-plan fd cleanup contract
 \*   hazmat/internal/agententry/commands.go, hazmat/launch_broker_agent_entry.go — agent-side broker service entrypoint
 \*   hazmat/launch_broker_supervisor.go — host-side broker startup command construction
+\*   hazmat/native_launch_broker.go — host-side broker launch request/client path
 
 EXTENDS Naturals, FiniteSets
 

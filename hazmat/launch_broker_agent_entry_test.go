@@ -117,7 +117,10 @@ func TestLaunchBrokerServiceCommandCancellationCleanup(t *testing.T) {
 
 	deadline := time.After(time.Second)
 	for {
-		if _, err := os.Stat(socketPath); err == nil {
+		if info, err := os.Stat(socketPath); err == nil {
+			if got := info.Mode().Perm(); got != 0o660 {
+				t.Fatalf("broker socket mode = %04o, want 0660", got)
+			}
 			break
 		}
 		select {

@@ -21,6 +21,7 @@ func runLaunchBrokerAgentEntry(ctx context.Context, req agententry.LaunchBrokerR
 
 	service, err := launchbroker.StartService(ctx, launchbroker.ServiceConfig{
 		SocketPath:      req.SocketPath,
+		SocketMode:      0o660,
 		ExpectedPeerUID: req.ExpectedPeerUID,
 		Helper: launchbroker.HelperExecutorConfig{
 			LaunchHelperPath: req.LaunchHelper,

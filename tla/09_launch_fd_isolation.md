@@ -45,8 +45,9 @@ The useful design claim is narrower and stronger:
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
 | `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
 | `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
+| `hazmat/native_launch_broker.go` | host-side broker request/client path for buffered non-interactive launches |
 | `hazmat/launch_broker_supervisor.go` | host-side broker startup command construction through `hazmat-launch exec` |
-| future launch broker executor wiring | interactive stdio/session transport and CLI/session integration |
+| future launch broker executor wiring | interactive stdio/session transport and default persistent broker lifecycle |
 
 ## TLA+ Model
 
@@ -222,6 +223,11 @@ Observed result:
 - added a host-side broker start plan/supervisor that starts `_launch_broker`
   through `hazmat-launch exec`, reusing the proved startup fd cleanup boundary
   before the long-lived broker opens its socket
+- added an opt-in host-side broker client path for buffered non-interactive
+  native launches (`HAZMAT_LAUNCH_BROKER_SOCKET` or
+  `HAZMAT_EXPERIMENTAL_LAUNCH_BROKER=1`), preserving metadata confirmation,
+  stdout/stderr replay, nonzero exit status, and post-session repair/denial
+  recording while bypassing per-launch `sudo` when a broker is already running
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 

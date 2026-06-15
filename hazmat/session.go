@@ -2601,6 +2601,14 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		}
 	}
 
+	startTime := time.Now()
+	if usedBroker, err := tryRunNativeLaunchViaBroker(cfg, plan, ui, policy, runtime.EnvPairs, metadataJSON, runtime.LaunchHelperTempDir, script, args...); usedBroker {
+		endTime := time.Now()
+		profile.Record("run native broker command", startTime)
+		recordNativePostSession(profile, cfg, err, startTime, endTime)
+		return err
+	}
+
 	start = time.Now()
 	full := nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg, plan, policy, runtime.EnvPairs, metadataJSON, runtime.LaunchHelperTempDir, script, args...)
 	profile.Record("build native command", start)
@@ -2676,21 +2684,27 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		fmt.Fprint(os.Stderr, "\033[2J\033[H")
 	}
 
-	startTime := time.Now()
+	startTime = time.Now()
 	err = runSessionCommand(cmd)
 	endTime := time.Now()
 	profile.Record("run native command", startTime)
 
+	recordNativePostSession(profile, cfg, err, startTime, endTime)
+
+	return err
+}
+
+func recordNativePostSession(profile *sessionPhaseProfile, cfg sessionConfig, sessionErr error, startTime, endTime time.Time) {
 	// Post-session: repair .git/ permissions that may have been altered
 	// by agent git operations. New files created by the agent are owned
 	// by the agent user; re-applying the dev group ACL restores
 	// collaborative access for the host user.
-	start = time.Now()
+	start := time.Now()
 	repairGitAfterSession(cfg.ProjectDir)
 	profile.Record("repair git metadata", start)
 	start = time.Now()
 	recordLabel := "record repo setup denials"
-	if shouldRememberRepoSetupDenials(err) {
+	if shouldRememberRepoSetupDenials(sessionErr) {
 		if recordErr := rememberRepoSetupDenials(cfg, startTime, endTime); recordErr != nil {
 			fmt.Fprintf(os.Stderr, "hazmat: warning: could not record repo setup denials: %v\n", recordErr)
 		}
@@ -2698,8 +2712,6 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		recordLabel = "record repo setup denials (skipped after success)"
 	}
 	profile.Record(recordLabel, start)
-
-	return err
 }
 
 func shouldRememberRepoSetupDenials(sessionErr error) bool {
