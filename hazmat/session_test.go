@@ -847,6 +847,19 @@ func TestApplyStatusBarConfigPreservesBarWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestExecLaunchUIDisablesInteractiveChrome(t *testing.T) {
+	ui := execLaunchUI()
+	if ui.showStatusBar {
+		t.Fatal("showStatusBar should be false for plain exec")
+	}
+	if ui.waitForAltScreen {
+		t.Fatal("waitForAltScreen should be false for plain exec")
+	}
+	if ui.clearScreen {
+		t.Fatal("clearScreen should be false for plain exec")
+	}
+}
+
 func isImplicitToolchainDir(d string) bool {
 	implicit := implicitReadDirs()
 	for _, i := range implicit {

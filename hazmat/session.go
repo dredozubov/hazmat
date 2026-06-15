@@ -64,6 +64,10 @@ type sessionLaunchUI struct {
 	waitForAltScreen bool
 }
 
+func execLaunchUI() sessionLaunchUI {
+	return sessionLaunchUI{}
+}
+
 type dockerRequestSource string
 
 const (
@@ -446,10 +450,10 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 			}
 			if auditInstall {
 				return runAuditInstallExec(os.Stderr, newEgressAuditCollector(), func() error {
-					return runPreparedAgentSeatbeltScript(prepared, nativeDirectProjectExecScript, args...)
+					return runPreparedAgentSeatbeltScriptWithUI(prepared, execLaunchUI(), nativeDirectProjectExecScript, args...)
 				})
 			}
-			return runPreparedAgentSeatbeltScript(prepared, nativeDirectProjectExecScript, args...)
+			return runPreparedAgentSeatbeltScriptWithUI(prepared, execLaunchUI(), nativeDirectProjectExecScript, args...)
 		},
 	}
 	bindCommonSessionFlags(cmd, &flags)
