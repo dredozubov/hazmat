@@ -683,9 +683,10 @@ bash scripts/e2e.sh --vm --quick
 
 The VM mode provisions a Lume macOS guest, copies the repo into the guest, and
 runs the same `scripts/e2e.sh` lifecycle there. If first-time base provisioning
-fails, Hazmat preserves the base VM to avoid another IPSW download and prints
-repair/reset guidance. Use `bash scripts/e2e.sh --vm --reset-vm-base --quick`
-only when you intentionally want to delete and rebuild the cached base VM.
+fails, Hazmat preserves the base VM to avoid another IPSW download. A later run
+will try to resume base provisioning in-place; use
+`bash scripts/e2e.sh --vm --reset-vm-base --quick` only when you intentionally
+want to delete and rebuild the cached base VM.
 
 ## Host vs VM Model
 

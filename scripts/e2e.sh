@@ -167,73 +167,32 @@ run_e2e_vm() {
         fi
     }
 
-    fail_incomplete_base_vm() {
+    fail_unreachable_base_vm() {
         cat >&2 <<EOF
 Base VM $base_vm exists but has no Hazmat readiness marker:
   $base_ready_marker
 
-This usually means base provisioning failed before Go/passwordless sudo setup
-finished. The VM was preserved to avoid redownloading the IPSW.
-
-Inspect or repair it, then create the marker after it is ready:
-  touch "$base_ready_marker"
+Hazmat tried to resume provisioning the preserved base VM, but SSH did not
+become reachable. The VM was preserved to avoid redownloading the IPSW.
 
 To intentionally rebuild the base VM, run:
   bash scripts/e2e.sh --vm --reset-vm-base --quick
 EOF
         exit 2
     }
-    trap cleanup_e2e_vm EXIT
 
-    if ! command -v lume >/dev/null 2>&1; then
-        echo "Error: lume not found. Install with: brew install lume"
-        exit 1
-    fi
+    provision_base_vm() {
+        local base_pid=""
+        local base_ip=""
 
-    if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
-        reset_base_vm
-    fi
-
-    if lume get "$base_vm" >/dev/null 2>&1; then
-        if [ -f "$base_ready_marker" ]; then
-            echo "Base VM $base_vm already exists."
-        else
-            fail_incomplete_base_vm
-        fi
-    else
-        local host_version preset base_pid base_ip
-        host_version=$(sw_vers -productVersion | cut -d. -f1)
-        case "$host_version" in
-            26) preset="tahoe" ;;
-            15) preset="sequoia" ;;
-            *) preset="tahoe" ;;
-        esac
-
-        echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
-        echo "Host macOS $host_version -> using '$preset' preset."
-        echo "This downloads macOS from Apple and runs unattended Setup Assistant."
-        if ! lume create "$base_vm" \
-            --os macOS \
-            --ipsw latest \
-            --cpu 4 \
-            --memory 8GB \
-            --disk-size 50GB \
-            --unattended "$preset" \
-            --no-display; then
-            echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
-            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
-            exit 1
-        fi
-        echo "Base VM $base_vm created."
-
-        echo "Installing Go in base VM..."
+        echo "Provisioning base VM $base_vm..."
         lume run "$base_vm" --no-display &
         base_pid=$!
 
         if ! wait_for_ssh "$base_vm"; then
-            echo "Base VM $base_vm did not become reachable; preserving it for inspection." >&2
-            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
-            exit 1
+            lume stop "$base_vm" 2>/dev/null || true
+            wait "$base_pid" 2>/dev/null || true
+            fail_unreachable_base_vm
         fi
 
         base_ip=$(get_vm_ip "$base_vm")
@@ -258,6 +217,51 @@ EOF
         mkdir -p "$(dirname "$base_ready_marker")"
         printf 'ready\n' >"$base_ready_marker"
         echo "Base VM ready with Go + passwordless sudo."
+    }
+    trap cleanup_e2e_vm EXIT
+
+    if ! command -v lume >/dev/null 2>&1; then
+        echo "Error: lume not found. Install with: brew install lume"
+        exit 1
+    fi
+
+    if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+        reset_base_vm
+    fi
+
+    if lume get "$base_vm" >/dev/null 2>&1; then
+        if [ -f "$base_ready_marker" ]; then
+            echo "Base VM $base_vm already exists."
+        else
+            echo "Base VM $base_vm exists without Hazmat readiness marker; resuming provisioning."
+            provision_base_vm
+        fi
+    else
+        local host_version preset
+        host_version=$(sw_vers -productVersion | cut -d. -f1)
+        case "$host_version" in
+            26) preset="tahoe" ;;
+            15) preset="sequoia" ;;
+            *) preset="tahoe" ;;
+        esac
+
+        echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
+        echo "Host macOS $host_version -> using '$preset' preset."
+        echo "This downloads macOS from Apple and runs unattended Setup Assistant."
+        if ! lume create "$base_vm" \
+            --os macOS \
+            --ipsw latest \
+            --cpu 4 \
+            --memory 8GB \
+            --disk-size 50GB \
+            --unattended "$preset" \
+            --no-display; then
+            echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
+            exit 1
+        fi
+        echo "Base VM $base_vm created."
+        provision_base_vm
     fi
 
     echo "Cloning $base_vm -> $test_vm..."
