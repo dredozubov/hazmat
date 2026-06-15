@@ -139,7 +139,7 @@ e2e-vm: all
 	bash scripts/e2e-vm.sh
 
 pre-release-local:
-	bash scripts/pre-release-local.sh
+	bash scripts/pre-release-local.sh $(PRERELEASE_ARGS)
 
 e2e-stack-matrix:
 	bash scripts/e2e-stack-matrix.sh $(STACKCHECK_ARGS)

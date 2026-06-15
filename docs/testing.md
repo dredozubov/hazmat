@@ -12,7 +12,7 @@ are not interchangeable.
 | `scripts/pre-commit` | Are the staged files obviously broken before I create a commit? | Host | No |
 | `hazmat check` / `hazmat doctor --dry-run` | Is this local Hazmat install healthy right now, and what should I fix next? | Host | No |
 | `scripts/pre-push` | Fast local developer gate before pushing | Host | No |
-| `scripts/pre-release-local.sh` | Local release gate, including fast checks and hermetic all-harness synthetic e2e smoke | Host | No |
+| `scripts/pre-release-local.sh` | Local release gate, including fast checks, hermetic all-harness synthetic e2e smoke, and optional VM lifecycle gate | Host / VM with `--vm` | VM lane only |
 | `scripts/check-linux-compile.sh` | Does the current unsupported Linux backend compile without Darwin-only code leaking into common packages? | Host or Linux CI | No |
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
@@ -546,6 +546,21 @@ proceed locally if the hermetic harness smoke fails. The release script requires
 `--i-understand-this-runs-hazmat-claude`; non-dry mode also requires
 `--i-understand-this-may-push-release`.
 
+For the release-grade local lifecycle gate, include the isolated VM lane:
+
+```bash
+bash scripts/pre-release-local.sh --vm
+make pre-release-local PRERELEASE_ARGS=--vm
+```
+
+The VM lane runs `scripts/e2e-vm.sh --quick`. First run creates a reusable
+Lume base VM, so it can take a long time. Setup Assistant is a separate
+restartable step; if it fails, rerun:
+
+```bash
+bash scripts/e2e-vm.sh --step setup --quick
+```
+
 ### Repo-matrix validation
 
 Use this when changing integration detection, runtime resolution, or
@@ -584,11 +599,25 @@ bash scripts/e2e-vm.sh --quick
 The VM wrapper provisions a Lume macOS guest, copies the repo into the guest,
 and runs `scripts/e2e.sh` there.
 
+The base VM setup is intentionally split into restartable steps:
+
+```bash
+bash scripts/e2e-vm.sh --step install --quick  # install macOS base only
+bash scripts/e2e-vm.sh --step setup --quick    # run/retry Setup Assistant
+bash scripts/e2e-vm.sh --step base --quick     # install Go and readiness marker
+bash scripts/e2e-vm.sh --quick                 # clone base and run lifecycle
+```
+
+Use `--reset-vm-base` only when you intentionally want to delete the cached
+base VM and download/install macOS again.
+
 ## Host vs VM Model
 
-- `hazmat check`, `pre-push`, `pre-release-local`, `e2e-bootstrap`, the
-  hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
+- `hazmat check`, `pre-push`, default `pre-release-local`, `e2e-bootstrap`,
+  the hermetic harness smoke, and `e2e-stack-matrix` are host-side verification
   surfaces.
+- `pre-release-local --vm` adds the isolated VM lifecycle gate and should be
+  treated as the release-grade local lifecycle procedure.
 - `scripts/e2e-harness-smoke-native.sh` is host-side and prepared-host-only:
   default mode is disclosure-only; live mode requires `hazmat init`, an
   `agent` account, `sudo -n`, and exact-command approval.

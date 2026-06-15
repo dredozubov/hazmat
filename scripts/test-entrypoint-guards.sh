@@ -297,6 +297,28 @@ assert_fails_with \
     "scripts/e2e.sh is destructive to the local Hazmat setup." \
     env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --quick
 
+assert_help_contains_all \
+    "scripts/e2e-vm.sh documents restartable VM steps" \
+    "$REPO_ROOT/scripts/e2e-vm.sh" \
+    "--step STEP" \
+    "install" \
+    "setup" \
+    "base" \
+    "If Setup Assistant automation fails, rerun:" \
+    "bash scripts/e2e-vm.sh --step setup --quick"
+
+assert_fails_with \
+    "scripts/e2e-vm.sh rejects unknown VM step before live work" \
+    "unknown VM step 'bogus'" \
+    bash "$REPO_ROOT/scripts/e2e-vm.sh" --step bogus
+
+assert_help_contains_all \
+    "scripts/pre-release-local.sh documents optional VM gate" \
+    "$REPO_ROOT/scripts/pre-release-local.sh" \
+    "--vm" \
+    "--vm-full" \
+    "bash scripts/e2e-vm.sh --step setup --quick"
+
 assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
