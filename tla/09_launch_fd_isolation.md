@@ -196,8 +196,12 @@ Observed result:
   without the future hot path needing per-launch `sudo`
 - broker validation rejects policy paths that the helper would reject before
   constructing a child command
+- the broker helper executor can run the planned helper command through an
+  injectable runner, propagate exit code/stdout/stderr in the launch response,
+  and fails closed if requested confirmed-containment metadata is not observed
+  on helper stderr
 - package benchmark for request/auth/validation/child-plan round trip:
-  `47.886-112.526 us/op` across five local Darwin arm64 runs
+  `72.879-180.970 us/op` across five local Darwin arm64 runs
 
 ## Interpretation
 

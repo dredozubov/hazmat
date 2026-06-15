@@ -1041,11 +1041,11 @@ future specs, tests, and docs.
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
 | Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
-| Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract, helper command plan |
+| Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract, helper command plan, buffered helper executor |
 | Governed code | `hazmat/internal/runtime/darwin/runtime.go` — shared helper argv builder used by both sudo and broker command paths |
-| Governed future code | persistent native launch broker executor wiring — launch-child process lifecycle, stdio/session transport, fd sanitation before `sandbox_init()` |
+| Governed future code | persistent native launch broker executor wiring — long-lived service lifecycle, interactive stdio/session transport, fd sanitation before `sandbox_init()` |
 | Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
-| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, and can plan direct helper invocation without sudo; broker process lifecycle and stdio/session transport remain pending |
+| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, and has a buffered helper executor for non-interactive launches; long-lived broker lifecycle and interactive stdio/session transport remain pending |
 
 **What this verifies:**
 
@@ -1100,9 +1100,11 @@ request verification, `VerifiedLaunchRequest` is required to construct a
 `ChildPlan`, and `ChildPlan` construction requires
 `ChildFDPolicyCloseInherited`. It now also builds the direct `hazmat-launch`
 helper command for an authenticated child path using only
-`SUDO_UID=<authenticated-peer>` in the helper process environment. The actual
-broker process lifecycle and stdio/session transport remain future governed work
-under this same model.
+`SUDO_UID=<authenticated-peer>` in the helper process environment. The buffered
+helper executor returns exit code/stdout/stderr and fails closed if requested
+confirmed-containment metadata is not observed on helper stderr. The long-lived
+broker service lifecycle and interactive stdio/session transport remain future
+governed work under this same model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where

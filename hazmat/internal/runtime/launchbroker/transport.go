@@ -28,6 +28,8 @@ type LaunchResponse struct {
 	Error        string `json:"error,omitempty"`
 	ExitCode     int    `json:"exit_code,omitempty"`
 	MetadataJSON string `json:"metadata_json,omitempty"`
+	Stdout       string `json:"stdout,omitempty"`
+	Stderr       string `json:"stderr,omitempty"`
 }
 
 type ServerConfig struct {

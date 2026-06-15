@@ -195,6 +195,45 @@ func TestTransportAuthenticatesDefaultDarwinPeer(t *testing.T) {
 	}
 }
 
+func TestTransportRunsHelperExecutorHandler(t *testing.T) {
+	ctx := context.Background()
+	runner := &recordingHelperRunner{result: HelperRunResult{
+		ExitCode: 9,
+		Stdout:   []byte("stdout\n"),
+		Stderr:   []byte("{\"kind\":\"hazmat.session\"}\nstderr\n"),
+	}}
+	handler, err := NewHelperLaunchHandler(HelperExecutorConfig{
+		LaunchHelperPath: "/usr/local/libexec/hazmat-launch",
+		Runner:           runner,
+	})
+	if err != nil {
+		t.Fatalf("NewHelperLaunchHandler: %v", err)
+	}
+	server := newTestServer(t, 501, handler)
+
+	req := validDirectRequest()
+	req.MetadataJSON = `{"kind":"hazmat.session"}`
+	errCh := serveOnce(t, ctx, server)
+	resp, err := Client{SocketPath: server.SocketPath(), Timeout: time.Second}.Launch(ctx, req)
+	if err != nil {
+		t.Fatalf("Launch via helper executor handler: %v", err)
+	}
+	assertServeOnce(t, errCh)
+
+	if !resp.OK || resp.ExitCode != 9 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if resp.MetadataJSON != req.MetadataJSON {
+		t.Fatalf("MetadataJSON = %q", resp.MetadataJSON)
+	}
+	if resp.Stdout != "stdout\n" || resp.Stderr != "stderr\n" {
+		t.Fatalf("stdout/stderr = %q/%q", resp.Stdout, resp.Stderr)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("runner saw %d commands, want 1", len(runner.commands))
+	}
+}
+
 func BenchmarkRoundTripPlanOnly(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
