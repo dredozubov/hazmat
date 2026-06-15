@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"hazmat/internal/runtime/launchbroker"
@@ -18,11 +19,17 @@ const (
 )
 
 var (
-	launchBrokerRoundTrip               = defaultLaunchBrokerRoundTrip
-	launchBrokerEnsureDefault           = defaultEnsureLaunchBroker
-	launchBrokerStdout        io.Writer = os.Stdout
-	launchBrokerStderr        io.Writer = os.Stderr
+	launchBrokerRoundTrip                 = defaultLaunchBrokerRoundTrip
+	launchBrokerEnsureDefault             = defaultEnsureLaunchBroker
+	launchBrokerStartSupervisor           = startLaunchBrokerSupervisor
+	launchBrokerStdout          io.Writer = os.Stdout
+	launchBrokerStderr          io.Writer = os.Stderr
 )
+
+var defaultLaunchBrokerSupervisor struct {
+	mu         sync.Mutex
+	supervisor *launchBrokerSupervisor
+}
 
 type launchBrokerExitError struct {
 	code int
@@ -126,7 +133,19 @@ func defaultEnsureLaunchBroker(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve hazmat executable for launch broker: %w", err)
 	}
-	_, err = startLaunchBrokerSupervisor(ctx, launchBrokerSupervisorConfig{
+
+	defaultLaunchBrokerSupervisor.mu.Lock()
+	defer defaultLaunchBrokerSupervisor.mu.Unlock()
+	if supervisor := defaultLaunchBrokerSupervisor.supervisor; supervisor != nil {
+		ready, readyErr := launchBrokerSocketReady(supervisor.SocketPath())
+		if readyErr == nil && ready {
+			return nil
+		}
+		_ = supervisor.Close()
+		defaultLaunchBrokerSupervisor.supervisor = nil
+	}
+
+	supervisor, err := launchBrokerStartSupervisor(ctx, launchBrokerSupervisorConfig{
 		RuntimeDir:       runtimeDir,
 		SocketName:       defaultLaunchBrokerSocketName(uid),
 		ExpectedPeerUID:  uid,
@@ -134,6 +153,9 @@ func defaultEnsureLaunchBroker(ctx context.Context) error {
 		LaunchHelperPath: launchHelperPath(),
 		ReadyTimeout:     defaultLaunchBrokerReadyTimeout,
 	})
+	if err == nil {
+		defaultLaunchBrokerSupervisor.supervisor = supervisor
+	}
 	return err
 }
 

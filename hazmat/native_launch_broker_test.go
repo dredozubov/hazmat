@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -230,6 +231,59 @@ func TestTryRunNativeLaunchViaBrokerStartsDefaultBrokerAndRetries(t *testing.T) 
 	}
 }
 
+func TestDefaultEnsureLaunchBrokerCachesStartedSupervisor(t *testing.T) {
+	root := newShortLaunchBrokerTempDir(t)
+	restore := replaceDefaultEnsureLaunchBrokerDependencies(t, root)
+	defer restore()
+
+	var starts int
+	launchBrokerStartSupervisor = func(_ context.Context, cfg launchBrokerSupervisorConfig) (*launchBrokerSupervisor, error) {
+		starts++
+		return startCachedSupervisorListener(t, cfg)
+	}
+
+	if err := defaultEnsureLaunchBroker(context.Background()); err != nil {
+		t.Fatalf("first defaultEnsureLaunchBroker: %v", err)
+	}
+	if err := defaultEnsureLaunchBroker(context.Background()); err != nil {
+		t.Fatalf("second defaultEnsureLaunchBroker: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("broker starts = %d, want 1", starts)
+	}
+}
+
+func TestDefaultEnsureLaunchBrokerRestartsWhenCachedSocketGone(t *testing.T) {
+	root := newShortLaunchBrokerTempDir(t)
+	restore := replaceDefaultEnsureLaunchBrokerDependencies(t, root)
+	defer restore()
+
+	var starts int
+	launchBrokerStartSupervisor = func(_ context.Context, cfg launchBrokerSupervisorConfig) (*launchBrokerSupervisor, error) {
+		starts++
+		return startCachedSupervisorListener(t, cfg)
+	}
+
+	if err := defaultEnsureLaunchBroker(context.Background()); err != nil {
+		t.Fatalf("first defaultEnsureLaunchBroker: %v", err)
+	}
+	defaultLaunchBrokerSupervisor.mu.Lock()
+	if defaultLaunchBrokerSupervisor.supervisor == nil {
+		t.Fatal("missing cached supervisor")
+	}
+	if err := defaultLaunchBrokerSupervisor.supervisor.Close(); err != nil {
+		t.Fatalf("close cached supervisor: %v", err)
+	}
+	defaultLaunchBrokerSupervisor.mu.Unlock()
+
+	if err := defaultEnsureLaunchBroker(context.Background()); err != nil {
+		t.Fatalf("restart defaultEnsureLaunchBroker: %v", err)
+	}
+	if starts != 2 {
+		t.Fatalf("broker starts = %d, want 2", starts)
+	}
+}
+
 func TestDefaultRunAgentSeatbeltScriptWithPlanUsesConfiguredBroker(t *testing.T) {
 	projectDir := t.TempDir()
 	socketPath := filepath.Join(t.TempDir(), "broker.sock")
@@ -338,4 +392,68 @@ func replaceLaunchBrokerTestHooks(t *testing.T, roundTrip func(context.Context, 
 		launchBrokerStdout = oldStdout
 		launchBrokerStderr = oldStderr
 	}
+}
+
+func replaceDefaultEnsureLaunchBrokerDependencies(t *testing.T, root string) func() {
+	t.Helper()
+	oldRoot := brokerRuntimeRoot
+	oldEnsureSharedDir := brokerRuntimeAgentEnsureSharedDir
+	oldExecutablePath := currentExecutablePath
+	oldStartSupervisor := launchBrokerStartSupervisor
+	oldHelper, hadHelper := os.LookupEnv("HAZMAT_LAUNCH_HELPER")
+	clearDefaultLaunchBrokerSupervisorForTest(t)
+
+	brokerRuntimeRoot = root
+	brokerRuntimeAgentEnsureSharedDir = func(path string, mode os.FileMode) error {
+		if err := os.MkdirAll(path, mode.Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	currentExecutablePath = func() (string, error) {
+		return "/usr/local/bin/hazmat", nil
+	}
+	if err := os.Setenv("HAZMAT_LAUNCH_HELPER", "/usr/local/libexec/hazmat-launch"); err != nil {
+		t.Fatalf("set HAZMAT_LAUNCH_HELPER: %v", err)
+	}
+
+	return func() {
+		clearDefaultLaunchBrokerSupervisorForTest(t)
+		brokerRuntimeRoot = oldRoot
+		brokerRuntimeAgentEnsureSharedDir = oldEnsureSharedDir
+		currentExecutablePath = oldExecutablePath
+		launchBrokerStartSupervisor = oldStartSupervisor
+		if hadHelper {
+			if err := os.Setenv("HAZMAT_LAUNCH_HELPER", oldHelper); err != nil {
+				t.Fatalf("restore HAZMAT_LAUNCH_HELPER: %v", err)
+			}
+		} else if err := os.Unsetenv("HAZMAT_LAUNCH_HELPER"); err != nil {
+			t.Fatalf("unset HAZMAT_LAUNCH_HELPER: %v", err)
+		}
+	}
+}
+
+func clearDefaultLaunchBrokerSupervisorForTest(t *testing.T) {
+	t.Helper()
+	defaultLaunchBrokerSupervisor.mu.Lock()
+	defer defaultLaunchBrokerSupervisor.mu.Unlock()
+	if defaultLaunchBrokerSupervisor.supervisor != nil {
+		if err := defaultLaunchBrokerSupervisor.supervisor.Close(); err != nil {
+			t.Fatalf("close cached launch broker supervisor: %v", err)
+		}
+		defaultLaunchBrokerSupervisor.supervisor = nil
+	}
+}
+
+func startCachedSupervisorListener(t *testing.T, cfg launchBrokerSupervisorConfig) (*launchBrokerSupervisor, error) {
+	t.Helper()
+	socketPath := filepath.Join(cfg.RuntimeDir, cfg.SocketName)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, err
+	}
+	return &launchBrokerSupervisor{
+		socketPath: socketPath,
+		process:    &fakeLaunchBrokerProcess{listener: listener},
+	}, nil
 }
