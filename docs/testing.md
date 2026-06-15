@@ -686,7 +686,9 @@ runs the same `scripts/e2e.sh` lifecycle there. If first-time base provisioning
 fails, Hazmat preserves the base VM to avoid another IPSW download. A later run
 will try to resume base provisioning in-place; use
 `bash scripts/e2e.sh --vm --reset-vm-base --quick` only when you intentionally
-want to delete and rebuild the cached base VM.
+want to delete and rebuild the cached base VM. If Lume reports that the base VM
+is still being provisioned, wait for that Lume provisioning attempt to finish
+and then rerun the VM lifecycle instead of resetting the base.
 
 ## Host vs VM Model
 

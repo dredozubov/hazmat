@@ -181,17 +181,51 @@ EOF
         exit 2
     }
 
+    fail_base_still_provisioning() {
+        cat >&2 <<EOF
+Base VM $base_vm is still being provisioned by Lume.
+
+Hazmat will not reset or stop it automatically because that can force another
+IPSW download. Let the current Lume provisioning finish, then rerun:
+  bash scripts/e2e.sh --vm --quick
+
+Only discard the cached base if you intentionally want to rebuild it:
+  bash scripts/e2e.sh --vm --reset-vm-base --quick
+EOF
+        exit 2
+    }
+
     provision_base_vm() {
         local base_pid=""
         local base_ip=""
+        local run_log=""
+        local run_status=0
 
         echo "Provisioning base VM $base_vm..."
-        lume run "$base_vm" --no-display &
+        run_log="$(mktemp "${TMPDIR:-/tmp}/hazmat-e2e-lume-run.XXXXXX")"
+        lume run "$base_vm" --no-display >"$run_log" 2>&1 &
         base_pid=$!
+        sleep 2
+        if ! kill -0 "$base_pid" 2>/dev/null; then
+            wait "$base_pid" || run_status=$?
+            if grep -q "still being provisioned" "$run_log"; then
+                cat "$run_log" >&2
+                rm -f "$run_log"
+                fail_base_still_provisioning
+            fi
+            cat "$run_log" >&2
+            rm -f "$run_log"
+            echo "lume run $base_vm failed before SSH became reachable (exit $run_status)." >&2
+            if [ "$run_status" -eq 0 ]; then
+                run_status=1
+            fi
+            exit "$run_status"
+        fi
 
         if ! wait_for_ssh "$base_vm"; then
             lume stop "$base_vm" 2>/dev/null || true
             wait "$base_pid" 2>/dev/null || true
+            rm -f "$run_log"
             fail_unreachable_base_vm
         fi
 
@@ -214,6 +248,7 @@ EOF
 
         lume stop "$base_vm"
         wait "$base_pid" || true
+        rm -f "$run_log"
         mkdir -p "$(dirname "$base_ready_marker")"
         printf 'ready\n' >"$base_ready_marker"
         echo "Base VM ready with Go + passwordless sudo."
