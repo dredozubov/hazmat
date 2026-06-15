@@ -317,6 +317,40 @@ func TestPrepareLaunchSessionResolvesActiveIntegrationsOnce(t *testing.T) {
 	}
 }
 
+func TestPrepareLaunchSessionCanSkipAutomaticIntegrations(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/test\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	savedResolver := resolveActiveIntegrationsForSession
+	resolveActiveIntegrationsForSession = func([]string, string) ([]IntegrationSpec, error) {
+		t.Fatal("resolveActiveIntegrationsForSession should not run for skipped automatic integrations")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		resolveActiveIntegrationsForSession = savedResolver
+	})
+
+	prepared, err := prepareLaunchSession("exec", harnessSessionOpts{
+		project:              projectDir,
+		skipAutoIntegrations: true,
+		skipIntegrationHints: true,
+	}, true)
+	if err != nil {
+		t.Fatalf("prepareLaunchSession: %v", err)
+	}
+	if len(prepared.Config.ActiveIntegrations) != 0 {
+		t.Fatalf("ActiveIntegrations = %v, want empty", prepared.Config.ActiveIntegrations)
+	}
+	if len(prepared.Config.SuggestedIntegrations) != 0 {
+		t.Fatalf("SuggestedIntegrations = %v, want empty", prepared.Config.SuggestedIntegrations)
+	}
+}
+
 func BenchmarkSessionPreparationLargeTree(b *testing.B) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(b.TempDir(), "nonexistent.yaml")

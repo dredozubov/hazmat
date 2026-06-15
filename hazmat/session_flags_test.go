@@ -217,3 +217,29 @@ func TestCommonSessionFlagsBuildHarnessOpts(t *testing.T) {
 		t.Fatalf("network opts = mode:%q explicit:%v, want none explicit", opts.networkMode, opts.networkModeExplicit)
 	}
 }
+
+func TestShouldSkipAutomaticIntegrationsForPlainAbsoluteExec(t *testing.T) {
+	if !shouldSkipAutomaticIntegrationsForExec([]string{"/usr/bin/true"}, harnessSessionOpts{
+		noBackup:     true,
+		metadataJSON: true,
+	}) {
+		t.Fatal("absolute exec without explicit capabilities should skip automatic integrations")
+	}
+
+	cases := []struct {
+		name string
+		args []string
+		opts harnessSessionOpts
+	}{
+		{name: "relative command", args: []string{"go"}},
+		{name: "absolute command with args", args: []string{"/bin/zsh", "-lc", "go test ./..."}},
+		{name: "explicit integration", args: []string{"/usr/bin/true"}, opts: harnessSessionOpts{integrations: []string{"go"}}},
+		{name: "github capability", args: []string{"/usr/bin/true"}, opts: harnessSessionOpts{github: true}},
+		{name: "audit install", args: []string{"/usr/bin/true"}, opts: harnessSessionOpts{auditInstall: true}},
+	}
+	for _, tc := range cases {
+		if shouldSkipAutomaticIntegrationsForExec(tc.args, tc.opts) {
+			t.Fatalf("%s skipped automatic integrations unexpectedly", tc.name)
+		}
+	}
+}

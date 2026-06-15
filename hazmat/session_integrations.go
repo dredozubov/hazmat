@@ -44,12 +44,18 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	opts.projectDirResolved = true
 
 	progress.Step("checking suggested integrations")
-	resolvedIntegrations, err := resolveLaunchIntegrations(projectDir, opts.integrations)
-	if err != nil {
-		return preparedSession{}, err
+	if opts.skipAutoIntegrations {
+		opts.resolvedIntegrations = nil
+		opts.integrationsResolved = true
+		opts.skipIntegrationHints = true
+	} else {
+		resolvedIntegrations, err := resolveLaunchIntegrations(projectDir, opts.integrations)
+		if err != nil {
+			return preparedSession{}, err
+		}
+		opts.resolvedIntegrations = resolvedIntegrations.Integrations
+		opts.integrationsResolved = true
 	}
-	opts.resolvedIntegrations = resolvedIntegrations.Integrations
-	opts.integrationsResolved = true
 
 	prepared, err := resolvePreparedSessionWithProgress(commandName, opts, supportsSandbox, progress)
 	if err != nil {

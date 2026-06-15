@@ -375,6 +375,14 @@ func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, s
 
 const nativeDirectProjectExecScript = `cd "$SANDBOX_PROJECT_DIR" && exec "$@"`
 
+func shouldSkipAutomaticIntegrationsForExec(args []string, opts harnessSessionOpts) bool {
+	return len(args) == 1 &&
+		filepath.IsAbs(args[0]) &&
+		len(opts.integrations) == 0 &&
+		!opts.github &&
+		!opts.auditInstall
+}
+
 func newShellCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	cmd := &cobra.Command{
@@ -438,6 +446,10 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 			}
 			opts := flags.harnessSessionOpts(cmd)
 			opts.auditInstall = auditInstall
+			if shouldSkipAutomaticIntegrationsForExec(args, opts) {
+				opts.skipAutoIntegrations = true
+				opts.skipIntegrationHints = true
+			}
 			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
 			if err != nil {
 				return err
@@ -1009,6 +1021,8 @@ type harnessSessionOpts struct {
 	integrations          []string
 	resolvedIntegrations  []IntegrationSpec
 	integrationsResolved  bool
+	skipAutoIntegrations  bool
+	skipIntegrationHints  bool
 	skipHarnessAssetsSync bool
 	noBackup              bool
 	github                bool
@@ -1306,13 +1320,25 @@ func applyIntegrations(cfg *sessionConfig, integrationFlags []string) (sessionMu
 
 var resolveActiveIntegrationsForSession = resolveActiveIntegrations
 
+type integrationApplyOptions struct {
+	SkipSuggestions bool
+}
+
 func applyResolvedIntegrations(cfg *sessionConfig, integrations []IntegrationSpec) (sessionMutationPlan, error) {
+	return applyResolvedIntegrationsWithOptions(cfg, integrations, integrationApplyOptions{})
+}
+
+func applyResolvedIntegrationsWithOptions(cfg *sessionConfig, integrations []IntegrationSpec, opts integrationApplyOptions) (sessionMutationPlan, error) {
 	// Detect integrations that remain unresolved after active ones are merged.
 	activeNames := make(map[string]struct{}, len(integrations))
 	for _, spec := range integrations {
 		activeNames[spec.Meta.Name] = struct{}{}
 	}
-	cfg.SuggestedIntegrations = suggestedIntegrationsForProject(cfg.ProjectDir, activeNames)
+	if opts.SkipSuggestions {
+		cfg.SuggestedIntegrations = nil
+	} else {
+		cfg.SuggestedIntegrations = suggestedIntegrationsForProject(cfg.ProjectDir, activeNames)
+	}
 
 	if len(integrations) == 0 {
 		return sessionMutationPlan{}, nil
@@ -1452,10 +1478,17 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	if opts.skipAutoIntegrations && !opts.integrationsResolved {
+		opts.resolvedIntegrations = nil
+		opts.integrationsResolved = true
+		opts.skipIntegrationHints = true
+	}
 	progress.Step("applying session integrations")
 	var integrationMutationPlan sessionMutationPlan
 	if opts.integrationsResolved {
-		integrationMutationPlan, err = applyResolvedIntegrations(&cfg, opts.resolvedIntegrations)
+		integrationMutationPlan, err = applyResolvedIntegrationsWithOptions(&cfg, opts.resolvedIntegrations, integrationApplyOptions{
+			SkipSuggestions: opts.skipIntegrationHints,
+		})
 		if err != nil {
 			return preparedSession{}, err
 		}
