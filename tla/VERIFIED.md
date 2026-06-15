@@ -1046,6 +1046,7 @@ future specs, tests, and docs.
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
 | Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
+| Governed code | `hazmat/cmd/hazmat-launch-fast/main.c` — experimental lower-level broker child helper for profiling the same inherited-fd cleanup, policy read, `sandbox_init()`, and final `exec` boundary |
 | Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract, helper command plan, buffered helper executor, service lifecycle wrapper |
 | Governed code | `hazmat/internal/runtime/darwin/runtime.go` — shared helper argv builder used by both sudo and broker command paths |
 | Governed code | `hazmat/internal/agententry/commands.go`, `hazmat/launch_broker_agent_entry.go` — hidden agent-side launch broker command and signal-aware service runner |

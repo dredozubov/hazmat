@@ -1,12 +1,14 @@
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS  ?= -trimpath
 LDFLAGS  := -X hazmat.version=$(VERSION)
+ZIG      ?= zig
 HOST_PLATFORM := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 INSTALL_PLATFORM ?= $(HOST_PLATFORM)
 
 APP_DIR               := hazmat
 HAZMAT_BUILD_BIN      := $(APP_DIR)/hazmat
 HAZMAT_BUILD_HELPER   := $(APP_DIR)/hazmat-launch
+HAZMAT_FAST_HELPER    := $(APP_DIR)/hazmat-launch-fast
 HAZMAT_DEBUG_ROOT     ?= $(HOME)/.hazmat
 HAZMAT_DEBUG_BINDIR   ?= $(HAZMAT_DEBUG_ROOT)/bin
 HAZMAT_DEBUG_BIN      ?= $(HAZMAT_DEBUG_BINDIR)/hazmat-debug
@@ -26,7 +28,7 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
+.PHONY: all hazmat hazmat-launch hazmat-launch-fast configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
@@ -54,6 +56,10 @@ clean-debug-trace:
 hazmat-launch:
 	@rm -f $(HAZMAT_BUILD_HELPER)
 	cd $(APP_DIR) && CGO_ENABLED=1 go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o hazmat-launch ./cmd/hazmat-launch
+
+hazmat-launch-fast: check-install-platform
+	@rm -f $(HAZMAT_FAST_HELPER)
+	$(ZIG) cc -O2 -Wall -Wextra -Werror -o $(HAZMAT_FAST_HELPER) $(APP_DIR)/cmd/hazmat-launch-fast/main.c
 
 check-install-platform:
 	@platform=$$(printf '%s' "$(INSTALL_PLATFORM)" | tr '[:upper:]' '[:lower:]'); \
@@ -173,4 +179,4 @@ hooks:
 	@echo "Installed Hazmat-managed repo-local hooks"
 
 clean:
-	rm -f $(HAZMAT_BUILD_BIN) $(HAZMAT_BUILD_HELPER) $(APP_DIR)/trace_debug_configured.go
+	rm -f $(HAZMAT_BUILD_BIN) $(HAZMAT_BUILD_HELPER) $(HAZMAT_FAST_HELPER) $(APP_DIR)/trace_debug_configured.go

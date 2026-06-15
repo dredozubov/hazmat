@@ -48,6 +48,7 @@ The useful design claim is narrower and stronger:
 | `hazmat/agent_launch.go` | native sudo + helper launch construction |
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
 | `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
+| `hazmat/cmd/hazmat-launch-fast/main.c` | experimental lower-level broker child helper for profiling the same fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` boundary |
 | `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
 | `hazmat/native_launch_broker.go` | host-side broker request/client path for buffered non-interactive launches |
 | `hazmat/launch_broker_supervisor.go` | host-side broker startup command construction through `hazmat-launch exec` |

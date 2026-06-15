@@ -1,5 +1,6 @@
 hazmat/hazmat
 hazmat/hazmat-launch
+hazmat/hazmat-launch-fast
 hazmat/trace_debug_configured.go
 strategy.md
 
