@@ -41,7 +41,8 @@ The useful design claim is narrower and stronger:
 | `hazmat/agent_launch.go` | native sudo + helper launch construction |
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
 | `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
-| future launch broker | authenticated agent-side steady-state launch request, child fork, fd sanitation before `sandbox_init()` |
+| `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
+| future launch broker executor wiring | launch-child fork, fd sanitation before `sandbox_init()` |
 
 ## TLA+ Model
 
@@ -180,6 +181,17 @@ Observed result:
   adversarial authority fd before it performs fd sanitation
 - added checked obligation `BrokerLaunchRequiresAuthenticatedPeer`
 - current metrics: `1,248 generated`, `864 distinct`, `depth 11`
+
+2026-06-15 broker transport boundary:
+
+- added `hazmat/internal/runtime/launchbroker` as the concrete broker request
+  boundary governed by this model
+- Unix peer authentication is required before request verification
+- only a `VerifiedLaunchRequest` can construct a `ChildPlan`
+- `ChildPlan` construction requires `ChildFDPolicyCloseInherited`, preserving
+  the model's launch-child fd cleanup obligation before future executor wiring
+- package benchmark for request/auth/validation/child-plan round trip:
+  `45.607-64.305 us/op` across five local Darwin arm64 runs
 
 ## Interpretation
 

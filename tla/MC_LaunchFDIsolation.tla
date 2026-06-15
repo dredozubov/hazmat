@@ -37,6 +37,7 @@
 \*   hazmat/agent_launch.go — fixed-script native launch wrapper
 \*   hazmat/session.go — runAgentSeatbeltScriptWithUI()
 \*   hazmat/cmd/hazmat-launch/main.go — helper-side fd sanitization, policy read, sandbox_init, exec
+\*   hazmat/internal/runtime/launchbroker/*.go — authenticated broker request and child-plan fd cleanup contract
 
 EXTENDS Naturals, FiniteSets
 

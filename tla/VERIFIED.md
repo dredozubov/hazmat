@@ -1041,9 +1041,10 @@ future specs, tests, and docs.
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
 | Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
-| Governed future code | persistent native launch broker — authenticated request, launch-child fork, fd sanitation before `sandbox_init()` |
+| Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract |
+| Governed future code | persistent native launch broker executor wiring — launch-child fork, fd sanitation before `sandbox_init()` |
 | Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
-| Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the Beadpost broker/attestation-mint ordering is gated behind confirmed containment (design-proved, broker implementation pending) |
+| Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers and constructs only fd-cleanup child plans; broker launch-child executor wiring remains pending |
 
 **What this verifies:**
 
@@ -1091,6 +1092,13 @@ launch-child fd cleanup must remove those descriptors before `sandbox_init()`,
 and `BrokerLaunchRequiresAuthenticatedPeer` proves a brokered launch cannot
 reach that child path before host-peer authentication. TLC passes across 864
 reachable states (1,248 generated, depth 11, <15s on the local run).
+
+The concrete broker request boundary now lives in
+`hazmat/internal/runtime/launchbroker`: Unix peer authentication precedes
+request verification, `VerifiedLaunchRequest` is required to construct a
+`ChildPlan`, and `ChildPlan` construction requires
+`ChildFDPolicyCloseInherited`. The actual launch-child fork and executor wiring
+remain future governed work under this same model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
