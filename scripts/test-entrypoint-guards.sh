@@ -335,6 +335,16 @@ assert_fails_with \
     env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --reset-vm-base
 
 assert_fails_with \
+    "scripts/e2e.sh rejects VM step outside VM mode" \
+    "--vm-step is only valid with --vm" \
+    env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --vm-step base
+
+assert_fails_with \
+    "scripts/e2e.sh rejects unknown VM step" \
+    "unknown --vm-step value: nope" \
+    env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --vm --vm-step nope
+
+assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e

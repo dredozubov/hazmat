@@ -35,6 +35,9 @@ Prefer --vm for isolated local verification.
 Options:
   --quick    Skip live network probes inside the lifecycle.
   --vm       Run this lifecycle inside an isolated Lume macOS VM.
+  --vm-step STEP
+            With --vm, run one VM lifecycle step: all, base, prepare, or guest.
+            "clone" is accepted as an alias for prepare.
   --keep     With --vm, keep the test VM for debugging instead of deleting it.
   --reset-vm-base
             With --vm, delete the cached base VM before provisioning.
@@ -45,6 +48,7 @@ QUICK=""
 RUN_IN_VM=""
 KEEP_VM=""
 RESET_VM_BASE=""
+VM_STEP="all"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -62,6 +66,18 @@ while [ "$#" -gt 0 ]; do
             ;;
         --vm)
             RUN_IN_VM="1"
+            ;;
+        --vm-step)
+            if [ "$#" -lt 2 ]; then
+                echo "error: --vm-step requires a value" >&2
+                usage >&2
+                exit 2
+            fi
+            VM_STEP="$2"
+            shift
+            ;;
+        --vm-step=*)
+            VM_STEP="${1#--vm-step=}"
             ;;
         --keep)
             KEEP_VM="1"
@@ -92,6 +108,30 @@ if [ -n "$RESET_VM_BASE" ] && [ -z "$RUN_IN_VM" ]; then
     echo "error: --reset-vm-base is only valid with --vm" >&2
     usage >&2
     exit 2
+fi
+
+case "$VM_STEP" in
+    all|base|prepare|clone|guest)
+        ;;
+    *)
+        echo "error: unknown --vm-step value: $VM_STEP" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [ "$VM_STEP" != "all" ] && [ -z "$RUN_IN_VM" ]; then
+    echo "error: --vm-step is only valid with --vm" >&2
+    usage >&2
+    exit 2
+fi
+
+if [ "$VM_STEP" = "clone" ]; then
+    VM_STEP="prepare"
+fi
+
+if [ "$VM_STEP" = "prepare" ]; then
+    KEEP_VM="1"
 fi
 
 E2E_VM_CLEANUP_TEST_VM=""
@@ -253,6 +293,116 @@ EOF
         printf 'ready\n' >"$base_ready_marker"
         echo "Base VM ready with Go + passwordless sudo."
     }
+
+    ensure_base_vm() {
+        if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+            reset_base_vm
+        fi
+
+        if lume get "$base_vm" >/dev/null 2>&1; then
+            if [ -f "$base_ready_marker" ]; then
+                echo "Base VM $base_vm already exists."
+            else
+                echo "Base VM $base_vm exists without Hazmat readiness marker; resuming provisioning."
+                provision_base_vm
+            fi
+        else
+            local host_version preset
+            host_version=$(sw_vers -productVersion | cut -d. -f1)
+            case "$host_version" in
+                26) preset="tahoe" ;;
+                15) preset="sequoia" ;;
+                *) preset="tahoe" ;;
+            esac
+
+            echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
+            echo "Host macOS $host_version -> using '$preset' preset."
+            echo "This downloads macOS from Apple and runs unattended Setup Assistant."
+            if ! lume create "$base_vm" \
+                --os macOS \
+                --ipsw latest \
+                --cpu 4 \
+                --memory 8GB \
+                --disk-size 50GB \
+                --unattended "$preset" \
+                --no-display; then
+                echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
+                echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
+                exit 1
+            fi
+            echo "Base VM $base_vm created."
+            provision_base_vm
+        fi
+    }
+
+    test_vm_ssh_ready() {
+        local ip
+        ip=$(get_vm_ip "$test_vm")
+        [ -n "$ip" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" true 2>/dev/null
+    }
+
+    boot_test_vm() {
+        E2E_VM_CLEANUP_TEST_VM="$test_vm"
+        E2E_VM_CLEANUP_VM_USER="$vm_user"
+        if test_vm_ssh_ready; then
+            echo "Test VM $test_vm already reachable."
+        else
+            echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
+            lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" &
+            wait_for_ssh "$test_vm"
+        fi
+        vm_ip=$(get_vm_ip "$test_vm")
+        E2E_VM_CLEANUP_VM_IP="$vm_ip"
+    }
+
+    prepare_guest_vm() {
+        if lume get "$test_vm" >/dev/null 2>&1; then
+            echo "Test VM $test_vm already exists."
+        else
+            echo "Cloning $base_vm -> $test_vm..."
+            lume clone "$base_vm" "$test_vm"
+        fi
+
+        boot_test_vm
+
+        echo "Copying repo to VM local disk..."
+        vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+    }
+
+    run_guest_lifecycle() {
+        local quick_arg=""
+        if [ -n "$QUICK" ]; then
+            quick_arg="--quick"
+        fi
+
+        echo ""
+        echo "════════════════════════════════════════════════════════"
+        echo "  Running E2E tests inside VM ($test_vm)"
+        echo "════════════════════════════════════════════════════════"
+        echo ""
+
+        vm_ssh_to "$vm_ip" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+    }
+
+    run_existing_guest_step() {
+        if ! lume get "$test_vm" >/dev/null 2>&1; then
+            cat >&2 <<EOF
+Test VM $test_vm does not exist.
+
+Prepare one first:
+  HAZMAT_E2E_TEST_VM=$test_vm bash scripts/e2e.sh --vm --vm-step prepare --quick
+
+Then rerun the guest lifecycle:
+  HAZMAT_E2E_TEST_VM=$test_vm bash scripts/e2e.sh --vm --vm-step guest --keep --quick
+EOF
+            exit 2
+        fi
+        boot_test_vm
+        echo "Refreshing repo copy in existing test VM $test_vm..."
+        vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+        run_guest_lifecycle
+    }
+
     trap cleanup_e2e_vm EXIT
 
     if ! command -v lume >/dev/null 2>&1; then
@@ -260,71 +410,31 @@ EOF
         exit 1
     fi
 
-    if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
-        reset_base_vm
-    fi
+    case "$VM_STEP" in
+        base)
+            ensure_base_vm
+            echo "VM step base complete."
+            ;;
+        prepare)
+            ensure_base_vm
+            prepare_guest_vm
+            cat <<EOF
+VM step prepare complete.
+Test VM $test_vm is ready and kept for guest reruns.
 
-    if lume get "$base_vm" >/dev/null 2>&1; then
-        if [ -f "$base_ready_marker" ]; then
-            echo "Base VM $base_vm already exists."
-        else
-            echo "Base VM $base_vm exists without Hazmat readiness marker; resuming provisioning."
-            provision_base_vm
-        fi
-    else
-        local host_version preset
-        host_version=$(sw_vers -productVersion | cut -d. -f1)
-        case "$host_version" in
-            26) preset="tahoe" ;;
-            15) preset="sequoia" ;;
-            *) preset="tahoe" ;;
-        esac
-
-        echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
-        echo "Host macOS $host_version -> using '$preset' preset."
-        echo "This downloads macOS from Apple and runs unattended Setup Assistant."
-        if ! lume create "$base_vm" \
-            --os macOS \
-            --ipsw latest \
-            --cpu 4 \
-            --memory 8GB \
-            --disk-size 50GB \
-            --unattended "$preset" \
-            --no-display; then
-            echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
-            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
-            exit 1
-        fi
-        echo "Base VM $base_vm created."
-        provision_base_vm
-    fi
-
-    echo "Cloning $base_vm -> $test_vm..."
-    E2E_VM_CLEANUP_TEST_VM="$test_vm"
-    E2E_VM_CLEANUP_VM_USER="$vm_user"
-    lume clone "$base_vm" "$test_vm"
-
-    echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
-    lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" &
-
-    wait_for_ssh "$test_vm"
-    vm_ip=$(get_vm_ip "$test_vm")
-    E2E_VM_CLEANUP_VM_IP="$vm_ip"
-
-    echo "Copying repo to VM local disk..."
-    vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
-
-    echo ""
-    echo "════════════════════════════════════════════════════════"
-    echo "  Running E2E tests inside VM ($test_vm)"
-    echo "════════════════════════════════════════════════════════"
-    echo ""
-
-    local quick_arg=""
-    if [ -n "$QUICK" ]; then
-        quick_arg="--quick"
-    fi
-    vm_ssh_to "$vm_ip" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+Run the guest lifecycle with:
+  HAZMAT_E2E_TEST_VM=$test_vm bash scripts/e2e.sh --vm --vm-step guest --keep --quick
+EOF
+            ;;
+        guest)
+            run_existing_guest_step
+            ;;
+        all)
+            ensure_base_vm
+            prepare_guest_vm
+            run_guest_lifecycle
+            ;;
+    esac
 }
 
 if [ -n "$RUN_IN_VM" ]; then

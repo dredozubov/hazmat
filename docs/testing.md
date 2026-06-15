@@ -690,6 +690,19 @@ want to delete and rebuild the cached base VM. If Lume reports that the base VM
 is still being provisioned, wait for that Lume provisioning attempt to finish
 and then rerun the VM lifecycle instead of resetting the base.
 
+For faster iteration, run only the failed VM lifecycle step:
+
+```bash
+bash scripts/e2e.sh --vm --vm-step base --quick
+bash scripts/e2e.sh --vm --vm-step prepare --quick
+HAZMAT_E2E_TEST_VM=hazmat-e2e-12345 bash scripts/e2e.sh --vm --vm-step guest --keep --quick
+```
+
+`base` creates or resumes the cached base VM and stops there. `prepare` clones
+and boots a test VM, copies the repo, and keeps that VM for reruns. `guest`
+reruns only the destructive Hazmat lifecycle inside an existing test VM; set
+`HAZMAT_E2E_TEST_VM` to the kept VM name printed by `prepare`.
+
 ## Host vs VM Model
 
 - `hazmat check`, `pre-push`, `pre-release-local`, `e2e-bootstrap`, the
