@@ -28,6 +28,7 @@ type launchBrokerStartConfig struct {
 	HazmatPath            string
 	LaunchHelperPath      string
 	ChildLaunchHelperPath string
+	Profile               bool
 }
 
 type launchBrokerStartPlan struct {
@@ -113,12 +114,17 @@ func newLaunchBrokerStartPlan(cfg launchBrokerStartConfig) (launchBrokerStartPla
 		"-H",
 		helperPath,
 		"exec",
+	}
+	if cfg.Profile {
+		brokerArgs = append(brokerArgs, "/usr/bin/env", sessionPreparationProfileEnv+"=yes")
+	}
+	brokerArgs = append(brokerArgs,
 		hazmatPath,
 		agententry.LaunchBrokerCommandName,
 		socketPath,
 		strconv.Itoa(cfg.ExpectedPeerUID),
 		childHelperPath,
-	}
+	)
 	args := append([]string{hostSudoPath}, brokerArgs...)
 	return launchBrokerStartPlan{
 		socketPath: socketPath,
@@ -152,6 +158,7 @@ type launchBrokerSupervisorConfig struct {
 	HazmatPath            string
 	LaunchHelperPath      string
 	ChildLaunchHelperPath string
+	Profile               bool
 	ReadyTimeout          time.Duration
 	ReadyPollInterval     time.Duration
 	ProcessStarter        launchBrokerProcessStarter
@@ -189,6 +196,7 @@ func startLaunchBrokerSupervisor(ctx context.Context, cfg launchBrokerSupervisor
 		HazmatPath:            cfg.HazmatPath,
 		LaunchHelperPath:      cfg.LaunchHelperPath,
 		ChildLaunchHelperPath: cfg.ChildLaunchHelperPath,
+		Profile:               cfg.Profile,
 	})
 	if err != nil {
 		return nil, err

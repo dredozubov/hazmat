@@ -212,8 +212,10 @@ func (p *sessionPreparationProgress) finishCurrent(now time.Time) {
 	p.currentLabel = ""
 }
 
+const sessionPreparationProfileEnv = "HAZMAT_SESSION_PREP_PROFILE"
+
 func sessionPreparationProfileEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("HAZMAT_SESSION_PREP_PROFILE"))) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(sessionPreparationProfileEnv))) {
 	case "1", "true", "yes", "on":
 		return true
 	default:

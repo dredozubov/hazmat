@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -39,6 +40,49 @@ struct launch_args {
     size_t env_count;
     char **cmd_argv;
 };
+
+struct profile_span {
+    const char *label;
+    double seconds;
+};
+
+static bool profile_enabled = false;
+static struct profile_span profile_spans[16];
+static size_t profile_span_count = 0;
+
+static double now_seconds(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0.0;
+    }
+    return (double)ts.tv_sec + ((double)ts.tv_nsec / 1000000000.0);
+}
+
+static void profile_record(const char *label, double start) {
+    if (!profile_enabled || profile_span_count >= sizeof(profile_spans) / sizeof(profile_spans[0])) {
+        return;
+    }
+    double end = now_seconds();
+    double elapsed = end - start;
+    if (elapsed < 0) {
+        elapsed = 0;
+    }
+    profile_spans[profile_span_count++] = (struct profile_span){
+        .label = label,
+        .seconds = elapsed,
+    };
+}
+
+static void profile_done(void) {
+    if (!profile_enabled || profile_span_count == 0) {
+        return;
+    }
+    fputs("hazmat-launch-fast: helper profile:\n", stderr);
+    for (size_t i = 0; i < profile_span_count; i++) {
+        fprintf(stderr, "  %s: %.3fs\n", profile_spans[i].label, profile_spans[i].seconds);
+    }
+    fflush(stderr);
+}
 
 __attribute__((noreturn)) static void die(const char *fmt, ...) {
     va_list ap;
@@ -416,16 +460,22 @@ static void set_direct_env(const struct launch_args *args) {
 }
 
 __attribute__((noreturn)) static void exec_command(char **cmd_argv) {
+    double start = now_seconds();
     char *bin = resolve_exec_path(cmd_argv[0]);
+    profile_record("resolve exec path", start);
+    profile_done();
     execve(bin, cmd_argv, environ);
     die("hazmat-launch-fast: exec %s: %s", bin, strerror(errno));
 }
 
 int main(int argc, char **argv) {
+    profile_enabled = argc > 1 && strcmp(argv[1], "--hazmat-launch-profile") == 0;
+    double start = now_seconds();
     close_inherited_fds();
+    profile_record("close inherited fds", start);
 
     int i = 1;
-    if (i < argc && strcmp(argv[i], "--hazmat-launch-profile") == 0) {
+    if (i < argc && profile_enabled) {
         i++;
     }
     if (i >= argc) {
@@ -443,33 +493,48 @@ int main(int argc, char **argv) {
     if (i >= argc) {
         usage();
     }
+    start = now_seconds();
     struct launch_args args = parse_launch_args(argc, argv, i);
+    profile_record("parse launch args", start);
+
+    start = now_seconds();
     char *policy = validate_and_read_policy(policy_path);
+    profile_record("validate and read policy", start);
 
     if (args.session_temp != NULL) {
+        start = now_seconds();
         prepare_session_temp_dir(args.session_temp);
+        profile_record("prepare session temp", start);
     }
 
     char *sandbox_error = NULL;
+    start = now_seconds();
     if (sandbox_init(policy, 0, &sandbox_error) != 0) {
         const char *msg = sandbox_error == NULL ? "unknown error" : sandbox_error;
         die("hazmat-launch-fast: sandbox_init: %s", msg);
     }
+    profile_record("sandbox_init", start);
     if (sandbox_error != NULL) {
         sandbox_free_error(sandbox_error);
     }
     free(policy);
 
     if (args.metadata_json != NULL) {
+        start = now_seconds();
         fprintf(stderr, "%s\n", args.metadata_json);
         fflush(stderr);
+        profile_record("write metadata json", start);
     }
 
     if (args.direct_exec) {
+        start = now_seconds();
         set_direct_env(&args);
+        profile_record("set direct env", start);
+        start = now_seconds();
         if (chdir(args.working_dir) != 0) {
             die("hazmat-launch-fast: chdir %s: %s", args.working_dir, strerror(errno));
         }
+        profile_record("chdir", start);
     }
     exec_command(args.cmd_argv);
 }

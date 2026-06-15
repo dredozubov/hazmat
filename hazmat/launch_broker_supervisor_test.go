@@ -87,6 +87,43 @@ func TestNewLaunchBrokerStartPlanCanSplitStartupAndChildHelpers(t *testing.T) {
 	}
 }
 
+func TestNewLaunchBrokerStartPlanPropagatesProfileEnv(t *testing.T) {
+	runtimeDir := t.TempDir()
+	helperPath := "/usr/local/libexec/hazmat-launch"
+	hazmatPath := "/usr/local/bin/hazmat"
+
+	plan, err := newLaunchBrokerStartPlan(launchBrokerStartConfig{
+		RuntimeDir:       runtimeDir,
+		ExpectedPeerUID:  501,
+		HazmatPath:       hazmatPath,
+		LaunchHelperPath: helperPath,
+		Profile:          true,
+	})
+	if err != nil {
+		t.Fatalf("newLaunchBrokerStartPlan: %v", err)
+	}
+
+	socketPath := filepath.Join(runtimeDir, "launch-broker-501.sock")
+	wantArgs := []string{
+		hostSudoPath,
+		"-n",
+		"-u", agentUser,
+		"-H",
+		helperPath,
+		"exec",
+		"/usr/bin/env",
+		sessionPreparationProfileEnv + "=yes",
+		hazmatPath,
+		agententry.LaunchBrokerCommandName,
+		socketPath,
+		"501",
+		helperPath,
+	}
+	if !reflect.DeepEqual(plan.Command().Args(), wantArgs) {
+		t.Fatalf("Args() = %#v, want %#v", plan.Command().Args(), wantArgs)
+	}
+}
+
 func TestNewLaunchBrokerStartPlanRejectsInvalidInputs(t *testing.T) {
 	validRuntime := t.TempDir()
 	validHazmat := "/usr/local/bin/hazmat"

@@ -154,6 +154,7 @@ func defaultEnsureLaunchBroker(ctx context.Context) error {
 		HazmatPath:            hazmatPath,
 		LaunchHelperPath:      launchHelperPath(),
 		ChildLaunchHelperPath: launchHelperPathForBrokerChild(),
+		Profile:               sessionPreparationProfileEnabled(),
 		ReadyTimeout:          defaultLaunchBrokerReadyTimeout,
 	})
 	if err == nil {
