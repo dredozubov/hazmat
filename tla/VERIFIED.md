@@ -1126,7 +1126,11 @@ the per-uid broker once through that same proved startup boundary and retry the
 request; explicitly configured sockets remain fail-fast. The supervisor removes
 stale socket path residue before startup, but refuses live sockets, symlinks,
 and non-socket paths so crash leftovers do not force a sudo fallback while
-active or suspicious paths are not clobbered. Interactive
+active or suspicious paths are not clobbered. The default per-uid broker runtime
+directory is revalidated through the same agent-side shared-directory
+preparation even when it already exists, repairing mode/group drift before
+broker startup so the experimental path stays on the proved broker startup
+boundary instead of silently falling back to per-launch `sudo`. Interactive
 stdio/session transport and default-on lifecycle remain future governed work
 under this same model.
 

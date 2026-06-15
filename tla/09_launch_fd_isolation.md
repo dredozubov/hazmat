@@ -236,6 +236,11 @@ Observed result:
   symlink paths are refused. This does not change the fd invariants, but keeps
   crash residue from forcing the experimental broker path back to per-launch
   `sudo`.
+- the default per-uid broker runtime directory is revalidated through the same
+  agent-side shared-directory preparation even when it already exists. This
+  repairs mode/group drift before broker startup and keeps the experimental
+  path on the proved broker startup boundary instead of silently falling back to
+  per-launch `sudo`.
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 

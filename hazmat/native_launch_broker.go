@@ -192,7 +192,6 @@ func prepareDefaultLaunchBrokerRuntimeDir(uid int) (string, error) {
 		if !info.IsDir() {
 			return "", fmt.Errorf("%s: launch broker runtime path is not a directory", runtimeDir)
 		}
-		return runtimeDir, nil
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("inspect launch broker runtime dir: %w", err)
 	}

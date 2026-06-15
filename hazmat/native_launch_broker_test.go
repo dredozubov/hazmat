@@ -284,6 +284,55 @@ func TestDefaultEnsureLaunchBrokerRestartsWhenCachedSocketGone(t *testing.T) {
 	}
 }
 
+func TestPrepareDefaultLaunchBrokerRuntimeDirRepairsExistingDir(t *testing.T) {
+	root := newShortLaunchBrokerTempDir(t)
+	const uid = 501
+	runtimeDir := filepath.Join(root, "launch-501")
+	if err := os.Mkdir(runtimeDir, 0o700); err != nil {
+		t.Fatalf("create existing runtime dir: %v", err)
+	}
+
+	oldRoot := brokerRuntimeRoot
+	oldEnsureSharedDir := brokerRuntimeAgentEnsureSharedDir
+	brokerRuntimeRoot = root
+	var ensureCalls int
+	brokerRuntimeAgentEnsureSharedDir = func(path string, mode os.FileMode) error {
+		ensureCalls++
+		if path != runtimeDir {
+			t.Fatalf("ensure path = %q, want %q", path, runtimeDir)
+		}
+		if mode != 0o2770 {
+			t.Fatalf("ensure mode = %v, want 02770", mode)
+		}
+		if err := os.MkdirAll(path, mode.Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	t.Cleanup(func() {
+		brokerRuntimeRoot = oldRoot
+		brokerRuntimeAgentEnsureSharedDir = oldEnsureSharedDir
+	})
+
+	gotDir, err := prepareDefaultLaunchBrokerRuntimeDir(uid)
+	if err != nil {
+		t.Fatalf("prepareDefaultLaunchBrokerRuntimeDir: %v", err)
+	}
+	if gotDir != runtimeDir {
+		t.Fatalf("runtime dir = %q, want %q", gotDir, runtimeDir)
+	}
+	if ensureCalls != 1 {
+		t.Fatalf("ensure calls = %d, want 1", ensureCalls)
+	}
+	info, err := os.Stat(runtimeDir)
+	if err != nil {
+		t.Fatalf("stat runtime dir: %v", err)
+	}
+	if info.Mode().Perm() != 0o770 {
+		t.Fatalf("runtime dir mode = %v, want permissions 0770", info.Mode())
+	}
+}
+
 func TestDefaultRunAgentSeatbeltScriptWithPlanUsesConfiguredBroker(t *testing.T) {
 	projectDir := t.TempDir()
 	socketPath := filepath.Join(t.TempDir(), "broker.sock")
