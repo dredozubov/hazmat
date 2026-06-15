@@ -79,8 +79,11 @@ MC_HarnessLifecycle	invariant	TypeOK	8	tla/08_harness_lifecycle.md	harness lifec
 MC_HarnessLifecycle	invariant	UninstallRemovesOnlyCodeAndMetadata	8	tla/08_harness_lifecycle.md	harness lifecycle contract
 MC_LaunchFDIsolation	invariant	AgentFDTableAllowlisted	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	AgentFDTableDoesNotCarryAuthority	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
+MC_LaunchFDIsolation	invariant	BrokerFDTableDropsHostInheritedFDs	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
+MC_LaunchFDIsolation	invariant	BrokerLaunchRequiresAuthenticatedPeer	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	BrokerStartsOnlyAfterSandboxConfirmed	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	CredentialFDsGoneBeforeSandbox	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
+MC_LaunchFDIsolation	invariant	ForkserverFDTableAllowlistedWhenReady	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	HelperFDTableAllowlistedAtSandbox	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	NoInheritedShellFDsAtSandbox	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	StdioSurvivesToAgent	9	tla/09_launch_fd_isolation.md	launch fd isolation contract

@@ -22,11 +22,15 @@ This spec treats the upstream launch chain as partially adversarial:
   socket, and other broker-owned non-stdio fds when it forks a launch child
 - broker startup may inherit host-origin non-stdio fds unless it is routed
   through Hazmat's fd-cleaning helper exec boundary
+- a future persistent forkserver may hold a private broker/executor control fd
+  when it forks a launch child
 
 The useful design claim is narrower and stronger:
 
 - the launch executor closes every inherited fd `>= 3` before sandboxing
 - the long-lived launch broker closes startup-inherited fds before listening
+- a persistent forkserver closes startup-inherited fds before it accepts broker
+  launch work, retaining only stdio plus its private control fd
 - any fd the helper opens for policy validation is explicitly `CLOEXEC`
 - helper-side session temp preparation leaves no additional live descriptors at
   `sandbox_init()`
@@ -47,13 +51,13 @@ The useful design claim is narrower and stronger:
 | `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
 | `hazmat/native_launch_broker.go` | host-side broker request/client path for buffered non-interactive launches |
 | `hazmat/launch_broker_supervisor.go` | host-side broker startup command construction through `hazmat-launch exec` |
-| future launch broker executor wiring | interactive stdio/session transport and default persistent broker lifecycle |
+| future launch broker executor wiring | forkserver or equivalent lower-level executor, interactive stdio/session transport, and default persistent broker lifecycle |
 
 ## TLA+ Model
 
 ### Abstract FD Model
 
-The model uses eight abstract fds:
+The model uses nine abstract fds:
 
 | FD | Meaning |
 |----|---------|
@@ -63,12 +67,13 @@ The model uses eight abstract fds:
 | `5` | helper-opened policy file |
 | `6` | broker listener socket |
 | `7` | accepted broker request socket |
+| `8` | private broker/forkserver control fd |
 
 Each fd also tracks:
 
 - target class: `stdio`, `credential`, `benign`, `policy`, `authority`,
-  `broker_socket`, `broker_request`, `unused`
-- origin: `shell`, `helper`, `broker`, `none`
+  `broker_socket`, `broker_request`, `executor_control`, `unused`
+- origin: `shell`, `helper`, `broker`, `forkserver`, `none`
 - `CLOEXEC` flag
 
 ### Launch Stages
@@ -80,15 +85,16 @@ inheritance matters:
 2. either `sudo -> hazmat-launch`, or startup of a persistent agent-owned
    launch broker through a fd-cleaning helper exec boundary
 3. broker startup fd sanitization before listening
-4. authenticated request to the persistent broker
-5. launch child/executor
-6. executor fd sanitization
-7. executor policy-file open
-8. optional executor-side session temp preparation, leaving no extra live fds
-9. `sandbox_init()`
-10. confirmed-containment metadata emission
-11. optional host broker activation and token minting
-12. final agent `exec`
+4. optional forkserver startup fd sanitization before it accepts launch work
+5. authenticated request to the persistent broker
+6. launch child/executor, either through per-launch helper exec or forkserver
+7. executor fd sanitization
+8. executor policy-file open
+9. optional executor-side session temp preparation, leaving no extra live fds
+10. `sandbox_init()`
+11. confirmed-containment metadata emission
+12. optional host broker activation and token minting
+13. final agent `exec`
 
 Two environment knobs are chosen nondeterministically at `Init`:
 
@@ -101,6 +107,7 @@ The checked config fixes the helper-side design knobs to the intended values:
 - `PolicyFileUsesCloexec = TRUE`
 - `BrokerAuthenticatesPeer = TRUE`
 - `BrokerStartupClosesInheritedFDs = TRUE`
+- `ForkserverStartupClosesInheritedFDs = TRUE`
 
 ## What TLC Checks
 
@@ -108,6 +115,7 @@ The checked config fixes the helper-side design knobs to the intended values:
 |-----------|---------|
 | `BrokerLaunchRequiresAuthenticatedPeer` | A brokered launch cannot fork/reach the executor path until the host peer is authenticated |
 | `BrokerFDTableDropsHostInheritedFDs` | Once the persistent broker is listening or serving, it no longer holds host-origin non-stdio fds inherited during startup |
+| `ForkserverFDTableAllowlistedWhenReady` | A persistent forkserver retains only stdio plus its private control fd before serving launch work |
 | `HelperFDTableAllowlistedAtSandbox` | Once sandboxing starts, the helper holds only stdio plus its helper-opened policy fd |
 | `NoInheritedShellFDsAtSandbox` | No shell-origin fd `>= 3` survives into or past `sandbox_init()` |
 | `CredentialFDsGoneBeforeSandbox` | No credential-bearing fd is live when `sandbox_init()` runs |
@@ -131,6 +139,9 @@ This model makes one design fact explicit:
   though each child still sanitizes before `sandbox_init()`
 - the persistent broker path is viable only if request authentication precedes
   forking the launch child
+- a forkserver optimization is viable only if the forkserver parent keeps a
+  private control fd and every forked child closes that control fd before
+  policy validation and `sandbox_init()`
 - a pre-sudo prepared launch is not a confirmed containment boundary; broker
   authority starts only after `sandbox_init()` and metadata confirmation
 
@@ -152,9 +163,9 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `1,312 states generated`
-- `928 distinct states found`
-- `depth 13`
+- `2,688 states generated`
+- `1,920 distinct states found`
+- `depth 15`
 - `Finished in <1s`
 
 2026-06-04 proof-hygiene refactor:
@@ -196,6 +207,19 @@ Observed result:
 - added checked obligations `BrokerLaunchRequiresAuthenticatedPeer` and
   `BrokerFDTableDropsHostInheritedFDs`
 - current metrics: `1,312 generated`, `928 distinct`, `depth 13`
+
+2026-06-15 forkserver executor alternative:
+
+- added an explicit brokered child executor choice: current per-launch
+  `hazmat-launch` helper exec or future persistent forkserver
+- modeled forkserver startup from the already-clean broker process with a
+  private socketpair-style control fd
+- added `ForkserverFDTableAllowlistedWhenReady`, proving the forkserver parent
+  can retain only stdio plus that private control fd before serving launch work
+- modeled forkserver launch children inheriting the private control fd and
+  proved the existing child cleanup obligation removes it before policy open,
+  `sandbox_init()`, and final agent exec
+- current metrics: `2,688 generated`, `1,920 distinct`, `depth 15`
 
 2026-06-15 broker transport boundary:
 
@@ -271,6 +295,8 @@ implementation details. It proves a stronger Hazmat-specific boundary:
 - even if broker startup would otherwise inherit host credential/authority fds,
 - and even if a persistent broker child inherits broker-owned listener/request
   fds,
+- and even if a persistent lower-level forkserver child inherits its private
+  broker/executor control fd,
 - the launch executor still reaches `sandbox_init()` with an allowlisted fd table
 - and any host-side broker authority is minted only after confirmed containment
 

@@ -25,9 +25,16 @@
 \*   4. broker startup may inherit host descriptors unless routed through the
 \*      same fd-cleaning helper exec boundary.
 \*
+\* A future optimized forkserver can replace per-launch helper execs only if it
+\* preserves the same child boundary: the forkserver parent may retain a private
+\* broker/executor control fd, but every launch child must close that fd before
+\* sandbox_init().
+\*
 \* The proved design obligations are:
 \*   - the launch executor closes every inherited fd >= 3 before sandbox_init()
 \*   - the long-lived broker closes startup-inherited fds before listening
+\*   - a persistent forkserver closes startup-inherited fds before accepting
+\*     broker launch work, retaining only stdio plus its private control fd
 \*   - any fd the helper opens itself for policy validation is CLOEXEC
 \*   - the brokered path authenticates the peer before forking a launch child
 \*
@@ -60,19 +67,22 @@ CONSTANTS
     HelperClosesInheritedFDs,
     PolicyFileUsesCloexec,
     BrokerAuthenticatesPeer,
-    BrokerStartupClosesInheritedFDs
+    BrokerStartupClosesInheritedFDs,
+    ForkserverStartupClosesInheritedFDs
 
-FDs == 0..7
+FDs == 0..8
 StdioFDs == 0..2
 InheritedExtraFDs == {3, 4}
 PolicyFD == 5
 BrokerListenFD == 6
 BrokerConnFD == 7
+ForkserverControlFD == 8
 
-Targets == {"stdio", "credential", "benign", "policy", "authority", "broker_socket", "broker_request", "unused"}
-Origins == {"shell", "helper", "broker", "none"}
-Stages == {"hazmat", "sudo", "broker_starting", "broker_listening", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
+Targets == {"stdio", "credential", "benign", "policy", "authority", "broker_socket", "broker_request", "executor_control", "unused"}
+Origins == {"shell", "helper", "broker", "forkserver", "none"}
+Stages == {"hazmat", "sudo", "broker_starting", "broker_listening", "forkserver_starting", "forkserver_ready", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
 LaunchModes == {"unset", "sudo_helper", "brokered"}
+ChildExecutors == {"exec_helper", "forkserver"}
 
 AllowedHelperTargetsAtSandbox == {"stdio", "policy"}
 AllowedAgentTargets == {"stdio"}
@@ -83,11 +93,13 @@ VARIABLES
     hazmatFds,
     sudoFds,
     brokerFds,
+    forkserverFds,
     helperFds,
     agentFds,
     fdTarget,
     fdOrigin,
     fdCloexec,
+    childExecutor,
     goExecClosesParentFDs,
     sudoClosesInheritedFDs,
     peerAuthenticated,
@@ -96,9 +108,9 @@ VARIABLES
     tokenMinted
 
 vars ==
-    <<stage, launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    <<stage, launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
       fdTarget, fdOrigin, fdCloexec,
-      goExecClosesParentFDs, sudoClosesInheritedFDs, peerAuthenticated,
+      childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs, peerAuthenticated,
       metadataEmitted, brokerActive, tokenMinted>>
 
 TypeOK ==
@@ -107,11 +119,13 @@ TypeOK ==
     /\ hazmatFds \subseteq FDs
     /\ sudoFds \subseteq FDs
     /\ brokerFds \subseteq FDs
+    /\ forkserverFds \subseteq FDs
     /\ helperFds \subseteq FDs
     /\ agentFds \subseteq FDs
     /\ fdTarget \in [FDs -> Targets]
     /\ fdOrigin \in [FDs -> Origins]
     /\ fdCloexec \in [FDs -> BOOLEAN]
+    /\ childExecutor \in ChildExecutors
     /\ goExecClosesParentFDs \in BOOLEAN
     /\ sudoClosesInheritedFDs \in BOOLEAN
     /\ peerAuthenticated \in BOOLEAN
@@ -125,6 +139,7 @@ Init ==
     /\ launchMode = "unset"
     /\ sudoFds = {}
     /\ brokerFds = {}
+    /\ forkserverFds = {}
     /\ helperFds = {}
     /\ agentFds = {}
     \* fd 3 carries credential material; fd 4 is an inherited extra fd that may
@@ -139,15 +154,17 @@ Init ==
                   [] fd = 4 -> t4
                   [] fd = BrokerListenFD -> "broker_socket"
                   [] fd = BrokerConnFD -> "broker_request"
+                  [] fd = ForkserverControlFD -> "executor_control"
                   [] OTHER -> "unused"]
     /\ fdOrigin =
         [fd \in FDs |->
             IF fd \in StdioFDs \cup InheritedExtraFDs
                 THEN "shell"
-            ELSE IF fd \in {BrokerListenFD, BrokerConnFD}
+            ELSE IF fd \in {BrokerListenFD, BrokerConnFD, ForkserverControlFD}
                 THEN "broker"
             ELSE "none"]
     /\ fdCloexec = [fd \in FDs |-> FALSE]
+    /\ childExecutor \in ChildExecutors
     /\ goExecClosesParentFDs \in BOOLEAN
     /\ sudoClosesInheritedFDs \in BOOLEAN
     /\ peerAuthenticated = FALSE
@@ -165,9 +182,9 @@ HazmatExecsSudo ==
             ELSE hazmatFds
     /\ launchMode' = "sudo_helper"
     /\ stage' = "sudo"
-    /\ UNCHANGED <<hazmatFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<hazmatFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 HazmatStartsLaunchBroker ==
@@ -179,9 +196,9 @@ HazmatStartsLaunchBroker ==
     \* the broker opens its listener and accepts launch requests.
     /\ brokerFds' = hazmatFds
     /\ stage' = "broker_starting"
-    /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
+    /\ UNCHANGED <<hazmatFds, sudoFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 BrokerStartupSanitizesFDTable ==
@@ -192,13 +209,45 @@ BrokerStartupSanitizesFDTable ==
             THEN brokerFds \cap StdioFDs
             ELSE brokerFds
     /\ stage' = "broker_listening"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, helperFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
+
+BrokerStartsForkserver ==
+    /\ stage = "broker_listening"
+    /\ launchMode = "brokered"
+    /\ childExecutor = "forkserver"
+    \* The broker starts a persistent low-level executor using a private
+    \* socketpair-like control fd. The forkserver must sanitize startup-inherited
+    \* broker fds before it is ready to accept launch work.
+    /\ forkserverFds' = brokerFds \cup {ForkserverControlFD}
+    /\ stage' = "forkserver_starting"
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
+
+ForkserverStartupSanitizesFDTable ==
+    /\ stage = "forkserver_starting"
+    /\ launchMode = "brokered"
+    /\ childExecutor = "forkserver"
+    /\ forkserverFds' =
+        IF ForkserverStartupClosesInheritedFDs
+            THEN (forkserverFds \cap StdioFDs) \cup {ForkserverControlFD}
+            ELSE forkserverFds
+    /\ fdOrigin' = [fdOrigin EXCEPT ![ForkserverControlFD] = "forkserver"]
+    /\ stage' = "forkserver_ready"
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+                   fdTarget, fdCloexec,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 BrokerAcceptsAuthenticatedLaunch ==
-    /\ stage = "broker_listening"
+    /\ \/ /\ stage = "broker_listening"
+          /\ childExecutor = "exec_helper"
+       \/ /\ stage = "forkserver_ready"
+          /\ childExecutor = "forkserver"
     /\ launchMode = "brokered"
     \* After startup cleanup, the broker may open its listener and hold the
     \* accepted request socket. The forked launch child must still sanitize
@@ -206,9 +255,9 @@ BrokerAcceptsAuthenticatedLaunch ==
     /\ brokerFds' = brokerFds \cup {BrokerListenFD, BrokerConnFD}
     /\ peerAuthenticated' = BrokerAuthenticatesPeer
     /\ stage' = "broker"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, helperFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    metadataEmitted, brokerActive, tokenMinted>>
 
 SudoExecsHelper ==
@@ -219,20 +268,23 @@ SudoExecsHelper ==
             THEN sudoFds \cap StdioFDs
             ELSE sudoFds
     /\ stage' = "helper"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 BrokerForksLaunchChild ==
     /\ stage = "broker"
     /\ launchMode = "brokered"
     /\ peerAuthenticated
-    /\ helperFds' = brokerFds
+    /\ helperFds' =
+        IF childExecutor = "forkserver"
+            THEN forkserverFds
+            ELSE brokerFds
     /\ stage' = "helper"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 HelperSanitizesFDTable ==
@@ -242,9 +294,9 @@ HelperSanitizesFDTable ==
             THEN helperFds \cap StdioFDs
             ELSE helperFds
     /\ stage' = "helper_sanitized"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 HelperOpensPolicyFile ==
@@ -254,8 +306,8 @@ HelperOpensPolicyFile ==
     /\ fdOrigin' = [fdOrigin EXCEPT ![PolicyFD] = "helper"]
     /\ fdCloexec' = [fdCloexec EXCEPT ![PolicyFD] = PolicyFileUsesCloexec]
     /\ stage' = "policy_opened"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, agentFds,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, agentFds,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 HelperPreparesSessionTempDir ==
@@ -263,17 +315,17 @@ HelperPreparesSessionTempDir ==
     \* The helper may create the already-policy-approved session temp directory
     \* before sandbox_init(), but this phase must not leave additional live fds.
     /\ stage' = "temp_prepared"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 HelperCallsSandboxInit ==
     /\ stage = "temp_prepared"
     /\ stage' = "sandboxed"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 \* After sandbox_init() returns, hazmat-launch emits its confirmed-containment
@@ -283,9 +335,9 @@ HelperEmitsConfirmedContainmentMetadata ==
     /\ stage = "sandboxed"
     /\ ~metadataEmitted
     /\ metadataEmitted' = TRUE
-    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, brokerActive, tokenMinted>>
 
 \* The dr-owned host broker may activate only after confirmed containment.
@@ -293,9 +345,9 @@ HostBrokerActivates ==
     /\ metadataEmitted
     /\ ~brokerActive
     /\ brokerActive' = TRUE
-    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, tokenMinted>>
 
 \* The host broker mints attestation authority only after it is active.
@@ -303,18 +355,18 @@ HostMintsToken ==
     /\ brokerActive
     /\ ~tokenMinted
     /\ tokenMinted' = TRUE
-    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, helperFds, agentFds,
+    /\ UNCHANGED <<stage, launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive>>
 
 HelperExecsAgent ==
     /\ stage = "sandboxed"
     /\ agentFds' = {fd \in helperFds : ~fdCloexec[fd]}
     /\ stage' = "agent"
-    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, helperFds,
+    /\ UNCHANGED <<launchMode, hazmatFds, sudoFds, brokerFds, forkserverFds, helperFds,
                    fdTarget, fdOrigin, fdCloexec,
-                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
 
 Done ==
@@ -325,6 +377,8 @@ Next ==
     \/ HazmatExecsSudo
     \/ HazmatStartsLaunchBroker
     \/ BrokerStartupSanitizesFDTable
+    \/ BrokerStartsForkserver
+    \/ ForkserverStartupSanitizesFDTable
     \/ BrokerAcceptsAuthenticatedLaunch
     \/ SudoExecsHelper
     \/ BrokerForksLaunchChild
@@ -357,10 +411,19 @@ BrokerLaunchRequiresAuthenticatedPeer ==
 \* but broker startup cleanup keeps the unsandboxed steady-state service from
 \* holding a leaked credential or authority fd indefinitely.
 BrokerFDTableDropsHostInheritedFDs ==
-    launchMode = "brokered" /\ stage \in {"broker_listening", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
+    launchMode = "brokered" /\ stage \in {"broker_listening", "forkserver_starting", "forkserver_ready", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
         \A fd \in brokerFds :
             \/ fd \in StdioFDs
             \/ fdOrigin[fd] /= "shell"
+
+\* A persistent lower-level executor can keep only stdio and its private
+\* socketpair control fd. The launch child may inherit that fd, but the child
+\* cleanup invariant below must remove it before sandbox_init().
+ForkserverFDTableAllowlistedWhenReady ==
+    launchMode = "brokered" /\ childExecutor = "forkserver" /\ stage \in {"forkserver_ready", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
+        \A fd \in forkserverFds :
+            \/ fd \in StdioFDs
+            \/ fd = ForkserverControlFD
 
 \* No shell-origin fd >= 3 may survive to the helper once sandboxing starts.
 NoInheritedShellFDsAtSandbox ==
