@@ -1,10 +1,12 @@
 package agententry
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +20,14 @@ type GitHTTPSCredentialResponse struct {
 }
 
 type GitHTTPSCredentialRequester func(socketPath, operation string, payload []byte) (GitHTTPSCredentialResponse, error)
+
+type LaunchBrokerRequest struct {
+	SocketPath      string
+	ExpectedPeerUID int
+	LaunchHelper    string
+}
+
+type LaunchBrokerRunner func(context.Context, LaunchBrokerRequest) error
 
 // NewConnectCommand returns the hidden command used by diagnostics to probe
 // host:port reachability as the agent user.
@@ -91,6 +101,28 @@ func NewGitHTTPSCredentialCommand(request GitHTTPSCredentialRequester) *cobra.Co
 				}
 			}
 			return err
+		},
+	}
+}
+
+func NewLaunchBrokerCommand(run LaunchBrokerRunner) *cobra.Command {
+	return &cobra.Command{
+		Use:    "_launch_broker <socket> <expected-peer-uid> <launch-helper>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if run == nil {
+				return fmt.Errorf("launch broker runner is not configured")
+			}
+			uid, err := strconv.Atoi(args[1])
+			if err != nil || uid <= 0 {
+				return fmt.Errorf("expected peer uid must be a positive integer, got %q", args[1])
+			}
+			return run(cmd.Context(), LaunchBrokerRequest{
+				SocketPath:      args[0],
+				ExpectedPeerUID: uid,
+				LaunchHelper:    args[2],
+			})
 		},
 	}
 }

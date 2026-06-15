@@ -45,6 +45,9 @@ func NewHelperExecutor(cfg HelperExecutorConfig) (HelperExecutor, error) {
 	if executor.cfg.LaunchHelperPath == "" {
 		return HelperExecutor{}, errors.New("launch helper path is required")
 	}
+	if _, err := cleanAbsolutePath("launch helper path", executor.cfg.LaunchHelperPath); err != nil {
+		return HelperExecutor{}, err
+	}
 	return executor, nil
 }
 

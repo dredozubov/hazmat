@@ -2,6 +2,7 @@ package agententry
 
 import (
 	"bytes"
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -93,5 +94,42 @@ func TestGitHTTPSCredentialCommandRoutesPayloadAndStreamsResponse(t *testing.T) 
 	}
 	if stderr.String() != "trace\n" {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestLaunchBrokerCommandValidatesPeerUID(t *testing.T) {
+	cmd := NewLaunchBrokerCommand(func(context.Context, LaunchBrokerRequest) error {
+		t.Fatal("runner should not be called for invalid uid")
+		return nil
+	})
+	cmd.SetArgs([]string{"broker.sock", "not-a-uid", "/usr/local/libexec/hazmat-launch"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() succeeded, want uid validation error")
+	}
+}
+
+func TestLaunchBrokerCommandRunsServiceRunner(t *testing.T) {
+	var got LaunchBrokerRequest
+	cmd := NewLaunchBrokerCommand(func(ctx context.Context, req LaunchBrokerRequest) error {
+		got = req
+		return nil
+	})
+	cmd.SetArgs([]string{"broker.sock", "501", "/usr/local/libexec/hazmat-launch"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	want := LaunchBrokerRequest{
+		SocketPath:      "broker.sock",
+		ExpectedPeerUID: 501,
+		LaunchHelper:    "/usr/local/libexec/hazmat-launch",
+	}
+	if got != want {
+		t.Fatalf("request = %+v, want %+v", got, want)
 	}
 }

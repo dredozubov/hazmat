@@ -203,6 +203,8 @@ Observed result:
 - added a broker service wrapper that owns Unix socket readiness, cancellation,
   and socket cleanup while wiring the helper executor as the default launch
   handler
+- added the hidden agent-entry `_launch_broker` command and production runner
+  that starts the service under a cancellable signal-aware context
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 

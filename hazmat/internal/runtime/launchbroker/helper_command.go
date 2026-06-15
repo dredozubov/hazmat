@@ -29,9 +29,9 @@ func NewHelperCommand(plan ChildPlan, cfg HelperCommandConfig) (HelperCommand, e
 	if req.PolicyPath == "" {
 		return HelperCommand{}, errors.New("verified launch request is required")
 	}
-	helperPath := filepath.Clean(cfg.LaunchHelperPath)
-	if cfg.LaunchHelperPath == "" || !filepath.IsAbs(helperPath) || helperPath != cfg.LaunchHelperPath {
-		return HelperCommand{}, fmt.Errorf("launch helper path %q must be absolute and clean", cfg.LaunchHelperPath)
+	helperPath, err := cleanAbsolutePath("launch helper path", cfg.LaunchHelperPath)
+	if err != nil {
+		return HelperCommand{}, err
 	}
 
 	args := darwinruntime.CommandLaunchHelperArgs(darwinruntime.CommandRequest{
@@ -76,4 +76,12 @@ func (c HelperCommand) CommandContext(ctx context.Context) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, c.path, c.args[1:]...)
 	cmd.Env = c.Env()
 	return cmd, nil
+}
+
+func cleanAbsolutePath(label, path string) (string, error) {
+	clean := filepath.Clean(path)
+	if path == "" || !filepath.IsAbs(clean) || clean != path {
+		return "", fmt.Errorf("%s %q must be absolute and clean", label, path)
+	}
+	return clean, nil
 }

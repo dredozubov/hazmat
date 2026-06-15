@@ -114,6 +114,7 @@ func NewRootCommand() *cobra.Command {
 			agententry.NewConnectCommand(),
 			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
 			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
+			agententry.NewLaunchBrokerCommand(runLaunchBrokerAgentEntry),
 			diagnostics.NewStackCheckCommand(diagnostics.StackcheckCommandConfig{
 				RequireInitialized: requireAgentUserForDiagnostics,
 			}),

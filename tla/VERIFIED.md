@@ -1043,6 +1043,7 @@ future specs, tests, and docs.
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
 | Governed code | `hazmat/internal/runtime/launchbroker/*.go` — authenticated broker request, verified launch request, child-plan fd cleanup contract, helper command plan, buffered helper executor, service lifecycle wrapper |
 | Governed code | `hazmat/internal/runtime/darwin/runtime.go` — shared helper argv builder used by both sudo and broker command paths |
+| Governed code | `hazmat/internal/agententry/commands.go`, `hazmat/launch_broker_agent_entry.go` — hidden agent-side launch broker command and signal-aware service runner |
 | Governed future code | persistent native launch broker executor wiring — agent-side service command/supervision, interactive stdio/session transport, fd sanitation before `sandbox_init()` |
 | Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
 | Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, and has a typed service lifecycle wrapper; agent-side service command/supervision and interactive stdio/session transport remain pending |
@@ -1104,9 +1105,10 @@ helper command for an authenticated child path using only
 helper executor returns exit code/stdout/stderr and fails closed if requested
 confirmed-containment metadata is not observed on helper stderr. The service
 wrapper owns Unix socket readiness, cancellation, and cleanup while wiring the
-helper executor as the default handler. The agent-side service command/
-supervision and interactive stdio/session transport remain future governed work
-under this same model.
+helper executor as the default handler. The hidden `_launch_broker` agent-entry
+command starts that service with a signal-aware context. Host-side supervision
+and interactive stdio/session transport remain future governed work under this
+same model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
