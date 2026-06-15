@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -18,6 +19,9 @@ var detectGitRepoTopLevel = detectGitRepoTopLevelImpl
 var readSystemGitSafeDirectoryEntries = systemSafeDirectoryEntries
 var readAgentGlobalGitSafeDirectoryEntries = agentGlobalSafeDirectoryEntries
 var appendAgentGlobalSafeDirectoryEntry = appendAgentGlobalSafeDirectoryEntryImpl
+var systemGitConfigReadCandidates = defaultSystemGitConfigReadCandidates
+var readAgentGitConfigFile = readAgentGitConfigFileImpl
+var readAgentGlobalGitSafeDirectoryEntriesWithGit = agentGlobalSafeDirectoryEntriesWithGit
 
 func managedSafeDirectoryEntries(readDirs []string) []string {
 	seen := make(map[string]struct{}, len(readDirs))
@@ -168,6 +172,9 @@ func readGitSafeDirectoryEntriesCommand(cmd *exec.Cmd) ([]string, error) {
 }
 
 func systemSafeDirectoryEntries() ([]string, error) {
+	if entries, ok := systemSafeDirectoryEntriesFromReadableConfig(); ok {
+		return entries, nil
+	}
 	cmd, err := hostGitCommand("config", "--system", "--get-all", "safe.directory")
 	if err != nil {
 		return nil, err
@@ -175,10 +182,88 @@ func systemSafeDirectoryEntries() ([]string, error) {
 	return readGitSafeDirectoryEntriesCommand(cmd)
 }
 
+func systemSafeDirectoryEntriesFromReadableConfig() ([]string, bool) {
+	for _, path := range systemGitConfigReadCandidates() {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		entries, complete := safeDirectoryEntriesFromGitConfigContent(string(data))
+		if !complete {
+			return nil, false
+		}
+		return entries, true
+	}
+	return nil, false
+}
+
+func defaultSystemGitConfigReadCandidates() []string {
+	var candidates []string
+	if path, err := hostGitPath(); err == nil && path != "" {
+		prefix := filepath.Dir(filepath.Dir(path))
+		candidates = append(candidates, filepath.Join(prefix, "etc", "gitconfig"))
+		if path == "/usr/bin/git" {
+			candidates = append(candidates, "/Library/Developer/CommandLineTools/usr/etc/gitconfig")
+		}
+	}
+	candidates = append(candidates, "/etc/gitconfig")
+	return dedupeStrings(candidates)
+}
+
 func agentGlobalSafeDirectoryEntries() ([]string, error) {
 	agentGitconfig := agentHome + "/.gitconfig"
+	if data, err := readAgentGitConfigFile(agentGitconfig); err == nil {
+		entries, complete := safeDirectoryEntriesFromGitConfigContent(string(data))
+		if complete {
+			return entries, nil
+		}
+	}
+	return readAgentGlobalGitSafeDirectoryEntriesWithGit(agentGitconfig)
+}
+
+func readAgentGitConfigFileImpl(path string) ([]byte, error) {
+	return newAgentCommand("/bin/cat", path).Output()
+}
+
+func agentGlobalSafeDirectoryEntriesWithGit(agentGitconfig string) ([]string, error) {
 	cmd := newAgentCommand("git", "config", "--file", agentGitconfig, "--get-all", "safe.directory")
 	return readGitSafeDirectoryEntriesCommand(cmd)
+}
+
+func safeDirectoryEntriesFromGitConfigContent(content string) ([]string, bool) {
+	var entries []string
+	for _, section := range parseINI(content) {
+		name := strings.TrimSpace(section.name)
+		if name == "include" || strings.HasPrefix(name, "includeIf ") {
+			return nil, false
+		}
+		if name != "safe" {
+			continue
+		}
+		for _, line := range section.lines {
+			value, ok := parseINIKeyValue(strings.TrimSpace(line), "directory")
+			if !ok {
+				continue
+			}
+			value = normalizeGitConfigSafeDirectoryValue(value)
+			if value == "" {
+				continue
+			}
+			entries = append(entries, value)
+		}
+	}
+	return dedupeSafeDirectoryEntries(entries), true
+}
+
+func normalizeGitConfigSafeDirectoryValue(value string) string {
+	value = strings.TrimSpace(value)
+	if before, _, ok := strings.Cut(value, hazmatSafeDirMarker); ok {
+		value = strings.TrimSpace(before)
+	}
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		value = unquoted
+	}
+	return strings.TrimSpace(value)
 }
 
 func currentGitSafeDirectoryEntries() ([]string, error) {

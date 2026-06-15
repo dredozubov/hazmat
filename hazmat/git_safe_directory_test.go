@@ -187,6 +187,111 @@ func TestSafeDirectoryCoversExactAndWildcardEntries(t *testing.T) {
 	}
 }
 
+func TestSafeDirectoryEntriesFromGitConfigContentParsesSafeSection(t *testing.T) {
+	content := strings.Join([]string{
+		"[user]",
+		"\tname = Agent",
+		"[safe]",
+		"\tdirectory = /Users/dr/workspace/*" + hazmatSafeDirMarker,
+		"\tdirectory = \"/tmp/project with spaces\"",
+		"",
+	}, "\n")
+
+	entries, complete := safeDirectoryEntriesFromGitConfigContent(content)
+	if !complete {
+		t.Fatal("config without includes should be complete")
+	}
+	want := []string{"/Users/dr/workspace/*", "/tmp/project with spaces"}
+	if !reflect.DeepEqual(entries, want) {
+		t.Fatalf("entries = %v, want %v", entries, want)
+	}
+}
+
+func TestSafeDirectoryEntriesFromGitConfigContentFallsBackForIncludes(t *testing.T) {
+	content := strings.Join([]string{
+		"[include]",
+		"\tpath = /opt/gitconfig.d/safe",
+		"[safe]",
+		"\tdirectory = /Users/dr/workspace/*",
+		"",
+	}, "\n")
+
+	if entries, complete := safeDirectoryEntriesFromGitConfigContent(content); complete || len(entries) != 0 {
+		t.Fatalf("entries = %v complete = %v, want fallback required", entries, complete)
+	}
+}
+
+func TestSystemSafeDirectoryEntriesUsesReadableConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(configPath, []byte("[safe]\n\tdirectory = /Users/dr/workspace/*\n"), 0o644); err != nil {
+		t.Fatalf("write gitconfig: %v", err)
+	}
+
+	savedCandidates := systemGitConfigReadCandidates
+	systemGitConfigReadCandidates = func() []string { return []string{configPath} }
+	t.Cleanup(func() { systemGitConfigReadCandidates = savedCandidates })
+
+	entries, err := systemSafeDirectoryEntries()
+	if err != nil {
+		t.Fatalf("systemSafeDirectoryEntries: %v", err)
+	}
+	if !reflect.DeepEqual(entries, []string{"/Users/dr/workspace/*"}) {
+		t.Fatalf("entries = %v, want workspace wildcard", entries)
+	}
+}
+
+func TestAgentGlobalSafeDirectoryEntriesUsesReadableConfig(t *testing.T) {
+	savedRead := readAgentGitConfigFile
+	savedGit := readAgentGlobalGitSafeDirectoryEntriesWithGit
+	readAgentGitConfigFile = func(string) ([]byte, error) {
+		return []byte("[safe]\n\tdirectory = /Users/dr/workspace/hazmat\n"), nil
+	}
+	readAgentGlobalGitSafeDirectoryEntriesWithGit = func(string) ([]string, error) {
+		t.Fatal("git fallback should not run for complete readable agent config")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		readAgentGitConfigFile = savedRead
+		readAgentGlobalGitSafeDirectoryEntriesWithGit = savedGit
+	})
+
+	entries, err := agentGlobalSafeDirectoryEntries()
+	if err != nil {
+		t.Fatalf("agentGlobalSafeDirectoryEntries: %v", err)
+	}
+	if !reflect.DeepEqual(entries, []string{"/Users/dr/workspace/hazmat"}) {
+		t.Fatalf("entries = %v, want exact repo", entries)
+	}
+}
+
+func TestAgentGlobalSafeDirectoryEntriesFallsBackForIncludes(t *testing.T) {
+	savedRead := readAgentGitConfigFile
+	savedGit := readAgentGlobalGitSafeDirectoryEntriesWithGit
+	readAgentGitConfigFile = func(string) ([]byte, error) {
+		return []byte("[include]\n\tpath = ~/.gitconfig-safe\n"), nil
+	}
+	fallbackCalled := false
+	readAgentGlobalGitSafeDirectoryEntriesWithGit = func(string) ([]string, error) {
+		fallbackCalled = true
+		return []string{"/from/fallback"}, nil
+	}
+	t.Cleanup(func() {
+		readAgentGitConfigFile = savedRead
+		readAgentGlobalGitSafeDirectoryEntriesWithGit = savedGit
+	})
+
+	entries, err := agentGlobalSafeDirectoryEntries()
+	if err != nil {
+		t.Fatalf("agentGlobalSafeDirectoryEntries: %v", err)
+	}
+	if !fallbackCalled {
+		t.Fatal("git fallback was not called")
+	}
+	if !reflect.DeepEqual(entries, []string{"/from/fallback"}) {
+		t.Fatalf("entries = %v, want fallback entries", entries)
+	}
+}
+
 func TestGitSafeDirectoryTrustedForAgentSkipsAgentConfigWhenSystemCovers(t *testing.T) {
 	savedSystem := readSystemGitSafeDirectoryEntries
 	savedAgent := readAgentGlobalGitSafeDirectoryEntries
