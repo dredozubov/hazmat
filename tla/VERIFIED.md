@@ -1041,17 +1041,20 @@ future specs, tests, and docs.
 | Governed code | `hazmat/agent_launch.go` — native sudo + helper launch construction |
 | Governed code | `hazmat/session.go` — `runPreparedAgentSeatbeltScriptWithUI()`, `runAgentSeatbeltScriptWithPlan()`, policy-file generation |
 | Governed code | `hazmat/cmd/hazmat-launch/main.go` — inherited-fd cleanup, policy read, `sandbox_init()`, final `exec` |
-| Key invariants | `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
+| Governed future code | persistent native launch broker — authenticated request, launch-child fork, fd sanitation before `sandbox_init()` |
+| Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
 | Status | **Proved and Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the Beadpost broker/attestation-mint ordering is gated behind confirmed containment (design-proved, broker implementation pending) |
 
 **What this verifies:**
 
-1. **Helper-side cleanup is mandatory:** the checked design does not rely on
-   Go's current `exec` behavior or `sudo`'s current fd cleanup to keep
-   inherited descriptors out of the helper.
+1. **Launch-child cleanup is mandatory:** the checked design does not rely on
+   Go's current `exec` behavior, `sudo`'s current fd cleanup, or a persistent
+   broker's steady-state fd hygiene to keep inherited descriptors out of
+   `sandbox_init()`.
 
 2. **Sandboxing starts from a curated fd table:** once `sandbox_init()` is
-   called, the helper holds only stdio plus its helper-opened policy file.
+   called, the launch executor holds only stdio plus its helper-opened policy
+   file.
 
 3. **Credential-bearing inherited fds are gone before Seatbelt matters:** path
    denies are only meaningful if no already-open credential handle survived
@@ -1059,6 +1062,10 @@ future specs, tests, and docs.
 
 4. **The final agent exec is stdio-only:** helper-opened policy state is
    `CLOEXEC`, so it cannot leak into the actual agent process.
+
+5. **Brokered launch requires peer authentication:** the persistent broker path
+   cannot fork or enter the launch executor path until the host request is
+   authenticated.
 
 **2026-06-09 Beadpost broker ordering + authority-fd hygiene (minimal addition):**
 The spec now also proves the launch-order facts for the contained-agent submitter
@@ -1076,6 +1083,15 @@ proves it is sanitized out before the final agent exec — non-vacuously, mirror
 TLC passes with the addition across 416 reachable states (608 generated, depth 10,
 <1s); the original fd-isolation core was 112 reachable states (128 generated, depth 7).
 
+**2026-06-15 persistent launch broker path:** The spec now includes a brokered
+steady-state launch mode alongside `sudo -> hazmat-launch`. It models a
+long-lived agent broker forking a launch child that may inherit broker-owned
+listener/request descriptors plus an adversarial authority fd. The same
+launch-child fd cleanup must remove those descriptors before `sandbox_init()`,
+and `BrokerLaunchRequiresAuthenticatedPeer` proves a brokered launch cannot
+reach that child path before host-peer authentication. TLC passes across 864
+reachable states (1,248 generated, depth 11, <15s on the local run).
+
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where
 an inherited non-stdio fd survived into `sandbox_init()`. That is why helper-
@@ -1083,14 +1099,17 @@ side cleanup is now a proved design rule instead of an implementation detail.
 
 **Change rules:**
 - Any change to the native `sudo -> hazmat-launch -> sandbox_init() -> exec`
-  chain must preserve both boundaries: no inherited non-stdio fd at
-  `sandbox_init()`, and stdio-only final agent exec.
+  chain, or replacement with `hazmat -> persistent broker -> launch child ->
+  sandbox_init() -> exec`, must preserve both boundaries: no inherited non-stdio
+  fd at `sandbox_init()`, and stdio-only final agent exec.
 - Replacing helper-side fd cleanup with reliance on upstream `sudo` or Go
   behavior requires updating this spec first. The current proof assumes Hazmat
   owns that boundary itself.
 - Any helper-opened fd that may remain live across the final `exec` must be
   modeled here first. The current proof assumes helper-opened policy state is
   explicitly `CLOEXEC`.
+- A persistent launch broker must authenticate the host peer before it forks a
+  launch child or accepts a policy/command request for execution.
 - The Beadpost broker must not activate, and attestation authority must not be
   minted, before confirmed containment (`sandbox_init` + emitted metadata). Any
   change that lets the broker/mint precede confirmation, or that lets an
