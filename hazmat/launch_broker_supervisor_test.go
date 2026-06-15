@@ -61,6 +61,32 @@ func TestNewLaunchBrokerStartPlanUsesHelperExecCleanupBoundary(t *testing.T) {
 	}
 }
 
+func TestNewLaunchBrokerStartPlanCanSplitStartupAndChildHelpers(t *testing.T) {
+	runtimeDir := t.TempDir()
+	startupHelper := "/Users/dr/.local/libexec/hazmat-launch"
+	childHelper := "/Users/dr/workspace/hazmat/hazmat/hazmat-launch"
+	hazmatPath := "/Users/dr/workspace/hazmat/hazmat/hazmat"
+
+	plan, err := newLaunchBrokerStartPlan(launchBrokerStartConfig{
+		RuntimeDir:            runtimeDir,
+		ExpectedPeerUID:       501,
+		HazmatPath:            hazmatPath,
+		LaunchHelperPath:      startupHelper,
+		ChildLaunchHelperPath: childHelper,
+	})
+	if err != nil {
+		t.Fatalf("newLaunchBrokerStartPlan: %v", err)
+	}
+
+	args := plan.Command().Args()
+	if args[5] != startupHelper {
+		t.Fatalf("startup helper arg = %q, want %q in %#v", args[5], startupHelper, args)
+	}
+	if got := args[len(args)-1]; got != childHelper {
+		t.Fatalf("child helper arg = %q, want %q in %#v", got, childHelper, args)
+	}
+}
+
 func TestNewLaunchBrokerStartPlanRejectsInvalidInputs(t *testing.T) {
 	validRuntime := t.TempDir()
 	validHazmat := "/usr/local/bin/hazmat"
@@ -100,6 +126,17 @@ func TestNewLaunchBrokerStartPlanRejectsInvalidInputs(t *testing.T) {
 				LaunchHelperPath: "hazmat-launch",
 			},
 			want: "launch helper path",
+		},
+		{
+			name: "relative child helper path",
+			cfg: launchBrokerStartConfig{
+				RuntimeDir:            validRuntime,
+				ExpectedPeerUID:       501,
+				HazmatPath:            validHazmat,
+				LaunchHelperPath:      validHelper,
+				ChildLaunchHelperPath: "hazmat-launch",
+			},
+			want: "child launch helper path",
 		},
 		{
 			name: "nonpositive uid",

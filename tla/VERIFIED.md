@@ -1127,7 +1127,12 @@ request; explicitly configured sockets remain fail-fast. Broker direct-exec
 requests now carry argv plus working directory without also carrying the shell
 script field, preserving request validation's direct-exec/shell mutual
 exclusion while allowing capable helpers to skip the shell wrapper. The
-supervisor removes
+host-side start plan can now split the startup helper from the child launch
+helper: broker startup still uses the sudo-authorized helper for the proved
+fd-cleaning `hazmat-launch exec` boundary, while the agent-owned broker may use
+a newer checkout-built helper for per-launch child execution. If the broker path
+falls back to sudo and the sudo helper cannot create helper-managed session
+temp, Hazmat creates the agent temp dir before fallback. The supervisor removes
 stale socket path residue before startup, but refuses live sockets, symlinks,
 and non-socket paths so crash leftovers do not force a sudo fallback while
 active or suspicious paths are not clobbered. The default per-uid broker runtime

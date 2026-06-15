@@ -395,6 +395,42 @@ func TestDefaultRunAgentSeatbeltScriptWithPlanUsesConfiguredBroker(t *testing.T)
 	}
 }
 
+func TestPrepareFallbackAgentTempRuntimeCreatesDirForOlderSudoHelper(t *testing.T) {
+	tempDir := agentHome + "/.cache/hazmat/tmp/123-456"
+	runtime := preparedSessionRuntime{
+		TempDir:             tempDir,
+		LaunchHelperTempDir: tempDir,
+	}
+
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return false }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
+	var gotPath string
+	var gotMode os.FileMode
+	savedEnsureDir := sessionRuntimeAgentEnsureDir
+	sessionRuntimeAgentEnsureDir = func(path string, mode os.FileMode) error {
+		gotPath = path
+		gotMode = mode
+		return nil
+	}
+	t.Cleanup(func() { sessionRuntimeAgentEnsureDir = savedEnsureDir })
+
+	prepared, err := prepareFallbackAgentTempRuntime(&runtime)
+	if err != nil {
+		t.Fatalf("prepareFallbackAgentTempRuntime: %v", err)
+	}
+	if !prepared {
+		t.Fatal("prepareFallbackAgentTempRuntime did not report fallback preparation")
+	}
+	if gotPath != tempDir || gotMode != 0o700 {
+		t.Fatalf("agent ensure dir = (%q, %v), want (%q, 0700)", gotPath, gotMode, tempDir)
+	}
+	if runtime.LaunchHelperTempDir != "" {
+		t.Fatalf("LaunchHelperTempDir = %q, want cleared for sudo fallback", runtime.LaunchHelperTempDir)
+	}
+}
+
 func TestWriteLaunchBrokerResponsePreservesExitCode(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := writeLaunchBrokerResponse(launchbroker.LaunchResponse{

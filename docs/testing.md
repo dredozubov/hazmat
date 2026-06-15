@@ -73,6 +73,9 @@ the installed default supports `--hazmat-session-temp` and
 `--hazmat-direct-exec`; Hazmat caches that capability scan under
 `~/.hazmat/launch-helper-capabilities.json` using the helper file identity, so
 helper upgrades force a fresh scan.
+When running from a checkout, the experimental broker may still use the
+installed helper for sudo-authorized broker startup while using the checkout
+`hazmat-launch` next to the checkout `hazmat` binary for child launches.
 
 Linux native run-agent support is still plan-only/experimental. Its provider
 readiness gates live in

@@ -1164,6 +1164,7 @@ func sessionPathExposesFile(cfg sessionConfig, path string) bool {
 }
 
 var prepareSessionRuntime = defaultPrepareSessionRuntime
+var sessionRuntimeAgentEnsureDir = agentEnsureDir
 
 func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
 	profile := newSessionPhaseProfile("hazmat: session runtime preparation profile:", os.Stderr)
@@ -1263,15 +1264,22 @@ func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
 		cleanupAgentTempRuntime(tempDir)
 	}
 
-	if launchHelperSupportsSessionTemp(launchHelperPath()) {
+	if launchHelperSupportsSessionTemp(sessionTempLaunchHelperPath()) {
 		runtime.LaunchHelperTempDir = tempDir
 		return runtime, nil
 	}
 
-	if err := agentEnsureDir(tempDir, 0o700); err != nil {
+	if err := sessionRuntimeAgentEnsureDir(tempDir, 0o700); err != nil {
 		return runtime, fmt.Errorf("prepare agent temp dir: %w", err)
 	}
 	return runtime, nil
+}
+
+func sessionTempLaunchHelperPath() string {
+	if socketPath, _, err := configuredLaunchBrokerSocketPath(os.Getenv); err == nil && socketPath != "" {
+		return launchHelperPathForBrokerChild()
+	}
+	return launchHelperPath()
 }
 
 func cleanupAgentTempRuntime(tempDir string) {

@@ -235,6 +235,12 @@ Observed result:
   directory, without also carrying the shell-script field. That preserves the
   broker's request validation rule that direct exec and shell launches are
   mutually exclusive while allowing capable helpers to skip the shell wrapper.
+- broker startup and broker child launches may use different helper paths: the
+  startup command still goes through the sudo-authorized helper for the proved
+  fd-cleaning `hazmat-launch exec` boundary, while the agent-owned broker can
+  use a newer checkout-built helper for per-launch child execution. If the
+  broker path is unavailable, Hazmat repairs the agent temp dir before falling
+  back to an older sudo helper that cannot create helper-managed session temp.
 - the host-side broker supervisor removes only stale Unix socket path residue
   before startup: live sockets are left intact and reported, and non-socket or
   symlink paths are refused. This does not change the fd invariants, but keeps
@@ -247,10 +253,13 @@ Observed result:
   per-launch `sudo`.
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
-- live explicit-broker profiling with a checkout-built helper that supports
-  `--hazmat-session-temp` and `--hazmat-direct-exec`: profiled warm launches
-  observed `0.07s`, `0.08s`, and `0.10s` real time, with broker command time
-  `30-49ms`. This is implementation evidence, not a new model obligation.
+- live profiling with a default experimental broker and checkout-built child
+  helper that supports `--hazmat-session-temp` and `--hazmat-direct-exec`:
+  after a broker restart, cold startup measured `0.88s`; warm launches measured
+  mostly `0.09-0.10s` but still spiked to `0.11-0.14s`, with the built-in
+  profile attributing the remaining variance to `run native broker command`
+  (`0.03-0.16s` observed). This is implementation evidence, not a new model
+  obligation; strict sub-`0.1s` launch is not yet proved.
 
 ## Interpretation
 

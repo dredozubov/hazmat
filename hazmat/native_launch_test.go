@@ -131,6 +131,55 @@ func TestLaunchHelperCapabilitiesInvalidatesStaleDiskCache(t *testing.T) {
 	}
 }
 
+func TestLaunchHelperPathForBrokerChildPrefersCheckoutSiblingHelper(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	userHelper := filepath.Join(home, ".local", "libexec", "hazmat-launch")
+	if err := os.MkdirAll(filepath.Dir(userHelper), 0o755); err != nil {
+		t.Fatalf("mkdir user helper dir: %v", err)
+	}
+	if err := os.WriteFile(userHelper, []byte("installed helper"), 0o755); err != nil {
+		t.Fatalf("write user helper: %v", err)
+	}
+
+	checkoutDir := filepath.Join(root, "checkout", "hazmat")
+	if err := os.MkdirAll(checkoutDir, 0o755); err != nil {
+		t.Fatalf("mkdir checkout dir: %v", err)
+	}
+	checkoutHazmat := filepath.Join(checkoutDir, "hazmat")
+	checkoutHelper := filepath.Join(checkoutDir, "hazmat-launch")
+	if err := os.WriteFile(checkoutHazmat, []byte("hazmat"), 0o755); err != nil {
+		t.Fatalf("write checkout hazmat: %v", err)
+	}
+	if err := os.WriteFile(checkoutHelper, []byte("checkout helper"), 0o755); err != nil {
+		t.Fatalf("write checkout helper: %v", err)
+	}
+
+	oldExecutablePath := currentExecutablePath
+	currentExecutablePath = func() (string, error) { return checkoutHazmat, nil }
+	t.Cleanup(func() { currentExecutablePath = oldExecutablePath })
+
+	wantHelper, err := filepath.EvalSymlinks(checkoutHelper)
+	if err != nil {
+		t.Fatalf("resolve checkout helper: %v", err)
+	}
+	if got := launchHelperPathForBrokerChild(); got != wantHelper {
+		t.Fatalf("launchHelperPathForBrokerChild() = %q, want checkout helper %q", got, wantHelper)
+	}
+}
+
+func TestSessionTempLaunchHelperPathUsesBrokerChildWhenConfigured(t *testing.T) {
+	t.Setenv(launchBrokerSocketEnv, filepath.Join(t.TempDir(), "broker.sock"))
+	oldBrokerChildHelper := launchHelperPathForBrokerChild
+	launchHelperPathForBrokerChild = func() string { return "/checkout/hazmat-launch" }
+	t.Cleanup(func() { launchHelperPathForBrokerChild = oldBrokerChildHelper })
+
+	if got := sessionTempLaunchHelperPath(); got != "/checkout/hazmat-launch" {
+		t.Fatalf("sessionTempLaunchHelperPath() = %q, want broker child helper", got)
+	}
+}
+
 func TestNativeLaunchBaseEnvPairsCanSkipGoModCacheProbe(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

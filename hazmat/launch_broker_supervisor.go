@@ -22,11 +22,12 @@ const (
 )
 
 type launchBrokerStartConfig struct {
-	RuntimeDir       string
-	SocketName       string
-	ExpectedPeerUID  int
-	HazmatPath       string
-	LaunchHelperPath string
+	RuntimeDir            string
+	SocketName            string
+	ExpectedPeerUID       int
+	HazmatPath            string
+	LaunchHelperPath      string
+	ChildLaunchHelperPath string
 }
 
 type launchBrokerStartPlan struct {
@@ -85,6 +86,14 @@ func newLaunchBrokerStartPlan(cfg launchBrokerStartConfig) (launchBrokerStartPla
 	if err != nil {
 		return launchBrokerStartPlan{}, err
 	}
+	childHelperPath := cfg.ChildLaunchHelperPath
+	if childHelperPath == "" {
+		childHelperPath = helperPath
+	}
+	childHelperPath, err = cleanLaunchBrokerAbsolutePath("child launch helper path", childHelperPath)
+	if err != nil {
+		return launchBrokerStartPlan{}, err
+	}
 	if cfg.ExpectedPeerUID <= 0 {
 		return launchBrokerStartPlan{}, fmt.Errorf("expected peer uid must be positive, got %d", cfg.ExpectedPeerUID)
 	}
@@ -108,7 +117,7 @@ func newLaunchBrokerStartPlan(cfg launchBrokerStartConfig) (launchBrokerStartPla
 		agententry.LaunchBrokerCommandName,
 		socketPath,
 		strconv.Itoa(cfg.ExpectedPeerUID),
-		helperPath,
+		childHelperPath,
 	}
 	args := append([]string{hostSudoPath}, brokerArgs...)
 	return launchBrokerStartPlan{
@@ -137,14 +146,15 @@ func validateLaunchBrokerSocketName(name string) error {
 }
 
 type launchBrokerSupervisorConfig struct {
-	RuntimeDir        string
-	SocketName        string
-	ExpectedPeerUID   int
-	HazmatPath        string
-	LaunchHelperPath  string
-	ReadyTimeout      time.Duration
-	ReadyPollInterval time.Duration
-	ProcessStarter    launchBrokerProcessStarter
+	RuntimeDir            string
+	SocketName            string
+	ExpectedPeerUID       int
+	HazmatPath            string
+	LaunchHelperPath      string
+	ChildLaunchHelperPath string
+	ReadyTimeout          time.Duration
+	ReadyPollInterval     time.Duration
+	ProcessStarter        launchBrokerProcessStarter
 }
 
 type launchBrokerProcessStarter interface {
@@ -173,11 +183,12 @@ func startLaunchBrokerSupervisor(ctx context.Context, cfg launchBrokerSupervisor
 	}
 
 	plan, err := newLaunchBrokerStartPlan(launchBrokerStartConfig{
-		RuntimeDir:       cfg.RuntimeDir,
-		SocketName:       cfg.SocketName,
-		ExpectedPeerUID:  cfg.ExpectedPeerUID,
-		HazmatPath:       cfg.HazmatPath,
-		LaunchHelperPath: cfg.LaunchHelperPath,
+		RuntimeDir:            cfg.RuntimeDir,
+		SocketName:            cfg.SocketName,
+		ExpectedPeerUID:       cfg.ExpectedPeerUID,
+		HazmatPath:            cfg.HazmatPath,
+		LaunchHelperPath:      cfg.LaunchHelperPath,
+		ChildLaunchHelperPath: cfg.ChildLaunchHelperPath,
 	})
 	if err != nil {
 		return nil, err

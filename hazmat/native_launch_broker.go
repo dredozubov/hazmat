@@ -95,7 +95,7 @@ func launchBrokerBufferedEligible(ui sessionLaunchUI) bool {
 }
 
 func nativeLaunchBrokerRequestWithMetadataPlanAndRuntime(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON, launchHelperTempDir, script string, args ...string) launchbroker.LaunchRequest {
-	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPath())
+	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPathForBrokerChild())
 	workingDir := ""
 	requestScript := script
 	if directExec {
@@ -148,12 +148,13 @@ func defaultEnsureLaunchBroker(ctx context.Context) error {
 	}
 
 	supervisor, err := launchBrokerStartSupervisor(ctx, launchBrokerSupervisorConfig{
-		RuntimeDir:       runtimeDir,
-		SocketName:       defaultLaunchBrokerSocketName(uid),
-		ExpectedPeerUID:  uid,
-		HazmatPath:       hazmatPath,
-		LaunchHelperPath: launchHelperPath(),
-		ReadyTimeout:     defaultLaunchBrokerReadyTimeout,
+		RuntimeDir:            runtimeDir,
+		SocketName:            defaultLaunchBrokerSocketName(uid),
+		ExpectedPeerUID:       uid,
+		HazmatPath:            hazmatPath,
+		LaunchHelperPath:      launchHelperPath(),
+		ChildLaunchHelperPath: launchHelperPathForBrokerChild(),
+		ReadyTimeout:          defaultLaunchBrokerReadyTimeout,
 	})
 	if err == nil {
 		defaultLaunchBrokerSupervisor.supervisor = supervisor

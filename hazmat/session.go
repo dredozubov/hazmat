@@ -2608,6 +2608,14 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		recordNativePostSession(profile, cfg, err, startTime, endTime)
 		return err
 	}
+	if runtime.LaunchHelperTempDir != "" && !launchHelperSupportsSessionTemp(launchHelperPath()) {
+		start = time.Now()
+		if _, err := prepareFallbackAgentTempRuntime(&runtime); err != nil {
+			profile.Record("prepare fallback agent temp runtime", start)
+			return err
+		}
+		profile.Record("prepare fallback agent temp runtime", start)
+	}
 
 	start = time.Now()
 	full := nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg, plan, policy, runtime.EnvPairs, metadataJSON, runtime.LaunchHelperTempDir, script, args...)
@@ -2692,6 +2700,17 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	recordNativePostSession(profile, cfg, err, startTime, endTime)
 
 	return err
+}
+
+func prepareFallbackAgentTempRuntime(runtime *preparedSessionRuntime) (bool, error) {
+	if runtime == nil || runtime.LaunchHelperTempDir == "" || launchHelperSupportsSessionTemp(launchHelperPath()) {
+		return false, nil
+	}
+	if err := sessionRuntimeAgentEnsureDir(runtime.TempDir, 0o700); err != nil {
+		return true, fmt.Errorf("prepare fallback agent temp dir: %w", err)
+	}
+	runtime.LaunchHelperTempDir = ""
+	return true, nil
 }
 
 func recordNativePostSession(profile *sessionPhaseProfile, cfg sessionConfig, sessionErr error, startTime, endTime time.Time) {

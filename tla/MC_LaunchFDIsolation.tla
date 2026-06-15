@@ -5,6 +5,14 @@
 \*   direct:   hazmat (invoker uid) -> sudo -> hazmat-launch -> sandbox_init() -> exec agent
 \*   brokered: hazmat (invoker uid) -> agent launch broker -> child -> sandbox_init() -> exec agent
 \*
+\* Broker startup and per-launch children may use different hazmat-launch
+\* binaries: the startup path uses a sudo-authorized helper to enter the
+\* agent-owned broker process, while the broker may later use a newer checkout
+\* helper for child launches. The fd-safety obligation is path-independent:
+\* both the broker startup transition and every child helper transition must
+\* sanitize inherited descriptors before the broker listens or sandbox_init()
+\* runs.
+\*
 \* The key threat is an already-open descriptor inherited from the invoker's
 \* process tree. Seatbelt path denies do not revoke access granted by an
 \* inherited live descriptor, so the helper must sanitize its fd table before
