@@ -105,6 +105,10 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	newAgentCommand = s.newAgentCommand
 	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
 
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return false }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
 	savedAgentPathForDirectIO := agentPathForDirectIO
 	agentPathForDirectIO = s.mapAgentPath
 	t.Cleanup(func() { agentPathForDirectIO = savedAgentPathForDirectIO })

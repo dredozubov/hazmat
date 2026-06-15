@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"sync"
 )
 
 type nativeLaunchBackend interface {
@@ -32,6 +33,7 @@ type nativeLaunchCommandRequest struct {
 	Profile         bool
 	DirectExec      bool
 	WorkingDir      string
+	SessionTempDir  string
 	Script          string
 	Args            []string
 }
@@ -48,24 +50,83 @@ type nativeLaunchEnvironment struct {
 }
 
 var launchHelperSupportsDirectExec = launchHelperSupportsDirectExecImpl
+var launchHelperSupportsSessionTemp = launchHelperSupportsSessionTempImpl
 
 const launchHelperCapabilityScanLimit = 2 << 20
 
+var launchHelperCapabilityCache sync.Map
+
+type launchHelperCapabilities struct {
+	DirectExec  bool
+	SessionTemp bool
+}
+
 func launchHelperSupportsDirectExecImpl(path string) bool {
+	return launchHelperCapabilitiesFor(path).DirectExec
+}
+
+func launchHelperSupportsSessionTempImpl(path string) bool {
+	return launchHelperCapabilitiesFor(path).SessionTemp
+}
+
+func launchHelperCapabilitiesFor(path string) launchHelperCapabilities {
+	if cached, ok := launchHelperCapabilityCache.Load(path); ok {
+		return cached.(launchHelperCapabilities)
+	}
+	caps := readLaunchHelperCapabilities(path)
+	launchHelperCapabilityCache.Store(path, caps)
+	return caps
+}
+
+func readLaunchHelperCapabilities(path string) launchHelperCapabilities {
 	file, err := os.Open(path)
 	if err != nil {
-		return false
+		return launchHelperCapabilities{}
 	}
 	defer file.Close()
 
-	return readerContainsWithin(file, []byte("--hazmat-direct-exec"), launchHelperCapabilityScanLimit)
+	markers := map[string][]byte{
+		"direct_exec":  []byte("--hazmat-direct-exec"),
+		"session_temp": []byte("--hazmat-session-temp"),
+	}
+	found := readerMarkersWithin(file, markers, launchHelperCapabilityScanLimit)
+	return launchHelperCapabilities{
+		DirectExec:  found["direct_exec"],
+		SessionTemp: found["session_temp"],
+	}
 }
 
 func readerContainsWithin(r io.Reader, marker []byte, limit int64) bool {
-	if len(marker) == 0 || limit <= 0 {
-		return false
+	return readerMarkersWithin(r, map[string][]byte{"marker": marker}, limit)["marker"]
+}
+
+func readerMarkersWithin(r io.Reader, markers map[string][]byte, limit int64) map[string]bool {
+	found := make(map[string]bool, len(markers))
+	maxMarkerLen := 0
+	for name, marker := range markers {
+		if len(marker) == 0 {
+			continue
+		}
+		if len(marker) > maxMarkerLen {
+			maxMarkerLen = len(marker)
+		}
+		found[name] = false
 	}
-	buf := make([]byte, 64*1024+len(marker)-1)
+	if len(found) == 0 || limit <= 0 {
+		return found
+	}
+	allFound := func() bool {
+		for _, ok := range found {
+			if !ok {
+				return false
+			}
+		}
+		return true
+	}
+	if allFound() {
+		return found
+	}
+	buf := make([]byte, 64*1024+maxMarkerLen-1)
 	carry := 0
 	remaining := limit
 	for remaining > 0 {
@@ -76,21 +137,26 @@ func readerContainsWithin(r io.Reader, marker []byte, limit int64) bool {
 		n, err := r.Read(buf[carry : carry+readSize])
 		if n > 0 {
 			window := buf[:carry+n]
-			if bytes.Contains(window, marker) {
-				return true
+			for name, marker := range markers {
+				if !found[name] && bytes.Contains(window, marker) {
+					found[name] = true
+				}
 			}
-			carry = min(len(marker)-1, len(window))
+			if allFound() {
+				return found
+			}
+			carry = min(maxMarkerLen-1, len(window))
 			copy(buf[:carry], window[len(window)-carry:])
 			remaining -= int64(n)
 		}
 		if n == 0 && err == nil {
-			return false
+			return found
 		}
 		if err != nil {
-			return false
+			return found
 		}
 	}
-	return false
+	return found
 }
 
 func nativeLaunchSudoArgs(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, script string, args ...string) []string {
@@ -102,6 +168,10 @@ func nativeLaunchSudoArgsWithMetadata(cfg sessionConfig, policy nativeLaunchPoli
 }
 
 func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
+	return nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg, plan, policy, runtimeEnvPairs, metadataJSON, "", script, args...)
+}
+
+func nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, launchHelperTempDir string, script string, args ...string) []string {
 	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPath())
 	workingDir := ""
 	if directExec {
@@ -116,6 +186,7 @@ func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBack
 		Profile:         sessionPreparationProfileEnabled(),
 		DirectExec:      directExec,
 		WorkingDir:      workingDir,
+		SessionTempDir:  launchHelperTempDir,
 		Script:          script,
 		Args:            args,
 	})

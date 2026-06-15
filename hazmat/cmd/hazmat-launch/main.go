@@ -58,6 +58,10 @@ const launchProfileArg = "--hazmat-launch-profile"
 const directExecArg = "--hazmat-direct-exec"
 const workingDirArg = "--hazmat-working-dir"
 const envArg = "--hazmat-env"
+const sessionTempArg = "--hazmat-session-temp"
+
+var sessionTempRoot = "/Users/agent/.cache/hazmat/tmp"
+var sessionTempLeafPattern = regexp.MustCompile(`^[0-9]+-[0-9]+$`)
 
 var profileStderr io.Writer = os.Stderr
 
@@ -75,6 +79,7 @@ type launchModeArgs struct {
 	MetadataJSON string
 	DirectExec   bool
 	WorkingDir   string
+	SessionTemp  string
 	EnvPairs     []string
 	CmdArgs      []string
 }
@@ -158,6 +163,14 @@ func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) 
 		die("hazmat-launch: %v", err)
 	}
 
+	if launchArgs.SessionTemp != "" {
+		start = time.Now()
+		if err := prepareSessionTempDir(launchArgs.SessionTemp); err != nil {
+			die("hazmat-launch: %v", err)
+		}
+		profile.Record("prepare session temp", start)
+	}
+
 	// Apply the seatbelt sandbox to this process. After sandbox_init(),
 	// the sandbox is active and all subsequent operations (including exec)
 	// are subject to the policy.
@@ -210,6 +223,12 @@ func parseLaunchModeArgs(args []string) (launchModeArgs, error) {
 			}
 			parsed.EnvPairs = append(parsed.EnvPairs, args[1])
 			args = args[2:]
+		case sessionTempArg:
+			if len(args) < 2 || args[1] == "" {
+				return launchModeArgs{}, fmt.Errorf("%s requires a path", sessionTempArg)
+			}
+			parsed.SessionTemp = args[1]
+			args = args[2:]
 		case "--":
 			parsed.CmdArgs = args[1:]
 			args = nil
@@ -225,6 +244,39 @@ func parseLaunchModeArgs(args []string) (launchModeArgs, error) {
 		return launchModeArgs{}, fmt.Errorf("%s requires %s", directExecArg, workingDirArg)
 	}
 	return parsed, nil
+}
+
+func prepareSessionTempDir(path string) error {
+	if err := validateSessionTempDir(path); err != nil {
+		return err
+	}
+	root := filepath.Clean(sessionTempRoot)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return fmt.Errorf("create session temp root: %w", err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		return fmt.Errorf("create session temp dir: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("set session temp mode: %w", err)
+	}
+	return nil
+}
+
+func validateSessionTempDir(path string) error {
+	clean := filepath.Clean(path)
+	if path != clean || !filepath.IsAbs(clean) {
+		return fmt.Errorf("%s path %q is invalid", sessionTempArg, path)
+	}
+	root := filepath.Clean(sessionTempRoot)
+	rel, err := filepath.Rel(root, clean)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") || strings.Contains(rel, string(os.PathSeparator)) {
+		return fmt.Errorf("%s path %q must be a direct child of %s", sessionTempArg, path, root)
+	}
+	if !sessionTempLeafPattern.MatchString(rel) {
+		return fmt.Errorf("%s path %q has invalid generated name", sessionTempArg, path)
+	}
+	return nil
 }
 
 func execDirectCommand(args launchModeArgs, profile *launchProfile) {

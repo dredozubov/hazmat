@@ -61,6 +61,7 @@ func TestCommandSudoArgsBuildsDirectExecInvocation(t *testing.T) {
 		PolicyPath:       "/private/tmp/hazmat-test.sb",
 		DirectExec:       true,
 		WorkingDir:       "/Users/dr/workspace/project",
+		SessionTempDir:   "/Users/agent/.cache/hazmat/tmp/123-456",
 		EnvPairs:         []string{"HOME=/Users/agent", "PATH=/usr/bin"},
 		RuntimeEnvPairs:  []string{"TMPDIR=/private/tmp"},
 		Args:             []string{"/usr/bin/true"},
@@ -69,6 +70,7 @@ func TestCommandSudoArgsBuildsDirectExecInvocation(t *testing.T) {
 	want := []string{
 		"-u", "agent",
 		"/usr/local/libexec/hazmat-launch", "/private/tmp/hazmat-test.sb",
+		"--hazmat-session-temp", "/Users/agent/.cache/hazmat/tmp/123-456",
 		"--hazmat-direct-exec",
 		"--hazmat-working-dir", "/Users/dr/workspace/project",
 		"--hazmat-env", "HOME=/Users/agent",

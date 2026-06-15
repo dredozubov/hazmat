@@ -116,9 +116,10 @@ func (c *sessionGitSSHConfig) PrimaryKey() *sessionGitSSHKey {
 }
 
 type preparedSessionRuntime struct {
-	EnvPairs []string
-	TempDir  string
-	Cleanup  func()
+	EnvPairs            []string
+	TempDir             string
+	LaunchHelperTempDir string
+	Cleanup             func()
 }
 
 var (
@@ -1234,6 +1235,9 @@ func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSe
 		if runtime.TempDir != "" {
 			merged.TempDir = runtime.TempDir
 		}
+		if runtime.LaunchHelperTempDir != "" {
+			merged.LaunchHelperTempDir = runtime.LaunchHelperTempDir
+		}
 		if runtime.Cleanup != nil {
 			cleanups = append(cleanups, runtime.Cleanup)
 		}
@@ -1249,14 +1253,20 @@ func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSe
 func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
 	runtime := preparedSessionRuntime{Cleanup: func() {}}
 	tempDir := filepath.Join(defaultAgentTmpDir, fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
-	if err := agentEnsureDir(tempDir, 0o700); err != nil {
-		return runtime, fmt.Errorf("prepare agent temp dir: %w", err)
-	}
 	runtime.TempDir = tempDir
 	runtime.Cleanup = func() {
 		if err := asAgentQuiet("/bin/rm", "-rf", tempDir); err != nil {
 			fmt.Fprintf(os.Stderr, "hazmat: warning: could not remove agent temp dir %s: %v\n", tempDir, err)
 		}
+	}
+
+	if launchHelperSupportsSessionTemp(launchHelperPath()) {
+		runtime.LaunchHelperTempDir = tempDir
+		return runtime, nil
+	}
+
+	if err := agentEnsureDir(tempDir, 0o700); err != nil {
+		return runtime, fmt.Errorf("prepare agent temp dir: %w", err)
 	}
 	return runtime, nil
 }

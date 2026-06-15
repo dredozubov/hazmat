@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,6 +31,30 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 		t.Fatalf("read stdout: %v", err)
 	}
 	return string(data), runErr
+}
+
+func TestPrepareAgentTempRuntimeDefersCreateToCapableLaunchHelper(t *testing.T) {
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
+	savedNewAgentCommand := newAgentCommand
+	newAgentCommand = func(args ...string) *exec.Cmd {
+		t.Fatalf("prepareAgentTempRuntime unexpectedly invoked agent command: %v", args)
+		return exec.Command("/usr/bin/false")
+	}
+	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
+
+	runtime, err := prepareAgentTempRuntime()
+	if err != nil {
+		t.Fatalf("prepareAgentTempRuntime: %v", err)
+	}
+	if runtime.TempDir == "" {
+		t.Fatal("TempDir is empty")
+	}
+	if runtime.LaunchHelperTempDir != runtime.TempDir {
+		t.Fatalf("LaunchHelperTempDir = %q, want TempDir %q", runtime.LaunchHelperTempDir, runtime.TempDir)
+	}
 }
 
 func TestDiscoverSSHKeyCandidatesReportsUsableEntries(t *testing.T) {

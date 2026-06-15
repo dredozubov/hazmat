@@ -54,6 +54,7 @@ func (b darwinNativeLaunchBackend) CommandSudoArgs(req nativeLaunchCommandReques
 		Profile:          req.Profile,
 		DirectExec:       req.DirectExec,
 		WorkingDir:       req.WorkingDir,
+		SessionTempDir:   req.SessionTempDir,
 		EnvPairs:         b.AgentEnvPairs(nativeLaunchEnvRequest{Config: req.Config, Plan: req.Plan}),
 		RuntimeEnvPairs:  req.RuntimeEnvPairs,
 		Script:           req.Script,

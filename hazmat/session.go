@@ -2544,7 +2544,7 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	}
 
 	start = time.Now()
-	full := nativeLaunchSudoArgsWithMetadataAndPlan(cfg, plan, policy, runtime.EnvPairs, metadataJSON, script, args...)
+	full := nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg, plan, policy, runtime.EnvPairs, metadataJSON, runtime.LaunchHelperTempDir, script, args...)
 	profile.Record("build native command", start)
 
 	var (

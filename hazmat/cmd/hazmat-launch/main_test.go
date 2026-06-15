@@ -285,6 +285,8 @@ func TestParseLaunchModeArgsDirectExec(t *testing.T) {
 	parsed, err := parseLaunchModeArgs([]string{
 		"--hazmat-metadata-json",
 		`{"kind":"hazmat.session"}`,
+		"--hazmat-session-temp",
+		"/Users/agent/.cache/hazmat/tmp/123-456",
 		"--hazmat-direct-exec",
 		"--hazmat-working-dir",
 		"/Users/dr/workspace/project",
@@ -304,6 +306,9 @@ func TestParseLaunchModeArgsDirectExec(t *testing.T) {
 	if parsed.WorkingDir != "/Users/dr/workspace/project" {
 		t.Fatalf("WorkingDir = %q", parsed.WorkingDir)
 	}
+	if parsed.SessionTemp != "/Users/agent/.cache/hazmat/tmp/123-456" {
+		t.Fatalf("SessionTemp = %q", parsed.SessionTemp)
+	}
 	if !reflect.DeepEqual(parsed.EnvPairs, []string{"HOME=/Users/agent", "PATH=/usr/bin"}) {
 		t.Fatalf("EnvPairs = %v", parsed.EnvPairs)
 	}
@@ -315,6 +320,49 @@ func TestParseLaunchModeArgsDirectExec(t *testing.T) {
 func TestParseLaunchModeArgsDirectExecRequiresWorkingDir(t *testing.T) {
 	if _, err := parseLaunchModeArgs([]string{"--hazmat-direct-exec", "--", "/usr/bin/true"}); err == nil {
 		t.Fatal("expected direct exec without working dir to be rejected")
+	}
+}
+
+func TestPrepareSessionTempDirCreatesValidatedLeaf(t *testing.T) {
+	root := t.TempDir()
+	savedRoot := sessionTempRoot
+	sessionTempRoot = root
+	t.Cleanup(func() { sessionTempRoot = savedRoot })
+
+	path := filepath.Join(root, "123-456")
+	if err := prepareSessionTempDir(path); err != nil {
+		t.Fatalf("prepareSessionTempDir: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat session temp: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("session temp is not a directory: %s", info.Mode())
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("session temp mode = %04o, want 0700", got)
+	}
+}
+
+func TestValidateSessionTempDirRejectsUnsafePaths(t *testing.T) {
+	root := t.TempDir()
+	savedRoot := sessionTempRoot
+	sessionTempRoot = root
+	t.Cleanup(func() { sessionTempRoot = savedRoot })
+
+	tests := []string{
+		root,
+		filepath.Join(root, "name"),
+		filepath.Join(root, "123-456", "nested"),
+		filepath.Join(filepath.Dir(root), "123-456"),
+		filepath.Join(root, "123-456") + string(os.PathSeparator),
+		"relative/123-456",
+	}
+	for _, path := range tests {
+		if err := validateSessionTempDir(path); err == nil {
+			t.Fatalf("validateSessionTempDir(%q) succeeded, want error", path)
+		}
 	}
 }
 

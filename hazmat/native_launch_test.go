@@ -1,6 +1,8 @@
 package hazmat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,5 +34,38 @@ func TestReaderContainsWithinRejectsMissingMarker(t *testing.T) {
 
 	if readerContainsWithin(input, marker, 4096) {
 		t.Fatal("readerContainsWithin() = true for missing marker, want false")
+	}
+}
+
+func TestReaderMarkersWithinFindsBothLaunchHelperCapabilities(t *testing.T) {
+	markers := map[string][]byte{
+		"direct_exec":  []byte("--hazmat-direct-exec"),
+		"session_temp": []byte("--hazmat-session-temp"),
+	}
+	input := strings.NewReader(strings.Repeat("x", 127) + "--hazmat-session-temp" + strings.Repeat("y", 127) + "--hazmat-direct-exec")
+
+	got := readerMarkersWithin(input, markers, 1024)
+	for name := range markers {
+		if !got[name] {
+			t.Fatalf("readerMarkersWithin()[%s] = false, want true; got %#v", name, got)
+		}
+	}
+}
+
+func TestReadLaunchHelperCapabilitiesUsesBoundedMarkerScan(t *testing.T) {
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "hazmat-launch")
+	content := strings.Join([]string{
+		"prefix",
+		"--hazmat-session-temp",
+		"--hazmat-direct-exec",
+	}, "\x00")
+	if err := os.WriteFile(helper, []byte(content), 0o755); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	got := readLaunchHelperCapabilities(helper)
+	if !got.DirectExec || !got.SessionTemp {
+		t.Fatalf("readLaunchHelperCapabilities() = %+v, want both capabilities", got)
 	}
 }

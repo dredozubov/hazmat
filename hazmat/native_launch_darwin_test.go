@@ -99,6 +99,36 @@ func TestDarwinNativeLaunchSudoArgsUsesDirectExecForProjectExecScript(t *testing
 	}
 }
 
+func TestDarwinNativeLaunchSudoArgsPassesHelperManagedTempDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, key := range terminalEnvPassthroughKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TERMINFO", "")
+	t.Setenv("TERMINFO_DIRS", "")
+
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
+	tempDir := agentHome + "/.cache/hazmat/tmp/123-456"
+	savedSupportsDirectExec := launchHelperSupportsDirectExec
+	launchHelperSupportsDirectExec = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsDirectExec = savedSupportsDirectExec })
+
+	got := nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg, nativeLaunchPlanForConfig(cfg), policy, nil, `{"kind":"hazmat.session"}`, tempDir, nativeDirectProjectExecScript, "/usr/bin/true")
+
+	wantPrefix := []string{
+		"-u", agentUser,
+		launchHelperPath(), policy.Path,
+		"--hazmat-metadata-json", `{"kind":"hazmat.session"}`,
+		"--hazmat-session-temp", tempDir,
+		"--hazmat-direct-exec",
+	}
+	if len(got) < len(wantPrefix) || !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("native launch sudo args prefix = %#v, want %#v", got[:len(wantPrefix)], wantPrefix)
+	}
+}
+
 func TestDarwinNativeLaunchSudoArgsKeepsShellPathForOlderHelper(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

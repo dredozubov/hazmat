@@ -48,7 +48,7 @@ PolicyFD == 5
 
 Targets == {"stdio", "credential", "benign", "policy", "authority", "unused"}
 Origins == {"shell", "helper", "none"}
-Stages == {"hazmat", "sudo", "helper", "helper_sanitized", "policy_opened", "sandboxed", "agent"}
+Stages == {"hazmat", "sudo", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
 
 AllowedHelperTargetsAtSandbox == {"stdio", "policy"}
 AllowedAgentTargets == {"stdio"}
@@ -166,8 +166,18 @@ HelperOpensPolicyFile ==
                    goExecClosesParentFDs, sudoClosesInheritedFDs,
                    metadataEmitted, brokerActive, tokenMinted>>
 
-HelperCallsSandboxInit ==
+HelperPreparesSessionTempDir ==
     /\ stage = "policy_opened"
+    \* The helper may create the already-policy-approved session temp directory
+    \* before sandbox_init(), but this phase must not leave additional live fds.
+    /\ stage' = "temp_prepared"
+    /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   metadataEmitted, brokerActive, tokenMinted>>
+
+HelperCallsSandboxInit ==
+    /\ stage = "temp_prepared"
     /\ stage' = "sandboxed"
     /\ UNCHANGED <<hazmatFds, sudoFds, helperFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
@@ -224,6 +234,7 @@ Next ==
     \/ SudoExecsHelper
     \/ HelperSanitizesFDTable
     \/ HelperOpensPolicyFile
+    \/ HelperPreparesSessionTempDir
     \/ HelperCallsSandboxInit
     \/ HelperEmitsConfirmedContainmentMetadata
     \/ HostBrokerActivates

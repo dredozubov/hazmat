@@ -21,6 +21,8 @@ The useful design claim is narrower and stronger:
 
 - the helper itself closes every inherited fd `>= 3` before sandboxing
 - any fd the helper opens for policy validation is explicitly `CLOEXEC`
+- helper-side session temp preparation leaves no additional live descriptors at
+  `sandbox_init()`
 - the final agent process starts with stdio only
 - broker activation and attestation-token minting happen only after confirmed
   containment metadata, not merely after a prepared host launch
@@ -31,7 +33,7 @@ The useful design claim is narrower and stronger:
 |------|-----------|
 | `hazmat/agent_launch.go` | native sudo + helper launch construction |
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
-| `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, `sandbox_init()`, final `exec` |
+| `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
 
 ## TLA+ Model
 
@@ -62,10 +64,11 @@ inheritance matters:
 3. `hazmat-launch`
 4. helper fd sanitization
 5. helper policy-file open
-6. `sandbox_init()`
-7. confirmed-containment metadata emission
-8. optional host broker activation and token minting
-9. final agent `exec`
+6. optional helper-side session temp preparation, leaving no extra live fds
+7. `sandbox_init()`
+8. confirmed-containment metadata emission
+9. optional host broker activation and token minting
+10. final agent `exec`
 
 Two environment knobs are chosen nondeterministically at `Init`:
 
@@ -142,6 +145,14 @@ Observed result:
   `TokenMintedOnlyAfterSandboxConfirmed`, and
   `AgentFDTableDoesNotCarryAuthority`
 - current metrics: `608 generated`, `416 distinct`, `depth 10`
+
+2026-06-15 helper-managed session temp preparation:
+
+- added an explicit helper-side session temp preparation stage between policy
+  read and `sandbox_init()`
+- the modeled phase leaves `helperFds` unchanged, preserving the requirement
+  that `sandbox_init()` sees only stdio plus helper-opened policy state
+- current metrics: `640 generated`, `448 distinct`, `depth 11`
 
 ## Interpretation
 
