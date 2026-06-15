@@ -214,6 +214,15 @@ type platformACLBackend interface {
 	SudoChmod(runner *Runner, reason string, args ...string) error
 }
 
+type platformACLBatchReader interface {
+	ReadACLsForPaths(paths []string) map[string]aclReadResult
+}
+
+type aclReadResult struct {
+	Rows []ACLRow
+	OK   bool
+}
+
 var platformACLBackendFactory = newPlatformACLBackend
 
 func platformACLBackendForHost() platformACLBackend {
@@ -222,6 +231,70 @@ func platformACLBackendForHost() platformACLBackend {
 
 func readACLs(path string) ([]ACLRow, error) {
 	return platformACLBackendForHost().ReadACLs(path)
+}
+
+func readACLsForPaths(paths []string) map[string]aclReadResult {
+	results := make(map[string]aclReadResult)
+	unique := uniqueACLPaths(paths)
+	if len(unique) == 0 {
+		return results
+	}
+
+	backend := platformACLBackendForHost()
+	if batch, ok := backend.(platformACLBatchReader); ok {
+		results = batch.ReadACLsForPaths(unique)
+		if results == nil {
+			results = make(map[string]aclReadResult, len(unique))
+		}
+		for _, path := range unique {
+			if _, ok := results[path]; ok {
+				continue
+			}
+			rows, err := backend.ReadACLs(path)
+			results[path] = aclReadResult{Rows: rows, OK: err == nil}
+		}
+		return results
+	}
+
+	for _, path := range unique {
+		rows, err := backend.ReadACLs(path)
+		results[path] = aclReadResult{Rows: rows, OK: err == nil}
+	}
+	return results
+}
+
+func uniqueACLPaths(paths []string) []string {
+	unique := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		unique = append(unique, path)
+	}
+	return unique
+}
+
+func aclRowsSatisfy(rows []ACLRow, grant ACLGrant) bool {
+	for _, r := range rows {
+		if r.Satisfies(grant) {
+			return true
+		}
+	}
+	return false
+}
+
+func aclSyntheticRowForGrant(grant ACLGrant) ACLRow {
+	return ACLRow{
+		Principal: grant.Principal,
+		Kind:      ACLAllow,
+		Perms:     append([]string(nil), grant.Perms...),
+		Inherit:   grant.Inherit,
+	}
 }
 
 // hasACLSatisfying reports whether any row at path satisfies grant.
@@ -233,12 +306,7 @@ func hasACLSatisfying(path string, grant ACLGrant) bool {
 	if err != nil {
 		return false
 	}
-	for _, r := range rows {
-		if r.Satisfies(grant) {
-			return true
-		}
-	}
-	return false
+	return aclRowsSatisfy(rows, grant)
 }
 
 // aclInvoker executes chmod for ACL modifications. Distinct implementations

@@ -15,10 +15,18 @@ var pathAllowsAgentTraverse = homeAllowsAgentTraverse
 
 type agentTraversePermissionCache struct {
 	results map[string]bool
+	aclRows map[string]aclReadResult
 }
 
 func newAgentTraversePermissionCache() *agentTraversePermissionCache {
 	return &agentTraversePermissionCache{results: make(map[string]bool)}
+}
+
+func newAgentTraversePermissionCacheWithACLRows(rows map[string]aclReadResult) *agentTraversePermissionCache {
+	return &agentTraversePermissionCache{
+		results: make(map[string]bool),
+		aclRows: rows,
+	}
 }
 
 func (c *agentTraversePermissionCache) Allows(path string) bool {
@@ -28,7 +36,12 @@ func (c *agentTraversePermissionCache) Allows(path string) bool {
 	if allowed, ok := c.results[path]; ok {
 		return allowed
 	}
-	allowed := pathAllowsAgentTraverse(path)
+	var allowed bool
+	if result, ok := c.aclRows[path]; ok && result.OK {
+		allowed = homeAllowsAgentTraverseWithACLRows(path, result.Rows, true)
+	} else {
+		allowed = pathAllowsAgentTraverse(path)
+	}
 	c.results[path] = allowed
 	return allowed
 }
@@ -163,6 +176,13 @@ func projectNeedsACLRepair(projectDir string) bool {
 	return !projectRootWritableByAgent(projectDir)
 }
 
+func projectNeedsACLRepairWithACLRows(projectDir string, result aclReadResult) bool {
+	if !result.OK {
+		return projectNeedsACLRepair(projectDir)
+	}
+	return !aclRowsSatisfy(result.Rows, devGroupInheritableGrant)
+}
+
 func collectAgentTraverseTargets(homeDir, projectDir string, dirs []string) []string {
 	seen := make(map[string]struct{})
 	var targets []string
@@ -219,26 +239,22 @@ func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
 	return pendingAgentTraverseTargetsWithProbe(projectDir, dirs, pathAllowsAgentTraverse)
 }
 
-func pendingAgentTraverseTargetsWithProbe(projectDir string, dirs []string, allowsAgentTraverse func(string) bool) []string {
+func agentTraverseCandidatePaths(projectDir string, dirs []string) []string {
 	homeDir, err := currentUserHomeDir()
 	if err != nil {
 		return nil
 	}
+	paths := []string{homeDir}
+	return append(paths, collectAgentTraverseTargets(homeDir, projectDir, dirs)...)
+}
+
+func pendingAgentTraverseTargetsWithProbe(projectDir string, dirs []string, allowsAgentTraverse func(string) bool) []string {
 	if allowsAgentTraverse == nil {
 		allowsAgentTraverse = pathAllowsAgentTraverse
 	}
 
 	var pending []string
-
-	// Safety net: ensure home directory itself is still traversable.
-	// init sets this ACL, but permissions can change (macOS updates,
-	// privacy settings, manual chmod). Without home traversal the
-	// agent cannot reach any project directory.
-	if !allowsAgentTraverse(homeDir) {
-		pending = append(pending, homeDir)
-	}
-
-	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
+	for _, path := range agentTraverseCandidatePaths(projectDir, dirs) {
 		if allowsAgentTraverse(path) {
 			continue
 		}
@@ -251,25 +267,27 @@ func pendingLaunchHelperTraverseTargets(helperPath string) []string {
 	return pendingLaunchHelperTraverseTargetsWithProbe(helperPath, pathAllowsAgentTraverse)
 }
 
-func pendingLaunchHelperTraverseTargetsWithProbe(helperPath string, allowsAgentTraverse func(string) bool) []string {
+func launchHelperTraverseCandidatePaths(helperPath string) []string {
 	homeDir, err := currentUserHomeDir()
 	if err != nil || homeDir == "" || !isWithinDir(homeDir, helperPath) {
 		return nil
 	}
+
+	paths := []string{homeDir}
+	var ancestors []string
+	for path := filepath.Dir(helperPath); path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
+		ancestors = append([]string{path}, ancestors...)
+	}
+	return append(paths, ancestors...)
+}
+
+func pendingLaunchHelperTraverseTargetsWithProbe(helperPath string, allowsAgentTraverse func(string) bool) []string {
 	if allowsAgentTraverse == nil {
 		allowsAgentTraverse = pathAllowsAgentTraverse
 	}
 
 	var pending []string
-	if !allowsAgentTraverse(homeDir) {
-		pending = append(pending, homeDir)
-	}
-
-	var ancestors []string
-	for path := filepath.Dir(helperPath); path != homeDir && path != "/" && path != "."; path = filepath.Dir(path) {
-		ancestors = append([]string{path}, ancestors...)
-	}
-	for _, path := range ancestors {
+	for _, path := range launchHelperTraverseCandidatePaths(helperPath) {
 		if allowsAgentTraverse(path) {
 			continue
 		}

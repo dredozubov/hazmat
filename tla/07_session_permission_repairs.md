@@ -58,19 +58,25 @@ It treats the host as a finite permission state:
 The model snapshots the repair needs at planning time, then checks:
 
 - what gets planned
+- that single-path probes, batched probes, and metadata-validated cache hits all
+  represent the same host repair snapshot
 - what preview is allowed to mutate
 - what must be fixed before launch can succeed
 - what rollback is allowed to remove
 
 This is intentionally a contract model, not a filesystem-syscall model. It
 does not attempt to encode the exact `chmod +a` walk semantics or Homebrew
-mode-bit edits on concrete paths.
+mode-bit edits on concrete paths. The `validatedCache` probe mode abstracts an
+implementation cache that may be used only when path identity and metadata prove
+the cached ACL-bearing object has not changed; stale or missing validation must
+fall back to a fresh host probe before planning.
 
 ## What TLC Checks
 
 | Invariant | Meaning |
 |-----------|---------|
 | `PlannedRepairsMatchSnapshot` | The planned repair set exactly matches the repair needs visible at planning time |
+| `ValidatedCacheRequiresFreshMetadata` | Cached permission observations are used only when their validation metadata is fresh |
 | `PreviewIsReadOnly` | `hazmat explain` never applies a host mutation |
 | `DockerSkipsNativeACLRepairs` | Docker Sandbox sessions never plan the native-only project/traverse/git ACL repairs |
 | `HomebrewRepairRequiresEligibleCellar` | Homebrew repair is planned only when the path is eligible and still blocked |
@@ -92,8 +98,8 @@ cd tla/
 Observed result:
 
 - `Model checking completed. No error has been found.`
-- `47,501 states generated`
-- `19,902 distinct states found`
+- `194,023 states generated`
+- `79,098 distinct states found`
 - `depth 7`
 - `Finished in <1s`
 

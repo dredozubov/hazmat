@@ -2757,6 +2757,8 @@ func TestRenderSessionMutationDetails(t *testing.T) {
 }
 
 func TestBuildNativeSessionMutationPlanIncludesProjectRepair(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
 	projectDir := t.TempDir()
 	plan := buildNativeSessionMutationPlan(sessionConfig{ProjectDir: projectDir})
 
@@ -2773,6 +2775,8 @@ func TestBuildNativeSessionMutationPlanIncludesProjectRepair(t *testing.T) {
 }
 
 func TestBuildNativeSessionMutationPlanIncludesGitSafeDirectoryTrust(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
 	savedDetect := detectGitRepoTopLevel
 	savedSystem := readSystemGitSafeDirectoryEntries
 	savedAgent := readAgentGlobalGitSafeDirectoryEntries
@@ -2814,6 +2818,8 @@ func TestBuildNativeSessionMutationPlanIncludesGitSafeDirectoryTrust(t *testing.
 }
 
 func TestBuildNativeSessionMutationPlanCanSkipGitSafeDirectoryPlanning(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
 	savedACLFactory := platformACLBackendFactory
 	savedExecutable := currentExecutablePath
 	savedUserHomeDir := currentUserHomeDir
@@ -2869,7 +2875,136 @@ func TestBuildNativeSessionMutationPlanCanSkipGitSafeDirectoryPlanning(t *testin
 	}
 }
 
+func TestBuildNativeSessionMutationPlanBatchReadsStartupACLs(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
+	savedACLFactory := platformACLBackendFactory
+	savedExecutable := currentExecutablePath
+	savedUserHomeDir := currentUserHomeDir
+	savedDetect := detectGitRepoTopLevel
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedACLFactory
+		currentExecutablePath = savedExecutable
+		currentUserHomeDir = savedUserHomeDir
+		detectGitRepoTopLevel = savedDetect
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	projectDir := filepath.Join(homeDir, "workspace", "repo")
+	helperPath := filepath.Join(homeDir, ".local", "libexec", "hazmat-launch")
+	for _, dir := range []string{
+		projectDir,
+		filepath.Dir(helperPath),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	rows := map[string][]ACLRow{
+		projectDir:                          {rowForGrant(devGroupInheritableGrant)},
+		homeDir:                             {rowForGrant(agentTraverseGrant)},
+		filepath.Join(homeDir, ".local"):    {rowForGrant(agentTraverseGrant)},
+		filepath.Dir(helperPath):            {rowForGrant(agentTraverseGrant)},
+		filepath.Join(homeDir, "workspace"): {rowForGrant(agentTraverseGrant)},
+	}
+	backend := &planningBatchACLBackend{rows: rows}
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	currentExecutablePath = func() (string, error) {
+		return filepath.Join(homeDir, ".local", "bin", "hazmat"), nil
+	}
+	currentUserHomeDir = func() (string, error) {
+		return homeDir, nil
+	}
+	detectGitRepoTopLevel = func(string) (string, bool) {
+		t.Fatal("detectGitRepoTopLevel should not run when git safe.directory planning is skipped")
+		return "", false
+	}
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		t.Fatal("system safe.directory entries should not be read when planning is skipped")
+		return nil, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		t.Fatal("agent safe.directory entries should not be read when planning is skipped")
+		return nil, nil
+	}
+
+	plan := buildNativeSessionMutationPlanWithOptions(sessionConfig{ProjectDir: projectDir}, nativeSessionMutationPlanOptions{
+		SkipGitSafeDirectoryPlanning: true,
+	})
+	for _, mutation := range plan.Describe() {
+		switch mutation.Summary {
+		case "project ACL repair", "launch-helper traverse ACL repair", "exposed-directory traverse ACL repair":
+			t.Fatalf("Describe() = %+v, want no startup ACL repair mutations", plan.Describe())
+		}
+	}
+	if len(backend.reads) != 0 {
+		t.Fatalf("single ACL reads = %v, want none", backend.reads)
+	}
+	wantPaths := []string{
+		projectDir,
+		homeDir,
+		filepath.Join(homeDir, ".local"),
+		filepath.Dir(helperPath),
+		filepath.Join(homeDir, "workspace"),
+	}
+	for _, path := range wantPaths {
+		if !slices.Contains(backend.batchPaths, path) {
+			t.Fatalf("batch paths = %v, missing %s", backend.batchPaths, path)
+		}
+	}
+}
+
+type planningBatchACLBackend struct {
+	rows       map[string][]ACLRow
+	batchPaths []string
+	reads      []string
+}
+
+func (b *planningBatchACLBackend) ReadACLs(path string) ([]ACLRow, error) {
+	b.reads = append(b.reads, path)
+	return b.rows[path], nil
+}
+
+func (b *planningBatchACLBackend) ReadACLsForPaths(paths []string) map[string]aclReadResult {
+	b.batchPaths = append(b.batchPaths, paths...)
+	results := make(map[string]aclReadResult, len(paths))
+	for _, path := range paths {
+		results[path] = aclReadResult{Rows: b.rows[path], OK: true}
+	}
+	return results
+}
+
+func (b *planningBatchACLBackend) Chmod(...string) error {
+	return nil
+}
+
+func (b *planningBatchACLBackend) SudoChmod(*Runner, string, ...string) error {
+	return nil
+}
+
+func useTempStartupACLHealthCache(t *testing.T) {
+	t.Helper()
+	savedPath := startupACLHealthCachePath
+	cachePath := filepath.Join(t.TempDir(), "acl-health.json")
+	startupACLHealthCachePath = func() string {
+		return cachePath
+	}
+	t.Cleanup(func() {
+		startupACLHealthCachePath = savedPath
+	})
+}
+
 func TestBuildNativeSessionMutationPlanIncludesLaunchHelperTraverseRepair(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
 	savedExecutable := currentExecutablePath
 	savedUserHomeDir := currentUserHomeDir
 	savedPathAllows := pathAllowsAgentTraverse
@@ -2913,6 +3048,8 @@ func TestBuildNativeSessionMutationPlanIncludesLaunchHelperTraverseRepair(t *tes
 }
 
 func TestBuildNativeSessionMutationPlanProfileReportsSubsteps(t *testing.T) {
+	useTempStartupACLHealthCache(t)
+
 	t.Setenv("HAZMAT_SESSION_PREP_PROFILE", "yes")
 
 	savedWriter := nativeSessionMutationPlanProfileWriter
@@ -2963,6 +3100,7 @@ func TestBuildNativeSessionMutationPlanProfileReportsSubsteps(t *testing.T) {
 
 	for _, want := range []string{
 		"hazmat: native host repair planning profile:",
+		"host ACL snapshot read:",
 		"project ACL repair detection:",
 		"launch-helper traverse detection:",
 		"exposed-directory traverse detection:",

@@ -108,10 +108,22 @@ func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSes
 	var plan sessionMutationPlan
 	profile := newNativeSessionMutationPlanProfile()
 	defer profile.Done()
-	traversePermissions := newAgentTraversePermissionCache()
+
+	helperPath := launchHelperPath()
+	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
+	// Include project dir's parent so the full path from home to the project
+	// is traversable — not just paths to extra read/write dirs.
+	if parent := filepath.Dir(cfg.ProjectDir); parent != cfg.ProjectDir {
+		exposedDirs = append(exposedDirs, parent)
+	}
 
 	start := time.Now()
-	needsProjectACLRepair := projectNeedsACLRepair(cfg.ProjectDir)
+	aclRows := readStartupACLsForPaths(nativeSessionACLProbePaths(cfg.ProjectDir, helperPath, exposedDirs))
+	profile.Record("host ACL snapshot read", start)
+	traversePermissions := newAgentTraversePermissionCacheWithACLRows(aclRows)
+
+	start = time.Now()
+	needsProjectACLRepair := projectNeedsACLRepairWithACLRows(cfg.ProjectDir, aclRows[cfg.ProjectDir])
 	profile.Record("project ACL repair detection", start)
 	if needsProjectACLRepair {
 		projectDir := cfg.ProjectDir
@@ -143,7 +155,7 @@ func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSes
 		})
 	}
 
-	if helperPath := launchHelperPath(); helperPath != "" {
+	if helperPath != "" {
 		start := time.Now()
 		pending := pendingLaunchHelperTraverseTargetsWithProbe(helperPath, traversePermissions.Allows)
 		profile.Record("launch-helper traverse detection", start)
@@ -174,12 +186,6 @@ func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSes
 		}
 	}
 
-	exposedDirs := append(append([]string{}, cfg.ReadDirs...), cfg.WriteDirs...)
-	// Include project dir's parent so the full path from home to the project
-	// is traversable — not just paths to extra read/write dirs.
-	if parent := filepath.Dir(cfg.ProjectDir); parent != cfg.ProjectDir {
-		exposedDirs = append(exposedDirs, parent)
-	}
 	start = time.Now()
 	pendingTraverse := pendingAgentTraverseTargetsWithProbe(cfg.ProjectDir, exposedDirs, traversePermissions.Allows)
 	profile.Record("exposed-directory traverse detection", start)
@@ -273,6 +279,14 @@ func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSes
 	}
 
 	return plan
+}
+
+func nativeSessionACLProbePaths(projectDir, helperPath string, exposedDirs []string) []string {
+	var paths []string
+	paths = append(paths, projectDir)
+	paths = append(paths, launchHelperTraverseCandidatePaths(helperPath)...)
+	paths = append(paths, agentTraverseCandidatePaths(projectDir, exposedDirs)...)
+	return paths
 }
 
 var executeSessionMutationPlan = defaultExecuteSessionMutationPlan

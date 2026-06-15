@@ -5,13 +5,19 @@ EXTENDS TLC
 \* Session-time permission repairs are planned from the current host state,
 \* previewed by `hazmat explain`, optionally applied before launch, and never
 \* reverted by core rollback. This model abstracts the four currently
-\* user-visible launch repair classes and the native-vs-Tier-3 split.
+\* user-visible launch repair classes, the native-vs-Tier-3 split, and the
+\* observation mode used to read the repair snapshot.
 \*
 \* ProjectACL is intentionally the bounded startup repair: it prepares the
 \* project root and a finite set of likely-mutable existing paths so launch is
 \* not proportional to repository size. Historical full-tree ACL backfill is
 \* represented separately as ProjectBackfill and is not an automatic startup
 \* mutation.
+\*
+\* The implementation may observe permission state via per-path probes, a
+\* batched probe, or a metadata-validated cache hit. All modes must produce
+\* the same planned repair set for the same host snapshot; a cached snapshot is
+\* usable only while its validation metadata is fresh.
 \*
 \* Governed code:
 \*   hazmat/session_mutation.go — repair planning and preview/apply flow
@@ -28,10 +34,14 @@ Mutations == {ProjectACL, TraverseACL, GitACL, HomebrewMode}
 NativeMutations == {ProjectACL, TraverseACL, GitACL}
 SessionModes == {"unset", "native", "docker"}
 Phases == {"idle", "previewed", "planned", "launched", "rolledBack"}
+ProbeModes == {"unset", "singleProbe", "batchedProbe", "validatedCache"}
+PlanningProbeModes == ProbeModes \ {"unset"}
 
 VARIABLES
     phase,
     sessionMode,
+    probeMode,
+    cacheValid,
     projectBroken,
     projectBackfillNeeded,
     backfillApplied,
@@ -47,6 +57,8 @@ VARIABLES
 vars ==
     << phase,
        sessionMode,
+       probeMode,
+       cacheValid,
        projectBroken,
        projectBackfillNeeded,
        backfillApplied,
@@ -88,6 +100,8 @@ ExpectedPlan(mode, repairSet) ==
 Init ==
     /\ phase = "idle"
     /\ sessionMode = "unset"
+    /\ probeMode = "unset"
+    /\ cacheValid \in BOOLEAN
     /\ projectBroken \in BOOLEAN
     /\ projectBackfillNeeded \in BOOLEAN
     /\ backfillApplied \in BOOLEAN
@@ -101,14 +115,20 @@ Init ==
     /\ baseApplied = {}
     /\ rollbackSnapshot = {}
 
-Preview(m) ==
+ProbeUsable(p) ==
+    p \in PlanningProbeModes /\ (p = "validatedCache" => cacheValid)
+
+Preview(m, p) ==
     /\ phase = "idle"
     /\ m \in {"native", "docker"}
+    /\ ProbeUsable(p)
     /\ phase' = "previewed"
     /\ sessionMode' = m
+    /\ probeMode' = p
     /\ planned' = ExpectedPlan(m, applied)
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
+                    cacheValid,
                     projectBackfillNeeded,
                     backfillApplied,
                     traverseBroken,
@@ -118,14 +138,17 @@ Preview(m) ==
                     applied,
                     rollbackSnapshot >>
 
-PlanLaunch(m) ==
+PlanLaunch(m, p) ==
     /\ phase = "idle"
     /\ m \in {"native", "docker"}
+    /\ ProbeUsable(p)
     /\ phase' = "planned"
     /\ sessionMode' = m
+    /\ probeMode' = p
     /\ planned' = ExpectedPlan(m, applied)
     /\ baseApplied' = applied
     /\ UNCHANGED << projectBroken,
+                    cacheValid,
                     projectBackfillNeeded,
                     backfillApplied,
                     traverseBroken,
@@ -139,8 +162,10 @@ ApplyRepair(r) ==
     /\ phase = "planned"
     /\ r \in planned \ applied
     /\ applied' = applied \cup {r}
+    /\ cacheValid' = FALSE
     /\ UNCHANGED << phase,
                     sessionMode,
+                    probeMode,
                     projectBroken,
                     projectBackfillNeeded,
                     backfillApplied,
@@ -158,6 +183,8 @@ Launch ==
     /\ ~NeedsHomebrew(applied)
     /\ phase' = "launched"
     /\ UNCHANGED << sessionMode,
+                    probeMode,
+                    cacheValid,
                     projectBroken,
                     projectBackfillNeeded,
                     backfillApplied,
@@ -175,6 +202,8 @@ Rollback ==
     /\ phase' = "rolledBack"
     /\ rollbackSnapshot' = applied
     /\ UNCHANGED << sessionMode,
+                    probeMode,
+                    cacheValid,
                     projectBroken,
                     projectBackfillNeeded,
                     backfillApplied,
@@ -192,8 +221,10 @@ OperatorProjectBackfill ==
     /\ projectBroken' = FALSE
     /\ projectBackfillNeeded' = FALSE
     /\ backfillApplied' = TRUE
+    /\ cacheValid' = FALSE
     /\ UNCHANGED << phase,
                     sessionMode,
+                    probeMode,
                     traverseBroken,
                     gitBroken,
                     homebrewBroken,
@@ -207,8 +238,10 @@ Stutter ==
     UNCHANGED vars
 
 Next ==
-    \/ \E m \in {"native", "docker"} : Preview(m)
-    \/ \E m \in {"native", "docker"} : PlanLaunch(m)
+    \/ \E m \in {"native", "docker"} :
+        \E p \in PlanningProbeModes : Preview(m, p)
+    \/ \E m \in {"native", "docker"} :
+        \E p \in PlanningProbeModes : PlanLaunch(m, p)
     \/ \E r \in Mutations : ApplyRepair(r)
     \/ OperatorProjectBackfill
     \/ Launch
@@ -221,6 +254,8 @@ Spec ==
 TypeOK ==
     /\ phase \in Phases
     /\ sessionMode \in SessionModes
+    /\ probeMode \in ProbeModes
+    /\ cacheValid \in BOOLEAN
     /\ projectBroken \in BOOLEAN
     /\ projectBackfillNeeded \in BOOLEAN
     /\ backfillApplied \in BOOLEAN
@@ -236,6 +271,9 @@ TypeOK ==
 
 PlannedRepairsMatchSnapshot ==
     phase # "idle" => planned = ExpectedPlan(sessionMode, baseApplied)
+
+ValidatedCacheRequiresFreshMetadata ==
+    phase # "idle" /\ probeMode = "validatedCache" /\ applied = baseApplied => cacheValid
 
 PreviewIsReadOnly ==
     phase = "previewed" => applied = baseApplied

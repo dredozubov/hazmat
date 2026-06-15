@@ -665,6 +665,10 @@ func homeHasAgentTraverseACL(homeDir string) bool {
 	if err != nil {
 		return false
 	}
+	return homeHasAgentTraverseACLRows(rows)
+}
+
+func homeHasAgentTraverseACLRows(rows []ACLRow) bool {
 	for _, r := range rows {
 		if r.Satisfies(agentTraverseGrant) && r.GrantsPerm("execute") {
 			return true
@@ -674,6 +678,10 @@ func homeHasAgentTraverseACL(homeDir string) bool {
 }
 
 func homeAllowsAgentTraverse(homeDir string) bool {
+	return homeAllowsAgentTraverseWithACLRows(homeDir, nil, false)
+}
+
+func homeAllowsAgentTraverseWithACLRows(homeDir string, rows []ACLRow, rowsOK bool) bool {
 	info, err := os.Stat(homeDir)
 	if err != nil {
 		return false
@@ -681,7 +689,11 @@ func homeAllowsAgentTraverse(homeDir string) bool {
 	if info.Mode().Perm()&0o001 != 0 {
 		return true
 	}
-	if homeHasAgentTraverseACL(homeDir) {
+	if rowsOK {
+		if homeHasAgentTraverseACLRows(rows) {
+			return true
+		}
+	} else if homeHasAgentTraverseACL(homeDir) {
 		return true
 	}
 	if info.Mode().Perm()&0o010 == 0 {

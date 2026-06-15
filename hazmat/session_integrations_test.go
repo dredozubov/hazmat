@@ -484,6 +484,7 @@ func BenchmarkSessionPreparationPlainAbsoluteExecFastPath(b *testing.B) {
 			skipAmbientAccessGrants:      true,
 			skipGitHTTPSRuntime:          true,
 			skipProjectHooks:             true,
+			skipGoModCacheEnv:            true,
 			noBackup:                     true,
 			metadataJSON:                 true,
 		}, true, nil)

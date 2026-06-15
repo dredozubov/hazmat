@@ -89,6 +89,38 @@ func TestACLHelpersPropagatePlatformBackendErrors(t *testing.T) {
 	}
 }
 
+func TestReadACLsForPathsUsesOptionalBatchBackend(t *testing.T) {
+	backend := &recordingBatchACLBackend{
+		batchResults: map[string]aclReadResult{
+			"/tmp/one": {Rows: []ACLRow{rowForGrant(agentTraverseGrant)}, OK: true},
+		},
+		fallbackRows: map[string][]ACLRow{
+			"/tmp/two": {rowForGrant(devGroupGrant)},
+		},
+	}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	results := readACLsForPaths([]string{"/tmp/one", "/tmp/two", "/tmp/one", ""})
+	if want := []string{"/tmp/one", "/tmp/two"}; !reflect.DeepEqual(backend.batchPaths, want) {
+		t.Fatalf("batch paths = %v, want %v", backend.batchPaths, want)
+	}
+	if want := []string{"/tmp/two"}; !reflect.DeepEqual(backend.fallbackReads, want) {
+		t.Fatalf("fallback reads = %v, want %v", backend.fallbackReads, want)
+	}
+	if !results["/tmp/one"].OK || !aclRowsSatisfy(results["/tmp/one"].Rows, agentTraverseGrant) {
+		t.Fatalf("/tmp/one result = %#v, want agent traverse rows", results["/tmp/one"])
+	}
+	if !results["/tmp/two"].OK || !aclRowsSatisfy(results["/tmp/two"].Rows, devGroupGrant) {
+		t.Fatalf("/tmp/two result = %#v, want fallback dev rows", results["/tmp/two"])
+	}
+}
+
 type failingACLBackend struct {
 	err error
 }
@@ -103,4 +135,29 @@ func (b failingACLBackend) Chmod(...string) error {
 
 func (b failingACLBackend) SudoChmod(*Runner, string, ...string) error {
 	return b.err
+}
+
+type recordingBatchACLBackend struct {
+	batchPaths    []string
+	batchResults  map[string]aclReadResult
+	fallbackReads []string
+	fallbackRows  map[string][]ACLRow
+}
+
+func (b *recordingBatchACLBackend) ReadACLs(path string) ([]ACLRow, error) {
+	b.fallbackReads = append(b.fallbackReads, path)
+	return b.fallbackRows[path], nil
+}
+
+func (b *recordingBatchACLBackend) ReadACLsForPaths(paths []string) map[string]aclReadResult {
+	b.batchPaths = append(b.batchPaths, paths...)
+	return b.batchResults
+}
+
+func (b *recordingBatchACLBackend) Chmod(...string) error {
+	return nil
+}
+
+func (b *recordingBatchACLBackend) SudoChmod(*Runner, string, ...string) error {
+	return nil
 }
