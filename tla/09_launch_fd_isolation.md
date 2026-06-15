@@ -200,8 +200,11 @@ Observed result:
   injectable runner, propagate exit code/stdout/stderr in the launch response,
   and fails closed if requested confirmed-containment metadata is not observed
   on helper stderr
-- package benchmark for request/auth/validation/child-plan round trip:
-  `72.879-180.970 us/op` across five local Darwin arm64 runs
+- added a broker service wrapper that owns Unix socket readiness, cancellation,
+  and socket cleanup while wiring the helper executor as the default launch
+  handler
+- service+helper-executor control-plane benchmark with fake runner:
+  `31.588-35.304 us/op` across five local Darwin arm64 runs
 
 ## Interpretation
 
