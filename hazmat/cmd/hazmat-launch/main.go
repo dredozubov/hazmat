@@ -33,8 +33,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,6 +55,9 @@ const denyDefaultMarker = "(deny default)"
 
 const metadataJSONArg = "--hazmat-metadata-json"
 const launchProfileArg = "--hazmat-launch-profile"
+const directExecArg = "--hazmat-direct-exec"
+const workingDirArg = "--hazmat-working-dir"
+const envArg = "--hazmat-env"
 
 var profileStderr io.Writer = os.Stderr
 
@@ -64,6 +69,14 @@ type launchProfileSpan struct {
 type launchProfile struct {
 	enabled bool
 	spans   []launchProfileSpan
+}
+
+type launchModeArgs struct {
+	MetadataJSON string
+	DirectExec   bool
+	WorkingDir   string
+	EnvPairs     []string
+	CmdArgs      []string
 }
 
 func newLaunchProfile(args []string) *launchProfile {
@@ -132,7 +145,7 @@ func main() {
 
 func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) {
 	start := time.Now()
-	metadataJSON, cmdArgs, err := parseLaunchModeArgs(cmdArgs)
+	launchArgs, err := parseLaunchModeArgs(cmdArgs)
 	profile.Record("parse launch args", start)
 	if err != nil {
 		die("hazmat-launch: %v", err)
@@ -153,29 +166,88 @@ func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) 
 		die("hazmat-launch: %v", err)
 	}
 	profile.Record("sandbox_init", start)
-	if metadataJSON != "" {
+	if launchArgs.MetadataJSON != "" {
 		start = time.Now()
-		fmt.Fprintln(os.Stderr, metadataJSON)
+		fmt.Fprintln(os.Stderr, launchArgs.MetadataJSON)
 		profile.Record("write metadata json", start)
 	}
 
-	execCommand(cmdArgs, profile)
+	if launchArgs.DirectExec {
+		execDirectCommand(launchArgs, profile)
+		return
+	}
+	execCommand(launchArgs.CmdArgs, profile)
 }
 
-func parseLaunchModeArgs(args []string) (metadataJSON string, cmdArgs []string, err error) {
+func parseLaunchModeArgs(args []string) (launchModeArgs, error) {
 	if len(args) == 0 {
-		return "", nil, fmt.Errorf("missing command")
+		return launchModeArgs{}, fmt.Errorf("missing command")
 	}
-	if args[0] != metadataJSONArg {
-		return "", args, nil
+	var parsed launchModeArgs
+	for len(args) > 0 {
+		switch args[0] {
+		case metadataJSONArg:
+			if len(args) < 3 {
+				return launchModeArgs{}, fmt.Errorf("%s requires a JSON payload and command", metadataJSONArg)
+			}
+			if args[1] == "" {
+				return launchModeArgs{}, fmt.Errorf("%s payload is empty", metadataJSONArg)
+			}
+			parsed.MetadataJSON = args[1]
+			args = args[2:]
+		case directExecArg:
+			parsed.DirectExec = true
+			args = args[1:]
+		case workingDirArg:
+			if len(args) < 2 || args[1] == "" {
+				return launchModeArgs{}, fmt.Errorf("%s requires a path", workingDirArg)
+			}
+			parsed.WorkingDir = args[1]
+			args = args[2:]
+		case envArg:
+			if len(args) < 2 || args[1] == "" {
+				return launchModeArgs{}, fmt.Errorf("%s requires KEY=VALUE", envArg)
+			}
+			parsed.EnvPairs = append(parsed.EnvPairs, args[1])
+			args = args[2:]
+		case "--":
+			parsed.CmdArgs = args[1:]
+			args = nil
+		default:
+			parsed.CmdArgs = args
+			args = nil
+		}
 	}
-	if len(args) < 3 {
-		return "", nil, fmt.Errorf("%s requires a JSON payload and command", metadataJSONArg)
+	if len(parsed.CmdArgs) == 0 {
+		return launchModeArgs{}, fmt.Errorf("missing command")
 	}
-	if args[1] == "" {
-		return "", nil, fmt.Errorf("%s payload is empty", metadataJSONArg)
+	if parsed.DirectExec && parsed.WorkingDir == "" {
+		return launchModeArgs{}, fmt.Errorf("%s requires %s", directExecArg, workingDirArg)
 	}
-	return args[1], args[2:], nil
+	return parsed, nil
+}
+
+func execDirectCommand(args launchModeArgs, profile *launchProfile) {
+	start := time.Now()
+	os.Clearenv()
+	for _, pair := range args.EnvPairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || key == "" {
+			die("hazmat-launch: invalid %s value %q", envArg, pair)
+		}
+		if err := os.Setenv(key, value); err != nil {
+			die("hazmat-launch: set %s: %v", key, err)
+		}
+	}
+	profile.Record("set direct env", start)
+
+	start = time.Now()
+	if err := os.Chdir(args.WorkingDir); err != nil {
+		die("hazmat-launch: chdir %s: %v", args.WorkingDir, err)
+	}
+	profile.Record("chdir", start)
+
+	execCommand(args.CmdArgs, profile)
 }
 
 func execCommand(cmdArgs []string, profile *launchProfile) {
@@ -246,6 +318,16 @@ func readDirCloexec(path string) ([]os.DirEntry, error) {
 func resolveExecPath(cmd string) (string, error) {
 	if cmd[0] == '/' {
 		return cmd, nil
+	}
+	if strings.ContainsRune(cmd, os.PathSeparator) {
+		abs, err := filepath.Abs(cmd)
+		if err != nil {
+			return "", err
+		}
+		if info, err := os.Stat(abs); err == nil && info.Mode()&0o111 != 0 {
+			return abs, nil
+		}
+		return "", fmt.Errorf("command not found: %s", cmd)
 	}
 	// Search PATH
 	for _, dir := range splitPath(os.Getenv("PATH")) {

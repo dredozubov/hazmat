@@ -257,7 +257,7 @@ func TestLaunchProfileWritesSpans(t *testing.T) {
 }
 
 func TestParseLaunchModeArgsMetadata(t *testing.T) {
-	metadata, cmdArgs, err := parseLaunchModeArgs([]string{
+	parsed, err := parseLaunchModeArgs([]string{
 		"--hazmat-metadata-json",
 		`{"kind":"hazmat.session"}`,
 		"/usr/bin/env",
@@ -266,18 +266,87 @@ func TestParseLaunchModeArgsMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseLaunchModeArgs: %v", err)
 	}
-	if metadata != `{"kind":"hazmat.session"}` {
-		t.Fatalf("metadata = %q", metadata)
+	if parsed.MetadataJSON != `{"kind":"hazmat.session"}` {
+		t.Fatalf("metadata = %q", parsed.MetadataJSON)
 	}
-	if !reflect.DeepEqual(cmdArgs, []string{"/usr/bin/env", "-i"}) {
-		t.Fatalf("cmdArgs = %v", cmdArgs)
+	if !reflect.DeepEqual(parsed.CmdArgs, []string{"/usr/bin/env", "-i"}) {
+		t.Fatalf("cmdArgs = %v", parsed.CmdArgs)
 	}
 
-	if _, _, err := parseLaunchModeArgs([]string{"--hazmat-metadata-json", `{}`}); err == nil {
+	if _, err := parseLaunchModeArgs([]string{"--hazmat-metadata-json", `{}`}); err == nil {
 		t.Fatal("expected missing command after metadata to be rejected")
 	}
-	if _, _, err := parseLaunchModeArgs(nil); err == nil {
+	if _, err := parseLaunchModeArgs(nil); err == nil {
 		t.Fatal("expected missing command to be rejected")
+	}
+}
+
+func TestParseLaunchModeArgsDirectExec(t *testing.T) {
+	parsed, err := parseLaunchModeArgs([]string{
+		"--hazmat-metadata-json",
+		`{"kind":"hazmat.session"}`,
+		"--hazmat-direct-exec",
+		"--hazmat-working-dir",
+		"/Users/dr/workspace/project",
+		"--hazmat-env",
+		"HOME=/Users/agent",
+		"--hazmat-env",
+		"PATH=/usr/bin",
+		"--",
+		"/usr/bin/true",
+	})
+	if err != nil {
+		t.Fatalf("parseLaunchModeArgs: %v", err)
+	}
+	if !parsed.DirectExec {
+		t.Fatal("DirectExec = false, want true")
+	}
+	if parsed.WorkingDir != "/Users/dr/workspace/project" {
+		t.Fatalf("WorkingDir = %q", parsed.WorkingDir)
+	}
+	if !reflect.DeepEqual(parsed.EnvPairs, []string{"HOME=/Users/agent", "PATH=/usr/bin"}) {
+		t.Fatalf("EnvPairs = %v", parsed.EnvPairs)
+	}
+	if !reflect.DeepEqual(parsed.CmdArgs, []string{"/usr/bin/true"}) {
+		t.Fatalf("CmdArgs = %v", parsed.CmdArgs)
+	}
+}
+
+func TestParseLaunchModeArgsDirectExecRequiresWorkingDir(t *testing.T) {
+	if _, err := parseLaunchModeArgs([]string{"--hazmat-direct-exec", "--", "/usr/bin/true"}); err == nil {
+		t.Fatal("expected direct exec without working dir to be rejected")
+	}
+}
+
+func TestResolveExecPathHandlesRelativeExecutablePath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tool")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+
+	got, err := resolveExecPath("./tool")
+	if err != nil {
+		t.Fatalf("resolveExecPath: %v", err)
+	}
+	want, err := filepath.Abs("./tool")
+	if err != nil {
+		t.Fatalf("abs executable: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveExecPath = %q, want %q", got, want)
 	}
 }
 

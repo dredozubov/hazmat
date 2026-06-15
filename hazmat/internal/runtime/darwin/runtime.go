@@ -62,6 +62,8 @@ type CommandRequest struct {
 	PolicyPath       string
 	MetadataJSON     string
 	Profile          bool
+	DirectExec       bool
+	WorkingDir       string
 	EnvPairs         []string
 	RuntimeEnvPairs  []string
 	Script           string
@@ -79,6 +81,21 @@ func CommandSudoArgs(req CommandRequest) []string {
 	full = append(full, req.PolicyPath)
 	if req.MetadataJSON != "" {
 		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)
+	}
+	if req.DirectExec {
+		full = append(full, "--hazmat-direct-exec")
+		if req.WorkingDir != "" {
+			full = append(full, "--hazmat-working-dir", req.WorkingDir)
+		}
+		for _, pair := range req.EnvPairs {
+			full = append(full, "--hazmat-env", pair)
+		}
+		for _, pair := range req.RuntimeEnvPairs {
+			full = append(full, "--hazmat-env", pair)
+		}
+		full = append(full, "--")
+		full = append(full, req.Args...)
+		return full
 	}
 	full = append(full, "/usr/bin/env", "-i")
 	full = append(full, req.EnvPairs...)

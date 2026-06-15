@@ -54,6 +54,34 @@ func TestCommandSudoArgsPassesLaunchProfileFlag(t *testing.T) {
 	}
 }
 
+func TestCommandSudoArgsBuildsDirectExecInvocation(t *testing.T) {
+	got := CommandSudoArgs(CommandRequest{
+		AgentUser:        "agent",
+		LaunchHelperPath: "/usr/local/libexec/hazmat-launch",
+		PolicyPath:       "/private/tmp/hazmat-test.sb",
+		DirectExec:       true,
+		WorkingDir:       "/Users/dr/workspace/project",
+		EnvPairs:         []string{"HOME=/Users/agent", "PATH=/usr/bin"},
+		RuntimeEnvPairs:  []string{"TMPDIR=/private/tmp"},
+		Args:             []string{"/usr/bin/true"},
+	})
+
+	want := []string{
+		"-u", "agent",
+		"/usr/local/libexec/hazmat-launch", "/private/tmp/hazmat-test.sb",
+		"--hazmat-direct-exec",
+		"--hazmat-working-dir", "/Users/dr/workspace/project",
+		"--hazmat-env", "HOME=/Users/agent",
+		"--hazmat-env", "PATH=/usr/bin",
+		"--hazmat-env", "TMPDIR=/private/tmp",
+		"--",
+		"/usr/bin/true",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CommandSudoArgs() = %v, want %v", got, want)
+	}
+}
+
 func TestPlatformEnvPairsCopiesDarwinCompilerGuards(t *testing.T) {
 	got := PlatformEnvPairs()
 	for _, want := range []string{

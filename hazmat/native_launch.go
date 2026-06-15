@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 )
@@ -28,6 +29,8 @@ type nativeLaunchCommandRequest struct {
 	RuntimeEnvPairs []string
 	MetadataJSON    string
 	Profile         bool
+	DirectExec      bool
+	WorkingDir      string
 	Script          string
 	Args            []string
 }
@@ -43,6 +46,13 @@ type nativeLaunchEnvironment struct {
 	PlatformPairs []string
 }
 
+var launchHelperSupportsDirectExec = launchHelperSupportsDirectExecImpl
+
+func launchHelperSupportsDirectExecImpl(path string) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && bytes.Contains(data, []byte("--hazmat-direct-exec"))
+}
+
 func nativeLaunchSudoArgs(cfg sessionConfig, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, script string, args ...string) []string {
 	return nativeLaunchSudoArgsWithMetadataAndPlan(cfg, nativeLaunchPlanForConfig(cfg), policy, runtimeEnvPairs, "", script, args...)
 }
@@ -52,6 +62,11 @@ func nativeLaunchSudoArgsWithMetadata(cfg sessionConfig, policy nativeLaunchPoli
 }
 
 func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
+	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPath())
+	workingDir := ""
+	if directExec {
+		workingDir = cfg.ProjectDir
+	}
 	return newNativeLaunchBackend().CommandSudoArgs(nativeLaunchCommandRequest{
 		Config:          cfg,
 		Plan:            plan,
@@ -59,6 +74,8 @@ func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBack
 		RuntimeEnvPairs: runtimeEnvPairs,
 		MetadataJSON:    metadataJSON,
 		Profile:         sessionPreparationProfileEnabled(),
+		DirectExec:      directExec,
+		WorkingDir:      workingDir,
 		Script:          script,
 		Args:            args,
 	})

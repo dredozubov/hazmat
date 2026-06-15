@@ -369,6 +369,8 @@ func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, s
 	return prepared, nil
 }
 
+const nativeDirectProjectExecScript = `cd "$SANDBOX_PROJECT_DIR" && exec "$@"`
+
 func newShellCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	cmd := &cobra.Command{
@@ -444,12 +446,10 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 			}
 			if auditInstall {
 				return runAuditInstallExec(os.Stderr, newEgressAuditCollector(), func() error {
-					return runPreparedAgentSeatbeltScript(prepared,
-						`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
+					return runPreparedAgentSeatbeltScript(prepared, nativeDirectProjectExecScript, args...)
 				})
 			}
-			return runPreparedAgentSeatbeltScript(prepared,
-				`cd "$SANDBOX_PROJECT_DIR" && exec "$@"`, args...)
+			return runPreparedAgentSeatbeltScript(prepared, nativeDirectProjectExecScript, args...)
 		},
 	}
 	bindCommonSessionFlags(cmd, &flags)
