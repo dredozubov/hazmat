@@ -36,12 +36,15 @@ Options:
   --quick    Skip live network probes inside the lifecycle.
   --vm       Run this lifecycle inside an isolated Lume macOS VM.
   --keep     With --vm, keep the test VM for debugging instead of deleting it.
+  --reset-vm-base
+            With --vm, delete the cached base VM before provisioning.
 EOF
 }
 
 QUICK=""
 RUN_IN_VM=""
 KEEP_VM=""
+RESET_VM_BASE=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -63,6 +66,9 @@ while [ "$#" -gt 0 ]; do
         --keep)
             KEEP_VM="1"
             ;;
+        --reset-vm-base)
+            RESET_VM_BASE="1"
+            ;;
         --help|-h)
             usage
             exit 0
@@ -78,6 +84,12 @@ done
 
 if [ -n "$KEEP_VM" ] && [ -z "$RUN_IN_VM" ]; then
     echo "error: --keep is only valid with --vm" >&2
+    usage >&2
+    exit 2
+fi
+
+if [ -n "$RESET_VM_BASE" ] && [ -z "$RUN_IN_VM" ]; then
+    echo "error: --reset-vm-base is only valid with --vm" >&2
     usage >&2
     exit 2
 fi
@@ -145,14 +157,31 @@ run_e2e_vm() {
         ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$vm_user@$ip" "$@"
     }
 
-    delete_failed_base_vm() {
-        echo "Deleting incomplete base VM $base_vm after setup failure..." >&2
+    reset_base_vm() {
+        echo "Deleting base VM $base_vm..." >&2
         lume stop "$base_vm" 2>/dev/null || true
         lume delete "$base_vm" --force 2>/dev/null || true
         rm -f "$base_ready_marker"
         if [ -n "${base_pid:-}" ]; then
             wait "$base_pid" 2>/dev/null || true
         fi
+    }
+
+    fail_incomplete_base_vm() {
+        cat >&2 <<EOF
+Base VM $base_vm exists but has no Hazmat readiness marker:
+  $base_ready_marker
+
+This usually means base provisioning failed before Go/passwordless sudo setup
+finished. The VM was preserved to avoid redownloading the IPSW.
+
+Inspect or repair it, then create the marker after it is ready:
+  touch "$base_ready_marker"
+
+To intentionally rebuild the base VM, run:
+  bash scripts/e2e.sh --vm --reset-vm-base --quick
+EOF
+        exit 2
     }
     trap cleanup_e2e_vm EXIT
 
@@ -161,14 +190,18 @@ run_e2e_vm() {
         exit 1
     fi
 
-    if lume get "$base_vm" >/dev/null 2>&1 && [ -f "$base_ready_marker" ]; then
-        echo "Base VM $base_vm already exists."
+    if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+        reset_base_vm
+    fi
+
+    if lume get "$base_vm" >/dev/null 2>&1; then
+        if [ -f "$base_ready_marker" ]; then
+            echo "Base VM $base_vm already exists."
+        else
+            fail_incomplete_base_vm
+        fi
     else
         local host_version preset base_pid base_ip
-        if lume get "$base_vm" >/dev/null 2>&1; then
-            echo "Base VM $base_vm exists without Hazmat readiness marker; recreating it."
-            delete_failed_base_vm
-        fi
         host_version=$(sw_vers -productVersion | cut -d. -f1)
         case "$host_version" in
             26) preset="tahoe" ;;
@@ -187,7 +220,8 @@ run_e2e_vm() {
             --disk-size 50GB \
             --unattended "$preset" \
             --no-display; then
-            delete_failed_base_vm
+            echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
         echo "Base VM $base_vm created."
@@ -197,21 +231,25 @@ run_e2e_vm() {
         base_pid=$!
 
         if ! wait_for_ssh "$base_vm"; then
-            delete_failed_base_vm
+            echo "Base VM $base_vm did not become reachable; preserving it for inspection." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
 
         base_ip=$(get_vm_ip "$base_vm")
         if ! vm_ssh_to "$base_ip" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
-            delete_failed_base_vm
+            echo "Base VM $base_vm Homebrew setup failed; preserving it for repair." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
         if ! vm_ssh_to "$base_ip" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'; then
-            delete_failed_base_vm
+            echo "Base VM $base_vm Go setup failed; preserving it for repair." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
         if ! vm_ssh_to "$base_ip" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"; then
-            delete_failed_base_vm
+            echo "Base VM $base_vm passwordless sudo setup failed; preserving it for repair." >&2
+            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
 

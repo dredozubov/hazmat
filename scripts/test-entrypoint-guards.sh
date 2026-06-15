@@ -330,6 +330,11 @@ assert_fails_with \
     env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --keep
 
 assert_fails_with \
+    "scripts/e2e.sh rejects VM base reset outside VM mode" \
+    "--reset-vm-base is only valid with --vm" \
+    env -u CI bash "$REPO_ROOT/scripts/e2e.sh" --reset-vm-base
+
+assert_fails_with \
     "make e2e requires E2E_ACK=1" \
     "Refusing to run destructive host lifecycle test." \
     make -C "$REPO_ROOT/hazmat" e2e
