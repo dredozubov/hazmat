@@ -27,6 +27,7 @@ type nativeLaunchCommandRequest struct {
 	Policy          nativeLaunchPolicyArtifact
 	RuntimeEnvPairs []string
 	MetadataJSON    string
+	Profile         bool
 	Script          string
 	Args            []string
 }
@@ -57,6 +58,7 @@ func nativeLaunchSudoArgsWithMetadataAndPlan(cfg sessionConfig, plan sessionBack
 		Policy:          policy,
 		RuntimeEnvPairs: runtimeEnvPairs,
 		MetadataJSON:    metadataJSON,
+		Profile:         sessionPreparationProfileEnabled(),
 		Script:          script,
 		Args:            args,
 	})

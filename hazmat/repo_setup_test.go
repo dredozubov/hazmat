@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -361,6 +362,68 @@ func TestRepoSetupGenericTaskToolHeuristicSkipsServiceAndCredentialCommands(t *t
 	if !state.currentSafe.empty() || !state.currentExplicit.empty() {
 		t.Fatalf("generic service/credential commands changed current effects: safe=%#v explicit=%#v", state.currentSafe, state.currentExplicit)
 	}
+}
+
+func TestRepoSetupGenericTaskToolHeuristicSkipsCommonSystemCommandsBeforeProbe(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+
+	projectDir, err := resolveDir(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte(`build:
+	rm -f hazmat
+	install -m 0755 hazmat /tmp/hazmat
+	uname -s | tr '[:upper:]' '[:lower:]'
+	customtool build
+`), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	toolRoot := filepath.Join(t.TempDir(), "custom-tool-root")
+	toolPath := writeExecutable(t, toolRoot, "customtool")
+	canonicalToolRoot, err := canonicalizePath(toolRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(toolRoot): %v", err)
+	}
+	var probed []string
+	savedProbeFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &recordingLookPathProbe{
+			lookPath: func(name string) (string, error) {
+				probed = append(probed, name)
+				if name == "customtool" {
+					return toolPath, nil
+				}
+				return "", fmt.Errorf("unexpected probe for %s", name)
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedProbeFactory })
+
+	state, err := repoSetupStateForSession(sessionConfig{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("repoSetupStateForSession: %v", err)
+	}
+	if !reflect.DeepEqual(probed, []string{"customtool"}) {
+		t.Fatalf("probed commands = %v, want only customtool", probed)
+	}
+	if len(state.PendingSafe) != 1 || state.PendingSafe[0].Value != canonicalToolRoot {
+		t.Fatalf("PendingSafe = %#v, want custom tool root", state.PendingSafe)
+	}
+}
+
+type recordingLookPathProbe struct {
+	lookPath func(string) (string, error)
+}
+
+func (p *recordingLookPathProbe) LookPath(name string) (string, error) {
+	return p.lookPath(name)
+}
+
+func (p *recordingLookPathProbe) Output(name string, args ...string) (string, error) {
+	return "", fmt.Errorf("unexpected command: %s", commandLabel(name, args...))
 }
 
 func stubRepoSetupSafePrompt(t *testing.T, fn func(repoSetupState) (repoSetupPromptAction, error)) func() {

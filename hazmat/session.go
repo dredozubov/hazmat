@@ -2609,12 +2609,21 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	repairGitAfterSession(cfg.ProjectDir)
 	profile.Record("repair git metadata", start)
 	start = time.Now()
-	if recordErr := rememberRepoSetupDenials(cfg, startTime, endTime); recordErr != nil {
-		fmt.Fprintf(os.Stderr, "hazmat: warning: could not record repo setup denials: %v\n", recordErr)
+	recordLabel := "record repo setup denials"
+	if shouldRememberRepoSetupDenials(err) {
+		if recordErr := rememberRepoSetupDenials(cfg, startTime, endTime); recordErr != nil {
+			fmt.Fprintf(os.Stderr, "hazmat: warning: could not record repo setup denials: %v\n", recordErr)
+		}
+	} else {
+		recordLabel = "record repo setup denials (skipped after success)"
 	}
-	profile.Record("record repo setup denials", start)
+	profile.Record(recordLabel, start)
 
 	return err
+}
+
+func shouldRememberRepoSetupDenials(sessionErr error) bool {
+	return sessionErr != nil
 }
 
 func runSessionCommand(cmd *exec.Cmd) error {

@@ -1,7 +1,9 @@
 package hazmat
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -26,6 +28,57 @@ func TestParseSystemGitConfigOrigin(t *testing.T) {
 	out := "file:/opt/homebrew/etc/gitconfig\tsafe.directory=/Users/dr/workspace/*\nfile:/opt/homebrew/etc/gitconfig\tuser.name=Agent\n"
 	if got := parseSystemGitConfigOrigin(out); got != "/opt/homebrew/etc/gitconfig" {
 		t.Fatalf("parseSystemGitConfigOrigin() = %q", got)
+	}
+}
+
+func TestDetectGitRepoTopLevelFastFindsGitDirectoryAncestor(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repoDir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	projectDir := filepath.Join(repoDir, "sub", "dir")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+
+	got, ok := detectGitRepoTopLevelFast(projectDir)
+	if !ok {
+		t.Fatal("detectGitRepoTopLevelFast did not find repo root")
+	}
+	want := normalizeSafeDirectoryEntry(repoDir)
+	if got != want {
+		t.Fatalf("repo root = %q, want %q", got, want)
+	}
+}
+
+func TestDetectGitRepoTopLevelFastFindsGitFileAncestor(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".git"), []byte("gitdir: ../.git/worktrees/repo\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+	projectDir := filepath.Join(repoDir, "sub", "dir")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+
+	got, ok := detectGitRepoTopLevelFast(projectDir)
+	if !ok {
+		t.Fatal("detectGitRepoTopLevelFast did not find repo root")
+	}
+	want := normalizeSafeDirectoryEntry(repoDir)
+	if got != want {
+		t.Fatalf("repo root = %q, want %q", got, want)
+	}
+}
+
+func TestDetectGitRepoTopLevelFastIgnoresInvalidGitFile(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".git"), []byte("not a gitdir marker\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+
+	if got, ok := detectGitRepoTopLevelFast(repoDir); ok || got != "" {
+		t.Fatalf("detectGitRepoTopLevelFast = %q, %v; want no fast-path result", got, ok)
 	}
 }
 

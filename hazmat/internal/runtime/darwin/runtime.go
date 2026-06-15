@@ -61,6 +61,7 @@ type CommandRequest struct {
 	LaunchHelperPath string
 	PolicyPath       string
 	MetadataJSON     string
+	Profile          bool
 	EnvPairs         []string
 	RuntimeEnvPairs  []string
 	Script           string
@@ -70,8 +71,12 @@ type CommandRequest struct {
 func CommandSudoArgs(req CommandRequest) []string {
 	full := []string{
 		"-u", req.AgentUser,
-		req.LaunchHelperPath, req.PolicyPath,
+		req.LaunchHelperPath,
 	}
+	if req.Profile {
+		full = append(full, "--hazmat-launch-profile")
+	}
+	full = append(full, req.PolicyPath)
 	if req.MetadataJSON != "" {
 		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)
 	}

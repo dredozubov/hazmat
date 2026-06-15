@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -213,6 +215,44 @@ func TestExecModeBypassesPolicyValidation(t *testing.T) {
 	}
 	if got := string(out); got != "" {
 		t.Fatalf("exec-mode child output = %q, want empty output", got)
+	}
+}
+
+func TestLaunchProfileArgParsing(t *testing.T) {
+	args := []string{"--hazmat-launch-profile", "/private/tmp/hazmat-1.sb", "/usr/bin/true"}
+	if !launchProfileRequested(args) {
+		t.Fatal("launch profile flag should be detected")
+	}
+	if got := stripLaunchProfileArg(args); !reflect.DeepEqual(got, args[1:]) {
+		t.Fatalf("stripLaunchProfileArg() = %v, want %v", got, args[1:])
+	}
+	plain := []string{"/private/tmp/hazmat-1.sb", "/usr/bin/true"}
+	if launchProfileRequested(plain) {
+		t.Fatal("plain launch args should not enable profile")
+	}
+	if got := stripLaunchProfileArg(plain); !reflect.DeepEqual(got, plain) {
+		t.Fatalf("stripLaunchProfileArg() = %v, want %v", got, plain)
+	}
+}
+
+func TestLaunchProfileWritesSpans(t *testing.T) {
+	var stderr bytes.Buffer
+	savedStderr := profileStderr
+	profileStderr = &stderr
+	t.Cleanup(func() { profileStderr = savedStderr })
+
+	profile := &launchProfile{enabled: true}
+	profile.Record("phase", time.Now().Add(-time.Second))
+	profile.Done()
+
+	got := stderr.String()
+	for _, want := range []string{
+		"hazmat-launch: helper profile:",
+		"  phase:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("profile output missing %q in:\n%s", want, got)
+		}
 	}
 }
 

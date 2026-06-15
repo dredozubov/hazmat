@@ -111,6 +111,15 @@ func TestSessionPhaseProfileRendersRecordedSpans(t *testing.T) {
 	}
 }
 
+func TestShouldRememberRepoSetupDenialsOnlyAfterSessionError(t *testing.T) {
+	if shouldRememberRepoSetupDenials(nil) {
+		t.Fatal("successful sessions should skip post-run denial log mining")
+	}
+	if !shouldRememberRepoSetupDenials(errors.New("command failed")) {
+		t.Fatal("failed sessions should keep post-run denial log mining")
+	}
+}
+
 func TestExecuteSessionMutationPlanToWriterLogsLifecycle(t *testing.T) {
 	var buf bytes.Buffer
 	err := executeSessionMutationPlanToWriter(&buf, sessionMutationPlan{

@@ -32,6 +32,28 @@ func TestCommandSudoArgsBuildsLaunchHelperInvocation(t *testing.T) {
 	}
 }
 
+func TestCommandSudoArgsPassesLaunchProfileFlag(t *testing.T) {
+	got := CommandSudoArgs(CommandRequest{
+		AgentUser:        "agent",
+		LaunchHelperPath: "/usr/local/libexec/hazmat-launch",
+		PolicyPath:       "/private/tmp/hazmat-test.sb",
+		Profile:          true,
+		EnvPairs:         []string{"HOME=/Users/agent", "PATH=/usr/bin"},
+		Script:           `exec "$@"`,
+		Args:             []string{"/usr/bin/true"},
+	})
+
+	wantPrefix := []string{
+		"-u", "agent",
+		"/usr/local/libexec/hazmat-launch",
+		"--hazmat-launch-profile",
+		"/private/tmp/hazmat-test.sb",
+	}
+	if !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("CommandSudoArgs() prefix = %v, want %v", got[:len(wantPrefix)], wantPrefix)
+	}
+}
+
 func TestPlatformEnvPairsCopiesDarwinCompilerGuards(t *testing.T) {
 	got := PlatformEnvPairs()
 	for _, want := range []string{

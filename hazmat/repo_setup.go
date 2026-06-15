@@ -794,6 +794,10 @@ func repoSetupGenericToolSkipped(name string) bool {
 		"then", "true", "type", "ulimit", "umask", "unalias", "unset", "until", "wait",
 		"while",
 		"bash", "fish", "make", "sh", "zsh",
+		"awk", "basename", "cat", "chmod", "chown", "cp", "cut", "date", "dirname", "find",
+		"grep", "head", "install", "ln", "ls", "mkdir", "mktemp", "mv", "rm", "rmdir",
+		"sed", "sleep", "sort", "tail", "tar", "tee", "touch", "tr", "uname", "uniq",
+		"xargs",
 		"aws", "az", "curl", "docker", "gh", "gcloud", "kubectl", "op", "pass", "scp",
 		"security", "ssh", "sudo", "su", "wget":
 		return true

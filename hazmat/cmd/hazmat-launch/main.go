@@ -36,6 +36,7 @@ import (
 	"regexp"
 	"strconv"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -51,37 +52,95 @@ var policyFilePattern = regexp.MustCompile(`^/private/tmp/hazmat-\d+\.sb$`)
 const denyDefaultMarker = "(deny default)"
 
 const metadataJSONArg = "--hazmat-metadata-json"
+const launchProfileArg = "--hazmat-launch-profile"
+
+var profileStderr io.Writer = os.Stderr
+
+type launchProfileSpan struct {
+	label    string
+	duration time.Duration
+}
+
+type launchProfile struct {
+	enabled bool
+	spans   []launchProfileSpan
+}
+
+func newLaunchProfile(args []string) *launchProfile {
+	return &launchProfile{enabled: launchProfileRequested(args)}
+}
+
+func launchProfileRequested(args []string) bool {
+	return len(args) > 0 && args[0] == launchProfileArg
+}
+
+func stripLaunchProfileArg(args []string) []string {
+	if launchProfileRequested(args) {
+		return args[1:]
+	}
+	return args
+}
+
+func (p *launchProfile) Record(label string, start time.Time) {
+	if p == nil || !p.enabled {
+		return
+	}
+	duration := time.Since(start)
+	if duration < 0 {
+		duration = 0
+	}
+	p.spans = append(p.spans, launchProfileSpan{label: label, duration: duration})
+}
+
+func (p *launchProfile) Done() {
+	if p == nil || !p.enabled || len(p.spans) == 0 {
+		return
+	}
+	fmt.Fprintln(profileStderr, "hazmat-launch: helper profile:")
+	for _, span := range p.spans {
+		fmt.Fprintf(profileStderr, "  %s: %.3fs\n", span.label, span.duration.Seconds())
+	}
+}
 
 func main() {
+	profile := newLaunchProfile(os.Args[1:])
+	start := time.Now()
 	if err := closeInheritedFDs(); err != nil {
 		die("hazmat-launch: close inherited fds: %v", err)
 	}
+	profile.Record("close inherited fds", start)
 
-	if len(os.Args) < 2 {
+	args := stripLaunchProfileArg(os.Args[1:])
+	if len(args) < 1 {
 		dieUsage()
 	}
 
-	if os.Args[1] == "exec" {
-		if len(os.Args) < 3 {
+	if args[0] == "exec" {
+		if len(args) < 2 {
 			dieUsage()
 		}
-		execCommand(os.Args[2:])
+		execCommand(args[1:], profile)
 		return
 	}
 
-	if len(os.Args) < 3 {
+	if len(args) < 2 {
 		dieUsage()
 	}
 
-	runLaunchMode(os.Args[1], os.Args[2:])
+	runLaunchMode(args[0], args[1:], profile)
 }
 
-func runLaunchMode(policyFile string, cmdArgs []string) {
+func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) {
+	start := time.Now()
 	metadataJSON, cmdArgs, err := parseLaunchModeArgs(cmdArgs)
+	profile.Record("parse launch args", start)
 	if err != nil {
 		die("hazmat-launch: %v", err)
 	}
+
+	start = time.Now()
 	policy, err := validateAndReadPolicy(policyFile)
+	profile.Record("validate and read policy", start)
 	if err != nil {
 		die("hazmat-launch: %v", err)
 	}
@@ -89,14 +148,18 @@ func runLaunchMode(policyFile string, cmdArgs []string) {
 	// Apply the seatbelt sandbox to this process. After sandbox_init(),
 	// the sandbox is active and all subsequent operations (including exec)
 	// are subject to the policy.
+	start = time.Now()
 	if err := sandboxInit(policy); err != nil {
 		die("hazmat-launch: %v", err)
 	}
+	profile.Record("sandbox_init", start)
 	if metadataJSON != "" {
+		start = time.Now()
 		fmt.Fprintln(os.Stderr, metadataJSON)
+		profile.Record("write metadata json", start)
 	}
 
-	execCommand(cmdArgs)
+	execCommand(cmdArgs, profile)
 }
 
 func parseLaunchModeArgs(args []string) (metadataJSON string, cmdArgs []string, err error) {
@@ -115,23 +178,26 @@ func parseLaunchModeArgs(args []string) (metadataJSON string, cmdArgs []string, 
 	return args[1], args[2:], nil
 }
 
-func execCommand(cmdArgs []string) {
+func execCommand(cmdArgs []string, profile *launchProfile) {
 	// Exec the target command. Since sandbox_init() was called in this
 	// process, the sandbox is inherited by the exec'd program.
 	// This is a direct exec (no fork) — signals, PTY, and exit codes
 	// all work correctly.
+	start := time.Now()
 	bin, err := resolveExecPath(cmdArgs[0])
+	profile.Record("resolve exec path", start)
 	if err != nil {
 		die("hazmat-launch: %v", err)
 	}
 
+	profile.Done()
 	if err := syscall.Exec(bin, cmdArgs, os.Environ()); err != nil {
 		die("hazmat-launch: exec %s: %v", bin, err)
 	}
 }
 
 func dieUsage() {
-	die("usage: hazmat-launch <policy-file> <cmd> [args...]\n       hazmat-launch exec <cmd> [args...]")
+	die("usage: hazmat-launch [--hazmat-launch-profile] <policy-file> <cmd> [args...]\n       hazmat-launch [--hazmat-launch-profile] exec <cmd> [args...]")
 }
 
 // closeInheritedFDs drops every non-stdio descriptor before any helper logic

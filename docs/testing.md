@@ -52,6 +52,23 @@ Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
 paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed
 launch paths, so agents must ask for exact-command approval before running them.
 
+## Native Launch Performance Profiling
+
+Use `HAZMAT_SESSION_PREP_PROFILE=yes` before proposing native launch rewrites.
+It prints opt-in timings for session preparation, host-repair planning,
+startup phases, native launch execution, and the `hazmat-launch` helper. The
+minimal latency target should be measured with a helper-backed command such as:
+
+```bash
+HAZMAT_SESSION_PREP_PROFILE=yes /usr/bin/time -p ./hazmat --yes exec --no-backup --metadata-json -C <repo> -- /usr/bin/true
+```
+
+That command is sudo-adjacent in agent workflows because it uses the native
+launch helper and may apply approved host repairs; ask for exact-command
+approval before running it. Treat helper or lower-level rewrites as justified
+only when the profile shows sudo/helper, policy application, or exec handoff is
+the remaining bottleneck after Go-side preparation costs are accounted for.
+
 Linux native run-agent support is still plan-only/experimental. Its provider
 readiness gates live in
 [docs/plans/2026-06-13-linux-run-agent-readiness-gates.md](plans/2026-06-13-linux-run-agent-readiness-gates.md)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hazmat/internal/setup"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -105,6 +106,9 @@ func detectGitRepoTopLevelImpl(projectDir string) (string, bool) {
 	if projectDir == "" {
 		return "", false
 	}
+	if repoDir, ok := detectGitRepoTopLevelFast(projectDir); ok {
+		return repoDir, true
+	}
 	out, err := hostGitCombinedOutput("-C", projectDir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", false
@@ -114,6 +118,34 @@ func detectGitRepoTopLevelImpl(projectDir string) (string, bool) {
 		return "", false
 	}
 	return repoDir, true
+}
+
+func detectGitRepoTopLevelFast(projectDir string) (string, bool) {
+	dir := filepath.Clean(projectDir)
+	for {
+		gitMarker := filepath.Join(dir, ".git")
+		info, err := os.Stat(gitMarker)
+		switch {
+		case err == nil && info.IsDir():
+			return normalizeSafeDirectoryEntry(dir), true
+		case err == nil && gitFilePointsToMetadata(gitMarker):
+			return normalizeSafeDirectoryEntry(dir), true
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+func gitFilePointsToMetadata(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:")
 }
 
 func readGitSafeDirectoryEntriesCommand(cmd *exec.Cmd) ([]string, error) {
