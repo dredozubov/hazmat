@@ -721,6 +721,7 @@ func TestResolvePreparedSessionFastPathSkipsAmbientAccessAndHooks(t *testing.T) 
 		skipGitSafeDirectoryPlanning: true,
 		skipAmbientAccessGrants:      true,
 		skipGitHTTPSRuntime:          true,
+		skipGoModCacheEnv:            true,
 		skipProjectHooks:             true,
 	}, true, nil)
 	if err != nil {
@@ -746,6 +747,9 @@ func TestResolvePreparedSessionFastPathSkipsAmbientAccessAndHooks(t *testing.T) 
 	}
 	if !prepared.Config.SkipGitHTTPSRuntime {
 		t.Fatal("SkipGitHTTPSRuntime = false, want true")
+	}
+	if !prepared.Config.SkipGoModCacheEnv {
+		t.Fatal("SkipGoModCacheEnv = false, want true")
 	}
 }
 

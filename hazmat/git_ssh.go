@@ -125,6 +125,7 @@ type preparedSessionRuntime struct {
 var (
 	brokerRuntimeRoot                 = defaultBrokerRuntimeRoot
 	brokerRuntimeAgentEnsureSharedDir = agentEnsureSharedDir
+	startAgentTempRuntimeRemoval      = defaultStartAgentTempRuntimeRemoval
 )
 
 type sshKeyCandidate struct {
@@ -1259,9 +1260,7 @@ func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
 	tempDir := filepath.Join(defaultAgentTmpDir, fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano()))
 	runtime.TempDir = tempDir
 	runtime.Cleanup = func() {
-		if err := asAgentQuiet("/bin/rm", "-rf", tempDir); err != nil {
-			fmt.Fprintf(os.Stderr, "hazmat: warning: could not remove agent temp dir %s: %v\n", tempDir, err)
-		}
+		cleanupAgentTempRuntime(tempDir)
 	}
 
 	if launchHelperSupportsSessionTemp(launchHelperPath()) {
@@ -1273,6 +1272,25 @@ func prepareAgentTempRuntime() (preparedSessionRuntime, error) {
 		return runtime, fmt.Errorf("prepare agent temp dir: %w", err)
 	}
 	return runtime, nil
+}
+
+func cleanupAgentTempRuntime(tempDir string) {
+	if err := startAgentTempRuntimeRemoval(tempDir); err != nil {
+		fmt.Fprintf(os.Stderr, "hazmat: warning: could not schedule agent temp dir cleanup %s: %v\n", tempDir, err)
+	}
+}
+
+func defaultStartAgentTempRuntimeRemoval(tempDir string) error {
+	cmd := newAgentCommand("/bin/rm", "-rf", tempDir)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
 }
 
 func prepareSharedBrokerRuntimeDir(prefix string) (string, error) {

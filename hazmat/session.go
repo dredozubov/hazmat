@@ -50,6 +50,7 @@ type sessionConfig struct {
 	NetworkMode             sessionNetworkMode
 	EmitSessionMetadataJSON bool
 	SkipGitHTTPSRuntime     bool
+	SkipGoModCacheEnv       bool
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
@@ -454,6 +455,7 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 				opts.skipGitSafeDirectoryPlanning = true
 				opts.skipAmbientAccessGrants = true
 				opts.skipGitHTTPSRuntime = true
+				opts.skipGoModCacheEnv = true
 				opts.skipProjectHooks = true
 			}
 			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
@@ -1033,6 +1035,7 @@ type harnessSessionOpts struct {
 	skipGitSafeDirectoryPlanning bool
 	skipAmbientAccessGrants      bool
 	skipGitHTTPSRuntime          bool
+	skipGoModCacheEnv            bool
 	skipProjectHooks             bool
 	skipHarnessAssetsSync        bool
 	noBackup                     bool
@@ -1478,6 +1481,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	cfg.Target = commandName
 	cfg.EmitSessionMetadataJSON = opts.metadataJSON
 	cfg.SkipGitHTTPSRuntime = opts.skipGitHTTPSRuntime
+	cfg.SkipGoModCacheEnv = opts.skipGoModCacheEnv
 	networkMode, err := parseSessionNetworkMode(opts.networkMode)
 	if err != nil {
 		return preparedSession{}, err

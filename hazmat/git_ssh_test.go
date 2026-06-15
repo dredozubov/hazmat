@@ -62,6 +62,14 @@ func TestPrepareSessionRuntimeCanSkipGitHTTPSRuntime(t *testing.T) {
 	launchHelperSupportsSessionTemp = func(string) bool { return true }
 	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
 
+	var cleanupPaths []string
+	savedStartRemoval := startAgentTempRuntimeRemoval
+	startAgentTempRuntimeRemoval = func(path string) error {
+		cleanupPaths = append(cleanupPaths, path)
+		return nil
+	}
+	t.Cleanup(func() { startAgentTempRuntimeRemoval = savedStartRemoval })
+
 	savedPrepareGitHTTPS := prepareGitHTTPSCredentialRuntime
 	prepareGitHTTPSCredentialRuntime = func() (preparedSessionRuntime, error) {
 		t.Fatal("prepareGitHTTPSCredentialRuntime should not run when skipped")
@@ -73,7 +81,6 @@ func TestPrepareSessionRuntimeCanSkipGitHTTPSRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("defaultPrepareSessionRuntime: %v", err)
 	}
-	defer runtime.Cleanup()
 
 	for _, pair := range runtime.EnvPairs {
 		if strings.HasPrefix(pair, "GIT_CONFIG_") {
@@ -82,6 +89,10 @@ func TestPrepareSessionRuntimeCanSkipGitHTTPSRuntime(t *testing.T) {
 	}
 	if runtime.TempDir == "" || runtime.LaunchHelperTempDir == "" {
 		t.Fatalf("temp runtime was not prepared: %+v", runtime)
+	}
+	runtime.Cleanup()
+	if !slices.Equal(cleanupPaths, []string{runtime.TempDir}) {
+		t.Fatalf("cleanup paths = %v, want %s", cleanupPaths, runtime.TempDir)
 	}
 }
 

@@ -248,13 +248,15 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 		pairs = append(pairs, terminalPairs...)
 	}
 
-	// Go toolchain: share the invoking user's module cache read-only.
-	// GOMODCACHE points to the invoker's cache so `go build` uses
-	// pre-downloaded modules instead of re-fetching. The seatbelt enforces
-	// read-only access — if a new dependency is needed, `go mod download`
-	// must be run outside the sandbox first.
-	if modCache := invokerGoModCache(); modCache != "" {
-		pairs = append(pairs, "GOMODCACHE="+modCache)
+	if !cfg.SkipGoModCacheEnv {
+		// Go toolchain: share the invoking user's module cache read-only.
+		// GOMODCACHE points to the invoker's cache so `go build` uses
+		// pre-downloaded modules instead of re-fetching. The seatbelt enforces
+		// read-only access — if a new dependency is needed, `go mod download`
+		// must be run outside the sandbox first.
+		if modCache := invokerGoModCache(); modCache != "" {
+			pairs = append(pairs, "GOMODCACHE="+modCache)
+		}
 	}
 
 	// Integration env passthrough: passive path pointers and selectors resolved

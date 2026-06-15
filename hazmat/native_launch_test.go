@@ -69,3 +69,84 @@ func TestReadLaunchHelperCapabilitiesUsesBoundedMarkerScan(t *testing.T) {
 		t.Fatalf("readLaunchHelperCapabilities() = %+v, want both capabilities", got)
 	}
 }
+
+func TestNativeLaunchBaseEnvPairsCanSkipGoModCacheProbe(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, key := range terminalEnvPassthroughKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TERMINFO", "")
+	t.Setenv("TERMINFO_DIRS", "")
+
+	called := false
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		called = true
+		return &fakeIntegrationProbe{}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	pairs := nativeLaunchBaseEnvPairs(sessionConfig{
+		ProjectDir:        "/Users/dr/workspace/project",
+		SkipGoModCacheEnv: true,
+	}, nativeLaunchEnvironment{
+		Shell:      "/bin/zsh",
+		Path:       defaultAgentPath,
+		Home:       agentHome,
+		TmpDir:     defaultAgentTmpDir,
+		CacheHome:  defaultAgentCacheHome,
+		ConfigHome: defaultAgentConfigHome,
+		DataHome:   defaultAgentDataHome,
+	})
+
+	if called {
+		t.Fatal("integration probe factory was called despite SkipGoModCacheEnv")
+	}
+	for _, pair := range pairs {
+		if strings.HasPrefix(pair, "GOMODCACHE=") {
+			t.Fatalf("GOMODCACHE unexpectedly present: %v", pairs)
+		}
+	}
+}
+
+func TestNativeLaunchBaseEnvPairsIncludesGoModCacheByDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, key := range terminalEnvPassthroughKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TERMINFO", "")
+	t.Setenv("TERMINFO_DIRS", "")
+	modCache := t.TempDir()
+	resolvedModCache, err := filepath.EvalSymlinks(modCache)
+	if err != nil {
+		t.Fatalf("resolve mod cache: %v", err)
+	}
+
+	savedFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{
+			outputs: map[string]string{
+				"go env GOMODCACHE": modCache,
+			},
+		}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedFactory })
+
+	pairs := nativeLaunchBaseEnvPairs(sessionConfig{
+		ProjectDir: "/Users/dr/workspace/project",
+	}, nativeLaunchEnvironment{
+		Shell:      "/bin/zsh",
+		Path:       defaultAgentPath,
+		Home:       agentHome,
+		TmpDir:     defaultAgentTmpDir,
+		CacheHome:  defaultAgentCacheHome,
+		ConfigHome: defaultAgentConfigHome,
+		DataHome:   defaultAgentDataHome,
+	})
+
+	if !containsString(pairs, "GOMODCACHE="+resolvedModCache) {
+		t.Fatalf("GOMODCACHE missing from env pairs: %v", pairs)
+	}
+}
