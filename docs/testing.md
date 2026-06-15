@@ -554,8 +554,14 @@ make pre-release-local PRERELEASE_ARGS=--vm
 ```
 
 The VM lane runs `scripts/e2e-vm.sh --quick`. First run creates a reusable
-Lume base VM, so it can take a long time. Setup Assistant is a separate
-restartable step; if it fails, rerun:
+Lume base VM, so it can take a long time. Cache the IPSW once before the first
+VM install:
+
+```bash
+bash scripts/e2e-vm.sh --step download --quick
+```
+
+Setup Assistant is a separate restartable step; if it fails, rerun:
 
 ```bash
 bash scripts/e2e-vm.sh --step setup --quick
@@ -602,6 +608,7 @@ and runs `scripts/e2e.sh` there.
 The base VM setup is intentionally split into restartable steps:
 
 ```bash
+bash scripts/e2e-vm.sh --step download --quick # download/cache IPSW once
 bash scripts/e2e-vm.sh --step install --quick  # install macOS base only
 bash scripts/e2e-vm.sh --step setup --quick    # run/retry Setup Assistant
 bash scripts/e2e-vm.sh --step base --quick     # install Go and readiness marker
@@ -609,7 +616,10 @@ bash scripts/e2e-vm.sh --quick                 # clone base and run lifecycle
 ```
 
 Use `--reset-vm-base` only when you intentionally want to delete the cached
-base VM and download/install macOS again.
+base VM. It does not delete the cached IPSW. By default the IPSW cache lives
+under `${XDG_CACHE_HOME:-$HOME/.cache}/hazmat/e2e-vm/ipsw`; override it with
+`HAZMAT_E2E_IPSW_CACHE_DIR`, or use `HAZMAT_E2E_IPSW=/path/to/file.ipsw` to
+provide a manually managed restore image.
 
 ## Host vs VM Model
 

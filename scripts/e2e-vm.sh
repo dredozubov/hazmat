@@ -4,6 +4,7 @@
 # Usage:
 #   bash scripts/e2e-vm.sh                         # full test with network probes
 #   bash scripts/e2e-vm.sh --quick                 # skip live network probes
+#   bash scripts/e2e-vm.sh --step download --quick # cache IPSW once
 #   bash scripts/e2e-vm.sh --step install --quick  # install base OS only
 #   bash scripts/e2e-vm.sh --step setup --quick    # retry Setup Assistant only
 #   bash scripts/e2e-vm.sh --step base --quick     # finish base provisioning
@@ -13,9 +14,9 @@
 #   - Apple Silicon Mac
 #   - Lume installed: brew install lume
 #
-# First run creates a base VM from IPSW (~15-20 min, one-time), then runs
-# Setup Assistant as a separate resumable step. Subsequent runs clone the base
-# (~seconds) and destroy the clone after testing.
+# First run downloads an IPSW into a persistent cache, creates a base VM from
+# that file, then runs Setup Assistant as a separate resumable step. Subsequent
+# runs clone the base (~seconds) and destroy the clone after testing.
 #
 # Base VM: hazmat-e2e-base (persistent, reused across runs)
 # Test VM: hazmat-e2e-<pid> (ephemeral, destroyed after each run)
@@ -29,6 +30,10 @@ VM_PASS="lume"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_SETUP_MARKER="$HOME/.lume/$BASE_VM/.hazmat-e2e-setup-ready"
 BASE_READY_MARKER="$HOME/.lume/$BASE_VM/.hazmat-e2e-base-ready"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/hazmat/e2e-vm"
+IPSW_CACHE_DIR="${HAZMAT_E2E_IPSW_CACHE_DIR:-$CACHE_ROOT/ipsw}"
+IPSW_LATEST_PATH_FILE="$IPSW_CACHE_DIR/latest.path"
+IPSW_LATEST_URL_FILE="$IPSW_CACHE_DIR/latest.url"
 
 QUICK=""
 KEEP=""
@@ -42,6 +47,7 @@ usage() {
     cat <<EOF
 Usage:
   bash scripts/e2e-vm.sh [--quick] [--keep] [--reset-vm-base]
+  bash scripts/e2e-vm.sh --step download [--quick]
   bash scripts/e2e-vm.sh --step install [--quick]
   bash scripts/e2e-vm.sh --step setup [--quick]
   bash scripts/e2e-vm.sh --step base [--quick]
@@ -52,21 +58,29 @@ Options:
   --quick             Pass --quick to scripts/e2e.sh inside the guest.
   --keep              Keep the cloned test VM after the run.
   --reset-vm-base     Delete hazmat-e2e-base before recreating it.
-  --step STEP         Run one step: install, setup, base, all.
+  --step STEP         Run one step: download, install, setup, base, all.
   --vm-step STEP      Alias for --step.
   -h, --help          Show this help.
 
 Steps:
-  install   Create hazmat-e2e-base from IPSW only. Does not run Setup Assistant.
+  download  Download and cache the latest supported IPSW once.
+  install   Create hazmat-e2e-base from cached IPSW only.
   setup     Run Lume Setup Assistant automation on the existing base VM.
   base      Ensure the base VM is installed, setup, and provisioned with Go.
   all       Ensure the base VM, clone a test VM, and run scripts/e2e.sh.
 
+Cache:
+  ${HAZMAT_E2E_IPSW_CACHE_DIR:-$IPSW_CACHE_DIR}
+  Set HAZMAT_E2E_IPSW=/path/to/file.ipsw to use a manually managed IPSW.
+
+Before the first install, run:
+  bash scripts/e2e-vm.sh --step download --quick
+
 If Setup Assistant automation fails, rerun:
   bash scripts/e2e-vm.sh --step setup --quick
 
-Only use --reset-vm-base when you intentionally want to discard the cached base
-and download/install macOS again.
+Only use --reset-vm-base when you intentionally want to discard the base VM.
+It does not delete the cached IPSW.
 EOF
 }
 
@@ -105,10 +119,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$STEP" in
-    install|setup|base|all)
+    download|install|setup|base|all)
         ;;
     *)
-        die "unknown VM step '$STEP' (expected install, setup, base, or all)"
+        die "unknown VM step '$STEP' (expected download, install, setup, base, or all)"
         ;;
 esac
 
@@ -162,6 +176,90 @@ lume_vm_exists() {
     lume get "$vm" >/dev/null 2>&1
 }
 
+latest_ipsw_url() {
+    local url
+    url="$(lume ipsw | awk '/^https:\/\// { found=$0 } END { print found }')"
+    [ -n "$url" ] || die "could not resolve latest IPSW URL from 'lume ipsw'"
+    echo "$url"
+}
+
+download_ipsw() {
+    mkdir -p "$IPSW_CACHE_DIR"
+
+    local url filename path partial
+    url="$(latest_ipsw_url)"
+    filename="${url##*/}"
+    case "$filename" in
+        *.ipsw)
+            ;;
+        *)
+            die "resolved IPSW URL does not end in .ipsw: $url"
+            ;;
+    esac
+
+    path="$IPSW_CACHE_DIR/$filename"
+    partial="$path.part"
+
+    if [ -s "$path" ]; then
+        echo "Cached IPSW already exists: $path"
+    else
+        echo "Downloading IPSW to persistent cache:"
+        echo "  $path"
+        if ! curl --fail --location --continue-at - --output "$partial" "$url"; then
+            echo "Resumable IPSW download failed; retrying from scratch..." >&2
+            rm -f "$partial"
+            curl --fail --location --output "$partial" "$url"
+        fi
+        mv -f "$partial" "$path"
+        echo "Cached IPSW downloaded: $path"
+    fi
+
+    printf '%s\n' "$url" > "$IPSW_LATEST_URL_FILE"
+    printf '%s\n' "$path" > "$IPSW_LATEST_PATH_FILE"
+}
+
+cached_ipsw_path() {
+    if [ -n "${HAZMAT_E2E_IPSW:-}" ]; then
+        [ -f "$HAZMAT_E2E_IPSW" ] || die "HAZMAT_E2E_IPSW does not point to a file: $HAZMAT_E2E_IPSW"
+        echo "$HAZMAT_E2E_IPSW"
+        return
+    fi
+
+    if [ -f "$IPSW_LATEST_PATH_FILE" ]; then
+        local path
+        path="$(sed -n '1p' "$IPSW_LATEST_PATH_FILE")"
+        if [ -n "$path" ] && [ -f "$path" ]; then
+            echo "$path"
+            return
+        fi
+    fi
+
+    if [ -d "$IPSW_CACHE_DIR" ]; then
+        local fallback
+        fallback="$(find "$IPSW_CACHE_DIR" -maxdepth 1 -type f -name '*.ipsw' -print | sort | tail -1 || true)"
+        if [ -n "$fallback" ]; then
+            echo "$fallback"
+            return
+        fi
+    fi
+
+    return 1
+}
+
+require_cached_ipsw() {
+    local path
+    if ! path="$(cached_ipsw_path)"; then
+        echo "Cached IPSW not found." >&2
+        echo "Download it once with:" >&2
+        echo "  bash scripts/e2e-vm.sh --step download --quick" >&2
+        echo "" >&2
+        echo "Or point Hazmat at a manually downloaded IPSW:" >&2
+        echo "  HAZMAT_E2E_IPSW=/path/to/file.ipsw bash scripts/e2e-vm.sh --step install --quick" >&2
+        exit 1
+    fi
+    echo "$path"
+}
+
 get_vm_ip() {
     local vm="$1"
     local ip
@@ -211,16 +309,18 @@ create_base_vm() {
         return
     fi
 
-    local host_version preset
+    local host_version preset ipsw_path
     host_version="$(host_major_version)"
     preset="$(base_preset)"
+    ipsw_path="$(require_cached_ipsw)"
 
     echo "Creating base VM $BASE_VM (one-time, ~15-20 min)..."
     echo "Host macOS $host_version: Setup Assistant preset will be '$preset'."
+    echo "Using cached IPSW: $ipsw_path"
     echo "This step installs macOS only; unattended setup is a separate resumable step."
     lume create "$BASE_VM" \
         --os macOS \
-        --ipsw latest \
+        --ipsw "$ipsw_path" \
         --cpu 4 \
         --memory 8GB \
         --disk-size 50GB \
@@ -359,6 +459,9 @@ run_guest_e2e() {
 }
 
 case "$STEP" in
+    download)
+        download_ipsw
+        ;;
     install)
         reset_base_if_requested
         create_base_vm

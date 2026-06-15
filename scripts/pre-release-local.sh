@@ -18,6 +18,9 @@ Options:
 The VM gate can take a long time on first run because it creates a reusable
 macOS base VM. If Setup Assistant fails, resume with:
   bash scripts/e2e-vm.sh --step setup --quick
+
+Before the first VM install, cache the IPSW once with:
+  bash scripts/e2e-vm.sh --step download --quick
 EOF
 }
 
