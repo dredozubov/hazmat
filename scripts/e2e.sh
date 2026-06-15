@@ -82,6 +82,28 @@ if [ -n "$KEEP_VM" ] && [ -z "$RUN_IN_VM" ]; then
     exit 2
 fi
 
+E2E_VM_CLEANUP_TEST_VM=""
+E2E_VM_CLEANUP_VM_USER=""
+E2E_VM_CLEANUP_VM_IP=""
+
+cleanup_e2e_vm() {
+    if [ -z "${E2E_VM_CLEANUP_TEST_VM:-}" ]; then
+        return
+    fi
+    if [ -n "$KEEP_VM" ]; then
+        echo ""
+        echo "VM $E2E_VM_CLEANUP_TEST_VM kept alive for debugging."
+        if [ -n "${E2E_VM_CLEANUP_VM_IP:-}" ]; then
+            echo "  SSH:     ssh $E2E_VM_CLEANUP_VM_USER@$E2E_VM_CLEANUP_VM_IP"
+        fi
+        echo "  Destroy: lume stop $E2E_VM_CLEANUP_TEST_VM && lume delete $E2E_VM_CLEANUP_TEST_VM --force"
+        return
+    fi
+    echo "Cleaning up VM $E2E_VM_CLEANUP_TEST_VM..."
+    lume stop "$E2E_VM_CLEANUP_TEST_VM" 2>/dev/null || true
+    lume delete "$E2E_VM_CLEANUP_TEST_VM" --force 2>/dev/null || true
+}
+
 run_e2e_vm() {
     local base_vm="${HAZMAT_E2E_BASE_VM:-hazmat-e2e-base}"
     local test_vm="${HAZMAT_E2E_TEST_VM:-hazmat-e2e-$$}"
@@ -89,6 +111,7 @@ run_e2e_vm() {
     local vm_pass="${HAZMAT_E2E_VM_PASS:-lume}"
     local vm_ip=""
     local guest_repo="/tmp/hazmat-repo"
+    local base_ready_marker="${HAZMAT_E2E_BASE_READY_MARKER:-$HOME/.lume/$base_vm/.hazmat-e2e-base-ready}"
 
     get_vm_ip() {
         local vm="$1"
@@ -122,29 +145,30 @@ run_e2e_vm() {
         ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$vm_user@$ip" "$@"
     }
 
-    cleanup_vm() {
-        if [ -n "$KEEP_VM" ]; then
-            echo ""
-            echo "VM $test_vm kept alive for debugging."
-            echo "  SSH:     ssh $vm_user@$vm_ip"
-            echo "  Destroy: lume stop $test_vm && lume delete $test_vm --force"
-            return
+    delete_failed_base_vm() {
+        echo "Deleting incomplete base VM $base_vm after setup failure..." >&2
+        lume stop "$base_vm" 2>/dev/null || true
+        lume delete "$base_vm" --force 2>/dev/null || true
+        rm -f "$base_ready_marker"
+        if [ -n "${base_pid:-}" ]; then
+            wait "$base_pid" 2>/dev/null || true
         fi
-        echo "Cleaning up VM $test_vm..."
-        lume stop "$test_vm" 2>/dev/null || true
-        lume delete "$test_vm" --force 2>/dev/null || true
     }
-    trap cleanup_vm EXIT
+    trap cleanup_e2e_vm EXIT
 
     if ! command -v lume >/dev/null 2>&1; then
         echo "Error: lume not found. Install with: brew install lume"
         exit 1
     fi
 
-    if lume get "$base_vm" >/dev/null 2>&1; then
+    if lume get "$base_vm" >/dev/null 2>&1 && [ -f "$base_ready_marker" ]; then
         echo "Base VM $base_vm already exists."
     else
         local host_version preset base_pid base_ip
+        if lume get "$base_vm" >/dev/null 2>&1; then
+            echo "Base VM $base_vm exists without Hazmat readiness marker; recreating it."
+            delete_failed_base_vm
+        fi
         host_version=$(sw_vers -productVersion | cut -d. -f1)
         case "$host_version" in
             26) preset="tahoe" ;;
@@ -155,33 +179,52 @@ run_e2e_vm() {
         echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
         echo "Host macOS $host_version -> using '$preset' preset."
         echo "This downloads macOS from Apple and runs unattended Setup Assistant."
-        lume create "$base_vm" \
+        if ! lume create "$base_vm" \
             --os macOS \
             --ipsw latest \
             --cpu 4 \
             --memory 8GB \
             --disk-size 50GB \
             --unattended "$preset" \
-            --no-display
+            --no-display; then
+            delete_failed_base_vm
+            exit 1
+        fi
         echo "Base VM $base_vm created."
 
         echo "Installing Go in base VM..."
         lume run "$base_vm" --no-display &
         base_pid=$!
 
-        wait_for_ssh "$base_vm"
+        if ! wait_for_ssh "$base_vm"; then
+            delete_failed_base_vm
+            exit 1
+        fi
 
         base_ip=$(get_vm_ip "$base_vm")
-        vm_ssh_to "$base_ip" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-        vm_ssh_to "$base_ip" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'
-        vm_ssh_to "$base_ip" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"
+        if ! vm_ssh_to "$base_ip" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
+            delete_failed_base_vm
+            exit 1
+        fi
+        if ! vm_ssh_to "$base_ip" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'; then
+            delete_failed_base_vm
+            exit 1
+        fi
+        if ! vm_ssh_to "$base_ip" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"; then
+            delete_failed_base_vm
+            exit 1
+        fi
 
         lume stop "$base_vm"
         wait "$base_pid" || true
+        mkdir -p "$(dirname "$base_ready_marker")"
+        printf 'ready\n' >"$base_ready_marker"
         echo "Base VM ready with Go + passwordless sudo."
     fi
 
     echo "Cloning $base_vm -> $test_vm..."
+    E2E_VM_CLEANUP_TEST_VM="$test_vm"
+    E2E_VM_CLEANUP_VM_USER="$vm_user"
     lume clone "$base_vm" "$test_vm"
 
     echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
@@ -189,6 +232,7 @@ run_e2e_vm() {
 
     wait_for_ssh "$test_vm"
     vm_ip=$(get_vm_ip "$test_vm")
+    E2E_VM_CLEANUP_VM_IP="$vm_ip"
 
     echo "Copying repo to VM local disk..."
     vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
