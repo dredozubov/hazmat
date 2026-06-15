@@ -12,15 +12,10 @@ import (
 	"sync"
 )
 
-const (
-	gitHTTPSCredentialSocketEnv = "HAZMAT_GIT_HTTPS_CREDENTIAL_SOCKET"
-)
-
 var (
 	gitHTTPSAgentCredentialsPath = agentHome + "/.config/git/credentials"
 	gitHTTPSAgentGitConfigPath   = agentHome + "/.gitconfig"
 	gitHTTPSExecutablePath       = os.Executable
-	gitHTTPSWriteRuntimeFile     = writeGitSSHRuntimeFile
 	gitHTTPSRunCredentialStore   = runGitHTTPSCredentialStore
 )
 
@@ -76,13 +71,7 @@ func prepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {
 		service.Close()
 		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("resolve hazmat binary for Git HTTPS credential helper: %w", err)
 	}
-
-	wrapperPath := filepath.Join(runtimeDir, "git-credential-hazmat")
-	wrapperScript := buildGitHTTPSCredentialHelperScript(helperPath, service.socketPath)
-	if err := gitHTTPSWriteRuntimeFile(wrapperPath, []byte(wrapperScript), 0o750); err != nil {
-		service.Close()
-		return preparedSessionRuntime{Cleanup: func() {}}, fmt.Errorf("write Git HTTPS credential helper: %w", err)
-	}
+	helperCommand := buildGitHTTPSCredentialHelperCommand(helperPath, service.socketPath)
 
 	runtime.Cleanup = service.Close
 	runtime.EnvPairs = []string{
@@ -90,8 +79,7 @@ func prepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=",
 		"GIT_CONFIG_KEY_1=credential.helper",
-		"GIT_CONFIG_VALUE_1=" + wrapperPath,
-		gitHTTPSCredentialSocketEnv + "=" + service.socketPath,
+		"GIT_CONFIG_VALUE_1=" + helperCommand,
 	}
 	return runtime, nil
 }
@@ -278,15 +266,7 @@ func mergeGitCredentialStoreLines(existing, legacy []byte) []byte {
 	return []byte(strings.Join(lines, "\n"))
 }
 
-func buildGitHTTPSCredentialHelperScript(helperPath, socketPath string) string {
-	quoted := shellQuote([]string{helperPath, socketPath})
-	return strings.Join([]string{
-		"#!/bin/sh",
-		"set -eu",
-		"helper=" + quoted[0],
-		"socket=${" + gitHTTPSCredentialSocketEnv + ":-" + quoted[1] + "}",
-		"operation=${1:-get}",
-		"exec \"$helper\" _git_https_credential \"$socket\" \"$operation\"",
-		"",
-	}, "\n")
+func buildGitHTTPSCredentialHelperCommand(helperPath, socketPath string) string {
+	quoted := shellQuote([]string{helperPath, "_git_https_credential", socketPath})
+	return "!" + strings.Join(quoted, " ")
 }

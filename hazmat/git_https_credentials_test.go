@@ -153,15 +153,98 @@ func TestPrepareSharedBrokerRuntimeDirUsesStickyRootAndAgentSharedLeaf(t *testin
 	}
 }
 
-func TestBuildGitHTTPSCredentialHelperScriptUsesBrokerCommand(t *testing.T) {
-	got := buildGitHTTPSCredentialHelperScript("/usr/local/bin/hazmat", "/tmp/hazmat.sock")
+func TestBuildGitHTTPSCredentialHelperCommandUsesBrokerCommand(t *testing.T) {
+	got := buildGitHTTPSCredentialHelperCommand("/Applications/Hazmat App/hazmat", "/tmp/hazmat sock")
 	for _, want := range []string{
+		"!",
+		"'/Applications/Hazmat App/hazmat'",
 		"_git_https_credential",
-		gitHTTPSCredentialSocketEnv,
-		`operation=${1:-get}`,
+		"'/tmp/hazmat sock'",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("helper script missing %q:\n%s", want, got)
+			t.Fatalf("helper command missing %q:\n%s", want, got)
 		}
+	}
+	if !strings.HasPrefix(got, "!") {
+		t.Fatalf("helper command = %q, want Git shell helper prefix", got)
+	}
+	if strings.Contains(got, "HAZMAT_GIT_HTTPS_CREDENTIAL_SOCKET") {
+		t.Fatalf("helper command unexpectedly uses socket environment:\n%s", got)
+	}
+}
+
+func TestPrepareGitHTTPSCredentialRuntimeUsesInlineHelperCommand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	savedLegacyPath := gitHTTPSAgentCredentialsPath
+	gitHTTPSAgentCredentialsPath = filepath.Join(home, "agent", ".config", "git", "credentials")
+	t.Cleanup(func() {
+		gitHTTPSAgentCredentialsPath = savedLegacyPath
+	})
+
+	savedRoot := brokerRuntimeRoot
+	root, err := os.MkdirTemp("/tmp", "hghrt-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokerRuntimeRoot = root
+	t.Cleanup(func() {
+		_ = os.RemoveAll(root)
+		brokerRuntimeRoot = savedRoot
+	})
+
+	savedEnsure := brokerRuntimeAgentEnsureSharedDir
+	brokerRuntimeAgentEnsureSharedDir = func(path string, mode os.FileMode) error {
+		if err := os.MkdirAll(path, mode.Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode.Perm())
+	}
+	t.Cleanup(func() {
+		brokerRuntimeAgentEnsureSharedDir = savedEnsure
+	})
+
+	savedExecutable := gitHTTPSExecutablePath
+	gitHTTPSExecutablePath = func() (string, error) {
+		return "/usr/local/bin/hazmat", nil
+	}
+	t.Cleanup(func() {
+		gitHTTPSExecutablePath = savedExecutable
+	})
+
+	runtime, err := prepareGitHTTPSCredentialRuntime()
+	if err != nil {
+		t.Fatalf("prepareGitHTTPSCredentialRuntime: %v", err)
+	}
+	defer runtime.Cleanup()
+
+	env := map[string]string{}
+	for _, pair := range runtime.EnvPairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			t.Fatalf("env pair %q is missing =", pair)
+		}
+		env[key] = value
+	}
+
+	if got := env["GIT_CONFIG_COUNT"]; got != "2" {
+		t.Fatalf("GIT_CONFIG_COUNT = %q, want 2", got)
+	}
+	if got := env["GIT_CONFIG_KEY_0"]; got != "credential.helper" {
+		t.Fatalf("GIT_CONFIG_KEY_0 = %q, want credential.helper", got)
+	}
+	if got := env["GIT_CONFIG_VALUE_0"]; got != "" {
+		t.Fatalf("GIT_CONFIG_VALUE_0 = %q, want empty reset", got)
+	}
+	if got := env["GIT_CONFIG_KEY_1"]; got != "credential.helper" {
+		t.Fatalf("GIT_CONFIG_KEY_1 = %q, want credential.helper", got)
+	}
+	helperCommand := env["GIT_CONFIG_VALUE_1"]
+	if !strings.HasPrefix(helperCommand, "!/usr/local/bin/hazmat _git_https_credential ") {
+		t.Fatalf("GIT_CONFIG_VALUE_1 = %q, want inline Git shell helper", helperCommand)
+	}
+	if strings.Contains(strings.Join(runtime.EnvPairs, "\n"), "HAZMAT_GIT_HTTPS_CREDENTIAL_SOCKET") {
+		t.Fatalf("runtime env unexpectedly exposes socket path:\n%s", strings.Join(runtime.EnvPairs, "\n"))
 	}
 }
