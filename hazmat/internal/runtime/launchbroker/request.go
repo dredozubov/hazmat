@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var helperPolicyPathPattern = regexp.MustCompile(`^/private/tmp/hazmat-\d+\.sb$`)
 
 type PeerAuthState uint8
 
@@ -81,6 +84,9 @@ func validateRequest(req LaunchRequest) error {
 	}
 	if !filepath.IsAbs(req.PolicyPath) || filepath.Clean(req.PolicyPath) != req.PolicyPath {
 		return fmt.Errorf("policy path %q must be absolute and clean", req.PolicyPath)
+	}
+	if !helperPolicyPathPattern.MatchString(req.PolicyPath) {
+		return fmt.Errorf("policy path %q must match /private/tmp/hazmat-<pid>.sb", req.PolicyPath)
 	}
 	if len(req.Args) == 0 {
 		return errors.New("launch args are required")

@@ -34,6 +34,7 @@
 \* Governed code:
 \*   hazmat/native_launch.go — backend-neutral native launch contract
 \*   hazmat/native_launch_darwin.go — Darwin sudo + helper command shape
+\*   hazmat/internal/runtime/darwin/runtime.go — shared helper argv builder
 \*   hazmat/agent_launch.go — fixed-script native launch wrapper
 \*   hazmat/session.go — runAgentSeatbeltScriptWithUI()
 \*   hazmat/cmd/hazmat-launch/main.go — helper-side fd sanitization, policy read, sandbox_init, exec

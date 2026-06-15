@@ -44,6 +44,19 @@ func TestVerifyLaunchRequestValidatesDirectExecShape(t *testing.T) {
 	}
 }
 
+func TestVerifyLaunchRequestRequiresHelperPolicyPathShape(t *testing.T) {
+	peer, err := AuthenticatePeer(501, 501)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := validDirectRequest()
+	req.PolicyPath = "/private/tmp/hazmat-test.sb"
+	if _, err := VerifyLaunchRequest(peer, req); err == nil {
+		t.Fatal("VerifyLaunchRequest accepted helper-incompatible policy path")
+	}
+}
+
 func TestVerifiedLaunchRequestDefensivelyCopiesSlices(t *testing.T) {
 	peer, err := AuthenticatePeer(501, 501)
 	if err != nil {

@@ -74,8 +74,13 @@ type CommandRequest struct {
 func CommandSudoArgs(req CommandRequest) []string {
 	full := []string{
 		"-u", req.AgentUser,
-		req.LaunchHelperPath,
 	}
+	full = append(full, CommandLaunchHelperArgs(req)...)
+	return full
+}
+
+func CommandLaunchHelperArgs(req CommandRequest) []string {
+	full := []string{req.LaunchHelperPath}
 	if req.Profile {
 		full = append(full, "--hazmat-launch-profile")
 	}

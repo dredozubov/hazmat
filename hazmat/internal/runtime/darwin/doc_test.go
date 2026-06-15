@@ -32,6 +32,27 @@ func TestCommandSudoArgsBuildsLaunchHelperInvocation(t *testing.T) {
 	}
 }
 
+func TestCommandLaunchHelperArgsOmitsSudoPrefix(t *testing.T) {
+	got := CommandLaunchHelperArgs(CommandRequest{
+		LaunchHelperPath: "/usr/local/libexec/hazmat-launch",
+		PolicyPath:       "/private/tmp/hazmat-test.sb",
+		EnvPairs:         []string{"HOME=/Users/agent", "PATH=/usr/bin"},
+		Script:           `exec "$@"`,
+		Args:             []string{"/usr/bin/true"},
+	})
+
+	want := []string{
+		"/usr/local/libexec/hazmat-launch", "/private/tmp/hazmat-test.sb",
+		"/usr/bin/env", "-i",
+		"HOME=/Users/agent", "PATH=/usr/bin",
+		"/bin/zsh", "-lc", `exec "$@"`, "zsh",
+		"/usr/bin/true",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CommandLaunchHelperArgs() = %v, want %v", got, want)
+	}
+}
+
 func TestCommandSudoArgsPassesLaunchProfileFlag(t *testing.T) {
 	got := CommandSudoArgs(CommandRequest{
 		AgentUser:        "agent",

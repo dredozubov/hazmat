@@ -190,8 +190,14 @@ Observed result:
 - only a `VerifiedLaunchRequest` can construct a `ChildPlan`
 - `ChildPlan` construction requires `ChildFDPolicyCloseInherited`, preserving
   the model's launch-child fd cleanup obligation before future executor wiring
+- broker child command planning now invokes the existing `hazmat-launch`
+  helper directly with a minimal `SUDO_UID=<authenticated-peer>` environment,
+  so helper-side policy validation and inherited-fd cleanup are preserved
+  without the future hot path needing per-launch `sudo`
+- broker validation rejects policy paths that the helper would reject before
+  constructing a child command
 - package benchmark for request/auth/validation/child-plan round trip:
-  `45.607-64.305 us/op` across five local Darwin arm64 runs
+  `47.886-112.526 us/op` across five local Darwin arm64 runs
 
 ## Interpretation
 
