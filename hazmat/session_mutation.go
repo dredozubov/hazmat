@@ -30,6 +30,10 @@ type sessionMutationPlan struct {
 	Mutations []plannedSessionMutation
 }
 
+type nativeSessionMutationPlanOptions struct {
+	SkipGitSafeDirectoryPlanning bool
+}
+
 var nativeSessionMutationPlanProfileWriter = func() io.Writer { return os.Stderr }
 
 type nativeSessionMutationPlanProfile struct {
@@ -97,6 +101,10 @@ func (p sessionMutationPlan) Describe() []sessionMutation {
 }
 
 func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
+	return buildNativeSessionMutationPlanWithOptions(cfg, nativeSessionMutationPlanOptions{})
+}
+
+func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSessionMutationPlanOptions) sessionMutationPlan {
 	var plan sessionMutationPlan
 	profile := newNativeSessionMutationPlanProfile()
 	defer profile.Done()
@@ -234,30 +242,34 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	}
 
 	start = time.Now()
-	repoDir := plannedProjectGitSafeDirectory(cfg.ProjectDir)
-	profile.Record("git safe.directory planning", start)
-	if repoDir != "" {
-		projectDir := cfg.ProjectDir
-		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
-			Metadata: sessionMutation{
-				Summary:     "git safe.directory trust",
-				Detail:      fmt.Sprintf("may add %s to the agent user's Git safe.directory list so agent-side tools can read repository metadata", repoDir),
-				Persistence: "persistent in agent home",
-				ProofScope:  sessionMutationProofScopeTestsDocs,
-			},
-			Apply: func() (sessionMutationExecution, error) {
-				fixed, err := ensureAgentGitSafeDirectory(projectDir)
-				if err != nil {
-					return sessionMutationExecution{}, err
-				}
-				if fixed {
-					return sessionMutationExecution{
-						AppliedMessage: "  Trusted project repo for agent-side Git metadata access",
-					}, nil
-				}
-				return sessionMutationExecution{}, nil
-			},
-		})
+	if opts.SkipGitSafeDirectoryPlanning {
+		profile.Record("git safe.directory planning (skipped)", start)
+	} else {
+		repoDir := plannedProjectGitSafeDirectory(cfg.ProjectDir)
+		profile.Record("git safe.directory planning", start)
+		if repoDir != "" {
+			projectDir := cfg.ProjectDir
+			plan.Mutations = append(plan.Mutations, plannedSessionMutation{
+				Metadata: sessionMutation{
+					Summary:     "git safe.directory trust",
+					Detail:      fmt.Sprintf("may add %s to the agent user's Git safe.directory list so agent-side tools can read repository metadata", repoDir),
+					Persistence: "persistent in agent home",
+					ProofScope:  sessionMutationProofScopeTestsDocs,
+				},
+				Apply: func() (sessionMutationExecution, error) {
+					fixed, err := ensureAgentGitSafeDirectory(projectDir)
+					if err != nil {
+						return sessionMutationExecution{}, err
+					}
+					if fixed {
+						return sessionMutationExecution{
+							AppliedMessage: "  Trusted project repo for agent-side Git metadata access",
+						}, nil
+					}
+					return sessionMutationExecution{}, nil
+				},
+			})
+		}
 	}
 
 	return plan

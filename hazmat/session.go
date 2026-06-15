@@ -449,6 +449,8 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 			if shouldSkipAutomaticIntegrationsForExec(args, opts) {
 				opts.skipAutoIntegrations = true
 				opts.skipIntegrationHints = true
+				opts.skipRepoSetupDiscovery = true
+				opts.skipGitSafeDirectoryPlanning = true
 			}
 			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
 			if err != nil {
@@ -1011,31 +1013,33 @@ Examples:
 // harnessSessionOpts holds hazmat-specific flags extracted from a harness
 // command line before forwarding the rest to the harness CLI.
 type harnessSessionOpts struct {
-	project               string
-	resolvedProjectDir    string
-	projectDirResolved    bool
-	dockerDetection       dockerProjectDetection
-	dockerDetectionCached bool
-	readDirs              []string
-	writeDirs             []string
-	integrations          []string
-	resolvedIntegrations  []IntegrationSpec
-	integrationsResolved  bool
-	skipAutoIntegrations  bool
-	skipIntegrationHints  bool
-	skipHarnessAssetsSync bool
-	noBackup              bool
-	github                bool
-	useSandbox            bool
-	allowDocker           bool
-	dockerMode            string
-	dockerModeExplicit    bool
-	networkMode           string
-	networkModeExplicit   bool
-	metadataJSON          bool
-	auditInstall          bool
-	planOnly              bool
-	claudeBareRequested   bool
+	project                      string
+	resolvedProjectDir           string
+	projectDirResolved           bool
+	dockerDetection              dockerProjectDetection
+	dockerDetectionCached        bool
+	readDirs                     []string
+	writeDirs                    []string
+	integrations                 []string
+	resolvedIntegrations         []IntegrationSpec
+	integrationsResolved         bool
+	skipAutoIntegrations         bool
+	skipIntegrationHints         bool
+	skipRepoSetupDiscovery       bool
+	skipGitSafeDirectoryPlanning bool
+	skipHarnessAssetsSync        bool
+	noBackup                     bool
+	github                       bool
+	useSandbox                   bool
+	allowDocker                  bool
+	dockerMode                   string
+	dockerModeExplicit           bool
+	networkMode                  string
+	networkModeExplicit          bool
+	metadataJSON                 bool
+	auditInstall                 bool
+	planOnly                     bool
+	claudeBareRequested          bool
 }
 
 func (opts *harnessSessionOpts) resolvedDockerDetection(projectDir string) dockerProjectDetection {
@@ -1583,21 +1587,25 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 	if mode == sessionModeNative {
 		progress.Step("planning host repairs")
-		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlan(cfg))
+		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlanWithOptions(cfg, nativeSessionMutationPlanOptions{
+			SkipGitSafeDirectoryPlanning: opts.skipGitSafeDirectoryPlanning,
+		}))
 	}
 	prepared.Config.PlannedHostMutations = prepared.HostMutationPlan.Describe()
-	progress.Step("collecting repo setup")
-	repoSetup, err := repoSetupStateForSession(prepared.Config)
-	if err != nil {
-		prepared.Config.RepoSetup = &repoSetupState{
-			Notes: []string{fmt.Sprintf("Could not collect repo setup state: %v", err)},
+	if !opts.skipRepoSetupDiscovery {
+		progress.Step("collecting repo setup")
+		repoSetup, err := repoSetupStateForSession(prepared.Config)
+		if err != nil {
+			prepared.Config.RepoSetup = &repoSetupState{
+				Notes: []string{fmt.Sprintf("Could not collect repo setup state: %v", err)},
+			}
+		} else {
+			prepared.Config.RepoSetup = &repoSetup
 		}
-	} else {
-		prepared.Config.RepoSetup = &repoSetup
-	}
-	prepared, err = finalizePreparedRepoSetup(prepared, false, false)
-	if err != nil {
-		return preparedSession{}, err
+		prepared, err = finalizePreparedRepoSetup(prepared, false, false)
+		if err != nil {
+			return preparedSession{}, err
+		}
 	}
 	return prepared, nil
 }

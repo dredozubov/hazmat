@@ -351,6 +351,30 @@ func TestPrepareLaunchSessionCanSkipAutomaticIntegrations(t *testing.T) {
 	}
 }
 
+func TestPrepareLaunchSessionCanSkipAdvisoryRepoSetupDiscovery(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte("build:\n\tcustomtool build\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	prepared, err := prepareLaunchSession("exec", harnessSessionOpts{
+		project:                      projectDir,
+		skipAutoIntegrations:         true,
+		skipIntegrationHints:         true,
+		skipRepoSetupDiscovery:       true,
+		skipGitSafeDirectoryPlanning: true,
+	}, true)
+	if err != nil {
+		t.Fatalf("prepareLaunchSession: %v", err)
+	}
+	if prepared.Config.RepoSetup != nil {
+		t.Fatalf("RepoSetup = %#v, want nil when advisory discovery is skipped", prepared.Config.RepoSetup)
+	}
+}
+
 func BenchmarkSessionPreparationLargeTree(b *testing.B) {
 	savedConfigPath := configFilePath
 	configFilePath = filepath.Join(b.TempDir(), "nonexistent.yaml")
@@ -406,6 +430,68 @@ func BenchmarkSessionPreparationLargeTree(b *testing.B) {
 		}
 		if !containsString(prepared.Config.SuggestedIntegrations, "go") || !containsString(prepared.Config.SuggestedIntegrations, "tla-java") {
 			b.Fatalf("suggested integrations = %v, want go and tla-java", prepared.Config.SuggestedIntegrations)
+		}
+	}
+}
+
+func BenchmarkSessionPreparationPlainAbsoluteExecFastPath(b *testing.B) {
+	savedConfigPath := configFilePath
+	configFilePath = filepath.Join(b.TempDir(), "nonexistent.yaml")
+	b.Cleanup(func() { configFilePath = savedConfigPath })
+
+	savedRequireInit := requireInit
+	requireInit = func() error { return nil }
+	b.Cleanup(func() { requireInit = savedRequireInit })
+
+	savedCollectAssets := collectDesiredHarnessAssetsForSync
+	collectDesiredHarnessAssetsForSync = func(HarnessID) (map[string]harnessAssetDesiredEntry, []string, error) {
+		return nil, nil, nil
+	}
+	b.Cleanup(func() { collectDesiredHarnessAssetsForSync = savedCollectAssets })
+
+	projectDir := b.TempDir()
+	for i := 0; i < 200; i++ {
+		nested := filepath.Join(projectDir, fmt.Sprintf("pkg-%03d", i), "internal", "deep")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			b.Fatalf("mkdir %s: %v", nested, err)
+		}
+		for j := 0; j < 20; j++ {
+			path := filepath.Join(nested, fmt.Sprintf("file-%03d.txt", j))
+			if err := os.WriteFile(path, []byte("fixture"), 0o644); err != nil {
+				b.Fatalf("write %s: %v", path, err)
+			}
+		}
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module test"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte("build:\n\tcustomtool build\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	b.Setenv("HAZMAT_LAUNCH_HELPER", filepath.Join(b.TempDir(), "hazmat-launch"))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		prepared, err := resolvePreparedSessionWithProgress("exec", harnessSessionOpts{
+			project:                      projectDir,
+			resolvedIntegrations:         nil,
+			integrationsResolved:         true,
+			skipAutoIntegrations:         true,
+			skipIntegrationHints:         true,
+			skipRepoSetupDiscovery:       true,
+			skipGitSafeDirectoryPlanning: true,
+			noBackup:                     true,
+			metadataJSON:                 true,
+		}, true, nil)
+		if err != nil {
+			b.Fatalf("resolvePreparedSessionWithProgress: %v", err)
+		}
+		if prepared.Config.RepoSetup != nil {
+			b.Fatalf("RepoSetup = %#v, want nil", prepared.Config.RepoSetup)
+		}
+		if len(prepared.Config.SuggestedIntegrations) != 0 {
+			b.Fatalf("SuggestedIntegrations = %v, want empty", prepared.Config.SuggestedIntegrations)
 		}
 	}
 }

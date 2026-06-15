@@ -2745,6 +2745,62 @@ func TestBuildNativeSessionMutationPlanIncludesGitSafeDirectoryTrust(t *testing.
 	}
 }
 
+func TestBuildNativeSessionMutationPlanCanSkipGitSafeDirectoryPlanning(t *testing.T) {
+	savedACLFactory := platformACLBackendFactory
+	savedExecutable := currentExecutablePath
+	savedUserHomeDir := currentUserHomeDir
+	savedPathAllows := pathAllowsAgentTraverse
+	savedDetect := detectGitRepoTopLevel
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedACLFactory
+		currentExecutablePath = savedExecutable
+		currentUserHomeDir = savedUserHomeDir
+		pathAllowsAgentTraverse = savedPathAllows
+		detectGitRepoTopLevel = savedDetect
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	projectDir := filepath.Join(string(os.PathSeparator), "Users", "rv", "workspace", "repo")
+	platformACLBackendFactory = func() platformACLBackend {
+		return &pathRecordingACLBackend{
+			rows: map[string][]ACLRow{
+				projectDir: {rowForGrant(devGroupInheritableGrant)},
+			},
+		}
+	}
+	currentExecutablePath = func() (string, error) {
+		return systemHazmatBin, nil
+	}
+	currentUserHomeDir = func() (string, error) {
+		return filepath.Join(string(os.PathSeparator), "Users", "rv"), nil
+	}
+	pathAllowsAgentTraverse = func(string) bool { return true }
+	detectGitRepoTopLevel = func(string) (string, bool) {
+		t.Fatal("detectGitRepoTopLevel should not run when git safe.directory planning is skipped")
+		return "", false
+	}
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		t.Fatal("system safe.directory entries should not be read when planning is skipped")
+		return nil, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		t.Fatal("agent safe.directory entries should not be read when planning is skipped")
+		return nil, nil
+	}
+
+	plan := buildNativeSessionMutationPlanWithOptions(sessionConfig{ProjectDir: projectDir}, nativeSessionMutationPlanOptions{
+		SkipGitSafeDirectoryPlanning: true,
+	})
+	for _, mutation := range plan.Describe() {
+		if mutation.Summary == "git safe.directory trust" {
+			t.Fatalf("Describe() = %+v, want no git safe.directory mutation", plan.Describe())
+		}
+	}
+}
+
 func TestBuildNativeSessionMutationPlanIncludesLaunchHelperTraverseRepair(t *testing.T) {
 	savedExecutable := currentExecutablePath
 	savedUserHomeDir := currentUserHomeDir
