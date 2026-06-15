@@ -49,6 +49,7 @@ type sessionConfig struct {
 	ServiceAccess           []string // explicit external-service access granted to session
 	NetworkMode             sessionNetworkMode
 	EmitSessionMetadataJSON bool
+	SkipGitHTTPSRuntime     bool
 	RoutingReason           string    // plain-language explanation for the chosen mode
 	SessionNotes            []string  // plain-language notes about session behavior
 	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
@@ -451,6 +452,9 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 				opts.skipIntegrationHints = true
 				opts.skipRepoSetupDiscovery = true
 				opts.skipGitSafeDirectoryPlanning = true
+				opts.skipAmbientAccessGrants = true
+				opts.skipGitHTTPSRuntime = true
+				opts.skipProjectHooks = true
 			}
 			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
 			if err != nil {
@@ -1027,6 +1031,9 @@ type harnessSessionOpts struct {
 	skipIntegrationHints         bool
 	skipRepoSetupDiscovery       bool
 	skipGitSafeDirectoryPlanning bool
+	skipAmbientAccessGrants      bool
+	skipGitHTTPSRuntime          bool
+	skipProjectHooks             bool
 	skipHarnessAssetsSync        bool
 	noBackup                     bool
 	github                       bool
@@ -1452,11 +1459,16 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 
-	userReadPaths := configuredReadDirs(opts.readDirs)
-	projectReadPaths, projectWritePaths := configuredProjectAccess(projectDir)
-	userReadPaths = append(append([]string{}, projectReadPaths...), userReadPaths...)
-	writePaths := append(append([]string{}, projectWritePaths...), opts.writeDirs...)
-	autoReadPaths := subtractResolvedDirs(implicitReadDirs(), userReadPaths)
+	userReadPaths := append([]string{}, opts.readDirs...)
+	writePaths := append([]string{}, opts.writeDirs...)
+	var autoReadPaths []string
+	if !opts.skipAmbientAccessGrants {
+		userReadPaths = configuredReadDirs(userReadPaths)
+		projectReadPaths, projectWritePaths := configuredProjectAccess(projectDir)
+		userReadPaths = append(append([]string{}, projectReadPaths...), userReadPaths...)
+		writePaths = append(append([]string{}, projectWritePaths...), writePaths...)
+		autoReadPaths = subtractResolvedDirs(implicitReadDirs(), userReadPaths)
+	}
 	allReadPaths := append(append([]string{}, userReadPaths...), autoReadPaths...)
 
 	cfg, err := resolveSessionConfig(projectDir, allReadPaths, writePaths)
@@ -1465,6 +1477,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	}
 	cfg.Target = commandName
 	cfg.EmitSessionMetadataJSON = opts.metadataJSON
+	cfg.SkipGitHTTPSRuntime = opts.skipGitHTTPSRuntime
 	networkMode, err := parseSessionNetworkMode(opts.networkMode)
 	if err != nil {
 		return preparedSession{}, err
@@ -1503,7 +1516,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 	progress.Step("checking repo-local hooks")
-	if !opts.planOnly {
+	if !opts.planOnly && !opts.skipProjectHooks {
 		maybePromptProjectHooks(cfg.ProjectDir)
 	}
 

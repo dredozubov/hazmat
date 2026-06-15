@@ -57,6 +57,34 @@ func TestPrepareAgentTempRuntimeDefersCreateToCapableLaunchHelper(t *testing.T) 
 	}
 }
 
+func TestPrepareSessionRuntimeCanSkipGitHTTPSRuntime(t *testing.T) {
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
+	savedPrepareGitHTTPS := prepareGitHTTPSCredentialRuntime
+	prepareGitHTTPSCredentialRuntime = func() (preparedSessionRuntime, error) {
+		t.Fatal("prepareGitHTTPSCredentialRuntime should not run when skipped")
+		return preparedSessionRuntime{}, nil
+	}
+	t.Cleanup(func() { prepareGitHTTPSCredentialRuntime = savedPrepareGitHTTPS })
+
+	runtime, err := defaultPrepareSessionRuntime(sessionConfig{SkipGitHTTPSRuntime: true})
+	if err != nil {
+		t.Fatalf("defaultPrepareSessionRuntime: %v", err)
+	}
+	defer runtime.Cleanup()
+
+	for _, pair := range runtime.EnvPairs {
+		if strings.HasPrefix(pair, "GIT_CONFIG_") {
+			t.Fatalf("EnvPairs include Git HTTPS runtime config despite skip: %v", runtime.EnvPairs)
+		}
+	}
+	if runtime.TempDir == "" || runtime.LaunchHelperTempDir == "" {
+		t.Fatalf("temp runtime was not prepared: %+v", runtime)
+	}
+}
+
 func TestDiscoverSSHKeyCandidatesReportsUsableEntries(t *testing.T) {
 	isolateConfig(t)
 

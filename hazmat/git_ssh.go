@@ -1195,13 +1195,17 @@ func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, er
 	runtimes = append(runtimes, harnessRuntime)
 
 	start = time.Now()
-	gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
-	profile.Record("prepare git https runtime", start)
-	if err != nil {
-		cleanupPrepared()
-		return preparedSessionRuntime{}, err
+	if cfg.SkipGitHTTPSRuntime {
+		profile.Record("prepare git https runtime (skipped)", start)
+	} else {
+		gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
+		profile.Record("prepare git https runtime", start)
+		if err != nil {
+			cleanupPrepared()
+			return preparedSessionRuntime{}, err
+		}
+		runtimes = append(runtimes, gitHTTPSRuntime)
 	}
-	runtimes = append(runtimes, gitHTTPSRuntime)
 
 	if cfg.GitSSH != nil {
 		start = time.Now()

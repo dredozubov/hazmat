@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	gitHTTPSAgentCredentialsPath = agentHome + "/.config/git/credentials"
-	gitHTTPSAgentGitConfigPath   = agentHome + "/.gitconfig"
-	gitHTTPSExecutablePath       = os.Executable
-	gitHTTPSRunCredentialStore   = runGitHTTPSCredentialStore
+	gitHTTPSAgentCredentialsPath     = agentHome + "/.config/git/credentials"
+	gitHTTPSAgentGitConfigPath       = agentHome + "/.gitconfig"
+	gitHTTPSExecutablePath           = os.Executable
+	gitHTTPSRunCredentialStore       = runGitHTTPSCredentialStore
+	prepareGitHTTPSCredentialRuntime = defaultPrepareGitHTTPSCredentialRuntime
 )
 
 type gitHTTPSCredentialRequest struct {
@@ -43,7 +44,7 @@ func gitHTTPSCredentialStorePathForHome(home string) string {
 	return mustCredentialStorePathForHome(home, credentialGitHTTPSAgentStore)
 }
 
-func prepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {
+func defaultPrepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {
 	runtime := preparedSessionRuntime{Cleanup: func() {}}
 
 	home, err := os.UserHomeDir()

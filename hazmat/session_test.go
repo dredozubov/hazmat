@@ -685,6 +685,70 @@ func TestDefaultReadDirsNoConfiguredDirsByDefault(t *testing.T) {
 	}
 }
 
+func TestResolvePreparedSessionFastPathSkipsAmbientAccessAndHooks(t *testing.T) {
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	projectDir := t.TempDir()
+	configuredRead := t.TempDir()
+	configuredWrite := t.TempDir()
+	explicitRead := t.TempDir()
+	explicitWrite := t.TempDir()
+	if err := runConfigSet("session.read_dirs.add", configuredRead); err != nil {
+		t.Fatalf("runConfigSet session.read_dirs.add: %v", err)
+	}
+	if err := runConfigAccess(projectDir, []string{configuredRead}, []string{configuredWrite}, false); err != nil {
+		t.Fatalf("runConfigAccess: %v", err)
+	}
+
+	savedInspectHooks := inspectProjectHooksForPrompt
+	inspectProjectHooksForPrompt = func(string) (string, inspectedProjectHooks, error) {
+		t.Fatal("repo-local hook inspection should not run when skipped")
+		return "", inspectedProjectHooks{}, nil
+	}
+	t.Cleanup(func() { inspectProjectHooksForPrompt = savedInspectHooks })
+	t.Setenv("HAZMAT_LAUNCH_HELPER", filepath.Join(t.TempDir(), "hazmat-launch"))
+
+	prepared, err := resolvePreparedSessionWithProgress("exec", harnessSessionOpts{
+		project:                      projectDir,
+		readDirs:                     []string{explicitRead},
+		writeDirs:                    []string{explicitWrite},
+		resolvedIntegrations:         nil,
+		integrationsResolved:         true,
+		skipAutoIntegrations:         true,
+		skipIntegrationHints:         true,
+		skipRepoSetupDiscovery:       true,
+		skipGitSafeDirectoryPlanning: true,
+		skipAmbientAccessGrants:      true,
+		skipGitHTTPSRuntime:          true,
+		skipProjectHooks:             true,
+	}, true, nil)
+	if err != nil {
+		t.Fatalf("resolvePreparedSessionWithProgress: %v", err)
+	}
+
+	canonicalExplicitRead, err := resolveDir(explicitRead, false)
+	if err != nil {
+		t.Fatalf("resolve explicit read: %v", err)
+	}
+	canonicalExplicitWrite, err := resolveDir(explicitWrite, false)
+	if err != nil {
+		t.Fatalf("resolve explicit write: %v", err)
+	}
+	if !slices.Equal(prepared.Config.UserReadDirs, []string{canonicalExplicitRead}) {
+		t.Fatalf("UserReadDirs = %v, want only explicit read %s", prepared.Config.UserReadDirs, canonicalExplicitRead)
+	}
+	if len(prepared.Config.AutoReadDirs) != 0 {
+		t.Fatalf("AutoReadDirs = %v, want none", prepared.Config.AutoReadDirs)
+	}
+	if !slices.Equal(prepared.Config.WriteDirs, []string{canonicalExplicitWrite}) {
+		t.Fatalf("WriteDirs = %v, want only explicit write %s", prepared.Config.WriteDirs, canonicalExplicitWrite)
+	}
+	if !prepared.Config.SkipGitHTTPSRuntime {
+		t.Fatal("SkipGitHTTPSRuntime = false, want true")
+	}
+}
+
 func TestStatusBarDisabledByDefault(t *testing.T) {
 	isolateConfig(t)
 
