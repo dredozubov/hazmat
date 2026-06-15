@@ -1164,6 +1164,9 @@ func sessionPathExposesFile(cfg sessionConfig, path string) bool {
 var prepareSessionRuntime = defaultPrepareSessionRuntime
 
 func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, error) {
+	profile := newSessionPhaseProfile("hazmat: session runtime preparation profile:", os.Stderr)
+	defer profile.Done()
+
 	var runtimes []preparedSessionRuntime
 	cleanupPrepared := func() {
 		for i := len(runtimes) - 1; i >= 0; i-- {
@@ -1173,20 +1176,26 @@ func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, er
 		}
 	}
 
+	start := time.Now()
 	tempRuntime, err := prepareAgentTempRuntime()
+	profile.Record("prepare agent temp runtime", start)
 	if err != nil {
 		return preparedSessionRuntime{}, err
 	}
 	runtimes = append(runtimes, tempRuntime)
 
+	start = time.Now()
 	harnessRuntime, err := prepareHarnessAuthRuntime(cfg)
+	profile.Record("prepare harness auth runtime", start)
 	if err != nil {
 		cleanupPrepared()
 		return preparedSessionRuntime{}, err
 	}
 	runtimes = append(runtimes, harnessRuntime)
 
+	start = time.Now()
 	gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
+	profile.Record("prepare git https runtime", start)
 	if err != nil {
 		cleanupPrepared()
 		return preparedSessionRuntime{}, err
@@ -1194,7 +1203,9 @@ func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, er
 	runtimes = append(runtimes, gitHTTPSRuntime)
 
 	if cfg.GitSSH != nil {
+		start = time.Now()
 		gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
+		profile.Record("prepare git ssh runtime", start)
 		if err != nil {
 			cleanupPrepared()
 			return preparedSessionRuntime{}, err
@@ -1202,7 +1213,11 @@ func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, er
 		runtimes = append(runtimes, gitSSHRuntime)
 	}
 
-	return mergePreparedSessionRuntimes(runtimes...), nil
+	start = time.Now()
+	merged := mergePreparedSessionRuntimes(runtimes...)
+	profile.Record("merge session runtimes", start)
+
+	return merged, nil
 }
 
 func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSessionRuntime {

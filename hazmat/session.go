@@ -2510,7 +2510,13 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	if err != nil {
 		return err
 	}
-	defer runtime.Cleanup()
+	defer func() {
+		start := time.Now()
+		if runtime.Cleanup != nil {
+			runtime.Cleanup()
+		}
+		profile.Record("cleanup session runtime", start)
+	}()
 	if runtime.TempDir != "" {
 		cfg.TempDir = runtime.TempDir
 	}
@@ -2521,7 +2527,11 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	if err != nil {
 		return err
 	}
-	defer policy.Cleanup()
+	defer func() {
+		start := time.Now()
+		policy.Cleanup()
+		profile.Record("cleanup native policy", start)
+	}()
 	metadataJSON := ""
 	if cfg.EmitSessionMetadataJSON {
 		start = time.Now()
