@@ -2486,14 +2486,22 @@ func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI 
 	return ui
 }
 
+func applyLaunchStatusBarConfig(ui sessionLaunchUI, load func() (HazmatConfig, error)) sessionLaunchUI {
+	if !ui.showStatusBar && !ui.waitForAltScreen {
+		return ui
+	}
+	if hcfg, err := load(); err == nil {
+		ui = applyStatusBarConfig(ui, hcfg)
+	}
+	return ui
+}
+
 func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, ui sessionLaunchUI, script string, args ...string) error {
 	profile := newSessionPhaseProfile("hazmat: native launch execution profile:", os.Stderr)
 	defer profile.Done()
 
 	start := time.Now()
-	if hcfg, err := loadConfig(); err == nil {
-		ui = applyStatusBarConfig(ui, hcfg)
-	}
+	ui = applyLaunchStatusBarConfig(ui, loadConfig)
 	profile.Record("load launch config", start)
 
 	start = time.Now()

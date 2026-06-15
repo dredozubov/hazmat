@@ -847,6 +847,34 @@ func TestApplyStatusBarConfigPreservesBarWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestApplyLaunchStatusBarConfigSkipsLoadWithoutInteractiveChrome(t *testing.T) {
+	called := false
+	ui := applyLaunchStatusBarConfig(execLaunchUI(), func() (HazmatConfig, error) {
+		called = true
+		return defaultConfig(), nil
+	})
+	if called {
+		t.Fatal("config loader should not be called when launch UI has no interactive chrome")
+	}
+	if ui != execLaunchUI() {
+		t.Fatalf("launch UI = %+v, want plain exec UI", ui)
+	}
+}
+
+func TestApplyLaunchStatusBarConfigLoadsForInteractiveChrome(t *testing.T) {
+	called := false
+	ui := applyLaunchStatusBarConfig(sessionLaunchUI{showStatusBar: true}, func() (HazmatConfig, error) {
+		called = true
+		return defaultConfig(), nil
+	})
+	if !called {
+		t.Fatal("config loader should be called when launch UI has interactive chrome")
+	}
+	if ui.showStatusBar {
+		t.Fatal("showStatusBar should follow default disabled status bar config")
+	}
+}
+
 func TestExecLaunchUIDisablesInteractiveChrome(t *testing.T) {
 	ui := execLaunchUI()
 	if ui.showStatusBar {
