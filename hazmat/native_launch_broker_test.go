@@ -191,6 +191,45 @@ func TestTryRunNativeLaunchViaBrokerFallsBackWhenExperimentalSocketUnavailable(t
 	}
 }
 
+func TestTryRunNativeLaunchViaBrokerStartsDefaultBrokerAndRetries(t *testing.T) {
+	t.Setenv(launchBrokerExperimentalEnv, "1")
+	var calls int
+	var ensured bool
+	restore := replaceLaunchBrokerTestHooks(t,
+		func(context.Context, string, launchbroker.LaunchRequest) (launchbroker.LaunchResponse, error) {
+			calls++
+			if calls == 1 {
+				return launchbroker.LaunchResponse{}, errors.New("connect launch broker: no such file")
+			}
+			return launchbroker.LaunchResponse{OK: true, Stdout: "ok\n"}, nil
+		},
+		func(context.Context) error {
+			ensured = true
+			return nil
+		})
+	defer restore()
+
+	used, err := tryRunNativeLaunchViaBroker(
+		sessionConfig{ProjectDir: "/Users/dr/workspace/project"},
+		sessionBackendPlan{},
+		sessionLaunchUI{},
+		nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-123.sb"},
+		nil,
+		"",
+		"",
+		`echo ok`,
+	)
+	if !used || err != nil {
+		t.Fatalf("tryRunNativeLaunchViaBroker used=%v err=%v, want broker retry success", used, err)
+	}
+	if !ensured || calls != 2 {
+		t.Fatalf("ensured=%v calls=%d, want ensure and two round trips", ensured, calls)
+	}
+	if got := launchBrokerStdout.(*bytes.Buffer).String(); got != "ok\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
 func TestDefaultRunAgentSeatbeltScriptWithPlanUsesConfiguredBroker(t *testing.T) {
 	projectDir := t.TempDir()
 	socketPath := filepath.Join(t.TempDir(), "broker.sock")
@@ -277,16 +316,25 @@ func TestWriteLaunchBrokerResponsePreservesExitCode(t *testing.T) {
 	}
 }
 
-func replaceLaunchBrokerTestHooks(t *testing.T, roundTrip func(context.Context, string, launchbroker.LaunchRequest) (launchbroker.LaunchResponse, error)) func() {
+func replaceLaunchBrokerTestHooks(t *testing.T, roundTrip func(context.Context, string, launchbroker.LaunchRequest) (launchbroker.LaunchResponse, error), ensure ...func(context.Context) error) func() {
 	t.Helper()
 	oldRoundTrip := launchBrokerRoundTrip
+	oldEnsure := launchBrokerEnsureDefault
 	oldStdout := launchBrokerStdout
 	oldStderr := launchBrokerStderr
+	ensureDefault := func(context.Context) error {
+		return errors.New("test launch broker not available")
+	}
+	if len(ensure) > 0 {
+		ensureDefault = ensure[0]
+	}
 	launchBrokerRoundTrip = roundTrip
+	launchBrokerEnsureDefault = ensureDefault
 	launchBrokerStdout = &bytes.Buffer{}
 	launchBrokerStderr = &bytes.Buffer{}
 	return func() {
 		launchBrokerRoundTrip = oldRoundTrip
+		launchBrokerEnsureDefault = oldEnsure
 		launchBrokerStdout = oldStdout
 		launchBrokerStderr = oldStderr
 	}

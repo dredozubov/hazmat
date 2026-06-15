@@ -227,7 +227,10 @@ Observed result:
   native launches (`HAZMAT_LAUNCH_BROKER_SOCKET` or
   `HAZMAT_EXPERIMENTAL_LAUNCH_BROKER=1`), preserving metadata confirmation,
   stdout/stderr replay, nonzero exit status, and post-session repair/denial
-  recording while bypassing per-launch `sudo` when a broker is already running
+  recording while bypassing per-launch `sudo` when a broker is already running.
+  The experimental default path can start the per-uid broker once through the
+  proved `hazmat-launch exec` startup boundary and retry the broker request; an
+  explicitly configured socket remains fail-fast if it cannot be used.
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 

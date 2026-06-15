@@ -1121,9 +1121,11 @@ its socket. The host-side broker client path can now route buffered
 non-interactive launches through a configured broker socket, preserving
 confirmed-containment metadata replay, stdout/stderr replay, nonzero exit
 status, and post-session repair/denial recording while avoiding per-launch
-`sudo` when a broker is already running. Interactive stdio/session transport and
-default persistent broker lifecycle remain future governed work under this same
-model.
+`sudo` when a broker is already running. The experimental default path can start
+the per-uid broker once through that same proved startup boundary and retry the
+request; explicitly configured sockets remain fail-fast. Interactive
+stdio/session transport and default-on lifecycle remain future governed work
+under this same model.
 
 During design, a temporary negative config with
 `HelperClosesInheritedFDs = FALSE` immediately produced a counterexample where

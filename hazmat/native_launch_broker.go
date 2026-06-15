@@ -18,9 +18,10 @@ const (
 )
 
 var (
-	launchBrokerRoundTrip           = defaultLaunchBrokerRoundTrip
-	launchBrokerStdout    io.Writer = os.Stdout
-	launchBrokerStderr    io.Writer = os.Stderr
+	launchBrokerRoundTrip               = defaultLaunchBrokerRoundTrip
+	launchBrokerEnsureDefault           = defaultEnsureLaunchBroker
+	launchBrokerStdout        io.Writer = os.Stdout
+	launchBrokerStderr        io.Writer = os.Stderr
 )
 
 type launchBrokerExitError struct {
@@ -46,6 +47,11 @@ func tryRunNativeLaunchViaBroker(cfg sessionConfig, plan sessionBackendPlan, ui 
 
 	req := nativeLaunchBrokerRequestWithMetadataPlanAndRuntime(cfg, plan, policy, runtimeEnvPairs, metadataJSON, launchHelperTempDir, script, args...)
 	resp, err := launchBrokerRoundTrip(context.Background(), socketPath, req)
+	if err != nil && !explicit {
+		if ensureErr := launchBrokerEnsureDefault(context.Background()); ensureErr == nil {
+			resp, err = launchBrokerRoundTrip(context.Background(), socketPath, req)
+		}
+	}
 	if err != nil {
 		if explicit {
 			return true, err
@@ -66,7 +72,7 @@ func configuredLaunchBrokerSocketPath(getenv func(string) string) (socketPath st
 	if getenv(launchBrokerExperimentalEnv) != "1" {
 		return "", false, nil
 	}
-	return filepath.Join(defaultBrokerRuntimeRoot, fmt.Sprintf("launch-%d", os.Getuid()), fmt.Sprintf("launch-broker-%d.sock", os.Getuid())), false, nil
+	return defaultLaunchBrokerSocketPath(os.Getuid()), false, nil
 }
 
 func cleanLaunchBrokerSocketPath(path string) (string, error) {
@@ -105,6 +111,82 @@ func defaultLaunchBrokerRoundTrip(ctx context.Context, socketPath string, req la
 		SocketPath: socketPath,
 		Timeout:    defaultLaunchBrokerTimeout,
 	}.Launch(ctx, req)
+}
+
+func defaultEnsureLaunchBroker(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	uid := os.Getuid()
+	runtimeDir, err := prepareDefaultLaunchBrokerRuntimeDir(uid)
+	if err != nil {
+		return err
+	}
+	hazmatPath, err := currentExecutablePath()
+	if err != nil {
+		return fmt.Errorf("resolve hazmat executable for launch broker: %w", err)
+	}
+	_, err = startLaunchBrokerSupervisor(ctx, launchBrokerSupervisorConfig{
+		RuntimeDir:       runtimeDir,
+		SocketName:       defaultLaunchBrokerSocketName(uid),
+		ExpectedPeerUID:  uid,
+		HazmatPath:       hazmatPath,
+		LaunchHelperPath: launchHelperPath(),
+		ReadyTimeout:     defaultLaunchBrokerReadyTimeout,
+	})
+	return err
+}
+
+func prepareDefaultLaunchBrokerRuntimeDir(uid int) (string, error) {
+	if uid <= 0 {
+		return "", fmt.Errorf("launch broker uid must be positive, got %d", uid)
+	}
+	root := filepath.Clean(brokerRuntimeRoot)
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("broker runtime root %q must be absolute", brokerRuntimeRoot)
+	}
+	if err := os.MkdirAll(root, 0o733|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("create broker runtime root: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return "", fmt.Errorf("inspect broker runtime root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s: broker runtime root is a symlink", root)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s: broker runtime root is not a directory", root)
+	}
+	if err := os.Chmod(root, 0o733|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("set broker runtime root mode: %w", err)
+	}
+
+	runtimeDir := filepath.Join(root, fmt.Sprintf("launch-%d", uid))
+	if info, err := os.Lstat(runtimeDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("%s: launch broker runtime dir is a symlink", runtimeDir)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("%s: launch broker runtime path is not a directory", runtimeDir)
+		}
+		return runtimeDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect launch broker runtime dir: %w", err)
+	}
+
+	if err := brokerRuntimeAgentEnsureSharedDir(runtimeDir, 0o2770); err != nil {
+		return "", err
+	}
+	return runtimeDir, nil
+}
+
+func defaultLaunchBrokerSocketName(uid int) string {
+	return fmt.Sprintf("launch-broker-%d.sock", uid)
+}
+
+func defaultLaunchBrokerSocketPath(uid int) string {
+	return filepath.Join(filepath.Clean(brokerRuntimeRoot), fmt.Sprintf("launch-%d", uid), defaultLaunchBrokerSocketName(uid))
 }
 
 func writeLaunchBrokerResponse(resp launchbroker.LaunchResponse, expectedMetadata string, stdout, stderr io.Writer) error {
