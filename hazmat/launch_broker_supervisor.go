@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -181,6 +182,9 @@ func startLaunchBrokerSupervisor(ctx context.Context, cfg launchBrokerSupervisor
 	if err != nil {
 		return nil, err
 	}
+	if err := removeStaleLaunchBrokerSocket(plan.socketPath); err != nil {
+		return nil, err
+	}
 
 	process, err := starter.Start(ctx, plan)
 	if err != nil {
@@ -307,4 +311,29 @@ func launchBrokerSocketReady(socketPath string) (bool, error) {
 		return false, fmt.Errorf("launch broker socket path %s exists but is not a socket", socketPath)
 	}
 	return true, nil
+}
+
+func removeStaleLaunchBrokerSocket(socketPath string) error {
+	info, err := os.Lstat(socketPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("inspect launch broker socket path %s: %w", socketPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("launch broker socket path %s is a symlink", socketPath)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("launch broker socket path %s exists but is not a socket", socketPath)
+	}
+	conn, dialErr := net.DialTimeout("unix", socketPath, 50*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		return fmt.Errorf("launch broker socket path %s is already accepting connections", socketPath)
+	}
+	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale launch broker socket %s: %w", socketPath, err)
+	}
+	return nil
 }

@@ -1123,7 +1123,10 @@ confirmed-containment metadata replay, stdout/stderr replay, nonzero exit
 status, and post-session repair/denial recording while avoiding per-launch
 `sudo` when a broker is already running. The experimental default path can start
 the per-uid broker once through that same proved startup boundary and retry the
-request; explicitly configured sockets remain fail-fast. Interactive
+request; explicitly configured sockets remain fail-fast. The supervisor removes
+stale socket path residue before startup, but refuses live sockets, symlinks,
+and non-socket paths so crash leftovers do not force a sudo fallback while
+active or suspicious paths are not clobbered. Interactive
 stdio/session transport and default-on lifecycle remain future governed work
 under this same model.
 

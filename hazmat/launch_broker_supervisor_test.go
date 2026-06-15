@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"hazmat/internal/agententry"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestNewLaunchBrokerStartPlanUsesHelperExecCleanupBoundary(t *testing.T) {
@@ -203,6 +205,90 @@ func TestStartLaunchBrokerSupervisorStopsProcessWhenSocketNotReady(t *testing.T)
 	}
 }
 
+func TestStartLaunchBrokerSupervisorRemovesStaleSocketBeforeStart(t *testing.T) {
+	runtimeDir := newShortLaunchBrokerTempDir(t)
+	socketPath := filepath.Join(runtimeDir, "broker.sock")
+	createStaleUnixSocket(t, socketPath)
+
+	starter := &fakeLaunchBrokerStarter{listen: true}
+	supervisor, err := startLaunchBrokerSupervisor(context.Background(), launchBrokerSupervisorConfig{
+		RuntimeDir:        runtimeDir,
+		SocketName:        "broker.sock",
+		ExpectedPeerUID:   501,
+		HazmatPath:        "/usr/local/bin/hazmat",
+		LaunchHelperPath:  "/usr/local/libexec/hazmat-launch",
+		ReadyTimeout:      200 * time.Millisecond,
+		ReadyPollInterval: time.Millisecond,
+		ProcessStarter:    starter,
+	})
+	if err != nil {
+		t.Fatalf("startLaunchBrokerSupervisor: %v", err)
+	}
+	if supervisor.SocketPath() != socketPath {
+		t.Fatalf("SocketPath() = %q, want %q", supervisor.SocketPath(), socketPath)
+	}
+	if err := supervisor.Close(); err != nil {
+		t.Fatalf("Close(): %v", err)
+	}
+}
+
+func TestStartLaunchBrokerSupervisorRejectsLiveSocket(t *testing.T) {
+	runtimeDir := newShortLaunchBrokerTempDir(t)
+	socketPath := filepath.Join(runtimeDir, "broker.sock")
+	live, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen live socket: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = live.Close()
+		_ = os.Remove(socketPath)
+	})
+
+	starter := &fakeLaunchBrokerStarter{listen: true}
+	_, err = startLaunchBrokerSupervisor(context.Background(), launchBrokerSupervisorConfig{
+		RuntimeDir:        runtimeDir,
+		SocketName:        "broker.sock",
+		ExpectedPeerUID:   501,
+		HazmatPath:        "/usr/local/bin/hazmat",
+		LaunchHelperPath:  "/usr/local/libexec/hazmat-launch",
+		ReadyTimeout:      200 * time.Millisecond,
+		ReadyPollInterval: time.Millisecond,
+		ProcessStarter:    starter,
+	})
+	if err == nil || !strings.Contains(err.Error(), "already accepting connections") {
+		t.Fatalf("startLaunchBrokerSupervisor() error = %v, want live socket refusal", err)
+	}
+	if starter.process != nil {
+		t.Fatal("process starter was called for live socket")
+	}
+}
+
+func TestStartLaunchBrokerSupervisorRejectsNonSocketPath(t *testing.T) {
+	runtimeDir := newShortLaunchBrokerTempDir(t)
+	socketPath := filepath.Join(runtimeDir, "broker.sock")
+	if err := os.WriteFile(socketPath, []byte("not a socket"), 0o600); err != nil {
+		t.Fatalf("write non-socket path: %v", err)
+	}
+
+	starter := &fakeLaunchBrokerStarter{listen: true}
+	_, err := startLaunchBrokerSupervisor(context.Background(), launchBrokerSupervisorConfig{
+		RuntimeDir:        runtimeDir,
+		SocketName:        "broker.sock",
+		ExpectedPeerUID:   501,
+		HazmatPath:        "/usr/local/bin/hazmat",
+		LaunchHelperPath:  "/usr/local/libexec/hazmat-launch",
+		ReadyTimeout:      200 * time.Millisecond,
+		ReadyPollInterval: time.Millisecond,
+		ProcessStarter:    starter,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exists but is not a socket") {
+		t.Fatalf("startLaunchBrokerSupervisor() error = %v, want non-socket refusal", err)
+	}
+	if starter.process != nil {
+		t.Fatal("process starter was called for non-socket path")
+	}
+}
+
 type fakeLaunchBrokerStarter struct {
 	listen  bool
 	plan    launchBrokerStartPlan
@@ -249,4 +335,22 @@ func newShortLaunchBrokerTempDir(t *testing.T) string {
 		_ = os.RemoveAll(dir)
 	})
 	return dir
+}
+
+func createStaleUnixSocket(t *testing.T, socketPath string) {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("create stale unix socket fd: %v", err)
+	}
+	if err := unix.Bind(fd, &unix.SockaddrUnix{Name: socketPath}); err != nil {
+		_ = unix.Close(fd)
+		t.Fatalf("bind stale unix socket: %v", err)
+	}
+	if err := unix.Close(fd); err != nil {
+		t.Fatalf("close stale unix socket fd: %v", err)
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		t.Fatalf("stale socket missing before test: %v", err)
+	}
 }

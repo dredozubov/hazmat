@@ -231,6 +231,11 @@ Observed result:
   The experimental default path can start the per-uid broker once through the
   proved `hazmat-launch exec` startup boundary and retry the broker request; an
   explicitly configured socket remains fail-fast if it cannot be used.
+- the host-side broker supervisor removes only stale Unix socket path residue
+  before startup: live sockets are left intact and reported, and non-socket or
+  symlink paths are refused. This does not change the fd invariants, but keeps
+  crash residue from forcing the experimental broker path back to per-launch
+  `sudo`.
 - service+helper-executor control-plane benchmark with fake runner:
   `31.588-35.304 us/op` across five local Darwin arm64 runs
 
