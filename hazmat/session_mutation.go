@@ -30,6 +30,45 @@ type sessionMutationPlan struct {
 	Mutations []plannedSessionMutation
 }
 
+var nativeSessionMutationPlanProfileWriter = func() io.Writer { return os.Stderr }
+
+type nativeSessionMutationPlanProfile struct {
+	enabled bool
+	w       io.Writer
+	spans   []sessionPreparationSpan
+}
+
+func newNativeSessionMutationPlanProfile() *nativeSessionMutationPlanProfile {
+	return &nativeSessionMutationPlanProfile{
+		enabled: sessionPreparationProfileEnabled(),
+		w:       nativeSessionMutationPlanProfileWriter(),
+	}
+}
+
+func (p *nativeSessionMutationPlanProfile) Record(label string, start time.Time) {
+	if p == nil || !p.enabled || p.w == nil {
+		return
+	}
+	duration := time.Since(start)
+	if duration < 0 {
+		duration = 0
+	}
+	p.spans = append(p.spans, sessionPreparationSpan{
+		Label:    label,
+		Duration: duration,
+	})
+}
+
+func (p *nativeSessionMutationPlanProfile) Done() {
+	if p == nil || !p.enabled || p.w == nil || len(p.spans) == 0 {
+		return
+	}
+	fmt.Fprintln(p.w, "hazmat: native host repair planning profile:")
+	for _, span := range p.spans {
+		fmt.Fprintf(p.w, "  %s: %.3fs\n", span.Label, span.Duration.Seconds())
+	}
+}
+
 func mergeSessionMutationPlans(plans ...sessionMutationPlan) sessionMutationPlan {
 	merged := sessionMutationPlan{}
 	seen := make(map[string]struct{})
@@ -59,8 +98,14 @@ func (p sessionMutationPlan) Describe() []sessionMutation {
 
 func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	var plan sessionMutationPlan
+	profile := newNativeSessionMutationPlanProfile()
+	defer profile.Done()
+	traversePermissions := newAgentTraversePermissionCache()
 
-	if projectNeedsACLRepair(cfg.ProjectDir) {
+	start := time.Now()
+	needsProjectACLRepair := projectNeedsACLRepair(cfg.ProjectDir)
+	profile.Record("project ACL repair detection", start)
+	if needsProjectACLRepair {
 		projectDir := cfg.ProjectDir
 		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 			Metadata: sessionMutation{
@@ -91,7 +136,10 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	}
 
 	if helperPath := launchHelperPath(); helperPath != "" {
-		if pending := pendingLaunchHelperTraverseTargets(helperPath); len(pending) > 0 {
+		start := time.Now()
+		pending := pendingLaunchHelperTraverseTargetsWithProbe(helperPath, traversePermissions.Allows)
+		profile.Record("launch-helper traverse detection", start)
+		if len(pending) > 0 {
 			pendingCount := len(pending)
 			plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 				Metadata: sessionMutation{
@@ -124,9 +172,12 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	if parent := filepath.Dir(cfg.ProjectDir); parent != cfg.ProjectDir {
 		exposedDirs = append(exposedDirs, parent)
 	}
-	if pending := pendingAgentTraverseTargets(cfg.ProjectDir, exposedDirs); len(pending) > 0 {
+	start = time.Now()
+	pendingTraverse := pendingAgentTraverseTargetsWithProbe(cfg.ProjectDir, exposedDirs, traversePermissions.Allows)
+	profile.Record("exposed-directory traverse detection", start)
+	if len(pendingTraverse) > 0 {
 		projectDir := cfg.ProjectDir
-		pendingCount := len(pending)
+		pendingCount := len(pendingTraverse)
 		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 			Metadata: sessionMutation{
 				Summary:     "exposed-directory traverse ACL repair",
@@ -152,7 +203,13 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 	}
 
 	gitDir := gitMetadataDir(cfg.ProjectDir)
-	if gitDir != "" && len(collectGitPermissionProblems(gitDir)) > 0 {
+	start = time.Now()
+	gitProblems := []string(nil)
+	if gitDir != "" {
+		gitProblems = collectGitPermissionProblems(gitDir)
+	}
+	profile.Record("git metadata permission detection", start)
+	if gitDir != "" && len(gitProblems) > 0 {
 		projectDir := cfg.ProjectDir
 		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 			Metadata: sessionMutation{
@@ -176,7 +233,10 @@ func buildNativeSessionMutationPlan(cfg sessionConfig) sessionMutationPlan {
 		})
 	}
 
-	if repoDir := plannedProjectGitSafeDirectory(cfg.ProjectDir); repoDir != "" {
+	start = time.Now()
+	repoDir := plannedProjectGitSafeDirectory(cfg.ProjectDir)
+	profile.Record("git safe.directory planning", start)
+	if repoDir != "" {
 		projectDir := cfg.ProjectDir
 		plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 			Metadata: sessionMutation{

@@ -460,6 +460,56 @@ func TestCollectAgentTraverseTargetsIncludesProjectParent(t *testing.T) {
 	}
 }
 
+func TestAgentTraversePermissionCacheReusesPathResults(t *testing.T) {
+	savedPathAllows := pathAllowsAgentTraverse
+	t.Cleanup(func() {
+		pathAllowsAgentTraverse = savedPathAllows
+	})
+
+	calls := 0
+	pathAllowsAgentTraverse = func(path string) bool {
+		calls++
+		return path == "/Users/rv"
+	}
+
+	cache := newAgentTraversePermissionCache()
+	if !cache.Allows("/Users/rv") || !cache.Allows("/Users/rv") {
+		t.Fatal("cache should preserve positive traversal result")
+	}
+	if calls != 1 {
+		t.Fatalf("pathAllowsAgentTraverse calls = %d, want 1", calls)
+	}
+	if cache.Allows("/Users/rv/private") || cache.Allows("/Users/rv/private") {
+		t.Fatal("cache should preserve negative traversal result")
+	}
+	if calls != 2 {
+		t.Fatalf("pathAllowsAgentTraverse calls after negative result = %d, want 2", calls)
+	}
+}
+
+func TestHomeAllowsAgentTraverseSkipsACLForWorldExecutableDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+
+	backend := &pathRecordingACLBackend{}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	if !homeAllowsAgentTraverse(dir) {
+		t.Fatal("world-executable directory should allow agent traversal")
+	}
+	if len(backend.reads) != 0 {
+		t.Fatalf("ACL reads = %v, want none for world-executable directory", backend.reads)
+	}
+}
+
 func TestCollectAgentTraverseTargetsDeeplyNested(t *testing.T) {
 	t.Parallel()
 

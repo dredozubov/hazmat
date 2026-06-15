@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2743,6 +2744,69 @@ func TestBuildNativeSessionMutationPlanIncludesLaunchHelperTraverseRepair(t *tes
 	}
 	if !found {
 		t.Fatalf("Describe() = %+v, want launch-helper traverse ACL repair", plan.Describe())
+	}
+}
+
+func TestBuildNativeSessionMutationPlanProfileReportsSubsteps(t *testing.T) {
+	t.Setenv("HAZMAT_SESSION_PREP_PROFILE", "yes")
+
+	savedWriter := nativeSessionMutationPlanProfileWriter
+	savedACLFactory := platformACLBackendFactory
+	savedExecutable := currentExecutablePath
+	savedUserHomeDir := currentUserHomeDir
+	savedPathAllows := pathAllowsAgentTraverse
+	savedDetect := detectGitRepoTopLevel
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		nativeSessionMutationPlanProfileWriter = savedWriter
+		platformACLBackendFactory = savedACLFactory
+		currentExecutablePath = savedExecutable
+		currentUserHomeDir = savedUserHomeDir
+		pathAllowsAgentTraverse = savedPathAllows
+		detectGitRepoTopLevel = savedDetect
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	var out bytes.Buffer
+	nativeSessionMutationPlanProfileWriter = func() io.Writer { return &out }
+	platformACLBackendFactory = func() platformACLBackend {
+		return &batchRecordingACLBackend{}
+	}
+	homeDir := filepath.Join(string(os.PathSeparator), "Users", "rv")
+	t.Setenv("HOME", homeDir)
+	currentExecutablePath = func() (string, error) {
+		return filepath.Join(homeDir, ".local", "bin", "hazmat"), nil
+	}
+	currentUserHomeDir = func() (string, error) {
+		return homeDir, nil
+	}
+	pathAllowsAgentTraverse = func(string) bool { return true }
+	detectGitRepoTopLevel = func(projectDir string) (string, bool) {
+		return projectDir, true
+	}
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		return nil, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		return nil, nil
+	}
+
+	projectDir := filepath.Join(homeDir, "workspace", "repo")
+	_ = buildNativeSessionMutationPlan(sessionConfig{ProjectDir: projectDir})
+
+	for _, want := range []string{
+		"hazmat: native host repair planning profile:",
+		"project ACL repair detection:",
+		"launch-helper traverse detection:",
+		"exposed-directory traverse detection:",
+		"git metadata permission detection:",
+		"git safe.directory planning:",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("profile output missing %q in:\n%s", want, out.String())
+		}
 	}
 }
 

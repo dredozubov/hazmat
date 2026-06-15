@@ -162,11 +162,19 @@ func currentGitSafeDirectoryEntries() ([]string, error) {
 }
 
 func gitSafeDirectoryTrustedForAgent(repoDir string) (bool, error) {
-	entries, err := currentGitSafeDirectoryEntries()
+	systemEntries, err := readSystemGitSafeDirectoryEntries()
 	if err != nil {
 		return false, err
 	}
-	return safeDirectoryCovers(entries, repoDir), nil
+	if safeDirectoryCovers(systemEntries, repoDir) {
+		return true, nil
+	}
+
+	agentEntries, err := readAgentGlobalGitSafeDirectoryEntries()
+	if err != nil {
+		return false, err
+	}
+	return safeDirectoryCovers(agentEntries, repoDir), nil
 }
 
 func plannedProjectGitSafeDirectory(projectDir string) string {

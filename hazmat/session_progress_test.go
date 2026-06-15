@@ -92,6 +92,25 @@ func TestSessionPreparationProgressProfileEnvGate(t *testing.T) {
 	}
 }
 
+func TestSessionPhaseProfileRendersRecordedSpans(t *testing.T) {
+	t.Setenv("HAZMAT_SESSION_PREP_PROFILE", "yes")
+
+	var buf bytes.Buffer
+	profile := newSessionPhaseProfile("hazmat: test phase profile:", &buf)
+	profile.Record("phase one", time.Now().Add(-time.Second))
+	profile.Done()
+
+	got := buf.String()
+	for _, want := range []string{
+		"hazmat: test phase profile:",
+		"  phase one:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("phase profile output missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestExecuteSessionMutationPlanToWriterLogsLifecycle(t *testing.T) {
 	var buf bytes.Buffer
 	err := executeSessionMutationPlanToWriter(&buf, sessionMutationPlan{

@@ -674,15 +674,14 @@ func homeHasAgentTraverseACL(homeDir string) bool {
 }
 
 func homeAllowsAgentTraverse(homeDir string) bool {
-	if homeHasAgentTraverseACL(homeDir) {
-		return true
-	}
-
 	info, err := os.Stat(homeDir)
 	if err != nil {
 		return false
 	}
 	if info.Mode().Perm()&0o001 != 0 {
+		return true
+	}
+	if homeHasAgentTraverseACL(homeDir) {
 		return true
 	}
 	if info.Mode().Perm()&0o010 == 0 {

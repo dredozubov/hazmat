@@ -110,6 +110,45 @@ type sessionPreparationSpan struct {
 	Duration time.Duration
 }
 
+type sessionPhaseProfile struct {
+	title   string
+	w       io.Writer
+	enabled bool
+	spans   []sessionPreparationSpan
+}
+
+func newSessionPhaseProfile(title string, w io.Writer) *sessionPhaseProfile {
+	return &sessionPhaseProfile{
+		title:   title,
+		w:       w,
+		enabled: sessionPreparationProfileEnabled(),
+	}
+}
+
+func (p *sessionPhaseProfile) Record(label string, start time.Time) {
+	if p == nil || !p.enabled || p.w == nil {
+		return
+	}
+	duration := time.Since(start)
+	if duration < 0 {
+		duration = 0
+	}
+	p.spans = append(p.spans, sessionPreparationSpan{
+		Label:    label,
+		Duration: duration,
+	})
+}
+
+func (p *sessionPhaseProfile) Done() {
+	if p == nil || !p.enabled || p.w == nil || len(p.spans) == 0 {
+		return
+	}
+	fmt.Fprintln(p.w, p.title)
+	for _, span := range p.spans {
+		fmt.Fprintf(p.w, "  %s: %.3fs\n", span.Label, span.Duration.Seconds())
+	}
+}
+
 func newSessionPreparationProgress(w io.Writer) *sessionPreparationProgress {
 	now := time.Now()
 	return &sessionPreparationProgress{
@@ -1566,16 +1605,25 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 	if err != nil {
 		return err
 	}
+	profile := newSessionPhaseProfile("hazmat: session startup phase profile:", os.Stderr)
+	defer profile.Done()
 	return runSessionStartupPhases(plan, sessionStartupActions{
 		renderContract: func() {
+			start := time.Now()
+			defer profile.Record("render session contract", start)
 			printSessionContract(prepared.Config, prepared.Mode, skipSnapshot)
 			printRepoSetupDetails(prepared.Config.RepoSetup)
 			printSessionMutationDetails(prepared.Config.PlannedHostMutations)
 		},
 		executeHostMutations: func() error {
-			return executeSessionMutationPlan(prepared.HostMutationPlan)
+			start := time.Now()
+			err := executeSessionMutationPlan(prepared.HostMutationPlan)
+			profile.Record("execute host mutations", start)
+			return err
 		},
 		snapshot: func(skip bool) {
+			start := time.Now()
+			defer profile.Record("pre-session snapshot", start)
 			backupruntime.PreSessionSnapshot(backupruntime.PreSessionSnapshotOptions{
 				ProjectDir:     prepared.Config.ProjectDir,
 				Command:        commandName,
@@ -1585,6 +1633,8 @@ func beginPreparedSession(prepared preparedSession, commandName string, skipSnap
 			})
 		},
 		runtimeLaunch: func() error {
+			start := time.Now()
+			defer profile.Record("runtime launch handoff", start)
 			return nil
 		},
 	})
@@ -2433,11 +2483,18 @@ func applyStatusBarConfig(ui sessionLaunchUI, cfg HazmatConfig) sessionLaunchUI 
 }
 
 func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, ui sessionLaunchUI, script string, args ...string) error {
+	profile := newSessionPhaseProfile("hazmat: native launch execution profile:", os.Stderr)
+	defer profile.Done()
+
+	start := time.Now()
 	if hcfg, err := loadConfig(); err == nil {
 		ui = applyStatusBarConfig(ui, hcfg)
 	}
+	profile.Record("load launch config", start)
 
+	start = time.Now()
 	runtime, err := prepareSessionRuntime(cfg)
+	profile.Record("prepare session runtime", start)
 	if err != nil {
 		return err
 	}
@@ -2446,21 +2503,27 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		cfg.TempDir = runtime.TempDir
 	}
 
+	start = time.Now()
 	policy, err := prepareNativeLaunchPolicyWithPlan(cfg, plan)
+	profile.Record("prepare native policy", start)
 	if err != nil {
 		return err
 	}
 	defer policy.Cleanup()
 	metadataJSON := ""
 	if cfg.EmitSessionMetadataJSON {
+		start = time.Now()
 		var err error
 		metadataJSON, err = marshalSessionLaunchMetadataJSON(cfg, sessionModeNative)
+		profile.Record("marshal session metadata", start)
 		if err != nil {
 			return fmt.Errorf("marshal session metadata: %w", err)
 		}
 	}
 
+	start = time.Now()
 	full := nativeLaunchSudoArgsWithMetadataAndPlan(cfg, plan, policy, runtime.EnvPairs, metadataJSON, script, args...)
+	profile.Record("build native command", start)
 
 	var (
 		barOnce     sync.Once
@@ -2474,7 +2537,9 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	}
 
 	if ui.showStatusBar {
+		start = time.Now()
 		startBar()
+		profile.Record("start status bar", start)
 	}
 
 	var (
@@ -2495,6 +2560,7 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 		}
 	}
 	if transcriptPath != "" {
+		start = time.Now()
 		scriptArgs := append([]string{"-q", transcriptPath, "sudo"}, full...)
 		cmd = exec.Command(hostScriptPath, scriptArgs...)
 		cmd.Dir = "/"
@@ -2504,8 +2570,11 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 			defer close(watchDone)
 			watchTranscriptForAltScreen(transcriptPath, startBar, watchStop)
 		}()
+		profile.Record("prepare transcript wrapper", start)
 	} else {
+		start = time.Now()
 		cmd = newSudoCommand(full...)
+		profile.Record("prepare sudo command", start)
 	}
 
 	defer func() {
@@ -2530,15 +2599,20 @@ func defaultRunAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBacken
 	startTime := time.Now()
 	err = runSessionCommand(cmd)
 	endTime := time.Now()
+	profile.Record("run native command", startTime)
 
 	// Post-session: repair .git/ permissions that may have been altered
 	// by agent git operations. New files created by the agent are owned
 	// by the agent user; re-applying the dev group ACL restores
 	// collaborative access for the host user.
+	start = time.Now()
 	repairGitAfterSession(cfg.ProjectDir)
+	profile.Record("repair git metadata", start)
+	start = time.Now()
 	if recordErr := rememberRepoSetupDenials(cfg, startTime, endTime); recordErr != nil {
 		fmt.Fprintf(os.Stderr, "hazmat: warning: could not record repo setup denials: %v\n", recordErr)
 	}
+	profile.Record("record repo setup denials", start)
 
 	return err
 }

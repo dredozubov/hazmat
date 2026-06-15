@@ -51,7 +51,12 @@ Examples:
 				return fmt.Errorf("--image requires --backend=apple-container")
 			}
 
-			cfg, mode, err := resolveExplainSession(target, sessionOpts)
+			var progress *sessionPreparationProgress
+			if sessionPreparationProfileEnabled() {
+				progress = newSessionPreparationProgress(cmd.ErrOrStderr())
+				defer progress.Done()
+			}
+			cfg, mode, err := resolveExplainSessionWithProgress(target, sessionOpts, progress)
 			if err != nil {
 				return err
 			}
@@ -86,13 +91,17 @@ Examples:
 }
 
 func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfig, sessionMode, error) {
+	return resolveExplainSessionWithProgress(target, opts, nil)
+}
+
+func resolveExplainSessionWithProgress(target string, opts harnessSessionOpts, progress *sessionPreparationProgress) (sessionConfig, sessionMode, error) {
 	switch target {
 	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent":
 	default:
 		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, qwen, or cursor-agent)", target)
 	}
 
-	prepared, err := resolvePreparedSession(target, opts, true)
+	prepared, err := resolvePreparedSessionWithProgress(target, opts, true, progress)
 	if err != nil {
 		return sessionConfig{}, "", err
 	}

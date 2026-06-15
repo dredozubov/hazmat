@@ -134,6 +134,55 @@ func TestSafeDirectoryCoversExactAndWildcardEntries(t *testing.T) {
 	}
 }
 
+func TestGitSafeDirectoryTrustedForAgentSkipsAgentConfigWhenSystemCovers(t *testing.T) {
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		return []string{"/Users/dr/workspace/*"}, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		t.Fatal("agent global safe.directory entries should not be read when system config covers repo")
+		return nil, nil
+	}
+
+	trusted, err := gitSafeDirectoryTrustedForAgent("/Users/dr/workspace/hazmat")
+	if err != nil {
+		t.Fatalf("gitSafeDirectoryTrustedForAgent: %v", err)
+	}
+	if !trusted {
+		t.Fatal("system wildcard should trust repo")
+	}
+}
+
+func TestGitSafeDirectoryTrustedForAgentFallsBackToAgentConfig(t *testing.T) {
+	savedSystem := readSystemGitSafeDirectoryEntries
+	savedAgent := readAgentGlobalGitSafeDirectoryEntries
+	t.Cleanup(func() {
+		readSystemGitSafeDirectoryEntries = savedSystem
+		readAgentGlobalGitSafeDirectoryEntries = savedAgent
+	})
+
+	readSystemGitSafeDirectoryEntries = func() ([]string, error) {
+		return []string{"/opt/elsewhere/*"}, nil
+	}
+	readAgentGlobalGitSafeDirectoryEntries = func() ([]string, error) {
+		return []string{"/Users/dr/workspace/hazmat"}, nil
+	}
+
+	trusted, err := gitSafeDirectoryTrustedForAgent("/Users/dr/workspace/hazmat")
+	if err != nil {
+		t.Fatalf("gitSafeDirectoryTrustedForAgent: %v", err)
+	}
+	if !trusted {
+		t.Fatal("agent global safe.directory entry should trust repo when system config does not")
+	}
+}
+
 func TestReadGitSafeDirectoryEntriesTreatsEmptyExitOneAsNoEntries(t *testing.T) {
 	entries, err := readGitSafeDirectoryEntriesCommand(exec.Command("sh", "-c", "exit 1"))
 	if err != nil {

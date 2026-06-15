@@ -13,6 +13,26 @@ import (
 var currentUserHomeDir = os.UserHomeDir
 var pathAllowsAgentTraverse = homeAllowsAgentTraverse
 
+type agentTraversePermissionCache struct {
+	results map[string]bool
+}
+
+func newAgentTraversePermissionCache() *agentTraversePermissionCache {
+	return &agentTraversePermissionCache{results: make(map[string]bool)}
+}
+
+func (c *agentTraversePermissionCache) Allows(path string) bool {
+	if c == nil {
+		return pathAllowsAgentTraverse(path)
+	}
+	if allowed, ok := c.results[path]; ok {
+		return allowed
+	}
+	allowed := pathAllowsAgentTraverse(path)
+	c.results[path] = allowed
+	return allowed
+}
+
 // pathHasDevACL reports whether a path carries the dev-group collaborative
 // ACL. requireInherit selects devGroupInheritableGrant (directories) vs
 // devGroupGrant (files or any entry regardless of inheritance).
@@ -196,9 +216,16 @@ func ensureAgentCanTraverseExposedDirs(projectDir string, dirs []string) (bool, 
 }
 
 func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
+	return pendingAgentTraverseTargetsWithProbe(projectDir, dirs, pathAllowsAgentTraverse)
+}
+
+func pendingAgentTraverseTargetsWithProbe(projectDir string, dirs []string, allowsAgentTraverse func(string) bool) []string {
 	homeDir, err := currentUserHomeDir()
 	if err != nil {
 		return nil
+	}
+	if allowsAgentTraverse == nil {
+		allowsAgentTraverse = pathAllowsAgentTraverse
 	}
 
 	var pending []string
@@ -207,12 +234,12 @@ func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
 	// init sets this ACL, but permissions can change (macOS updates,
 	// privacy settings, manual chmod). Without home traversal the
 	// agent cannot reach any project directory.
-	if !pathAllowsAgentTraverse(homeDir) {
+	if !allowsAgentTraverse(homeDir) {
 		pending = append(pending, homeDir)
 	}
 
 	for _, path := range collectAgentTraverseTargets(homeDir, projectDir, dirs) {
-		if pathAllowsAgentTraverse(path) {
+		if allowsAgentTraverse(path) {
 			continue
 		}
 		pending = append(pending, path)
@@ -221,13 +248,20 @@ func pendingAgentTraverseTargets(projectDir string, dirs []string) []string {
 }
 
 func pendingLaunchHelperTraverseTargets(helperPath string) []string {
+	return pendingLaunchHelperTraverseTargetsWithProbe(helperPath, pathAllowsAgentTraverse)
+}
+
+func pendingLaunchHelperTraverseTargetsWithProbe(helperPath string, allowsAgentTraverse func(string) bool) []string {
 	homeDir, err := currentUserHomeDir()
 	if err != nil || homeDir == "" || !isWithinDir(homeDir, helperPath) {
 		return nil
 	}
+	if allowsAgentTraverse == nil {
+		allowsAgentTraverse = pathAllowsAgentTraverse
+	}
 
 	var pending []string
-	if !pathAllowsAgentTraverse(homeDir) {
+	if !allowsAgentTraverse(homeDir) {
 		pending = append(pending, homeDir)
 	}
 
@@ -236,7 +270,7 @@ func pendingLaunchHelperTraverseTargets(helperPath string) []string {
 		ancestors = append([]string{path}, ancestors...)
 	}
 	for _, path := range ancestors {
-		if pathAllowsAgentTraverse(path) {
+		if allowsAgentTraverse(path) {
 			continue
 		}
 		pending = append(pending, path)
