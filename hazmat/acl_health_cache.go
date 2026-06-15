@@ -53,6 +53,9 @@ func readStartupACLsForPaths(paths []string) map[string]aclReadResult {
 		misses = append(misses, aclPath)
 	}
 	if len(misses) == 0 {
+		if cache.retainPaths(unique) {
+			saveStartupACLHealthCache(path, cache)
+		}
 		return results
 	}
 
@@ -60,7 +63,11 @@ func readStartupACLsForPaths(paths []string) map[string]aclReadResult {
 	for aclPath, result := range fresh {
 		results[aclPath] = result
 	}
-	if cache.updateFromResults(fresh) {
+	changed := cache.updateFromResults(fresh)
+	if cache.retainPaths(unique) {
+		changed = true
+	}
+	if changed {
 		saveStartupACLHealthCache(path, cache)
 	}
 	return results
@@ -153,6 +160,28 @@ func (c startupACLHealthCache) updateFromResults(results map[string]aclReadResul
 			c.Entries[path] = entry
 			changed = true
 		}
+	}
+	return changed
+}
+
+func (c startupACLHealthCache) retainPaths(paths []string) bool {
+	if len(c.Entries) == 0 {
+		return false
+	}
+	keep := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path != "" {
+			keep[path] = struct{}{}
+		}
+	}
+
+	changed := false
+	for path := range c.Entries {
+		if _, ok := keep[path]; ok {
+			continue
+		}
+		delete(c.Entries, path)
+		changed = true
 	}
 	return changed
 }

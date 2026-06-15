@@ -19,14 +19,7 @@ func runLaunchBrokerAgentEntry(ctx context.Context, req agententry.LaunchBrokerR
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	service, err := launchbroker.StartService(ctx, launchbroker.ServiceConfig{
-		SocketPath:      req.SocketPath,
-		SocketMode:      0o660,
-		ExpectedPeerUID: req.ExpectedPeerUID,
-		Helper: launchbroker.HelperExecutorConfig{
-			LaunchHelperPath: req.LaunchHelper,
-		},
-	})
+	service, err := launchbroker.StartService(ctx, launchBrokerAgentEntryServiceConfig(req))
 	if err != nil {
 		return fmt.Errorf("start launch broker service: %w", err)
 	}
@@ -43,5 +36,17 @@ func runLaunchBrokerAgentEntry(ctx context.Context, req agententry.LaunchBrokerR
 			return nil
 		}
 		return err
+	}
+}
+
+func launchBrokerAgentEntryServiceConfig(req agententry.LaunchBrokerRequest) launchbroker.ServiceConfig {
+	return launchbroker.ServiceConfig{
+		SocketPath:      req.SocketPath,
+		SocketMode:      0o660,
+		ExpectedPeerUID: req.ExpectedPeerUID,
+		Helper: launchbroker.HelperExecutorConfig{
+			LaunchHelperPath: req.LaunchHelper,
+			Profile:          sessionPreparationProfileEnabled(),
+		},
 	}
 }

@@ -3,6 +3,7 @@ package hazmat
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"hazmat/internal/agententry"
 	"hazmat/internal/diagnostics"
@@ -16,6 +17,7 @@ import (
 //
 //	go build -ldflags "-X hazmat.version=v0.1.0"
 var version = "dev"
+var processStartTime = time.Now()
 
 // flagVerbose, flagDryRun, and flagYesAll are persistent flags bound to the
 // root command so they are available on every subcommand without repetition.

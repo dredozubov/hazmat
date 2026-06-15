@@ -673,7 +673,7 @@ found" across 18,874,368 generated states, 9,437,184 distinct states, depth 1.
 | Governed code | `hazmat/git_preflight.go` — `.git` metadata repair checks |
 | Governed code | `hazmat/integration_resolver.go` — Homebrew tool permission repair planning |
 | Governed code | `hazmat/session.go`, `hazmat/explain.go` — preview vs launch mutation behavior |
-| Key invariants | `PlannedRepairsMatchSnapshot`, `PreviewIsReadOnly`, `DockerSkipsNativeACLRepairs`, `HomebrewRepairRequiresEligibleCellar`, `LaunchClearsFatalRepairNeeds`, `RollbackPreservesSessionRepairs`, `BackfillIsOutsideStartupPlan` |
+| Key invariants | `PlannedRepairsMatchSnapshot`, `ValidatedCacheRequiresFreshMetadata`, `PreviewIsReadOnly`, `DockerSkipsNativeACLRepairs`, `HomebrewRepairRequiresEligibleCellar`, `LaunchClearsFatalRepairNeeds`, `RollbackPreservesSessionRepairs`, `BackfillIsOutsideStartupPlan` |
 | Status | **Proved** — explicit host permission repair classes, preview semantics, and non-reverting rollback behavior are now modeled |
 
 **What this verifies:**
@@ -697,7 +697,12 @@ found" across 18,874,368 generated states, 9,437,184 distinct states, depth 1.
    modeled as a bounded launch repair. Historical full-tree backfill remains
    outside the automatic launch plan.
 
-TLC passes across all 13,268 reachable states (31,326 generated, depth 7, <1s).
+6. **ACL cache hits are metadata-validated:** startup ACL cache entries may be
+   used only while path identity and metadata remain fresh. The implementation
+   may evict unrelated entries to bound startup cost; missing entries fall back
+   to fresh probes.
+
+TLC passes across all 79,098 reachable states (194,023 generated, depth 7, 5s).
 
 **Change rules:**
 - Adding a new host permission repair class requires updating this spec first:

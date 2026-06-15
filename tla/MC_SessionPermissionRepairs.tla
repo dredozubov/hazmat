@@ -17,7 +17,9 @@ EXTENDS TLC
 \* The implementation may observe permission state via per-path probes, a
 \* batched probe, or a metadata-validated cache hit. All modes must produce
 \* the same planned repair set for the same host snapshot; a cached snapshot is
-\* usable only while its validation metadata is fresh.
+\* usable only while its validation metadata is fresh. Cache entries may be
+\* evicted to keep startup bounded; a missing entry is equivalent to choosing a
+\* fresh single/batched probe for that path.
 \*
 \* Governed code:
 \*   hazmat/session_mutation.go — repair planning and preview/apply flow

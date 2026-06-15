@@ -69,7 +69,9 @@ does not attempt to encode the exact `chmod +a` walk semantics or Homebrew
 mode-bit edits on concrete paths. The `validatedCache` probe mode abstracts an
 implementation cache that may be used only when path identity and metadata prove
 the cached ACL-bearing object has not changed; stale or missing validation must
-fall back to a fresh host probe before planning.
+fall back to a fresh host probe before planning. Cache retention is not part of
+the safety contract: the implementation may evict unrelated entries to keep
+startup bounded, because an evicted entry is simply a cache miss.
 
 ## What TLC Checks
 

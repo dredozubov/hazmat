@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 type suggestedIntegrationAction string
@@ -35,6 +36,9 @@ var promptSuggestedLaunchIntegrations = defaultPromptSuggestedLaunchIntegrations
 
 func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox bool) (preparedSession, error) {
 	progress := newSessionPreparationProgress(os.Stderr)
+	if sessionPreparationProfileEnabled() {
+		fmt.Fprintf(os.Stderr, "hazmat: process startup before session preparation: %.3fs\n", time.Since(processStartTime).Seconds())
+	}
 	progress.Step("resolving launch context")
 	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {

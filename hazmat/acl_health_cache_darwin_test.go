@@ -62,3 +62,62 @@ func TestReadStartupACLsForPathsUsesValidatedCache(t *testing.T) {
 		t.Fatalf("ACL reads after metadata change = %v, want one fresh read", backend.reads)
 	}
 }
+
+func TestReadStartupACLsForPathsPrunesUnrelatedCacheEntries(t *testing.T) {
+	projectDir := t.TempDir()
+	if _, ok := currentACLHealthPathState(projectDir); !ok {
+		t.Skip("ACL health path state is not available")
+	}
+
+	savedPath := startupACLHealthCachePath
+	cachePath := filepath.Join(t.TempDir(), "acl-health.json")
+	startupACLHealthCachePath = func() string {
+		return cachePath
+	}
+	t.Cleanup(func() {
+		startupACLHealthCachePath = savedPath
+	})
+
+	backend := &pathRecordingACLBackend{
+		rows: map[string][]ACLRow{
+			projectDir: {rowForGrant(devGroupInheritableGrant)},
+		},
+	}
+	savedFactory := platformACLBackendFactory
+	platformACLBackendFactory = func() platformACLBackend {
+		return backend
+	}
+	t.Cleanup(func() {
+		platformACLBackendFactory = savedFactory
+	})
+
+	_ = readStartupACLsForPaths([]string{projectDir})
+	cache, _, ok := loadStartupACLHealthCache()
+	if !ok {
+		t.Fatal("cache did not load after initial read")
+	}
+	if len(cache.Entries) != 1 {
+		t.Fatalf("cache entries after initial read = %d, want 1", len(cache.Entries))
+	}
+	for _, entry := range cache.Entries {
+		cache.Entries["/tmp/unrelated-hazmat-project"] = entry
+		break
+	}
+	saveStartupACLHealthCache(cachePath, cache)
+
+	backend.reads = nil
+	_ = readStartupACLsForPaths([]string{projectDir})
+	if len(backend.reads) != 0 {
+		t.Fatalf("cached ACL reads = %v, want none", backend.reads)
+	}
+	pruned, _, ok := loadStartupACLHealthCache()
+	if !ok {
+		t.Fatal("cache did not load after pruning")
+	}
+	if _, exists := pruned.Entries["/tmp/unrelated-hazmat-project"]; exists {
+		t.Fatalf("unrelated cache entry was not pruned: %#v", pruned.Entries)
+	}
+	if _, exists := pruned.Entries[projectDir]; !exists {
+		t.Fatalf("current project entry missing after pruning: %#v", pruned.Entries)
+	}
+}

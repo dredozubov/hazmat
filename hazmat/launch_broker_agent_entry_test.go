@@ -30,6 +30,19 @@ func TestRootCommandRegistersLaunchBrokerAgentEntry(t *testing.T) {
 	}
 }
 
+func TestLaunchBrokerAgentEntryServiceConfigPropagatesHelperProfile(t *testing.T) {
+	t.Setenv("HAZMAT_SESSION_PREP_PROFILE", "yes")
+
+	cfg := launchBrokerAgentEntryServiceConfig(agententry.LaunchBrokerRequest{
+		SocketPath:      filepath.Join(t.TempDir(), "broker.sock"),
+		ExpectedPeerUID: os.Getuid(),
+		LaunchHelper:    "/usr/local/libexec/hazmat-launch",
+	})
+	if !cfg.Helper.Profile {
+		t.Fatal("Helper.Profile = false, want true when session preparation profiling is enabled")
+	}
+}
+
 func TestLaunchBrokerServiceCommandPathWithFakeRunner(t *testing.T) {
 	socketPath := filepath.Join(newShortBrokerTestDir(t), "broker.sock")
 	service := startBrokerServiceWithFakeRunner(t, socketPath, os.Getuid())
