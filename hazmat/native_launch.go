@@ -56,6 +56,7 @@ var launchHelperSupportsSessionTemp = launchHelperSupportsSessionTempImpl
 var launchHelperPathForBrokerChild = defaultLaunchHelperPathForBrokerChild
 
 const launchHelperCapabilityScanLimit = 2 << 20
+const brokerChildLaunchHelperEnv = "HAZMAT_BROKER_CHILD_LAUNCH_HELPER"
 
 var launchHelperCapabilityCache sync.Map
 var launchHelperCapabilityDiskCachePath = defaultLaunchHelperCapabilityDiskCachePath
@@ -92,6 +93,9 @@ func launchHelperSupportsSessionTempImpl(path string) bool {
 }
 
 func defaultLaunchHelperPathForBrokerChild() string {
+	if override := os.Getenv(brokerChildLaunchHelperEnv); override != "" {
+		return override
+	}
 	if override := os.Getenv("HAZMAT_LAUNCH_HELPER"); override != "" {
 		return override
 	}

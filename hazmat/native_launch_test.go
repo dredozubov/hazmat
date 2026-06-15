@@ -169,6 +169,18 @@ func TestLaunchHelperPathForBrokerChildPrefersCheckoutSiblingHelper(t *testing.T
 	}
 }
 
+func TestLaunchHelperPathForBrokerChildAllowsChildOnlyOverride(t *testing.T) {
+	t.Setenv(brokerChildLaunchHelperEnv, "/tmp/hazmat-launch-zig")
+	t.Setenv("HAZMAT_LAUNCH_HELPER", "/usr/local/libexec/hazmat-launch")
+
+	if got := launchHelperPathForBrokerChild(); got != "/tmp/hazmat-launch-zig" {
+		t.Fatalf("launchHelperPathForBrokerChild() = %q, want child-only override", got)
+	}
+	if got := launchHelperPath(); got != "/usr/local/libexec/hazmat-launch" {
+		t.Fatalf("launchHelperPath() = %q, want startup helper override to stay separate", got)
+	}
+}
+
 func TestSessionTempLaunchHelperPathUsesBrokerChildWhenConfigured(t *testing.T) {
 	t.Setenv(launchBrokerSocketEnv, filepath.Join(t.TempDir(), "broker.sock"))
 	oldBrokerChildHelper := launchHelperPathForBrokerChild
