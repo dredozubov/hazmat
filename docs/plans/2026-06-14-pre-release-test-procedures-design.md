@@ -327,6 +327,11 @@ because they expose documented `admin`/`admin` SSH credentials without
 computer-use or Setup Assistant automation. Lume is an explicit alternate only
 for SSH-enabled custom images or existing base VMs; do not use Lume `vanilla`
 images for this lane.
+The Tart guest path stages the host Darwin/arm64 Go toolchain and a
+host-generated `vendor/` tree, then runs the destructive lifecycle with
+`GOFLAGS="-mod=vendor -trimpath"`. This keeps the guest run independent of
+guest internet, Homebrew, and module downloads while still exercising the
+actual install/contain/rollback lifecycle in a disposable VM.
 
 ## Pre-Release Procedure
 

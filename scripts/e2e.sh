@@ -190,6 +190,14 @@ run_e2e_vm() {
     local base_image_org="${HAZMAT_E2E_BASE_IMAGE_ORG:-trycua}"
     local vm_user=""
     local vm_pass=""
+    local guest_go_root=""
+    local guest_go_path=""
+    local guest_mod_cache=""
+    local guest_mod_cache_env=""
+    local guest_build_cache=""
+    local host_mod_cache=""
+    local host_build_cache=""
+    local host_vendor_dir=""
 
     case "$vm_provider" in
         lume)
@@ -212,12 +220,38 @@ run_e2e_vm() {
     vm_user="${HAZMAT_E2E_VM_USER:-$default_vm_user}"
     vm_pass="${HAZMAT_E2E_VM_PASS:-$default_vm_pass}"
     base_image="${HAZMAT_E2E_BASE_IMAGE:-$default_base_image}"
+    guest_go_root="${HAZMAT_E2E_GUEST_GO_ROOT:-/Users/$vm_user/.hazmat/go}"
+    guest_go_path="${HAZMAT_E2E_GUEST_GOPATH:-/Users/$vm_user/.hazmat/go-path}"
+    if [ -n "${HAZMAT_E2E_GUEST_GOMODCACHE:-}" ]; then
+        guest_mod_cache="$HAZMAT_E2E_GUEST_GOMODCACHE"
+        guest_mod_cache_env=" GOMODCACHE='$guest_mod_cache'"
+    else
+        guest_mod_cache="$guest_go_path/pkg/mod"
+    fi
+    guest_build_cache="${HAZMAT_E2E_GUEST_GOCACHE:-/Users/$vm_user/.hazmat/go-build}"
+    host_mod_cache="${HAZMAT_E2E_HOST_GOMODCACHE:-$HOME/.cache/hazmat/e2e-go-mod}"
+    host_build_cache="${HAZMAT_E2E_HOST_GOCACHE:-$HOME/.cache/hazmat/e2e-go-build}"
+    host_vendor_dir="${HAZMAT_E2E_HOST_VENDOR_DIR:-$HOME/.cache/hazmat/e2e-vendor}"
 
     vm_exists() {
         local vm="$1"
         case "$vm_provider" in
             lume) lume get "$vm" >/dev/null 2>&1 ;;
             tart) tart get "$vm" >/dev/null 2>&1 ;;
+        esac
+    }
+
+    vm_is_running() {
+        local vm="$1"
+        case "$vm_provider" in
+            lume)
+                lume get "$vm" -f json 2>/dev/null \
+                    | python3 -c "import sys,json; data=json.load(sys.stdin); data=data[0] if isinstance(data, list) and data else data; print(data.get('state') or data.get('status') or '')" 2>/dev/null \
+                    | grep -qi running
+                ;;
+            tart)
+                tart get "$vm" 2>/dev/null | awk 'NR > 1 {print $NF}' | grep -qx running
+                ;;
         esac
     }
 
@@ -236,6 +270,41 @@ run_e2e_vm() {
                 ;;
         esac
         echo "$ip"
+    }
+
+    run_with_timeout() {
+        local timeout_seconds="$1"
+        local command_pid
+        local timeout_pid
+        local status
+        shift
+
+        "$@" &
+        command_pid=$!
+        (
+            sleep "$timeout_seconds"
+            kill "$command_pid" 2>/dev/null || true
+        ) &
+        timeout_pid=$!
+
+        status=0
+        wait "$command_pid" || status=$?
+        kill "$timeout_pid" 2>/dev/null || true
+        wait "$timeout_pid" 2>/dev/null || true
+        return "$status"
+    }
+
+    tart_ssh_options() {
+        printf '%s\n' \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o PubkeyAuthentication=no \
+            -o PreferredAuthentications=password,keyboard-interactive \
+            -o IdentitiesOnly=yes \
+            -o NumberOfPasswordPrompts=1 \
+            -o ConnectTimeout=3 \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=2
     }
 
     wait_for_ssh() {
@@ -266,6 +335,30 @@ run_e2e_vm() {
         return 1
     }
 
+    wait_for_stable_ssh() {
+        local vm="$1"
+        local wait_seconds="${HAZMAT_E2E_VM_STABLE_SSH_WAIT_SECONDS:-300}"
+        local required_successes="${HAZMAT_E2E_VM_STABLE_SSH_SUCCESSES:-3}"
+        local deadline=$((SECONDS + wait_seconds))
+        local successes=0
+
+        echo "Waiting for stable SSH on $vm..."
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            if vm_ssh "$vm" true >/dev/null 2>&1; then
+                successes=$((successes + 1))
+                if [ "$successes" -ge "$required_successes" ]; then
+                    echo "Stable SSH ready on $vm."
+                    return 0
+                fi
+            else
+                successes=0
+            fi
+            sleep 5
+        done
+        echo "Error: VM SSH did not remain stable within ${wait_seconds}s" >&2
+        return 1
+    }
+
     vm_ssh() {
         local vm="$1"
         shift
@@ -279,15 +372,260 @@ run_e2e_vm() {
                 ;;
             tart)
                 local ip
+                local ssh_bind_args=""
+                local attempt
+                local max_attempts="${HAZMAT_E2E_VM_SSH_COMMAND_ATTEMPTS:-3}"
+                local status=1
+                local timeout_seconds="${HAZMAT_E2E_VM_SSH_COMMAND_TIMEOUT:-120}"
                 ip=$(get_vm_ip "$vm")
                 if [ -z "$ip" ]; then
                     return 1
                 fi
+                ssh_bind_args=$(tart_ssh_bind_args_for_ip "$ip")
+                for attempt in $(seq 1 "$max_attempts"); do
+                    # shellcheck disable=SC2086
+                    run_with_timeout "$timeout_seconds" sshpass -p "$vm_pass" ssh \
+                        -n \
+                        $ssh_bind_args \
+                        $(tart_ssh_options) \
+                        "$vm_user@$ip" "$@"
+                    status=$?
+                    if [ "$status" -eq 0 ]; then
+                        return 0
+                    fi
+                    if [ "$status" -ne 255 ] && [ "$status" -ne 143 ]; then
+                        return "$status"
+                    fi
+                    if [ "$attempt" -lt "$max_attempts" ]; then
+                        echo "Retrying SSH command on $vm ($attempt/$max_attempts)..." >&2
+                        sleep 3
+                    fi
+                done
+                return "$status"
+                ;;
+        esac
+    }
+
+    vm_ssh_stream() {
+        local vm="$1"
+        shift
+        case "$vm_provider" in
+            lume)
+                lume ssh "$vm" \
+                    --user "$vm_user" \
+                    --password "$vm_pass" \
+                    --timeout "${HAZMAT_E2E_VM_SSH_COMMAND_TIMEOUT:-60}" \
+                    "$@"
+                ;;
+            tart)
+                local ip
+                local ssh_bind_args=""
+                ip=$(get_vm_ip "$vm")
+                if [ -z "$ip" ]; then
+                    return 1
+                fi
+                ssh_bind_args=$(tart_ssh_bind_args_for_ip "$ip")
+                # shellcheck disable=SC2086
                 sshpass -p "$vm_pass" ssh \
-                    -o StrictHostKeyChecking=no \
-                    -o UserKnownHostsFile=/dev/null \
-                    -o ConnectTimeout=3 \
+                    $ssh_bind_args \
+                    $(tart_ssh_options) \
                     "$vm_user@$ip" "$@"
+                ;;
+        esac
+    }
+
+    vm_ssh_idempotent() {
+        local vm="$1"
+        local attempt
+        local max_attempts="${HAZMAT_E2E_VM_IDEMPOTENT_COMMAND_ATTEMPTS:-5}"
+        shift
+
+        for attempt in $(seq 1 "$max_attempts"); do
+            if vm_ssh "$vm" "$@"; then
+                return 0
+            fi
+            if [ "$attempt" -lt "$max_attempts" ]; then
+                echo "Retrying idempotent VM command on $vm ($attempt/$max_attempts)..." >&2
+                wait_for_stable_ssh "$vm" >/dev/null || true
+            fi
+        done
+        return 1
+    }
+
+    vm_copy_dir() {
+        local vm="$1"
+        local source_dir="$2"
+        local dest_dir="$3"
+
+        if [ ! -d "$source_dir" ]; then
+            echo "Error: source directory missing for VM copy: $source_dir" >&2
+            return 1
+        fi
+
+        tar -C "$source_dir" -cf - . \
+            | vm_ssh_stream "$vm" "rm -rf '$dest_dir' && mkdir -p '$dest_dir' && tar -C '$dest_dir' -xf -"
+    }
+
+    tart_ssh_bind_args_for_ip() {
+        local ip="$1"
+        local bind_interface
+
+        bind_interface="${HAZMAT_E2E_TART_SSH_BIND_INTERFACE:-auto}"
+        if [ "$bind_interface" = "auto" ]; then
+            bind_interface=""
+            case "$ip" in
+                *.*.*.*)
+                    local bridge_prefix="${ip%.*}"
+                    if ifconfig bridge100 2>/dev/null | grep -q "inet $bridge_prefix\\."; then
+                        bind_interface="bridge100"
+                    fi
+                    ;;
+            esac
+        fi
+        if [ -n "$bind_interface" ] && [ "$bind_interface" != "none" ]; then
+            printf -- "-B %s" "$bind_interface"
+        fi
+    }
+
+    vm_rsync_dir() {
+        local vm="$1"
+        local source_dir="$2"
+        local dest_dir="$3"
+        local attempt
+        shift 3
+
+        if [ ! -d "$source_dir" ]; then
+            echo "Error: source directory missing for VM rsync: $source_dir" >&2
+            return 1
+        fi
+
+        case "$vm_provider" in
+            tart)
+                local ip
+                local ssh_bind_args
+                local ssh_cmd
+                ip=$(get_vm_ip "$vm")
+                if [ -z "$ip" ]; then
+                    return 1
+                fi
+                ssh_bind_args=$(tart_ssh_bind_args_for_ip "$ip")
+                ssh_cmd="ssh $ssh_bind_args $(tart_ssh_options | tr '\n' ' ')"
+                for attempt in 1 2 3; do
+                    if vm_ssh "$vm" "rm -rf '$dest_dir' && mkdir -p '$dest_dir'" \
+                        && sshpass -p "$vm_pass" rsync -a --delete "$@" -e "$ssh_cmd" "$source_dir"/ "$vm_user@$ip:$dest_dir"/; then
+                        return 0
+                    fi
+                    echo "Retrying VM rsync to $vm ($attempt/3)..." >&2
+                    sleep 5
+                done
+                return 1
+                ;;
+            *)
+                vm_copy_dir "$vm" "$source_dir" "$dest_dir"
+                ;;
+        esac
+    }
+
+    guest_go_env() {
+        printf "export GOROOT='%s' GOPATH='%s'%s GOCACHE='%s' GOWORK=off GOPROXY=off GOSUMDB=off GOFLAGS='-mod=vendor -trimpath' PATH='%s/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin';" \
+            "$guest_go_root" \
+            "$guest_go_path" \
+            "$guest_mod_cache_env" \
+            "$guest_build_cache" \
+            "$guest_go_root"
+    }
+
+    provision_guest_go_toolchain() {
+        local host_go_root
+        local host_go_version
+        local host_goos
+        local host_goarch
+
+        if ! command -v go >/dev/null 2>&1; then
+            echo "Error: host Go toolchain not found; install Go before provisioning the VM base." >&2
+            exit 1
+        fi
+
+        host_goos=$(go env GOOS)
+        host_goarch=$(go env GOARCH)
+        if [ "$host_goos" != "darwin" ] || [ "$host_goarch" != "arm64" ]; then
+            echo "Error: host Go toolchain must be darwin/arm64 for the macOS ARM VM lane; got $host_goos/$host_goarch." >&2
+            exit 1
+        fi
+
+        host_go_root=$(go env GOROOT)
+        host_go_version=$(go version | awk '{print $3}')
+        if vm_ssh "$base_vm" "$(guest_go_env) test -x '$guest_go_root/bin/go' && test -f '$guest_go_root/src/weak/pointer.go' && '$guest_go_root/bin/go' version | grep -q '$host_go_version' && '$guest_go_root/bin/go' list weak >/dev/null"; then
+            echo "Base VM already has $host_go_version at $guest_go_root."
+            return
+        fi
+
+        echo "Copying host Go toolchain $host_go_version to base VM..."
+        vm_rsync_dir "$base_vm" "$host_go_root" "$guest_go_root"
+    }
+
+    provision_guest_sudoers() {
+        local sudoers_tmp="/tmp/hazmat-sudoers-$vm_user"
+
+        vm_ssh "$base_vm" "{
+printf '%s\n' '$vm_user ALL=(ALL) NOPASSWD: ALL'
+printf '%s\n' 'Defaults env_keep += \"GOROOT GOPATH GOMODCACHE GOCACHE GOWORK GOPROXY GOSUMDB GOFLAGS\"'
+printf '%s\n' 'Defaults secure_path = \"$guest_go_root/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\"'
+} > '$sudoers_tmp'
+echo '$vm_pass' | sudo -S sh -c 'cp \"$sudoers_tmp\" \"/etc/sudoers.d/$vm_user\" && chmod 440 \"/etc/sudoers.d/$vm_user\" && visudo -cf \"/etc/sudoers.d/$vm_user\" >/dev/null && rm -f \"$sudoers_tmp\"'"
+    }
+
+    stage_host_go_modules() {
+        local vendor_src=""
+
+        vendor_src=$(mktemp -d "${TMPDIR:-/tmp}/hazmat-e2e-vendor-src.XXXXXX")
+        if ! rsync -a --delete \
+            --exclude 'vendor/' \
+            --exclude '.git/' \
+            "$REPO_ROOT/hazmat"/ "$vendor_src"/; then
+            chmod -R u+w "$vendor_src" 2>/dev/null || true
+            rm -rf "$vendor_src"
+            echo "Error: failed to stage temporary Go module for vendor generation." >&2
+            exit 1
+        fi
+        mkdir -p "$host_mod_cache" "$host_build_cache"
+        echo "Preparing project Go module cache on host..."
+        if ! (cd "$vendor_src" && GOWORK=off GOMODCACHE="$host_mod_cache" GOCACHE="$host_build_cache" go mod download -modcacherw all); then
+            chmod -R u+w "$vendor_src" 2>/dev/null || true
+            rm -rf "$vendor_src"
+            echo "Error: host-side go mod download failed." >&2
+            exit 1
+        fi
+        if ! (cd "$vendor_src" && GOWORK=off GOMODCACHE="$host_mod_cache" GOCACHE="$host_build_cache" go list -mod=readonly -deps ./... >/dev/null); then
+            chmod -R u+w "$vendor_src" 2>/dev/null || true
+            rm -rf "$vendor_src"
+            echo "Error: host-side offline Go dependency listing failed." >&2
+            exit 1
+        fi
+        if [ -d "$host_vendor_dir" ]; then
+            chmod -R u+w "$host_vendor_dir" 2>/dev/null || true
+            rm -rf "$host_vendor_dir"
+        fi
+        mkdir -p "$host_vendor_dir"
+        if ! (cd "$vendor_src" && GOWORK=off GOMODCACHE="$host_mod_cache" GOCACHE="$host_build_cache" go mod vendor -o "$host_vendor_dir"); then
+            chmod -R u+w "$vendor_src" "$host_vendor_dir" 2>/dev/null || true
+            rm -rf "$vendor_src" "$host_vendor_dir"
+            echo "Error: host-side Go vendor staging failed." >&2
+            exit 1
+        fi
+        chmod -R u+w "$vendor_src" 2>/dev/null || true
+        rm -rf "$vendor_src"
+    }
+
+    stage_guest_go_modules() {
+        case "$vm_provider" in
+            tart)
+                echo "Copying project Go vendor tree inside VM..."
+                vm_ssh_idempotent "$test_vm" "rm -rf '$guest_repo/hazmat/vendor' && mkdir -p '$guest_repo/hazmat/vendor' && rsync -a --delete '/Volumes/My Shared Files/hazmat-vendor/' '$guest_repo/hazmat/vendor/' && test -f '$guest_repo/hazmat/vendor/google.golang.org/protobuf/proto/proto.go' && test -f '$guest_repo/hazmat/vendor/google.golang.org/grpc/rpc_util.go' && test -f '$guest_repo/hazmat/vendor/gopkg.in/yaml.v3/yaml.go'"
+                ;;
+            *)
+                echo "Copying project Go module cache to VM..."
+                vm_rsync_dir "$test_vm" "$host_mod_cache" "$guest_mod_cache"
                 ;;
         esac
     }
@@ -473,17 +811,13 @@ EOF
         fi
 
         base_ip=$(get_vm_ip "$base_vm")
-        if ! vm_ssh "$base_vm" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
-            echo "Base VM $base_vm Homebrew setup failed; preserving it for repair." >&2
+        provision_guest_go_toolchain
+        if ! vm_ssh "$base_vm" "$(guest_go_env) '$guest_go_root/bin/go' version && command -v make >/dev/null"; then
+            echo "Base VM $base_vm Go/make setup check failed; preserving it for repair." >&2
             echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
-        if ! vm_ssh "$base_vm" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'; then
-            echo "Base VM $base_vm Go setup failed; preserving it for repair." >&2
-            echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
-            exit 1
-        fi
-        if ! vm_ssh "$base_vm" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"; then
+        if ! provision_guest_sudoers; then
             echo "Base VM $base_vm passwordless sudo setup failed; preserving it for repair." >&2
             echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
@@ -522,18 +856,31 @@ EOF
     }
 
     boot_test_vm() {
+        local run_log="${TMPDIR:-/tmp}/hazmat-e2e-${test_vm}.run.log"
+        local run_pid=""
         E2E_VM_CLEANUP_TEST_VM="$test_vm"
         E2E_VM_CLEANUP_VM_USER="$vm_user"
         E2E_VM_CLEANUP_PROVIDER="$vm_provider"
-        if test_vm_ssh_ready; then
+        if [ "$vm_provider" = "tart" ]; then
+            stage_host_go_modules
+        fi
+        if vm_is_running "$test_vm" && test_vm_ssh_ready; then
             echo "Test VM $test_vm already reachable."
+            wait_for_stable_ssh "$test_vm"
+        elif vm_is_running "$test_vm"; then
+            echo "Test VM $test_vm is running; waiting for SSH..."
+            wait_for_ssh "$test_vm"
+            wait_for_stable_ssh "$test_vm"
         else
             echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
             case "$vm_provider" in
-                lume) lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" ;;
-                tart) tart run --no-graphics --dir=hazmat:"$REPO_ROOT" "$test_vm" ;;
+                lume) lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" >"$run_log" 2>&1 ;;
+                tart) tart run --no-graphics --dir=hazmat:"$REPO_ROOT" --dir=hazmat-go-mod:"$host_mod_cache" --dir=hazmat-vendor:"$host_vendor_dir" "$test_vm" >"$run_log" 2>&1 ;;
             esac &
+            run_pid=$!
+            disown "$run_pid" 2>/dev/null || true
             wait_for_ssh "$test_vm"
+            wait_for_stable_ssh "$test_vm"
         fi
         vm_ip=$(get_vm_ip "$test_vm")
         E2E_VM_CLEANUP_VM_IP="$vm_ip"
@@ -558,13 +905,17 @@ EOF
                 vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
                 ;;
             tart)
-                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                vm_ssh_idempotent "$test_vm" "rm -rf '$guest_repo' && mkdir -p '$guest_repo' && rsync -a --delete --exclude '.git/' --exclude '.beads/' --exclude 'go.work' --exclude 'go.work.sum' --exclude 'tla/states/' '/Volumes/My Shared Files/hazmat/' '$guest_repo/'"
                 ;;
         esac
+        vm_ssh_idempotent "$test_vm" "rm -f '$guest_repo/go.work' '$guest_repo/go.work.sum'"
+
+        stage_guest_go_modules
     }
 
     run_guest_lifecycle() {
         local quick_arg=""
+        local lifecycle_cmd=""
         if [ -n "$QUICK" ]; then
             quick_arg="--quick"
         fi
@@ -575,7 +926,35 @@ EOF
         echo "════════════════════════════════════════════════════════"
         echo ""
 
-        vm_ssh "$test_vm" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+        lifecycle_cmd="export GOROOT=\"$guest_go_root\" GOPATH=\"$guest_go_path\" GOCACHE=\"$guest_build_cache\" GOWORK=off GOPROXY=off GOSUMDB=off GOFLAGS=\"-mod=vendor -trimpath\" PATH=\"$guest_go_root/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\"; cd \"$guest_repo\" && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+        if [ -n "$guest_mod_cache_env" ]; then
+            lifecycle_cmd="export GOMODCACHE=\"$guest_mod_cache\"; $lifecycle_cmd"
+        fi
+        case "$vm_provider" in
+            tart)
+                local remote_log="/tmp/hazmat-e2e-lifecycle.log"
+                local remote_status="/tmp/hazmat-e2e-lifecycle.status"
+                local wait_seconds="${HAZMAT_E2E_VM_GUEST_WAIT_SECONDS:-3600}"
+                local deadline=$((SECONDS + wait_seconds))
+                local status=""
+
+                vm_ssh_idempotent "$test_vm" "rm -f '$remote_log' '$remote_status'; ( sh -lc '$lifecycle_cmd' >'$remote_log' 2>&1; echo \$? >'$remote_status' ) >/dev/null 2>&1 &"
+                while [ "$SECONDS" -lt "$deadline" ]; do
+                    status=$(vm_ssh "$test_vm" "test -f '$remote_status' && cat '$remote_status'" 2>/dev/null || true)
+                    if [ -n "$status" ]; then
+                        vm_ssh "$test_vm" "cat '$remote_log'" || true
+                        return "$status"
+                    fi
+                    sleep 15
+                done
+                echo "Error: guest lifecycle did not finish within ${wait_seconds}s" >&2
+                vm_ssh "$test_vm" "tail -200 '$remote_log'" || true
+                return 1
+                ;;
+            *)
+                vm_ssh "$test_vm" "$lifecycle_cmd"
+                ;;
+        esac
     }
 
     run_existing_guest_step() {
@@ -598,9 +977,11 @@ EOF
                 vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
                 ;;
             tart)
-                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                vm_ssh_idempotent "$test_vm" "rm -rf '$guest_repo' && mkdir -p '$guest_repo' && rsync -a --delete --exclude '.git/' --exclude '.beads/' --exclude 'go.work' --exclude 'go.work.sum' --exclude 'tla/states/' '/Volumes/My Shared Files/hazmat/' '$guest_repo/'"
                 ;;
         esac
+        vm_ssh_idempotent "$test_vm" "rm -f '$guest_repo/go.work' '$guest_repo/go.work.sum'"
+        stage_guest_go_modules
         run_guest_lifecycle
     }
 
@@ -639,7 +1020,7 @@ EOF
             prepare_guest_vm
             cat <<EOF
 VM step prepare complete.
-Test VM $test_vm is ready and kept for guest reruns.
+Test VM $test_vm is prepared for guest reruns.
 
 Run the guest lifecycle with:
   HAZMAT_E2E_TEST_VM=$test_vm bash scripts/e2e.sh --vm --vm-step guest --keep --quick

@@ -666,6 +666,14 @@ with documented `admin`/`admin` SSH credentials and `sshpass` required for
 non-interactive SSH. Override it with `HAZMAT_E2E_BASE_IMAGE` when a runner uses
 a curated internal Tart image.
 
+Base provisioning copies the host Darwin/arm64 Go toolchain into the VM and
+installs passwordless sudo rules for the guest test user. Test VM preparation
+stages the repo and a host-generated `vendor/` tree through Tart virtiofs
+shares, then builds with `GOFLAGS="-mod=vendor -trimpath"`. The guest lifecycle
+therefore does not require guest internet access, Homebrew, or Go module
+downloads. The host-side caches live under `~/.cache/hazmat/` by default and
+are safe to delete when you want them regenerated.
+
 Lume remains available only for an explicitly supplied SSH-enabled base image
 or existing base VM. Do not use Lume `vanilla` images for this lane: upstream
 Lume documents SSH auto-enablement for unattended-created VMs, and that path
@@ -682,7 +690,20 @@ tart run hazmat-e2e-base
 ssh admin@$(tart ip hazmat-e2e-base)
 ```
 
-If the public image does not expose SSH on a local host, use a curated internal
+On hosts with Docker Desktop, Apple Container, VPNs, or custom routes, the
+plain `ssh admin@$(tart ip ...)` path can route to the wrong interface even
+when the Tart bridge has the VM. Hazmat auto-binds Tart SSH to `bridge100` when
+the VM IP is on that bridge. Override with
+`HAZMAT_E2E_TART_SSH_BIND_INTERFACE=<interface>` or set it to `none` to disable
+binding. To diagnose manually:
+
+```bash
+ip=$(tart ip hazmat-e2e-base)
+route -n get "$ip"
+ssh -B bridge100 admin@"$ip"
+```
+
+If SSH still fails with the correct interface binding, use a curated internal
 image with Remote Login enabled via `HAZMAT_E2E_BASE_IMAGE`.
 
 CI exposes the same lane through the manual `CI` workflow input
@@ -733,7 +754,9 @@ bash scripts/e2e.sh --vm --quick
 ```
 
 The VM mode provisions a macOS guest, copies the repo into the guest, and
-runs the same `scripts/e2e.sh` lifecycle there. The default base path uses a
+runs the same `scripts/e2e.sh` lifecycle there. For Tart, the long-running
+guest lifecycle is launched detached inside the VM and the host polls a status
+file so transient SSH drops do not kill the test. The default base path uses a
 maintained Tart/Cirrus prebuilt image instead of driving macOS Setup Assistant.
 If the base VM does not exist, `base`, `prepare`, and `all` fail fast and tell
 you to run the explicit pull step first. If first-time base provisioning fails,
@@ -756,8 +779,9 @@ HAZMAT_E2E_TEST_VM=hazmat-e2e-12345 bash scripts/e2e.sh --vm --vm-step guest --k
 
 `pull` imports the prebuilt base image and stops there. `base` provisions or
 resumes the cached base VM and stops there. `prepare` clones and boots a test
-VM, copies the repo, and keeps that VM for reruns. `guest` reruns only the
-destructive Hazmat lifecycle inside an existing test VM; set
+VM, copies the repo plus the staged vendor tree, and keeps that VM for reruns.
+`guest` refreshes the repo and vendor tree, then reruns only the destructive
+Hazmat lifecycle inside an existing test VM; set
 `HAZMAT_E2E_TEST_VM` to the kept VM name printed by `prepare`.
 
 ## Host vs VM Model
