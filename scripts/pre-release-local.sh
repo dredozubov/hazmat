@@ -15,11 +15,8 @@ Options:
   --vm-full  Also run the isolated Lume VM lifecycle gate without --quick.
   -h, --help Show this help.
 
-The VM gate can take a long time on first run because it creates a reusable
-macOS base VM. If Setup Assistant automation fails, resume with:
-  bash scripts/e2e-vm.sh --step setup --quick
-
-Before the first VM install, cache the IPSW once with:
+The VM gate requires a reusable prebuilt macOS base VM. Pull the base image once
+before the first VM run with:
   bash scripts/e2e-vm.sh --step download --quick
 EOF
 }

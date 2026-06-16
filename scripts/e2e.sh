@@ -36,11 +36,12 @@ Options:
   --quick    Skip live network probes inside the lifecycle.
   --vm       Run this lifecycle inside an isolated Lume macOS VM.
   --vm-step STEP
-            With --vm, run one VM lifecycle step: all, base, prepare, or guest.
-            "clone" is accepted as an alias for prepare.
+            With --vm, run one VM lifecycle step: all, pull, base, prepare, or guest.
+            "download" is accepted as an alias for pull; "clone" is accepted
+            as an alias for prepare.
   --keep     With --vm, keep the test VM for debugging instead of deleting it.
   --reset-vm-base
-            With --vm, delete the cached base VM before provisioning.
+            With --vm, delete the cached base VM before pull/provision.
 EOF
 }
 
@@ -111,7 +112,7 @@ if [ -n "$RESET_VM_BASE" ] && [ -z "$RUN_IN_VM" ]; then
 fi
 
 case "$VM_STEP" in
-    all|base|prepare|clone|guest)
+    all|pull|download|base|prepare|clone|guest)
         ;;
     *)
         echo "error: unknown --vm-step value: $VM_STEP" >&2
@@ -128,6 +129,10 @@ fi
 
 if [ "$VM_STEP" = "clone" ]; then
     VM_STEP="prepare"
+fi
+
+if [ "$VM_STEP" = "download" ]; then
+    VM_STEP="pull"
 fi
 
 if [ "$VM_STEP" = "prepare" ]; then
@@ -164,6 +169,10 @@ run_e2e_vm() {
     local vm_ip=""
     local guest_repo="/tmp/hazmat-repo"
     local base_ready_marker="${HAZMAT_E2E_BASE_READY_MARKER:-$HOME/.lume/$base_vm/.hazmat-e2e-base-ready}"
+    local base_source="${HAZMAT_E2E_BASE_SOURCE:-image}"
+    local base_image="${HAZMAT_E2E_BASE_IMAGE:-macos-tahoe-vanilla:latest}"
+    local base_image_registry="${HAZMAT_E2E_BASE_IMAGE_REGISTRY:-ghcr.io}"
+    local base_image_org="${HAZMAT_E2E_BASE_IMAGE_ORG:-trycua}"
 
     get_vm_ip() {
         local vm="$1"
@@ -213,10 +222,12 @@ Base VM $base_vm exists but has no Hazmat readiness marker:
   $base_ready_marker
 
 Hazmat tried to resume provisioning the preserved base VM, but SSH did not
-become reachable. The VM was preserved to avoid redownloading the IPSW.
+become reachable. The VM was preserved so the prebuilt image import can be
+inspected or repaired in-place.
 
 To intentionally rebuild the base VM, run:
-  bash scripts/e2e.sh --vm --reset-vm-base --quick
+  bash scripts/e2e.sh --vm --vm-step pull --reset-vm-base --quick
+  bash scripts/e2e.sh --vm --vm-step base --quick
 EOF
         exit 2
     }
@@ -225,14 +236,68 @@ EOF
         cat >&2 <<EOF
 Base VM $base_vm is still being provisioned by Lume.
 
-Hazmat will not reset or stop it automatically because that can force another
-IPSW download. Let the current Lume provisioning finish, then rerun:
+Hazmat will not reset or stop it automatically. Let the current Lume operation
+finish, then rerun:
   bash scripts/e2e.sh --vm --quick
 
 Only discard the cached base if you intentionally want to rebuild it:
-  bash scripts/e2e.sh --vm --reset-vm-base --quick
+  bash scripts/e2e.sh --vm --vm-step pull --reset-vm-base --quick
+  bash scripts/e2e.sh --vm --vm-step base --quick
 EOF
         exit 2
+    }
+
+    fail_missing_base_vm() {
+        cat >&2 <<EOF
+Base VM $base_vm does not exist.
+
+The one-time prebuilt image pull is intentionally a separate step because it
+can download tens of GB. Pull it explicitly before running the lifecycle:
+  bash scripts/e2e.sh --vm --vm-step pull --quick
+
+Then provision/run the VM lifecycle:
+  bash scripts/e2e.sh --vm --quick
+EOF
+        exit 2
+    }
+
+    require_supported_base_source() {
+        case "$base_source" in
+            image)
+                ;;
+            *)
+                cat >&2 <<EOF
+Unsupported HAZMAT_E2E_BASE_SOURCE=$base_source.
+
+The VM lane no longer uses IPSW Setup Assistant automation by default because
+that path is brittle and can force repeated macOS downloads. Use the maintained
+prebuilt image path instead:
+  HAZMAT_E2E_BASE_SOURCE=image bash scripts/e2e.sh --vm --vm-step base --quick
+EOF
+                exit 2
+                ;;
+        esac
+    }
+
+    pull_base_vm() {
+        require_supported_base_source
+
+        if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+            reset_base_vm
+        fi
+
+        if lume get "$base_vm" >/dev/null 2>&1; then
+            echo "Base VM $base_vm already exists."
+            return
+        fi
+
+        echo "Pulling prebuilt base VM $base_image -> $base_vm..."
+        echo "Registry: $base_image_registry/$base_image_org"
+        lume pull "$base_image" "$base_vm" \
+            --registry "$base_image_registry" \
+            --organization "$base_image_org"
+        rm -f "$base_ready_marker"
+        echo "Base VM $base_vm pulled."
     }
 
     provision_base_vm() {
@@ -307,31 +372,7 @@ EOF
                 provision_base_vm
             fi
         else
-            local host_version preset
-            host_version=$(sw_vers -productVersion | cut -d. -f1)
-            case "$host_version" in
-                26) preset="tahoe" ;;
-                15) preset="sequoia" ;;
-                *) preset="tahoe" ;;
-            esac
-
-            echo "Creating base VM $base_vm (one-time, ~15-20 min)..."
-            echo "Host macOS $host_version -> using '$preset' preset."
-            echo "This downloads macOS from Apple and runs unattended Setup Assistant."
-            if ! lume create "$base_vm" \
-                --os macOS \
-                --ipsw latest \
-                --cpu 4 \
-                --memory 8GB \
-                --disk-size 50GB \
-                --unattended "$preset" \
-                --no-display; then
-                echo "Base VM $base_vm setup failed; preserving it to avoid IPSW redownload." >&2
-                echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
-                exit 1
-            fi
-            echo "Base VM $base_vm created."
-            provision_base_vm
+            fail_missing_base_vm
         fi
     }
 
@@ -411,6 +452,10 @@ EOF
     fi
 
     case "$VM_STEP" in
+        pull)
+            pull_base_vm
+            echo "VM step pull complete."
+            ;;
         base)
             ensure_base_vm
             echo "VM step base complete."

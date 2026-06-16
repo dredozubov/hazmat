@@ -45,7 +45,7 @@ Ask the user for explicit approval before running any sudo-adjacent command,
 and name the exact command you want to run. This applies to more than literal
 `sudo`: `hazmat check`, `hazmat doctor --fix`, native helper-backed smokes,
 live harness probes, Codex desktop attach probes, `launchctl`/`pf` paths,
-and DTrace/dtruss-style probes.
+DTrace/dtruss-style probes, and `git push` when hooks may invoke these gates.
 If approval is needed, ask first; do not try the command speculatively.
 
 ## TLA+ Governance
@@ -92,21 +92,35 @@ beads. Use local `bd` state and persistent `bd remember` memories; skip
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, complete all local closeout steps below.
+**When ending a work session**, complete all local closeout steps below. Remote
+sync is required for a fully landed session, but `git push` is sudo-adjacent in
+this repo because hooks may invoke gated checks. Do not run `git push` unless
+the user explicitly approves that exact command.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **Remote sync** - Sync repository changes when remote completion is in scope.
-   Do not run `bd dolt pull` or `bd dolt push` in this repo; Hazmat has no Dolt
-   remote.
+4. **Remote sync (approval-gated)** - After explicit approval for `git push`,
+   run:
+   ```bash
+   git pull --rebase
+   # Do not run bd dolt pull/push in this repo; Hazmat has no Dolt remote.
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+   If approval is absent, stop after local commits/status and state:
+   "Approval needed for exact command: `git push`." Do not claim remote
+   completion.
 5. **Clean up** - Clear stashes, prune remote branches
 6. **Verify** - All intended changes committed, with remote sync completed when in scope
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Do not say work is remotely complete until remote sync succeeds.
-- If a sudo-adjacent command fails, resolve and retry only commands that are not
-  approval-gated; ask again before rerunning the sudo-adjacent command.
+- Do not run `git push` without explicit approval for the exact command.
+- Do not say work is remotely complete until `git push` succeeds.
+- If push approval is absent, report the local commit/status and the exact
+  approval needed: `git push`.
+- If an approved push fails, resolve and retry only commands that are not
+  approval-gated; ask again before rerunning any sudo-adjacent command.

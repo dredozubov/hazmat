@@ -5,6 +5,13 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      run_e2e_vm:
+        description: Run the self-hosted Lume VM lifecycle lane
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -310,6 +317,23 @@ jobs:
 
       - name: E2E lifecycle test
         run: HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
+
+  e2e-vm:
+    name: E2E lifecycle (Lume VM)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e_vm }}
+    runs-on: [self-hosted, macOS, ARM64, lume]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify Lume
+        run: lume --version
+
+      - name: Pull reusable prebuilt base image
+        run: bash scripts/e2e-vm.sh --step download --quick
+
+      - name: E2E lifecycle test in VM
+        run: bash scripts/e2e-vm.sh --quick
 
   e2e-bootstrap:
     name: E2E bootstrap

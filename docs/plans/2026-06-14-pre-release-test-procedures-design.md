@@ -313,11 +313,15 @@ Prepared-host checks are separate:
 ```bash
 bash scripts/check-codex-app-server-smoke.sh --run --i-understand-this-runs-hazmat-codex-app-server
 bash scripts/e2e-harness-smoke-native.sh --run --i-understand-this-runs-native-harness-smoke
+bash scripts/e2e-vm.sh --step download --quick
 bash scripts/e2e-vm.sh --quick
 ```
 
 Those commands are examples of lane coverage, not blanket approval. Agents must
 still ask for exact-command approval before running approval-gated paths.
+The VM lane's `download` step is a compatibility name for pulling the maintained
+prebuilt Lume image; the default pre-release path does not drive macOS Setup
+Assistant and does not download an IPSW.
 
 ## Pre-Release Procedure
 

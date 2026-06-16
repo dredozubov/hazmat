@@ -12,10 +12,8 @@ usage() {
     cat <<EOF
 Usage:
   bash scripts/e2e-vm.sh [--quick] [--keep] [--reset-vm-base]
+  bash scripts/e2e-vm.sh --step pull [--quick]
   bash scripts/e2e-vm.sh --step download [--quick]
-  bash scripts/e2e-vm.sh --step install [--quick]
-  bash scripts/e2e-vm.sh --step setup [--quick]
-  bash scripts/e2e-vm.sh --step setup-terms [--quick]
   bash scripts/e2e-vm.sh --step base [--quick]
 
 Runs the destructive Hazmat lifecycle test in a disposable Lume VM.
@@ -23,26 +21,21 @@ Runs the destructive Hazmat lifecycle test in a disposable Lume VM.
 Options:
   --quick             Pass --quick to scripts/e2e.sh inside the guest.
   --keep              Keep the cloned test VM after the run.
-  --reset-vm-base     Delete hazmat-e2e-base before recreating it.
-  --step STEP         Run one step: download, install, setup, setup-terms, base, prepare, guest, all.
+  --reset-vm-base     Delete hazmat-e2e-base before pull/provision.
+  --step STEP         Run one step: pull, download, base, prepare, guest, all.
   --vm-step STEP      Alias for --step.
   -h, --help          Show this help.
 
 Steps:
-  download    Download and cache the latest supported IPSW once.
-  install     Create hazmat-e2e-base from cached IPSW only.
-  setup       Run Lume Setup Assistant automation on the existing base VM.
-  setup-terms Resume Lume Setup Assistant automation from Terms and Conditions.
-  base        Ensure the base VM is installed, setup, and provisioned with Go.
+  pull        Pull the maintained prebuilt Lume image into hazmat-e2e-base.
+  download    Compatibility alias for pull; no IPSW is downloaded.
+  base        Provision an existing pulled base VM with Go.
   prepare     Clone and boot a disposable test VM, then keep it for guest reruns.
   guest       Run scripts/e2e.sh inside an existing prepared test VM.
-  all         Ensure the base VM, clone a test VM, and run scripts/e2e.sh.
+  all         Provision the base VM, clone a test VM, and run scripts/e2e.sh.
 
-Before the first install, run:
+Before the first base provisioning, pull the prebuilt image once:
   bash scripts/e2e-vm.sh --step download --quick
-
-If Setup Assistant automation fails, rerun:
-  bash scripts/e2e-vm.sh --step setup --quick
 
 This wrapper delegates to scripts/e2e.sh --vm so host and VM lifecycle logic
 cannot drift.
@@ -63,7 +56,7 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             fi
             case "$2" in
-                all|download|install|setup|setup-terms|base|prepare|clone|guest)
+                all|pull|download|base|prepare|clone|guest)
                     ;;
                 *)
                     echo "error: unknown VM step '$2'" >&2
@@ -77,7 +70,7 @@ while [ "$#" -gt 0 ]; do
         --step=*)
             step="${1#--step=}"
             case "$step" in
-                all|download|install|setup|setup-terms|base|prepare|clone|guest)
+                all|pull|download|base|prepare|clone|guest)
                     ;;
                 *)
                     echo "error: unknown VM step '$step'" >&2

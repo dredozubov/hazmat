@@ -650,19 +650,22 @@ bash scripts/pre-release-local.sh --vm
 make pre-release-local PRERELEASE_ARGS=--vm
 ```
 
-The VM lane runs `scripts/e2e-vm.sh --quick`. First run creates or resumes a
-reusable Lume base VM, so it can take a long time. Cache the IPSW once before
-the first VM install:
+The VM lane runs `scripts/e2e-vm.sh --quick`. The large image import is
+intentionally separated from the lifecycle run. Pull the maintained prebuilt
+base image once before the first VM run:
 
 ```bash
 bash scripts/e2e-vm.sh --step download --quick
 ```
 
-Setup Assistant is a separate restartable step; if it fails, rerun:
-
-```bash
-bash scripts/e2e-vm.sh --step setup --quick
-```
+`download` is a compatibility alias for the image pull step; it does not
+download an IPSW. The default image is
+`ghcr.io/trycua/macos-tahoe-vanilla:latest`, imported as `hazmat-e2e-base`.
+Override it with `HAZMAT_E2E_BASE_IMAGE`, `HAZMAT_E2E_BASE_IMAGE_ORG`, and
+`HAZMAT_E2E_BASE_IMAGE_REGISTRY` when a runner uses a curated internal image.
+CI exposes the same lane through the manual `CI` workflow input
+`run_e2e_vm=true`; it expects a self-hosted Apple Silicon macOS runner with
+labels `self-hosted`, `macOS`, `ARM64`, and `lume`.
 
 ### Repo-matrix validation
 
@@ -707,25 +710,31 @@ bash scripts/e2e.sh --vm --quick
 ```
 
 The VM mode provisions a Lume macOS guest, copies the repo into the guest, and
-runs the same `scripts/e2e.sh` lifecycle there. If first-time base provisioning
-fails, Hazmat preserves the base VM to avoid another IPSW download. A later run
-will try to resume base provisioning in-place; use
-`bash scripts/e2e.sh --vm --reset-vm-base --quick` only when you intentionally
+runs the same `scripts/e2e.sh` lifecycle there. The default base path uses a
+maintained prebuilt Lume image instead of driving macOS Setup Assistant. If the
+base VM does not exist, `base`, `prepare`, and `all` fail fast and tell you to
+run the explicit pull step first. If first-time base provisioning fails, Hazmat
+preserves the base VM for inspection or repair. A later run will try to resume
+base provisioning in-place. Use
+`bash scripts/e2e.sh --vm --vm-step pull --reset-vm-base --quick` followed by
+`bash scripts/e2e.sh --vm --vm-step base --quick` only when you intentionally
 want to delete and rebuild the cached base VM. If Lume reports that the base VM
-is still being provisioned, wait for that Lume provisioning attempt to finish
-and then rerun the VM lifecycle instead of resetting the base.
+is still being provisioned, wait for that Lume operation to finish and then
+rerun the VM lifecycle instead of resetting the base.
 
 For faster iteration, run only the failed VM lifecycle step:
 
 ```bash
+bash scripts/e2e.sh --vm --vm-step pull --quick
 bash scripts/e2e.sh --vm --vm-step base --quick
 bash scripts/e2e.sh --vm --vm-step prepare --quick
 HAZMAT_E2E_TEST_VM=hazmat-e2e-12345 bash scripts/e2e.sh --vm --vm-step guest --keep --quick
 ```
 
-`base` creates or resumes the cached base VM and stops there. `prepare` clones
-and boots a test VM, copies the repo, and keeps that VM for reruns. `guest`
-reruns only the destructive Hazmat lifecycle inside an existing test VM; set
+`pull` imports the prebuilt base image and stops there. `base` provisions or
+resumes the cached base VM and stops there. `prepare` clones and boots a test
+VM, copies the repo, and keeps that VM for reruns. `guest` reruns only the
+destructive Hazmat lifecycle inside an existing test VM; set
 `HAZMAT_E2E_TEST_VM` to the kept VM name printed by `prepare`.
 
 ## Host vs VM Model

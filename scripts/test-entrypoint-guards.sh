@@ -302,14 +302,12 @@ assert_help_contains_all \
     "scripts/e2e-vm.sh documents restartable VM steps" \
     "$REPO_ROOT/scripts/e2e-vm.sh" \
     "--step STEP" \
+    "pull" \
     "download" \
-    "install" \
-    "setup" \
     "base" \
-    "Before the first install, run:" \
-    "bash scripts/e2e-vm.sh --step download --quick" \
-    "If Setup Assistant automation fails, rerun:" \
-    "bash scripts/e2e-vm.sh --step setup --quick"
+    "Compatibility alias for pull; no IPSW is downloaded." \
+    "Before the first base provisioning, pull the prebuilt image once:" \
+    "bash scripts/e2e-vm.sh --step download --quick"
 
 assert_fails_with \
     "scripts/e2e-vm.sh rejects unknown VM step before live work" \
@@ -321,8 +319,8 @@ assert_help_contains_all \
     "$REPO_ROOT/scripts/pre-release-local.sh" \
     "--vm" \
     "--vm-full" \
-    "bash scripts/e2e-vm.sh --step download --quick" \
-    "bash scripts/e2e-vm.sh --step setup --quick"
+    "prebuilt macOS base VM" \
+    "bash scripts/e2e-vm.sh --step download --quick"
 
 assert_fails_with \
     "scripts/e2e.sh rejects VM keep outside VM mode" \
