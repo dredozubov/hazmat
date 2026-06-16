@@ -1503,11 +1503,15 @@ func TestResolveBeadsIntegrationSkipsWhenToolsAlreadyExecutable(t *testing.T) {
 		},
 	}
 	spec, _ := loadBuiltinIntegrationSpec("beads")
-	if _, err := resolveBeadsIntegration(ctx, spec); err != nil {
+	resolved, err := resolveBeadsIntegration(ctx, spec)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := len(ctx.mutations.Mutations); got != 0 {
 		t.Fatalf("expected no repair mutations when tools already executable, got %d", got)
+	}
+	if resolved.Source != "beads (bd on PATH; no read dirs required)" {
+		t.Fatalf("Source = %q, want bd PATH source", resolved.Source)
 	}
 }
 

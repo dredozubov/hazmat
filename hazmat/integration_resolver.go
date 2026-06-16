@@ -390,12 +390,30 @@ func resolveNodeIntegration(ctx *integrationResolveContext, spec IntegrationSpec
 
 func resolveBeadsIntegration(ctx *integrationResolveContext, spec IntegrationSpec) (resolvedIntegration, error) {
 	result := resolvedIntegration{Spec: spec}
-	bdPlanned := planBeadsToolRepair(ctx, &result, "bd")
-	doltPlanned := planBeadsToolRepair(ctx, &result, "dolt")
-	if bdPlanned || doltPlanned {
+	bdStatus := planBeadsToolRepair(ctx, &result, "bd")
+	doltStatus := planBeadsToolRepair(ctx, &result, "dolt")
+	if bdStatus.repairPlanned() || doltStatus.repairPlanned() {
 		result.Source = "beads (Homebrew permission repair)"
+	} else if bdStatus.found() {
+		result.Source = "beads (bd on PATH; no read dirs required)"
 	}
 	return result, nil
+}
+
+type beadsToolRepairStatus uint8
+
+const (
+	beadsToolMissing beadsToolRepairStatus = iota
+	beadsToolFound
+	beadsToolRepairPlanned
+)
+
+func (s beadsToolRepairStatus) found() bool {
+	return s == beadsToolFound || s == beadsToolRepairPlanned
+}
+
+func (s beadsToolRepairStatus) repairPlanned() bool {
+	return s == beadsToolRepairPlanned
 }
 
 // planBeadsToolRepair plans a Homebrew permission repair for a single beads
@@ -405,30 +423,30 @@ func resolveBeadsIntegration(ctx *integrationResolveContext, spec IntegrationSpe
 // The LookPath result is typically a symlink (/opt/homebrew/bin/bd →
 // /opt/homebrew/Cellar/beads/<ver>/bin/bd); EvalSymlinks is required before
 // deriving the Cellar root, because homebrewCellarRoot splits on "/Cellar/".
-func planBeadsToolRepair(ctx *integrationResolveContext, result *resolvedIntegration, tool string) bool {
+func planBeadsToolRepair(ctx *integrationResolveContext, result *resolvedIntegration, tool string) beadsToolRepairStatus {
 	path, err := ctx.Probe.LookPath(tool)
 	if err != nil || path == "" {
 		result.Details = append(result.Details, fmt.Sprintf("beads: %s not found on PATH (skipping Homebrew repair)", tool))
-		return false
+		return beadsToolMissing
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || resolved == "" {
 		result.Details = append(result.Details, fmt.Sprintf("beads: cannot resolve %s symlink (%v)", tool, err))
-		return false
+		return beadsToolMissing
 	}
 	if integrationAgentExecCheck(resolved) {
 		result.Details = append(result.Details, fmt.Sprintf("beads: %s already executable by %s (%s)", tool, agentUser, resolved))
-		return false
+		return beadsToolFound
 	}
 	if ctx == nil {
-		return false
+		return beadsToolFound
 	}
 	if ctx.planHomebrewToolAccessRepair(resolved, resolved) {
 		result.Details = append(result.Details, fmt.Sprintf("beads: planned Homebrew permission repair for %s (%s)", tool, resolved))
-		return true
+		return beadsToolRepairPlanned
 	}
 	result.Details = append(result.Details, fmt.Sprintf("beads: %s is not executable by %s and is not under a Homebrew Cellar", tool, agentUser))
-	return false
+	return beadsToolFound
 }
 
 func resolvePythonIntegration(ctx *integrationResolveContext, spec IntegrationSpec, integrationName string) (resolvedIntegration, error) {
