@@ -16,6 +16,7 @@ const (
 	HarnessHermes                  HarnessID = harnesses.Hermes
 	HarnessQwen                    HarnessID = harnesses.Qwen
 	HarnessCursorAgent             HarnessID = harnesses.CursorAgent
+	HarnessPi                      HarnessID = harnesses.Pi
 	claudeHarnessStateVersion                = harnesses.ClaudeStateVersion
 	codexHarnessStateVersion                 = harnesses.CodexStateVersion
 	opencodeHarnessStateVersion              = harnesses.OpenCodeStateVersion
@@ -23,6 +24,7 @@ const (
 	hermesHarnessStateVersion                = harnesses.HermesStateVersion
 	qwenHarnessStateVersion                  = harnesses.QwenStateVersion
 	cursorAgentHarnessStateVersion           = harnesses.CursorAgentStateVersion
+	piHarnessStateVersion                    = harnesses.PiStateVersion
 )
 
 type HarnessSpec = harnesses.Spec
@@ -48,6 +50,7 @@ type GeminiHarness struct{}
 type HermesHarness struct{}
 type QwenHarness struct{}
 type CursorAgentHarness struct{}
+type PiHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
@@ -56,6 +59,7 @@ var geminiHarness = GeminiHarness{}
 var hermesHarness = HermesHarness{}
 var qwenHarness = QwenHarness{}
 var cursorAgentHarness = CursorAgentHarness{}
+var piHarness = PiHarness{}
 
 func harnessMetadata(id HarnessID) harnesses.Metadata {
 	return harnesses.MustMetadata(id)
@@ -201,6 +205,26 @@ var managedHarnessRegistry = []ManagedHarness{
 			return cursorAgentHarness.Bootstrap(ui, r)
 		},
 	},
+	{
+		Spec:             harnessMetadata(HarnessPi).Spec,
+		LaunchCommand:    harnessMetadata(HarnessPi).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessPi).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessPi).ImportPolicy,
+		Installed: func() bool {
+			_, ok := findInstalledPiBinary()
+			return ok
+		},
+		Probe:                probePiHarness,
+		ManagedCodeArtifacts: piHarnessManagedCodeArtifacts,
+		PreservedArtifacts: []string{
+			agentHome + piBinRel + " manual Pi executable",
+			agentHome + piStateDirRel + " contained Pi settings, trust decisions, sessions, skills, extensions, and auth",
+			"host ~/.pi/agent is not imported",
+		},
+		Bootstrap: func(ui *UI, r *Runner) error {
+			return piHarness.Bootstrap(ui, r)
+		},
+	},
 }
 
 func (ClaudeHarness) Spec() HarnessSpec {
@@ -229,6 +253,10 @@ func (QwenHarness) Spec() HarnessSpec {
 
 func (CursorAgentHarness) Spec() HarnessSpec {
 	return harnesses.MustSpec(HarnessCursorAgent)
+}
+
+func (PiHarness) Spec() HarnessSpec {
+	return harnesses.MustSpec(HarnessPi)
 }
 
 func (h ClaudeHarness) Bootstrap(ui *UI, r *Runner) error {
@@ -404,6 +432,22 @@ func (h CursorAgentHarness) Bootstrap(ui *UI, r *Runner) error {
 }
 
 func (h CursorAgentHarness) RecordInstalled() error {
+	return recordHarnessInstalled(h.Spec())
+}
+
+func (h PiHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runPiBootstrap(ui, r); err != nil {
+		return err
+	}
+	if r != nil && !r.DryRun {
+		if err := h.RecordInstalled(); err != nil {
+			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+		}
+	}
+	return nil
+}
+
+func (h PiHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
 }
 

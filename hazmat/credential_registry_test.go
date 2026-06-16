@@ -167,25 +167,25 @@ func TestProviderCredentialConsumersAreHarnessAware(t *testing.T) {
 		{
 			id:        credentialProviderAnthropicAPIKey,
 			allowed:   []HarnessID{HarnessClaude, HarnessHermes},
-			denied:    []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent},
+			denied:    []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/anthropic-api-key",
 		},
 		{
 			id:        credentialProviderOpenAIAPIKey,
 			allowed:   []HarnessID{HarnessCodex, HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent},
+			denied:    []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openai-api-key",
 		},
 		{
 			id:        credentialProviderGeminiAPIKey,
 			allowed:   []HarnessID{HarnessGemini, HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessQwen, HarnessCursorAgent},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/gemini-api-key",
 		},
 		{
 			id:        credentialProviderOpenRouterAPIKey,
 			allowed:   []HarnessID{HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openrouter-api-key",
 		},
 	}
@@ -227,6 +227,9 @@ func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) 
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessCursorAgent); ok {
 		t.Fatalf("OPENAI_API_KEY must not resolve for Cursor Agent in Phase 1")
 	}
+	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessPi); ok {
+		t.Fatalf("OPENAI_API_KEY must not resolve for Pi in Phase 1")
+	}
 	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessHermes); !ok || descriptor.ID != credentialProviderOpenRouterAPIKey {
 		t.Fatalf("OPENROUTER_API_KEY for Hermes = %+v, %v; want OpenRouter descriptor", descriptor, ok)
 	}
@@ -238,6 +241,9 @@ func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) 
 	}
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessCursorAgent); ok {
 		t.Fatalf("OPENROUTER_API_KEY must not resolve for Cursor Agent in Phase 1")
+	}
+	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessPi); ok {
+		t.Fatalf("OPENROUTER_API_KEY must not resolve for Pi in Phase 1")
 	}
 }
 
@@ -258,6 +264,7 @@ func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 		{HarnessOpenCode, nil},
 		{HarnessQwen, nil},
 		{HarnessCursorAgent, nil},
+		{HarnessPi, nil},
 	}
 
 	for _, tc := range cases {

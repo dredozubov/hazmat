@@ -19,6 +19,7 @@ const (
 	HarnessHermes      HarnessID = harnesses.Hermes
 	HarnessQwen        HarnessID = harnesses.Qwen
 	HarnessCursorAgent HarnessID = harnesses.CursorAgent
+	HarnessPi          HarnessID = harnesses.Pi
 )
 
 type ID string

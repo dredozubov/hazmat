@@ -104,19 +104,22 @@ write updated runtime auth files; Hazmat must harvest those updates into
 `~/.hazmat/secrets/<harness>/...` and remove the runtime files from the agent
 home on session exit.
 
-### Qwen and Cursor Agent Foreground Launch
+### Qwen, Cursor Agent, and Pi Foreground Launch
 
 The Qwen and Cursor Agent cases install fake agent-owned binaries and run:
 
 ```bash
 hazmat qwen --no-backup -C <scratch-project> --yolo -p "qwen smoke"
 hazmat cursor-agent --no-backup -C <scratch-project> -- --print --output-format stream-json --stream-partial-output --force --trust --workspace <scratch-project>
+hazmat pi --no-backup -C <scratch-project> -- --mode rpc
 ```
 
 The fake binaries assert cwd and forwarded argv. Qwen verifies the contained
 `/Users/agent/.qwen` profile path exists. Cursor Agent verifies the Open
 Design-style headless argv is forwarded without Hazmat injecting or rewriting
-Cursor flags, then writes contained agent-side state under `/Users/agent`.
+Cursor flags, then writes contained agent-side state under `/Users/agent`. Pi
+verifies RPC-mode argv is forwarded and writes contained state under
+`/Users/agent/.pi/agent`.
 
 ## Release Gate
 

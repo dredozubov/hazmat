@@ -23,6 +23,7 @@ var hermeticSmokeHarnesses = []HarnessID{
 	HarnessHermes,
 	HarnessQwen,
 	HarnessCursorAgent,
+	HarnessPi,
 }
 
 type hermeticHarnessSmoke struct {
@@ -49,6 +50,7 @@ func TestHermeticHarnessSmoke(t *testing.T) {
 	smoke.runGemini()
 	smoke.runQwen()
 	smoke.runCursorAgent()
+	smoke.runPi()
 
 	smoke.assertNoSudo()
 }
@@ -359,6 +361,23 @@ echo "FAKE_CURSOR_AGENT_OK"
 		"--force", "--trust", "--workspace", s.project)
 	s.assertOutputContains(HarnessCursorAgent, "FAKE_CURSOR_AGENT_OK")
 	s.assertDirExists(filepath.Join(s.agentHome, ".cursor"), "Cursor Agent contained state directory")
+}
+
+func (s *hermeticHarnessSmoke) runPi() {
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "pi"), `#!/bin/sh
+set -eu
+test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 110; }
+test "$#" -eq 2 || { echo "unexpected Pi arg count: $#" >&2; exit 111; }
+test "${1:-}" = "--mode" || { echo "missing --mode" >&2; exit 112; }
+test "${2:-}" = "rpc" || { echo "unexpected mode: ${2:-}" >&2; exit 113; }
+mkdir -p "$HOME/.pi/agent"
+echo "FAKE_PI_OK"
+`)
+
+	s.executeHarnessCommand(HarnessPi, newPiCmd(),
+		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--mode", "rpc")
+	s.assertOutputContains(HarnessPi, "FAKE_PI_OK")
+	s.assertDirExists(filepath.Join(s.agentHome, ".pi", "agent"), "Pi contained state directory")
 }
 
 func (s *hermeticHarnessSmoke) executeHarnessCommand(id HarnessID, cmd *cobra.Command, args ...string) {

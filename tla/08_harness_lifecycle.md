@@ -47,7 +47,7 @@ gives them a dedicated home.
 
 ## TLA+ Model
 
-The model tracks seven built-in harnesses:
+The model tracks eight built-in harnesses:
 
 - `claude`
 - `codex`
@@ -56,6 +56,7 @@ The model tracks seven built-in harnesses:
 - `hermes`
 - `qwen`
 - `cursor-agent`
+- `pi`
 
 and the importable subset:
 
@@ -64,13 +65,16 @@ and the importable subset:
 - `opencode`
 - `gemini`
 
-Hermes, Qwen, and Cursor Agent are deliberately not in the importable subset for
+Hermes, Qwen, Cursor Agent, and Pi are deliberately not in the importable subset for
 Phase 1. They have managed foreground harness plans, but no curated
 host-profile import path:
 Hermes host `~/.hermes` state and Qwen host `~/.qwen` settings, extensions,
 auth, sessions, and MCP configuration remain outside the import lifecycle until
 a typed import design exists. Cursor Agent host IDE/auth/profile state likewise
-stays outside the import lifecycle until Hazmat has a typed import design.
+stays outside the import lifecycle until Hazmat has a typed import design. Pi
+host `~/.pi/agent` settings, trust decisions, sessions, skills, extensions, and
+provider auth also stay outside the import lifecycle; first-class Pi support
+uses contained agent-side state only.
 
 State is split into two layers:
 
@@ -131,6 +135,15 @@ Observed result from the 2026-06-03 package-split refactor confirmation run:
 - `633,107 distinct states found`
 - `depth 18`
 - `Finished in 1m47s`
+
+Observed result after adding Pi as the eighth built-in non-importable harness on
+2026-06-16:
+
+- `Model checking completed. No error has been found.`
+- `61,746,974 states generated`
+- `1,411,347 distinct states found`
+- `depth 19`
+- `Finished in 03min 08s`
 
 ## Interpretation
 

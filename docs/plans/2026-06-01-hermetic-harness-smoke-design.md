@@ -116,7 +116,8 @@ H = {
   gemini,
   hermes,
   qwen,
-  cursor-agent
+  cursor-agent,
+  pi
 }
 
 ProviderEnv(claude)       = {ANTHROPIC_API_KEY}
@@ -127,6 +128,7 @@ ProviderEnv(hermes)       = {ANTHROPIC_API_KEY, OPENAI_API_KEY,
                              GEMINI_API_KEY, OPENROUTER_API_KEY}
 ProviderEnv(qwen)         = {}
 ProviderEnv(cursor-agent) = {}
+ProviderEnv(pi)           = {}
 
 FileAuth(claude)       = {claude.credentials, claude.state}
 FileAuth(codex)        = {codex.auth}
@@ -135,10 +137,12 @@ FileAuth(gemini)       = {gemini.oauth, gemini.accounts}
 FileAuth(hermes)       = {}
 FileAuth(qwen)         = {}
 FileAuth(cursor-agent) = {}
+FileAuth(pi)           = {}
 
 ContainedState(hermes)       = {hermes.project-state}
 ContainedState(qwen)         = {qwen.profile}
 ContainedState(cursor-agent) = {cursor.profile}
+ContainedState(pi)           = {pi.profile}
 ContainedState(other)        = {}
 ```
 

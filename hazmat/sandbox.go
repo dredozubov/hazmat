@@ -916,6 +916,14 @@ func runPreparedSandboxCursorAgentSession(prepared preparedSession, forwarded []
 	return runPreparedSandboxAgentSession(prepared, "cursor-agent", forwarded)
 }
 
+func runSandboxPiSession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxPiSession(preparedSandboxSessionForConfig(cfg), forwarded)
+}
+
+func runPreparedSandboxPiSession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "pi", forwarded)
+}
+
 func runPreparedSandboxAgentSession(prepared preparedSession, agent string, forwarded []string) error {
 	return runPreparedSandboxSession(prepared, agent, dockerruntime.AgentDisplayName(agent), func(adapter sandboxBackendAdapter, probe sandboxProbe, name string) error {
 		return adapter.RunAgentSession(probe, agent, name, forwarded)

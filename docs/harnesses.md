@@ -1,13 +1,13 @@
 # Supported Harnesses
 
-Hazmat runs seven agent CLIs in containment. Hermes, Qwen, and Cursor Agent
+Hazmat runs eight agent CLIs in containment. Hermes, Qwen, Cursor Agent, and Pi
 keep narrower foreground-only v1 surfaces. This page is the actionable
 reference: pick your harness, pick your auth path, run the listed commands.
 
 ## Comparison matrix
 
 Use this table to choose a setup path. Most harnesses support at least two auth
-modes; Hermes, Qwen, and Cursor Agent deliberately keep narrower v1 surfaces.
+modes; Hermes, Qwen, Cursor Agent, and Pi deliberately keep narrower v1 surfaces.
 The third column shows the **simplest** way to get a working session.
 
 | Harness | Tested | Install | Subscription / OAuth | API key (env var) | Import from host |
@@ -19,6 +19,7 @@ The third column shows the **simplest** way to get a working session.
 | **Hermes (experimental)** | manual install | `hazmat harness update hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
 | **Qwen Code** | npm latest | `hazmat harness update qwen` | contained Qwen auth flow only | configure through contained Qwen profile / `.env` | unsupported in v1 |
 | **Cursor Agent** | manual install | `hazmat harness update cursor-agent` verifies only | contained Cursor Agent login only | configure through contained Cursor Agent profile; no Hazmat `CURSOR_API_KEY` grant in v1 | unsupported in v1 |
+| **Pi** | manual install | `hazmat harness update pi` verifies only | contained Pi setup only | configure through contained Pi profile; no Hazmat-managed Pi provider grant in v1 | unsupported in v1 |
 
 Use `hazmat harness status` to inspect every built-in harness at once. For one
 harness, `hazmat harness status codex` shows the agent binary path, version
@@ -33,8 +34,8 @@ compatible aliases for the same paths. To remove agent-owned harness code, run
 Hazmat-owned code artifacts plus the selected `~/.hazmat/state.json` metadata
 entry. Auth, profile roots, sessions, provider keys, and imported basics stay in
 place unless a future explicit purge flow models and documents a wider delete.
-Hermes is detection-only in v1, so its uninstall clears Hazmat metadata but
-does not remove the manually installed Hermes executable.
+Hermes and Pi are detection-only in v1, so their uninstall clears Hazmat
+metadata but does not remove manually installed executables.
 
 Future harness additions follow the maintainer-owned adapter boundary in
 [Harness Adapter RFC](plans/2026-06-12-harness-adapter-rfc.md). Hazmat does not
@@ -51,15 +52,17 @@ After install/update + auth: `hazmat <harness>` to launch a session, or
 `hazmat hermes -- --version` or `hazmat hermes -- chat ...` (hermes) /
 `hazmat qwen -p "prompt"` (qwen) /
 `hazmat cursor-agent -- --version` or Cursor Agent headless flags
-(cursor-agent) for foreground use.
+(cursor-agent) /
+`hazmat pi -- --version` or `hazmat pi -- --mode rpc` (pi) for foreground use.
 
 For Claude, Codex, OpenCode, and Gemini, the fastest path for a new install is
 usually the **import** column — it copies selected host credentials into
 Hazmat's host-owned secret store, so there's nothing to re-enter inside the
-sandbox. Hermes, Qwen, and Cursor Agent are intentionally different in v1:
+sandbox. Hermes, Qwen, Cursor Agent, and Pi are intentionally different in v1:
 Hazmat does not import host `~/.hermes`, host `~/.qwen`, host `~/.cursor`, or
-Cursor IDE profile/auth state. Use Hermes provider keys from `hazmat config
-agent`, or configure the narrower harnesses inside their contained profiles.
+host `~/.pi/agent`, and it does not import Cursor IDE profile/auth state. Use
+Hermes provider keys from `hazmat config agent`, or configure the narrower
+harnesses inside their contained profiles.
 
 ## Credential storage summary
 
@@ -86,6 +89,7 @@ secret values.
 | Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Project-scoped managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
 | Qwen profile state | `/Users/agent/.qwen` | Contained agent-side Qwen auth/settings/sessions; host `~/.qwen` auth/settings are not imported. Portable `QWEN.md` and `extensions/` can sync separately as assets. |
 | Cursor Agent profile state | `/Users/agent` default Cursor Agent paths such as `/Users/agent/.cursor` | Contained agent-side Cursor auth/settings/sessions; host Cursor IDE state, host `~/.cursor`, and host auth settings are not imported |
+| Pi profile state | `/Users/agent/.pi/agent` | Contained Pi settings, trust decisions, sessions, skills, extensions, and auth; host `~/.pi/agent` is not imported, copied, synced, or harvested |
 
 Provider API keys are configured once per provider. If more than one harness is
 allowed to consume the same env var, Hazmat reuses the same stored key and
@@ -207,6 +211,24 @@ records the consuming harness in explain/session metadata.
   path. `hazmat explain --for cursor-agent -C /tmp` previews the session
   contract.
 
+### Pi
+
+- **Install / update:** `hazmat harness update pi` is detection-only in v1. It
+  verifies an agent-owned executable at `/Users/agent/.local/bin/pi` by running
+  `pi --version`, prepares `/Users/agent/.pi/agent`, then records harness
+  state. It does not run an upstream installer or import host `~/.pi/agent`.
+- **Contained profile boundary:** Pi uses `/Users/agent/.pi/agent` for
+  settings, trust decisions, sessions, skills, extensions, and auth. Configure
+  Pi inside the contained profile; host Pi state remains outside Hazmat.
+- **RPC path:** Hazmat can contain a Pi RPC process, for example
+  `hazmat pi -- --mode rpc`, but v1 does not drive Pi's JSON-RPC prompt/event
+  stream. A compatible editor or daemon must still be the JSON-RPC client.
+- **Unsupported in v1:** `hazmat config import pi`, host `~/.pi/agent` import,
+  Hazmat-managed Pi provider env grants, host skill/extension sync, extension
+  UI approval policy, and Pi-specific JSON-RPC prompt driving.
+- **Verify:** `hazmat pi -- --version` checks the foreground launch path.
+  `hazmat explain --for pi -C /tmp` previews the session contract.
+
 ## Choosing an auth mode
 
 Three rules of thumb:
@@ -216,16 +238,16 @@ Three rules of thumb:
 3. **You only have an API key (or you're scripting CI).** Use the **API key** column. Persistent, scriptable, no browser dance.
 
 Mixing is fine for importable harnesses: you can import once and switch to API
-key later by setting the env var, or vice versa. Hermes, Qwen, and Cursor Agent
-exclude host-profile import in v1, so mix provider keys or contained setup
-according to the harness-specific section above.
+key later by setting the env var, or vice versa. Hermes, Qwen, Cursor Agent,
+and Pi exclude host-profile import in v1, so mix provider keys or contained
+setup according to the harness-specific section above.
 
 ## Session modes
 
 Harness auth and harness session mode are separate decisions:
 
-- **Native containment:** available on all seven harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`, `qwen`, `cursor-agent`).
-- **Docker Sandbox:** available on all seven harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
+- **Native containment:** available on all eight harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`, `qwen`, `cursor-agent`, `pi`).
+- **Docker Sandbox:** available on all eight harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
 Native containment also supports a per-session network mode:
@@ -238,6 +260,7 @@ hazmat gemini --network none -p "offline review"
 hazmat hermes --network none --metadata-json -- --version
 hazmat qwen --network none -p "offline review"
 hazmat cursor-agent --network none -- --version
+hazmat pi --network none -- --version
 ```
 
 `--network none` denies outbound IPv4, outbound IPv6, and DNS for that native
@@ -273,6 +296,7 @@ cd ~/workspace/project-that-reproduces
 ~/.hazmat/bin/hazmat-debug trace hermes --name baseline -- --no-backup -- --version
 ~/.hazmat/bin/hazmat-debug trace qwen --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace cursor-agent --name baseline -- --no-backup -- --version
+~/.hazmat/bin/hazmat-debug trace pi --name baseline -- --no-backup -- --version
 ```
 
 The bundle includes the planned session contract, harness metadata, before/after
@@ -294,6 +318,7 @@ hazmat gemini --github -p "review this PR"
 hazmat hermes --github -- chat "review this PR"
 hazmat qwen --github -p "review this PR"
 hazmat cursor-agent --github --print --output-format stream-json --force --trust
+hazmat pi --github -- --help
 ```
 
 Hazmat stores the token in `~/.hazmat/secrets/github/token`, injects only
@@ -311,7 +336,7 @@ that must not be able to self-push or change repository state remotely.
 
 ## Session integrations
 
-Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, hermes, qwen, and cursor-agent all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
+Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, hermes, qwen, cursor-agent, and pi all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
 
 Preview the planned session contract for any harness with `hazmat explain --for <harness>`:
 
@@ -322,6 +347,7 @@ hazmat explain --for opencode --json            # machine-readable preview
 hazmat explain --for hermes --network none       # Hermes foreground contract
 hazmat explain --for qwen --docker=auto          # Qwen foreground contract
 hazmat explain --for cursor-agent --docker=auto  # Cursor Agent foreground contract
+hazmat explain --for pi --docker=auto            # Pi foreground contract
 ```
 
 Integrations are documented in [docs/integrations.md](integrations.md) — the trust model, allowed env passthrough set, and built-in list are all there.
@@ -342,6 +368,7 @@ harness-aware and runs automatically (toggle with `session.harness_assets` in
 | Qwen | `~/.qwen/QWEN.md`, `extensions/` |
 | Hermes | none in v1; host `~/.hermes`, skills, MCP, cron, and service config are not synced |
 | Cursor Agent | none in v1; host Cursor IDE state, host `~/.cursor`, auth, and workspace trust/profile data are not synced |
+| Pi | none in v1; host `~/.pi/agent`, skills, extensions, trust decisions, sessions, and auth are not synced |
 
 For the rows with synced paths, these are managed copies — if you edit them
 inside the sandbox, the next session will overwrite your edits with the host
@@ -358,5 +385,7 @@ version. Edit on the host instead.
 - **`hazmat qwen` still asks for auth:** run Qwen's auth flow inside `hazmat qwen`, or configure the contained `/Users/agent/.qwen` profile. Hazmat does not import host `~/.qwen` auth/settings in v1.
 - **`hazmat harness update cursor-agent` says Cursor Agent is not installed:** install or link the Cursor Agent executable as the agent user at `/Users/agent/.local/bin/cursor-agent`, then rerun the update. Hazmat records Cursor Agent as installed only after `cursor-agent --version` succeeds.
 - **`hazmat cursor-agent` still asks for auth:** run `hazmat cursor-agent -- login`, or configure the contained agent-side Cursor Agent profile. Hazmat does not import host Cursor IDE state, host `~/.cursor`, or host auth settings in v1.
+- **`hazmat harness update pi` says Pi is not installed:** install or link the Pi executable as the agent user at `/Users/agent/.local/bin/pi`, then rerun the update. Hazmat records Pi as installed only after `pi --version` succeeds.
+- **`hazmat pi` still asks for auth or trust:** configure Pi inside the contained `/Users/agent/.pi/agent` profile. Hazmat does not import host `~/.pi/agent` in v1.
 
 For deeper containment behavior (what the agent can and can't see), [docs/usage.md](usage.md) is the canonical reference. To verify any of the setup paths above end-to-end (per-harness checklists, regression scenarios, recovery), see [docs/manual-testing.md](manual-testing.md).

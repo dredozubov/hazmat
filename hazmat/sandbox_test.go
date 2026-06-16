@@ -849,6 +849,13 @@ func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
 			forwarded:   []string{"--print", "--output-format", "stream-json", "--force", "--trust"},
 			expectedRun: []string{"--print", "--output-format", "stream-json", "--force", "--trust"},
 		},
+		{
+			name:        "pi",
+			agent:       "pi",
+			run:         runSandboxPiSession,
+			forwarded:   []string{"--mode", "rpc"},
+			expectedRun: []string{"--mode", "rpc"},
+		},
 	}
 
 	for _, tc := range tests {

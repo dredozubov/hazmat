@@ -94,6 +94,7 @@ func NewRootCommand() *cobra.Command {
 			withUpdateNotifications(newHermesCmd()),
 			withUpdateNotifications(newQwenCmd()),
 			withUpdateNotifications(newCursorAgentCmd()),
+			withUpdateNotifications(newPiCmd()),
 			withUpdateNotifications(newShellCmd()),
 			withUpdateNotifications(newExecCmd()),
 			newExplainCmd(),

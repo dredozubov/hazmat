@@ -171,6 +171,22 @@ func supportedTraceHarnessSpecs() []debugtrace.HarnessSpec {
 			},
 			SampleArgs: []string{"--", "--version"},
 		},
+		{
+			ID:               debugtrace.HarnessID(HarnessPi),
+			DisplayName:      "Pi",
+			CommandName:      "pi",
+			LaunchCommand:    "hazmat pi",
+			BootstrapCommand: "hazmat bootstrap pi",
+			Installed:        installedTraceHarness(HarnessPi),
+			Explain:          traceExplain("pi", parseHarnessArgs),
+			ProcessFilters: []string{
+				"pi",
+			},
+			AgentStatePaths: []string{
+				filepath.Join(agentHome, ".pi", "agent"),
+			},
+			SampleArgs: []string{"--", "--version"},
+		},
 	}
 }
 

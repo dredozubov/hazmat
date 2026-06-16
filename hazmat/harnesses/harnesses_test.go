@@ -7,8 +7,8 @@ import (
 
 func TestBuiltinMetadataIsCompleteAndUnique(t *testing.T) {
 	metadata := BuiltinMetadata()
-	if len(metadata) != 7 {
-		t.Fatalf("BuiltinMetadata length = %d, want 7", len(metadata))
+	if len(metadata) != 8 {
+		t.Fatalf("BuiltinMetadata length = %d, want 8", len(metadata))
 	}
 
 	seen := map[ID]bool{}
@@ -43,7 +43,7 @@ func TestImportPolicyDocumentsSupportedAndNoImportHarnesses(t *testing.T) {
 		}
 	}
 
-	for _, id := range []ID{Hermes, Qwen, CursorAgent} {
+	for _, id := range []ID{Hermes, Qwen, CursorAgent, Pi} {
 		metadata := MustMetadata(id)
 		if metadata.ImportPolicy.Supported {
 			t.Fatalf("%s import policy = supported, want unsupported", id)

@@ -15,7 +15,7 @@ Usage:
   bash scripts/e2e-harness-smoke-native.sh --list-harnesses
 
 Runs non-destructive harness smokes for:
-  - Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor Agent foreground launch paths
+  - Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, and Pi foreground launch paths
   - provider/env delivery for harnesses that consume provider env grants
   - file-backed auth materialization, harvest, and cleanup where applicable
   - Claude auth materialization/harvest preserving host-owned auth when the
@@ -40,7 +40,7 @@ MODE="disclosure"
 ACK_RUN=""
 SKIP_BUILD=""
 LIST_HARNESSES=""
-SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent"
+SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent pi"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -270,6 +270,8 @@ backup_path "$AGENT_HOME/.local/bin/qwen" "agent-qwen-bin"
 backup_path "$AGENT_HOME/.qwen" "agent-qwen-state"
 backup_path "$AGENT_HOME/.local/bin/cursor-agent" "agent-cursor-agent-bin"
 backup_path "$AGENT_HOME/.cursor" "agent-cursor-state"
+backup_path "$AGENT_HOME/.local/bin/pi" "agent-pi-bin"
+backup_path "$AGENT_HOME/.pi" "agent-pi-state"
 backup_path "$HOME/.hazmat/secrets/claude/credentials.json" "host-claude-credentials"
 backup_path "$HOME/.hazmat/secrets/claude/state.json" "host-claude-state"
 backup_path "$HOME/.hazmat/secrets/codex/auth.json" "host-codex-auth"
@@ -292,6 +294,7 @@ record_absent_agent_dir "$AGENT_HOME/.local/share/opencode"
 record_absent_agent_dir "$AGENT_HOME/.gemini"
 record_absent_agent_dir "$AGENT_HOME/.qwen"
 record_absent_agent_dir "$AGENT_HOME/.cursor"
+record_absent_agent_dir "$AGENT_HOME/.pi"
 
 PROJECT="$(mktemp -d /tmp/hazmat-harness-project.XXXXXX)"
 
@@ -512,5 +515,26 @@ assert_file_contains "$CURSOR_AGENT_OUT" "FAKE_CURSOR_AGENT_OK" "Cursor Agent fa
 sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.cursor" \
     && pass "Cursor Agent contained state directory exists" \
     || die "Cursor Agent contained state directory missing"
+
+phase "Pi foreground launch"
+FAKE_PI="$TMPDIR_SMOKE/pi"
+cat > "$FAKE_PI" <<'EOF'
+#!/bin/sh
+set -eu
+test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 110; }
+test "$#" -eq 2 || { echo "unexpected Pi arg count: $#" >&2; exit 111; }
+test "${1:-}" = "--mode" || { echo "missing --mode" >&2; exit 112; }
+test "${2:-}" = "rpc" || { echo "unexpected mode: ${2:-}" >&2; exit 113; }
+mkdir -p "$HOME/.pi/agent"
+echo "FAKE_PI_OK"
+EOF
+install_agent_executable "$FAKE_PI" "$AGENT_HOME/.local/bin/pi"
+
+PI_OUT="$TMPDIR_SMOKE/pi.out"
+"$HAZMAT" pi --no-backup --skip-harness-assets-sync -C "$PROJECT" -- --mode rpc > "$PI_OUT" 2>&1
+assert_file_contains "$PI_OUT" "FAKE_PI_OK" "Pi fake CLI ran through hazmat pi"
+sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.pi/agent" \
+    && pass "Pi contained state directory exists" \
+    || die "Pi contained state directory missing"
 
 printf "\n\033[32m  All %d harness smoke checks passed.\033[0m\n" "$PASS"

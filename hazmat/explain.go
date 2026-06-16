@@ -35,6 +35,7 @@ Examples:
   hazmat explain --for hermes -C ~/workspace/repo
   hazmat explain --for qwen -C ~/workspace/repo
   hazmat explain --for cursor-agent -C ~/workspace/repo
+  hazmat explain --for pi -C ~/workspace/repo
   hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -78,7 +79,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&target, "for", "claude",
-		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent)")
+		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent, pi)")
 	bindExplainSessionFlags(cmd, &flags)
 	cmd.Flags().StringVar(&backendValue, "backend", "",
 		"Preview an alternate plan-only backend (apple-container)")
@@ -96,9 +97,9 @@ func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfi
 
 func resolveExplainSessionWithProgress(target string, opts harnessSessionOpts, progress *sessionPreparationProgress) (sessionConfig, sessionMode, error) {
 	switch target {
-	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent":
+	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent", "pi":
 	default:
-		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, qwen, or cursor-agent)", target)
+		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent, or pi)", target)
 	}
 
 	prepared, err := resolvePreparedSessionWithProgress(target, opts, true, progress)

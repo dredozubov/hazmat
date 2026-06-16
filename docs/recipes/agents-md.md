@@ -81,6 +81,7 @@ Pick the harness your repo expects agents to use:
 - `gemini`
 - `qwen`
 - `cursor-agent`
+- `pi`
 - `exec` for one-shot commands without an agent harness
 
 Name integrations by their Hazmat IDs. Check available integrations with:

@@ -2,7 +2,7 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
-> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, qwen, and cursor-agent.
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, qwen, cursor-agent, and pi.
 >
 > **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
@@ -41,14 +41,17 @@ hazmat qwen
 
 hazmat init --bootstrap-agent cursor-agent
 hazmat cursor-agent -- --version
+
+hazmat init --bootstrap-agent pi
+hazmat pi -- --version
 ```
 
 `init` creates a contained environment and lets you choose whether to bootstrap
-Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, or skip agent
+Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, Pi, or skip agent
 installation for now. When you bootstrap an agent during init, Hazmat can also
 ask for reusable provider API keys and git credentials. Import prompts are
 offered only for harnesses with a supported host-profile import path; Hermes,
-Qwen, and Cursor Agent do not import host profile state in v1.
+Qwen, Cursor Agent, and Pi do not import host profile state in v1.
 
 ```mermaid
 flowchart LR
@@ -782,7 +785,8 @@ or harvested on normal exit.
 Claude and OpenCode have detailed import notes:
 [claude-import.md](claude-import.md) and [opencode-import.md](opencode-import.md).
 Codex and Gemini import scope is summarized in [harnesses.md](harnesses.md).
-Hermes and Qwen do not import host `~/.hermes` or host `~/.qwen` in v1.
+Hermes, Qwen, Cursor Agent, and Pi do not import host `~/.hermes`, host
+`~/.qwen`, host Cursor state, or host `~/.pi/agent` in v1.
 
 ## Running OpenCode
 
@@ -876,6 +880,24 @@ import host Cursor IDE state, copy host `~/.cursor`, or grant `CURSOR_API_KEY`.
 Run `hazmat cursor-agent -- login` or configure Cursor Agent inside the
 contained agent profile. Hazmat forwards Cursor Agent flags exactly as provided,
 so automation flags such as `--force` and `--trust` must be explicit.
+
+## Running Pi
+
+```bash
+hazmat harness update pi
+hazmat pi
+hazmat pi -- --version
+hazmat pi -- --mode rpc
+```
+
+Pi support is foreground and verification-only in v1. `hazmat harness update
+pi` verifies a manually installed `/Users/agent/.local/bin/pi`, prepares
+`/Users/agent/.pi/agent`, and records harness state after `pi --version`
+succeeds. Hazmat does not run an upstream installer, import host `~/.pi/agent`,
+sync host Pi skills/extensions, or grant Pi provider API-key env vars in v1.
+Configure Pi auth, trust, and extensions inside the contained profile. RPC mode
+is contained when launched, but Hazmat does not drive Pi's JSON-RPC
+prompt/event stream.
 
 ## Uninstalling
 

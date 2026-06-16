@@ -212,11 +212,19 @@ func applyHarnessStaticSessionEnv(cfg *sessionConfig) {
 }
 
 func appendHarnessStaticSessionNotes(cfg *sessionConfig) {
-	if cfg == nil || cfg.HarnessID != HarnessHermes {
+	if cfg == nil {
 		return
 	}
-	cfg.SessionNotes = append(cfg.SessionNotes,
-		"Hermes uses project-scoped managed HERMES_HOME="+hermesProjectStateDir(cfg.ProjectDir)+"; host ~/.hermes is not imported.",
-		"Hermes gateway, dashboard/API, and persistent cron entrypoints are deferred in this foreground harness.",
-	)
+	switch cfg.HarnessID {
+	case HarnessHermes:
+		cfg.SessionNotes = append(cfg.SessionNotes,
+			"Hermes uses project-scoped managed HERMES_HOME="+hermesProjectStateDir(cfg.ProjectDir)+"; host ~/.hermes is not imported.",
+			"Hermes gateway, dashboard/API, and persistent cron entrypoints are deferred in this foreground harness.",
+		)
+	case HarnessPi:
+		cfg.SessionNotes = append(cfg.SessionNotes,
+			"Pi uses contained agent-side state under /Users/agent/.pi/agent; host ~/.pi/agent is not imported.",
+			"Pi RPC mode is contained when launched, but Hazmat does not drive Pi's JSON-RPC prompt/event stream in v1.",
+		)
+	}
 }

@@ -25,5 +25,6 @@ run_smoke "trace gemini --help" trace gemini --help
 run_smoke "trace hermes --help" trace hermes --help
 run_smoke "trace qwen --help" trace qwen --help
 run_smoke "trace cursor-agent --help" trace cursor-agent --help
+run_smoke "trace pi --help" trace pi --help
 
 echo "debug-trace-cli-smoke: all checks passed"

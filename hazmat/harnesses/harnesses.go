@@ -12,6 +12,7 @@ const (
 	Hermes      ID = "hermes"
 	Qwen        ID = "qwen"
 	CursorAgent ID = "cursor-agent"
+	Pi          ID = "pi"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	HermesStateVersion      = "1"
 	QwenStateVersion        = "1"
 	CursorAgentStateVersion = "1"
+	PiStateVersion          = "1"
 )
 
 type Spec struct {
@@ -104,6 +106,15 @@ var builtinMetadata = []Metadata{
 		ImportPolicy: ImportPolicy{
 			Supported: false,
 			Boundary:  "Cursor Agent v1 has no curated import; host Cursor IDE state, host ~/.cursor profile state, and host auth settings are not imported",
+		},
+	},
+	{
+		Spec:             Spec{ID: Pi, DisplayName: "Pi", StateVersion: PiStateVersion},
+		LaunchCommand:    "hazmat pi",
+		BootstrapCommand: "hazmat bootstrap pi",
+		ImportPolicy: ImportPolicy{
+			Supported: false,
+			Boundary:  "Pi v1 has no curated import; host ~/.pi/agent settings, trust decisions, sessions, skills, extensions, and auth are not imported",
 		},
 	},
 }

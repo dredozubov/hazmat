@@ -21,13 +21,14 @@ run_smoke "bootstrap gemini --help" bootstrap gemini --help
 run_smoke "bootstrap hermes --help" bootstrap hermes --help
 run_smoke "bootstrap qwen --help" bootstrap qwen --help
 run_smoke "bootstrap cursor-agent --help" bootstrap cursor-agent --help
+run_smoke "bootstrap pi --help" bootstrap pi --help
 run_smoke "harness --help" harness --help
 run_smoke "harness status --help" harness status --help
 run_smoke "harness status" harness status
 run_smoke "harness status --json" harness status --json
 run_smoke "harness update --help" harness update --help
 run_smoke "harness uninstall --help" harness uninstall --help
-for harness in claude codex opencode gemini hermes qwen cursor-agent; do
+for harness in claude codex opencode gemini hermes qwen cursor-agent pi; do
 	run_smoke "harness status $harness" harness status "$harness"
 	run_smoke "harness status $harness --json" harness status "$harness" --json
 	run_smoke "harness update $harness --dry-run" --dry-run harness update "$harness"
@@ -42,6 +43,7 @@ run_smoke "gemini --help" gemini --help
 run_smoke "hermes --help" hermes --help
 run_smoke "qwen --help" qwen --help
 run_smoke "cursor-agent --help" cursor-agent --help
+run_smoke "pi --help" pi --help
 echo "cli-smoke: trace hidden in release build..."
 if go run ./cmd/hazmat trace --help >/tmp/hazmat-trace-help.out 2>/tmp/hazmat-trace-help.err; then
 	echo "cli-smoke: trace unexpectedly exists in default build" >&2

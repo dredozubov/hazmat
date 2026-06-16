@@ -1,6 +1,6 @@
 # Pi Harness Candidate Evaluation
 
-Status: Compatibility decision plus deny-list hardening
+Status: Superseded by first-class foreground harness implementation
 Date: 2026-06-13
 Related issue: `sandboxing-lg07.5.8`
 Follow-up implemented: `sandboxing-l12m`
@@ -18,7 +18,7 @@ Sources:
 
 ## Decision
 
-Do not add `hazmat pi` in the next release.
+Add `hazmat pi` as a first-class foreground harness with a narrow v1 surface.
 
 Pi is a credible future protocol-driver harness, but it is not an ACP
 candidate. Open Design drives Pi through `pi --mode rpc`, sends prompts through
@@ -34,13 +34,13 @@ prompt; they follow global trust settings unless the run passes an explicit
 trust override. Hazmat should not inherit that host state or silently rely on a
 user's global Pi trust decisions.
 
-For now, keep Pi recipe-only through generic containment. The immediate
-hardening gap is independent of full adapter support: `sandboxing-l12m` adds
-`~/.pi/agent` to Hazmat's credential deny floor and host credential hardening
-specs while Pi remains unsupported as a first-class harness. In TLA+, this is
-covered by the existing `agentCliStateDir` abstraction for
-Kilo/Kimi/Kiro/Vibe/Trae/Pi-style external agent CLI state roots, avoiding one
-finite-model dimension per vendor.
+For now, first-class support is intentionally narrower than a full RPC adapter.
+Hazmat owns the lifecycle, launch, explain, status, Docker routing, and smoke
+coverage for `hazmat pi`, but does not import host `~/.pi/agent`, does not
+materialize provider credentials into Pi, and does not drive Pi's JSON-RPC
+prompt/event stream itself. Users configure Pi inside the contained agent
+profile. The existing `sandboxing-l12m` hardening still protects host
+`~/.pi/agent` when Pi is run through any contained path.
 
 ## Upstream Surface
 
@@ -82,23 +82,21 @@ Important surfaces for Hazmat:
 ## Recipe-Only Shape
 
 Users who already have Pi installed and authenticated inside the contained
-agent account can run Pi as a contained foreground tool:
+agent account can run Pi as a first-class contained foreground tool:
 
 ```bash
-hazmat shell -C ~/workspace/project
-pi
+hazmat pi -C ~/workspace/project
 ```
 
-There is no stable manual `hazmat exec -- pi --mode rpc` recipe for ordinary
-users. RPC mode expects a JSON-RPC client that sends a `prompt` command and
-consumes Pi's event stream. A compatible editor or daemon can still launch Pi
-through Hazmat as a subprocess wrapper, but that is not first-class Hazmat
-support and Hazmat does not yet manage Pi auth, trust, settings, extensions,
-skills, sessions, or provider credentials.
+RPC mode still expects a JSON-RPC client that sends a `prompt` command and
+consumes Pi's event stream. `hazmat pi -- --mode rpc` can contain the Pi
+process, but Hazmat v1 does not yet act as that JSON-RPC client and does not
+manage Pi auth, trust, settings, extensions, skills, sessions, or provider
+credentials beyond preserving contained agent-side state.
 
 ## First-Class Requirements
 
-Before `hazmat pi` is supportable:
+Before a full Pi RPC adapter is supportable:
 
 - implement a built-in Pi RPC adapter entry separate from ACP
 - define typed launch, prompt, image, cancel, error, and lifecycle contracts
@@ -123,8 +121,8 @@ Before `hazmat pi` is supportable:
 
 ## Follow-Up
 
-Pi remains recipe-only until the protocol-driver architecture can own Pi's RPC
-stream, state root, provider credentials, trust policy, extension UI, and
-session asset staging. The immediate deny-list hardening from `sandboxing-l12m`
-should ship independently because it protects users even when Pi is only run
-through `hazmat shell` or another contained wrapper.
+Pi's foreground harness can ship before the protocol-driver architecture owns
+Pi's RPC stream, provider credentials, trust policy, extension UI, and session
+asset staging. The immediate deny-list hardening from `sandboxing-l12m` still
+protects users when Pi is run through `hazmat pi`, `hazmat shell`, or another
+contained wrapper.

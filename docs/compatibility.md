@@ -42,6 +42,7 @@ These are documented starting points, not exhaustive certification.
 | Hermes (experimental) | Foreground assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Manual install verification only; no host `~/.hermes` import; gateway/dashboard/API/server/cron entrypoints are unsupported in v1. |
 | Qwen Code | Foreground assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Requires Node.js 20+ for bootstrap; host `~/.qwen` auth/settings are not imported; daemon/SDK/server modes are unsupported in v1. |
 | Cursor Agent | Foreground/headless assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Manual install verification only; host Cursor IDE state and host `~/.cursor` auth/profile data are not imported; service/daemon/browser-control modes are unsupported in v1. |
+| Pi | Foreground/RPC assistant harness | 15.x (Sequoia-era docs) | native containment | **works with caveats** | [docs/harnesses.md](harnesses.md), [docs/manual-testing.md](manual-testing.md) | Manual install verification only; host `~/.pi/agent` settings/trust/sessions/skills/extensions/auth are not imported; Hazmat does not drive Pi JSON-RPC in v1. |
 
 ## Reporting Flow
 

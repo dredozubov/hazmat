@@ -46,6 +46,7 @@ Supported trace targets:
 ~/.hazmat/bin/hazmat-debug trace hermes --name baseline -- --no-backup -- --version
 ~/.hazmat/bin/hazmat-debug trace qwen --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace cursor-agent --name baseline -- --no-backup -- --version
+~/.hazmat/bin/hazmat-debug trace pi --name baseline -- --no-backup -- --version
 ```
 
 Trace flags go before `--`. Normal `hazmat <harness>` flags and harness CLI

@@ -70,6 +70,7 @@ const (
 	sessionHomeAdapterHermesState       sessionHomeAdapterName = "hermes-state"
 	sessionHomeAdapterMCPState          sessionHomeAdapterName = "mcp-state"
 	sessionHomeAdapterOpenCodeState     sessionHomeAdapterName = "opencode-state"
+	sessionHomeAdapterPiState           sessionHomeAdapterName = "pi-state"
 	sessionHomeAdapterQwenState         sessionHomeAdapterName = "qwen-state"
 	sessionHomeAdapterXDGState          sessionHomeAdapterName = "xdg-state"
 	sessionHomeAdapterUnknown           sessionHomeAdapterName = "unknown"
@@ -1104,6 +1105,8 @@ func sessionHomeHarnessStateAdapterDecision(rel string) sessionHomeAdapterDecisi
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterOpenCodeState)
 	case ".opencode":
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterOpenCodeState)
+	case ".pi":
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterPiState)
 	case ".cursor":
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterCursorState)
 	case ".gemini":

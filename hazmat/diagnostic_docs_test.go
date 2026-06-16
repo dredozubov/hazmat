@@ -192,7 +192,8 @@ func TestManualTestingHarnessFlowsUseLifecycleUpdateCommands(t *testing.T) {
 		"hazmat harness update hermes",
 		"hazmat harness update qwen",
 		"hazmat harness update cursor-agent",
-		"list status shows all seven harnesses",
+		"hazmat harness update pi",
+		"list status shows all eight harnesses",
 		"bootstrap compatibility aliases",
 	}
 	for _, phrase := range required {
@@ -208,7 +209,9 @@ func TestManualTestingHarnessFlowsUseLifecycleUpdateCommands(t *testing.T) {
 		"run `hazmat bootstrap hermes`",
 		"Steps: `hazmat bootstrap qwen`",
 		"Steps: `hazmat bootstrap cursor-agent`",
+		"Steps: `hazmat bootstrap pi`",
 		"list status shows all six harnesses",
+		"list status shows all seven harnesses",
 	} {
 		if strings.Contains(text, stale) {
 			t.Fatalf("docs/manual-testing.md still uses bootstrap-first checklist phrase %q", stale)
@@ -230,6 +233,7 @@ func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
 		"hazmat harness update hermes",
 		"hazmat harness update qwen",
 		"hazmat harness update cursor-agent",
+		"hazmat harness update pi",
 		"compatible aliases",
 		"After install/update + auth",
 	}
@@ -246,6 +250,7 @@ func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
 		"| **Hermes (experimental)** | manual install | `hazmat bootstrap hermes`",
 		"| **Qwen Code** | npm latest | `hazmat bootstrap qwen`",
 		"| **Cursor Agent** | manual install | `hazmat bootstrap cursor-agent`",
+		"| **Pi** | manual install | `hazmat bootstrap pi`",
 		"**Install / update:** `hazmat bootstrap claude`",
 		"**Install / update:** `hazmat bootstrap codex`",
 		"**Install / update:** `hazmat bootstrap opencode`",
@@ -253,6 +258,7 @@ func TestHarnessDocsUseLifecycleUpdateCommands(t *testing.T) {
 		"**Install / update:** `hazmat bootstrap hermes`",
 		"**Install / update:** `hazmat bootstrap qwen`",
 		"**Install / update:** `hazmat bootstrap cursor-agent`",
+		"**Install / update:** `hazmat bootstrap pi`",
 		"After bootstrap/update + auth",
 	} {
 		if strings.Contains(text, stale) {
@@ -274,6 +280,7 @@ func TestUsageDocsUseHarnessLifecycleQuickstarts(t *testing.T) {
 		"hazmat harness update hermes",
 		"hazmat harness update qwen",
 		"hazmat harness update cursor-agent",
+		"hazmat harness update pi",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(text, phrase) {
@@ -287,8 +294,10 @@ func TestUsageDocsUseHarnessLifecycleQuickstarts(t *testing.T) {
 		"## Running Hermes ```bash hazmat bootstrap hermes",
 		"## Running Qwen Code ```bash hazmat bootstrap qwen",
 		"## Running Cursor Agent ```bash hazmat bootstrap cursor-agent",
+		"## Running Pi ```bash hazmat bootstrap pi",
 		"`hazmat bootstrap hermes` verifies",
 		"`hazmat bootstrap cursor-agent` verifies",
+		"`hazmat bootstrap pi` verifies",
 	} {
 		if strings.Contains(text, stale) {
 			t.Fatalf("docs/usage.md still uses bootstrap-first quickstart phrase %q", stale)

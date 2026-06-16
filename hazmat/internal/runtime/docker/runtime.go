@@ -195,6 +195,8 @@ func AgentDisplayName(agent string) string {
 		return "Qwen Code"
 	case "cursor-agent":
 		return "Cursor Agent"
+	case "pi":
+		return "Pi"
 	case "shell":
 		return "shell"
 	default:

@@ -34,7 +34,6 @@ var credentialDenySubpaths = []string{
 	"/.kiro",
 	"/.vibe",
 	"/.traecli",
-	"/.pi/agent",
 	"/.config/crush",
 	"/.local/share/crush",
 	"/.openclaw",

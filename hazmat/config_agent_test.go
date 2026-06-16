@@ -331,6 +331,10 @@ func TestApplyHarnessAPIKeyEnvDeliversConfiguredProvidersForAllowedHarness(t *te
 			harness: HarnessCursorAgent,
 			want:    map[string]credentialID{},
 		},
+		{
+			harness: HarnessPi,
+			want:    map[string]credentialID{},
+		},
 	}
 
 	for _, tc := range cases {
@@ -460,6 +464,11 @@ func TestProviderAPIKeyPromptsAreSelectedFromConsumerHarnesses(t *testing.T) {
 		{
 			name:      "cursor-agent only",
 			harnesses: []HarnessID{HarnessCursorAgent},
+			want:      nil,
+		},
+		{
+			name:      "pi only",
+			harnesses: []HarnessID{HarnessPi},
 			want:      nil,
 		},
 		{

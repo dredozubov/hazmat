@@ -642,7 +642,7 @@ func TestNewSessionHomeLaunchPlanKeepsCoveredHarnessXDGStateBlocked(t *testing.T
 
 func TestNewSessionHomeLaunchPlanIgnoresSupportedBroadHarnessRoots(t *testing.T) {
 	persistentHome := filepath.Join(t.TempDir(), "agent")
-	for _, rel := range []string{".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".qwen"} {
+	for _, rel := range []string{".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".pi", ".qwen"} {
 		if err := os.MkdirAll(filepath.Join(persistentHome, filepath.FromSlash(rel)), 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", rel, err)
 		}
@@ -654,7 +654,7 @@ func TestNewSessionHomeLaunchPlanIgnoresSupportedBroadHarnessRoots(t *testing.T)
 
 	for _, blocker := range plan.Blockers {
 		switch blocker.RelPath {
-		case ".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".qwen":
+		case ".agents", ".claude", ".codex", ".cursor", ".gemini", ".hazmat", ".hazmat/hermes", ".opencode", ".pi", ".qwen":
 			t.Fatalf("activation blockers = %+v, want supported broad harness root %s ignored as empty session-local state", plan.Blockers, blocker.RelPath)
 		}
 	}

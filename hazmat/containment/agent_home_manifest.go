@@ -193,6 +193,7 @@ var persistentAgentHomeManifest = []AgentHomeStateEntry{
 	{RelPath: ".node-gyp", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
 	{RelPath: ".npm", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
 	{RelPath: ".opencode", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState, ExecutableRelPaths: []string{".opencode/bin"}},
+	{RelPath: ".pi", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState},
 	{RelPath: ".pub-cache", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState, ExecutableRelPaths: []string{".pub-cache/bin"}},
 	{RelPath: ".qwen", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState},
 	{RelPath: ".rustup", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
