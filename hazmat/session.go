@@ -459,6 +459,7 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 				opts.skipGitHTTPSRuntime = true
 				opts.skipGoModCacheEnv = true
 				opts.skipProjectHooks = true
+				opts.skipDockerDetection = true
 			}
 			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
 			if err != nil {
@@ -1039,6 +1040,7 @@ type harnessSessionOpts struct {
 	skipGitHTTPSRuntime          bool
 	skipGoModCacheEnv            bool
 	skipProjectHooks             bool
+	skipDockerDetection          bool
 	skipHarnessAssetsSync        bool
 	noBackup                     bool
 	github                       bool
@@ -1531,7 +1533,10 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
-	detection := opts.resolvedDockerDetection(cfg.ProjectDir)
+	var detection dockerProjectDetection
+	if !(opts.skipDockerDetection && request.Mode == dockerModeNone) {
+		detection = opts.resolvedDockerDetection(cfg.ProjectDir)
+	}
 
 	mode, err := resolvePreparedSessionMode(commandName, cfg.ProjectDir, request, detection, supportsSandbox)
 	if err != nil {

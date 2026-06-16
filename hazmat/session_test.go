@@ -707,6 +707,12 @@ func TestResolvePreparedSessionFastPathSkipsAmbientAccessAndHooks(t *testing.T) 
 		return "", inspectedProjectHooks{}, nil
 	}
 	t.Cleanup(func() { inspectProjectHooksForPrompt = savedInspectHooks })
+	savedDetectDockerProject := detectDockerProjectForSession
+	detectDockerProjectForSession = func(string) dockerProjectDetection {
+		t.Fatal("Docker project detection should not run when skipped")
+		return dockerProjectDetection{}
+	}
+	t.Cleanup(func() { detectDockerProjectForSession = savedDetectDockerProject })
 	t.Setenv("HAZMAT_LAUNCH_HELPER", filepath.Join(t.TempDir(), "hazmat-launch"))
 
 	prepared, err := resolvePreparedSessionWithProgress("exec", harnessSessionOpts{
@@ -723,6 +729,7 @@ func TestResolvePreparedSessionFastPathSkipsAmbientAccessAndHooks(t *testing.T) 
 		skipGitHTTPSRuntime:          true,
 		skipGoModCacheEnv:            true,
 		skipProjectHooks:             true,
+		skipDockerDetection:          true,
 	}, true, nil)
 	if err != nil {
 		t.Fatalf("resolvePreparedSessionWithProgress: %v", err)
