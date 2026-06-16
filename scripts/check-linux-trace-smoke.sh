@@ -4,7 +4,6 @@ set -eu
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 IMAGE="${HAZMAT_LINUX_TRACE_SMOKE_IMAGE:-golang:1.25}"
-GOARCH_VALUE="${HAZMAT_LINUX_TRACE_GOARCH:-$(go env GOHOSTARCH)}"
 MODE="disclosure"
 ACK_RUN=0
 SKIP_IF_MISSING=0
@@ -63,6 +62,18 @@ fi
 if [ "$ACK_RUN" -ne 1 ]; then
 	echo "linux-trace-smoke: refusing live run without --i-understand-this-runs-privileged-docker" >&2
 	exit 2
+fi
+
+if [ -n "${HAZMAT_LINUX_TRACE_GOARCH:-}" ]; then
+	GOARCH_VALUE="$HAZMAT_LINUX_TRACE_GOARCH"
+elif command -v go >/dev/null 2>&1; then
+	GOARCH_VALUE="$(go env GOHOSTARCH)"
+else
+	case "$(uname -m)" in
+		x86_64|amd64) GOARCH_VALUE="amd64" ;;
+		arm64|aarch64) GOARCH_VALUE="arm64" ;;
+		*) GOARCH_VALUE="amd64" ;;
+	esac
 fi
 
 skip_or_fail() {

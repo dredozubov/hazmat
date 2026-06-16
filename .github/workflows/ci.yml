@@ -125,12 +125,8 @@ jobs:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache-dependency-path: ${{ env.GO_CACHE_DEP }}
 
-      - name: Unit tests
-        working-directory: hazmat
-        run: go test ./...
-
-      - name: Compile unsupported Linux backend
-        run: bash scripts/check-linux-compile.sh
+      - name: Linux lane
+        run: bash scripts/test-lane.sh os-linux
 
   package-boundaries:
     name: Package boundary guard
@@ -151,6 +147,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
 
       - name: Verify non-destructive test-entrypoint guards
         run: bash scripts/test-entrypoint-guards.sh

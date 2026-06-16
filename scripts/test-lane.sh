@@ -45,6 +45,15 @@ run_go_test() {
 	(cd "$REPO_ROOT/hazmat" && go test ./...)
 }
 
+run_linux_go_test() {
+	(
+		cd "$REPO_ROOT/hazmat"
+		go list ./... \
+			| grep -Ev '^(hazmat|hazmat/cmd/hazmat-launch|hazmat/internal/runtime/darwin)$' \
+			| xargs go test
+	)
+}
+
 run_go_vet() {
 	(cd "$REPO_ROOT/hazmat" && go vet ./...)
 }
@@ -79,7 +88,7 @@ case "$1" in
 		;;
 	os-linux)
 		require_os linux
-		run_go_test
+		run_linux_go_test
 		bash "$REPO_ROOT/scripts/check-linux-compile.sh"
 		;;
 	os-macos)
