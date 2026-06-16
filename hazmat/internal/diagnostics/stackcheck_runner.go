@@ -441,9 +441,43 @@ func runStackcheckExec(selfPath, repoDir string, integrations []string, script s
 	for _, integration := range integrations {
 		args = append(args, "--integration", integration)
 	}
-	args = append(args, "--", "/bin/sh", "-c", script)
+	args = append(args, "--", "/bin/sh", "-c", stackcheckSmokeEnvScript(script))
 	outcome, err := runStackcheckProcess("", selfPath, args...)
 	return stackcheckCommandResultFromOutcome(step, append([]string{selfPath}, args...), outcome), err
+}
+
+func stackcheckSmokeEnvScript(script string) string {
+	return `set -e
+STACKCHECK_RUNTIME_ROOT="${STACKCHECK_RUNTIME_ROOT:-$PWD/.hazmat-stackcheck}"
+mkdir -p "$STACKCHECK_RUNTIME_ROOT/tmp" \
+  "$STACKCHECK_RUNTIME_ROOT/cache" \
+  "$STACKCHECK_RUNTIME_ROOT/config" \
+  "$STACKCHECK_RUNTIME_ROOT/data" \
+  "$STACKCHECK_RUNTIME_ROOT/state" \
+  "$STACKCHECK_RUNTIME_ROOT/npm" \
+  "$STACKCHECK_RUNTIME_ROOT/pnpm-home" \
+  "$STACKCHECK_RUNTIME_ROOT/pnpm-store" \
+  "$STACKCHECK_RUNTIME_ROOT/uv-cache" \
+  "$STACKCHECK_RUNTIME_ROOT/pip-cache" \
+  "$STACKCHECK_RUNTIME_ROOT/cargo" \
+  "$STACKCHECK_RUNTIME_ROOT/rustup"
+export TMPDIR="$STACKCHECK_RUNTIME_ROOT/tmp"
+export TMP="$TMPDIR"
+export TEMP="$TMPDIR"
+export BUN_TMPDIR="$TMPDIR"
+export XDG_CACHE_HOME="$STACKCHECK_RUNTIME_ROOT/cache"
+export XDG_CONFIG_HOME="$STACKCHECK_RUNTIME_ROOT/config"
+export XDG_DATA_HOME="$STACKCHECK_RUNTIME_ROOT/data"
+export XDG_STATE_HOME="$STACKCHECK_RUNTIME_ROOT/state"
+export npm_config_cache="$STACKCHECK_RUNTIME_ROOT/npm"
+export NPM_CONFIG_CACHE="$STACKCHECK_RUNTIME_ROOT/npm"
+export npm_config_store_dir="$STACKCHECK_RUNTIME_ROOT/pnpm-store"
+export PNPM_HOME="$STACKCHECK_RUNTIME_ROOT/pnpm-home"
+export UV_CACHE_DIR="$STACKCHECK_RUNTIME_ROOT/uv-cache"
+export PIP_CACHE_DIR="$STACKCHECK_RUNTIME_ROOT/pip-cache"
+export CARGO_HOME="$STACKCHECK_RUNTIME_ROOT/cargo"
+export RUSTUP_HOME="$STACKCHECK_RUNTIME_ROOT/rustup"
+` + script
 }
 
 func runStackcheckProcess(dir string, name string, args ...string) (stackcheckCommandOutcome, error) {

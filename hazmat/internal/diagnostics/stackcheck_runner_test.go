@@ -164,6 +164,23 @@ func TestClassifyStackcheckProcessFailureTreatsSetupAsWorkflow(t *testing.T) {
 	}
 }
 
+func TestStackcheckSmokeEnvScriptPinsPackageManagerCachesToProject(t *testing.T) {
+	script := stackcheckSmokeEnvScript("echo ok")
+	for _, want := range []string{
+		`STACKCHECK_RUNTIME_ROOT="${STACKCHECK_RUNTIME_ROOT:-$PWD/.hazmat-stackcheck}"`,
+		`export TMPDIR="$STACKCHECK_RUNTIME_ROOT/tmp"`,
+		`export npm_config_cache="$STACKCHECK_RUNTIME_ROOT/npm"`,
+		`export npm_config_store_dir="$STACKCHECK_RUNTIME_ROOT/pnpm-store"`,
+		`export UV_CACHE_DIR="$STACKCHECK_RUNTIME_ROOT/uv-cache"`,
+		`export PIP_CACHE_DIR="$STACKCHECK_RUNTIME_ROOT/pip-cache"`,
+		`echo ok`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("stackcheck env script missing %q in:\n%s", want, script)
+		}
+	}
+}
+
 func TestResolveStackcheckCheckoutTarget(t *testing.T) {
 	repo := stackMatrixRepo{
 		ID:   "next-js",
