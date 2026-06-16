@@ -51,6 +51,7 @@ func StartService(ctx context.Context, cfg ServiceConfig) (*Service, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// #nosec G118 -- cancel is retained on Service and called by Close.
 	serveCtx, cancel := context.WithCancel(ctx)
 	service := &Service{
 		server: server,

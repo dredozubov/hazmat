@@ -473,13 +473,17 @@ func TestAgentTraversePermissionCacheReusesPathResults(t *testing.T) {
 	}
 
 	cache := newAgentTraversePermissionCache()
-	if !cache.Allows("/Users/rv") || !cache.Allows("/Users/rv") {
+	firstAllowed := cache.Allows("/Users/rv")
+	secondAllowed := cache.Allows("/Users/rv")
+	if !firstAllowed || !secondAllowed {
 		t.Fatal("cache should preserve positive traversal result")
 	}
 	if calls != 1 {
 		t.Fatalf("pathAllowsAgentTraverse calls = %d, want 1", calls)
 	}
-	if cache.Allows("/Users/rv/private") || cache.Allows("/Users/rv/private") {
+	firstAllowed = cache.Allows("/Users/rv/private")
+	secondAllowed = cache.Allows("/Users/rv/private")
+	if firstAllowed || secondAllowed {
 		t.Fatal("cache should preserve negative traversal result")
 	}
 	if calls != 2 {

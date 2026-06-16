@@ -1534,7 +1534,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	var detection dockerProjectDetection
-	if !(opts.skipDockerDetection && request.Mode == dockerModeNone) {
+	if !opts.skipDockerDetection || request.Mode != dockerModeNone {
 		detection = opts.resolvedDockerDetection(cfg.ProjectDir)
 	}
 

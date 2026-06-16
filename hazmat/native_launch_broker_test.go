@@ -16,6 +16,15 @@ import (
 	"hazmat/internal/runtime/launchbroker"
 )
 
+func launchBrokerOutputBuffer(t *testing.T, value any) *bytes.Buffer {
+	t.Helper()
+	buf, ok := value.(*bytes.Buffer)
+	if !ok {
+		t.Fatalf("launch broker output writer = %T, want *bytes.Buffer", value)
+	}
+	return buf
+}
+
 func TestConfiguredLaunchBrokerSocketPath(t *testing.T) {
 	explicit := filepath.Join(t.TempDir(), "broker.sock")
 	uid := strconv.Itoa(os.Getuid())
@@ -162,10 +171,10 @@ func TestTryRunNativeLaunchViaBrokerUsesExplicitSocket(t *testing.T) {
 	if gotReq.PolicyPath != "/private/tmp/hazmat-123.sb" || !reflect.DeepEqual(gotReq.Args, []string{"arg1"}) {
 		t.Fatalf("request = %+v", gotReq)
 	}
-	if got := launchBrokerStdout.(*bytes.Buffer).String(); got != "out\n" {
+	if got := launchBrokerOutputBuffer(t, launchBrokerStdout).String(); got != "out\n" {
 		t.Fatalf("stdout = %q", got)
 	}
-	if got := launchBrokerStderr.(*bytes.Buffer).String(); got != "{\"kind\":\"hazmat.session\"}\nerr\n" {
+	if got := launchBrokerOutputBuffer(t, launchBrokerStderr).String(); got != "{\"kind\":\"hazmat.session\"}\nerr\n" {
 		t.Fatalf("stderr = %q", got)
 	}
 }
@@ -289,7 +298,7 @@ func TestTryRunNativeLaunchViaBrokerStartsDefaultBrokerAndRetries(t *testing.T) 
 	if !ensured || calls != 2 {
 		t.Fatalf("ensured=%v calls=%d, want ensure and two round trips", ensured, calls)
 	}
-	if got := launchBrokerStdout.(*bytes.Buffer).String(); got != "ok\n" {
+	if got := launchBrokerOutputBuffer(t, launchBrokerStdout).String(); got != "ok\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -453,7 +462,7 @@ func TestDefaultRunAgentSeatbeltScriptWithPlanUsesConfiguredBroker(t *testing.T)
 	if gotReq.MetadataJSON == "" {
 		t.Fatal("broker request missing containment metadata JSON")
 	}
-	if got := launchBrokerStdout.(*bytes.Buffer).String(); got != "ok\n" {
+	if got := launchBrokerOutputBuffer(t, launchBrokerStdout).String(); got != "ok\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 }

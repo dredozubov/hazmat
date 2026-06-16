@@ -62,8 +62,8 @@ var launchHelperCapabilityCache sync.Map
 var launchHelperCapabilityDiskCachePath = defaultLaunchHelperCapabilityDiskCachePath
 
 type launchHelperCapabilities struct {
-	DirectExec  bool
-	SessionTemp bool
+	DirectExec  bool `json:"direct_exec"`
+	SessionTemp bool `json:"session_temp"`
 }
 
 type launchHelperFileFingerprint struct {
@@ -119,7 +119,9 @@ func executableRegularFile(path string) bool {
 
 func launchHelperCapabilitiesFor(path string) launchHelperCapabilities {
 	if cached, ok := launchHelperCapabilityCache.Load(path); ok {
-		return cached.(launchHelperCapabilities)
+		if caps, ok := cached.(launchHelperCapabilities); ok {
+			return caps
+		}
 	}
 	if fingerprint, ok := currentLaunchHelperFingerprint(path); ok {
 		if caps, ok := readLaunchHelperCapabilityDiskCache(path, fingerprint); ok {

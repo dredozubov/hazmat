@@ -276,11 +276,6 @@ func (p *gitAgentWriteProbe) groupHasAgent(gid uint32) bool {
 	return member
 }
 
-func pathWritableByAgent(path string, requireInherit bool) bool {
-	var probe gitAgentWriteProbe
-	return probe.pathWritable(path, requireInherit)
-}
-
 func collectGitPermissionProblems(gitDir string) []string {
 	var problems []string
 	var agentWrite gitAgentWriteProbe

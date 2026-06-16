@@ -1901,16 +1901,6 @@ func writeGitSSHTransportExit(w io.Writer, exitCode int) error {
 	return writeGitSSHTransportFrame(w, gitSSHFrameExit, payload[:])
 }
 
-func writeGitSSHRuntimeFile(path string, content []byte, mode os.FileMode) error {
-	if err := os.WriteFile(path, content, mode); err != nil {
-		return err
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		return err
-	}
-	return nil
-}
-
 func probeGitSSHHost(key sessionGitSSHKey, target gitSSHTestTarget) (string, error) {
 	if err := key.Identity.validate(); err != nil {
 		return "", fmt.Errorf("ssh key %q: identity: %w", key.Name, err)

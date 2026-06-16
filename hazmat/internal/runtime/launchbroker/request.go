@@ -39,15 +39,15 @@ func (p AuthenticatedPeer) UID() int {
 }
 
 type LaunchRequest struct {
-	PolicyPath      string
-	MetadataJSON    string
-	DirectExec      bool
-	WorkingDir      string
-	SessionTempDir  string
-	EnvPairs        []string
-	RuntimeEnvPairs []string
-	Script          string
-	Args            []string
+	PolicyPath      string   `json:"policy_path"`
+	MetadataJSON    string   `json:"metadata_json,omitempty"`
+	DirectExec      bool     `json:"direct_exec,omitempty"`
+	WorkingDir      string   `json:"working_dir,omitempty"`
+	SessionTempDir  string   `json:"session_temp_dir,omitempty"`
+	EnvPairs        []string `json:"env_pairs,omitempty"`
+	RuntimeEnvPairs []string `json:"runtime_env_pairs,omitempty"`
+	Script          string   `json:"script,omitempty"`
+	Args            []string `json:"args"`
 }
 
 type VerifiedLaunchRequest struct {

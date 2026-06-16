@@ -266,18 +266,6 @@ func normalizeGitConfigSafeDirectoryValue(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func currentGitSafeDirectoryEntries() ([]string, error) {
-	systemEntries, err := readSystemGitSafeDirectoryEntries()
-	if err != nil {
-		return nil, err
-	}
-	agentEntries, err := readAgentGlobalGitSafeDirectoryEntries()
-	if err != nil {
-		return nil, err
-	}
-	return dedupeSafeDirectoryEntries(append(systemEntries, agentEntries...)), nil
-}
-
 func gitSafeDirectoryTrustedForAgent(repoDir string) (bool, error) {
 	systemEntries, err := readSystemGitSafeDirectoryEntries()
 	if err != nil {
