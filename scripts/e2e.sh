@@ -177,7 +177,7 @@ cleanup_e2e_vm() {
 run_e2e_vm() {
     local base_vm="${HAZMAT_E2E_BASE_VM:-hazmat-e2e-base}"
     local test_vm="${HAZMAT_E2E_TEST_VM:-hazmat-e2e-$$}"
-    local vm_provider="${HAZMAT_E2E_VM_PROVIDER:-lume}"
+    local vm_provider="${HAZMAT_E2E_VM_PROVIDER:-tart}"
     local default_vm_user=""
     local default_vm_pass=""
     local default_base_image=""
@@ -195,7 +195,7 @@ run_e2e_vm() {
         lume)
             default_vm_user="lume"
             default_vm_pass="lume"
-            default_base_image="macos-tahoe-vanilla:latest"
+            default_base_image=""
             ;;
         tart)
             default_vm_user="admin"
@@ -226,7 +226,7 @@ run_e2e_vm() {
         local ip
         case "$vm_provider" in
             lume)
-                ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
+                ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); data=data[0] if isinstance(data, list) and data else data; print(data.get('ipAddress') or data.get('ip') or '')" 2>/dev/null || true)
                 if [ -z "$ip" ]; then
                     ip=$(lume get "$vm" 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1 || true)
                 fi
@@ -240,28 +240,49 @@ run_e2e_vm() {
 
     wait_for_ssh() {
         local vm="$1"
+        local wait_seconds="${HAZMAT_E2E_VM_SSH_WAIT_SECONDS:-300}"
+        local deadline=$((SECONDS + wait_seconds))
+        local attempt
         echo "Waiting for SSH on $vm..."
-        for _ in $(seq 1 90); do
+        attempt=0
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
             local ip
             ip=$(get_vm_ip "$vm")
-            if [ -n "$ip" ] && vm_ssh_to "$ip" true 2>/dev/null; then
+            if vm_ssh "$vm" true 2>/dev/null; then
                 echo "SSH ready at $vm_user@$ip"
                 return 0
             fi
-            sleep 2
+            if [ $((attempt % 12)) -eq 0 ]; then
+                if [ -n "$ip" ]; then
+                    echo "Still waiting for SSH on $vm at $ip..."
+                else
+                    echo "Still waiting for SSH on $vm; no IP assigned yet..."
+                fi
+            fi
+            sleep 5
         done
-        echo "Error: VM did not become reachable via SSH within 180s"
+        echo "Error: VM did not become reachable via SSH within ${wait_seconds}s"
         return 1
     }
 
-    vm_ssh_to() {
-        local ip="$1"
+    vm_ssh() {
+        local vm="$1"
         shift
         case "$vm_provider" in
             lume)
-                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" "$@"
+                lume ssh "$vm" \
+                    --user "$vm_user" \
+                    --password "$vm_pass" \
+                    --timeout "${HAZMAT_E2E_VM_SSH_COMMAND_TIMEOUT:-60}" \
+                    "$@"
                 ;;
             tart)
+                local ip
+                ip=$(get_vm_ip "$vm")
+                if [ -z "$ip" ]; then
+                    return 1
+                fi
                 sshpass -p "$vm_pass" ssh \
                     -o StrictHostKeyChecking=no \
                     -o UserKnownHostsFile=/dev/null \
@@ -297,6 +318,19 @@ Base VM $base_vm exists but has no Hazmat readiness marker:
 Hazmat tried to resume provisioning the preserved base VM, but SSH did not
 become reachable. The VM was preserved so the prebuilt image import can be
 inspected or repaired in-place.
+
+Provider: $vm_provider
+Base image: ${base_image:-<existing VM or custom Lume image>}
+SSH user: $vm_user
+
+This lane requires a base image with Remote Login already enabled. It does not
+drive macOS Setup Assistant or use VNC/OCR automation to enable SSH. For Tart,
+verify the base manually with:
+  tart run $base_vm
+  ssh $vm_user@\$(tart ip $base_vm)
+
+If the public image does not expose SSH on this host, use a curated internal
+image with Remote Login enabled via HAZMAT_E2E_BASE_IMAGE.
 
 To intentionally rebuild the base VM, run:
   bash scripts/e2e.sh --vm --vm-step pull --reset-vm-base --quick
@@ -364,15 +398,29 @@ EOF
             return
         fi
 
-        echo "Pulling prebuilt base VM $base_image -> $base_vm..."
         case "$vm_provider" in
             lume)
+                if [ -z "$base_image" ]; then
+                    cat >&2 <<EOF
+No default Lume base image is configured.
+
+Lume vanilla images do not enable SSH automatically, and Lume's unattended
+setup path drives Setup Assistant through VNC/OCR. For the no-computer-use e2e
+VM lane, use Tart's SSH-ready Cirrus images:
+  HAZMAT_E2E_VM_PROVIDER=tart bash scripts/e2e.sh --vm --vm-step pull --quick
+
+If you maintain your own SSH-enabled Lume image, set HAZMAT_E2E_BASE_IMAGE.
+EOF
+                    exit 2
+                fi
+                echo "Pulling prebuilt base VM $base_image -> $base_vm..."
                 echo "Registry: $base_image_registry/$base_image_org"
                 lume pull "$base_image" "$base_vm" \
                     --registry "$base_image_registry" \
                     --organization "$base_image_org"
                 ;;
             tart)
+                echo "Pulling prebuilt base VM $base_image -> $base_vm..."
                 tart clone "$base_image" "$base_vm"
                 ;;
         esac
@@ -425,17 +473,17 @@ EOF
         fi
 
         base_ip=$(get_vm_ip "$base_vm")
-        if ! vm_ssh_to "$base_ip" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
+        if ! vm_ssh "$base_vm" 'command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
             echo "Base VM $base_vm Homebrew setup failed; preserving it for repair." >&2
             echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
-        if ! vm_ssh_to "$base_ip" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'; then
+        if ! vm_ssh "$base_vm" 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install go'; then
             echo "Base VM $base_vm Go setup failed; preserving it for repair." >&2
             echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
         fi
-        if ! vm_ssh_to "$base_ip" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"; then
+        if ! vm_ssh "$base_vm" "echo '$vm_pass' | sudo -S sh -c 'echo \"$vm_user ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$vm_user && chmod 440 /etc/sudoers.d/$vm_user'"; then
             echo "Base VM $base_vm passwordless sudo setup failed; preserving it for repair." >&2
             echo "Use --reset-vm-base only if you want to delete and rebuild it." >&2
             exit 1
@@ -470,9 +518,7 @@ EOF
     }
 
     test_vm_ssh_ready() {
-        local ip
-        ip=$(get_vm_ip "$test_vm")
-        [ -n "$ip" ] && vm_ssh_to "$ip" true 2>/dev/null
+        vm_ssh "$test_vm" true 2>/dev/null
     }
 
     boot_test_vm() {
@@ -509,10 +555,10 @@ EOF
         echo "Copying repo to VM local disk..."
         case "$vm_provider" in
             lume)
-                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
                 ;;
             tart)
-                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
                 ;;
         esac
     }
@@ -529,7 +575,7 @@ EOF
         echo "════════════════════════════════════════════════════════"
         echo ""
 
-        vm_ssh_to "$vm_ip" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
+        vm_ssh "$test_vm" "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && cd $guest_repo && HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh $quick_arg"
     }
 
     run_existing_guest_step() {
@@ -549,10 +595,10 @@ EOF
         echo "Refreshing repo copy in existing test VM $test_vm..."
         case "$vm_provider" in
             lume)
-                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
                 ;;
             tart)
-                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                vm_ssh "$test_vm" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
                 ;;
         esac
         run_guest_lifecycle

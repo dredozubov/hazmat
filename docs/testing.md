@@ -659,17 +659,36 @@ bash scripts/e2e-vm.sh --step download --quick
 ```
 
 `download` is a compatibility alias for the image pull step; it does not
-download an IPSW. The default image is
-`ghcr.io/trycua/macos-tahoe-vanilla:latest`, imported as `hazmat-e2e-base`.
-Override it with `HAZMAT_E2E_BASE_IMAGE`, `HAZMAT_E2E_BASE_IMAGE_ORG`, and
-`HAZMAT_E2E_BASE_IMAGE_REGISTRY` when a runner uses a curated internal image.
-Set `HAZMAT_E2E_VM_PROVIDER=tart` to use Tart instead; the Tart default image is
-`ghcr.io/cirruslabs/macos-tahoe-base:latest`, with the documented
-`admin`/`admin` SSH credentials and `sshpass` required for non-interactive SSH.
+download an IPSW. The default provider is Tart because Cirrus base images are
+SSH-ready without driving macOS Setup Assistant. The default image is
+`ghcr.io/cirruslabs/macos-tahoe-base:latest`, imported as `hazmat-e2e-base`,
+with documented `admin`/`admin` SSH credentials and `sshpass` required for
+non-interactive SSH. Override it with `HAZMAT_E2E_BASE_IMAGE` when a runner uses
+a curated internal Tart image.
+
+Lume remains available only for an explicitly supplied SSH-enabled base image
+or existing base VM. Do not use Lume `vanilla` images for this lane: upstream
+Lume documents SSH auto-enablement for unattended-created VMs, and that path
+drives Setup Assistant through VNC/OCR. If you intentionally use Lume, set
+`HAZMAT_E2E_VM_PROVIDER=lume` and `HAZMAT_E2E_BASE_IMAGE` or provide an existing
+`HAZMAT_E2E_BASE_VM` with Remote Login already enabled.
+
+The base image must expose SSH before Hazmat can provision it. The VM lane does
+not use screen automation to enable Remote Login. For Tart, validate a suspect
+base with:
+
+```bash
+tart run hazmat-e2e-base
+ssh admin@$(tart ip hazmat-e2e-base)
+```
+
+If the public image does not expose SSH on a local host, use a curated internal
+image with Remote Login enabled via `HAZMAT_E2E_BASE_IMAGE`.
+
 CI exposes the same lane through the manual `CI` workflow input
-`run_e2e_vm=true`. Use `e2e_vm_provider=lume` with the default runner labels
-`["self-hosted","macOS","ARM64","lume"]`, or set `e2e_vm_provider=tart` and
-override `e2e_vm_runner` to labels that select a Tart runner.
+`run_e2e_vm=true`. The default provider is `tart` with runner labels
+`["self-hosted","macOS","ARM64","tart"]`; override `e2e_vm_provider` and
+`e2e_vm_runner` only for an explicitly prepared alternate provider.
 
 ### Repo-matrix validation
 
@@ -715,16 +734,16 @@ bash scripts/e2e.sh --vm --quick
 
 The VM mode provisions a macOS guest, copies the repo into the guest, and
 runs the same `scripts/e2e.sh` lifecycle there. The default base path uses a
-maintained prebuilt image instead of driving macOS Setup Assistant. If the
-base VM does not exist, `base`, `prepare`, and `all` fail fast and tell you to
-run the explicit pull step first. If first-time base provisioning fails, Hazmat
-preserves the base VM for inspection or repair. A later run will try to resume
-base provisioning in-place. Use
+maintained Tart/Cirrus prebuilt image instead of driving macOS Setup Assistant.
+If the base VM does not exist, `base`, `prepare`, and `all` fail fast and tell
+you to run the explicit pull step first. If first-time base provisioning fails,
+Hazmat preserves the base VM for inspection or repair. A later run will try to
+resume base provisioning in-place. Use
 `bash scripts/e2e.sh --vm --vm-step pull --reset-vm-base --quick` followed by
 `bash scripts/e2e.sh --vm --vm-step base --quick` only when you intentionally
-want to delete and rebuild the cached base VM. If Lume reports that the base VM
-is still being provisioned, wait for that Lume operation to finish and then
-rerun the VM lifecycle instead of resetting the base.
+want to delete and rebuild the cached base VM. For Lume-only runs, if Lume
+reports that the base VM is still being provisioned, wait for that operation to
+finish and then rerun the VM lifecycle instead of resetting the base.
 
 For faster iteration, run only the failed VM lifecycle step:
 

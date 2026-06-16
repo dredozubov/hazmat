@@ -322,8 +322,11 @@ still ask for exact-command approval before running approval-gated paths.
 The VM lane's `download` step is a compatibility name for pulling the maintained
 prebuilt VM image; the default pre-release path does not drive macOS Setup
 Assistant and does not download an IPSW.
-Set `HAZMAT_E2E_VM_PROVIDER=tart` to use Tart with Cirrus' maintained
-`macos-*-base` images instead of Lume.
+The default provider is Tart with Cirrus' maintained `macos-*-base` images
+because they expose documented `admin`/`admin` SSH credentials without
+computer-use or Setup Assistant automation. Lume is an explicit alternate only
+for SSH-enabled custom images or existing base VMs; do not use Lume `vanilla`
+images for this lane.
 
 ## Pre-Release Procedure
 

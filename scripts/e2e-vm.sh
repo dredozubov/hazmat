@@ -17,7 +17,8 @@ Usage:
   bash scripts/e2e-vm.sh --step base [--quick]
 
 Runs the destructive Hazmat lifecycle test in a disposable macOS VM.
-Defaults to Lume; set HAZMAT_E2E_VM_PROVIDER=tart to use Tart/Cirrus images.
+Defaults to Tart/Cirrus SSH-ready images. Set HAZMAT_E2E_VM_PROVIDER=lume only
+when you provide an SSH-enabled Lume base image or existing base VM.
 
 Options:
   --quick             Pass --quick to scripts/e2e.sh inside the guest.
@@ -37,9 +38,10 @@ Steps:
 
 Before the first base provisioning, pull the prebuilt image once:
   bash scripts/e2e-vm.sh --step download --quick
-
-For Tart:
   HAZMAT_E2E_VM_PROVIDER=tart bash scripts/e2e-vm.sh --step download --quick
+
+For Lume with a maintained SSH-enabled image:
+  HAZMAT_E2E_VM_PROVIDER=lume HAZMAT_E2E_BASE_IMAGE=<image:tag> bash scripts/e2e-vm.sh --step download --quick
 
 This wrapper delegates to scripts/e2e.sh --vm so host and VM lifecycle logic
 cannot drift.

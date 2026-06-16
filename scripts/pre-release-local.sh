@@ -18,7 +18,10 @@ Options:
 The VM gate requires a reusable prebuilt macOS base VM. Pull the base image once
 before the first VM run with:
   bash scripts/e2e-vm.sh --step download --quick
-Set HAZMAT_E2E_VM_PROVIDER=tart to use Tart/Cirrus images instead of Lume.
+  HAZMAT_E2E_VM_PROVIDER=tart bash scripts/e2e-vm.sh --step download --quick
+The default provider is Tart/Cirrus because those images are SSH-ready without
+Setup Assistant automation. Set HAZMAT_E2E_VM_PROVIDER=lume only when you
+provide an SSH-enabled Lume base image or existing base VM.
 EOF
 }
 

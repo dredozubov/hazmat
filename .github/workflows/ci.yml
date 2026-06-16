@@ -17,14 +17,14 @@ on:
         required: false
         type: choice
         options:
-          - lume
           - tart
-        default: lume
+          - lume
+        default: tart
       e2e_vm_runner:
         description: JSON runs-on labels for the VM lane
         required: false
         type: string
-        default: '["self-hosted","macOS","ARM64","lume"]'
+        default: '["self-hosted","macOS","ARM64","tart"]'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -334,10 +334,10 @@ jobs:
   e2e-vm:
     name: E2E lifecycle (VM)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e_vm }}
-    runs-on: ${{ fromJSON(inputs.e2e_vm_runner || '["self-hosted","macOS","ARM64","lume"]') }}
+    runs-on: ${{ fromJSON(inputs.e2e_vm_runner || '["self-hosted","macOS","ARM64","tart"]') }}
     needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
     env:
-      HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider || 'lume' }}
+      HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider || 'tart' }}
     steps:
       - uses: actions/checkout@v5
 
