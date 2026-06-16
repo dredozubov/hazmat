@@ -55,12 +55,12 @@ repos:
     ref: af9ae49e84daf09f74e654ba3e6d87fe94f6d1ca
     stack: rust
     project_subdir: .
-    expected_suggestions: [rust]
+    expected_suggestions: [docker, rust]
     activate: [rust]
     required_formulas: [rust]
     smoke_commands:
       - cargo test -p ruff_python_parser
-    notes: Fast Rust regression target for sysroot detection and contained cargo workflows.
+    notes: Fast Rust regression target for sysroot detection and contained cargo workflows; root Dockerfile is release/build packaging only.
 
   - id: ollama
     wave: 3
