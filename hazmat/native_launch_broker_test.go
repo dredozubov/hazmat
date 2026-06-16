@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -166,6 +167,68 @@ func TestTryRunNativeLaunchViaBrokerUsesExplicitSocket(t *testing.T) {
 	}
 	if got := launchBrokerStderr.(*bytes.Buffer).String(); got != "{\"kind\":\"hazmat.session\"}\nerr\n" {
 		t.Fatalf("stderr = %q", got)
+	}
+}
+
+func TestTryRunNativeLaunchViaBrokerDirectFallbackWhenColdDefaultUnavailable(t *testing.T) {
+	t.Setenv(launchBrokerExperimentalEnv, "1")
+	var calls int
+	restore := replaceLaunchBrokerTestHooks(t,
+		func(context.Context, string, launchbroker.LaunchRequest) (launchbroker.LaunchResponse, error) {
+			calls++
+			return launchbroker.LaunchResponse{}, fmt.Errorf("connect launch broker: %w", os.ErrNotExist)
+		},
+		func(context.Context) error {
+			t.Fatal("default broker should not be started for cold direct exec fallback")
+			return nil
+		})
+	defer restore()
+
+	used, err := tryRunNativeLaunchViaBroker(
+		sessionConfig{ProjectDir: "/Users/dr/workspace/project"},
+		sessionBackendPlan{},
+		sessionLaunchUI{},
+		nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-123.sb"},
+		nil,
+		"",
+		"",
+		nativeDirectProjectExecScript,
+		"/usr/bin/true",
+	)
+	if used || err != nil {
+		t.Fatalf("tryRunNativeLaunchViaBroker used=%v err=%v, want direct sudo fallback", used, err)
+	}
+	if calls != 1 {
+		t.Fatalf("broker calls = %d, want one cold probe", calls)
+	}
+}
+
+func TestTryRunNativeLaunchViaBrokerExplicitSocketDoesNotUseDirectFallback(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "broker.sock")
+	t.Setenv(launchBrokerSocketEnv, socketPath)
+	restore := replaceLaunchBrokerTestHooks(t,
+		func(context.Context, string, launchbroker.LaunchRequest) (launchbroker.LaunchResponse, error) {
+			return launchbroker.LaunchResponse{}, fmt.Errorf("connect launch broker: %w", os.ErrNotExist)
+		},
+		func(context.Context) error {
+			t.Fatal("explicit broker socket should not start default broker")
+			return nil
+		})
+	defer restore()
+
+	used, err := tryRunNativeLaunchViaBroker(
+		sessionConfig{ProjectDir: "/Users/dr/workspace/project"},
+		sessionBackendPlan{},
+		sessionLaunchUI{},
+		nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-123.sb"},
+		nil,
+		"",
+		"",
+		nativeDirectProjectExecScript,
+		"/usr/bin/true",
+	)
+	if !used || err == nil {
+		t.Fatalf("tryRunNativeLaunchViaBroker used=%v err=%v, want explicit broker error", used, err)
 	}
 }
 

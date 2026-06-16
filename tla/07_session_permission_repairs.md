@@ -59,7 +59,11 @@ The model snapshots the repair needs at planning time, then checks:
 
 - what gets planned
 - that single-path probes, batched probes, and metadata-validated cache hits all
-  represent the same host repair snapshot
+  represent the same host repair snapshot. This includes both startup ACL
+  observations and cached `.git` metadata health: a cached healthy Git result is
+  usable only while every required Git metadata path still has the same
+  validation metadata. Any missing or stale fingerprint falls back to the fresh
+  host probe before planning or post-session repair decisions.
 - what preview is allowed to mutate
 - what must be fixed before launch can succeed
 - what rollback is allowed to remove

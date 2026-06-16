@@ -123,6 +123,83 @@ func TestCollectGitPermissionProblemsSkipsOptionalMissingPaths(t *testing.T) {
 	}
 }
 
+func TestGitMetadataHealthCacheInvalidatesOnPathStateChange(t *testing.T) {
+	withGitMetadataHealthCachePath(t)
+	_, gitDir := newGitMetadataCacheFixture(t)
+
+	rememberGitMetadataHealth(gitDir, true)
+	if !gitMetadataHealthCacheHealthy(gitDir) {
+		t.Fatal("expected fresh healthy cache entry")
+	}
+
+	if err := os.WriteFile(filepath.Join(gitDir, "index"), []byte("index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if gitMetadataHealthCacheHealthy(gitDir) {
+		t.Fatal("cache should miss when optional index appears")
+	}
+
+	rememberGitMetadataHealth(gitDir, true)
+	if !gitMetadataHealthCacheHealthy(gitDir) {
+		t.Fatal("expected refreshed healthy cache entry")
+	}
+
+	if err := os.Chmod(filepath.Join(gitDir, "HEAD"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if gitMetadataHealthCacheHealthy(gitDir) {
+		t.Fatal("cache should miss after HEAD metadata changes")
+	}
+}
+
+func TestCollectGitPermissionProblemsCachedUsesHealthyCache(t *testing.T) {
+	withGitMetadataHealthCachePath(t)
+	_, gitDir := newGitMetadataCacheFixture(t)
+	rememberGitMetadataHealth(gitDir, true)
+
+	savedFresh := collectGitPermissionProblemsFresh
+	collectGitPermissionProblemsFresh = func(string) []string {
+		t.Fatal("fresh Git permission probe should not run on a healthy cache hit")
+		return nil
+	}
+	t.Cleanup(func() { collectGitPermissionProblemsFresh = savedFresh })
+
+	if problems := collectGitPermissionProblemsCached(gitDir); len(problems) != 0 {
+		t.Fatalf("collectGitPermissionProblemsCached() = %v, want none", problems)
+	}
+}
+
+func TestCollectGitPermissionProblemsCachedRefreshesStaleCache(t *testing.T) {
+	withGitMetadataHealthCachePath(t)
+	_, gitDir := newGitMetadataCacheFixture(t)
+	rememberGitMetadataHealth(gitDir, true)
+	if err := os.WriteFile(filepath.Join(gitDir, "index"), []byte("index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var called bool
+	savedFresh := collectGitPermissionProblemsFresh
+	collectGitPermissionProblemsFresh = func(gotDir string) []string {
+		called = true
+		if gotDir != gitDir {
+			t.Fatalf("fresh probe gitDir = %q, want %q", gotDir, gitDir)
+		}
+		return []string{"broken"}
+	}
+	t.Cleanup(func() { collectGitPermissionProblemsFresh = savedFresh })
+
+	problems := collectGitPermissionProblemsCached(gitDir)
+	if !called {
+		t.Fatal("fresh Git permission probe did not run after stale cache")
+	}
+	if strings.Join(problems, "\n") != "broken" {
+		t.Fatalf("problems = %v, want broken", problems)
+	}
+	if gitMetadataHealthCacheHealthy(gitDir) {
+		t.Fatal("unhealthy fresh result should remove cache entry")
+	}
+}
+
 func TestGitAgentWriteProbeSkipsAgentLookupForInheritableACLCheck(t *testing.T) {
 	projectDir := t.TempDir()
 	backend := &batchRecordingACLBackend{}
@@ -325,4 +402,31 @@ func TestGitRepairCommandIncludesChownAndACLRepair(t *testing.T) {
 			t.Fatalf("gitRepairCommand() missing %q in %q", want, cmd)
 		}
 	}
+}
+
+func withGitMetadataHealthCachePath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "git-metadata-health.json")
+	saved := gitMetadataHealthCachePath
+	gitMetadataHealthCachePath = func() string { return path }
+	t.Cleanup(func() { gitMetadataHealthCachePath = saved })
+	return path
+}
+
+func newGitMetadataCacheFixture(t *testing.T) (string, string) {
+	t.Helper()
+	projectDir := t.TempDir()
+	gitDir := filepath.Join(projectDir, ".git")
+	for _, dir := range []string{
+		filepath.Join(gitDir, "objects"),
+		filepath.Join(gitDir, "refs"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return projectDir, gitDir
 }

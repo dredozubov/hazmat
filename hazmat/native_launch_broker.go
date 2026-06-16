@@ -2,11 +2,13 @@ package hazmat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"hazmat/internal/runtime/launchbroker"
@@ -55,6 +57,9 @@ func tryRunNativeLaunchViaBroker(cfg sessionConfig, plan sessionBackendPlan, ui 
 	req := nativeLaunchBrokerRequestWithMetadataPlanAndRuntime(cfg, plan, policy, runtimeEnvPairs, metadataJSON, launchHelperTempDir, script, args...)
 	resp, err := launchBrokerRoundTrip(context.Background(), socketPath, req)
 	if err != nil && !explicit {
+		if launchBrokerColdDirectFallbackEligible(script, args...) && launchBrokerUnavailableForColdStart(err) {
+			return false, nil
+		}
 		if ensureErr := launchBrokerEnsureDefault(context.Background()); ensureErr == nil {
 			resp, err = launchBrokerRoundTrip(context.Background(), socketPath, req)
 		}
@@ -66,6 +71,16 @@ func tryRunNativeLaunchViaBroker(cfg sessionConfig, plan sessionBackendPlan, ui 
 		return false, nil
 	}
 	return true, writeLaunchBrokerResponse(resp, metadataJSON, launchBrokerStdout, launchBrokerStderr)
+}
+
+func launchBrokerColdDirectFallbackEligible(script string, args ...string) bool {
+	return script == nativeDirectProjectExecScript && len(args) == 1 && filepath.IsAbs(args[0])
+}
+
+func launchBrokerUnavailableForColdStart(err error) bool {
+	return errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func configuredLaunchBrokerSocketPath(getenv func(string) string) (socketPath string, explicit bool, err error) {

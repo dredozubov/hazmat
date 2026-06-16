@@ -97,6 +97,14 @@ inheritance matters:
 12. optional host broker activation and token minting
 13. final agent `exec`
 
+Cold-start optimization may choose the already-modeled direct
+`sudo -> hazmat-launch -> sandbox_init()` path instead of starting the
+experimental broker when no default broker is listening. That choice is a
+selection between existing proved launch modes, not a new fd boundary: the
+direct helper still performs inherited-fd cleanup before policy validation and
+`sandbox_init()`, while an already-listening broker still follows the
+authenticated broker child path.
+
 Two environment knobs are chosen nondeterministically at `Init`:
 
 - `goExecClosesParentFDs ∈ BOOLEAN`

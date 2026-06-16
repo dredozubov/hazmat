@@ -220,7 +220,7 @@ func buildNativeSessionMutationPlanWithOptions(cfg sessionConfig, opts nativeSes
 	start = time.Now()
 	gitProblems := []string(nil)
 	if gitDir != "" {
-		gitProblems = collectGitPermissionProblems(gitDir)
+		gitProblems = collectGitPermissionProblemsCached(gitDir)
 	}
 	profile.Record("git metadata permission detection", start)
 	if gitDir != "" && len(gitProblems) > 0 {

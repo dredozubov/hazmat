@@ -698,6 +698,9 @@ found" across 18,874,368 generated states, 9,437,184 distinct states, depth 1.
    outside the automatic launch plan.
 
 6. **ACL cache hits are metadata-validated:** startup ACL cache entries may be
+   used only when their validation metadata is still fresh; cached `.git`
+   metadata health follows the same rule and falls back to the fresh permission
+   probe on any missing or stale path fingerprint.
    used only while path identity and metadata remain fresh. The implementation
    may evict unrelated entries to bound startup cost; missing entries fall back
    to fresh probes.
@@ -1138,6 +1141,10 @@ request; explicitly configured sockets remain fail-fast. Broker direct-exec
 requests now carry argv plus working directory without also carrying the shell
 script field, preserving request validation's direct-exec/shell mutual
 exclusion while allowing capable helpers to skip the shell wrapper. The
+experimental default path may also choose the existing direct helper path for a
+narrow one-shot absolute-command cold launch when no default broker is
+listening; this is the already-proved direct launch mode, not a new fd boundary,
+and explicitly configured sockets remain fail-fast. The
 host-side start plan can now split the startup helper from the child launch
 helper: broker startup still uses the sudo-authorized helper for the proved
 fd-cleaning `hazmat-launch exec` boundary, while the agent-owned broker may use

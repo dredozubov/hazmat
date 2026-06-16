@@ -329,13 +329,15 @@ func repairGitAfterSession(projectDir string) {
 		return
 	}
 
-	if len(collectGitPermissionProblems(gitDir)) == 0 {
+	if len(collectGitPermissionProblemsCached(gitDir)) == 0 {
 		return
 	}
 
 	_ = applyGitMetadataACLs(gitDir)
 
-	if problems := collectGitPermissionProblems(gitDir); len(problems) > 0 {
+	problems := collectGitPermissionProblemsFresh(gitDir)
+	rememberGitMetadataHealth(gitDir, len(problems) == 0)
+	if len(problems) > 0 {
 		fmt.Fprintf(os.Stderr, "\nhazmat: .git metadata needs repair (agent-owned files)\n")
 		fmt.Fprintf(os.Stderr, "  Run: %s\n", gitRepairCommand(gitDir))
 	}
@@ -347,13 +349,15 @@ func ensureGitMetadataHealthy(projectDir string) (bool, error) {
 		return false, nil
 	}
 
-	if len(collectGitPermissionProblems(gitDir)) == 0 {
+	if len(collectGitPermissionProblemsCached(gitDir)) == 0 {
 		return false, nil
 	}
 
 	_ = applyGitMetadataACLs(gitDir)
 
-	if problems := collectGitPermissionProblems(gitDir); len(problems) > 0 {
+	problems := collectGitPermissionProblemsFresh(gitDir)
+	rememberGitMetadataHealth(gitDir, len(problems) == 0)
+	if len(problems) > 0 {
 		return false, fmt.Errorf("git metadata permissions are still broken:\n  - %s\nRun:\n  %s",
 			strings.Join(problems, "\n  - "),
 			gitRepairCommand(gitDir),
