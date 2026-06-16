@@ -8,10 +8,23 @@ on:
   workflow_dispatch:
     inputs:
       run_e2e_vm:
-        description: Run the self-hosted Lume VM lifecycle lane
+        description: Run the self-hosted VM lifecycle lane
         required: false
         type: boolean
         default: false
+      e2e_vm_provider:
+        description: VM provider for the self-hosted VM lane
+        required: false
+        type: choice
+        options:
+          - lume
+          - tart
+        default: lume
+      e2e_vm_runner:
+        description: JSON runs-on labels for the VM lane
+        required: false
+        type: string
+        default: '["self-hosted","macOS","ARM64","lume"]'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -319,15 +332,22 @@ jobs:
         run: HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh --quick
 
   e2e-vm:
-    name: E2E lifecycle (Lume VM)
+    name: E2E lifecycle (VM)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e_vm }}
-    runs-on: [self-hosted, macOS, ARM64, lume]
+    runs-on: ${{ fromJSON(inputs.e2e_vm_runner) }}
     needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
+    env:
+      HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify Lume
-        run: lume --version
+      - name: Verify VM provider
+        run: |
+          case "$HAZMAT_E2E_VM_PROVIDER" in
+            lume) lume --version ;;
+            tart) tart --version && sshpass -V ;;
+            *) echo "unsupported provider: $HAZMAT_E2E_VM_PROVIDER" >&2; exit 2 ;;
+          esac
 
       - name: Pull reusable prebuilt base image
         run: bash scripts/e2e-vm.sh --step download --quick

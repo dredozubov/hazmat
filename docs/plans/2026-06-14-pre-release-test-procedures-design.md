@@ -320,8 +320,10 @@ bash scripts/e2e-vm.sh --quick
 Those commands are examples of lane coverage, not blanket approval. Agents must
 still ask for exact-command approval before running approval-gated paths.
 The VM lane's `download` step is a compatibility name for pulling the maintained
-prebuilt Lume image; the default pre-release path does not drive macOS Setup
+prebuilt VM image; the default pre-release path does not drive macOS Setup
 Assistant and does not download an IPSW.
+Set `HAZMAT_E2E_VM_PROVIDER=tart` to use Tart with Cirrus' maintained
+`macos-*-base` images instead of Lume.
 
 ## Pre-Release Procedure
 

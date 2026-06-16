@@ -305,6 +305,7 @@ assert_help_contains_all \
     "pull" \
     "download" \
     "base" \
+    "HAZMAT_E2E_VM_PROVIDER=tart" \
     "Compatibility alias for pull; no IPSW is downloaded." \
     "Before the first base provisioning, pull the prebuilt image once:" \
     "bash scripts/e2e-vm.sh --step download --quick"
@@ -320,7 +321,18 @@ assert_help_contains_all \
     "--vm" \
     "--vm-full" \
     "prebuilt macOS base VM" \
+    "HAZMAT_E2E_VM_PROVIDER=tart" \
     "bash scripts/e2e-vm.sh --step download --quick"
+
+assert_fails_with \
+    "scripts/e2e.sh rejects unknown VM provider" \
+    "unsupported HAZMAT_E2E_VM_PROVIDER=nope" \
+    env -u CI HAZMAT_E2E_VM_PROVIDER=nope bash "$REPO_ROOT/scripts/e2e.sh" --vm --vm-step pull
+
+assert_fails_with \
+    "scripts/e2e.sh tart provider checks tart before live work" \
+    "tart not found" \
+    env -u CI PATH="/usr/bin:/bin" HAZMAT_E2E_VM_PROVIDER=tart bash "$REPO_ROOT/scripts/e2e.sh" --vm --vm-step pull
 
 assert_fails_with \
     "scripts/e2e.sh rejects VM keep outside VM mode" \

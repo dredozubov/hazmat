@@ -663,9 +663,13 @@ download an IPSW. The default image is
 `ghcr.io/trycua/macos-tahoe-vanilla:latest`, imported as `hazmat-e2e-base`.
 Override it with `HAZMAT_E2E_BASE_IMAGE`, `HAZMAT_E2E_BASE_IMAGE_ORG`, and
 `HAZMAT_E2E_BASE_IMAGE_REGISTRY` when a runner uses a curated internal image.
+Set `HAZMAT_E2E_VM_PROVIDER=tart` to use Tart instead; the Tart default image is
+`ghcr.io/cirruslabs/macos-tahoe-base:latest`, with the documented
+`admin`/`admin` SSH credentials and `sshpass` required for non-interactive SSH.
 CI exposes the same lane through the manual `CI` workflow input
-`run_e2e_vm=true`; it expects a self-hosted Apple Silicon macOS runner with
-labels `self-hosted`, `macOS`, `ARM64`, and `lume`.
+`run_e2e_vm=true`. Use `e2e_vm_provider=lume` with the default runner labels
+`["self-hosted","macOS","ARM64","lume"]`, or set `e2e_vm_provider=tart` and
+override `e2e_vm_runner` to labels that select a Tart runner.
 
 ### Repo-matrix validation
 
@@ -709,9 +713,9 @@ This is the safer local release-grade path:
 bash scripts/e2e.sh --vm --quick
 ```
 
-The VM mode provisions a Lume macOS guest, copies the repo into the guest, and
+The VM mode provisions a macOS guest, copies the repo into the guest, and
 runs the same `scripts/e2e.sh` lifecycle there. The default base path uses a
-maintained prebuilt Lume image instead of driving macOS Setup Assistant. If the
+maintained prebuilt image instead of driving macOS Setup Assistant. If the
 base VM does not exist, `base`, `prepare`, and `all` fail fast and tell you to
 run the explicit pull step first. If first-time base provisioning fails, Hazmat
 preserves the base VM for inspection or repair. A later run will try to resume

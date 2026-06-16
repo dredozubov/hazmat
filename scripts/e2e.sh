@@ -142,45 +142,99 @@ fi
 E2E_VM_CLEANUP_TEST_VM=""
 E2E_VM_CLEANUP_VM_USER=""
 E2E_VM_CLEANUP_VM_IP=""
+E2E_VM_CLEANUP_PROVIDER=""
 
 cleanup_e2e_vm() {
     if [ -z "${E2E_VM_CLEANUP_TEST_VM:-}" ]; then
         return
     fi
+    local provider="${E2E_VM_CLEANUP_PROVIDER:-lume}"
     if [ -n "$KEEP_VM" ]; then
         echo ""
         echo "VM $E2E_VM_CLEANUP_TEST_VM kept alive for debugging."
         if [ -n "${E2E_VM_CLEANUP_VM_IP:-}" ]; then
             echo "  SSH:     ssh $E2E_VM_CLEANUP_VM_USER@$E2E_VM_CLEANUP_VM_IP"
         fi
-        echo "  Destroy: lume stop $E2E_VM_CLEANUP_TEST_VM && lume delete $E2E_VM_CLEANUP_TEST_VM --force"
+        case "$provider" in
+            lume) echo "  Destroy: lume stop $E2E_VM_CLEANUP_TEST_VM && lume delete $E2E_VM_CLEANUP_TEST_VM --force" ;;
+            tart) echo "  Destroy: tart stop $E2E_VM_CLEANUP_TEST_VM && tart delete $E2E_VM_CLEANUP_TEST_VM" ;;
+        esac
         return
     fi
     echo "Cleaning up VM $E2E_VM_CLEANUP_TEST_VM..."
-    lume stop "$E2E_VM_CLEANUP_TEST_VM" 2>/dev/null || true
-    lume delete "$E2E_VM_CLEANUP_TEST_VM" --force 2>/dev/null || true
+    case "$provider" in
+        lume)
+            lume stop "$E2E_VM_CLEANUP_TEST_VM" 2>/dev/null || true
+            lume delete "$E2E_VM_CLEANUP_TEST_VM" --force 2>/dev/null || true
+            ;;
+        tart)
+            tart stop "$E2E_VM_CLEANUP_TEST_VM" 2>/dev/null || true
+            tart delete "$E2E_VM_CLEANUP_TEST_VM" 2>/dev/null || true
+            ;;
+    esac
 }
 
 run_e2e_vm() {
     local base_vm="${HAZMAT_E2E_BASE_VM:-hazmat-e2e-base}"
     local test_vm="${HAZMAT_E2E_TEST_VM:-hazmat-e2e-$$}"
-    local vm_user="${HAZMAT_E2E_VM_USER:-lume}"
-    local vm_pass="${HAZMAT_E2E_VM_PASS:-lume}"
+    local vm_provider="${HAZMAT_E2E_VM_PROVIDER:-lume}"
+    local default_vm_user=""
+    local default_vm_pass=""
+    local default_base_image=""
     local vm_ip=""
     local guest_repo="/tmp/hazmat-repo"
     local base_ready_marker="${HAZMAT_E2E_BASE_READY_MARKER:-$HOME/.lume/$base_vm/.hazmat-e2e-base-ready}"
     local base_source="${HAZMAT_E2E_BASE_SOURCE:-image}"
-    local base_image="${HAZMAT_E2E_BASE_IMAGE:-macos-tahoe-vanilla:latest}"
+    local base_image=""
     local base_image_registry="${HAZMAT_E2E_BASE_IMAGE_REGISTRY:-ghcr.io}"
     local base_image_org="${HAZMAT_E2E_BASE_IMAGE_ORG:-trycua}"
+    local vm_user=""
+    local vm_pass=""
+
+    case "$vm_provider" in
+        lume)
+            default_vm_user="lume"
+            default_vm_pass="lume"
+            default_base_image="macos-tahoe-vanilla:latest"
+            ;;
+        tart)
+            default_vm_user="admin"
+            default_vm_pass="admin"
+            default_base_image="ghcr.io/cirruslabs/macos-tahoe-base:latest"
+            base_ready_marker="${HAZMAT_E2E_BASE_READY_MARKER:-$HOME/.tart/hazmat-e2e-base-ready/$base_vm}"
+            ;;
+        *)
+            echo "Error: unsupported HAZMAT_E2E_VM_PROVIDER=$vm_provider; use lume or tart." >&2
+            exit 2
+            ;;
+    esac
+
+    vm_user="${HAZMAT_E2E_VM_USER:-$default_vm_user}"
+    vm_pass="${HAZMAT_E2E_VM_PASS:-$default_vm_pass}"
+    base_image="${HAZMAT_E2E_BASE_IMAGE:-$default_base_image}"
+
+    vm_exists() {
+        local vm="$1"
+        case "$vm_provider" in
+            lume) lume get "$vm" >/dev/null 2>&1 ;;
+            tart) tart get "$vm" >/dev/null 2>&1 ;;
+        esac
+    }
 
     get_vm_ip() {
         local vm="$1"
         local ip
-        ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
-        if [ -z "$ip" ]; then
-            ip=$(lume get "$vm" 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1 || true)
-        fi
+        case "$vm_provider" in
+            lume)
+                ip=$(lume get "$vm" -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('ip',''))" 2>/dev/null || true)
+                if [ -z "$ip" ]; then
+                    ip=$(lume get "$vm" 2>/dev/null | grep -oE '192\.168\.[0-9]+\.[0-9]+' | head -1 || true)
+                fi
+                ;;
+            tart)
+                ip=$(tart ip "$vm" 2>/dev/null || true)
+                ;;
+        esac
         echo "$ip"
     }
 
@@ -190,7 +244,7 @@ run_e2e_vm() {
         for _ in $(seq 1 90); do
             local ip
             ip=$(get_vm_ip "$vm")
-            if [ -n "$ip" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" true 2>/dev/null; then
+            if [ -n "$ip" ] && vm_ssh_to "$ip" true 2>/dev/null; then
                 echo "SSH ready at $vm_user@$ip"
                 return 0
             fi
@@ -203,13 +257,32 @@ run_e2e_vm() {
     vm_ssh_to() {
         local ip="$1"
         shift
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "$vm_user@$ip" "$@"
+        case "$vm_provider" in
+            lume)
+                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" "$@"
+                ;;
+            tart)
+                sshpass -p "$vm_pass" ssh \
+                    -o StrictHostKeyChecking=no \
+                    -o UserKnownHostsFile=/dev/null \
+                    -o ConnectTimeout=3 \
+                    "$vm_user@$ip" "$@"
+                ;;
+        esac
     }
 
     reset_base_vm() {
         echo "Deleting base VM $base_vm..." >&2
-        lume stop "$base_vm" 2>/dev/null || true
-        lume delete "$base_vm" --force 2>/dev/null || true
+        case "$vm_provider" in
+            lume)
+                lume stop "$base_vm" 2>/dev/null || true
+                lume delete "$base_vm" --force 2>/dev/null || true
+                ;;
+            tart)
+                tart stop "$base_vm" 2>/dev/null || true
+                tart delete "$base_vm" 2>/dev/null || true
+                ;;
+        esac
         rm -f "$base_ready_marker"
         if [ -n "${base_pid:-}" ]; then
             wait "$base_pid" 2>/dev/null || true
@@ -282,20 +355,27 @@ EOF
     pull_base_vm() {
         require_supported_base_source
 
-        if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+        if [ -n "$RESET_VM_BASE" ] && vm_exists "$base_vm"; then
             reset_base_vm
         fi
 
-        if lume get "$base_vm" >/dev/null 2>&1; then
+        if vm_exists "$base_vm"; then
             echo "Base VM $base_vm already exists."
             return
         fi
 
         echo "Pulling prebuilt base VM $base_image -> $base_vm..."
-        echo "Registry: $base_image_registry/$base_image_org"
-        lume pull "$base_image" "$base_vm" \
-            --registry "$base_image_registry" \
-            --organization "$base_image_org"
+        case "$vm_provider" in
+            lume)
+                echo "Registry: $base_image_registry/$base_image_org"
+                lume pull "$base_image" "$base_vm" \
+                    --registry "$base_image_registry" \
+                    --organization "$base_image_org"
+                ;;
+            tart)
+                tart clone "$base_image" "$base_vm"
+                ;;
+        esac
         rm -f "$base_ready_marker"
         echo "Base VM $base_vm pulled."
     }
@@ -307,20 +387,27 @@ EOF
         local run_status=0
 
         echo "Provisioning base VM $base_vm..."
-        run_log="$(mktemp "${TMPDIR:-/tmp}/hazmat-e2e-lume-run.XXXXXX")"
-        lume run "$base_vm" --no-display >"$run_log" 2>&1 &
+        run_log="$(mktemp "${TMPDIR:-/tmp}/hazmat-e2e-vm-run.XXXXXX")"
+        case "$vm_provider" in
+            lume)
+                lume run "$base_vm" --no-display >"$run_log" 2>&1 &
+                ;;
+            tart)
+                tart run --no-graphics "$base_vm" >"$run_log" 2>&1 &
+                ;;
+        esac
         base_pid=$!
         sleep 2
         if ! kill -0 "$base_pid" 2>/dev/null; then
             wait "$base_pid" || run_status=$?
-            if grep -q "still being provisioned" "$run_log"; then
+            if [ "$vm_provider" = "lume" ] && grep -q "still being provisioned" "$run_log"; then
                 cat "$run_log" >&2
                 rm -f "$run_log"
                 fail_base_still_provisioning
             fi
             cat "$run_log" >&2
             rm -f "$run_log"
-            echo "lume run $base_vm failed before SSH became reachable (exit $run_status)." >&2
+            echo "$vm_provider run $base_vm failed before SSH became reachable (exit $run_status)." >&2
             if [ "$run_status" -eq 0 ]; then
                 run_status=1
             fi
@@ -328,7 +415,10 @@ EOF
         fi
 
         if ! wait_for_ssh "$base_vm"; then
-            lume stop "$base_vm" 2>/dev/null || true
+            case "$vm_provider" in
+                lume) lume stop "$base_vm" 2>/dev/null || true ;;
+                tart) tart stop "$base_vm" 2>/dev/null || true ;;
+            esac
             wait "$base_pid" 2>/dev/null || true
             rm -f "$run_log"
             fail_unreachable_base_vm
@@ -351,7 +441,10 @@ EOF
             exit 1
         fi
 
-        lume stop "$base_vm"
+        case "$vm_provider" in
+            lume) lume stop "$base_vm" ;;
+            tart) tart stop "$base_vm" ;;
+        esac
         wait "$base_pid" || true
         rm -f "$run_log"
         mkdir -p "$(dirname "$base_ready_marker")"
@@ -360,11 +453,11 @@ EOF
     }
 
     ensure_base_vm() {
-        if [ -n "$RESET_VM_BASE" ] && lume get "$base_vm" >/dev/null 2>&1; then
+        if [ -n "$RESET_VM_BASE" ] && vm_exists "$base_vm"; then
             reset_base_vm
         fi
 
-        if lume get "$base_vm" >/dev/null 2>&1; then
+        if vm_exists "$base_vm"; then
             if [ -f "$base_ready_marker" ]; then
                 echo "Base VM $base_vm already exists."
             else
@@ -379,17 +472,21 @@ EOF
     test_vm_ssh_ready() {
         local ip
         ip=$(get_vm_ip "$test_vm")
-        [ -n "$ip" ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes "$vm_user@$ip" true 2>/dev/null
+        [ -n "$ip" ] && vm_ssh_to "$ip" true 2>/dev/null
     }
 
     boot_test_vm() {
         E2E_VM_CLEANUP_TEST_VM="$test_vm"
         E2E_VM_CLEANUP_VM_USER="$vm_user"
+        E2E_VM_CLEANUP_PROVIDER="$vm_provider"
         if test_vm_ssh_ready; then
             echo "Test VM $test_vm already reachable."
         else
             echo "Booting $test_vm (headless, shared dir: $REPO_ROOT)..."
-            lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" &
+            case "$vm_provider" in
+                lume) lume run "$test_vm" --no-display --shared-dir "$REPO_ROOT" ;;
+                tart) tart run --no-graphics --dir=hazmat:"$REPO_ROOT" "$test_vm" ;;
+            esac &
             wait_for_ssh "$test_vm"
         fi
         vm_ip=$(get_vm_ip "$test_vm")
@@ -397,17 +494,27 @@ EOF
     }
 
     prepare_guest_vm() {
-        if lume get "$test_vm" >/dev/null 2>&1; then
+        if vm_exists "$test_vm"; then
             echo "Test VM $test_vm already exists."
         else
             echo "Cloning $base_vm -> $test_vm..."
-            lume clone "$base_vm" "$test_vm"
+            case "$vm_provider" in
+                lume) lume clone "$base_vm" "$test_vm" ;;
+                tart) tart clone "$base_vm" "$test_vm" ;;
+            esac
         fi
 
         boot_test_vm
 
         echo "Copying repo to VM local disk..."
-        vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+        case "$vm_provider" in
+            lume)
+                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+                ;;
+            tart)
+                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                ;;
+        esac
     }
 
     run_guest_lifecycle() {
@@ -426,7 +533,7 @@ EOF
     }
 
     run_existing_guest_step() {
-        if ! lume get "$test_vm" >/dev/null 2>&1; then
+        if ! vm_exists "$test_vm"; then
             cat >&2 <<EOF
 Test VM $test_vm does not exist.
 
@@ -440,16 +547,37 @@ EOF
         fi
         boot_test_vm
         echo "Refreshing repo copy in existing test VM $test_vm..."
-        vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+        case "$vm_provider" in
+            lume)
+                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files' $guest_repo"
+                ;;
+            tart)
+                vm_ssh_to "$vm_ip" "rm -rf $guest_repo && cp -a '/Volumes/My Shared Files/hazmat' $guest_repo"
+                ;;
+        esac
         run_guest_lifecycle
     }
 
     trap cleanup_e2e_vm EXIT
 
-    if ! command -v lume >/dev/null 2>&1; then
-        echo "Error: lume not found. Install with: brew install lume"
-        exit 1
-    fi
+    case "$vm_provider" in
+        lume)
+            if ! command -v lume >/dev/null 2>&1; then
+                echo "Error: lume not found. Install with: brew install lume"
+                exit 1
+            fi
+            ;;
+        tart)
+            if ! command -v tart >/dev/null 2>&1; then
+                echo "Error: tart not found. Install with: brew install cirruslabs/cli/tart"
+                exit 1
+            fi
+            if ! command -v sshpass >/dev/null 2>&1; then
+                echo "Error: sshpass not found. Install with: brew install cirruslabs/cli/sshpass"
+                exit 1
+            fi
+            ;;
+    esac
 
     case "$VM_STEP" in
         pull)
