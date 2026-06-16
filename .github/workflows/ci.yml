@@ -334,10 +334,10 @@ jobs:
   e2e-vm:
     name: E2E lifecycle (VM)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e_vm }}
-    runs-on: ${{ fromJSON(inputs.e2e_vm_runner) }}
+    runs-on: ${{ fromJSON(inputs.e2e_vm_runner || '["self-hosted","macOS","ARM64","lume"]') }}
     needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
     env:
-      HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider }}
+      HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider || 'lume' }}
     steps:
       - uses: actions/checkout@v5
 

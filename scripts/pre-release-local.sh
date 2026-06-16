@@ -11,8 +11,8 @@ Usage:
 Runs the local pre-release gate.
 
 Options:
-  --vm       Also run the isolated Lume VM lifecycle gate with --quick.
-  --vm-full  Also run the isolated Lume VM lifecycle gate without --quick.
+  --vm       Also run the isolated VM lifecycle gate with --quick.
+  --vm-full  Also run the isolated VM lifecycle gate without --quick.
   -h, --help Show this help.
 
 The VM gate requires a reusable prebuilt macOS base VM. Pull the base image once

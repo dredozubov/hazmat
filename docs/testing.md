@@ -701,7 +701,7 @@ runs `hazmat rollback --delete-user --delete-group --yes` and verifies there is
 no root-owned ownership-lane residue before re-initializing. It is
 intentionally destructive to the local Hazmat setup.
 
-Use `--vm` for the same lifecycle inside an isolated Lume VM. The compatibility
+Use `--vm` for the same lifecycle inside an isolated macOS VM. The compatibility
 wrapper `scripts/e2e-vm.sh` delegates to `scripts/e2e.sh --vm` so the host and
 VM lifecycle cannot drift.
 

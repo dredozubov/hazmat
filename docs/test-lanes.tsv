@@ -3,6 +3,7 @@
 # secondary_lanes is "-" or a comma-separated list.
 .github/workflows/ci.yml#job:e2e	destructive-lifecycle	live-approved
 .github/workflows/ci.yml#job:e2e-bootstrap	product-workflows	live-approved
+.github/workflows/ci.yml#job:e2e-vm	destructive-lifecycle	live-approved
 .github/workflows/ci.yml#job:gitleaks	source-safety	-
 .github/workflows/ci.yml#job:go-build	release-artifacts	-
 .github/workflows/ci.yml#job:go-test-linux	os-linux	package-contracts

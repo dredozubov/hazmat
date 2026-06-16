@@ -4,7 +4,7 @@
 # Tests every critical path: init, containment, snapshot, restore (with
 # byte-level content verification), rollback, and idempotency.
 #
-# Works anywhere: local Mac, Lume VM guest, GHA macOS runner, Cirrus CI.
+# Works anywhere: local Mac, VM guest, GHA macOS runner, Cirrus CI.
 #
 # Usage:
 #   HAZMAT_E2E_ACK_DESTRUCTIVE=1 bash scripts/e2e.sh
@@ -34,7 +34,7 @@ Prefer --vm for isolated local verification.
 
 Options:
   --quick    Skip live network probes inside the lifecycle.
-  --vm       Run this lifecycle inside an isolated Lume macOS VM.
+  --vm       Run this lifecycle inside an isolated macOS VM.
   --vm-step STEP
             With --vm, run one VM lifecycle step: all, pull, base, prepare, or guest.
             "download" is accepted as an alias for pull; "clone" is accepted
