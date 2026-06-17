@@ -95,7 +95,7 @@ var (
 	harnessAssetsNow                   = func() time.Time { return time.Now().UTC() }
 	collectDesiredHarnessAssetsForSync = collectDesiredHarnessAssets
 	harnessAssetUseAgentBackend        = defaultHarnessAssetUseAgentBackend
-	harnessAssetAgentEnsureDir         = agentEnsureDir
+	harnessAssetAgentEnsureDir         = defaultHarnessAssetAgentEnsureDir
 	harnessAssetAgentWriteFile         = agentWriteFile
 	harnessAssetAgentPathExists        = agentPathExists
 	harnessAssetAgentRename            = defaultHarnessAssetAgentRename
@@ -1425,6 +1425,16 @@ func defaultHarnessAssetUseAgentBackend(path string) bool {
 	}
 	clean := filepath.Clean(path)
 	return clean == filepath.Clean(agentHome) || isWithinDir(agentHome, clean)
+}
+
+func defaultHarnessAssetAgentEnsureDir(path string, mode os.FileMode) error {
+	if err := agentMkdirAll(path); err != nil {
+		return err
+	}
+	if err := asAgentQuiet("/bin/chmod", fileModeString(mode), path); err != nil {
+		return fmt.Errorf("set mode on %s: %w", path, err)
+	}
+	return nil
 }
 
 func defaultHarnessAssetAgentRename(src, dst string) error {

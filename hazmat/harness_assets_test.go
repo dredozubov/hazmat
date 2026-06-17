@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -271,6 +272,34 @@ func TestSyncHarnessAssetsUsesAgentBackendForPersistentAgentHome(t *testing.T) {
 	}
 	if _, err := os.Stat(destFile); !os.IsNotExist(err) {
 		t.Fatalf("dest file still exists after agent-backed delete: %v", err)
+	}
+}
+
+func TestDefaultHarnessAssetAgentEnsureDirUsesMkdirThenChmod(t *testing.T) {
+	var calls [][]string
+	savedNewAgentCommand := newAgentCommand
+	newAgentCommand = func(args ...string) *exec.Cmd {
+		calls = append(calls, append([]string(nil), args...))
+		return exec.Command("/usr/bin/true")
+	}
+	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
+
+	path := agentHome + "/.claude/skills/.planning-with-files.hazmat-test"
+	if err := defaultHarnessAssetAgentEnsureDir(path, 0o2770); err != nil {
+		t.Fatalf("defaultHarnessAssetAgentEnsureDir: %v", err)
+	}
+
+	want := [][]string{
+		{"/bin/mkdir", "-p", path},
+		{"/bin/chmod", "2770", path},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("agent calls = %v, want %v", calls, want)
+	}
+	for i := range want {
+		if strings.Join(calls[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Fatalf("agent call %d = %v, want %v", i, calls[i], want[i])
+		}
 	}
 }
 
