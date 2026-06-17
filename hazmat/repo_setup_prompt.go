@@ -289,69 +289,7 @@ func repoSetupEffectLabel(kind repoSetupEffectKind) string {
 }
 
 func defaultPromptRepoSetupSafe(state repoSetupState) (repoSetupPromptAction, error) {
-	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-	for {
-		fmt.Fprintln(os.Stderr)
-		if len(state.AppliedSafe)+len(state.AppliedExplicit) > 0 {
-			fmt.Fprintln(os.Stderr, "hazmat: additional repo setup available")
-			fmt.Fprintln(os.Stderr)
-			if strings.HasPrefix(repoSetupSummary(&state), "remembered ") {
-				fmt.Fprintln(os.Stderr, "Hazmat is already using remembered repo setup.")
-			} else {
-				fmt.Fprintln(os.Stderr, "Hazmat is already using repo setup for this launch.")
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "hazmat: repo setup available")
-			fmt.Fprintln(os.Stderr)
-			fmt.Fprintln(os.Stderr, "This repo can launch now.")
-		}
-		fmt.Fprintf(os.Stderr, "Additional repo setup can add: %s\n", repoSetupEffectKindsSummary(state.PendingSafe))
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "These changes do not widen write access, expose credentials, or change network policy.")
-		fmt.Fprintln(os.Stderr)
-
-		choices := []UIChoice{
-			{
-				Key:         string(repoSetupPromptRemember),
-				Label:       "Remember for this repo",
-				Description: "Apply the available repo setup now and store it in host-owned state for future launches.",
-			},
-			{
-				Key:         string(repoSetupPromptUseOnce),
-				Label:       "Use once",
-				Description: "Apply the available repo setup only for this launch.",
-			},
-			{
-				Key:         string(repoSetupPromptKeepCurrent),
-				Label:       "Keep current repo setup",
-				Description: "Launch without these additional changes and suppress this exact safe suggestion set until it changes.",
-			},
-			{
-				Key:         string(repoSetupPromptExplain),
-				Label:       "Explain",
-				Description: "Show the exact effects and where Hazmat learned them.",
-			},
-		}
-		if len(state.AppliedSafe)+len(state.AppliedExplicit) == 0 {
-			choices[2].Label = "Launch strict"
-		}
-		choice, err := ui.Choose("Choose repo setup handling [1-4, Enter for default]:", choices, repoSetupSafeDefaultChoice(ui))
-		if err != nil {
-			return "", err
-		}
-		if repoSetupPromptAction(choice) == repoSetupPromptExplain {
-			fmt.Fprint(os.Stderr, renderRepoSetupDetails(&state))
-			continue
-		}
-		return repoSetupPromptAction(choice), nil
-	}
-}
-
-func repoSetupSafeDefaultChoice(ui *UI) string {
-	if ui != nil && ui.YesAll {
-		return string(repoSetupPromptUseOnce)
-	}
-	return string(repoSetupPromptRemember)
+	return repoSetupPromptRemember, nil
 }
 
 func defaultPromptRepoSetupExplicit(state repoSetupState) (repoSetupPromptAction, error) {

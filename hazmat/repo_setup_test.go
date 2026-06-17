@@ -110,6 +110,78 @@ func TestFinalizePreparedRepoSetupRememberPersistsEffects(t *testing.T) {
 	}
 }
 
+func TestDefaultPromptRepoSetupSafeAutoRemembersWithoutDialog(t *testing.T) {
+	var action repoSetupPromptAction
+	var err error
+	stderr := captureStderr(t, func() {
+		action, err = defaultPromptRepoSetupSafe(repoSetupState{
+			PendingSafe: []repoSetupEffect{
+				{
+					ID:      "ro:/tmp/toolchain",
+					Class:   repoSetupEffectClassSafe,
+					Kind:    repoSetupEffectReadOnly,
+					Value:   "/tmp/toolchain",
+					Sources: []string{"Generic repo heuristic (Makefile references \"tool\")"},
+				},
+			},
+		})
+	})
+	if err != nil {
+		t.Fatalf("defaultPromptRepoSetupSafe: %v", err)
+	}
+	if action != repoSetupPromptRemember {
+		t.Fatalf("action = %q, want remember", action)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want no safe repo setup dialog", stderr)
+	}
+}
+
+func TestRepoSetupStateDoesNotRepromptRememberedSafeEffects(t *testing.T) {
+	isolateConfig(t)
+	allowAllIntegrationExecutables(t)
+
+	projectDir, err := resolveDir(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("resolveDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "Makefile"), []byte("build:\n\tcustomtool build\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	toolRoot := filepath.Join(t.TempDir(), "custom-tool-root")
+	toolPath := writeExecutable(t, toolRoot, "customtool")
+	canonicalToolRoot, err := canonicalizePath(toolRoot)
+	if err != nil {
+		t.Fatalf("canonicalizePath(toolRoot): %v", err)
+	}
+	if err := saveRepoProfileRecord(repoProfileRecord{
+		ProjectDir: projectDir,
+		Remembered: repoSetupStoredEffects{ReadOnly: []string{
+			canonicalToolRoot,
+		}},
+	}); err != nil {
+		t.Fatalf("saveRepoProfileRecord: %v", err)
+	}
+
+	savedProbeFactory := integrationProbeFactory
+	integrationProbeFactory = func() integrationProbe {
+		return &fakeIntegrationProbe{lookPaths: map[string]string{"customtool": toolPath}}
+	}
+	t.Cleanup(func() { integrationProbeFactory = savedProbeFactory })
+
+	state, err := repoSetupStateForSession(sessionConfig{ProjectDir: projectDir})
+	if err != nil {
+		t.Fatalf("repoSetupStateForSession: %v", err)
+	}
+	if len(state.PendingSafe) != 0 {
+		t.Fatalf("PendingSafe = %#v, want none for remembered safe effect", state.PendingSafe)
+	}
+	if len(state.AppliedSafe) != 1 || state.AppliedSafe[0].Value != canonicalToolRoot {
+		t.Fatalf("AppliedSafe = %#v, want remembered %q", state.AppliedSafe, canonicalToolRoot)
+	}
+}
+
 func TestApplyRepoSetupEffectsRejectsCredentialEnvSelector(t *testing.T) {
 	var cfg sessionConfig
 	err := applyRepoSetupEffects(&cfg, repoSetupStoredEffects{
