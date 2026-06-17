@@ -42,6 +42,7 @@ func TestHermeticHarnessSmoke(t *testing.T) {
 	smoke.installTestSeams()
 	smoke.assertManagedHarnessCoverage()
 	smoke.seedProviderSecrets()
+	smoke.seedHarnessAssets()
 
 	smoke.runHermes()
 	smoke.runClaude()
@@ -115,6 +116,10 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	agentPathForDirectIO = s.mapAgentPath
 	t.Cleanup(func() { agentPathForDirectIO = savedAgentPathForDirectIO })
 
+	savedHarnessAssetPathForDirectIO := harnessAssetPathForDirectIO
+	harnessAssetPathForDirectIO = s.mapAgentPath
+	t.Cleanup(func() { harnessAssetPathForDirectIO = savedHarnessAssetPathForDirectIO })
+
 	savedPrepareSessionRuntime := prepareSessionRuntime
 	prepareSessionRuntime = s.prepareSessionRuntime
 	t.Cleanup(func() { prepareSessionRuntime = savedPrepareSessionRuntime })
@@ -146,6 +151,10 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	savedStateFilePath := stateFilePath
 	stateFilePath = filepath.Join(s.hostHome, ".hazmat", "state.json")
 	t.Cleanup(func() { stateFilePath = savedStateFilePath })
+
+	savedHarnessAssetsFilePath := harnessAssetsFilePath
+	harnessAssetsFilePath = filepath.Join(s.hostHome, ".hazmat", "harness-assets.json")
+	t.Cleanup(func() { harnessAssetsFilePath = savedHarnessAssetsFilePath })
 }
 
 func (s *hermeticHarnessSmoke) assertManagedHarnessCoverage() {
@@ -175,6 +184,28 @@ func (s *hermeticHarnessSmoke) seedProviderSecrets() {
 	s.writeProviderSecret("OPENAI_API_KEY", "stored-openai-provider")
 	s.writeProviderSecret("GEMINI_API_KEY", "stored-gemini-provider")
 	s.writeProviderSecret("OPENROUTER_API_KEY", "stored-openrouter-provider")
+}
+
+func (s *hermeticHarnessSmoke) seedHarnessAssets() {
+	s.writeHostAsset(".claude/CLAUDE.md", "claude shared instructions")
+	s.writeHostAsset(".claude/commands/review.md", "claude command asset")
+	s.writeHostAsset(".claude/skills/planning-with-files/SKILL.md", "claude skill asset")
+	s.writeHostAsset(".claude/agents/reviewer.md", "claude agent asset")
+
+	s.writeHostAsset(".codex/AGENTS.md", "codex shared instructions")
+	s.writeHostAsset(".codex/prompts/review.md", "codex prompt asset")
+	s.writeHostAsset(".codex/rules/house.md", "codex rule asset")
+	s.writeHostAsset(".agents/skills/codex-smoke/SKILL.md", "codex skill asset")
+
+	s.writeHostAsset(".config/opencode/commands/review.md", "opencode command asset")
+	s.writeHostAsset(".config/opencode/agents/reviewer.md", "opencode agent asset")
+	s.writeHostAsset(".config/opencode/skills/opencode-smoke/SKILL.md", "opencode skill asset")
+
+	s.writeHostAsset(".gemini/GEMINI.md", "gemini shared instructions")
+	s.writeHostAsset(".gemini/extensions/gemini-smoke/extension.json", `{"name":"gemini-smoke"}`)
+
+	s.writeHostAsset(".qwen/QWEN.md", "qwen shared instructions")
+	s.writeHostAsset(".qwen/extensions/qwen-smoke/extension.json", `{"name":"qwen-smoke"}`)
 }
 
 func (s *hermeticHarnessSmoke) runHermes() {
@@ -225,8 +256,9 @@ echo "FAKE_CLAUDE_OK"
 `)
 
 	s.executeHarnessCommand(HarnessClaude, newClaudeCmd(),
-		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "-p", "auth smoke")
+		"--no-backup", "-C", s.project, "-p", "auth smoke")
 	s.assertOutputContains(HarnessClaude, "FAKE_CLAUDE_OK")
+	s.assertAgentFileContains(agentHome+"/.claude/skills/planning-with-files/SKILL.md", "claude skill asset", "Claude skill asset")
 	s.assertFileContains(claudeCredentialStorePathForHome(s.hostHome), "stored-token", "host Claude credentials")
 	s.assertFileContains(claudeStateStorePathForHome(s.hostHome), "oauthAccount", "host Claude state")
 	s.assertAgentFileAbsent(agentHome+"/.claude/.credentials.json", "Claude credential residue")
@@ -251,8 +283,9 @@ echo "FAKE_CODEX_OK"
 `)
 
 	s.executeHarnessCommand(HarnessCodex, newCodexCmd(),
-		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "exec", "codex smoke")
+		"--no-backup", "-C", s.project, "exec", "codex smoke")
 	s.assertOutputContains(HarnessCodex, "FAKE_CODEX_OK")
+	s.assertAgentFileContains(agentHome+"/.codex/prompts/review.md", "codex prompt asset", "Codex prompt asset")
 	s.assertFileContains(codexAuthStorePathForHome(s.hostHome), "updated-codex-access", "host Codex auth")
 	s.assertAgentFileAbsent(agentHome+"/.codex/auth.json", "Codex auth residue")
 }
@@ -275,8 +308,9 @@ echo "FAKE_OPENCODE_OK"
 `)
 
 	s.executeHarnessCommand(HarnessOpenCode, newOpenCodeCmd(),
-		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "run", "opencode smoke")
+		"--no-backup", "-C", s.project, "run", "opencode smoke")
 	s.assertOutputContains(HarnessOpenCode, "FAKE_OPENCODE_OK")
+	s.assertAgentFileContains(agentHome+"/.config/opencode/commands/review.md", "opencode command asset", "OpenCode command asset")
 	s.assertFileContains(openCodeAuthStorePathForHome(s.hostHome), "updated-opencode-token", "host OpenCode auth")
 	s.assertAgentFileAbsent(agentHome+"/.local/share/opencode/auth.json", "OpenCode auth residue")
 }
@@ -306,8 +340,9 @@ echo "FAKE_GEMINI_OK"
 `)
 
 	s.executeHarnessCommand(HarnessGemini, newGeminiCmd(),
-		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "-p", "gemini smoke")
+		"--no-backup", "-C", s.project, "-p", "gemini smoke")
 	s.assertOutputContains(HarnessGemini, "FAKE_GEMINI_OK")
+	s.assertAgentFileContains(agentHome+"/.gemini/extensions/gemini-smoke/extension.json", "gemini-smoke", "Gemini extension asset")
 	s.assertFileContains(geminiOAuthStorePathForHome(s.hostHome), "updated-gemini-access", "host Gemini OAuth")
 	s.assertFileContains(geminiAccountsStorePathForHome(s.hostHome), "updated-gemini-account", "host Gemini accounts")
 	s.assertAgentFileAbsent(agentHome+"/.gemini/oauth_creds.json", "Gemini OAuth residue")
@@ -331,8 +366,9 @@ echo "FAKE_QWEN_OK"
 `)
 
 	s.executeHarnessCommand(HarnessQwen, newQwenCmd(),
-		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--yolo", "-p", "qwen smoke")
+		"--no-backup", "-C", s.project, "--yolo", "-p", "qwen smoke")
 	s.assertOutputContains(HarnessQwen, "FAKE_QWEN_OK")
+	s.assertAgentFileContains(agentHome+"/.qwen/extensions/qwen-smoke/extension.json", "qwen-smoke", "Qwen extension asset")
 	s.assertDirExists(filepath.Join(s.agentHome, ".qwen"), "Qwen contained state directory")
 }
 
@@ -443,7 +479,7 @@ func (s *hermeticHarnessSmoke) runAgentSeatbeltScriptWithPlan(cfg sessionConfig,
 
 func (s *hermeticHarnessSmoke) executeSessionMutationPlan(plan sessionMutationPlan) error {
 	for _, mutation := range plan.Mutations {
-		if mutation.Metadata.Summary != "Hermes state root" {
+		if mutation.Metadata.Summary != "Hermes state root" && !strings.HasSuffix(mutation.Metadata.Summary, " asset sync") {
 			continue
 		}
 		if _, err := mutation.Apply(); err != nil {
@@ -471,6 +507,11 @@ func (s *hermeticHarnessSmoke) newAgentCommand(args ...string) *exec.Cmd {
 	mapped := make([]string, len(args))
 	for i, arg := range args {
 		mapped[i] = s.mapAgentPathValue(arg)
+	}
+	if len(mapped) >= 3 && mapped[0] == "/bin/chmod" {
+		if info, err := os.Stat(mapped[len(mapped)-1]); err == nil && info.IsDir() && strings.HasPrefix(mapped[len(mapped)-1], s.agentHome) {
+			return exec.Command("/usr/bin/false")
+		}
 	}
 	cmd := exec.Command(mapped[0], mapped[1:]...)
 	cmd.Dir = "/"
@@ -567,6 +608,17 @@ func (s *hermeticHarnessSmoke) writeHostSecret(path, content string) {
 	}
 }
 
+func (s *hermeticHarnessSmoke) writeHostAsset(path, content string) {
+	s.t.Helper()
+	fullPath := filepath.Join(s.hostHome, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+		s.t.Fatalf("create host asset dir %s: %v", filepath.Dir(fullPath), err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content+"\n"), 0o600); err != nil {
+		s.t.Fatalf("write host asset %s: %v", fullPath, err)
+	}
+}
+
 func (s *hermeticHarnessSmoke) writeExecutable(path, content string) {
 	s.t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -596,6 +648,11 @@ func (s *hermeticHarnessSmoke) assertFileContains(path, needle, label string) {
 	if !strings.Contains(string(raw), needle) {
 		s.t.Fatalf("%s missing %q in %s: %s", label, needle, path, raw)
 	}
+}
+
+func (s *hermeticHarnessSmoke) assertAgentFileContains(path, needle, label string) {
+	s.t.Helper()
+	s.assertFileContains(s.mapAgentPath(path), needle, label)
 }
 
 func (s *hermeticHarnessSmoke) assertAgentFileAbsent(path, label string) {

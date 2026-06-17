@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,9 @@ func isolateHarnessAssets(t *testing.T) harnessAssetTestEnv {
 	savedAgentPathExists := harnessAssetAgentPathExists
 	savedAgentRename := harnessAssetAgentRename
 	savedAgentRemoveAll := harnessAssetAgentRemoveAll
+	savedAgentDirWritable := harnessAssetAgentDirWritable
+	savedAgentRepairDir := harnessAssetAgentRepairDir
+	savedPathForDirectIO := harnessAssetPathForDirectIO
 
 	root := t.TempDir()
 	env := harnessAssetTestEnv{
@@ -57,6 +61,9 @@ func isolateHarnessAssets(t *testing.T) harnessAssetTestEnv {
 		harnessAssetAgentPathExists = savedAgentPathExists
 		harnessAssetAgentRename = savedAgentRename
 		harnessAssetAgentRemoveAll = savedAgentRemoveAll
+		harnessAssetAgentDirWritable = savedAgentDirWritable
+		harnessAssetAgentRepairDir = savedAgentRepairDir
+		harnessAssetPathForDirectIO = savedPathForDirectIO
 	})
 
 	return env
@@ -275,7 +282,40 @@ func TestSyncHarnessAssetsUsesAgentBackendForPersistentAgentHome(t *testing.T) {
 	}
 }
 
-func TestDefaultHarnessAssetAgentEnsureDirUsesMkdirThenChmod(t *testing.T) {
+func TestSyncHarnessAssetsWarnsWhenAgentInstallFails(t *testing.T) {
+	env := isolateHarnessAssets(t)
+
+	hostRoot := filepath.Join(env.hostHome, ".claude", "skills")
+	destRoot := filepath.Join(env.agentHome, ".claude", "skills")
+	harnessAssetSpecs[HarnessClaude] = []harnessAssetSpec{
+		{Harness: HarnessClaude, Key: "skills", Kind: harnessAssetDirRoot, HostPath: hostRoot, AgentPath: destRoot},
+	}
+	writeHarnessAssetTestFile(t, filepath.Join(hostRoot, "planning-with-files", "SKILL.md"), "skill\n")
+
+	harnessAssetUseAgentBackend = func(path string) bool {
+		clean := filepath.Clean(path)
+		return clean == env.agentHome || strings.HasPrefix(clean, env.agentHome+string(os.PathSeparator))
+	}
+	harnessAssetAgentEnsureDir = func(string, os.FileMode) error {
+		return errors.New("agent cannot write parent")
+	}
+
+	result, err := syncHarnessAssets(HarnessClaude)
+	if err != nil {
+		t.Fatalf("syncHarnessAssets: %v", err)
+	}
+	if result.Conflicts != 1 || len(result.Warnings) != 1 {
+		t.Fatalf("result = %+v, want one skipped warning", result)
+	}
+	if !strings.Contains(result.Warnings[0], "agent cannot write parent") {
+		t.Fatalf("warning = %q, want install failure", result.Warnings[0])
+	}
+	if _, err := os.Stat(filepath.Join(destRoot, "planning-with-files", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("failed asset should not be materialized, err=%v", err)
+	}
+}
+
+func TestDefaultHarnessAssetAgentEnsureDirOnlyCreatesDirectory(t *testing.T) {
 	var calls [][]string
 	savedNewAgentCommand := newAgentCommand
 	newAgentCommand = func(args ...string) *exec.Cmd {
@@ -284,6 +324,19 @@ func TestDefaultHarnessAssetAgentEnsureDirUsesMkdirThenChmod(t *testing.T) {
 	}
 	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
 
+	savedAgentDirWritable := harnessAssetAgentDirWritable
+	harnessAssetAgentDirWritable = func(string) (bool, error) {
+		return true, nil
+	}
+	t.Cleanup(func() { harnessAssetAgentDirWritable = savedAgentDirWritable })
+
+	savedAgentRepairDir := harnessAssetAgentRepairDir
+	harnessAssetAgentRepairDir = func(path string, mode os.FileMode) error {
+		t.Fatalf("unexpected repair of %s with mode %s", path, mode)
+		return nil
+	}
+	t.Cleanup(func() { harnessAssetAgentRepairDir = savedAgentRepairDir })
+
 	path := agentHome + "/.claude/skills/.planning-with-files.hazmat-test"
 	if err := defaultHarnessAssetAgentEnsureDir(path, 0o2770); err != nil {
 		t.Fatalf("defaultHarnessAssetAgentEnsureDir: %v", err)
@@ -291,7 +344,6 @@ func TestDefaultHarnessAssetAgentEnsureDirUsesMkdirThenChmod(t *testing.T) {
 
 	want := [][]string{
 		{"/bin/mkdir", "-p", path},
-		{"/bin/chmod", "2770", path},
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("agent calls = %v, want %v", calls, want)
@@ -300,6 +352,95 @@ func TestDefaultHarnessAssetAgentEnsureDirUsesMkdirThenChmod(t *testing.T) {
 		if strings.Join(calls[i], "\x00") != strings.Join(want[i], "\x00") {
 			t.Fatalf("agent call %d = %v, want %v", i, calls[i], want[i])
 		}
+	}
+}
+
+func TestDefaultHarnessAssetAgentEnsureDirRepairsExistingUnwritableDirectory(t *testing.T) {
+	savedNewAgentCommand := newAgentCommand
+	var mkdirCalls int
+	newAgentCommand = func(args ...string) *exec.Cmd {
+		if len(args) == 0 || args[0] != "/bin/mkdir" {
+			t.Fatalf("unexpected agent command: %v", args)
+		}
+		mkdirCalls++
+		return exec.Command("/usr/bin/true")
+	}
+	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
+
+	savedAgentDirWritable := harnessAssetAgentDirWritable
+	var writableCalls int
+	harnessAssetAgentDirWritable = func(path string) (bool, error) {
+		writableCalls++
+		return writableCalls > 1, nil
+	}
+	t.Cleanup(func() { harnessAssetAgentDirWritable = savedAgentDirWritable })
+
+	savedAgentRepairDir := harnessAssetAgentRepairDir
+	var repairedPath string
+	var repairedMode os.FileMode
+	harnessAssetAgentRepairDir = func(path string, mode os.FileMode) error {
+		repairedPath = path
+		repairedMode = mode
+		return nil
+	}
+	t.Cleanup(func() { harnessAssetAgentRepairDir = savedAgentRepairDir })
+
+	path := agentHome + "/.claude/skills"
+	if err := defaultHarnessAssetAgentEnsureDir(path, 0o2770); err != nil {
+		t.Fatalf("defaultHarnessAssetAgentEnsureDir: %v", err)
+	}
+	if mkdirCalls != 1 {
+		t.Fatalf("mkdirCalls = %d, want 1", mkdirCalls)
+	}
+	if writableCalls != 2 {
+		t.Fatalf("writableCalls = %d, want 2", writableCalls)
+	}
+	if repairedPath != path || repairedMode != 0o2770 {
+		t.Fatalf("repair = (%q, %s), want (%q, 2770)", repairedPath, repairedMode, path)
+	}
+}
+
+func TestDefaultHarnessAssetAgentEnsureDirRepairsParentAfterMkdirFailure(t *testing.T) {
+	savedNewAgentCommand := newAgentCommand
+	var mkdirCalls int
+	newAgentCommand = func(args ...string) *exec.Cmd {
+		if len(args) == 0 || args[0] != "/bin/mkdir" {
+			t.Fatalf("unexpected agent command: %v", args)
+		}
+		mkdirCalls++
+		if mkdirCalls == 1 {
+			return exec.Command("/usr/bin/false")
+		}
+		return exec.Command("/usr/bin/true")
+	}
+	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
+
+	savedAgentDirWritable := harnessAssetAgentDirWritable
+	harnessAssetAgentDirWritable = func(string) (bool, error) {
+		return true, nil
+	}
+	t.Cleanup(func() { harnessAssetAgentDirWritable = savedAgentDirWritable })
+
+	savedAgentRepairDir := harnessAssetAgentRepairDir
+	var repairedPath string
+	var repairedMode os.FileMode
+	harnessAssetAgentRepairDir = func(path string, mode os.FileMode) error {
+		repairedPath = path
+		repairedMode = mode
+		return nil
+	}
+	t.Cleanup(func() { harnessAssetAgentRepairDir = savedAgentRepairDir })
+
+	path := agentHome + "/.claude/skills/.planning-with-files.hazmat-test"
+	if err := defaultHarnessAssetAgentEnsureDir(path, 0o2770); err != nil {
+		t.Fatalf("defaultHarnessAssetAgentEnsureDir: %v", err)
+	}
+	if mkdirCalls != 2 {
+		t.Fatalf("mkdirCalls = %d, want 2", mkdirCalls)
+	}
+	wantParent := filepath.Dir(path)
+	if repairedPath != wantParent || repairedMode != 0o2770 {
+		t.Fatalf("repair = (%q, %s), want (%q, 2770)", repairedPath, repairedMode, wantParent)
 	}
 }
 

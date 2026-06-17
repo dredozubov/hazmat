@@ -100,6 +100,9 @@ var (
 	harnessAssetAgentPathExists        = agentPathExists
 	harnessAssetAgentRename            = defaultHarnessAssetAgentRename
 	harnessAssetAgentRemoveAll         = defaultHarnessAssetAgentRemoveAll
+	harnessAssetAgentDirWritable       = defaultHarnessAssetAgentDirWritable
+	harnessAssetAgentRepairDir         = defaultHarnessAssetAgentRepairDir
+	harnessAssetPathForDirectIO        = func(path string) string { return path }
 	harnessAssetSpecs                  = map[HarnessID][]harnessAssetSpec{
 		HarnessClaude: {
 			{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: "~/.claude/CLAUDE.md", AgentPath: agentHome + "/.claude/CLAUDE.md"},
@@ -210,11 +213,16 @@ func buildHarnessAssetSessionMutationPlan(cfg sessionConfig, commandName string,
 		displayName = harness.Spec.DisplayName
 	}
 
+	detail := fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, destRoot, preview.Result.changeSummary())
+	if !sessionLocal {
+		detail = fmt.Sprintf("may refresh managed prompt assets and repair managed asset directory ownership for %s under %s (%s)", displayName, destRoot, preview.Result.changeSummary())
+	}
+
 	plan := sessionMutationPlan{}
 	plan.Mutations = append(plan.Mutations, plannedSessionMutation{
 		Metadata: sessionMutation{
 			Summary:     fmt.Sprintf("%s asset sync", displayName),
-			Detail:      fmt.Sprintf("may refresh managed prompt assets for %s under %s (%s)", displayName, destRoot, preview.Result.changeSummary()),
+			Detail:      detail,
 			Persistence: harnessAssetMutationPersistence(sessionLocal),
 			ProofScope:  sessionMutationProofScopeTestsDocs,
 		},
@@ -325,7 +333,8 @@ func syncEphemeralHarnessAssetsWithPreview(harnessID HarnessID, destRoot string,
 		switch {
 		case os.IsNotExist(err):
 			if err := installHarnessAssetEntry(entry); err != nil {
-				return result, err
+				recordSkippedHarnessAssetInstall(&result, destPath, err)
+				continue
 			}
 			result.Added++
 		case err == nil && match:
@@ -379,7 +388,8 @@ func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncP
 				_, statErr := os.Lstat(destPath)
 				existedBefore := statErr == nil
 				if err := installHarnessAssetEntry(entry); err != nil {
-					return err
+					recordSkippedHarnessAssetInstall(&result, destPath, err)
+					continue
 				}
 				if existedBefore {
 					result.Updated++
@@ -404,7 +414,8 @@ func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncP
 			switch {
 			case os.IsNotExist(err):
 				if err := installHarnessAssetEntry(entry); err != nil {
-					return err
+					recordSkippedHarnessAssetInstall(&result, destPath, err)
+					continue
 				}
 				result.Added++
 				harnessState.Entries[destPath] = harnessAssetManifestEntry{
@@ -461,6 +472,11 @@ func syncHarnessAssetsWithPreview(harnessID HarnessID, preview harnessAssetSyncP
 	}
 
 	return result, nil
+}
+
+func recordSkippedHarnessAssetInstall(result *harnessAssetSyncResult, destPath string, err error) {
+	result.Conflicts++
+	result.Warnings = append(result.Warnings, fmt.Sprintf("skipped managed asset %s: %v", destPath, err))
 }
 
 func diffEphemeralHarnessAssetState(desired map[string]harnessAssetDesiredEntry) (harnessAssetSyncResult, error) {
@@ -764,7 +780,7 @@ func validateHarnessAssetDestPathWithin(destPath, destRoot string) error {
 }
 
 func harnessAssetDestMatches(destPath string, entry harnessAssetDesiredEntry) (bool, error) {
-	kind, fingerprint, err := fingerprintHarnessAssetPath(destPath)
+	kind, fingerprint, err := fingerprintHarnessAssetPath(harnessAssetPathForDirectIO(destPath))
 	if err != nil {
 		return false, err
 	}
@@ -1429,9 +1445,81 @@ func defaultHarnessAssetUseAgentBackend(path string) bool {
 
 func defaultHarnessAssetAgentEnsureDir(path string, mode os.FileMode) error {
 	if err := agentMkdirAll(path); err != nil {
+		parent := filepath.Dir(path)
+		if parent == path {
+			return err
+		}
+		if repairErr := harnessAssetAgentRepairDir(parent, 0o2770); repairErr != nil {
+			return fmt.Errorf("%w; repair parent %s: %v", err, parent, repairErr)
+		}
+		if retryErr := agentMkdirAll(path); retryErr != nil {
+			return retryErr
+		}
+	}
+
+	writable, err := harnessAssetAgentDirWritable(path)
+	if err != nil {
 		return err
 	}
-	if err := asAgentQuiet("/bin/chmod", fileModeString(mode), path); err != nil {
+	if writable {
+		return nil
+	}
+
+	if err := harnessAssetAgentRepairDir(path, mode); err != nil {
+		return err
+	}
+	writable, err = harnessAssetAgentDirWritable(path)
+	if err != nil {
+		return err
+	}
+	if !writable {
+		return fmt.Errorf("%s is not writable by %s after repair", path, agentUser)
+	}
+	return nil
+}
+
+func defaultHarnessAssetAgentDirWritable(path string) (bool, error) {
+	const script = `if [ -d "$1" ] && [ -w "$1" ]; then
+  printf yes
+else
+  printf no
+fi`
+	out, err := asAgentOutput("/bin/sh", "-c", script, "hazmat-harness-asset-dir-writable", path)
+	if err != nil {
+		return false, err
+	}
+	switch strings.TrimSpace(out) {
+	case "yes":
+		return true, nil
+	case "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected agent directory writable probe output for %s: %q", path, out)
+	}
+}
+
+func defaultHarnessAssetAgentRepairDir(path string, mode os.FileMode) error {
+	if err := validateHarnessAssetDestPath(path); err != nil {
+		return err
+	}
+	isLink, err := agentPathIsSymlink(path)
+	if err != nil {
+		return err
+	}
+	if isLink {
+		return fmt.Errorf("refusing to repair symlinked harness asset directory %s", path)
+	}
+	isDir, err := agentPathIsDir(path)
+	if err != nil {
+		return err
+	}
+	if !isDir {
+		return fmt.Errorf("cannot repair non-directory harness asset path %s", path)
+	}
+	if err := sudoNoPrompt("chown", agentUser+":"+sharedGroup, path); err != nil {
+		return fmt.Errorf("set owner on %s: %w", path, err)
+	}
+	if err := sudoNoPrompt("chmod", fileModeString(mode), path); err != nil {
 		return fmt.Errorf("set mode on %s: %w", path, err)
 	}
 	return nil
