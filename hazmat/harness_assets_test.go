@@ -20,6 +20,12 @@ func isolateHarnessAssets(t *testing.T) harnessAssetTestEnv {
 	savedHome := harnessAssetAgentHome
 	savedSpecs := harnessAssetSpecs
 	savedNow := harnessAssetsNow
+	savedUseAgentBackend := harnessAssetUseAgentBackend
+	savedAgentEnsureDir := harnessAssetAgentEnsureDir
+	savedAgentWriteFile := harnessAssetAgentWriteFile
+	savedAgentPathExists := harnessAssetAgentPathExists
+	savedAgentRename := harnessAssetAgentRename
+	savedAgentRemoveAll := harnessAssetAgentRemoveAll
 
 	root := t.TempDir()
 	env := harnessAssetTestEnv{
@@ -44,6 +50,12 @@ func isolateHarnessAssets(t *testing.T) harnessAssetTestEnv {
 		harnessAssetAgentHome = savedHome
 		harnessAssetSpecs = savedSpecs
 		harnessAssetsNow = savedNow
+		harnessAssetUseAgentBackend = savedUseAgentBackend
+		harnessAssetAgentEnsureDir = savedAgentEnsureDir
+		harnessAssetAgentWriteFile = savedAgentWriteFile
+		harnessAssetAgentPathExists = savedAgentPathExists
+		harnessAssetAgentRename = savedAgentRename
+		harnessAssetAgentRemoveAll = savedAgentRemoveAll
 	})
 
 	return env
@@ -178,6 +190,87 @@ func TestSyncHarnessAssetsCreatesUpdatesAndDeletesManagedEntries(t *testing.T) {
 	}
 	if _, ok := state.Harnesses[HarnessClaude]; ok {
 		t.Fatalf("expected no remaining Claude harness manifest entries, got %+v", state.Harnesses[HarnessClaude])
+	}
+}
+
+func TestSyncHarnessAssetsUsesAgentBackendForPersistentAgentHome(t *testing.T) {
+	env := isolateHarnessAssets(t)
+
+	hostRoot := filepath.Join(env.hostHome, ".claude", "commands")
+	destRoot := filepath.Join(env.agentHome, ".claude", "commands")
+	harnessAssetSpecs[HarnessClaude] = []harnessAssetSpec{
+		{Harness: HarnessClaude, Key: "commands", Kind: harnessAssetDirRoot, HostPath: hostRoot, AgentPath: destRoot},
+	}
+
+	sourceFile := filepath.Join(hostRoot, "review.md")
+	destFile := filepath.Join(destRoot, "review.md")
+	writeHarnessAssetTestFile(t, sourceFile, "review\n")
+
+	var ensureCalls, writeCalls, renameCalls, removeCalls int
+	harnessAssetUseAgentBackend = func(path string) bool {
+		clean := filepath.Clean(path)
+		return clean == env.agentHome || strings.HasPrefix(clean, env.agentHome+string(os.PathSeparator))
+	}
+	harnessAssetAgentEnsureDir = func(path string, mode os.FileMode) error {
+		ensureCalls++
+		return os.MkdirAll(path, mode)
+	}
+	harnessAssetAgentWriteFile = func(path string, content []byte, mode os.FileMode) error {
+		writeCalls++
+		if err := os.WriteFile(path, content, mode); err != nil {
+			return err
+		}
+		return os.Chmod(path, mode)
+	}
+	harnessAssetAgentPathExists = func(path string) (bool, error) {
+		_, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return err == nil, err
+	}
+	harnessAssetAgentRename = func(src, dst string) error {
+		renameCalls++
+		return os.Rename(src, dst)
+	}
+	harnessAssetAgentRemoveAll = func(path string) error {
+		removeCalls++
+		return os.RemoveAll(path)
+	}
+
+	result, err := syncHarnessAssets(HarnessClaude)
+	if err != nil {
+		t.Fatalf("syncHarnessAssets(create): %v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("create result = %+v, want 1 added", result)
+	}
+	if ensureCalls == 0 || writeCalls == 0 || renameCalls == 0 {
+		t.Fatalf("agent backend calls ensure=%d write=%d rename=%d, want all non-zero", ensureCalls, writeCalls, renameCalls)
+	}
+	raw, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("read dest file: %v", err)
+	}
+	if string(raw) != "review\n" {
+		t.Fatalf("dest content = %q", raw)
+	}
+
+	if err := os.Remove(sourceFile); err != nil {
+		t.Fatalf("remove source file: %v", err)
+	}
+	result, err = syncHarnessAssets(HarnessClaude)
+	if err != nil {
+		t.Fatalf("syncHarnessAssets(delete): %v", err)
+	}
+	if result.Deleted != 1 {
+		t.Fatalf("delete result = %+v, want 1 deleted", result)
+	}
+	if removeCalls == 0 {
+		t.Fatal("agent remove backend was not called")
+	}
+	if _, err := os.Stat(destFile); !os.IsNotExist(err) {
+		t.Fatalf("dest file still exists after agent-backed delete: %v", err)
 	}
 }
 

@@ -94,6 +94,12 @@ var (
 	harnessAssetAgentHome              = agentHome
 	harnessAssetsNow                   = func() time.Time { return time.Now().UTC() }
 	collectDesiredHarnessAssetsForSync = collectDesiredHarnessAssets
+	harnessAssetUseAgentBackend        = defaultHarnessAssetUseAgentBackend
+	harnessAssetAgentEnsureDir         = agentEnsureDir
+	harnessAssetAgentWriteFile         = agentWriteFile
+	harnessAssetAgentPathExists        = agentPathExists
+	harnessAssetAgentRename            = defaultHarnessAssetAgentRename
+	harnessAssetAgentRemoveAll         = defaultHarnessAssetAgentRemoveAll
 	harnessAssetSpecs                  = map[HarnessID][]harnessAssetSpec{
 		HarnessClaude: {
 			{Harness: HarnessClaude, Key: "claude-md", Kind: harnessAssetFileRoot, HostPath: "~/.claude/CLAUDE.md", AgentPath: agentHome + "/.claude/CLAUDE.md"},
@@ -1136,6 +1142,9 @@ func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {
 	if err := validateHarnessAssetSpecDestPath(entry.Spec, entry.DestPath); err != nil {
 		return err
 	}
+	if harnessAssetUseAgentBackend(entry.DestPath) {
+		return installHarnessAssetEntryAsAgent(entry)
+	}
 	if err := os.MkdirAll(filepath.Dir(entry.DestPath), 0o2770); err != nil {
 		return err
 	}
@@ -1177,6 +1186,42 @@ func installHarnessAssetEntry(entry harnessAssetDesiredEntry) error {
 		} else {
 			_ = os.Remove(tempPath)
 		}
+		return err
+	}
+	return nil
+}
+
+func installHarnessAssetEntryAsAgent(entry harnessAssetDesiredEntry) error {
+	if err := validateHarnessAssetSpecDestPath(entry.Spec, entry.DestPath); err != nil {
+		return err
+	}
+	if err := harnessAssetAgentEnsureDir(filepath.Dir(entry.DestPath), 0o2770); err != nil {
+		return err
+	}
+
+	info, err := os.Stat(entry.SourcePath)
+	if err != nil {
+		return err
+	}
+
+	tempPath := filepath.Join(
+		filepath.Dir(entry.DestPath),
+		fmt.Sprintf(".%s.hazmat-%d-%d", filepath.Base(entry.DestPath), os.Getpid(), time.Now().UnixNano()),
+	)
+	if info.IsDir() {
+		if err := copyHarnessAssetDirStrictAsAgent(entry.SourcePath, tempPath); err != nil {
+			_ = harnessAssetAgentRemoveAll(tempPath)
+			return err
+		}
+	} else {
+		if err := copyHarnessAssetFileStrictAsAgent(entry.SourcePath, tempPath); err != nil {
+			_ = harnessAssetAgentRemoveAll(tempPath)
+			return err
+		}
+	}
+
+	if err := replaceHarnessAssetPathAsAgent(tempPath, entry.DestPath); err != nil {
+		_ = harnessAssetAgentRemoveAll(tempPath)
 		return err
 	}
 	return nil
@@ -1231,6 +1276,52 @@ func copyHarnessAssetDirStrict(src, dst string) error {
 	return nil
 }
 
+func copyHarnessAssetDirStrictAsAgent(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("nested symlink %s is not supported", src)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+	if err := harnessAssetAgentEnsureDir(dst, 0o2770); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		childSrc := filepath.Join(src, entry.Name())
+		childInfo, err := os.Lstat(childSrc)
+		if err != nil {
+			return err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("nested symlink %s is not supported", childSrc)
+		}
+
+		childDst := filepath.Join(dst, entry.Name())
+		if childInfo.IsDir() {
+			if err := copyHarnessAssetDirStrictAsAgent(childSrc, childDst); err != nil {
+				return err
+			}
+			continue
+		}
+		if !childInfo.Mode().IsRegular() {
+			return fmt.Errorf("unsupported nested source type %s at %s", childInfo.Mode().String(), childSrc)
+		}
+		if err := copyHarnessAssetFileStrictAsAgent(childSrc, childDst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func copyHarnessAssetFileStrict(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
@@ -1256,6 +1347,27 @@ func copyHarnessAssetFileStrict(src, dst string) error {
 	return os.Chmod(dst, mode)
 }
 
+func copyHarnessAssetFileStrictAsAgent(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("nested symlink %s is not supported", src)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("unsupported source type %s at %s", info.Mode().String(), src)
+	}
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := harnessAssetAgentEnsureDir(filepath.Dir(dst), 0o2770); err != nil {
+		return err
+	}
+	return harnessAssetAgentWriteFile(dst, raw, portableFileMode(info.Mode()))
+}
+
 func replaceHarnessAssetPath(tempPath, destPath string) error {
 	if _, err := os.Lstat(destPath); os.IsNotExist(err) {
 		return os.Rename(tempPath, destPath)
@@ -1274,12 +1386,57 @@ func replaceHarnessAssetPath(tempPath, destPath string) error {
 	return os.RemoveAll(backupPath)
 }
 
+func replaceHarnessAssetPathAsAgent(tempPath, destPath string) error {
+	exists, err := harnessAssetAgentPathExists(destPath)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return harnessAssetAgentRename(tempPath, destPath)
+	}
+
+	backupPath := filepath.Join(filepath.Dir(destPath), "."+filepath.Base(destPath)+".hazmat-old-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+	if err := harnessAssetAgentRename(destPath, backupPath); err != nil {
+		return err
+	}
+	if err := harnessAssetAgentRename(tempPath, destPath); err != nil {
+		_ = harnessAssetAgentRename(backupPath, destPath)
+		return err
+	}
+	return harnessAssetAgentRemoveAll(backupPath)
+}
+
 func removeHarnessAssetPath(path string) error {
 	if err := validateHarnessAssetDestPath(path); err != nil {
 		return err
 	}
+	if harnessAssetUseAgentBackend(path) {
+		return harnessAssetAgentRemoveAll(path)
+	}
 	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	return nil
+}
+
+func defaultHarnessAssetUseAgentBackend(path string) bool {
+	if filepath.Clean(harnessAssetAgentHome) != filepath.Clean(agentHome) {
+		return false
+	}
+	clean := filepath.Clean(path)
+	return clean == filepath.Clean(agentHome) || isWithinDir(agentHome, clean)
+}
+
+func defaultHarnessAssetAgentRename(src, dst string) error {
+	if err := asAgentQuiet("/bin/mv", "-f", src, dst); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", src, dst, err)
+	}
+	return nil
+}
+
+func defaultHarnessAssetAgentRemoveAll(path string) error {
+	if err := asAgentQuiet("/bin/rm", "-rf", path); err != nil {
+		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil
 }
