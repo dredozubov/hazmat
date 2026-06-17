@@ -13,6 +13,14 @@ EXTENDS TLC
 \* Divergent copies are intentionally handled without trying to infer freshness:
 \* the agent residue is promoted into the host store, and the previous host copy
 \* is archived in a host-owned conflict set before it can be overwritten.
+\*
+\* The agent has TWO runtime credential sinks: the materialized file copy
+\* (`agent`) and the agent-account login keychain (`keychain`). On
+\* keychain-preferring Claude releases an OAuth refresh rotates the token into
+\* the keychain and rewrites the file copy to the logged-out empty shape. The
+\* rotation invalidates the previous token server-side, so harvest and recovery
+\* must promote whichever runtime sink holds the live value -- otherwise the
+\* host store retains a dead token and the next session is logged out.
 
 CONSTANTS
     Harnesses,
@@ -40,6 +48,7 @@ VARIABLES
     active,
     host,
     agent,
+    keychain,
     conflicts,
     latest,
     recovered,
@@ -50,6 +59,7 @@ vars ==
        active,
        host,
        agent,
+       keychain,
        conflicts,
        latest,
        recovered,
@@ -58,10 +68,17 @@ vars ==
 EmptySecrets ==
     [h \in Harnesses |-> NoSecret]
 
+\* The live runtime credential the agent left behind. The file copy is
+\* authoritative when present; otherwise the keychain holds the rotated token
+\* that a keychain-backed refresh wrote while emptying the file.
+AgentEffective(h) ==
+    IF agent[h] # NoSecret THEN agent[h] ELSE keychain[h]
+
 LatestKnown(h) ==
     \/ latest[h] = NoSecret
     \/ latest[h] = host[h]
     \/ latest[h] = agent[h]
+    \/ latest[h] = keychain[h]
     \/ latest[h] \in conflicts[h]
 
 Init ==
@@ -69,10 +86,20 @@ Init ==
     /\ active = NoHarness
     /\ host \in [Harnesses -> SecretVals]
     /\ agent \in [Harnesses -> SecretVals]
+    /\ keychain \in [Harnesses -> SecretVals]
     /\ conflicts = [h \in Harnesses |-> {}]
     /\ latest \in [Harnesses -> SecretVals]
     /\ \A h \in Harnesses :
-        latest[h] = NoSecret \/ latest[h] = host[h] \/ latest[h] = agent[h]
+        \/ latest[h] = NoSecret
+        \/ latest[h] = host[h]
+        \/ latest[h] = agent[h]
+        \/ latest[h] = keychain[h]
+    \* The file copy and the keychain are never both live: a keychain-backed
+    \* refresh empties the file, and cleanup/recovery clears the keychain
+    \* between sessions, so a single crashed session never strands both.
+    /\ \A h \in Harnesses :
+        \/ agent[h] = NoSecret
+        \/ keychain[h] = NoSecret
     /\ recovered = {}
     /\ baseline = EmptySecrets
 
@@ -84,18 +111,19 @@ BeginRecover ==
     /\ UNCHANGED << active,
                     host,
                     agent,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
                     baseline >>
 
 RecoveredHost(h) ==
-    IF agent[h] = NoSecret THEN host[h] ELSE agent[h]
+    IF AgentEffective(h) = NoSecret THEN host[h] ELSE AgentEffective(h)
 
 RecoveredConflicts(h) ==
-    IF /\ agent[h] # NoSecret
+    IF /\ AgentEffective(h) # NoSecret
        /\ host[h] # NoSecret
-       /\ host[h] # agent[h]
+       /\ host[h] # AgentEffective(h)
     THEN conflicts[h] \cup {host[h]}
     ELSE conflicts[h]
 
@@ -104,6 +132,7 @@ RecoverOne(h) ==
     /\ h \in Harnesses \ recovered
     /\ host' = [host EXCEPT ![h] = RecoveredHost(h)]
     /\ agent' = [agent EXCEPT ![h] = NoSecret]
+    /\ keychain' = [keychain EXCEPT ![h] = NoSecret]
     /\ conflicts' = [conflicts EXCEPT ![h] = RecoveredConflicts(h)]
     /\ recovered' = recovered \cup {h}
     /\ UNCHANGED << phase,
@@ -118,6 +147,7 @@ FinishRecover ==
     /\ UNCHANGED << active,
                     host,
                     agent,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
@@ -129,11 +159,13 @@ BeginLaunch(h) ==
     /\ h \in Harnesses
     /\ recovered = Harnesses
     /\ \A x \in Harnesses : agent[x] = NoSecret
+    /\ \A x \in Harnesses : keychain[x] = NoSecret
     /\ phase' = "materializing"
     /\ active' = h
     /\ baseline' = [baseline EXCEPT ![h] = host[h]]
     /\ UNCHANGED << host,
                     agent,
+                    keychain,
                     conflicts,
                     latest,
                     recovered >>
@@ -148,6 +180,7 @@ MaterializeStored(h) ==
     /\ phase' = "running"
     /\ UNCHANGED << active,
                     host,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
@@ -163,17 +196,41 @@ MaterializeAbsent(h) ==
     /\ UNCHANGED << active,
                     host,
                     agent,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
                     baseline >>
 
+\* A file-backed refresh writes the rotated token into the materialized file.
+\* File-backed releases never populate the keychain, so it stays empty here;
+\* this keeps the file and keychain from being live at the same time.
 ToolRefresh(h, v) ==
     /\ phase = "running"
     /\ h \in Harnesses
     /\ active = h
     /\ v \in Versions
+    /\ keychain[h] = NoSecret
     /\ agent' = [agent EXCEPT ![h] = v]
+    /\ latest' = [latest EXCEPT ![h] = v]
+    /\ UNCHANGED << phase,
+                    active,
+                    host,
+                    keychain,
+                    conflicts,
+                    recovered,
+                    baseline >>
+
+\* A keychain-backed refresh rotates the live token into the agent login
+\* keychain and rewrites the materialized file to the logged-out empty shape.
+\* The rotated value must still survive into the host store at harvest.
+ToolRefreshKeychain(h, v) ==
+    /\ phase = "running"
+    /\ h \in Harnesses
+    /\ active = h
+    /\ v \in Versions
+    /\ keychain' = [keychain EXCEPT ![h] = v]
+    /\ agent' = [agent EXCEPT ![h] = NoSecret]
     /\ latest' = [latest EXCEPT ![h] = v]
     /\ UNCHANGED << phase,
                     active,
@@ -192,10 +249,12 @@ ToolLogout(h) ==
     /\ active = h
     /\ agent[h] # NoSecret
     /\ agent[h] = baseline[h]
+    /\ keychain[h] = NoSecret
     /\ agent' = [agent EXCEPT ![h] = NoSecret]
     /\ UNCHANGED << phase,
                     active,
                     host,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
@@ -215,6 +274,7 @@ ExternalStoreUpdate(h, v) ==
     /\ UNCHANGED << phase,
                     active,
                     agent,
+                    keychain,
                     conflicts,
                     recovered,
                     baseline >>
@@ -227,6 +287,7 @@ BeginHarvest(h) ==
     /\ UNCHANGED << active,
                     host,
                     agent,
+                    keychain,
                     conflicts,
                     latest,
                     recovered,
@@ -235,9 +296,9 @@ BeginHarvest(h) ==
 HarvestConflicts(h) ==
     IF h \notin Harnesses THEN conflicts
     ELSE
-        IF /\ agent[h] # NoSecret
+        IF /\ AgentEffective(h) # NoSecret
            /\ host[h] # NoSecret
-           /\ host[h] # agent[h]
+           /\ host[h] # AgentEffective(h)
            /\ host[h] # baseline[h]
         THEN [conflicts EXCEPT ![h] = conflicts[h] \cup {host[h]}]
         ELSE conflicts
@@ -245,9 +306,9 @@ HarvestConflicts(h) ==
 HarvestHost(h) ==
     IF h \notin Harnesses THEN host
     ELSE
-        IF agent[h] = NoSecret
+        IF AgentEffective(h) = NoSecret
         THEN host
-        ELSE [host EXCEPT ![h] = agent[h]]
+        ELSE [host EXCEPT ![h] = AgentEffective(h)]
 
 Harvest(h) ==
     /\ phase = "harvesting"
@@ -258,6 +319,7 @@ Harvest(h) ==
     /\ phase' = "removing"
     /\ UNCHANGED << active,
                     agent,
+                    keychain,
                     latest,
                     recovered,
                     baseline >>
@@ -267,6 +329,7 @@ RemoveAgentCopy(h) ==
     /\ h \in Harnesses
     /\ active = h
     /\ agent' = [agent EXCEPT ![h] = NoSecret]
+    /\ keychain' = [keychain EXCEPT ![h] = NoSecret]
     /\ baseline' = [baseline EXCEPT ![h] = NoSecret]
     /\ active' = NoHarness
     /\ phase' = "idle"
@@ -283,6 +346,7 @@ Crash ==
     /\ baseline' = EmptySecrets
     /\ UNCHANGED << host,
                     agent,
+                    keychain,
                     conflicts,
                     latest >>
 
@@ -297,6 +361,7 @@ Next ==
     \/ \E h \in Harnesses : MaterializeStored(h)
     \/ \E h \in Harnesses : MaterializeAbsent(h)
     \/ \E h \in Harnesses, v \in Versions : ToolRefresh(h, v)
+    \/ \E h \in Harnesses, v \in Versions : ToolRefreshKeychain(h, v)
     \/ \E h \in Harnesses : ToolLogout(h)
     \/ \E h \in Harnesses, v \in Versions : ExternalStoreUpdate(h, v)
     \/ \E h \in Harnesses : BeginHarvest(h)
@@ -313,6 +378,7 @@ TypeOK ==
     /\ active \in Harnesses \cup {NoHarness}
     /\ host \in [Harnesses -> SecretVals]
     /\ agent \in [Harnesses -> SecretVals]
+    /\ keychain \in [Harnesses -> SecretVals]
     /\ conflicts \in [Harnesses -> SUBSET Versions]
     /\ latest \in [Harnesses -> SecretVals]
     /\ recovered \subseteq Harnesses
@@ -321,12 +387,22 @@ TypeOK ==
 LatestValueNeverSilentlyLost ==
     \A h \in Harnesses : LatestKnown(h)
 
+\* The materialized file copy and the agent keychain are never both live at
+\* once. This is what lets harvest/recovery pick a single unambiguous runtime
+\* value, and it depends on cleanup clearing the keychain between sessions.
+AgentKeychainNeverBothLive ==
+    \A h \in Harnesses :
+        \/ agent[h] = NoSecret
+        \/ keychain[h] = NoSecret
+
 CleanRecoveredStateHasNoAgentResidue ==
     /\ phase = "idle"
     /\ active = NoHarness
     /\ recovered = Harnesses
     =>
-    \A h \in Harnesses : agent[h] = NoSecret
+    \A h \in Harnesses :
+        /\ agent[h] = NoSecret
+        /\ keychain[h] = NoSecret
 
 CleanRecoveredStateKeepsLatestHostOwned ==
     /\ phase = "idle"
@@ -341,7 +417,9 @@ CleanRecoveredStateKeepsLatestHostOwned ==
 NoCrossHarnessAgentExposure ==
     phase \in ActivePhases =>
         /\ active \in Harnesses
-        /\ \A h \in Harnesses \ {active} : agent[h] = NoSecret
+        /\ \A h \in Harnesses \ {active} :
+            /\ agent[h] = NoSecret
+            /\ keychain[h] = NoSecret
 
 LaunchOnlyAfterRecovery ==
     phase \in ActivePhases => recovered = Harnesses

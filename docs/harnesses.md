@@ -77,19 +77,20 @@ secret values.
 
 | Surface | Durable owner | Session delivery |
 |---|---|---|
-| Claude, Codex, OpenCode, file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` | Materialized into `/Users/agent` only for the matching harness session, then harvested/removed on normal exit |
+| Claude credential file + Claude Keychain OAuth | `~/.hazmat/secrets/claude/...` plus the declared `Claude Code-credentials` item in the host/agent login Keychains | Host Keychain and store are reconciled before launch; the session gets a materialized file and, on macOS OAuth refresh, the agent Keychain value is harvested and written back to the host Keychain |
+| Codex, OpenCode, and file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` mirrored only with registered host auth files | Host file and store are reconciled by mtime before launch; the session file is harvested to both store and host file on normal exit, then removed from `/Users/agent` |
 | Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses, including Hermes when allowed for that provider |
 | GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed. Treat it as whole-process GitHub API authority, not a review-only grant. |
 | Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
 | Git SSH provisioned keys | `~/.hazmat/secrets/git-ssh/provisioned/` | Per-session brokered Git SSH transport |
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
 | Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
-| Claude agent Keychain OAuth | `/Users/agent/Library/Keychains/login.keychain-db` | External agent-account boundary; Hazmat can prepare/reset the dedicated keychain but does not import or harvest individual Keychain items |
+| Claude agent Keychain OAuth | `/Users/agent/Library/Keychains/login.keychain-db` | Scoped adapter for the `Claude Code-credentials` item only; no broad Keychain linking or export |
 | Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
-| Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Project-scoped managed agent-side `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
-| Qwen profile state | `/Users/agent/.qwen` | Contained agent-side Qwen auth/settings/sessions; host `~/.qwen` auth/settings are not imported. Portable `QWEN.md` and `extensions/` can sync separately as assets. |
-| Cursor Agent profile state | `/Users/agent` default Cursor Agent paths such as `/Users/agent/.cursor` | Contained agent-side Cursor auth/settings/sessions; host Cursor IDE state, host `~/.cursor`, and host auth settings are not imported |
-| Pi profile state | `/Users/agent/.pi/agent` | Contained Pi settings, trust decisions, sessions, skills, extensions, and auth; host `~/.pi/agent` is not imported, copied, synced, or harvested |
+| Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Contained-only project-scoped `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
+| Qwen profile state | `/Users/agent/.qwen` | Contained-only Qwen auth/settings/sessions; host `~/.qwen` auth/settings are not imported. Portable `QWEN.md` and `extensions/` can sync separately as assets. |
+| Cursor Agent profile state | `/Users/agent` default Cursor Agent paths such as `/Users/agent/.cursor` | Contained-only Cursor auth/settings/sessions; host Cursor IDE state, host `~/.cursor`, and host auth settings are not imported |
+| Pi profile state | `/Users/agent/.pi/agent` | Contained-only Pi settings, trust decisions, sessions, skills, extensions, and auth; host `~/.pi/agent` is not imported, copied, synced, or harvested |
 
 Provider API keys are configured once per provider. If more than one harness is
 allowed to consume the same env var, Hazmat reuses the same stored key and

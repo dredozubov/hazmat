@@ -107,6 +107,7 @@ type harnessUninstallPlan = harnessruntime.UninstallPlan
 const harnessLifecycleStatusFormatVersion = "hazmat.harness.status.v1"
 
 var inspectHarnessCredentialStatusForStatus = inspectHarnessCredentialStatus
+var managedHarnessReadForLifecycle = asAgentOutput
 
 func newHarnessCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -253,6 +254,7 @@ func inspectManagedHarnessStatus(harness ManagedHarness, state HazmatState, stat
 	importStatus := inspectHarnessImportStatus(harness, state, stateErr)
 	credentialStatus := inspectHarnessCredentialStatusForStatus(harness.Spec.ID)
 	artifacts := inspectHarnessArtifactStatuses(harness, read)
+	probe = reconcileHarnessProbeWithManagedArtifacts(probe, artifacts)
 
 	return harnessStatus{
 		Harness:          harness,
@@ -266,6 +268,31 @@ func inspectManagedHarnessStatus(harness ManagedHarness, state HazmatState, stat
 		NextAction:       nextHarnessAction(harness, probe, state, stateErr),
 		StateErr:         stateErr,
 	}
+}
+
+func reconcileHarnessProbeWithManagedArtifacts(probe harnessProbe, artifacts []harnessArtifactStatus) harnessProbe {
+	if !probe.Installed {
+		return probe
+	}
+	required, present := managedExecutableArtifactPresent(artifacts)
+	if !required || present {
+		return probe
+	}
+	return harnessProbe{MissingReason: "managed executable artifact missing"}
+}
+
+func managedExecutableArtifactPresent(artifacts []harnessArtifactStatus) (required, present bool) {
+	for _, status := range artifacts {
+		artifact := harnessruntime.NormalizeArtifact(status.Artifact)
+		if !artifact.CreatedByUpdate || artifact.Kind != harnessArtifactFile {
+			continue
+		}
+		required = true
+		if status.Exists && status.Drift == "" {
+			present = true
+		}
+	}
+	return required, present
 }
 
 func formatHarnessInstalledStatus(probe harnessProbe) string {
@@ -572,7 +599,85 @@ func runHarnessUpdateAll() error {
 func runManagedHarnessUpdate(harness ManagedHarness) error {
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
-	return harness.Bootstrap(ui, r)
+	if err := harness.Bootstrap(ui, r); err != nil {
+		return err
+	}
+	if flagDryRun || harness.Installed == nil {
+		return nil
+	}
+	if !managedHarnessInstalledForLaunch(harness, managedHarnessReadForLifecycle) {
+		return fmt.Errorf("%s is still not installed after harness update", managedHarnessDisplayName(harness))
+	}
+	return nil
+}
+
+var managedHarnessUpdateForLaunch = runManagedHarnessUpdate
+
+func buildManagedHarnessLaunchUpdateMutationPlan(harness ManagedHarness) sessionMutationPlan {
+	return buildManagedHarnessLaunchUpdateMutationPlanWithRead(harness, managedHarnessReadForLifecycle)
+}
+
+func buildManagedHarnessLaunchUpdateMutationPlanWithRead(harness ManagedHarness, read func(args ...string) (string, error)) sessionMutationPlan {
+	if managedHarnessInstalledForLaunch(harness, read) {
+		return sessionMutationPlan{}
+	}
+
+	displayName := managedHarnessDisplayName(harness)
+
+	return sessionMutationPlan{
+		Mutations: []plannedSessionMutation{
+			{
+				Metadata: sessionMutation{
+					Summary:     fmt.Sprintf("%s harness update", displayName),
+					Detail:      fmt.Sprintf("may install or update %s under %s before launch", displayName, agentHome),
+					Persistence: "persistent in agent home",
+					ProofScope:  sessionMutationProofScopeTestsDocs,
+				},
+				Apply: func() (sessionMutationExecution, error) {
+					if managedHarnessInstalledForLaunch(harness, read) {
+						return sessionMutationExecution{}, nil
+					}
+					if err := managedHarnessUpdateForLaunch(harness); err != nil {
+						return sessionMutationExecution{}, err
+					}
+					if !managedHarnessInstalledForLaunch(harness, read) {
+						return sessionMutationExecution{}, fmt.Errorf("%s is still not installed after harness update", displayName)
+					}
+					return sessionMutationExecution{
+						AppliedMessage: fmt.Sprintf("  Updated %s harness", displayName),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+func managedHarnessInstalledForLaunch(harness ManagedHarness, read func(args ...string) (string, error)) bool {
+	if harness.Installed == nil || !harness.Installed() {
+		return false
+	}
+	required, present := managedExecutableArtifactPresent(inspectHarnessArtifactStatuses(harness, read))
+	return !required || present
+}
+
+func managedHarnessDisplayName(harness ManagedHarness) string {
+	displayName := strings.TrimSpace(harness.Spec.DisplayName)
+	if displayName == "" {
+		displayName = string(harness.Spec.ID)
+	}
+	return displayName
+}
+
+func buildManagedHarnessLaunchUpdateMutationPlanForCommand(commandName string, _ harnessSessionOpts) sessionMutationPlan {
+	id, ok := harnessIDForCommand(commandName)
+	if !ok {
+		return sessionMutationPlan{}
+	}
+	harness, ok := managedHarnessByID(id)
+	if !ok {
+		return sessionMutationPlan{}
+	}
+	return buildManagedHarnessLaunchUpdateMutationPlan(harness)
 }
 
 func runHarnessUninstall(input string, force bool) error {

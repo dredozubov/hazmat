@@ -43,6 +43,7 @@ type hostToolPaths struct {
 	script    string
 	diff      string
 	tee       string
+	security  string
 
 	gitAllowlistCandidates []string
 }
@@ -63,6 +64,7 @@ var (
 	hostScriptPath    = hostTools.script
 	hostDiffPath      = hostTools.diff
 	hostTeePath       = hostTools.tee
+	hostSecurityPath  = hostTools.security
 )
 
 // gitAllowlistCandidates is the fixed set of git binary paths hazmat will

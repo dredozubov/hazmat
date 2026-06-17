@@ -19,6 +19,7 @@ func platformHostToolPaths() hostToolPaths {
 		script:    "/usr/bin/script",
 		diff:      "/usr/bin/diff",
 		tee:       "/usr/bin/tee",
+		security:  "/usr/bin/security",
 
 		// Homebrew installations win over Xcode Command Line Tools at
 		// /usr/bin/git because the Xcode shim routes to Apple-shipped Git,

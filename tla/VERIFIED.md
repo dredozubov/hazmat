@@ -928,8 +928,10 @@ hooksPath owner's own code.
 | TLA+ files | `tla/MC_SecretStoreRecovery.tla`, `tla/MC_SecretStoreRecovery.cfg` |
 | Governed code | `hazmat/harness_auth_runtime.go` — startup recovery, materialization, harvest, conflict archive |
 | Governed code | `hazmat/secret_store.go`, `hazmat/internal/credentialruntime/store.go` — host/agent secret file read/write/remove helpers |
-| Key invariants | `LatestValueNeverSilentlyLost`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
-| Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value or leaving recovered idle state dependent on `/Users/agent` residue |
+| Governed code | `hazmat/claude_keychain.go` — agent login keychain preparation |
+| Governed code | `hazmat/claude_keychain_harvest.go` — agent keychain read/clear for keychain-backed OAuth rotation; `reconcileKeychainResidueIntoAgentFile` in `hazmat/harness_auth_runtime.go` folds the keychain value into the file copy for uniform harvest/recovery |
+| Key invariants | `LatestValueNeverSilentlyLost`, `AgentKeychainNeverBothLive`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
+| Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value; the model also covers keychain-backed OAuth rotation (rotated token lands in the agent login keychain while the file copy is emptied), and harvest/recovery promote whichever runtime sink is live. Implemented in `hazmat/claude_keychain_harvest.go` + `reconcileKeychainResidueIntoAgentFile` in `hazmat/harness_auth_runtime.go`; covered by `TestHermeticClaudeKeychainRotationLogout` (`hazmat/harness_claude_keychain_rotation_test.go`). |
 
 **What this verifies:**
 
@@ -952,16 +954,31 @@ hooksPath owner's own code.
    the model never exposes another harness's auth artifact under the agent
    home.
 
-TLC passes across 10,870 distinct states (41,251 generated, depth 29, 4s).
+6. **Keychain-backed rotation is captured, not stranded:** when a harness
+   refreshes its OAuth token into the agent login keychain and rewrites the
+   materialized file to the logged-out empty shape, harvest and crash recovery
+   promote the keychain value into the host store. The model proves the file
+   copy and the keychain are never both live at once (`AgentKeychainNeverBothLive`),
+   so a single runtime value is always unambiguous, and cleanup clears the
+   keychain residue between sessions. Omitting the keychain promotion (the
+   pre-fix behavior) violates `LatestValueNeverSilentlyLost` — the host store
+   retains a server-invalidated refresh token and the next session is logged
+   out.
+
+TLC passes across 17,002 distinct states (72,026 generated, depth 29, 1s on the
+local single-worker run).
 
 **Scope boundary:**
 
-The proof is content-level and crash/restart focused. It does not model exact
-Claude JSON merge semantics, Keychain-backed auth, concrete filesystem
-permission syscalls, or concurrent writes to the same host secret while a
-session is running. Proving the concurrent-host-write case requires revision or
-epoch metadata; content equality alone cannot distinguish an unchanged
-baseline from a same-content rewrite.
+The proof is content-level and crash/restart focused. It models the two runtime
+credential sinks (materialized file and agent login keychain) but not exact
+Claude JSON merge semantics, the macOS `security` keychain syscalls themselves,
+concrete filesystem permission syscalls, or concurrent writes to the same host
+secret while a session is running. Proving the concurrent-host-write case
+requires revision or epoch metadata; content equality alone cannot distinguish
+an unchanged baseline from a same-content rewrite. The `AgentKeychainNeverBothLive`
+invariant assumes the implementation clears the agent keychain residue at
+cleanup/recovery, the same way it removes the materialized file copy.
 
 **Change rules:**
 - Changes to `migrateHarnessAuthArtifact()`, `materializeHarnessAuthArtifact()`,
@@ -973,6 +990,10 @@ baseline from a same-content rewrite.
 - Any path that overwrites host-owned auth with agent-side auth must either
   prove the host value is the expected session baseline or preserve the
   divergent host value first.
+- Any harness that can rotate its token into a non-file runtime sink (e.g. the
+  macOS Keychain) must have that sink reconciled by harvest and crash recovery,
+  and cleared at cleanup, so `AgentKeychainNeverBothLive` stays inductive and
+  the live value reaches the host store.
 - Stronger guarantees for concurrent host-store writes require explicit
   revision metadata in the model and implementation.
 
@@ -987,8 +1008,8 @@ baseline from a same-content rewrite.
 | Governed code | `hazmat/credentials/registry.go`, `hazmat/credential_registry.go` — credential IDs, backends, delivery modes, support status, harness scope |
 | Governed code | `hazmat/harness_auth_runtime.go` — file-backed materialization, harvest, crash recovery precondition |
 | Governed future code | Git HTTPS broker, cloud credentials, SSH identity refs, and integration/env credential grants |
-| Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoCredentialResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
-| Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, supported external references are explicit, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving file-backed recovery invariants |
+| Key invariants | `NonHostBackendsHaveNoHostStore`, `DeliveryMatchesRegistry`, `AdapterRequiredNeverExposed`, `NoDeliveryNeverExposed`, `NoCrossHarnessExposure`, `NoSessionExposureOutsideActivePhase`, `LaunchOnlyAfterRecovery`, `CleanRecoveredStateHasNoCredentialResidue`, `LatestValueNeverSilentlyLost`, `CleanRecoveredStateKeepsLatestHostOwned`, `IdleClearsSessionState` |
+| Status | **Proved** — registry entries cannot be delivered through the wrong mechanism, syncable Keychain caches reconcile through the host-owned store before launch/after harvest, contained-only profile state remains outside credential sync, adapter-required credentials remain unexposed, and crash/restart clears session-only grants while preserving recovery invariants |
 
 **What this verifies:**
 
@@ -1001,38 +1022,52 @@ baseline from a same-content rewrite.
    OAuth cannot become active, delivered, materialized, env-granted,
    broker-granted, or externally granted until an adapter is modeled.
 
-3. **Supported external references stay external:** Claude's agent-account
-   Keychain OAuth boundary can be represented as an external grant for Claude,
-   but it is not materialized into Hazmat's host secret store.
+3. **Syncable Keychain references stay narrow:** Claude-style Keychain OAuth
+   can be represented as an external-reference credential with a host-user
+   Keychain cache, an agent-user Keychain cache, and Hazmat's host-owned store
+   as the neutral exchange point. Launch is blocked until the host cache and
+   store are reconciled, and harvest publishes agent-side rotations back to the
+   store and host cache.
 
-4. **Harness scope is enforced:** active-session exposure must either belong to
+4. **Contained-only profile state is not credential sync:** no-delivery entries
+   represent broad harness profile homes such as Hermes/Qwen/Cursor/Pi-style
+   state. They cannot become active credentials or be exposed by file/env/broker
+   or external-reference grants.
+
+5. **Harness scope is enforced:** active-session exposure must either belong to
    the active harness or be explicitly global, which is the shape expected for
    future Git HTTPS broker credentials.
 
-5. **Crash clears session-only grants:** env, broker, and external grants do not
+6. **Crash clears session-only grants:** env, broker, and external grants do not
    survive a crash/restart transition. File residue may survive, but launch is
-   blocked until recovery reconciles it.
+   blocked until recovery reconciles it. Agent-user Keychain residue for
+   syncable Keychain credentials is also recovered before launch.
 
-6. **Host ownership remains the recovered state:** after recovery, the latest
-   known managed value is in host primary storage or a host-owned conflict
-   archive, not only in `/Users/agent`.
+7. **Host ownership remains the recovered state:** after recovery, the latest
+   known managed value is in host primary storage, a host-user Keychain cache,
+   or a host-owned conflict archive, not only in `/Users/agent`.
 
-TLC passes across 8,351,181 distinct states (30,720,870 generated, depth 33,
-1h13m on the local 10-worker run).
+TLC passes across 5,182,905 distinct states (21,747,980 generated, depth 40,
+26m56s on the local 10-worker run).
 
 **Scope boundary:**
 
 This is a registry-level proof. It does not model exact concrete file paths,
 filesystem permissions, JSON merge semantics, Keychain authorization prompts,
 git credential-helper protocol bytes, cloud provider behavior, SSH agent socket
-behavior, or integration manifest parsing. Those remain governed by narrower
-future specs, tests, and docs.
+behavior, OAuth provider refresh timing, token-validity checks, or integration
+manifest parsing. Those remain governed by narrower future specs, tests, and
+docs.
 
 **Change rules:**
 - Adding a credential delivery mode, support status, or secret-exposing backend
   requires updating `MC_CredentialCapabilityLifecycle.tla` first.
 - Adapter-required credentials must remain undeliverable until their adapter is
   represented in this model and TLC proves the intended invariants.
+- Syncable Keychain credentials must model both user-owned keychain caches, the
+  neutral store, launch-time reconciliation, harvest publish-back, and cleanup.
+- Contained-only profile state must remain no-delivery unless a future narrow
+  credential surface is modeled first.
 - Git HTTPS, cloud backup, Git SSH, and integration/env credential work must
   preserve the model's delivery-mode and session-scope invariants.
 - Any future path that creates durable `/Users/agent` credential material must

@@ -11,7 +11,11 @@
 \* - env credentials may only be present in the session env grant set
 \* - brokered credentials may only be present in the broker grant set
 \* - external-reference credentials may only be present as an external grant
+\* - syncable keychain credentials may be mirrored through the host-owned store,
+\*   host-user keychain, and agent-user keychain, but only after explicit sync
 \* - adapter-required credentials are not deliverable at all
+\* - no-delivery credentials model contained-only profile state that must not be
+\*   exposed by credential sync
 \*
 \* Crash/restart keeps durable host state and credential file residue, but
 \* clears session env/broker/external grants. Startup recovery must reconcile
@@ -62,7 +66,9 @@ CONSTANTS
     NoDeliveryCreds,
     ManagedSupportCreds,
     ExternalSupportCreds,
-    AdapterRequiredSupportCreds
+    AdapterRequiredSupportCreds,
+    SyncableKeychainCreds,
+    ContainedOnlyCreds
 
 DeliveryModes ==
     {FileDelivery,
@@ -140,6 +146,8 @@ ASSUME
     /\ ManagedSupportCreds \subseteq Credentials
     /\ ExternalSupportCreds \subseteq Credentials
     /\ AdapterRequiredSupportCreds \subseteq Credentials
+    /\ SyncableKeychainCreds \subseteq Credentials
+    /\ ContainedOnlyCreds \subseteq Credentials
     /\ HostSecretStoreCreds \cup KeychainBackendCreds \cup BrokerBackendCreds \cup ExternalFileBackendCreds = Credentials
     /\ FileDeliveryCreds \cup EnvDeliveryCreds \cup BrokerDeliveryCreds \cup ExternalReferenceDeliveryCreds \cup NoDeliveryCreds = Credentials
     /\ ManagedSupportCreds \cup ExternalSupportCreds \cup AdapterRequiredSupportCreds = Credentials
@@ -152,6 +160,10 @@ ASSUME
         Cardinality({s \in {ManagedSupportCreds, ExternalSupportCreds, AdapterRequiredSupportCreds} : c \in s}) = 1
     /\ \A c \in Credentials \ GlobalCreds : CredentialConsumers(c) # {}
     /\ \A c \in FileDeliveryCreds : Cardinality(CredentialConsumers(c)) = 1
+    /\ SyncableKeychainCreds \subseteq KeychainBackendCreds
+    /\ SyncableKeychainCreds \subseteq ExternalReferenceDeliveryCreds
+    /\ SyncableKeychainCreds \subseteq ExternalSupportCreds
+    /\ ContainedOnlyCreds \subseteq NoDeliveryCreds
 
 SecretVals == Values \cup {NoSecret}
 
@@ -178,6 +190,9 @@ ManagedHostCreds ==
         /\ CredentialBackend(c) = HostSecretStore
         /\ CredentialSupport(c) = ManagedSupport}
 
+ManagedStoreCreds ==
+    ManagedHostCreds \cup SyncableKeychainCreds
+
 ManagedFileCreds ==
     {c \in Credentials :
         /\ CredentialBackend(c) = HostSecretStore
@@ -187,9 +202,13 @@ ManagedFileCreds ==
 FileCreds ==
     {c \in Credentials : CredentialDelivery(c) = FileDelivery}
 
+RecoverableCreds ==
+    ManagedFileCreds \cup SyncableKeychainCreds
+
 EligibleCreds(h) ==
     {c \in Credentials :
         /\ CredentialSupport(c) # AdapterRequiredSupport
+        /\ CredentialDelivery(c) # NoDelivery
         /\ h \in CredentialConsumers(c)}
 
 Phases ==
@@ -211,6 +230,8 @@ VARIABLES
     host,
     agent,
     sessionAgent,
+    hostKeychain,
+    agentKeychain,
     conflicts,
     latest,
     recovered,
@@ -227,6 +248,8 @@ vars ==
        host,
        agent,
        sessionAgent,
+       hostKeychain,
+       agentKeychain,
        conflicts,
        latest,
        recovered,
@@ -241,9 +264,16 @@ EmptySecrets ==
 SessionFileCreds ==
     activeCreds \cap ManagedFileCreds
 
+SessionKeychainCreds ==
+    activeCreds \cap SyncableKeychainCreds
+
+SessionResidueCreds ==
+    SessionFileCreds \cup SessionKeychainCreds
+
 ExposedCreds ==
     {c \in Credentials : agent[c] # NoSecret}
     \cup {c \in Credentials : sessionAgent[c] # NoSecret}
+    \cup {c \in Credentials : agentKeychain[c] # NoSecret}
     \cup envGranted
     \cup brokerGranted
     \cup externalGranted
@@ -253,13 +283,17 @@ LatestKnown(c) ==
     \/ latest[c] = host[c]
     \/ latest[c] = agent[c]
     \/ latest[c] = sessionAgent[c]
+    \/ latest[c] = hostKeychain[c]
+    \/ latest[c] = agentKeychain[c]
     \/ latest[c] \in conflicts[c]
 
 InitialLatest ==
     [c \in Credentials |->
-        IF c \in ManagedHostCreds
-        THEN IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
+        IF c \in ManagedStoreCreds
+        THEN IF agentKeychain[c] # NoSecret THEN agentKeychain[c]
+             ELSE IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
              ELSE IF agent[c] # NoSecret THEN agent[c]
+             ELSE IF hostKeychain[c] # NoSecret THEN hostKeychain[c]
              ELSE host[c]
         ELSE NoSecret]
 
@@ -267,6 +301,15 @@ RuntimeAgent(c) ==
     IF RuntimeCredentialTarget = PersistentAgentHomeTarget THEN agent[c]
     ELSE IF RuntimeCredentialTarget = SessionHomeTarget THEN sessionAgent[c]
     ELSE NoSecret
+
+RuntimeResidue(c) ==
+    IF agentKeychain[c] # NoSecret THEN agentKeychain[c]
+    ELSE RuntimeAgent(c)
+
+HostKeychainSynced ==
+    \A c \in SyncableKeychainCreds :
+        \/ hostKeychain[c] = NoSecret
+        \/ hostKeychain[c] = host[c]
 
 SingleCredentialResidueTarget ==
     \/ agent = EmptySecrets
@@ -278,11 +321,15 @@ Init ==
     /\ activeCreds = {}
     /\ delivered = {}
     /\ host \in [Credentials -> SecretVals]
-    /\ \A c \in Credentials \ ManagedHostCreds : host[c] = NoSecret
+    /\ \A c \in Credentials \ ManagedStoreCreds : host[c] = NoSecret
     /\ agent \in [Credentials -> SecretVals]
     /\ \A c \in Credentials \ ManagedFileCreds : agent[c] = NoSecret
     /\ sessionAgent \in [Credentials -> SecretVals]
     /\ \A c \in Credentials \ ManagedFileCreds : sessionAgent[c] = NoSecret
+    /\ hostKeychain \in [Credentials -> SecretVals]
+    /\ \A c \in Credentials \ SyncableKeychainCreds : hostKeychain[c] = NoSecret
+    /\ agentKeychain \in [Credentials -> SecretVals]
+    /\ \A c \in Credentials \ SyncableKeychainCreds : agentKeychain[c] = NoSecret
     /\ SingleCredentialResidueTarget
     /\ conflicts = [c \in Credentials |-> {}]
     /\ latest = InitialLatest
@@ -296,7 +343,7 @@ BeginRecover ==
     /\ phase = "idle"
     /\ activeHarness = NoHarness
     /\ activeCreds = {}
-    /\ recovered # ManagedFileCreds
+    /\ recovered # RecoverableCreds
     /\ phase' = "recovering"
     /\ UNCHANGED << activeHarness,
                     activeCreds,
@@ -304,6 +351,8 @@ BeginRecover ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -313,12 +362,15 @@ BeginRecover ==
                     externalGranted >>
 
 RecoveredHost(c) ==
-    IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
+    IF agentKeychain[c] # NoSecret THEN agentKeychain[c]
+    ELSE IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
     ELSE IF agent[c] # NoSecret THEN agent[c]
     ELSE host[c]
 
 RecoveredRuntimeResidue(c) ==
-    IF sessionAgent[c] # NoSecret THEN sessionAgent[c] ELSE agent[c]
+    IF agentKeychain[c] # NoSecret THEN agentKeychain[c]
+    ELSE IF sessionAgent[c] # NoSecret THEN sessionAgent[c]
+    ELSE agent[c]
 
 RecoveredConflicts(c) ==
     IF /\ RecoveredRuntimeResidue(c) # NoSecret
@@ -329,10 +381,11 @@ RecoveredConflicts(c) ==
 
 RecoverOne(c) ==
     /\ phase = "recovering"
-    /\ c \in ManagedFileCreds \ recovered
+    /\ c \in RecoverableCreds \ recovered
     /\ host' = [host EXCEPT ![c] = RecoveredHost(c)]
     /\ agent' = [agent EXCEPT ![c] = NoSecret]
     /\ sessionAgent' = [sessionAgent EXCEPT ![c] = NoSecret]
+    /\ agentKeychain' = [agentKeychain EXCEPT ![c] = NoSecret]
     /\ conflicts' = [conflicts EXCEPT ![c] = RecoveredConflicts(c)]
     /\ recovered' = recovered \cup {c}
     /\ UNCHANGED << phase,
@@ -340,6 +393,7 @@ RecoverOne(c) ==
                     activeCreds,
                     delivered,
                     latest,
+                    hostKeychain,
                     baseline,
                     envGranted,
                     brokerGranted,
@@ -347,7 +401,7 @@ RecoverOne(c) ==
 
 FinishRecover ==
     /\ phase = "recovering"
-    /\ recovered = ManagedFileCreds
+    /\ recovered = RecoverableCreds
     /\ phase' = "idle"
     /\ UNCHANGED << activeHarness,
                     activeCreds,
@@ -355,6 +409,8 @@ FinishRecover ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -367,9 +423,11 @@ BeginSession(h, grants) ==
     /\ phase = "idle"
     /\ activeHarness = NoHarness
     /\ activeCreds = {}
-    /\ recovered = ManagedFileCreds
+    /\ recovered = RecoverableCreds
     /\ \A c \in Credentials : agent[c] = NoSecret
     /\ \A c \in Credentials : sessionAgent[c] = NoSecret
+    /\ \A c \in Credentials : agentKeychain[c] = NoSecret
+    /\ HostKeychainSynced
     /\ h \in Harnesses
     /\ grants \in SUBSET EligibleCreds(h)
     /\ RuntimeCredentialTarget \in CredentialTargets
@@ -381,6 +439,8 @@ BeginSession(h, grants) ==
         [c \in Credentials |->
             IF c \in grants /\ c \in ManagedFileCreds
             THEN host[c]
+            ELSE IF c \in grants /\ c \in SyncableKeychainCreds
+            THEN host[c]
             ELSE NoSecret]
     /\ envGranted' = {}
     /\ brokerGranted' = {}
@@ -388,6 +448,8 @@ BeginSession(h, grants) ==
     /\ UNCHANGED << host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered >>
@@ -415,6 +477,8 @@ DeliverFile(c) ==
                     activeHarness,
                     activeCreds,
                     host,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -435,6 +499,8 @@ DeliverEnv(c) ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -454,6 +520,8 @@ DeliverBroker(c) ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -466,6 +534,12 @@ DeliverExternal(c) ==
     /\ c \in activeCreds \ delivered
     /\ CredentialDelivery(c) = ExternalReferenceDelivery
     /\ CredentialSupport(c) = ExternalSupport
+    /\ IF c \in SyncableKeychainCreds
+       THEN agentKeychain' =
+            IF host[c] = NoSecret
+            THEN agentKeychain
+            ELSE [agentKeychain EXCEPT ![c] = host[c]]
+       ELSE agentKeychain' = agentKeychain
     /\ externalGranted' = externalGranted \cup {c}
     /\ delivered' = delivered \cup {c}
     /\ UNCHANGED << phase,
@@ -474,6 +548,7 @@ DeliverExternal(c) ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -491,6 +566,8 @@ StartRunning ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -517,6 +594,30 @@ ToolRefresh(c, v) ==
                     activeCreds,
                     delivered,
                     host,
+                    hostKeychain,
+                    agentKeychain,
+                    conflicts,
+                    recovered,
+                    baseline,
+                    envGranted,
+                    brokerGranted,
+                    externalGranted >>
+
+ToolRefreshKeychain(c, v) ==
+    /\ phase = "running"
+    /\ c \in activeCreds
+    /\ c \in SyncableKeychainCreds
+    /\ v \in Values
+    /\ agentKeychain' = [agentKeychain EXCEPT ![c] = v]
+    /\ latest' = [latest EXCEPT ![c] = v]
+    /\ UNCHANGED << phase,
+                    activeHarness,
+                    activeCreds,
+                    delivered,
+                    host,
+                    agent,
+                    sessionAgent,
+                    hostKeychain,
                     conflicts,
                     recovered,
                     baseline,
@@ -546,6 +647,8 @@ ToolLogout(c) ==
                     activeCreds,
                     delivered,
                     host,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -556,7 +659,7 @@ ToolLogout(c) ==
 
 ExternalStoreUpdate(c, v) ==
     /\ phase = "idle"
-    /\ c \in ManagedHostCreds
+    /\ c \in ManagedStoreCreds
     /\ v \in Values
     /\ host[c] # v
     /\ host' = [host EXCEPT ![c] = v]
@@ -567,7 +670,80 @@ ExternalStoreUpdate(c, v) ==
                     delivered,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
+                    recovered,
+                    baseline,
+                    envGranted,
+                    brokerGranted,
+                    externalGranted >>
+
+ExternalHostKeychainUpdate(c, v) ==
+    /\ phase = "idle"
+    /\ c \in SyncableKeychainCreds
+    /\ v \in Values
+    /\ hostKeychain[c] # v
+    /\ hostKeychain' = [hostKeychain EXCEPT ![c] = v]
+    /\ latest' = [latest EXCEPT ![c] = v]
+    /\ UNCHANGED << phase,
+                    activeHarness,
+                    activeCreds,
+                    delivered,
+                    host,
+                    agent,
+                    sessionAgent,
+                    agentKeychain,
+                    conflicts,
+                    recovered,
+                    baseline,
+                    envGranted,
+                    brokerGranted,
+                    externalGranted >>
+
+SyncHostKeychainToStore(c) ==
+    /\ phase = "idle"
+    /\ c \in SyncableKeychainCreds
+    /\ hostKeychain[c] # NoSecret
+    /\ host[c] # hostKeychain[c]
+    /\ latest[c] = hostKeychain[c]
+    /\ host' = [host EXCEPT ![c] = hostKeychain[c]]
+    /\ conflicts' =
+        IF host[c] # NoSecret
+        THEN [conflicts EXCEPT ![c] = conflicts[c] \cup {host[c]}]
+        ELSE conflicts
+    /\ UNCHANGED << phase,
+                    activeHarness,
+                    activeCreds,
+                    delivered,
+                    agent,
+                    sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
+                    latest,
+                    recovered,
+                    baseline,
+                    envGranted,
+                    brokerGranted,
+                    externalGranted >>
+
+SyncStoreToHostKeychain(c) ==
+    /\ phase = "idle"
+    /\ c \in SyncableKeychainCreds
+    /\ host[c] # NoSecret
+    /\ hostKeychain[c] # host[c]
+    /\ latest[c] = host[c]
+    /\ hostKeychain' = [hostKeychain EXCEPT ![c] = host[c]]
+    /\ UNCHANGED << phase,
+                    activeHarness,
+                    activeCreds,
+                    delivered,
+                    host,
+                    agent,
+                    sessionAgent,
+                    agentKeychain,
+                    conflicts,
+                    latest,
                     recovered,
                     baseline,
                     envGranted,
@@ -583,6 +759,8 @@ BeginHarvest ==
                     host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -599,6 +777,12 @@ HarvestConflicts ==
            /\ host[c] # RuntimeAgent(c)
            /\ host[c] # baseline[c]
         THEN conflicts[c] \cup {host[c]}
+        ELSE IF /\ c \in SessionKeychainCreds
+                /\ agentKeychain[c] # NoSecret
+                /\ host[c] # NoSecret
+                /\ host[c] # agentKeychain[c]
+                /\ host[c] # baseline[c]
+        THEN conflicts[c] \cup {host[c]}
         ELSE conflicts[c]]
 
 HarvestHost ==
@@ -606,18 +790,30 @@ HarvestHost ==
         IF /\ c \in SessionFileCreds
            /\ RuntimeAgent(c) # NoSecret
         THEN RuntimeAgent(c)
+        ELSE IF /\ c \in SessionKeychainCreds
+                /\ agentKeychain[c] # NoSecret
+        THEN agentKeychain[c]
         ELSE host[c]]
+
+HarvestHostKeychain ==
+    [c \in Credentials |->
+        IF /\ c \in SessionKeychainCreds
+           /\ agentKeychain[c] # NoSecret
+        THEN agentKeychain[c]
+        ELSE hostKeychain[c]]
 
 Harvest ==
     /\ phase = "harvesting"
     /\ conflicts' = HarvestConflicts
     /\ host' = HarvestHost
+    /\ hostKeychain' = HarvestHostKeychain
     /\ phase' = "removing"
     /\ UNCHANGED << activeHarness,
                     activeCreds,
                     delivered,
                     agent,
                     sessionAgent,
+                    agentKeychain,
                     latest,
                     recovered,
                     baseline,
@@ -627,8 +823,8 @@ Harvest ==
 
 RemoveOne(c) ==
     /\ phase = "removing"
-    /\ c \in SessionFileCreds
-    /\ RuntimeAgent(c) # NoSecret
+    /\ c \in SessionResidueCreds
+    /\ RuntimeResidue(c) # NoSecret
     /\ IF RuntimeCredentialTarget = PersistentAgentHomeTarget
        THEN
         /\ agent' = [agent EXCEPT ![c] = NoSecret]
@@ -636,11 +832,13 @@ RemoveOne(c) ==
        ELSE
         /\ sessionAgent' = [sessionAgent EXCEPT ![c] = NoSecret]
         /\ agent' = agent
+    /\ agentKeychain' = [agentKeychain EXCEPT ![c] = NoSecret]
     /\ UNCHANGED << phase,
                     activeHarness,
                     activeCreds,
                     delivered,
                     host,
+                    hostKeychain,
                     conflicts,
                     latest,
                     recovered,
@@ -651,12 +849,12 @@ RemoveOne(c) ==
 
 FinishRemove ==
     /\ phase = "removing"
-    /\ \A c \in SessionFileCreds : RuntimeAgent(c) = NoSecret
+    /\ \A c \in SessionResidueCreds : RuntimeResidue(c) = NoSecret
     /\ phase' = "idle"
     /\ activeHarness' = NoHarness
     /\ activeCreds' = {}
     /\ delivered' = {}
-    /\ recovered' = ManagedFileCreds
+    /\ recovered' = RecoverableCreds
     /\ baseline' = EmptySecrets
     /\ envGranted' = {}
     /\ brokerGranted' = {}
@@ -664,6 +862,8 @@ FinishRemove ==
     /\ UNCHANGED << host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest >>
 
@@ -681,6 +881,8 @@ Crash ==
     /\ UNCHANGED << host,
                     agent,
                     sessionAgent,
+                    hostKeychain,
+                    agentKeychain,
                     conflicts,
                     latest >>
 
@@ -698,8 +900,12 @@ Next ==
     \/ \E c \in Credentials : DeliverExternal(c)
     \/ StartRunning
     \/ \E c \in Credentials, v \in Values : ToolRefresh(c, v)
+    \/ \E c \in Credentials, v \in Values : ToolRefreshKeychain(c, v)
     \/ \E c \in Credentials : ToolLogout(c)
     \/ \E c \in Credentials, v \in Values : ExternalStoreUpdate(c, v)
+    \/ \E c \in Credentials, v \in Values : ExternalHostKeychainUpdate(c, v)
+    \/ \E c \in Credentials : SyncHostKeychainToStore(c)
+    \/ \E c \in Credentials : SyncStoreToHostKeychain(c)
     \/ BeginHarvest
     \/ Harvest
     \/ \E c \in Credentials : RemoveOne(c)
@@ -718,10 +924,15 @@ TypeOK ==
     /\ host \in [Credentials -> SecretVals]
     /\ agent \in [Credentials -> SecretVals]
     /\ sessionAgent \in [Credentials -> SecretVals]
+    /\ hostKeychain \in [Credentials -> SecretVals]
+    /\ agentKeychain \in [Credentials -> SecretVals]
+    /\ \A c \in Credentials \ SyncableKeychainCreds :
+        /\ hostKeychain[c] = NoSecret
+        /\ agentKeychain[c] = NoSecret
     /\ SingleCredentialResidueTarget
     /\ conflicts \in [Credentials -> SUBSET Values]
     /\ latest \in [Credentials -> SecretVals]
-    /\ recovered \subseteq ManagedFileCreds
+    /\ recovered \subseteq RecoverableCreds
     /\ baseline \in [Credentials -> SecretVals]
     /\ envGranted \subseteq Credentials
     /\ brokerGranted \subseteq Credentials
@@ -740,15 +951,22 @@ RegistryWellFormed ==
         CredentialSupport(c) = AdapterRequiredSupport =>
             /\ CredentialBackend(c) # HostSecretStore
             /\ CredentialDelivery(c) = ExternalReferenceDelivery
+    /\ \A c \in ContainedOnlyCreds :
+        /\ CredentialDelivery(c) = NoDelivery
+        /\ CredentialSupport(c) = ExternalSupport
 
 ASSUME RegistryWellFormed
 
 NonHostBackendsHaveNoHostStore ==
     \A c \in Credentials :
-        CredentialBackend(c) # HostSecretStore =>
+        /\ CredentialBackend(c) # HostSecretStore
+        /\ c \notin SyncableKeychainCreds
+        =>
             /\ host[c] = NoSecret
             /\ agent[c] = NoSecret
             /\ sessionAgent[c] = NoSecret
+            /\ hostKeychain[c] = NoSecret
+            /\ agentKeychain[c] = NoSecret
             /\ latest[c] = NoSecret
 
 DeliveryMatchesRegistry ==
@@ -756,6 +974,10 @@ DeliveryMatchesRegistry ==
         agent[c] # NoSecret => CredentialDelivery(c) = FileDelivery
     /\ \A c \in Credentials :
         sessionAgent[c] # NoSecret => CredentialDelivery(c) = FileDelivery
+    /\ \A c \in Credentials :
+        agentKeychain[c] # NoSecret =>
+            /\ c \in SyncableKeychainCreds
+            /\ CredentialDelivery(c) = ExternalReferenceDelivery
     /\ \A c \in envGranted : CredentialDelivery(c) = EnvDelivery
     /\ \A c \in brokerGranted : CredentialDelivery(c) = BrokerDelivery
     /\ \A c \in externalGranted :
@@ -772,6 +994,19 @@ AdapterRequiredNeverExposed ==
             /\ c \notin externalGranted
             /\ agent[c] = NoSecret
             /\ sessionAgent[c] = NoSecret
+            /\ agentKeychain[c] = NoSecret
+
+NoDeliveryNeverExposed ==
+    \A c \in Credentials :
+        CredentialDelivery(c) = NoDelivery =>
+            /\ c \notin activeCreds
+            /\ c \notin delivered
+            /\ c \notin envGranted
+            /\ c \notin brokerGranted
+            /\ c \notin externalGranted
+            /\ agent[c] = NoSecret
+            /\ sessionAgent[c] = NoSecret
+            /\ agentKeychain[c] = NoSecret
 
 NoCrossHarnessExposure ==
     phase \in ActivePhases =>
@@ -789,25 +1024,29 @@ NoSessionExposureOutsideActivePhase ==
         /\ externalGranted = {}
 
 LaunchOnlyAfterRecovery ==
-    phase \in ActivePhases => recovered = ManagedFileCreds
+    phase \in ActivePhases =>
+        /\ recovered = RecoverableCreds
+        /\ HostKeychainSynced
 
 CleanRecoveredStateHasNoCredentialResidue ==
     /\ phase = "idle"
-    /\ recovered = ManagedFileCreds
+    /\ recovered = RecoverableCreds
     =>
     /\ \A c \in Credentials : agent[c] = NoSecret
     /\ \A c \in Credentials : sessionAgent[c] = NoSecret
+    /\ \A c \in Credentials : agentKeychain[c] = NoSecret
 
 LatestValueNeverSilentlyLost ==
-    \A c \in ManagedHostCreds : LatestKnown(c)
+    \A c \in ManagedStoreCreds : LatestKnown(c)
 
 CleanRecoveredStateKeepsLatestHostOwned ==
     /\ phase = "idle"
-    /\ recovered = ManagedFileCreds
+    /\ recovered = RecoverableCreds
     =>
-    \A c \in ManagedHostCreds :
+    \A c \in ManagedStoreCreds :
         \/ latest[c] = NoSecret
         \/ latest[c] = host[c]
+        \/ latest[c] = hostKeychain[c]
         \/ latest[c] \in conflicts[c]
 
 IdleClearsSessionState ==

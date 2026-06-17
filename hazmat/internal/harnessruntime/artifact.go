@@ -211,22 +211,22 @@ func FormatArtifactStatus(status ArtifactStatus) string {
 }
 
 func artifactExists(read CommandReader, path string) bool {
-	if _, err := read("/usr/bin/test", "-e", path); err == nil {
+	if _, err := read("test", "-e", path); err == nil {
 		return true
 	}
-	if _, err := read("/usr/bin/test", "-L", path); err == nil {
+	if _, err := read("test", "-L", path); err == nil {
 		return true
 	}
 	return false
 }
 
 func artifactIsSymlink(read CommandReader, path string) bool {
-	_, err := read("/usr/bin/test", "-L", path)
+	_, err := read("test", "-L", path)
 	return err == nil
 }
 
 func artifactIsFile(read CommandReader, path string) bool {
-	if _, err := read("/usr/bin/test", "-f", path); err == nil {
+	if _, err := read("test", "-f", path); err == nil {
 		return true
 	}
 	if artifactIsSymlink(read, path) {
@@ -236,7 +236,7 @@ func artifactIsFile(read CommandReader, path string) bool {
 }
 
 func artifactIsDir(read CommandReader, path string) bool {
-	_, err := read("/usr/bin/test", "-d", path)
+	_, err := read("test", "-d", path)
 	return err == nil
 }
 

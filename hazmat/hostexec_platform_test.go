@@ -21,6 +21,7 @@ func TestHostToolGlobalsComeFromPlatformResolver(t *testing.T) {
 		script:    hostScriptPath,
 		diff:      hostDiffPath,
 		tee:       hostTeePath,
+		security:  hostSecurityPath,
 
 		gitAllowlistCandidates: gitAllowlistCandidates,
 	}

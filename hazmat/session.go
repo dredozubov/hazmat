@@ -1591,6 +1591,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 			return preparedSession{}, err
 		}
 	}
+	harnessUpdateMutationPlan := buildManagedHarnessLaunchUpdateMutationPlanForCommand(commandName, opts)
 	progress.Step("planning harness asset sync")
 	harnessAssetMutationPlan, err := buildHarnessAssetSessionMutationPlan(cfg, commandName, mode, opts)
 	if err != nil {
@@ -1607,7 +1608,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		Mode:             mode,
 		BackendPlan:      backendPlan,
 		Runtime:          runtimeSelection,
-		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
+		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessUpdateMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
 		progress.Step("planning host repairs")

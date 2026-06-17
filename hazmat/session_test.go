@@ -1248,6 +1248,8 @@ func TestGenerateSBPLUsesExplicitAgentHomeGrants(t *testing.T) {
 		`(allow file-read* file-write* (literal "` + agentHome + `/.zshrc"))`,
 		`(allow process-exec (subpath "` + agentHome + `/.local/bin"))`,
 		`(allow process-exec (subpath "` + agentHome + `/.opencode/bin"))`,
+		`(allow process-exec (subpath "` + agentHome + `/.local/share/claude/versions"))`,
+		`(allow process-exec (subpath "` + agentHome + `/.codex/packages"))`,
 	} {
 		if !strings.Contains(policy, want) {
 			t.Fatalf("policy missing explicit agent-home grant %q:\n%s", want, policy)

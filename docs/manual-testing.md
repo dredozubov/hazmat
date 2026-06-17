@@ -138,7 +138,7 @@ harness for a smoke pass; run every supported path before a release.
 - [ ] **Subscription path** (Google sign-in)
   - Preconditions: a Google account with Gemini access.
   - Steps: `hazmat gemini` → "Sign in with Google" flow.
-  - Expected: if Gemini writes file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` when the session exits. If Gemini stores OAuth only in Keychain, Hazmat reports that as an adapter-required external backend and does not copy the Keychain item into `/Users/agent`.
+  - Expected: if Gemini writes file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` and the registered host `~/.gemini/` auth files when the session exits. If Gemini stores OAuth only in Keychain, Hazmat reports that as an adapter-required external backend and does not copy the Keychain item into `/Users/agent`.
 
 - [ ] **API key path** (env var)
   - Preconditions: `GEMINI_API_KEY` set in your invoking shell (get one from https://aistudio.google.com/apikey).

@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,15 @@ import (
 
 type harnessAuthData any
 
+type harnessAuthKeychainData struct {
+	Data      harnessAuthData
+	UpdatedAt time.Time
+}
+
 type harnessAuthArtifact struct {
 	Name        string
 	StorePath   string
+	HostPath    string
 	AgentPath   string
 	ReadStore   func(string) (harnessAuthData, bool, error)
 	ReadAgent   func(string) (harnessAuthData, bool, error)
@@ -23,6 +30,24 @@ type harnessAuthArtifact struct {
 	RemoveAgent func(string) error
 	Equal       func(harnessAuthData, harnessAuthData) bool
 	Harvestable func(harnessAuthData) bool
+
+	// ReadAgentKeychain reads a credential that the harness rotated into a
+	// second runtime sink (the agent login keychain) rather than the
+	// materialized file. ClearAgentKeychain removes that residue. Both are
+	// optional and set only for keychain-backed harnesses (Claude on macOS).
+	// See MC_SecretStoreRecovery: a keychain-backed OAuth refresh empties the
+	// file copy, so harvest/recovery must promote the keychain value or the
+	// host store strands a server-invalidated token and the next session is
+	// logged out.
+	ReadAgentKeychain  func() (harnessAuthData, bool, error)
+	ClearAgentKeychain func() error
+
+	// ReadHostKeychain/WriteHostKeychain bridge a host-user Keychain item into
+	// the host-owned store. They are intentionally separate from the agent
+	// keychain hooks: plain host Claude and Hazmat Claude run as different
+	// users and rotate different login keychains.
+	ReadHostKeychain  func() (harnessAuthKeychainData, bool, error)
+	WriteHostKeychain func(harnessAuthData) error
 }
 
 var harnessAuthConflictNow = time.Now
@@ -94,7 +119,9 @@ func rawHarnessAuthArtifactForCredentialRuntimeHome(home string, id credentialID
 	if err != nil {
 		panic(err)
 	}
-	return rawHarnessAuthArtifact(descriptor.DisplayName, storePath, agentPath)
+	artifact := rawHarnessAuthArtifact(descriptor.DisplayName, storePath, agentPath)
+	artifact.HostPath = hostFileBackedAuthPath(home, id)
+	return artifact
 }
 
 func claudeCredentialsHarnessAuthArtifact(home string) harnessAuthArtifact {
@@ -106,7 +133,9 @@ func claudeCredentialsHarnessAuthArtifactForRuntimeHome(home, runtimeHome string
 	// Claude updates can rewrite the runtime credential file to an empty
 	// logged-out object. Do not promote that shape over the host-owned store.
 	artifact.Harvestable = isHarvestableClaudeCredentialData
-	return artifact
+	// On keychain-preferring releases the rotated token lands in the agent
+	// login keychain instead of the file; teach harvest/recovery to capture it.
+	return withClaudeKeychainHarvest(artifact)
 }
 
 func isHarvestableClaudeCredentialData(data harnessAuthData) bool {
@@ -280,7 +309,46 @@ func migrateHarnessAuthArtifacts(artifacts []harnessAuthArtifact, addNote func(s
 	return nil
 }
 
+// reconcileKeychainResidueIntoAgentFile folds a keychain-backed credential into
+// the materialized file copy so the file-based reconciliation in harvest and
+// recovery can promote it uniformly. The file copy is authoritative when it
+// holds a harvestable value (MC_SecretStoreRecovery: AgentEffective prefers the
+// file); otherwise a keychain-backed OAuth refresh may have rotated the live
+// token into the agent login keychain while emptying the file. In either case
+// the keychain residue is cleared so the file and keychain are never both live
+// (AgentKeychainNeverBothLive). Best-effort: a keychain that cannot be read
+// without interaction leaves the file untouched and degrades to file-only
+// behavior.
+func reconcileKeychainResidueIntoAgentFile(artifact harnessAuthArtifact) {
+	if artifact.ReadAgentKeychain == nil {
+		return
+	}
+	fileData, fileExists, err := artifact.ReadAgent(artifact.AgentPath)
+	if err == nil && fileExists && artifact.isHarvestable(fileData) {
+		// The file copy wins; drop any stale keychain residue.
+		clearAgentAuthKeychain(artifact)
+		return
+	}
+	data, ok, err := artifact.ReadAgentKeychain()
+	if err != nil || !ok || !artifact.isHarvestable(data) {
+		return
+	}
+	if err := artifact.WriteAgent(artifact.AgentPath, data); err != nil {
+		// Leave the keychain intact so the next launch can retry recovery.
+		return
+	}
+	clearAgentAuthKeychain(artifact)
+}
+
+func clearAgentAuthKeychain(artifact harnessAuthArtifact) {
+	if artifact.ClearAgentKeychain == nil {
+		return
+	}
+	_ = artifact.ClearAgentKeychain()
+}
+
 func migrateHarnessAuthArtifact(artifact harnessAuthArtifact, addNote func(string)) error {
+	reconcileKeychainResidueIntoAgentFile(artifact)
 	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
 	if err != nil {
 		return fmt.Errorf("read host-owned %s: %w", artifact.Name, err)
@@ -386,6 +454,12 @@ func prepareHarnessAuthRuntimeForArtifacts(artifacts []harnessAuthArtifact) (pre
 }
 
 func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) (harnessAuthData, bool, error) {
+	if err := syncHostFileBeforeLaunch(artifact); err != nil {
+		return nil, false, err
+	}
+	if err := syncHostKeychainBeforeLaunch(artifact); err != nil {
+		return nil, false, err
+	}
 	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
 	if err != nil {
 		return nil, false, err
@@ -404,6 +478,7 @@ func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) (harnessAuthDa
 }
 
 func harvestHarnessAuthArtifact(artifact harnessAuthArtifact, baseline harnessAuthData, baselineExists bool) error {
+	reconcileKeychainResidueIntoAgentFile(artifact)
 	data, ok, err := artifact.ReadAgent(artifact.AgentPath)
 	if err != nil || !ok {
 		return err
@@ -426,5 +501,137 @@ func harvestHarnessAuthArtifact(artifact harnessAuthArtifact, baseline harnessAu
 	if err := artifact.WriteStore(artifact.StorePath, data); err != nil {
 		return err
 	}
-	return artifact.RemoveAgent(artifact.AgentPath)
+	removeErr := artifact.RemoveAgent(artifact.AgentPath)
+	hostFileErr := publishHostFileAfterHarvest(artifact, data)
+	hostErr := publishHostKeychainAfterHarvest(artifact, data)
+	return errors.Join(removeErr, hostFileErr, hostErr)
+}
+
+func hostFileBackedAuthPath(home string, id credentialID) string {
+	switch id {
+	case credentialHarnessCodexAuth:
+		return filepath.Join(home, ".codex", "auth.json")
+	case credentialHarnessOpenCodeAuth:
+		return filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	case credentialHarnessGeminiOAuth:
+		return filepath.Join(home, ".gemini", "oauth_creds.json")
+	case credentialHarnessGeminiAccounts:
+		return filepath.Join(home, ".gemini", "google_accounts.json")
+	default:
+		return ""
+	}
+}
+
+func syncHostFileBeforeLaunch(artifact harnessAuthArtifact) error {
+	if strings.TrimSpace(artifact.HostPath) == "" {
+		return nil
+	}
+	host, hostExists, err := artifact.ReadStore(artifact.HostPath)
+	if err != nil {
+		return fmt.Errorf("read host %s from %s: %w", artifact.Name, artifact.HostPath, err)
+	}
+	if hostExists && !artifact.isHarvestable(host) {
+		hostExists = false
+	}
+	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
+	if err != nil {
+		return fmt.Errorf("read host-owned %s: %w", artifact.Name, err)
+	}
+
+	switch {
+	case !storedExists && !hostExists:
+		return nil
+	case !storedExists && hostExists:
+		return artifact.WriteStore(artifact.StorePath, host)
+	case storedExists && !hostExists:
+		return artifact.WriteStore(artifact.HostPath, stored)
+	case artifact.Equal(stored, host):
+		return nil
+	}
+
+	storeUpdatedAt, err := hostStoredSecretFileModTime(artifact.StorePath)
+	if err != nil {
+		return err
+	}
+	hostUpdatedAt, err := hostStoredSecretFileModTime(artifact.HostPath)
+	if err != nil {
+		return err
+	}
+	switch {
+	case hostUpdatedAt.After(storeUpdatedAt):
+		return artifact.WriteStore(artifact.StorePath, host)
+	case storeUpdatedAt.After(hostUpdatedAt):
+		return artifact.WriteStore(artifact.HostPath, stored)
+	default:
+		return fmt.Errorf("%s host file sync conflict: host store and host file changed at the same time", artifact.Name)
+	}
+}
+
+func publishHostFileAfterHarvest(artifact harnessAuthArtifact, data harnessAuthData) error {
+	if strings.TrimSpace(artifact.HostPath) == "" || !artifact.isHarvestable(data) {
+		return nil
+	}
+	if err := artifact.WriteStore(artifact.HostPath, data); err != nil {
+		return fmt.Errorf("write host %s to %s: %w", artifact.Name, artifact.HostPath, err)
+	}
+	return nil
+}
+
+func syncHostKeychainBeforeLaunch(artifact harnessAuthArtifact) error {
+	if artifact.ReadHostKeychain == nil {
+		return nil
+	}
+	host, hostExists, err := artifact.ReadHostKeychain()
+	if err != nil {
+		return fmt.Errorf("read host Keychain %s: %w", artifact.Name, err)
+	}
+	if hostExists && !artifact.isHarvestable(host.Data) {
+		hostExists = false
+	}
+	stored, storedExists, err := artifact.ReadStore(artifact.StorePath)
+	if err != nil {
+		return fmt.Errorf("read host-owned %s: %w", artifact.Name, err)
+	}
+
+	switch {
+	case !storedExists && !hostExists:
+		return nil
+	case !storedExists && hostExists:
+		return artifact.WriteStore(artifact.StorePath, host.Data)
+	case storedExists && !hostExists:
+		return publishHostKeychainAfterHarvest(artifact, stored)
+	case artifact.Equal(stored, host.Data):
+		return nil
+	}
+
+	storeUpdatedAt, err := hostStoredSecretFileModTime(artifact.StorePath)
+	if err != nil {
+		return err
+	}
+	switch {
+	case host.UpdatedAt.After(storeUpdatedAt):
+		return artifact.WriteStore(artifact.StorePath, host.Data)
+	case storeUpdatedAt.After(host.UpdatedAt):
+		return publishHostKeychainAfterHarvest(artifact, stored)
+	default:
+		return fmt.Errorf("%s host Keychain sync conflict: host store and host Keychain changed at the same time", artifact.Name)
+	}
+}
+
+func publishHostKeychainAfterHarvest(artifact harnessAuthArtifact, data harnessAuthData) error {
+	if artifact.WriteHostKeychain == nil || !artifact.isHarvestable(data) {
+		return nil
+	}
+	if err := artifact.WriteHostKeychain(data); err != nil {
+		return fmt.Errorf("write host Keychain %s: %w", artifact.Name, err)
+	}
+	return nil
+}
+
+func hostStoredSecretFileModTime(path string) (time.Time, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("stat host-owned credential %s: %w", path, err)
+	}
+	return info.ModTime(), nil
 }

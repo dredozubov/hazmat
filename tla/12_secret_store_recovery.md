@@ -47,13 +47,19 @@ The implementation covered by this model is in:
 
 - `hazmat/harness_auth_runtime.go`
 - `hazmat/secret_store.go`
+- `hazmat/claude_keychain_harvest.go` (agent keychain read/clear for
+  keychain-backed OAuth rotation; `reconcileKeychainResidueIntoAgentFile` in
+  `harness_auth_runtime.go` folds the keychain value into the file copy so
+  harvest and recovery promote it uniformly — covered by
+  `TestHermeticClaudeKeychainRotationLogout`)
 
 ## What the TLA+ Model Checks
 
 | Invariant | Meaning |
 |-----------|---------|
-| `LatestValueNeverSilentlyLost` | A credential value known to be latest is always still present in the host store, agent residue, or host-owned conflict archive. |
-| `CleanRecoveredStateHasNoAgentResidue` | After recovery reaches an idle clean state, no modeled auth artifact remains under `/Users/agent`. |
+| `LatestValueNeverSilentlyLost` | A credential value known to be latest is always still present in the host store, agent file residue, agent keychain, or host-owned conflict archive. |
+| `AgentKeychainNeverBothLive` | The materialized file copy and the agent login keychain are never both live at once, so harvest/recovery always have a single unambiguous runtime value to promote. |
+| `CleanRecoveredStateHasNoAgentResidue` | After recovery reaches an idle clean state, no modeled auth artifact remains under `/Users/agent` — neither the file copy nor the keychain. |
 | `CleanRecoveredStateKeepsLatestHostOwned` | After recovery reaches an idle clean state, the latest known value is host-owned: primary store or conflict archive, not agent-only residue. |
 | `NoCrossHarnessAgentExposure` | During an active session, only the selected harness may have materialized agent-side auth. |
 | `LaunchOnlyAfterRecovery` | Materialization, running, harvest, and removal only occur after startup recovery has completed. |
@@ -69,9 +75,15 @@ It does **not** prove:
 - exact JSON merge semantics for Claude state
 - concrete filesystem permissions beyond the abstract host/agent ownership
   split
-- Keychain-backed auth behavior
+- the macOS `security` keychain syscalls themselves (the model treats the
+  keychain as an abstract second runtime sink, not a concrete keychain DB)
 - concurrent writes to the same host secret while a session is running
 - freshness ordering between two different credential values without metadata
+
+It **does** now model keychain-backed OAuth rotation: a refresh whose live
+token lands in the agent login keychain while the file copy is emptied. Harvest
+and crash recovery must promote whichever runtime sink is live, and cleanup must
+clear the keychain residue so `AgentKeychainNeverBothLive` stays inductive.
 
 The important consequence of the last point: if we later need to prove
 concurrent host-store edits while a harness session is active, content equality
@@ -109,10 +121,10 @@ bash check_suite.sh
 Observed TLC result for the promoted model:
 
 - `Model checking completed. No error has been found.`
-- `41,251 states generated`
-- `10,870 distinct states found`
+- `72,026 states generated`
+- `17,002 distinct states found`
 - `depth 29`
-- runtime 4s on the local 10-worker run
+- runtime 1s on the local single-worker run
 
 ## Change Rules
 

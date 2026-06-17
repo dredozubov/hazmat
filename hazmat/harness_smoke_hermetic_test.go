@@ -35,6 +35,12 @@ type hermeticHarnessSmoke struct {
 	forbiddenBin string
 	sudoMarker   string
 	outputs      map[HarnessID]string
+	updates      map[HarnessID]int
+
+	// claudeRotationKeychain selects the keychain-backed OAuth rotation fake
+	// for Claude instead of the default fake. See the keychain rotation
+	// regression test.
+	claudeRotationKeychain bool
 }
 
 func TestHermeticHarnessSmoke(t *testing.T) {
@@ -69,6 +75,7 @@ func newHermeticHarnessSmoke(t *testing.T) *hermeticHarnessSmoke {
 		forbiddenBin: filepath.Join(root, "forbidden-bin"),
 		sudoMarker:   filepath.Join(root, "sudo-invoked"),
 		outputs:      make(map[HarnessID]string),
+		updates:      make(map[HarnessID]int),
 	}
 	for _, dir := range []string{
 		smoke.hostHome,
@@ -120,6 +127,36 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	harnessAssetPathForDirectIO = s.mapAgentPath
 	t.Cleanup(func() { harnessAssetPathForDirectIO = savedHarnessAssetPathForDirectIO })
 
+	// Stub the agent-keychain seams so the hermetic smoke never shells out to
+	// macOS `security`. The fake Claude harness models a keychain-backed OAuth
+	// rotation by writing the credential JSON to a stand-in file at the agent
+	// login keychain path; these seams read and clear that stand-in.
+	savedReadClaudeKeychain := readClaudeAgentKeychainCredential
+	readClaudeAgentKeychainCredential = func() ([]byte, bool, error) {
+		raw, err := os.ReadFile(s.mapAgentPath(agentLoginKeychainPath()))
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 {
+			return nil, false, nil
+		}
+		return trimmed, true, nil
+	}
+	t.Cleanup(func() { readClaudeAgentKeychainCredential = savedReadClaudeKeychain })
+
+	savedClearClaudeKeychain := clearClaudeAgentKeychainCredential
+	clearClaudeAgentKeychainCredential = func() error {
+		if err := os.Remove(s.mapAgentPath(agentLoginKeychainPath())); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	t.Cleanup(func() { clearClaudeAgentKeychainCredential = savedClearClaudeKeychain })
+
 	savedPrepareSessionRuntime := prepareSessionRuntime
 	prepareSessionRuntime = s.prepareSessionRuntime
 	t.Cleanup(func() { prepareSessionRuntime = savedPrepareSessionRuntime })
@@ -131,6 +168,10 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	savedExecuteSessionMutationPlan := executeSessionMutationPlan
 	executeSessionMutationPlan = s.executeSessionMutationPlan
 	t.Cleanup(func() { executeSessionMutationPlan = savedExecuteSessionMutationPlan })
+
+	savedManagedHarnessUpdateForLaunch := managedHarnessUpdateForLaunch
+	managedHarnessUpdateForLaunch = s.managedHarnessUpdateForLaunch
+	t.Cleanup(func() { managedHarnessUpdateForLaunch = savedManagedHarnessUpdateForLaunch })
 
 	savedEnsureHermesStateRoot := ensureHermesStateRoot
 	ensureHermesStateRoot = s.ensureHermesStateRoot
@@ -240,6 +281,21 @@ func (s *hermeticHarnessSmoke) runClaude() {
 		`{"sessionKey":"stored-token","refreshToken":"stored-refresh"}`)
 	s.writeHostSecret(claudeStateStorePathForHome(s.hostHome),
 		`{"oauthAccount":{"emailAddress":"smoke@example.com"},"userID":"u-smoke","hasAvailableSubscription":true}`)
+	s.assertAgentFileAbsent(agentHome+"/.local/bin/claude", "Claude executable before launch update")
+
+	s.executeHarnessCommand(HarnessClaude, newClaudeCmd(),
+		"--no-backup", "-C", s.project, "-p", "auth smoke")
+	s.assertOutputContains(HarnessClaude, "FAKE_CLAUDE_OK")
+	if got := s.updates[HarnessClaude]; got != 1 {
+		s.t.Fatalf("Claude harness updates = %d, want 1", got)
+	}
+	s.assertAgentFileContains(agentHome+"/.claude/skills/planning-with-files/SKILL.md", "claude skill asset", "Claude skill asset")
+	s.assertFileContains(claudeCredentialStorePathForHome(s.hostHome), "stored-token", "host Claude credentials")
+	s.assertFileContains(claudeStateStorePathForHome(s.hostHome), "oauthAccount", "host Claude state")
+	s.assertAgentFileAbsent(agentHome+"/.claude/.credentials.json", "Claude credential residue")
+}
+
+func (s *hermeticHarnessSmoke) writeFakeClaudeExecutable() {
 	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "claude"), `#!/bin/sh
 set -eu
 cred="$HOME/.claude/.credentials.json"
@@ -254,14 +310,6 @@ printf '{}\n' > "$cred"
 printf '{"projects":{"hazmat-smoke":true}}\n' > "$state"
 echo "FAKE_CLAUDE_OK"
 `)
-
-	s.executeHarnessCommand(HarnessClaude, newClaudeCmd(),
-		"--no-backup", "-C", s.project, "-p", "auth smoke")
-	s.assertOutputContains(HarnessClaude, "FAKE_CLAUDE_OK")
-	s.assertAgentFileContains(agentHome+"/.claude/skills/planning-with-files/SKILL.md", "claude skill asset", "Claude skill asset")
-	s.assertFileContains(claudeCredentialStorePathForHome(s.hostHome), "stored-token", "host Claude credentials")
-	s.assertFileContains(claudeStateStorePathForHome(s.hostHome), "oauthAccount", "host Claude state")
-	s.assertAgentFileAbsent(agentHome+"/.claude/.credentials.json", "Claude credential residue")
 }
 
 func (s *hermeticHarnessSmoke) runCodex() {
@@ -479,7 +527,9 @@ func (s *hermeticHarnessSmoke) runAgentSeatbeltScriptWithPlan(cfg sessionConfig,
 
 func (s *hermeticHarnessSmoke) executeSessionMutationPlan(plan sessionMutationPlan) error {
 	for _, mutation := range plan.Mutations {
-		if mutation.Metadata.Summary != "Hermes state root" && !strings.HasSuffix(mutation.Metadata.Summary, " asset sync") {
+		if mutation.Metadata.Summary != "Hermes state root" &&
+			!strings.HasSuffix(mutation.Metadata.Summary, " asset sync") &&
+			!strings.HasSuffix(mutation.Metadata.Summary, " harness update") {
 			continue
 		}
 		if _, err := mutation.Apply(); err != nil {
@@ -487,6 +537,21 @@ func (s *hermeticHarnessSmoke) executeSessionMutationPlan(plan sessionMutationPl
 		}
 	}
 	return nil
+}
+
+func (s *hermeticHarnessSmoke) managedHarnessUpdateForLaunch(harness ManagedHarness) error {
+	s.updates[harness.Spec.ID]++
+	switch harness.Spec.ID {
+	case HarnessClaude:
+		if s.claudeRotationKeychain {
+			s.writeFakeClaudeKeychainRotationExecutable()
+		} else {
+			s.writeFakeClaudeExecutable()
+		}
+		return nil
+	default:
+		return fmt.Errorf("unexpected harness update for %s", harness.Spec.ID)
+	}
 }
 
 func (s *hermeticHarnessSmoke) ensureHermesStateRoot(path string) error {

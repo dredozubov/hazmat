@@ -51,6 +51,10 @@ func TestImportPolicyDocumentsSupportedAndNoImportHarnesses(t *testing.T) {
 		if !strings.Contains(metadata.ImportPolicy.Boundary, "no curated import") {
 			t.Fatalf("%s unsupported boundary = %q, want no curated import", id, metadata.ImportPolicy.Boundary)
 		}
+		if !strings.Contains(metadata.ImportPolicy.Boundary, "contained-only") ||
+			!strings.Contains(metadata.ImportPolicy.Boundary, "not synced") {
+			t.Fatalf("%s unsupported boundary = %q, want contained-only/not synced", id, metadata.ImportPolicy.Boundary)
+		}
 	}
 }
 

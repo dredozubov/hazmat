@@ -173,6 +173,48 @@ func TestInspectManagedHarnessStatusClassifiesLifecycleStates(t *testing.T) {
 	}
 }
 
+func TestInspectManagedHarnessStatusTreatsMissingOwnedExecutableAsNotInstalled(t *testing.T) {
+	restore := stubHarnessCredentialStatus(t, harnessCredentialStatus{})
+	defer restore()
+
+	path := agentHome + "/.local/bin/test"
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:           HarnessID("test"),
+			DisplayName:  "Test",
+			StateVersion: "2",
+		},
+		Probe: func(func(args ...string) (string, error)) harnessProbe {
+			return harnessProbe{
+				Installed:  true,
+				BinaryPath: path,
+				Version:    "test 1.0.0",
+			}
+		},
+		ManagedCodeArtifacts: func() []harnessManagedArtifact {
+			return []harnessManagedArtifact{
+				harnessFileArtifact(path, "Test executable"),
+			}
+		},
+	}
+
+	status := inspectManagedHarnessStatus(harness, HazmatState{
+		Harnesses: map[HarnessID]HarnessState{
+			HarnessID("test"): {StateVersion: "2"},
+		},
+	}, nil, fakeHarnessRead(nil, nil))
+
+	if status.Probe.Installed {
+		t.Fatalf("Probe.Installed = true, want false when managed executable is missing")
+	}
+	if status.LifecycleStatus != harnessLifecycleRecordedMissingBinary {
+		t.Fatalf("LifecycleStatus = %q, want %q", status.LifecycleStatus, harnessLifecycleRecordedMissingBinary)
+	}
+	if status.NextAction != "hazmat harness update test" {
+		t.Fatalf("NextAction = %q", status.NextAction)
+	}
+}
+
 func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
 	harness, ok := managedHarnessByID(HarnessGemini)
 	if !ok {
@@ -237,6 +279,10 @@ func TestManagedHarnessRegistryCarriesImportPolicy(t *testing.T) {
 				t.Fatalf("%s should remain a no-import boundary in v1", harness.Spec.ID)
 			}
 			if !strings.Contains(harness.ImportPolicy.Boundary, "no curated import") {
+				t.Fatalf("%s import boundary = %q", harness.Spec.ID, harness.ImportPolicy.Boundary)
+			}
+			if !strings.Contains(harness.ImportPolicy.Boundary, "contained-only") ||
+				!strings.Contains(harness.ImportPolicy.Boundary, "not synced") {
 				t.Fatalf("%s import boundary = %q", harness.Spec.ID, harness.ImportPolicy.Boundary)
 			}
 		default:
@@ -352,6 +398,183 @@ func TestRunManagedHarnessUpdateCallsBootstrap(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("Bootstrap calls = %d, want 1", calls)
+	}
+}
+
+func TestRunManagedHarnessUpdateFailsWhenBootstrapLeavesOwnedExecutableMissing(t *testing.T) {
+	path := agentHome + "/.local/bin/test"
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:          HarnessID("test"),
+			DisplayName: "Test",
+		},
+		Installed: func() bool { return true },
+		ManagedCodeArtifacts: func() []harnessManagedArtifact {
+			return []harnessManagedArtifact{
+				harnessFileArtifact(path, "Test executable"),
+			}
+		},
+		Bootstrap: func(*UI, *Runner) error {
+			return nil
+		},
+	}
+
+	savedRead := managedHarnessReadForLifecycle
+	managedHarnessReadForLifecycle = fakeHarnessRead(nil, nil)
+	t.Cleanup(func() { managedHarnessReadForLifecycle = savedRead })
+
+	err := runManagedHarnessUpdate(harness)
+	if err == nil || !strings.Contains(err.Error(), "still not installed after harness update") {
+		t.Fatalf("runManagedHarnessUpdate error = %v, want still not installed", err)
+	}
+}
+
+func TestBuildManagedHarnessLaunchUpdateMutationPlanSkipsInstalledHarness(t *testing.T) {
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:          HarnessID("test"),
+			DisplayName: "Test",
+		},
+		Installed: func() bool { return true },
+	}
+
+	plan := buildManagedHarnessLaunchUpdateMutationPlan(harness)
+	if len(plan.Mutations) != 0 {
+		t.Fatalf("mutations = %d, want 0", len(plan.Mutations))
+	}
+}
+
+func TestBuildManagedHarnessLaunchUpdateMutationPlanRunsUpdateForMissingHarness(t *testing.T) {
+	installed := false
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:          HarnessID("test"),
+			DisplayName: "Test",
+		},
+		Installed: func() bool { return installed },
+	}
+
+	calls := 0
+	savedUpdate := managedHarnessUpdateForLaunch
+	managedHarnessUpdateForLaunch = func(got ManagedHarness) error {
+		calls++
+		if got.Spec.ID != harness.Spec.ID {
+			t.Fatalf("update harness ID = %q, want %q", got.Spec.ID, harness.Spec.ID)
+		}
+		installed = true
+		return nil
+	}
+	t.Cleanup(func() { managedHarnessUpdateForLaunch = savedUpdate })
+
+	plan := buildManagedHarnessLaunchUpdateMutationPlan(harness)
+	if len(plan.Mutations) != 1 {
+		t.Fatalf("mutations = %d, want 1", len(plan.Mutations))
+	}
+	if plan.Mutations[0].Metadata.Summary != "Test harness update" {
+		t.Fatalf("summary = %q", plan.Mutations[0].Metadata.Summary)
+	}
+	exec, err := plan.Mutations[0].Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("update calls = %d, want 1", calls)
+	}
+	if exec.AppliedMessage != "  Updated Test harness" {
+		t.Fatalf("AppliedMessage = %q", exec.AppliedMessage)
+	}
+}
+
+func TestBuildManagedHarnessLaunchUpdateMutationPlanFailsIfUpdateLeavesHarnessMissing(t *testing.T) {
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:          HarnessID("test"),
+			DisplayName: "Test",
+		},
+		Installed: func() bool { return false },
+	}
+
+	savedUpdate := managedHarnessUpdateForLaunch
+	managedHarnessUpdateForLaunch = func(ManagedHarness) error { return nil }
+	t.Cleanup(func() { managedHarnessUpdateForLaunch = savedUpdate })
+
+	plan := buildManagedHarnessLaunchUpdateMutationPlan(harness)
+	if len(plan.Mutations) != 1 {
+		t.Fatalf("mutations = %d, want 1", len(plan.Mutations))
+	}
+	if _, err := plan.Mutations[0].Apply(); err == nil || !strings.Contains(err.Error(), "still not installed") {
+		t.Fatalf("Apply error = %v, want still not installed", err)
+	}
+}
+
+func TestBuildManagedHarnessLaunchUpdateMutationPlanRunsUpdateWhenOwnedExecutableMissing(t *testing.T) {
+	path := agentHome + "/.local/bin/test"
+	paths := map[string]harnessManagedArtifactKind{}
+	harness := ManagedHarness{
+		Spec: HarnessSpec{
+			ID:          HarnessID("test"),
+			DisplayName: "Test",
+		},
+		Installed: func() bool { return true },
+		ManagedCodeArtifacts: func() []harnessManagedArtifact {
+			return []harnessManagedArtifact{
+				harnessFileArtifact(path, "Test executable"),
+			}
+		},
+	}
+
+	calls := 0
+	savedUpdate := managedHarnessUpdateForLaunch
+	managedHarnessUpdateForLaunch = func(got ManagedHarness) error {
+		calls++
+		if got.Spec.ID != harness.Spec.ID {
+			t.Fatalf("update harness ID = %q, want %q", got.Spec.ID, harness.Spec.ID)
+		}
+		paths[path] = harnessArtifactFile
+		return nil
+	}
+	t.Cleanup(func() { managedHarnessUpdateForLaunch = savedUpdate })
+
+	plan := buildManagedHarnessLaunchUpdateMutationPlanWithRead(harness, fakeHarnessRead(paths, nil))
+	if len(plan.Mutations) != 1 {
+		t.Fatalf("mutations = %d, want 1", len(plan.Mutations))
+	}
+	exec, err := plan.Mutations[0].Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("update calls = %d, want 1", calls)
+	}
+	if exec.AppliedMessage != "  Updated Test harness" {
+		t.Fatalf("AppliedMessage = %q", exec.AppliedMessage)
+	}
+}
+
+func TestBuildManagedHarnessLaunchUpdateMutationPlanForCommandIncludesPlanOnlyPreview(t *testing.T) {
+	savedRegistry := managedHarnessRegistry
+	managedHarnessRegistry = []ManagedHarness{
+		{
+			Spec: HarnessSpec{
+				ID:          HarnessClaude,
+				DisplayName: "Claude Code",
+			},
+			Installed: func() bool { return false },
+		},
+	}
+	t.Cleanup(func() { managedHarnessRegistry = savedRegistry })
+
+	plan := buildManagedHarnessLaunchUpdateMutationPlanForCommand("claude", harnessSessionOpts{planOnly: true})
+	if len(plan.Mutations) != 1 {
+		t.Fatalf("mutations = %d, want 1", len(plan.Mutations))
+	}
+	if plan.Mutations[0].Metadata.Summary != "Claude Code harness update" {
+		t.Fatalf("summary = %q", plan.Mutations[0].Metadata.Summary)
+	}
+
+	shellPlan := buildManagedHarnessLaunchUpdateMutationPlanForCommand("shell", harnessSessionOpts{planOnly: true})
+	if len(shellPlan.Mutations) != 0 {
+		t.Fatalf("shell mutations = %d, want 0", len(shellPlan.Mutations))
 	}
 }
 

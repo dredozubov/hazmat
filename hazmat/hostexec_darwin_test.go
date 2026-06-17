@@ -23,6 +23,7 @@ func TestDarwinHostToolPaths(t *testing.T) {
 		script:    "/usr/bin/script",
 		diff:      "/usr/bin/diff",
 		tee:       "/usr/bin/tee",
+		security:  "/usr/bin/security",
 		gitAllowlistCandidates: []string{
 			"/opt/homebrew/bin/git",
 			"/usr/local/bin/git",

@@ -19,7 +19,7 @@ cd "$REPO_ROOT"
 # Utilities whose bare-name invocation is forbidden anywhere in hazmat
 # source. Extend this list as new absolute-path wrappers are added to
 # hostexec.go — keeping the list in sync with hostexec.go is the point.
-FORBIDDEN_UTILS='chmod|chown|ls|sudo|dscl|pfctl|launchctl|uname|script|diff|tee|git'
+FORBIDDEN_UTILS='chmod|chown|ls|sudo|dscl|pfctl|launchctl|uname|script|diff|tee|security|git'
 
 # Allowlist files where the absolute-path constants are defined.
 # hostexec*.go holds the platform path tables and git allowlist resolver;

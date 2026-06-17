@@ -168,7 +168,7 @@ var persistentAgentHomeManifest = []AgentHomeStateEntry{
 		{RelPath: ".claude/skills", Class: AgentHomeStateHarnessState},
 		{RelPath: ".claude/projects", Class: AgentHomeStateTranscript},
 	}, ExecutableRelPaths: []string{".claude/hooks"}},
-	{RelPath: ".codex", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState},
+	{RelPath: ".codex", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState, ExecutableRelPaths: []string{".codex/packages"}},
 	{RelPath: ".config", Kind: AgentHomeStateDir, Class: AgentHomeStateXDGConfig, CoveredPaths: []AgentHomeCoveredPath{
 		{RelPath: ".config/git", Class: AgentHomeStateGitConfig},
 		{RelPath: ".config/opencode", Class: AgentHomeStateHarnessState},
@@ -188,7 +188,7 @@ var persistentAgentHomeManifest = []AgentHomeStateEntry{
 		{RelPath: ".local/bin", Class: AgentHomeStateExecutable},
 		{RelPath: ".local/lib", Class: AgentHomeStateToolchainState},
 		{RelPath: ".local/share", Class: AgentHomeStateXDGData},
-	}, ExecutableRelPaths: []string{".local/bin", ".local/lib"}},
+	}, ExecutableRelPaths: []string{".local/bin", ".local/lib", ".local/share/claude/versions"}},
 	{RelPath: ".m2", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
 	{RelPath: ".node-gyp", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
 	{RelPath: ".npm", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},

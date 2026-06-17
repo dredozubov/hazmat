@@ -78,7 +78,7 @@ var builtinMetadata = []Metadata{
 		BootstrapCommand: "hazmat bootstrap gemini",
 		ImportPolicy: ImportPolicy{
 			Supported: true,
-			Boundary:  "file-backed Gemini OAuth, accounts, settings, and memory basics; Keychain OAuth remains external",
+			Boundary:  "file-backed Gemini OAuth/account files sync through registered paths; settings and memory basics import; Keychain OAuth remains external and adapter-required",
 		},
 	},
 	{
@@ -87,7 +87,7 @@ var builtinMetadata = []Metadata{
 		BootstrapCommand: "hazmat bootstrap hermes",
 		ImportPolicy: ImportPolicy{
 			Supported: false,
-			Boundary:  "Hermes v1 has no curated import; manual executable, profile roots, and provider state are preserved",
+			Boundary:  "Hermes v1 has no curated import; contained-only profile roots are preserved and host ~/.hermes is not synced",
 		},
 	},
 	{
@@ -96,7 +96,7 @@ var builtinMetadata = []Metadata{
 		BootstrapCommand: "hazmat bootstrap qwen",
 		ImportPolicy: ImportPolicy{
 			Supported: false,
-			Boundary:  "Qwen v1 has no curated import; contained profile state and host asset sync boundaries are preserved",
+			Boundary:  "Qwen v1 has no curated import; contained-only profile state is preserved and host ~/.qwen auth/settings are not synced",
 		},
 	},
 	{
@@ -105,7 +105,7 @@ var builtinMetadata = []Metadata{
 		BootstrapCommand: "hazmat bootstrap cursor-agent",
 		ImportPolicy: ImportPolicy{
 			Supported: false,
-			Boundary:  "Cursor Agent v1 has no curated import; host Cursor IDE state, host ~/.cursor profile state, and host auth settings are not imported",
+			Boundary:  "Cursor Agent v1 has no curated import; contained-only profile state is preserved and host Cursor IDE/auth state is not synced",
 		},
 	},
 	{
@@ -114,7 +114,7 @@ var builtinMetadata = []Metadata{
 		BootstrapCommand: "hazmat bootstrap pi",
 		ImportPolicy: ImportPolicy{
 			Supported: false,
-			Boundary:  "Pi v1 has no curated import; host ~/.pi/agent settings, trust decisions, sessions, skills, extensions, and auth are not imported",
+			Boundary:  "Pi v1 has no curated import; contained-only profile state is preserved and host ~/.pi/agent settings/trust/sessions/auth are not synced",
 		},
 	},
 }

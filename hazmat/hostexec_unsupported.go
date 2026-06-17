@@ -17,10 +17,11 @@ func platformHostToolPaths() hostToolPaths {
 		pfctl:     "/usr/bin/false",
 		launchctl: "/usr/bin/false",
 
-		uname:  "/usr/bin/uname",
-		script: "/usr/bin/script",
-		diff:   "/usr/bin/diff",
-		tee:    "/usr/bin/tee",
+		uname:    "/usr/bin/uname",
+		script:   "/usr/bin/script",
+		diff:     "/usr/bin/diff",
+		tee:      "/usr/bin/tee",
+		security: "/usr/bin/false",
 
 		gitAllowlistCandidates: []string{
 			"/usr/bin/git",

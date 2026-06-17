@@ -118,6 +118,119 @@ func TestHarnessAuthArtifactsForRuntimeHomeRemapAllManagedFileHarnesses(t *testi
 	}
 }
 
+func TestHarnessAuthArtifactsDeclareRegisteredHostAuthPaths(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "host")
+	runtimeHome := filepath.Join(t.TempDir(), "runtime-home")
+	want := map[HarnessID][]string{
+		HarnessCodex: {
+			filepath.Join(home, ".codex", "auth.json"),
+		},
+		HarnessOpenCode: {
+			filepath.Join(home, ".local", "share", "opencode", "auth.json"),
+		},
+		HarnessGemini: {
+			filepath.Join(home, ".gemini", "oauth_creds.json"),
+			filepath.Join(home, ".gemini", "google_accounts.json"),
+		},
+	}
+
+	for harness, wantPaths := range want {
+		t.Run(string(harness), func(t *testing.T) {
+			artifacts := harnessAuthArtifactsForRuntimeHome(harness, home, runtimeHome)
+			if len(artifacts) != len(wantPaths) {
+				t.Fatalf("%s artifacts = %d, want %d", harness, len(artifacts), len(wantPaths))
+			}
+			for i, wantPath := range wantPaths {
+				if artifacts[i].HostPath != wantPath {
+					t.Fatalf("%s artifact %d HostPath = %s, want %s", harness, i, artifacts[i].HostPath, wantPath)
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeImportsNewerHostFileBackedAuth(t *testing.T) {
+	for _, tc := range fileBackedHarnessAuthCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			storeUpdatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+			hostUpdatedAt := storeUpdatedAt.Add(time.Minute)
+			stored := []byte(`{"token":"stored"}`)
+			host := []byte(`{"token":"host-rotated"}`)
+
+			if err := writeHostStoredSecretFile(tc.artifact.StorePath, stored); err != nil {
+				t.Fatalf("write store: %v", err)
+			}
+			if err := writeHostStoredSecretFile(tc.artifact.HostPath, host); err != nil {
+				t.Fatalf("write host auth: %v", err)
+			}
+			mustChtimes(t, tc.artifact.StorePath, storeUpdatedAt)
+			mustChtimes(t, tc.artifact.HostPath, hostUpdatedAt)
+
+			if _, _, err := materializeHarnessAuthArtifact(tc.artifact); err != nil {
+				t.Fatalf("materializeHarnessAuthArtifact: %v", err)
+			}
+
+			assertFileBytes(t, tc.artifact.StorePath, host, "host-owned auth store")
+			assertFileBytes(t, tc.artifact.AgentPath, host, "agent auth file")
+		})
+	}
+}
+
+func TestPrepareHarnessAuthRuntimePublishesFileBackedRotationToHost(t *testing.T) {
+	for _, tc := range fileBackedHarnessAuthCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			stored := []byte(`{"token":"stored"}`)
+			rotated := []byte(`{"token":"agent-rotated"}`)
+
+			if err := writeHostStoredSecretFile(tc.artifact.StorePath, stored); err != nil {
+				t.Fatalf("write store: %v", err)
+			}
+			runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{tc.artifact})
+			if err != nil {
+				t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+			}
+			if err := os.WriteFile(tc.artifact.AgentPath, rotated, 0o600); err != nil {
+				t.Fatalf("write rotated agent auth: %v", err)
+			}
+
+			runtime.Cleanup()
+
+			assertFileBytes(t, tc.artifact.StorePath, rotated, "host-owned auth store")
+			assertFileBytes(t, tc.artifact.HostPath, rotated, "plain host auth file")
+			if _, err := os.Stat(tc.artifact.AgentPath); !os.IsNotExist(err) {
+				t.Fatalf("agent auth residue should be removed, got err=%v", err)
+			}
+		})
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeRejectsEqualTimeHostFileConflict(t *testing.T) {
+	tc := fileBackedHarnessAuthCases(t)[0]
+	updatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	stored := []byte(`{"token":"stored-secret-should-not-leak"}`)
+	host := []byte(`{"token":"host-secret-should-not-leak"}`)
+
+	if err := writeHostStoredSecretFile(tc.artifact.StorePath, stored); err != nil {
+		t.Fatalf("write store: %v", err)
+	}
+	if err := writeHostStoredSecretFile(tc.artifact.HostPath, host); err != nil {
+		t.Fatalf("write host auth: %v", err)
+	}
+	mustChtimes(t, tc.artifact.StorePath, updatedAt)
+	mustChtimes(t, tc.artifact.HostPath, updatedAt)
+
+	_, _, err := materializeHarnessAuthArtifact(tc.artifact)
+	if err == nil {
+		t.Fatal("materializeHarnessAuthArtifact succeeded, want conflict")
+	}
+	msg := err.Error()
+	for _, leaked := range []string{"stored-secret-should-not-leak", "host-secret-should-not-leak"} {
+		if strings.Contains(msg, leaked) {
+			t.Fatalf("conflict error leaked secret %q: %s", leaked, msg)
+		}
+	}
+}
+
 func TestPrepareHarnessAuthRuntimePreservesClaudeCredentialsOnLoggedOutRewrite(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -150,6 +263,139 @@ func TestPrepareHarnessAuthRuntimePreservesClaudeCredentialsOnLoggedOutRewrite(t
 	}
 	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
 		t.Fatalf("logged-out agent credential residue should be removed, got err=%v", err)
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeImportsNewerHostClaudeKeychain(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	storeUpdatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	hostUpdatedAt := storeUpdatedAt.Add(time.Minute)
+	stored := []byte(`{"refreshToken":"stored-refresh"}`)
+	host := []byte(`{"refreshToken":"host-rotated-refresh"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+	mustChtimes(t, storePath, storeUpdatedAt)
+
+	artifact := testClaudeKeychainSyncArtifact(storePath, agentPath, host, hostUpdatedAt)
+	if _, _, err := materializeHarnessAuthArtifact(artifact); err != nil {
+		t.Fatalf("materializeHarnessAuthArtifact: %v", err)
+	}
+
+	assertFileBytes(t, storePath, host, "host-owned Claude credentials")
+	assertFileBytes(t, agentPath, host, "agent Claude credentials")
+}
+
+func TestPrepareHarnessAuthRuntimePublishesNewerStoreToHostClaudeKeychain(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	hostUpdatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	storeUpdatedAt := hostUpdatedAt.Add(time.Minute)
+	stored := []byte(`{"refreshToken":"store-rotated-refresh"}`)
+	host := []byte(`{"refreshToken":"old-host-refresh"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+	mustChtimes(t, storePath, storeUpdatedAt)
+
+	artifact := testClaudeKeychainSyncArtifact(storePath, agentPath, host, hostUpdatedAt)
+	var hostWrites [][]byte
+	artifact.WriteHostKeychain = func(data harnessAuthData) error {
+		raw, _ := data.([]byte)
+		hostWrites = append(hostWrites, append([]byte(nil), raw...))
+		return nil
+	}
+	if _, _, err := materializeHarnessAuthArtifact(artifact); err != nil {
+		t.Fatalf("materializeHarnessAuthArtifact: %v", err)
+	}
+
+	assertLastHostKeychainWrite(t, hostWrites, stored)
+	assertFileBytes(t, agentPath, stored, "agent Claude credentials")
+}
+
+func TestHarvestHarnessAuthArtifactPublishesAgentKeychainRotationToHost(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	updatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	stored := []byte(`{"refreshToken":"stored-refresh"}`)
+	rotated := []byte(`{"refreshToken":"agent-rotated-refresh"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+	mustChtimes(t, storePath, updatedAt)
+
+	artifact := testClaudeKeychainSyncArtifact(storePath, agentPath, stored, updatedAt)
+	var agentKeychain []byte
+	agentCleared := false
+	artifact.ReadAgentKeychain = func() (harnessAuthData, bool, error) {
+		if agentKeychain == nil {
+			return nil, false, nil
+		}
+		return agentKeychain, true, nil
+	}
+	artifact.ClearAgentKeychain = func() error {
+		agentCleared = true
+		agentKeychain = nil
+		return nil
+	}
+	var hostWrites [][]byte
+	artifact.WriteHostKeychain = func(data harnessAuthData) error {
+		raw, _ := data.([]byte)
+		hostWrites = append(hostWrites, append([]byte(nil), raw...))
+		return nil
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	agentKeychain = rotated
+	if err := os.WriteFile(agentPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write logged-out agent file: %v", err)
+	}
+
+	runtime.Cleanup()
+
+	assertFileBytes(t, storePath, rotated, "host-owned Claude credentials")
+	assertLastHostKeychainWrite(t, hostWrites, rotated)
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("agent credential residue should be removed, got err=%v", err)
+	}
+	if !agentCleared {
+		t.Fatal("agent keychain residue was not cleared")
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeRejectsEqualTimeHostKeychainConflict(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	updatedAt := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	stored := []byte(`{"refreshToken":"stored-secret-should-not-leak"}`)
+	host := []byte(`{"refreshToken":"host-secret-should-not-leak"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+	mustChtimes(t, storePath, updatedAt)
+
+	artifact := testClaudeKeychainSyncArtifact(storePath, agentPath, host, updatedAt)
+	_, _, err := materializeHarnessAuthArtifact(artifact)
+	if err == nil {
+		t.Fatal("materializeHarnessAuthArtifact succeeded, want conflict")
+	}
+	msg := err.Error()
+	for _, leaked := range []string{"stored-secret-should-not-leak", "host-secret-should-not-leak"} {
+		if strings.Contains(msg, leaked) {
+			t.Fatalf("conflict error leaked secret %q: %s", leaked, msg)
+		}
 	}
 }
 
@@ -190,6 +436,69 @@ func TestMigrateHarnessAuthArtifactsDropsNonHarvestableClaudeCredentials(t *test
 	}
 	if len(notes) == 0 || !strings.Contains(notes[0], "Ignored non-harvestable legacy Claude credential file") {
 		t.Fatalf("migration notes = %v, want non-harvestable note", notes)
+	}
+}
+
+func testClaudeKeychainSyncArtifact(storePath, agentPath string, host []byte, hostUpdatedAt time.Time) harnessAuthArtifact {
+	artifact := rawHarnessAuthArtifact("Claude credential file", storePath, agentPath)
+	artifact.Harvestable = isHarvestableClaudeCredentialData
+	artifact.ReadHostKeychain = func() (harnessAuthKeychainData, bool, error) {
+		return harnessAuthKeychainData{Data: host, UpdatedAt: hostUpdatedAt}, true, nil
+	}
+	artifact.WriteHostKeychain = func(harnessAuthData) error { return nil }
+	return artifact
+}
+
+type fileBackedHarnessAuthCase struct {
+	name     string
+	artifact harnessAuthArtifact
+}
+
+func fileBackedHarnessAuthCases(t *testing.T) []fileBackedHarnessAuthCase {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "host")
+	runtimeHome := filepath.Join(root, "runtime-home")
+	var cases []fileBackedHarnessAuthCase
+	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini} {
+		for _, artifact := range harnessAuthArtifactsForRuntimeHome(harness, home, runtimeHome) {
+			if strings.TrimSpace(artifact.HostPath) == "" {
+				t.Fatalf("%s artifact %s missing host auth path", harness, artifact.Name)
+			}
+			cases = append(cases, fileBackedHarnessAuthCase{
+				name:     string(harness) + "/" + artifact.Name,
+				artifact: artifact,
+			})
+		}
+	}
+	return cases
+}
+
+func mustChtimes(t *testing.T, path string, modTime time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("chtimes %s: %v", path, err)
+	}
+}
+
+func assertFileBytes(t *testing.T, path string, want []byte, label string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s at %s: %v", label, path, err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("%s = %q, want %q", label, got, want)
+	}
+}
+
+func assertLastHostKeychainWrite(t *testing.T, writes [][]byte, want []byte) {
+	t.Helper()
+	if len(writes) == 0 {
+		t.Fatal("host Keychain was not written")
+	}
+	if got := writes[len(writes)-1]; string(got) != string(want) {
+		t.Fatalf("host Keychain write = %q, want %q", got, want)
 	}
 }
 

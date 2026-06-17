@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClaudeAgentKeychainPrepareScriptCreatesOrRepairsManagedKeychain(t *testing.T) {
@@ -62,5 +63,22 @@ func TestPrepareClaudeAgentKeychainForLaunchSurfacesResetCommand(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "hazmat claude-keychain reset") {
 		t.Fatalf("prepare error should point at reset command, got: %v", err)
+	}
+}
+
+func TestParseSecurityKeychainModifiedTime(t *testing.T) {
+	raw := []byte(`keychain: "/Users/dr/Library/Keychains/login.keychain-db"
+class: "genp"
+attributes:
+    "mdat"<timedate>=0x32303236303631373130323533305A00  "20260617102530Z\000"
+    "svce"<blob>="Claude Code-credentials"
+`)
+	got, ok := parseSecurityKeychainModifiedTime(raw)
+	if !ok {
+		t.Fatal("parseSecurityKeychainModifiedTime ok=false, want true")
+	}
+	want := time.Date(2026, 6, 17, 10, 25, 30, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("modified time = %s, want %s", got, want)
 	}
 }

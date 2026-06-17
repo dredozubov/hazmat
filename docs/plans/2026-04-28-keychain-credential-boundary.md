@@ -34,7 +34,10 @@ Hazmat supports these Gemini credential paths today:
 
 Those file-backed entries are session-scoped: they are materialized into
 `/Users/agent/.gemini/` for a Gemini session, harvested on cleanup, and removed
-from the agent home.
+from the agent home. They are also reconciled with only the registered host
+files (`~/.gemini/oauth_creds.json` and `~/.gemini/google_accounts.json`) by
+mtime before launch and written back on cleanup. This file-backed sync does not
+cover the Gemini Keychain item.
 
 ## Not Supported Yet
 

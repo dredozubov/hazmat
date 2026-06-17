@@ -100,10 +100,12 @@ func TestPersistentAgentHomeManifestProjectionMatchesCurrentPolicy(t *testing.T)
 		"/Users/agent/.bun/bin",
 		"/Users/agent/.cargo/bin",
 		"/Users/agent/.claude/hooks",
+		"/Users/agent/.codex/packages",
 		"/Users/agent/.deno/bin",
 		"/Users/agent/.gem",
 		"/Users/agent/.local/bin",
 		"/Users/agent/.local/lib",
+		"/Users/agent/.local/share/claude/versions",
 		"/Users/agent/.opencode/bin",
 		"/Users/agent/.pub-cache/bin",
 	}

@@ -1450,7 +1450,7 @@ func defaultHarnessAssetAgentEnsureDir(path string, mode os.FileMode) error {
 			return err
 		}
 		if repairErr := harnessAssetAgentRepairDir(parent, 0o2770); repairErr != nil {
-			return fmt.Errorf("%w; repair parent %s: %v", err, parent, repairErr)
+			return fmt.Errorf("%w; repair parent %s: %w", err, parent, repairErr)
 		}
 		if retryErr := agentMkdirAll(path); retryErr != nil {
 			return retryErr
