@@ -24,9 +24,18 @@ func TestClaudeAgentKeychainPrepareScriptCreatesOrRepairsManagedKeychain(t *test
 		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
 		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
 		`/usr/bin/security default-keychain -s "$kc"`,
+		`/usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("prepare script missing %q:\n%s", want, script)
+		}
+	}
+	for _, expensive := range []string{
+		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
+		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
+	} {
+		if count := strings.Count(script, expensive); count != 1 {
+			t.Fatalf("prepare script has %d occurrences of %q, want one repair-only call:\n%s", count, expensive, script)
 		}
 	}
 }

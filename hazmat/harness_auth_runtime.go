@@ -19,17 +19,18 @@ type harnessAuthKeychainData struct {
 }
 
 type harnessAuthArtifact struct {
-	Name        string
-	StorePath   string
-	HostPath    string
-	AgentPath   string
-	ReadStore   func(string) (harnessAuthData, bool, error)
-	ReadAgent   func(string) (harnessAuthData, bool, error)
-	WriteStore  func(string, harnessAuthData) error
-	WriteAgent  func(string, harnessAuthData) error
-	RemoveAgent func(string) error
-	Equal       func(harnessAuthData, harnessAuthData) bool
-	Harvestable func(harnessAuthData) bool
+	CredentialID credentialID
+	Name         string
+	StorePath    string
+	HostPath     string
+	AgentPath    string
+	ReadStore    func(string) (harnessAuthData, bool, error)
+	ReadAgent    func(string) (harnessAuthData, bool, error)
+	WriteStore   func(string, harnessAuthData) error
+	WriteAgent   func(string, harnessAuthData) error
+	RemoveAgent  func(string) error
+	Equal        func(harnessAuthData, harnessAuthData) bool
+	Harvestable  func(harnessAuthData) bool
 
 	// ReadAgentKeychain reads a credential that the harness rotated into a
 	// second runtime sink (the agent login keychain) rather than the
@@ -39,8 +40,10 @@ type harnessAuthArtifact struct {
 	// file copy, so harvest/recovery must promote the keychain value or the
 	// host store strands a server-invalidated token and the next session is
 	// logged out.
-	ReadAgentKeychain  func() (harnessAuthData, bool, error)
-	ClearAgentKeychain func() error
+	ReadAgentKeychain   func() (harnessAuthData, bool, error)
+	WriteAgentKeychain  func(harnessAuthData) error
+	ClearAgentKeychain  func() error
+	PreferAgentKeychain bool
 
 	// ReadHostKeychain/WriteHostKeychain bridge a host-user Keychain item into
 	// the host-owned store. They are intentionally separate from the agent
@@ -120,6 +123,7 @@ func rawHarnessAuthArtifactForCredentialRuntimeHome(home string, id credentialID
 		panic(err)
 	}
 	artifact := rawHarnessAuthArtifact(descriptor.DisplayName, storePath, agentPath)
+	artifact.CredentialID = id
 	artifact.HostPath = hostFileBackedAuthPath(home, id)
 	return artifact
 }
@@ -228,9 +232,10 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 		panic(err)
 	}
 	return harnessAuthArtifact{
-		Name:      descriptor.DisplayName,
-		StorePath: mustCredentialStorePathForHome(home, credentialHarnessClaudeState),
-		AgentPath: agentPath,
+		CredentialID: credentialHarnessClaudeState,
+		Name:         descriptor.DisplayName,
+		StorePath:    mustCredentialStorePathForHome(home, credentialHarnessClaudeState),
+		AgentPath:    agentPath,
 		ReadStore: func(path string) (harnessAuthData, bool, error) {
 			payload, ok, err := readJSONMapStoreFile(path)
 			if !ok || err != nil {
@@ -420,7 +425,20 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 	if cfg.SessionHome != nil {
 		runtimeHome = cfg.SessionHome.Launch.Layout.Home
 	}
-	return prepareHarnessAuthRuntimeForArtifacts(harnessAuthArtifactsForRuntimeHome(cfg.HarnessID, home, runtimeHome))
+	artifacts := harnessAuthArtifactsForRuntimeHome(cfg.HarnessID, home, runtimeHome)
+	if cfg.ClaudeKeychainAccess {
+		artifacts = preferClaudeAgentKeychainDelivery(artifacts)
+	}
+	return prepareHarnessAuthRuntimeForArtifacts(artifacts)
+}
+
+func preferClaudeAgentKeychainDelivery(artifacts []harnessAuthArtifact) []harnessAuthArtifact {
+	for i := range artifacts {
+		if artifacts[i].CredentialID == credentialHarnessClaudeCredentials && artifacts[i].WriteAgentKeychain != nil {
+			artifacts[i].PreferAgentKeychain = true
+		}
+	}
+	return artifacts
 }
 
 func prepareHarnessAuthRuntimeForArtifacts(artifacts []harnessAuthArtifact) (preparedSessionRuntime, error) {
@@ -473,6 +491,16 @@ func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) (harnessAuthDa
 
 	if !storedExists {
 		return nil, false, nil
+	}
+	if artifact.PreferAgentKeychain && artifact.WriteAgentKeychain != nil {
+		if artifact.ReadAgentKeychain != nil {
+			if _, ok, err := artifact.ReadAgentKeychain(); err != nil {
+				return nil, false, err
+			} else if ok {
+				return stored, true, nil
+			}
+		}
+		return stored, true, artifact.WriteAgentKeychain(stored)
 	}
 	return stored, true, artifact.WriteAgent(artifact.AgentPath, stored)
 }

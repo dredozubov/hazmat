@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -371,6 +372,59 @@ func TestHarvestHarnessAuthArtifactPublishesAgentKeychainRotationToHost(t *testi
 	if !agentCleared {
 		t.Fatal("agent keychain residue was not cleared")
 	}
+}
+
+func TestPrepareHarnessAuthRuntimePrefersAgentKeychainDelivery(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	stored := []byte(`{"refreshToken":"stored-refresh"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+
+	var agentKeychain []byte
+	artifact := rawHarnessAuthArtifact("Claude credential file", storePath, agentPath)
+	artifact.CredentialID = credentialHarnessClaudeCredentials
+	artifact.Harvestable = isHarvestableClaudeCredentialData
+	artifact.PreferAgentKeychain = true
+	artifact.ReadAgentKeychain = func() (harnessAuthData, bool, error) {
+		if agentKeychain == nil {
+			return nil, false, nil
+		}
+		return agentKeychain, true, nil
+	}
+	artifact.WriteAgentKeychain = func(data harnessAuthData) error {
+		raw, _ := data.([]byte)
+		agentKeychain = append([]byte(nil), raw...)
+		return nil
+	}
+	artifact.ClearAgentKeychain = func() error {
+		agentKeychain = nil
+		return nil
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	if !bytes.Equal(agentKeychain, stored) {
+		t.Fatalf("agent keychain = %q, want %q", agentKeychain, stored)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("agent file should not be materialized for keychain delivery, got err=%v", err)
+	}
+
+	runtime.Cleanup()
+
+	if agentKeychain != nil {
+		t.Fatalf("agent keychain residue = %q, want cleared", agentKeychain)
+	}
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+		t.Fatalf("agent file residue should be removed after cleanup, got err=%v", err)
+	}
+	assertFileBytes(t, storePath, stored, "host-owned Claude credentials")
 }
 
 func TestPrepareHarnessAuthRuntimeRejectsEqualTimeHostKeychainConflict(t *testing.T) {

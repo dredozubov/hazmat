@@ -148,6 +148,17 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 	}
 	t.Cleanup(func() { readClaudeAgentKeychainCredential = savedReadClaudeKeychain })
 
+	savedWriteClaudeKeychain := writeClaudeAgentKeychainCredential
+	writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
+		raw, _ := data.([]byte)
+		path := s.mapAgentPath(agentLoginKeychainPath())
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(path, bytes.TrimSpace(raw), 0o600)
+	}
+	t.Cleanup(func() { writeClaudeAgentKeychainCredential = savedWriteClaudeKeychain })
+
 	savedClearClaudeKeychain := clearClaudeAgentKeychainCredential
 	clearClaudeAgentKeychainCredential = func() error {
 		if err := os.Remove(s.mapAgentPath(agentLoginKeychainPath())); err != nil && !os.IsNotExist(err) {
@@ -156,6 +167,12 @@ func (s *hermeticHarnessSmoke) installTestSeams() {
 		return nil
 	}
 	t.Cleanup(func() { clearClaudeAgentKeychainCredential = savedClearClaudeKeychain })
+
+	savedRunClaudeAgentKeychainScript := runClaudeAgentKeychainScript
+	runClaudeAgentKeychainScript = func(string) (string, error) {
+		return "", nil
+	}
+	t.Cleanup(func() { runClaudeAgentKeychainScript = savedRunClaudeAgentKeychainScript })
 
 	savedPrepareSessionRuntime := prepareSessionRuntime
 	prepareSessionRuntime = s.prepareSessionRuntime

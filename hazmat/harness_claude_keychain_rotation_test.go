@@ -80,9 +80,13 @@ cred="$HOME/.claude/.credentials.json"
 state="$HOME/.claude.json"
 kc="$HOME/Library/Keychains/login.keychain-db"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 50; }
-test -f "$cred" || { echo "missing materialized Claude credentials" >&2; exit 52; }
 test -f "$state" || { echo "missing materialized Claude state" >&2; exit 53; }
-grep -Fq "stored-refresh" "$cred" || { echo "missing materialized refresh token" >&2; exit 54; }
+if [ -f "$kc" ]; then
+  grep -Fq "stored-refresh" "$kc" || { echo "missing materialized keychain refresh token" >&2; exit 54; }
+else
+  test -f "$cred" || { echo "missing materialized Claude credentials" >&2; exit 52; }
+  grep -Fq "stored-refresh" "$cred" || { echo "missing materialized file refresh token" >&2; exit 54; }
+fi
 # Simulate a keychain-backed OAuth refresh: the rotated credential lands in the
 # agent login keychain (here a stand-in file holding the same JSON shape that
 # security find-generic-password -w would return), and the file credential

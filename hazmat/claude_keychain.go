@@ -159,6 +159,11 @@ reset_agent_keychain() {
   /usr/bin/security create-keychain -p "" "$kc"
   printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"
   /bin/chmod 0600 "$marker" >/dev/null 2>&1 || true
+  /usr/bin/security unlock-keychain -p "" "$kc"
+  best_effort_security /usr/bin/security login-keychain -s "$kc"
+  /usr/bin/security default-keychain -s "$kc"
+  /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
+  best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
 }
 
 if [ ! -e "$kc" ]; then
@@ -170,13 +175,8 @@ elif ! /usr/bin/security unlock-keychain -p "" "$kc" >/dev/null 2>&1; then
 fi
 
 /usr/bin/security unlock-keychain -p "" "$kc"
-
-# Helper-backed maintenance mode can reject this login-keychain preference
-# write even when the default/search-list/unlock path succeeds.
-best_effort_security /usr/bin/security login-keychain -s "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
-best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
 /usr/bin/security unlock-keychain -p "" "$kc"
 `
 }

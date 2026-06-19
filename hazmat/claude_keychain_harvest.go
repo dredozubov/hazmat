@@ -22,7 +22,6 @@ const claudeKeychainCredentialService = "Claude Code-credentials"
 var readClaudeAgentKeychainCredential = func() ([]byte, bool, error) {
 	out, err := asAgentOutput(
 		"/usr/bin/security", "find-generic-password",
-		"-a", agentUser,
 		"-s", claudeKeychainCredentialService,
 		"-w",
 		agentLoginKeychainPath(),
@@ -39,13 +38,32 @@ var readClaudeAgentKeychainCredential = func() ([]byte, bool, error) {
 	return raw, true, nil
 }
 
+// writeClaudeAgentKeychainCredential seeds Claude Code's OAuth credential into
+// the agent login keychain for keychain-preferring releases.
+var writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
+	raw, _ := data.([]byte)
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := asAgentQuiet(
+		"/usr/bin/security", "add-generic-password",
+		"-U",
+		"-s", claudeKeychainCredentialService,
+		"-w", string(raw),
+		agentLoginKeychainPath(),
+	); err != nil {
+		return fmt.Errorf("security add-generic-password failed: %w", err)
+	}
+	return nil
+}
+
 // clearClaudeAgentKeychainCredential removes the harvested Claude credential
 // from the agent login keychain so a rotated value never lingers across
 // sessions. Best-effort: a missing item is not an error.
 var clearClaudeAgentKeychainCredential = func() error {
 	_ = asAgentQuiet(
 		"/usr/bin/security", "delete-generic-password",
-		"-a", agentUser,
 		"-s", claudeKeychainCredentialService,
 		agentLoginKeychainPath(),
 	)
@@ -134,6 +152,7 @@ func withClaudeKeychainHarvest(a harnessAuthArtifact) harnessAuthArtifact {
 		}
 		return raw, true, nil
 	}
+	a.WriteAgentKeychain = writeClaudeAgentKeychainCredential
 	a.ClearAgentKeychain = clearClaudeAgentKeychainCredential
 	a.ReadHostKeychain = readClaudeHostKeychainCredential
 	a.WriteHostKeychain = writeClaudeHostKeychainCredential

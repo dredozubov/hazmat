@@ -15,6 +15,7 @@ import (
 // override these seams explicitly.
 func TestMain(m *testing.M) {
 	readClaudeAgentKeychainCredential = func() ([]byte, bool, error) { return nil, false, nil }
+	writeClaudeAgentKeychainCredential = func(harnessAuthData) error { return nil }
 	clearClaudeAgentKeychainCredential = func() error { return nil }
 	readClaudeHostKeychainCredential = func() (harnessAuthKeychainData, bool, error) {
 		return harnessAuthKeychainData{}, false, nil
