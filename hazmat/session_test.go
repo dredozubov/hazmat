@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -296,6 +297,184 @@ func TestClaudeNeedsAgentKeychainAccessOnlyForNativeOAuthMode(t *testing.T) {
 	cfg = sessionConfig{HarnessID: HarnessCodex}
 	if claudeNeedsAgentKeychainAccess(cfg, sessionModeNative, false) {
 		t.Fatal("non-Claude session should not prepare the Claude agent keychain")
+	}
+}
+
+func TestClaudeCommandOAuthLaunchSeedsAgentKeychain(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Claude OAuth keychain launch is macOS-specific")
+	}
+
+	isolateConfig(t)
+	skipInitCheck(t)
+
+	root := t.TempDir()
+	hostHome := filepath.Join(root, "host-home")
+	agentHomeDir := filepath.Join(root, "agent-home")
+	projectDir := filepath.Join(root, "project")
+	for _, dir := range []string{hostHome, agentHomeDir, projectDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	t.Setenv("HOME", hostHome)
+
+	mapAgentPath := func(path string) string {
+		if path == agentHome {
+			return agentHomeDir
+		}
+		prefix := agentHome + string(os.PathSeparator)
+		if strings.HasPrefix(path, prefix) {
+			return filepath.Join(agentHomeDir, strings.TrimPrefix(path, prefix))
+		}
+		return path
+	}
+	mapAgentValue := func(value string) string {
+		if value == agentHome {
+			return agentHomeDir
+		}
+		return strings.ReplaceAll(value, agentHome+string(os.PathSeparator), agentHomeDir+string(os.PathSeparator))
+	}
+
+	claudeBin := mapAgentPath(agentHome + "/.local/bin/claude")
+	if err := os.MkdirAll(filepath.Dir(claudeBin), 0o700); err != nil {
+		t.Fatalf("mkdir fake Claude bin dir: %v", err)
+	}
+	if err := os.WriteFile(claudeBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake Claude bin: %v", err)
+	}
+
+	oauthCredential := []byte(`{"claudeAiOauth":{"refreshToken":"stored-refresh"}}`)
+	if err := writeHostStoredSecretFile(claudeCredentialStorePathForHome(hostHome), oauthCredential); err != nil {
+		t.Fatalf("seed Claude OAuth store: %v", err)
+	}
+
+	savedAgentPathForDirectIO := agentPathForDirectIO
+	agentPathForDirectIO = mapAgentPath
+	t.Cleanup(func() { agentPathForDirectIO = savedAgentPathForDirectIO })
+
+	savedAgentZshrcPath := agentZshrcPath
+	agentZshrcPath = filepath.Join(agentHomeDir, ".zshrc")
+	t.Cleanup(func() { agentZshrcPath = savedAgentZshrcPath })
+
+	savedNewAgentCommand := newAgentCommand
+	newAgentCommand = func(args ...string) *exec.Cmd {
+		mapped := make([]string, len(args))
+		for i, arg := range args {
+			mapped[i] = mapAgentValue(arg)
+		}
+		cmd := exec.Command(mapped[0], mapped[1:]...)
+		cmd.Dir = "/"
+		cmd.Env = append(os.Environ(), "HOME="+agentHomeDir, "USER="+agentUser, "LOGNAME="+agentUser)
+		return cmd
+	}
+	t.Cleanup(func() { newAgentCommand = savedNewAgentCommand })
+
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
+	savedStartRemoval := startAgentTempRuntimeRemoval
+	startAgentTempRuntimeRemoval = func(string) error { return nil }
+	t.Cleanup(func() { startAgentTempRuntimeRemoval = savedStartRemoval })
+
+	savedPrepareGitHTTPS := prepareGitHTTPSCredentialRuntime
+	prepareGitHTTPSCredentialRuntime = func() (preparedSessionRuntime, error) {
+		return preparedSessionRuntime{Cleanup: func() {}}, nil
+	}
+	t.Cleanup(func() { prepareGitHTTPSCredentialRuntime = savedPrepareGitHTTPS })
+
+	savedExecuteMutationPlan := executeSessionMutationPlan
+	executeSessionMutationPlan = func(sessionMutationPlan) error { return nil }
+	t.Cleanup(func() { executeSessionMutationPlan = savedExecuteMutationPlan })
+
+	var keychainPrepared bool
+	savedRunKeychainScript := runClaudeAgentKeychainScript
+	runClaudeAgentKeychainScript = func(string) (string, error) {
+		keychainPrepared = true
+		return "", nil
+	}
+	t.Cleanup(func() { runClaudeAgentKeychainScript = savedRunKeychainScript })
+
+	var agentKeychainCredential []byte
+	savedReadAgentKeychain := readClaudeAgentKeychainCredential
+	readClaudeAgentKeychainCredential = func() ([]byte, bool, error) {
+		if len(agentKeychainCredential) == 0 {
+			return nil, false, nil
+		}
+		return append([]byte(nil), agentKeychainCredential...), true, nil
+	}
+	t.Cleanup(func() { readClaudeAgentKeychainCredential = savedReadAgentKeychain })
+
+	savedWriteAgentKeychain := writeClaudeAgentKeychainCredential
+	writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
+		raw, _ := data.([]byte)
+		agentKeychainCredential = append([]byte(nil), bytes.TrimSpace(raw)...)
+		return nil
+	}
+	t.Cleanup(func() { writeClaudeAgentKeychainCredential = savedWriteAgentKeychain })
+
+	savedClearAgentKeychain := clearClaudeAgentKeychainCredential
+	clearClaudeAgentKeychainCredential = func() error {
+		agentKeychainCredential = nil
+		return nil
+	}
+	t.Cleanup(func() { clearClaudeAgentKeychainCredential = savedClearAgentKeychain })
+
+	savedReadHostKeychain := readClaudeHostKeychainCredential
+	readClaudeHostKeychainCredential = func() (harnessAuthKeychainData, bool, error) {
+		return harnessAuthKeychainData{}, false, nil
+	}
+	t.Cleanup(func() { readClaudeHostKeychainCredential = savedReadHostKeychain })
+
+	savedWriteHostKeychain := writeClaudeHostKeychainCredential
+	writeClaudeHostKeychainCredential = func(harnessAuthData) error { return nil }
+	t.Cleanup(func() { writeClaudeHostKeychainCredential = savedWriteHostKeychain })
+
+	var launched bool
+	savedRunLaunch := runAgentSeatbeltScriptWithPlan
+	runAgentSeatbeltScriptWithPlan = func(cfg sessionConfig, _ sessionBackendPlan, _ sessionLaunchUI, _ string, args ...string) error {
+		launched = true
+		if cfg.HarnessID != HarnessClaude {
+			return fmt.Errorf("HarnessID = %q, want %q", cfg.HarnessID, HarnessClaude)
+		}
+		if !cfg.ClaudeKeychainAccess {
+			return fmt.Errorf("ClaudeKeychainAccess = false, want true")
+		}
+		if slices.Contains(args, "--bare") {
+			return fmt.Errorf("OAuth launch args unexpectedly contain --bare: %v", args)
+		}
+		if !keychainPrepared {
+			return fmt.Errorf("Claude agent keychain was not prepared before launch")
+		}
+
+		runtime, err := prepareSessionRuntime(cfg)
+		if err != nil {
+			return err
+		}
+		defer runtime.Cleanup()
+
+		if !bytes.Equal(agentKeychainCredential, oauthCredential) {
+			return fmt.Errorf("agent keychain credential = %q, want %q", agentKeychainCredential, oauthCredential)
+		}
+		if _, err := os.Stat(mapAgentPath(agentHome + "/.claude/.credentials.json")); err == nil {
+			return fmt.Errorf("OAuth credential was materialized to agent file instead of keychain")
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	t.Cleanup(func() { runAgentSeatbeltScriptWithPlan = savedRunLaunch })
+
+	cmd := newClaudeCmd()
+	cmd.SetArgs([]string{"--no-backup", "--skip-harness-assets-sync", "-C", projectDir, "--", "-p", "hi"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("claude command: %v", err)
+	}
+	if !launched {
+		t.Fatal("Claude launch was not reached")
 	}
 }
 
