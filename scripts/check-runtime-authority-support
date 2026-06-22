@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root/hazmat"
+
+go test ./runtimeauthority ./runtimecapability ./runtimeauthoritytrace
+go test -tags beadpost_hostbroker ./hostbroker
+go test ./...
+go vet ./...
+go vet -tags beadpost_hostbroker ./hostbroker
