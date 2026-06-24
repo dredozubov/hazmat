@@ -636,6 +636,17 @@ func syncHostKeychainBeforeLaunch(artifact harnessAuthArtifact) error {
 	if err != nil {
 		return err
 	}
+	// Both copies exist and differ, so one must win on recency. If either
+	// timestamp is unknown — e.g. parseSecurityKeychainModifiedTime could not
+	// read the Keychain item's mdat — we cannot prove which is newer. Fail
+	// closed rather than assuming the timestamped side wins: a zero time must
+	// not let a stale value silently overwrite a possibly-newer one. This keeps
+	// the no-silent-loss property at the host-store<->host-Keychain mtime
+	// boundary, which MC_SecretStoreRecovery leaves out of model (it resolves
+	// divergence by archiving conflicts, never by inferring freshness).
+	if host.UpdatedAt.IsZero() || storeUpdatedAt.IsZero() {
+		return fmt.Errorf("%s host Keychain sync conflict: cannot determine which of host store and host Keychain is newer (missing modification time); resolve manually", artifact.Name)
+	}
 	switch {
 	case host.UpdatedAt.After(storeUpdatedAt):
 		return artifact.WriteStore(artifact.StorePath, host.Data)

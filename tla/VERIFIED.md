@@ -980,6 +980,18 @@ an unchanged baseline from a same-content rewrite. The `AgentKeychainNeverBothLi
 invariant assumes the implementation clears the agent keychain residue at
 cleanup/recovery, the same way it removes the materialized file copy.
 
+The host-store↔host-Keychain reconciliation in `syncHostKeychainBeforeLaunch`
+(host login Keychain vs `~/.hazmat/secrets`) arbitrates divergence by
+modification time and is likewise out of model — it is the host-side
+counterpart of `ExternalStoreUpdate`'s excluded concurrent-host-write case. The
+model resolves divergence by archiving conflicts, never by inferring freshness;
+the implementation only reaches for timestamps at this unmodeled boundary, and
+when a timestamp is indeterminate (e.g. the Keychain item's `mdat` cannot be
+parsed) it **fails closed** — refusing the sync rather than letting the
+timestamped side silently overwrite a possibly-newer value — so the
+no-silent-loss intent of `LatestValueNeverSilentlyLost` is preserved at the
+boundary. Covered by `TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychainConflict`.
+
 **Change rules:**
 - Changes to `migrateHarnessAuthArtifact()`, `materializeHarnessAuthArtifact()`,
   or `harvestHarnessAuthArtifact()` must update `MC_SecretStoreRecovery.tla`

@@ -453,6 +453,47 @@ func TestPrepareHarnessAuthRuntimeRejectsEqualTimeHostKeychainConflict(t *testin
 	}
 }
 
+// TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychainConflict guards
+// the fail-closed path: when the host Keychain item's modification time cannot
+// be parsed (zero UpdatedAt) and the store and Keychain values differ, the
+// sync must refuse rather than let the timestamped store silently overwrite a
+// possibly-newer Keychain value. It must also not leak either secret or write
+// to the host Keychain.
+func TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychainConflict(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "store", "claude", "credentials.json")
+	agentPath := filepath.Join(root, "agent", ".claude", ".credentials.json")
+	stored := []byte(`{"refreshToken":"stored-secret-should-not-leak"}`)
+	host := []byte(`{"refreshToken":"host-secret-should-not-leak"}`)
+
+	if err := writeHostStoredSecretFile(storePath, stored); err != nil {
+		t.Fatalf("write host store: %v", err)
+	}
+	mustChtimes(t, storePath, time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC))
+
+	// Zero hostUpdatedAt models an unparseable Keychain mdat.
+	artifact := testClaudeKeychainSyncArtifact(storePath, agentPath, host, time.Time{})
+	var hostWrites int
+	artifact.WriteHostKeychain = func(harnessAuthData) error {
+		hostWrites++
+		return nil
+	}
+
+	_, _, err := materializeHarnessAuthArtifact(artifact)
+	if err == nil {
+		t.Fatal("materializeHarnessAuthArtifact succeeded, want fail-closed conflict")
+	}
+	if hostWrites != 0 {
+		t.Fatalf("host Keychain was overwritten on indeterminate freshness (%d writes)", hostWrites)
+	}
+	assertFileBytes(t, storePath, stored, "host store must be left untouched")
+	for _, leaked := range []string{"stored-secret-should-not-leak", "host-secret-should-not-leak"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Fatalf("conflict error leaked secret %q: %s", leaked, err.Error())
+		}
+	}
+}
+
 func TestMigrateHarnessAuthArtifactsDropsNonHarvestableClaudeCredentials(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
