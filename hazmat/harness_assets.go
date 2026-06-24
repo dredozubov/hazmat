@@ -1516,11 +1516,19 @@ func defaultHarnessAssetAgentRepairDir(path string, mode os.FileMode) error {
 	if !isDir {
 		return fmt.Errorf("cannot repair non-directory harness asset path %s", path)
 	}
-	if err := sudoNoPrompt("chown", agentUser+":"+sharedGroup, path); err != nil {
-		return fmt.Errorf("set owner on %s: %w", path, err)
+	// Apply ownership through the privileged, symlink-safe repair subcommand
+	// rather than `sudo chown`/`sudo chmod`, which would follow a symlink the
+	// agent could swap in at any path component after the checks above.
+	self, err := repairAgentDirSelfPath()
+	if err != nil {
+		return err
 	}
-	if err := sudoNoPrompt("chmod", fileModeString(mode), path); err != nil {
-		return fmt.Errorf("set mode on %s: %w", path, err)
+	if err := sudoNoPrompt(self, repairAgentDirSubcommand,
+		"--path", path,
+		"--user", agentUser,
+		"--group", sharedGroup,
+		"--mode", fileModeString(mode)); err != nil {
+		return fmt.Errorf("repair ownership of %s: %w", path, err)
 	}
 	return nil
 }

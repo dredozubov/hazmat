@@ -114,6 +114,7 @@ func NewRootCommand() *cobra.Command {
 			newHooksCmd(),
 		},
 		Hidden: []*cobra.Command{
+			newRepairAgentDirCmd(),
 			agententry.NewConnectCommand(),
 			agententry.NewGitSSHTransportCommand(runGitSSHTransportHelper),
 			agententry.NewGitHTTPSCredentialCommand(requestGitHTTPSCredentialForAgentEntry),
