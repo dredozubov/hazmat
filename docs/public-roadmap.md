@@ -46,7 +46,7 @@ These are the best places for outside contributors to start. They grow the ecosy
 - Priority: `P1`
 - Type: `task`
 - Assignee: `Denis Redozubov`
-- Summary: Create a lightweight recipes library for common contained workflows such as Claude + Next.js, Codex + uv, OpenCode + Go, and Gemini + TLA+. Recipes should be practical docs that show what integrations to enable, what extra read/write scope is typical, what mode to use, and what caveats are known. This is intended as a low-risk, community-expandable contribution surface.
+- Summary: Create a lightweight recipes library for common contained workflows such as Claude + Next.js, Codex + uv, OpenCode + Go, and Antigravity + TLA+. Recipes should be practical docs that show what integrations to enable, what extra read/write scope is typical, what mode to use, and what caveats are known. This is intended as a low-risk, community-expandable contribution surface.
 
 ### Enable GitHub Discussions and document categories (`sandboxing-dtri`)
 

@@ -10,13 +10,13 @@ import (
 const testAgentHome = "/Users/agent"
 
 func TestInspectArtifactDetectsDrift(t *testing.T) {
-	path := testAgentHome + "/.local/lib/node_modules/@google/gemini-cli"
+	path := testAgentHome + "/.local/lib/node_modules/@qwen-code/qwen-code"
 	status := InspectArtifact(
 		fakeArtifactRead(map[string]ArtifactKind{
 			path: ArtifactFile,
 		}, nil),
 		testAgentHome,
-		DirArtifact(path, "Gemini CLI npm package"),
+		DirArtifact(path, "Qwen Code npm package"),
 	)
 	if !status.Exists {
 		t.Fatal("expected artifact to exist")
@@ -27,7 +27,7 @@ func TestInspectArtifactDetectsDrift(t *testing.T) {
 }
 
 func TestInspectArtifactChecksNpmPackageMetadata(t *testing.T) {
-	path := testAgentHome + "/.local/lib/node_modules/@google/gemini-cli"
+	path := testAgentHome + "/.local/lib/node_modules/@qwen-code/qwen-code"
 	status := InspectArtifact(
 		fakeArtifactRead(map[string]ArtifactKind{
 			path: ArtifactDir,
@@ -35,12 +35,12 @@ func TestInspectArtifactChecksNpmPackageMetadata(t *testing.T) {
 			filepath.Join(path, "package.json"): `{"name":"left-pad"}`,
 		}),
 		testAgentHome,
-		NpmPackageDirArtifact(path, "@google/gemini-cli", "Gemini CLI npm package"),
+		NpmPackageDirArtifact(path, "@qwen-code/qwen-code", "Qwen Code npm package"),
 	)
 	if !status.Exists {
 		t.Fatal("expected package directory to exist")
 	}
-	if !strings.Contains(status.Drift, "expected npm package @google/gemini-cli, got left-pad") {
+	if !strings.Contains(status.Drift, "expected npm package @qwen-code/qwen-code, got left-pad") {
 		t.Fatalf("Drift = %q", status.Drift)
 	}
 }
@@ -93,7 +93,7 @@ func TestValidateArtifactPathRejectsAgentHomeAndExternalPaths(t *testing.T) {
 }
 
 func TestRemoveArtifactUsesExactPlannedPath(t *testing.T) {
-	path := testAgentHome + "/.local/lib/node_modules/@google/gemini-cli"
+	path := testAgentHome + "/.local/lib/node_modules/@qwen-code/qwen-code"
 	var gotReason string
 	var gotArgs []string
 
@@ -101,12 +101,12 @@ func TestRemoveArtifactUsesExactPlannedPath(t *testing.T) {
 		gotReason = reason
 		gotArgs = append([]string(nil), args...)
 		return nil
-	}, testAgentHome, DirArtifact(path, "Gemini CLI npm package"))
+	}, testAgentHome, DirArtifact(path, "Qwen Code npm package"))
 	if err != nil {
 		t.Fatalf("RemoveArtifact: %v", err)
 	}
 
-	if gotReason != "remove Gemini CLI npm package" {
+	if gotReason != "remove Qwen Code npm package" {
 		t.Fatalf("reason = %q", gotReason)
 	}
 	wantArgs := []string{"/bin/rm", "-rf", "--", path}

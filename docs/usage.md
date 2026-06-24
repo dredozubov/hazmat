@@ -2,7 +2,7 @@
 
 Hazmat runs AI agents on your Mac with full permissions — inside containment. Every session prints a contract telling you exactly what the agent can do, which mode was selected, and why.
 
-> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, gemini, experimental hermes, qwen, cursor-agent, and pi.
+> **Picking which agent to install?** [docs/harnesses.md](harnesses.md) is the per-harness setup matrix — tested versions, auth paths, and verification commands for claude, codex, opencode, antigravity, experimental hermes, qwen, cursor-agent, and pi.
 >
 > **Verifying a fresh install or a release candidate?** [docs/manual-testing.md](manual-testing.md) is the human-driven checklist with preconditions, per-harness flows, regression scenarios, and recovery moves.
 
@@ -47,7 +47,7 @@ hazmat pi -- --version
 ```
 
 `init` creates a contained environment and lets you choose whether to bootstrap
-Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, Pi, or skip agent
+Claude Code, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, or skip agent
 installation for now. When you bootstrap an agent during init, Hazmat can also
 ask for reusable provider API keys and git credentials. Import prompts are
 offered only for harnesses with a supported host-profile import path; Hermes,
@@ -188,7 +188,7 @@ cd ~/workspace/my-project
 hazmat claude
 hazmat codex
 hazmat opencode
-hazmat gemini
+hazmat antigravity
 hazmat hermes -- --version
 hazmat qwen
 ```
@@ -221,7 +221,7 @@ from that one Seatbelt policy:
 hazmat claude --network none --metadata-json -p "review this packet offline"
 hazmat codex --network none --metadata-json exec "review this packet offline"
 hazmat opencode --network none --metadata-json run "review this packet offline"
-hazmat gemini --network none --metadata-json -p "review this packet offline"
+hazmat antigravity --network none --metadata-json -p "review this packet offline"
 hazmat hermes --network none --metadata-json -- --version
 hazmat qwen --network none --metadata-json -p "review this packet offline"
 hazmat exec --network none --metadata-json -- /bin/zsh -lc 'make test'
@@ -383,7 +383,7 @@ hazmat config docker auto -C ~/workspace/my-project
 ```
 
 Docker Sandbox sessions are available through every harness entrypoint:
-`hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
+`hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat antigravity`,
 `hazmat hermes`, `hazmat qwen`, `hazmat shell`, and `hazmat exec`.
 `--docker=auto` keeps the default native path for code-only repos and routes
 Docker-heavy private-daemon fits into the matching harness automatically.
@@ -769,11 +769,10 @@ SSH shells remain unsupported.
 hazmat config import claude
 hazmat config import codex
 hazmat config import opencode
-hazmat config import gemini
 
 hazmat config import claude --dry-run      # preview
 hazmat config import opencode --overwrite  # resolve conflicts by replacing
-hazmat config import gemini --skip-existing
+hazmat config import codex --skip-existing
 ```
 
 Hazmat treats imports as curated basics, not full profile migrations. Supported
@@ -784,9 +783,10 @@ or harvested on normal exit.
 
 Claude and OpenCode have detailed import notes:
 [claude-import.md](claude-import.md) and [opencode-import.md](opencode-import.md).
-Codex and Gemini import scope is summarized in [harnesses.md](harnesses.md).
-Hermes, Qwen, Cursor Agent, and Pi do not import host `~/.hermes`, host
-`~/.qwen`, host Cursor state, or host `~/.pi/agent` in v1.
+Codex import scope is summarized in [harnesses.md](harnesses.md).
+Antigravity, Hermes, Qwen, Cursor Agent, and Pi do not import host
+`~/.gemini/antigravity-cli`, host `~/.hermes`, host `~/.qwen`, host Cursor state,
+or host `~/.pi/agent` in v1.
 
 ## Running OpenCode
 
@@ -814,19 +814,20 @@ lives under the agent user's home directory, while durable imported auth and
 API keys live in Hazmat's host-owned secret store and are materialized only
 for active Codex sessions.
 
-## Running Gemini
+## Running Antigravity
 
 ```bash
-hazmat harness update gemini
-hazmat gemini
-hazmat gemini -p "summarize this repo"
+hazmat harness update antigravity
+hazmat antigravity
+hazmat antigravity -p "summarize this repo"
 ```
 
-Gemini uses the same containment and project preflight model. File-backed auth
-can be imported or harvested into `~/.hazmat/secrets/gemini/`; modern
-Keychain-backed Gemini OAuth is reported as an external boundary until Hazmat
-has a Keychain adapter for it. For API-key use, store `GEMINI_API_KEY` through
-`hazmat config agent`.
+Antigravity (`agy`, Google's successor to the Gemini CLI) uses the same
+containment and project preflight model. `hazmat harness update antigravity`
+installs the pinned, checksum-verified `agy` binary; there is no curated import
+in v1. For API-key use, store `ANTIGRAVITY_API_KEY` (or `GEMINI_API_KEY`) through
+`hazmat config agent`. Antigravity's Keychain-backed OAuth is reported as an
+external, adapter-required boundary.
 
 ## Running Hermes
 

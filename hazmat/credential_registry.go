@@ -43,19 +43,18 @@ const (
 )
 
 const (
-	credentialProviderAnthropicAPIKey  credentialID = credentials.ProviderAnthropicAPIKey
-	credentialProviderOpenAIAPIKey     credentialID = credentials.ProviderOpenAIAPIKey
-	credentialProviderGeminiAPIKey     credentialID = credentials.ProviderGeminiAPIKey
-	credentialProviderOpenRouterAPIKey credentialID = credentials.ProviderOpenRouterAPIKey
+	credentialProviderAnthropicAPIKey   credentialID = credentials.ProviderAnthropicAPIKey
+	credentialProviderOpenAIAPIKey      credentialID = credentials.ProviderOpenAIAPIKey
+	credentialProviderGeminiAPIKey      credentialID = credentials.ProviderGeminiAPIKey
+	credentialProviderAntigravityAPIKey credentialID = credentials.ProviderAntigravityAPIKey
+	credentialProviderOpenRouterAPIKey  credentialID = credentials.ProviderOpenRouterAPIKey
 
-	credentialHarnessClaudeCredentials credentialID = credentials.HarnessClaudeCredentials
-	credentialHarnessClaudeState       credentialID = credentials.HarnessClaudeState
-	credentialHarnessClaudeKeychain    credentialID = credentials.HarnessClaudeKeychain
-	credentialHarnessCodexAuth         credentialID = credentials.HarnessCodexAuth
-	credentialHarnessOpenCodeAuth      credentialID = credentials.HarnessOpenCodeAuth
-	credentialHarnessGeminiOAuth       credentialID = credentials.HarnessGeminiOAuth
-	credentialHarnessGeminiAccounts    credentialID = credentials.HarnessGeminiAccounts
-	credentialHarnessGeminiKeychain    credentialID = credentials.HarnessGeminiKeychain
+	credentialHarnessClaudeCredentials   credentialID = credentials.HarnessClaudeCredentials
+	credentialHarnessClaudeState         credentialID = credentials.HarnessClaudeState
+	credentialHarnessClaudeKeychain      credentialID = credentials.HarnessClaudeKeychain
+	credentialHarnessCodexAuth           credentialID = credentials.HarnessCodexAuth
+	credentialHarnessOpenCodeAuth        credentialID = credentials.HarnessOpenCodeAuth
+	credentialHarnessAntigravityKeychain credentialID = credentials.HarnessAntigravityKeychain
 
 	credentialGitSSHExternalIdentity    credentialID = credentials.GitSSHExternalIdentity
 	credentialGitSSHProvisionedIdentity credentialID = credentials.GitSSHProvisionedIdentity

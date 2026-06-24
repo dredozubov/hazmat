@@ -139,7 +139,7 @@ Subcommands:
   hazmat bootstrap claude
   hazmat bootstrap codex
   hazmat bootstrap opencode
-  hazmat bootstrap gemini
+  hazmat bootstrap antigravity
   hazmat bootstrap hermes
   hazmat bootstrap qwen
   hazmat bootstrap cursor-agent
@@ -158,7 +158,7 @@ For lifecycle-oriented commands, use:
 	cmd.AddCommand(withUpdateNotifications(newBootstrapClaudeCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapCodexCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapOpenCodeCmd()))
-	cmd.AddCommand(withUpdateNotifications(newBootstrapGeminiCmd()))
+	cmd.AddCommand(withUpdateNotifications(newBootstrapAntigravityCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapHermesCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapQwenCmd()))
 	cmd.AddCommand(withUpdateNotifications(newBootstrapCursorAgentCmd()))

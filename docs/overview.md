@@ -113,7 +113,7 @@ flowchart TD
 The key UX improvement in Hazmat's dedicated-user setup is that you stay in your
 normal shell while the agent process runs as the isolated `agent` user:
 
-- `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat gemini`,
+- `hazmat claude`, `hazmat codex`, `hazmat opencode`, `hazmat antigravity`,
   `hazmat hermes`, and `hazmat qwen` launch supported harnesses in containment
 - `hazmat shell` opens an interactive contained shell
 - `hazmat exec -- <command>` runs one-off tools like `make`, `npx`, `uv`, and

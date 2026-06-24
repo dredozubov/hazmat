@@ -19,8 +19,8 @@ func newConfigAgentCmd() *cobra.Command {
 
 Sets up:
   1. Provider API keys used by installed harnesses (Anthropic / OpenAI /
-     Gemini / OpenRouter). Stored in ~/.hazmat/secrets and injected only into
-     explicitly allowed sessions
+     Antigravity / Gemini / OpenRouter). Stored in ~/.hazmat/secrets and
+     injected only into explicitly allowed sessions
   2. Git identity (name + email, pre-filled from host git config)
   3. Removes legacy agent-home Git HTTPS credential helpers
 
@@ -45,7 +45,7 @@ Examples:
 type harnessAPIKeySpec struct {
 	CredentialID credentialID
 	EnvVar       string // env var name injected into matching sessions
-	DisplayName  string // "Anthropic", "OpenAI", "Gemini"
+	DisplayName  string // "Anthropic", "OpenAI", "Antigravity"
 	KeyPrefix    string // mask hint — known prefix that identifies a real key (e.g. "sk-ant-"); empty = no prefix-based mask
 	SkipHint     string // shown when the user chooses not to set the key
 	NotFoundHint string // shown when neither current nor host env var is set, before the paste prompt
@@ -71,11 +71,19 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 		NotFoundHint: "Paste an API key now (sk-...) or press Enter to skip provider API-key setup.",
 	},
 	{
+		CredentialID: credentialProviderAntigravityAPIKey,
+		EnvVar:       "ANTIGRAVITY_API_KEY",
+		DisplayName:  "Antigravity",
+		KeyPrefix:    "",
+		SkipHint:     "use provider auth inside Antigravity or another allowed harness",
+		NotFoundHint: "Paste an API key now (ANTIGRAVITY_API_KEY) or press Enter to skip provider API-key setup.",
+	},
+	{
 		CredentialID: credentialProviderGeminiAPIKey,
 		EnvVar:       "GEMINI_API_KEY",
 		DisplayName:  "Gemini",
 		KeyPrefix:    "",
-		SkipHint:     "use provider auth inside Gemini or another allowed harness",
+		SkipHint:     "use provider auth inside Antigravity or another allowed harness",
 		NotFoundHint: "Paste an API key now (from https://aistudio.google.com/apikey) or press Enter to skip provider API-key setup.",
 	},
 	{

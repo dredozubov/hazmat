@@ -15,7 +15,7 @@ const (
 	HarnessClaude      HarnessID = harnesses.Claude
 	HarnessCodex       HarnessID = harnesses.Codex
 	HarnessOpenCode    HarnessID = harnesses.OpenCode
-	HarnessGemini      HarnessID = harnesses.Gemini
+	HarnessAntigravity HarnessID = harnesses.Antigravity
 	HarnessHermes      HarnessID = harnesses.Hermes
 	HarnessQwen        HarnessID = harnesses.Qwen
 	HarnessCursorAgent HarnessID = harnesses.CursorAgent
@@ -65,19 +65,18 @@ const (
 )
 
 const (
-	ProviderAnthropicAPIKey  ID = "provider.anthropic.api-key"
-	ProviderOpenAIAPIKey     ID = "provider.openai.api-key"
-	ProviderGeminiAPIKey     ID = "provider.gemini.api-key"
-	ProviderOpenRouterAPIKey ID = "provider.openrouter.api-key"
+	ProviderAnthropicAPIKey   ID = "provider.anthropic.api-key"
+	ProviderOpenAIAPIKey      ID = "provider.openai.api-key"
+	ProviderGeminiAPIKey      ID = "provider.gemini.api-key"
+	ProviderAntigravityAPIKey ID = "provider.antigravity.api-key"
+	ProviderOpenRouterAPIKey  ID = "provider.openrouter.api-key"
 
-	HarnessClaudeCredentials ID = "harness.claude.credentials"
-	HarnessClaudeState       ID = "harness.claude.state"
-	HarnessClaudeKeychain    ID = "harness.claude.agent-keychain-oauth"
-	HarnessCodexAuth         ID = "harness.codex.auth"
-	HarnessOpenCodeAuth      ID = "harness.opencode.auth"
-	HarnessGeminiOAuth       ID = "harness.gemini.oauth"
-	HarnessGeminiAccounts    ID = "harness.gemini.accounts"
-	HarnessGeminiKeychain    ID = "harness.gemini.keychain-oauth"
+	HarnessClaudeCredentials   ID = "harness.claude.credentials"
+	HarnessClaudeState         ID = "harness.claude.state"
+	HarnessClaudeKeychain      ID = "harness.claude.agent-keychain-oauth"
+	HarnessCodexAuth           ID = "harness.codex.auth"
+	HarnessOpenCodeAuth        ID = "harness.opencode.auth"
+	HarnessAntigravityKeychain ID = "harness.antigravity.keychain-oauth"
 
 	GitSSHExternalIdentity    ID = "git-ssh.external-identity"
 	GitSSHProvisionedIdentity ID = "git-ssh.provisioned-identity"
@@ -356,6 +355,20 @@ func builtinRegistry(paths RegistryPaths) []Descriptor {
 			agentHome:         paths.AgentHome,
 		},
 		{
+			ID:                ProviderAntigravityAPIKey,
+			DisplayName:       "Antigravity API key",
+			Kind:              KindProviderAPIKey,
+			Backend:           StorageHostSecretStore,
+			Delivery:          DeliveryEnv,
+			Support:           SupportManaged,
+			StoreRelPath:      "providers/antigravity-api-key",
+			ConsumerHarnesses: []HarnessID{HarnessAntigravity},
+			EnvVar:            "ANTIGRAVITY_API_KEY",
+			LegacyPaths:       []string{paths.AgentZshrcPath},
+			Redacted:          true,
+			agentHome:         paths.AgentHome,
+		},
+		{
 			ID:                ProviderGeminiAPIKey,
 			DisplayName:       "Gemini API key",
 			Kind:              KindProviderAPIKey,
@@ -363,7 +376,7 @@ func builtinRegistry(paths RegistryPaths) []Descriptor {
 			Delivery:          DeliveryEnv,
 			Support:           SupportManaged,
 			StoreRelPath:      "providers/gemini-api-key",
-			ConsumerHarnesses: []HarnessID{HarnessGemini, HarnessHermes},
+			ConsumerHarnesses: []HarnessID{HarnessAntigravity, HarnessHermes},
 			EnvVar:            "GEMINI_API_KEY",
 			LegacyPaths:       []string{paths.AgentZshrcPath},
 			Redacted:          true,
@@ -456,44 +469,14 @@ func builtinRegistry(paths RegistryPaths) []Descriptor {
 			agentHome:       paths.AgentHome,
 		},
 		{
-			ID:              HarnessGeminiOAuth,
-			DisplayName:     "Gemini OAuth credentials",
-			Kind:            KindHarnessAuth,
-			Backend:         StorageHostSecretStore,
-			Delivery:        DeliveryMaterializedFile,
-			Support:         SupportManaged,
-			StoreRelPath:    "gemini/oauth_creds.json",
-			Harness:         HarnessGemini,
-			AgentPath:       paths.agentPath("/.gemini/oauth_creds.json"),
-			LegacyPaths:     []string{paths.agentPath("/.gemini/oauth_creds.json")},
-			Redacted:        true,
-			ConflictArchive: true,
-			agentHome:       paths.AgentHome,
-		},
-		{
-			ID:              HarnessGeminiAccounts,
-			DisplayName:     "Gemini account index",
-			Kind:            KindHarnessAuth,
-			Backend:         StorageHostSecretStore,
-			Delivery:        DeliveryMaterializedFile,
-			Support:         SupportManaged,
-			StoreRelPath:    "gemini/google_accounts.json",
-			Harness:         HarnessGemini,
-			AgentPath:       paths.agentPath("/.gemini/google_accounts.json"),
-			LegacyPaths:     []string{paths.agentPath("/.gemini/google_accounts.json")},
-			Redacted:        true,
-			ConflictArchive: true,
-			agentHome:       paths.AgentHome,
-		},
-		{
-			ID:          HarnessGeminiKeychain,
-			DisplayName: "Gemini Keychain OAuth state",
+			ID:          HarnessAntigravityKeychain,
+			DisplayName: "Antigravity Keychain OAuth state",
 			Kind:        KindExternalAuth,
 			Backend:     StorageKeychain,
 			Delivery:    DeliveryExternalReference,
 			Support:     SupportAdapterRequired,
-			Harness:     HarnessGemini,
-			ExternalRef: "macOS Keychain item owned by Gemini CLI",
+			Harness:     HarnessAntigravity,
+			ExternalRef: "macOS Keychain item owned by Antigravity (agy)",
 			Redacted:    true,
 			agentHome:   paths.AgentHome,
 		},

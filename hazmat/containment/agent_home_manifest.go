@@ -177,6 +177,8 @@ var persistentAgentHomeManifest = []AgentHomeStateEntry{
 	{RelPath: ".cursor", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState},
 	{RelPath: ".deno", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState, ExecutableRelPaths: []string{".deno/bin"}},
 	{RelPath: ".gem", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState, ExecutableRelPaths: []string{".gem"}},
+	// Antigravity (agy) stores its config under ~/.gemini/antigravity-cli, so
+	// the ~/.gemini grant covers the Antigravity harness state.
 	{RelPath: ".gemini", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState},
 	{RelPath: ".gradle", Kind: AgentHomeStateDir, Class: AgentHomeStateToolchainState},
 	{RelPath: ".hazmat", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState, CoveredPaths: []AgentHomeCoveredPath{

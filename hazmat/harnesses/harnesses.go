@@ -8,7 +8,7 @@ const (
 	Claude      ID = "claude"
 	Codex       ID = "codex"
 	OpenCode    ID = "opencode"
-	Gemini      ID = "gemini"
+	Antigravity ID = "antigravity"
 	Hermes      ID = "hermes"
 	Qwen        ID = "qwen"
 	CursorAgent ID = "cursor-agent"
@@ -19,7 +19,7 @@ const (
 	ClaudeStateVersion      = "1"
 	CodexStateVersion       = "1"
 	OpenCodeStateVersion    = "1"
-	GeminiStateVersion      = "1"
+	AntigravityStateVersion = "1"
 	HermesStateVersion      = "1"
 	QwenStateVersion        = "1"
 	CursorAgentStateVersion = "1"
@@ -73,12 +73,12 @@ var builtinMetadata = []Metadata{
 		},
 	},
 	{
-		Spec:             Spec{ID: Gemini, DisplayName: "Gemini", StateVersion: GeminiStateVersion},
-		LaunchCommand:    "hazmat gemini",
-		BootstrapCommand: "hazmat bootstrap gemini",
+		Spec:             Spec{ID: Antigravity, DisplayName: "Antigravity", StateVersion: AntigravityStateVersion},
+		LaunchCommand:    "hazmat antigravity",
+		BootstrapCommand: "hazmat bootstrap antigravity",
 		ImportPolicy: ImportPolicy{
-			Supported: true,
-			Boundary:  "file-backed Gemini OAuth/account files sync through registered paths; settings and memory basics import; Keychain OAuth remains external and adapter-required",
+			Supported: false,
+			Boundary:  "Antigravity v1 has no curated import; contained-only API-key passthrough (ANTIGRAVITY_API_KEY / GEMINI_API_KEY) is preserved and host Keychain OAuth is not synced (it remains external and adapter-required)",
 		},
 	},
 	{

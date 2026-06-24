@@ -348,16 +348,15 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 	case credentialProviderAnthropicAPIKey,
 		credentialProviderOpenAIAPIKey,
 		credentialProviderGeminiAPIKey,
+		credentialProviderAntigravityAPIKey,
 		credentialProviderOpenRouterAPIKey,
 		credentialGitHubAPIToken,
 		credentialHarnessClaudeCredentials,
 		credentialHarnessClaudeState,
 		credentialHarnessCodexAuth,
 		credentialHarnessOpenCodeAuth,
-		credentialHarnessGeminiOAuth,
-		credentialHarnessGeminiAccounts,
 		credentialHarnessClaudeKeychain,
-		credentialHarnessGeminiKeychain,
+		credentialHarnessAntigravityKeychain,
 		credentialGitSSHExternalIdentity:
 	}
 

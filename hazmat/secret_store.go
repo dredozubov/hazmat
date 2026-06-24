@@ -58,14 +58,6 @@ func openCodeAuthStorePathForHome(home string) string {
 	return mustCredentialStorePathForHome(home, credentialHarnessOpenCodeAuth)
 }
 
-func geminiOAuthStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessGeminiOAuth)
-}
-
-func geminiAccountsStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessGeminiAccounts)
-}
-
 func usesManagedAgentPath(path string) bool {
 	return path == agentHome || isWithinDir(agentHome, path)
 }

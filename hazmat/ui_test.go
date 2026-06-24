@@ -652,7 +652,7 @@ func TestDoctorFixFooterReportsUnresolvedManualFindings(t *testing.T) {
 	ui.stepLabel = "Mixed findings"
 	ui.TestWarnFinding(diagnosticFinding(findingAgentUmask), "umask missing")
 	ui.TestFailFinding(diagnosticFinding(findingDockerSocketPermissions), "docker socket is too broad")
-	ui.TestFailFinding(diagnosticFinding(findingCredentialAdapterRequired), "gemini keychain adapter required")
+	ui.TestFailFinding(diagnosticFinding(findingCredentialAdapterRequired), "antigravity keychain adapter required")
 	ui.TestWarnFinding(diagnosticFinding(findingAgentSSHKey), "optional ssh key missing")
 
 	plan := ui.diagnosticReport().RepairPlan

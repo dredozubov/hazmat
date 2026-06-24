@@ -20,7 +20,7 @@ func TestRollbackReceiptsClassifyRemovedPreservedAndManualItems(t *testing.T) {
 			}},
 		},
 		{
-			ID:      credentialHarnessGeminiKeychain,
+			ID:      credentialHarnessAntigravityKeychain,
 			Support: credentialSupportAdapterRequired,
 		},
 	})

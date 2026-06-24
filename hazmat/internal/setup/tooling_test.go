@@ -234,7 +234,7 @@ func requiredAgentWritableSetupParents(env ToolingEnv) []string {
 		filepath.Join(env.AgentHome, ".local", "bin", "claude"),
 		filepath.Join(env.AgentHome, ".local", "bin", "claude-sandboxed"),
 		filepath.Join(env.AgentHome, ".local", "bin", "codex"),
-		filepath.Join(env.AgentHome, ".local", "bin", "gemini"),
+		filepath.Join(env.AgentHome, ".local", "bin", "agy"),
 		filepath.Join(env.AgentHome, ".local", "bin", "hermes"),
 		filepath.Join(env.AgentHome, ".local", "bin", "opencode"),
 		filepath.Join(env.AgentHome, ".local", "bin", "qwen"),

@@ -76,10 +76,10 @@ func TestRunInstallOrUpdateStepReportsDryRunMissingMessage(t *testing.T) {
 	var messages []string
 
 	err := RunInstallOrUpdateStep(InstallOrUpdateStep{
-		DisplayName:      "Gemini CLI",
-		TempPattern:      "hazmat-gemini-*.sh",
-		InstallReason:    "install Gemini",
-		MissingDryRunMsg: "Would install Gemini manually",
+		DisplayName:      "Antigravity (agy)",
+		TempPattern:      "hazmat-antigravity-*.sh",
+		InstallReason:    "install Antigravity",
+		MissingDryRunMsg: "Would install Antigravity manually",
 		BuildScript: func(dryRun bool) (string, error) {
 			if !dryRun {
 				t.Fatal("BuildScript got dryRun=false")
@@ -102,7 +102,7 @@ func TestRunInstallOrUpdateStepReportsDryRunMissingMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunInstallOrUpdateStep: %v", err)
 	}
-	if !containsString(messages, "Would install Gemini manually") {
+	if !containsString(messages, "Would install Antigravity manually") {
 		t.Fatalf("messages = %#v", messages)
 	}
 }

@@ -15,7 +15,7 @@ Hazmat's first community loop is evidence, not wishlists.
 If you use local coding agents on macOS, share one concrete workflow you want
 Hazmat to support well enough to prove:
 
-- agent or harness: Claude, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, or other
+- agent or harness: Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, or other
 - stack: language, framework, package manager, database, or local service shape
 - repo shape: Docker/no Docker, devcontainer, database needs, local services
 - containment mode: native, Docker Sandbox, code-only fallback, Tier 4, or unknown

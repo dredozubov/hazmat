@@ -167,25 +167,31 @@ func TestProviderCredentialConsumersAreHarnessAware(t *testing.T) {
 		{
 			id:        credentialProviderAnthropicAPIKey,
 			allowed:   []HarnessID{HarnessClaude, HarnessHermes},
-			denied:    []HarnessID{HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
+			denied:    []HarnessID{HarnessCodex, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/anthropic-api-key",
 		},
 		{
 			id:        credentialProviderOpenAIAPIKey,
 			allowed:   []HarnessID{HarnessCodex, HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
+			denied:    []HarnessID{HarnessClaude, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openai-api-key",
 		},
 		{
+			id:        credentialProviderAntigravityAPIKey,
+			allowed:   []HarnessID{HarnessAntigravity},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi},
+			storePath: "providers/antigravity-api-key",
+		},
+		{
 			id:        credentialProviderGeminiAPIKey,
-			allowed:   []HarnessID{HarnessGemini, HarnessHermes},
+			allowed:   []HarnessID{HarnessAntigravity, HarnessHermes},
 			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/gemini-api-key",
 		},
 		{
 			id:        credentialProviderOpenRouterAPIKey,
 			allowed:   []HarnessID{HarnessHermes},
-			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessGemini, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
+			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openrouter-api-key",
 		},
 	}
@@ -254,7 +260,7 @@ func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 	}{
 		{HarnessClaude, []credentialID{credentialProviderAnthropicAPIKey}},
 		{HarnessCodex, []credentialID{credentialProviderOpenAIAPIKey}},
-		{HarnessGemini, []credentialID{credentialProviderGeminiAPIKey}},
+		{HarnessAntigravity, []credentialID{credentialProviderAntigravityAPIKey, credentialProviderGeminiAPIKey}},
 		{HarnessHermes, []credentialID{
 			credentialProviderAnthropicAPIKey,
 			credentialProviderOpenAIAPIKey,
@@ -309,7 +315,7 @@ func TestHarnessAuthArtifactsUseCredentialRegistry(t *testing.T) {
 		{HarnessClaude, []credentialID{credentialHarnessClaudeCredentials, credentialHarnessClaudeState}},
 		{HarnessCodex, []credentialID{credentialHarnessCodexAuth}},
 		{HarnessOpenCode, []credentialID{credentialHarnessOpenCodeAuth}},
-		{HarnessGemini, []credentialID{credentialHarnessGeminiOAuth, credentialHarnessGeminiAccounts}},
+		{HarnessAntigravity, nil},
 	}
 
 	for _, tc := range cases {
@@ -367,11 +373,11 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 
 func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
-	if summary.ManagedHostSecretStore != 16 {
-		t.Fatalf("ManagedHostSecretStore = %d, want 16", summary.ManagedHostSecretStore)
+	if summary.ManagedHostSecretStore != 15 {
+		t.Fatalf("ManagedHostSecretStore = %d, want 15", summary.ManagedHostSecretStore)
 	}
-	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Gemini Keychain OAuth state" {
-		t.Fatalf("AdapterRequired = %v, want Gemini Keychain OAuth state", summary.AdapterRequired)
+	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Antigravity Keychain OAuth state" {
+		t.Fatalf("AdapterRequired = %v, want Antigravity Keychain OAuth state", summary.AdapterRequired)
 	}
 	wantExternal := []string{"Claude agent Keychain OAuth state", "Git SSH external identity reference"}
 	if len(summary.ExternalBoundaries) != len(wantExternal) {
@@ -468,25 +474,25 @@ func TestGitSSHCredentialDescriptorsModelIdentitySources(t *testing.T) {
 	}
 }
 
-func TestGeminiKeychainCredentialBoundaryIsExternal(t *testing.T) {
-	descriptor := mustCredentialDescriptor(credentialHarnessGeminiKeychain)
+func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
+	descriptor := mustCredentialDescriptor(credentialHarnessAntigravityKeychain)
 	if descriptor.Backend != credentialStorageKeychain {
-		t.Fatalf("Gemini Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
+		t.Fatalf("Antigravity Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
 	}
 	if descriptor.Delivery != credentialDeliveryExternalReference {
-		t.Fatalf("Gemini Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
+		t.Fatalf("Antigravity Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
 	}
 	if descriptor.Support != credentialSupportAdapterRequired {
-		t.Fatalf("Gemini Keychain support = %q, want %q", descriptor.Support, credentialSupportAdapterRequired)
+		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentialSupportAdapterRequired)
 	}
 	if descriptor.StoreRelPath != "" || descriptor.AgentPath != "" {
-		t.Fatalf("Gemini Keychain descriptor must not declare file paths: %+v", descriptor)
+		t.Fatalf("Antigravity Keychain descriptor must not declare file paths: %+v", descriptor)
 	}
 	if _, err := descriptor.StorePathForHome(t.TempDir()); err == nil {
-		t.Fatalf("Gemini Keychain descriptor produced host store path")
+		t.Fatalf("Antigravity Keychain descriptor produced host store path")
 	}
 	if _, err := descriptor.AgentMaterializationPath(); err == nil {
-		t.Fatalf("Gemini Keychain descriptor produced agent materialization path")
+		t.Fatalf("Antigravity Keychain descriptor produced agent materialization path")
 	}
 }
 

@@ -95,10 +95,6 @@ func TestHarnessAuthArtifactsForRuntimeHomeRemapAllManagedFileHarnesses(t *testi
 		HarnessOpenCode: {
 			filepath.Join(runtimeHome, ".local", "share", "opencode", "auth.json"),
 		},
-		HarnessGemini: {
-			filepath.Join(runtimeHome, ".gemini", "oauth_creds.json"),
-			filepath.Join(runtimeHome, ".gemini", "google_accounts.json"),
-		},
 	}
 
 	for harness, wantPaths := range want {
@@ -128,10 +124,6 @@ func TestHarnessAuthArtifactsDeclareRegisteredHostAuthPaths(t *testing.T) {
 		},
 		HarnessOpenCode: {
 			filepath.Join(home, ".local", "share", "opencode", "auth.json"),
-		},
-		HarnessGemini: {
-			filepath.Join(home, ".gemini", "oauth_creds.json"),
-			filepath.Join(home, ".gemini", "google_accounts.json"),
 		},
 	}
 
@@ -555,7 +547,7 @@ func fileBackedHarnessAuthCases(t *testing.T) []fileBackedHarnessAuthCase {
 	home := filepath.Join(root, "host")
 	runtimeHome := filepath.Join(root, "runtime-home")
 	var cases []fileBackedHarnessAuthCase
-	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode, HarnessGemini} {
+	for _, harness := range []HarnessID{HarnessCodex, HarnessOpenCode} {
 		for _, artifact := range harnessAuthArtifactsForRuntimeHome(harness, home, runtimeHome) {
 			if strings.TrimSpace(artifact.HostPath) == "" {
 				t.Fatalf("%s artifact %s missing host auth path", harness, artifact.Name)

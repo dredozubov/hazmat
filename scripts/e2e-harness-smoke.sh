@@ -14,7 +14,7 @@ Usage:
   bash scripts/e2e-harness-smoke.sh --list-harnesses
 
 Runs hermetic smoke coverage for:
-  - Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, and Pi foreground launch paths
+  - Claude Code, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, and Pi foreground launch paths
   - provider/env delivery for harnesses that consume provider env grants
   - file-backed auth materialization, harvest, and cleanup where applicable
 
@@ -26,7 +26,7 @@ EOF
 
 SKIP_BUILD=""
 LIST_HARNESSES=""
-SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent pi"
+SMOKE_HARNESSES="claude codex opencode antigravity hermes qwen cursor-agent pi"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 

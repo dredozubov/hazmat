@@ -216,9 +216,9 @@ func TestInspectManagedHarnessStatusTreatsMissingOwnedExecutableAsNotInstalled(t
 }
 
 func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
-	harness, ok := managedHarnessByID(HarnessGemini)
+	harness, ok := managedHarnessByID(HarnessAntigravity)
 	if !ok {
-		t.Fatal("missing Gemini harness")
+		t.Fatal("missing Antigravity harness")
 	}
 	restore := stubHarnessCredentialStatus(t, harnessCredentialStatus{
 		Summary:         "1 configured, 1 adapter-required; hazmat config agent",
@@ -226,8 +226,8 @@ func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
 		AdapterRequired: 1,
 		Entries: []harnessCredentialEntryStatus{
 			{
-				ID:          credentialHarnessGeminiKeychain,
-				DisplayName: "Gemini Keychain OAuth state",
+				ID:          credentialHarnessAntigravityKeychain,
+				DisplayName: "Antigravity Keychain OAuth state",
 				Status:      credentialInventoryAdapterRequired,
 				Kind:        credentialKindExternalAuth,
 				Backend:     credentialStorageKeychain,
@@ -240,29 +240,29 @@ func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
 
 	read := fakeHarnessRead(
 		map[string]harnessManagedArtifactKind{
-			agentHome + geminiBinRel: harnessArtifactFile,
+			agentHome + antigravityBinRel: harnessArtifactFile,
 		},
 		map[string]string{
-			agentHome + geminiBinRel: "gemini 0.9.0\n",
+			agentHome + antigravityBinRel: "agy 0.9.0\n",
 		},
 	)
 	status := inspectManagedHarnessStatus(harness, HazmatState{
 		Harnesses: map[HarnessID]HarnessState{
-			HarnessGemini: {StateVersion: geminiHarnessStateVersion},
+			HarnessAntigravity: {StateVersion: antigravityHarnessStateVersion},
 		},
 	}, nil, read)
 	payload := harnessStatusForJSON(status)
 
-	if payload.ID != HarnessGemini || payload.LifecycleStatus != harnessLifecycleOK {
+	if payload.ID != HarnessAntigravity || payload.LifecycleStatus != harnessLifecycleOK {
 		t.Fatalf("payload identity/status = %s/%s", payload.ID, payload.LifecycleStatus)
 	}
-	if !payload.Import.Supported || !strings.Contains(payload.Import.Boundary, "Keychain OAuth remains external") {
+	if payload.Import.Supported || !strings.Contains(payload.Import.Boundary, "adapter-required") {
 		t.Fatalf("import boundary = %#v", payload.Import)
 	}
 	if payload.Credentials.AdapterRequired != 1 || len(payload.Credentials.Entries) != 1 {
 		t.Fatalf("credential summary = %#v", payload.Credentials)
 	}
-	if strings.Contains(payload.Credentials.Summary, "gemini-key") {
+	if strings.Contains(payload.Credentials.Summary, "antigravity-key") {
 		t.Fatalf("credential summary contains secret-like material: %q", payload.Credentials.Summary)
 	}
 }
@@ -270,11 +270,11 @@ func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
 func TestManagedHarnessRegistryCarriesImportPolicy(t *testing.T) {
 	for _, harness := range managedHarnesses() {
 		switch harness.Spec.ID {
-		case HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini:
+		case HarnessClaude, HarnessCodex, HarnessOpenCode:
 			if !harness.ImportPolicy.Supported {
 				t.Fatalf("%s should support curated basics import", harness.Spec.ID)
 			}
-		case HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi:
+		case HarnessAntigravity, HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi:
 			if harness.ImportPolicy.Supported {
 				t.Fatalf("%s should remain a no-import boundary in v1", harness.Spec.ID)
 			}
@@ -292,12 +292,12 @@ func TestManagedHarnessRegistryCarriesImportPolicy(t *testing.T) {
 }
 
 func TestInspectHarnessArtifactDetectsDrift(t *testing.T) {
-	path := agentHome + "/.local/lib/node_modules/@google/gemini-cli"
+	path := agentHome + "/.local/lib/node_modules/@qwen-code/qwen-code"
 	status := inspectHarnessArtifact(
 		fakeHarnessRead(map[string]harnessManagedArtifactKind{
 			path: harnessArtifactFile,
 		}, nil),
-		harnessDirArtifact(path, "Gemini CLI npm package"),
+		harnessDirArtifact(path, "Qwen Code npm package"),
 	)
 	if !status.Exists {
 		t.Fatal("expected artifact to exist")
@@ -308,19 +308,19 @@ func TestInspectHarnessArtifactDetectsDrift(t *testing.T) {
 }
 
 func TestInspectHarnessArtifactChecksNpmPackageMetadata(t *testing.T) {
-	path := agentHome + "/.local/lib/node_modules/@google/gemini-cli"
+	path := agentHome + "/.local/lib/node_modules/@qwen-code/qwen-code"
 	status := inspectHarnessArtifact(
 		fakeHarnessRead(map[string]harnessManagedArtifactKind{
 			path: harnessArtifactDir,
 		}, map[string]string{
 			filepath.Join(path, "package.json"): `{"name":"left-pad"}`,
 		}),
-		harnessNpmPackageDirArtifact(path, "@google/gemini-cli", "Gemini CLI npm package"),
+		harnessNpmPackageDirArtifact(path, "@qwen-code/qwen-code", "Qwen Code npm package"),
 	)
 	if !status.Exists {
 		t.Fatal("expected package directory to exist")
 	}
-	if !strings.Contains(status.Drift, "expected npm package @google/gemini-cli, got left-pad") {
+	if !strings.Contains(status.Drift, "expected npm package @qwen-code/qwen-code, got left-pad") {
 		t.Fatalf("Drift = %q", status.Drift)
 	}
 }

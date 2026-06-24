@@ -74,11 +74,6 @@ func harnessAuthArtifactsForRuntimeHome(id HarnessID, home, runtimeHome string) 
 		return []harnessAuthArtifact{
 			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessOpenCodeAuth, runtimeHome),
 		}
-	case HarnessGemini:
-		return []harnessAuthArtifact{
-			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessGeminiOAuth, runtimeHome),
-			rawHarnessAuthArtifactForCredentialRuntimeHome(home, credentialHarnessGeminiAccounts, runtimeHome),
-		}
 	default:
 		return nil
 	}
@@ -541,10 +536,6 @@ func hostFileBackedAuthPath(home string, id credentialID) string {
 		return filepath.Join(home, ".codex", "auth.json")
 	case credentialHarnessOpenCodeAuth:
 		return filepath.Join(home, ".local", "share", "opencode", "auth.json")
-	case credentialHarnessGeminiOAuth:
-		return filepath.Join(home, ".gemini", "oauth_creds.json")
-	case credentialHarnessGeminiAccounts:
-		return filepath.Join(home, ".gemini", "google_accounts.json")
 	default:
 		return ""
 	}

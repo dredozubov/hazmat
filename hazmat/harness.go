@@ -12,7 +12,7 @@ const (
 	HarnessClaude                  HarnessID = harnesses.Claude
 	HarnessCodex                   HarnessID = harnesses.Codex
 	HarnessOpenCode                HarnessID = harnesses.OpenCode
-	HarnessGemini                  HarnessID = harnesses.Gemini
+	HarnessAntigravity             HarnessID = harnesses.Antigravity
 	HarnessHermes                  HarnessID = harnesses.Hermes
 	HarnessQwen                    HarnessID = harnesses.Qwen
 	HarnessCursorAgent             HarnessID = harnesses.CursorAgent
@@ -20,7 +20,7 @@ const (
 	claudeHarnessStateVersion                = harnesses.ClaudeStateVersion
 	codexHarnessStateVersion                 = harnesses.CodexStateVersion
 	opencodeHarnessStateVersion              = harnesses.OpenCodeStateVersion
-	geminiHarnessStateVersion                = harnesses.GeminiStateVersion
+	antigravityHarnessStateVersion           = harnesses.AntigravityStateVersion
 	hermesHarnessStateVersion                = harnesses.HermesStateVersion
 	qwenHarnessStateVersion                  = harnesses.QwenStateVersion
 	cursorAgentHarnessStateVersion           = harnesses.CursorAgentStateVersion
@@ -46,7 +46,7 @@ type ManagedHarness struct {
 type ClaudeHarness struct{}
 type CodexHarness struct{}
 type OpenCodeHarness struct{}
-type GeminiHarness struct{}
+type AntigravityHarness struct{}
 type HermesHarness struct{}
 type QwenHarness struct{}
 type CursorAgentHarness struct{}
@@ -55,7 +55,7 @@ type PiHarness struct{}
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
-var geminiHarness = GeminiHarness{}
+var antigravityHarness = AntigravityHarness{}
 var hermesHarness = HermesHarness{}
 var qwenHarness = QwenHarness{}
 var cursorAgentHarness = CursorAgentHarness{}
@@ -127,22 +127,22 @@ var managedHarnessRegistry = []ManagedHarness{
 		},
 	},
 	{
-		Spec:             harnessMetadata(HarnessGemini).Spec,
-		LaunchCommand:    harnessMetadata(HarnessGemini).LaunchCommand,
-		BootstrapCommand: harnessMetadata(HarnessGemini).BootstrapCommand,
-		ImportPolicy:     harnessMetadata(HarnessGemini).ImportPolicy,
+		Spec:             harnessMetadata(HarnessAntigravity).Spec,
+		LaunchCommand:    harnessMetadata(HarnessAntigravity).LaunchCommand,
+		BootstrapCommand: harnessMetadata(HarnessAntigravity).BootstrapCommand,
+		ImportPolicy:     harnessMetadata(HarnessAntigravity).ImportPolicy,
 		Installed: func() bool {
-			_, ok := findInstalledGeminiBinary()
+			_, ok := findInstalledAntigravityBinary()
 			return ok
 		},
-		Probe:                probeGeminiHarness,
-		ManagedCodeArtifacts: geminiHarnessManagedCodeArtifacts,
+		Probe:                probeAntigravityHarness,
+		ManagedCodeArtifacts: antigravityHarnessManagedCodeArtifacts,
 		PreservedArtifacts: []string{
-			agentHome + geminiStateDirRel + " OAuth, accounts, config, and sessions",
+			agentHome + antigravityStateDirRel + " contained Antigravity config and runtime state",
 			"provider credentials in ~/.hazmat/secrets",
 		},
 		Bootstrap: func(ui *UI, r *Runner) error {
-			return geminiHarness.Bootstrap(ui, r)
+			return antigravityHarness.Bootstrap(ui, r)
 		},
 	},
 	{
@@ -239,8 +239,8 @@ func (OpenCodeHarness) Spec() HarnessSpec {
 	return harnesses.MustSpec(HarnessOpenCode)
 }
 
-func (GeminiHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessGemini)
+func (AntigravityHarness) Spec() HarnessSpec {
+	return harnesses.MustSpec(HarnessAntigravity)
 }
 
 func (HermesHarness) Spec() HarnessSpec {
@@ -355,8 +355,8 @@ func (h OpenCodeHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
 }
 
-func (h GeminiHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runGeminiBootstrap(ui, r); err != nil {
+func (h AntigravityHarness) Bootstrap(ui *UI, r *Runner) error {
+	if err := runAntigravityBootstrap(ui, r); err != nil {
 		return err
 	}
 	if r != nil && !r.DryRun {
@@ -367,24 +367,8 @@ func (h GeminiHarness) Bootstrap(ui *UI, r *Runner) error {
 	return nil
 }
 
-func (h GeminiHarness) ImportBasics(ui *UI, r *Runner, env geminiImportEnv, opts geminiImportOptions) error {
-	if err := runGeminiBasicsImport(ui, r, env, opts); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordBasicsImported(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h GeminiHarness) RecordInstalled() error {
+func (h AntigravityHarness) RecordInstalled() error {
 	return recordHarnessInstalled(h.Spec())
-}
-
-func (h GeminiHarness) RecordBasicsImported() error {
-	return recordHarnessImportRun(h.Spec())
 }
 
 func (h HermesHarness) Bootstrap(ui *UI, r *Runner) error {

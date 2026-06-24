@@ -33,7 +33,7 @@ func TestBuiltinMetadataIsCompleteAndUnique(t *testing.T) {
 }
 
 func TestImportPolicyDocumentsSupportedAndNoImportHarnesses(t *testing.T) {
-	for _, id := range []ID{Claude, Codex, OpenCode, Gemini} {
+	for _, id := range []ID{Claude, Codex, OpenCode} {
 		metadata := MustMetadata(id)
 		if !metadata.ImportPolicy.Supported {
 			t.Fatalf("%s import policy = unsupported, want supported", id)
@@ -43,7 +43,7 @@ func TestImportPolicyDocumentsSupportedAndNoImportHarnesses(t *testing.T) {
 		}
 	}
 
-	for _, id := range []ID{Hermes, Qwen, CursorAgent, Pi} {
+	for _, id := range []ID{Antigravity, Hermes, Qwen, CursorAgent, Pi} {
 		metadata := MustMetadata(id)
 		if metadata.ImportPolicy.Supported {
 			t.Fatalf("%s import policy = supported, want unsupported", id)

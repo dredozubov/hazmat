@@ -90,7 +90,7 @@ func NewRootCommand() *cobra.Command {
 			withUpdateNotifications(newCodexAppServerCmd()),
 			withUpdateNotifications(newCodexAppShimCmd()),
 			withUpdateNotifications(newOpenCodeCmd()),
-			withUpdateNotifications(newGeminiCmd()),
+			withUpdateNotifications(newAntigravityCmd()),
 			withUpdateNotifications(newHermesCmd()),
 			withUpdateNotifications(newQwenCmd()),
 			withUpdateNotifications(newCursorAgentCmd()),

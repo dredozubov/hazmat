@@ -187,8 +187,8 @@ func AgentDisplayName(agent string) string {
 		return "Codex"
 	case "opencode":
 		return "OpenCode"
-	case "gemini":
-		return "Gemini"
+	case "antigravity":
+		return "Antigravity"
 	case "hermes":
 		return "Hermes"
 	case "qwen":

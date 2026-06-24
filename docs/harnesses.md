@@ -15,7 +15,7 @@ The third column shows the **simplest** way to get a working session.
 | **Claude Code** | 2.1.118 | `hazmat harness update claude` | `/login` inside `hazmat claude` | `ANTHROPIC_API_KEY` via `hazmat config agent` | `hazmat config import claude` |
 | **Codex** | 0.118.0 | `hazmat harness update codex` | Device Code in TUI (or import) | `OPENAI_API_KEY` via `hazmat config agent` | `hazmat config import codex` |
 | **OpenCode** | 1.14.20 | `hazmat harness update opencode` | per-provider OAuth via `opencode auth login` | per-provider env vars | `hazmat config import opencode` |
-| **Gemini** | 0.38.2 | `hazmat harness update gemini` | Google sign-in inside `hazmat gemini` | `GEMINI_API_KEY` via `hazmat config agent` | `hazmat config import gemini` |
+| **Antigravity** | agy (pinned) | `hazmat harness update antigravity` | Google sign-in inside `hazmat antigravity` (Keychain OAuth, adapter-required) | `ANTIGRAVITY_API_KEY` or `GEMINI_API_KEY` via `hazmat config agent` | not supported in v1 |
 | **Hermes (experimental)** | manual install | `hazmat harness update hermes` verifies only | contained Hermes setup only | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY` via `hazmat config agent` | unsupported in v1 |
 | **Qwen Code** | npm latest | `hazmat harness update qwen` | contained Qwen auth flow only | configure through contained Qwen profile / `.env` | unsupported in v1 |
 | **Cursor Agent** | manual install | `hazmat harness update cursor-agent` verifies only | contained Cursor Agent login only | configure through contained Cursor Agent profile; no Hazmat `CURSOR_API_KEY` grant in v1 | unsupported in v1 |
@@ -46,7 +46,7 @@ it is not a supported `hazmat <harness>` command today. For current
 recipe-only use, see [OpenHands under Hazmat](recipes/openhands-recipe-only.md).
 
 After install/update + auth: `hazmat <harness>` to launch a session, or
-`hazmat <harness> -p "prompt"` (claude / gemini) /
+`hazmat <harness> -p "prompt"` (claude / antigravity) /
 `hazmat <harness> exec "prompt"` (codex) /
 `hazmat <harness> run "prompt"` (opencode) /
 `hazmat hermes -- --version` or `hazmat hermes -- chat ...` (hermes) /
@@ -55,14 +55,15 @@ After install/update + auth: `hazmat <harness>` to launch a session, or
 (cursor-agent) /
 `hazmat pi -- --version` or `hazmat pi -- --mode rpc` (pi) for foreground use.
 
-For Claude, Codex, OpenCode, and Gemini, the fastest path for a new install is
+For Claude, Codex, and OpenCode, the fastest path for a new install is
 usually the **import** column — it copies selected host credentials into
 Hazmat's host-owned secret store, so there's nothing to re-enter inside the
-sandbox. Hermes, Qwen, Cursor Agent, and Pi are intentionally different in v1:
-Hazmat does not import host `~/.hermes`, host `~/.qwen`, host `~/.cursor`, or
-host `~/.pi/agent`, and it does not import Cursor IDE profile/auth state. Use
-Hermes provider keys from `hazmat config agent`, or configure the narrower
-harnesses inside their contained profiles.
+sandbox. Antigravity, Hermes, Qwen, Cursor Agent, and Pi are intentionally
+different in v1: Hazmat does not import host `~/.gemini/antigravity-cli`, host
+`~/.hermes`, host `~/.qwen`, host `~/.cursor`, or host `~/.pi/agent`, and it does
+not import Cursor IDE profile/auth state. Use the `ANTIGRAVITY_API_KEY` /
+`GEMINI_API_KEY` env path or Hermes provider keys from `hazmat config agent`, or
+configure the narrower harnesses inside their contained profiles.
 
 ## Credential storage summary
 
@@ -78,7 +79,7 @@ secret values.
 | Surface | Durable owner | Session delivery |
 |---|---|---|
 | Claude credential file + Claude Keychain OAuth | `~/.hazmat/secrets/claude/...` plus the declared `Claude Code-credentials` item in the host/agent login Keychains | Host Keychain and store are reconciled before launch; the session gets a materialized file and, on macOS OAuth refresh, the agent Keychain value is harvested and written back to the host Keychain |
-| Codex, OpenCode, and file-backed Gemini auth | `~/.hazmat/secrets/<harness>/...` mirrored only with registered host auth files | Host file and store are reconciled by mtime before launch; the session file is harvested to both store and host file on normal exit, then removed from `/Users/agent` |
+| Codex and OpenCode auth | `~/.hazmat/secrets/<harness>/...` mirrored only with registered host auth files | Host file and store are reconciled by mtime before launch; the session file is harvested to both store and host file on normal exit, then removed from `/Users/agent` |
 | Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses, including Hermes when allowed for that provider |
 | GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed. Treat it as whole-process GitHub API authority, not a review-only grant. |
 | Git HTTPS credentials | `~/.hazmat/secrets/git-https/credentials` | Per-session brokered credential helper |
@@ -86,7 +87,7 @@ secret values.
 | Git SSH external keys/profiles | Host-owned private-key paths selected in project config | External references consumed by the broker; not imported into `/Users/agent` |
 | Cloud backup credentials | `~/.hazmat/secrets/cloud/` | Host-side backup/restore only; not a harness-session grant |
 | Claude agent Keychain OAuth | `/Users/agent/Library/Keychains/login.keychain-db` | Scoped adapter for the `Claude Code-credentials` item only; no broad Keychain linking or export |
-| Gemini Keychain OAuth | macOS Keychain item owned by Gemini CLI | Adapter required; Hazmat reports the boundary and does not import it yet |
+| Antigravity Keychain OAuth | macOS Keychain item owned by Antigravity (agy) | Adapter required; Hazmat reports the boundary and does not import it. Use the `ANTIGRAVITY_API_KEY` / `GEMINI_API_KEY` env path instead |
 | Hermes profile state | `/Users/agent/.hazmat/hermes/projects/<project-hash>` | Contained-only project-scoped `HERMES_HOME`; host `~/.hermes` is not imported, copied, synced, or harvested |
 | Qwen profile state | `/Users/agent/.qwen` | Contained-only Qwen auth/settings/sessions; host `~/.qwen` auth/settings are not imported. Portable `QWEN.md` and `extensions/` can sync separately as assets. |
 | Cursor Agent profile state | `/Users/agent` default Cursor Agent paths such as `/Users/agent/.cursor` | Contained-only Cursor auth/settings/sessions; host Cursor IDE state, host `~/.cursor`, and host auth settings are not imported |
@@ -131,14 +132,17 @@ records the consuming harness in explain/session metadata.
 - **Verify:** `hazmat opencode run "say only OK"` — single-shot prompt; should print `OK`.
 - **Detailed import scope:** [docs/opencode-import.md](opencode-import.md).
 
-### Gemini
+### Antigravity
 
-- **Install / update:** `hazmat harness update gemini`. Installs or refreshes `@google/gemini-cli@latest` into the agent's `~/.local` prefix via npm. Requires Node.js on the agent's PATH (Homebrew node at `/opt/homebrew/bin/node` works). Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap gemini` remains a compatible alias.
-- **Durable auth storage:** `~/.hazmat/secrets/gemini/oauth_creds.json` and `~/.hazmat/secrets/gemini/google_accounts.json` for file-based Gemini auth. Hazmat materializes them to `/Users/agent/.gemini/...` only while a Gemini session is active. Modern Keychain-backed Gemini OAuth is an explicit external backend in Hazmat's credential registry; Hazmat does not import or harvest that Keychain item yet.
-- **Subscription / OAuth path:** run `hazmat gemini`, follow the **Sign in with Google** flow. Browser-based on the host; if Gemini writes file-backed auth, Hazmat harvests it into `~/.hazmat/secrets/gemini/` when the session exits. If Gemini stores OAuth only in Keychain, use the API-key path or re-auth in the contained Gemini session until Hazmat has a Keychain adapter.
-- **API key path:** `hazmat config agent` can store `GEMINI_API_KEY` (AI Studio key) in `~/.hazmat/secrets/providers/gemini-api-key`. Hazmat injects it only into explicitly allowed native sessions. Vertex-style `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_VERTEXAI=true` remains a manual path for now.
-- **Import from host path:** `hazmat config import gemini` stores `~/.gemini/oauth_creds.json` and `google_accounts.json` in `~/.hazmat/secrets/gemini/`, and copies `settings.json`, `GEMINI.md`, and your git identity. If your host stores OAuth in Keychain, `oauth_creds.json` won't exist on the host and that item is skipped because Hazmat does not import Keychain-backed Gemini OAuth yet.
-- **Verify:** `hazmat gemini -p "say only OK"` — non-interactive prompt; should print `OK`.
+> Antigravity (`agy`) is Google's successor to the Gemini CLI. Hazmat replaced the
+> `antigravity` harness with `antigravity`; `hazmat antigravity` is gone. The `GEMINI_API_KEY`
+> env path still works because `agy` honors it.
+
+- **Install / update:** `hazmat harness update antigravity` (alias `agy`). Downloads the pinned, checksum-verified official `agy` installer and runs it as the agent user. `agy` is a flat native binary installed at `/Users/agent/.local/bin/agy`; no Node.js toolchain is required. Re-running this command updates the Hazmat copy; upgrading a host install does not change the isolated agent binary by itself. `hazmat bootstrap antigravity` remains a compatible alias.
+- **Durable auth storage:** Antigravity v1 has no curated import or file-backed OAuth sync. `agy` keeps its config and runtime state under `/Users/agent/.gemini/antigravity-cli`. Its interactive OAuth flow is macOS Keychain-backed and is an explicit external, adapter-required backend in Hazmat's credential registry; Hazmat does not import or harvest that Keychain item.
+- **API key path:** `hazmat config agent` can store `ANTIGRAVITY_API_KEY` (or `GEMINI_API_KEY`, an AI Studio key) under `~/.hazmat/secrets/providers/`. Hazmat injects it only into explicitly allowed native sessions. This is the recommended headless/contained path.
+- **Subscription / OAuth path:** run `hazmat antigravity` and follow the **Sign in with Google** flow. Because `agy` stores OAuth in the Keychain, use the API-key path or re-auth inside the contained session until Hazmat ships a Keychain adapter for Antigravity.
+- **Verify:** `hazmat antigravity -p "say only OK"` — non-interactive prompt; should print `OK`.
 
 ### Hermes (experimental)
 
@@ -247,7 +251,7 @@ setup according to the harness-specific section above.
 
 Harness auth and harness session mode are separate decisions:
 
-- **Native containment:** available on all eight harnesses (`claude`, `codex`, `opencode`, `gemini`, `hermes`, `qwen`, `cursor-agent`, `pi`).
+- **Native containment:** available on all eight harnesses (`claude`, `codex`, `opencode`, `antigravity`, `hermes`, `qwen`, `cursor-agent`, `pi`).
 - **Docker Sandbox:** available on all eight harnesses, plus the generic `hazmat shell` and `hazmat exec` entrypoints.
 - **`--docker=auto`:** works the same way on every harness. On repos that actually need a private Docker daemon, Hazmat routes that harness into Docker Sandbox mode; on code-only repos, the harness stays in native containment.
 
@@ -257,7 +261,7 @@ Native containment also supports a per-session network mode:
 hazmat claude --network none --metadata-json -p "offline review"
 hazmat codex --network none --metadata-json exec "offline review"
 hazmat opencode --network none run "offline review"
-hazmat gemini --network none -p "offline review"
+hazmat antigravity --network none -p "offline review"
 hazmat hermes --network none --metadata-json -- --version
 hazmat qwen --network none -p "offline review"
 hazmat cursor-agent --network none -- --version
@@ -293,7 +297,7 @@ cd ~/workspace/project-that-reproduces
 ~/.hazmat/bin/hazmat-debug trace claude --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace codex --name baseline -- --no-backup exec "say ok"
 ~/.hazmat/bin/hazmat-debug trace opencode --name baseline -- --no-backup run "say ok"
-~/.hazmat/bin/hazmat-debug trace gemini --name baseline -- --no-backup -p "say ok"
+~/.hazmat/bin/hazmat-debug trace antigravity --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace hermes --name baseline -- --no-backup -- --version
 ~/.hazmat/bin/hazmat-debug trace qwen --name baseline -- --no-backup -p "say ok"
 ~/.hazmat/bin/hazmat-debug trace cursor-agent --name baseline -- --no-backup -- --version
@@ -315,7 +319,7 @@ then pass `--github` to the session that needs it:
 hazmat claude --github -p "review this PR"
 hazmat codex --github exec "review this PR"
 hazmat opencode --github run "review this PR"
-hazmat gemini --github -p "review this PR"
+hazmat antigravity --github -p "review this PR"
 hazmat hermes --github -- chat "review this PR"
 hazmat qwen --github -p "review this PR"
 hazmat cursor-agent --github --print --output-format stream-json --force --trust
@@ -337,13 +341,13 @@ that must not be able to self-push or change repository state remotely.
 
 ## Session integrations
 
-Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, gemini, hermes, qwen, cursor-agent, and pi all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
+Session integrations (language toolchain extensions like `go`, `rust`, `python-uv`, `tla-java`, etc.) apply uniformly across **every** harness — claude, codex, opencode, antigravity, hermes, qwen, cursor-agent, and pi all flow through the same `applyIntegrations` path in `resolvePreparedSession`. The HarnessID does not gate which integrations activate; auto-detection (e.g. `go.mod` triggers the `go` integration) and the `--integration <name>` CLI flag work identically per harness.
 
 Preview the planned session contract for any harness with `hazmat explain --for <harness>`:
 
 ```bash
 hazmat explain --for codex --integration go    # codex session, force-activate go integration
-hazmat explain --for gemini -C ~/my-rust-app    # gemini session, auto-detect rust from Cargo.toml
+hazmat explain --for antigravity -C ~/my-rust-app    # antigravity session, auto-detect rust from Cargo.toml
 hazmat explain --for opencode --json            # machine-readable preview
 hazmat explain --for hermes --network none       # Hermes foreground contract
 hazmat explain --for qwen --docker=auto          # Qwen foreground contract
@@ -365,7 +369,7 @@ harness-aware and runs automatically (toggle with `session.harness_assets` in
 | Claude | `~/.claude/CLAUDE.md`, `commands/`, `skills/`, `agents/` |
 | Codex | `~/.codex/AGENTS.md`, `prompts/`, `rules/`, `~/.agents/skills/` |
 | OpenCode | `~/.config/opencode/commands/`, `agents/`, `skills/` |
-| Gemini | `~/.gemini/GEMINI.md`, `extensions/` |
+| Antigravity | none in v1; `agy` state under `~/.gemini/antigravity-cli` is contained-only and not synced from the host |
 | Qwen | `~/.qwen/QWEN.md`, `extensions/` |
 | Hermes | none in v1; host `~/.hermes`, skills, MCP, cron, and service config are not synced |
 | Cursor Agent | none in v1; host Cursor IDE state, host `~/.cursor`, auth, and workspace trust/profile data are not synced |

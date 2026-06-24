@@ -884,12 +884,12 @@ func runPreparedSandboxCodexSession(prepared preparedSession, forwarded []string
 	return runPreparedSandboxAgentSession(prepared, "codex", forwarded)
 }
 
-func runSandboxGeminiSession(cfg sessionConfig, forwarded []string) error {
-	return runPreparedSandboxGeminiSession(preparedSandboxSessionForConfig(cfg), forwarded)
+func runSandboxAntigravitySession(cfg sessionConfig, forwarded []string) error {
+	return runPreparedSandboxAntigravitySession(preparedSandboxSessionForConfig(cfg), forwarded)
 }
 
-func runPreparedSandboxGeminiSession(prepared preparedSession, forwarded []string) error {
-	return runPreparedSandboxAgentSession(prepared, "gemini", forwarded)
+func runPreparedSandboxAntigravitySession(prepared preparedSession, forwarded []string) error {
+	return runPreparedSandboxAgentSession(prepared, "antigravity", forwarded)
 }
 
 func runSandboxHermesSession(cfg sessionConfig, forwarded []string) error {

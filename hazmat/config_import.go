@@ -179,7 +179,6 @@ for matching sessions.`,
 	cmd.AddCommand(newConfigImportClaudeCmd())
 	cmd.AddCommand(newConfigImportCodexCmd())
 	cmd.AddCommand(newConfigImportOpenCodeCmd())
-	cmd.AddCommand(newConfigImportGeminiCmd())
 	return cmd
 }
 
@@ -1042,75 +1041,6 @@ func writeImportedClaudeState(item claudeImportItem, storePath, legacyPath strin
 		return err
 	}
 	return removeClaudeStateKeysFromAgent(legacyPath)
-}
-
-func readMaybePrivilegedFile(path string, r *Runner) ([]byte, error) {
-	raw, err := os.ReadFile(path)
-	if err == nil {
-		return raw, nil
-	}
-	if os.IsNotExist(err) {
-		return nil, err
-	}
-	if !errors.Is(err, fs.ErrPermission) || r == nil {
-		return nil, err
-	}
-	if r.DryRun {
-		return nil, fs.ErrPermission
-	}
-	if path == agentHome || isWithinDir(agentHome, path) {
-		out, agentErr := asAgentCombinedOutput("cat", path)
-		if agentErr != nil {
-			return nil, agentErr
-		}
-		return []byte(out), nil
-	}
-	out, sudoErr := r.SudoOutput("cat", path)
-	if sudoErr != nil {
-		return nil, sudoErr
-	}
-	return []byte(out), nil
-}
-
-func writeMaybePrivilegedFile(path string, raw []byte, mode os.FileMode, owner string, r *Runner) error {
-	// Files inside agent home must end up owned by the agent — even when
-	// the host can write directly via a dev-group setgid'd parent dir,
-	// because a host-owned 0600 credential is unreadable by the agent.
-	// Route through the agent write path so ownership matches `owner`.
-	if path == agentHome || isWithinDir(agentHome, path) {
-		if r != nil && r.DryRun {
-			return nil
-		}
-		if err := agentMkdirAll(filepath.Dir(path)); err != nil {
-			return err
-		}
-		if strings.Contains(owner, sharedGroup) {
-			return agentWriteSharedFile(path, raw, mode)
-		}
-		return agentWriteFile(path, raw, mode)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil && !errors.Is(err, fs.ErrPermission) {
-		return err
-	}
-	if err := os.WriteFile(path, raw, mode); err == nil {
-		return os.Chmod(path, mode)
-	} else if !errors.Is(err, fs.ErrPermission) {
-		return err
-	}
-
-	if r == nil {
-		return fmt.Errorf("write %s: permission denied", path)
-	}
-	if err := r.SudoWriteFile("write imported Claude file", path, string(raw)); err != nil {
-		return err
-	}
-	if owner != "" {
-		if err := r.Sudo("set imported Claude file owner", "chown", owner, path); err != nil {
-			return err
-		}
-	}
-	return r.Sudo("set imported Claude file permissions", "chmod", fmt.Sprintf("%04o", mode.Perm()), path)
 }
 
 func sortImportItems(items []claudeImportItem) {

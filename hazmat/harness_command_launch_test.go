@@ -152,7 +152,6 @@ func TestCommandLaunchMaterializesFileBackedHarnessAuth(t *testing.T) {
 	}{
 		{name: "codex", harness: HarnessCodex, binRel: codexBinRel, command: newCodexCmd, forwarded: []string{"exec", "echo ok"}},
 		{name: "opencode", harness: HarnessOpenCode, binRel: openCodeCurrentBinRel, command: newOpenCodeCmd, forwarded: []string{"run", "echo ok"}},
-		{name: "gemini", harness: HarnessGemini, binRel: geminiBinRel, command: newGeminiCmd, forwarded: []string{"-p", "ok"}},
 	}
 
 	for _, tc := range tests {

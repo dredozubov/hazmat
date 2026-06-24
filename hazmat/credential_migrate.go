@@ -18,7 +18,6 @@ var (
 		HarnessClaude,
 		HarnessCodex,
 		HarnessOpenCode,
-		HarnessGemini,
 	}
 	credentialMigrationHarnessAuthArtifactsForHome = harnessAuthArtifactsForHome
 )

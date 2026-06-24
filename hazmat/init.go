@@ -44,7 +44,7 @@ Interactive by default — prompts for confirmation before making changes.
   hazmat init --bootstrap-agent claude        # Also install Claude Code
   hazmat init --bootstrap-agent codex         # Also install Codex
   hazmat init --bootstrap-agent opencode      # Also install OpenCode
-  hazmat init --bootstrap-agent gemini        # Also install Gemini CLI
+  hazmat init --bootstrap-agent antigravity   # Also install Antigravity (agy)
   hazmat init --bootstrap-agent hermes        # Verify manually installed Hermes CLI
   hazmat init --bootstrap-agent qwen          # Also install Qwen Code
   hazmat init --bootstrap-agent cursor-agent  # Verify manually installed Cursor Agent CLI
@@ -64,7 +64,7 @@ Use --dry-run to preview all commands without executing anything.`,
 	cmd.Flags().StringVar(&sharedGIDFlag, "group-gid", "",
 		"Override GID for the dev group (default: 599; use when 599 is already taken)")
 	cmd.Flags().StringVar(&bootstrapAgentFlag, "bootstrap-agent", "",
-		"Optional AI coding agent to bootstrap during init: skip, claude, codex, opencode, gemini, hermes, qwen, cursor-agent, pi")
+		"Optional AI coding agent to bootstrap during init: skip, claude, codex, opencode, antigravity, hermes, qwen, cursor-agent, pi")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if agentUIDFlag != "" {
 			agentUID = agentUIDFlag
@@ -240,7 +240,7 @@ func normalizeInitBootstrapAgent(selection string) (string, error) {
 	if _, ok := managedHarnessByID(HarnessID(normalized)); ok {
 		return normalized, nil
 	}
-	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, gemini, hermes, qwen, cursor-agent, or pi)", selection)
+	return "", fmt.Errorf("invalid --bootstrap-agent %q (expected skip, claude, codex, opencode, antigravity, hermes, qwen, cursor-agent, or pi)", selection)
 }
 
 func resolveInitBootstrapAgent(ui *UI, flagValue string) (string, error) {
@@ -397,18 +397,21 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 	fmt.Println()
 	fmt.Println("  Ready to use:")
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini), string(HarnessHermes), string(HarnessQwen), string(HarnessCursorAgent), string(HarnessPi):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessAntigravity), string(HarnessHermes), string(HarnessQwen), string(HarnessCursorAgent), string(HarnessPi):
 		fmt.Printf("    cd your-project && hazmat %s\n", bootstrapSelection)
 	default:
 		fmt.Println("    cd your-project && hazmat shell")
-		fmt.Println("    hazmat harness update claude|codex|opencode|gemini|hermes|qwen|cursor-agent|pi")
+		fmt.Println("    hazmat harness update claude|codex|opencode|antigravity|hermes|qwen|cursor-agent|pi")
 	}
 	fmt.Println()
 	fmt.Println("  Check status:   hazmat status")
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode):
 		fmt.Println("  Update creds:   hazmat config agent")
 		fmt.Printf("  Import basics:  hazmat config import %s\n", bootstrapSelection)
+	case string(HarnessAntigravity):
+		fmt.Println("  Update creds:   hazmat config agent")
+		fmt.Println("  Antigravity:    API-key passthrough (ANTIGRAVITY_API_KEY / GEMINI_API_KEY); contained state under /Users/agent/.gemini/antigravity-cli")
 	case string(HarnessHermes):
 		fmt.Println("  Update creds:   hazmat config agent")
 		fmt.Println("  Hermes state:   project-scoped HERMES_HOME under /Users/agent/.hazmat/hermes/projects")
@@ -422,7 +425,7 @@ func runInit(_ *cobra.Command, _ []string, bootstrapAgentFlag string) (retErr er
 		fmt.Println("  Update creds:   hazmat pi login or configure contained /Users/agent/.pi/agent")
 		fmt.Println("  Pi state:       contained under /Users/agent/.pi/agent; host ~/.pi/agent is not imported")
 	default:
-		fmt.Println("  Install agent:  hazmat harness update claude|codex|opencode|gemini|hermes|qwen|cursor-agent|pi")
+		fmt.Println("  Install agent:  hazmat harness update claude|codex|opencode|antigravity|hermes|qwen|cursor-agent|pi")
 	}
 	fmt.Println("  View config:    hazmat config")
 	fmt.Println("  Uninstall:      hazmat rollback")
@@ -487,20 +490,6 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 			fmt.Println("  Run 'hazmat config import opencode' later to retry.")
 		}
 		return true
-	case string(HarnessGemini):
-		env, err := defaultGeminiImportEnv()
-		if err != nil {
-			return true
-		}
-		if err := geminiHarness.ImportBasics(ui, r, env, geminiImportOptions{
-			PromptBeforeImport: true,
-			ConflictPolicy:     claudeConflictPrompt,
-			AllowNoopMessage:   false,
-		}); err != nil && !errors.Is(err, errGeminiImportCancelled) {
-			cYellow.Printf("\n  Gemini basics import skipped: %v\n", err)
-			fmt.Println("  Run 'hazmat config import gemini' later to retry.")
-		}
-		return true
 	}
 	return false
 }
@@ -510,7 +499,7 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 // Used for static coverage assertions in tests.
 func offerHarnessBasicsImportCovers(bootstrapSelection string) bool {
 	switch bootstrapSelection {
-	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode), string(HarnessGemini):
+	case string(HarnessClaude), string(HarnessCodex), string(HarnessOpenCode):
 		return true
 	}
 	return false

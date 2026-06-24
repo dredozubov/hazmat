@@ -822,9 +822,9 @@ func TestRunSandboxHarnessSessionsUseMatchingAgentSandbox(t *testing.T) {
 			expectedRun: []string{"run", "say only OK"},
 		},
 		{
-			name:        "gemini",
-			agent:       "gemini",
-			run:         runSandboxGeminiSession,
+			name:        "antigravity",
+			agent:       "antigravity",
+			run:         runSandboxAntigravitySession,
 			forwarded:   []string{"-p", "say only OK"},
 			expectedRun: []string{"-p", "say only OK"},
 		},

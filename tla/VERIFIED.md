@@ -732,8 +732,8 @@ TLC passes across all 79,098 reachable states (194,023 generated, depth 7, 5s).
 | Governed code | `hazmat/internal/harnessruntime/state.go`, `hazmat/internal/harnessruntime/artifact.go`, `hazmat/internal/harnessruntime/uninstall.go`, `hazmat/internal/harnessruntime/install.go` — harness lifecycle state transition rules and managed artifact install/uninstall rules |
 | Governed code | `hazmat/internal/state/state.go` — host-owned state-file schema, persistence, and harness runtime store implementation |
 | Governed code | `hazmat/state.go` — root compatibility wrappers and migration helper entrypoints |
-| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_gemini.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
-| Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_gemini.go` — curated import flows |
+| Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_antigravity.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
+| Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go` — curated import flows |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
 | Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `UninstallRemovesOnlyCodeAndMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
 | Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
@@ -753,7 +753,7 @@ TLC passes across all 79,098 reachable states (194,023 generated, depth 7, 5s).
    harness metadata record, but agent-home harness artifacts survive unless the
    user chooses destructive rollback with `--delete-user`.
 
-The model includes Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor
+The model includes Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, and Cursor
 Agent. Hermes, Qwen, and Cursor Agent are modeled as built-in harnesses but are
 deliberately not importable in Phase 1.
 
@@ -1030,7 +1030,7 @@ boundary. Covered by `TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychai
    credential may only appear in broker grants, and external references may only
    appear as external grants.
 
-2. **Adapter-required backends are inert:** a credential like Gemini Keychain
+2. **Adapter-required backends are inert:** a credential like Antigravity Keychain
    OAuth cannot become active, delivered, materialized, env-granted,
    broker-granted, or externally granted until an adapter is modeled.
 

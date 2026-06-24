@@ -19,7 +19,7 @@ var hermeticSmokeHarnesses = []HarnessID{
 	HarnessClaude,
 	HarnessCodex,
 	HarnessOpenCode,
-	HarnessGemini,
+	HarnessAntigravity,
 	HarnessHermes,
 	HarnessQwen,
 	HarnessCursorAgent,
@@ -54,7 +54,7 @@ func TestHermeticHarnessSmoke(t *testing.T) {
 	smoke.runClaude()
 	smoke.runCodex()
 	smoke.runOpenCode()
-	smoke.runGemini()
+	smoke.runAntigravity()
 	smoke.runQwen()
 	smoke.runCursorAgent()
 	smoke.runPi()
@@ -240,6 +240,7 @@ func (s *hermeticHarnessSmoke) assertManagedHarnessCoverage() {
 func (s *hermeticHarnessSmoke) seedProviderSecrets() {
 	s.writeProviderSecret("ANTHROPIC_API_KEY", "stored-anthropic-provider")
 	s.writeProviderSecret("OPENAI_API_KEY", "stored-openai-provider")
+	s.writeProviderSecret("ANTIGRAVITY_API_KEY", "stored-antigravity-provider")
 	s.writeProviderSecret("GEMINI_API_KEY", "stored-gemini-provider")
 	s.writeProviderSecret("OPENROUTER_API_KEY", "stored-openrouter-provider")
 }
@@ -258,9 +259,6 @@ func (s *hermeticHarnessSmoke) seedHarnessAssets() {
 	s.writeHostAsset(".config/opencode/commands/review.md", "opencode command asset")
 	s.writeHostAsset(".config/opencode/agents/reviewer.md", "opencode agent asset")
 	s.writeHostAsset(".config/opencode/skills/opencode-smoke/SKILL.md", "opencode skill asset")
-
-	s.writeHostAsset(".gemini/GEMINI.md", "gemini shared instructions")
-	s.writeHostAsset(".gemini/extensions/gemini-smoke/extension.json", `{"name":"gemini-smoke"}`)
 
 	s.writeHostAsset(".qwen/QWEN.md", "qwen shared instructions")
 	s.writeHostAsset(".qwen/extensions/qwen-smoke/extension.json", `{"name":"qwen-smoke"}`)
@@ -380,38 +378,22 @@ echo "FAKE_OPENCODE_OK"
 	s.assertAgentFileAbsent(agentHome+"/.local/share/opencode/auth.json", "OpenCode auth residue")
 }
 
-func (s *hermeticHarnessSmoke) runGemini() {
-	s.writeHostSecret(geminiOAuthStorePathForHome(s.hostHome),
-		`{"access_token":"stored-gemini-access","refresh_token":"stored-gemini-refresh"}`)
-	s.writeHostSecret(geminiAccountsStorePathForHome(s.hostHome),
-		`{"active":"stored-gemini-account"}`)
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "gemini"), `#!/bin/sh
+func (s *hermeticHarnessSmoke) runAntigravity() {
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "agy"), `#!/bin/sh
 set -eu
-oauth="$HOME/.gemini/oauth_creds.json"
-accounts="$HOME/.gemini/google_accounts.json"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 80; }
-test "${GEMINI_API_KEY:-}" = "stored-gemini-provider" || { echo "missing GEMINI_API_KEY" >&2; exit 81; }
-test -f "$oauth" || { echo "missing materialized Gemini OAuth" >&2; exit 82; }
-test -f "$accounts" || { echo "missing materialized Gemini accounts" >&2; exit 83; }
-grep -Fq "stored-gemini-access" "$oauth" || { echo "missing stored Gemini OAuth" >&2; exit 84; }
-grep -Fq "stored-gemini-account" "$accounts" || { echo "missing stored Gemini accounts" >&2; exit 85; }
-printf '{"access_token":"updated-gemini-access"}\n' > "$oauth"
-printf '{"active":"updated-gemini-account"}\n' > "$accounts"
+test "${ANTIGRAVITY_API_KEY:-}" = "stored-antigravity-provider" || { echo "missing ANTIGRAVITY_API_KEY" >&2; exit 81; }
+test "${GEMINI_API_KEY:-}" = "stored-gemini-provider" || { echo "missing GEMINI_API_KEY" >&2; exit 82; }
 case " $* " in
-  *" -p "*"gemini smoke"*) ;;
-  *) echo "unexpected Gemini args: $*" >&2; exit 86 ;;
+  *" -p "*"antigravity smoke"*) ;;
+  *) echo "unexpected Antigravity args: $*" >&2; exit 86 ;;
 esac
-echo "FAKE_GEMINI_OK"
+echo "FAKE_ANTIGRAVITY_OK"
 `)
 
-	s.executeHarnessCommand(HarnessGemini, newGeminiCmd(),
-		"--no-backup", "-C", s.project, "-p", "gemini smoke")
-	s.assertOutputContains(HarnessGemini, "FAKE_GEMINI_OK")
-	s.assertAgentFileContains(agentHome+"/.gemini/extensions/gemini-smoke/extension.json", "gemini-smoke", "Gemini extension asset")
-	s.assertFileContains(geminiOAuthStorePathForHome(s.hostHome), "updated-gemini-access", "host Gemini OAuth")
-	s.assertFileContains(geminiAccountsStorePathForHome(s.hostHome), "updated-gemini-account", "host Gemini accounts")
-	s.assertAgentFileAbsent(agentHome+"/.gemini/oauth_creds.json", "Gemini OAuth residue")
-	s.assertAgentFileAbsent(agentHome+"/.gemini/google_accounts.json", "Gemini account residue")
+	s.executeHarnessCommand(HarnessAntigravity, newAntigravityCmd(),
+		"--no-backup", "-C", s.project, "-p", "antigravity smoke")
+	s.assertOutputContains(HarnessAntigravity, "FAKE_ANTIGRAVITY_OK")
 }
 
 func (s *hermeticHarnessSmoke) runQwen() {

@@ -143,7 +143,7 @@ func TestDiagnosticCredentialFindingSelectsSpecificDefinitions(t *testing.T) {
 		t.Fatalf("cloud secret finding = %s, want %s", got, findingCredentialCloudSecretKeyLegacy)
 	}
 
-	adapter := credentialInventoryEntry{ID: credentialHarnessGeminiKeychain, Support: credentialSupportAdapterRequired}
+	adapter := credentialInventoryEntry{ID: credentialHarnessAntigravityKeychain, Support: credentialSupportAdapterRequired}
 	if got := diagnosticCredentialFinding(adapter).ID; got != findingCredentialAdapterRequired {
 		t.Fatalf("adapter finding = %s, want %s", got, findingCredentialAdapterRequired)
 	}

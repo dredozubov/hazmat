@@ -65,7 +65,7 @@ const (
 	sessionHomeAdapterClaudeState       sessionHomeAdapterName = "claude-state"
 	sessionHomeAdapterCodexState        sessionHomeAdapterName = "codex-state"
 	sessionHomeAdapterCursorState       sessionHomeAdapterName = "cursor-state"
-	sessionHomeAdapterGeminiState       sessionHomeAdapterName = "gemini-state"
+	sessionHomeAdapterAntigravityState  sessionHomeAdapterName = "antigravity-state"
 	sessionHomeAdapterHazmatState       sessionHomeAdapterName = "hazmat-state"
 	sessionHomeAdapterHermesState       sessionHomeAdapterName = "hermes-state"
 	sessionHomeAdapterMCPState          sessionHomeAdapterName = "mcp-state"
@@ -1110,7 +1110,7 @@ func sessionHomeHarnessStateAdapterDecision(rel string) sessionHomeAdapterDecisi
 	case ".cursor":
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterCursorState)
 	case ".gemini":
-		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterGeminiState)
+		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterAntigravityState)
 	case ".hazmat":
 		return sessionHomeIgnoredHarnessAdapter(sessionHomeAdapterHazmatState)
 	case ".hazmat/hermes":

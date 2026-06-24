@@ -58,7 +58,7 @@ func TestCredentialSyncPostExitPublishesFileBackedRotations(t *testing.T) {
 	}{
 		{name: "Codex", stored: "stored-codex-refresh", updated: "updated-codex-refresh"},
 		{name: "OpenCode", stored: "stored-opencode-refresh", updated: "updated-opencode-refresh"},
-		{name: "Gemini file", stored: "stored-gemini-refresh", updated: "updated-gemini-refresh"},
+		{name: "Antigravity file", stored: "stored-antigravity-refresh", updated: "updated-antigravity-refresh"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newFakeCredentialSyncEndpoint(tc.name+" auth store", newCredentialSyncMaterial(tc.stored, 1, 10))
@@ -113,17 +113,17 @@ func TestCredentialSyncIgnoresInvalidAgentTokenAndCleansResidue(t *testing.T) {
 
 func TestCredentialSyncAdapterRequiredFailsClosed(t *testing.T) {
 	store := newFakeCredentialSyncEndpoint("hazmat store", credentialSyncMaterial{})
-	host := newFakeCredentialSyncEndpoint("gemini keychain", newCredentialSyncMaterial("gemini-secret", 1, 10))
+	host := newFakeCredentialSyncEndpoint("antigravity keychain", newCredentialSyncMaterial("antigravity-secret", 1, 10))
 	agent := newFakeCredentialSyncEndpoint("agent keychain", credentialSyncMaterial{})
 
-	spec := testCredentialSyncSpec("Gemini Keychain", store.endpoint(), host.endpointPtr(), agent.endpoint())
+	spec := testCredentialSyncSpec("Antigravity Keychain", store.endpoint(), host.endpointPtr(), agent.endpoint())
 	spec.support = credentialSyncAdapterRequired
 	err := syncCredentialBeforeLaunch(spec)
 	if err == nil || !strings.Contains(err.Error(), "requires an adapter") {
 		t.Fatalf("syncCredentialBeforeLaunch error = %v, want adapter-required", err)
 	}
 	assertCredentialSyncEmpty(t, store)
-	assertCredentialSyncSecret(t, host, "gemini-secret")
+	assertCredentialSyncSecret(t, host, "antigravity-secret")
 	assertCredentialSyncEmpty(t, agent)
 }
 

@@ -66,12 +66,12 @@ func testTraceSpecs() []HarnessSpec {
 			Explain:         func([]string) (any, error) { return map[string]string{"ok": "true"}, nil },
 		},
 		{
-			ID:              "gemini",
-			DisplayName:     "Gemini",
-			CommandName:     "gemini",
-			ProcessFilters:  []string{"gemini"},
-			AgentStatePaths: []string{"/Users/agent/.gemini"},
-			HostStatePaths:  []string{"~/.hazmat/secrets/gemini"},
+			ID:              "antigravity",
+			DisplayName:     "Antigravity",
+			CommandName:     "antigravity",
+			ProcessFilters:  []string{"agy"},
+			AgentStatePaths: []string{"/Users/agent/.gemini/antigravity-cli"},
+			HostStatePaths:  []string{"~/.hazmat/secrets/providers/antigravity-api-key"},
 			SampleArgs:      []string{"-p", "say ok"},
 			Explain:         func([]string) (any, error) { return map[string]string{"ok": "true"}, nil },
 		},
@@ -184,7 +184,7 @@ func TestPrepareTraceDirUsesHarnessName(t *testing.T) {
 	now := time.Date(2026, 5, 28, 18, 30, 0, 0, time.UTC)
 
 	dir, label, err := PrepareTraceDir(testTraceEnv(), testTraceSpecs(), Options{
-		Harness: "gemini",
+		Harness: "antigravity",
 		OutRoot: root,
 		Name:    "Network None",
 	}, now)
@@ -194,7 +194,7 @@ func TestPrepareTraceDirUsesHarnessName(t *testing.T) {
 	if label != "network-none" {
 		t.Fatalf("label = %q, want network-none", label)
 	}
-	if !strings.HasPrefix(filepath.Base(dir), "20260528T183000Z-gemini-network-none") {
+	if !strings.HasPrefix(filepath.Base(dir), "20260528T183000Z-antigravity-network-none") {
 		t.Fatalf("trace dir = %s", dir)
 	}
 }

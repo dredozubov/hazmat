@@ -13,8 +13,8 @@ func TestNormalizeInitBootstrapAgent(t *testing.T) {
 		{input: "claude", want: "claude"},
 		{input: "CoDeX", want: "codex"},
 		{input: " opencode ", want: "opencode"},
-		{input: "gemini", want: "gemini"},
-		{input: "GEMINI", want: "gemini"},
+		{input: "antigravity", want: "antigravity"},
+		{input: "ANTIGRAVITY", want: "antigravity"},
 		{input: "hermes", want: "hermes"},
 		{input: "HERMES", want: "hermes"},
 		{input: "qwen", want: "qwen"},
@@ -65,12 +65,16 @@ func TestResolveInitBootstrapAgentHonorsExplicitFlag(t *testing.T) {
 
 // TestOfferHarnessBasicsImportCoversImportableHarnesses asserts that every
 // curated-import harness has a dispatch case in offerHarnessBasicsImport.
-// Hermes, Qwen, Cursor Agent, and Pi are managed but intentionally not importable in Phase 1.
+// Antigravity, Hermes, Qwen, Cursor Agent, and Pi are managed but intentionally
+// not importable in Phase 1.
 func TestOfferHarnessBasicsImportCoversImportableHarnesses(t *testing.T) {
-	for _, id := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessGemini} {
+	for _, id := range []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode} {
 		if !offerHarnessBasicsImportCovers(string(id)) {
 			t.Errorf("importable harness %q has no dispatch case in offerHarnessBasicsImport", id)
 		}
+	}
+	if offerHarnessBasicsImportCovers(string(HarnessAntigravity)) {
+		t.Errorf("Antigravity must not offer host-profile import in Phase 1")
 	}
 	if offerHarnessBasicsImportCovers(string(HarnessHermes)) {
 		t.Errorf("Hermes must not offer host-profile import in Phase 1")
@@ -89,7 +93,7 @@ func TestOfferHarnessBasicsImportCoversImportableHarnesses(t *testing.T) {
 func TestOfferHarnessBasicsImportRejectsUnknownSelections(t *testing.T) {
 	for _, sel := range []string{"", initBootstrapSkip, "unknown", "Claude" /* case-sensitive */} {
 		if offerHarnessBasicsImportCovers(sel) {
-			t.Errorf("offerHarnessBasicsImportCovers(%q) returned true; should only match the four lowercase harness IDs", sel)
+			t.Errorf("offerHarnessBasicsImportCovers(%q) returned true; should only match the three lowercase harness IDs", sel)
 		}
 	}
 }
@@ -104,7 +108,7 @@ func TestManagedHarnessRegistryIncludesSupportedLaunchCommands(t *testing.T) {
 		HarnessClaude:      "hazmat claude",
 		HarnessCodex:       "hazmat codex",
 		HarnessOpenCode:    "hazmat opencode",
-		HarnessGemini:      "hazmat gemini",
+		HarnessAntigravity: "hazmat antigravity",
 		HarnessHermes:      "hazmat hermes",
 		HarnessQwen:        "hazmat qwen",
 		HarnessCursorAgent: "hazmat cursor-agent",

@@ -127,28 +127,25 @@ harness for a smoke pass; run every supported path before a release.
   - Steps: `hazmat config import opencode --dry-run` → `hazmat config import opencode`.
   - Expected: "Sign-in: yes"; `~/.hazmat/secrets/opencode/auth.json` exists; `hazmat opencode run "say OK"` round-trips.
 
-### 2.4 Gemini
+### 2.4 Antigravity
+
+> Antigravity (`agy`) replaced the Gemini CLI harness; `hazmat gemini` is gone.
 
 - [ ] **Harness update / install**
-  - Preconditions: Node.js available on agent PATH (Homebrew node satisfies this).
-  - Steps: `hazmat harness update gemini`
-  - Expected: each step ✓; `/Users/agent/.local/bin/gemini` linked from npm prefix; `/Users/agent/.gemini` prepared.
-  - On failure: check `node --version` works for the agent: `sudo -n -u agent -H bash -lc 'node --version'`.
+  - Preconditions: network access to `https://antigravity.google` (no Node.js required).
+  - Steps: `hazmat harness update antigravity` (alias `agy`)
+  - Expected: each step ✓; the pinned installer's checksum verifies; `/Users/agent/.local/bin/agy` is installed; `/Users/agent/.gemini/antigravity-cli` prepared.
+  - On failure: a checksum mismatch aborts before running the installer — re-pin `antigravityInstallerSHA256` only after verifying the new installer.
+
+- [ ] **API key path** (env var) — recommended for contained use
+  - Preconditions: `ANTIGRAVITY_API_KEY` (or `GEMINI_API_KEY`) set in your invoking shell (AI Studio key from https://aistudio.google.com/apikey).
+  - Steps: `hazmat config agent` → accept the Antigravity / Gemini key prompt.
+  - Expected: `~/.hazmat/secrets/providers/antigravity-api-key` (or `gemini-api-key`) exists with mode `0600`; `hazmat antigravity -p "say OK"` round-trips.
 
 - [ ] **Subscription path** (Google sign-in)
-  - Preconditions: a Google account with Gemini access.
-  - Steps: `hazmat gemini` → "Sign in with Google" flow.
-  - Expected: if Gemini writes file-backed auth, Hazmat harvests that data into `~/.hazmat/secrets/gemini/` and the registered host `~/.gemini/` auth files when the session exits. If Gemini stores OAuth only in Keychain, Hazmat reports that as an adapter-required external backend and does not copy the Keychain item into `/Users/agent`.
-
-- [ ] **API key path** (env var)
-  - Preconditions: `GEMINI_API_KEY` set in your invoking shell (get one from https://aistudio.google.com/apikey).
-  - Steps: `hazmat config agent` → accept the Gemini key prompt.
-  - Expected: `~/.hazmat/secrets/providers/gemini-api-key` exists with mode `0600`; `hazmat gemini -p "say OK"` round-trips.
-
-- [ ] **Host import path** (file-fallback only)
-  - Preconditions: host stores creds in `~/.gemini/oauth_creds.json` (file fallback). If host uses macOS Keychain, this item is N/A — the import skips the OAuth file because Keychain-backed Gemini OAuth is not imported yet.
-  - Steps: `hazmat config import gemini`.
-  - Expected: imported file-backed auth lands in `~/.hazmat/secrets/gemini/`; `hazmat gemini -p "say OK"` round-trips.
+  - Preconditions: a Google account with Antigravity access.
+  - Steps: `hazmat antigravity` → "Sign in with Google" flow.
+  - Expected: `agy` stores OAuth in the macOS Keychain, which Hazmat reports as an adapter-required external backend and does not copy into `/Users/agent`. Use the API-key path or re-auth inside the contained session.
 
 ### 2.5 Hermes (experimental)
 
@@ -258,10 +255,10 @@ harness for a smoke pass; run every supported path before a release.
 These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **`hazmat init --bootstrap-agent <harness>` end-to-end**
-  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent gemini` (try each of `claude / codex / opencode / gemini / hermes / qwen / cursor-agent / pi` in turn).
+  - Steps: on a clean (rolled-back) machine: `hazmat rollback --yes` → `hazmat init --bootstrap-agent antigravity` (try each of `claude / codex / opencode / antigravity / hermes / qwen / cursor-agent / pi` in turn).
   - Expected: agent user created; bootstrap step runs for the chosen harness; `hazmat config agent` prompt appears; the optional "Import basics?" prompt appears only for importable harnesses; the "Ready to use" guidance ends with `cd your-project && hazmat <harness>`. Hermes, Cursor Agent, and Pi init expect manual binary paths and do not offer profile import. Qwen installs through npm, prepares `/Users/agent/.qwen`, and does not offer profile import.
 
-- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / gemini / hermes / qwen / cursor-agent / pi / shell / exec`
+- [ ] **`hazmat explain --for <harness>`** for each of `claude / codex / opencode / antigravity / hermes / qwen / cursor-agent / pi / shell / exec`
   - Steps: `hazmat explain --for <each> -C /tmp` (or any project dir without an SSH-config gate)
   - Expected: each prints a session contract; integrations section updates if `--integration go` is added; no errors.
 
@@ -271,7 +268,7 @@ These exercise the per-harness scaffolding rather than any one harness.
 
 - [ ] **Docker Sandbox support across harnesses**
   - Preconditions: repo with a `Dockerfile`.
-  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `gemini`, `hermes`, `qwen`, `cursor-agent`, and `pi`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `gemini` / `hermes` / `qwen` / `cursor-agent` / `pi`).
+  - Steps: `hazmat codex --docker=auto -C <repo>` (repeat for `opencode`, `antigravity`, `hermes`, `qwen`, `cursor-agent`, and `pi`), then explicitly `hazmat codex --docker=sandbox -C <repo>` (repeat for `opencode` / `antigravity` / `hermes` / `qwen` / `cursor-agent` / `pi`).
   - Expected: `--docker=auto` routes the matching harness into Docker Sandbox mode on Docker-heavy private-daemon repos; explicit `--docker=sandbox` launches the same harness in Docker Sandbox mode without redirecting you to Claude.
 
 - [ ] **Per-harness seatbelt scoping**
@@ -283,11 +280,11 @@ These exercise the per-harness scaffolding rather than any one harness.
   - Expected: the codex policy contains `com.apple.SystemConfiguration.configd`, `com.apple.SecurityServer`, `/Library/Keychains`, and the `apple.shm.notification_center` IPC; the claude policy does **not** contain any of those (least-privilege gating from `sandboxing-m7f7`).
 
 - [ ] **Session integrations apply uniformly per harness**
-  - Steps: in a Go project, `hazmat explain --for codex`, `hazmat explain --for gemini`, `hazmat explain --for hermes`, `hazmat explain --for qwen`, `hazmat explain --for cursor-agent`, and `hazmat explain --for pi`.
+  - Steps: in a Go project, `hazmat explain --for codex`, `hazmat explain --for antigravity`, `hazmat explain --for hermes`, `hazmat explain --for qwen`, `hazmat explain --for cursor-agent`, and `hazmat explain --for pi`.
   - Expected: all six show `Integrations: go` with the same `Integration sources` line; all auto-add the Go module cache to read-only.
 
 - [ ] **Harness asset sync**
-  - Preconditions: edit a file in your host `~/.codex/prompts/` (or `~/.claude/commands/` for claude, `~/.gemini/extensions/` for gemini, `~/.config/opencode/commands/` for opencode, `~/.qwen/QWEN.md` or `~/.qwen/extensions/` for qwen).
+  - Preconditions: edit a file in your host `~/.codex/prompts/` (or `~/.claude/commands/` for claude, `~/.config/opencode/commands/` for opencode, `~/.qwen/QWEN.md` or `~/.qwen/extensions/` for qwen; Antigravity has no synced assets in v1).
   - Steps: launch the matching `hazmat <harness>` session; observe the "host changes" line.
   - Expected: a "<Harness> asset sync" entry; the agent-side file matches the host-side after launch. For Hermes, Cursor Agent, and Pi, expected result is the inverse: no asset-sync entry and no host profile copy.
 
@@ -377,9 +374,9 @@ These verify that earlier-fixed bugs stay fixed.
   - On failure: check `closeInheritedFDs` is using `/dev/fd` enumeration (not iterating to RLIMIT_NOFILE); `ps -u agent` should not show stuck `hazmat-launch exec ...` processes after the run.
 
 - [ ] **Config-agent with multiple harnesses installed**
-  - Preconditions: claude + codex + gemini + hermes + qwen + cursor-agent + pi all installed or verified through `hazmat harness update <harness>`.
+  - Preconditions: claude + codex + antigravity + hermes + qwen + cursor-agent + pi all installed or verified through `hazmat harness update <harness>`.
   - Steps: `hazmat config agent`
-  - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Gemini, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode, Qwen, Cursor Agent, and Pi are intentionally skipped in v1 (no single Hazmat-managed provider env var).
+  - Expected: provider-key prompts are de-duplicated by env var. Claude, Codex, Antigravity, and Hermes can share the same stored provider key when the harness is an allowed consumer. OpenCode, Qwen, Cursor Agent, and Pi are intentionally skipped in v1 (no single Hazmat-managed provider env var).
 
 ---
 

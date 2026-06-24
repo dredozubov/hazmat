@@ -47,7 +47,6 @@ Subcommands:
   hazmat config import claude Import portable Claude basics
   hazmat config import codex Import portable Codex basics
   hazmat config import opencode Import portable OpenCode basics
-  hazmat config import gemini Import portable Gemini basics
   hazmat config cloud        Configure S3 cloud backup credentials
   hazmat config set K V      Set a configuration value
 
@@ -63,7 +62,6 @@ Examples:
   hazmat config import claude --dry-run
   hazmat config import codex --dry-run
   hazmat config import opencode --dry-run
-  hazmat config import gemini --dry-run
   hazmat config cloud --endpoint s3.fr-par.scw.cloud --bucket my-backups
   hazmat config set backup.retention.keep_latest 30`,
 		Args: cobra.NoArgs,

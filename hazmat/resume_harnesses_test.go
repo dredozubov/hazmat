@@ -70,21 +70,6 @@ func TestCodexResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
 	}
 }
 
-func TestGeminiResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "session-home")
-	got, err := geminiResumeStateDir(home)
-	if err != nil {
-		t.Fatalf("geminiResumeStateDir: %v", err)
-	}
-	want := filepath.Join(home, ".gemini")
-	if got != want {
-		t.Fatalf("geminiResumeStateDir = %s, want %s", got, want)
-	}
-	if _, err := geminiResumeStateDir("relative-home"); err == nil {
-		t.Fatal("geminiResumeStateDir accepted relative home root")
-	}
-}
-
 func TestOpenCodeResumeStateDirUsesExplicitHomeRoot(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "session-home")
 	got, err := openCodeResumeStateDir(home)
@@ -156,76 +141,6 @@ func TestSyncCodexResumeStateCopiesIndexAndSessions(t *testing.T) {
 	}
 	if got := index["agent"]["thread_name"]; got != "Agent local" {
 		t.Fatalf("agent thread_name = %v, want Agent local", got)
-	}
-}
-
-func TestGeminiResumeRequested(t *testing.T) {
-	for _, args := range [][]string{
-		{"--resume", "latest"},
-		{"-r", "0"},
-		{"--resume=latest"},
-		{"--list-sessions"},
-	} {
-		if !geminiResumeRequested(args) {
-			t.Fatalf("geminiResumeRequested(%v) = false, want true", args)
-		}
-	}
-	if geminiResumeRequested([]string{"-p", "hello"}) {
-		t.Fatal("geminiResumeRequested for prompt args = true, want false")
-	}
-}
-
-func TestSyncGeminiResumeStateCopiesOnlyCurrentProjectHistory(t *testing.T) {
-	hostGemini := filepath.Join(t.TempDir(), ".gemini")
-	agentGemini := filepath.Join(t.TempDir(), ".gemini")
-	projectDir := "/Users/dr/workspace/personal-brand"
-
-	hostProjects := `{"projects":{"/other/project":"other","` + projectDir + `":"personal-brand"}}` + "\n"
-	agentProjects := `{"projects":{"/agent/project":"agent"}}` + "\n"
-	writeTestFileWithTime(t, filepath.Join(hostGemini, "projects.json"), hostProjects, time.Unix(20, 0))
-	writeTestFileWithTime(t, filepath.Join(agentGemini, "projects.json"), agentProjects, time.Unix(10, 0))
-	writeTestFileWithTime(t, filepath.Join(hostGemini, "tmp", "personal-brand", "logs.json"), `[{"session":"one"}]`+"\n", time.Unix(30, 0))
-	writeTestFileWithTime(t, filepath.Join(hostGemini, "tmp", "personal-brand", "chats", "session-one.json"), `{"ok":true}`+"\n", time.Unix(31, 0))
-	writeTestFileWithTime(t, filepath.Join(hostGemini, "tmp", "personal-brand", "chats", "session-two.jsonl"), `{"ok":true}`+"\n", time.Unix(32, 0))
-	writeTestFileWithTime(t, filepath.Join(hostGemini, "tmp", "personal-brand", "chats", "notes.txt"), "skip\n", time.Unix(33, 0))
-
-	synced, err := syncGeminiResumeStateFromDirs(hostGemini, agentGemini, projectDir, localEnsureSharedResumeDir)
-	if err != nil {
-		t.Fatalf("syncGeminiResumeStateFromDirs: %v", err)
-	}
-	if synced != 4 {
-		t.Fatalf("synced = %d, want 4", synced)
-	}
-
-	projects, err := readGeminiProjectsFile(filepath.Join(agentGemini, "projects.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := projects.Projects[projectDir]; got != "personal-brand" {
-		t.Fatalf("project mapping = %q, want personal-brand", got)
-	}
-	if got := projects.Projects["/agent/project"]; got != "agent" {
-		t.Fatalf("existing mapping = %q, want agent", got)
-	}
-	if _, ok := projects.Projects["/other/project"]; ok {
-		t.Fatal("other project mapping should not be copied")
-	}
-
-	for _, rel := range []string{
-		filepath.Join("tmp", "personal-brand", "logs.json"),
-		filepath.Join("tmp", "personal-brand", "chats", "session-one.json"),
-		filepath.Join("tmp", "personal-brand", "chats", "session-two.jsonl"),
-	} {
-		info, err := os.Stat(filepath.Join(agentGemini, rel))
-		if err != nil {
-			t.Fatalf("%s not copied: %v", rel, err)
-		}
-		if perm := info.Mode().Perm(); perm != sharedResumeFileMode {
-			t.Fatalf("%s mode = %04o, want %04o", rel, perm, sharedResumeFileMode)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(agentGemini, "tmp", "personal-brand", "chats", "notes.txt")); !os.IsNotExist(err) {
-		t.Fatalf("notes.txt should not be copied, got err=%v", err)
 	}
 }
 

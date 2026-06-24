@@ -11,7 +11,7 @@ func TestHarnessBootstrapsUseInstallOrUpdateHelper(t *testing.T) {
 		"bootstrap.go",
 		"bootstrap_codex.go",
 		"bootstrap_opencode.go",
-		"bootstrap_gemini.go",
+		"bootstrap_antigravity.go",
 		"bootstrap_qwen.go",
 	} {
 		raw, err := os.ReadFile(path)
@@ -70,17 +70,21 @@ func TestOpenCodeInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
 	}
 }
 
-func TestGeminiInstallScriptRefreshesLatestIntoAgentPrefix(t *testing.T) {
-	script := geminiInstallScript()
+func TestAntigravityInstallScriptPinsAndVerifiesInstaller(t *testing.T) {
+	script := antigravityInstallScript()
 	for _, want := range []string{
-		`mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/node_modules"`,
-		`export NPM_CONFIG_PREFIX="$HOME/.local"`,
-		`npm install -g --silent "@google/gemini-cli@latest"`,
-		`test -x "$HOME/.local/bin/gemini"`,
+		`curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail "https://antigravity.google/cli/install.sh" -o "$installer"`,
+		`actual=$(shasum -a 256 "$installer" | awk '{print $1}')`,
+		`expected="` + antigravityInstallerSHA256 + `"`,
+		`bash "$installer"`,
+		`test -x "$HOME/.local/bin/agy"`,
 	} {
 		if !strings.Contains(script, want) {
-			t.Fatalf("geminiInstallScript() missing %q in %q", want, script)
+			t.Fatalf("antigravityInstallScript() missing %q in %q", want, script)
 		}
+	}
+	if strings.Contains(script, "npm install") {
+		t.Fatalf("antigravityInstallScript() should not require npm: %q", script)
 	}
 }
 

@@ -31,7 +31,7 @@ Examples:
   hazmat explain --for shell --docker=sandbox -C ~/workspace/docker-app
   hazmat explain --for opencode --docker=none -C ~/workspace/repo
   hazmat explain --for codex --network none -C ~/workspace/repo
-  hazmat explain --for gemini --integration go -C ~/workspace/my-go-project
+  hazmat explain --for antigravity --integration go -C ~/workspace/my-go-project
   hazmat explain --for hermes -C ~/workspace/repo
   hazmat explain --for qwen -C ~/workspace/repo
   hazmat explain --for cursor-agent -C ~/workspace/repo
@@ -79,7 +79,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&target, "for", "claude",
-		"Preview target (claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent, pi)")
+		"Preview target (claude, shell, exec, opencode, codex, antigravity, hermes, qwen, cursor-agent, pi)")
 	bindExplainSessionFlags(cmd, &flags)
 	cmd.Flags().StringVar(&backendValue, "backend", "",
 		"Preview an alternate plan-only backend (apple-container)")
@@ -97,9 +97,9 @@ func resolveExplainSession(target string, opts harnessSessionOpts) (sessionConfi
 
 func resolveExplainSessionWithProgress(target string, opts harnessSessionOpts, progress *sessionPreparationProgress) (sessionConfig, sessionMode, error) {
 	switch target {
-	case "claude", "shell", "exec", "opencode", "codex", "gemini", "hermes", "qwen", "cursor-agent", "pi":
+	case "claude", "shell", "exec", "opencode", "codex", "antigravity", "hermes", "qwen", "cursor-agent", "pi":
 	default:
-		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, gemini, hermes, qwen, cursor-agent, or pi)", target)
+		return sessionConfig{}, "", fmt.Errorf("unknown preview target %q (want claude, shell, exec, opencode, codex, antigravity, hermes, qwen, cursor-agent, or pi)", target)
 	}
 
 	prepared, err := resolvePreparedSessionWithProgress(target, opts, true, progress)

@@ -951,11 +951,12 @@ func codexLaunchUI(forwarded []string) sessionLaunchUI {
 	return sessionLaunchUI{showStatusBar: true}
 }
 
-func newGeminiCmd() *cobra.Command {
+func newAntigravityCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "gemini [hazmat-flags] [gemini-flags] [gemini-args...]",
-		Short: "Launch Gemini CLI in containment",
-		Long: `Launch Gemini CLI in a sandboxed environment.
+		Use:     "antigravity [hazmat-flags] [agy-flags] [agy-args...]",
+		Aliases: []string{"agy"},
+		Short:   "Launch Antigravity (agy) in containment",
+		Long: `Launch Antigravity (agy) in a sandboxed environment.
 
 Hazmat flags (parsed first, may appear anywhere before --):
   -C, --project <dir>    Writable project directory (defaults to cwd)
@@ -970,26 +971,25 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --metadata-json        Emit one launch metadata JSON line to stderr
   --ignore-docker        Alias for --docker=none (deprecated)
 
-All other flags and arguments are forwarded to Gemini.
+All other flags and arguments are forwarded to Antigravity.
 Directory arguments are forwarded unchanged; use -C/--project to change
-the writable project root.
-When --resume/-r or --list-sessions is detected, Hazmat copies this project's
-Gemini session history into the agent user's Gemini session store.
+the writable project root. Antigravity authenticates via the
+ANTIGRAVITY_API_KEY / GEMINI_API_KEY environment variables (configure with
+'hazmat config agent'); its contained config lives under
+/Users/agent/.gemini/antigravity-cli.
 Use --docker=sandbox when this repo needs a private-daemon Docker session.
 Use --docker=auto when you want Hazmat to inspect the repo and route
 Docker-heavy private-daemon fits automatically.
 
 Examples:
-  hazmat gemini
-  hazmat gemini -p "explain this repo"
-  hazmat gemini --list-sessions
-  hazmat gemini --resume latest
-  hazmat gemini --docker=sandbox -C /proj
-  hazmat gemini --docker=auto -C /proj
-  hazmat gemini --network none -p "review offline"
-  hazmat gemini --github -p "review this PR"
-  hazmat gemini -C /proj
-  hazmat gemini --no-backup`,
+  hazmat antigravity
+  hazmat agy -p "explain this repo"
+  hazmat antigravity --docker=sandbox -C /proj
+  hazmat antigravity --docker=auto -C /proj
+  hazmat antigravity --network none -p "review offline"
+  hazmat antigravity --github -p "review this PR"
+  hazmat antigravity -C /proj
+  hazmat antigravity --no-backup`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
@@ -1000,20 +1000,14 @@ Examples:
 				return nil
 			}
 
-			prepared, err := prepareAndBeginLaunchSession("gemini", opts, true, true)
+			prepared, err := prepareAndBeginLaunchSession("antigravity", opts, true, true)
 			if err != nil {
 				return err
 			}
 			if prepared.Runtime.UsesDockerSandbox() {
-				return runPreparedSandboxGeminiSession(prepared, forwarded)
+				return runPreparedSandboxAntigravitySession(prepared, forwarded)
 			}
-			if geminiResumeRequested(forwarded) {
-				if err := syncGeminiResumeState(prepared.Config.ProjectDir); err != nil {
-					fmt.Fprintf(os.Stderr, "  Warning: Gemini session sync failed: %v\n", err)
-					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
-				}
-			}
-			return runPreparedAgentSeatbeltScript(prepared, geminiLaunchScript(), forwarded...)
+			return runPreparedAgentSeatbeltScript(prepared, antigravityLaunchScript(), forwarded...)
 		},
 	}
 	return cmd
@@ -2271,8 +2265,8 @@ func dockerSessionExample(commandName, projectDir string, mode dockerMode) strin
 		return fmt.Sprintf("hazmat opencode %s -C %s", flag, projectDir)
 	case "codex":
 		return fmt.Sprintf("hazmat codex %s -C %s", flag, projectDir)
-	case "gemini":
-		return fmt.Sprintf("hazmat gemini %s -C %s", flag, projectDir)
+	case "antigravity":
+		return fmt.Sprintf("hazmat antigravity %s -C %s", flag, projectDir)
 	case "hermes":
 		return fmt.Sprintf("hazmat hermes %s -C %s", flag, projectDir)
 	case "qwen":

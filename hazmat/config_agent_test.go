@@ -305,9 +305,10 @@ func TestApplyHarnessAPIKeyEnvDeliversConfiguredProvidersForAllowedHarness(t *te
 			},
 		},
 		{
-			harness: HarnessGemini,
+			harness: HarnessAntigravity,
 			want: map[string]credentialID{
-				"GEMINI_API_KEY": credentialProviderGeminiAPIKey,
+				"ANTIGRAVITY_API_KEY": credentialProviderAntigravityAPIKey,
+				"GEMINI_API_KEY":      credentialProviderGeminiAPIKey,
 			},
 		},
 		{
@@ -475,6 +476,11 @@ func TestProviderAPIKeyPromptsAreSelectedFromConsumerHarnesses(t *testing.T) {
 			name:      "codex",
 			harnesses: []HarnessID{HarnessCodex},
 			want:      []string{"OPENAI_API_KEY"},
+		},
+		{
+			name:      "antigravity",
+			harnesses: []HarnessID{HarnessAntigravity},
+			want:      []string{"ANTIGRAVITY_API_KEY", "GEMINI_API_KEY"},
 		},
 		{
 			name:      "hermes",

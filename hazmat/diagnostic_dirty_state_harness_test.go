@@ -174,7 +174,7 @@ func TestDiagnosticFakeHostStateCurrentCheckWarningScenarios(t *testing.T) {
 		{"missing agent umask", findingAgentUmask, "repair", "planned"},
 		{"stale Claude state", findingCredentialClaudeStateResidue, "repair", "planned"},
 		{"legacy cloud secret key", findingCredentialCloudSecretKeyLegacy, "repair", "planned"},
-		{"Gemini keychain adapter required", findingCredentialAdapterRequired, "manual", string(diagnosticRepairUnsupported)},
+		{"Antigravity keychain adapter required", findingCredentialAdapterRequired, "manual", string(diagnosticRepairUnsupported)},
 		{"Claude project permissions", findingClaudeProjectPermissions, "repair", "planned"},
 		{"optional SSH key", findingAgentSSHKey, "skipped", string(diagnosticRepairOptional)},
 		{"optional Anthropic auth", findingAnthropicAPIKey, "skipped", string(diagnosticRepairOptional)},
@@ -254,8 +254,8 @@ func TestDiagnosticFakeRollbackKeepsUnsupportedManualCleanupUnclaimed(t *testing
 	if !fakeRollbackManualContains(report, findingCredentialAdapterRequired) {
 		t.Fatalf("manual rollback items = %+v, want credential adapter requirement left manual", report.ManualItems)
 	}
-	if cred := state.Credentials[credentialHarnessGeminiKeychain]; !cred.AdapterRequired {
-		t.Fatalf("Gemini credential state after rollback = %+v, want adapter-required manual item still present", cred)
+	if cred := state.Credentials[credentialHarnessAntigravityKeychain]; !cred.AdapterRequired {
+		t.Fatalf("Antigravity credential state after rollback = %+v, want adapter-required manual item still present", cred)
 	}
 	for _, receipt := range report.Receipts {
 		if receipt.ResourceID == "credential.backend-adapter" && receipt.Status == diagnosticFakeRollbackRemoved {
@@ -297,10 +297,10 @@ func newDiagnosticDirtyHostState() *diagnosticFakeHostState {
 			PFAnchored:   false,
 		},
 		Credentials: map[credentialID]diagnosticFakeCredentialState{
-			credentialHarnessClaudeState:    {HostStorePresent: true, AgentResidue: true},
-			credentialCloudS3SecretKey:      {HostStorePresent: false, LegacyResidue: true},
-			credentialProviderOpenAIAPIKey:  {HostStorePresent: true, AgentResidue: true},
-			credentialHarnessGeminiKeychain: {AdapterRequired: true},
+			credentialHarnessClaudeState:         {HostStorePresent: true, AgentResidue: true},
+			credentialCloudS3SecretKey:           {HostStorePresent: false, LegacyResidue: true},
+			credentialProviderOpenAIAPIKey:       {HostStorePresent: true, AgentResidue: true},
+			credentialHarnessAntigravityKeychain: {AdapterRequired: true},
 		},
 		Tools: map[string]diagnosticFakeToolState{
 			"golangci-lint": {AgentExecutable: false, HomebrewBacked: true},
@@ -506,8 +506,8 @@ func (s *diagnosticFakeHostState) probeFindings() []uiFinding {
 	if cred := s.Credentials[credentialProviderOpenAIAPIKey]; cred.AgentResidue {
 		add(uiFindingWarning, findingCredentialResidue, "fake provider API key residue remains in agent home")
 	}
-	if cred := s.Credentials[credentialHarnessGeminiKeychain]; cred.AdapterRequired {
-		add(uiFindingWarning, findingCredentialAdapterRequired, "fake Gemini Keychain adapter is not available")
+	if cred := s.Credentials[credentialHarnessAntigravityKeychain]; cred.AdapterRequired {
+		add(uiFindingWarning, findingCredentialAdapterRequired, "fake Antigravity Keychain adapter is not available")
 	}
 	if !s.Optional.SSHKeyConfigured {
 		add(uiFindingWarning, findingAgentSSHKey, "fake agent SSH key is not configured")
