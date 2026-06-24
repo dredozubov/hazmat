@@ -89,6 +89,12 @@ func TestEnsureAgentToolchainDirsRepairsParentsBeforeChildren(t *testing.T) {
 		t.Fatalf("EnsureAgentToolchainDirs: %v", err)
 	}
 
+	// All toolchain dirs must be created in a single privileged call so the user
+	// is prompted for sudo at most once, not once per directory.
+	if calls := installDirCalls(runner.sudoCalls); len(calls) != 1 {
+		t.Fatalf("expected one batched install -d call, got %d", len(calls))
+	}
+
 	got := installDirPaths(runner.sudoCalls)
 	want := []string{
 		env.DefaultAgentCacheHome,
@@ -370,17 +376,25 @@ func assertNoSudoOutputForPath(t *testing.T, runner *fakeToolingRunner, path str
 
 func installDirPaths(calls [][]string) []string {
 	var paths []string
+	for _, call := range installDirCalls(calls) {
+		paths = append(paths, call[8:]...)
+	}
+	return paths
+}
+
+func installDirCalls(calls [][]string) [][]string {
+	var matched [][]string
 	for _, call := range calls {
-		if len(call) == 9 &&
+		if len(call) >= 8 &&
 			call[0] == "install" &&
 			call[1] == "-d" &&
 			call[2] == "-o" &&
 			call[4] == "-g" &&
 			call[6] == "-m" {
-			paths = append(paths, call[8])
+			matched = append(matched, call)
 		}
 	}
-	return paths
+	return matched
 }
 
 func assertPathBefore(t *testing.T, paths []string, before, after string) {

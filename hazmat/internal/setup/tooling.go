@@ -178,12 +178,22 @@ func SetupUserExperience(env ToolingEnv, ui StepStatusUI, runner ToolingRunner) 
 }
 
 // EnsureAgentToolchainDirs creates and repairs agent-owned XDG/toolchain roots.
+//
+// All directories are created in a SINGLE privileged `install -d` call rather
+// than one per directory: sudo invocations here run with stdio detached from
+// the terminal, so each separate `sudo` re-prompts for the password instead of
+// reusing a cached tty ticket. One call means the user is prompted at most once
+// for this step instead of once per directory. `install -d` accepts multiple
+// operands, creates intermediate parents, and applies the same owner/group/mode
+// to each, so batching is behavior-equivalent to the previous loop.
 func EnsureAgentToolchainDirs(env ToolingEnv, runner ToolingRunner) error {
-	for _, dir := range agentToolchainDirs(env) {
-		if err := runner.Sudo("create agent directory",
-			"install", "-d", "-o", env.AgentUser, "-g", "staff", "-m", "755", dir); err != nil {
-			return fmt.Errorf("ensure %s: %w", dir, err)
-		}
+	dirs := agentToolchainDirs(env)
+	if len(dirs) == 0 {
+		return nil
+	}
+	args := append([]string{"install", "-d", "-o", env.AgentUser, "-g", "staff", "-m", "755"}, dirs...)
+	if err := runner.Sudo("create agent toolchain directories", args...); err != nil {
+		return fmt.Errorf("ensure agent toolchain directories: %w", err)
 	}
 	return nil
 }
