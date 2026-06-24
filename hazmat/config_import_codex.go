@@ -139,7 +139,7 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 				policy = claudeConflictFail
 			}
 
-			err = codexHarness.ImportBasics(ui, r, env, codexImportOptions{
+			err = importCodexBasics(ui, r, env, codexImportOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,

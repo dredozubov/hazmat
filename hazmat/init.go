@@ -453,7 +453,7 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := claudeCodeHarness.ImportBasics(ui, r, env, claudeImportOptions{
+		if err := importClaudeBasics(ui, r, env, claudeImportOptions{
 			PromptBeforeImport: true,
 			ConflictPolicy:     claudeConflictPrompt,
 			AllowNoopMessage:   false,
@@ -467,7 +467,7 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := codexHarness.ImportBasics(ui, r, env, codexImportOptions{
+		if err := importCodexBasics(ui, r, env, codexImportOptions{
 			PromptBeforeImport: true,
 			ConflictPolicy:     claudeConflictPrompt,
 			AllowNoopMessage:   false,
@@ -481,7 +481,7 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := openCodeHarness.ImportBasics(ui, r, env, opencodeImportOptions{
+		if err := importOpenCodeBasics(ui, r, env, opencodeImportOptions{
 			PromptBeforeImport: true,
 			ConflictPolicy:     claudeConflictPrompt,
 			AllowNoopMessage:   false,

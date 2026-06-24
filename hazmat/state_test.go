@@ -133,7 +133,7 @@ func TestRunDownMigrationsRemovesHarnessOnlyStateFile(t *testing.T) {
 	restoreState := isolateStateFile(t)
 	defer restoreState()
 
-	if err := recordHarnessInstalled(claudeCodeHarness.Spec()); err != nil {
+	if err := recordHarnessInstalled(harnessMetadata(HarnessClaude).Spec); err != nil {
 		t.Fatalf("RecordInstalled: %v", err)
 	}
 
@@ -151,10 +151,10 @@ func TestRemoveHarnessStatePreservesOtherHarnessesAndInitState(t *testing.T) {
 	if err := saveState("0.4.0"); err != nil {
 		t.Fatalf("saveState: %v", err)
 	}
-	if err := recordHarnessInstalled(claudeCodeHarness.Spec()); err != nil {
+	if err := recordHarnessInstalled(harnessMetadata(HarnessClaude).Spec); err != nil {
 		t.Fatalf("RecordInstalled(claude): %v", err)
 	}
-	if err := codexHarness.RecordBasicsImported(); err != nil {
+	if err := recordHarnessImportRun(harnessMetadata(HarnessCodex).Spec); err != nil {
 		t.Fatalf("RecordBasicsImported(codex): %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestRemoveHarnessStateDeletesHarnessOnlyStateFile(t *testing.T) {
 	restoreState := isolateStateFile(t)
 	defer restoreState()
 
-	if err := recordHarnessInstalled(claudeCodeHarness.Spec()); err != nil {
+	if err := recordHarnessInstalled(harnessMetadata(HarnessClaude).Spec); err != nil {
 		t.Fatalf("RecordInstalled: %v", err)
 	}
 	if err := removeHarnessState(HarnessClaude); err != nil {

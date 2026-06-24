@@ -167,7 +167,7 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 				policy = claudeConflictFail
 			}
 
-			err = openCodeHarness.ImportBasics(ui, r, env, opencodeImportOptions{
+			err = importOpenCodeBasics(ui, r, env, opencodeImportOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,

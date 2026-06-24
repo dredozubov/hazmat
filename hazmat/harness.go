@@ -43,19 +43,6 @@ type ManagedHarness struct {
 	Bootstrap            func(ui *UI, r *Runner) error
 }
 
-// ClaudeHarness, CodexHarness, and OpenCodeHarness exist only to carry the
-// typed ImportBasics flows for the importable harnesses. Bootstrap + state
-// recording for every harness is dispatched generically through
-// bootstrapManagedHarness in the registry below, so non-importable harnesses
-// need no per-harness type.
-type ClaudeHarness struct{}
-type CodexHarness struct{}
-type OpenCodeHarness struct{}
-
-var claudeCodeHarness = ClaudeHarness{}
-var codexHarness = CodexHarness{}
-var openCodeHarness = OpenCodeHarness{}
-
 func harnessMetadata(id HarnessID) harnesses.Metadata {
 	return harnesses.MustMetadata(id)
 }
@@ -206,18 +193,6 @@ var managedHarnessRegistry = []ManagedHarness{
 	},
 }
 
-func (ClaudeHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessClaude)
-}
-
-func (CodexHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessCodex)
-}
-
-func (OpenCodeHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessOpenCode)
-}
-
 // bootstrapManagedHarness wraps a harness install/update function with the
 // shared post-install state recording. Each registry row supplies only its run
 // function, replacing the previously identical per-harness Bootstrap methods.
@@ -235,52 +210,41 @@ func bootstrapManagedHarness(spec HarnessSpec, run func(ui *UI, r *Runner) error
 	}
 }
 
-func (h ClaudeHarness) ImportBasics(ui *UI, r *Runner, env claudeImportEnv, opts claudeImportOptions) error {
+// importHarnessBasicsRecord records a completed curated import for an
+// importable harness unless this is a dry run. Shared by the per-harness import
+// functions below so they differ only in their typed env/opts.
+func importHarnessBasicsRecord(ui *UI, r *Runner, id HarnessID) {
+	if r == nil || r.DryRun {
+		return
+	}
+	spec := harnessMetadata(id).Spec
+	if err := recordHarnessImportRun(spec); err != nil {
+		ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", spec.DisplayName, err))
+	}
+}
+
+func importClaudeBasics(ui *UI, r *Runner, env claudeImportEnv, opts claudeImportOptions) error {
 	if err := runClaudeBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordBasicsImported(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
-		}
-	}
+	importHarnessBasicsRecord(ui, r, HarnessClaude)
 	return nil
 }
 
-func (h ClaudeHarness) RecordBasicsImported() error {
-	return recordHarnessImportRun(h.Spec())
-}
-
-func (h CodexHarness) ImportBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
+func importCodexBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
 	if err := runCodexBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordBasicsImported(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
-		}
-	}
+	importHarnessBasicsRecord(ui, r, HarnessCodex)
 	return nil
 }
 
-func (h CodexHarness) RecordBasicsImported() error {
-	return recordHarnessImportRun(h.Spec())
-}
-
-func (h OpenCodeHarness) ImportBasics(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
+func importOpenCodeBasics(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
 	if err := runOpenCodeBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordBasicsImported(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s import state: %v", h.Spec().DisplayName, err))
-		}
-	}
+	importHarnessBasicsRecord(ui, r, HarnessOpenCode)
 	return nil
-}
-
-func (h OpenCodeHarness) RecordBasicsImported() error {
-	return recordHarnessImportRun(h.Spec())
 }
 
 func managedHarnesses() []ManagedHarness {
