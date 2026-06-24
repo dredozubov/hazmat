@@ -489,6 +489,41 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 	return cmd
 }
 
+// launchUniformHarness runs the standard contained-launch flow for harnesses
+// without bespoke pre-launch processing: parse hazmat flags, prepare the
+// session, then route to the Docker Sandbox path or the native seatbelt path.
+// syncResume (optional, native path only) syncs host session history when a
+// resume is requested. Harnesses that transform forwarded args (qwen/codex) or
+// mutate opts (claude --bare) keep their own RunE.
+func launchUniformHarness(
+	cmd *cobra.Command,
+	args []string,
+	name string,
+	preflightBeforeSnapshot bool,
+	launchScript func() string,
+	sandboxRunner func(preparedSession, []string) error,
+	syncResume func(prepared preparedSession, forwarded []string),
+) error {
+	opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
+	if err != nil {
+		return err
+	}
+	if handled {
+		return nil
+	}
+	prepared, err := prepareAndBeginLaunchSession(name, opts, true, preflightBeforeSnapshot)
+	if err != nil {
+		return err
+	}
+	if prepared.Runtime.UsesDockerSandbox() {
+		return sandboxRunner(prepared, forwarded)
+	}
+	if syncResume != nil {
+		syncResume(prepared, forwarded)
+	}
+	return runPreparedAgentSeatbeltScript(prepared, launchScript(), forwarded...)
+}
+
 func newClaudeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "claude [hazmat-flags] [claude-flags] [claude-args...]",
@@ -621,28 +656,15 @@ Examples:
   hazmat opencode --no-backup -p "hi"`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
-			if err != nil {
-				return err
-			}
-			if handled {
-				return nil
-			}
-
-			prepared, err := prepareAndBeginLaunchSession("opencode", opts, true, true)
-			if err != nil {
-				return err
-			}
-			if prepared.Runtime.UsesDockerSandbox() {
-				return runPreparedSandboxOpenCodeSession(prepared, forwarded)
-			}
-			if detectOpenCodeResumeRequest(forwarded).requested {
-				if err := syncOpenCodeResumeState(prepared.Config.ProjectDir, forwarded); err != nil {
-					fmt.Fprintf(os.Stderr, "  Warning: OpenCode session sync failed: %v\n", err)
-					fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
-				}
-			}
-			return runPreparedAgentSeatbeltScript(prepared, openCodeLaunchScript(), forwarded...)
+			return launchUniformHarness(cmd, args, "opencode", true, openCodeLaunchScript, runPreparedSandboxOpenCodeSession,
+				func(prepared preparedSession, forwarded []string) {
+					if detectOpenCodeResumeRequest(forwarded).requested {
+						if err := syncOpenCodeResumeState(prepared.Config.ProjectDir, forwarded); err != nil {
+							fmt.Fprintf(os.Stderr, "  Warning: OpenCode session sync failed: %v\n", err)
+							fmt.Fprintln(os.Stderr, "  Resume may not find sessions from your user account.")
+						}
+					}
+				})
 		},
 	}
 	return cmd
@@ -992,22 +1014,7 @@ Examples:
   hazmat antigravity --no-backup`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, forwarded, handled, err := parseHarnessCommandArgs(cmd, args, parseHarnessArgs)
-			if err != nil {
-				return err
-			}
-			if handled {
-				return nil
-			}
-
-			prepared, err := prepareAndBeginLaunchSession("antigravity", opts, true, true)
-			if err != nil {
-				return err
-			}
-			if prepared.Runtime.UsesDockerSandbox() {
-				return runPreparedSandboxAntigravitySession(prepared, forwarded)
-			}
-			return runPreparedAgentSeatbeltScript(prepared, antigravityLaunchScript(), forwarded...)
+			return launchUniformHarness(cmd, args, "antigravity", true, antigravityLaunchScript, runPreparedSandboxAntigravitySession, nil)
 		},
 	}
 	return cmd
