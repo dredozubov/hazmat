@@ -59,9 +59,10 @@ This command does not import host Cursor IDE state, host ~/.cursor profile
 state, or host Cursor auth settings.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			harness, _ := managedHarnessByID(HarnessCursorAgent)
 			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 			r := NewRunner(ui, flagVerbose, flagDryRun)
-			return cursorAgentHarness.Bootstrap(ui, r)
+			return harness.Bootstrap(ui, r)
 		},
 	}
 }

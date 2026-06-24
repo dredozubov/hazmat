@@ -358,7 +358,7 @@ func TestBuildHarnessUninstallPlanKeepsHermesManualBinaryOutOfManagedCode(t *tes
 	restoreState := isolateStateFile(t)
 	defer restoreState()
 
-	if err := hermesHarness.RecordInstalled(); err != nil {
+	if err := recordHarnessInstalled(harnessMetadata(HarnessHermes).Spec); err != nil {
 		t.Fatalf("RecordInstalled: %v", err)
 	}
 	harness, ok := managedHarnessByID(HarnessHermes)

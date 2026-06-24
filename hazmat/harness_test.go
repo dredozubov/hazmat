@@ -9,7 +9,7 @@ func TestFormatInstalledHarnessNamesForStatusReadsStateVersion(t *testing.T) {
 	installed := []ManagedHarness{
 		{Spec: claudeCodeHarness.Spec()},
 		{Spec: codexHarness.Spec()},
-		{Spec: hermesHarness.Spec()},
+		{Spec: harnessMetadata(HarnessHermes).Spec},
 	}
 	state := HazmatState{
 		Harnesses: map[HarnessID]HarnessState{

@@ -43,23 +43,18 @@ type ManagedHarness struct {
 	Bootstrap            func(ui *UI, r *Runner) error
 }
 
+// ClaudeHarness, CodexHarness, and OpenCodeHarness exist only to carry the
+// typed ImportBasics flows for the importable harnesses. Bootstrap + state
+// recording for every harness is dispatched generically through
+// bootstrapManagedHarness in the registry below, so non-importable harnesses
+// need no per-harness type.
 type ClaudeHarness struct{}
 type CodexHarness struct{}
 type OpenCodeHarness struct{}
-type AntigravityHarness struct{}
-type HermesHarness struct{}
-type QwenHarness struct{}
-type CursorAgentHarness struct{}
-type PiHarness struct{}
 
 var claudeCodeHarness = ClaudeHarness{}
 var codexHarness = CodexHarness{}
 var openCodeHarness = OpenCodeHarness{}
-var antigravityHarness = AntigravityHarness{}
-var hermesHarness = HermesHarness{}
-var qwenHarness = QwenHarness{}
-var cursorAgentHarness = CursorAgentHarness{}
-var piHarness = PiHarness{}
 
 func harnessMetadata(id HarnessID) harnesses.Metadata {
 	return harnesses.MustMetadata(id)
@@ -82,9 +77,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + "/.claude.json account state",
 			"provider credentials in ~/.hazmat/secrets",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return claudeCodeHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessClaude).Spec, runBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessCodex).Spec,
@@ -102,9 +95,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + "/.agents shared skills",
 			"provider credentials in ~/.hazmat/secrets",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return codexHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessCodex).Spec, runCodexBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessOpenCode).Spec,
@@ -122,9 +113,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + "/.local/share/opencode auth and data",
 			"provider credentials in ~/.hazmat/secrets",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return openCodeHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessOpenCode).Spec, runOpenCodeBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessAntigravity).Spec,
@@ -141,9 +130,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + antigravityStateDirRel + " contained Antigravity config and runtime state",
 			"provider credentials in ~/.hazmat/secrets",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return antigravityHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessAntigravity).Spec, runAntigravityBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessHermes).Spec,
@@ -161,9 +148,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			hermesStateDir() + " managed profile roots",
 			"provider credentials in ~/.hazmat/secrets",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return hermesHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessHermes).Spec, runHermesBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessQwen).Spec,
@@ -181,9 +166,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			"host ~/.qwen auth and settings are not imported",
 			"provider credentials are configured inside the contained Qwen profile or project .env",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return qwenHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessQwen).Spec, runQwenBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessCursorAgent).Spec,
@@ -201,9 +184,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + "/.cursor contained Cursor Agent profile state",
 			"host Cursor IDE state, host ~/.cursor, and host auth settings are not imported",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return cursorAgentHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessCursorAgent).Spec, runCursorAgentBootstrap),
 	},
 	{
 		Spec:             harnessMetadata(HarnessPi).Spec,
@@ -221,9 +202,7 @@ var managedHarnessRegistry = []ManagedHarness{
 			agentHome + piStateDirRel + " contained Pi settings, trust decisions, sessions, skills, extensions, and auth",
 			"host ~/.pi/agent is not imported",
 		},
-		Bootstrap: func(ui *UI, r *Runner) error {
-			return piHarness.Bootstrap(ui, r)
-		},
+		Bootstrap: bootstrapManagedHarness(harnessMetadata(HarnessPi).Spec, runPiBootstrap),
 	},
 }
 
@@ -239,36 +218,21 @@ func (OpenCodeHarness) Spec() HarnessSpec {
 	return harnesses.MustSpec(HarnessOpenCode)
 }
 
-func (AntigravityHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessAntigravity)
-}
-
-func (HermesHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessHermes)
-}
-
-func (QwenHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessQwen)
-}
-
-func (CursorAgentHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessCursorAgent)
-}
-
-func (PiHarness) Spec() HarnessSpec {
-	return harnesses.MustSpec(HarnessPi)
-}
-
-func (h ClaudeHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
+// bootstrapManagedHarness wraps a harness install/update function with the
+// shared post-install state recording. Each registry row supplies only its run
+// function, replacing the previously identical per-harness Bootstrap methods.
+func bootstrapManagedHarness(spec HarnessSpec, run func(ui *UI, r *Runner) error) func(ui *UI, r *Runner) error {
+	return func(ui *UI, r *Runner) error {
+		if err := run(ui, r); err != nil {
+			return err
 		}
+		if r != nil && !r.DryRun {
+			if err := recordHarnessInstalled(spec); err != nil {
+				ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", spec.DisplayName, err))
+			}
+		}
+		return nil
 	}
-	return nil
 }
 
 func (h ClaudeHarness) ImportBasics(ui *UI, r *Runner, env claudeImportEnv, opts claudeImportOptions) error {
@@ -283,24 +247,8 @@ func (h ClaudeHarness) ImportBasics(ui *UI, r *Runner, env claudeImportEnv, opts
 	return nil
 }
 
-func (h ClaudeHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
 func (h ClaudeHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
-}
-
-func (h CodexHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runCodexBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
 }
 
 func (h CodexHarness) ImportBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
@@ -315,24 +263,8 @@ func (h CodexHarness) ImportBasics(ui *UI, r *Runner, env codexImportEnv, opts c
 	return nil
 }
 
-func (h CodexHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
 func (h CodexHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
-}
-
-func (h OpenCodeHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runOpenCodeBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
 }
 
 func (h OpenCodeHarness) ImportBasics(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
@@ -347,92 +279,8 @@ func (h OpenCodeHarness) ImportBasics(ui *UI, r *Runner, env opencodeImportEnv, 
 	return nil
 }
 
-func (h OpenCodeHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
 func (h OpenCodeHarness) RecordBasicsImported() error {
 	return recordHarnessImportRun(h.Spec())
-}
-
-func (h AntigravityHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runAntigravityBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h AntigravityHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
-func (h HermesHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runHermesBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h HermesHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
-func (h QwenHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runQwenBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h QwenHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
-func (h CursorAgentHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runCursorAgentBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h CursorAgentHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
-}
-
-func (h PiHarness) Bootstrap(ui *UI, r *Runner) error {
-	if err := runPiBootstrap(ui, r); err != nil {
-		return err
-	}
-	if r != nil && !r.DryRun {
-		if err := h.RecordInstalled(); err != nil {
-			ui.WarnMsg(fmt.Sprintf("Could not record %s harness state: %v", h.Spec().DisplayName, err))
-		}
-	}
-	return nil
-}
-
-func (h PiHarness) RecordInstalled() error {
-	return recordHarnessInstalled(h.Spec())
 }
 
 func managedHarnesses() []ManagedHarness {
