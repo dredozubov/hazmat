@@ -3,7 +3,9 @@ package hazmat
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -13,6 +15,55 @@ import (
 // service name Claude Code uses to persist OAuth credentials. The stored
 // password field is the same JSON shape as ~/.claude/.credentials.json.
 const claudeKeychainCredentialService = "Claude Code-credentials"
+
+// claudeKeychainAddArgs builds the `security add-generic-password` argument
+// vector for seeding Claude Code's OAuth credential.
+//
+// The `-a` account AND `-s` service attributes are BOTH required by the macOS
+// security tool: omitting `-a` makes add-generic-password print usage and exit
+// 2, so the write can never succeed. Claude Code stores its item under the OS
+// short username of whoever runs it, so callers pass the matching account (the
+// agent account for the agent keychain, the invoking user for the host
+// keychain). Matching the account lets `-U` update Claude Code's own item
+// instead of creating a parallel one. keychainPath is appended only when
+// non-empty; an empty path targets the default keychain.
+func claudeKeychainAddArgs(account string, raw []byte, keychainPath string) []string {
+	args := []string{
+		"add-generic-password",
+		"-U",
+		"-a", account,
+		"-s", claudeKeychainCredentialService,
+		"-w", string(raw),
+	}
+	if keychainPath != "" {
+		args = append(args, keychainPath)
+	}
+	return args
+}
+
+// currentHostKeychainAccount returns the account name Claude Code uses for the
+// invoking user's keychain item: the OS short username.
+func currentHostKeychainAccount() string {
+	if u, err := user.Current(); err == nil {
+		if name := strings.TrimSpace(u.Username); name != "" {
+			return name
+		}
+	}
+	return strings.TrimSpace(os.Getenv("USER"))
+}
+
+// securityOutputDetail formats trimmed `security` output for an error message.
+// The output is the tool's own diagnostic text (usage or a SecKeychain
+// message); it never echoes the -w password, so it is safe to surface. Without
+// this, agent-side writes ran through asAgentQuiet and the failure reason was
+// lost behind a bare "exit status N".
+func securityOutputDetail(out string) string {
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return ""
+	}
+	return "\nsecurity output: " + out
+}
 
 // readClaudeAgentKeychainCredential reads Claude Code's OAuth credential JSON
 // from the agent login keychain. It is best-effort: ok=false (with no error)
@@ -46,14 +97,10 @@ var writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	if err := asAgentQuiet(
-		"/usr/bin/security", "add-generic-password",
-		"-U",
-		"-s", claudeKeychainCredentialService,
-		"-w", string(raw),
-		agentLoginKeychainPath(),
-	); err != nil {
-		return fmt.Errorf("security add-generic-password failed: %w", err)
+	args := append([]string{"/usr/bin/security"},
+		claudeKeychainAddArgs(agentUser, raw, agentLoginKeychainPath())...)
+	if out, err := asAgentCombinedOutput(args...); err != nil {
+		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(out))
 	}
 	return nil
 }
@@ -110,13 +157,9 @@ var writeClaudeHostKeychainCredential = func(data harnessAuthData) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	if _, err := exec.Command(
-		hostSecurityPath, "add-generic-password",
-		"-U",
-		"-s", claudeKeychainCredentialService,
-		"-w", string(raw),
-	).CombinedOutput(); err != nil {
-		return fmt.Errorf("security add-generic-password failed: %w", err)
+	args := claudeKeychainAddArgs(currentHostKeychainAccount(), raw, "")
+	if out, err := exec.Command(hostSecurityPath, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(string(out)))
 	}
 	return nil
 }
