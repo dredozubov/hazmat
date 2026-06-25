@@ -5,7 +5,6 @@ package hazmat
 import (
 	"bytes"
 	"fmt"
-	"hazmat/credentials"
 	"os"
 	"os/exec"
 	"path/filepath"
