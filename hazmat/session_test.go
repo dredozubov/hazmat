@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hazmat/credentials"
 	"io"
 	"os"
 	"os/exec"
@@ -2914,7 +2915,7 @@ func TestRenderSessionContractShowsComputedSessionState(t *testing.T) {
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
 				EnvVar:          "ANTHROPIC_API_KEY",
-				CredentialID:    credentialProviderAnthropicAPIKey,
+				CredentialID:    credentials.ProviderAnthropicAPIKey,
 				Source:          "host secret store",
 				ConsumerHarness: HarnessClaude,
 			},

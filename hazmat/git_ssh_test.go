@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"bytes"
+	"hazmat/credentials"
 	"io"
 	"os"
 	"os/exec"
@@ -281,8 +282,8 @@ func TestResolveManagedGitSSHUsesSelectedConfiguredKey(t *testing.T) {
 	if got.Keys[0].Name != "id_ed25519" {
 		t.Fatalf("Keys[0].Name = %q, want id_ed25519", got.Keys[0].Name)
 	}
-	if got.Keys[0].Identity.CredentialID != credentialGitSSHExternalIdentity {
-		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentialGitSSHExternalIdentity)
+	if got.Keys[0].Identity.CredentialID != credentials.GitSSHExternalIdentity {
+		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentials.GitSSHExternalIdentity)
 	}
 	if got.Keys[0].Identity.Source != gitSSHIdentitySourceExternalFile {
 		t.Fatalf("Keys[0].Identity.Source = %q, want %q", got.Keys[0].Identity.Source, gitSSHIdentitySourceExternalFile)
@@ -343,8 +344,8 @@ func TestResolveManagedGitSSHUsesProfileIdentityAndInheritsDefaultHosts(t *testi
 	if len(got.Keys) != 1 {
 		t.Fatalf("Keys len = %d, want 1", len(got.Keys))
 	}
-	if got.Keys[0].Identity.CredentialID != credentialGitSSHExternalIdentity {
-		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentialGitSSHExternalIdentity)
+	if got.Keys[0].Identity.CredentialID != credentials.GitSSHExternalIdentity {
+		t.Fatalf("Keys[0].Identity.CredentialID = %q, want %q", got.Keys[0].Identity.CredentialID, credentials.GitSSHExternalIdentity)
 	}
 	if got.Keys[0].Identity.Source != gitSSHIdentitySourceExternalFile {
 		t.Fatalf("Keys[0].Identity.Source = %q, want %q", got.Keys[0].Identity.Source, gitSSHIdentitySourceExternalFile)
@@ -379,8 +380,8 @@ func TestResolveManagedGitSSHUsesProvisionedIdentityReference(t *testing.T) {
 		t.Fatalf("managed Git SSH config = %+v, want one key", got)
 	}
 	identity := got.Keys[0].Identity
-	if identity.CredentialID != credentialGitSSHProvisionedIdentity {
-		t.Fatalf("CredentialID = %q, want %q", identity.CredentialID, credentialGitSSHProvisionedIdentity)
+	if identity.CredentialID != credentials.GitSSHProvisionedIdentity {
+		t.Fatalf("CredentialID = %q, want %q", identity.CredentialID, credentials.GitSSHProvisionedIdentity)
 	}
 	if identity.Source != gitSSHIdentitySourceProvisionedKeyRoot {
 		t.Fatalf("Source = %q, want %q", identity.Source, gitSSHIdentitySourceProvisionedKeyRoot)

@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -531,15 +532,15 @@ func (b *diagnosticHostRepairBackend) verifyCredentialMigration(actionID diagnos
 		}
 		switch actionID {
 		case "repair.credential.claude-state":
-			if entry.ID == credentialHarnessClaudeState {
+			if entry.ID == credentials.HarnessClaudeState {
 				return fmt.Errorf("Claude state residue still needs repair")
 			}
 		case "repair.credential.cloud-secret-key":
-			if entry.ID == credentialCloudS3SecretKey {
+			if entry.ID == credentials.CloudS3SecretKey {
 				return fmt.Errorf("legacy cloud secret key still needs repair")
 			}
 		case "repair.credential.residue":
-			if entry.ID != credentialHarnessClaudeState && entry.ID != credentialCloudS3SecretKey {
+			if entry.ID != credentials.HarnessClaudeState && entry.ID != credentials.CloudS3SecretKey {
 				return fmt.Errorf("credential residue still needs repair: %s", entry.ID)
 			}
 		}

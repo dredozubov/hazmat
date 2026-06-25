@@ -1,6 +1,10 @@
 package hazmat
 
-import "testing"
+import (
+	"testing"
+
+	"hazmat/credentials"
+)
 
 func TestDiagnosticFindingDefinitionsValidate(t *testing.T) {
 	for _, id := range diagnosticFindingIDs() {
@@ -133,17 +137,17 @@ func TestManualDiagnosticFindingCannotCarryRepairReceipt(t *testing.T) {
 }
 
 func TestDiagnosticCredentialFindingSelectsSpecificDefinitions(t *testing.T) {
-	claude := credentialInventoryEntry{ID: credentialHarnessClaudeState, AgentResidue: []credentialInventoryFinding{{Path: "/Users/agent/.claude.json"}}}
+	claude := credentialInventoryEntry{ID: credentials.HarnessClaudeState, AgentResidue: []credentialInventoryFinding{{Path: "/Users/agent/.claude.json"}}}
 	if got := diagnosticCredentialFinding(claude).ID; got != findingCredentialClaudeStateResidue {
 		t.Fatalf("claude state finding = %s, want %s", got, findingCredentialClaudeStateResidue)
 	}
 
-	cloud := credentialInventoryEntry{ID: credentialCloudS3SecretKey, LegacyResidue: []credentialInventoryFinding{{Path: cloudCredentialPath}}}
+	cloud := credentialInventoryEntry{ID: credentials.CloudS3SecretKey, LegacyResidue: []credentialInventoryFinding{{Path: cloudCredentialPath}}}
 	if got := diagnosticCredentialFinding(cloud).ID; got != findingCredentialCloudSecretKeyLegacy {
 		t.Fatalf("cloud secret finding = %s, want %s", got, findingCredentialCloudSecretKeyLegacy)
 	}
 
-	adapter := credentialInventoryEntry{ID: credentialHarnessAntigravityKeychain, Support: credentialSupportAdapterRequired}
+	adapter := credentialInventoryEntry{ID: credentials.HarnessAntigravityKeychain, Support: credentials.SupportAdapterRequired}
 	if got := diagnosticCredentialFinding(adapter).ID; got != findingCredentialAdapterRequired {
 		t.Fatalf("adapter finding = %s, want %s", got, findingCredentialAdapterRequired)
 	}

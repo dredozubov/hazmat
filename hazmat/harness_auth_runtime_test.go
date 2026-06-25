@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"encoding/json"
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -378,7 +379,7 @@ func TestPrepareHarnessAuthRuntimePrefersAgentKeychainDelivery(t *testing.T) {
 
 	var agentKeychain []byte
 	artifact := rawHarnessAuthArtifact("Claude credential file", storePath, agentPath)
-	artifact.CredentialID = credentialHarnessClaudeCredentials
+	artifact.CredentialID = credentials.HarnessClaudeCredentials
 	artifact.Harvestable = isHarvestableClaudeCredentialData
 	artifact.PreferAgentKeychain = true
 	artifact.ReadAgentKeychain = func() (harnessAuthData, bool, error) {

@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -41,7 +42,7 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 		IntegrationRegistryKeys: []string{" goproxy "},
 		CredentialEnvGrants: []sessionCredentialEnvGrant{{
 			EnvVar:          " anthropic_api_key ",
-			CredentialID:    credentialProviderAnthropicAPIKey,
+			CredentialID:    credentials.ProviderAnthropicAPIKey,
 			Source:          "host secret store",
 			ConsumerHarness: HarnessClaude,
 		}},
@@ -84,7 +85,7 @@ func TestSessionPlanAuthorityNormalizesAndCopiesPlannerInputs(t *testing.T) {
 	}
 	if len(contract.CredentialEnvGrants) != 1 ||
 		contract.CredentialEnvGrants[0].EnvVar != "ANTHROPIC_API_KEY" ||
-		contract.CredentialEnvGrants[0].CredentialID != string(credentialProviderAnthropicAPIKey) ||
+		contract.CredentialEnvGrants[0].CredentialID != string(credentials.ProviderAnthropicAPIKey) ||
 		contract.CredentialEnvGrants[0].ConsumerHarness != string(HarnessClaude) ||
 		contract.CredentialEnvGrants[0].Source != "host secret store" {
 		t.Fatalf("CredentialEnvGrants = %+v", contract.CredentialEnvGrants)

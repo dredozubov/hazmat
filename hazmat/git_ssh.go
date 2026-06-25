@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hazmat/credentials"
 	"io"
 	"net"
 	"net/url"
@@ -44,7 +45,7 @@ const (
 )
 
 type sessionGitSSHIdentityRef struct {
-	CredentialID   credentialID
+	CredentialID   credentials.ID
 	Source         sessionGitSSHIdentitySource
 	PrivateKeyPath string
 	KnownHostsPath string
@@ -52,7 +53,7 @@ type sessionGitSSHIdentityRef struct {
 
 func newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath string) sessionGitSSHIdentityRef {
 	return sessionGitSSHIdentityRef{
-		CredentialID:   credentialGitSSHExternalIdentity,
+		CredentialID:   credentials.GitSSHExternalIdentity,
 		Source:         gitSSHIdentitySourceExternalFile,
 		PrivateKeyPath: privateKeyPath,
 		KnownHostsPath: knownHostsPath,
@@ -61,7 +62,7 @@ func newExternalGitSSHIdentityRef(privateKeyPath, knownHostsPath string) session
 
 func newProvisionedGitSSHIdentityRef(privateKeyPath, knownHostsPath string) sessionGitSSHIdentityRef {
 	return sessionGitSSHIdentityRef{
-		CredentialID:   credentialGitSSHProvisionedIdentity,
+		CredentialID:   credentials.GitSSHProvisionedIdentity,
 		Source:         gitSSHIdentitySourceProvisionedKeyRoot,
 		PrivateKeyPath: privateKeyPath,
 		KnownHostsPath: knownHostsPath,
@@ -79,17 +80,17 @@ func (ref sessionGitSSHIdentityRef) validate() error {
 	if !ok {
 		return fmt.Errorf("credential descriptor %q is not registered", ref.CredentialID)
 	}
-	if descriptor.Kind != credentialKindGitSSHIdentity {
-		return fmt.Errorf("%s is %s, not %s", ref.CredentialID, descriptor.Kind, credentialKindGitSSHIdentity)
+	if descriptor.Kind != credentials.KindGitSSHIdentity {
+		return fmt.Errorf("%s is %s, not %s", ref.CredentialID, descriptor.Kind, credentials.KindGitSSHIdentity)
 	}
 	switch ref.Source {
 	case gitSSHIdentitySourceExternalFile:
-		if ref.CredentialID != credentialGitSSHExternalIdentity || descriptor.Delivery != credentialDeliveryExternalReference {
-			return fmt.Errorf("external Git SSH identity must use %s", credentialGitSSHExternalIdentity)
+		if ref.CredentialID != credentials.GitSSHExternalIdentity || descriptor.Delivery != credentials.DeliveryExternalReference {
+			return fmt.Errorf("external Git SSH identity must use %s", credentials.GitSSHExternalIdentity)
 		}
 	case gitSSHIdentitySourceProvisionedKeyRoot:
-		if ref.CredentialID != credentialGitSSHProvisionedIdentity || descriptor.Backend != credentialStorageHostSecretStore {
-			return fmt.Errorf("provisioned Git SSH identity must use %s", credentialGitSSHProvisionedIdentity)
+		if ref.CredentialID != credentials.GitSSHProvisionedIdentity || descriptor.Backend != credentials.StorageHostSecretStore {
+			return fmt.Errorf("provisioned Git SSH identity must use %s", credentials.GitSSHProvisionedIdentity)
 		}
 	default:
 		return fmt.Errorf("unsupported Git SSH identity source %q", ref.Source)
@@ -256,7 +257,7 @@ type sshConfigAliasResolution struct {
 }
 
 func provisionedSSHKeysRootDir() string {
-	return mustCredentialStorePathForConfig(credentialGitSSHProvisionedIdentity)
+	return mustCredentialStorePathForConfig(credentials.GitSSHProvisionedIdentity)
 }
 
 func defaultSSHKeyDirectory() string {

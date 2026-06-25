@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"strings"
 )
@@ -13,7 +14,7 @@ const (
 )
 
 func githubTokenStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialGitHubAPIToken)
+	return mustCredentialStorePathForHome(home, credentials.GitHubAPIToken)
 }
 
 func githubTokenStorePath() (string, error) {
@@ -89,7 +90,7 @@ func applyGitHubSessionCapability(cfg *sessionConfig, mode sessionMode) error {
 	if cfg.HarnessEnv == nil {
 		cfg.HarnessEnv = make(map[string]string, 1)
 	}
-	descriptor := mustCredentialDescriptor(credentialGitHubAPIToken)
+	descriptor := mustCredentialDescriptor(credentials.GitHubAPIToken)
 	envVar, err := descriptor.EnvDeliveryVar()
 	if err != nil {
 		return err
@@ -97,7 +98,7 @@ func applyGitHubSessionCapability(cfg *sessionConfig, mode sessionMode) error {
 	cfg.HarnessEnv[envVar] = token
 	cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
 		EnvVar:       envVar,
-		CredentialID: credentialGitHubAPIToken,
+		CredentialID: credentials.GitHubAPIToken,
 		Source:       "host secret store",
 	})
 	cfg.ServiceAccess = dedupeStrings(append(cfg.ServiceAccess, githubServiceAccess))

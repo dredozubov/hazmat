@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,7 +203,7 @@ func TestApplyHarnessAPIKeyEnvMigratesLegacyZshrc(t *testing.T) {
 	if len(cfg.CredentialEnvGrants) != 1 {
 		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
 	}
-	if got := cfg.CredentialEnvGrants[0]; got.EnvVar != "ANTHROPIC_API_KEY" || got.CredentialID != credentialProviderAnthropicAPIKey || got.Source != "host secret store" || got.ConsumerHarness != HarnessClaude {
+	if got := cfg.CredentialEnvGrants[0]; got.EnvVar != "ANTHROPIC_API_KEY" || got.CredentialID != credentials.ProviderAnthropicAPIKey || got.Source != "host secret store" || got.ConsumerHarness != HarnessClaude {
 		t.Fatalf("CredentialEnvGrants[0] = %+v", got)
 	}
 	if len(cfg.SessionNotes) == 0 || !strings.Contains(cfg.SessionNotes[0], "Migrated legacy ANTHROPIC_API_KEY") {
@@ -290,51 +291,51 @@ func TestApplyHarnessAPIKeyEnvDeliversConfiguredProvidersForAllowedHarness(t *te
 
 	cases := []struct {
 		harness HarnessID
-		want    map[string]credentialID
+		want    map[string]credentials.ID
 	}{
 		{
 			harness: HarnessClaude,
-			want: map[string]credentialID{
-				"ANTHROPIC_API_KEY": credentialProviderAnthropicAPIKey,
+			want: map[string]credentials.ID{
+				"ANTHROPIC_API_KEY": credentials.ProviderAnthropicAPIKey,
 			},
 		},
 		{
 			harness: HarnessCodex,
-			want: map[string]credentialID{
-				"OPENAI_API_KEY": credentialProviderOpenAIAPIKey,
+			want: map[string]credentials.ID{
+				"OPENAI_API_KEY": credentials.ProviderOpenAIAPIKey,
 			},
 		},
 		{
 			harness: HarnessAntigravity,
-			want: map[string]credentialID{
-				"ANTIGRAVITY_API_KEY": credentialProviderAntigravityAPIKey,
-				"GEMINI_API_KEY":      credentialProviderGeminiAPIKey,
+			want: map[string]credentials.ID{
+				"ANTIGRAVITY_API_KEY": credentials.ProviderAntigravityAPIKey,
+				"GEMINI_API_KEY":      credentials.ProviderGeminiAPIKey,
 			},
 		},
 		{
 			harness: HarnessHermes,
-			want: map[string]credentialID{
-				"ANTHROPIC_API_KEY":  credentialProviderAnthropicAPIKey,
-				"OPENAI_API_KEY":     credentialProviderOpenAIAPIKey,
-				"GEMINI_API_KEY":     credentialProviderGeminiAPIKey,
-				"OPENROUTER_API_KEY": credentialProviderOpenRouterAPIKey,
+			want: map[string]credentials.ID{
+				"ANTHROPIC_API_KEY":  credentials.ProviderAnthropicAPIKey,
+				"OPENAI_API_KEY":     credentials.ProviderOpenAIAPIKey,
+				"GEMINI_API_KEY":     credentials.ProviderGeminiAPIKey,
+				"OPENROUTER_API_KEY": credentials.ProviderOpenRouterAPIKey,
 			},
 		},
 		{
 			harness: HarnessOpenCode,
-			want:    map[string]credentialID{},
+			want:    map[string]credentials.ID{},
 		},
 		{
 			harness: HarnessQwen,
-			want:    map[string]credentialID{},
+			want:    map[string]credentials.ID{},
 		},
 		{
 			harness: HarnessCursorAgent,
-			want:    map[string]credentialID{},
+			want:    map[string]credentials.ID{},
 		},
 		{
 			harness: HarnessPi,
-			want:    map[string]credentialID{},
+			want:    map[string]credentials.ID{},
 		},
 	}
 
@@ -420,10 +421,10 @@ func TestMaskHostKeyLongKeyShowsHeadAndTail(t *testing.T) {
 }
 
 func TestProviderAPIKeyPromptsCoverManagedProviderDescriptors(t *testing.T) {
-	covered := make(map[credentialID]bool, len(harnessAPIKeyPrompts))
+	covered := make(map[credentials.ID]bool, len(harnessAPIKeyPrompts))
 	for _, spec := range harnessAPIKeyPrompts {
 		descriptor := mustCredentialDescriptor(spec.CredentialID)
-		if descriptor.Kind != credentialKindProviderAPIKey {
+		if descriptor.Kind != credentials.KindProviderAPIKey {
 			t.Fatalf("%s prompt points at %s, want provider API key", spec.CredentialID, descriptor.Kind)
 		}
 		if spec.EnvVar != descriptor.EnvVar {
@@ -432,7 +433,7 @@ func TestProviderAPIKeyPromptsCoverManagedProviderDescriptors(t *testing.T) {
 		covered[spec.CredentialID] = true
 	}
 	for _, descriptor := range builtinCredentialDescriptors() {
-		if descriptor.Kind != credentialKindProviderAPIKey {
+		if descriptor.Kind != credentials.KindProviderAPIKey {
 			continue
 		}
 		if !covered[descriptor.ID] {

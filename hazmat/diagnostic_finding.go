@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/credentials"
 	"sort"
 	"strings"
 )
@@ -617,10 +618,10 @@ func diagnosticCredentialFinding(entry credentialInventoryEntry) diagnosticFindi
 	case credentialInventoryAdapterRequired:
 		return diagnosticFinding(findingCredentialAdapterRequired)
 	case credentialInventoryNeedsRepair:
-		switch entry.ID {
-		case credentialHarnessClaudeState:
+		switch entry.ID { //nolint:exhaustive // only IDs with a specific repair finding are mapped; default returns the generic residue finding
+		case credentials.HarnessClaudeState:
 			return diagnosticFinding(findingCredentialClaudeStateResidue)
-		case credentialCloudS3SecretKey:
+		case credentials.CloudS3SecretKey:
 			return diagnosticFinding(findingCredentialCloudSecretKeyLegacy)
 		default:
 			return diagnosticFinding(findingCredentialResidue)

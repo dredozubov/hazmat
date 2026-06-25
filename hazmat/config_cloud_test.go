@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func isolateCloudCredentialConfig(t *testing.T) string {
 	return home
 }
 
-func readStoredCloudCredentialForTest(t *testing.T, home string, id credentialID) string {
+func readStoredCloudCredentialForTest(t *testing.T, home string, id credentials.ID) string {
 	t.Helper()
 
 	raw, err := os.ReadFile(mustCredentialStorePathForHome(home, id))
@@ -60,13 +61,13 @@ func TestRunConfigCloudStoresSecretsOutsideConfig(t *testing.T) {
 		}
 	}
 
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudS3AccessKeyID); got != "cloud-access-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudS3AccessKeyID); got != "cloud-access-key" {
 		t.Fatalf("stored access key = %q", got)
 	}
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudS3SecretKey); got != "cloud-secret-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudS3SecretKey); got != "cloud-secret-key" {
 		t.Fatalf("stored secret key = %q", got)
 	}
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudKopiaRecovery); got != "cloud-recovery-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudKopiaRecovery); got != "cloud-recovery-key" {
 		t.Fatalf("stored recovery key = %q", got)
 	}
 
@@ -115,10 +116,10 @@ func TestLoadConfigMigratesLegacyCloudSecrets(t *testing.T) {
 	if cfg.Backup.Cloud.RecoveryKey != "legacy-recovery-key" {
 		t.Fatalf("loaded recovery key = %q", cfg.Backup.Cloud.RecoveryKey)
 	}
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudS3AccessKeyID); got != "legacy-access-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudS3AccessKeyID); got != "legacy-access-key" {
 		t.Fatalf("stored access key = %q", got)
 	}
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudKopiaRecovery); got != "legacy-recovery-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudKopiaRecovery); got != "legacy-recovery-key" {
 		t.Fatalf("stored recovery key = %q", got)
 	}
 
@@ -150,7 +151,7 @@ func TestLoadCloudSecretKeyMigratesLegacyCredentialFile(t *testing.T) {
 	if got != "legacy-secret-key" {
 		t.Fatalf("loadCloudSecretKey = %q", got)
 	}
-	if got := readStoredCloudCredentialForTest(t, home, credentialCloudS3SecretKey); got != "legacy-secret-key" {
+	if got := readStoredCloudCredentialForTest(t, home, credentials.CloudS3SecretKey); got != "legacy-secret-key" {
 		t.Fatalf("stored secret key = %q", got)
 	}
 	if _, err := os.Stat(cloudCredentialPath); !os.IsNotExist(err) {

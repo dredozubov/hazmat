@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/credentials"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ type diagnosticFakeHostState struct {
 	PF           diagnosticFakePFState
 	DNS          diagnosticFakeDNSState
 	Launchd      diagnosticFakeLaunchdState
-	Credentials  map[credentialID]diagnosticFakeCredentialState
+	Credentials  map[credentials.ID]diagnosticFakeCredentialState
 	Tools        map[string]diagnosticFakeToolState
 	Optional     diagnosticFakeOptionalState
 	Integrations map[string]diagnosticFakeIntegrationState
@@ -237,7 +238,7 @@ func TestDiagnosticFakeRollbackPartialSetupReportsRemovedPreservedAndAbsent(t *t
 	if _, ok := state.Users[agentUser]; !ok {
 		t.Fatalf("users after non-destructive rollback = %+v, want agent user preserved", state.Users)
 	}
-	if cred := state.Credentials[credentialHarnessClaudeState]; !cred.HostStorePresent || !cred.AgentResidue {
+	if cred := state.Credentials[credentials.HarnessClaudeState]; !cred.HostStorePresent || !cred.AgentResidue {
 		t.Fatalf("Claude credential state after rollback = %+v, want host store and residue preserved for explicit cleanup", cred)
 	}
 
@@ -254,7 +255,7 @@ func TestDiagnosticFakeRollbackKeepsUnsupportedManualCleanupUnclaimed(t *testing
 	if !fakeRollbackManualContains(report, findingCredentialAdapterRequired) {
 		t.Fatalf("manual rollback items = %+v, want credential adapter requirement left manual", report.ManualItems)
 	}
-	if cred := state.Credentials[credentialHarnessAntigravityKeychain]; !cred.AdapterRequired {
+	if cred := state.Credentials[credentials.HarnessAntigravityKeychain]; !cred.AdapterRequired {
 		t.Fatalf("Antigravity credential state after rollback = %+v, want adapter-required manual item still present", cred)
 	}
 	for _, receipt := range report.Receipts {
@@ -296,11 +297,11 @@ func newDiagnosticDirtyHostState() *diagnosticFakeHostState {
 			Loaded:       false,
 			PFAnchored:   false,
 		},
-		Credentials: map[credentialID]diagnosticFakeCredentialState{
-			credentialHarnessClaudeState:         {HostStorePresent: true, AgentResidue: true},
-			credentialCloudS3SecretKey:           {HostStorePresent: false, LegacyResidue: true},
-			credentialProviderOpenAIAPIKey:       {HostStorePresent: true, AgentResidue: true},
-			credentialHarnessAntigravityKeychain: {AdapterRequired: true},
+		Credentials: map[credentials.ID]diagnosticFakeCredentialState{
+			credentials.HarnessClaudeState:         {HostStorePresent: true, AgentResidue: true},
+			credentials.CloudS3SecretKey:           {HostStorePresent: false, LegacyResidue: true},
+			credentials.ProviderOpenAIAPIKey:       {HostStorePresent: true, AgentResidue: true},
+			credentials.HarnessAntigravityKeychain: {AdapterRequired: true},
 		},
 		Tools: map[string]diagnosticFakeToolState{
 			"golangci-lint": {AgentExecutable: false, HomebrewBacked: true},
@@ -335,7 +336,7 @@ func newDiagnosticPartialSetupHostState() *diagnosticFakeHostState {
 		BlockedDomains:   map[string]bool{"ngrok.io": false, "pastebin.com": false},
 	}
 	state.Launchd = diagnosticFakeLaunchdState{}
-	state.Credentials[credentialHarnessClaudeState] = diagnosticFakeCredentialState{HostStorePresent: true, AgentResidue: true}
+	state.Credentials[credentials.HarnessClaudeState] = diagnosticFakeCredentialState{HostStorePresent: true, AgentResidue: true}
 	return state
 }
 
@@ -365,7 +366,7 @@ func (s *diagnosticFakeHostState) clone() *diagnosticFakeHostState {
 	for domain, blocked := range s.DNS.BlockedDomains {
 		cp.DNS.BlockedDomains[domain] = blocked
 	}
-	cp.Credentials = make(map[credentialID]diagnosticFakeCredentialState, len(s.Credentials))
+	cp.Credentials = make(map[credentials.ID]diagnosticFakeCredentialState, len(s.Credentials))
 	for k, v := range s.Credentials {
 		cp.Credentials[k] = v
 	}
@@ -497,16 +498,16 @@ func (s *diagnosticFakeHostState) probeFindings() []uiFinding {
 	if !s.Launchd.PlistPresent || !s.Launchd.Loaded || !s.Launchd.PFAnchored {
 		add(uiFindingFailure, findingLaunchdPersistence, "fake launchd persistence is incomplete")
 	}
-	if cred := s.Credentials[credentialHarnessClaudeState]; cred.AgentResidue {
+	if cred := s.Credentials[credentials.HarnessClaudeState]; cred.AgentResidue {
 		add(uiFindingWarning, findingCredentialClaudeStateResidue, "fake Claude state residue remains in agent home")
 	}
-	if cred := s.Credentials[credentialCloudS3SecretKey]; cred.LegacyResidue || !cred.HostStorePresent {
+	if cred := s.Credentials[credentials.CloudS3SecretKey]; cred.LegacyResidue || !cred.HostStorePresent {
 		add(uiFindingWarning, findingCredentialCloudSecretKeyLegacy, "fake legacy cloud secret key needs migration")
 	}
-	if cred := s.Credentials[credentialProviderOpenAIAPIKey]; cred.AgentResidue {
+	if cred := s.Credentials[credentials.ProviderOpenAIAPIKey]; cred.AgentResidue {
 		add(uiFindingWarning, findingCredentialResidue, "fake provider API key residue remains in agent home")
 	}
-	if cred := s.Credentials[credentialHarnessAntigravityKeychain]; cred.AdapterRequired {
+	if cred := s.Credentials[credentials.HarnessAntigravityKeychain]; cred.AdapterRequired {
 		add(uiFindingWarning, findingCredentialAdapterRequired, "fake Antigravity Keychain adapter is not available")
 	}
 	if !s.Optional.SSHKeyConfigured {
@@ -575,20 +576,20 @@ func (s *diagnosticFakeHostState) applyRepair(action diagnosticRepairActionID) d
 		s.Launchd.Loaded = true
 		s.Launchd.PFAnchored = true
 	case "repair.credential.claude-state":
-		cred := s.Credentials[credentialHarnessClaudeState]
+		cred := s.Credentials[credentials.HarnessClaudeState]
 		cred.HostStorePresent = true
 		cred.AgentResidue = false
-		s.Credentials[credentialHarnessClaudeState] = cred
+		s.Credentials[credentials.HarnessClaudeState] = cred
 	case "repair.credential.cloud-secret-key":
-		cred := s.Credentials[credentialCloudS3SecretKey]
+		cred := s.Credentials[credentials.CloudS3SecretKey]
 		cred.HostStorePresent = true
 		cred.LegacyResidue = false
-		s.Credentials[credentialCloudS3SecretKey] = cred
+		s.Credentials[credentials.CloudS3SecretKey] = cred
 	case "repair.credential.residue":
-		cred := s.Credentials[credentialProviderOpenAIAPIKey]
+		cred := s.Credentials[credentials.ProviderOpenAIAPIKey]
 		cred.HostStorePresent = true
 		cred.AgentResidue = false
-		s.Credentials[credentialProviderOpenAIAPIKey] = cred
+		s.Credentials[credentials.ProviderOpenAIAPIKey] = cred
 	case "repair.claude.project-permissions":
 		acl := s.ACLs[s.claudeProj]
 		acl.GroupWritable = true
@@ -648,11 +649,11 @@ func fakeAnyDomainBlocked(domains map[string]bool) bool {
 	return false
 }
 
-func fakeCredentialRollbackResourceID(id credentialID) string {
-	switch id {
-	case credentialHarnessClaudeState:
+func fakeCredentialRollbackResourceID(id credentials.ID) string {
+	switch id { //nolint:exhaustive // test mirror of rollbackCredentialResourceID; maps only the IDs the tests exercise, default covers the rest
+	case credentials.HarnessClaudeState:
 		return "credential.claude-state"
-	case credentialCloudS3SecretKey:
+	case credentials.CloudS3SecretKey:
 		return "credential.cloud-secret-key"
 	default:
 		return "credential.residue"

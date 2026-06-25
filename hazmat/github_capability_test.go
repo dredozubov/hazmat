@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,7 @@ func TestApplyGitHubSessionCapabilityGrantsRedactedGHToken(t *testing.T) {
 		t.Fatalf("CredentialEnvGrants = %v, want one grant", cfg.CredentialEnvGrants)
 	}
 	grant := cfg.CredentialEnvGrants[0]
-	if grant.EnvVar != "GH_TOKEN" || grant.CredentialID != credentialGitHubAPIToken || grant.Source != "host secret store" {
+	if grant.EnvVar != "GH_TOKEN" || grant.CredentialID != credentials.GitHubAPIToken || grant.Source != "host secret store" {
 		t.Fatalf("CredentialEnvGrants[0] = %+v", grant)
 	}
 	if len(cfg.ServiceAccess) != 1 || cfg.ServiceAccess[0] != githubServiceAccess {
@@ -104,7 +105,7 @@ func TestApplyGitHubSessionCapabilityGrantsRedactedGHToken(t *testing.T) {
 	preview := buildExplainJSON("shell", cfg, sessionModeNative, true)
 	if len(preview.CredentialEnvGrants) != 1 ||
 		preview.CredentialEnvGrants[0].EnvVar != "GH_TOKEN" ||
-		preview.CredentialEnvGrants[0].CredentialID != string(credentialGitHubAPIToken) ||
+		preview.CredentialEnvGrants[0].CredentialID != string(credentials.GitHubAPIToken) ||
 		!preview.CredentialEnvGrants[0].Redacted {
 		t.Fatalf("explain JSON credential grants = %#v", preview.CredentialEnvGrants)
 	}

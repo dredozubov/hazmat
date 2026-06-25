@@ -1,6 +1,8 @@
 package hazmat
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type diagnosticRepairAuthority string
 type diagnosticRepairApprovalModel string

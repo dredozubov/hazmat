@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hazmat/credentials"
 	"net"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ type gitHTTPSCredentialService struct {
 }
 
 func gitHTTPSCredentialStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialGitHTTPSAgentStore)
+	return mustCredentialStorePathForHome(home, credentials.GitHTTPSAgentStore)
 }
 
 func defaultPrepareGitHTTPSCredentialRuntime() (preparedSessionRuntime, error) {

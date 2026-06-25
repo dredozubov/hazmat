@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,12 +35,12 @@ type optionalCredentialInventoryFinding struct {
 }
 
 type credentialInventoryEntry struct {
-	ID               credentialID
+	ID               credentials.ID
 	DisplayName      string
-	Kind             credentialKind
-	Backend          credentialStorageBackend
-	Delivery         credentialDeliveryMode
-	Support          credentialSupportStatus
+	Kind             credentials.Kind
+	Backend          credentials.StorageBackend
+	Delivery         credentials.DeliveryMode
+	Support          credentials.SupportStatus
 	HostStorePresent bool
 	StorePath        string
 	AgentResidue     []credentialInventoryFinding
@@ -100,7 +101,7 @@ func inspectCredentialInventoryWithOptions(home string, options credentialInvent
 			Support:     descriptor.Support,
 		}
 
-		if descriptor.Backend == credentialStorageHostSecretStore {
+		if descriptor.Backend == credentials.StorageHostSecretStore {
 			storePath, err := descriptor.StorePathForHome(home)
 			if err != nil {
 				entry.Errors = append(entry.Errors, err.Error())
@@ -122,7 +123,7 @@ func inspectCredentialInventoryWithOptions(home string, options credentialInvent
 		legacy, errs := inspectDescriptorLegacyResidue(descriptor, legacyCloud, options)
 		entry.LegacyResidue = append(entry.LegacyResidue, legacy...)
 		entry.Errors = append(entry.Errors, errs...)
-		if legacyCloudErr != nil && descriptor.Kind == credentialKindCloudBackup {
+		if legacyCloudErr != nil && descriptor.Kind == credentials.KindCloudBackup {
 			entry.Errors = append(entry.Errors, fmt.Sprintf("inspect legacy cloud config %s: %v", configFilePath, legacyCloudErr))
 		}
 
@@ -135,7 +136,7 @@ func inspectCredentialInventoryWithOptions(home string, options credentialInvent
 func summarizeCredentialInventory(entries []credentialInventoryEntry) credentialInventorySummary {
 	summary := credentialInventorySummary{Total: len(entries)}
 	for _, entry := range entries {
-		if entry.Support == credentialSupportManaged && entry.Backend == credentialStorageHostSecretStore {
+		if entry.Support == credentials.SupportManaged && entry.Backend == credentials.StorageHostSecretStore {
 			summary.ManagedHostSecretStore++
 		}
 		switch entry.Status() {
@@ -162,11 +163,11 @@ func (entry credentialInventoryEntry) Status() credentialInventoryStatus {
 		return credentialInventoryError
 	case len(entry.AgentResidue) > 0 || len(entry.LegacyResidue) > 0:
 		return credentialInventoryNeedsRepair
-	case entry.Support == credentialSupportAdapterRequired:
+	case entry.Support == credentials.SupportAdapterRequired:
 		return credentialInventoryAdapterRequired
-	case entry.Support == credentialSupportExternal:
+	case entry.Support == credentials.SupportExternal:
 		return credentialInventoryExternal
-	case entry.Backend == credentialStorageHostSecretStore && entry.HostStorePresent:
+	case entry.Backend == credentials.StorageHostSecretStore && entry.HostStorePresent:
 		return credentialInventoryConfigured
 	default:
 		return credentialInventoryNotConfigured
@@ -195,7 +196,7 @@ func formatCredentialInventoryEntry(entry credentialInventoryEntry) string {
 		fmt.Sprintf("backend=%s", entry.Backend),
 		fmt.Sprintf("delivery=%s", entry.Delivery),
 	}
-	if entry.Backend == credentialStorageHostSecretStore {
+	if entry.Backend == credentials.StorageHostSecretStore {
 		storeState := "absent"
 		if entry.HostStorePresent {
 			storeState = "present"
@@ -213,13 +214,13 @@ func formatCredentialInventoryFinding(prefix string, finding credentialInventory
 	return msg
 }
 
-func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentialInventoryFinding, []string) {
+func inspectDescriptorAgentResidue(descriptor credentials.Descriptor) ([]credentialInventoryFinding, []string) {
 	switch descriptor.Delivery {
-	case credentialDeliveryMaterializedFile:
+	case credentials.DeliveryMaterializedFile:
 		if descriptor.AgentPath == "" {
 			return nil, nil
 		}
-		if descriptor.ID == credentialHarnessClaudeState {
+		if descriptor.ID == credentials.HarnessClaudeState {
 			return inspectClaudeStateAgentResidue(descriptor.AgentPath)
 		}
 		if exists, err := credentialInventoryAgentPathExists(descriptor.AgentPath); err != nil {
@@ -231,8 +232,8 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 				Repair: "Hazmat can harvest this into the host-owned secret store during credential repair; remove the stale file only after verifying the host store",
 			}}, nil
 		}
-	case credentialDeliveryBrokeredHelper:
-		if descriptor.ID == credentialGitHTTPSAgentStore {
+	case credentials.DeliveryBrokeredHelper:
+		if descriptor.ID == credentials.GitHTTPSAgentStore {
 			if exists, err := credentialInventoryAgentPathExists(gitHTTPSAgentCredentialsPath); err != nil {
 				return nil, []string{fmt.Sprintf("inspect Git HTTPS credential path %s: %v", gitHTTPSAgentCredentialsPath, err)}
 			} else if exists {
@@ -243,7 +244,7 @@ func inspectDescriptorAgentResidue(descriptor credentialDescriptor) ([]credentia
 				}}, nil
 			}
 		}
-	case credentialDeliveryNone, credentialDeliveryEnv, credentialDeliveryExternalReference:
+	case credentials.DeliveryNone, credentials.DeliveryEnv, credentials.DeliveryExternalReference:
 	}
 	return nil, nil
 }
@@ -277,11 +278,11 @@ func inspectClaudeStateAgentResidue(path string) ([]credentialInventoryFinding, 
 	}}, nil
 }
 
-func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legacyCloudCredentialConfig, options credentialInventoryOptions) ([]credentialInventoryFinding, []string) {
+func inspectDescriptorLegacyResidue(descriptor credentials.Descriptor, cloud legacyCloudCredentialConfig, options credentialInventoryOptions) ([]credentialInventoryFinding, []string) {
 	var findings []credentialInventoryFinding
 	var errors []string
 
-	if options.IncludeAgentState && descriptor.Kind == credentialKindProviderAPIKey && descriptor.EnvVar != "" {
+	if options.IncludeAgentState && descriptor.Kind == credentials.KindProviderAPIKey && descriptor.EnvVar != "" {
 		finding, err := inspectLegacyProviderExport(descriptor.EnvVar)
 		if err != nil {
 			errors = append(errors, err.Error())
@@ -291,7 +292,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 	}
 
 	switch descriptor.ID {
-	case credentialGitHTTPSAgentStore:
+	case credentials.GitHTTPSAgentStore:
 		if !options.IncludeAgentState {
 			break
 		}
@@ -304,7 +305,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 				Repair: "Hazmat can remove the persistent helper during credential repair; native sessions inject a brokered helper only while running",
 			})
 		}
-	case credentialGitSSHProvisionedIdentity:
+	case credentials.GitSSHProvisionedIdentity:
 		legacyRoot := legacyProvisionedSSHKeysRootDir()
 		if exists, err := credentialInventoryPathExists(legacyRoot); err != nil {
 			errors = append(errors, fmt.Sprintf("inspect legacy Git SSH key root %s: %v", legacyRoot, err))
@@ -315,7 +316,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 				Repair: "Move provisioned key directories into ~/.hazmat/secrets/git-ssh/provisioned/ through the typed SSH inventory before removing the legacy root",
 			})
 		}
-	case credentialCloudS3AccessKeyID:
+	case credentials.CloudS3AccessKeyID:
 		if cloud.AccessKey {
 			findings = append(findings, credentialInventoryFinding{
 				Path:   configFilePath,
@@ -323,7 +324,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/s3-access-key-id during credential repair so the legacy field is no longer authoritative",
 			})
 		}
-	case credentialCloudKopiaRecovery:
+	case credentials.CloudKopiaRecovery:
 		if cloud.RecoveryKey || cloud.Password {
 			field := "recovery key"
 			if cloud.Password {
@@ -335,7 +336,7 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/kopia-recovery-key during credential repair so the legacy field is no longer authoritative",
 			})
 		}
-	case credentialCloudS3SecretKey:
+	case credentials.CloudS3SecretKey:
 		if exists, err := credentialInventoryPathExists(cloudCredentialPath); err != nil {
 			errors = append(errors, fmt.Sprintf("inspect legacy cloud credential file %s: %v", cloudCredentialPath, err))
 		} else if exists {
@@ -345,19 +346,19 @@ func inspectDescriptorLegacyResidue(descriptor credentialDescriptor, cloud legac
 				Repair: "Hazmat can migrate this into ~/.hazmat/secrets/cloud/s3-secret-key during credential repair so the legacy file is no longer authoritative",
 			})
 		}
-	case credentialProviderAnthropicAPIKey,
-		credentialProviderOpenAIAPIKey,
-		credentialProviderGeminiAPIKey,
-		credentialProviderAntigravityAPIKey,
-		credentialProviderOpenRouterAPIKey,
-		credentialGitHubAPIToken,
-		credentialHarnessClaudeCredentials,
-		credentialHarnessClaudeState,
-		credentialHarnessCodexAuth,
-		credentialHarnessOpenCodeAuth,
-		credentialHarnessClaudeKeychain,
-		credentialHarnessAntigravityKeychain,
-		credentialGitSSHExternalIdentity:
+	case credentials.ProviderAnthropicAPIKey,
+		credentials.ProviderOpenAIAPIKey,
+		credentials.ProviderGeminiAPIKey,
+		credentials.ProviderAntigravityAPIKey,
+		credentials.ProviderOpenRouterAPIKey,
+		credentials.GitHubAPIToken,
+		credentials.HarnessClaudeCredentials,
+		credentials.HarnessClaudeState,
+		credentials.HarnessCodexAuth,
+		credentials.HarnessOpenCodeAuth,
+		credentials.HarnessClaudeKeychain,
+		credentials.HarnessAntigravityKeychain,
+		credentials.GitSSHExternalIdentity:
 	}
 
 	sort.SliceStable(findings, func(i, j int) bool {

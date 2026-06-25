@@ -3,78 +3,13 @@ package hazmat
 import "hazmat/credentials"
 
 // This file is the hazmat-package binding of the single credential registry.
-// The registry data and query logic live in the pure leaf package
-// hazmat/credentials (it cannot import hazmat without a cycle); this layer
-// supplies the runtime paths via credentialRegistryPaths() and re-exports the
-// types/constants under short unexported names so the rest of package hazmat is
-// not forced to thread RegistryPaths through every call site. It holds NO
-// independent descriptor data — there is exactly one registry, not two parallel
-// ones. Adding a credential means editing credentials.builtinRegistry; the
-// short-name aliases below only exist for symbols hazmat code references, and
-// the compiler enforces that any use site has a matching alias.
-type credentialID = credentials.ID
-type credentialKind = credentials.Kind
-type credentialStorageBackend = credentials.StorageBackend
-type credentialDeliveryMode = credentials.DeliveryMode
-type credentialSupportStatus = credentials.SupportStatus
-type credentialDescriptor = credentials.Descriptor
-type credentialRegistrySummary = credentials.RegistrySummary
-
-const (
-	credentialKindProviderAPIKey credentialKind = credentials.KindProviderAPIKey
-	credentialKindHarnessAuth    credentialKind = credentials.KindHarnessAuth
-	credentialKindGitHTTPS       credentialKind = credentials.KindGitHTTPS
-	credentialKindGitSSHIdentity credentialKind = credentials.KindGitSSHIdentity
-	credentialKindCloudBackup    credentialKind = credentials.KindCloudBackup
-	credentialKindGitHubToken    credentialKind = credentials.KindGitHubToken
-	credentialKindIntegrationEnv credentialKind = credentials.KindIntegrationEnv
-	credentialKindExternalAuth   credentialKind = credentials.KindExternalAuth
-)
-
-const (
-	credentialStorageHostSecretStore credentialStorageBackend = credentials.StorageHostSecretStore
-	credentialStorageExternalFile    credentialStorageBackend = credentials.StorageExternalFile
-	credentialStorageKeychain        credentialStorageBackend = credentials.StorageKeychain
-	credentialStorageBroker          credentialStorageBackend = credentials.StorageBroker
-)
-
-const (
-	credentialDeliveryNone              credentialDeliveryMode = credentials.DeliveryNone
-	credentialDeliveryEnv               credentialDeliveryMode = credentials.DeliveryEnv
-	credentialDeliveryMaterializedFile  credentialDeliveryMode = credentials.DeliveryMaterializedFile
-	credentialDeliveryBrokeredHelper    credentialDeliveryMode = credentials.DeliveryBrokeredHelper
-	credentialDeliveryExternalReference credentialDeliveryMode = credentials.DeliveryExternalReference
-)
-
-const (
-	credentialSupportManaged         credentialSupportStatus = credentials.SupportManaged
-	credentialSupportExternal        credentialSupportStatus = credentials.SupportExternal
-	credentialSupportAdapterRequired credentialSupportStatus = credentials.SupportAdapterRequired
-)
-
-const (
-	credentialProviderAnthropicAPIKey   credentialID = credentials.ProviderAnthropicAPIKey
-	credentialProviderOpenAIAPIKey      credentialID = credentials.ProviderOpenAIAPIKey
-	credentialProviderGeminiAPIKey      credentialID = credentials.ProviderGeminiAPIKey
-	credentialProviderAntigravityAPIKey credentialID = credentials.ProviderAntigravityAPIKey
-	credentialProviderOpenRouterAPIKey  credentialID = credentials.ProviderOpenRouterAPIKey
-
-	credentialHarnessClaudeCredentials   credentialID = credentials.HarnessClaudeCredentials
-	credentialHarnessClaudeState         credentialID = credentials.HarnessClaudeState
-	credentialHarnessClaudeKeychain      credentialID = credentials.HarnessClaudeKeychain
-	credentialHarnessCodexAuth           credentialID = credentials.HarnessCodexAuth
-	credentialHarnessOpenCodeAuth        credentialID = credentials.HarnessOpenCodeAuth
-	credentialHarnessAntigravityKeychain credentialID = credentials.HarnessAntigravityKeychain
-
-	credentialGitSSHExternalIdentity    credentialID = credentials.GitSSHExternalIdentity
-	credentialGitSSHProvisionedIdentity credentialID = credentials.GitSSHProvisionedIdentity
-	credentialGitHTTPSAgentStore        credentialID = credentials.GitHTTPSAgentStore
-	credentialGitHubAPIToken            credentialID = credentials.GitHubAPIToken
-
-	credentialCloudS3AccessKeyID credentialID = credentials.CloudS3AccessKeyID
-	credentialCloudS3SecretKey   credentialID = credentials.CloudS3SecretKey
-	credentialCloudKopiaRecovery credentialID = credentials.CloudKopiaRecovery
-)
+// The registry data, types, and constants all live in the pure leaf package
+// hazmat/credentials (it cannot import hazmat without a cycle). Package hazmat
+// refers to those types/constants directly as credentials.X; this file only
+// supplies the runtime paths (credentialRegistryPaths) and the thin
+// path-injecting wrappers below, so callers do not have to thread RegistryPaths
+// through every query. There is exactly one registry — adding a credential
+// means editing credentials.builtinRegistry, nothing here.
 
 func credentialRegistryPaths() credentials.RegistryPaths {
 	return credentials.RegistryPaths{
@@ -87,7 +22,7 @@ func credentialRegistryPaths() credentials.RegistryPaths {
 	}
 }
 
-func builtinCredentialDescriptors() []credentialDescriptor {
+func builtinCredentialDescriptors() []credentials.Descriptor {
 	return credentials.BuiltinDescriptors(credentialRegistryPaths())
 }
 
@@ -98,43 +33,43 @@ func secretStoreDirForHome(home string) string {
 	return credentials.SecretStoreDirForHome(home)
 }
 
-func summarizeCredentialRegistry(descriptors []credentialDescriptor) credentialRegistrySummary {
+func summarizeCredentialRegistry(descriptors []credentials.Descriptor) credentials.RegistrySummary {
 	return credentials.SummarizeRegistry(descriptors)
 }
 
-func findCredentialDescriptor(id credentialID) (credentialDescriptor, bool) {
+func findCredentialDescriptor(id credentials.ID) (credentials.Descriptor, bool) {
 	return credentials.FindDescriptor(credentialRegistryPaths(), id)
 }
 
-func mustCredentialDescriptor(id credentialID) credentialDescriptor {
+func mustCredentialDescriptor(id credentials.ID) credentials.Descriptor {
 	return credentials.MustDescriptor(credentialRegistryPaths(), id)
 }
 
-func providerCredentialDescriptorForEnvVar(envVar string) (credentialDescriptor, bool) {
+func providerCredentialDescriptorForEnvVar(envVar string) (credentials.Descriptor, bool) {
 	return credentials.ProviderDescriptorForEnvVar(credentialRegistryPaths(), envVar)
 }
 
-func providerCredentialDescriptorForEnvVarAndHarness(envVar string, harness HarnessID) (credentialDescriptor, bool) {
+func providerCredentialDescriptorForEnvVarAndHarness(envVar string, harness HarnessID) (credentials.Descriptor, bool) {
 	return credentials.ProviderDescriptorForEnvVarAndHarness(credentialRegistryPaths(), envVar, harness)
 }
 
-func providerCredentialDescriptorsForHarness(harness HarnessID) []credentialDescriptor {
+func providerCredentialDescriptorsForHarness(harness HarnessID) []credentials.Descriptor {
 	return credentials.ProviderDescriptorsForHarness(credentialRegistryPaths(), harness)
 }
 
-func credentialDescriptorsForHarnessLifecycle(id HarnessID) []credentialDescriptor {
+func credentialDescriptorsForHarnessLifecycle(id HarnessID) []credentials.Descriptor {
 	return credentials.DescriptorsForHarnessLifecycle(credentialRegistryPaths(), id)
 }
 
-func providerSecretStorePathForDescriptor(home string, descriptor credentialDescriptor) (string, error) {
+func providerSecretStorePathForDescriptor(home string, descriptor credentials.Descriptor) (string, error) {
 	return credentials.ProviderSecretStorePathForDescriptor(home, descriptor)
 }
 
-func credentialStorePathForHome(home string, id credentialID) (string, error) {
+func credentialStorePathForHome(home string, id credentials.ID) (string, error) {
 	return credentials.StorePathForHome(credentialRegistryPaths(), home, id)
 }
 
-func mustCredentialStorePathForHome(home string, id credentialID) string {
+func mustCredentialStorePathForHome(home string, id credentials.ID) string {
 	storePath, err := credentialStorePathForHome(home, id)
 	if err != nil {
 		panic(err)
@@ -142,11 +77,11 @@ func mustCredentialStorePathForHome(home string, id credentialID) string {
 	return storePath
 }
 
-func credentialStorePathForConfig(id credentialID) (string, error) {
+func credentialStorePathForConfig(id credentials.ID) (string, error) {
 	return credentials.StorePathForConfig(credentialRegistryPaths(), id)
 }
 
-func mustCredentialStorePathForConfig(id credentialID) string {
+func mustCredentialStorePathForConfig(id credentials.ID) string {
 	storePath, err := credentialStorePathForConfig(id)
 	if err != nil {
 		panic(err)

@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ func TestDiagnosticAdviceNamesExplicitDoctorCommands(t *testing.T) {
 		"post-init verification": postInitVerificationAdvice,
 		"missing agent user":     missingAgentUserRepairAdvice(),
 		"rollback residue": strings.Join(rollbackCredentialDetails(credentialInventoryEntry{
-			ID: credentialProviderOpenAIAPIKey,
+			ID: credentials.ProviderOpenAIAPIKey,
 			AgentResidue: []credentialInventoryFinding{{
 				Path:   "/Users/agent/.openai",
 				Detail: "stale agent credential",

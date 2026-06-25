@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bufio"
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"strings"
 	"syscall"
@@ -43,7 +44,7 @@ Examples:
 // harnessAPIKeySpec describes a provider API-key prompt. Eligibility comes
 // from the credential registry's consumer harnesses, not from this table.
 type harnessAPIKeySpec struct {
-	CredentialID credentialID
+	CredentialID credentials.ID
 	EnvVar       string // env var name injected into matching sessions
 	DisplayName  string // "Anthropic", "OpenAI", "Antigravity"
 	KeyPrefix    string // mask hint — known prefix that identifies a real key (e.g. "sk-ant-"); empty = no prefix-based mask
@@ -55,7 +56,7 @@ type harnessAPIKeySpec struct {
 // descriptors decide which harnesses can consume each key.
 var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 	{
-		CredentialID: credentialProviderAnthropicAPIKey,
+		CredentialID: credentials.ProviderAnthropicAPIKey,
 		EnvVar:       "ANTHROPIC_API_KEY",
 		DisplayName:  "Anthropic",
 		KeyPrefix:    "sk-ant-",
@@ -63,7 +64,7 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 		NotFoundHint: "Paste an API key now (sk-ant-...) or press Enter to skip provider API-key setup.",
 	},
 	{
-		CredentialID: credentialProviderOpenAIAPIKey,
+		CredentialID: credentials.ProviderOpenAIAPIKey,
 		EnvVar:       "OPENAI_API_KEY",
 		DisplayName:  "OpenAI",
 		KeyPrefix:    "sk-",
@@ -71,7 +72,7 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 		NotFoundHint: "Paste an API key now (sk-...) or press Enter to skip provider API-key setup.",
 	},
 	{
-		CredentialID: credentialProviderAntigravityAPIKey,
+		CredentialID: credentials.ProviderAntigravityAPIKey,
 		EnvVar:       "ANTIGRAVITY_API_KEY",
 		DisplayName:  "Antigravity",
 		KeyPrefix:    "",
@@ -79,7 +80,7 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 		NotFoundHint: "Paste an API key now (ANTIGRAVITY_API_KEY) or press Enter to skip provider API-key setup.",
 	},
 	{
-		CredentialID: credentialProviderGeminiAPIKey,
+		CredentialID: credentials.ProviderGeminiAPIKey,
 		EnvVar:       "GEMINI_API_KEY",
 		DisplayName:  "Gemini",
 		KeyPrefix:    "",
@@ -87,7 +88,7 @@ var harnessAPIKeyPrompts = []harnessAPIKeySpec{
 		NotFoundHint: "Paste an API key now (from https://aistudio.google.com/apikey) or press Enter to skip provider API-key setup.",
 	},
 	{
-		CredentialID: credentialProviderOpenRouterAPIKey,
+		CredentialID: credentials.ProviderOpenRouterAPIKey,
 		EnvVar:       "OPENROUTER_API_KEY",
 		DisplayName:  "OpenRouter",
 		KeyPrefix:    "sk-or-",
@@ -355,7 +356,7 @@ func providerAPIKeyPromptsForHarnesses(harnesses []HarnessID) []harnessAPIKeySpe
 	var prompts []harnessAPIKeySpec
 	for _, spec := range harnessAPIKeyPrompts {
 		descriptor, ok := findCredentialDescriptor(spec.CredentialID)
-		if !ok || descriptor.Kind != credentialKindProviderAPIKey {
+		if !ok || descriptor.Kind != credentials.KindProviderAPIKey {
 			continue
 		}
 		for _, consumer := range descriptor.ConsumerHarnessIDs() {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,19 +40,19 @@ func providerSecretStorePathForHome(home, envVar string) (string, error) {
 }
 
 func claudeCredentialStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessClaudeCredentials)
+	return mustCredentialStorePathForHome(home, credentials.HarnessClaudeCredentials)
 }
 
 func claudeStateStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
+	return mustCredentialStorePathForHome(home, credentials.HarnessClaudeState)
 }
 
 func codexAuthStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)
+	return mustCredentialStorePathForHome(home, credentials.HarnessCodexAuth)
 }
 
 func openCodeAuthStorePathForHome(home string) string {
-	return mustCredentialStorePathForHome(home, credentialHarnessOpenCodeAuth)
+	return mustCredentialStorePathForHome(home, credentials.HarnessOpenCodeAuth)
 }
 
 func usesManagedAgentPath(path string) bool {
@@ -375,7 +376,7 @@ func applyHarnessAPIKeyEnvForSession(cfg *sessionConfig, planOnly bool) error {
 	return nil
 }
 
-func applyProviderAPIKeyEnvForSession(cfg *sessionConfig, descriptor credentialDescriptor, planOnly bool) error {
+func applyProviderAPIKeyEnvForSession(cfg *sessionConfig, descriptor credentials.Descriptor, planOnly bool) error {
 	spec := harnessAPIKeyPromptByEnvVar(descriptor.EnvVar)
 	value, source, err := lookupConfiguredAPIKey(spec)
 	if err != nil {

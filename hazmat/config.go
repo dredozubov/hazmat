@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -374,13 +375,13 @@ func migrateCloudCredentialsIntoSecretStore(cfg *HazmatConfig) (bool, error) {
 
 	migrated := false
 	if cfg.Backup.Cloud.AccessKey != "" {
-		if err := saveCloudStoredCredential(credentialCloudS3AccessKeyID, cfg.Backup.Cloud.AccessKey); err != nil {
+		if err := saveCloudStoredCredential(credentials.CloudS3AccessKeyID, cfg.Backup.Cloud.AccessKey); err != nil {
 			return false, fmt.Errorf("migrate cloud access key: %w", err)
 		}
 		migrated = true
 	}
 	if cfg.Backup.Cloud.RecoveryKey != "" {
-		if err := saveCloudStoredCredential(credentialCloudKopiaRecovery, cfg.Backup.Cloud.RecoveryKey); err != nil {
+		if err := saveCloudStoredCredential(credentials.CloudKopiaRecovery, cfg.Backup.Cloud.RecoveryKey); err != nil {
 			return false, fmt.Errorf("migrate cloud recovery key: %w", err)
 		}
 		migrated = true
@@ -390,14 +391,14 @@ func migrateCloudCredentialsIntoSecretStore(cfg *HazmatConfig) (bool, error) {
 	cfg.Backup.Cloud.RecoveryKey = ""
 	cfg.Backup.Cloud.LegacyRecoveryKey = ""
 
-	if accessKey, ok, err := readCloudStoredCredential(credentialCloudS3AccessKeyID); err != nil {
+	if accessKey, ok, err := readCloudStoredCredential(credentials.CloudS3AccessKeyID); err != nil {
 		return migrated, fmt.Errorf("read cloud access key: %w", err)
 	} else if ok {
 		cfg.Backup.Cloud.AccessKey = accessKey
 	}
 	if recoveryKey := os.Getenv("HAZMAT_CLOUD_PASSWORD"); recoveryKey != "" {
 		cfg.Backup.Cloud.RecoveryKey = recoveryKey
-	} else if recoveryKey, ok, err := readCloudStoredCredential(credentialCloudKopiaRecovery); err != nil {
+	} else if recoveryKey, ok, err := readCloudStoredCredential(credentials.CloudKopiaRecovery); err != nil {
 		return migrated, fmt.Errorf("read cloud recovery key: %w", err)
 	} else if ok {
 		cfg.Backup.Cloud.RecoveryKey = recoveryKey
@@ -407,7 +408,7 @@ func migrateCloudCredentialsIntoSecretStore(cfg *HazmatConfig) (bool, error) {
 }
 
 func loadCloudAccessKey() (string, error) {
-	if key, ok, err := readCloudStoredCredential(credentialCloudS3AccessKeyID); err != nil {
+	if key, ok, err := readCloudStoredCredential(credentials.CloudS3AccessKeyID); err != nil {
 		return "", fmt.Errorf("read cloud access key: %w", err)
 	} else if ok {
 		return key, nil
@@ -416,14 +417,14 @@ func loadCloudAccessKey() (string, error) {
 }
 
 func saveCloudAccessKey(key string) error {
-	return saveCloudStoredCredential(credentialCloudS3AccessKeyID, key)
+	return saveCloudStoredCredential(credentials.CloudS3AccessKeyID, key)
 }
 
 func loadCloudRecoveryKey() (string, error) {
 	if key := os.Getenv("HAZMAT_CLOUD_PASSWORD"); key != "" {
 		return key, nil
 	}
-	if key, ok, err := readCloudStoredCredential(credentialCloudKopiaRecovery); err != nil {
+	if key, ok, err := readCloudStoredCredential(credentials.CloudKopiaRecovery); err != nil {
 		return "", fmt.Errorf("read cloud recovery key: %w", err)
 	} else if ok {
 		return key, nil
@@ -432,7 +433,7 @@ func loadCloudRecoveryKey() (string, error) {
 }
 
 func saveCloudRecoveryKey(key string) error {
-	return saveCloudStoredCredential(credentialCloudKopiaRecovery, key)
+	return saveCloudStoredCredential(credentials.CloudKopiaRecovery, key)
 }
 
 func loadCloudSecretKey() (string, error) {
@@ -440,7 +441,7 @@ func loadCloudSecretKey() (string, error) {
 	if key := os.Getenv("HAZMAT_CLOUD_SECRET_KEY"); key != "" {
 		return key, nil
 	}
-	if key, ok, err := readCloudStoredCredential(credentialCloudS3SecretKey); err != nil {
+	if key, ok, err := readCloudStoredCredential(credentials.CloudS3SecretKey); err != nil {
 		return "", fmt.Errorf("read cloud secret key: %w", err)
 	} else if ok {
 		return key, nil
@@ -464,7 +465,7 @@ func loadCloudSecretKey() (string, error) {
 }
 
 func saveCloudSecretKey(key string) error {
-	if err := saveCloudStoredCredential(credentialCloudS3SecretKey, key); err != nil {
+	if err := saveCloudStoredCredential(credentials.CloudS3SecretKey, key); err != nil {
 		return err
 	}
 	if err := os.Remove(cloudCredentialPath); err != nil && !os.IsNotExist(err) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hazmat/credentials"
 	"io"
 	"os"
 	"path/filepath"
@@ -428,18 +429,18 @@ func migrateLegacyCloudConfigSecrets(dryRun bool, report *migrateCredentialsRepo
 	}
 
 	if accessKey != "" {
-		if err := saveCloudStoredCredential(credentialCloudS3AccessKeyID, accessKey); err != nil {
+		if err := saveCloudStoredCredential(credentials.CloudS3AccessKeyID, accessKey); err != nil {
 			return fmt.Errorf("migrate legacy backup.cloud.access_key: %w", err)
 		}
 		report.action("cloud", "migrated legacy backup.cloud.access_key into ~/.hazmat/secrets/cloud/s3-access-key-id")
 	}
 	if recoveryKey != "" {
-		if err := saveCloudStoredCredential(credentialCloudKopiaRecovery, recoveryKey); err != nil {
+		if err := saveCloudStoredCredential(credentials.CloudKopiaRecovery, recoveryKey); err != nil {
 			return fmt.Errorf("migrate legacy backup.cloud.recovery_key: %w", err)
 		}
 		report.action("cloud", "migrated legacy backup.cloud.recovery_key into ~/.hazmat/secrets/cloud/kopia-recovery-key")
 	} else if password != "" {
-		if err := saveCloudStoredCredential(credentialCloudKopiaRecovery, password); err != nil {
+		if err := saveCloudStoredCredential(credentials.CloudKopiaRecovery, password); err != nil {
 			return fmt.Errorf("migrate legacy backup.cloud.password: %w", err)
 		}
 		report.action("cloud", "migrated legacy backup.cloud.password into ~/.hazmat/secrets/cloud/kopia-recovery-key")
@@ -480,7 +481,7 @@ func migrateLegacyCloudSecretFile(dryRun bool, report *migrateCredentialsReport)
 		return nil
 	}
 
-	storePath, err := cloudCredentialStorePath(credentialCloudS3SecretKey)
+	storePath, err := cloudCredentialStorePath(credentials.CloudS3SecretKey)
 	if err != nil {
 		return err
 	}

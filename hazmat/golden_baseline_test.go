@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,7 +121,7 @@ func goldenSessionConfig() sessionConfig {
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
 				EnvVar:          "OPENAI_API_KEY",
-				CredentialID:    credentialProviderOpenAIAPIKey,
+				CredentialID:    credentials.ProviderOpenAIAPIKey,
 				Source:          "host secret store",
 				ConsumerHarness: HarnessCodex,
 			},

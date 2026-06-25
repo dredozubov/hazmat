@@ -1,6 +1,10 @@
 package hazmat
 
-import "fmt"
+import (
+	"fmt"
+
+	"hazmat/credentials"
+)
 
 type rollbackReceiptStatus string
 
@@ -77,10 +81,10 @@ func rollbackCredentialDetails(entry credentialInventoryEntry) []string {
 }
 
 func rollbackCredentialResourceID(entry credentialInventoryEntry) string {
-	switch entry.ID {
-	case credentialHarnessClaudeState:
+	switch entry.ID { //nolint:exhaustive // only IDs with a distinct rollback resource label are mapped; default derives a generic label
+	case credentials.HarnessClaudeState:
 		return "credential.claude-state"
-	case credentialCloudS3SecretKey:
+	case credentials.CloudS3SecretKey:
 		return "credential.cloud-secret-key"
 	default:
 		return "credential.residue"

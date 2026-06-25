@@ -1,13 +1,14 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"sort"
 	"strings"
 )
 
 type sessionCredentialEnvGrant struct {
 	EnvVar          string
-	CredentialID    credentialID
+	CredentialID    credentials.ID
 	Source          string
 	ConsumerHarness HarnessID
 }

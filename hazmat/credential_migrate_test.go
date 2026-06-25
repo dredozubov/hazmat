@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"bytes"
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +69,7 @@ func TestMigrateCredentialsMovesLegacyProviderExportWithoutLeakingValue(t *testi
 	if strings.Contains(out.String(), secret) {
 		t.Fatalf("migration output leaked provider secret:\n%s", out.String())
 	}
-	storePath := mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)
+	storePath := mustCredentialStorePathForHome(home, credentials.ProviderOpenAIAPIKey)
 	raw, err := os.ReadFile(storePath)
 	if err != nil {
 		t.Fatalf("read provider store: %v", err)
@@ -106,7 +107,7 @@ func TestMigrateCredentialsDryRunDoesNotModifyLegacyProviderExport(t *testing.T)
 	if strings.Contains(out.String(), secret) {
 		t.Fatalf("dry-run output leaked provider secret:\n%s", out.String())
 	}
-	if _, err := os.Stat(mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)); !os.IsNotExist(err) {
+	if _, err := os.Stat(mustCredentialStorePathForHome(home, credentials.ProviderOpenAIAPIKey)); !os.IsNotExist(err) {
 		t.Fatalf("provider store was created during dry-run: %v", err)
 	}
 	zshrc, err := os.ReadFile(agentZshrcPath)
@@ -123,7 +124,7 @@ func TestMigrateCredentialsArchivesDivergentProviderExport(t *testing.T) {
 	const hostSecret = "synthetic-provider-host-secret"
 	const legacySecret = "synthetic-provider-legacy-secret"
 
-	storePath := mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)
+	storePath := mustCredentialStorePathForHome(home, credentials.ProviderOpenAIAPIKey)
 	if err := writeHostStoredSecretFile(storePath, []byte(hostSecret+"\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -281,10 +282,10 @@ func TestMigrateCredentialsMigratesCloudSecretsAndScrubsConfig(t *testing.T) {
 			t.Fatalf("migration output leaked %q:\n%s", forbidden, out.String())
 		}
 	}
-	for id, want := range map[credentialID]string{
-		credentialCloudS3AccessKeyID: accessKey,
-		credentialCloudKopiaRecovery: recoveryKey,
-		credentialCloudS3SecretKey:   secretKey,
+	for id, want := range map[credentials.ID]string{
+		credentials.CloudS3AccessKeyID: accessKey,
+		credentials.CloudKopiaRecovery: recoveryKey,
+		credentials.CloudS3SecretKey:   secretKey,
 	} {
 		path := mustCredentialStorePathForHome(home, id)
 		raw, err := os.ReadFile(path)
@@ -344,7 +345,7 @@ func TestMigrateCredentialsCloudScopeDoesNotReadHarnessResidue(t *testing.T) {
 	if harnessRead {
 		t.Fatal("cloud-scoped migration requested harness artifacts")
 	}
-	raw, err := os.ReadFile(mustCredentialStorePathForHome(home, credentialCloudS3SecretKey))
+	raw, err := os.ReadFile(mustCredentialStorePathForHome(home, credentials.CloudS3SecretKey))
 	if err != nil {
 		t.Fatalf("read cloud secret store: %v", err)
 	}

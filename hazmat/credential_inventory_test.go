@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestCredentialInventoryReportsLegacyProviderExportWithoutSecretValue(t *tes
 	home := isolateCredentialInventoryTest(t)
 	const secretValue = "example-secret-do-not-print"
 
-	storePath := mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)
+	storePath := mustCredentialStorePathForHome(home, credentials.ProviderOpenAIAPIKey)
 	if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestCredentialInventoryReportsLegacyProviderExportWithoutSecretValue(t *tes
 	if err != nil {
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
-	entry := findInventoryEntryForTest(t, entries, credentialProviderOpenAIAPIKey)
+	entry := findInventoryEntryForTest(t, entries, credentials.ProviderOpenAIAPIKey)
 	if !entry.HostStorePresent {
 		t.Fatal("OpenAI host-store credential was not reported present")
 	}
@@ -91,7 +92,7 @@ func TestCredentialInventoryReportsLegacyProviderExportWithoutSecretValue(t *tes
 
 func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
-	codexStorePath := mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)
+	codexStorePath := mustCredentialStorePathForHome(home, credentials.HarnessCodexAuth)
 	if err := os.MkdirAll(filepath.Dir(codexStorePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
 
-	codex := findInventoryEntryForTest(t, entries, credentialHarnessCodexAuth)
+	codex := findInventoryEntryForTest(t, entries, credentials.HarnessCodexAuth)
 	if got := codex.Status(); got != credentialInventoryNeedsRepair {
 		t.Fatalf("Codex status = %s, want %s", got, credentialInventoryNeedsRepair)
 	}
@@ -122,7 +123,7 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 		t.Fatalf("Codex agent residue = %v, want stale materialized file finding", codex.AgentResidue)
 	}
 
-	gitHTTPS := findInventoryEntryForTest(t, entries, credentialGitHTTPSAgentStore)
+	gitHTTPS := findInventoryEntryForTest(t, entries, credentials.GitHTTPSAgentStore)
 	if got := gitHTTPS.Status(); got != credentialInventoryNeedsRepair {
 		t.Fatalf("Git HTTPS status = %s, want %s", got, credentialInventoryNeedsRepair)
 	}
@@ -133,7 +134,7 @@ func TestCredentialInventoryReportsMaterializedAndGitHTTPSResidue(t *testing.T) 
 
 func TestCredentialInventoryHostOnlySkipsAgentStateProbes(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
-	openAIStorePath := mustCredentialStorePathForHome(home, credentialProviderOpenAIAPIKey)
+	openAIStorePath := mustCredentialStorePathForHome(home, credentials.ProviderOpenAIAPIKey)
 	if err := os.MkdirAll(filepath.Dir(openAIStorePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -160,14 +161,14 @@ func TestCredentialInventoryHostOnlySkipsAgentStateProbes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspectCredentialInventoryHostOnly: %v", err)
 	}
-	openAI := findInventoryEntryForTest(t, entries, credentialProviderOpenAIAPIKey)
+	openAI := findInventoryEntryForTest(t, entries, credentials.ProviderOpenAIAPIKey)
 	if !openAI.HostStorePresent {
 		t.Fatal("host-only inventory did not report host OpenAI store")
 	}
 	if len(openAI.AgentResidue) != 0 || len(openAI.LegacyResidue) != 0 {
 		t.Fatalf("OpenAI host-only residue = agent:%v legacy:%v, want none without agent probes", openAI.AgentResidue, openAI.LegacyResidue)
 	}
-	cloud := findInventoryEntryForTest(t, entries, credentialCloudS3AccessKeyID)
+	cloud := findInventoryEntryForTest(t, entries, credentials.CloudS3AccessKeyID)
 	if len(cloud.LegacyResidue) != 1 {
 		t.Fatalf("cloud host legacy residue = %v, want host config residue still reported", cloud.LegacyResidue)
 	}
@@ -191,7 +192,7 @@ func TestRunStatusUsesHostOnlyCredentialInventory(t *testing.T) {
 
 func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
-	claudeStorePath := mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
+	claudeStorePath := mustCredentialStorePathForHome(home, credentials.HarnessClaudeState)
 	if err := os.MkdirAll(filepath.Dir(claudeStorePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agentPath := mustCredentialDescriptor(credentialHarnessClaudeState).AgentPath
+	agentPath := mustCredentialDescriptor(credentials.HarnessClaudeState).AgentPath
 	credentialInventoryAgentPathExists = func(path string) (bool, error) {
 		return path == agentPath, nil
 	}
@@ -215,7 +216,7 @@ func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
 
-	entry := findInventoryEntryForTest(t, entries, credentialHarnessClaudeState)
+	entry := findInventoryEntryForTest(t, entries, credentials.HarnessClaudeState)
 	if got := entry.Status(); got != credentialInventoryConfigured {
 		t.Fatalf("Claude state status = %s, want %s; residue=%v errors=%v", got, credentialInventoryConfigured, entry.AgentResidue, entry.Errors)
 	}
@@ -227,7 +228,7 @@ func TestCredentialInventoryIgnoresClaudeSettingsOnlyAgentState(t *testing.T) {
 func TestCredentialInventoryReportsClaudePortableAuthStateResidue(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
 	const secretValue = "legacy-user-id"
-	claudeStorePath := mustCredentialStorePathForHome(home, credentialHarnessClaudeState)
+	claudeStorePath := mustCredentialStorePathForHome(home, credentials.HarnessClaudeState)
 	if err := os.MkdirAll(filepath.Dir(claudeStorePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +236,7 @@ func TestCredentialInventoryReportsClaudePortableAuthStateResidue(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	agentPath := mustCredentialDescriptor(credentialHarnessClaudeState).AgentPath
+	agentPath := mustCredentialDescriptor(credentials.HarnessClaudeState).AgentPath
 	credentialInventoryAgentPathExists = func(path string) (bool, error) {
 		return path == agentPath, nil
 	}
@@ -251,7 +252,7 @@ func TestCredentialInventoryReportsClaudePortableAuthStateResidue(t *testing.T) 
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
 
-	entry := findInventoryEntryForTest(t, entries, credentialHarnessClaudeState)
+	entry := findInventoryEntryForTest(t, entries, credentials.HarnessClaudeState)
 	if got := entry.Status(); got != credentialInventoryNeedsRepair {
 		t.Fatalf("Claude state status = %s, want %s", got, credentialInventoryNeedsRepair)
 	}
@@ -268,7 +269,7 @@ func TestCredentialInventoryReportsClaudePortableAuthStateResidue(t *testing.T) 
 
 func TestCredentialInventoryUsesAgentProbesForPrivateAgentPaths(t *testing.T) {
 	home := isolateCredentialInventoryTest(t)
-	hostStorePath := mustCredentialStorePathForHome(home, credentialHarnessCodexAuth)
+	hostStorePath := mustCredentialStorePathForHome(home, credentials.HarnessCodexAuth)
 	if err := os.MkdirAll(filepath.Dir(hostStorePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -295,15 +296,15 @@ func TestCredentialInventoryUsesAgentProbesForPrivateAgentPaths(t *testing.T) {
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
 
-	codex := findInventoryEntryForTest(t, entries, credentialHarnessCodexAuth)
+	codex := findInventoryEntryForTest(t, entries, credentials.HarnessCodexAuth)
 	if got := codex.Status(); got != credentialInventoryConfigured {
 		t.Fatalf("Codex status = %s, want %s; errors=%v", got, credentialInventoryConfigured, codex.Errors)
 	}
-	openCode := findInventoryEntryForTest(t, entries, credentialHarnessOpenCodeAuth)
+	openCode := findInventoryEntryForTest(t, entries, credentials.HarnessOpenCodeAuth)
 	if got := openCode.Status(); got != credentialInventoryNotConfigured {
 		t.Fatalf("OpenCode status = %s, want %s; errors=%v", got, credentialInventoryNotConfigured, openCode.Errors)
 	}
-	provider := findInventoryEntryForTest(t, entries, credentialProviderOpenAIAPIKey)
+	provider := findInventoryEntryForTest(t, entries, credentials.ProviderOpenAIAPIKey)
 	if got := provider.Status(); got != credentialInventoryNotConfigured {
 		t.Fatalf("OpenAI provider status = %s, want %s; errors=%v", got, credentialInventoryNotConfigured, provider.Errors)
 	}
@@ -335,10 +336,10 @@ func TestCredentialInventoryReportsLegacyCloudCredentialsWithoutSecretValues(t *
 	if err != nil {
 		t.Fatalf("inspectCredentialInventory: %v", err)
 	}
-	for _, id := range []credentialID{
-		credentialCloudS3AccessKeyID,
-		credentialCloudS3SecretKey,
-		credentialCloudKopiaRecovery,
+	for _, id := range []credentials.ID{
+		credentials.CloudS3AccessKeyID,
+		credentials.CloudS3SecretKey,
+		credentials.CloudKopiaRecovery,
 	} {
 		entry := findInventoryEntryForTest(t, entries, id)
 		if got := entry.Status(); got != credentialInventoryNeedsRepair {
@@ -370,7 +371,7 @@ func assertNoCredentialInventoryCommandRecipe(t *testing.T, rendered string) {
 	}
 }
 
-func findInventoryEntryForTest(t *testing.T, entries []credentialInventoryEntry, id credentialID) credentialInventoryEntry {
+func findInventoryEntryForTest(t *testing.T, entries []credentialInventoryEntry, id credentials.ID) credentialInventoryEntry {
 	t.Helper()
 
 	for _, entry := range entries {

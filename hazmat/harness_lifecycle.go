@@ -3,6 +3,7 @@ package hazmat
 import (
 	"encoding/json"
 	"fmt"
+	"hazmat/credentials"
 	"hazmat/internal/harnessruntime"
 	"os"
 	"sort"
@@ -54,13 +55,13 @@ type harnessImportStatus struct {
 }
 
 type harnessCredentialEntryStatus struct {
-	ID          credentialID              `json:"id"`
-	DisplayName string                    `json:"display_name"`
-	Status      credentialInventoryStatus `json:"status"`
-	Kind        credentialKind            `json:"kind"`
-	Backend     credentialStorageBackend  `json:"backend"`
-	Delivery    credentialDeliveryMode    `json:"delivery"`
-	Support     credentialSupportStatus   `json:"support"`
+	ID          credentials.ID             `json:"id"`
+	DisplayName string                     `json:"display_name"`
+	Status      credentialInventoryStatus  `json:"status"`
+	Kind        credentials.Kind           `json:"kind"`
+	Backend     credentials.StorageBackend `json:"backend"`
+	Delivery    credentials.DeliveryMode   `json:"delivery"`
+	Support     credentials.SupportStatus  `json:"support"`
 }
 
 type harnessCredentialStatus struct {
@@ -842,7 +843,7 @@ func inspectHarnessCredentialStatus(id HarnessID) harnessCredentialStatus {
 		status.Error = err.Error()
 		return status
 	}
-	relevant := make(map[credentialID]struct{}, len(descriptors))
+	relevant := make(map[credentials.ID]struct{}, len(descriptors))
 	for _, descriptor := range descriptors {
 		relevant[descriptor.ID] = struct{}{}
 	}

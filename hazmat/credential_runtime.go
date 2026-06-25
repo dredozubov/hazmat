@@ -1,16 +1,19 @@
 package hazmat
 
-import "hazmat/internal/credentialruntime"
+import (
+	"hazmat/credentials"
+	"hazmat/internal/credentialruntime"
+)
 
-func cloudCredentialStorePath(id credentialID) (string, error) {
+func cloudCredentialStorePath(id credentials.ID) (string, error) {
 	return credentialruntime.CloudCredentialStorePath(credentialRegistryPaths(), id)
 }
 
-func readCloudStoredCredential(id credentialID) (string, bool, error) {
+func readCloudStoredCredential(id credentials.ID) (string, bool, error) {
 	return credentialruntime.ReadCloudStoredCredential(credentialRegistryPaths(), id)
 }
 
-func saveCloudStoredCredential(id credentialID, value string) error {
+func saveCloudStoredCredential(id credentials.ID, value string) error {
 	return credentialruntime.SaveCloudStoredCredential(credentialRegistryPaths(), id, value)
 }
 

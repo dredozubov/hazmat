@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"errors"
+	"hazmat/credentials"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -226,13 +227,13 @@ func TestHarnessStatusJSONIncludesStructuredRedactedFields(t *testing.T) {
 		AdapterRequired: 1,
 		Entries: []harnessCredentialEntryStatus{
 			{
-				ID:          credentialHarnessAntigravityKeychain,
+				ID:          credentials.HarnessAntigravityKeychain,
 				DisplayName: "Antigravity Keychain OAuth state",
 				Status:      credentialInventoryAdapterRequired,
-				Kind:        credentialKindExternalAuth,
-				Backend:     credentialStorageKeychain,
-				Delivery:    credentialDeliveryExternalReference,
-				Support:     credentialSupportAdapterRequired,
+				Kind:        credentials.KindExternalAuth,
+				Backend:     credentials.StorageKeychain,
+				Delivery:    credentials.DeliveryExternalReference,
+				Support:     credentials.SupportAdapterRequired,
 			},
 		},
 	})

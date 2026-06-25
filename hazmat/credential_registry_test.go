@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,9 +10,9 @@ import (
 func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 	home := t.TempDir()
 	secretRoot := secretStoreDirForHome(home)
-	seenIDs := map[credentialID]bool{}
-	seenStorePaths := map[string]credentialID{}
-	seenEnvVars := map[string]credentialID{}
+	seenIDs := map[credentials.ID]bool{}
+	seenStorePaths := map[string]credentials.ID{}
+	seenEnvVars := map[string]credentials.ID{}
 
 	for _, descriptor := range builtinCredentialDescriptors() {
 		if descriptor.ID == "" {
@@ -39,7 +40,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 		if !descriptor.Redacted {
 			t.Fatalf("%s must be redacted", descriptor.ID)
 		}
-		if descriptor.Kind == credentialKindProviderAPIKey {
+		if descriptor.Kind == credentials.KindProviderAPIKey {
 			if descriptor.Harness != "" {
 				t.Fatalf("%s provider API-key descriptor must be provider-owned, got harness %q", descriptor.ID, descriptor.Harness)
 			}
@@ -49,7 +50,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 		}
 
 		switch descriptor.Backend {
-		case credentialStorageHostSecretStore:
+		case credentials.StorageHostSecretStore:
 			storePath, err := descriptor.StorePathForHome(home)
 			if err != nil {
 				t.Fatalf("%s StorePathForHome: %v", descriptor.ID, err)
@@ -62,7 +63,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 				t.Fatalf("%s and %s share store path %q", descriptor.ID, previous, storePath)
 			}
 			seenStorePaths[storePath] = descriptor.ID
-		case credentialStorageKeychain, credentialStorageExternalFile, credentialStorageBroker:
+		case credentials.StorageKeychain, credentials.StorageExternalFile, credentials.StorageBroker:
 			if descriptor.StoreRelPath != "" {
 				t.Fatalf("%s non-host backend must not declare host store path %q", descriptor.ID, descriptor.StoreRelPath)
 			}
@@ -74,7 +75,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 		}
 
 		switch descriptor.Delivery {
-		case credentialDeliveryEnv:
+		case credentials.DeliveryEnv:
 			envVar, err := descriptor.EnvDeliveryVar()
 			if err != nil {
 				t.Fatalf("%s EnvDeliveryVar: %v", descriptor.ID, err)
@@ -89,7 +90,7 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 			if descriptor.AgentPath != "" {
 				t.Fatalf("%s env delivery must not declare an agent path", descriptor.ID)
 			}
-		case credentialDeliveryMaterializedFile:
+		case credentials.DeliveryMaterializedFile:
 			agentPath, err := descriptor.AgentMaterializationPath()
 			if err != nil {
 				t.Fatalf("%s AgentMaterializationPath: %v", descriptor.ID, err)
@@ -103,8 +104,8 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 			if !descriptor.ConflictArchive {
 				t.Fatalf("%s materialized credential must preserve conflicts", descriptor.ID)
 			}
-		case credentialDeliveryNone, credentialDeliveryBrokeredHelper, credentialDeliveryExternalReference:
-			if descriptor.Delivery == credentialDeliveryExternalReference && descriptor.ExternalRef == "" {
+		case credentials.DeliveryNone, credentials.DeliveryBrokeredHelper, credentials.DeliveryExternalReference:
+			if descriptor.Delivery == credentials.DeliveryExternalReference && descriptor.ExternalRef == "" {
 				t.Fatalf("%s external-reference delivery must describe the external authority", descriptor.ID)
 			}
 			if descriptor.AgentPath != "" {
@@ -115,12 +116,12 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 		}
 
 		switch descriptor.Support {
-		case credentialSupportManaged:
-			if descriptor.Backend != credentialStorageHostSecretStore {
+		case credentials.SupportManaged:
+			if descriptor.Backend != credentials.StorageHostSecretStore {
 				t.Fatalf("%s managed credential uses non-host backend %q", descriptor.ID, descriptor.Backend)
 			}
-		case credentialSupportExternal, credentialSupportAdapterRequired:
-			if descriptor.Backend == credentialStorageHostSecretStore {
+		case credentials.SupportExternal, credentials.SupportAdapterRequired:
+			if descriptor.Backend == credentials.StorageHostSecretStore {
 				t.Fatalf("%s external credential unexpectedly uses host secret store", descriptor.ID)
 			}
 		default:
@@ -133,12 +134,12 @@ func TestProviderSecretStorePathForHomeUsesCredentialRegistry(t *testing.T) {
 	home := t.TempDir()
 	cases := []struct {
 		envVar string
-		id     credentialID
+		id     credentials.ID
 	}{
-		{"ANTHROPIC_API_KEY", credentialProviderAnthropicAPIKey},
-		{"OPENAI_API_KEY", credentialProviderOpenAIAPIKey},
-		{"GEMINI_API_KEY", credentialProviderGeminiAPIKey},
-		{"OPENROUTER_API_KEY", credentialProviderOpenRouterAPIKey},
+		{"ANTHROPIC_API_KEY", credentials.ProviderAnthropicAPIKey},
+		{"OPENAI_API_KEY", credentials.ProviderOpenAIAPIKey},
+		{"GEMINI_API_KEY", credentials.ProviderGeminiAPIKey},
+		{"OPENROUTER_API_KEY", credentials.ProviderOpenRouterAPIKey},
 	}
 
 	for _, tc := range cases {
@@ -159,37 +160,37 @@ func TestProviderSecretStorePathForHomeUsesCredentialRegistry(t *testing.T) {
 
 func TestProviderCredentialConsumersAreHarnessAware(t *testing.T) {
 	cases := []struct {
-		id        credentialID
+		id        credentials.ID
 		allowed   []HarnessID
 		denied    []HarnessID
 		storePath string
 	}{
 		{
-			id:        credentialProviderAnthropicAPIKey,
+			id:        credentials.ProviderAnthropicAPIKey,
 			allowed:   []HarnessID{HarnessClaude, HarnessHermes},
 			denied:    []HarnessID{HarnessCodex, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/anthropic-api-key",
 		},
 		{
-			id:        credentialProviderOpenAIAPIKey,
+			id:        credentials.ProviderOpenAIAPIKey,
 			allowed:   []HarnessID{HarnessCodex, HarnessHermes},
 			denied:    []HarnessID{HarnessClaude, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openai-api-key",
 		},
 		{
-			id:        credentialProviderAntigravityAPIKey,
+			id:        credentials.ProviderAntigravityAPIKey,
 			allowed:   []HarnessID{HarnessAntigravity},
 			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/antigravity-api-key",
 		},
 		{
-			id:        credentialProviderGeminiAPIKey,
+			id:        credentials.ProviderGeminiAPIKey,
 			allowed:   []HarnessID{HarnessAntigravity, HarnessHermes},
 			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/gemini-api-key",
 		},
 		{
-			id:        credentialProviderOpenRouterAPIKey,
+			id:        credentials.ProviderOpenRouterAPIKey,
 			allowed:   []HarnessID{HarnessHermes},
 			denied:    []HarnessID{HarnessClaude, HarnessCodex, HarnessAntigravity, HarnessOpenCode, HarnessQwen, HarnessCursorAgent, HarnessPi},
 			storePath: "providers/openrouter-api-key",
@@ -218,10 +219,10 @@ func TestProviderCredentialConsumersAreHarnessAware(t *testing.T) {
 }
 
 func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) {
-	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessCodex); !ok || descriptor.ID != credentialProviderOpenAIAPIKey {
+	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessCodex); !ok || descriptor.ID != credentials.ProviderOpenAIAPIKey {
 		t.Fatalf("OPENAI_API_KEY for Codex = %+v, %v; want OpenAI descriptor", descriptor, ok)
 	}
-	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessHermes); !ok || descriptor.ID != credentialProviderOpenAIAPIKey {
+	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessHermes); !ok || descriptor.ID != credentials.ProviderOpenAIAPIKey {
 		t.Fatalf("OPENAI_API_KEY for Hermes = %+v, %v; want OpenAI descriptor", descriptor, ok)
 	}
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessClaude); ok {
@@ -236,7 +237,7 @@ func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) 
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENAI_API_KEY", HarnessPi); ok {
 		t.Fatalf("OPENAI_API_KEY must not resolve for Pi in Phase 1")
 	}
-	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessHermes); !ok || descriptor.ID != credentialProviderOpenRouterAPIKey {
+	if descriptor, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessHermes); !ok || descriptor.ID != credentials.ProviderOpenRouterAPIKey {
 		t.Fatalf("OPENROUTER_API_KEY for Hermes = %+v, %v; want OpenRouter descriptor", descriptor, ok)
 	}
 	if _, ok := providerCredentialDescriptorForEnvVarAndHarness("OPENROUTER_API_KEY", HarnessCodex); ok {
@@ -256,16 +257,16 @@ func TestProviderCredentialDescriptorLookupRequiresAllowedHarness(t *testing.T) 
 func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 	cases := []struct {
 		harness HarnessID
-		want    []credentialID
+		want    []credentials.ID
 	}{
-		{HarnessClaude, []credentialID{credentialProviderAnthropicAPIKey}},
-		{HarnessCodex, []credentialID{credentialProviderOpenAIAPIKey}},
-		{HarnessAntigravity, []credentialID{credentialProviderAntigravityAPIKey, credentialProviderGeminiAPIKey}},
-		{HarnessHermes, []credentialID{
-			credentialProviderAnthropicAPIKey,
-			credentialProviderOpenAIAPIKey,
-			credentialProviderGeminiAPIKey,
-			credentialProviderOpenRouterAPIKey,
+		{HarnessClaude, []credentials.ID{credentials.ProviderAnthropicAPIKey}},
+		{HarnessCodex, []credentials.ID{credentials.ProviderOpenAIAPIKey}},
+		{HarnessAntigravity, []credentials.ID{credentials.ProviderAntigravityAPIKey, credentials.ProviderGeminiAPIKey}},
+		{HarnessHermes, []credentials.ID{
+			credentials.ProviderAnthropicAPIKey,
+			credentials.ProviderOpenAIAPIKey,
+			credentials.ProviderGeminiAPIKey,
+			credentials.ProviderOpenRouterAPIKey,
 		}},
 		{HarnessOpenCode, nil},
 		{HarnessQwen, nil},
@@ -275,7 +276,7 @@ func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 
 	for _, tc := range cases {
 		descriptors := providerCredentialDescriptorsForHarness(tc.harness)
-		got := make([]credentialID, 0, len(descriptors))
+		got := make([]credentials.ID, 0, len(descriptors))
 		for _, descriptor := range descriptors {
 			got = append(got, descriptor.ID)
 		}
@@ -287,10 +288,10 @@ func TestProviderCredentialDescriptorsForHarness(t *testing.T) {
 
 func TestCloudCredentialStorePathsUseCredentialRegistry(t *testing.T) {
 	home := t.TempDir()
-	for _, id := range []credentialID{
-		credentialCloudS3AccessKeyID,
-		credentialCloudS3SecretKey,
-		credentialCloudKopiaRecovery,
+	for _, id := range []credentials.ID{
+		credentials.CloudS3AccessKeyID,
+		credentials.CloudS3SecretKey,
+		credentials.CloudKopiaRecovery,
 	} {
 		got, err := credentialStorePathForHome(home, id)
 		if err != nil {
@@ -310,11 +311,11 @@ func TestHarnessAuthArtifactsUseCredentialRegistry(t *testing.T) {
 	home := t.TempDir()
 	cases := []struct {
 		harness HarnessID
-		ids     []credentialID
+		ids     []credentials.ID
 	}{
-		{HarnessClaude, []credentialID{credentialHarnessClaudeCredentials, credentialHarnessClaudeState}},
-		{HarnessCodex, []credentialID{credentialHarnessCodexAuth}},
-		{HarnessOpenCode, []credentialID{credentialHarnessOpenCodeAuth}},
+		{HarnessClaude, []credentials.ID{credentials.HarnessClaudeCredentials, credentials.HarnessClaudeState}},
+		{HarnessCodex, []credentials.ID{credentials.HarnessCodexAuth}},
+		{HarnessOpenCode, []credentials.ID{credentials.HarnessOpenCodeAuth}},
 		{HarnessAntigravity, nil},
 	}
 
@@ -360,12 +361,12 @@ func TestCredentialStoreRelPathRejectsUnsafePaths(t *testing.T) {
 }
 
 func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
-	envDescriptor := mustCredentialDescriptor(credentialProviderOpenAIAPIKey)
+	envDescriptor := mustCredentialDescriptor(credentials.ProviderOpenAIAPIKey)
 	if _, err := envDescriptor.AgentMaterializationPath(); err == nil {
 		t.Fatalf("AgentMaterializationPath accepted env-delivered credential")
 	}
 
-	fileDescriptor := mustCredentialDescriptor(credentialHarnessCodexAuth)
+	fileDescriptor := mustCredentialDescriptor(credentials.HarnessCodexAuth)
 	if _, err := fileDescriptor.EnvDeliveryVar(); err == nil {
 		t.Fatalf("EnvDeliveryVar accepted materialized-file credential")
 	}
@@ -404,7 +405,7 @@ func sameHarnessIDs(got, want []HarnessID) bool {
 	return true
 }
 
-func sameCredentialIDs(got, want []credentialID) bool {
+func sameCredentialIDs(got, want []credentials.ID) bool {
 	if len(got) != len(want) {
 		return false
 	}
@@ -417,11 +418,11 @@ func sameCredentialIDs(got, want []credentialID) bool {
 }
 
 func TestGitHubAPITokenUsesCredentialRegistry(t *testing.T) {
-	descriptor := mustCredentialDescriptor(credentialGitHubAPIToken)
-	if descriptor.Kind != credentialKindGitHubToken {
-		t.Fatalf("GitHub token kind = %q, want %q", descriptor.Kind, credentialKindGitHubToken)
+	descriptor := mustCredentialDescriptor(credentials.GitHubAPIToken)
+	if descriptor.Kind != credentials.KindGitHubToken {
+		t.Fatalf("GitHub token kind = %q, want %q", descriptor.Kind, credentials.KindGitHubToken)
 	}
-	if descriptor.Backend != credentialStorageHostSecretStore || descriptor.Delivery != credentialDeliveryEnv || descriptor.Support != credentialSupportManaged {
+	if descriptor.Backend != credentials.StorageHostSecretStore || descriptor.Delivery != credentials.DeliveryEnv || descriptor.Support != credentials.SupportManaged {
 		t.Fatalf("GitHub token descriptor = %+v, want managed host-store env delivery", descriptor)
 	}
 	envVar, err := descriptor.EnvDeliveryVar()
@@ -431,61 +432,61 @@ func TestGitHubAPITokenUsesCredentialRegistry(t *testing.T) {
 	if envVar != "GH_TOKEN" {
 		t.Fatalf("GitHub token env var = %q, want GH_TOKEN", envVar)
 	}
-	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitHubAPIToken)
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentials.GitHubAPIToken)
 	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "github", "token")) {
 		t.Fatalf("GitHub token store path = %q, want github/token secret-store path", storePath)
 	}
 }
 
 func TestGitHTTPSCredentialStoreUsesCredentialRegistry(t *testing.T) {
-	descriptor := mustCredentialDescriptor(credentialGitHTTPSAgentStore)
-	if descriptor.Kind != credentialKindGitHTTPS {
-		t.Fatalf("Git HTTPS kind = %q, want %q", descriptor.Kind, credentialKindGitHTTPS)
+	descriptor := mustCredentialDescriptor(credentials.GitHTTPSAgentStore)
+	if descriptor.Kind != credentials.KindGitHTTPS {
+		t.Fatalf("Git HTTPS kind = %q, want %q", descriptor.Kind, credentials.KindGitHTTPS)
 	}
-	if descriptor.Backend != credentialStorageHostSecretStore || descriptor.Delivery != credentialDeliveryBrokeredHelper || descriptor.Support != credentialSupportManaged {
+	if descriptor.Backend != credentials.StorageHostSecretStore || descriptor.Delivery != credentials.DeliveryBrokeredHelper || descriptor.Support != credentials.SupportManaged {
 		t.Fatalf("Git HTTPS descriptor = %+v, want managed host-store brokered helper", descriptor)
 	}
-	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitHTTPSAgentStore)
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentials.GitHTTPSAgentStore)
 	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "git-https", "credentials")) {
 		t.Fatalf("Git HTTPS store path = %q, want git-https secret-store path", storePath)
 	}
 }
 
 func TestGitSSHCredentialDescriptorsModelIdentitySources(t *testing.T) {
-	external := mustCredentialDescriptor(credentialGitSSHExternalIdentity)
-	if external.Kind != credentialKindGitSSHIdentity {
-		t.Fatalf("external Git SSH kind = %q, want %q", external.Kind, credentialKindGitSSHIdentity)
+	external := mustCredentialDescriptor(credentials.GitSSHExternalIdentity)
+	if external.Kind != credentials.KindGitSSHIdentity {
+		t.Fatalf("external Git SSH kind = %q, want %q", external.Kind, credentials.KindGitSSHIdentity)
 	}
-	if external.Backend != credentialStorageExternalFile || external.Delivery != credentialDeliveryExternalReference || external.Support != credentialSupportExternal {
+	if external.Backend != credentials.StorageExternalFile || external.Delivery != credentials.DeliveryExternalReference || external.Support != credentials.SupportExternal {
 		t.Fatalf("external Git SSH descriptor = %+v, want external file reference", external)
 	}
 	if _, err := external.StorePathForHome(t.TempDir()); err == nil {
 		t.Fatalf("external Git SSH descriptor produced host store path")
 	}
 
-	provisioned := mustCredentialDescriptor(credentialGitSSHProvisionedIdentity)
-	if provisioned.Kind != credentialKindGitSSHIdentity {
-		t.Fatalf("provisioned Git SSH kind = %q, want %q", provisioned.Kind, credentialKindGitSSHIdentity)
+	provisioned := mustCredentialDescriptor(credentials.GitSSHProvisionedIdentity)
+	if provisioned.Kind != credentials.KindGitSSHIdentity {
+		t.Fatalf("provisioned Git SSH kind = %q, want %q", provisioned.Kind, credentials.KindGitSSHIdentity)
 	}
-	if provisioned.Backend != credentialStorageHostSecretStore || provisioned.Delivery != credentialDeliveryBrokeredHelper || provisioned.Support != credentialSupportManaged {
+	if provisioned.Backend != credentials.StorageHostSecretStore || provisioned.Delivery != credentials.DeliveryBrokeredHelper || provisioned.Support != credentials.SupportManaged {
 		t.Fatalf("provisioned Git SSH descriptor = %+v, want managed brokered helper", provisioned)
 	}
-	storePath := mustCredentialStorePathForHome(t.TempDir(), credentialGitSSHProvisionedIdentity)
+	storePath := mustCredentialStorePathForHome(t.TempDir(), credentials.GitSSHProvisionedIdentity)
 	if !strings.Contains(storePath, filepath.Join(".hazmat", "secrets", "git-ssh", "provisioned")) {
 		t.Fatalf("provisioned Git SSH store path = %q, want git-ssh/provisioned secret subtree", storePath)
 	}
 }
 
 func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
-	descriptor := mustCredentialDescriptor(credentialHarnessAntigravityKeychain)
-	if descriptor.Backend != credentialStorageKeychain {
-		t.Fatalf("Antigravity Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
+	descriptor := mustCredentialDescriptor(credentials.HarnessAntigravityKeychain)
+	if descriptor.Backend != credentials.StorageKeychain {
+		t.Fatalf("Antigravity Keychain backend = %q, want %q", descriptor.Backend, credentials.StorageKeychain)
 	}
-	if descriptor.Delivery != credentialDeliveryExternalReference {
-		t.Fatalf("Antigravity Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
+	if descriptor.Delivery != credentials.DeliveryExternalReference {
+		t.Fatalf("Antigravity Keychain delivery = %q, want %q", descriptor.Delivery, credentials.DeliveryExternalReference)
 	}
-	if descriptor.Support != credentialSupportExternal {
-		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentialSupportExternal)
+	if descriptor.Support != credentials.SupportExternal {
+		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentials.SupportExternal)
 	}
 	if !descriptor.CanDeliverTo(HarnessAntigravity) || descriptor.CanDeliverTo(HarnessClaude) {
 		t.Fatalf("Antigravity Keychain consumers = %v, want Antigravity only", descriptor.ConsumerHarnessIDs())
@@ -505,15 +506,15 @@ func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
 }
 
 func TestClaudeAgentKeychainCredentialBoundaryIsExternal(t *testing.T) {
-	descriptor := mustCredentialDescriptor(credentialHarnessClaudeKeychain)
-	if descriptor.Backend != credentialStorageKeychain {
-		t.Fatalf("Claude Keychain backend = %q, want %q", descriptor.Backend, credentialStorageKeychain)
+	descriptor := mustCredentialDescriptor(credentials.HarnessClaudeKeychain)
+	if descriptor.Backend != credentials.StorageKeychain {
+		t.Fatalf("Claude Keychain backend = %q, want %q", descriptor.Backend, credentials.StorageKeychain)
 	}
-	if descriptor.Delivery != credentialDeliveryExternalReference {
-		t.Fatalf("Claude Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
+	if descriptor.Delivery != credentials.DeliveryExternalReference {
+		t.Fatalf("Claude Keychain delivery = %q, want %q", descriptor.Delivery, credentials.DeliveryExternalReference)
 	}
-	if descriptor.Support != credentialSupportExternal {
-		t.Fatalf("Claude Keychain support = %q, want %q", descriptor.Support, credentialSupportExternal)
+	if descriptor.Support != credentials.SupportExternal {
+		t.Fatalf("Claude Keychain support = %q, want %q", descriptor.Support, credentials.SupportExternal)
 	}
 	if !descriptor.CanDeliverTo(HarnessClaude) || descriptor.CanDeliverTo(HarnessCodex) {
 		t.Fatalf("Claude Keychain consumers = %v, want Claude only", descriptor.ConsumerHarnessIDs())

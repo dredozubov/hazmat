@@ -3,6 +3,7 @@ package hazmat
 import (
 	"bytes"
 	"encoding/json"
+	"hazmat/credentials"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -76,7 +77,7 @@ func TestBuildExplainJSON(t *testing.T) {
 		CredentialEnvGrants: []sessionCredentialEnvGrant{
 			{
 				EnvVar:          "OPENAI_API_KEY",
-				CredentialID:    credentialProviderOpenAIAPIKey,
+				CredentialID:    credentials.ProviderOpenAIAPIKey,
 				Source:          "host secret store",
 				ConsumerHarness: HarnessCodex,
 			},
@@ -148,7 +149,7 @@ func TestBuildExplainJSON(t *testing.T) {
 	if !reflect.DeepEqual(got.CredentialEnvGrants, []explainJSONCredentialEnvGrant{
 		{
 			EnvVar:          "OPENAI_API_KEY",
-			CredentialID:    string(credentialProviderOpenAIAPIKey),
+			CredentialID:    string(credentials.ProviderOpenAIAPIKey),
 			Source:          "host secret store",
 			ConsumerHarness: string(HarnessCodex),
 			Redacted:        true,
@@ -221,10 +222,10 @@ func TestHermesExplainJSONIncludesSharedProviderGrants(t *testing.T) {
 
 	got := buildExplainJSON("hermes", cfg, sessionModeNative, true)
 	want := map[string]string{
-		"ANTHROPIC_API_KEY":  string(credentialProviderAnthropicAPIKey),
-		"OPENAI_API_KEY":     string(credentialProviderOpenAIAPIKey),
-		"GEMINI_API_KEY":     string(credentialProviderGeminiAPIKey),
-		"OPENROUTER_API_KEY": string(credentialProviderOpenRouterAPIKey),
+		"ANTHROPIC_API_KEY":  string(credentials.ProviderAnthropicAPIKey),
+		"OPENAI_API_KEY":     string(credentials.ProviderOpenAIAPIKey),
+		"GEMINI_API_KEY":     string(credentials.ProviderGeminiAPIKey),
+		"OPENROUTER_API_KEY": string(credentials.ProviderOpenRouterAPIKey),
 	}
 	if len(got.CredentialEnvGrants) != len(want) {
 		t.Fatalf("Hermes CredentialEnvGrants = %#v, want %d grants", got.CredentialEnvGrants, len(want))

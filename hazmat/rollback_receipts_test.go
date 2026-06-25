@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"hazmat/credentials"
 	"strings"
 	"testing"
 )
@@ -8,20 +9,20 @@ import (
 func TestRollbackReceiptsClassifyRemovedPreservedAndManualItems(t *testing.T) {
 	receipts := rollbackReceipts(false, false, []credentialInventoryEntry{
 		{
-			ID:               credentialHarnessClaudeState,
-			Backend:          credentialStorageHostSecretStore,
+			ID:               credentials.HarnessClaudeState,
+			Backend:          credentials.StorageHostSecretStore,
 			HostStorePresent: true,
 		},
 		{
-			ID: credentialCloudS3SecretKey,
+			ID: credentials.CloudS3SecretKey,
 			LegacyResidue: []credentialInventoryFinding{{
 				Path:   "/Users/test/.hazmat/cloud.yaml",
 				Detail: "legacy cloud secret",
 			}},
 		},
 		{
-			ID:      credentialHarnessAntigravityKeychain,
-			Support: credentialSupportAdapterRequired,
+			ID:      credentials.HarnessAntigravityKeychain,
+			Support: credentials.SupportAdapterRequired,
 		},
 	})
 
@@ -43,7 +44,7 @@ func TestRollbackReceiptsRespectDestructiveFlags(t *testing.T) {
 func TestRollbackCredentialReceiptsIncludeResiduePaths(t *testing.T) {
 	receipts := rollbackCredentialReceipts([]credentialInventoryEntry{
 		{
-			ID: credentialProviderOpenAIAPIKey,
+			ID: credentials.ProviderOpenAIAPIKey,
 			AgentResidue: []credentialInventoryFinding{{
 				Path:   "/Users/agent/.openai",
 				Detail: "stale agent credential",
