@@ -189,7 +189,7 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 	if err != nil {
 		t.Fatalf("scanClaudeImportPlan: %v", err)
 	}
-	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+	if err := plan.resolveConflicts(importConflictOverwrite); err != nil {
 		t.Fatalf("resolveConflicts: %v", err)
 	}
 
@@ -299,7 +299,7 @@ func TestClaudeImportConflictPolicySkipKeepsExistingContent(t *testing.T) {
 	if got := plan.conflictCount(); got != 1 {
 		t.Fatalf("conflictCount = %d, want 1", got)
 	}
-	if err := plan.resolveConflicts(claudeConflictSkip); err != nil {
+	if err := plan.resolveConflicts(importConflictSkip); err != nil {
 		t.Fatalf("resolveConflicts: %v", err)
 	}
 	if _, err := applyClaudeImportPlan(plan, env, nil); err != nil {
@@ -363,8 +363,8 @@ func TestScanClaudeImportPlanTreatsInaccessibleAgentPortableDestAsConflict(t *te
 	if !ok {
 		t.Fatalf("plan items = %+v, want command item", plan.Items)
 	}
-	if item.Status != claudeImportConflict {
-		t.Fatalf("command status = %s, want %s for inaccessible agent destination", item.Status, claudeImportConflict)
+	if item.Status != importConflict {
+		t.Fatalf("command status = %s, want %s for inaccessible agent destination", item.Status, importConflict)
 	}
 }
 
@@ -389,7 +389,7 @@ func TestResolveConflictsFailsWithoutExplicitPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanClaudeImportPlan: %v", err)
 	}
-	if err := plan.resolveConflicts(claudeConflictFail); err == nil {
+	if err := plan.resolveConflicts(importConflictFail); err == nil {
 		t.Fatal("expected explicit conflict policy to be required")
 	}
 }
@@ -496,7 +496,7 @@ func TestApplyOpenCodeImportPlanCopiesPortableContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanOpenCodeImportPlan: %v", err)
 	}
-	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+	if err := plan.resolveConflicts(importConflictOverwrite); err != nil {
 		t.Fatalf("resolveConflicts: %v", err)
 	}
 	if _, err := applyOpenCodeImportPlan(plan, env, nil); err != nil {
@@ -579,7 +579,7 @@ func TestApplyCodexImportPlanCopiesAuthAndIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanCodexImportPlan: %v", err)
 	}
-	if err := plan.resolveConflicts(claudeConflictOverwrite); err != nil {
+	if err := plan.resolveConflicts(importConflictOverwrite); err != nil {
 		t.Fatalf("resolveConflicts: %v", err)
 	}
 	if _, err := applyCodexImportPlan(plan, env, nil); err != nil {
@@ -621,7 +621,7 @@ func TestScanCodexImportPlanDetectsConflict(t *testing.T) {
 		t.Fatalf("expected 1 conflict, got %d", plan.conflictCount())
 	}
 
-	err = plan.resolveConflicts(claudeConflictFail)
+	err = plan.resolveConflicts(importConflictFail)
 	if err == nil {
 		t.Fatal("expected conflict resolution to fail without explicit policy")
 	}
