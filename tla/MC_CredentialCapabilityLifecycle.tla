@@ -47,12 +47,12 @@ CONSTANTS
     ClaudeHarness,
     CodexHarness,
     OpenCodeHarness,
-    GeminiHarness,
+    AntigravityHarness,
     HermesHarness,
     ClaudeConsumerCreds,
     CodexConsumerCreds,
     OpenCodeConsumerCreds,
-    GeminiConsumerCreds,
+    AntigravityConsumerCreds,
     HermesConsumerCreds,
     GlobalCreds,
     HostSecretStoreCreds,
@@ -101,8 +101,8 @@ CredentialConsumers(c) ==
            /\ c \in CodexConsumerCreds
         \/ /\ h = OpenCodeHarness
            /\ c \in OpenCodeConsumerCreds
-        \/ /\ h = GeminiHarness
-           /\ c \in GeminiConsumerCreds
+        \/ /\ h = AntigravityHarness
+           /\ c \in AntigravityConsumerCreds
         \/ /\ h = HermesHarness
            /\ c \in HermesConsumerCreds}
 
@@ -115,23 +115,23 @@ ASSUME
     /\ ClaudeHarness \in Harnesses
     /\ CodexHarness \in Harnesses
     /\ OpenCodeHarness \in Harnesses
-    /\ GeminiHarness \in Harnesses
+    /\ AntigravityHarness \in Harnesses
     /\ HermesHarness \in Harnesses
-    /\ Harnesses = {ClaudeHarness, CodexHarness, OpenCodeHarness, GeminiHarness, HermesHarness}
+    /\ Harnesses = {ClaudeHarness, CodexHarness, OpenCodeHarness, AntigravityHarness, HermesHarness}
     /\ ClaudeHarness # CodexHarness
     /\ ClaudeHarness # OpenCodeHarness
-    /\ ClaudeHarness # GeminiHarness
+    /\ ClaudeHarness # AntigravityHarness
     /\ ClaudeHarness # HermesHarness
     /\ CodexHarness # OpenCodeHarness
-    /\ CodexHarness # GeminiHarness
+    /\ CodexHarness # AntigravityHarness
     /\ CodexHarness # HermesHarness
-    /\ OpenCodeHarness # GeminiHarness
+    /\ OpenCodeHarness # AntigravityHarness
     /\ OpenCodeHarness # HermesHarness
-    /\ GeminiHarness # HermesHarness
+    /\ AntigravityHarness # HermesHarness
     /\ ClaudeConsumerCreds \subseteq Credentials
     /\ CodexConsumerCreds \subseteq Credentials
     /\ OpenCodeConsumerCreds \subseteq Credentials
-    /\ GeminiConsumerCreds \subseteq Credentials
+    /\ AntigravityConsumerCreds \subseteq Credentials
     /\ HermesConsumerCreds \subseteq Credentials
     /\ GlobalCreds \subseteq Credentials
     /\ HostSecretStoreCreds \subseteq Credentials
@@ -151,7 +151,7 @@ ASSUME
     /\ HostSecretStoreCreds \cup KeychainBackendCreds \cup BrokerBackendCreds \cup ExternalFileBackendCreds = Credentials
     /\ FileDeliveryCreds \cup EnvDeliveryCreds \cup BrokerDeliveryCreds \cup ExternalReferenceDeliveryCreds \cup NoDeliveryCreds = Credentials
     /\ ManagedSupportCreds \cup ExternalSupportCreds \cup AdapterRequiredSupportCreds = Credentials
-    /\ GlobalCreds \cap (ClaudeConsumerCreds \cup CodexConsumerCreds \cup OpenCodeConsumerCreds \cup GeminiConsumerCreds \cup HermesConsumerCreds) = {}
+    /\ GlobalCreds \cap (ClaudeConsumerCreds \cup CodexConsumerCreds \cup OpenCodeConsumerCreds \cup AntigravityConsumerCreds \cup HermesConsumerCreds) = {}
     /\ \A c \in Credentials :
         Cardinality({s \in {HostSecretStoreCreds, KeychainBackendCreds, BrokerBackendCreds, ExternalFileBackendCreds} : c \in s}) = 1
     /\ \A c \in Credentials :

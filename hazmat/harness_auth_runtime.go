@@ -421,7 +421,11 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 		runtimeHome = cfg.SessionHome.Launch.Layout.Home
 	}
 	artifacts := harnessAuthArtifactsForRuntimeHome(cfg.HarnessID, home, runtimeHome)
-	if cfg.ClaudeKeychainAccess {
+	// Only Claude harvests/round-trips its OAuth through the agent login keychain.
+	// Antigravity also gets AgentLoginKeychainAccess, but it is a non-syncable
+	// external reference (no harvest adapter), so keychain delivery preference
+	// stays Claude-scoped.
+	if cfg.AgentLoginKeychainAccess && cfg.HarnessID == HarnessClaude {
 		artifacts = preferClaudeAgentKeychainDelivery(artifacts)
 	}
 	return prepareHarnessAuthRuntimeForArtifacts(artifacts)

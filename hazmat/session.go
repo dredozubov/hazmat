@@ -27,37 +27,37 @@ import (
 )
 
 type sessionConfig struct {
-	Target                  string
-	ProjectDir              string
-	ReadDirs                []string
-	WriteDirs               []string
-	UserReadDirs            []string // explicit host-configured or CLI read-only extensions
-	AutoReadDirs            []string // automatically added read-only dirs from integrations/defaults
-	BackupExcludes          []string
-	PlannedHostMutations    []sessionMutation
-	SuggestedIntegrations   []string          // auto-detected built-in integrations not currently active
-	IntegrationEnv          map[string]string // from integration env_passthrough (resolved values)
-	IntegrationRegistryKeys []string          // active registry-redirect env keys (for UX)
-	IntegrationExcludes     []string          // snapshot excludes added by active integrations
-	IntegrationSources      []string          // provenance for runtime-resolved integration inputs
-	IntegrationDetails      []string          // detailed runtime resolution notes for explain/show flows
-	IntegrationWarnings     []string          // warnings surfaced by active integrations
-	ActiveIntegrations      []string          // integration names, for status bar
-	GitSSH                  *sessionGitSSHConfig
-	HarnessEnv              map[string]string // narrow harness env injected at launch: credentials, capabilities, and state pointers
-	CredentialEnvGrants     []sessionCredentialEnvGrant
-	ServiceAccess           []string // explicit external-service access granted to session
-	NetworkMode             sessionNetworkMode
-	EmitSessionMetadataJSON bool
-	SkipGitHTTPSRuntime     bool
-	SkipGoModCacheEnv       bool
-	RoutingReason           string    // plain-language explanation for the chosen mode
-	SessionNotes            []string  // plain-language notes about session behavior
-	HarnessID               HarnessID // which agent harness this session is for ("" = generic shell/exec)
-	ClaudeKeychainAccess    bool      // native Claude OAuth path may use the agent login keychain
-	RepoSetup               *repoSetupState
-	TempDir                 string // agent-owned per-session temp dir for native launch
-	SessionHome             *sessionHomeRuntimePlan
+	Target                   string
+	ProjectDir               string
+	ReadDirs                 []string
+	WriteDirs                []string
+	UserReadDirs             []string // explicit host-configured or CLI read-only extensions
+	AutoReadDirs             []string // automatically added read-only dirs from integrations/defaults
+	BackupExcludes           []string
+	PlannedHostMutations     []sessionMutation
+	SuggestedIntegrations    []string          // auto-detected built-in integrations not currently active
+	IntegrationEnv           map[string]string // from integration env_passthrough (resolved values)
+	IntegrationRegistryKeys  []string          // active registry-redirect env keys (for UX)
+	IntegrationExcludes      []string          // snapshot excludes added by active integrations
+	IntegrationSources       []string          // provenance for runtime-resolved integration inputs
+	IntegrationDetails       []string          // detailed runtime resolution notes for explain/show flows
+	IntegrationWarnings      []string          // warnings surfaced by active integrations
+	ActiveIntegrations       []string          // integration names, for status bar
+	GitSSH                   *sessionGitSSHConfig
+	HarnessEnv               map[string]string // narrow harness env injected at launch: credentials, capabilities, and state pointers
+	CredentialEnvGrants      []sessionCredentialEnvGrant
+	ServiceAccess            []string // explicit external-service access granted to session
+	NetworkMode              sessionNetworkMode
+	EmitSessionMetadataJSON  bool
+	SkipGitHTTPSRuntime      bool
+	SkipGoModCacheEnv        bool
+	RoutingReason            string    // plain-language explanation for the chosen mode
+	SessionNotes             []string  // plain-language notes about session behavior
+	HarnessID                HarnessID // which agent harness this session is for ("" = generic shell/exec)
+	AgentLoginKeychainAccess bool      // native Claude/Antigravity OAuth path may use the agent login keychain
+	RepoSetup                *repoSetupState
+	TempDir                  string // agent-owned per-session temp dir for native launch
+	SessionHome              *sessionHomeRuntimePlan
 }
 
 type sessionLaunchUI struct {
@@ -521,6 +521,15 @@ func launchUniformHarness(
 	if syncResume != nil {
 		syncResume(prepared, forwarded)
 	}
+	// Native seatbelt path only: the docker-sandbox backend returned above and
+	// never mounts the agent login keychain. Prepare/unlock the agent login
+	// keychain before launch so harnesses that store OAuth there (Antigravity)
+	// do not trigger a SecurityAgent password prompt for the wrong user.
+	if prepared.Config.AgentLoginKeychainAccess {
+		if err := prepareAgentLoginKeychainForLaunch(); err != nil {
+			return err
+		}
+	}
 	return runPreparedAgentSeatbeltScript(prepared, launchScript(), forwarded...)
 }
 
@@ -598,8 +607,8 @@ Examples:
 			}
 
 			hcfg, _ := loadConfig()
-			if prepared.Config.ClaudeKeychainAccess {
-				if err := prepareClaudeAgentKeychainForLaunch(); err != nil {
+			if prepared.Config.AgentLoginKeychainAccess {
+				if err := prepareAgentLoginKeychainForLaunch(); err != nil {
 					return err
 				}
 			}
@@ -1213,6 +1222,16 @@ func claudeAPIKeyAuthAvailable(cfg sessionConfig) bool {
 	return strings.TrimSpace(cfg.HarnessEnv["ANTHROPIC_API_KEY"]) != ""
 }
 
+// antigravityAPIKeyAuthAvailable reports whether a granted ANTIGRAVITY_API_KEY or
+// GEMINI_API_KEY lets agy authenticate without the interactive keychain OAuth flow.
+func antigravityAPIKeyAuthAvailable(cfg sessionConfig) bool {
+	if cfg.HarnessID != HarnessAntigravity {
+		return false
+	}
+	return strings.TrimSpace(cfg.HarnessEnv["ANTIGRAVITY_API_KEY"]) != "" ||
+		strings.TrimSpace(cfg.HarnessEnv["GEMINI_API_KEY"]) != ""
+}
+
 func claudeUseBareMode(cfg sessionConfig, mode sessionMode) bool {
 	return mode == sessionModeNative && claudeAPIKeyAuthAvailable(cfg)
 }
@@ -1224,6 +1243,18 @@ func claudeNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode, bareReq
 		!claudeAPIKeyAuthAvailable(cfg)
 }
 
+// antigravityNeedsAgentKeychainAccess reports whether a native Antigravity (agy)
+// session should get the prepared agent login keychain. agy stores interactive
+// Google OAuth in the macOS Keychain; when no API key is granted it falls back to
+// that flow, so Hazmat provisions and unlocks the agent login keychain to avoid a
+// SecurityAgent password prompt for the wrong user's keychain. With an API key
+// present agy uses the key and never touches the keychain.
+func antigravityNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode) bool {
+	return mode == sessionModeNative &&
+		cfg.HarnessID == HarnessAntigravity &&
+		!antigravityAPIKeyAuthAvailable(cfg)
+}
+
 func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
 	if !claudeUseBareMode(*cfg, mode) {
 		return
@@ -1231,12 +1262,17 @@ func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
 	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code will run with --bare because ANTHROPIC_API_KEY is granted; this avoids agent-account Apple Keychain prompts.")
 }
 
-func appendClaudeKeychainSessionNote(cfg *sessionConfig, mode sessionMode, bareRequested bool) {
-	if !claudeNeedsAgentKeychainAccess(*cfg, mode, bareRequested) {
+func appendAgentKeychainSessionNote(cfg *sessionConfig, mode sessionMode, bareRequested bool) {
+	if claudeNeedsAgentKeychainAccess(*cfg, mode, bareRequested) {
+		cfg.AgentLoginKeychainAccess = true
+		cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code may use the agent account login keychain for OAuth; Hazmat will prepare and unlock that keychain before launch.")
 		return
 	}
-	cfg.ClaudeKeychainAccess = true
-	cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code may use the agent account login keychain for OAuth; Hazmat will prepare and unlock that keychain before launch.")
+	if antigravityNeedsAgentKeychainAccess(*cfg, mode) {
+		cfg.AgentLoginKeychainAccess = true
+		cfg.SessionNotes = append(cfg.SessionNotes, "Antigravity (agy) may use the agent account login keychain for Google OAuth; Hazmat will prepare and unlock that keychain before launch. Configure ANTIGRAVITY_API_KEY/GEMINI_API_KEY to use a key instead.")
+		return
+	}
 }
 
 func claudeLaunchUI(forwarded []string) sessionLaunchUI {
@@ -1583,7 +1619,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	appendClaudeBareSessionNote(&cfg, mode)
-	appendClaudeKeychainSessionNote(&cfg, mode, opts.claudeBareRequested)
+	appendAgentKeychainSessionNote(&cfg, mode, opts.claudeBareRequested)
 	if err := applyExperimentalSessionHomePlan(&cfg, mode, opts); err != nil {
 		return preparedSession{}, err
 	}

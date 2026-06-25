@@ -300,6 +300,48 @@ func TestClaudeNeedsAgentKeychainAccessOnlyForNativeOAuthMode(t *testing.T) {
 	}
 }
 
+func TestAntigravityAPIKeyAuthAvailableAcceptsEitherKey(t *testing.T) {
+	for _, env := range []string{"ANTIGRAVITY_API_KEY", "GEMINI_API_KEY"} {
+		cfg := sessionConfig{
+			HarnessID:  HarnessAntigravity,
+			HarnessEnv: map[string]string{env: "stored-key"},
+		}
+		if !antigravityAPIKeyAuthAvailable(cfg) {
+			t.Fatalf("expected Antigravity API key auth via %s", env)
+		}
+	}
+
+	cfg := sessionConfig{HarnessID: HarnessClaude, HarnessEnv: map[string]string{"GEMINI_API_KEY": "k"}}
+	if antigravityAPIKeyAuthAvailable(cfg) {
+		t.Fatal("non-Antigravity session should not be treated as Antigravity API key auth")
+	}
+
+	cfg = sessionConfig{HarnessID: HarnessAntigravity, HarnessEnv: map[string]string{"GEMINI_API_KEY": "   "}}
+	if antigravityAPIKeyAuthAvailable(cfg) {
+		t.Fatal("blank GEMINI_API_KEY should not enable Antigravity API key auth")
+	}
+}
+
+func TestAntigravityNeedsAgentKeychainAccessOnlyForNativeOAuthMode(t *testing.T) {
+	cfg := sessionConfig{HarnessID: HarnessAntigravity}
+	if !antigravityNeedsAgentKeychainAccess(cfg, sessionModeNative) {
+		t.Fatal("native Antigravity OAuth session should prepare the agent keychain")
+	}
+	if antigravityNeedsAgentKeychainAccess(cfg, sessionModeDockerSandbox) {
+		t.Fatal("Docker Sandbox Antigravity session should not prepare the macOS agent keychain")
+	}
+
+	cfg.HarnessEnv = map[string]string{"ANTIGRAVITY_API_KEY": "stored-key"}
+	if antigravityNeedsAgentKeychainAccess(cfg, sessionModeNative) {
+		t.Fatal("API-key Antigravity session should skip the agent keychain")
+	}
+
+	cfg = sessionConfig{HarnessID: HarnessClaude}
+	if antigravityNeedsAgentKeychainAccess(cfg, sessionModeNative) {
+		t.Fatal("non-Antigravity session should not trigger the Antigravity keychain path")
+	}
+}
+
 func TestClaudeCommandOAuthLaunchSeedsAgentKeychain(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Claude OAuth keychain launch is macOS-specific")
@@ -438,8 +480,8 @@ func TestClaudeCommandOAuthLaunchSeedsAgentKeychain(t *testing.T) {
 		if cfg.HarnessID != HarnessClaude {
 			return fmt.Errorf("HarnessID = %q, want %q", cfg.HarnessID, HarnessClaude)
 		}
-		if !cfg.ClaudeKeychainAccess {
-			return fmt.Errorf("ClaudeKeychainAccess = false, want true")
+		if !cfg.AgentLoginKeychainAccess {
+			return fmt.Errorf("AgentLoginKeychainAccess = false, want true")
 		}
 		if slices.Contains(args, "--bare") {
 			return fmt.Errorf("OAuth launch args unexpectedly contain --bare: %v", args)
@@ -1612,32 +1654,38 @@ func TestGenerateSBPLSecurityFrameworkHarnessesGetRules(t *testing.T) {
 	}
 }
 
-func TestGenerateSBPLClaudeKeychainAccessIsScopedToAgentLoginKeychain(t *testing.T) {
-	cfg := sessionConfig{
-		ProjectDir:           "/tmp/myproject",
-		HarnessID:            HarnessClaude,
-		ClaudeKeychainAccess: true,
-	}
-	policy := generateSBPL(cfg)
-
-	for _, want := range []string{
-		`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
-		`(allow mach-lookup (global-name "com.apple.securityd"))`,
-		`(allow mach-lookup (global-name "com.apple.securityd.xpc"))`,
-		`(deny file-read* file-write* (subpath "` + agentHome + `/Library/Keychains"))`,
-		`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
-		`(allow file-read* file-write* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
-	} {
-		if !strings.Contains(policy, want) {
-			t.Fatalf("Claude keychain policy missing %q:\n%s", want, policy)
+func TestGenerateSBPLAgentLoginKeychainAccessIsScopedToAgentLoginKeychain(t *testing.T) {
+	// Both Claude and Antigravity store OAuth via the shared agent login keychain;
+	// the grant must be scoped to that one DB + sidecars, never the Keychains subtree.
+	for _, harness := range []HarnessID{HarnessClaude, HarnessAntigravity} {
+		cfg := sessionConfig{
+			ProjectDir:               "/tmp/myproject",
+			HarnessID:                harness,
+			AgentLoginKeychainAccess: true,
 		}
-	}
-	for _, leaked := range []string{
-		`(allow file-read* (subpath "` + agentHome + `/Library/Keychains"))`,
-		`(allow file-read* file-write* (subpath "` + agentHome + `/Library/Keychains"))`,
-	} {
-		if strings.Contains(policy, leaked) {
-			t.Fatalf("Claude keychain policy should not grant agent Keychains subtree access %q:\n%s", leaked, policy)
+		policy := generateSBPL(cfg)
+
+		for _, want := range []string{
+			`(allow mach-lookup (global-name "com.apple.SecurityServer"))`,
+			`(allow mach-lookup (global-name "com.apple.securityd"))`,
+			`(allow mach-lookup (global-name "com.apple.securityd.xpc"))`,
+			`(deny file-read* file-write* (subpath "` + agentHome + `/Library/Keychains"))`,
+			`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
+			`(allow file-read* file-write* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
+			`(allow file-read* file-write* (literal "` + agentHome + `/Library/Keychains/login.keychain-db-shm"))`,
+			`(allow file-read* file-write* (literal "` + agentHome + `/Library/Keychains/login.keychain-db-wal"))`,
+		} {
+			if !strings.Contains(policy, want) {
+				t.Fatalf("harness %q keychain policy missing %q:\n%s", harness, want, policy)
+			}
+		}
+		for _, leaked := range []string{
+			`(allow file-read* (subpath "` + agentHome + `/Library/Keychains"))`,
+			`(allow file-read* file-write* (subpath "` + agentHome + `/Library/Keychains"))`,
+		} {
+			if strings.Contains(policy, leaked) {
+				t.Fatalf("harness %q keychain policy should not grant agent Keychains subtree access %q:\n%s", harness, leaked, policy)
+			}
 		}
 	}
 }

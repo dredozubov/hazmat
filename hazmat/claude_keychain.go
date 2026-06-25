@@ -50,7 +50,7 @@ func newClaudeKeychainDoctorCmd() *cobra.Command {
 			if err := requireInit(); err != nil {
 				return err
 			}
-			if err := prepareClaudeAgentKeychainForLaunch(); err != nil {
+			if err := prepareAgentLoginKeychainForLaunch(); err != nil {
 				return err
 			}
 			fmt.Printf("Claude agent keychain is ready: %s\n", agentLoginKeychainPath())
@@ -95,7 +95,12 @@ after reset if it used keychain-backed OAuth.`,
 	}
 }
 
-func prepareClaudeAgentKeychainForLaunch() error {
+// prepareAgentLoginKeychainForLaunch provisions and unlocks the shared agent
+// account login keychain with Hazmat's empty-password profile before a native
+// launch. It is harness-neutral: every agent-user harness that reads or writes
+// OAuth through the macOS Keychain (Claude Code, Antigravity) uses this same
+// /Users/agent/Library/Keychains/login.keychain-db.
+func prepareAgentLoginKeychainForLaunch() error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
@@ -107,7 +112,7 @@ func prepareClaudeAgentKeychainForLaunch() error {
 		} else {
 			detail = "\nsecurity error: " + err.Error()
 		}
-		return fmt.Errorf("prepare Claude agent keychain: could not unlock %s with Hazmat's empty-password keychain profile%s\nRun: hazmat claude-keychain reset",
+		return fmt.Errorf("prepare agent login keychain: could not unlock %s with Hazmat's empty-password keychain profile%s\nRun: hazmat claude-keychain reset",
 			agentLoginKeychainPath(), detail)
 	}
 	return nil

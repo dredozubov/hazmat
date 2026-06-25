@@ -271,10 +271,11 @@
 (allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db"))
 (allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db-shm"))
 (allow file-read* (literal "/Users/agent/Library/Keychains/login.keychain-db-wal"))
-;; ── Re-allow Claude's agent login keychain (post-deny override) ──────────
-;; Claude Code OAuth on newer releases may store/read auth via the agent
-;; account login keychain. This grants only that managed agent keychain DB
-;; and sidecar paths, after the broader Keychains credential deny.
+;; ── Re-allow the agent login keychain (post-deny override) ───────────────
+;; Agent-user harnesses that store/read OAuth via the agent account login
+;; keychain (Claude Code on newer releases; Antigravity/agy Google sign-in)
+;; need read-write of that one managed keychain DB and sidecar paths, after
+;; the broader Keychains credential deny.
 (allow file-read-metadata (literal "/Users/agent/Library/Keychains"))
 (allow file-read* file-write* (literal "/Users/agent/Library/Keychains/login.keychain-db"))
 (allow file-read* file-write* (literal "/Users/agent/Library/Keychains/login.keychain-db-shm"))

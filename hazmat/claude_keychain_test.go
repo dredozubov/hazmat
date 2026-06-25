@@ -66,7 +66,7 @@ func TestPrepareClaudeAgentKeychainForLaunchSurfacesResetCommand(t *testing.T) {
 	}
 	t.Cleanup(func() { runClaudeAgentKeychainScript = original })
 
-	err := prepareClaudeAgentKeychainForLaunch()
+	err := prepareAgentLoginKeychainForLaunch()
 	if err == nil {
 		t.Fatal("expected prepare failure")
 	}

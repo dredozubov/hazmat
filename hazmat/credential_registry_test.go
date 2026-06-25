@@ -371,15 +371,17 @@ func TestCredentialDescriptorRejectsInvalidDeliveryAccess(t *testing.T) {
 	}
 }
 
-func TestCredentialRegistrySummaryReportsManagedAndAdapterRequired(t *testing.T) {
+func TestCredentialRegistrySummaryReportsManagedAndExternal(t *testing.T) {
 	summary := summarizeCredentialRegistry(builtinCredentialDescriptors())
 	if summary.ManagedHostSecretStore != 15 {
 		t.Fatalf("ManagedHostSecretStore = %d, want 15", summary.ManagedHostSecretStore)
 	}
-	if len(summary.AdapterRequired) != 1 || summary.AdapterRequired[0] != "Antigravity Keychain OAuth state" {
-		t.Fatalf("AdapterRequired = %v, want Antigravity Keychain OAuth state", summary.AdapterRequired)
+	// The Antigravity Keychain adapter is now an active external boundary, so no
+	// built-in credential is adapter-required.
+	if len(summary.AdapterRequired) != 0 {
+		t.Fatalf("AdapterRequired = %v, want none", summary.AdapterRequired)
 	}
-	wantExternal := []string{"Claude agent Keychain OAuth state", "Git SSH external identity reference"}
+	wantExternal := []string{"Claude agent Keychain OAuth state", "Antigravity Keychain OAuth state", "Git SSH external identity reference"}
 	if len(summary.ExternalBoundaries) != len(wantExternal) {
 		t.Fatalf("ExternalBoundaries = %v, want %v", summary.ExternalBoundaries, wantExternal)
 	}
@@ -482,8 +484,14 @@ func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
 	if descriptor.Delivery != credentialDeliveryExternalReference {
 		t.Fatalf("Antigravity Keychain delivery = %q, want %q", descriptor.Delivery, credentialDeliveryExternalReference)
 	}
-	if descriptor.Support != credentialSupportAdapterRequired {
-		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentialSupportAdapterRequired)
+	if descriptor.Support != credentialSupportExternal {
+		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentialSupportExternal)
+	}
+	if !descriptor.CanDeliverTo(HarnessAntigravity) || descriptor.CanDeliverTo(HarnessClaude) {
+		t.Fatalf("Antigravity Keychain consumers = %v, want Antigravity only", descriptor.ConsumerHarnessIDs())
+	}
+	if descriptor.ExternalRef != agentLoginKeychainPath() {
+		t.Fatalf("Antigravity Keychain external ref = %q, want %q", descriptor.ExternalRef, agentLoginKeychainPath())
 	}
 	if descriptor.StoreRelPath != "" || descriptor.AgentPath != "" {
 		t.Fatalf("Antigravity Keychain descriptor must not declare file paths: %+v", descriptor)

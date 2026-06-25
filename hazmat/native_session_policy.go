@@ -89,7 +89,7 @@ func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
 	return nativeSessionPolicy{
 		Contract:                 contract,
 		MacOSSecurityFramework:   harnessUsesMacOSSecurityFramework(cfg.HarnessID),
-		MacOSAgentKeychainAccess: cfg.ClaudeKeychainAccess,
+		MacOSAgentKeychainAccess: cfg.AgentLoginKeychainAccess,
 		RuntimeTempDirs:          runtimeTempDirsForHarness(cfg.HarnessID),
 	}, nil
 }
