@@ -28,7 +28,7 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch hazmat-launch-fast configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
+.PHONY: all hazmat hazmat-launch hazmat-launch-fast configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test golden linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
@@ -105,6 +105,15 @@ uninstall-system:
 
 test:
 	cd $(APP_DIR) && go test ./...
+
+# Regenerate the Darwin SBPL golden baselines from the current generator + the
+# agent-home manifest. Adding a harness state dir is a one-line change to
+# persistentAgentHomeManifest (containment/agent_home_manifest.go); run this to
+# refresh the .sbpl fixtures, then REVIEW THE DIFF before committing — a widened
+# grant that overlaps a credential path is a security regression.
+golden:
+	cd $(APP_DIR) && go test ./containment/darwin -run TestGoldenDarwinSBPLBaselines -update-golden
+	@echo "Regenerated Darwin SBPL golden baselines; review 'git diff' before committing."
 
 linux-compile:
 	bash scripts/check-linux-compile.sh

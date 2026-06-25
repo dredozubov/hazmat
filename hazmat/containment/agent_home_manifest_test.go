@@ -1,7 +1,9 @@
 package containment
 
 import (
+	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -13,10 +15,18 @@ func TestPersistentAgentHomeManifestIsValid(t *testing.T) {
 
 func TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths(t *testing.T) {
 	required := map[string]AgentHomeStateClass{
-		".bashrc":                 AgentHomeStateShellConfig,
-		".gitconfig":              AgentHomeStateGitConfig,
-		".profile":                AgentHomeStateShellConfig,
-		".zshrc":                  AgentHomeStateShellConfig,
+		".bashrc":    AgentHomeStateShellConfig,
+		".gitconfig": AgentHomeStateGitConfig,
+		".profile":   AgentHomeStateShellConfig,
+		".zshrc":     AgentHomeStateShellConfig,
+		// Top-level harness state dirs — the curated guard that every built-in
+		// harness keeps a manifest entry. Dropping one fails here even though the
+		// projection test below is now derived from the manifest itself.
+		".claude":                 AgentHomeStateHarnessState,
+		".codex":                  AgentHomeStateHarnessState,
+		".opencode":               AgentHomeStateHarnessState,
+		".gemini":                 AgentHomeStateHarnessState, // covers Antigravity (~/.gemini/antigravity-cli)
+		".cursor":                 AgentHomeStateHarnessState,
 		".claude/commands":        AgentHomeStateHarnessState,
 		".claude/skills":          AgentHomeStateHarnessState,
 		".claude/projects":        AgentHomeStateTranscript,
@@ -46,68 +56,44 @@ func TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths(t *testing.T) {
 	}
 }
 
+// TestPersistentAgentHomeManifestProjectionMatchesCurrentPolicy verifies the
+// projection logic (kind filter, home-join, sort) without hand-maintaining a
+// parallel copy of the manifest. Expectations are re-derived from the public
+// PersistentAgentHomeManifest() accessor, so adding a harness state dir is a
+// one-line change to persistentAgentHomeManifest with no mirror list to sync.
+// The curated guard that each harness keeps a state dir lives in
+// TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths.
 func TestPersistentAgentHomeManifestProjectionMatchesCurrentPolicy(t *testing.T) {
 	home := "/Users/agent"
+	manifest := PersistentAgentHomeManifest()
 
-	wantDirs := []string{
-		"/Users/agent/.agents",
-		"/Users/agent/.bun",
-		"/Users/agent/.cache",
-		"/Users/agent/.cargo",
-		"/Users/agent/.claude",
-		"/Users/agent/.codex",
-		"/Users/agent/.config",
-		"/Users/agent/.cursor",
-		"/Users/agent/.deno",
-		"/Users/agent/.gem",
-		"/Users/agent/.gemini",
-		"/Users/agent/.gradle",
-		"/Users/agent/.hazmat",
-		"/Users/agent/.ivy2",
-		"/Users/agent/.local",
-		"/Users/agent/.m2",
-		"/Users/agent/.node-gyp",
-		"/Users/agent/.npm",
-		"/Users/agent/.opencode",
-		"/Users/agent/.pi",
-		"/Users/agent/.pub-cache",
-		"/Users/agent/.qwen",
-		"/Users/agent/.rustup",
-		"/Users/agent/.sbt",
-		"/Users/agent/.swiftpm",
-		"/Users/agent/.terraform.d",
+	var wantDirs, wantFiles, wantExec []string
+	for _, entry := range manifest {
+		switch entry.Kind {
+		case AgentHomeStateDir:
+			wantDirs = append(wantDirs, filepath.Join(home, entry.RelPath))
+		case AgentHomeStateFile:
+			wantFiles = append(wantFiles, filepath.Join(home, entry.RelPath))
+		default:
+			t.Fatalf("manifest entry %q has unexpected kind %q", entry.RelPath, entry.Kind)
+		}
+		for _, rel := range entry.ExecutableRelPaths {
+			wantExec = append(wantExec, filepath.Join(home, rel))
+		}
 	}
+	sort.Strings(wantDirs)
+	sort.Strings(wantFiles)
+	sort.Strings(wantExec)
+
+	if len(wantDirs) == 0 || len(wantFiles) == 0 || len(wantExec) == 0 {
+		t.Fatalf("manifest projected an empty grant set: dirs=%d files=%d exec=%d", len(wantDirs), len(wantFiles), len(wantExec))
+	}
+
 	if got := AgentHomeWritableSubpaths(home); !reflect.DeepEqual(got, wantDirs) {
 		t.Fatalf("AgentHomeWritableSubpaths = %#v, want %#v", got, wantDirs)
 	}
-
-	wantFiles := []string{
-		"/Users/agent/.bash_profile",
-		"/Users/agent/.bashrc",
-		"/Users/agent/.gitconfig",
-		"/Users/agent/.npmrc",
-		"/Users/agent/.profile",
-		"/Users/agent/.pypirc",
-		"/Users/agent/.zprofile",
-		"/Users/agent/.zshenv",
-		"/Users/agent/.zshrc",
-	}
 	if got := AgentHomeWritableFiles(home); !reflect.DeepEqual(got, wantFiles) {
 		t.Fatalf("AgentHomeWritableFiles = %#v, want %#v", got, wantFiles)
-	}
-
-	wantExec := []string{
-		"/Users/agent/.bun/bin",
-		"/Users/agent/.cargo/bin",
-		"/Users/agent/.claude/hooks",
-		"/Users/agent/.codex/packages",
-		"/Users/agent/.deno/bin",
-		"/Users/agent/.gem",
-		"/Users/agent/.local/bin",
-		"/Users/agent/.local/lib",
-		"/Users/agent/.local/share/claude/versions",
-		"/Users/agent/.opencode/bin",
-		"/Users/agent/.pub-cache/bin",
 	}
 	if got := AgentHomeExecutableSubpaths(home); !reflect.DeepEqual(got, wantExec) {
 		t.Fatalf("AgentHomeExecutableSubpaths = %#v, want %#v", got, wantExec)

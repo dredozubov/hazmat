@@ -106,6 +106,48 @@ func TestGoldenDarwinSBPLBaselines(t *testing.T) {
 	}
 }
 
+// TestGoldenDarwinSBPLBaselinesAreManifestDerived pins the default golden to the
+// agent-home manifest: every writable subpath/file and executable subpath the
+// manifest declares must appear verbatim in the compiled policy. This makes
+// persistentAgentHomeManifest (containment/agent_home_manifest.go) the single
+// edit point for harness state dirs — a manifest change that was not regenerated
+// into the golden (forgot `make golden`) fails here, and a hand-edited golden
+// that drops a manifest-declared grant fails too. Combined with the byte-equality
+// check in TestGoldenDarwinSBPLBaselines, this proves the fixtures are generated
+// from the manifest, not hand-maintained.
+func TestGoldenDarwinSBPLBaselinesAreManifestDerived(t *testing.T) {
+	const agentHome = "/Users/agent"
+	golden, err := os.ReadFile(filepath.Join("testdata", "golden", "sbpl", "default.sbpl"))
+	if err != nil {
+		t.Fatalf("read default golden: %v\nRun `make golden` from the repo root to (re)generate baselines.", err)
+	}
+	policy := string(golden)
+
+	assertGrant := func(want string) {
+		t.Helper()
+		if !strings.Contains(policy, want) {
+			t.Errorf("default golden missing manifest grant %q; run `make golden` after editing the manifest", want)
+		}
+	}
+
+	dirs := containment.AgentHomeWritableSubpaths(agentHome)
+	files := containment.AgentHomeWritableFiles(agentHome)
+	execs := containment.AgentHomeExecutableSubpaths(agentHome)
+	if len(dirs) == 0 || len(files) == 0 || len(execs) == 0 {
+		t.Fatalf("manifest projection produced an empty grant set: dirs=%d files=%d execs=%d", len(dirs), len(files), len(execs))
+	}
+
+	for _, dir := range dirs {
+		assertGrant(`(allow file-read* file-write* (subpath "` + dir + `"))`)
+	}
+	for _, file := range files {
+		assertGrant(`(allow file-read* file-write* (literal "` + file + `"))`)
+	}
+	for _, exec := range execs {
+		assertGrant(`(allow process-exec (subpath "` + exec + `"))`)
+	}
+}
+
 func TestCompileSessionLocalHomePolicy(t *testing.T) {
 	policy, err := Compile(testSessionLocalContract(t), CompileOptions{})
 	if err != nil {
