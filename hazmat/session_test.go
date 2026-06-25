@@ -1597,7 +1597,7 @@ var macOSSecurityFrameworkSBPLRules = []string{
 }
 
 func TestGenerateSBPLSecurityFrameworkHarnessesGetRules(t *testing.T) {
-	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex} {
+	for _, harness := range []HarnessID{HarnessClaude, HarnessCodex, HarnessAntigravity} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,
@@ -1678,7 +1678,7 @@ func TestGenerateSBPLOtherHarnessesDoNotGetClaudeRuntimeTempDir(t *testing.T) {
 }
 
 func TestGenerateSBPLOtherHarnessesDoNotGetSecurityFrameworkRules(t *testing.T) {
-	for _, harness := range []HarnessID{HarnessAntigravity, HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi, ""} {
+	for _, harness := range []HarnessID{HarnessOpenCode, HarnessHermes, HarnessQwen, HarnessCursorAgent, HarnessPi, ""} {
 		cfg := sessionConfig{
 			ProjectDir: "/tmp/myproject",
 			HarnessID:  harness,

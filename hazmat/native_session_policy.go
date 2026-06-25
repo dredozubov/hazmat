@@ -28,10 +28,16 @@ type nativeSessionPolicy struct {
 //
 // Codex reaches this through Rust reqwest/native-tls. Claude Code 2.1.x also
 // invokes Security framework helpers during print-mode startup, even though its
-// main runtime is Node-based.
+// main runtime is Node-based. Antigravity (agy) is a flat native binary that
+// verifies TLS through Apple's Security framework: without this surface its
+// trust evaluation fails on Sequoia+ (errSecNoSuchKeychain -25291 — no user
+// keychain loadable behind the credential deny), so every HTTPS request,
+// including the Google OAuth token exchange, dies with "tls: failed". This is
+// the trust-evaluation surface only; agentKeychainAccess stays false, so the
+// agent's Keychain OAuth item remains the adapter-required external boundary.
 func harnessUsesMacOSSecurityFramework(id HarnessID) bool {
 	switch id {
-	case HarnessClaude, HarnessCodex:
+	case HarnessClaude, HarnessCodex, HarnessAntigravity:
 		return true
 	default:
 		return false

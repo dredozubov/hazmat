@@ -371,6 +371,24 @@ the proof does not grow one dimension per vendor.
 `MC_SeatbeltPolicy` was re-run with TLC and reported "No error has been found"
 across 7,667,712 generated states, 7,028,736 distinct states, depth 11.
 
+**2026-06-24 Antigravity (agy) routed to the existing Security framework variant:**
+The gemini→antigravity migration replaced a Node harness (which bundles its own
+CA roots and never touches the macOS trust store) with `agy`, a flat native binary
+that verifies TLS through Apple's Security framework. `harnessUsesMacOSSecurityFramework`
+now returns true for `HarnessAntigravity`, so its sessions emit the same
+`MacOSSecurityFramework` SBPL surface Codex already uses (configd, trustd.agent,
+SecurityServer, AF_SYSTEM control socket, the trust read paths, and a read-only
+re-allow of the agent's empty login keychain). Without it, trust evaluation failed
+on Sequoia+ (errSecNoSuchKeychain −25291), so every HTTPS request — including the
+Google OAuth token exchange — died with `tls: failed`. **No spec change was needed:**
+`MC_SeatbeltPolicy` quantifies over abstract config booleans (`agentKeychainAccess`
+and the modeled surface), not harness identity, and the `MacOSSecurityFramework=true,
+agentKeychainAccess=false` policy shape is already in the verified state space via
+Codex. `agentKeychainAccess` stays false for antigravity, so the keychain OAuth item
+remains the adapter-required external boundary. The full suite (`check_suite.sh`)
+re-ran green (exit 0); `MC_SeatbeltPolicy` alone reported "No error has been found"
+across the same 7,667,712 generated / 7,028,736 distinct states, depth 11.
+
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
 native launch path now proves that precondition separately in
