@@ -2,6 +2,16 @@ package hazmat
 
 import "hazmat/credentials"
 
+// This file is the hazmat-package binding of the single credential registry.
+// The registry data and query logic live in the pure leaf package
+// hazmat/credentials (it cannot import hazmat without a cycle); this layer
+// supplies the runtime paths via credentialRegistryPaths() and re-exports the
+// types/constants under short unexported names so the rest of package hazmat is
+// not forced to thread RegistryPaths through every call site. It holds NO
+// independent descriptor data — there is exactly one registry, not two parallel
+// ones. Adding a credential means editing credentials.builtinRegistry; the
+// short-name aliases below only exist for symbols hazmat code references, and
+// the compiler enforces that any use site has a matching alias.
 type credentialID = credentials.ID
 type credentialKind = credentials.Kind
 type credentialStorageBackend = credentials.StorageBackend
@@ -79,6 +89,13 @@ func credentialRegistryPaths() credentials.RegistryPaths {
 
 func builtinCredentialDescriptors() []credentialDescriptor {
 	return credentials.BuiltinDescriptors(credentialRegistryPaths())
+}
+
+// secretStoreDirForHome binds credentials.SecretStoreDirForHome so the
+// host-secret-store root (~/.hazmat/secrets) has a single definition shared by
+// the registry and the secret-store IO layer.
+func secretStoreDirForHome(home string) string {
+	return credentials.SecretStoreDirForHome(home)
 }
 
 func summarizeCredentialRegistry(descriptors []credentialDescriptor) credentialRegistrySummary {
