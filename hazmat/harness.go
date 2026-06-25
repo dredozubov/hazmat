@@ -223,7 +223,7 @@ func importHarnessBasicsRecord(ui *UI, r *Runner, id HarnessID) {
 	}
 }
 
-func importClaudeBasics(ui *UI, r *Runner, env claudeImportEnv, opts claudeImportOptions) error {
+func importClaudeBasics(ui *UI, r *Runner, env claudeImportEnv, opts importOptions) error {
 	if err := runClaudeBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ func importClaudeBasics(ui *UI, r *Runner, env claudeImportEnv, opts claudeImpor
 	return nil
 }
 
-func importCodexBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
+func importCodexBasics(ui *UI, r *Runner, env codexImportEnv, opts importOptions) error {
 	if err := runCodexBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func importCodexBasics(ui *UI, r *Runner, env codexImportEnv, opts codexImportOp
 	return nil
 }
 
-func importOpenCodeBasics(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
+func importOpenCodeBasics(ui *UI, r *Runner, env opencodeImportEnv, opts importOptions) error {
 	if err := runOpenCodeBasicsImport(ui, r, env, opts); err != nil {
 		return err
 	}

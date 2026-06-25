@@ -6,52 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
-)
-
-type codexImportKind string
-
-const (
-	codexImportAuthFile    codexImportKind = "auth-file"
-	codexImportGitIdentity codexImportKind = "git-identity"
 )
 
 type codexImportEnv struct {
 	hostHome  string
 	agentHome string
-}
-
-type codexImportItem struct {
-	Category   string
-	Name       string
-	Kind       codexImportKind
-	Status     claudeImportStatus
-	SourcePath string
-	DestPath   string
-
-	HostName  string
-	HostEmail string
-}
-
-type codexImportPlan struct {
-	Items []codexImportItem
-	Skips []claudeImportSkippedEntry
-}
-
-type codexImportApplyResult struct {
-	Imported    []codexImportItem
-	Overwritten []codexImportItem
-	Skipped     []codexImportItem
-	Unchanged   []codexImportItem
-}
-
-type codexImportOptions struct {
-	PromptBeforeImport bool
-	ConflictPolicy     claudeConflictPolicy
-	AllowNoopMessage   bool
 }
 
 var errCodexImportCancelled = errors.New("Codex basics import cancelled")
@@ -93,13 +54,10 @@ func (e codexImportEnv) agentGitConfigPath() string {
 }
 
 func newConfigImportCodexCmd() *cobra.Command {
-	var overwrite bool
-	var skipExisting bool
-
-	cmd := &cobra.Command{
-		Use:   "codex",
-		Short: "Import Codex basics into Hazmat-managed state",
-		Long: `Import a curated subset of your host Codex setup into Hazmat.
+	return newConfigImportHarnessCmd(
+		"codex",
+		"Import Codex basics into Hazmat-managed state",
+		`Import a curated subset of your host Codex setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from ~/.codex/auth.json (covers ChatGPT subscription
@@ -115,31 +73,12 @@ harness asset sync at session launch.
 
 Use --dry-run to preview. If existing imported files differ, either choose a
 policy interactively or pass --overwrite / --skip-existing explicitly.`,
-		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if overwrite && skipExisting {
-				return fmt.Errorf("choose either --overwrite or --skip-existing, not both")
-			}
-
+		func(ui *UI, r *Runner, policy importConflictPolicy) error {
 			env, err := defaultCodexImportEnv()
 			if err != nil {
 				return err
 			}
-
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-
-			policy := claudeConflictPrompt
-			switch {
-			case overwrite:
-				policy = claudeConflictOverwrite
-			case skipExisting:
-				policy = claudeConflictSkip
-			case !ui.IsInteractive():
-				policy = claudeConflictFail
-			}
-
-			err = importCodexBasics(ui, r, env, codexImportOptions{
+			err = importCodexBasics(ui, r, env, importOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,
@@ -149,90 +88,22 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 			}
 			return err
 		},
-	}
-
-	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite conflicting imported items")
-	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip conflicting imported items")
-
-	return cmd
+	)
 }
 
-func runCodexBasicsImport(ui *UI, r *Runner, env codexImportEnv, opts codexImportOptions) error {
-	ui.Step("Import Codex basics")
-
-	plan, err := scanCodexImportPlan(env, r)
-	if err != nil {
-		return err
-	}
-
-	if !plan.hasFoundBasics() {
-		ui.SkipDone("No Codex basics found to import")
-		return nil
-	}
-
-	if opts.AllowNoopMessage && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("Codex basics already match the current import scope")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("Codex basics already imported")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !ui.Ask("Import Codex basics from your host setup?") {
-		ui.SkipDone("Codex basics import skipped")
-		return nil
-	}
-
-	printCodexImportPlan(plan)
-
-	if !plan.hasActionableChanges() {
-		ui.SkipDone("Nothing to import")
-		return nil
-	}
-
-	policy := opts.ConflictPolicy
-	if flagDryRun && policy == claudeConflictPrompt {
-		policy = claudeConflictFail
-	}
-	if plan.conflictCount() > 0 && policy == claudeConflictPrompt {
-		selected, err := promptImportConflictPolicy()
-		if err != nil {
-			if errors.Is(err, errClaudeImportCancelled) {
-				return errCodexImportCancelled
-			}
-			return err
-		}
-		policy = selected
-	}
-
-	if flagDryRun {
-		if plan.conflictCount() > 0 && (policy == claudeConflictPrompt || policy == claudeConflictFail) {
-			cDim.Println("  Re-run with --overwrite or --skip-existing to choose a conflict policy.")
-			fmt.Println()
-			return nil
-		}
-		if err := plan.resolveConflicts(policy); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if err := plan.resolveConflicts(policy); err != nil {
-		return err
-	}
-
-	result, err := applyCodexImportPlan(plan, env, r)
-	if err != nil {
-		return err
-	}
-	printCodexImportResult(result)
-	return nil
+func runCodexBasicsImport(ui *UI, r *Runner, env codexImportEnv, opts importOptions) error {
+	return runBasicsImport(ui, r, opts, harnessImportSpec{
+		label:        "Codex",
+		cancelledErr: errCodexImportCancelled,
+		scan:         func(r *Runner) (importPlan, error) { return scanCodexImportPlan(env, r) },
+		applyItem:    func(item importItem, r *Runner) error { return applyCodexImportItem(item, env, r) },
+		printPlan:    printCodexImportPlan,
+		printResult:  printCodexImportResult,
+	})
 }
 
-func scanCodexImportPlan(env codexImportEnv, r *Runner) (codexImportPlan, error) {
-	var plan codexImportPlan
+func scanCodexImportPlan(env codexImportEnv, r *Runner) (importPlan, error) {
+	var plan importPlan
 
 	if item, ok, err := scanCodexAuthFile(env, r); err != nil {
 		return plan, err
@@ -244,65 +115,65 @@ func scanCodexImportPlan(env codexImportEnv, r *Runner) (codexImportPlan, error)
 		plan.Items = append(plan.Items, item)
 	}
 
-	sortCodexImportItems(plan.Items)
+	sortImportItems(plan.Items)
 	sortImportSkips(plan.Skips)
 
 	return plan, nil
 }
 
-func scanCodexAuthFile(env codexImportEnv, r *Runner) (codexImportItem, bool, error) {
+func scanCodexAuthFile(env codexImportEnv, r *Runner) (importItem, bool, error) {
 	hostRaw, err := os.ReadFile(env.hostAuthFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return codexImportItem{}, false, nil
+			return importItem{}, false, nil
 		}
-		return codexImportItem{}, false, fmt.Errorf("read host Codex auth: %w", err)
+		return importItem{}, false, fmt.Errorf("read host Codex auth: %w", err)
 	}
 
-	status := claudeImportNew
+	status := importNew
 	if storedRaw, ok, err := readHostStoredSecretFile(env.storedAuthFile()); err != nil {
-		return codexImportItem{}, false, fmt.Errorf("read stored Codex auth: %w", err)
+		return importItem{}, false, fmt.Errorf("read stored Codex auth: %w", err)
 	} else if ok {
 		if bytes.Equal(hostRaw, storedRaw) {
-			status = claudeImportUnchanged
+			status = importUnchanged
 		} else {
-			status = claudeImportConflict
+			status = importConflict
 		}
 	} else {
 		agentRaw, ok, err := readAgentSecretFile(env.agentAuthFile())
 		if err != nil {
-			return codexImportItem{}, false, fmt.Errorf("read agent Codex auth: %w", err)
+			return importItem{}, false, fmt.Errorf("read agent Codex auth: %w", err)
 		}
 		if ok {
 			if bytes.Equal(hostRaw, agentRaw) {
-				status = claudeImportNew
+				status = importNew
 			} else {
-				status = claudeImportConflict
+				status = importConflict
 			}
 		}
 	}
 
-	return codexImportItem{
+	return importItem{
 		Category:   "sign-in",
 		Name:       "Codex auth file",
-		Kind:       codexImportAuthFile,
+		Kind:       importAuthFile,
 		Status:     status,
 		SourcePath: env.hostAuthFile(),
 		DestPath:   env.storedAuthFile(),
 	}, true, nil
 }
 
-func scanCodexGitIdentity(env codexImportEnv) (codexImportItem, bool) {
+func scanCodexGitIdentity(env codexImportEnv) (importItem, bool) {
 	hostName := gitConfigValue(env.hostGitConfigPath(), "name")
 	hostEmail := gitConfigValue(env.hostGitConfigPath(), "email")
 	if hostName == "" && hostEmail == "" {
-		return codexImportItem{}, false
+		return importItem{}, false
 	}
 
 	agentName := gitConfigValue(env.agentGitConfigPath(), "name")
 	agentEmail := gitConfigValue(env.agentGitConfigPath(), "email")
 
-	status := claudeImportNew
+	status := importNew
 	sameName := hostName == "" || hostName == agentName
 	sameEmail := hostEmail == "" || hostEmail == agentEmail
 	conflictingName := hostName != "" && agentName != "" && hostName != agentName
@@ -310,15 +181,15 @@ func scanCodexGitIdentity(env codexImportEnv) (codexImportItem, bool) {
 
 	switch {
 	case sameName && sameEmail && (agentName != "" || agentEmail != ""):
-		status = claudeImportUnchanged
+		status = importUnchanged
 	case conflictingName || conflictingEmail:
-		status = claudeImportConflict
+		status = importConflict
 	}
 
-	return codexImportItem{
+	return importItem{
 		Category:   "git identity",
 		Name:       "git identity",
-		Kind:       codexImportGitIdentity,
+		Kind:       importGitIdentity,
 		Status:     status,
 		SourcePath: env.hostGitConfigPath(),
 		DestPath:   env.agentGitConfigPath(),
@@ -327,63 +198,7 @@ func scanCodexGitIdentity(env codexImportEnv) (codexImportItem, bool) {
 	}, true
 }
 
-func (p codexImportPlan) hasFoundBasics() bool {
-	return len(p.Items) > 0
-}
-
-func (p codexImportPlan) hasActionableChanges() bool {
-	for _, item := range p.Items {
-		if item.Status == claudeImportNew || item.Status == claudeImportConflict {
-			return true
-		}
-	}
-	return false
-}
-
-func (p codexImportPlan) conflictCount() int {
-	count := 0
-	for _, item := range p.Items {
-		if item.Status == claudeImportConflict {
-			count++
-		}
-	}
-	return count
-}
-
-func (p *codexImportPlan) resolveConflicts(policy claudeConflictPolicy) error {
-	if p.conflictCount() == 0 {
-		return nil
-	}
-
-	switch policy {
-	case claudeConflictOverwrite:
-		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportOverwrite
-			}
-		}
-	case claudeConflictSkip:
-		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportSkip
-			}
-		}
-	case claudeConflictFail, claudeConflictPrompt:
-		var names []string
-		for _, item := range p.Items {
-			if item.Status == claudeImportConflict {
-				names = append(names, fmt.Sprintf("%s: %s", item.Category, item.Name))
-			}
-		}
-		return fmt.Errorf("conflicting Codex basics already exist in the agent environment: %s\nRe-run with --overwrite or --skip-existing.", strings.Join(names, ", "))
-	default:
-		return fmt.Errorf("unknown conflict policy: %s", policy)
-	}
-
-	return nil
-}
-
-func printCodexImportPlan(plan codexImportPlan) {
+func printCodexImportPlan(plan importPlan) {
 	fmt.Println()
 	cBold.Println("  Found")
 	fmt.Println()
@@ -396,42 +211,14 @@ func printCodexImportPlan(plan codexImportPlan) {
 		fmt.Printf("    Git identity: %s\n", desc)
 	}
 
-	fmt.Println()
-	cBold.Println("  Planned Actions")
-	fmt.Println()
-	fmt.Printf("    New:          %d\n", plan.countStatus(claudeImportNew))
-	fmt.Printf("    Conflicts:    %d\n", plan.countStatus(claudeImportConflict))
-	fmt.Printf("    Unchanged:    %d\n", plan.countStatus(claudeImportUnchanged))
-	if len(plan.Skips) > 0 {
-		fmt.Printf("    Skipped:      %d\n", len(plan.Skips))
-	}
-
-	if plan.conflictCount() > 0 {
-		fmt.Println()
-		cBold.Println("  Conflicts")
-		fmt.Println()
-		for _, item := range plan.Items {
-			if item.Status == claudeImportConflict {
-				fmt.Printf("    %s: %s\n", item.Category, item.Name)
-			}
-		}
-	}
-
-	if len(plan.Skips) > 0 {
-		fmt.Println()
-		cBold.Println("  Skipped")
-		fmt.Println()
-		for _, skip := range plan.Skips {
-			fmt.Printf("    %s: %s (%s)\n", skip.Category, skip.Name, skip.Reason)
-		}
-	}
+	printImportPlannedActions(plan)
 
 	fmt.Println()
 	cDim.Println("  Hazmat keeps its own runtime settings, MCP wiring, and safety controls.")
 	fmt.Println()
 }
 
-func printCodexImportResult(result codexImportApplyResult) {
+func printCodexImportResult(result importApplyResult) {
 	for _, item := range result.Imported {
 		switch item.Category {
 		case "sign-in":
@@ -457,70 +244,17 @@ func printCodexImportResult(result codexImportApplyResult) {
 	fmt.Println()
 }
 
-func (p codexImportPlan) hasCategory(category string) bool {
-	for _, item := range p.Items {
-		if item.Category == category {
-			return true
-		}
-	}
-	return false
+func applyCodexImportPlan(plan importPlan, env codexImportEnv, r *Runner) (importApplyResult, error) {
+	return applyImportPlan(plan, r, func(item importItem, r *Runner) error {
+		return applyCodexImportItem(item, env, r)
+	})
 }
 
-func (p codexImportPlan) firstItem(category string) (codexImportItem, bool) {
-	for _, item := range p.Items {
-		if item.Category == category {
-			return item, true
-		}
-	}
-	return codexImportItem{}, false
-}
-
-func (p codexImportPlan) countStatus(status claudeImportStatus) int {
-	count := 0
-	for _, item := range p.Items {
-		if item.Status == status {
-			count++
-		}
-	}
-	return count
-}
-
-func applyCodexImportPlan(plan codexImportPlan, env codexImportEnv, r *Runner) (codexImportApplyResult, error) {
-	var result codexImportApplyResult
-
-	for _, item := range plan.Items {
-		switch item.Status {
-		case claudeImportUnchanged:
-			result.Unchanged = append(result.Unchanged, item)
-			continue
-		case claudeImportSkip:
-			result.Skipped = append(result.Skipped, item)
-			continue
-		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
-			// New, conflict, and overwrite statuses all flow to apply below.
-		default:
-			return result, fmt.Errorf("unsupported Codex import status %q", item.Status)
-		}
-
-		if err := applyCodexImportItem(item, env, r); err != nil {
-			return result, err
-		}
-
-		if item.Status == claudeImportOverwrite {
-			result.Overwritten = append(result.Overwritten, item)
-		} else {
-			result.Imported = append(result.Imported, item)
-		}
-	}
-
-	return result, nil
-}
-
-func applyCodexImportItem(item codexImportItem, env codexImportEnv, r *Runner) error {
+func applyCodexImportItem(item importItem, env codexImportEnv, r *Runner) error {
 	switch item.Kind {
-	case codexImportGitIdentity:
-		return writeImportedGitIdentity(item.toClaudeImportItem(), env.agentGitConfigPath())
-	case codexImportAuthFile:
+	case importGitIdentity:
+		return writeImportedGitIdentity(item, env.agentGitConfigPath())
+	case importAuthFile:
 		raw, err := os.ReadFile(item.SourcePath)
 		if err != nil {
 			return fmt.Errorf("read host Codex auth file: %w", err)
@@ -529,25 +263,9 @@ func applyCodexImportItem(item codexImportItem, env codexImportEnv, r *Runner) e
 			return fmt.Errorf("write stored Codex auth file: %w", err)
 		}
 		return removeAgentSecretFile(env.agentAuthFile())
-	default:
-		return fmt.Errorf("unsupported import kind: %s", item.Kind)
+	case importPortablePath, importCredentialFile, importStateMerge:
+		// Codex sign-in is a single auth.json; it has no portable dirs, split
+		// credential file, or Claude-style state merge.
 	}
-}
-
-func (i codexImportItem) toClaudeImportItem() claudeImportItem {
-	return claudeImportItem{
-		Category:  i.Category,
-		Name:      i.Name,
-		HostName:  i.HostName,
-		HostEmail: i.HostEmail,
-	}
-}
-
-func sortCodexImportItems(items []codexImportItem) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Category != items[j].Category {
-			return items[i].Category < items[j].Category
-		}
-		return items[i].Name < items[j].Name
-	})
+	return fmt.Errorf("unsupported import kind: %s", item.Kind)
 }

@@ -453,9 +453,9 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := importClaudeBasics(ui, r, env, claudeImportOptions{
+		if err := importClaudeBasics(ui, r, env, importOptions{
 			PromptBeforeImport: true,
-			ConflictPolicy:     claudeConflictPrompt,
+			ConflictPolicy:     importConflictPrompt,
 			AllowNoopMessage:   false,
 		}); err != nil && !errors.Is(err, errClaudeImportCancelled) {
 			cYellow.Printf("\n  Claude basics import skipped: %v\n", err)
@@ -467,9 +467,9 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := importCodexBasics(ui, r, env, codexImportOptions{
+		if err := importCodexBasics(ui, r, env, importOptions{
 			PromptBeforeImport: true,
-			ConflictPolicy:     claudeConflictPrompt,
+			ConflictPolicy:     importConflictPrompt,
 			AllowNoopMessage:   false,
 		}); err != nil && !errors.Is(err, errCodexImportCancelled) {
 			cYellow.Printf("\n  Codex basics import skipped: %v\n", err)
@@ -481,9 +481,9 @@ func offerHarnessBasicsImport(ui *UI, r *Runner, bootstrapSelection string) bool
 		if err != nil {
 			return true
 		}
-		if err := importOpenCodeBasics(ui, r, env, opencodeImportOptions{
+		if err := importOpenCodeBasics(ui, r, env, importOptions{
 			PromptBeforeImport: true,
-			ConflictPolicy:     claudeConflictPrompt,
+			ConflictPolicy:     importConflictPrompt,
 			AllowNoopMessage:   false,
 		}); err != nil && !errors.Is(err, errOpenCodeImportCancelled) {
 			cYellow.Printf("\n  OpenCode basics import skipped: %v\n", err)

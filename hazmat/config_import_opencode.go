@@ -6,53 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
-)
-
-type opencodeImportKind string
-
-const (
-	opencodeImportPortablePath opencodeImportKind = "portable-path"
-	opencodeImportAuthFile     opencodeImportKind = "auth-file"
-	opencodeImportGitIdentity  opencodeImportKind = "git-identity"
 )
 
 type opencodeImportEnv struct {
 	hostHome  string
 	agentHome string
-}
-
-type opencodeImportItem struct {
-	Category   string
-	Name       string
-	Kind       opencodeImportKind
-	Status     claudeImportStatus
-	SourcePath string
-	DestPath   string
-
-	HostName  string
-	HostEmail string
-}
-
-type opencodeImportPlan struct {
-	Items []opencodeImportItem
-	Skips []claudeImportSkippedEntry
-}
-
-type opencodeImportApplyResult struct {
-	Imported    []opencodeImportItem
-	Overwritten []opencodeImportItem
-	Skipped     []opencodeImportItem
-	Unchanged   []opencodeImportItem
-}
-
-type opencodeImportOptions struct {
-	PromptBeforeImport bool
-	ConflictPolicy     claudeConflictPolicy
-	AllowNoopMessage   bool
 }
 
 var errOpenCodeImportCancelled = errors.New("OpenCode basics import cancelled")
@@ -122,13 +82,10 @@ func (e opencodeImportEnv) agentGitConfigPath() string {
 }
 
 func newConfigImportOpenCodeCmd() *cobra.Command {
-	var overwrite bool
-	var skipExisting bool
-
-	cmd := &cobra.Command{
-		Use:   "opencode",
-		Short: "Import OpenCode basics into Hazmat-managed state",
-		Long: `Import a curated subset of your host OpenCode setup into Hazmat.
+	return newConfigImportHarnessCmd(
+		"opencode",
+		"Import OpenCode basics into Hazmat-managed state",
+		`Import a curated subset of your host OpenCode setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from ~/.local/share/opencode/auth.json
@@ -143,31 +100,12 @@ Hazmat does NOT import opencode.json, plugins, tools, themes, modes, project-loc
 
 Use --dry-run to preview. If existing imported files differ, either choose a
 policy interactively or pass --overwrite / --skip-existing explicitly.`,
-		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if overwrite && skipExisting {
-				return fmt.Errorf("choose either --overwrite or --skip-existing, not both")
-			}
-
+		func(ui *UI, r *Runner, policy importConflictPolicy) error {
 			env, err := defaultOpenCodeImportEnv()
 			if err != nil {
 				return err
 			}
-
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-
-			policy := claudeConflictPrompt
-			switch {
-			case overwrite:
-				policy = claudeConflictOverwrite
-			case skipExisting:
-				policy = claudeConflictSkip
-			case !ui.IsInteractive():
-				policy = claudeConflictFail
-			}
-
-			err = importOpenCodeBasics(ui, r, env, opencodeImportOptions{
+			err = importOpenCodeBasics(ui, r, env, importOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,
@@ -177,90 +115,22 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 			}
 			return err
 		},
-	}
-
-	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite conflicting imported items")
-	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip conflicting imported items")
-
-	return cmd
+	)
 }
 
-func runOpenCodeBasicsImport(ui *UI, r *Runner, env opencodeImportEnv, opts opencodeImportOptions) error {
-	ui.Step("Import OpenCode basics")
-
-	plan, err := scanOpenCodeImportPlan(env, r)
-	if err != nil {
-		return err
-	}
-
-	if !plan.hasFoundBasics() {
-		ui.SkipDone("No OpenCode basics found to import")
-		return nil
-	}
-
-	if opts.AllowNoopMessage && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("OpenCode basics already match the current import scope")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("OpenCode basics already imported")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !ui.Ask("Import OpenCode basics from your host setup?") {
-		ui.SkipDone("OpenCode basics import skipped")
-		return nil
-	}
-
-	printOpenCodeImportPlan(plan)
-
-	if !plan.hasActionableChanges() {
-		ui.SkipDone("Nothing to import")
-		return nil
-	}
-
-	policy := opts.ConflictPolicy
-	if flagDryRun && policy == claudeConflictPrompt {
-		policy = claudeConflictFail
-	}
-	if plan.conflictCount() > 0 && policy == claudeConflictPrompt {
-		selected, err := promptImportConflictPolicy()
-		if err != nil {
-			if errors.Is(err, errClaudeImportCancelled) {
-				return errOpenCodeImportCancelled
-			}
-			return err
-		}
-		policy = selected
-	}
-
-	if flagDryRun {
-		if plan.conflictCount() > 0 && (policy == claudeConflictPrompt || policy == claudeConflictFail) {
-			cDim.Println("  Re-run with --overwrite or --skip-existing to choose a conflict policy.")
-			fmt.Println()
-			return nil
-		}
-		if err := plan.resolveConflicts(policy); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if err := plan.resolveConflicts(policy); err != nil {
-		return err
-	}
-
-	result, err := applyOpenCodeImportPlan(plan, env, r)
-	if err != nil {
-		return err
-	}
-	printOpenCodeImportResult(result)
-	return nil
+func runOpenCodeBasicsImport(ui *UI, r *Runner, env opencodeImportEnv, opts importOptions) error {
+	return runBasicsImport(ui, r, opts, harnessImportSpec{
+		label:        "OpenCode",
+		cancelledErr: errOpenCodeImportCancelled,
+		scan:         func(r *Runner) (importPlan, error) { return scanOpenCodeImportPlan(env, r) },
+		applyItem:    func(item importItem, r *Runner) error { return applyOpenCodeImportItem(item, env, r) },
+		printPlan:    printOpenCodeImportPlan,
+		printResult:  printOpenCodeImportResult,
+	})
 }
 
-func scanOpenCodeImportPlan(env opencodeImportEnv, r *Runner) (opencodeImportPlan, error) {
-	var plan opencodeImportPlan
+func scanOpenCodeImportPlan(env opencodeImportEnv, r *Runner) (importPlan, error) {
+	var plan importPlan
 
 	if item, ok, err := scanOpenCodeAuthFile(env, r); err != nil {
 		return plan, err
@@ -276,97 +146,82 @@ func scanOpenCodeImportPlan(env opencodeImportEnv, r *Runner) (opencodeImportPla
 	if err != nil {
 		return plan, err
 	}
-	plan.Items = append(plan.Items, toOpenCodePortableItems(commandItems)...)
+	plan.Items = append(plan.Items, commandItems...)
 	plan.Skips = append(plan.Skips, skips...)
 
 	agentItems, skips, err := scanPortableImportDir("agent", env.hostAgentsDir(), env.agentAgentsDir())
 	if err != nil {
 		return plan, err
 	}
-	plan.Items = append(plan.Items, toOpenCodePortableItems(agentItems)...)
+	plan.Items = append(plan.Items, agentItems...)
 	plan.Skips = append(plan.Skips, skips...)
 
 	skillItems, skips, err := scanPortableImportDir("skill", env.hostSkillsDir(), env.agentSkillsDir())
 	if err != nil {
 		return plan, err
 	}
-	plan.Items = append(plan.Items, toOpenCodePortableItems(skillItems)...)
+	plan.Items = append(plan.Items, skillItems...)
 	plan.Skips = append(plan.Skips, skips...)
 
-	sortOpenCodeImportItems(plan.Items)
+	sortImportItems(plan.Items)
 	sortImportSkips(plan.Skips)
 
 	return plan, nil
 }
 
-func toOpenCodePortableItems(items []claudeImportItem) []opencodeImportItem {
-	result := make([]opencodeImportItem, 0, len(items))
-	for _, item := range items {
-		result = append(result, opencodeImportItem{
-			Category:   item.Category,
-			Name:       item.Name,
-			Kind:       opencodeImportPortablePath,
-			Status:     item.Status,
-			SourcePath: item.SourcePath,
-			DestPath:   item.DestPath,
-		})
-	}
-	return result
-}
-
-func scanOpenCodeAuthFile(env opencodeImportEnv, r *Runner) (opencodeImportItem, bool, error) {
+func scanOpenCodeAuthFile(env opencodeImportEnv, r *Runner) (importItem, bool, error) {
 	hostRaw, err := os.ReadFile(env.hostAuthFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return opencodeImportItem{}, false, nil
+			return importItem{}, false, nil
 		}
-		return opencodeImportItem{}, false, fmt.Errorf("read host OpenCode auth: %w", err)
+		return importItem{}, false, fmt.Errorf("read host OpenCode auth: %w", err)
 	}
 
-	status := claudeImportNew
+	status := importNew
 	if storedRaw, ok, err := readHostStoredSecretFile(env.storedAuthFile()); err != nil {
-		return opencodeImportItem{}, false, fmt.Errorf("read stored OpenCode auth: %w", err)
+		return importItem{}, false, fmt.Errorf("read stored OpenCode auth: %w", err)
 	} else if ok {
 		if bytes.Equal(hostRaw, storedRaw) {
-			status = claudeImportUnchanged
+			status = importUnchanged
 		} else {
-			status = claudeImportConflict
+			status = importConflict
 		}
 	} else {
 		agentRaw, ok, err := readAgentSecretFile(env.agentAuthFile())
 		if err != nil {
-			return opencodeImportItem{}, false, fmt.Errorf("read agent OpenCode auth: %w", err)
+			return importItem{}, false, fmt.Errorf("read agent OpenCode auth: %w", err)
 		}
 		if ok {
 			if bytes.Equal(hostRaw, agentRaw) {
-				status = claudeImportNew
+				status = importNew
 			} else {
-				status = claudeImportConflict
+				status = importConflict
 			}
 		}
 	}
 
-	return opencodeImportItem{
+	return importItem{
 		Category:   "sign-in",
 		Name:       "OpenCode auth file",
-		Kind:       opencodeImportAuthFile,
+		Kind:       importAuthFile,
 		Status:     status,
 		SourcePath: env.hostAuthFile(),
 		DestPath:   env.storedAuthFile(),
 	}, true, nil
 }
 
-func scanOpenCodeGitIdentity(env opencodeImportEnv) (opencodeImportItem, bool) {
+func scanOpenCodeGitIdentity(env opencodeImportEnv) (importItem, bool) {
 	hostName := gitConfigValue(env.hostGitConfigPath(), "name")
 	hostEmail := gitConfigValue(env.hostGitConfigPath(), "email")
 	if hostName == "" && hostEmail == "" {
-		return opencodeImportItem{}, false
+		return importItem{}, false
 	}
 
 	agentName := gitConfigValue(env.agentGitConfigPath(), "name")
 	agentEmail := gitConfigValue(env.agentGitConfigPath(), "email")
 
-	status := claudeImportNew
+	status := importNew
 	sameName := hostName == "" || hostName == agentName
 	sameEmail := hostEmail == "" || hostEmail == agentEmail
 	conflictingName := hostName != "" && agentName != "" && hostName != agentName
@@ -374,15 +229,15 @@ func scanOpenCodeGitIdentity(env opencodeImportEnv) (opencodeImportItem, bool) {
 
 	switch {
 	case sameName && sameEmail && (agentName != "" || agentEmail != ""):
-		status = claudeImportUnchanged
+		status = importUnchanged
 	case conflictingName || conflictingEmail:
-		status = claudeImportConflict
+		status = importConflict
 	}
 
-	return opencodeImportItem{
+	return importItem{
 		Category:   "git identity",
 		Name:       "git identity",
-		Kind:       opencodeImportGitIdentity,
+		Kind:       importGitIdentity,
 		Status:     status,
 		SourcePath: env.hostGitConfigPath(),
 		DestPath:   env.agentGitConfigPath(),
@@ -391,63 +246,7 @@ func scanOpenCodeGitIdentity(env opencodeImportEnv) (opencodeImportItem, bool) {
 	}, true
 }
 
-func (p opencodeImportPlan) hasFoundBasics() bool {
-	return len(p.Items) > 0
-}
-
-func (p opencodeImportPlan) hasActionableChanges() bool {
-	for _, item := range p.Items {
-		if item.Status == claudeImportNew || item.Status == claudeImportConflict {
-			return true
-		}
-	}
-	return false
-}
-
-func (p opencodeImportPlan) conflictCount() int {
-	count := 0
-	for _, item := range p.Items {
-		if item.Status == claudeImportConflict {
-			count++
-		}
-	}
-	return count
-}
-
-func (p *opencodeImportPlan) resolveConflicts(policy claudeConflictPolicy) error {
-	if p.conflictCount() == 0 {
-		return nil
-	}
-
-	switch policy {
-	case claudeConflictOverwrite:
-		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportOverwrite
-			}
-		}
-	case claudeConflictSkip:
-		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportSkip
-			}
-		}
-	case claudeConflictFail, claudeConflictPrompt:
-		var names []string
-		for _, item := range p.Items {
-			if item.Status == claudeImportConflict {
-				names = append(names, fmt.Sprintf("%s: %s", item.Category, item.Name))
-			}
-		}
-		return fmt.Errorf("conflicting OpenCode basics already exist in the agent environment: %s\nRe-run with --overwrite or --skip-existing.", strings.Join(names, ", "))
-	default:
-		return fmt.Errorf("unknown conflict policy: %s", policy)
-	}
-
-	return nil
-}
-
-func printOpenCodeImportPlan(plan opencodeImportPlan) {
+func printOpenCodeImportPlan(plan importPlan) {
 	fmt.Println()
 	cBold.Println("  Found")
 	fmt.Println()
@@ -463,45 +262,17 @@ func printOpenCodeImportPlan(plan opencodeImportPlan) {
 	fmt.Printf("    Agents:       %d\n", plan.countCategory("agent"))
 	fmt.Printf("    Skills:       %d\n", plan.countCategory("skill"))
 
-	fmt.Println()
-	cBold.Println("  Planned Actions")
-	fmt.Println()
-	fmt.Printf("    New:          %d\n", plan.countStatus(claudeImportNew))
-	fmt.Printf("    Conflicts:    %d\n", plan.countStatus(claudeImportConflict))
-	fmt.Printf("    Unchanged:    %d\n", plan.countStatus(claudeImportUnchanged))
-	if len(plan.Skips) > 0 {
-		fmt.Printf("    Skipped:      %d\n", len(plan.Skips))
-	}
-
-	if plan.conflictCount() > 0 {
-		fmt.Println()
-		cBold.Println("  Conflicts")
-		fmt.Println()
-		for _, item := range plan.Items {
-			if item.Status == claudeImportConflict {
-				fmt.Printf("    %s: %s\n", item.Category, item.Name)
-			}
-		}
-	}
-
-	if len(plan.Skips) > 0 {
-		fmt.Println()
-		cBold.Println("  Skipped")
-		fmt.Println()
-		for _, skip := range plan.Skips {
-			fmt.Printf("    %s: %s (%s)\n", skip.Category, skip.Name, skip.Reason)
-		}
-	}
+	printImportPlannedActions(plan)
 
 	fmt.Println()
 	cDim.Println("  Hazmat keeps its own runtime settings, plugin surface, and safety controls.")
 	fmt.Println()
 }
 
-func printOpenCodeImportResult(result opencodeImportApplyResult) {
-	importedCommands := countOpenCodeResultCategory(result.Imported, "command") + countOpenCodeResultCategory(result.Overwritten, "command")
-	importedAgents := countOpenCodeResultCategory(result.Imported, "agent") + countOpenCodeResultCategory(result.Overwritten, "agent")
-	importedSkills := countOpenCodeResultCategory(result.Imported, "skill") + countOpenCodeResultCategory(result.Overwritten, "skill")
+func printOpenCodeImportResult(result importApplyResult) {
+	importedCommands := countResultCategory(result.Imported, "command") + countResultCategory(result.Overwritten, "command")
+	importedAgents := countResultCategory(result.Imported, "agent") + countResultCategory(result.Overwritten, "agent")
+	importedSkills := countResultCategory(result.Imported, "skill") + countResultCategory(result.Overwritten, "skill")
 
 	for _, item := range result.Imported {
 		switch item.Category {
@@ -537,88 +308,15 @@ func printOpenCodeImportResult(result opencodeImportApplyResult) {
 	fmt.Println()
 }
 
-func countOpenCodeResultCategory(items []opencodeImportItem, category string) int {
-	count := 0
-	for _, item := range items {
-		if item.Category == category {
-			count++
-		}
-	}
-	return count
+func applyOpenCodeImportPlan(plan importPlan, env opencodeImportEnv, r *Runner) (importApplyResult, error) {
+	return applyImportPlan(plan, r, func(item importItem, r *Runner) error {
+		return applyOpenCodeImportItem(item, env, r)
+	})
 }
 
-func (p opencodeImportPlan) hasCategory(category string) bool {
-	for _, item := range p.Items {
-		if item.Category == category {
-			return true
-		}
-	}
-	return false
-}
-
-func (p opencodeImportPlan) firstItem(category string) (opencodeImportItem, bool) {
-	for _, item := range p.Items {
-		if item.Category == category {
-			return item, true
-		}
-	}
-	return opencodeImportItem{}, false
-}
-
-func (p opencodeImportPlan) countCategory(category string) int {
-	count := 0
-	for _, item := range p.Items {
-		if item.Category == category {
-			count++
-		}
-	}
-	return count
-}
-
-func (p opencodeImportPlan) countStatus(status claudeImportStatus) int {
-	count := 0
-	for _, item := range p.Items {
-		if item.Status == status {
-			count++
-		}
-	}
-	return count
-}
-
-func applyOpenCodeImportPlan(plan opencodeImportPlan, env opencodeImportEnv, r *Runner) (opencodeImportApplyResult, error) {
-	var result opencodeImportApplyResult
-
-	for _, item := range plan.Items {
-		switch item.Status {
-		case claudeImportUnchanged:
-			result.Unchanged = append(result.Unchanged, item)
-			continue
-		case claudeImportSkip:
-			result.Skipped = append(result.Skipped, item)
-			continue
-		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
-			// New, conflict, and overwrite statuses all flow to apply below.
-		default:
-			return result, fmt.Errorf("unsupported OpenCode import status %q", item.Status)
-		}
-
-		if err := applyOpenCodeImportItem(item, env, r); err != nil {
-			return result, err
-		}
-
-		if item.Status == claudeImportOverwrite {
-			result.Overwritten = append(result.Overwritten, item)
-		} else {
-			result.Imported = append(result.Imported, item)
-		}
-	}
-
-	return result, nil
-}
-
-func applyOpenCodeImportItem(item opencodeImportItem, env opencodeImportEnv, r *Runner) error {
+func applyOpenCodeImportItem(item importItem, env opencodeImportEnv, r *Runner) error {
 	switch item.Kind {
-	case opencodeImportPortablePath:
+	case importPortablePath:
 		if err := os.RemoveAll(item.DestPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove existing %s %s: %w", item.Category, item.Name, err)
 		}
@@ -626,9 +324,9 @@ func applyOpenCodeImportItem(item opencodeImportItem, env opencodeImportEnv, r *
 			return fmt.Errorf("copy %s %s: %w", item.Category, item.Name, err)
 		}
 		return nil
-	case opencodeImportGitIdentity:
-		return writeImportedGitIdentity(item.toClaudeImportItem(), env.agentGitConfigPath())
-	case opencodeImportAuthFile:
+	case importGitIdentity:
+		return writeImportedGitIdentity(item, env.agentGitConfigPath())
+	case importAuthFile:
 		raw, err := os.ReadFile(item.SourcePath)
 		if err != nil {
 			return fmt.Errorf("read host OpenCode auth file: %w", err)
@@ -637,25 +335,9 @@ func applyOpenCodeImportItem(item opencodeImportItem, env opencodeImportEnv, r *
 			return fmt.Errorf("write stored OpenCode auth file: %w", err)
 		}
 		return removeAgentSecretFile(env.agentAuthFile())
-	default:
-		return fmt.Errorf("unsupported import kind: %s", item.Kind)
+	case importCredentialFile, importStateMerge:
+		// OpenCode sign-in is a single auth.json; it has no split credential
+		// file or Claude-style state merge.
 	}
-}
-
-func (i opencodeImportItem) toClaudeImportItem() claudeImportItem {
-	return claudeImportItem{
-		Category:  i.Category,
-		Name:      i.Name,
-		HostName:  i.HostName,
-		HostEmail: i.HostEmail,
-	}
-}
-
-func sortOpenCodeImportItems(items []opencodeImportItem) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Category != items[j].Category {
-			return items[i].Category < items[j].Category
-		}
-		return items[i].Name < items[j].Name
-	})
+	return fmt.Errorf("unsupported import kind: %s", item.Kind)
 }

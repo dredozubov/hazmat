@@ -751,7 +751,7 @@ TLC passes across all 79,098 reachable states (194,023 generated, depth 7, 5s).
 | Governed code | `hazmat/internal/state/state.go` — host-owned state-file schema, persistence, and harness runtime store implementation |
 | Governed code | `hazmat/state.go` — root compatibility wrappers and migration helper entrypoints |
 | Governed code | `hazmat/bootstrap.go`, `hazmat/bootstrap_codex.go`, `hazmat/bootstrap_opencode.go`, `hazmat/bootstrap_antigravity.go`, `hazmat/bootstrap_qwen.go` — bootstrap flows |
-| Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go` — curated import flows |
+| Governed code | `hazmat/config_import.go`, `hazmat/config_import_codex.go`, `hazmat/config_import_opencode.go`, `hazmat/config_import_harness.go` — curated import flows (shared engine in `config_import_harness.go`) |
 | Governed code | `hazmat/migrate.go` — rollback cleanup of `~/.hazmat/state.json` |
 | Key invariants | `RecordedHarnessVersionsMatchSpec`, `ImportedMetadataCarriesVersion`, `StateFilePresentWhenMetadataExists`, `DryRunLeavesStateUntouched`, `SaveCoreStatePreservesHarnessMetadata`, `UninstallRemovesOnlyCodeAndMetadata`, `RollbackClearsMetadata`, `RollbackWithoutDeleteUserPreservesArtifacts`, `RollbackDeleteUserRemovesArtifacts` |
 | Status | **Proved** — harness state recording, dry-run behavior, and rollback cleanup semantics are now modeled separately from core migration |
@@ -778,6 +778,21 @@ deliberately not importable in Phase 1.
 TLC was re-run on 2026-06-03 for the package-split refactor and reported "No
 error has been found" across 633,107 distinct states (25,164,502 generated,
 depth 18, ~1m47s).
+
+**2026-06-25 curated-import consolidation (no spec change):** the three curated
+importers (Claude, Codex, OpenCode) were collapsed onto one shared type set
+(`importItem`/`importPlan`/`importApplyResult`/`importOptions`/`importStatus`/
+`importConflictPolicy`/`importKind`) and a shared engine (`runBasicsImport`,
+`applyImportPlan`, one cobra builder) in `config_import_harness.go`; only the
+per-harness env paths, scan set, per-item apply, and display wording stay
+distinct. This is a Go-side structural change only. `MC_HarnessLifecycle`
+quantifies over abstract membership — `ImportableHarnesses = {claude, codex,
+opencode}` and `ImportBasics(h)` recording into `recordedImported`/
+`importedArtifacts` — not import mechanics; the same three harnesses remain
+importable and the `recordHarnessImportRun` call site (`importHarnessBasicsRecord`)
+is unchanged, so no modeled state moved and no spec edit was required (same
+reasoning as the Antigravity precedent). The governed-code list above was
+updated to add `config_import_harness.go`; the suite was re-run green.
 
 **Change rules:**
 - Adding a new built-in harness requires updating this spec first: define
@@ -1048,9 +1063,12 @@ boundary. Covered by `TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychai
    credential may only appear in broker grants, and external references may only
    appear as external grants.
 
-2. **Adapter-required backends are inert:** a credential like Antigravity Keychain
-   OAuth cannot become active, delivered, materialized, env-granted,
-   broker-granted, or externally granted until an adapter is modeled.
+2. **Adapter-required backends are inert:** an adapter-required credential (modeled
+   by the generic `adapter_keychain` representative) cannot become active, delivered,
+   materialized, env-granted, broker-granted, or externally granted until an adapter
+   is modeled. (The Antigravity Keychain OAuth credential was reclassified from
+   adapter-required to a non-syncable external reference once Hazmat shipped its agent
+   login keychain adapter — see the 2026-06-25 note below.)
 
 3. **Syncable Keychain references stay narrow:** Claude-style Keychain OAuth
    can be represented as an external-reference credential with a host-user
@@ -1077,8 +1095,10 @@ boundary. Covered by `TestPrepareHarnessAuthRuntimeRejectsUnknownTimeHostKeychai
    known managed value is in host primary storage, a host-user Keychain cache,
    or a host-owned conflict archive, not only in `/Users/agent`.
 
-TLC passes across 5,182,905 distinct states (21,747,980 generated, depth 40,
-26m56s on the local 10-worker run).
+TLC passes across 5,335,005 distinct states (22,243,319 generated, depth 40) after
+the Antigravity Keychain adapter reclassification (see the 2026-06-25 note below);
+the pre-adapter baseline was 5,182,905 distinct states (21,747,980 generated, depth
+40, 26m56s on the local 10-worker run).
 
 **Scope boundary:**
 
@@ -1102,6 +1122,29 @@ docs.
   preserve the model's delivery-mode and session-scope invariants.
 - Any future path that creates durable `/Users/agent` credential material must
   be modeled as file delivery and must preserve recovery-before-launch.
+
+**2026-06-25 Antigravity (agy) Keychain OAuth adapter shipped:** agy is a flat
+native binary whose interactive Google sign-in stores its OAuth token in the macOS
+Keychain. Hazmat now bridges this with the agent login keychain adapter (the same
+empty-password agent login keychain it prepares for Claude), so the credential moved
+from adapter-required (inert) to an **external, non-syncable** keychain reference.
+In the model: `gemini`/`gemini_keychain` were renamed to `antigravity`/
+`antigravity_keychain` (the gemini→antigravity migration had updated
+`MC_HarnessLifecycle` but not this spec); `antigravity_keychain` moved from
+`AdapterRequiredSupportCreds` to `ExternalSupportCreds` while staying OUT of
+`SyncableKeychainCreds` — so `DeliverExternal` exposes it as an `externalGranted`
+reference with no modeled secret bytes and no host harvest/writeback (Hazmat does
+not extract agy's Keychain item). A synthetic `adapter_keychain` cred was added to
+keep `AdapterRequiredNeverExposed` and the `RegistryWellFormed` adapter clause
+non-vacuous, since the `SupportAdapterRequired` enum and its generic Go machinery
+(diagnostics, session-home blocker, rollback receipts) remain live with no other
+built-in adapter-required credential. Go side: `HarnessAntigravityKeychain` is now
+`SupportExternal`; the session grants the scoped `MacOSAgentKeychainAccess` SBPL
+re-allow (modeled in `MC_SeatbeltPolicy` by the free `agentKeychainAccess` boolean —
+no model change, comments generalized to "Claude / Antigravity OAuth") and unlocks
+the agent login keychain before launch. `MC_CredentialCapabilityLifecycle` re-ran
+with TLC: "No error has been found" across 5,335,005 distinct states (22,243,319
+generated, depth 40). `MC_SeatbeltPolicy` re-ran green (comment-only change).
 
 ---
 

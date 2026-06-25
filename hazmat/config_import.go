@@ -16,32 +16,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type claudeImportKind string
+type importKind string
 
 const (
-	claudeImportPortablePath   claudeImportKind = "portable-path"
-	claudeImportCredentialFile claudeImportKind = "credential-file"
-	claudeImportGitIdentity    claudeImportKind = "git-identity"
-	claudeImportStateMerge     claudeImportKind = "state-merge"
+	importPortablePath   importKind = "portable-path"
+	importCredentialFile importKind = "credential-file"
+	importGitIdentity    importKind = "git-identity"
+	importStateMerge     importKind = "state-merge"
+	// importAuthFile is the shared import kind for harnesses that store
+	// sign-in in a single auth.json (Codex, OpenCode) rather than Claude's
+	// split credential-file + state-merge.
+	importAuthFile importKind = "auth-file"
 )
 
-type claudeImportStatus string
+type importStatus string
 
 const (
-	claudeImportNew       claudeImportStatus = "new"
-	claudeImportConflict  claudeImportStatus = "conflict"
-	claudeImportUnchanged claudeImportStatus = "unchanged"
-	claudeImportOverwrite claudeImportStatus = "overwrite"
-	claudeImportSkip      claudeImportStatus = "skip"
+	importNew       importStatus = "new"
+	importConflict  importStatus = "conflict"
+	importUnchanged importStatus = "unchanged"
+	importOverwrite importStatus = "overwrite"
+	importSkip      importStatus = "skip"
 )
 
-type claudeConflictPolicy string
+type importConflictPolicy string
 
 const (
-	claudeConflictPrompt    claudeConflictPolicy = "prompt"
-	claudeConflictOverwrite claudeConflictPolicy = "overwrite"
-	claudeConflictSkip      claudeConflictPolicy = "skip"
-	claudeConflictFail      claudeConflictPolicy = "fail"
+	importConflictPrompt    importConflictPolicy = "prompt"
+	importConflictOverwrite importConflictPolicy = "overwrite"
+	importConflictSkip      importConflictPolicy = "skip"
+	importConflictFail      importConflictPolicy = "fail"
 )
 
 type claudeImportEnv struct {
@@ -49,11 +53,11 @@ type claudeImportEnv struct {
 	agentHome string
 }
 
-type claudeImportItem struct {
+type importItem struct {
 	Category   string
 	Name       string
-	Kind       claudeImportKind
-	Status     claudeImportStatus
+	Kind       importKind
+	Status     importStatus
 	SourcePath string
 	DestPath   string
 	Reason     string
@@ -64,28 +68,28 @@ type claudeImportItem struct {
 	HostJSON map[string]json.RawMessage
 }
 
-type claudeImportSkippedEntry struct {
+type importSkippedEntry struct {
 	Category string
 	Name     string
 	Path     string
 	Reason   string
 }
 
-type claudeImportPlan struct {
-	Items []claudeImportItem
-	Skips []claudeImportSkippedEntry
+type importPlan struct {
+	Items []importItem
+	Skips []importSkippedEntry
 }
 
-type claudeImportApplyResult struct {
-	Imported    []claudeImportItem
-	Overwritten []claudeImportItem
-	Skipped     []claudeImportItem
-	Unchanged   []claudeImportItem
+type importApplyResult struct {
+	Imported    []importItem
+	Overwritten []importItem
+	Skipped     []importItem
+	Unchanged   []importItem
 }
 
-type claudeImportOptions struct {
+type importOptions struct {
 	PromptBeforeImport bool
-	ConflictPolicy     claudeConflictPolicy
+	ConflictPolicy     importConflictPolicy
 	AllowNoopMessage   bool
 }
 
@@ -183,13 +187,10 @@ for matching sessions.`,
 }
 
 func newConfigImportClaudeCmd() *cobra.Command {
-	var overwrite bool
-	var skipExisting bool
-
-	cmd := &cobra.Command{
-		Use:   "claude",
-		Short: "Import Claude basics into Hazmat-managed state",
-		Long: `Import a curated subset of your host Claude setup into Hazmat.
+	return newConfigImportHarnessCmd(
+		"claude",
+		"Import Claude basics into Hazmat-managed state",
+		`Import a curated subset of your host Claude setup into Hazmat.
 
 Hazmat imports only portable basics:
   - sign-in state from Claude's known auth stores, when present
@@ -203,31 +204,12 @@ project-local .claude directories, session history, or runtime caches.
 
 Use --dry-run to preview. If existing imported files differ, either choose a
 policy interactively or pass --overwrite / --skip-existing explicitly.`,
-		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if overwrite && skipExisting {
-				return fmt.Errorf("choose either --overwrite or --skip-existing, not both")
-			}
-
+		func(ui *UI, r *Runner, policy importConflictPolicy) error {
 			env, err := defaultClaudeImportEnv()
 			if err != nil {
 				return err
 			}
-
-			ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
-			r := NewRunner(ui, flagVerbose, flagDryRun)
-
-			policy := claudeConflictPrompt
-			switch {
-			case overwrite:
-				policy = claudeConflictOverwrite
-			case skipExisting:
-				policy = claudeConflictSkip
-			case !ui.IsInteractive():
-				policy = claudeConflictFail
-			}
-
-			err = importClaudeBasics(ui, r, env, claudeImportOptions{
+			err = importClaudeBasics(ui, r, env, importOptions{
 				PromptBeforeImport: false,
 				ConflictPolicy:     policy,
 				AllowNoopMessage:   true,
@@ -237,87 +219,22 @@ policy interactively or pass --overwrite / --skip-existing explicitly.`,
 			}
 			return err
 		},
-	}
-
-	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite conflicting imported items")
-	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip conflicting imported items")
-
-	return cmd
+	)
 }
 
-func runClaudeBasicsImport(ui *UI, r *Runner, env claudeImportEnv, opts claudeImportOptions) error {
-	ui.Step("Import Claude basics")
-
-	plan, err := scanClaudeImportPlan(env, r)
-	if err != nil {
-		return err
-	}
-
-	if !plan.hasFoundBasics() {
-		ui.SkipDone("No Claude basics found to import")
-		return nil
-	}
-
-	if opts.AllowNoopMessage && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("Claude basics already match the current import scope")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !plan.hasActionableChanges() && len(plan.Skips) == 0 {
-		ui.SkipDone("Claude basics already imported")
-		return nil
-	}
-
-	if opts.PromptBeforeImport && !ui.Ask("Import Claude basics from your host setup?") {
-		ui.SkipDone("Claude basics import skipped")
-		return nil
-	}
-
-	printClaudeImportPlan(plan)
-
-	if !plan.hasActionableChanges() {
-		ui.SkipDone("Nothing to import")
-		return nil
-	}
-
-	policy := opts.ConflictPolicy
-	if flagDryRun && policy == claudeConflictPrompt {
-		policy = claudeConflictFail
-	}
-	if plan.conflictCount() > 0 && policy == claudeConflictPrompt {
-		selected, err := promptImportConflictPolicy()
-		if err != nil {
-			return err
-		}
-		policy = selected
-	}
-
-	if flagDryRun {
-		if plan.conflictCount() > 0 && (policy == claudeConflictPrompt || policy == claudeConflictFail) {
-			cDim.Println("  Re-run with --overwrite or --skip-existing to choose a conflict policy.")
-			fmt.Println()
-			return nil
-		}
-		if err := plan.resolveConflicts(policy); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if err := plan.resolveConflicts(policy); err != nil {
-		return err
-	}
-
-	result, err := applyClaudeImportPlan(plan, env, r)
-	if err != nil {
-		return err
-	}
-	printClaudeImportResult(result)
-	return nil
+func runClaudeBasicsImport(ui *UI, r *Runner, env claudeImportEnv, opts importOptions) error {
+	return runBasicsImport(ui, r, opts, harnessImportSpec{
+		label:        "Claude",
+		cancelledErr: errClaudeImportCancelled,
+		scan:         func(r *Runner) (importPlan, error) { return scanClaudeImportPlan(env, r) },
+		applyItem:    func(item importItem, r *Runner) error { return applyClaudeImportItem(item, env, r) },
+		printPlan:    printClaudeImportPlan,
+		printResult:  printClaudeImportResult,
+	})
 }
 
-func scanClaudeImportPlan(env claudeImportEnv, r *Runner) (claudeImportPlan, error) {
-	var plan claudeImportPlan
+func scanClaudeImportPlan(env claudeImportEnv, r *Runner) (importPlan, error) {
+	var plan importPlan
 
 	if item, ok, err := scanClaudeAuthState(env, r); err != nil {
 		return plan, err
@@ -355,50 +272,50 @@ func scanClaudeImportPlan(env claudeImportEnv, r *Runner) (claudeImportPlan, err
 	return plan, nil
 }
 
-func scanClaudeAuthState(env claudeImportEnv, r *Runner) (claudeImportItem, bool, error) {
+func scanClaudeAuthState(env claudeImportEnv, r *Runner) (importItem, bool, error) {
 	hostRaw, err := os.ReadFile(env.hostClaudeStatePath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return claudeImportItem{}, false, nil
+			return importItem{}, false, nil
 		}
-		return claudeImportItem{}, false, fmt.Errorf("read host Claude state: %w", err)
+		return importItem{}, false, fmt.Errorf("read host Claude state: %w", err)
 	}
 
 	hostState, err := selectClaudeAuthKeys(hostRaw)
 	if err != nil {
-		return claudeImportItem{}, false, fmt.Errorf("parse host Claude state: %w", err)
+		return importItem{}, false, fmt.Errorf("parse host Claude state: %w", err)
 	}
 	if len(hostState) == 0 {
-		return claudeImportItem{}, false, nil
+		return importItem{}, false, nil
 	}
 
-	status := claudeImportNew
+	status := importNew
 	if storedState, ok, err := readJSONMapStoreFile(env.storedClaudeStatePath()); err != nil {
-		return claudeImportItem{}, false, fmt.Errorf("read stored Claude state: %w", err)
+		return importItem{}, false, fmt.Errorf("read stored Claude state: %w", err)
 	} else if ok {
 		if jsonSubsetEqual(hostState, storedState) {
-			status = claudeImportUnchanged
+			status = importUnchanged
 		} else {
-			status = claudeImportConflict
+			status = importConflict
 		}
 	} else {
 		agentState, ok, err := readClaudeStateKeysFromAgent(env.agentClaudeStatePath())
 		if err != nil {
-			return claudeImportItem{}, false, fmt.Errorf("read agent Claude state: %w", err)
+			return importItem{}, false, fmt.Errorf("read agent Claude state: %w", err)
 		}
 		if ok {
 			if jsonSubsetEqual(hostState, agentState) {
-				status = claudeImportNew
+				status = importNew
 			} else {
-				status = claudeImportConflict
+				status = importConflict
 			}
 		}
 	}
 
-	return claudeImportItem{
+	return importItem{
 		Category:   "sign-in",
 		Name:       "Claude account state",
-		Kind:       claudeImportStateMerge,
+		Kind:       importStateMerge,
 		Status:     status,
 		SourcePath: env.hostClaudeStatePath(),
 		DestPath:   env.storedClaudeStatePath(),
@@ -406,59 +323,59 @@ func scanClaudeAuthState(env claudeImportEnv, r *Runner) (claudeImportItem, bool
 	}, true, nil
 }
 
-func scanClaudeCredentialFile(env claudeImportEnv, r *Runner) (claudeImportItem, bool, error) {
+func scanClaudeCredentialFile(env claudeImportEnv, r *Runner) (importItem, bool, error) {
 	hostRaw, err := os.ReadFile(env.hostCredentialFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return claudeImportItem{}, false, nil
+			return importItem{}, false, nil
 		}
-		return claudeImportItem{}, false, fmt.Errorf("read host Claude credentials: %w", err)
+		return importItem{}, false, fmt.Errorf("read host Claude credentials: %w", err)
 	}
 
-	status := claudeImportNew
+	status := importNew
 	if storedRaw, ok, err := readHostStoredSecretFile(env.storedCredentialFile()); err != nil {
-		return claudeImportItem{}, false, fmt.Errorf("read stored Claude credentials: %w", err)
+		return importItem{}, false, fmt.Errorf("read stored Claude credentials: %w", err)
 	} else if ok {
 		if bytes.Equal(hostRaw, storedRaw) {
-			status = claudeImportUnchanged
+			status = importUnchanged
 		} else {
-			status = claudeImportConflict
+			status = importConflict
 		}
 	} else {
 		agentRaw, ok, err := readAgentSecretFile(env.agentCredentialFile())
 		if err != nil {
-			return claudeImportItem{}, false, fmt.Errorf("read agent Claude credentials: %w", err)
+			return importItem{}, false, fmt.Errorf("read agent Claude credentials: %w", err)
 		}
 		if ok {
 			if bytes.Equal(hostRaw, agentRaw) {
-				status = claudeImportNew
+				status = importNew
 			} else {
-				status = claudeImportConflict
+				status = importConflict
 			}
 		}
 	}
 
-	return claudeImportItem{
+	return importItem{
 		Category:   "sign-in",
 		Name:       "Claude credential file",
-		Kind:       claudeImportCredentialFile,
+		Kind:       importCredentialFile,
 		Status:     status,
 		SourcePath: env.hostCredentialFile(),
 		DestPath:   env.storedCredentialFile(),
 	}, true, nil
 }
 
-func scanClaudeGitIdentity(env claudeImportEnv) (claudeImportItem, bool) {
+func scanClaudeGitIdentity(env claudeImportEnv) (importItem, bool) {
 	hostName := gitConfigValue(env.hostGitConfigPath(), "name")
 	hostEmail := gitConfigValue(env.hostGitConfigPath(), "email")
 	if hostName == "" && hostEmail == "" {
-		return claudeImportItem{}, false
+		return importItem{}, false
 	}
 
 	agentName := gitConfigValue(env.agentGitConfigPath(), "name")
 	agentEmail := gitConfigValue(env.agentGitConfigPath(), "email")
 
-	status := claudeImportNew
+	status := importNew
 	sameName := hostName == "" || hostName == agentName
 	sameEmail := hostEmail == "" || hostEmail == agentEmail
 	conflictingName := hostName != "" && agentName != "" && hostName != agentName
@@ -466,15 +383,15 @@ func scanClaudeGitIdentity(env claudeImportEnv) (claudeImportItem, bool) {
 
 	switch {
 	case sameName && sameEmail && (agentName != "" || agentEmail != ""):
-		status = claudeImportUnchanged
+		status = importUnchanged
 	case conflictingName || conflictingEmail:
-		status = claudeImportConflict
+		status = importConflict
 	}
 
-	return claudeImportItem{
+	return importItem{
 		Category:   "git identity",
 		Name:       "git identity",
-		Kind:       claudeImportGitIdentity,
+		Kind:       importGitIdentity,
 		Status:     status,
 		SourcePath: env.hostGitConfigPath(),
 		DestPath:   env.agentGitConfigPath(),
@@ -483,7 +400,7 @@ func scanClaudeGitIdentity(env claudeImportEnv) (claudeImportItem, bool) {
 	}, true
 }
 
-func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportItem, []claudeImportSkippedEntry, error) {
+func scanPortableImportDir(category, hostDir, agentDir string) ([]importItem, []importSkippedEntry, error) {
 	entries, err := os.ReadDir(hostDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -492,8 +409,8 @@ func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportIt
 		return nil, nil, fmt.Errorf("read %s import directory: %w", hostDir, err)
 	}
 
-	var items []claudeImportItem
-	var skips []claudeImportSkippedEntry
+	var items []importItem
+	var skips []importSkippedEntry
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -504,7 +421,7 @@ func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportIt
 		source := filepath.Join(hostDir, name)
 		resolved, info, err := resolvePortableSource(source)
 		if err != nil {
-			skips = append(skips, claudeImportSkippedEntry{
+			skips = append(skips, importSkippedEntry{
 				Category: category,
 				Name:     name,
 				Path:     source,
@@ -513,7 +430,7 @@ func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportIt
 			continue
 		}
 		if !info.Mode().IsRegular() && !info.IsDir() {
-			skips = append(skips, claudeImportSkippedEntry{
+			skips = append(skips, importSkippedEntry{
 				Category: category,
 				Name:     name,
 				Path:     source,
@@ -523,27 +440,27 @@ func scanPortableImportDir(category, hostDir, agentDir string) ([]claudeImportIt
 		}
 
 		dest := filepath.Join(agentDir, name)
-		status := claudeImportNew
+		status := importNew
 		equal, err := portablePathEqual(resolved, dest)
 		switch {
 		case err == nil && equal:
-			status = claudeImportUnchanged
+			status = importUnchanged
 		case err == nil:
 			if _, statErr := os.Lstat(dest); statErr == nil || os.IsPermission(statErr) {
-				status = claudeImportConflict
+				status = importConflict
 			}
 		case os.IsNotExist(err):
-			status = claudeImportNew
+			status = importNew
 		case os.IsPermission(err):
-			status = claudeImportConflict
+			status = importConflict
 		default:
 			return nil, nil, fmt.Errorf("compare %s import %s: %w", category, name, err)
 		}
 
-		items = append(items, claudeImportItem{
+		items = append(items, importItem{
 			Category:   category,
 			Name:       name,
-			Kind:       claudeImportPortablePath,
+			Kind:       importPortablePath,
 			Status:     status,
 			SourcePath: resolved,
 			DestPath:   dest,
@@ -666,51 +583,51 @@ func jsonRawEqual(a, b json.RawMessage) bool {
 	return reflect.DeepEqual(av, bv)
 }
 
-func (p claudeImportPlan) hasFoundBasics() bool {
+func (p importPlan) hasFoundBasics() bool {
 	return len(p.Items) > 0
 }
 
-func (p claudeImportPlan) hasActionableChanges() bool {
+func (p importPlan) hasActionableChanges() bool {
 	for _, item := range p.Items {
-		if item.Status == claudeImportNew || item.Status == claudeImportConflict {
+		if item.Status == importNew || item.Status == importConflict {
 			return true
 		}
 	}
 	return false
 }
 
-func (p claudeImportPlan) conflictCount() int {
+func (p importPlan) conflictCount() int {
 	count := 0
 	for _, item := range p.Items {
-		if item.Status == claudeImportConflict {
+		if item.Status == importConflict {
 			count++
 		}
 	}
 	return count
 }
 
-func (p *claudeImportPlan) resolveConflicts(policy claudeConflictPolicy) error {
+func (p *importPlan) resolveConflicts(policy importConflictPolicy) error {
 	if p.conflictCount() == 0 {
 		return nil
 	}
 
 	switch policy {
-	case claudeConflictOverwrite:
+	case importConflictOverwrite:
 		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportOverwrite
+			if p.Items[i].Status == importConflict {
+				p.Items[i].Status = importOverwrite
 			}
 		}
-	case claudeConflictSkip:
+	case importConflictSkip:
 		for i := range p.Items {
-			if p.Items[i].Status == claudeImportConflict {
-				p.Items[i].Status = claudeImportSkip
+			if p.Items[i].Status == importConflict {
+				p.Items[i].Status = importSkip
 			}
 		}
-	case claudeConflictFail, claudeConflictPrompt:
+	case importConflictFail, importConflictPrompt:
 		var names []string
 		for _, item := range p.Items {
-			if item.Status == claudeImportConflict {
+			if item.Status == importConflict {
 				names = append(names, fmt.Sprintf("%s: %s", item.Category, item.Name))
 			}
 		}
@@ -722,7 +639,7 @@ func (p *claudeImportPlan) resolveConflicts(policy claudeConflictPolicy) error {
 	return nil
 }
 
-func promptImportConflictPolicy() (claudeConflictPolicy, error) {
+func promptImportConflictPolicy() (importConflictPolicy, error) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println()
@@ -734,20 +651,20 @@ func promptImportConflictPolicy() (claudeConflictPolicy, error) {
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			return claudeConflictPrompt, err
+			return importConflictPrompt, err
 		}
 		switch strings.TrimSpace(line) {
 		case "1":
-			return claudeConflictOverwrite, nil
+			return importConflictOverwrite, nil
 		case "2":
-			return claudeConflictSkip, nil
+			return importConflictSkip, nil
 		case "", "3":
-			return claudeConflictPrompt, errClaudeImportCancelled
+			return importConflictPrompt, errImportPromptCancelled
 		}
 	}
 }
 
-func printClaudeImportPlan(plan claudeImportPlan) {
+func printClaudeImportPlan(plan importPlan) {
 	fmt.Println()
 	cBold.Println("  Found")
 	fmt.Println()
@@ -762,12 +679,24 @@ func printClaudeImportPlan(plan claudeImportPlan) {
 	fmt.Printf("    Commands:     %d\n", plan.countCategory("command"))
 	fmt.Printf("    Skills:       %d\n", plan.countCategory("skill"))
 
+	printImportPlannedActions(plan)
+
+	fmt.Println()
+	cDim.Println("  Hazmat keeps its own settings, hooks, MCP config, plugins, and safety controls.")
+	fmt.Println()
+}
+
+// printImportPlannedActions renders the "Planned Actions", "Conflicts", and
+// "Skipped" sections that are identical across every harness import plan. The
+// per-harness printPlan functions render the harness-specific "Found" header
+// and trailer around this shared body.
+func printImportPlannedActions(plan importPlan) {
 	fmt.Println()
 	cBold.Println("  Planned Actions")
 	fmt.Println()
-	fmt.Printf("    New:          %d\n", plan.countStatus(claudeImportNew))
-	fmt.Printf("    Conflicts:    %d\n", plan.countStatus(claudeImportConflict))
-	fmt.Printf("    Unchanged:    %d\n", plan.countStatus(claudeImportUnchanged))
+	fmt.Printf("    New:          %d\n", plan.countStatus(importNew))
+	fmt.Printf("    Conflicts:    %d\n", plan.countStatus(importConflict))
+	fmt.Printf("    Unchanged:    %d\n", plan.countStatus(importUnchanged))
 	if len(plan.Skips) > 0 {
 		fmt.Printf("    Skipped:      %d\n", len(plan.Skips))
 	}
@@ -777,7 +706,7 @@ func printClaudeImportPlan(plan claudeImportPlan) {
 		cBold.Println("  Conflicts")
 		fmt.Println()
 		for _, item := range plan.Items {
-			if item.Status == claudeImportConflict {
+			if item.Status == importConflict {
 				fmt.Printf("    %s: %s\n", item.Category, item.Name)
 			}
 		}
@@ -791,13 +720,9 @@ func printClaudeImportPlan(plan claudeImportPlan) {
 			fmt.Printf("    %s: %s (%s)\n", skip.Category, skip.Name, skip.Reason)
 		}
 	}
-
-	fmt.Println()
-	cDim.Println("  Hazmat keeps its own settings, hooks, MCP config, plugins, and safety controls.")
-	fmt.Println()
 }
 
-func printClaudeImportResult(result claudeImportApplyResult) {
+func printClaudeImportResult(result importApplyResult) {
 	importedCommands := countResultCategory(result.Imported, "command") + countResultCategory(result.Overwritten, "command")
 	importedSkills := countResultCategory(result.Imported, "skill") + countResultCategory(result.Overwritten, "skill")
 
@@ -845,7 +770,7 @@ func formatGitIdentity(name, email string) string {
 	}
 }
 
-func countResultCategory(items []claudeImportItem, category string) int {
+func countResultCategory(items []importItem, category string) int {
 	count := 0
 	for _, item := range items {
 		if item.Category == category {
@@ -855,7 +780,7 @@ func countResultCategory(items []claudeImportItem, category string) int {
 	return count
 }
 
-func (p claudeImportPlan) hasCategory(category string) bool {
+func (p importPlan) hasCategory(category string) bool {
 	for _, item := range p.Items {
 		if item.Category == category {
 			return true
@@ -864,16 +789,16 @@ func (p claudeImportPlan) hasCategory(category string) bool {
 	return false
 }
 
-func (p claudeImportPlan) firstItem(category string) (claudeImportItem, bool) {
+func (p importPlan) firstItem(category string) (importItem, bool) {
 	for _, item := range p.Items {
 		if item.Category == category {
 			return item, true
 		}
 	}
-	return claudeImportItem{}, false
+	return importItem{}, false
 }
 
-func (p claudeImportPlan) countCategory(category string) int {
+func (p importPlan) countCategory(category string) int {
 	count := 0
 	for _, item := range p.Items {
 		if item.Category == category {
@@ -883,7 +808,7 @@ func (p claudeImportPlan) countCategory(category string) int {
 	return count
 }
 
-func (p claudeImportPlan) countStatus(status claudeImportStatus) int {
+func (p importPlan) countStatus(status importStatus) int {
 	count := 0
 	for _, item := range p.Items {
 		if item.Status == status {
@@ -893,40 +818,15 @@ func (p claudeImportPlan) countStatus(status claudeImportStatus) int {
 	return count
 }
 
-func applyClaudeImportPlan(plan claudeImportPlan, env claudeImportEnv, r *Runner) (claudeImportApplyResult, error) {
-	var result claudeImportApplyResult
-
-	for _, item := range plan.Items {
-		switch item.Status {
-		case claudeImportUnchanged:
-			result.Unchanged = append(result.Unchanged, item)
-			continue
-		case claudeImportSkip:
-			result.Skipped = append(result.Skipped, item)
-			continue
-		case claudeImportNew, claudeImportConflict, claudeImportOverwrite:
-			// New, conflict, and overwrite statuses all flow to apply below.
-		default:
-			return result, fmt.Errorf("unsupported Claude import status %q", item.Status)
-		}
-
-		if err := applyClaudeImportItem(item, env, r); err != nil {
-			return result, err
-		}
-
-		if item.Status == claudeImportOverwrite {
-			result.Overwritten = append(result.Overwritten, item)
-		} else {
-			result.Imported = append(result.Imported, item)
-		}
-	}
-
-	return result, nil
+func applyClaudeImportPlan(plan importPlan, env claudeImportEnv, r *Runner) (importApplyResult, error) {
+	return applyImportPlan(plan, r, func(item importItem, r *Runner) error {
+		return applyClaudeImportItem(item, env, r)
+	})
 }
 
-func applyClaudeImportItem(item claudeImportItem, env claudeImportEnv, r *Runner) error {
+func applyClaudeImportItem(item importItem, env claudeImportEnv, r *Runner) error {
 	switch item.Kind {
-	case claudeImportPortablePath:
+	case importPortablePath:
 		if err := os.RemoveAll(item.DestPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove existing %s %s: %w", item.Category, item.Name, err)
 		}
@@ -934,9 +834,9 @@ func applyClaudeImportItem(item claudeImportItem, env claudeImportEnv, r *Runner
 			return fmt.Errorf("copy %s %s: %w", item.Category, item.Name, err)
 		}
 		return nil
-	case claudeImportGitIdentity:
+	case importGitIdentity:
 		return writeImportedGitIdentity(item, env.agentGitConfigPath())
-	case claudeImportCredentialFile:
+	case importCredentialFile:
 		raw, err := os.ReadFile(item.SourcePath)
 		if err != nil {
 			return fmt.Errorf("read host credential file: %w", err)
@@ -945,11 +845,13 @@ func applyClaudeImportItem(item claudeImportItem, env claudeImportEnv, r *Runner
 			return fmt.Errorf("write stored Claude credential file: %w", err)
 		}
 		return removeAgentSecretFile(env.agentCredentialFile())
-	case claudeImportStateMerge:
+	case importStateMerge:
 		return writeImportedClaudeState(item, env.storedClaudeStatePath(), env.agentClaudeStatePath())
-	default:
-		return fmt.Errorf("unsupported import kind: %s", item.Kind)
+	case importAuthFile:
+		// Claude stores sign-in as a split credential file + state merge, not a
+		// single auth.json, so the shared auth-file kind never applies here.
 	}
+	return fmt.Errorf("unsupported import kind: %s", item.Kind)
 }
 
 func copyPortablePath(src, dst string) error {
@@ -1003,7 +905,7 @@ func portableFileMode(mode os.FileMode) os.FileMode {
 	return perms & 0o777
 }
 
-func writeImportedGitIdentity(item claudeImportItem, path string) error {
+func writeImportedGitIdentity(item importItem, path string) error {
 	current, _ := os.ReadFile(path)
 	cfg := parseINI(string(current))
 	if item.HostName != "" {
@@ -1019,7 +921,7 @@ func writeImportedGitIdentity(item claudeImportItem, path string) error {
 	return os.WriteFile(path, []byte(renderINI(cfg)), 0o660)
 }
 
-func writeImportedClaudeState(item claudeImportItem, storePath, legacyPath string) error {
+func writeImportedClaudeState(item importItem, storePath, legacyPath string) error {
 	current, ok, err := readJSONMapStoreFile(storePath)
 	if err != nil {
 		return err
@@ -1043,7 +945,7 @@ func writeImportedClaudeState(item claudeImportItem, storePath, legacyPath strin
 	return removeClaudeStateKeysFromAgent(legacyPath)
 }
 
-func sortImportItems(items []claudeImportItem) {
+func sortImportItems(items []importItem) {
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Category != items[j].Category {
 			return items[i].Category < items[j].Category
@@ -1052,7 +954,7 @@ func sortImportItems(items []claudeImportItem) {
 	})
 }
 
-func sortImportSkips(skips []claudeImportSkippedEntry) {
+func sortImportSkips(skips []importSkippedEntry) {
 	sort.Slice(skips, func(i, j int) bool {
 		if skips[i].Category != skips[j].Category {
 			return skips[i].Category < skips[j].Category
