@@ -92,6 +92,8 @@ func TestScanClaudeImportPlanOnlyIncludesPortableBasics(t *testing.T) {
 	writeTestFile(t, env.hostClaudeStatePath(), `{
   "oauthAccount": {"emailAddress": "denis@example.com"},
   "userID": "u-123",
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.71",
   "mcpServers": {"github": {"type": "stdio"}}
 }`)
 	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
@@ -152,6 +154,9 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 	writeTestFile(t, env.hostClaudeStatePath(), `{
   "oauthAccount": {"emailAddress": "denis@example.com"},
   "userID": "u-123",
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.71",
+  "theme": "dark",
   "mcpServers": {"github": {"type": "stdio"}}
 }`)
 	writeTestFile(t, env.agentCredentialFile(), `{"token":"legacy-claude-token"}`)
@@ -231,6 +236,15 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 	if state["userID"] != "u-123" {
 		t.Fatalf("userID = %v, want u-123", state["userID"])
 	}
+	if state["hasCompletedOnboarding"] != true {
+		t.Fatalf("hasCompletedOnboarding = %v, want true", state["hasCompletedOnboarding"])
+	}
+	if state["lastOnboardingVersion"] != "2.1.71" {
+		t.Fatalf("lastOnboardingVersion = %v, want 2.1.71", state["lastOnboardingVersion"])
+	}
+	if state["theme"] != "dark" {
+		t.Fatalf("theme = %v, want dark", state["theme"])
+	}
 	if _, ok := state["projects"]; ok {
 		t.Fatal("projects should remain in the legacy agent state file")
 	}
@@ -245,8 +259,10 @@ func TestApplyClaudeImportPlanCopiesPortableContentAndMergesState(t *testing.T) 
 	if _, ok := agentState["projects"]; !ok {
 		t.Fatal("expected existing agent-only projects state to be preserved")
 	}
-	if _, ok := agentState["oauthAccount"]; ok {
-		t.Fatal("oauthAccount should be removed from legacy agent Claude state")
+	for _, key := range []string{"oauthAccount", "hasCompletedOnboarding", "lastOnboardingVersion", "theme"} {
+		if _, ok := agentState[key]; ok {
+			t.Fatalf("%s should be removed from legacy agent Claude state", key)
+		}
 	}
 	if _, ok := state["mcpServers"]; ok {
 		t.Fatal("mcpServers should not be imported from host Claude state")

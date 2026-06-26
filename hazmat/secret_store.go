@@ -166,7 +166,7 @@ func readClaudeStateKeysFromAgent(path string) (map[string]json.RawMessage, bool
 	if err != nil || !ok {
 		return nil, ok, err
 	}
-	payload, err := selectClaudeAuthKeys(raw)
+	payload, err := selectClaudePortableStateKeys(raw)
 	if err != nil {
 		return nil, false, err
 	}
@@ -210,7 +210,7 @@ func removeClaudeStateKeysFromAgent(path string) error {
 	if err := json.Unmarshal(raw, &current); err != nil {
 		return err
 	}
-	for _, key := range claudePortableAuthKeys {
+	for _, key := range claudePortableStateKeys {
 		delete(current, key)
 	}
 	if len(current) == 0 {

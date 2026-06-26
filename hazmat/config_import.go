@@ -102,6 +102,16 @@ var (
 		"customApiKeyResponses",
 		"claudeCodeFirstTokenDate",
 	}
+	claudePortablePreferenceKeys = []string{
+		"hasCompletedOnboarding",
+		"lastOnboardingVersion",
+		"theme",
+		"tui",
+		"showSpinnerTree",
+		"shiftEnterKeyBindingInstalled",
+		"deepLinkTerminal",
+	}
+	claudePortableStateKeys = append(append([]string{}, claudePortableAuthKeys...), claudePortablePreferenceKeys...)
 )
 
 func defaultClaudeImportEnv() (claudeImportEnv, error) {
@@ -193,7 +203,8 @@ func newConfigImportClaudeCmd() *cobra.Command {
 		`Import a curated subset of your host Claude setup into Hazmat.
 
 Hazmat imports only portable basics:
-  - sign-in state from Claude's known auth stores, when present
+  - account, subscription, and first-run onboarding state from Claude's known
+    auth stores, when present
     (stored in ~/.hazmat/secrets and materialized only for Claude sessions)
   - git user.name and user.email
   - ~/.claude/commands
@@ -281,7 +292,7 @@ func scanClaudeAuthState(env claudeImportEnv, r *Runner) (importItem, bool, erro
 		return importItem{}, false, fmt.Errorf("read host Claude state: %w", err)
 	}
 
-	hostState, err := selectClaudeAuthKeys(hostRaw)
+	hostState, err := selectClaudePortableStateKeys(hostRaw)
 	if err != nil {
 		return importItem{}, false, fmt.Errorf("parse host Claude state: %w", err)
 	}
@@ -541,13 +552,21 @@ func portablePathEqual(src, dst string) (bool, error) {
 }
 
 func selectClaudeAuthKeys(raw []byte) (map[string]json.RawMessage, error) {
+	return selectClaudeJSONKeys(raw, claudePortableAuthKeys)
+}
+
+func selectClaudePortableStateKeys(raw []byte) (map[string]json.RawMessage, error) {
+	return selectClaudeJSONKeys(raw, claudePortableStateKeys)
+}
+
+func selectClaudeJSONKeys(raw []byte, keys []string) (map[string]json.RawMessage, error) {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
 	}
 
 	selected := make(map[string]json.RawMessage)
-	for _, key := range claudePortableAuthKeys {
+	for _, key := range keys {
 		if value, ok := payload[key]; ok {
 			selected[key] = value
 		}

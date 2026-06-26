@@ -736,7 +736,7 @@ func TestHarvestHarnessAuthArtifactArchivesDivergentStoreBeforeOverwrite(t *test
 	}
 }
 
-func TestPrepareHarnessAuthRuntimeClaudeStateHarvestKeepsNonAuthKeys(t *testing.T) {
+func TestPrepareHarnessAuthRuntimeClaudeStateHarvestsPortableKeysAndKeepsAgentOnlyKeys(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	agentPath := filepath.Join(root, "agent", ".claude.json")
@@ -745,8 +745,11 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestKeepsNonAuthKeys(t *testing.
 	artifact.AgentPath = agentPath
 
 	initialStore := map[string]json.RawMessage{
-		"oauthAccount": json.RawMessage(`{"emailAddress":"stored@example.com"}`),
-		"userID":       json.RawMessage(`"u-stored"`),
+		"oauthAccount":                  json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"userID":                        json.RawMessage(`"u-stored"`),
+		"hasCompletedOnboarding":        json.RawMessage(`true`),
+		"lastOnboardingVersion":         json.RawMessage(`"2.1.70"`),
+		"shiftEnterKeyBindingInstalled": json.RawMessage(`true`),
 	}
 	if err := writeJSONMapStoreFile(artifact.StorePath, initialStore); err != nil {
 		t.Fatalf("writeJSONMapStoreFile: %v", err)
@@ -764,10 +767,16 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestKeepsNonAuthKeys(t *testing.
 	if !strings.Contains(string(agentRaw), `"oauthAccount"`) || !strings.Contains(string(agentRaw), `"userID"`) {
 		t.Fatalf("materialized Claude state missing auth keys:\n%s", string(agentRaw))
 	}
+	if !strings.Contains(string(agentRaw), `"hasCompletedOnboarding"`) || !strings.Contains(string(agentRaw), `"lastOnboardingVersion"`) {
+		t.Fatalf("materialized Claude state missing onboarding keys:\n%s", string(agentRaw))
+	}
 
 	updatedAgentState := `{
   "oauthAccount": {"emailAddress": "updated@example.com"},
   "userID": "u-updated",
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.71",
+  "theme": "dark",
   "projects": {"hazmat": true}
 }`
 	if err := os.WriteFile(agentPath, []byte(updatedAgentState), 0o600); err != nil {
@@ -783,6 +792,11 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestKeepsNonAuthKeys(t *testing.
 	if !strings.Contains(string(storeRaw), `"updated@example.com"`) || !strings.Contains(string(storeRaw), `"u-updated"`) {
 		t.Fatalf("harvested Claude store state missing updated auth:\n%s", string(storeRaw))
 	}
+	if !strings.Contains(string(storeRaw), `"hasCompletedOnboarding"`) ||
+		!strings.Contains(string(storeRaw), `"lastOnboardingVersion"`) ||
+		!strings.Contains(string(storeRaw), `"theme"`) {
+		t.Fatalf("harvested Claude store state missing portable onboarding/preferences:\n%s", string(storeRaw))
+	}
 	if strings.Contains(string(storeRaw), `"projects"`) {
 		t.Fatalf("harvested Claude store state should not contain non-auth keys:\n%s", string(storeRaw))
 	}
@@ -794,7 +808,9 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestKeepsNonAuthKeys(t *testing.
 	if !strings.Contains(string(remainingAgentRaw), `"projects"`) {
 		t.Fatalf("cleaned Claude agent state missing non-auth keys:\n%s", string(remainingAgentRaw))
 	}
-	if strings.Contains(string(remainingAgentRaw), `"oauthAccount"`) || strings.Contains(string(remainingAgentRaw), `"userID"`) {
-		t.Fatalf("cleaned Claude agent state still contains auth keys:\n%s", string(remainingAgentRaw))
+	for _, key := range []string{"oauthAccount", "userID", "hasCompletedOnboarding", "lastOnboardingVersion", "theme"} {
+		if strings.Contains(string(remainingAgentRaw), `"`+key+`"`) {
+			t.Fatalf("cleaned Claude agent state still contains portable key %s:\n%s", key, string(remainingAgentRaw))
+		}
 	}
 }
