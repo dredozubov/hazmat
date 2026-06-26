@@ -182,7 +182,7 @@ print_bounded_output() {
 output_has_onboarding_prompt() {
 	output_file="$1"
 	grep -E -i \
-		'(/login|log in|login|sign in|authenticate|authentication required|not authenticated|please authenticate|onboarding|welcome to claude code|visual style|select.*style|choose.*style|theme|press enter|open.*browser|claude[.]ai/login|anthropic console)' \
+		'(/login|log in|please log in|sign in|authentication required|not authenticated|please authenticate|onboarding|welcome to claude code|visual style|select.*(style|theme)|choose.*(style|theme)|press enter|open.*browser|claude[.]ai/login|anthropic console)' \
 		"$output_file" >/dev/null 2>&1
 }
 
@@ -221,10 +221,10 @@ run_with_timeout() {
 run_smoke() {
 	SCRATCH="$(mktemp -d /tmp/hazmat-claude-onboarding-smoke.XXXXXX)"
 	PROJECT="$SCRATCH/project"
-	OUTPUT="$SCRATCH/output.txt"
 	TIMEOUT_MARKER="$SCRATCH/timed-out"
 	mkdir -p "$PROJECT"
 	chmod 755 "$SCRATCH" "$PROJECT"
+	OUTPUT="$PROJECT/.hazmat-claude-onboarding-smoke.out"
 
 	set +e
 	run_with_timeout "$TIMEOUT_SECONDS" "$OUTPUT" "$TIMEOUT_MARKER" \

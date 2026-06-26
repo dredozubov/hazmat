@@ -573,7 +573,7 @@ assert_file_contains_all \
     "run_with_timeout" \
     "HAZMAT_CLAUDE_ONBOARDING_SMOKE_OK" \
     "output looks like Claude showed an auth or onboarding prompt" \
-    "select.*style" \
+    "select.*(style|theme)" \
     "visual style"
 
 assert_succeeds_with \
