@@ -872,6 +872,60 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestMergesPartialAgentState(t *t
 	}
 }
 
+func TestPrepareHarnessAuthRuntimeClaudeStateMaterializesOverPartialAgentState(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude.json")
+
+	artifact := claudeStateHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+
+	stored := map[string]json.RawMessage{
+		"oauthAccount":             json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"userID":                   json.RawMessage(`"u-stored"`),
+		"hasAvailableSubscription": json.RawMessage(`true`),
+		"hasCompletedOnboarding":   json.RawMessage(`true`),
+		"lastOnboardingVersion":    json.RawMessage(`"2.1.71"`),
+		"theme":                    json.RawMessage(`"dark"`),
+	}
+	if err := writeJSONMapStoreFile(artifact.StorePath, stored); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent state dir: %v", err)
+	}
+	partialAgentState := `{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.71",
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(agentPath, []byte(partialAgentState), 0o600); err != nil {
+		t.Fatalf("write partial agent Claude state: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	defer runtime.Cleanup()
+
+	agentRaw, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read materialized Claude state: %v", err)
+	}
+	for _, want := range []string{
+		`"oauthAccount"`,
+		`"userID"`,
+		`"hasAvailableSubscription"`,
+		`"theme": "dark"`,
+		`"projects"`,
+	} {
+		if !strings.Contains(string(agentRaw), want) {
+			t.Fatalf("materialized Claude state missing %s:\n%s", want, string(agentRaw))
+		}
+	}
+}
+
 func TestPrepareHarnessAuthRuntimeClaudeStateRepairsPartialStoreFromHost(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")

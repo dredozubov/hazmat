@@ -545,9 +545,14 @@ func materializeHarnessAuthArtifact(artifact harnessAuthArtifact) (harnessAuthDa
 		return nil, false, err
 	}
 
-	if _, ok, err := artifact.ReadAgent(artifact.AgentPath); err != nil {
+	if agent, ok, err := artifact.ReadAgent(artifact.AgentPath); err != nil {
 		return nil, false, err
 	} else if ok {
+		if artifact.CredentialID == credentials.HarnessClaudeState && storedExists {
+			if err := artifact.WriteAgent(artifact.AgentPath, agent); err != nil {
+				return nil, false, err
+			}
+		}
 		return stored, storedExists, nil
 	}
 
