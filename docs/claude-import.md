@@ -26,7 +26,7 @@ hazmat config import claude --skip-existing
 
 `hazmat init` also offers the same flow after bootstrap.
 
-Import is **copy-once**. Hazmat does not sync your host Claude setup continuously. If you want to refresh commands or skills later, rerun the import command. Imported account/onboarding state is stored in Hazmat's host-owned secret store and only materialized into `/Users/agent` for active Claude sessions.
+Import is **copy-once** for commands and skills. If you want to refresh those later, rerun the import command. Claude account/onboarding state is stored in Hazmat's host-owned secret store, reconciled from the host Claude state when available, and only materialized into `/Users/agent` for active Claude sessions.
 
 ## What Hazmat Imports
 

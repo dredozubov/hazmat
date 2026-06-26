@@ -814,3 +814,119 @@ func TestPrepareHarnessAuthRuntimeClaudeStateHarvestsPortableKeysAndKeepsAgentOn
 		}
 	}
 }
+
+func TestPrepareHarnessAuthRuntimeClaudeStateHarvestMergesPartialAgentState(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude.json")
+
+	artifact := claudeStateHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+
+	initialStore := map[string]json.RawMessage{
+		"oauthAccount":             json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"userID":                   json.RawMessage(`"u-stored"`),
+		"hasAvailableSubscription": json.RawMessage(`true`),
+		"hasCompletedOnboarding":   json.RawMessage(`false`),
+		"lastOnboardingVersion":    json.RawMessage(`"2.1.70"`),
+	}
+	if err := writeJSONMapStoreFile(artifact.StorePath, initialStore); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+
+	partialAgentState := `{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.71",
+  "showSpinnerTree": false,
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(agentPath, []byte(partialAgentState), 0o600); err != nil {
+		t.Fatalf("write partial agent Claude state: %v", err)
+	}
+
+	runtime.Cleanup()
+
+	storeRaw, err := os.ReadFile(artifact.StorePath)
+	if err != nil {
+		t.Fatalf("read harvested Claude store state: %v", err)
+	}
+	for _, want := range []string{
+		`"oauthAccount"`,
+		`"userID"`,
+		`"hasAvailableSubscription"`,
+		`"hasCompletedOnboarding": true`,
+		`"lastOnboardingVersion": "2.1.71"`,
+		`"showSpinnerTree": false`,
+	} {
+		if !strings.Contains(string(storeRaw), want) {
+			t.Fatalf("harvested Claude store state missing %s:\n%s", want, string(storeRaw))
+		}
+	}
+	if strings.Contains(string(storeRaw), `"projects"`) {
+		t.Fatalf("harvested Claude store state should not contain agent-only projects:\n%s", string(storeRaw))
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeClaudeStateRepairsPartialStoreFromHost(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude.json")
+
+	artifact := claudeStateHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+
+	partialStore := map[string]json.RawMessage{
+		"hasCompletedOnboarding": json.RawMessage(`true`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.71"`),
+	}
+	if err := writeJSONMapStoreFile(artifact.StorePath, partialStore); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+	hostStatePath := filepath.Join(home, ".claude.json")
+	if err := os.MkdirAll(filepath.Dir(hostStatePath), 0o700); err != nil {
+		t.Fatalf("mkdir host state dir: %v", err)
+	}
+	hostState := `{
+  "oauthAccount": {"emailAddress": "host@example.com"},
+  "userID": "u-host",
+  "hasAvailableSubscription": true,
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.72",
+  "mcpServers": {"host": {"type": "stdio"}},
+  "projects": {"host": true}
+}`
+	if err := os.WriteFile(hostStatePath, []byte(hostState), 0o600); err != nil {
+		t.Fatalf("write host Claude state: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	defer runtime.Cleanup()
+
+	agentRaw, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read materialized Claude state: %v", err)
+	}
+	for _, want := range []string{
+		`"oauthAccount"`,
+		`"userID"`,
+		`"hasAvailableSubscription"`,
+		`"lastOnboardingVersion": "2.1.72"`,
+	} {
+		if !strings.Contains(string(agentRaw), want) {
+			t.Fatalf("materialized Claude state missing %s:\n%s", want, string(agentRaw))
+		}
+	}
+	for _, excluded := range []string{`"mcpServers"`, `"projects"`} {
+		if strings.Contains(string(agentRaw), excluded) {
+			t.Fatalf("materialized Claude state imported excluded host key %s:\n%s", excluded, string(agentRaw))
+		}
+	}
+}

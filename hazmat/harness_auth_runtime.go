@@ -8,6 +8,7 @@ import (
 	"hazmat/credentials"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -227,15 +228,30 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 	if err != nil {
 		panic(err)
 	}
+	storePath := mustCredentialStorePathForHome(home, credentials.HarnessClaudeState)
+	hostStatePath := filepath.Join(home, ".claude.json")
 	return harnessAuthArtifact{
 		CredentialID: credentials.HarnessClaudeState,
 		Name:         descriptor.DisplayName,
-		StorePath:    mustCredentialStorePathForHome(home, credentials.HarnessClaudeState),
+		StorePath:    storePath,
 		AgentPath:    agentPath,
 		ReadStore: func(path string) (harnessAuthData, bool, error) {
 			payload, ok, err := readJSONMapStoreFile(path)
-			if !ok || err != nil {
-				return nil, ok, err
+			if err != nil {
+				return nil, false, err
+			}
+			if path == storePath {
+				hostState, hostOK, hostErr := readClaudePortableStateFromHost(hostStatePath)
+				if hostErr != nil {
+					return nil, false, hostErr
+				}
+				if hostOK {
+					payload = mergeClaudeStateMaps(payload, hostState)
+					ok = true
+				}
+			}
+			if !ok {
+				return nil, false, nil
 			}
 			return payload, true, nil
 		},
@@ -243,6 +259,20 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 			payload, ok, err := readClaudeStateKeysFromAgent(path)
 			if !ok || err != nil {
 				return nil, ok, err
+			}
+			stored, storedOK, storeErr := readJSONMapStoreFile(storePath)
+			if storeErr != nil {
+				return nil, false, storeErr
+			}
+			if storedOK {
+				payload = mergeClaudeStateMaps(stored, payload)
+			}
+			hostState, hostOK, hostErr := readClaudePortableStateFromHost(hostStatePath)
+			if hostErr != nil {
+				return nil, false, hostErr
+			}
+			if hostOK {
+				payload = mergeClaudeStateMaps(hostState, payload)
 			}
 			return payload, true, nil
 		},
@@ -261,6 +291,38 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 			return jsonSubsetEqual(left, right)
 		},
 	}
+}
+
+func readClaudePortableStateFromHost(path string) (map[string]json.RawMessage, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	payload, err := selectClaudePortableStateKeys(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(payload) == 0 {
+		return nil, false, nil
+	}
+	return payload, true, nil
+}
+
+func mergeClaudeStateMaps(base, overlay map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	merged := make(map[string]json.RawMessage, len(base)+len(overlay))
+	for key, value := range base {
+		merged[key] = slices.Clone(value)
+	}
+	for key, value := range overlay {
+		merged[key] = slices.Clone(value)
+	}
+	return merged
 }
 
 func agentMaterializationPathForRuntimeHome(descriptor credentials.Descriptor, runtimeHome string) (string, error) {
