@@ -208,7 +208,6 @@ run_with_timeout() {
 	set +e
 	wait "$cmd_pid"
 	status=$?
-	set -e
 
 	kill "$watchdog_pid" 2>/dev/null || true
 	wait "$watchdog_pid" 2>/dev/null || true
