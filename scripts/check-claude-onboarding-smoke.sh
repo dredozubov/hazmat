@@ -6,6 +6,7 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="${HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT:-$REPO_ROOT/hazmat/hazmat}"
 TIMEOUT_SECONDS="${HAZMAT_CLAUDE_ONBOARDING_SMOKE_TIMEOUT:-180}"
+TUI_SECONDS="${HAZMAT_CLAUDE_ONBOARDING_SMOKE_TUI_SECONDS:-20}"
 SENTINEL="${HAZMAT_CLAUDE_ONBOARDING_SMOKE_SENTINEL:-HAZMAT_CLAUDE_ONBOARDING_SMOKE_OK}"
 PROMPT="${HAZMAT_CLAUDE_ONBOARDING_SMOKE_PROMPT:-Reply with exactly $SENTINEL and nothing else.}"
 MODE="disclose"
@@ -36,7 +37,9 @@ Environment:
                                   Hazmat binary to run. Defaults to the checkout
                                   binary at hazmat/hazmat.
   HAZMAT_CLAUDE_ONBOARDING_SMOKE_TIMEOUT
-                                  Timeout in seconds. Default: 180.
+                                  Print-mode timeout in seconds. Default: 180.
+  HAZMAT_CLAUDE_ONBOARDING_SMOKE_TUI_SECONDS
+                                  Interactive PTY observation window. Default: 20.
   HAZMAT_CLAUDE_ONBOARDING_SMOKE_SENTINEL
                                   Expected exact response marker.
   HAZMAT_CLAUDE_ONBOARDING_SMOKE_PROMPT
@@ -105,6 +108,7 @@ check_fixtures() {
 	require_command grep
 	require_command sed
 	require_command head
+	require_command python3
 
 	case "$TIMEOUT_SECONDS" in
 		''|*[!0-9]*)
@@ -112,6 +116,14 @@ check_fixtures() {
 			;;
 		0)
 			add_missing_fixture "HAZMAT_CLAUDE_ONBOARDING_SMOKE_TIMEOUT must be greater than zero"
+			;;
+	esac
+	case "$TUI_SECONDS" in
+		''|*[!0-9]*)
+			add_missing_fixture "HAZMAT_CLAUDE_ONBOARDING_SMOKE_TUI_SECONDS must be a positive integer"
+			;;
+		0)
+			add_missing_fixture "HAZMAT_CLAUDE_ONBOARDING_SMOKE_TUI_SECONDS must be greater than zero"
 			;;
 	esac
 
@@ -131,11 +143,15 @@ print_disclosure() {
 claude-onboarding-smoke: dry run only
 
 This script validates the live hazmat claude startup path against the repeated
-auth/onboarding regression. It starts a contained Claude print-mode run in a
-scratch project, waits for a bounded response, fails if the output looks like an
-auth or onboarding prompt, and requires the expected sentinel response:
+auth/onboarding regression. It first starts a contained Claude print-mode run in
+a scratch project, waits for a bounded response, and requires the expected
+sentinel response:
 
   $SENTINEL
+
+It then starts real interactive Claude in a pseudo-terminal for ${TUI_SECONDS}s
+and fails if the captured TUI output looks like an auth, onboarding, or visual
+style prompt.
 
 Live mode is sudo-adjacent and requires explicit approval:
 
@@ -143,6 +159,7 @@ Live mode is sudo-adjacent and requires explicit approval:
 
 Live smoke shape:
   hazmat claude --no-backup -C <scratch-project> -p "$PROMPT"
+  hazmat claude --no-backup --skip-harness-assets-sync -C <scratch-project>
 
 Use the installed binary explicitly when validating an installed build:
   HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT=/path/to/hazmat scripts/check-claude-onboarding-smoke.sh --run --i-understand-this-runs-hazmat-claude
@@ -182,7 +199,7 @@ print_bounded_output() {
 output_has_onboarding_prompt() {
 	output_file="$1"
 	grep -E -i \
-		'(/login|log in|please log in|sign in|authentication required|not authenticated|please authenticate|onboarding|welcome to claude code|visual style|select.*(style|theme)|choose.*(style|theme)|press enter|open.*browser|claude[.]ai/login|anthropic console)' \
+		'(/login|log in|please log in|sign in|authentication required|not authenticated|please authenticate|onboarding|welcome to claude code|first.*time|visual style|select.*(style|theme)|choose.*(style|theme)|open.*browser|claude[.]ai/login|anthropic console)' \
 		"$output_file" >/dev/null 2>&1
 }
 
@@ -218,7 +235,7 @@ run_with_timeout() {
 	return "$status"
 }
 
-run_smoke() {
+run_print_smoke() {
 	SCRATCH="$(mktemp -d /tmp/hazmat-claude-onboarding-smoke.XXXXXX)"
 	PROJECT="$SCRATCH/project"
 	TIMEOUT_MARKER="$SCRATCH/timed-out"
@@ -242,14 +259,24 @@ run_smoke() {
 		exit 1
 	fi
 
-	if output_has_onboarding_prompt "$OUTPUT"; then
-		echo "claude-onboarding-smoke: output looks like Claude showed an auth or onboarding prompt" >&2
+	if [ "$status" -ne 0 ]; then
+		if output_has_onboarding_prompt "$OUTPUT"; then
+			echo "claude-onboarding-smoke: print-mode output looks like Claude showed an auth or onboarding prompt" >&2
+			print_bounded_output "$OUTPUT"
+			exit 1
+		fi
+		echo "claude-onboarding-smoke: hazmat claude exited with status $status" >&2
 		print_bounded_output "$OUTPUT"
 		exit 1
 	fi
 
-	if [ "$status" -ne 0 ]; then
-		echo "claude-onboarding-smoke: hazmat claude exited with status $status" >&2
+	if grep -F "$SENTINEL" "$OUTPUT" >/dev/null 2>&1; then
+		echo "claude-onboarding-smoke: print-mode startup ok"
+		return
+	fi
+
+	if output_has_onboarding_prompt "$OUTPUT"; then
+		echo "claude-onboarding-smoke: print-mode output looks like Claude showed an auth or onboarding prompt" >&2
 		print_bounded_output "$OUTPUT"
 		exit 1
 	fi
@@ -259,8 +286,127 @@ run_smoke() {
 		print_bounded_output "$OUTPUT"
 		exit 1
 	fi
+}
 
-	echo "claude-onboarding-smoke: print-mode startup ok"
+run_tui_probe() {
+	TUI_OUTPUT="$PROJECT/.hazmat-claude-onboarding-smoke.tui.out"
+
+	set +e
+	python3 - "$TUI_SECONDS" "$TUI_OUTPUT" "$HAZMAT" "$PROJECT" <<'PY'
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import time
+
+observe_seconds = int(sys.argv[1])
+output_path = sys.argv[2]
+hazmat = sys.argv[3]
+project = sys.argv[4]
+
+master, slave = pty.openpty()
+env = os.environ.copy()
+env.setdefault("TERM", "xterm-256color")
+cmd = [
+    hazmat,
+    "claude",
+    "--no-backup",
+    "--skip-harness-assets-sync",
+    "-C",
+    project,
+]
+proc = subprocess.Popen(
+    cmd,
+    stdin=slave,
+    stdout=slave,
+    stderr=slave,
+    env=env,
+    start_new_session=True,
+    close_fds=True,
+)
+os.close(slave)
+
+deadline = time.monotonic() + observe_seconds
+buf = bytearray()
+exited_early = False
+
+def drain_once(timeout):
+    ready, _, _ = select.select([master], [], [], timeout)
+    if master not in ready:
+        return False
+    try:
+        chunk = os.read(master, 8192)
+    except OSError:
+        return False
+    if not chunk:
+        return False
+    buf.extend(chunk)
+    if len(buf) > 200000:
+        del buf[:-200000]
+    return True
+
+while time.monotonic() < deadline:
+    if proc.poll() is not None:
+        exited_early = True
+        break
+    drain_once(0.2)
+
+if proc.poll() is None:
+    try:
+        os.write(master, b"\x03")
+    except OSError:
+        pass
+    time.sleep(0.5)
+if proc.poll() is None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+for _ in range(10):
+    if proc.poll() is not None:
+        break
+    drain_once(0.1)
+if proc.poll() is None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass
+
+while drain_once(0):
+    pass
+
+with open(output_path, "wb") as f:
+    f.write(buf)
+
+if exited_early and proc.returncode not in (0, -signal.SIGINT, -signal.SIGTERM):
+    sys.exit(1)
+sys.exit(0)
+PY
+	status=$?
+	set -e
+
+	if [ "$status" -ne 0 ]; then
+		echo "claude-onboarding-smoke: interactive TUI probe exited early with status $status" >&2
+		print_bounded_output "$TUI_OUTPUT"
+		exit 1
+	fi
+	if output_has_onboarding_prompt "$TUI_OUTPUT"; then
+		echo "claude-onboarding-smoke: interactive TUI output looks like Claude showed an auth/onboarding prompt" >&2
+		print_bounded_output "$TUI_OUTPUT"
+		exit 1
+	fi
+	echo "claude-onboarding-smoke: interactive TUI prompt probe ok"
+}
+
+run_smoke() {
+	run_print_smoke
+	run_tui_probe
 }
 
 case "$MODE" in

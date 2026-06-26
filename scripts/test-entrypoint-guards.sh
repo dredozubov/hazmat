@@ -479,7 +479,7 @@ assert_succeeds_with \
 
 assert_succeeds_with \
     "Claude onboarding smoke discloses prompt detection" \
-    "auth or onboarding prompt" \
+    "auth, onboarding, or visual" \
     "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh"
 
 assert_succeeds_with \
@@ -573,6 +573,8 @@ assert_file_contains_all \
     "run_with_timeout" \
     "HAZMAT_CLAUDE_ONBOARDING_SMOKE_OK" \
     "output looks like Claude showed an auth or onboarding prompt" \
+    "pty.openpty" \
+    "interactive TUI output looks like Claude showed an auth/onboarding prompt" \
     "select.*(style|theme)" \
     "visual style"
 

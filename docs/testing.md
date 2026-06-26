@@ -24,7 +24,7 @@ or with a product-facing scenario flow.
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
-| `scripts/check-claude-onboarding-smoke.sh` | Does a real `hazmat claude -p` startup skip auth/onboarding prompts and return a bounded print-mode response? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
+| `scripts/check-claude-onboarding-smoke.sh` | Does a real `hazmat claude` startup authenticate in print mode and avoid auth/onboarding prompts in interactive TUI startup? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
@@ -374,8 +374,8 @@ make e2e-claude-onboarding-smoke
 
 Fixture checks are non-mutating host checks. They verify that the selected
 Hazmat binary exists and that local shell utilities needed for the bounded
-print-mode run are available. Agents still need explicit approval before
-running fixture checks because they inspect local Hazmat setup:
+print-mode and PTY startup probes are available. Agents still need explicit
+approval before running fixture checks because they inspect local Hazmat setup:
 
 ```bash
 scripts/check-claude-onboarding-smoke.sh --check-fixtures
@@ -392,8 +392,9 @@ scripts/check-claude-onboarding-smoke.sh --run --i-understand-this-runs-hazmat-c
 Set `HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT` to an installed binary path when
 validating an installed build instead of the checkout binary. The live smoke
 creates a scratch project, runs Claude print mode with a sentinel prompt,
-fails on timeout, fails if output looks like an auth/onboarding prompt, and
-requires the sentinel response.
+requires the sentinel response, then launches real interactive Claude in a
+pseudo-terminal for a short observation window. It fails on timeout, early
+child crash, or output that looks like an auth/onboarding/visual-style prompt.
 
 ### Claude Workflow export smoke
 
