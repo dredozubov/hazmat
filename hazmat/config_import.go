@@ -111,7 +111,11 @@ var (
 		"shiftEnterKeyBindingInstalled",
 		"deepLinkTerminal",
 	}
-	claudePortableStateKeys = append(append([]string{}, claudePortableAuthKeys...), claudePortablePreferenceKeys...)
+	claudePortableStateKeys    = append(append([]string{}, claudePortableAuthKeys...), claudePortablePreferenceKeys...)
+	claudePortableSettingsKeys = []string{
+		"theme",
+		"tui",
+	}
 )
 
 func defaultClaudeImportEnv() (claudeImportEnv, error) {
@@ -210,8 +214,10 @@ Hazmat imports only portable basics:
   - ~/.claude/commands
   - ~/.claude/skills
 
-Hazmat does NOT import settings.json, hooks, MCP configuration, plugins,
-project-local .claude directories, session history, or runtime caches.
+Hazmat does NOT import settings.json wholesale, hooks, MCP configuration,
+plugins, project-local .claude directories, session history, or runtime caches.
+Claude sessions reconcile only narrow non-secret startup display preferences
+needed to avoid repeated first-run style onboarding.
 
 Use --dry-run to preview. If existing imported files differ, either choose a
 policy interactively or pass --overwrite / --skip-existing explicitly.`,
@@ -557,6 +563,10 @@ func selectClaudeAuthKeys(raw []byte) (map[string]json.RawMessage, error) {
 
 func selectClaudePortableStateKeys(raw []byte) (map[string]json.RawMessage, error) {
 	return selectClaudeJSONKeys(raw, claudePortableStateKeys)
+}
+
+func selectClaudePortableSettingsKeys(raw []byte) (map[string]json.RawMessage, error) {
+	return selectClaudeJSONKeys(raw, claudePortableSettingsKeys)
 }
 
 func selectClaudeJSONKeys(raw []byte, keys []string) (map[string]json.RawMessage, error) {

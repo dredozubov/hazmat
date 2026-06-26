@@ -271,8 +271,8 @@ install or release artifacts can be enabled.
 | Governed code | `hazmat/session_policy_sbpl.go` — `compileDarwinSBPLChecked()` compiler adapter from native policy to Darwin SBPL |
 | Governed code | `hazmat/containment/darwin/sbpl.go` — Darwin SBPL compiler and rule ordering |
 | Governed code | `hazmat/containment/agent_home_manifest.go` — explicit durable agent-home path manifest projected into section 4 grants |
-| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `SessionHomeUsableWhenActive`, `SessionHomeSeparateFromCredentials`, `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
-| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees, planned session-local HOME layout, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
+| Key invariants | `CredentialReadDenied`, `CredentialWriteDenied`, `AttestationKeyReadDenied`, `AttestationKeyWriteDenied`, `AgentKeychainExceptionScoped`, `ReadDirsNoWrite`, `NoBroadAgentHomeAllow`, `AgentHomeSubsUsable`, `AgentHomeFilesUsable`, `SessionHomeUsableWhenActive`, `SessionHomeSeparateFromCredentials`, `PersistentAgentHomeNotImplicitlyExposedWhenSessionHome`, `UnlistedAgentHomeNotImplicitlyReadable`, `UnlistedAgentHomeNotImplicitlyWritable`, `UnlistedAgentHomeNotImplicitlyExecutable`, `ProjectDirWritable`, `ReadDirSubsumption`, `ResumeDirNotCredential`, `HostTempNotImplicitlyReadable`, `HostTempNotImplicitlyWritable`, `HostTempNotImplicitlyExecutable`, `SessionTempWritable`, `ClaudeRuntimeTempScoped`, `TempSocketsDenied`, `NetworkNoneDeniesOutbound`, `NetworkNoneDeniesDNS`, `NetworkDefaultAllowsOutbound` |
+| Status | **Fixed and Re-Proved** — credential denies cover both ops; resume dir, project re-assertion, explicit agent-home subtrees/files, planned session-local HOME layout, native network-none mode, host-temp narrowing, and Claude's exact agent login keychain exception are modeled |
 
 **What was found:** Credential deny rules only blocked `file-read*`, not
 `file-write*`. Two vectors: (a) `ProjectDir = /Users/agent` granted write to
@@ -389,6 +389,16 @@ remains the adapter-required external boundary. The full suite (`check_suite.sh`
 re-ran green (exit 0); `MC_SeatbeltPolicy` alone reported "No error has been found"
 across the same 7,667,712 generated / 7,028,736 distinct states, depth 11.
 
+**2026-06-26 Claude state file grant:** The spec now distinguishes section-4
+agent-home directory grants (`AgentHomeSubs`) from literal file grants
+(`AgentHomeFiles`) and models `/Users/agent/.claude.json` as durable Claude
+harness state. `AgentHomeFilesUsable` proves that explicit literal state files
+remain readable and writable in persistent-home mode without receiving implicit
+execute access, while `NoBroadAgentHomeAllow` and the unlisted-home invariants
+continue to block unrelated home content. `MC_SeatbeltPolicy` was re-run with
+TLC and reported "No error has been found" across 7,667,712 generated states,
+7,028,736 distinct states, depth 11.
+
 Important proof dependency: `CredentialReadDenied` and `CredentialWriteDenied`
 reason about SBPL path matching, not already-open inherited kernel handles. The
 native launch path now proves that precondition separately in
@@ -404,8 +414,9 @@ inherited credential-bearing fd still alive.
   `CredPaths` in the TLA+ model and re-running TLC.
 - Changing the Claude keychain exception paths requires updating
   `AgentKeychainExceptionPaths` and re-running TLC.
-- Adding new static allow paths (new `AgentHomeSubs`) requires checking whether
-  they cover any credential paths — add to the model and re-verify.
+- Adding new static allow paths (new `AgentHomeSubs` or `AgentHomeFiles`)
+  requires checking whether they cover any credential paths — add to the model
+  and re-verify.
 - Adding new optional read+write sections (like ResumeDir) requires modeling the
   path and verifying it cannot overlap with `CredPaths`.
 - Changing native temp grants or temp socket deny paths requires updating this

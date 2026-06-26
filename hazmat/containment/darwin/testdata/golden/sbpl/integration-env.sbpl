@@ -112,6 +112,7 @@
 (allow file-read* file-write* (subpath "/Users/agent/.terraform.d"))
 (allow file-read* file-write* (literal "/Users/agent/.bash_profile"))
 (allow file-read* file-write* (literal "/Users/agent/.bashrc"))
+(allow file-read* file-write* (literal "/Users/agent/.claude.json"))
 (allow file-read* file-write* (literal "/Users/agent/.gitconfig"))
 (allow file-read* file-write* (literal "/Users/agent/.npmrc"))
 (allow file-read* file-write* (literal "/Users/agent/.profile"))

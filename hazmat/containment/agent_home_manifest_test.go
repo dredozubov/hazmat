@@ -23,6 +23,7 @@ func TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths(t *testing.T) {
 		// harness keeps a manifest entry. Dropping one fails here even though the
 		// projection test below is now derived from the manifest itself.
 		".claude":                 AgentHomeStateHarnessState,
+		".claude.json":            AgentHomeStateHarnessState,
 		".codex":                  AgentHomeStateHarnessState,
 		".opencode":               AgentHomeStateHarnessState,
 		".gemini":                 AgentHomeStateHarnessState, // covers Antigravity (~/.gemini/antigravity-cli)

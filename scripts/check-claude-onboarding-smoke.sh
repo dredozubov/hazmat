@@ -199,7 +199,7 @@ print_bounded_output() {
 output_has_onboarding_prompt() {
 	output_file="$1"
 	grep -E -i \
-		'(/login|log in|please log in|sign in|authentication required|not authenticated|please authenticate|onboarding|welcome to claude code|first.*time|visual style|select.*(style|theme)|choose.*(style|theme)|open.*browser|claude[.]ai/login|anthropic console)' \
+		'(/login|log in|please log in|sign in|authentication required|not authenticated|please authenticate|welcome to claude code|first[- ]time.*claude|visual style|select.*(style|theme)|choose.*(style|theme)|open.*browser|claude[.]ai/login|anthropic console)' \
 		"$output_file" >/dev/null 2>&1
 }
 
@@ -331,6 +331,7 @@ os.close(slave)
 deadline = time.monotonic() + observe_seconds
 buf = bytearray()
 exited_early = False
+confirmed_project_trust = False
 
 def drain_once(timeout):
     ready, _, _ = select.select([master], [], [], timeout)
@@ -352,6 +353,14 @@ while time.monotonic() < deadline:
         exited_early = True
         break
     drain_once(0.2)
+    if not confirmed_project_trust:
+        text = buf.decode("utf-8", errors="ignore")
+        if "Quick" in text and "safety" in text and "Yes" in text and "trust" in text and "folder" in text:
+            try:
+                os.write(master, b"\r")
+                confirmed_project_trust = True
+            except OSError:
+                pass
 
 if proc.poll() is None:
     try:

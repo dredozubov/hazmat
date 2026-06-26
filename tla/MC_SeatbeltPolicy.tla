@@ -30,9 +30,10 @@
 \*   1. Credential reads are denied except the explicit agent keychain exception
 \*   2. Credential writes are denied except the explicit agent keychain exception
 \*   3. Read dirs never grant write access
-\*   4. Persistent agent home receives explicit subtree grants, not a blanket
-\*      home allow; session-local HOME can be broadly writable only when it is
-\*      separate from persistent agent home and credential/authority paths
+\*   4. Persistent agent home receives explicit subtree/file grants, not a
+\*      blanket home allow; session-local HOME can be broadly writable only
+\*      when it is separate from persistent agent home and credential/authority
+\*      paths
 \*   5. ResumeDir (invoker's session dir) cannot be a credential path
 \*   6. Host temp is not implicitly readable/writable/executable
 \*   7. Session temp remains writable and executable for build tools
@@ -56,7 +57,8 @@ CONSTANTS
     CredPaths,      \* subset: credential deny roots (.ssh, .aws, Keychains, etc.)
     CredentialTargets, \* subset: representative sensitive paths covered by credential deny roots
     AgentKeychainExceptionPaths, \* subset: exact agent login keychain files allowed only for Claude / Antigravity OAuth
-    AgentHomeSubs,  \* subset: paths under agent home that get static read+write allows
+    AgentHomeSubs,  \* subset: dirs under agent home that get static read+write+exec allows
+    AgentHomeFiles, \* subset: files under agent home that get static read+write allows
     ProjectChoices, \* subset: valid choices for ProjectDir
     ReadChoices,    \* subset: valid choices for ReadDir entries
     NetworkChoices, \* subset: network modes ("default", "none")
@@ -84,7 +86,8 @@ CONSTANTS
     hostTempOutside,\* /private/tmp/outside-host-readable.txt
     sessionTempRoot,\* /Users/agent/.cache/hazmat/tmp/<session>
     sessionTempFile,\* /Users/agent/.cache/hazmat/tmp/<session>/artifact
-    agentStateDir,  \* /Users/agent/.claude (representative allowed durable harness state)
+    agentStateDir,  \* /Users/agent/.claude (representative allowed durable harness state dir)
+    agentStateFile, \* /Users/agent/.claude.json (representative allowed durable harness state file)
     agentLocalDir,  \* /Users/agent/.local (representative allowed tool/XDG subtree)
     agentOtherFile, \* /Users/agent/unlisted.txt (representative unlisted home content)
     claudeTempRoot,\* /private/tmp/claude-599 (agent-owned Claude runtime temp)
@@ -97,6 +100,7 @@ ASSUME CredPaths \subseteq Paths
 ASSUME CredentialTargets \subseteq Paths
 ASSUME AgentKeychainExceptionPaths \subseteq CredentialTargets
 ASSUME AgentHomeSubs \subseteq Paths
+ASSUME AgentHomeFiles \subseteq Paths
 ASSUME ProjectChoices \subseteq Paths
 ASSUME ReadChoices \subseteq Paths
 ASSUME NetworkChoices \subseteq {"default", "none"}
@@ -129,6 +133,7 @@ Contains(child, parent) ==
     \/ (child = sessionTempFile /\ parent = agentHome)
     \/ (child = sessionTempFile /\ parent = sessionTempRoot)
     \/ (child = agentStateDir /\ parent = agentHome)
+    \/ (child = agentStateFile /\ parent = agentHome)
     \/ (child = agentLocalDir /\ parent = agentHome)
     \/ (child = agentOtherFile /\ parent = agentHome)
     \/ (child = hostTempOutside /\ parent = hostTempRoot)
@@ -250,8 +255,10 @@ EmitResumeDir ==
 
 \* Section 4: Home config.
 \* HOME remains /Users/agent, but the policy no longer grants the whole home.
-\* AgentHomeSubs represents supported persistent paths such as .claude, .codex,
-\* .agents, .opencode, .gemini, .qwen, .cursor, .config, .cache, and .local.
+\* AgentHomeSubs represents supported persistent directories such as .claude,
+\* .codex, .agents, .opencode, .gemini, .qwen, .cursor, .config, .cache, and
+\* .local. AgentHomeFiles represents supported persistent literal files such as
+\* .claude.json.
 \* In future session-local HOME mode, HOME is an assembled disposable directory
 \* under /private/tmp/hazmat-home/<session>. It may be broadly writable because
 \* long-lived credentials and durable transcript stores must not be mounted
@@ -265,8 +272,8 @@ EmitHomeConfig ==
          \* Only the enumerated persistent subtrees are allowed here. The
          \* persistent home root and unrelated home files intentionally receive
          \* no section-4 rule.
-         {AllowRead(4, p) : p \in AgentHomeSubs} \cup
-         {AllowWrite(4, p) : p \in AgentHomeSubs} \cup
+         {AllowRead(4, p) : p \in (AgentHomeSubs \cup AgentHomeFiles)} \cup
+         {AllowWrite(4, p) : p \in (AgentHomeSubs \cup AgentHomeFiles)} \cup
          {AllowExec(4, p) : p \in AgentHomeSubs}
        ELSE rules' = rules \cup
          {AllowRead(4, sessionHome), AllowWrite(4, sessionHome), AllowExec(4, sessionHome)}
@@ -466,6 +473,16 @@ AgentHomeSubsUsable ==
             /\ EffectiveWrite(p) = "allow_write"
             /\ EffectiveExec(p) = "allow_exec"
 
+\* --- Explicit agent-home compatibility files stay usable without exec ---
+AgentHomeFilesUsable ==
+    section = 10 /\ homeMode = "persistent" =>
+        \A p \in AgentHomeFiles :
+            /\ EffectiveRead(p) = "allow_read"
+            /\ EffectiveWrite(p) = "allow_write"
+            /\ \/ Contains(p, projectDir)
+               \/ \E d \in readDirs : Contains(p, d)
+               \/ EffectiveExec(p) # "allow_exec"
+
 \* --- Session-local HOME is usable only in session-home mode ---
 SessionHomeUsableWhenActive ==
     section = 10 /\ homeMode = "session" =>
@@ -486,7 +503,7 @@ SessionHomeSeparateFromCredentials ==
 \* --- Persistent agent-home paths are not implicitly exposed after HOME moves ---
 PersistentAgentHomeNotImplicitlyExposedWhenSessionHome ==
     section = 10 /\ homeMode = "session" =>
-        \A p \in AgentHomeSubs :
+        \A p \in (AgentHomeSubs \cup AgentHomeFiles) :
             /\ (Contains(p, projectDir) \/ (\E d \in readDirs : Contains(p, d)) \/ EffectiveRead(p) # "allow_read")
             /\ (Contains(p, projectDir) \/ EffectiveWrite(p) # "allow_write")
             /\ (Contains(p, projectDir) \/ (\E d \in readDirs : Contains(p, d)) \/ EffectiveExec(p) # "allow_exec")

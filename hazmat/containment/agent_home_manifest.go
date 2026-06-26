@@ -168,6 +168,7 @@ var persistentAgentHomeManifest = []AgentHomeStateEntry{
 		{RelPath: ".claude/skills", Class: AgentHomeStateHarnessState},
 		{RelPath: ".claude/projects", Class: AgentHomeStateTranscript},
 	}, ExecutableRelPaths: []string{".claude/hooks"}},
+	{RelPath: ".claude.json", Kind: AgentHomeStateFile, Class: AgentHomeStateHarnessState},
 	{RelPath: ".codex", Kind: AgentHomeStateDir, Class: AgentHomeStateHarnessState, ExecutableRelPaths: []string{".codex/packages"}},
 	{RelPath: ".config", Kind: AgentHomeStateDir, Class: AgentHomeStateXDGConfig, CoveredPaths: []AgentHomeCoveredPath{
 		{RelPath: ".config/git", Class: AgentHomeStateGitConfig},

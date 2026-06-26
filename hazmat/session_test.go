@@ -1463,6 +1463,7 @@ func TestGenerateSBPLUsesExplicitAgentHomeGrants(t *testing.T) {
 
 	for _, want := range []string{
 		`(allow file-read* file-write* (subpath "` + agentHome + `/.claude"))`,
+		`(allow file-read* file-write* (literal "` + agentHome + `/.claude.json"))`,
 		`(allow file-read* file-write* (subpath "` + agentHome + `/.codex"))`,
 		`(allow file-read* file-write* (subpath "` + agentHome + `/.config"))`,
 		`(allow file-read* file-write* (subpath "` + agentHome + `/.local"))`,

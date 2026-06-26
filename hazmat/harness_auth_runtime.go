@@ -20,6 +20,14 @@ type harnessAuthKeychainData struct {
 	UpdatedAt time.Time
 }
 
+var detectClaudeInstalledVersionForOnboarding = func() (string, bool) {
+	probe := probeClaudeHarness(asAgentOutput)
+	if !probe.Installed || probe.Version == "" {
+		return "", false
+	}
+	return parseClaudeVersionStatusLine(probe.Version)
+}
+
 type harnessAuthArtifact struct {
 	CredentialID credentials.ID
 	Name         string
@@ -246,7 +254,7 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 					return nil, false, hostErr
 				}
 				if hostOK {
-					payload = mergeClaudeStateMaps(payload, hostState)
+					payload = mergeClaudePortableStateMaps(payload, hostState)
 					ok = true
 				}
 			}
@@ -265,14 +273,14 @@ func claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome string) harn
 				return nil, false, storeErr
 			}
 			if storedOK {
-				payload = mergeClaudeStateMaps(stored, payload)
+				payload = mergeClaudePortableStateMaps(stored, payload)
 			}
 			hostState, hostOK, hostErr := readClaudePortableStateFromHost(hostStatePath)
 			if hostErr != nil {
 				return nil, false, hostErr
 			}
 			if hostOK {
-				payload = mergeClaudeStateMaps(hostState, payload)
+				payload = mergeClaudePortableStateMaps(hostState, payload)
 			}
 			return payload, true, nil
 		},
@@ -311,6 +319,249 @@ func readClaudePortableStateFromHost(path string) (map[string]json.RawMessage, b
 	return payload, true, nil
 }
 
+func parseClaudeVersionStatusLine(line string) (string, bool) {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) == 0 {
+		return "", false
+	}
+	version := strings.TrimPrefix(fields[0], "v")
+	if !exactReleaseVersion.MatchString(version) {
+		return "", false
+	}
+	return version, true
+}
+
+func repairClaudeCompletedOnboardingVersionTo(payload map[string]json.RawMessage, installedVersion string) map[string]json.RawMessage {
+	if len(payload) == 0 || !claudeJSONBool(payload, "hasCompletedOnboarding") {
+		return payload
+	}
+	currentVersion, ok := claudeJSONString(payload, "lastOnboardingVersion")
+	if ok && semverCompare(currentVersion, installedVersion) >= 0 {
+		return payload
+	}
+	raw, err := json.Marshal(installedVersion)
+	if err != nil {
+		return payload
+	}
+	return mergeClaudeStateMaps(payload, map[string]json.RawMessage{
+		"lastOnboardingVersion": raw,
+	})
+}
+
+func claudeJSONBool(payload map[string]json.RawMessage, key string) bool {
+	raw, ok := payload[key]
+	if !ok {
+		return false
+	}
+	var value bool
+	return json.Unmarshal(raw, &value) == nil && value
+}
+
+func claudeJSONString(payload map[string]json.RawMessage, key string) (string, bool) {
+	raw, ok := payload[key]
+	if !ok {
+		return "", false
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil || value == "" {
+		return "", false
+	}
+	return value, true
+}
+
+func hostClaudeSettingsPath(home string) string {
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+func agentClaudeSettingsPath(runtimeHome string) string {
+	return filepath.Join(runtimeHome, ".claude", "settings.json")
+}
+
+func agentClaudeMigratedConfigPath(runtimeHome string) string {
+	return filepath.Join(runtimeHome, ".claude", ".config.json")
+}
+
+func readClaudePortableSettingsFromHost(path string) (map[string]json.RawMessage, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	payload, err := selectClaudePortableSettingsKeys(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(payload) == 0 {
+		return nil, false, nil
+	}
+	return payload, true, nil
+}
+
+func selectClaudeSettingsFromStateStore(payload map[string]json.RawMessage) map[string]json.RawMessage {
+	selected := make(map[string]json.RawMessage)
+	for _, key := range claudePortableSettingsKeys {
+		if value, ok := payload[key]; ok {
+			selected[key] = slices.Clone(value)
+		}
+	}
+	return selected
+}
+
+func readClaudeSettingsKeysFromAgent(path string) (map[string]json.RawMessage, bool, error) {
+	raw, ok, err := readAgentSecretFile(path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	payload, err := selectClaudePortableSettingsKeys(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(payload) == 0 {
+		return nil, false, nil
+	}
+	return payload, true, nil
+}
+
+func defaultClaudePortableSettings() map[string]json.RawMessage {
+	return map[string]json.RawMessage{
+		"theme": json.RawMessage(`"auto"`),
+	}
+}
+
+func writeClaudeSettingsKeysToAgent(path string, payload map[string]json.RawMessage) error {
+	currentRaw, ok, err := readAgentSecretFile(path)
+	if err != nil {
+		return err
+	}
+
+	current := map[string]json.RawMessage{}
+	if ok && len(bytes.TrimSpace(currentRaw)) > 0 {
+		if err := json.Unmarshal(currentRaw, &current); err != nil {
+			return err
+		}
+	}
+	for key, value := range payload {
+		current[key] = slices.Clone(value)
+	}
+
+	raw, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	return writeAgentSecretFile(path, raw, 0o660)
+}
+
+func materializeClaudePortableSettings(home, runtimeHome string) error {
+	storePath := claudeStateStorePathForHome(home)
+	settings := defaultClaudePortableSettings()
+	if agentSettings, ok, err := readClaudeSettingsKeysFromAgent(agentClaudeSettingsPath(runtimeHome)); err != nil {
+		return err
+	} else if ok {
+		settings = mergeClaudeStateMaps(settings, agentSettings)
+	}
+	if storeState, ok, err := readJSONMapStoreFile(storePath); err != nil {
+		return err
+	} else if ok {
+		settings = mergeClaudeStateMaps(settings, selectClaudeSettingsFromStateStore(storeState))
+	}
+	if hostSettings, ok, err := readClaudePortableSettingsFromHost(hostClaudeSettingsPath(home)); err != nil {
+		return err
+	} else if ok {
+		settings = mergeClaudeStateMaps(settings, hostSettings)
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return writeClaudeSettingsKeysToAgent(agentClaudeSettingsPath(runtimeHome), settings)
+}
+
+func harvestClaudePortableSettings(home, runtimeHome string) error {
+	agentSettings, ok, err := readClaudeSettingsKeysFromAgent(agentClaudeSettingsPath(runtimeHome))
+	if err != nil || !ok {
+		return err
+	}
+	storePath := claudeStateStorePathForHome(home)
+	storeState, storeOK, err := readJSONMapStoreFile(storePath)
+	if err != nil {
+		return err
+	}
+	if !storeOK {
+		storeState = map[string]json.RawMessage{}
+	}
+	for key, value := range agentSettings {
+		storeState[key] = slices.Clone(value)
+	}
+	return writeJSONMapStoreFile(storePath, storeState)
+}
+
+func materializeClaudeCompletedOnboardingVersion(home, runtimeHome string) error {
+	installedVersion, ok := detectClaudeInstalledVersionForOnboarding()
+	if !ok {
+		return nil
+	}
+	descriptor := mustCredentialDescriptor(credentials.HarnessClaudeState)
+	agentPath, err := agentMaterializationPathForRuntimeHome(descriptor, runtimeHome)
+	if err != nil {
+		return err
+	}
+	payload, ok, err := readClaudeStateKeysFromAgent(agentPath)
+	if err != nil || !ok {
+		return err
+	}
+	repaired := repairClaudeCompletedOnboardingVersionTo(payload, installedVersion)
+	if jsonSubsetEqual(payload, repaired) && jsonSubsetEqual(repaired, payload) {
+		return nil
+	}
+	return writeClaudeStateKeysToAgent(agentPath, repaired)
+}
+
+func materializeClaudeMigratedConfigState(runtimeHome string) error {
+	migratedConfigPath := agentClaudeMigratedConfigPath(runtimeHome)
+	if _, ok, err := readAgentSecretFile(migratedConfigPath); err != nil || !ok {
+		return err
+	}
+	descriptor := mustCredentialDescriptor(credentials.HarnessClaudeState)
+	agentPath, err := agentMaterializationPathForRuntimeHome(descriptor, runtimeHome)
+	if err != nil {
+		return err
+	}
+	payload, ok, err := readClaudeStateKeysFromAgent(agentPath)
+	if err != nil || !ok {
+		return err
+	}
+	return writeClaudeStateKeysToAgent(migratedConfigPath, payload)
+}
+
+func mergeClaudeMigratedConfigStateIntoAgentState(runtimeHome string) error {
+	migratedConfigPath := agentClaudeMigratedConfigPath(runtimeHome)
+	migratedConfigState, ok, err := readClaudeStateKeysFromAgent(migratedConfigPath)
+	if err != nil || !ok {
+		return err
+	}
+	descriptor := mustCredentialDescriptor(credentials.HarnessClaudeState)
+	agentPath, err := agentMaterializationPathForRuntimeHome(descriptor, runtimeHome)
+	if err != nil {
+		return err
+	}
+	merged := migratedConfigState
+	if agentState, agentOK, readErr := readClaudeStateKeysFromAgent(agentPath); readErr != nil {
+		return readErr
+	} else if agentOK {
+		merged = mergeClaudeStateMaps(agentState, migratedConfigState)
+	}
+	return writeClaudeStateKeysToAgent(agentPath, merged)
+}
+
+func removeClaudeMigratedConfigState(runtimeHome string) error {
+	if _, ok, err := readAgentSecretFile(agentClaudeMigratedConfigPath(runtimeHome)); err != nil || !ok {
+		return err
+	}
+	return removeClaudeStateKeysFromAgent(agentClaudeMigratedConfigPath(runtimeHome))
+}
+
 func mergeClaudeStateMaps(base, overlay map[string]json.RawMessage) map[string]json.RawMessage {
 	if len(base) == 0 && len(overlay) == 0 {
 		return nil
@@ -323,6 +574,37 @@ func mergeClaudeStateMaps(base, overlay map[string]json.RawMessage) map[string]j
 		merged[key] = slices.Clone(value)
 	}
 	return merged
+}
+
+func mergeClaudePortableStateMaps(base, overlay map[string]json.RawMessage) map[string]json.RawMessage {
+	merged := mergeClaudeStateMaps(base, overlay)
+	if len(merged) == 0 {
+		return merged
+	}
+	if claudeJSONBool(base, "hasCompletedOnboarding") || claudeJSONBool(overlay, "hasCompletedOnboarding") {
+		merged["hasCompletedOnboarding"] = json.RawMessage(`true`)
+	}
+	if version, ok := maxClaudeOnboardingVersion(base, overlay); ok {
+		raw, err := json.Marshal(version)
+		if err == nil {
+			merged["lastOnboardingVersion"] = raw
+		}
+	}
+	return merged
+}
+
+func maxClaudeOnboardingVersion(states ...map[string]json.RawMessage) (string, bool) {
+	var maxVersion string
+	for _, state := range states {
+		version, ok := claudeJSONString(state, "lastOnboardingVersion")
+		if !ok || !exactReleaseVersion.MatchString(version) {
+			continue
+		}
+		if maxVersion == "" || semverCompare(version, maxVersion) > 0 {
+			maxVersion = version
+		}
+	}
+	return maxVersion, maxVersion != ""
 }
 
 func agentMaterializationPathForRuntimeHome(descriptor credentials.Descriptor, runtimeHome string) (string, error) {
@@ -491,7 +773,39 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 	if cfg.AgentLoginKeychainAccess && cfg.HarnessID == HarnessClaude {
 		artifacts = preferClaudeAgentKeychainDelivery(artifacts)
 	}
-	return prepareHarnessAuthRuntimeForArtifacts(artifacts)
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts(artifacts)
+	if err != nil {
+		return runtime, err
+	}
+	if cfg.HarnessID != HarnessClaude {
+		return runtime, nil
+	}
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+		runtime.Cleanup()
+		return preparedSessionRuntime{}, err
+	}
+	if err := materializeClaudePortableSettings(home, runtimeHome); err != nil {
+		runtime.Cleanup()
+		return preparedSessionRuntime{}, err
+	}
+	if err := materializeClaudeMigratedConfigState(runtimeHome); err != nil {
+		runtime.Cleanup()
+		return preparedSessionRuntime{}, err
+	}
+	cleanup := runtime.Cleanup
+	runtime.Cleanup = func() {
+		if err := mergeClaudeMigratedConfigStateIntoAgentState(runtimeHome); err != nil {
+			fmt.Fprintf(os.Stderr, "hazmat: warning: could not merge Claude migrated config state before harvest: %v\n", err)
+		}
+		if err := harvestClaudePortableSettings(home, runtimeHome); err != nil {
+			fmt.Fprintf(os.Stderr, "hazmat: warning: could not harvest Claude startup display settings into ~/.hazmat/secrets: %v\n", err)
+		}
+		cleanup()
+		if err := removeClaudeMigratedConfigState(runtimeHome); err != nil {
+			fmt.Fprintf(os.Stderr, "hazmat: warning: could not remove Claude migrated config state after harvest: %v\n", err)
+		}
+	}
+	return runtime, nil
 }
 
 func preferClaudeAgentKeychainDelivery(artifacts []harnessAuthArtifact) []harnessAuthArtifact {

@@ -926,6 +926,75 @@ func TestPrepareHarnessAuthRuntimeClaudeStateMaterializesOverPartialAgentState(t
 	}
 }
 
+func TestPrepareHarnessAuthRuntimeClaudeStateKeepsCompletedOnboardingOverStaleAgentState(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	agentPath := filepath.Join(root, "agent", ".claude.json")
+
+	artifact := claudeStateHarnessAuthArtifact(home)
+	artifact.AgentPath = agentPath
+
+	stored := map[string]json.RawMessage{
+		"oauthAccount":           json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"userID":                 json.RawMessage(`"u-stored"`),
+		"hasCompletedOnboarding": json.RawMessage(`true`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.193"`),
+	}
+	if err := writeJSONMapStoreFile(artifact.StorePath, stored); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent state dir: %v", err)
+	}
+	staleAgentState := `{
+  "hasCompletedOnboarding": false,
+  "lastOnboardingVersion": "2.1.71",
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(agentPath, []byte(staleAgentState), 0o600); err != nil {
+		t.Fatalf("write stale agent Claude state: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+
+	agentRaw, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read materialized Claude state: %v", err)
+	}
+	for _, want := range []string{
+		`"hasCompletedOnboarding": true`,
+		`"lastOnboardingVersion": "2.1.193"`,
+		`"projects"`,
+	} {
+		if !strings.Contains(string(agentRaw), want) {
+			t.Fatalf("materialized Claude state missing %s:\n%s", want, string(agentRaw))
+		}
+	}
+
+	staleRuntimeState := `{
+  "hasCompletedOnboarding": false,
+  "lastOnboardingVersion": "2.1.71",
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(agentPath, []byte(staleRuntimeState), 0o600); err != nil {
+		t.Fatalf("overwrite stale runtime Claude state: %v", err)
+	}
+
+	runtime.Cleanup()
+
+	storeRaw, err := os.ReadFile(artifact.StorePath)
+	if err != nil {
+		t.Fatalf("read harvested Claude store state: %v", err)
+	}
+	if !strings.Contains(string(storeRaw), `"hasCompletedOnboarding": true`) ||
+		!strings.Contains(string(storeRaw), `"lastOnboardingVersion": "2.1.193"`) {
+		t.Fatalf("harvested Claude store state was downgraded by stale runtime state:\n%s", string(storeRaw))
+	}
+}
+
 func TestPrepareHarnessAuthRuntimeClaudeStateRepairsPartialStoreFromHost(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -981,6 +1050,402 @@ func TestPrepareHarnessAuthRuntimeClaudeStateRepairsPartialStoreFromHost(t *test
 	for _, excluded := range []string{`"mcpServers"`, `"projects"`} {
 		if strings.Contains(string(agentRaw), excluded) {
 			t.Fatalf("materialized Claude state imported excluded host key %s:\n%s", excluded, string(agentRaw))
+		}
+	}
+}
+
+func TestParseClaudeVersionStatusLine(t *testing.T) {
+	version, ok := parseClaudeVersionStatusLine("2.1.193 (Claude Code)")
+	if !ok || version != "2.1.193" {
+		t.Fatalf("parseClaudeVersionStatusLine = %q, %v; want 2.1.193, true", version, ok)
+	}
+	if version, ok := parseClaudeVersionStatusLine("not a version"); ok || version != "" {
+		t.Fatalf("parseClaudeVersionStatusLine invalid = %q, %v; want empty, false", version, ok)
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeClaudeStateRepairsCompletedOnboardingVersion(t *testing.T) {
+	oldDetect := detectClaudeInstalledVersionForOnboarding
+	detectClaudeInstalledVersionForOnboarding = func() (string, bool) {
+		return "2.1.193", true
+	}
+	t.Cleanup(func() {
+		detectClaudeInstalledVersionForOnboarding = oldDetect
+	})
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+
+	artifact := claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome)
+	if err := writeJSONMapStoreFile(artifact.StorePath, map[string]json.RawMessage{
+		"oauthAccount":           json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"hasCompletedOnboarding": json.RawMessage(`true`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.71"`),
+	}); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudeCompletedOnboardingVersion: %v", err)
+	}
+
+	agentRaw, err := os.ReadFile(artifact.AgentPath)
+	if err != nil {
+		t.Fatalf("read materialized Claude state: %v", err)
+	}
+	if !strings.Contains(string(agentRaw), `"lastOnboardingVersion": "2.1.193"`) {
+		t.Fatalf("materialized Claude state did not repair onboarding version:\n%s", string(agentRaw))
+	}
+
+	runtime.Cleanup()
+
+	storeRaw, err := os.ReadFile(artifact.StorePath)
+	if err != nil {
+		t.Fatalf("read harvested Claude store state: %v", err)
+	}
+	if !strings.Contains(string(storeRaw), `"lastOnboardingVersion": "2.1.193"`) {
+		t.Fatalf("harvested Claude store state did not keep repaired onboarding version:\n%s", string(storeRaw))
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeClaudeMirrorsStateIntoMigratedConfig(t *testing.T) {
+	oldDetect := detectClaudeInstalledVersionForOnboarding
+	detectClaudeInstalledVersionForOnboarding = func() (string, bool) {
+		return "2.1.193", true
+	}
+	t.Cleanup(func() {
+		detectClaudeInstalledVersionForOnboarding = oldDetect
+	})
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	t.Setenv("HOME", home)
+	migratedConfigPath := agentClaudeMigratedConfigPath(runtimeHome)
+	if err := os.MkdirAll(filepath.Dir(migratedConfigPath), 0o700); err != nil {
+		t.Fatalf("mkdir migrated config dir: %v", err)
+	}
+	staleMigratedConfigState := `{
+  "hasCompletedOnboarding": false,
+  "lastOnboardingVersion": "2.1.71",
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(migratedConfigPath, []byte(staleMigratedConfigState), 0o600); err != nil {
+		t.Fatalf("write migrated config marker: %v", err)
+	}
+
+	if err := writeJSONMapStoreFile(claudeStateStorePathForHome(home), map[string]json.RawMessage{
+		"oauthAccount":           json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"userID":                 json.RawMessage(`"u-stored"`),
+		"hasCompletedOnboarding": json.RawMessage(`true`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.71"`),
+		"theme":                  json.RawMessage(`"dark"`),
+	}); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntime(sessionConfig{
+		HarnessID: HarnessClaude,
+		SessionHome: &sessionHomeRuntimePlan{
+			Launch: sessionHomeLaunchPlan{
+				Layout: sessionHomeLayout{Home: runtimeHome},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntime: %v", err)
+	}
+
+	topStatePath := filepath.Join(runtimeHome, ".claude.json")
+	for _, path := range []string{topStatePath, migratedConfigPath} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read materialized Claude state %s: %v", path, err)
+		}
+		if !strings.Contains(string(raw), `"hasCompletedOnboarding": true`) ||
+			!strings.Contains(string(raw), `"lastOnboardingVersion": "2.1.193"`) {
+			t.Fatalf("materialized Claude state %s missing repaired onboarding:\n%s", path, string(raw))
+		}
+	}
+
+	updatedMigratedConfigState := `{
+  "oauthAccount": {"emailAddress": "updated@example.com"},
+  "userID": "u-updated",
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "2.1.194",
+  "theme": "light",
+  "projects": {"hazmat": true}
+}`
+	if err := os.WriteFile(migratedConfigPath, []byte(updatedMigratedConfigState), 0o600); err != nil {
+		t.Fatalf("overwrite migrated Claude config state: %v", err)
+	}
+
+	runtime.Cleanup()
+
+	storeRaw, err := os.ReadFile(claudeStateStorePathForHome(home))
+	if err != nil {
+		t.Fatalf("read harvested Claude store state: %v", err)
+	}
+	for _, want := range []string{
+		`"updated@example.com"`,
+		`"u-updated"`,
+		`"lastOnboardingVersion": "2.1.194"`,
+		`"theme": "light"`,
+	} {
+		if !strings.Contains(string(storeRaw), want) {
+			t.Fatalf("harvested Claude store state missing %s:\n%s", want, string(storeRaw))
+		}
+	}
+	if strings.Contains(string(storeRaw), `"projects"`) {
+		t.Fatalf("harvested Claude store state should not contain migrated project state:\n%s", string(storeRaw))
+	}
+	if _, err := os.Stat(topStatePath); !os.IsNotExist(err) {
+		t.Fatalf("top-level Claude state should be removed after harvest, got err=%v", err)
+	}
+	remainingMigratedConfigRaw, err := os.ReadFile(migratedConfigPath)
+	if err != nil {
+		t.Fatalf("read cleaned migrated Claude config: %v", err)
+	}
+	if !strings.Contains(string(remainingMigratedConfigRaw), `"projects"`) {
+		t.Fatalf("cleaned migrated Claude config should preserve project state:\n%s", string(remainingMigratedConfigRaw))
+	}
+	for _, key := range []string{"oauthAccount", "userID", "hasCompletedOnboarding", "lastOnboardingVersion", "theme"} {
+		if strings.Contains(string(remainingMigratedConfigRaw), `"`+key+`"`) {
+			t.Fatalf("cleaned migrated Claude config still contains portable key %s:\n%s", key, string(remainingMigratedConfigRaw))
+		}
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeClaudeStateDoesNotRepairIncompleteOnboardingVersion(t *testing.T) {
+	oldDetect := detectClaudeInstalledVersionForOnboarding
+	detectClaudeInstalledVersionForOnboarding = func() (string, bool) {
+		return "2.1.193", true
+	}
+	t.Cleanup(func() {
+		detectClaudeInstalledVersionForOnboarding = oldDetect
+	})
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+
+	artifact := claudeStateHarnessAuthArtifactForRuntimeHome(home, runtimeHome)
+	if err := writeJSONMapStoreFile(artifact.StorePath, map[string]json.RawMessage{
+		"hasCompletedOnboarding": json.RawMessage(`false`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.71"`),
+	}); err != nil {
+		t.Fatalf("writeJSONMapStoreFile: %v", err)
+	}
+
+	runtime, err := prepareHarnessAuthRuntimeForArtifacts([]harnessAuthArtifact{artifact})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
+	}
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudeCompletedOnboardingVersion: %v", err)
+	}
+	defer runtime.Cleanup()
+
+	agentRaw, err := os.ReadFile(artifact.AgentPath)
+	if err != nil {
+		t.Fatalf("read materialized Claude state: %v", err)
+	}
+	if strings.Contains(string(agentRaw), `"lastOnboardingVersion": "2.1.193"`) {
+		t.Fatalf("materialized Claude state repaired incomplete onboarding:\n%s", string(agentRaw))
+	}
+	if !strings.Contains(string(agentRaw), `"lastOnboardingVersion": "2.1.71"`) {
+		t.Fatalf("materialized Claude state lost original onboarding version:\n%s", string(agentRaw))
+	}
+}
+
+func TestClaudePortableSettingsMaterializeThemeAndTUIWithoutWholeSettings(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	hostSettingsPath := hostClaudeSettingsPath(home)
+	if err := os.MkdirAll(filepath.Dir(hostSettingsPath), 0o700); err != nil {
+		t.Fatalf("mkdir host settings dir: %v", err)
+	}
+	hostSettings := `{
+  "theme": "light",
+  "tui": "fullscreen",
+  "permissions": {"defaultMode": "bypassPermissions"},
+  "hooks": {"PreToolUse": []}
+}`
+	if err := os.WriteFile(hostSettingsPath, []byte(hostSettings), 0o600); err != nil {
+		t.Fatalf("write host settings: %v", err)
+	}
+	agentSettingsPath := agentClaudeSettingsPath(runtimeHome)
+	if err := os.MkdirAll(filepath.Dir(agentSettingsPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent settings dir: %v", err)
+	}
+	agentSettings := `{
+  "theme": "dark",
+  "permissions": {"deny": ["Read(~/.ssh/**)"]},
+  "skipDangerousModePermissionPrompt": false
+}`
+	if err := os.WriteFile(agentSettingsPath, []byte(agentSettings), 0o600); err != nil {
+		t.Fatalf("write agent settings: %v", err)
+	}
+
+	if err := materializeClaudePortableSettings(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudePortableSettings: %v", err)
+	}
+
+	raw, err := os.ReadFile(agentSettingsPath)
+	if err != nil {
+		t.Fatalf("read agent settings: %v", err)
+	}
+	for _, want := range []string{
+		`"theme": "light"`,
+		`"tui": "fullscreen"`,
+		`"deny"`,
+		`"skipDangerousModePermissionPrompt": false`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("agent settings missing %s:\n%s", want, string(raw))
+		}
+	}
+	for _, denied := range []string{
+		`"hooks"`,
+		`"defaultMode": "bypassPermissions"`,
+	} {
+		if strings.Contains(string(raw), denied) {
+			t.Fatalf("agent settings copied unsafe host setting %s:\n%s", denied, string(raw))
+		}
+	}
+}
+
+func TestClaudePortableSettingsMaterializeThemeAndTUIFromStoreWhenHostMissing(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	storePath := claudeStateStorePathForHome(home)
+	if err := writeJSONMapStoreFile(storePath, map[string]json.RawMessage{
+		"oauthAccount": json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+		"theme":        json.RawMessage(`"dark"`),
+		"tui":          json.RawMessage(`"fullscreen"`),
+	}); err != nil {
+		t.Fatalf("write store state: %v", err)
+	}
+
+	if err := materializeClaudePortableSettings(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudePortableSettings: %v", err)
+	}
+
+	raw, err := os.ReadFile(agentClaudeSettingsPath(runtimeHome))
+	if err != nil {
+		t.Fatalf("read agent settings: %v", err)
+	}
+	if !strings.Contains(string(raw), `"theme": "dark"`) {
+		t.Fatalf("agent settings missing stored theme:\n%s", string(raw))
+	}
+	if !strings.Contains(string(raw), `"tui": "fullscreen"`) {
+		t.Fatalf("agent settings missing stored TUI:\n%s", string(raw))
+	}
+	if strings.Contains(string(raw), `"oauthAccount"`) {
+		t.Fatalf("agent settings copied auth state:\n%s", string(raw))
+	}
+}
+
+func TestClaudePortableSettingsMaterializeDefaultThemeWhenMissing(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+
+	if err := materializeClaudePortableSettings(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudePortableSettings: %v", err)
+	}
+
+	raw, err := os.ReadFile(agentClaudeSettingsPath(runtimeHome))
+	if err != nil {
+		t.Fatalf("read agent settings: %v", err)
+	}
+	if !strings.Contains(string(raw), `"theme": "auto"`) {
+		t.Fatalf("agent settings missing default theme:\n%s", string(raw))
+	}
+}
+
+func TestClaudePortableSettingsPreservesExistingAgentThemeOverDefault(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	agentSettingsPath := agentClaudeSettingsPath(runtimeHome)
+	if err := os.MkdirAll(filepath.Dir(agentSettingsPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent settings dir: %v", err)
+	}
+	if err := os.WriteFile(agentSettingsPath, []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatalf("write agent settings: %v", err)
+	}
+
+	if err := materializeClaudePortableSettings(home, runtimeHome); err != nil {
+		t.Fatalf("materializeClaudePortableSettings: %v", err)
+	}
+
+	raw, err := os.ReadFile(agentSettingsPath)
+	if err != nil {
+		t.Fatalf("read agent settings: %v", err)
+	}
+	if !strings.Contains(string(raw), `"theme": "dark"`) {
+		t.Fatalf("agent settings did not preserve existing theme:\n%s", string(raw))
+	}
+	if strings.Contains(string(raw), `"theme": "auto"`) {
+		t.Fatalf("agent settings overwrote existing theme with default:\n%s", string(raw))
+	}
+}
+
+func TestClaudePortableSettingsHarvestsOnlyThemeAndTUIIntoStateStore(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	storePath := claudeStateStorePathForHome(home)
+	if err := writeJSONMapStoreFile(storePath, map[string]json.RawMessage{
+		"oauthAccount": json.RawMessage(`{"emailAddress":"stored@example.com"}`),
+	}); err != nil {
+		t.Fatalf("write store state: %v", err)
+	}
+	agentSettingsPath := agentClaudeSettingsPath(runtimeHome)
+	if err := os.MkdirAll(filepath.Dir(agentSettingsPath), 0o700); err != nil {
+		t.Fatalf("mkdir agent settings dir: %v", err)
+	}
+	agentSettings := `{
+  "theme": "dark",
+  "tui": "fullscreen",
+  "permissions": {"defaultMode": "bypassPermissions"},
+  "hooks": {"PreToolUse": []}
+}`
+	if err := os.WriteFile(agentSettingsPath, []byte(agentSettings), 0o600); err != nil {
+		t.Fatalf("write agent settings: %v", err)
+	}
+
+	if err := harvestClaudePortableSettings(home, runtimeHome); err != nil {
+		t.Fatalf("harvestClaudePortableSettings: %v", err)
+	}
+
+	raw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read store state: %v", err)
+	}
+	for _, want := range []string{
+		`"oauthAccount"`,
+		`"theme": "dark"`,
+		`"tui": "fullscreen"`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("store state missing %s:\n%s", want, string(raw))
+		}
+	}
+	for _, denied := range []string{
+		`"permissions"`,
+		`"hooks"`,
+	} {
+		if strings.Contains(string(raw), denied) {
+			t.Fatalf("store state copied non-portable setting %s:\n%s", denied, string(raw))
 		}
 	}
 }

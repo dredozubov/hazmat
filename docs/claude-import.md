@@ -26,7 +26,7 @@ hazmat config import claude --skip-existing
 
 `hazmat init` also offers the same flow after bootstrap.
 
-Import is **copy-once** for commands and skills. If you want to refresh those later, rerun the import command. Claude account/onboarding state is stored in Hazmat's host-owned secret store, reconciled from the host Claude state when available, and only materialized into `/Users/agent` for active Claude sessions.
+Import is **copy-once** for commands and skills. If you want to refresh those later, rerun the import command. Claude account/onboarding state is stored in Hazmat's host-owned secret store, reconciled from the host Claude state when available, and only materialized into `/Users/agent` for active Claude sessions. During launch, Hazmat mirrors the portable global state into Claude's migrated `.claude/.config.json` state file when that file already exists, so newer Claude TUI startup sees completed onboarding.
 
 ## What Hazmat Imports
 
@@ -43,9 +43,12 @@ If an entry is broken, unreadable, or not a regular file/directory after resolut
 
 ## What Hazmat Does Not Import
 
-Hazmat does **not** import:
+Hazmat does **not** import `~/.claude/settings.json` wholesale. Claude
+sessions bridge only narrow non-secret startup display settings (`theme`,
+`tui`) to avoid repeated style onboarding.
 
-- `~/.claude/settings.json`
+Hazmat still does **not** import:
+
 - `~/.claude/settings.local.json`
 - hooks
 - MCP configuration
