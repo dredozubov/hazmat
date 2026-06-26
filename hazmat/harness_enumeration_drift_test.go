@@ -97,6 +97,26 @@ func TestCLISmokeBootstrapSmokesMatchRegistry(t *testing.T) {
 	assertHarnessSetMatchesRegistry(t, "scripts/check-cli-smoke.sh bootstrap --help smokes", got)
 }
 
+// scripts/e2e-harness-smoke-native.sh is the sudo-gated native launch smoke and
+// is not run in CI, so its SMOKE_HARNESSES list drifts without any CI signal —
+// it still named the removed gemini harness after the migration. Guard it from
+// the Go suite so a stale entry fails `go test`.
+func TestNativeSmokeHarnessListMatchesRegistry(t *testing.T) {
+	raw, err := os.ReadFile("../scripts/e2e-harness-smoke-native.sh")
+	if err != nil {
+		t.Fatalf("read e2e-harness-smoke-native.sh: %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^SMOKE_HARNESSES="([^"]*)"`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("could not find 'SMOKE_HARNESSES=\"...\"' in scripts/e2e-harness-smoke-native.sh")
+	}
+	got := map[string]bool{}
+	for _, field := range strings.Fields(m[1]) {
+		got[field] = true
+	}
+	assertHarnessSetMatchesRegistry(t, "scripts/e2e-harness-smoke-native.sh SMOKE_HARNESSES", got)
+}
+
 func TestTLAHarnessSetMatchesRegistry(t *testing.T) {
 	raw, err := os.ReadFile("../tla/MC_HarnessLifecycle.tla")
 	if err != nil {

@@ -15,7 +15,7 @@ Usage:
   bash scripts/e2e-harness-smoke-native.sh --list-harnesses
 
 Runs non-destructive harness smokes for:
-  - Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen, Cursor Agent, and Pi foreground launch paths
+  - Claude Code, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, and Pi foreground launch paths
   - provider/env delivery for harnesses that consume provider env grants
   - file-backed auth materialization, harvest, and cleanup where applicable
   - Claude auth materialization/harvest preserving host-owned auth when the
@@ -40,7 +40,7 @@ MODE="disclosure"
 ACK_RUN=""
 SKIP_BUILD=""
 LIST_HARNESSES=""
-SMOKE_HARNESSES="claude codex opencode gemini hermes qwen cursor-agent pi"
+SMOKE_HARNESSES="claude codex opencode antigravity hermes qwen cursor-agent pi"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HAZMAT="$REPO_ROOT/hazmat/hazmat"
@@ -263,9 +263,7 @@ backup_path "$AGENT_HOME/.codex/auth.json" "agent-codex-auth"
 backup_path "$AGENT_HOME/.opencode/bin/opencode" "agent-opencode-current-bin"
 backup_path "$AGENT_HOME/.local/bin/opencode" "agent-opencode-legacy-bin"
 backup_path "$AGENT_HOME/.local/share/opencode/auth.json" "agent-opencode-auth"
-backup_path "$AGENT_HOME/.local/bin/gemini" "agent-gemini-bin"
-backup_path "$AGENT_HOME/.gemini/oauth_creds.json" "agent-gemini-oauth"
-backup_path "$AGENT_HOME/.gemini/google_accounts.json" "agent-gemini-accounts"
+backup_path "$AGENT_HOME/.local/bin/agy" "agent-antigravity-bin"
 backup_path "$AGENT_HOME/.local/bin/qwen" "agent-qwen-bin"
 backup_path "$AGENT_HOME/.qwen" "agent-qwen-state"
 backup_path "$AGENT_HOME/.local/bin/cursor-agent" "agent-cursor-agent-bin"
@@ -276,8 +274,6 @@ backup_path "$HOME/.hazmat/secrets/claude/credentials.json" "host-claude-credent
 backup_path "$HOME/.hazmat/secrets/claude/state.json" "host-claude-state"
 backup_path "$HOME/.hazmat/secrets/codex/auth.json" "host-codex-auth"
 backup_path "$HOME/.hazmat/secrets/opencode/auth.json" "host-opencode-auth"
-backup_path "$HOME/.hazmat/secrets/gemini/oauth_creds.json" "host-gemini-oauth"
-backup_path "$HOME/.hazmat/secrets/gemini/google_accounts.json" "host-gemini-accounts"
 backup_path "$HOME/.hazmat/secrets/providers/anthropic-api-key" "host-provider-anthropic"
 backup_path "$HOME/.hazmat/secrets/providers/openai-api-key" "host-provider-openai"
 backup_path "$HOME/.hazmat/secrets/providers/gemini-api-key" "host-provider-gemini"
@@ -426,42 +422,36 @@ assert_file_contains "$OPENCODE_OUT" "FAKE_OPENCODE_OK" "OpenCode fake CLI ran t
 assert_file_contains "$HOME/.hazmat/secrets/opencode/auth.json" "updated-opencode-token" "Host-owned OpenCode auth harvested updated runtime auth"
 assert_agent_file_absent "$AGENT_HOME/.local/share/opencode/auth.json" "OpenCode auth residue removed from agent home"
 
-phase "Gemini auth harvest"
-write_host_secret "$HOME/.hazmat/secrets/gemini/oauth_creds.json" \
-    '{"access_token":"stored-gemini-access","refresh_token":"stored-gemini-refresh"}'
-write_host_secret "$HOME/.hazmat/secrets/gemini/google_accounts.json" \
-    '{"active":"stored-gemini-account"}'
-remove_agent_paths "$AGENT_HOME/.gemini/oauth_creds.json" "$AGENT_HOME/.gemini/google_accounts.json"
-
-FAKE_GEMINI="$TMPDIR_SMOKE/gemini"
-cat > "$FAKE_GEMINI" <<'EOF'
+phase "Antigravity foreground launch"
+# Antigravity (agy) is env-var auth only: it consumes the GEMINI_API_KEY provider
+# key (seeded near the top of this script) and otherwise uses interactive
+# Keychain-backed Google OAuth, which is external/adapter-required and cannot be
+# exercised by a hermetic native smoke. Supplying the API key is also what makes
+# agy bypass the keychain (the non-interactive path a smoke wants). Unlike the
+# removed gemini harness, antigravity has NO file-based OAuth (oauth_creds.json/
+# google_accounts.json), so this models the qwen/pi foreground-launch pattern
+# plus a provider-env assertion, not a file-auth harvest.
+FAKE_ANTIGRAVITY="$TMPDIR_SMOKE/agy"
+cat > "$FAKE_ANTIGRAVITY" <<'EOF'
 #!/bin/sh
 set -eu
-oauth="$HOME/.gemini/oauth_creds.json"
-accounts="$HOME/.gemini/google_accounts.json"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 80; }
 test "${GEMINI_API_KEY:-}" = "stored-gemini-provider" || { echo "missing GEMINI_API_KEY" >&2; exit 81; }
-test -f "$oauth" || { echo "missing materialized Gemini OAuth" >&2; exit 82; }
-test -f "$accounts" || { echo "missing materialized Gemini accounts" >&2; exit 83; }
-grep -Fq "stored-gemini-access" "$oauth" || { echo "missing stored Gemini OAuth" >&2; exit 84; }
-grep -Fq "stored-gemini-account" "$accounts" || { echo "missing stored Gemini accounts" >&2; exit 85; }
-printf '{"access_token":"updated-gemini-access"}\n' > "$oauth"
-printf '{"active":"updated-gemini-account"}\n' > "$accounts"
+mkdir -p "$HOME/.gemini/antigravity-cli"
 case " $* " in
-  *" -p "*"gemini smoke"*) ;;
-  *) echo "unexpected Gemini args: $*" >&2; exit 86 ;;
+  *"antigravity smoke"*) ;;
+  *) echo "unexpected Antigravity args: $*" >&2; exit 82 ;;
 esac
-echo "FAKE_GEMINI_OK"
+echo "FAKE_ANTIGRAVITY_OK"
 EOF
-install_agent_executable "$FAKE_GEMINI" "$AGENT_HOME/.local/bin/gemini"
+install_agent_executable "$FAKE_ANTIGRAVITY" "$AGENT_HOME/.local/bin/agy"
 
-GEMINI_OUT="$TMPDIR_SMOKE/gemini.out"
-"$HAZMAT" gemini --no-backup --skip-harness-assets-sync -C "$PROJECT" -p "gemini smoke" > "$GEMINI_OUT" 2>&1
-assert_file_contains "$GEMINI_OUT" "FAKE_GEMINI_OK" "Gemini fake CLI ran through hazmat gemini"
-assert_file_contains "$HOME/.hazmat/secrets/gemini/oauth_creds.json" "updated-gemini-access" "Host-owned Gemini OAuth harvested updated runtime auth"
-assert_file_contains "$HOME/.hazmat/secrets/gemini/google_accounts.json" "updated-gemini-account" "Host-owned Gemini accounts harvested updated runtime auth"
-assert_agent_file_absent "$AGENT_HOME/.gemini/oauth_creds.json" "Gemini OAuth residue removed from agent home"
-assert_agent_file_absent "$AGENT_HOME/.gemini/google_accounts.json" "Gemini account residue removed from agent home"
+ANTIGRAVITY_OUT="$TMPDIR_SMOKE/antigravity.out"
+"$HAZMAT" antigravity --no-backup --skip-harness-assets-sync -C "$PROJECT" -- -p "antigravity smoke" > "$ANTIGRAVITY_OUT" 2>&1
+assert_file_contains "$ANTIGRAVITY_OUT" "FAKE_ANTIGRAVITY_OK" "Antigravity fake CLI ran through hazmat antigravity"
+sudo -n -u agent /usr/bin/test -d "$AGENT_HOME/.gemini/antigravity-cli" \
+    && pass "Antigravity contained state directory exists" \
+    || die "Antigravity contained state directory missing"
 
 phase "Qwen foreground launch"
 FAKE_QWEN="$TMPDIR_SMOKE/qwen"
