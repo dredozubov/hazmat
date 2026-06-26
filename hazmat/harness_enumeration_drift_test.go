@@ -65,6 +65,38 @@ func TestPrePushBootstrapSmokesMatchRegistry(t *testing.T) {
 	assertHarnessSetMatchesRegistry(t, ".hazmat/hooks/pre-push.sh bootstrap --help smokes", got)
 }
 
+// scripts/check-cli-smoke.sh is the CI-only CLI smoke (it is not part of the
+// local pre-push hook), so it drifts without local detection. The gemini->
+// antigravity migration missed it and reddened CI for days. Guard its two
+// all-harness enumerations against the registry.
+func TestCLISmokeHarnessLoopMatchesRegistry(t *testing.T) {
+	raw, err := os.ReadFile("../scripts/check-cli-smoke.sh")
+	if err != nil {
+		t.Fatalf("read check-cli-smoke.sh: %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*for harness in (.+?); do`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("could not find 'for harness in ...; do' loop in scripts/check-cli-smoke.sh")
+	}
+	got := map[string]bool{}
+	for _, field := range strings.Fields(m[1]) {
+		got[field] = true
+	}
+	assertHarnessSetMatchesRegistry(t, "scripts/check-cli-smoke.sh harness loop", got)
+}
+
+func TestCLISmokeBootstrapSmokesMatchRegistry(t *testing.T) {
+	raw, err := os.ReadFile("../scripts/check-cli-smoke.sh")
+	if err != nil {
+		t.Fatalf("read check-cli-smoke.sh: %v", err)
+	}
+	got := map[string]bool{}
+	for _, m := range regexp.MustCompile(`run_smoke "bootstrap (\S+) --help"`).FindAllStringSubmatch(string(raw), -1) {
+		got[m[1]] = true
+	}
+	assertHarnessSetMatchesRegistry(t, "scripts/check-cli-smoke.sh bootstrap --help smokes", got)
+}
+
 func TestTLAHarnessSetMatchesRegistry(t *testing.T) {
 	raw, err := os.ReadFile("../tla/MC_HarnessLifecycle.tla")
 	if err != nil {
