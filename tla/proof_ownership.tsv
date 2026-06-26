@@ -123,6 +123,7 @@ MC_SeatbeltPolicy	invariant	ResumeDirNotCredential	2	tla/02_seatbelt_policy_stru
 MC_SeatbeltPolicy	invariant	SessionTempWritable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	TempSocketsDenied	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	TypeOK	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
+MC_SeatbeltPolicy	invariant	AgentHomeFilesUsable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	AgentHomeSubsUsable	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	PersistentAgentHomeNotImplicitlyExposedWhenSessionHome	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
 MC_SeatbeltPolicy	invariant	SessionHomeSeparateFromCredentials	2	tla/02_seatbelt_policy_structure.md	seatbelt policy boundary
