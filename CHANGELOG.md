@@ -6,6 +6,11 @@ Safety-facing entries should follow the proof/caveat convention in
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-26
+
+### Fixed
+- `hazmat claude` no longer re-runs Claude's onboarding/sign-in flow on each launch. Partial in-session Claude state updates are now merged into the host-owned store and materialized before launch, so the agent stays onboarded across sessions.
+
 ## [0.10.0] - 2026-06-26
 
 ### Added
@@ -187,7 +192,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/dredozubov/hazmat/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/dredozubov/hazmat/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/dredozubov/hazmat/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/dredozubov/hazmat/compare/v0.8.0...v0.8.1
