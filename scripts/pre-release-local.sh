@@ -66,6 +66,25 @@ bash "$REPO_ROOT/scripts/e2e-harness-smoke.sh"
 echo "pre-release-local: fake service-harness lifecycle smoke..."
 bash "$REPO_ROOT/scripts/e2e-service-harness-smoke.sh"
 
+# CI-parity checks: these run in .github/workflows/ci.yml but are NOT covered by
+# scripts/pre-push, so a green local gate previously diverged from a red CI
+# (cutting v0.10.0 surfaced three such gaps). Keep this block in sync with the
+# corresponding ci.yml jobs.
+echo "pre-release-local: CLI smoke (ci.yml 'CLI smoke tests')..."
+bash "$REPO_ROOT/scripts/check-cli-smoke.sh"
+
+echo "pre-release-local: TLA+ proof-ownership ledger (ci.yml 'TLA+ proof hygiene')..."
+( cd "$REPO_ROOT/tla" && bash proof_ownership_check.sh )
+
+echo "pre-release-local: TLA+ trace-artifact policy (ci.yml 'TLA+ proof hygiene')..."
+( cd "$REPO_ROOT/tla" && bash trace_artifact_check.sh )
+
+echo "pre-release-local: entrypoint guards (ci.yml 'Test entrypoint guards')..."
+bash "$REPO_ROOT/scripts/test-entrypoint-guards.sh"
+
+echo "pre-release-local: hostexec absolute-path guard (ci.yml 'Test entrypoint guards')..."
+bash "$REPO_ROOT/scripts/check-hostexec.sh"
+
 if [ -n "$RUN_VM" ] && [ "$RUN_VM" != "0" ]; then
 	echo "pre-release-local: VM destructive lifecycle..."
 	# shellcheck disable=SC2086
