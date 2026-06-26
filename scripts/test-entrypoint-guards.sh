@@ -50,7 +50,7 @@ assert_fails_with() {
         return
     fi
 
-    if printf '%s' "$output" | grep -Fq -- "$expected"; then
+    if grep -Fq -- "$expected" <<<"$output"; then
         pass "$label"
     else
         fail "$label: expected output containing '$expected'"
@@ -76,7 +76,7 @@ assert_succeeds_with() {
         return
     fi
 
-    if printf '%s' "$output" | grep -Fq -- "$expected"; then
+    if grep -Fq -- "$expected" <<<"$output"; then
         pass "$label"
     else
         fail "$label: expected output containing '$expected'"
@@ -104,7 +104,7 @@ assert_help_contains_all() {
 
     local missing=""
     for expected in "$@"; do
-        if ! printf '%s' "$output" | grep -Fq -- "$expected"; then
+        if ! grep -Fq -- "$expected" <<<"$output"; then
             if [ -z "$missing" ]; then
                 missing="$expected"
             else
@@ -135,7 +135,7 @@ assert_file_contains_all() {
     text="$(cat "$path")"
     local missing=""
     for expected in "$@"; do
-        if ! printf '%s' "$text" | grep -Fq -- "$expected"; then
+        if ! grep -Fq -- "$expected" <<<"$text"; then
             if [ -z "$missing" ]; then
                 missing="$expected"
             else
@@ -165,7 +165,7 @@ assert_file_not_contains_any() {
     text="$(cat "$path")"
     local found=""
     for unexpected in "$@"; do
-        if printf '%s' "$text" | grep -Fq -- "$unexpected"; then
+        if grep -Fq -- "$unexpected" <<<"$text"; then
             if [ -z "$found" ]; then
                 found="$unexpected"
             else
@@ -212,7 +212,7 @@ assert_command_contains_all_and_not() {
 
     local missing=""
     for want in "${expected[@]}"; do
-        if ! printf '%s' "$output" | grep -Fq -- "$want"; then
+        if ! grep -Fq -- "$want" <<<"$output"; then
             if [ -z "$missing" ]; then
                 missing="$want"
             else
@@ -226,7 +226,7 @@ assert_command_contains_all_and_not() {
         return
     fi
 
-    if printf '%s' "$output" | grep -Fq -- "$forbidden"; then
+    if grep -Fq -- "$forbidden" <<<"$output"; then
         fail "$label: found forbidden text $forbidden"
         printf '%s\n' "$output" >&2
         return
