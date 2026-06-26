@@ -6,6 +6,24 @@ Safety-facing entries should follow the proof/caveat convention in
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-26
+
+### Added
+- Antigravity is now a contained harness, launched with `hazmat antigravity` (alias `agy`), replacing the Gemini harness after Google retired the standalone Gemini CLI. The installer is pinned and checksum-verified, sessions receive the read-only macOS Security-framework TLS surface needed for the Google OAuth token exchange, and the agent login-keychain OAuth item remains an adapter-required external boundary.
+- Local model-cache detection for Ollama, PyTorch Hub, and Hugging Face. When a project uses one of these caches, Hazmat suggests the matching integration and grants read-only cache access for offline or cached inference.
+
+### Changed
+- Setup creates the agent toolchain directories in a single `sudo` prompt instead of prompting once per directory.
+- `hazmat check` and `hazmat doctor` summarize the repair plan and concrete next steps directly in the terminal.
+
+### Fixed
+- `hazmat claude` no longer aborts at launch with `security add-generic-password failed: exit status 2`; the agent Keychain write now passes the required `-a <account>` argument.
+- Agent toolchain and project directory ownership repair no longer follows symlinks, and agents can again create and write the shared subdirectories owned by the `dev` group. (#17)
+- Host Keychain synchronization fails closed when the host Keychain item's freshness cannot be determined, instead of risking a stale or empty credential write.
+
+### Removed
+- The Gemini harness and the `hazmat gemini` command, superseded by Antigravity.
+
 ## [0.9.0] - 2026-06-10
 
 ### Added
@@ -169,7 +187,8 @@ First tagged release with the full containment stack.
 - GitHub Actions CI: lint, test, TLA+ model checking, cross-compile, E2E lifecycle
 - Homebrew tap distribution (`brew install dredozubov/tap/hazmat`)
 
-[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/dredozubov/hazmat/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/dredozubov/hazmat/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/dredozubov/hazmat/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/dredozubov/hazmat/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/dredozubov/hazmat/compare/v0.7.0...v0.8.0
