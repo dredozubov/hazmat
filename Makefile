@@ -28,7 +28,7 @@ USER_LAUNCH_HELPER    ?= $(USER_LIBEXECDIR)/hazmat-launch
 SYSTEM_HAZMAT_BIN     ?= $(SYSTEM_BINDIR)/hazmat
 SYSTEM_LAUNCH_HELPER  ?= $(SYSTEM_LIBEXECDIR)/hazmat-launch
 
-.PHONY: all hazmat hazmat-launch hazmat-launch-fast configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test golden linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
+.PHONY: all hazmat hazmat-launch hazmat-launch-fast configure-debug-trace hazmat-debug test-debug-trace clean-debug-trace check-install-platform install install-system install-helper uninstall uninstall-system clean test golden linux-compile linux-apple-container-smoke linux-apple-container-test lint e2e e2e-bootstrap e2e-harness-smoke e2e-harness-smoke-native e2e-service-harness-smoke e2e-session-home-activation-smoke e2e-claude-onboarding-smoke e2e-claude-workflow-export-smoke e2e-cache-integration-smoke e2e-vm e2e-stack-matrix e2e-stack-matrix-detect e2e-stack-matrix-smoke pre-release-local test-entrypoint-guards check-hostexec hooks
 
 all: hazmat hazmat-launch
 
@@ -154,6 +154,9 @@ e2e-service-harness-smoke:
 
 e2e-session-home-activation-smoke:
 	bash scripts/check-session-home-activation-smoke.sh
+
+e2e-claude-onboarding-smoke:
+	bash scripts/check-claude-onboarding-smoke.sh
 
 e2e-claude-workflow-export-smoke:
 	bash scripts/check-claude-workflow-export-smoke.sh

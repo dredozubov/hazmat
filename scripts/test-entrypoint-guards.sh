@@ -7,6 +7,7 @@
 #   - make e2e refuses to run without E2E_ACK=1
 #   - live Codex app-server smoke refuses to run without its explicit ack
 #   - live Codex desktop attach smoke refuses to run without its explicit ack
+#   - live Claude onboarding smoke refuses to run without its explicit ack
 #   - live Claude Workflow export smoke refuses to run without its explicit ack
 #   - live session-home activation smoke refuses to run without its explicit ack
 #   - live cache integration smoke refuses to run without its explicit ack
@@ -370,6 +371,11 @@ assert_fails_with \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh" --run
 
 assert_fails_with \
+    "Claude onboarding smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-hazmat-claude" \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" --run
+
+assert_fails_with \
     "Claude Workflow export smoke requires live ack" \
     "refusing live run without --i-understand-this-runs-hazmat-claude-and-host-claude" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh" --run
@@ -467,6 +473,16 @@ assert_succeeds_with \
     "$REPO_ROOT/scripts/check-codex-desktop-attach-smoke.sh"
 
 assert_succeeds_with \
+    "Claude onboarding smoke defaults to disclosure" \
+    "claude-onboarding-smoke: dry run only" \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh"
+
+assert_succeeds_with \
+    "Claude onboarding smoke discloses prompt detection" \
+    "auth or onboarding prompt" \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh"
+
+assert_succeeds_with \
     "Claude Workflow export smoke defaults to disclosure" \
     "claude-workflow-export-smoke: dry run only" \
     "$REPO_ROOT/scripts/check-claude-workflow-export-smoke.sh"
@@ -532,6 +548,33 @@ assert_succeeds_with \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh"
 
 phase "Fixture and refusal UX guards"
+
+assert_succeeds_with \
+    "Claude onboarding smoke checks fixtures" \
+    "claude-onboarding-smoke: fixtures ok" \
+    env HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT=/bin/echo \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "Claude onboarding smoke rejects missing Hazmat binary" \
+    "/missing-hazmat is missing or not executable" \
+    env HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT=/missing-hazmat \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" --check-fixtures
+
+assert_fails_with \
+    "Claude onboarding smoke rejects nonnumeric timeout" \
+    "HAZMAT_CLAUDE_ONBOARDING_SMOKE_TIMEOUT must be a positive integer" \
+    env HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT=/bin/echo HAZMAT_CLAUDE_ONBOARDING_SMOKE_TIMEOUT=fast \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" --check-fixtures
+
+assert_file_contains_all \
+    "Claude onboarding smoke detects prompt-shaped failures" \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" \
+    "run_with_timeout" \
+    "HAZMAT_CLAUDE_ONBOARDING_SMOKE_OK" \
+    "output looks like Claude showed an auth or onboarding prompt" \
+    "select.*style" \
+    "visual style"
 
 assert_succeeds_with \
     "Claude Workflow export smoke has a default fixture" \
@@ -739,6 +782,15 @@ assert_file_contains_all \
     "GOCACHE=/work/gocache" \
     'GOMODCACHE="$gomodcache"' \
     "GOFLAGS=\"-mod=readonly"
+
+assert_help_contains_all \
+    "Claude onboarding smoke documents fixture consent" \
+    "$REPO_ROOT/scripts/check-claude-onboarding-smoke.sh" \
+    "--check-fixtures" \
+    "--skip-if-missing-fixtures" \
+    "Fixture checks inspect local Hazmat setup" \
+    "Agents must ask for explicit approval before" \
+    "running --check-fixtures, --skip-if-missing-fixtures, or --run"
 
 assert_help_contains_all \
     "Claude Workflow export smoke documents fixture consent" \

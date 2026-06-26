@@ -24,6 +24,7 @@ or with a product-facing scenario flow.
 | `scripts/check-codex-app-server-smoke.sh` | Does a Hazmat-contained Codex app-server backend initialize and enforce project, credential, and network boundaries? | Prepared macOS host, explicit approval only | Creates a temporary contained session |
 | `scripts/check-codex-desktop-attach-smoke.sh` | Does the stock Codex desktop app route through the Hazmat-backed `CODEX_CLI_PATH` proxy? | Prepared macOS host, explicit human approval only | May launch Codex App |
 | `scripts/check-session-home-activation-smoke.sh` | Does experimental session-local HOME activation preserve HOME/XDG layout and core toolchain behavior? | Prepared macOS host, explicit human approval only | Creates a temporary contained session |
+| `scripts/check-claude-onboarding-smoke.sh` | Does a real `hazmat claude -p` startup skip auth/onboarding prompts and return a bounded print-mode response? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
@@ -48,9 +49,10 @@ setup progress checklist first and the same full validation afterward. Both full
 paths are sudo-adjacent in agent workflows and require explicit exact-command
 approval.
 
-Prepared-host smoke wrappers are different. Their `--check-prereqs` and `--run`
-paths may intentionally call `sudo -n`, `hazmat exec`, or native helper-backed
-launch paths, so agents must ask for exact-command approval before running them.
+Prepared-host smoke wrappers are different. Their `--check-prereqs`,
+`--check-fixtures`, and `--run` paths may intentionally call `sudo -n`,
+`hazmat exec`, `hazmat claude`, or native helper-backed launch paths, so agents
+must ask for exact-command approval before running them.
 
 ## Native Launch Performance Profiling
 
@@ -358,6 +360,40 @@ This is a live native Hazmat smoke. Its prerequisite mode and live mode may
 exercise sudo-adjacent host capability checks or helper-backed launch behavior,
 so agents must ask for explicit approval before running `--check-prereqs`,
 `--skip-if-missing-prereqs`, or `--run`.
+
+### Claude onboarding smoke
+
+Use this when validating the repeated Claude auth/onboarding regression against
+the real `hazmat claude` startup path. The default mode is a disclosure; it
+prints the exact live command shape and exits without running Hazmat or Claude:
+
+```bash
+scripts/check-claude-onboarding-smoke.sh
+make e2e-claude-onboarding-smoke
+```
+
+Fixture checks are non-mutating host checks. They verify that the selected
+Hazmat binary exists and that local shell utilities needed for the bounded
+print-mode run are available. Agents still need explicit approval before
+running fixture checks because they inspect local Hazmat setup:
+
+```bash
+scripts/check-claude-onboarding-smoke.sh --check-fixtures
+```
+
+Live mode is sudo-adjacent because it invokes `hazmat claude`, which may
+materialize, observe, or repair host Claude credential/onboarding state. Agents
+must ask for explicit approval before running:
+
+```bash
+scripts/check-claude-onboarding-smoke.sh --run --i-understand-this-runs-hazmat-claude
+```
+
+Set `HAZMAT_CLAUDE_ONBOARDING_SMOKE_HAZMAT` to an installed binary path when
+validating an installed build instead of the checkout binary. The live smoke
+creates a scratch project, runs Claude print mode with a sentinel prompt,
+fails on timeout, fails if output looks like an auth/onboarding prompt, and
+requires the sentinel response.
 
 ### Claude Workflow export smoke
 

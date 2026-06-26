@@ -17,6 +17,7 @@
 .github/workflows/ci.yml#job:tla-model-check	tla-model-check	-
 .github/workflows/ci.yml#job:tla-proof-hygiene	tla-proof-hygiene	-
 scripts/check-cache-integration-smoke.sh	live-approved	product-workflows
+scripts/check-claude-onboarding-smoke.sh	live-approved	product-workflows
 scripts/check-claude-workflow-export-smoke.sh	live-approved	product-workflows
 scripts/check-cli-smoke.sh	cli-ux	product-workflows
 scripts/check-codex-app-server-smoke.sh	live-approved	product-workflows
