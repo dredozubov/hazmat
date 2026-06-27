@@ -10,71 +10,126 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Full-autonomy coding agents, without your real system user account.</strong><br>
+  <strong>Run AI coding agents as a separate macOS user.</strong><br>
   Open-source macOS containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
 </p>
 
 ---
 
-Hazmat is the local execution boundary for agent loops. It shows the session
-contract first, then runs the agent as a dedicated macOS user inside OS-level
-containment.
-
-It is built for the workflow developers actually want: Claude, Codex, OpenCode,
-or a custom loop that can edit files, run commands, and keep going without
-asking on every step.
-
-Approval prompts are workflow controls, not an authority boundary. If an agent
-gets prompt-injected, runs a poisoned dependency, or follows malicious repo
-instructions, the important question is not whether it asked politely. The
-important question is what the process can reach.
-
-Hazmat changes that blast radius. It does not make arbitrary agent autonomy
-safe; it makes the host authority boundary explicit and lower than your real
+Hazmat lets an agent edit your repo without running as your real system user
 account.
 
-## Start Here
+It shows the session contract first, then launches the agent as a dedicated
+`agent` macOS user inside OS-level containment. Your project can be writable.
+Your real home directory, SSH keys, cloud credentials, and global dev state do
+not become the agent's default world.
 
-Fast path for Claude Code:
+Use it when you want the productive version of Claude Code, Codex, OpenCode, or
+a custom loop: fewer approval interruptions, more autonomy, and a smaller host
+blast radius.
+
+The loop is simple: preview what the agent can reach, run it, then inspect what
+changed.
+
+## Try It
+
+Fast path for Claude Code on macOS. The dry run previews setup; it does not
+launch an agent.
 
 ```bash
 brew install dredozubov/tap/hazmat
+hazmat init --dry-run
 hazmat init --bootstrap-agent claude
 cd your-project
+hazmat explain -C .
 hazmat claude
 ```
 
-Preview before changing the Mac or launching an agent:
+Replace the last command for another supported harness:
 
 ```bash
-hazmat init --dry-run       # setup preview
-hazmat explain -C your-project  # session-contract preview
+hazmat codex
+hazmat opencode
+hazmat antigravity
+hazmat exec -- ./my-agent-loop.sh
 ```
 
-Using Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, or a custom
-script instead? Start with [docs/harnesses.md](docs/harnesses.md).
+After a session:
 
-## Proof Today
+```bash
+hazmat diff
+hazmat snapshots
+hazmat restore
+```
 
-The claim is narrow and testable. Today Hazmat can show:
+Using Hermes, Qwen, Cursor Agent, Pi, or a custom script instead? Start with
+[docs/harnesses.md](docs/harnesses.md).
 
-- a dedicated `agent` macOS user
-- a per-session seatbelt policy
-- a credential deny floor and host-owned secret store
-- `pf` firewall and DNS hardening
-- pre-session snapshots, diff, and recovery commands
-- eight documented harness paths
-- Docker Sandbox routing for private-daemon Docker workflows
+## What You Get
+
+On the first real run, Hazmat gives you:
+
+- **A separate user:** the agent runs as `agent`, not as your login account.
+- **A readable session contract:** project access, integrations, network mode,
+  and service access are printed before launch.
+- **Scoped filesystem access:** project writes are explicit; common secret paths
+  are denied.
+- **Network hardening:** `pf` firewall rules and DNS blocks reduce common
+  exfiltration paths.
+- **Recovery evidence:** Hazmat snapshots before launch so you can diff and
+  restore after the agent exits.
+- **The same agent workflow:** use Claude, Codex, OpenCode, Antigravity, Hermes,
+  Qwen, Cursor Agent, Pi, or `hazmat exec`.
 
 Recent shipped work is in [CHANGELOG.md](CHANGELOG.md). Read
 [docs/testing.md](docs/testing.md) for what is automated, approval-gated, and
 formally modeled. Read [docs/overview.md](docs/overview.md) before stretching
 native containment into Docker-heavy or hostile-repo workflows.
 
-## Proof Stack
+## When It Fits
 
-The first proof path is deliberately small: preview the setup, preview the
-session contract, run one contained session, then inspect recovery evidence.
+Hazmat is a fit when:
+
+- you run agents with broad permissions, long tasks, or low supervision
+- you want repo writes without handing over your real system user account
+- you need a contract you can review before the agent starts
+- you want a diff and rollback path after autonomous edits
+
+It is not a magic prompt shield. If an agent gets prompt-injected, runs a
+poisoned dependency, or follows malicious repo instructions, the useful question
+is what the process can reach. Hazmat lowers that authority boundary.
+
+## What a Session Looks Like
+
+Every session starts with a contract. No hidden widening, no vague "secure mode"
+label.
+
+<p align="center">
+  <img src="assets/session-contract-demo.svg" alt="Terminal demo showing Hazmat init followed by a native containment session contract" width="860">
+</p>
+
+```
+hazmat: session
+  Mode:                 Native containment
+  Why this mode:        using native containment by default (Docker routing: none)
+  Project (read-write): /Users/dr/workspace/my-app
+  Integrations:         go
+  Auto read-only:       /Users/dr/go/pkg/mod
+  Read-only extensions: none
+  Read-write extensions: none
+  Service access:       none
+  Pre-session snapshot: on
+  Snapshot excludes:    vendor/
+```
+
+This is the screen to read before you let an agent run. It tells you what can
+change, what is read-only, and what is not available in the session.
+
+## Small Proof
+
+Want proof before using it on a real repo? Run the small path: preview setup,
+preview a session, write one contained file, block one host-secret read, then
+inspect the diff.
 
 ```bash
 hazmat init --dry-run
@@ -113,43 +168,22 @@ For project health and breadth, see [docs/compatibility.md](docs/compatibility.m
 [docs/public-roadmap.md](docs/public-roadmap.md), and
 [docs/testing.md](docs/testing.md).
 
-## What a Session Looks Like
+## Why Prompts Are Not Enough
 
-Every session starts with a contract. No hidden widening, no vague "secure mode" label.
+Approval prompts are workflow controls, not an authority boundary. If a process
+can read secrets, modify global state, or call out to the network, a bad
+instruction can use that authority.
 
-<p align="center">
-  <img src="assets/session-contract-demo.svg" alt="Terminal demo showing Hazmat init followed by a native containment session contract" width="860">
-</p>
-
-```
-hazmat: session
-  Mode:                 Native containment
-  Why this mode:        using native containment by default (Docker routing: none)
-  Project (read-write): /Users/dr/workspace/my-app
-  Integrations:         go
-  Auto read-only:       /Users/dr/go/pkg/mod
-  Read-only extensions: none
-  Read-write extensions: none
-  Service access:       none
-  Pre-session snapshot: on
-  Snapshot excludes:    vendor/
-```
-
-That contract is the product. You can inspect it with `hazmat explain` before launch, and you can tell at a glance what changed for the session.
-
-## Why This Exists
-
-`--dangerously-skip-permissions` is where the real productivity is. It is also where the real blast radius is.
-
-The category keeps proving the point:
+That is not theoretical:
 
 - **Agents actively reason about escaping.** Ona showed Claude Code [bypassing its own denylist](https://ona.com/stories/how-claude-code-escapes-its-own-denylist-and-sandbox) via `/proc/self/root`, then trying to disable bubblewrap when that path was closed.
 - **The CVEs are not hypothetical.** Hazmat tracks [16 Claude Code CVEs](docs/cve-audit.md), including [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) and [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852).
 - **Supply chain attacks are fast enough to beat human supervision.** The 2026 axios compromise delivered a RAT through a `postinstall` hook in about two seconds.
 
-So the design goal is not "make the agent behave." The design goal is "make autonomous failure less catastrophic."
+The design goal is not "make the agent behave." The design goal is "make
+autonomous failure less catastrophic."
 
-## What Hazmat Actually Does
+## Commands And Controls
 
 ```bash
 hazmat claude
@@ -174,7 +208,7 @@ hazmat shell
 | **Supply chain hardening** | Applies conservative defaults such as npm `ignore-scripts=true` |
 | **Snapshots and restore** | Takes a pre-session Kopia snapshot so you can diff or roll back |
 
-## What Works Today
+## Current Status
 
 Current state, not aspirational state:
 
@@ -190,7 +224,7 @@ Current state, not aspirational state:
 - **Repo-local Git hooks have a Hazmat-managed approval path.** Repos can declare `pre-commit`, `commit-msg`, and `pre-push` in `.hazmat/hooks/hooks.yaml`; approval, install, drift review, and uninstall flow through `hazmat hooks ...`.
 - **Core behavior is tested and partially formally verified.** The exact proof boundary is explicit in [tla/VERIFIED.md](tla/VERIFIED.md). If something is not listed there, do not assume a proof exists.
 
-## Limitations I Am Not Hiding
+## Limits
 
 Hazmat is useful because the boundaries are concrete. That also means the limitations should be concrete.
 
