@@ -1,6 +1,3 @@
-<a href="https://github.com/dredozubov/hazmat/stargazers"><img align="right" width="190" src="assets/stars-help-hazmat-grow-light.png#gh-light-mode-only" alt="Stars help Hazmat grow — please star the repo"></a>
-<a href="https://github.com/dredozubov/hazmat/stargazers"><img align="right" width="190" src="assets/stars-help-hazmat-grow-dark.png#gh-dark-mode-only" alt=""></a>
-
 <p align="center">
   <a href="#"><img src="assets/hazmat-final.png" alt="Hazmat" width="400"></a>
 </p>
@@ -12,7 +9,10 @@
   Visible session contract + dedicated macOS user + OS-level containment
 </p>
 
-<br clear="all">
+<p align="right">
+  <a href="https://github.com/dredozubov/hazmat/stargazers"><img width="190" src="assets/stars-help-hazmat-grow-light.png#gh-light-mode-only" alt="Stars help Hazmat grow — please star the repo"></a>
+  <a href="https://github.com/dredozubov/hazmat/stargazers"><img width="190" src="assets/stars-help-hazmat-grow-dark.png#gh-dark-mode-only" alt=""></a>
+</p>
 
 ---
 
