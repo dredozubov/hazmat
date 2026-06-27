@@ -5,8 +5,8 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Run full-autonomy coding agents on your Mac without giving them your real account.</strong><br>
-  Visible session contract + dedicated macOS user + OS-level containment
+  <strong>Full-autonomy coding agents, without your real account.</strong><br>
+  Open-source macOS containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
 </p>
 
 <p align="right">
@@ -16,13 +16,18 @@
 
 ---
 
-Hazmat shows the session contract first, then runs the agent as a dedicated
-macOS user inside OS-level containment.
+Hazmat is the local execution boundary for agent loops. It shows the session
+contract first, then runs the agent as a dedicated macOS user inside OS-level
+containment.
 
-Approval prompts slow agents down, but they do not change what a running process
-can reach. If an agent gets prompt-injected, runs a poisoned dependency, or
-follows malicious repo instructions, the important question is not whether it
-asked politely. The important question is what it can reach.
+It is built for the workflow developers actually want: Claude, Codex, OpenCode,
+or a custom loop that can edit files, run commands, and keep going without
+asking on every step.
+
+Approval prompts are workflow controls, not an authority boundary. If an agent
+gets prompt-injected, runs a poisoned dependency, or follows malicious repo
+instructions, the important question is not whether it asked politely. The
+important question is what the process can reach.
 
 Hazmat changes that blast radius. It does not make arbitrary agent autonomy
 safe; it makes the host authority boundary explicit and lower than your real
@@ -30,7 +35,7 @@ account.
 
 ## Start Here
 
-If you want the shortest path to a first contained session:
+Fast path for Claude Code:
 
 ```bash
 brew install dredozubov/tap/hazmat
@@ -39,32 +44,32 @@ cd your-project
 hazmat claude
 ```
 
-Preview before changing the Mac:
+Preview before changing the Mac or launching an agent:
 
 ```bash
-hazmat init --dry-run    # setup preview
-hazmat explain           # session-contract preview for this project
+hazmat init --dry-run       # setup preview
+hazmat explain -C your-project  # session-contract preview
 ```
 
-If you use Codex, OpenCode, Gemini, Hermes, Qwen, or Cursor Agent instead of
-Claude, start with [docs/harnesses.md](docs/harnesses.md).
+Using Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, or a custom
+script instead? Start with [docs/harnesses.md](docs/harnesses.md).
 
 ## Proof Today
 
-Current state, with caveats linked nearby:
+The claim is narrow and testable. Today Hazmat can show:
 
 - a dedicated `agent` macOS user
 - a per-session seatbelt policy
 - a credential deny floor and host-owned secret store
 - `pf` firewall and DNS hardening
 - pre-session snapshots, diff, and recovery commands
-- seven documented harness paths
+- eight documented harness paths
 - Docker Sandbox routing for private-daemon Docker workflows
 
-Read [docs/testing.md](docs/testing.md) for what is automated, what is
-approval-gated, and what is formally modeled. Read
-[docs/overview.md](docs/overview.md) before stretching native containment into
-Docker-heavy or hostile-repo workflows.
+Recent shipped work is in [CHANGELOG.md](CHANGELOG.md). Read
+[docs/testing.md](docs/testing.md) for what is automated, approval-gated, and
+formally modeled. Read [docs/overview.md](docs/overview.md) before stretching
+native containment into Docker-heavy or hostile-repo workflows.
 
 ## Proof Stack
 
@@ -150,10 +155,11 @@ So the design goal is not "make the agent behave." The design goal is "make auto
 hazmat claude
 hazmat codex
 hazmat opencode
-hazmat gemini
+hazmat antigravity
 hazmat hermes
 hazmat qwen
 hazmat cursor-agent
+hazmat pi -- --mode rpc
 hazmat exec ./my-agent-loop.sh
 hazmat shell
 ```
@@ -173,7 +179,7 @@ hazmat shell
 Current state, not aspirational state:
 
 - **macOS native containment is the default path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
-- **Seven harnesses are supported in containment.** Claude Code, Codex, OpenCode, Gemini, Hermes, Qwen Code, and Cursor Agent. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
+- **Eight harnesses are supported in containment.** Claude Code, Codex, OpenCode, Antigravity, Hermes, Qwen Code, Cursor Agent, and Pi. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
 - **Harness lifecycle is managed.** `hazmat harness status|update|uninstall` inspects agent-owned harness code, refreshes it through the bootstrap paths, and removes Hazmat-owned code artifacts without deleting auth/profile/session state by default.
 - **Docker support is real, but selective.** Private-daemon Docker workflows can use Docker Sandbox mode through every harness entrypoint, plus `hazmat shell` and `hazmat exec`. Shared host-daemon workflows stay code-only by default. See [docs/tier3-docker-sandboxes.md](docs/tier3-docker-sandboxes.md) and [docs/shared-daemon-projects.md](docs/shared-daemon-projects.md).
 - **27 built-in stack integrations.** Full table in [docs/STACKS.md](docs/STACKS.md); schema and trust-model rules in [docs/integrations.md](docs/integrations.md). Quick groupings:
@@ -193,6 +199,7 @@ Hazmat is useful because the boundaries are concrete. That also means the limita
 - **The DNS blocklist is exact-domain, not wildcard.** It is based on `/etc/hosts`, not a full DNS filtering stack. See [docs/design-assumptions.md](docs/design-assumptions.md).
 - **Shared `/tmp` stays shared.** Hazmat does not pretend macOS temp space suddenly became private.
 - **MCP env inheritance and `SSH_AUTH_SOCK` abuse are still category-wide problems.** Some of the hardest issues here are operational, not just architectural. They are called out directly in [docs/threat-matrix.md](docs/threat-matrix.md).
+
 If you are dealing with hostile repos, long unattended runs, or shared-daemon Docker workflows, the honest answer may be Tier 4, not stretching Tier 2 past what it does well. Start with [docs/overview.md](docs/overview.md).
 
 ## Community Map
@@ -227,10 +234,11 @@ hazmat claude -p "refactor the auth module"
 # Other supported harnesses
 hazmat codex
 hazmat opencode
-hazmat gemini
+hazmat antigravity
 hazmat hermes
 hazmat qwen
 hazmat cursor-agent
+hazmat pi -- --mode rpc
 
 # Harness lifecycle
 hazmat harness status
@@ -306,7 +314,7 @@ The important property is structural separation. The agent is not "forbidden fro
 | [docs/overview.md](docs/overview.md) | Which tier to use, and when |
 | [docs/architecture.md](docs/architecture.md) | Module graph, authority pipeline, invariants, and data/user-flow diagrams |
 | [docs/threat-matrix.md](docs/threat-matrix.md) | Risk-by-risk coverage and documented caveats |
-| [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Gemini, Hermes, Qwen, and Cursor Agent |
+| [docs/harnesses.md](docs/harnesses.md) | Harness setup matrix for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, and Pi |
 | [docs/integrations.md](docs/integrations.md) | How integrations work, and what they are not allowed to do |
 | [docs/integration-contributor-flow.md](docs/integration-contributor-flow.md) | How users discover integrations and turn missing stack support into PR-shaped work |
 | [docs/integration-author-kit.md](docs/integration-author-kit.md) | How to propose integrations without turning them into policy escapes |
