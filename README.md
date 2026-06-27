@@ -5,7 +5,7 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Full-autonomy coding agents, without your real account.</strong><br>
+  <strong>Full-autonomy coding agents, without your real system user account.</strong><br>
   Open-source macOS containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
 </p>
 
