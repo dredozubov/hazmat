@@ -5,7 +5,7 @@
   "backend": "linux-native",
   "capability_gaps": [
     {
-      "code": "linux-native-launch-helper-missing",
+      "code": "linux.native-launch-helper-missing",
       "message": "Linux native launch helper is not implemented; spec is plan-only"
     }
   ],

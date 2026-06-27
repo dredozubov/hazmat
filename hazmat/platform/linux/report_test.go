@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -21,6 +22,7 @@ VERSION_CODENAME=noble
 	writeFile(t, root, "/sys/fs/cgroup/cgroup.controllers", "cpu memory pids\n")
 	writeFile(t, root, "/sys/kernel/security/landlock/abi", "5\n")
 	writeFile(t, root, "/proc/sys/kernel/seccomp/actions_avail", "kill_process kill_thread errno trap log allow\n")
+	writeFile(t, root, "/proc/self/ns/mnt", "")
 	writeFile(t, root, "/proc/self/ns/net", "")
 
 	report := Inspect(InspectOptions{Root: root, RuntimeOS: "linux"})
@@ -38,6 +40,7 @@ VERSION_CODENAME=noble
 	}
 	for name, feature := range map[string]FeatureReport{
 		"user_namespaces":    report.Features.UserNamespaces,
+		"mount_namespaces":   report.Features.MountNamespaces,
 		"cgroup_v2":          report.Features.CgroupV2,
 		"landlock":           report.Features.Landlock,
 		"seccomp":            report.Features.Seccomp,
@@ -86,6 +89,9 @@ NAME=Debian
 	if report.Features.Seccomp.State != FeatureAvailable {
 		t.Fatalf("Seccomp = %+v, want available from proc status", report.Features.Seccomp)
 	}
+	if report.Features.MountNamespaces.State != FeatureUnknown {
+		t.Fatalf("MountNamespaces = %+v, want unknown from nsfs only", report.Features.MountNamespaces)
+	}
 	if report.Features.NetworkNamespaces.State != FeatureUnknown {
 		t.Fatalf("NetworkNamespaces = %+v, want unknown from nsfs only", report.Features.NetworkNamespaces)
 	}
@@ -101,6 +107,73 @@ NAME=Debian
 	}
 	if !foundRuntimeReason {
 		t.Fatalf("NativeBackend.Reasons missing runtime reason: %v", report.NativeBackend.Reasons)
+	}
+}
+
+func TestInspectReportsDistroVariants(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		data string
+		want DistroInfo
+	}{
+		{
+			name: "ubuntu",
+			path: "/etc/os-release",
+			data: `ID=ubuntu
+ID_LIKE="debian"
+NAME="Ubuntu"
+PRETTY_NAME="Ubuntu 24.04.2 LTS"
+VERSION_ID="24.04"
+VERSION_CODENAME=noble
+`,
+			want: DistroInfo{ID: "ubuntu", IDLike: []string{"debian"}, Name: "Ubuntu", PrettyName: "Ubuntu 24.04.2 LTS", VersionID: "24.04", VersionCodename: "noble"},
+		},
+		{
+			name: "debian",
+			path: "/usr/lib/os-release",
+			data: `ID=debian
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION_CODENAME=bookworm
+`,
+			want: DistroInfo{ID: "debian", IDLike: []string{}, Name: "Debian GNU/Linux", VersionID: "12", VersionCodename: "bookworm"},
+		},
+		{
+			name: "fedora",
+			path: "/etc/os-release",
+			data: `ID=fedora
+ID_LIKE="rhel centos"
+NAME="Fedora Linux"
+VERSION_ID="40"
+`,
+			want: DistroInfo{ID: "fedora", IDLike: []string{"rhel", "centos"}, Name: "Fedora Linux", VersionID: "40"},
+		},
+		{
+			name: "arch",
+			path: "/etc/os-release",
+			data: `ID=arch
+NAME="Arch Linux"
+PRETTY_NAME="Arch Linux"
+`,
+			want: DistroInfo{ID: "arch", IDLike: []string{}, Name: "Arch Linux", PrettyName: "Arch Linux"},
+		},
+		{
+			name: "unknown",
+			want: DistroInfo{IDLike: []string{}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if tc.path != "" {
+				writeFile(t, root, tc.path, tc.data)
+			}
+
+			report := Inspect(InspectOptions{Root: root, RuntimeOS: "linux"})
+			if !reflect.DeepEqual(report.Distro, tc.want) {
+				t.Fatalf("Distro = %#v, want %#v", report.Distro, tc.want)
+			}
+		})
 	}
 }
 

@@ -17,6 +17,15 @@ const (
 
 	BackendLinuxNative = "linux-native"
 	PhasePlanOnly      = "plan-only"
+
+	GapNativeLaunchHelperMissing   = "linux.native-launch-helper-missing"
+	GapRuntimeNotLinux             = "linux.runtime-not-linux"
+	GapUserNamespaceUnavailable    = "linux.user-namespace-unavailable"
+	GapMountNamespaceUnavailable   = "linux.mount-namespace-unavailable"
+	GapCgroupV2Unavailable         = "linux.cgroup-v2-unavailable"
+	GapLandlockUnavailable         = "linux.landlock-unavailable"
+	GapSeccompUnavailable          = "linux.seccomp-unavailable"
+	GapNetworkNamespaceUnavailable = "linux.network-namespace-unavailable"
 )
 
 // CompileOptions supplies inspected host capability facts.
@@ -176,12 +185,12 @@ func compileNetwork(mode sessionmeta.NetworkMode) NetworkSpec {
 
 func capabilityGaps(report platformlinux.Report) []CapabilityGap {
 	gaps := []CapabilityGap{{
-		Code:    "linux-native-launch-helper-missing",
+		Code:    GapNativeLaunchHelperMissing,
 		Message: "Linux native launch helper is not implemented; spec is plan-only",
 	}}
 	if report.RuntimeOS != "" && report.RuntimeOS != "linux" {
 		gaps = append(gaps, CapabilityGap{
-			Code:    "runtime-not-linux",
+			Code:    GapRuntimeNotLinux,
 			Message: "inspected runtime is not Linux",
 			State:   report.RuntimeOS,
 		})
@@ -191,11 +200,12 @@ func capabilityGaps(report platformlinux.Report) []CapabilityGap {
 		message string
 		feature platformlinux.FeatureReport
 	}{
-		{"user-namespaces-unavailable", "user namespace support is not positively available", report.Features.UserNamespaces},
-		{"cgroup-v2-unavailable", "cgroup v2 support is not positively available", report.Features.CgroupV2},
-		{"landlock-unavailable", "Landlock support is not positively available", report.Features.Landlock},
-		{"seccomp-unavailable", "seccomp support is not positively available", report.Features.Seccomp},
-		{"network-namespaces-unavailable", "network namespace support is not positively available", report.Features.NetworkNamespaces},
+		{GapUserNamespaceUnavailable, "user namespace support is not positively available", report.Features.UserNamespaces},
+		{GapMountNamespaceUnavailable, "mount namespace support is not positively available", report.Features.MountNamespaces},
+		{GapCgroupV2Unavailable, "cgroup v2 support is not positively available", report.Features.CgroupV2},
+		{GapLandlockUnavailable, "Landlock support is not positively available", report.Features.Landlock},
+		{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
+		{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
 	} {
 		if item.feature.State != "" && item.feature.State != platformlinux.FeatureAvailable {
 			gaps = append(gaps, CapabilityGap{

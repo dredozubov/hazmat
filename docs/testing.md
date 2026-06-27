@@ -195,6 +195,44 @@ HAZMAT_LINUX_APPLE_CONTAINER_GO_TEST_ARGS='./platform/linux ./containment/linux'
 `--check-prereqs`, `--skip-if-missing-prereqs`, `--run`, and `--go-test` are
 approval-gated because they inspect or invoke local Apple Container host state.
 
+### Linux development in Apple Container
+
+Use this when you want a quick Linux shell or command runner while filling
+Linux-native gaps. The default mode is disclosure-only:
+
+```bash
+bash scripts/linux-apple-container-dev.sh
+```
+
+Before a live session, check whether the current host is prepared:
+
+```bash
+bash scripts/linux-apple-container-dev.sh --check-prereqs
+```
+
+After explicit approval, open a shell in a writable Linux copy of the repo:
+
+```bash
+bash scripts/linux-apple-container-dev.sh --shell --i-understand-this-runs-apple-container-linux-dev
+make linux-apple-container-dev APPLE_CONTAINER_ACK=1
+```
+
+Or run one Linux command:
+
+```bash
+bash scripts/linux-apple-container-dev.sh --run --i-understand-this-runs-apple-container-linux-dev -- go test ./platform/linux ./containment/linux
+```
+
+The dev wrapper mounts the host checkout read-only at `/hazmat-src`, copies it
+to `/work/src/hazmat`, and runs commands from that writable copy. It uses
+isolated `HOME`, `GOCACHE`, `GOTMPDIR`, and a writable `/private/tmp`
+compatibility directory, with the host Go module cache mounted read-only when
+present. Changes made inside the container are disposable; edit and commit from
+the host, then use this lane for Linux execution feedback.
+
+`--check-prereqs`, `--skip-if-missing-prereqs`, `--shell`, and `--run` are
+approval-gated because they inspect or invoke local Apple Container host state.
+
 ### Codex app-server smoke
 
 Use this when changing the contained Codex app-server backend path. It starts a

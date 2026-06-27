@@ -122,6 +122,43 @@ assert_help_contains_all() {
     pass "$label"
 }
 
+assert_bash_help_contains_all() {
+    local label="$1"
+    local script="$2"
+    shift 2
+
+    local output=""
+    local status=0
+    set +e
+    output=$(bash "$script" --help 2>&1)
+    status=$?
+    set -e
+
+    if [ "$status" -ne 0 ]; then
+        fail "$label: --help failed with status $status"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    local missing=""
+    for expected in "$@"; do
+        if ! grep -Fq -- "$expected" <<<"$output"; then
+            if [ -z "$missing" ]; then
+                missing="$expected"
+            else
+                missing="$missing, $expected"
+            fi
+        fi
+    done
+    if [ -n "$missing" ]; then
+        fail "$label: --help missing $missing"
+        printf '%s\n' "$output" >&2
+        return
+    fi
+
+    pass "$label"
+}
+
 assert_file_contains_all() {
     local label="$1"
     local path="$2"
@@ -431,6 +468,16 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --go-test
 
 assert_fails_with \
+    "Linux Apple Container dev shell requires live ack" \
+    "refusing live run without --i-understand-this-runs-apple-container-linux-dev" \
+    bash "$REPO_ROOT/scripts/linux-apple-container-dev.sh" --shell
+
+assert_fails_with \
+    "Linux Apple Container dev command requires live ack" \
+    "refusing live run without --i-understand-this-runs-apple-container-linux-dev" \
+    bash "$REPO_ROOT/scripts/linux-apple-container-dev.sh" --run -- go test ./platform/linux
+
+assert_fails_with \
     "privileged install ownership check requires live ack" \
     "refusing live run without --i-understand-this-checks-privileged-install-ownership" \
     bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
@@ -444,6 +491,11 @@ assert_fails_with \
     "make linux-apple-container-test requires APPLE_CONTAINER_ACK=1" \
     "Refusing to run live Apple Container Linux tests." \
     make -C "$REPO_ROOT/hazmat" linux-apple-container-test
+
+assert_fails_with \
+    "make linux-apple-container-dev requires APPLE_CONTAINER_ACK=1" \
+    "Refusing to run live Apple Container Linux dev shell." \
+    make -C "$REPO_ROOT/hazmat" linux-apple-container-dev
 
 assert_fails_with \
     "Apple Container spike requires live ack" \
@@ -541,6 +593,11 @@ assert_succeeds_with \
     "Linux Apple Container smoke defaults to disclosure" \
     "linux-apple-container-smoke: disclosure-only" \
     bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh"
+
+assert_succeeds_with \
+    "Linux Apple Container dev defaults to disclosure" \
+    "linux-apple-container-dev: disclosure-only" \
+    bash "$REPO_ROOT/scripts/linux-apple-container-dev.sh"
 
 assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
@@ -750,6 +807,19 @@ assert_help_contains_all \
     "Agents must ask for explicit approval before running" \
     "--check-prereqs, --skip-if-missing-prereqs, --run, or --go-test"
 
+assert_bash_help_contains_all \
+    "Linux Apple Container dev documents approval-gated prereqs" \
+    "$REPO_ROOT/scripts/linux-apple-container-dev.sh" \
+    "--check-prereqs" \
+    "--shell" \
+    "--run" \
+    "--skip-if-missing-prereqs" \
+    "container system status" \
+    "writable copy of the repository" \
+    "Agents must ask for explicit approval before running" \
+    "--check-prereqs, --skip-if-missing-prereqs," \
+    "--shell, or --run"
+
 assert_help_contains_all \
     "privileged install ownership check documents sudo-adjacent prereqs" \
     "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" \
@@ -780,6 +850,19 @@ assert_file_contains_all \
     "--warning=no-file-changed" \
     "--exclude ./tla/states" \
     "--exclude ./spike-apple-container-results" \
+    "GOWORK=off" \
+    "GOCACHE=/work/gocache" \
+    'GOMODCACHE="$gomodcache"' \
+    "GOFLAGS=\"-mod=readonly"
+
+assert_file_contains_all \
+    "Linux Apple Container dev uses disposable writable workspace" \
+    "$REPO_ROOT/scripts/linux-apple-container-dev.sh" \
+    '--mount "type=bind,source=$REPO_ROOT,target=/hazmat-src,readonly"' \
+    '--mount "type=bind,source=$TMPDIR_LINUX_APPLE_CONTAINER_DEV/work,target=/work"' \
+    "target=/private/tmp" \
+    "--exclude ./tla/states" \
+    "cd /work/src/hazmat" \
     "GOWORK=off" \
     "GOCACHE=/work/gocache" \
     'GOMODCACHE="$gomodcache"' \

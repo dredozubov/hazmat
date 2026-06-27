@@ -53,6 +53,7 @@ type KernelInfo struct {
 // planning.
 type FeatureSet struct {
 	UserNamespaces    FeatureReport `json:"user_namespaces"`
+	MountNamespaces   FeatureReport `json:"mount_namespaces"`
 	CgroupV2          FeatureReport `json:"cgroup_v2"`
 	Landlock          FeatureReport `json:"landlock"`
 	Seccomp           FeatureReport `json:"seccomp"`
@@ -111,6 +112,7 @@ func Inspect(opts InspectOptions) Report {
 	}
 	report.Features = FeatureSet{
 		UserNamespaces:    inspectUserNamespaces(root),
+		MountNamespaces:   inspectMountNamespaces(root),
 		CgroupV2:          inspectCgroupV2(root),
 		Landlock:          inspectLandlock(root),
 		Seccomp:           inspectSeccomp(root),
@@ -201,6 +203,17 @@ func inspectSeccomp(root string) FeatureReport {
 	return FeatureReport{State: FeatureUnknown, Detail: "seccomp support was not detected from procfs", Source: actions}
 }
 
+func inspectMountNamespaces(root string) FeatureReport {
+	const source = "/proc/self/ns/mnt"
+	if exists(root, source) {
+		return FeatureReport{State: FeatureAvailable, Detail: "current process has a mount namespace handle", Source: source}
+	}
+	if procFilesystemsContains(root, "nsfs") {
+		return FeatureReport{State: FeatureUnknown, Detail: "kernel reports namespace filesystem support, but current mount namespace handle was not found", Source: "/proc/filesystems"}
+	}
+	return FeatureReport{State: FeatureUnknown, Detail: "mount namespace handle was not found", Source: source}
+}
+
 func inspectNetworkNamespaces(root string) FeatureReport {
 	const source = "/proc/self/ns/net"
 	if exists(root, source) {
@@ -226,6 +239,7 @@ func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendSta
 	}
 	required := []FeatureReport{
 		features.UserNamespaces,
+		features.MountNamespaces,
 		features.CgroupV2,
 		features.Landlock,
 		features.Seccomp,

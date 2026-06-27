@@ -149,6 +149,8 @@ A Linux plan or failed launch should name the missing surface precisely:
 
 | Gap ID | Meaning |
 |--------|---------|
+| `linux.native-launch-helper-missing` | Linux native launch helper is not implemented yet |
+| `linux.runtime-not-linux` | the inspected runtime is not Linux |
 | `linux.user-namespace-unavailable` | selected strategy needs user namespaces and the host disables them |
 | `linux.mount-namespace-unavailable` | helper cannot create the required mount namespace |
 | `linux.network-namespace-unavailable` | `--network none` cannot be enforced |

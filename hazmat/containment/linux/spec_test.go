@@ -22,6 +22,7 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 		RuntimeOS: "linux",
 		Features: platformlinux.FeatureSet{
 			UserNamespaces:    availableFeature(),
+			MountNamespaces:   availableFeature(),
 			CgroupV2:          availableFeature(),
 			Landlock:          availableFeature(),
 			Seccomp:           availableFeature(),
@@ -62,7 +63,7 @@ func TestCompileBuildsPlanOnlyLaunchSpec(t *testing.T) {
 	if len(spec.CredentialDenies) != 1 || spec.CredentialDenies[0].Path != "/home/agent/.ssh" {
 		t.Fatalf("CredentialDenies = %+v", spec.CredentialDenies)
 	}
-	if len(spec.CapabilityGaps) != 1 || spec.CapabilityGaps[0].Code != "linux-native-launch-helper-missing" {
+	if len(spec.CapabilityGaps) != 1 || spec.CapabilityGaps[0].Code != GapNativeLaunchHelperMissing {
 		t.Fatalf("CapabilityGaps = %+v", spec.CapabilityGaps)
 	}
 	raw, err := MarshalJSON(spec)
@@ -97,6 +98,7 @@ func TestGoldenLinuxLaunchSpecBaseline(t *testing.T) {
 			RuntimeOS: "linux",
 			Features: platformlinux.FeatureSet{
 				UserNamespaces:    platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
+				MountNamespaces:   platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
 				CgroupV2:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
 				Landlock:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
 				Seccomp:           platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "golden"},
@@ -152,6 +154,7 @@ func TestCompileReportsPlatformCapabilityGaps(t *testing.T) {
 		RuntimeOS: "darwin",
 		Features: platformlinux.FeatureSet{
 			UserNamespaces:    platformlinux.FeatureReport{State: platformlinux.FeatureUnavailable, Source: "userns"},
+			MountNamespaces:   platformlinux.FeatureReport{State: platformlinux.FeatureUnknown, Source: "mntns"},
 			CgroupV2:          platformlinux.FeatureReport{State: platformlinux.FeatureAvailable},
 			Landlock:          platformlinux.FeatureReport{State: platformlinux.FeatureUnknown, Source: "landlock"},
 			Seccomp:           platformlinux.FeatureReport{State: platformlinux.FeatureAvailable},
@@ -164,17 +167,18 @@ func TestCompileReportsPlatformCapabilityGaps(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 	for _, code := range []string{
-		"linux-native-launch-helper-missing",
-		"runtime-not-linux",
-		"user-namespaces-unavailable",
-		"landlock-unavailable",
-		"network-namespaces-unavailable",
+		GapNativeLaunchHelperMissing,
+		GapRuntimeNotLinux,
+		GapUserNamespaceUnavailable,
+		GapMountNamespaceUnavailable,
+		GapLandlockUnavailable,
+		GapNetworkNamespaceUnavailable,
 	} {
 		if !hasGap(spec.CapabilityGaps, code) {
 			t.Fatalf("CapabilityGaps missing %q: %+v", code, spec.CapabilityGaps)
 		}
 	}
-	if hasGap(spec.CapabilityGaps, "cgroup-v2-unavailable") || hasGap(spec.CapabilityGaps, "seccomp-unavailable") {
+	if hasGap(spec.CapabilityGaps, GapCgroupV2Unavailable) || hasGap(spec.CapabilityGaps, GapSeccompUnavailable) {
 		t.Fatalf("CapabilityGaps included available features: %+v", spec.CapabilityGaps)
 	}
 }
