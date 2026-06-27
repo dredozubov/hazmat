@@ -16,6 +16,9 @@ cannot enforce a requested contract.
 These gates translate the existing Linux backend architecture and
 `MC_LinuxNativeLaunch` proof into concrete release criteria.
 
+For the identity/setup split, see
+[Linux Support Two-Lane Design](2026-06-27-linux-support-two-lane-design.md).
+
 ## Gate Summary
 
 | Gate | Owner surface | Required evidence | Blocks support? |
