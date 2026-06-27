@@ -16,9 +16,9 @@
 #   6. Creates a GitHub release with tarballs and checksums
 #   7. Updates the Homebrew tap formula at dredozubov/homebrew-tap
 #
-# Linux artifacts are intentionally not published yet. The Linux backend is
-# compile-only until setup/rollback resources are modeled in MC_SetupRollback
-# and implemented behind the native platform backends.
+# Linux artifacts are intentionally not published yet. Linux native support is
+# plan-only: platform probes, launch specs, tests, and CI exist, but native
+# launch/setup/rollback and release artifacts are not implemented yet.
 #
 # Prerequisites:
 #   - hazmat init has been run (for hazmat claude -p)

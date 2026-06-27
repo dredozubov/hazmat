@@ -7,7 +7,7 @@
 #   # Or with a specific version:
 #   curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash -s -- --version 0.4.2
 #
-#   # Platform is explicit, but only darwin is published today:
+#   # Platform is explicit, but only darwin release artifacts are published today:
 #   curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/install.sh | bash -s -- --platform darwin
 #
 # What this does:
@@ -54,7 +54,7 @@ while [ "$#" -gt 0 ]; do
             echo "Usage: install.sh [--version X.Y.Z] [--platform darwin]"
             echo "  Downloads and installs hazmat from GitHub releases."
             echo "  Defaults to the latest release."
-            echo "  Platform defaults to the current host. Only darwin is published today."
+            echo "  Platform defaults to the current host. Only darwin release artifacts are published today."
             exit 0
             ;;
         *)
@@ -82,7 +82,8 @@ TARGET_PLATFORM="$(normalize_platform "$TARGET_PLATFORM")"
 
 if [ "$TARGET_PLATFORM" != "darwin" ]; then
     echo "Error: hazmat release/install artifacts are only published for darwin today." >&2
-    echo "Linux support is intentionally compile-only until setup/rollback resources are modeled in MC_SetupRollback and implemented." >&2
+    echo "Linux native support is plan-only today: platform probes, launch specs, and tests exist," >&2
+    echo "but native launch/setup/rollback and release artifacts are not implemented yet." >&2
     exit 1
 fi
 

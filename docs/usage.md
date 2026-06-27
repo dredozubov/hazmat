@@ -141,15 +141,16 @@ hazmat explain --for qwen           # preview a non-Claude harness
 hazmat explain --integration node   # preview with an integration
 hazmat explain --github             # preview explicit GitHub API access
 
-# Plan-only Apple Container backend preview (cannot launch yet):
+# Apple Container backend preview (live exec is gated):
 hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex
 ```
 
 The `--backend=apple-container` preview compiles the session contract into an
 Apple Container launch spec — image, deterministic container name, non-root
 guest identity, bind mounts, network policy, and cleanup obligations — and
-lists the remaining capability gaps. The launch boundary is proved in
-`tla/MC_AppleContainerLaunch`.
+lists the remaining capability gaps. Preview is plan-only; live execution is
+available only through the gated `hazmat exec --backend=apple-container` path
+below. The launch boundary is proved in `tla/MC_AppleContainerLaunch`.
 
 An **experimental** executable path exists for `hazmat exec` only, behind an
 explicit gate:

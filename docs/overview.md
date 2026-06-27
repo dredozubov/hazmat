@@ -1,4 +1,4 @@
-# Overview: Choosing a Hazmat Boundary on macOS
+# Overview: Choosing a Hazmat Boundary
 
 Use this file to answer three questions quickly:
 
@@ -26,6 +26,24 @@ The point of sandboxing is not to make the agent "behave." It is to limit the bl
 | Repo needs Docker and can use a private daemon or microVM | Tier 3 | Docker changes the boundary question; give the agent its own daemon |
 | Repo depends on a shared host Docker daemon | Tier 4, or Tier 2 code-only | Shared-daemon access is outside Hazmat containment |
 | Unfamiliar repo, heavy autonomy, or sensitive environment | Tier 4 | Full VM plus rollback is the strongest practical answer |
+
+## Linux Status
+
+Hazmat has bounded Linux support now, but Linux native agent launch is not the
+supported default yet.
+
+- **Linux native is plan-only:** platform probes, capability-gap reporting, a
+  `linux-native` launch-spec compiler, Linux package tests, and Linux CI lanes
+  exist. The guarded native launch helper, setup, rollback, and release
+  artifacts are not implemented yet.
+- **Apple Container is experimental exec-only:** on macOS 26 Apple silicon,
+  `hazmat exec --backend=apple-container --image ... -- <command>` can run a
+  Linux command in a short-lived VM when `HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1`
+  is set. It is useful for Linux workloads, but host file IO happens as the
+  invoking macOS user, so it is not equivalent to Tier 2 dedicated-user native
+  containment.
+- **macOS native remains the production path:** the tier table below describes
+  the supported day-to-day containment boundary for AI coding agents today.
 
 ## Risk Surface Layers
 

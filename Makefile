@@ -65,7 +65,7 @@ check-install-platform:
 	@platform=$$(printf '%s' "$(INSTALL_PLATFORM)" | tr '[:upper:]' '[:lower:]'); \
 	if [ "$$platform" != "darwin" ]; then \
 		echo "error: install artifacts are only supported for darwin right now." >&2; \
-		echo "Linux setup/rollback resources must be modeled in MC_SetupRollback and implemented before Linux install artifacts are enabled." >&2; \
+		echo "Linux native support is plan-only today; launch/setup/rollback and release artifacts are not implemented yet." >&2; \
 		exit 1; \
 	fi
 
