@@ -1,5 +1,10 @@
 <p align="center">
-  <a href="#"><img src="assets/hazmat-final.png" alt="Hazmat" width="400"></a>
+  <a href="https://github.com/dredozubov/hazmat/stargazers">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/readme-hero-dark.png">
+      <img src="assets/readme-hero-light.png" alt="Hazmat logo with Stars help Hazmat grow callout" width="840">
+    </picture>
+  </a>
 </p>
 
 <h1 align="center">Hazmat</h1>
@@ -7,11 +12,6 @@
 <p align="center">
   <strong>Full-autonomy coding agents, without your real system user account.</strong><br>
   Open-source macOS containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
-</p>
-
-<p align="right">
-  <a href="https://github.com/dredozubov/hazmat/stargazers"><img width="190" src="assets/stars-help-hazmat-grow-light.png#gh-light-mode-only" alt="Stars help Hazmat grow — please star the repo"></a>
-  <a href="https://github.com/dredozubov/hazmat/stargazers"><img width="190" src="assets/stars-help-hazmat-grow-dark.png#gh-dark-mode-only" alt=""></a>
 </p>
 
 ---
