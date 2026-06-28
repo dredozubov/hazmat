@@ -1,11 +1,17 @@
 package hazmat
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"hazmat/internal/setup"
 	linuxsetup "hazmat/internal/setup/linux"
+	platformlinux "hazmat/platform/linux"
 )
 
 type linuxDiagnosticSetupOperation string
@@ -35,25 +41,393 @@ var linuxDiagnosticRuntimeOS = func() string {
 	return runtime.GOOS
 }
 
-var linuxDiagnosticSetupCallbacks = func(_ *diagnosticHostRepairBackend, operation linuxDiagnosticSetupOperation) linuxsetup.Callbacks {
-	callback := func(resource setup.Resource) linuxsetup.Callback {
-		return func() error {
-			return fmt.Errorf("linux setup %s for %s is waiting for root-helper backend implementation", operation, resource)
+type linuxSetupCommandRunner interface {
+	Sudo(reason string, args ...string) error
+	SudoOutput(args ...string) (string, error)
+	SudoWriteFile(reason, path, content string) error
+}
+
+const (
+	linuxSetupStateDir           = "/var/lib/hazmat/linux"
+	linuxDistroProfilePath       = linuxSetupStateDir + "/distro-profile.json"
+	linuxFirewallPolicyRoot      = "/etc/hazmat/linux/firewall.d"
+	linuxResolverPolicyRoot      = "/etc/hazmat/linux/resolver.d"
+	linuxCgroupRootPath          = "/sys/fs/cgroup/hazmat-agent"
+	linuxAgentUserName           = "agent"
+	linuxAgentHomePath           = "/home/agent"
+	linuxSharedGroupName         = "dev"
+	linuxAgentShell              = "/usr/sbin/nologin"
+	linuxRootHelperPath          = "/usr/local/libexec/hazmat-launch"
+	linuxSudoersFile             = "/etc/sudoers.d/agent"
+	linuxRootHelperSudoersReason = "write Linux root-helper sudoers entry"
+)
+
+var linuxDiagnosticSetupRunner = func(b *diagnosticHostRepairBackend) linuxSetupCommandRunner {
+	return NewRunner(b.ui, flagVerbose, flagDryRun)
+}
+
+var linuxDiagnosticInspectHost = platformlinux.InspectHost
+
+var linuxDiagnosticExecutable = os.Executable
+
+var linuxDiagnosticSetupCallbacks = func(b *diagnosticHostRepairBackend, operation linuxDiagnosticSetupOperation) linuxsetup.Callbacks {
+	backend := linuxDiagnosticSetupBackend{
+		runner:      linuxDiagnosticSetupRunner(b),
+		operation:   operation,
+		currentUser: linuxCurrentUserName(b.currentUser),
+		projectDir:  b.projectDir,
+		inspectHost: linuxDiagnosticInspectHost,
+		executable:  linuxDiagnosticExecutable,
+	}
+	return backend.callbacks()
+}
+
+type linuxDiagnosticSetupBackend struct {
+	runner      linuxSetupCommandRunner
+	operation   linuxDiagnosticSetupOperation
+	currentUser string
+	projectDir  string
+	inspectHost func() platformlinux.Report
+	executable  func() (string, error)
+}
+
+func (b linuxDiagnosticSetupBackend) callbacks() linuxsetup.Callbacks {
+	return linuxsetup.Callbacks{
+		DistroProfile:   b.callback(b.applyDistroProfile, b.verifyDistroProfile),
+		AgentUser:       b.callback(b.applyAgentUser, b.verifyAgentUser),
+		SharedGroup:     b.callback(b.applySharedGroup, b.verifySharedGroup),
+		AgentHome:       b.callback(b.applyAgentHome, b.verifyAgentHome),
+		WorkspaceAccess: b.callback(b.applyWorkspaceAccess, b.verifyWorkspaceAccess),
+		ToolHome:        b.callback(b.applyToolHome, b.verifyToolHome),
+		FirewallPolicy:  b.callback(b.applyFirewallPolicy, b.verifyFirewallPolicy),
+		ResolverPolicy:  b.callback(b.applyResolverPolicy, b.verifyResolverPolicy),
+		CgroupRoot:      b.callback(b.applyCgroupRoot, b.verifyCgroupRoot),
+		LaunchHelper:    b.callback(b.applyLaunchHelper, b.verifyLaunchHelper),
+		Sudoers:         b.callback(b.applySudoers, b.verifySudoers),
+	}
+}
+
+func (b linuxDiagnosticSetupBackend) callback(apply, verify func() error) linuxsetup.Callback {
+	return func() error {
+		switch b.operation {
+		case linuxDiagnosticSetupApply:
+			return apply()
+		case linuxDiagnosticSetupVerify:
+			return verify()
+		default:
+			return fmt.Errorf("unknown Linux setup operation %q", b.operation)
 		}
 	}
-	return linuxsetup.Callbacks{
-		DistroProfile:   callback(setup.ResourceLinuxDistroProfile),
-		AgentUser:       callback(setup.ResourceLinuxAgentUser),
-		SharedGroup:     callback(setup.ResourceLinuxSharedGroup),
-		AgentHome:       callback(setup.ResourceLinuxAgentHome),
-		WorkspaceAccess: callback(setup.ResourceLinuxWorkspaceAccess),
-		ToolHome:        callback(setup.ResourceLinuxToolHome),
-		FirewallPolicy:  callback(setup.ResourceLinuxFirewallPolicy),
-		ResolverPolicy:  callback(setup.ResourceLinuxResolverPolicy),
-		CgroupRoot:      callback(setup.ResourceLinuxCgroupRoot),
-		LaunchHelper:    callback(setup.ResourceLinuxLaunchHelper),
-		Sudoers:         callback(setup.ResourceLinuxSudoers),
+}
+
+func (b linuxDiagnosticSetupBackend) applyDistroProfile() error {
+	report := b.inspectHost()
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal Linux distro profile: %w", err)
 	}
+	if err := b.runner.Sudo("create Linux setup profile state dir", "mkdir", "-p", linuxSetupStateDir); err != nil {
+		return fmt.Errorf("create Linux setup profile state dir: %w", err)
+	}
+	if err := b.runner.SudoWriteFile("write Linux distro profile", linuxDistroProfilePath, string(data)+"\n"); err != nil {
+		return fmt.Errorf("write Linux distro profile: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyDistroProfile() error {
+	data, err := b.runner.SudoOutput("cat", linuxDistroProfilePath)
+	if err != nil {
+		return fmt.Errorf("read Linux distro profile: %w", err)
+	}
+	var report platformlinux.Report
+	if err := json.Unmarshal([]byte(data), &report); err != nil {
+		return fmt.Errorf("parse Linux distro profile: %w", err)
+	}
+	if strings.TrimSpace(report.RuntimeOS) != "linux" {
+		return fmt.Errorf("Linux distro profile runtime_os = %q, want linux", report.RuntimeOS)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applyAgentUser() error {
+	if out, err := b.runner.SudoOutput("id", "-u", linuxAgentUserName); err == nil && strings.TrimSpace(out) != "" {
+		return nil
+	}
+	if err := b.runner.Sudo("create Linux agent user",
+		"useradd", "--create-home", "--home-dir", linuxAgentHomePath, "--shell", linuxAgentShell, "--uid", agentUID, linuxAgentUserName,
+	); err != nil {
+		return fmt.Errorf("create Linux agent user: %w", err)
+	}
+	if err := b.runner.Sudo("lock Linux agent user password", "passwd", "-l", linuxAgentUserName); err != nil {
+		return fmt.Errorf("lock Linux agent user password: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyAgentUser() error {
+	out, err := b.runner.SudoOutput("id", "-u", linuxAgentUserName)
+	if err != nil {
+		return fmt.Errorf("Linux agent user missing: %w", err)
+	}
+	if got := strings.TrimSpace(out); got != agentUID {
+		return fmt.Errorf("Linux agent user UID is %s, want %s", got, agentUID)
+	}
+	passwd, err := b.runner.SudoOutput("getent", "passwd", linuxAgentUserName)
+	if err != nil {
+		return fmt.Errorf("read Linux agent passwd entry: %w", err)
+	}
+	fields := strings.Split(strings.TrimSpace(passwd), ":")
+	if len(fields) < 7 {
+		return fmt.Errorf("Linux agent passwd entry is malformed")
+	}
+	if fields[5] != linuxAgentHomePath {
+		return fmt.Errorf("Linux agent home is %s, want %s", fields[5], linuxAgentHomePath)
+	}
+	if fields[6] != linuxAgentShell {
+		return fmt.Errorf("Linux agent shell is %s, want %s", fields[6], linuxAgentShell)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applySharedGroup() error {
+	if _, err := b.runner.SudoOutput("getent", "group", linuxSharedGroupName); err != nil {
+		if err := b.runner.Sudo("create Linux shared group", "groupadd", "--gid", sharedGID, linuxSharedGroupName); err != nil {
+			return fmt.Errorf("create Linux shared group: %w", err)
+		}
+	}
+	for _, account := range []string{b.currentUser, linuxAgentUserName} {
+		if strings.TrimSpace(account) == "" {
+			return fmt.Errorf("Linux shared-group repair requires account name")
+		}
+		if err := b.runner.Sudo("add "+account+" to Linux shared group", "usermod", "-a", "-G", linuxSharedGroupName, account); err != nil {
+			return fmt.Errorf("add %s to Linux shared group: %w", account, err)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifySharedGroup() error {
+	group, err := b.runner.SudoOutput("getent", "group", linuxSharedGroupName)
+	if err != nil {
+		return fmt.Errorf("Linux shared group missing: %w", err)
+	}
+	fields := strings.Split(strings.TrimSpace(group), ":")
+	if len(fields) < 4 {
+		return fmt.Errorf("Linux shared group entry is malformed")
+	}
+	if fields[2] != sharedGID {
+		return fmt.Errorf("Linux shared group GID is %s, want %s", fields[2], sharedGID)
+	}
+	members := "," + fields[3] + ","
+	for _, account := range []string{b.currentUser, linuxAgentUserName} {
+		if !strings.Contains(members, ","+account+",") {
+			return fmt.Errorf("%s is not a member of Linux shared group %s", account, linuxSharedGroupName)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applyAgentHome() error {
+	if err := b.runner.Sudo("create Linux agent home", "install", "-d", "-o", linuxAgentUserName, "-g", linuxSharedGroupName, "-m", "0700", linuxAgentHomePath); err != nil {
+		return fmt.Errorf("create Linux agent home: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyAgentHome() error {
+	out, err := b.runner.SudoOutput("stat", "-c", "%U:%G:%a", linuxAgentHomePath)
+	if err != nil {
+		return fmt.Errorf("stat Linux agent home: %w", err)
+	}
+	want := linuxAgentUserName + ":" + linuxSharedGroupName + ":700"
+	if got := strings.TrimSpace(out); got != want {
+		return fmt.Errorf("Linux agent home metadata = %s, want %s", got, want)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applyWorkspaceAccess() error {
+	if strings.TrimSpace(b.projectDir) == "" {
+		return fmt.Errorf("Linux workspace access repair requires project directory")
+	}
+	if err := b.runner.Sudo("grant Linux agent workspace ACL", "setfacl", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", b.projectDir); err != nil {
+		return fmt.Errorf("grant Linux workspace ACL: %w", err)
+	}
+	if err := b.runner.Sudo("grant Linux agent default workspace ACL", "setfacl", "-d", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", b.projectDir); err != nil {
+		return fmt.Errorf("grant Linux default workspace ACL: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyWorkspaceAccess() error {
+	if strings.TrimSpace(b.projectDir) == "" {
+		return fmt.Errorf("Linux workspace access verification requires project directory")
+	}
+	return b.runner.Sudo("verify Linux agent workspace access", "-u", linuxAgentUserName, "test", "-rwx", b.projectDir)
+}
+
+func (b linuxDiagnosticSetupBackend) applyToolHome() error {
+	for _, dir := range []string{
+		filepath.Join(linuxAgentHomePath, ".cache"),
+		filepath.Join(linuxAgentHomePath, ".config"),
+		filepath.Join(linuxAgentHomePath, ".local", "share"),
+		filepath.Join(linuxAgentHomePath, ".local", "state"),
+		filepath.Join(linuxAgentHomePath, ".local", "bin"),
+	} {
+		if err := b.runner.Sudo("create Linux agent tool dir", "install", "-d", "-o", linuxAgentUserName, "-g", linuxSharedGroupName, "-m", "0700", dir); err != nil {
+			return fmt.Errorf("create Linux agent tool dir %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyToolHome() error {
+	for _, dir := range []string{
+		filepath.Join(linuxAgentHomePath, ".cache"),
+		filepath.Join(linuxAgentHomePath, ".config"),
+		filepath.Join(linuxAgentHomePath, ".local", "share"),
+		filepath.Join(linuxAgentHomePath, ".local", "state"),
+	} {
+		if err := b.runner.Sudo("verify Linux agent tool dir", "test", "-d", dir); err != nil {
+			return fmt.Errorf("verify Linux agent tool dir %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applyFirewallPolicy() error {
+	return b.runner.Sudo("create Linux firewall policy root", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", linuxFirewallPolicyRoot)
+}
+
+func (b linuxDiagnosticSetupBackend) verifyFirewallPolicy() error {
+	return b.runner.Sudo("verify Linux firewall policy root", "test", "-d", linuxFirewallPolicyRoot)
+}
+
+func (b linuxDiagnosticSetupBackend) applyResolverPolicy() error {
+	return b.runner.Sudo("create Linux resolver policy root", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", linuxResolverPolicyRoot)
+}
+
+func (b linuxDiagnosticSetupBackend) verifyResolverPolicy() error {
+	return b.runner.Sudo("verify Linux resolver policy root", "test", "-d", linuxResolverPolicyRoot)
+}
+
+func (b linuxDiagnosticSetupBackend) applyCgroupRoot() error {
+	if err := b.runner.Sudo("verify Linux cgroup v2 is mounted", "test", "-f", "/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return fmt.Errorf("Linux cgroup v2 unavailable: %w", err)
+	}
+	if err := b.runner.Sudo("create Linux cgroup root", "mkdir", "-p", linuxCgroupRootPath); err != nil {
+		return fmt.Errorf("create Linux cgroup root: %w", err)
+	}
+	if err := b.runner.Sudo("set Linux cgroup root group", "chgrp", linuxSharedGroupName, linuxCgroupRootPath); err != nil {
+		return fmt.Errorf("chgrp Linux cgroup root: %w", err)
+	}
+	if err := b.runner.Sudo("set Linux cgroup root mode", "chmod", "0750", linuxCgroupRootPath); err != nil {
+		return fmt.Errorf("chmod Linux cgroup root: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifyCgroupRoot() error {
+	if err := b.runner.Sudo("verify Linux cgroup v2 is mounted", "test", "-f", "/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return fmt.Errorf("Linux cgroup v2 unavailable: %w", err)
+	}
+	return b.runner.Sudo("verify Linux cgroup root", "test", "-d", linuxCgroupRootPath)
+}
+
+func (b linuxDiagnosticSetupBackend) applyLaunchHelper() error {
+	src, err := b.launchHelperSource()
+	if err != nil {
+		return err
+	}
+	if err := b.runner.Sudo("create Linux launch helper directory", "mkdir", "-p", filepath.Dir(linuxRootHelperPath)); err != nil {
+		return fmt.Errorf("create Linux launch helper directory: %w", err)
+	}
+	if err := b.runner.Sudo("install Linux root helper", "install", "-o", "root", "-g", "root", "-m", "0755", src, linuxRootHelperPath); err != nil {
+		return fmt.Errorf("install Linux root helper: %w", err)
+	}
+	return b.verifyLaunchHelper()
+}
+
+func (b linuxDiagnosticSetupBackend) verifyLaunchHelper() error {
+	if err := b.runner.Sudo("verify Linux root helper executable", "test", "-x", linuxRootHelperPath); err != nil {
+		return fmt.Errorf("Linux root helper missing: %w", err)
+	}
+	if _, err := b.runner.SudoOutput(linuxRootHelperPath, "run-agent", "--help"); err != nil {
+		return fmt.Errorf("Linux root helper does not support run-agent: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) applySudoers() error {
+	for _, verify := range []func() error{b.verifyAgentUser, b.verifyDistroProfile, b.verifyFirewallPolicy, b.verifyResolverPolicy, b.verifyCgroupRoot, b.verifyLaunchHelper} {
+		if err := verify(); err != nil {
+			return fmt.Errorf("refuse Linux sudoers before prerequisites verify: %w", err)
+		}
+	}
+	entry := linuxRootHelperSudoersEntry(b.currentUser)
+	if data, err := b.runner.SudoOutput("cat", linuxSudoersFile); err == nil && strings.Contains(data, strings.TrimSpace(entry)) {
+		return nil
+	}
+	if err := b.runner.SudoWriteFile(linuxRootHelperSudoersReason, linuxSudoersFile, entry); err != nil {
+		return fmt.Errorf("write Linux sudoers: %w", err)
+	}
+	if err := b.runner.Sudo("set Linux sudoers permissions", "chmod", "440", linuxSudoersFile); err != nil {
+		return fmt.Errorf("chmod Linux sudoers: %w", err)
+	}
+	if err := b.runner.Sudo("validate Linux sudoers", "visudo", "-c", "-f", linuxSudoersFile); err != nil {
+		return fmt.Errorf("validate Linux sudoers: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) verifySudoers() error {
+	data, err := b.runner.SudoOutput("cat", linuxSudoersFile)
+	if err != nil {
+		return fmt.Errorf("read Linux sudoers: %w", err)
+	}
+	entry := strings.TrimSpace(linuxRootHelperSudoersEntry(b.currentUser))
+	if !strings.Contains(data, entry) {
+		return fmt.Errorf("Linux sudoers does not contain narrow root-helper rule")
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) launchHelperSource() (string, error) {
+	if override := strings.TrimSpace(os.Getenv("HAZMAT_LINUX_ROOT_HELPER_SOURCE")); override != "" {
+		if !filepath.IsAbs(override) {
+			return "", fmt.Errorf("HAZMAT_LINUX_ROOT_HELPER_SOURCE must be absolute")
+		}
+		return override, nil
+	}
+	exe, err := b.executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve current executable for Linux helper source: %w", err)
+	}
+	candidates := []string{
+		filepath.Join(filepath.Dir(exe), "hazmat-linux-root-helper"),
+		filepath.Join(filepath.Dir(exe), "hazmat-launch"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("Linux root helper source not found; build hazmat-linux-root-helper or set HAZMAT_LINUX_ROOT_HELPER_SOURCE")
+}
+
+func linuxRootHelperSudoersEntry(currentUser string) string {
+	return fmt.Sprintf("%s ALL=(root) NOPASSWD: %s run-agent *\n", currentUser, linuxRootHelperPath)
+}
+
+func linuxCurrentUserName(configured string) string {
+	if name := strings.TrimSpace(configured); name != "" {
+		return name
+	}
+	if u, err := user.Current(); err == nil && strings.TrimSpace(u.Username) != "" {
+		return u.Username
+	}
+	return strings.TrimSpace(os.Getenv("USER"))
 }
 
 func init() {

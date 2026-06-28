@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -104,6 +105,92 @@ func TestLinuxSetupDiagnosticBackendFailsClosedOffLinux(t *testing.T) {
 	}
 }
 
+func TestLinuxSetupBackendCreatesAgentUserWithLockedLogin(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	runner.outputs[linuxSetupCommandKey("id", "-u", linuxAgentUserName)] = fakeLinuxSetupOutput{err: errors.New("missing")}
+	backend := linuxDiagnosticSetupBackend{
+		runner:      runner,
+		operation:   linuxDiagnosticSetupApply,
+		currentUser: "dr",
+		projectDir:  "/work/project",
+	}
+
+	if err := backend.applyAgentUser(); err != nil {
+		t.Fatalf("applyAgentUser: %v", err)
+	}
+
+	runner.assertSudo(t, []string{"useradd", "--create-home", "--home-dir", linuxAgentHomePath, "--shell", linuxAgentShell, "--uid", agentUID, linuxAgentUserName})
+	runner.assertSudo(t, []string{"passwd", "-l", linuxAgentUserName})
+}
+
+func TestLinuxSetupBackendRefusesSudoersBeforePrerequisites(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	runner.outputs[linuxSetupCommandKey("id", "-u", linuxAgentUserName)] = fakeLinuxSetupOutput{out: agentUID + "\n"}
+	runner.outputs[linuxSetupCommandKey("getent", "passwd", linuxAgentUserName)] = fakeLinuxSetupOutput{out: "agent:x:" + agentUID + ":" + sharedGID + "::" + linuxAgentHomePath + ":" + linuxAgentShell + "\n"}
+	runner.outputs[linuxSetupCommandKey("cat", linuxDistroProfilePath)] = fakeLinuxSetupOutput{out: `{"runtime_os":"linux"}`}
+	runner.sudoErrors[linuxSetupCommandKey("test", "-f", "/sys/fs/cgroup/cgroup.controllers")] = errors.New("no cgroup v2")
+	backend := linuxDiagnosticSetupBackend{
+		runner:      runner,
+		operation:   linuxDiagnosticSetupApply,
+		currentUser: "dr",
+		projectDir:  "/work/project",
+	}
+
+	err := backend.applySudoers()
+	if err == nil || !strings.Contains(err.Error(), "refuse Linux sudoers before prerequisites verify") {
+		t.Fatalf("applySudoers err = %v, want prerequisite refusal", err)
+	}
+	if len(runner.writes) != 0 {
+		t.Fatalf("sudoers writes = %+v, want none before prerequisites", runner.writes)
+	}
+}
+
+func TestLinuxSetupBackendWritesRootHelperSudoersAfterPrerequisites(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	runner.outputs[linuxSetupCommandKey("id", "-u", linuxAgentUserName)] = fakeLinuxSetupOutput{out: agentUID + "\n"}
+	runner.outputs[linuxSetupCommandKey("getent", "passwd", linuxAgentUserName)] = fakeLinuxSetupOutput{out: "agent:x:" + agentUID + ":" + sharedGID + "::" + linuxAgentHomePath + ":" + linuxAgentShell + "\n"}
+	runner.outputs[linuxSetupCommandKey("cat", linuxDistroProfilePath)] = fakeLinuxSetupOutput{out: `{"runtime_os":"linux"}`}
+	runner.outputs[linuxSetupCommandKey(linuxRootHelperPath, "run-agent", "--help")] = fakeLinuxSetupOutput{out: "usage: run-agent\n"}
+	runner.outputs[linuxSetupCommandKey("cat", linuxSudoersFile)] = fakeLinuxSetupOutput{err: errors.New("missing")}
+	backend := linuxDiagnosticSetupBackend{
+		runner:      runner,
+		operation:   linuxDiagnosticSetupApply,
+		currentUser: "dr",
+		projectDir:  "/work/project",
+	}
+
+	if err := backend.applySudoers(); err != nil {
+		t.Fatalf("applySudoers: %v", err)
+	}
+
+	write, ok := runner.writes[linuxSudoersFile]
+	if !ok {
+		t.Fatalf("missing sudoers write, writes = %+v", runner.writes)
+	}
+	want := "dr ALL=(root) NOPASSWD: " + linuxRootHelperPath + " run-agent *\n"
+	if write != want {
+		t.Fatalf("sudoers write = %q, want %q", write, want)
+	}
+	runner.assertSudo(t, []string{"chmod", "440", linuxSudoersFile})
+	runner.assertSudo(t, []string{"visudo", "-c", "-f", linuxSudoersFile})
+}
+
+func TestLinuxSetupBackendRejectsLaunchHelperWithoutRunAgent(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	runner.outputs[linuxSetupCommandKey(linuxRootHelperPath, "run-agent", "--help")] = fakeLinuxSetupOutput{err: errors.New("usage mismatch")}
+	backend := linuxDiagnosticSetupBackend{
+		runner:      runner,
+		operation:   linuxDiagnosticSetupVerify,
+		currentUser: "dr",
+		projectDir:  "/work/project",
+	}
+
+	err := backend.verifyLaunchHelper()
+	if err == nil || !strings.Contains(err.Error(), "does not support run-agent") {
+		t.Fatalf("verifyLaunchHelper err = %v, want run-agent refusal", err)
+	}
+}
+
 func linuxSetupCallbacksThatRecord(record func(setup.Resource)) linuxsetup.Callbacks {
 	callback := func(resource setup.Resource) linuxsetup.Callback {
 		return func() error {
@@ -124,4 +211,59 @@ func linuxSetupCallbacksThatRecord(record func(setup.Resource)) linuxsetup.Callb
 		LaunchHelper:    callback(setup.ResourceLinuxLaunchHelper),
 		Sudoers:         callback(setup.ResourceLinuxSudoers),
 	}
+}
+
+type fakeLinuxSetupOutput struct {
+	out string
+	err error
+}
+
+type fakeLinuxSetupRunner struct {
+	sudo       [][]string
+	sudoErrors map[string]error
+	outputs    map[string]fakeLinuxSetupOutput
+	writes     map[string]string
+}
+
+func newFakeLinuxSetupRunner() *fakeLinuxSetupRunner {
+	return &fakeLinuxSetupRunner{
+		sudoErrors: make(map[string]error),
+		outputs:    make(map[string]fakeLinuxSetupOutput),
+		writes:     make(map[string]string),
+	}
+}
+
+func (r *fakeLinuxSetupRunner) Sudo(_ string, args ...string) error {
+	copied := append([]string{}, args...)
+	r.sudo = append(r.sudo, copied)
+	if err := r.sudoErrors[linuxSetupCommandKey(args...)]; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *fakeLinuxSetupRunner) SudoOutput(args ...string) (string, error) {
+	if output, ok := r.outputs[linuxSetupCommandKey(args...)]; ok {
+		return output.out, output.err
+	}
+	return "", errors.New("fake output not configured: " + strings.Join(args, " "))
+}
+
+func (r *fakeLinuxSetupRunner) SudoWriteFile(_ string, path, content string) error {
+	r.writes[path] = content
+	return nil
+}
+
+func (r *fakeLinuxSetupRunner) assertSudo(t *testing.T, want []string) {
+	t.Helper()
+	for _, got := range r.sudo {
+		if reflect.DeepEqual(got, want) {
+			return
+		}
+	}
+	t.Fatalf("sudo calls missing %v; got %+v", want, r.sudo)
+}
+
+func linuxSetupCommandKey(args ...string) string {
+	return strings.Join(args, "\x00")
 }
