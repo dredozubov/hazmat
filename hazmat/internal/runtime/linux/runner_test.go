@@ -213,6 +213,20 @@ func TestRunAgentUserRejectsCurrentUserSpecWithoutFallback(t *testing.T) {
 	}
 }
 
+func TestRunAgentUserRequiresInjectedRootHelperBeforeSideEffects(t *testing.T) {
+	t.Setenv(EnvExperimentalAgentUser, "1")
+	store := SidecarStore{Dir: filepath.Join(t.TempDir(), "sidecar")}
+	_, err := RunAgentUser(context.Background(), agentUserExecutableSpec(t, sessionmeta.NetworkNone), agentUserReadyReport(), RunOptions{
+		Sidecar: store,
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected root helper") {
+		t.Fatalf("err = %v, want injected root helper error", err)
+	}
+	if _, statErr := os.Stat(store.Dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("sidecar dir stat err = %v, want no side effects", statErr)
+	}
+}
+
 func TestRunAgentUserRootHelperMetadataAndRawStreams(t *testing.T) {
 	t.Setenv(EnvExperimentalAgentUser, "1")
 	store := SidecarStore{Dir: t.TempDir()}

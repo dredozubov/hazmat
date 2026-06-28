@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -61,10 +60,9 @@ type RunOptions struct {
 	Stdout io.Writer
 	Stderr io.Writer
 
-	Sidecar        SidecarStore
-	Enforcer       CurrentUserEnforcer
-	RootHelper     AgentUserRootHelper
-	RootHelperPath string
+	Sidecar    SidecarStore
+	Enforcer   CurrentUserEnforcer
+	RootHelper AgentUserRootHelper
 }
 
 type ExecResult struct {
@@ -212,7 +210,7 @@ func RunAgentUser(ctx context.Context, spec linuxspec.LaunchSpec, report platfor
 	}
 	helper := opts.RootHelper
 	if helper == nil {
-		helper = HostAgentUserRootHelper(opts.RootHelperPath)
+		return RunResult{}, fmt.Errorf("linux agent-user runner requires an injected root helper")
 	}
 	if err := os.MkdirAll(opts.Sidecar.Dir, 0o700); err != nil {
 		return RunResult{}, err
@@ -270,42 +268,6 @@ func validateRunOptions(opts RunOptions) error {
 		return fmt.Errorf("linux runner requires a sidecar directory")
 	}
 	return nil
-}
-
-func HostAgentUserRootHelper(path string) AgentUserRootHelper {
-	return commandAgentUserRootHelper{Path: path}
-}
-
-type commandAgentUserRootHelper struct {
-	Path string
-}
-
-func (h commandAgentUserRootHelper) Execute(ctx context.Context, request AgentUserHelperRequest, opts RunOptions) (ExecResult, error) {
-	if strings.TrimSpace(h.Path) == "" {
-		return ExecResult{}, fmt.Errorf("linux agent-user runner requires a root helper path")
-	}
-	cmd := exec.CommandContext(ctx, h.Path,
-		"run-agent",
-		"--spec", request.SpecPath,
-		"--spec-sha256", request.SpecSHA256,
-		"--nonce", request.SpecNonce,
-		"--metadata", request.MetadataPath,
-	)
-	cmd.Stdin = opts.Stdin
-	cmd.Stdout = opts.Stdout
-	cmd.Stderr = opts.Stderr
-	err := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ExecResult{}, ctxErr
-	}
-	if err == nil {
-		return ExecResult{ExitCode: cmd.ProcessState.ExitCode()}, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return ExecResult{ExitCode: exitErr.ExitCode()}, nil
-	}
-	return ExecResult{}, err
 }
 
 func newRootHelperNonce() (string, error) {
