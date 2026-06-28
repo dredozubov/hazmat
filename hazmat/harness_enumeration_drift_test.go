@@ -117,6 +117,35 @@ func TestNativeSmokeHarnessListMatchesRegistry(t *testing.T) {
 	assertHarnessSetMatchesRegistry(t, "scripts/e2e-harness-smoke-native.sh SMOKE_HARNESSES", got)
 }
 
+func TestInstallerDriftWorkflowUsesAntigravitySource(t *testing.T) {
+	raw, err := os.ReadFile("../.github/workflows/harness-installer-drift.yml")
+	if err != nil {
+		t.Fatalf("read harness-installer-drift workflow: %v", err)
+	}
+	text := string(raw)
+	for _, stale := range []string{
+		"bootstrap_gemini.go",
+		"geminiNpmPackage",
+		"Gemini npm package",
+		"GEMINI_PKG",
+		"gemini_pkg",
+	} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("harness-installer-drift workflow still references removed Gemini bootstrap source %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"bootstrap_antigravity.go",
+		"antigravityInstallerURL",
+		"antigravityInstallerSHA256",
+		"Antigravity installer",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("harness-installer-drift workflow missing Antigravity source %q", want)
+		}
+	}
+}
+
 func TestTLAHarnessSetMatchesRegistry(t *testing.T) {
 	raw, err := os.ReadFile("../tla/MC_HarnessLifecycle.tla")
 	if err != nil {

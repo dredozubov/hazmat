@@ -11,7 +11,7 @@ name: Harness Installer Drift
 #               asset with a sha256: digest (mirrors resolveLatestCodexInstaller)
 #   opencode  — latest GitHub release must publish the expected CLI archives
 #               with sha256: digests (mirrors resolveLatestOpenCodeArchive)
-#   gemini    — @google/gemini-cli@latest must resolve on the npm registry
+#   antigravity — pinned official installer must still match its SHA-256
 #   qwen      — @qwen-code/qwen-code@latest must resolve on the npm registry
 #   hermes, cursor-agent — manual installs; nothing is fetched, nothing to check
 #
@@ -43,18 +43,21 @@ jobs:
           codex_api=$(grep -oE 'codexLatestReleaseAPI\s+= "[^"]+"' hazmat/bootstrap_codex.go | grep -oE 'https://[^"]+')
           codex_asset=$(grep -oE 'codexInstallerAssetName\s+= "[^"]+"' hazmat/bootstrap_codex.go | sed -E 's/.*= "([^"]+)"/\1/')
           opencode_api=$(grep -oE 'openCodeLatestReleaseAPI\s+= "[^"]+"' hazmat/bootstrap_opencode.go | grep -oE 'https://[^"]+')
-          gemini_pkg=$(grep -oE 'geminiNpmPackage\s+= "[^"]+"' hazmat/bootstrap_gemini.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
+          antigravity_url=$(grep -oE 'antigravityInstallerURL\s+= "[^"]+"' hazmat/bootstrap_antigravity.go | sed -E 's/.*= "([^"]+)"/\1/')
+          antigravity_sha=$(grep -oE 'antigravityInstallerSHA256\s+= "[0-9a-f]{64}"' hazmat/bootstrap_antigravity.go | sed -E 's/.*= "([^"]+)"/\1/')
           qwen_pkg=$(grep -oE 'qwenNpmPackage\s+= "[^"]+"' hazmat/bootstrap_qwen.go | sed -E 's/.*= "([^"]+)@latest"/\1/')
-          [ -n "$codex_api" ]    || fail "could not extract codexLatestReleaseAPI"
-          [ -n "$codex_asset" ]  || fail "could not extract codexInstallerAssetName"
-          [ -n "$opencode_api" ] || fail "could not extract openCodeLatestReleaseAPI"
-          [ -n "$gemini_pkg" ]   || fail "could not extract geminiNpmPackage"
-          [ -n "$qwen_pkg" ]     || fail "could not extract qwenNpmPackage"
+          [ -n "$codex_api" ]       || fail "could not extract codexLatestReleaseAPI"
+          [ -n "$codex_asset" ]     || fail "could not extract codexInstallerAssetName"
+          [ -n "$opencode_api" ]    || fail "could not extract openCodeLatestReleaseAPI"
+          [ -n "$antigravity_url" ] || fail "could not extract antigravityInstallerURL"
+          [ -n "$antigravity_sha" ] || fail "could not extract antigravityInstallerSHA256"
+          [ -n "$qwen_pkg" ]        || fail "could not extract qwenNpmPackage"
           {
             echo "codex_api=$codex_api"
             echo "codex_asset=$codex_asset"
             echo "opencode_api=$opencode_api"
-            echo "gemini_pkg=$gemini_pkg"
+            echo "antigravity_url=$antigravity_url"
+            echo "antigravity_sha=$antigravity_sha"
             echo "qwen_pkg=$qwen_pkg"
           } >> "$GITHUB_OUTPUT"
 
@@ -102,15 +105,23 @@ jobs:
           done
           echo "OpenCode OK: release $tag publishes CLI archives with valid sha256 digests."
 
-      - name: Gemini npm package resolves
-        id: gemini
+      - name: Antigravity installer matches pinned checksum
+        id: antigravity
         continue-on-error: true
         env:
-          GEMINI_PKG: ${{ steps.constants.outputs.gemini_pkg }}
+          ANTIGRAVITY_URL: ${{ steps.constants.outputs.antigravity_url }}
+          ANTIGRAVITY_SHA: ${{ steps.constants.outputs.antigravity_sha }}
         run: |
-          encoded=$(printf '%s' "$GEMINI_PKG" | sed 's|/|%2F|')
-          version=$(curl -fsSL --retry 3 "https://registry.npmjs.org/$encoded/latest" | jq -er '.version')
-          echo "Gemini OK: $GEMINI_PKG@latest resolves to $version."
+          installer=$(mktemp)
+          cleanup() { rm -f "$installer"; }
+          trap cleanup EXIT
+          curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail --retry 3 "$ANTIGRAVITY_URL" -o "$installer"
+          actual=$(sha256sum "$installer" | awk '{print $1}')
+          if [ "$actual" != "$ANTIGRAVITY_SHA" ]; then
+            echo "Antigravity installer checksum mismatch: expected $ANTIGRAVITY_SHA, got $actual" >&2
+            exit 1
+          fi
+          echo "Antigravity OK: installer checksum matches $ANTIGRAVITY_SHA."
 
       - name: Qwen npm package resolves
         id: qwen
@@ -126,19 +137,19 @@ jobs:
         env:
           CODEX: ${{ steps.codex.outcome }}
           OPENCODE: ${{ steps.opencode.outcome }}
-          GEMINI: ${{ steps.gemini.outcome }}
+          ANTIGRAVITY: ${{ steps.antigravity.outcome }}
           QWEN: ${{ steps.qwen.outcome }}
         run: |
           {
             echo "## Harness Installer Drift"
             echo "- codex: $CODEX"
             echo "- opencode: $OPENCODE"
-            echo "- gemini: $GEMINI"
+            echo "- antigravity: $ANTIGRAVITY"
             echo "- qwen: $QWEN"
             echo
             echo "claude is covered by the Claude Installer Pin workflow; hermes and cursor-agent are manual installs."
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$CODEX" != "success" ] || [ "$OPENCODE" != "success" ] || [ "$GEMINI" != "success" ] || [ "$QWEN" != "success" ]; then
+          if [ "$CODEX" != "success" ] || [ "$OPENCODE" != "success" ] || [ "$ANTIGRAVITY" != "success" ] || [ "$QWEN" != "success" ]; then
             echo "One or more harness installer sources drifted from bootstrap assumptions; see step logs." >&2
             exit 1
           fi
