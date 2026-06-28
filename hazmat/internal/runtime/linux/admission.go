@@ -42,14 +42,22 @@ type NetworkAdmission struct {
 	Detail          string                  `json:"detail"`
 }
 
+type IdentityAdmission struct {
+	Lane           linuxspec.IdentityLane   `json:"lane"`
+	HelperStrategy linuxspec.HelperStrategy `json:"helper_strategy"`
+	RunAs          string                   `json:"run_as"`
+	DropToAgent    bool                     `json:"drop_to_agent"`
+}
+
 type AdmissionPlan struct {
-	Stages     []Stage          `json:"stages"`
-	FDs        FDClosurePlan    `json:"fds"`
-	Namespaces NamespacePlan    `json:"namespaces"`
-	Network    NetworkAdmission `json:"network"`
-	Policy     PolicyPlan       `json:"policy"`
-	Metadata   bool             `json:"metadata"`
-	Exec       bool             `json:"exec"`
+	Stages     []Stage           `json:"stages"`
+	Identity   IdentityAdmission `json:"identity"`
+	FDs        FDClosurePlan     `json:"fds"`
+	Namespaces NamespacePlan     `json:"namespaces"`
+	Network    NetworkAdmission  `json:"network"`
+	Policy     PolicyPlan        `json:"policy"`
+	Metadata   bool              `json:"metadata"`
+	Exec       bool              `json:"exec"`
 }
 
 type GapError struct {
@@ -58,13 +66,13 @@ type GapError struct {
 
 func (e GapError) Error() string {
 	if len(e.Gaps) == 0 {
-		return "linux current-user admission gaps"
+		return "linux admission gaps"
 	}
 	codes := make([]string, 0, len(e.Gaps))
 	for _, gap := range e.Gaps {
 		codes = append(codes, gap.Code)
 	}
-	return "linux current-user admission gaps: " + strings.Join(codes, ", ")
+	return "linux admission gaps: " + strings.Join(codes, ", ")
 }
 
 func AdmitCurrentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (AdmissionPlan, error) {
@@ -72,7 +80,7 @@ func AdmitCurrentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (A
 	if err := validateCurrentUserSpec(spec); err != nil {
 		return plan, err
 	}
-	plan.Stages = []Stage{StageValidated}
+	plan = initializedAdmissionPlan(spec, "current-user", false)
 	if gaps := admissionGaps(spec, report); len(gaps) > 0 {
 		return plan, GapError{Gaps: gaps}
 	}
@@ -83,7 +91,7 @@ func AdmitCurrentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (A
 		Mount:   true,
 		Network: spec.Network.UseNetworkNamespace,
 	}
-	plan.Network = networkAdmission(spec.Network)
+	plan.Network = networkAdmission(spec.Network, "current user")
 	policy, err := BuildPolicyPlan(spec)
 	if err != nil {
 		return plan, err
@@ -106,6 +114,57 @@ func AdmitCurrentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (A
 	return plan, nil
 }
 
+func AdmitAgentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (AdmissionPlan, error) {
+	var plan AdmissionPlan
+	if err := validateAgentUserSpec(spec); err != nil {
+		return plan, err
+	}
+	plan = initializedAdmissionPlan(spec, "agent", true)
+	if gaps := agentUserAdmissionGaps(report); len(gaps) > 0 {
+		return plan, GapError{Gaps: gaps}
+	}
+
+	plan.FDs = FDClosurePlan{Preserve: []int{0, 1, 2}, CloseMin: 3}
+	plan.Namespaces = NamespacePlan{
+		User:    false,
+		Mount:   true,
+		Network: spec.Network.UseNetworkNamespace,
+	}
+	plan.Network = networkAdmission(spec.Network, "agent user")
+	policy, err := BuildPolicyPlan(spec)
+	if err != nil {
+		return plan, err
+	}
+	plan.Policy = policy
+	plan.Metadata = true
+	plan.Exec = true
+	plan.Stages = append(plan.Stages,
+		StageFDSClosed,
+		StageNamespaces,
+		StageMounts,
+		StageNetwork,
+		StagePrivileges,
+		StageNoNewPrivs,
+		StageLandlock,
+		StageSeccomp,
+		StageMetadata,
+		StageExec,
+	)
+	return plan, nil
+}
+
+func initializedAdmissionPlan(spec linuxspec.LaunchSpec, runAs string, dropToAgent bool) AdmissionPlan {
+	return AdmissionPlan{
+		Stages: []Stage{StageValidated},
+		Identity: IdentityAdmission{
+			Lane:           spec.Identity,
+			HelperStrategy: spec.HelperStrategy,
+			RunAs:          runAs,
+			DropToAgent:    dropToAgent,
+		},
+	}
+}
+
 func validateCurrentUserSpec(spec linuxspec.LaunchSpec) error {
 	if spec.FormatVersion != linuxspec.LaunchSpecFormatVersion {
 		return fmt.Errorf("linux current-user admission requires launch spec format %d", linuxspec.LaunchSpecFormatVersion)
@@ -121,6 +180,25 @@ func validateCurrentUserSpec(spec linuxspec.LaunchSpec) error {
 	}
 	if spec.Phase != linuxspec.PhasePlanOnly {
 		return fmt.Errorf("linux current-user admission requires phase %q until the experimental runner is wired", linuxspec.PhasePlanOnly)
+	}
+	return nil
+}
+
+func validateAgentUserSpec(spec linuxspec.LaunchSpec) error {
+	if spec.FormatVersion != linuxspec.LaunchSpecFormatVersion {
+		return fmt.Errorf("linux agent-user admission requires launch spec format %d", linuxspec.LaunchSpecFormatVersion)
+	}
+	if spec.Backend != linuxspec.BackendLinuxNative {
+		return fmt.Errorf("linux agent-user admission requires backend %q", linuxspec.BackendLinuxNative)
+	}
+	if spec.Identity != linuxspec.IdentityAgentUser {
+		return fmt.Errorf("linux agent-user admission requires identity %q", linuxspec.IdentityAgentUser)
+	}
+	if spec.HelperStrategy != linuxspec.HelperRoot {
+		return fmt.Errorf("linux agent-user admission requires helper_strategy %q", linuxspec.HelperRoot)
+	}
+	if spec.Phase != linuxspec.PhasePlanOnly {
+		return fmt.Errorf("linux agent-user admission requires phase %q until the root-helper runner is wired", linuxspec.PhasePlanOnly)
 	}
 	return nil
 }
@@ -164,7 +242,50 @@ func admissionGaps(spec linuxspec.LaunchSpec, report platformlinux.Report) []lin
 	return gaps
 }
 
-func networkAdmission(spec linuxspec.NetworkSpec) NetworkAdmission {
+func agentUserAdmissionGaps(report platformlinux.Report) []linuxspec.CapabilityGap {
+	var gaps []linuxspec.CapabilityGap
+	if report.RuntimeOS != "linux" {
+		gaps = append(gaps, linuxspec.CapabilityGap{
+			Code:    linuxspec.GapRuntimeNotLinux,
+			Message: "inspected runtime is not Linux",
+			State:   report.RuntimeOS,
+		})
+	}
+	if report.Features.CgroupV2.State != platformlinux.FeatureAvailable {
+		gaps = append(gaps, linuxspec.CapabilityGap{
+			Code:    linuxspec.GapCgroupV2Unavailable,
+			Message: "cgroup v2 support is required for agent-user Linux admission",
+			Source:  report.Features.CgroupV2.Source,
+			State:   string(report.Features.CgroupV2.State),
+		})
+	}
+	for _, gap := range report.AgentUserBackend.CapabilityGaps {
+		gaps = append(gaps, linuxspec.CapabilityGap{
+			Code:    gap.ID,
+			Message: gap.Message,
+			State:   gap.State,
+		})
+	}
+	return dedupeGaps(gaps)
+}
+
+func dedupeGaps(gaps []linuxspec.CapabilityGap) []linuxspec.CapabilityGap {
+	if len(gaps) < 2 {
+		return gaps
+	}
+	seen := make(map[string]struct{}, len(gaps))
+	out := make([]linuxspec.CapabilityGap, 0, len(gaps))
+	for _, gap := range gaps {
+		if _, ok := seen[gap.Code]; ok {
+			continue
+		}
+		seen[gap.Code] = struct{}{}
+		out = append(out, gap)
+	}
+	return out
+}
+
+func networkAdmission(spec linuxspec.NetworkSpec, identity string) NetworkAdmission {
 	if spec.UseNetworkNamespace {
 		return NetworkAdmission{
 			Mode:            spec.Mode,
@@ -175,6 +296,6 @@ func networkAdmission(spec linuxspec.NetworkSpec) NetworkAdmission {
 	return NetworkAdmission{
 		Mode:            spec.Mode,
 		EgressFiltering: false,
-		Detail:          "host network as current user; no egress filtering is claimed",
+		Detail:          "host network as " + identity + "; no egress filtering is claimed",
 	}
 }

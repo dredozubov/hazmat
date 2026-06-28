@@ -27,6 +27,9 @@ const (
 	GapLandlockUnavailable         = platformlinux.GapLandlockUnavailable
 	GapSeccompUnavailable          = platformlinux.GapSeccompUnavailable
 	GapNetworkNamespaceUnavailable = platformlinux.GapNetworkNamespaceUnavailable
+	GapSetupRequired               = platformlinux.GapSetupRequired
+	GapHelperStrategyUnsupported   = platformlinux.GapHelperStrategyUnsupported
+	GapDistroUnsupported           = platformlinux.GapDistroUnsupported
 )
 
 type IdentityLane string

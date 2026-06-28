@@ -40,6 +40,20 @@ func TestBuildPolicyPlanLandlockRulesCoverPlannedAuthority(t *testing.T) {
 	}
 }
 
+func TestBuildPolicyPlanSupportsAgentUserSpec(t *testing.T) {
+	spec := agentUserSpec(t, sessionmeta.NetworkNone)
+	plan, err := BuildPolicyPlan(spec)
+	if err != nil {
+		t.Fatalf("BuildPolicyPlan(agent-user): %v", err)
+	}
+	if !plan.Landlock.Enforced || !hasLandlockRule(plan.Landlock.Rules, "/tmp/hazmat-session/home", containment.PathReadWrite) {
+		t.Fatalf("agent-user policy missing enforced agent home rule: %+v", plan.Landlock)
+	}
+	if !plan.Seccomp.NoNewPrivs || plan.Seccomp.DefaultAction != "errno" {
+		t.Fatalf("agent-user seccomp = %+v, want no_new_privs errno policy", plan.Seccomp)
+	}
+}
+
 func TestBuildPolicyPlanRequiresNoNewPrivsAndBuildsSeccompPlan(t *testing.T) {
 	spec := currentUserSpec(t, sessionmeta.NetworkNone)
 	spec.Process.AllowFork = false

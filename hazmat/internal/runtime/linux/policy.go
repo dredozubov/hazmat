@@ -32,11 +32,11 @@ type PolicyPlan struct {
 }
 
 func BuildPolicyPlan(spec linuxspec.LaunchSpec) (PolicyPlan, error) {
-	if err := validateCurrentUserSpec(spec); err != nil {
+	if err := validatePolicySpec(spec); err != nil {
 		return PolicyPlan{}, err
 	}
 	if !spec.Process.NoNewPrivs {
-		return PolicyPlan{}, fmt.Errorf("linux current-user policy requires no_new_privs")
+		return PolicyPlan{}, fmt.Errorf("linux policy requires no_new_privs")
 	}
 	rules := landlockRules(spec)
 	if err := rejectCredentialDenyOverlap(rules, spec.CredentialDenies); err != nil {
@@ -85,11 +85,22 @@ func rejectCredentialDenyOverlap(rules []LandlockRule, denies []linuxspec.Creden
 	for _, rule := range rules {
 		for _, deny := range denies {
 			if pathsOverlap(rule.Path, deny.Path) {
-				return fmt.Errorf("linux current-user landlock rule %q overlaps credential deny path %q", rule.Path, deny.Path)
+				return fmt.Errorf("linux landlock rule %q overlaps credential deny path %q", rule.Path, deny.Path)
 			}
 		}
 	}
 	return nil
+}
+
+func validatePolicySpec(spec linuxspec.LaunchSpec) error {
+	switch spec.Identity {
+	case linuxspec.IdentityCurrentUser:
+		return validateCurrentUserSpec(spec)
+	case linuxspec.IdentityAgentUser:
+		return validateAgentUserSpec(spec)
+	default:
+		return fmt.Errorf("linux policy requires supported identity, got %q", spec.Identity)
+	}
 }
 
 func pathsOverlap(left, right string) bool {

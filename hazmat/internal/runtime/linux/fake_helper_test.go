@@ -237,6 +237,25 @@ func TestRunFakeHelperPreservesRawStreamsAndWritesExitedResult(t *testing.T) {
 	}
 }
 
+func TestRunFakeRootHelperAgentUserMetadataAfterEnforcement(t *testing.T) {
+	store := sidecarStore{Dir: t.TempDir()}
+	result, err := runFakeHelper(context.Background(), store, fakeHelperInput{
+		Metadata: validMetadataEvents(phaseExited),
+		Stdout:   []byte("agent-user stdout\n"),
+		Stderr:   []byte("agent-user stderr\n"),
+	})
+	if err != nil {
+		t.Fatalf("runFakeHelper: %v", err)
+	}
+	if result.Record.Phase != phaseExited {
+		t.Fatalf("record = %+v, want exited", result.Record)
+	}
+	record := readRunRecord(t, store.ResultPath())
+	if record.Phase != phaseExited {
+		t.Fatalf("stored record = %+v, want exited", record)
+	}
+}
+
 func TestRunFakeHelperFailurePreservesRawStderrSeparation(t *testing.T) {
 	store := sidecarStore{Dir: t.TempDir()}
 	const helperErr = "helper setup failed"
