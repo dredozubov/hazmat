@@ -56,6 +56,33 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 	})
 }
 
+func TestClaudeHostKeychainSyncIsOptIn(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Claude keychain hooks are macOS-only")
+	}
+
+	t.Run("default skips host keychain", func(t *testing.T) {
+		t.Setenv(claudeHostKeychainSyncEnv, "")
+
+		got := withClaudeKeychainHarvest(harnessAuthArtifact{})
+		if got.ReadAgentKeychain == nil || got.WriteAgentKeychain == nil || got.ClearAgentKeychain == nil {
+			t.Fatal("agent keychain hooks should remain attached")
+		}
+		if got.ReadHostKeychain != nil || got.WriteHostKeychain != nil {
+			t.Fatal("host keychain sync should be disabled by default")
+		}
+	})
+
+	t.Run("env enables host keychain", func(t *testing.T) {
+		t.Setenv(claudeHostKeychainSyncEnv, "yes")
+
+		got := withClaudeKeychainHarvest(harnessAuthArtifact{})
+		if got.ReadHostKeychain == nil || got.WriteHostKeychain == nil {
+			t.Fatal("host keychain sync should be enabled by explicit env opt-in")
+		}
+	})
+}
+
 // TestClaudeKeychainAddArgsAcceptedBySecurity runs the real argv against a
 // throwaway keychain (never the agent or host login keychain) and asserts the
 // macOS security tool accepts it and that -U updates in place. This is a real

@@ -6,6 +6,9 @@ Safety-facing entries should follow the proof/caveat convention in
 
 ## [Unreleased]
 
+### Fixed
+- `hazmat claude` skips host login-Keychain synchronization by default so startup does not block on a macOS keychain password prompt. Set `HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC=1` to opt into host Keychain import/publish.
+
 ## [0.10.1] - 2026-06-26
 
 ### Fixed

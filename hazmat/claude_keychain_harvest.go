@@ -15,6 +15,7 @@ import (
 // service name Claude Code uses to persist OAuth credentials. The stored
 // password field is the same JSON shape as ~/.claude/.credentials.json.
 const claudeKeychainCredentialService = "Claude Code-credentials"
+const claudeHostKeychainSyncEnv = "HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC"
 
 // claudeKeychainAddArgs builds the `security add-generic-password` argument
 // vector for seeding Claude Code's OAuth credential.
@@ -50,6 +51,15 @@ func currentHostKeychainAccount() string {
 		}
 	}
 	return strings.TrimSpace(os.Getenv("USER"))
+}
+
+func claudeHostKeychainSyncEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(claudeHostKeychainSyncEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // securityOutputDetail formats trimmed `security` output for an error message.
@@ -197,7 +207,11 @@ func withClaudeKeychainHarvest(a harnessAuthArtifact) harnessAuthArtifact {
 	}
 	a.WriteAgentKeychain = writeClaudeAgentKeychainCredential
 	a.ClearAgentKeychain = clearClaudeAgentKeychainCredential
-	a.ReadHostKeychain = readClaudeHostKeychainCredential
-	a.WriteHostKeychain = writeClaudeHostKeychainCredential
+	// Host `security find-generic-password -w` can summon SecurityAgent when the
+	// login keychain is locked, so startup must not touch it unless requested.
+	if claudeHostKeychainSyncEnabled() {
+		a.ReadHostKeychain = readClaudeHostKeychainCredential
+		a.WriteHostKeychain = writeClaudeHostKeychainCredential
+	}
 	return a
 }

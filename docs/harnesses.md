@@ -78,7 +78,7 @@ secret values.
 
 | Surface | Durable owner | Session delivery |
 |---|---|---|
-| Claude credential file + Claude Keychain OAuth | `~/.hazmat/secrets/claude/...` plus the declared `Claude Code-credentials` item in the host/agent login Keychains | Host Keychain and store are reconciled before launch; the session gets a materialized file and, on macOS OAuth refresh, the agent Keychain value is harvested and written back to the host Keychain |
+| Claude credential file + Claude Keychain OAuth | `~/.hazmat/secrets/claude/...` plus the declared `Claude Code-credentials` item in the agent login Keychain; optional host Keychain sync requires `HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC=1` | The session gets a materialized file or agent Keychain delivery, and macOS OAuth refreshes from the agent Keychain are harvested into `~/.hazmat/secrets`; host login-Keychain reads/writes are skipped by default so startup cannot block on a macOS keychain password prompt |
 | Codex and OpenCode auth | `~/.hazmat/secrets/<harness>/...` mirrored only with registered host auth files | Host file and store are reconciled by mtime before launch; the session file is harvested to both store and host file on normal exit, then removed from `/Users/agent` |
 | Provider API keys from `hazmat config agent` | `~/.hazmat/secrets/providers/*` | Redacted env grant only for explicitly allowed native harnesses, including Hermes when allowed for that provider |
 | GitHub API token from `hazmat config github` | `~/.hazmat/secrets/github/token` | `GH_TOKEN` only when `--github` is passed; Docker Sandbox currently fails closed. Treat it as whole-process GitHub API authority, not a review-only grant. |
