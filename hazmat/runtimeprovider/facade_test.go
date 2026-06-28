@@ -3,6 +3,9 @@ package runtimeprovider
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +116,35 @@ func TestProviderStatusVocabularyCoversKnownDescriptors(t *testing.T) {
 	}
 	if record := mustDescriptor(t, KindLinuxAgentUser).StatusRecord(); record.Executable || record.Status != StatusSetupRequired {
 		t.Fatalf("linux agent-user status record = %+v, want setup-required", record)
+	}
+}
+
+func TestRuntimeProviderStatusDocCoversKnownDescriptors(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "runtime-provider-status.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, definition := range StatusDefinitions() {
+		if !strings.Contains(doc, "| `"+string(definition.Status)+"` |") {
+			t.Fatalf("runtime provider status doc missing status %q", definition.Status)
+		}
+	}
+	for _, descriptor := range KnownDescriptors() {
+		row := "| `" + string(descriptor.Kind) + "` | `" + string(descriptor.Backend) + "` | `" + string(descriptor.Status) + "` | `" + string(descriptor.IdentityBoundary) + "` |"
+		if !strings.Contains(doc, row) {
+			t.Fatalf("runtime provider status doc missing descriptor row %q", row)
+		}
+	}
+	for _, phrase := range []string{
+		"Provider admission must not silently downgrade",
+		"linux.native-launch-helper-missing",
+		"linux.setup-required",
+		"Linux current-user VM smoke matrix",
+	} {
+		if !strings.Contains(doc, phrase) {
+			t.Fatalf("runtime provider status doc missing %q", phrase)
+		}
 	}
 }
 

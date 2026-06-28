@@ -83,6 +83,10 @@ Linux native run-agent support is still plan-only/experimental. Its provider
 readiness gates live in
 [docs/plans/2026-06-13-linux-run-agent-readiness-gates.md](plans/2026-06-13-linux-run-agent-readiness-gates.md)
 and must be satisfied before user-facing Linux native launch support is claimed.
+The provider vocabulary is defined in
+[Runtime provider status](runtime-provider-status.md), which keeps
+`linux-current-user` separate from `linux-agent-user` and prevents unsupported
+parity claims.
 The current-user lane also requires the
 [Linux current-user VM smoke matrix](linux-current-user-vm-smoke-matrix.md);
 until completed transcripts satisfy that matrix, Linux current-user launch stays

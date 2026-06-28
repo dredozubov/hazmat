@@ -20,7 +20,10 @@ curl -fsSL https://raw.githubusercontent.com/dredozubov/hazmat/master/scripts/in
 
 The release installer targets the current host by default and currently
 publishes only `darwin/arm64` and `darwin/amd64` artifacts. Linux is
-compile-only until its setup and rollback resources are modeled and implemented.
+compile-only until its provider lanes pass their separate gates:
+`linux-current-user` is plan-only, and `linux-agent-user` is setup-required.
+See [Runtime provider status](runtime-provider-status.md) for the status
+vocabulary.
 
 Then two commands:
 

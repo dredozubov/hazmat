@@ -28,6 +28,10 @@ Add or update a compatibility row only when there is evidence:
 - CI or stack-matrix evidence
 
 Link the evidence in the row or in the associated issue.
+Provider lane claims must use the vocabulary in
+[Runtime provider status](runtime-provider-status.md). In particular, do not
+collapse `linux-current-user` and `linux-agent-user` into a generic "Linux
+support" row while either lane is plan-only, setup-required, or experimental.
 
 ## Starter Matrix
 
