@@ -204,6 +204,8 @@ resource names casually.
 | `linuxSharedGroup` | Controlled collaboration group for project access. |
 | `linuxAgentHome` | Agent-owned HOME and XDG roots. |
 | `linuxWorkspaceAccess` | Project traversal and group/ACL access where needed. |
+| `linuxFirewallPolicy` | Linux firewall policy root for managed egress modes. |
+| `linuxResolverPolicy` | Linux resolver / hosts policy root for managed DNS modes. |
 | `linuxLaunchHelper` | Root-owned helper binary with fixed path, owner, mode, and digest. |
 | `linuxSudoers` | Narrow host-user-to-helper rule, if the root-helper strategy is selected. |
 | `linuxCgroupRoot` | cgroup v2 subtree or delegation for session resource controls. |
@@ -211,10 +213,67 @@ resource names casually.
 | `linuxToolHome` | Optional agent-owned tool cache root. |
 
 Persistent mutations are owned by `MC_SetupRollback`. The existing setup model
-already proves `LinuxPrivilegeRequiresContainment`; Linux agent-user setup must
-extend that starting point before code lands. The model must define setup
-ordering, rollback ordering, what is preserved by default, destructive rollback
-behavior, and failed-step recovery.
+already proves `LinuxPrivilegeRequiresContainment` and now includes Linux
+agent-user projections for setup ordering, rollback ordering, what is preserved
+by default, destructive rollback behavior, and failed-step recovery. Code must
+preserve that graph.
+
+### Concrete `setup/linux` Resource Graph
+
+Phase 3 model work is now the contract for Phase 4 implementation. The Go
+resource labels should keep this graph explicit rather than hiding it behind
+generic "Linux init" steps.
+
+```mermaid
+flowchart TB
+    distro["linuxDistroProfile"]
+    user["linuxAgentUser"]
+    group["linuxSharedGroup"]
+    home["linuxAgentHome"]
+    workspace["linuxWorkspaceAccess"]
+    toolHome["linuxToolHome"]
+    firewall["linuxFirewallPolicy"]
+    resolver["linuxResolverPolicy"]
+    cgroup["linuxCgroupRoot"]
+    helper["linuxLaunchHelper"]
+    sudoers["linuxSudoers"]
+
+    distro --> user
+    user --> group
+    user --> home
+    user --> workspace
+    group --> workspace
+    home --> toolHome
+    firewall --> cgroup
+    resolver --> cgroup
+    distro --> cgroup
+    user --> sudoers
+    distro --> sudoers
+    cgroup --> sudoers
+    helper --> sudoers
+```
+
+`linuxSudoers` is the only setup resource that grants host-user-to-root-helper
+privilege. It must be created last and removed first. `linuxSharedGroup` may
+outlive `linuxAgentUser` only as unprivileged rollback residue: no workspace
+access, tool-home state, or sudoers privilege may remain in that state.
+
+| Label | Setup/repair behavior | Drift signal | Default rollback | Destructive rollback |
+| --- | --- | --- | --- | --- |
+| `linuxDistroProfile` | Record kernel, distro, namespace, Landlock, seccomp, cgroup v2, service-manager, and helper-strategy facts. Not launch authority. | Missing, stale, or selected strategy unsupported. | Preserve or refresh; do not block cleanup. | No destructive deletion flag; refresh replaces stale facts. |
+| `linuxAgentUser` | Create locked dedicated agent account with expected uid policy, shell, home, and group membership. | Missing account, wrong home/shell, disabled required ownership. | Preserve by default. | `--delete-linux-agent-user` after privileged resources and workspace/tool state are removed. |
+| `linuxSharedGroup` | Create controlled collaboration group and memberships needed for project access. | Missing group, missing host/agent membership, unexpected gid policy. | Preserve by default. | `--delete-linux-agent-group`; rerunnable if an interrupted destructive rollback left group-only residue. |
+| `linuxAgentHome` | Create agent-owned HOME and required XDG parents. | Missing home, wrong owner/mode, host-owned XDG parent. | Preserve by default. | `--delete-linux-agent-home` only when explicitly requested. |
+| `linuxWorkspaceAccess` | Project-scoped ACL/group access for the selected workspace; broad project mounts still come from the launch contract. | Selected project cannot be traversed/read/written by agent as planned. | Remove only Hazmat-managed project ACL/group entries when project-scoped rollback is requested. | Covered before user deletion; no destructive user deletion while managed workspace access remains. |
+| `linuxToolHome` | Optional agent-owned cache/tool root for supported harnesses. | Missing, wrong owner/mode, or host-owned writable parent. | Preserve by default. | `--delete-linux-tool-home` only when explicitly requested. |
+| `linuxFirewallPolicy` | Install managed policy root for supported egress modes. | Missing, disabled, or not owned by Hazmat. | Remove before resolver policy and before identity deletion, after privilege is revoked. | Same as default; must be gone before user/group deletion. |
+| `linuxResolverPolicy` | Install managed resolver / hosts policy root for supported DNS modes. | Missing, disabled, or not owned by Hazmat. | Remove after privilege is revoked. | Same as default; must be gone before user/group deletion. |
+| `linuxCgroupRoot` | Create cgroup v2 subtree/delegation and service-manager unit state needed by the selected profile. | Missing cgroup v2, wrong delegation, unsupported service manager, or stale ownership. | Remove after sudoers and before firewall/resolver cleanup. | Same as default; must be gone before user/group deletion. |
+| `linuxLaunchHelper` | Install or verify fixed-path root-owned helper binary by owner, mode, and digest. | Missing helper, wrong owner/mode, digest mismatch, stale version. | Disable helper access before weaker resources are removed. | Same as default; helper access must be gone before identity deletion. |
+| `linuxSudoers` | Install exact narrow host-user-to-helper rule only after helper, cgroup, profile, and containment resources are present. | Missing exact rule, broad rule, wrong command path, or stale digest reference. | Remove first. | Remove first. |
+
+The first implementation should keep `linuxWorkspaceAccess` project-scoped.
+Fresh global setup should not mutate arbitrary project trees.
 
 ### Runtime Shape
 
@@ -287,7 +346,29 @@ request resource controls.
 
 ### Diagnostics, Doctor, And Rollback
 
-Linux diagnostics should preserve the current Hazmat guidance split:
+Linux diagnostics should preserve the current Hazmat guidance split and expose
+the labels above in JSON so setup and drift are auditable.
+
+```mermaid
+flowchart LR
+    check["hazmat check"]
+    probes["read-only probes"]
+    classify["resource classification"]
+    plan["repair plan"]
+    fix["hazmat doctor --fix"]
+    backend["approval-gated setup/linux backend"]
+    verify["post-fix verification"]
+    full["hazmat check --full"]
+
+    check --> probes
+    probes --> classify
+    classify --> plan
+    plan --> fix
+    fix --> backend
+    backend --> verify
+    verify --> plan
+    full -->|"helper-backed validation"| backend
+```
 
 - fresh host with no Linux setup: point to the Linux setup command once it
   exists;
@@ -300,6 +381,71 @@ Linux diagnostics should preserve the current Hazmat guidance split:
 Default `hazmat check` should remain read-only and avoid sudo-adjacent probes.
 Full validation, setup repair, helper-backed smoke, and `git push` hooks that
 run those paths remain approval-gated in agent workflows.
+
+#### Diagnostic Classes
+
+| Class | Condition | User guidance | JSON shape |
+| --- | --- | --- | --- |
+| Fresh host | No Linux setup marker and no managed Linux resources. | Point to the future Linux setup command. Do not recommend doctor repair as the primary path. | `linux.setup-required`, `status=fresh`, no executable repair until setup exists. |
+| Setup drift | At least one managed Linux resource or marker exists, but the graph is incomplete or stale. | `hazmat doctor --fix`; `hazmat doctor --dry-run` is preview only. | Resource-level findings with `repairability=executable` when Hazmat owns the repair. |
+| Unsupported capability | Kernel, distro, service manager, namespace, Landlock, seccomp, or cgroup requirement cannot be satisfied. | Report a capability gap; do not suggest fallback from `agent-user` to `current-user`. | Stable gap ids from the readiness-gates vocabulary. |
+| Manual conflict | Unknown broad sudoers rule, unmanaged helper path, ambiguous ACL, or non-Hazmat policy owner. | Manual cleanup required; doctor must not overwrite. | `repairability=manual`, resource label included. |
+| Full-validation required | Read-only checks pass, but helper/cgroup/namespace behavior was not exercised. | Ask for exact approval before running full validation. | `validation=approval_required`, command string included. |
+
+`hazmat doctor --dry-run` and default `hazmat check` must not execute sudo,
+helper, service-manager, nftables, or live namespace probes. `hazmat doctor
+--fix` is the mutating path and should dispatch typed actions in model order.
+Non-interactive mutation requires `--yes`.
+
+#### Rollback Order
+
+```mermaid
+flowchart LR
+    sudoers["remove linuxSudoers"]
+    helper["disable linuxLaunchHelper access"]
+    cgroup["remove linuxCgroupRoot"]
+    firewall["remove linuxFirewallPolicy"]
+    resolver["remove linuxResolverPolicy"]
+    workspace["remove managed linuxWorkspaceAccess"]
+    toolHome["optional linuxToolHome deletion"]
+    home["optional linuxAgentHome deletion"]
+    user["optional linuxAgentUser deletion"]
+    group["optional linuxSharedGroup deletion"]
+
+    sudoers --> helper
+    helper --> cgroup
+    cgroup --> firewall
+    firewall --> resolver
+    resolver --> workspace
+    workspace --> toolHome
+    toolHome --> home
+    home --> user
+    user --> group
+```
+
+Default rollback preserves the dedicated account, shared group, agent HOME,
+and tool cache. Destructive rollback requires explicit flags for data-bearing
+resources and identity deletion. User deletion must not proceed while
+`linuxWorkspaceAccess`, `linuxToolHome`, or `linuxSudoers` remains.
+
+#### Planned Unit Tests
+
+- resource graph order test for setup and rollback labels;
+- fresh-host diagnostic test: no Linux resources reports `linux.setup-required`
+  and does not loop to doctor repair;
+- drift diagnostic tests for missing helper, bad helper digest, missing cgroup
+  root, stale distro profile, bad sudoers rule, and wrong agent-home ownership;
+- dry-run tests proving no sudo-adjacent calls and no host mutation;
+- doctor-fix dispatch table test proving every executable Linux repair has
+  apply and verify handlers;
+- unsupported-capability test proving gaps do not become executable repairs;
+- rollback tests proving sudoers is removed first and identity deletion is last;
+- destructive-flag tests proving user/group/home/tool deletion requires the
+  matching explicit flag;
+- manual-conflict tests proving unknown broad sudoers/helper/ACL state is not
+  overwritten;
+- full-validation disclosure test proving helper-backed validation is
+  approval-gated and names the exact command.
 
 ### Strengths And Limits
 
@@ -375,13 +521,17 @@ Single-user mode can be documented as experimental if these pass.
 
 ### Phase 3: Multi-User Setup Model
 
-Before code:
+Evidence required before setup code:
 
 - extend `MC_SetupRollback` for Linux resources, starting from the existing
   `LinuxPrivilegeRequiresContainment` proof;
 - define preservation versus deletion semantics;
 - define helper/sudoers/cgroup ordering;
 - update `tla/VERIFIED.md` mappings.
+
+Current status: model proof completed in `MC_SetupRollback` with
+`LinuxAgentUserSetupGraph`, `LinuxAgentUserRollbackRevokesPrivilegeFirst`, and
+`LinuxAgentUserDestructiveRollbackBoundary`.
 
 No user creation, sudoers, helper install, or cgroup delegation should land
 before this model exists and TLC passes.
