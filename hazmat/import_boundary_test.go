@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -145,6 +146,155 @@ func TestImportBoundaries(t *testing.T) {
 	}
 }
 
+func TestFakeExternalConsumerImportsReusableCore(t *testing.T) {
+	dir := writeExternalConsumerModule(t, map[string]string{
+		"consumer_test.go": `package externalconsumer
+
+import (
+	"testing"
+
+	"hazmat/containment"
+	linuxspec "hazmat/containment/linux"
+	"hazmat/hostfacts"
+	platformlinux "hazmat/platform/linux"
+	"hazmat/runtimeprovider"
+	"hazmat/sessionbackend"
+	"hazmat/sessionmeta"
+)
+
+func TestBuildReusableCorePlan(t *testing.T) {
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/agent/.ssh"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project:      containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
+		ReadOnlyDirs: containment.PathGrants([]string{"/opt/sdk"}, containment.PathReadOnly),
+		AgentHome: containment.AgentHomePolicy{
+			Path: "/tmp/hazmat-session/home",
+			Mode: containment.AgentHomeModeSessionLocal,
+			PersistentPath: "/home/agent",
+		},
+		Temp: containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		Network: containment.NetworkPolicy{Mode: sessionmeta.NetworkNone},
+		Process: containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := platformlinux.Report{
+		RuntimeOS: "linux",
+		Features: platformlinux.FeatureSet{
+			UserNamespaces: available(),
+			MountNamespaces: available(),
+			CgroupV2: available(),
+			Landlock: available(),
+			Seccomp: available(),
+			NetworkNamespaces: available(),
+		},
+	}
+	spec, err := linuxspec.Compile(contract, linuxspec.CompileOptions{
+		Platform: report,
+		Identity: linuxspec.IdentityCurrentUser,
+		HelperStrategy: linuxspec.HelperRootlessUserNS,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Identity != linuxspec.IdentityCurrentUser || spec.HelperStrategy != linuxspec.HelperRootlessUserNS {
+		t.Fatalf("linux spec identity/helper = %q/%q", spec.Identity, spec.HelperStrategy)
+	}
+	plan := sessionbackend.BuildPlan(sessionbackend.Input{
+		Target: "codex",
+		Mode: sessionmeta.ModeNative,
+		ProjectDir: contract.ProjectPath(),
+		NetworkMode: sessionmeta.NetworkNone,
+		HostFacts: hostfacts.ForGOOS("linux"),
+	})
+	prepared, err := sessionbackend.NewPreparedLaunch(
+		plan,
+		sessionbackend.NewLinuxLaunchArtifact(sessionbackend.LinuxLaunchSpec{
+			FormatVersion: spec.FormatVersion,
+			Backend: spec.Backend,
+			Phase: spec.Phase,
+		}),
+		[]sessionbackend.AcceptedGap{{
+			Feature: sessionbackend.GapNativeLaunch,
+			Justification: "external consumer accepts plan-only Linux preview",
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.ArtifactKind() != sessionbackend.PreparedArtifactLinuxLaunch {
+		t.Fatalf("artifact kind = %q", prepared.ArtifactKind())
+	}
+	var record runtimeprovider.ProviderStatusRecord
+	for _, descriptor := range runtimeprovider.KnownDescriptors() {
+		if descriptor.Kind == runtimeprovider.KindLinuxCurrentUser {
+			record = descriptor.StatusRecord()
+			break
+		}
+	}
+	if record.Status != runtimeprovider.StatusPlanOnly || record.Executable {
+		t.Fatalf("linux current-user record = %+v, want non-executable plan-only", record)
+	}
+}
+
+func available() platformlinux.FeatureReport {
+	return platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "external-consumer-test"}
+}
+`,
+	})
+	runExternalGoCommand(t, dir, "test", "./...")
+
+	pkgs := loadExternalConsumerPackages(t, dir)
+	requiredDeps := []string{
+		"hazmat/containment",
+		"hazmat/containment/linux",
+		"hazmat/platform/linux",
+		"hazmat/runtimeprovider",
+		"hazmat/sessionbackend",
+	}
+	consumer, ok := packageWithDeps(pkgs, requiredDeps)
+	if !ok {
+		t.Fatalf("external consumer graph missing required deps: %s", strings.Join(requiredDeps, ", "))
+	}
+	forbidden := []string{
+		"os/exec",
+		"net/http",
+		"github.com/spf13/cobra",
+		"golang.org/x/term",
+		"hazmat/cmd/",
+		"hazmat/internal/",
+	}
+	if violations := forbiddenDepViolations(consumer, forbidden); len(violations) > 0 {
+		t.Fatalf("external consumer imports host-effect dependencies: %s", strings.Join(violations, ", "))
+	}
+}
+
+func TestFakeExternalConsumerCannotImportInternalRuntime(t *testing.T) {
+	dir := writeExternalConsumerModule(t, map[string]string{
+		"consumer_test.go": `package externalconsumer
+
+import (
+	"testing"
+
+	_ "hazmat/internal/runtime/linux"
+)
+
+func TestInternalRuntimeImport(t *testing.T) {}
+`,
+	})
+	out, err := runExternalGoCommandError(dir, "test", "./...")
+	if err == nil {
+		t.Fatal("external consumer imported hazmat/internal/runtime/linux")
+	}
+	if !strings.Contains(out, "use of internal package hazmat/internal/runtime/linux not allowed") {
+		t.Fatalf("unexpected external consumer import failure:\n%s", out)
+	}
+}
+
 func TestPackageSplitDependencyGraph(t *testing.T) {
 	graph := loadPackageSplitGraph(t)
 	if len(graph.nodes) == 0 {
@@ -202,6 +352,102 @@ func loadListedPackages(t *testing.T) map[string]listedPackage {
 		pkgs[pkg.ImportPath] = pkg
 	}
 	return pkgs
+}
+
+func writeExternalConsumerModule(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	moduleDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	goMod := fmt.Sprintf(`module externalconsumer
+
+go 1.25.0
+
+require hazmat v0.0.0
+
+replace hazmat => %s
+`, moduleDir)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func loadExternalConsumerPackages(t *testing.T, dir string) map[string]listedPackage {
+	t.Helper()
+
+	out := runExternalGoCommand(t, dir, "list", "-deps", "-test", "-json", ".")
+	dec := json.NewDecoder(bytes.NewReader(out))
+	pkgs := make(map[string]listedPackage)
+	for {
+		var pkg listedPackage
+		if err := dec.Decode(&pkg); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode external go list output: %v", err)
+		}
+		if pkg.Standard {
+			continue
+		}
+		pkgs[pkg.ImportPath] = pkg
+	}
+	return pkgs
+}
+
+func packageWithDeps(pkgs map[string]listedPackage, required []string) (listedPackage, bool) {
+	for _, pkg := range pkgs {
+		deps := depSet(pkg.Deps)
+		ok := true
+		for _, requiredDep := range required {
+			if !deps[requiredDep] {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return pkg, true
+		}
+	}
+	return listedPackage{}, false
+}
+
+func runExternalGoCommand(t *testing.T, dir string, args ...string) []byte {
+	t.Helper()
+
+	out, err := runExternalGoCommandError(dir, args...)
+	if err != nil {
+		t.Fatalf("go %v: %v\n%s", args, err, out)
+	}
+	return []byte(out)
+}
+
+func runExternalGoCommandError(dir string, args ...string) (string, error) {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func depSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }
 
 func assertNoForbiddenDeps(t *testing.T, pkg listedPackage, forbidden []string) {
