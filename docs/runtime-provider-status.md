@@ -33,7 +33,7 @@ behavior. Important Linux gap IDs include:
 
 | Gap | Applies to | Meaning |
 | --- | --- | --- |
-| `linux.native-launch-helper-missing` | `linux-current-user` | Native Linux runner or kernel enforcer is not executable. |
+| `linux.native-launch-helper-missing` | `linux-current-user` | Native Linux runner is not enabled in the session pipeline or lacks VM smoke evidence. |
 | `linux.runtime-not-linux` | `linux-current-user` | The inspected runtime is not Linux. |
 | `linux.user-namespace-unavailable` | `linux-current-user` | Rootless current-user admission lacks user namespaces. |
 | `linux.mount-namespace-unavailable` | `linux-current-user` | Mount namespace enforcement is unavailable. |

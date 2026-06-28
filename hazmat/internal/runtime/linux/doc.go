@@ -1,9 +1,9 @@
 // Package linux contains Linux native admission planning plus the experimental
-// current-user runner contract. The kernel enforcer remains fail-closed until
-// MC_LinuxNativeLaunch is wired to concrete Linux syscalls.
+// current-user runner contract. The main session pipeline remains plan-only
+// until VM smoke evidence promotes the current-user lane.
 package linux
 
 const (
-	PackagePath         = "hazmat/internal/runtime/linux"
-	KernelEnforcerWired = false
+	PackagePath          = "hazmat/internal/runtime/linux"
+	SessionPipelineWired = false
 )

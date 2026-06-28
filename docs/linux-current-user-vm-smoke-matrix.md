@@ -99,10 +99,10 @@ Each known-distro VM transcript must include these scenarios.
 | S6 | Missing primitive | unavailable userns, mount ns, Landlock, seccomp, or netns returns a typed gap before side effects |
 | S7 | Raw streams | raw stdout/stderr contain harness bytes only; helper diagnostics stay out of raw stdout |
 
-S1 through S7 require the current-user runner plus a concrete Linux kernel
-enforcer. Until the enforcer is wired to namespaces, mounts, Landlock, seccomp,
-and exec handoff, transcripts must mark those rows as skipped with the reason
-`kernel enforcer not wired`; they must not be counted as smoke passes.
+S1 through S7 require the current-user runner plus VM-smoke-proven Linux kernel
+enforcement. Until namespace, mount, Landlock, seccomp, and exec handoff pass on
+a real Linux host, transcripts must mark those rows as failed or skipped with a
+typed reason; they must not be counted as smoke passes.
 
 ## Non-Live Evidence
 
