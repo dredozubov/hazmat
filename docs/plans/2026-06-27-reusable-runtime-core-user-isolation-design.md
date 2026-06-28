@@ -789,6 +789,10 @@ Evidence:
 - tests for defensive copies and unknown-field rejection;
 - no behavior changes unless separately modeled and approved.
 
+Audit artifact: `docs/plans/2026-06-28-runtime-core-dto-authority-audit.md`.
+Follow-up hardening beads from the audit are `sandboxing-xuar.1.3`,
+`sandboxing-xuar.1.4`, and `sandboxing-xuar.2.3`.
+
 ### Slice 3: Runtime Provider Facade
 
 Outcome:
