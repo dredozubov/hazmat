@@ -112,6 +112,7 @@ flowchart TB
         runtimeAPI["runtime facade"]
         darwinRuntime["internal/runtime/darwin"]
         dockerRuntime["internal/runtime/docker"]
+        appleContainerRuntime["internal/runtime/applecontainer"]
         linuxCurrentUserRuntime["future Linux current-user runtime"]
         linuxAgentUserRuntime["future Linux agent-user runtime"]
         remoteWorker["future remote worker runtime"]
@@ -167,11 +168,19 @@ flowchart TB
     contract --> appleCompiler
     backend --> remoteEnvelope
 
+    hazmatCLI --> runtimeAPI
+    runtimeAPI --> darwinRuntime
+    runtimeAPI --> dockerRuntime
+    runtimeAPI --> appleContainerRuntime
+    runtimeAPI --> linuxCurrentUserRuntime
+    runtimeAPI --> linuxAgentUserRuntime
+    runtimeAPI --> remoteWorker
+
     darwinCompiler --> darwinRuntime
     dockerCompiler --> dockerRuntime
     linuxCompiler --> linuxCurrentUserRuntime
     linuxCompiler --> linuxAgentUserRuntime
-    appleCompiler --> darwinRuntime
+    appleCompiler --> appleContainerRuntime
     remoteEnvelope --> remoteWorker
 
     hazmatCLI --> setupDarwin
@@ -194,7 +203,7 @@ flowchart TB
     darwinRuntime --> seatbelt
     setupDarwin --> pf
     dockerRuntime --> dockerSandbox
-    darwinRuntime --> appleContainer
+    appleContainerRuntime --> appleContainer
     linuxCurrentUserRuntime --> linuxCurrentUser
     linuxCurrentUserRuntime --> linuxKernel
     linuxAgentUserRuntime --> linuxAgentUser
@@ -325,7 +334,7 @@ flowchart TB
 | Linux lane | Core relationship | Provider work | Initial status |
 | --- | --- | --- | --- |
 | Current-user / no-system-user | Uses `sessionrequest`, `containment.Contract`, and `containment/linux.LaunchSpec`; creates no users, groups, sudoers files, or persistent helpers. | A rootless Linux runner enforces the contract through user/mount namespaces, Landlock, seccomp, `no_new_privs`, session-local HOME, and typed credential materialization. | Experimental first; unsupported without required kernel primitives. |
-| Agent-user / multi-user | Uses the same contract and launch spec; adds an identity boundary similar to macOS Hazmat. | `setup/linux`, helper install, sudoers or equivalent helper authorization, cgroup delegation, repair, rollback, diagnostics, and VM smoke evidence. | Plan/design only until setup/rollback model work exists. |
+| Agent-user / multi-user | Uses the same contract and launch spec; adds an identity boundary similar to macOS Hazmat. | `setup/linux`, helper install, sudoers or equivalent helper authorization, cgroup delegation, repair, rollback, diagnostics, and VM smoke evidence. | Plan-only until setup/rollback model work exists. |
 
 The current-user lane is not "Hazmat without isolation." It must enforce the
 contract through kernel primitives because the process still has the invoking
@@ -350,6 +359,11 @@ The provider must never silently fall back from `agent-user` to
 `current-user`, from `root-helper` to `rootless-userns`, or from contract
 sandboxing to ordinary same-uid execution.
 
+For both Linux lanes, `network=default` is an honest declaration of host-network
+or agent-network authority. It must not claim egress filtering unless a
+provider-specific policy actually enforces one. `network=none` remains a
+separate enforced mode with its own namespace or equivalent proof obligation.
+
 ## Current Package Ownership Target
 
 | Surface | Reusable core owner | Effect owner | Notes |
@@ -369,7 +383,7 @@ sandboxing to ordinary same-uid execution.
 | Linux compiler | `containment/linux` | future Linux runtime lanes | Compiles the shared contract into launch specs for both current-user and agent-user lanes. |
 | Linux current-user runtime | core contract plus `containment/linux` | future rootless Linux runner | No persistent setup. Requires userns/mount namespace/Landlock/seccomp or returns gaps. |
 | Linux agent-user setup/runtime | same contract and launch spec | future `internal/setup/linux`, helper runtime, diagnostics | Multi-user lane. Model-first before user creation, sudoers/helper install, cgroup delegation, or rollback behavior. |
-| Apple Container compiler | `containment/applecontainer` | gated experimental runtime | Exec-only and explicit-gate semantics remain separate from native user isolation. |
+| Apple Container compiler | `containment/applecontainer` | `internal/runtime/applecontainer` | Exec-only, explicit-gate runtime. Runs the container CLI as the invoking user; host account isolation is not provided. |
 | Setup/rollback | none | `internal/setup/darwin`, `internal/state`, `internal/hostexec` | Hazmat product layer, model-governed, not reusable core. |
 | Backup/snapshot | plan package when split | `internal/backupruntime` | Snapshot-before-launch ordering remains model-governed. |
 | Diagnostics | none | `internal/diagnostics` | Diagnostics may call planners/runtimes; planners must never import diagnostics. |
@@ -696,6 +710,7 @@ No backend should silently downgrade:
 - native user isolation to same-UID process;
 - Linux agent-user to current-user;
 - Linux current-user contract sandboxing to ordinary same-uid execution;
+- Linux `root-helper` to `rootless-userns`;
 - network-none to advisory network policy;
 - credential broker to env passthrough;
 - session-local HOME to persistent home;
@@ -805,6 +820,8 @@ Evidence:
 
 - diagnostics copy and JSON distinguish "core plan valid" from "host provider
   unavailable";
+- fake-provider downgrade-refusal tests cover requested identity and
+  helper-strategy mismatches;
 - no hidden `hazmat init`, `hazmat doctor --fix`, or live smoke in preview;
 - session-home activation blockers stay typed and fail closed.
 
@@ -866,8 +883,8 @@ Evidence:
 | Native launch movement | helper/fd tests, runtime admission tests, `MC_LaunchFDIsolation`. |
 | Snapshot trigger movement | launch-order tests, `MC_BackupSafety`. |
 | Docker runtime movement | admission order tests, mount/env rejection tests, `MC_Tier3LaunchContainment`. |
-| Linux current-user runtime | rootless namespace admission tests, Landlock/seccomp tests, fake-helper metadata tests, distro fixtures, and no claim of host-user identity isolation. |
-| Linux agent-user runtime/setup | Linux setup/rollback model before user creation, helper install, sudoers, cgroup delegation, or persistent state mutation. |
+| Linux current-user runtime | `MC_LinuxNativeLaunch`; rootless namespace admission tests, Landlock/seccomp tests, fake-helper metadata tests, distro fixtures, and no claim of host-user identity isolation. |
+| Linux agent-user runtime/setup | `MC_LinuxNativeLaunch` for launch ordering and `MC_SetupRollback` for persistent setup before user creation, helper install, sudoers, cgroup delegation, or persistent state mutation. |
 | Apple Container runtime changes | `MC_AppleContainerLaunch` re-run or update, gated experimental tests. |
 | Setup/rollback/user resources | `MC_SetupRollback` model first for semantic changes; setup/rollback tests. |
 | Session-home activation | adapter registry tests, materializer tests, diagnostics tests, approval-gated live smoke only after non-live evidence. |
@@ -891,7 +908,7 @@ this design.
 | Are capability gaps structured? | Yes. Unsupported enforcement is not a warning-only string. |
 | Does the runtime accept exactly one backend artifact? | Yes. Mixed or missing artifacts fail. |
 | Is user-level sandboxing required by the core? | No. It is a provider capability, not a core dependency. |
-| Is the Linux identity lane explicit? | Yes. `current-user` and `agent-user` are distinct lanes with no silent fallback. |
+| Are Linux identity and helper strategy explicit? | Yes. `current-user`/`agent-user` and `rootless-userns`/`root-helper` are distinct selectors with no silent fallback. |
 | Can preview mutate host state? | No. Setup and repair stay separate and approval-gated when required. |
 | Are records classified? | Yes. Secret and secret-adjacent fields are omitted, redacted, or scoped. |
 | Are live validations separate from default tests? | Yes. Approval-gated smokes stay opt-in. |

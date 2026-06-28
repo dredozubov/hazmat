@@ -69,10 +69,12 @@ identity boundary unless the kernel policy fully enforces the contract.
 hazmat
   -> writes validated Linux launch spec in session temp
   -> starts current-user Linux runner
+  -> runner closes inherited file descriptors
   -> runner unshares user and mount namespaces
   -> runner builds the planned filesystem view
+  -> runner sets no_new_privs
   -> runner applies Landlock allow rules
-  -> runner applies seccomp and no_new_privs
+  -> runner applies seccomp
   -> runner emits metadata
   -> runner execs harness as current uid
 ```
@@ -207,9 +209,11 @@ resource names casually.
 | `linuxDistroProfile` | Persisted capability facts used by diagnostics, not by launch authority. |
 | `linuxToolHome` | Optional agent-owned tool cache root. |
 
-Persistent mutations require a TLA setup/rollback model before code lands.
-The model must define setup ordering, rollback ordering, what is preserved by
-default, destructive rollback behavior, and failed-step recovery.
+Persistent mutations are owned by `MC_SetupRollback`. The existing setup model
+already proves platform privilege requires containment; Linux agent-user setup
+must extend that starting point before code lands. The model must define setup
+ordering, rollback ordering, what is preserved by default, destructive rollback
+behavior, and failed-step recovery.
 
 ### Runtime Shape
 
@@ -324,6 +328,13 @@ The backend must not silently fall back from `agent-user` to `current-user`,
 or from `root-helper` to `rootless-userns`. If the selected strategy cannot
 run, return a structured capability gap.
 
+The canonical Linux gap registry lives in
+[Linux Run-Agent Provider Readiness Gates](2026-06-13-linux-run-agent-readiness-gates.md#capability-gap-vocabulary).
+For the multi-user lane, expected blocking gaps include
+`linux.setup-required`, `linux.native-launch-helper-missing`,
+`linux.helper-strategy-unsupported`, and `linux.cgroup-v2-unavailable` when the
+selected profile requires resource controls.
+
 ## Release Phases
 
 ### Phase 0: Current Plan-Only State
@@ -365,7 +376,8 @@ Single-user mode can be documented as experimental if these pass.
 
 Before code:
 
-- extend or add TLA setup/rollback model for Linux resources;
+- extend `MC_SetupRollback` for Linux resources, starting from the existing
+  platform privilege requires containment proof;
 - define preservation versus deletion semantics;
 - define helper/sudoers/cgroup ordering;
 - update `tla/VERIFIED.md` mappings.
