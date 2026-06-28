@@ -152,6 +152,27 @@ func TestCompileExecutableRuntimePhase(t *testing.T) {
 	}
 }
 
+func TestCompileAgentUserExecutableRuntimeDoesNotRequireRootlessUserNamespace(t *testing.T) {
+	report := availableReport()
+	report.Features.UserNamespaces = platformlinux.FeatureReport{State: platformlinux.FeatureUnavailable, Source: "userns"}
+	spec, err := Compile(testContract(t), CompileOptions{
+		Platform:          report,
+		Identity:          IdentityAgentUser,
+		HelperStrategy:    HelperRoot,
+		Command:           []string{"/bin/sh", "-c", "printf hi"},
+		ExecutableRuntime: true,
+	})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if spec.Identity != IdentityAgentUser || spec.HelperStrategy != HelperRoot || spec.Phase != PhaseExperimental {
+		t.Fatalf("identity/helper/phase = %s/%s/%s, want agent-user/root-helper/experimental", spec.Identity, spec.HelperStrategy, spec.Phase)
+	}
+	if hasGap(spec.CapabilityGaps, GapUserNamespaceUnavailable) {
+		t.Fatalf("CapabilityGaps = %+v, agent-user/root-helper must not require rootless userns", spec.CapabilityGaps)
+	}
+}
+
 func TestCompileRejectsIdentityHelperStrategyMismatch(t *testing.T) {
 	cases := []CompileOptions{
 		{Identity: IdentityCurrentUser, HelperStrategy: HelperRoot},

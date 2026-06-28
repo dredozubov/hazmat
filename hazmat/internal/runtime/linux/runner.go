@@ -3,11 +3,15 @@ package linux
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -16,6 +20,7 @@ import (
 )
 
 const EnvExperimentalCurrentUser = "HAZMAT_EXPERIMENTAL_LINUX_CURRENT_USER"
+const EnvExperimentalAgentUser = "HAZMAT_EXPERIMENTAL_LINUX_AGENT_USER"
 
 type RunPhase string
 
@@ -56,8 +61,10 @@ type RunOptions struct {
 	Stdout io.Writer
 	Stderr io.Writer
 
-	Sidecar  SidecarStore
-	Enforcer CurrentUserEnforcer
+	Sidecar        SidecarStore
+	Enforcer       CurrentUserEnforcer
+	RootHelper     AgentUserRootHelper
+	RootHelperPath string
 }
 
 type ExecResult struct {
@@ -75,6 +82,18 @@ type CurrentUserEnforcer interface {
 	Exec(context.Context, linuxspec.LaunchSpec, RunOptions) (ExecResult, error)
 }
 
+type AgentUserRootHelper interface {
+	Execute(context.Context, AgentUserHelperRequest, RunOptions) (ExecResult, error)
+}
+
+type AgentUserHelperRequest struct {
+	SpecPath     string
+	SpecSHA256   string
+	SpecNonce    string
+	MetadataPath string
+	Plan         AdmissionPlan
+}
+
 type RunResult struct {
 	Record RunRecord
 }
@@ -85,6 +104,14 @@ func GateEnabled() bool {
 
 func GateError() error {
 	return fmt.Errorf("the Linux current-user backend is experimental and disabled by default; set %s=1 to enable this invocation", EnvExperimentalCurrentUser)
+}
+
+func AgentUserGateEnabled() bool {
+	return os.Getenv(EnvExperimentalAgentUser) == "1"
+}
+
+func AgentUserGateError() error {
+	return fmt.Errorf("the Linux agent-user backend is experimental and disabled by default; set %s=1 to enable this invocation", EnvExperimentalAgentUser)
 }
 
 func RunCurrentUser(ctx context.Context, spec linuxspec.LaunchSpec, report platformlinux.Report, opts RunOptions) (RunResult, error) {
@@ -160,11 +187,133 @@ func RunCurrentUser(ctx context.Context, spec linuxspec.LaunchSpec, report platf
 	return writeTerminalResult(opts.Sidecar, RunRecord{Phase: PhaseExited, ExitCode: execResult.ExitCode}, true)
 }
 
+func RunAgentUser(ctx context.Context, spec linuxspec.LaunchSpec, report platformlinux.Report, opts RunOptions) (RunResult, error) {
+	if !AgentUserGateEnabled() {
+		return RunResult{}, AgentUserGateError()
+	}
+	if spec.Phase != linuxspec.PhaseExperimental {
+		return RunResult{}, fmt.Errorf("linux agent-user runner refuses a %q spec; compile with the executable runtime option", spec.Phase)
+	}
+	if len(spec.CapabilityGaps) > 0 {
+		return RunResult{}, GapError{Gaps: spec.CapabilityGaps}
+	}
+	if len(spec.Command) == 0 || strings.TrimSpace(spec.Command[0]) == "" {
+		return RunResult{}, fmt.Errorf("linux agent-user runner requires a command argv")
+	}
+	plan, err := AdmitAgentUser(spec, report)
+	if err != nil {
+		return RunResult{}, err
+	}
+	if err := validateRunOptions(opts); err != nil {
+		return RunResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return writeTerminalResult(opts.Sidecar, RunRecord{Phase: PhaseCancelled, Error: err.Error()}, true)
+	}
+	helper := opts.RootHelper
+	if helper == nil {
+		helper = HostAgentUserRootHelper(opts.RootHelperPath)
+	}
+	if err := os.MkdirAll(opts.Sidecar.Dir, 0o700); err != nil {
+		return RunResult{}, err
+	}
+	specPath, digest, err := writeLaunchSpecSidecar(opts.Sidecar, spec)
+	if err != nil {
+		return RunResult{}, err
+	}
+	nonce, err := newRootHelperNonce()
+	if err != nil {
+		return RunResult{}, err
+	}
+	request := AgentUserHelperRequest{
+		SpecPath:     specPath,
+		SpecSHA256:   digest,
+		SpecNonce:    nonce,
+		MetadataPath: opts.Sidecar.MetadataPath(),
+		Plan:         plan,
+	}
+	execResult, err := helper.Execute(ctx, request, opts)
+	if err != nil {
+		phase := PhaseFailed
+		if errors.Is(err, context.Canceled) {
+			phase = PhaseCancelled
+		}
+		record := RunRecord{Phase: phase, Error: err.Error()}
+		result, writeErr := writeTerminalResult(opts.Sidecar, record, true)
+		if writeErr != nil {
+			return result, writeErr
+		}
+		return result, err
+	}
+	events, err := ReadMetadataSidecar(opts.Sidecar.MetadataPath())
+	if err != nil {
+		record := RunRecord{Phase: PhaseFailed, Error: err.Error()}
+		result, writeErr := writeTerminalResult(opts.Sidecar, record, true)
+		if writeErr != nil {
+			return result, writeErr
+		}
+		return result, err
+	}
+	if err := validateRunMetadata(events); err != nil {
+		record := RunRecord{Phase: PhaseFailed, Error: err.Error()}
+		result, writeErr := writeTerminalResult(opts.Sidecar, record, true)
+		if writeErr != nil {
+			return result, writeErr
+		}
+		return result, err
+	}
+	return writeTerminalResult(opts.Sidecar, RunRecord{Phase: PhaseExited, ExitCode: execResult.ExitCode}, true)
+}
+
 func validateRunOptions(opts RunOptions) error {
 	if strings.TrimSpace(opts.Sidecar.Dir) == "" {
-		return fmt.Errorf("linux current-user runner requires a sidecar directory")
+		return fmt.Errorf("linux runner requires a sidecar directory")
 	}
 	return nil
+}
+
+func HostAgentUserRootHelper(path string) AgentUserRootHelper {
+	return commandAgentUserRootHelper{Path: path}
+}
+
+type commandAgentUserRootHelper struct {
+	Path string
+}
+
+func (h commandAgentUserRootHelper) Execute(ctx context.Context, request AgentUserHelperRequest, opts RunOptions) (ExecResult, error) {
+	if strings.TrimSpace(h.Path) == "" {
+		return ExecResult{}, fmt.Errorf("linux agent-user runner requires a root helper path")
+	}
+	cmd := exec.CommandContext(ctx, h.Path,
+		"run-agent",
+		"--spec", request.SpecPath,
+		"--spec-sha256", request.SpecSHA256,
+		"--nonce", request.SpecNonce,
+		"--metadata", request.MetadataPath,
+	)
+	cmd.Stdin = opts.Stdin
+	cmd.Stdout = opts.Stdout
+	cmd.Stderr = opts.Stderr
+	err := cmd.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ExecResult{}, ctxErr
+	}
+	if err == nil {
+		return ExecResult{ExitCode: cmd.ProcessState.ExitCode()}, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return ExecResult{ExitCode: exitErr.ExitCode()}, nil
+	}
+	return ExecResult{}, err
+}
+
+func newRootHelperNonce() (string, error) {
+	var raw [16]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Linux root-helper nonce: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 func enforceCurrentUser(ctx context.Context, enforcer CurrentUserEnforcer, spec linuxspec.LaunchSpec, plan AdmissionPlan) error {
@@ -258,6 +407,28 @@ func (s SidecarStore) writeResultAtomic(record RunRecord) error {
 		return err
 	}
 	return os.Rename(temp, s.ResultPath())
+}
+
+func writeLaunchSpecSidecar(store SidecarStore, spec linuxspec.LaunchSpec) (string, string, error) {
+	data, err := linuxspec.MarshalJSON(spec)
+	if err != nil {
+		return "", "", err
+	}
+	data = append(data, '\n')
+	sum := sha256.Sum256(data)
+	digest := fmt.Sprintf("%x", sum[:])
+	path := filepath.Join(store.Dir, "launch-spec.json")
+	temp := path + ".tmp"
+	if err := os.WriteFile(temp, data, 0o600); err != nil {
+		return "", "", err
+	}
+	if err := os.Rename(temp, path); err != nil {
+		return "", "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", "", err
+	}
+	return path, digest, nil
 }
 
 func writeMetadataSidecar(path string, events []MetadataEvent) error {

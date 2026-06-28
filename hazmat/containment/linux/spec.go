@@ -162,7 +162,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 			AllowFork:         contract.Process.AllowFork,
 		},
 		Command:        append([]string(nil), opts.Command...),
-		CapabilityGaps: capabilityGaps(opts.Platform, opts.ExecutableRuntime),
+		CapabilityGaps: capabilityGaps(opts.Platform, identity, opts.ExecutableRuntime),
 	}
 	return spec, nil
 }
@@ -263,7 +263,7 @@ func compileNetwork(mode sessionmeta.NetworkMode) NetworkSpec {
 	return spec
 }
 
-func capabilityGaps(report platformlinux.Report, executable bool) []CapabilityGap {
+func capabilityGaps(report platformlinux.Report, identity IdentityLane, executable bool) []CapabilityGap {
 	var gaps []CapabilityGap
 	if !executable {
 		gaps = append(gaps, CapabilityGap{
@@ -278,18 +278,7 @@ func capabilityGaps(report platformlinux.Report, executable bool) []CapabilityGa
 			State:   report.RuntimeOS,
 		})
 	}
-	for _, item := range []struct {
-		code    string
-		message string
-		feature platformlinux.FeatureReport
-	}{
-		{GapUserNamespaceUnavailable, "user namespace support is not positively available", report.Features.UserNamespaces},
-		{GapMountNamespaceUnavailable, "mount namespace support is not positively available", report.Features.MountNamespaces},
-		{GapCgroupV2Unavailable, "cgroup v2 support is not positively available", report.Features.CgroupV2},
-		{GapLandlockUnavailable, "Landlock support is not positively available", report.Features.Landlock},
-		{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
-		{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
-	} {
+	for _, item := range featureGapRequirements(report, identity) {
 		if item.feature.State != "" && item.feature.State != platformlinux.FeatureAvailable {
 			gaps = append(gaps, CapabilityGap{
 				Code:    item.code,
@@ -300,4 +289,32 @@ func capabilityGaps(report platformlinux.Report, executable bool) []CapabilityGa
 		}
 	}
 	return gaps
+}
+
+type featureGapRequirement struct {
+	code    string
+	message string
+	feature platformlinux.FeatureReport
+}
+
+func featureGapRequirements(report platformlinux.Report, identity IdentityLane) []featureGapRequirement {
+	switch identity {
+	case IdentityAgentUser:
+		return []featureGapRequirement{
+			{GapMountNamespaceUnavailable, "mount namespace support is not positively available", report.Features.MountNamespaces},
+			{GapCgroupV2Unavailable, "cgroup v2 support is not positively available", report.Features.CgroupV2},
+			{GapLandlockUnavailable, "Landlock support is not positively available", report.Features.Landlock},
+			{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
+			{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
+		}
+	default:
+		return []featureGapRequirement{
+			{GapUserNamespaceUnavailable, "user namespace support is not positively available", report.Features.UserNamespaces},
+			{GapMountNamespaceUnavailable, "mount namespace support is not positively available", report.Features.MountNamespaces},
+			{GapCgroupV2Unavailable, "cgroup v2 support is not positively available", report.Features.CgroupV2},
+			{GapLandlockUnavailable, "Landlock support is not positively available", report.Features.Landlock},
+			{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
+			{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
+		}
+	}
 }
