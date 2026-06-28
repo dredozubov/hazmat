@@ -105,17 +105,21 @@ func TestAdmitCurrentUserRejectsNonCurrentUserSpec(t *testing.T) {
 
 func currentUserSpec(t *testing.T, network sessionmeta.NetworkMode) linuxspec.LaunchSpec {
 	t.Helper()
-	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/agent/.ssh"}})
+	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/user/.ssh"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	contract, err := containment.NewContract(containment.ContractInput{
 		Project:      containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
 		ReadOnlyDirs: containment.PathGrants([]string{"/opt/sdk"}, containment.PathReadOnly),
-		AgentHome:    containment.AgentHomePolicy{Path: "/home/agent"},
-		Temp:         containment.TempPolicy{Path: "/tmp/hazmat-session"},
-		Network:      containment.NetworkPolicy{Mode: network},
-		Process:      containment.ProcessPolicy{AllowFork: true},
+		AgentHome: containment.AgentHomePolicy{
+			Path:           "/tmp/hazmat-session/home",
+			Mode:           containment.AgentHomeModeSessionLocal,
+			PersistentPath: "/home/user",
+		},
+		Temp:    containment.TempPolicy{Path: "/tmp/hazmat-session"},
+		Network: containment.NetworkPolicy{Mode: network},
+		Process: containment.ProcessPolicy{AllowFork: true},
 	}, floor)
 	if err != nil {
 		t.Fatal(err)

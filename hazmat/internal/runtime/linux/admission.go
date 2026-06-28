@@ -47,6 +47,7 @@ type AdmissionPlan struct {
 	FDs        FDClosurePlan    `json:"fds"`
 	Namespaces NamespacePlan    `json:"namespaces"`
 	Network    NetworkAdmission `json:"network"`
+	Policy     PolicyPlan       `json:"policy"`
 	Metadata   bool             `json:"metadata"`
 	Exec       bool             `json:"exec"`
 }
@@ -83,6 +84,11 @@ func AdmitCurrentUser(spec linuxspec.LaunchSpec, report platformlinux.Report) (A
 		Network: spec.Network.UseNetworkNamespace,
 	}
 	plan.Network = networkAdmission(spec.Network)
+	policy, err := BuildPolicyPlan(spec)
+	if err != nil {
+		return plan, err
+	}
+	plan.Policy = policy
 	plan.Metadata = true
 	plan.Exec = true
 	plan.Stages = append(plan.Stages,
