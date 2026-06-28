@@ -23,6 +23,8 @@ Minimum release evidence before promotion beyond `plan-only`:
 | Launch spec compiler | `containment/linux` tests cover mounts, temp, agent home, network, process policy, and gaps. | `sandboxing-xuar.3.1` |
 | Admission ordering | `MC_LinuxNativeLaunch` and admission tests prove metadata after enforcement. | `sandboxing-xuar.3.2` |
 | Fake helper/result path | Fake-helper tests prove metadata phases, raw streams, failures, and cancellation cleanup. | `sandboxing-xuar.3.4` |
+| Runner/result contract | Experimental launch specs carry command argv; runner tests prove gate refusal, gap refusal before side effects, metadata-before-exec, raw stream preservation, and cancellation cleanup through an injected enforcer. | `sandboxing-xuar.3.6` |
+| Kernel enforcer | Linux implementation creates rootless user/mount/network namespaces, applies mounts, sets no-new-privs, applies Landlock and seccomp, then execs the harness. | `sandboxing-xuar.3.6` |
 | Distro/capability fixtures | Ubuntu, Debian, Fedora, Arch, unknown distro parser/gap fixtures are present. | `sandboxing-xuar.3.5` |
 | VM smoke matrix | U1, D1, F1, A1 transcripts satisfy S1-S7 in the current-user matrix. | `sandboxing-xuar.3.5` |
 | Docs/status | Runtime provider docs keep `linux-current-user` separate and state the correct status. | `sandboxing-xuar.5.1` |

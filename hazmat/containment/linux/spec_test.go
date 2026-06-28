@@ -111,6 +111,47 @@ func TestCompileRecordsBothIdentityLanesFromSameContract(t *testing.T) {
 	}
 }
 
+func TestCompileExecutableRuntimePhase(t *testing.T) {
+	command := []string{"/bin/sh", "-c", "printf hi"}
+	spec, err := Compile(testContract(t), CompileOptions{
+		Platform:          availableReport(),
+		Identity:          IdentityCurrentUser,
+		HelperStrategy:    HelperRootlessUserNS,
+		Command:           command,
+		ExecutableRuntime: true,
+	})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if spec.Phase != PhaseExperimental {
+		t.Fatalf("Phase = %q, want %q", spec.Phase, PhaseExperimental)
+	}
+	if len(spec.CapabilityGaps) != 0 {
+		t.Fatalf("CapabilityGaps = %+v, want none for healthy executable host", spec.CapabilityGaps)
+	}
+	if !reflect.DeepEqual(spec.Command, command) {
+		t.Fatalf("Command = %+v, want %+v", spec.Command, command)
+	}
+	command[0] = "/bin/false"
+	if spec.Command[0] != "/bin/sh" {
+		t.Fatalf("Command aliases caller input: %+v", spec.Command)
+	}
+
+	spec, err = Compile(testContract(t), CompileOptions{
+		Platform:          platformlinux.Report{RuntimeOS: "darwin"},
+		ExecutableRuntime: true,
+	})
+	if err != nil {
+		t.Fatalf("Compile with gaps: %v", err)
+	}
+	if !hasGap(spec.CapabilityGaps, GapRuntimeNotLinux) {
+		t.Fatalf("CapabilityGaps = %+v, want runtime gap", spec.CapabilityGaps)
+	}
+	if hasGap(spec.CapabilityGaps, GapNativeLaunchHelperMissing) {
+		t.Fatalf("executable compile must not carry the preview helper gap: %+v", spec.CapabilityGaps)
+	}
+}
+
 func TestCompileRejectsIdentityHelperStrategyMismatch(t *testing.T) {
 	cases := []CompileOptions{
 		{Identity: IdentityCurrentUser, HelperStrategy: HelperRoot},

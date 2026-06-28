@@ -1,6 +1,6 @@
 // Package linuxspec compiles Hazmat's backend-neutral containment contract into
-// a plan-only Linux native launch spec. It does not create namespaces, mount
-// filesystems, or execute helpers.
+// Linux native launch specs. It does not create namespaces, mount filesystems,
+// or execute helpers.
 package linuxspec
 
 import (
@@ -18,6 +18,7 @@ const (
 
 	BackendLinuxNative = "linux-native"
 	PhasePlanOnly      = "plan-only"
+	PhaseExperimental  = "experimental"
 
 	GapNativeLaunchHelperMissing   = platformlinux.GapNativeLaunchHelperMissing
 	GapRuntimeNotLinux             = platformlinux.GapRuntimeNotLinux
@@ -51,6 +52,12 @@ type CompileOptions struct {
 	Platform       platformlinux.Report
 	Identity       IdentityLane
 	HelperStrategy HelperStrategy
+	Command        []string
+
+	// ExecutableRuntime marks the spec as compiled for the experimental
+	// current-user runner rather than a plan-only preview. The runner must
+	// still refuse to launch while any capability gap remains.
+	ExecutableRuntime bool
 }
 
 // LaunchSpec is a JSON-friendly Linux native launch plan. It is intentionally
@@ -67,6 +74,7 @@ type LaunchSpec struct {
 	CredentialDenies []CredentialDenySpec `json:"credential_denies,omitempty"`
 	Network          NetworkSpec          `json:"network"`
 	Process          ProcessSpec          `json:"process"`
+	Command          []string             `json:"command,omitempty"`
 	CapabilityGaps   []CapabilityGap      `json:"capability_gaps,omitempty"`
 }
 
@@ -104,7 +112,7 @@ type NetworkSpec struct {
 }
 
 // ProcessSpec captures launch-helper invariants that must remain true before
-// exec once Linux launch moves beyond plan-only.
+// exec.
 type ProcessSpec struct {
 	CloseInheritedFDs bool `json:"close_inherited_fds"`
 	NoNewPrivs        bool `json:"no_new_privs"`
@@ -134,7 +142,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 	spec := LaunchSpec{
 		FormatVersion:  LaunchSpecFormatVersion,
 		Backend:        BackendLinuxNative,
-		Phase:          PhasePlanOnly,
+		Phase:          compilePhase(opts),
 		Identity:       identity,
 		HelperStrategy: helperStrategy,
 		Mounts:         compileMounts(contract),
@@ -153,7 +161,8 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 			DropCapabilities:  true,
 			AllowFork:         contract.Process.AllowFork,
 		},
-		CapabilityGaps: capabilityGaps(opts.Platform),
+		Command:        append([]string(nil), opts.Command...),
+		CapabilityGaps: capabilityGaps(opts.Platform, opts.ExecutableRuntime),
 	}
 	return spec, nil
 }
@@ -199,6 +208,13 @@ func compileIdentityOptions(opts CompileOptions) (IdentityLane, HelperStrategy, 
 		return "", "", fmt.Errorf("linux identity %q requires helper_strategy %q", identity, HelperRoot)
 	}
 	return identity, helperStrategy, nil
+}
+
+func compilePhase(opts CompileOptions) string {
+	if opts.ExecutableRuntime {
+		return PhaseExperimental
+	}
+	return PhasePlanOnly
 }
 
 func compileMounts(contract containment.Contract) []BindMount {
@@ -247,11 +263,14 @@ func compileNetwork(mode sessionmeta.NetworkMode) NetworkSpec {
 	return spec
 }
 
-func capabilityGaps(report platformlinux.Report) []CapabilityGap {
-	gaps := []CapabilityGap{{
-		Code:    GapNativeLaunchHelperMissing,
-		Message: "Linux native launch helper is not implemented; spec is plan-only",
-	}}
+func capabilityGaps(report platformlinux.Report, executable bool) []CapabilityGap {
+	var gaps []CapabilityGap
+	if !executable {
+		gaps = append(gaps, CapabilityGap{
+			Code:    GapNativeLaunchHelperMissing,
+			Message: "Linux native launch helper is not implemented; spec is plan-only",
+		})
+	}
 	if report.RuntimeOS != "" && report.RuntimeOS != "linux" {
 		gaps = append(gaps, CapabilityGap{
 			Code:    GapRuntimeNotLinux,

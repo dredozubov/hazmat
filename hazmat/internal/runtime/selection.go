@@ -38,7 +38,7 @@ func Select(plan sessionbackend.Plan) (Selection, error) {
 			Backend:     plan.Backend,
 			PackagePath: linux.PackagePath,
 			Native:      true,
-			PlanOnly:    linux.PlanOnly,
+			PlanOnly:    !linux.KernelEnforcerWired,
 		}, nil
 	case sessionbackend.KindAppleContainer:
 		// The experimental Apple Container runtime exists

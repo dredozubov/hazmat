@@ -178,8 +178,10 @@ func validateCurrentUserSpec(spec linuxspec.LaunchSpec) error {
 	if spec.HelperStrategy != linuxspec.HelperRootlessUserNS {
 		return fmt.Errorf("linux current-user admission requires helper_strategy %q", linuxspec.HelperRootlessUserNS)
 	}
-	if spec.Phase != linuxspec.PhasePlanOnly {
-		return fmt.Errorf("linux current-user admission requires phase %q until the experimental runner is wired", linuxspec.PhasePlanOnly)
+	switch spec.Phase {
+	case linuxspec.PhasePlanOnly, linuxspec.PhaseExperimental:
+	default:
+		return fmt.Errorf("linux current-user admission requires phase %q or %q", linuxspec.PhasePlanOnly, linuxspec.PhaseExperimental)
 	}
 	return nil
 }
