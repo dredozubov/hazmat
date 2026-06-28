@@ -24,6 +24,27 @@ const (
 	FeatureUnknown     FeatureState = "unknown"
 )
 
+const (
+	GapNativeLaunchHelperMissing   = "linux.native-launch-helper-missing"
+	GapRuntimeNotLinux             = "linux.runtime-not-linux"
+	GapUserNamespaceUnavailable    = "linux.user-namespace-unavailable"
+	GapMountNamespaceUnavailable   = "linux.mount-namespace-unavailable"
+	GapCgroupV2Unavailable         = "linux.cgroup-v2-unavailable"
+	GapLandlockUnavailable         = "linux.landlock-unavailable"
+	GapSeccompUnavailable          = "linux.seccomp-unavailable"
+	GapNetworkNamespaceUnavailable = "linux.network-namespace-unavailable"
+	GapSetupRequired               = "linux.setup-required"
+	GapHelperStrategyUnsupported   = "linux.helper-strategy-unsupported"
+	GapDistroUnsupported           = "linux.distro-unsupported"
+)
+
+type HelperStrategy string
+
+const (
+	HelperRootlessUserNS HelperStrategy = "rootless-userns"
+	HelperRoot           HelperStrategy = "root-helper"
+)
+
 // FeatureReport describes one Linux kernel or host capability.
 type FeatureReport struct {
 	State  FeatureState `json:"state"`
@@ -62,7 +83,7 @@ type FeatureSet struct {
 	NetworkNamespaces FeatureReport `json:"network_namespaces"`
 }
 
-// NativeBackendStatus explains why Linux native launch remains plan-only.
+// NativeBackendStatus explains why a Linux native lane remains non-executable.
 type NativeBackendStatus struct {
 	Supported      bool                                  `json:"supported"`
 	Phase          string                                `json:"phase"`
@@ -74,18 +95,20 @@ type NativeBackendStatus struct {
 
 // Report is the reusable JSON-friendly Linux platform inspection result.
 type Report struct {
-	RuntimeOS     string              `json:"runtime_os"`
-	Distro        DistroInfo          `json:"distro,omitempty"`
-	Kernel        KernelInfo          `json:"kernel,omitempty"`
-	Features      FeatureSet          `json:"features"`
-	NativeBackend NativeBackendStatus `json:"native_backend"`
+	RuntimeOS        string              `json:"runtime_os"`
+	Distro           DistroInfo          `json:"distro,omitempty"`
+	Kernel           KernelInfo          `json:"kernel,omitempty"`
+	Features         FeatureSet          `json:"features"`
+	NativeBackend    NativeBackendStatus `json:"native_backend"`
+	AgentUserBackend NativeBackendStatus `json:"agent_user_backend"`
 }
 
 // InspectOptions configures side-effect-free host inspection. Root is useful
 // for tests and container images; leave it empty for the host root.
 type InspectOptions struct {
-	Root      string
-	RuntimeOS string
+	Root                    string
+	RuntimeOS               string
+	AgentUserHelperStrategy HelperStrategy
 }
 
 // InspectHost inspects the current host without performing setup or launch.
@@ -122,7 +145,8 @@ func Inspect(opts InspectOptions) Report {
 		Seccomp:           inspectSeccomp(root),
 		NetworkNamespaces: inspectNetworkNamespaces(root),
 	}
-	report.NativeBackend = nativeBackendStatus(runtimeOS, report.Features)
+	report.NativeBackend = nativeBackendStatus(runtimeOS, report.Distro, report.Features)
+	report.AgentUserBackend = agentUserBackendStatus(runtimeOS, report.Distro, report.Features, opts.AgentUserHelperStrategy)
 	return report
 }
 
@@ -229,7 +253,7 @@ func inspectNetworkNamespaces(root string) FeatureReport {
 	return FeatureReport{State: FeatureUnknown, Detail: "network namespace handle was not found", Source: source}
 }
 
-func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendStatus {
+func nativeBackendStatus(runtimeOS string, distro DistroInfo, features FeatureSet) NativeBackendStatus {
 	provider := providerStatus(runtimeprovider.KindLinuxCurrentUser)
 	status := NativeBackendStatus{
 		Supported: false,
@@ -237,13 +261,13 @@ func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendSta
 		Provider:  &provider,
 		Reasons: []string{
 			"Linux native launch helper is not implemented yet",
-			"Linux launch ordering and setup resources still require TLA model approval",
+			"Linux current-user runtime remains plan-only until helper admission and VM smoke evidence land",
 		},
 		CapabilityGaps: []runtimeprovider.GapRecord{
 			runtimeprovider.MustGapRecord(
 				runtimeprovider.KindLinuxCurrentUser,
 				runtimeprovider.StatusPlanOnly,
-				"linux.native-launch-helper-missing",
+				GapNativeLaunchHelperMissing,
 				"Linux native launch helper is not implemented yet",
 				"plan-only",
 			),
@@ -254,25 +278,13 @@ func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendSta
 		status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
 			runtimeprovider.KindLinuxCurrentUser,
 			runtimeprovider.StatusPlanOnly,
-			"linux.runtime-not-linux",
+			GapRuntimeNotLinux,
 			"the inspected runtime is not Linux",
 			runtimeOS,
 		))
 	}
-	required := []struct {
-		feature FeatureReport
-		id      string
-		message string
-	}{
-		{feature: features.UserNamespaces, id: "linux.user-namespace-unavailable", message: "selected strategy needs user namespaces and the host disables them"},
-		{feature: features.MountNamespaces, id: "linux.mount-namespace-unavailable", message: "helper cannot create the required mount namespace"},
-		{feature: features.CgroupV2, id: "linux.cgroup-v2-unavailable", message: "resource controls cannot be attached"},
-		{feature: features.Landlock, id: "linux.landlock-unavailable", message: "Landlock is unavailable and the spec did not accept the gap"},
-		{feature: features.Seccomp, id: "linux.seccomp-unavailable", message: "seccomp is unavailable and the spec did not accept the gap"},
-		{feature: features.NetworkNamespaces, id: "linux.network-namespace-unavailable", message: "--network none cannot be enforced"},
-	}
 	status.CapabilityOK = true
-	for _, requirement := range required {
+	for _, requirement := range nativeFeatureRequirements(features) {
 		if requirement.feature.State != FeatureAvailable {
 			status.CapabilityOK = false
 			status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
@@ -284,7 +296,114 @@ func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendSta
 			))
 		}
 	}
+	if gap, ok := distroGap(runtimeprovider.KindLinuxCurrentUser, runtimeprovider.StatusPlanOnly, distro); ok {
+		status.CapabilityOK = false
+		status.CapabilityGaps = append(status.CapabilityGaps, gap)
+	}
 	return status
+}
+
+func agentUserBackendStatus(runtimeOS string, distro DistroInfo, features FeatureSet, helperStrategy HelperStrategy) NativeBackendStatus {
+	provider := providerStatus(runtimeprovider.KindLinuxAgentUser)
+	status := NativeBackendStatus{
+		Supported: false,
+		Phase:     string(runtimeprovider.StatusSetupRequired),
+		Provider:  &provider,
+		Reasons: []string{
+			"Linux agent-user setup resources are missing or not verified",
+			"Linux root-helper runtime is not implemented yet",
+		},
+		CapabilityGaps: []runtimeprovider.GapRecord{
+			runtimeprovider.MustGapRecord(
+				runtimeprovider.KindLinuxAgentUser,
+				runtimeprovider.StatusSetupRequired,
+				GapSetupRequired,
+				"persistent Linux agent-user setup resources are missing",
+				"setup-required",
+			),
+			runtimeprovider.MustGapRecord(
+				runtimeprovider.KindLinuxAgentUser,
+				runtimeprovider.StatusSetupRequired,
+				GapNativeLaunchHelperMissing,
+				"Linux agent-user root helper is not installed or verified",
+				"setup-required",
+			),
+		},
+		CapabilityOK: true,
+	}
+	if runtimeOS != "linux" {
+		status.CapabilityOK = false
+		status.Reasons = append(status.Reasons, "inspected runtime is "+runtimeOS+", not linux")
+		status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
+			runtimeprovider.KindLinuxAgentUser,
+			runtimeprovider.StatusSetupRequired,
+			GapRuntimeNotLinux,
+			"the inspected runtime is not Linux",
+			runtimeOS,
+		))
+	}
+	if strategy := normalizeAgentUserHelperStrategy(helperStrategy); strategy != HelperRoot {
+		status.CapabilityOK = false
+		status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
+			runtimeprovider.KindLinuxAgentUser,
+			runtimeprovider.StatusSetupRequired,
+			GapHelperStrategyUnsupported,
+			"linux-agent-user requires root-helper",
+			string(strategy),
+		))
+	}
+	if features.CgroupV2.State != FeatureAvailable {
+		status.CapabilityOK = false
+		status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
+			runtimeprovider.KindLinuxAgentUser,
+			runtimeprovider.StatusSetupRequired,
+			GapCgroupV2Unavailable,
+			"resource controls cannot be attached",
+			string(features.CgroupV2.State),
+		))
+	}
+	if gap, ok := distroGap(runtimeprovider.KindLinuxAgentUser, runtimeprovider.StatusSetupRequired, distro); ok {
+		status.CapabilityOK = false
+		status.CapabilityGaps = append(status.CapabilityGaps, gap)
+	}
+	return status
+}
+
+func normalizeAgentUserHelperStrategy(strategy HelperStrategy) HelperStrategy {
+	if strategy == "" {
+		return HelperRoot
+	}
+	return strategy
+}
+
+type featureRequirement struct {
+	feature FeatureReport
+	id      string
+	message string
+}
+
+func nativeFeatureRequirements(features FeatureSet) []featureRequirement {
+	return []featureRequirement{
+		{feature: features.UserNamespaces, id: GapUserNamespaceUnavailable, message: "selected strategy needs user namespaces and the host disables them"},
+		{feature: features.MountNamespaces, id: GapMountNamespaceUnavailable, message: "helper cannot create the required mount namespace"},
+		{feature: features.CgroupV2, id: GapCgroupV2Unavailable, message: "resource controls cannot be attached"},
+		{feature: features.Landlock, id: GapLandlockUnavailable, message: "Landlock is unavailable and the spec did not accept the gap"},
+		{feature: features.Seccomp, id: GapSeccompUnavailable, message: "seccomp is unavailable and the spec did not accept the gap"},
+		{feature: features.NetworkNamespaces, id: GapNetworkNamespaceUnavailable, message: "--network none cannot be enforced"},
+	}
+}
+
+func distroGap(provider runtimeprovider.Kind, status runtimeprovider.Status, distro DistroInfo) (runtimeprovider.GapRecord, bool) {
+	id := strings.ToLower(strings.TrimSpace(distro.ID))
+	if id == "" {
+		return runtimeprovider.MustGapRecord(provider, status, GapDistroUnsupported, "Linux distro could not be identified", "unknown"), true
+	}
+	switch id {
+	case "ubuntu", "debian", "fedora", "arch":
+		return runtimeprovider.GapRecord{}, false
+	default:
+		return runtimeprovider.MustGapRecord(provider, status, GapDistroUnsupported, "Linux distro is not in the validated setup matrix", id), true
+	}
 }
 
 func providerStatus(kind runtimeprovider.Kind) runtimeprovider.ProviderStatusRecord {

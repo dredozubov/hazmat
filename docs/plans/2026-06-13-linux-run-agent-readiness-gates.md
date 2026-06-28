@@ -162,6 +162,7 @@ A Linux plan or failed launch should name the missing surface precisely:
 | `linux.landlock-unavailable` | Landlock is unavailable and the spec did not accept the gap |
 | `linux.seccomp-unavailable` | seccomp is unavailable and the spec did not accept the gap |
 | `linux.cgroup-v2-unavailable` | resource controls cannot be attached |
+| `linux.distro-unsupported` | the inspected distro is outside the validated Linux matrix |
 | `linux.setup-required` | persistent Linux setup resources are missing |
 | `linux.helper-strategy-unsupported` | the host cannot run the chosen helper strategy |
 

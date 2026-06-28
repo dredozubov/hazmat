@@ -19,14 +19,14 @@ const (
 	BackendLinuxNative = "linux-native"
 	PhasePlanOnly      = "plan-only"
 
-	GapNativeLaunchHelperMissing   = "linux.native-launch-helper-missing"
-	GapRuntimeNotLinux             = "linux.runtime-not-linux"
-	GapUserNamespaceUnavailable    = "linux.user-namespace-unavailable"
-	GapMountNamespaceUnavailable   = "linux.mount-namespace-unavailable"
-	GapCgroupV2Unavailable         = "linux.cgroup-v2-unavailable"
-	GapLandlockUnavailable         = "linux.landlock-unavailable"
-	GapSeccompUnavailable          = "linux.seccomp-unavailable"
-	GapNetworkNamespaceUnavailable = "linux.network-namespace-unavailable"
+	GapNativeLaunchHelperMissing   = platformlinux.GapNativeLaunchHelperMissing
+	GapRuntimeNotLinux             = platformlinux.GapRuntimeNotLinux
+	GapUserNamespaceUnavailable    = platformlinux.GapUserNamespaceUnavailable
+	GapMountNamespaceUnavailable   = platformlinux.GapMountNamespaceUnavailable
+	GapCgroupV2Unavailable         = platformlinux.GapCgroupV2Unavailable
+	GapLandlockUnavailable         = platformlinux.GapLandlockUnavailable
+	GapSeccompUnavailable          = platformlinux.GapSeccompUnavailable
+	GapNetworkNamespaceUnavailable = platformlinux.GapNetworkNamespaceUnavailable
 )
 
 type IdentityLane string

@@ -479,8 +479,9 @@ The canonical Linux gap registry lives in
 [Linux Run-Agent Provider Readiness Gates](2026-06-13-linux-run-agent-readiness-gates.md#capability-gap-vocabulary).
 For the multi-user lane, expected blocking gaps include
 `linux.setup-required`, `linux.native-launch-helper-missing`,
-`linux.helper-strategy-unsupported`, and `linux.cgroup-v2-unavailable` when the
-selected profile requires resource controls.
+`linux.helper-strategy-unsupported`, `linux.cgroup-v2-unavailable`, and
+`linux.distro-unsupported` when the selected profile requires resource controls
+or the distro is outside the validated matrix.
 
 ## Release Phases
 

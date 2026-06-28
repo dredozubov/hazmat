@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"hazmat/runtimeprovider"
 )
 
 func TestInspectReportsDetectedLinuxFeatures(t *testing.T) {
@@ -64,6 +67,26 @@ VERSION_CODENAME=noble
 	}
 	if !nativeBackendHasGap(report.NativeBackend, "linux.native-launch-helper-missing") {
 		t.Fatalf("NativeBackend.CapabilityGaps = %+v, want native helper gap", report.NativeBackend.CapabilityGaps)
+	}
+	if report.AgentUserBackend.Phase != "setup-required" || !report.AgentUserBackend.CapabilityOK {
+		t.Fatalf("AgentUserBackend = %+v, want setup-required with host capabilities ok", report.AgentUserBackend)
+	}
+	if report.AgentUserBackend.Provider == nil ||
+		report.AgentUserBackend.Provider.Provider != "linux-agent-user" ||
+		report.AgentUserBackend.Provider.Status != "setup-required" ||
+		report.AgentUserBackend.Provider.Executable {
+		t.Fatalf("AgentUserBackend.Provider = %+v, want linux-agent-user setup-required", report.AgentUserBackend.Provider)
+	}
+	for _, id := range []string{
+		"linux.setup-required",
+		"linux.native-launch-helper-missing",
+	} {
+		if !nativeBackendHasGap(report.AgentUserBackend, id) {
+			t.Fatalf("AgentUserBackend.CapabilityGaps missing %q: %+v", id, report.AgentUserBackend.CapabilityGaps)
+		}
+	}
+	if rendered := strings.Join(runtimeprovider.RenderGaps(report.AgentUserBackend.CapabilityGaps), "\n"); !strings.Contains(rendered, "linux.setup-required:") {
+		t.Fatalf("rendered agent-user gaps missing setup-required text:\n%s", rendered)
 	}
 	if len(report.NativeBackend.Reasons) == 0 {
 		t.Fatal("NativeBackend.Reasons is empty")
@@ -128,6 +151,56 @@ NAME=Debian
 		if !nativeBackendHasGap(report.NativeBackend, id) {
 			t.Fatalf("NativeBackend.CapabilityGaps missing %q: %+v", id, report.NativeBackend.CapabilityGaps)
 		}
+	}
+}
+
+func TestInspectReportsAgentUserSetupAndStrategyGaps(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "/etc/os-release", `ID=gentoo
+NAME=Gentoo
+`)
+	writeFile(t, root, "/proc/sys/kernel/unprivileged_userns_clone", "1\n")
+	writeFile(t, root, "/sys/kernel/security/landlock/abi", "5\n")
+	writeFile(t, root, "/proc/sys/kernel/seccomp/actions_avail", "kill_process allow\n")
+	writeFile(t, root, "/proc/self/ns/mnt", "")
+	writeFile(t, root, "/proc/self/ns/net", "")
+
+	report := Inspect(InspectOptions{
+		Root:                    root,
+		RuntimeOS:               "linux",
+		AgentUserHelperStrategy: HelperRootlessUserNS,
+	})
+	if report.AgentUserBackend.CapabilityOK {
+		t.Fatalf("AgentUserBackend.CapabilityOK = true for gaps: %+v", report.AgentUserBackend)
+	}
+	for _, id := range []string{
+		"linux.setup-required",
+		"linux.helper-strategy-unsupported",
+		"linux.cgroup-v2-unavailable",
+		"linux.distro-unsupported",
+	} {
+		if !nativeBackendHasGap(report.AgentUserBackend, id) {
+			t.Fatalf("AgentUserBackend.CapabilityGaps missing %q: %+v", id, report.AgentUserBackend.CapabilityGaps)
+		}
+	}
+	rendered := strings.Join(runtimeprovider.RenderGaps(report.AgentUserBackend.CapabilityGaps), "\n")
+	if !strings.Contains(rendered, "linux.helper-strategy-unsupported:") ||
+		strings.Contains(rendered, "fall back") {
+		t.Fatalf("rendered agent-user gaps should name strategy refusal without fallback advice:\n%s", rendered)
+	}
+}
+
+func TestInspectDoesNotMutateFixtureRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "/etc/os-release", "ID=ubuntu\n")
+	writeFile(t, root, "/proc/sys/kernel/unprivileged_userns_clone", "1\n")
+	writeFile(t, root, "/sys/fs/cgroup/cgroup.controllers", "cpu memory pids\n")
+
+	before := snapshotFiles(t, root)
+	_ = Inspect(InspectOptions{Root: root, RuntimeOS: "linux"})
+	after := snapshotFiles(t, root)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("Inspect mutated fixture root:\nbefore=%#v\nafter=%#v", before, after)
 	}
 }
 
@@ -196,6 +269,33 @@ PRETTY_NAME="Arch Linux"
 			}
 		})
 	}
+}
+
+func snapshotFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[rel] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot %s: %v", root, err)
+	}
+	return files
 }
 
 func writeFile(t *testing.T, root, path, data string) {

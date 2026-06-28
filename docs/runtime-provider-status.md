@@ -41,6 +41,7 @@ behavior. Important Linux gap IDs include:
 | `linux.landlock-unavailable` | `linux-current-user` | Landlock policy cannot be applied. |
 | `linux.seccomp-unavailable` | `linux-current-user` | Seccomp policy cannot be applied. |
 | `linux.cgroup-v2-unavailable` | Linux lanes | Cgroup v2 resource controls are unavailable. |
+| `linux.distro-unsupported` | Linux lanes | The inspected distro is outside the validated Linux matrix. |
 | `linux.setup-required` | `linux-agent-user` | Persistent agent-user setup resources are missing or not modeled. |
 | `linux.helper-strategy-unsupported` | Linux lanes | Requested helper strategy does not match the selected identity lane. |
 

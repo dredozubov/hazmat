@@ -140,6 +140,7 @@ func TestRuntimeProviderStatusDocCoversKnownDescriptors(t *testing.T) {
 		"Provider admission must not silently downgrade",
 		"linux.native-launch-helper-missing",
 		"linux.setup-required",
+		"linux.distro-unsupported",
 		"Linux current-user VM smoke matrix",
 	} {
 		if !strings.Contains(doc, phrase) {
