@@ -35,6 +35,7 @@ var reusableCorePackages = []string{
 	"hazmat/credentials",
 	"hazmat/harnesses",
 	"hazmat/integrations",
+	"hazmat/runtimeprovider",
 	"hazmat/runtimeauthority",
 	"hazmat/runtimecapability",
 
