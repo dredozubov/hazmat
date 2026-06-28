@@ -13,6 +13,13 @@ func HostCurrentUserEnforcer() CurrentUserEnforcer {
 	return unsupportedCurrentUserEnforcer{}
 }
 
+func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
+	if err := validateAgentUserRootHelperPath(path); err != nil {
+		return nil, err
+	}
+	return nil, errLinuxRunnerUnsupported()
+}
+
 type unsupportedCurrentUserEnforcer struct{}
 
 func (unsupportedCurrentUserEnforcer) CloseInheritedFDs(context.Context, FDClosurePlan) error {

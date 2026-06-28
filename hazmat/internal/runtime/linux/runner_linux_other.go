@@ -13,6 +13,13 @@ func HostCurrentUserEnforcer() CurrentUserEnforcer {
 	return unsupportedLinuxArchEnforcer{}
 }
 
+func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
+	if err := validateAgentUserRootHelperPath(path); err != nil {
+		return nil, err
+	}
+	return nil, errUnsupportedLinuxArch()
+}
+
 type unsupportedLinuxArchEnforcer struct{}
 
 func (unsupportedLinuxArchEnforcer) CloseInheritedFDs(context.Context, FDClosurePlan) error {

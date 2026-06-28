@@ -227,6 +227,16 @@ func TestRunAgentUserRequiresInjectedRootHelperBeforeSideEffects(t *testing.T) {
 	}
 }
 
+func TestNewCommandAgentUserRootHelperRejectsEmptyPath(t *testing.T) {
+	helper, err := NewCommandAgentUserRootHelper(" ")
+	if err == nil || !strings.Contains(err.Error(), "root helper path") {
+		t.Fatalf("err = %v, want root helper path error", err)
+	}
+	if helper != nil {
+		t.Fatalf("helper = %#v, want nil", helper)
+	}
+}
+
 func TestRunAgentUserRootHelperMetadataAndRawStreams(t *testing.T) {
 	t.Setenv(EnvExperimentalAgentUser, "1")
 	store := SidecarStore{Dir: t.TempDir()}

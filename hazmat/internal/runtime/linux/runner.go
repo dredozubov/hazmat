@@ -270,6 +270,13 @@ func validateRunOptions(opts RunOptions) error {
 	return nil
 }
 
+func validateAgentUserRootHelperPath(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("linux agent-user runner requires a root helper path")
+	}
+	return nil
+}
+
 func newRootHelperNonce() (string, error) {
 	var raw [16]byte
 	if _, err := cryptorand.Read(raw[:]); err != nil {

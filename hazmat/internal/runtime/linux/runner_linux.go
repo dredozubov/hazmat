@@ -166,6 +166,42 @@ func (hostCurrentUserEnforcer) Exec(ctx context.Context, spec linuxspec.LaunchSp
 	return ExecResult{}, err
 }
 
+func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
+	if err := validateAgentUserRootHelperPath(path); err != nil {
+		return nil, err
+	}
+	return commandAgentUserRootHelper{Path: path}, nil
+}
+
+type commandAgentUserRootHelper struct {
+	Path string
+}
+
+func (h commandAgentUserRootHelper) Execute(ctx context.Context, request AgentUserHelperRequest, opts RunOptions) (ExecResult, error) {
+	cmd := exec.CommandContext(ctx, h.Path,
+		"run-agent",
+		"--spec", request.SpecPath,
+		"--spec-sha256", request.SpecSHA256,
+		"--nonce", request.SpecNonce,
+		"--metadata", request.MetadataPath,
+	)
+	cmd.Stdin = opts.Stdin
+	cmd.Stdout = opts.Stdout
+	cmd.Stderr = opts.Stderr
+	err := cmd.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ExecResult{}, ctxErr
+	}
+	if err == nil {
+		return ExecResult{ExitCode: cmd.ProcessState.ExitCode()}, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return ExecResult{ExitCode: exitErr.ExitCode()}, nil
+	}
+	return ExecResult{}, err
+}
+
 func writeUserNamespaceMaps(hostUID, hostGID int) error {
 	_ = os.WriteFile("/proc/self/setgroups", []byte("deny\n"), 0o600)
 	if err := os.WriteFile("/proc/self/uid_map", []byte(fmt.Sprintf("0 %d 1\n", hostUID)), 0o600); err != nil {
