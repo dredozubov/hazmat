@@ -13,6 +13,10 @@ func HostCurrentUserEnforcer() CurrentUserEnforcer {
 	return unsupportedCurrentUserEnforcer{}
 }
 
+func HostAgentUserRootEnforcer() CurrentUserEnforcer {
+	return unsupportedCurrentUserEnforcer{}
+}
+
 func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
 	if err := validateAgentUserRootHelperPath(path); err != nil {
 		return nil, err

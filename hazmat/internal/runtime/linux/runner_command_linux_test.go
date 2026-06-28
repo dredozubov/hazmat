@@ -12,6 +12,21 @@ import (
 
 func TestCommandAgentUserRootHelperExecutesHelperProtocol(t *testing.T) {
 	dir := t.TempDir()
+	sudoPath := filepath.Join(dir, "sudo")
+	if err := os.WriteFile(sudoPath, []byte(`#!/bin/sh
+set -eu
+if [ "$1" != "-n" ]; then
+	exit 96
+fi
+shift
+exec "$@"
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldSudo := commandAgentUserSudoPath
+	commandAgentUserSudoPath = sudoPath
+	t.Cleanup(func() { commandAgentUserSudoPath = oldSudo })
+
 	helperPath := filepath.Join(dir, "hazmat-linux-root-helper")
 	script := `#!/bin/sh
 set -eu

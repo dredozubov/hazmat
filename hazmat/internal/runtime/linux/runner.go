@@ -263,6 +263,60 @@ func RunAgentUser(ctx context.Context, spec linuxspec.LaunchSpec, report platfor
 	return writeTerminalResult(opts.Sidecar, RunRecord{Phase: PhaseExited, ExitCode: execResult.ExitCode}, true)
 }
 
+func RunAgentUserRootHelper(ctx context.Context, spec linuxspec.LaunchSpec, report platformlinux.Report, opts RunOptions) (ExecResult, error) {
+	if spec.Phase != linuxspec.PhaseExperimental {
+		return ExecResult{}, fmt.Errorf("linux agent-user helper refuses a %q spec; compile with the executable runtime option", spec.Phase)
+	}
+	if len(spec.CapabilityGaps) > 0 {
+		return ExecResult{}, GapError{Gaps: spec.CapabilityGaps}
+	}
+	if len(spec.Command) == 0 || strings.TrimSpace(spec.Command[0]) == "" {
+		return ExecResult{}, fmt.Errorf("linux agent-user helper requires a command argv")
+	}
+	plan, err := AdmitAgentUser(spec, agentUserHelperAdmissionReport(report))
+	if err != nil {
+		return ExecResult{}, err
+	}
+	enforcer := opts.Enforcer
+	if enforcer == nil {
+		enforcer = HostAgentUserRootEnforcer()
+	}
+	if err := validateRunOptions(opts); err != nil {
+		return ExecResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return ExecResult{}, err
+	}
+	if err := os.MkdirAll(opts.Sidecar.Dir, 0o700); err != nil {
+		return ExecResult{}, err
+	}
+
+	events := []MetadataEvent{{Phase: PhasePlanned}}
+	if err := writeMetadataSidecar(opts.Sidecar.MetadataPath(), events); err != nil {
+		return ExecResult{}, err
+	}
+	events = append(events, MetadataEvent{Phase: PhaseLaunched})
+	if err := writeMetadataSidecar(opts.Sidecar.MetadataPath(), events); err != nil {
+		return ExecResult{}, err
+	}
+	if err := enforceCurrentUser(ctx, enforcer, spec, plan); err != nil {
+		return ExecResult{}, err
+	}
+	events = append(events, MetadataEvent{Phase: PhaseContained, EnforcementComplete: true})
+	if err := writeMetadataSidecar(opts.Sidecar.MetadataPath(), events); err != nil {
+		return ExecResult{}, err
+	}
+	if err := validateRunMetadata(events); err != nil {
+		return ExecResult{}, err
+	}
+	return enforcer.Exec(ctx, spec, opts)
+}
+
+func agentUserHelperAdmissionReport(report platformlinux.Report) platformlinux.Report {
+	report.AgentUserBackend = platformlinux.NativeBackendStatus{CapabilityOK: true}
+	return report
+}
+
 func validateRunOptions(opts RunOptions) error {
 	if strings.TrimSpace(opts.Sidecar.Dir) == "" {
 		return fmt.Errorf("linux runner requires a sidecar directory")
@@ -273,6 +327,9 @@ func validateRunOptions(opts RunOptions) error {
 func validateAgentUserRootHelperPath(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("linux agent-user runner requires a root helper path")
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("linux agent-user runner requires an absolute root helper path")
 	}
 	return nil
 }

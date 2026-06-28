@@ -122,16 +122,20 @@ func (p *launchProfile) Done() {
 
 func main() {
 	profile := newLaunchProfile(os.Args[1:])
+	args := stripLaunchProfileArg(os.Args[1:])
+	if len(args) < 1 {
+		dieUsage()
+	}
+	if args[0] == "run-agent" {
+		runAgentCommand(args[1:], profile)
+		return
+	}
+
 	start := time.Now()
 	if err := closeInheritedFDs(); err != nil {
 		die("hazmat-launch: close inherited fds: %v", err)
 	}
 	profile.Record("close inherited fds", start)
-
-	args := stripLaunchProfileArg(os.Args[1:])
-	if len(args) < 1 {
-		dieUsage()
-	}
 
 	if args[0] == "exec" {
 		if len(args) < 2 {

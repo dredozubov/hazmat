@@ -237,6 +237,16 @@ func TestNewCommandAgentUserRootHelperRejectsEmptyPath(t *testing.T) {
 	}
 }
 
+func TestNewCommandAgentUserRootHelperRejectsRelativePath(t *testing.T) {
+	helper, err := NewCommandAgentUserRootHelper("hazmat-launch")
+	if err == nil || !strings.Contains(err.Error(), "absolute root helper path") {
+		t.Fatalf("err = %v, want absolute helper path error", err)
+	}
+	if helper != nil {
+		t.Fatalf("helper = %#v, want nil", helper)
+	}
+}
+
 func TestRunAgentUserRootHelperMetadataAndRawStreams(t *testing.T) {
 	t.Setenv(EnvExperimentalAgentUser, "1")
 	store := SidecarStore{Dir: t.TempDir()}
@@ -290,6 +300,80 @@ func TestRunAgentUserRootHelperMetadataAndRawStreams(t *testing.T) {
 	record := readRunnerRecord(t, store.ResultPath())
 	if record.Phase != PhaseExited || record.ExitCode != 11 {
 		t.Fatalf("stored record = %+v, want exited code 11", record)
+	}
+}
+
+func TestRunAgentUserRootHelperOrderMetadataAndRawStreams(t *testing.T) {
+	store := SidecarStore{Dir: t.TempDir()}
+	stdout := []byte("root helper stdout\n\x00raw\n")
+	stderr := []byte("root helper stderr\n\x00raw\n")
+	enforcer := &fakeCurrentUserEnforcer{
+		stdout:   stdout,
+		stderr:   stderr,
+		exitCode: 9,
+	}
+	var stdoutBuf, stderrBuf bytes.Buffer
+
+	result, err := RunAgentUserRootHelper(context.Background(), agentUserExecutableSpec(t, sessionmeta.NetworkNone), agentUserReadyReport(), RunOptions{
+		Stdout:   &stdoutBuf,
+		Stderr:   &stderrBuf,
+		Sidecar:  store,
+		Enforcer: enforcer,
+	})
+	if err != nil {
+		t.Fatalf("RunAgentUserRootHelper: %v", err)
+	}
+	if result.ExitCode != 9 {
+		t.Fatalf("exit code = %d, want 9", result.ExitCode)
+	}
+	wantSteps := []Stage{
+		StageFDSClosed,
+		StageNamespaces,
+		StageMounts,
+		StageNetwork,
+		StagePrivileges,
+		StageLandlock,
+		StageSeccomp,
+		StageExec,
+	}
+	if !reflect.DeepEqual(enforcer.steps, wantSteps) {
+		t.Fatalf("steps = %#v, want %#v", enforcer.steps, wantSteps)
+	}
+	wantMetadata := []MetadataEvent{
+		{Phase: PhasePlanned},
+		{Phase: PhaseLaunched},
+		{Phase: PhaseContained, EnforcementComplete: true},
+	}
+	if !reflect.DeepEqual(enforcer.metadataAtExec, wantMetadata) {
+		t.Fatalf("metadata at exec = %#v, want %#v", enforcer.metadataAtExec, wantMetadata)
+	}
+	if !bytes.Equal(stdoutBuf.Bytes(), stdout) {
+		t.Fatalf("stdout = %q, want %q", stdoutBuf.Bytes(), stdout)
+	}
+	if !bytes.Equal(stderrBuf.Bytes(), stderr) {
+		t.Fatalf("stderr = %q, want %q", stderrBuf.Bytes(), stderr)
+	}
+	if _, err := os.Stat(store.ResultPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("result sidecar stat err = %v, want parent to own terminal result", err)
+	}
+}
+
+func TestRunAgentUserRootHelperRejectsCurrentUserSpecBeforeSideEffects(t *testing.T) {
+	store := SidecarStore{Dir: filepath.Join(t.TempDir(), "sidecar")}
+	enforcer := &fakeCurrentUserEnforcer{}
+
+	_, err := RunAgentUserRootHelper(context.Background(), currentUserExecutableSpec(t, sessionmeta.NetworkNone), agentUserReadyReport(), RunOptions{
+		Sidecar:  store,
+		Enforcer: enforcer,
+	})
+	if err == nil || !strings.Contains(err.Error(), `identity "agent-user"`) {
+		t.Fatalf("err = %v, want explicit agent-user refusal", err)
+	}
+	if len(enforcer.steps) != 0 {
+		t.Fatalf("steps = %#v, want no side effects", enforcer.steps)
+	}
+	if _, statErr := os.Stat(store.Dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("sidecar dir stat err = %v, want no side effects", statErr)
 	}
 }
 

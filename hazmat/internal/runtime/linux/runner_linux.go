@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,7 +24,13 @@ func HostCurrentUserEnforcer() CurrentUserEnforcer {
 	return hostCurrentUserEnforcer{}
 }
 
+func HostAgentUserRootEnforcer() CurrentUserEnforcer {
+	return hostAgentUserRootEnforcer{}
+}
+
 type hostCurrentUserEnforcer struct{}
+
+type hostAgentUserRootEnforcer struct{}
 
 func (hostCurrentUserEnforcer) CloseInheritedFDs(_ context.Context, plan FDClosurePlan) error {
 	preserve := make(map[int]bool, len(plan.Preserve))
@@ -166,6 +173,75 @@ func (hostCurrentUserEnforcer) Exec(ctx context.Context, spec linuxspec.LaunchSp
 	return ExecResult{}, err
 }
 
+func (hostAgentUserRootEnforcer) CloseInheritedFDs(ctx context.Context, plan FDClosurePlan) error {
+	return hostCurrentUserEnforcer{}.CloseInheritedFDs(ctx, plan)
+}
+
+func (hostAgentUserRootEnforcer) CreateNamespaces(_ context.Context, plan NamespacePlan) error {
+	if plan.User {
+		return fmt.Errorf("linux agent-user root helper refuses rootless user namespace")
+	}
+	if !plan.Mount {
+		return fmt.Errorf("linux agent-user root helper requires mount namespace")
+	}
+	flags := unix.CLONE_NEWNS
+	if plan.Network {
+		flags |= unix.CLONE_NEWNET
+	}
+	if err := unix.Unshare(flags); err != nil {
+		return fmt.Errorf("unshare mount/network namespaces: %w", err)
+	}
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("mark mount namespace private: %w", err)
+	}
+	return nil
+}
+
+func (hostAgentUserRootEnforcer) ApplyMounts(ctx context.Context, spec linuxspec.LaunchSpec) error {
+	return hostCurrentUserEnforcer{}.ApplyMounts(ctx, spec)
+}
+
+func (hostAgentUserRootEnforcer) ConfigureNetwork(ctx context.Context, network NetworkAdmission) error {
+	return hostCurrentUserEnforcer{}.ConfigureNetwork(ctx, network)
+}
+
+func (hostAgentUserRootEnforcer) DropPrivileges(_ context.Context, process linuxspec.ProcessSpec) error {
+	if !process.NoNewPrivs || !process.DropCapabilities {
+		return fmt.Errorf("linux agent-user process policy requires no_new_privs and capability drop")
+	}
+	identity, err := lookupLinuxAgentIdentity()
+	if err != nil {
+		return err
+	}
+	if len(identity.Groups) > 0 {
+		if err := unix.Setgroups(identity.Groups); err != nil {
+			return fmt.Errorf("set Linux agent supplementary groups: %w", err)
+		}
+	}
+	if err := unix.Setresgid(identity.GID, identity.GID, identity.GID); err != nil {
+		return fmt.Errorf("drop to Linux agent gid: %w", err)
+	}
+	if err := unix.Setresuid(identity.UID, identity.UID, identity.UID); err != nil {
+		return fmt.Errorf("drop to Linux agent uid: %w", err)
+	}
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		return fmt.Errorf("set no_new_privs: %w", err)
+	}
+	return nil
+}
+
+func (hostAgentUserRootEnforcer) ApplyLandlock(ctx context.Context, plan PolicyPlan) error {
+	return hostCurrentUserEnforcer{}.ApplyLandlock(ctx, plan)
+}
+
+func (hostAgentUserRootEnforcer) ApplySeccomp(ctx context.Context, plan PolicyPlan) error {
+	return hostCurrentUserEnforcer{}.ApplySeccomp(ctx, plan)
+}
+
+func (hostAgentUserRootEnforcer) Exec(ctx context.Context, spec linuxspec.LaunchSpec, opts RunOptions) (ExecResult, error) {
+	return hostCurrentUserEnforcer{}.Exec(ctx, spec, opts)
+}
+
 func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
 	if err := validateAgentUserRootHelperPath(path); err != nil {
 		return nil, err
@@ -173,12 +249,16 @@ func NewCommandAgentUserRootHelper(path string) (AgentUserRootHelper, error) {
 	return commandAgentUserRootHelper{Path: path}, nil
 }
 
+var commandAgentUserSudoPath = "sudo"
+
 type commandAgentUserRootHelper struct {
 	Path string
 }
 
 func (h commandAgentUserRootHelper) Execute(ctx context.Context, request AgentUserHelperRequest, opts RunOptions) (ExecResult, error) {
-	cmd := exec.CommandContext(ctx, h.Path,
+	cmd := exec.CommandContext(ctx, commandAgentUserSudoPath,
+		"-n",
+		h.Path,
 		"run-agent",
 		"--spec", request.SpecPath,
 		"--spec-sha256", request.SpecSHA256,
@@ -200,6 +280,38 @@ func (h commandAgentUserRootHelper) Execute(ctx context.Context, request AgentUs
 		return ExecResult{ExitCode: exitErr.ExitCode()}, nil
 	}
 	return ExecResult{}, err
+}
+
+type linuxAgentIdentity struct {
+	UID    int
+	GID    int
+	Groups []int
+}
+
+func lookupLinuxAgentIdentity() (linuxAgentIdentity, error) {
+	u, err := user.Lookup("agent")
+	if err != nil {
+		return linuxAgentIdentity{}, fmt.Errorf("lookup Linux agent user: %w", err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil || uid == 0 {
+		return linuxAgentIdentity{}, fmt.Errorf("Linux agent user has invalid uid %q", u.Uid)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil || gid == 0 {
+		return linuxAgentIdentity{}, fmt.Errorf("Linux agent user has invalid gid %q", u.Gid)
+	}
+	groups := []int{gid}
+	if g, err := user.LookupGroup("dev"); err == nil {
+		devGID, parseErr := strconv.Atoi(g.Gid)
+		if parseErr != nil || devGID == 0 {
+			return linuxAgentIdentity{}, fmt.Errorf("Linux shared group has invalid gid %q", g.Gid)
+		}
+		if devGID != gid {
+			groups = append(groups, devGID)
+		}
+	}
+	return linuxAgentIdentity{UID: uid, GID: gid, Groups: groups}, nil
 }
 
 func writeUserNamespaceMaps(hostUID, hostGID int) error {
