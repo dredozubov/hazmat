@@ -5,6 +5,7 @@ package runtimeprovider
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,6 +89,142 @@ func KnownDescriptors() []Descriptor {
 		{Kind: KindLinuxAgentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusSetupRequired, IdentityBoundary: IdentityLinuxAgentUser},
 		{Kind: KindRemoteEnvelope, Backend: sessionbackend.KindRemoteEnvelope, Status: StatusPlanOnly, IdentityBoundary: IdentityRemoteWorker},
 		{Kind: KindUnsupportedNative, Backend: sessionbackend.KindUnsupportedNative, Status: StatusUnsupported, IdentityBoundary: IdentityNone},
+	}
+}
+
+type HelperStrategy string
+
+const (
+	HelperNone           HelperStrategy = "none"
+	HelperRoot           HelperStrategy = "root-helper"
+	HelperRootlessUserNS HelperStrategy = "rootless-userns"
+)
+
+type ContainmentLevel string
+
+const (
+	ContainmentContractSandbox ContainmentLevel = "contract-sandbox"
+	ContainmentSameUIDProcess  ContainmentLevel = "same-uid-process"
+)
+
+type NetworkAuthority string
+
+const (
+	NetworkDefaultEnforced NetworkAuthority = "default-enforced"
+	NetworkNoneEnforced    NetworkAuthority = "none-enforced"
+	NetworkAdvisory        NetworkAuthority = "advisory"
+)
+
+type CredentialAuthority string
+
+const (
+	CredentialNone           CredentialAuthority = "none"
+	CredentialBroker         CredentialAuthority = "broker"
+	CredentialEnvPassthrough CredentialAuthority = "env-passthrough"
+)
+
+type DockerAuthority string
+
+const (
+	DockerNone          DockerAuthority = "none"
+	DockerPrivateDaemon DockerAuthority = "private-daemon"
+	DockerHostSocket    DockerAuthority = "host-socket"
+)
+
+type Requirements struct {
+	IdentityBoundary IdentityBoundary
+	HelperStrategy   HelperStrategy
+	Containment      ContainmentLevel
+	Network          NetworkAuthority
+	Credentials      CredentialAuthority
+	Docker           DockerAuthority
+}
+
+type Capabilities struct {
+	IdentityBoundary IdentityBoundary
+	HelperStrategy   HelperStrategy
+	Containment      ContainmentLevel
+	Network          NetworkAuthority
+	Credentials      CredentialAuthority
+	Docker           DockerAuthority
+}
+
+type GapCode string
+
+const (
+	GapIdentityBoundaryDowngrade GapCode = "identity-boundary-downgrade"
+	GapHelperStrategyDowngrade   GapCode = "helper-strategy-downgrade"
+	GapContainmentDowngrade      GapCode = "containment-downgrade"
+	GapNetworkDowngrade          GapCode = "network-downgrade"
+	GapCredentialDowngrade       GapCode = "credential-downgrade"
+	GapDockerAuthorityDowngrade  GapCode = "docker-authority-downgrade"
+)
+
+type CapabilityGap struct {
+	Code      GapCode
+	Field     string
+	Required  string
+	Available string
+	Message   string
+}
+
+type DowngradeError struct {
+	Gaps []CapabilityGap
+}
+
+func (e DowngradeError) Error() string {
+	if len(e.Gaps) == 0 {
+		return "runtime provider capability downgrade"
+	}
+	codes := make([]string, 0, len(e.Gaps))
+	for _, gap := range e.Gaps {
+		codes = append(codes, string(gap.Code))
+	}
+	sort.Strings(codes)
+	return "runtime provider capability downgrade: " + strings.Join(codes, ", ")
+}
+
+func RequireCapabilities(required Requirements, available Capabilities) error {
+	gaps := CapabilityGaps(required, available)
+	if len(gaps) == 0 {
+		return nil
+	}
+	return DowngradeError{Gaps: gaps}
+}
+
+func CapabilityGaps(required Requirements, available Capabilities) []CapabilityGap {
+	var gaps []CapabilityGap
+	if required.IdentityBoundary != "" && required.IdentityBoundary != available.IdentityBoundary {
+		gaps = append(gaps, capabilityGap(GapIdentityBoundaryDowngrade, "identity_boundary", string(required.IdentityBoundary), string(available.IdentityBoundary)))
+	}
+	if required.HelperStrategy != "" && required.HelperStrategy != available.HelperStrategy {
+		gaps = append(gaps, capabilityGap(GapHelperStrategyDowngrade, "helper_strategy", string(required.HelperStrategy), string(available.HelperStrategy)))
+	}
+	if required.Containment != "" && required.Containment != available.Containment {
+		gaps = append(gaps, capabilityGap(GapContainmentDowngrade, "containment", string(required.Containment), string(available.Containment)))
+	}
+	if required.Network != "" && required.Network != available.Network {
+		gaps = append(gaps, capabilityGap(GapNetworkDowngrade, "network", string(required.Network), string(available.Network)))
+	}
+	if required.Credentials != "" && required.Credentials != available.Credentials {
+		gaps = append(gaps, capabilityGap(GapCredentialDowngrade, "credentials", string(required.Credentials), string(available.Credentials)))
+	}
+	if required.Docker != "" && required.Docker != available.Docker {
+		gaps = append(gaps, capabilityGap(GapDockerAuthorityDowngrade, "docker", string(required.Docker), string(available.Docker)))
+	}
+	return gaps
+}
+
+func capabilityGap(code GapCode, field, required, available string) CapabilityGap {
+	if available == "" {
+		available = "unspecified"
+	}
+	return CapabilityGap{
+		Code:      code,
+		Field:     field,
+		Required:  required,
+		Available: available,
+		Message:   fmt.Sprintf("%s requires %s but provider offers %s", field, required, available),
 	}
 }
 

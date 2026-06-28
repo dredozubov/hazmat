@@ -2,6 +2,7 @@ package runtimeprovider
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,6 +118,124 @@ func TestFakeProviderLifecycle(t *testing.T) {
 	}
 }
 
+func TestFakeProviderRefusesDowngradesBeforeLaunch(t *testing.T) {
+	prepared := testPreparedLaunch(t)
+	cases := []struct {
+		name      string
+		required  Requirements
+		available Capabilities
+		wantCode  GapCode
+	}{
+		{
+			name: "agent user to current user",
+			required: Requirements{
+				IdentityBoundary: IdentityLinuxAgentUser,
+			},
+			available: Capabilities{
+				IdentityBoundary: IdentityCurrentUser,
+			},
+			wantCode: GapIdentityBoundaryDowngrade,
+		},
+		{
+			name: "root helper to rootless user namespace",
+			required: Requirements{
+				HelperStrategy: HelperRoot,
+			},
+			available: Capabilities{
+				HelperStrategy: HelperRootlessUserNS,
+			},
+			wantCode: GapHelperStrategyDowngrade,
+		},
+		{
+			name: "current user sandbox to ordinary same uid",
+			required: Requirements{
+				IdentityBoundary: IdentityCurrentUser,
+				Containment:      ContainmentContractSandbox,
+			},
+			available: Capabilities{
+				IdentityBoundary: IdentityCurrentUser,
+				Containment:      ContainmentSameUIDProcess,
+			},
+			wantCode: GapContainmentDowngrade,
+		},
+		{
+			name: "network none to advisory",
+			required: Requirements{
+				Network: NetworkNoneEnforced,
+			},
+			available: Capabilities{
+				Network: NetworkAdvisory,
+			},
+			wantCode: GapNetworkDowngrade,
+		},
+		{
+			name: "credential broker to env passthrough",
+			required: Requirements{
+				Credentials: CredentialBroker,
+			},
+			available: Capabilities{
+				Credentials: CredentialEnvPassthrough,
+			},
+			wantCode: GapCredentialDowngrade,
+		},
+		{
+			name: "private docker daemon to host socket",
+			required: Requirements{
+				Docker: DockerPrivateDaemon,
+			},
+			available: Capabilities{
+				Docker: DockerHostSocket,
+			},
+			wantCode: GapDockerAuthorityDowngrade,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := downgradeRefusingProvider{
+				fakeProvider: fakeProvider{descriptor: mustDescriptor(t, KindLinuxCurrentUser)},
+				available:    tc.available,
+			}
+			admission, err := provider.AdmitWithRequirements(context.Background(), prepared, tc.required)
+			if err == nil {
+				if _, launchErr := provider.Launch(context.Background(), admission); launchErr != nil {
+					t.Fatalf("Launch after unexpected admission: %v", launchErr)
+				}
+			}
+			if provider.launched {
+				t.Fatal("provider reached Launch after downgrade admission")
+			}
+			var downgrade DowngradeError
+			if !errors.As(err, &downgrade) {
+				t.Fatalf("err = %v, want DowngradeError", err)
+			}
+			if len(downgrade.Gaps) != 1 || downgrade.Gaps[0].Code != tc.wantCode {
+				t.Fatalf("gaps = %+v, want %s", downgrade.Gaps, tc.wantCode)
+			}
+			if downgrade.Gaps[0].Message == "" || downgrade.Gaps[0].Required == "" || downgrade.Gaps[0].Available == "" {
+				t.Fatalf("gap is not structured enough: %+v", downgrade.Gaps[0])
+			}
+		})
+	}
+}
+
+func TestRequireCapabilitiesTreatsMissingProviderCapabilityAsGap(t *testing.T) {
+	err := RequireCapabilities(
+		Requirements{Network: NetworkNoneEnforced},
+		Capabilities{},
+	)
+	var downgrade DowngradeError
+	if !errors.As(err, &downgrade) {
+		t.Fatalf("err = %v, want DowngradeError", err)
+	}
+	if len(downgrade.Gaps) != 1 {
+		t.Fatalf("gaps = %+v, want one gap", downgrade.Gaps)
+	}
+	gap := downgrade.Gaps[0]
+	if gap.Code != GapNetworkDowngrade || gap.Available != "unspecified" {
+		t.Fatalf("gap = %+v, want network downgrade with unspecified availability", gap)
+	}
+}
+
 func testContract(t *testing.T) containment.Contract {
 	t.Helper()
 	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/agent/.ssh"}})
@@ -213,4 +332,22 @@ func (fakeProvider) Monitor(context.Context, LaunchHandle) (Result, error) {
 
 func (fakeProvider) Cleanup(_ context.Context, plan CleanupPlan) (CleanupResult, error) {
 	return NewCleanupResult(plan.Obligations(), nil), nil
+}
+
+type downgradeRefusingProvider struct {
+	fakeProvider
+	available Capabilities
+	launched  bool
+}
+
+func (p *downgradeRefusingProvider) AdmitWithRequirements(ctx context.Context, launch sessionbackend.PreparedLaunch, required Requirements) (Admission, error) {
+	if err := RequireCapabilities(required, p.available); err != nil {
+		return Admission{}, err
+	}
+	return p.fakeProvider.Admit(ctx, launch)
+}
+
+func (p *downgradeRefusingProvider) Launch(ctx context.Context, admission Admission) (LaunchHandle, error) {
+	p.launched = true
+	return p.fakeProvider.Launch(ctx, admission)
 }
