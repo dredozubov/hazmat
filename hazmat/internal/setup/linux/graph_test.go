@@ -111,6 +111,65 @@ func TestRunSetupStepsRequiresConfiguredCallbacks(t *testing.T) {
 	}
 }
 
+func TestRepairSpecsFollowSetupOrder(t *testing.T) {
+	steps := SetupRepairSteps(Callbacks{})
+	got := make([]setup.Resource, 0, len(steps))
+	for _, step := range steps {
+		got = append(got, step.Spec.Resource)
+		if step.Spec.Resource != step.Step.Resource {
+			t.Fatalf("repair step %s spec resource = %s, step resource = %s", step.Step.Name, step.Spec.Resource, step.Step.Resource)
+		}
+	}
+	want := resources(SetupSteps(Callbacks{}))
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repair resources = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunRepairActionDispatchesOnlySelectedResource(t *testing.T) {
+	var ran []setup.Resource
+	err := RunRepairAction("repair.linux-setup.cgroup-root", callbacksThatRecord(&ran))
+	if err != nil {
+		t.Fatalf("RunRepairAction: %v", err)
+	}
+	want := []setup.Resource{setup.ResourceLinuxCgroupRoot}
+	if !reflect.DeepEqual(ran, want) {
+		t.Fatalf("ran resources = %#v, want %#v", ran, want)
+	}
+}
+
+func TestVerifyRepairActionDispatchesByVerificationID(t *testing.T) {
+	var ran []setup.Resource
+	err := VerifyRepairAction("verify.linux-setup.sudoers", callbacksThatRecord(&ran))
+	if err != nil {
+		t.Fatalf("VerifyRepairAction: %v", err)
+	}
+	want := []setup.Resource{setup.ResourceLinuxSudoers}
+	if !reflect.DeepEqual(ran, want) {
+		t.Fatalf("ran resources = %#v, want %#v", ran, want)
+	}
+}
+
+func TestRepairActionsRequireConfiguredCallbacks(t *testing.T) {
+	err := RunRepairAction("repair.linux-setup.agent-user", Callbacks{})
+	if err == nil || !strings.Contains(err.Error(), "linuxSetupAgentUser") {
+		t.Fatalf("RunRepairAction error = %v, want missing agent-user callback", err)
+	}
+	err = VerifyRepairAction("verify.linux-setup.agent-user", Callbacks{})
+	if err == nil || !strings.Contains(err.Error(), "linuxVerifyAgentUser") {
+		t.Fatalf("VerifyRepairAction error = %v, want missing agent-user verifier", err)
+	}
+}
+
+func TestUnknownRepairActionFailsClosed(t *testing.T) {
+	if err := RunRepairAction("repair.linux-setup.unknown", callbacksThatRecord(new([]setup.Resource))); err == nil {
+		t.Fatal("RunRepairAction unknown = nil error, want fail closed")
+	}
+	if _, ok := RepairSpecForVerification("verify.linux-setup.unknown"); ok {
+		t.Fatal("RepairSpecForVerification unknown = ok, want false")
+	}
+}
+
 func callbacksThatRecord(ran *[]setup.Resource) Callbacks {
 	callback := func(resource setup.Resource) Callback {
 		return func() error {
