@@ -138,6 +138,17 @@ The harness records passes and typed gaps, but it does not promote support by
 itself. The matrix still requires Ubuntu, Debian, Fedora, and Arch transcripts
 at the target commit before `linux-current-user` can move beyond experimental.
 
+GitHub-hosted Ubuntu evidence can be collected on demand or on release tags via
+the Linux evidence workflow:
+
+```bash
+gh workflow run linux-evidence.yml -f lane=current-user -f run_live=true
+```
+
+That workflow uploads `linux-current-user-ubuntu-evidence`. It can satisfy the
+Ubuntu current-user row when the transcript passes at the target commit, but it
+does not replace Debian, Fedora, or Arch VM evidence.
+
 ## Pass Criteria
 
 The Linux current-user VM smoke matrix passes only when all of the following

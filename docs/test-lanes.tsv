@@ -16,6 +16,8 @@
 .github/workflows/ci.yml#job:test-entrypoint-guards	cli-ux	source-safety
 .github/workflows/ci.yml#job:tla-model-check	tla-model-check	-
 .github/workflows/ci.yml#job:tla-proof-hygiene	tla-proof-hygiene	-
+.github/workflows/linux-evidence.yml#job:agent-user-scaffold-ubuntu	os-linux	live-approved
+.github/workflows/linux-evidence.yml#job:current-user-ubuntu	os-linux	live-approved
 scripts/check-cache-integration-smoke.sh	live-approved	product-workflows
 scripts/check-claude-onboarding-smoke.sh	live-approved	product-workflows
 scripts/check-claude-workflow-export-smoke.sh	live-approved	product-workflows

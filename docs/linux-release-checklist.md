@@ -26,6 +26,7 @@ Minimum release evidence before promotion beyond `plan-only`:
 | Runner/result contract | Experimental launch specs carry command argv; runner tests prove gate refusal, gap refusal before side effects, metadata-before-exec, raw stream preservation, and cancellation cleanup through an injected enforcer. | `sandboxing-xuar.3.6` |
 | Kernel enforcer | Linux implementation creates rootless user/mount/network namespaces, applies mounts, sets no-new-privs, applies Landlock and seccomp, then execs the harness. | `sandboxing-xuar.3.6` |
 | Distro/capability fixtures | Ubuntu, Debian, Fedora, Arch, unknown distro parser/gap fixtures are present. | `sandboxing-xuar.3.5` |
+| GitHub-hosted Ubuntu evidence | `.github/workflows/linux-evidence.yml` uploads the Ubuntu current-user transcript on demand and on release tags. | `sandboxing-ebm7` |
 | VM smoke matrix | U1, D1, F1, A1 transcripts satisfy S1-S7 in the current-user matrix. | `sandboxing-xuar.3.5` |
 | Docs/status | Runtime provider docs keep `linux-current-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 
@@ -46,6 +47,7 @@ Minimum release evidence before promotion beyond `setup-required`:
 | Diagnostics/gaps | Read-only Linux reports emit `linux.setup-required`, helper, cgroup, distro, runtime, and helper-strategy gaps. | `sandboxing-xuar.4.3` |
 | Root-helper admission | Unit tests prove `agent-user` + `root-helper`, setup gap refusal, metadata order, and no current-user fallback. | `sandboxing-xuar.4.4` |
 | Setup implementation | `internal/setup/linux` implements modeled resources; diagnostics apply/verify setup resources; `hazmat rollback` dispatches modeled Linux rollback callbacks. | `sandboxing-xuar.4.6`, `sandboxing-xuar.4.8`, `sandboxing-r8fx` |
+| GitHub-hosted Ubuntu scaffold | `.github/workflows/linux-evidence.yml` uploads an agent-user Ubuntu scaffold transcript for host facts and pending lifecycle rows. | `sandboxing-ebm7` |
 | VM lifecycle matrix | U1, D1, F1, A1 transcripts satisfy A1-A11 in the agent-user matrix. | `sandboxing-xuar.4.5` |
 | Docs/status | Runtime provider docs keep `linux-agent-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 

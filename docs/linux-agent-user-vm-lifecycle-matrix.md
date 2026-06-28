@@ -158,6 +158,17 @@ rollback, or destructive rollback, so A1, A2, A3, A9, and A10 still require
 separate lifecycle transcripts before the lane can move beyond
 `setup-required`.
 
+The Linux evidence workflow can collect a GitHub-hosted Ubuntu scaffold on
+demand or on release tags:
+
+```bash
+gh workflow run linux-evidence.yml -f lane=agent-user-scaffold -f run_live=false
+```
+
+That artifact is useful for host facts and transcript shape only. It is not
+agent-user lifecycle evidence until setup, doctor repair, root-helper launch,
+default rollback, and destructive rollback run inside a disposable Linux VM.
+
 ## Pass Criteria
 
 The Linux agent-user VM lifecycle matrix passes only when all of the following
