@@ -142,6 +142,21 @@ rollback, disposable VM lanes, and `hazmat check --full` are approval-gated in
 this repository. Agents must ask for exact-command approval before running
 them.
 
+## Guarded Prepared-Host Harness
+
+Inside a disposable Linux VM where agent-user setup resources already exist,
+this approval-gated command runs prepared-host root-helper launch rows for A4,
+A5, A6, A7, A8, and A11:
+
+```bash
+scripts/check-linux-agent-user-live-smoke.sh --run --i-understand-this-runs-linux-agent-user-live-smoke
+```
+
+This is runtime evidence only. It does not run setup, doctor repair, default
+rollback, or destructive rollback, so A1, A2, A3, A9, and A10 still require
+separate lifecycle transcripts before the lane can move beyond
+`setup-required`.
+
 ## Pass Criteria
 
 The Linux agent-user VM lifecycle matrix passes only when all of the following

@@ -95,7 +95,8 @@ a disposable Linux VM after exact-command approval.
 The agent-user lane has its own
 [Linux agent-user VM lifecycle matrix](linux-agent-user-vm-lifecycle-matrix.md);
 until completed transcripts satisfy that matrix, Linux agent-user launch stays
-setup-required.
+setup-required. Use `scripts/check-linux-agent-user-live-smoke.sh` only inside
+a disposable prepared Linux VM after exact-command approval.
 
 ## Recommended Local Workflows
 

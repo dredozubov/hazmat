@@ -28,6 +28,7 @@ scripts/check-fast.sh	source-safety	package-contracts,cli-ux
 scripts/check-gitleaks.sh	source-safety	-
 scripts/check-hostexec.sh	product-workflows	cli-ux
 scripts/check-import-boundaries.sh	package-boundaries	-
+scripts/check-linux-agent-user-live-smoke.sh	os-linux	live-approved
 scripts/check-linux-apple-container-smoke.sh	os-linux	live-approved
 scripts/check-linux-compile.sh	os-linux	-
 scripts/check-linux-current-user-live-smoke.sh	os-linux	live-approved
