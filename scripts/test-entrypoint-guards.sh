@@ -600,6 +600,11 @@ assert_succeeds_with \
     bash "$REPO_ROOT/scripts/linux-apple-container-dev.sh"
 
 assert_succeeds_with \
+    "Linux VM matrix transcript defaults to disclosure" \
+    "linux-vm-matrix-transcript: disclosure-only" \
+    sh "$REPO_ROOT/scripts/check-linux-vm-matrix-transcript.sh"
+
+assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
     "spike-apple-container: disclosure-only" \
     bash "$REPO_ROOT/scripts/spike-apple-container.sh"
@@ -816,9 +821,19 @@ assert_bash_help_contains_all \
     "--skip-if-missing-prereqs" \
     "container system status" \
     "writable copy of the repository" \
-    "Agents must ask for explicit approval before running" \
+    "Agents must" \
+    "ask for explicit approval before running --check-prereqs, --skip-if-missing-prereqs," \
     "--check-prereqs, --skip-if-missing-prereqs," \
     "--shell, or --run"
+
+assert_help_contains_all \
+    "Linux VM matrix transcript documents non-live scope" \
+    "$REPO_ROOT/scripts/check-linux-vm-matrix-transcript.sh" \
+    "--mode current-user|agent-user" \
+    "--skip-preflight" \
+    "--output FILE" \
+    "It does not" \
+    "hazmat init, hazmat doctor --fix, rollback, sudo, or helper-backed launch"
 
 assert_help_contains_all \
     "privileged install ownership check documents sudo-adjacent prereqs" \
@@ -837,9 +852,19 @@ assert_succeeds_with \
 
 assert_succeeds_with \
     "Linux Apple Container smoke skips packages without tests" \
-    "linux-apple-container-smoke: skip hazmat/internal/runtime/linux; no compiled test binary" \
-    env HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES=./internal/runtime/linux \
+    "linux-apple-container-smoke: skip hazmat/cmd/hazmat; no compiled test binary" \
+    env HAZMAT_LINUX_APPLE_CONTAINER_PACKAGES=./cmd/hazmat \
     bash "$REPO_ROOT/scripts/check-linux-apple-container-smoke.sh" --compile-tests
+
+assert_succeeds_with \
+    "Linux VM current-user transcript keeps experimental claim" \
+    "Support claim: experimental" \
+    sh "$REPO_ROOT/scripts/check-linux-vm-matrix-transcript.sh" --mode current-user --run --skip-preflight
+
+assert_succeeds_with \
+    "Linux VM agent-user transcript keeps setup-required claim" \
+    "Support claim: setup-required" \
+    sh "$REPO_ROOT/scripts/check-linux-vm-matrix-transcript.sh" --mode agent-user --run --skip-preflight
 
 assert_file_contains_all \
     "Linux Apple Container go-test uses writable container workspace" \

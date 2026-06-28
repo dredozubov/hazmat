@@ -111,9 +111,14 @@ These commands are useful preconditions, but they are not VM smoke evidence:
 ```bash
 go test ./platform/linux ./containment/linux ./internal/runtime/linux
 scripts/check-linux-compile.sh
+scripts/check-linux-vm-matrix-transcript.sh --mode current-user --run --skip-preflight
 scripts/check-linux-apple-container-smoke.sh --check-packages
 scripts/check-linux-apple-container-smoke.sh --compile-tests
 ```
+
+The `check-linux-vm-matrix-transcript.sh` command emits the required transcript
+shape, host facts, capability facts, and explicit pending S1-S7 rows. It is
+scaffolding for VM operators, not proof that those scenarios passed.
 
 The Apple Container live modes, disposable VM lanes, `hazmat check --full`, and
 real helper-backed launches are approval-gated in this repository. Agents must

@@ -31,6 +31,7 @@ scripts/check-import-boundaries.sh	package-boundaries	-
 scripts/check-linux-apple-container-smoke.sh	os-linux	live-approved
 scripts/check-linux-compile.sh	os-linux	-
 scripts/check-linux-trace-smoke.sh	live-approved	os-linux
+scripts/check-linux-vm-matrix-transcript.sh	os-linux	-
 scripts/linux-apple-container-dev.sh	os-linux	live-approved
 scripts/check-macos-trace-smoke.sh	live-approved	os-macos
 scripts/check-openhands-recipe-smoke.sh	live-approved	product-workflows

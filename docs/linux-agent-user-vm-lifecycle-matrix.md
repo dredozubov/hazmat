@@ -124,7 +124,13 @@ These commands are useful preconditions, but they are not VM lifecycle evidence:
 go test ./platform/linux ./containment/linux ./internal/runtime/linux
 scripts/check-import-boundaries.sh
 scripts/check-linux-compile.sh
+scripts/check-linux-vm-matrix-transcript.sh --mode agent-user --run --skip-preflight
 ```
+
+The `check-linux-vm-matrix-transcript.sh` command emits the required transcript
+shape, host facts, capability facts, passive setup-resource facts, and explicit
+pending A1-A11 rows. It is scaffolding for VM operators, not proof that setup,
+helper-backed launch, rollback, or destructive rollback passed.
 
 The current non-live evidence covers model-first setup ordering, diagnostics,
 root-helper admission planning, structured gaps, fake-helper metadata handling,
