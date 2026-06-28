@@ -478,6 +478,11 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/linux-apple-container-dev.sh" --run -- go test ./platform/linux
 
 assert_fails_with \
+    "Linux current-user live smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-linux-current-user-live-smoke" \
+    sh "$REPO_ROOT/scripts/check-linux-current-user-live-smoke.sh" --run
+
+assert_fails_with \
     "privileged install ownership check requires live ack" \
     "refusing live run without --i-understand-this-checks-privileged-install-ownership" \
     bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
@@ -603,6 +608,11 @@ assert_succeeds_with \
     "Linux VM matrix transcript defaults to disclosure" \
     "linux-vm-matrix-transcript: disclosure-only" \
     sh "$REPO_ROOT/scripts/check-linux-vm-matrix-transcript.sh"
+
+assert_succeeds_with \
+    "Linux current-user live smoke defaults to disclosure" \
+    "linux-current-user-live-smoke: disclosure-only" \
+    sh "$REPO_ROOT/scripts/check-linux-current-user-live-smoke.sh"
 
 assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
@@ -834,6 +844,14 @@ assert_help_contains_all \
     "--output FILE" \
     "It does not" \
     "hazmat init, hazmat doctor --fix, rollback, sudo, or helper-backed launch"
+
+assert_help_contains_all \
+    "Linux current-user live smoke documents live scope" \
+    "$REPO_ROOT/scripts/check-linux-current-user-live-smoke.sh" \
+    "--i-understand-this-runs-linux-current-user-live-smoke" \
+    "disposable Linux VM" \
+    "namespaces, mounts, Landlock, seccomp" \
+    "It does not run sudo"
 
 assert_help_contains_all \
     "privileged install ownership check documents sudo-adjacent prereqs" \

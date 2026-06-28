@@ -124,6 +124,20 @@ The Apple Container live modes, disposable VM lanes, `hazmat check --full`, and
 real helper-backed launches are approval-gated in this repository. Agents must
 ask for exact-command approval before running them.
 
+## Guarded Live Harness
+
+Inside a disposable Linux VM, this approval-gated command runs S1-S7 through
+fresh child test processes so namespace, mount, Landlock, and seccomp mutations
+do not leak back into the test parent:
+
+```bash
+scripts/check-linux-current-user-live-smoke.sh --run --i-understand-this-runs-linux-current-user-live-smoke
+```
+
+The harness records passes and typed gaps, but it does not promote support by
+itself. The matrix still requires Ubuntu, Debian, Fedora, and Arch transcripts
+at the target commit before `linux-current-user` can move beyond experimental.
+
 ## Pass Criteria
 
 The Linux current-user VM smoke matrix passes only when all of the following

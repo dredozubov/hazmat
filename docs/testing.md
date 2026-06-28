@@ -90,7 +90,8 @@ parity claims.
 The current-user lane also requires the
 [Linux current-user VM smoke matrix](linux-current-user-vm-smoke-matrix.md);
 until completed transcripts satisfy that matrix, Linux current-user launch stays
-experimental.
+experimental. Use `scripts/check-linux-current-user-live-smoke.sh` only inside
+a disposable Linux VM after exact-command approval.
 The agent-user lane has its own
 [Linux agent-user VM lifecycle matrix](linux-agent-user-vm-lifecycle-matrix.md);
 until completed transcripts satisfy that matrix, Linux agent-user launch stays
