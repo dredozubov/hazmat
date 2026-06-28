@@ -19,4 +19,16 @@ const (
 	ResourceMaintenanceSudoers Resource = "maintenanceSudoers"
 	ResourceClaudeCode         Resource = "claudeCode"
 	ResourceCredentials        Resource = "credentials"
+
+	ResourceLinuxDistroProfile   Resource = "linuxDistroProfile"
+	ResourceLinuxAgentUser       Resource = "linuxAgentUser"
+	ResourceLinuxSharedGroup     Resource = "linuxSharedGroup"
+	ResourceLinuxAgentHome       Resource = "linuxAgentHome"
+	ResourceLinuxWorkspaceAccess Resource = "linuxWorkspaceAccess"
+	ResourceLinuxToolHome        Resource = "linuxToolHome"
+	ResourceLinuxFirewallPolicy  Resource = "linuxFirewallPolicy"
+	ResourceLinuxResolverPolicy  Resource = "linuxResolverPolicy"
+	ResourceLinuxCgroupRoot      Resource = "linuxCgroupRoot"
+	ResourceLinuxLaunchHelper    Resource = "linuxLaunchHelper"
+	ResourceLinuxSudoers         Resource = "linuxSudoers"
 )
