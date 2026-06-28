@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"hazmat/runtimeprovider"
 )
 
 // FeatureState describes whether a Linux primitive is usable by a future
@@ -62,10 +64,12 @@ type FeatureSet struct {
 
 // NativeBackendStatus explains why Linux native launch remains plan-only.
 type NativeBackendStatus struct {
-	Supported    bool     `json:"supported"`
-	Phase        string   `json:"phase"`
-	Reasons      []string `json:"reasons,omitempty"`
-	CapabilityOK bool     `json:"capability_ok"`
+	Supported      bool                                  `json:"supported"`
+	Phase          string                                `json:"phase"`
+	Provider       *runtimeprovider.ProviderStatusRecord `json:"provider,omitempty"`
+	Reasons        []string                              `json:"reasons,omitempty"`
+	CapabilityGaps []runtimeprovider.GapRecord           `json:"capability_gaps,omitempty"`
+	CapabilityOK   bool                                  `json:"capability_ok"`
 }
 
 // Report is the reusable JSON-friendly Linux platform inspection result.
@@ -226,33 +230,70 @@ func inspectNetworkNamespaces(root string) FeatureReport {
 }
 
 func nativeBackendStatus(runtimeOS string, features FeatureSet) NativeBackendStatus {
+	provider := providerStatus(runtimeprovider.KindLinuxCurrentUser)
 	status := NativeBackendStatus{
 		Supported: false,
-		Phase:     "plan-only",
+		Phase:     string(runtimeprovider.StatusPlanOnly),
+		Provider:  &provider,
 		Reasons: []string{
 			"Linux native launch helper is not implemented yet",
 			"Linux launch ordering and setup resources still require TLA model approval",
 		},
+		CapabilityGaps: []runtimeprovider.GapRecord{
+			runtimeprovider.MustGapRecord(
+				runtimeprovider.KindLinuxCurrentUser,
+				runtimeprovider.StatusPlanOnly,
+				"linux.native-launch-helper-missing",
+				"Linux native launch helper is not implemented yet",
+				"plan-only",
+			),
+		},
 	}
 	if runtimeOS != "linux" {
 		status.Reasons = append(status.Reasons, "inspected runtime is "+runtimeOS+", not linux")
+		status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
+			runtimeprovider.KindLinuxCurrentUser,
+			runtimeprovider.StatusPlanOnly,
+			"linux.runtime-not-linux",
+			"the inspected runtime is not Linux",
+			runtimeOS,
+		))
 	}
-	required := []FeatureReport{
-		features.UserNamespaces,
-		features.MountNamespaces,
-		features.CgroupV2,
-		features.Landlock,
-		features.Seccomp,
-		features.NetworkNamespaces,
+	required := []struct {
+		feature FeatureReport
+		id      string
+		message string
+	}{
+		{feature: features.UserNamespaces, id: "linux.user-namespace-unavailable", message: "selected strategy needs user namespaces and the host disables them"},
+		{feature: features.MountNamespaces, id: "linux.mount-namespace-unavailable", message: "helper cannot create the required mount namespace"},
+		{feature: features.CgroupV2, id: "linux.cgroup-v2-unavailable", message: "resource controls cannot be attached"},
+		{feature: features.Landlock, id: "linux.landlock-unavailable", message: "Landlock is unavailable and the spec did not accept the gap"},
+		{feature: features.Seccomp, id: "linux.seccomp-unavailable", message: "seccomp is unavailable and the spec did not accept the gap"},
+		{feature: features.NetworkNamespaces, id: "linux.network-namespace-unavailable", message: "--network none cannot be enforced"},
 	}
 	status.CapabilityOK = true
-	for _, feature := range required {
-		if feature.State != FeatureAvailable {
+	for _, requirement := range required {
+		if requirement.feature.State != FeatureAvailable {
 			status.CapabilityOK = false
-			break
+			status.CapabilityGaps = append(status.CapabilityGaps, runtimeprovider.MustGapRecord(
+				runtimeprovider.KindLinuxCurrentUser,
+				runtimeprovider.StatusPlanOnly,
+				requirement.id,
+				requirement.message,
+				string(requirement.feature.State),
+			))
 		}
 	}
 	return status
+}
+
+func providerStatus(kind runtimeprovider.Kind) runtimeprovider.ProviderStatusRecord {
+	for _, descriptor := range runtimeprovider.KnownDescriptors() {
+		if descriptor.Kind == kind {
+			return descriptor.StatusRecord()
+		}
+	}
+	return runtimeprovider.ProviderStatusRecord{Provider: kind, Status: runtimeprovider.StatusUnsupported}
 }
 
 func readOSRelease(root, path string) map[string]string {

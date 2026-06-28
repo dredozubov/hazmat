@@ -85,6 +85,7 @@ func TestExplainAppleContainerTextRendersCapabilityGaps(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Backend:              apple-container",
+		"Provider status:      plan-only",
 		"plan-only preview",
 		"Capability gaps (why this plan cannot launch):",
 		"apple-container-runtime-gated",

@@ -706,6 +706,16 @@ copy, but launch decisions should use structured categories.
 | Credential unavailable | Credential descriptor exists but delivery mode is unsupported or adapter-required. | Stop before launch. |
 | Runtime failure | Provider could not prepare, launch, monitor, or clean up. | Report classified result and cleanup status. |
 
+Provider status vocabulary:
+
+| Status | Meaning | Launch posture |
+| --- | --- | --- |
+| `supported` | Provider may launch after normal admission succeeds. | Executable. |
+| `experimental` | Provider is executable only behind explicit experimental controls and gates. | Executable but not parity. |
+| `plan-only` | Provider can preview plans and structured gaps only. | Non-executable. |
+| `setup-required` | Provider needs persistent setup resources before admission. | Non-executable until setup verifies. |
+| `unsupported` | Provider exists only to explain unsupported routing. | Non-executable. |
+
 No backend should silently downgrade:
 
 - native user isolation to same-UID process;

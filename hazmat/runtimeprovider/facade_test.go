@@ -84,6 +84,57 @@ func TestKnownDescriptorsCoverProviderVocabulary(t *testing.T) {
 	}
 }
 
+func TestProviderStatusVocabularyCoversKnownDescriptors(t *testing.T) {
+	seenStatus := map[Status]bool{}
+	for _, definition := range StatusDefinitions() {
+		if definition.Label == "" || definition.Message == "" {
+			t.Fatalf("status definition missing label/message: %+v", definition)
+		}
+		seenStatus[definition.Status] = true
+	}
+	for _, descriptor := range KnownDescriptors() {
+		if !seenStatus[descriptor.Status] {
+			t.Fatalf("descriptor %q status %q has no definition", descriptor.Kind, descriptor.Status)
+		}
+		record := descriptor.StatusRecord()
+		if record.Provider != descriptor.Kind ||
+			record.Backend != descriptor.Backend ||
+			record.Status != descriptor.Status ||
+			record.IdentityBoundary != descriptor.IdentityBoundary ||
+			record.StatusLabel == "" {
+			t.Fatalf("status record = %+v, descriptor = %+v", record, descriptor)
+		}
+	}
+	if record := mustDescriptor(t, KindRemoteEnvelope).StatusRecord(); record.Executable || record.Status != StatusPlanOnly {
+		t.Fatalf("remote status record = %+v, want non-executable plan-only", record)
+	}
+	if record := mustDescriptor(t, KindLinuxCurrentUser).StatusRecord(); record.Executable || record.Status != StatusPlanOnly {
+		t.Fatalf("linux current-user status record = %+v, want non-executable plan-only", record)
+	}
+	if record := mustDescriptor(t, KindLinuxAgentUser).StatusRecord(); record.Executable || record.Status != StatusSetupRequired {
+		t.Fatalf("linux agent-user status record = %+v, want setup-required", record)
+	}
+}
+
+func TestGapRecordRequiresStructuredIDAndRendersStableText(t *testing.T) {
+	if _, err := NewGapRecord(KindLinuxCurrentUser, StatusPlanOnly, "", "missing helper", ""); err == nil {
+		t.Fatal("NewGapRecord accepted empty id")
+	}
+	if _, err := NewGapRecord(KindLinuxCurrentUser, StatusPlanOnly, "linux.native-launch-helper-missing", "", ""); err == nil {
+		t.Fatal("NewGapRecord accepted empty message")
+	}
+	gap := MustGapRecord(
+		KindLinuxCurrentUser,
+		StatusPlanOnly,
+		"linux.native-launch-helper-missing",
+		"Linux native launch helper is not implemented yet",
+		"plan-only",
+	)
+	if got := RenderGap(gap); got != "linux.native-launch-helper-missing: Linux native launch helper is not implemented yet (plan-only)" {
+		t.Fatalf("RenderGap = %q", got)
+	}
+}
+
 func TestFakeProviderLifecycle(t *testing.T) {
 	provider := fakeProvider{descriptor: mustDescriptor(t, KindDarwinNative)}
 	req, err := NewPrepareRequest("codex", "session-1", testContract(t))

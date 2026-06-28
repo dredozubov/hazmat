@@ -56,6 +56,15 @@ VERSION_CODENAME=noble
 	if report.NativeBackend.Phase != "plan-only" || !report.NativeBackend.CapabilityOK {
 		t.Fatalf("NativeBackend = %+v", report.NativeBackend)
 	}
+	if report.NativeBackend.Provider == nil ||
+		report.NativeBackend.Provider.Provider != "linux-current-user" ||
+		report.NativeBackend.Provider.Status != "plan-only" ||
+		report.NativeBackend.Provider.Executable {
+		t.Fatalf("NativeBackend.Provider = %+v, want linux-current-user plan-only", report.NativeBackend.Provider)
+	}
+	if !nativeBackendHasGap(report.NativeBackend, "linux.native-launch-helper-missing") {
+		t.Fatalf("NativeBackend.CapabilityGaps = %+v, want native helper gap", report.NativeBackend.CapabilityGaps)
+	}
 	if len(report.NativeBackend.Reasons) == 0 {
 		t.Fatal("NativeBackend.Reasons is empty")
 	}
@@ -107,6 +116,18 @@ NAME=Debian
 	}
 	if !foundRuntimeReason {
 		t.Fatalf("NativeBackend.Reasons missing runtime reason: %v", report.NativeBackend.Reasons)
+	}
+	for _, id := range []string{
+		"linux.runtime-not-linux",
+		"linux.user-namespace-unavailable",
+		"linux.cgroup-v2-unavailable",
+		"linux.landlock-unavailable",
+		"linux.mount-namespace-unavailable",
+		"linux.network-namespace-unavailable",
+	} {
+		if !nativeBackendHasGap(report.NativeBackend, id) {
+			t.Fatalf("NativeBackend.CapabilityGaps missing %q: %+v", id, report.NativeBackend.CapabilityGaps)
+		}
 	}
 }
 
@@ -186,4 +207,13 @@ func writeFile(t *testing.T, root, path, data string) {
 	if err := os.WriteFile(full, []byte(data), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", full, err)
 	}
+}
+
+func nativeBackendHasGap(status NativeBackendStatus, id string) bool {
+	for _, gap := range status.CapabilityGaps {
+		if gap.ID == id {
+			return true
+		}
+	}
+	return false
 }

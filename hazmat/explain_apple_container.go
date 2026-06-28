@@ -11,6 +11,7 @@ import (
 
 	applecontainerspec "hazmat/containment/applecontainer"
 	applecontainerruntime "hazmat/internal/runtime/applecontainer"
+	"hazmat/runtimeprovider"
 	"hazmat/sessionmeta"
 )
 
@@ -80,6 +81,7 @@ func printAppleContainerPlan(w io.Writer, spec applecontainerspec.LaunchSpec) {
 	}
 	fmt.Fprintf(w, "Mode:                 %s (%s)\n", sessionmeta.ModeAppleContainer.Label(), phaseLabel)
 	fmt.Fprintf(w, "Backend:              %s\n", spec.Backend)
+	fmt.Fprintf(w, "Provider status:      %s\n", appleContainerProviderStatus(spec.Phase))
 	fmt.Fprintf(w, "Image:                %s\n", spec.Image)
 	fmt.Fprintf(w, "Container name:       %s\n", spec.ContainerName)
 	fmt.Fprintf(w, "Host identity:        invoking user (host account isolation NOT provided)\n")
@@ -105,17 +107,38 @@ func printAppleContainerPlan(w io.Writer, spec applecontainerspec.LaunchSpec) {
 	fmt.Fprintf(w, "Cleanup:              remove named container + generated credential files (never prune)\n")
 	if len(spec.CapabilityGaps) > 0 {
 		fmt.Fprintf(w, "\nCapability gaps (why this plan cannot launch):\n")
-		for _, gap := range spec.CapabilityGaps {
-			if gap.State != "" {
-				fmt.Fprintf(w, "  - %s: %s (%s)\n", gap.Code, gap.Message, gap.State)
-				continue
-			}
-			fmt.Fprintf(w, "  - %s: %s\n", gap.Code, gap.Message)
+		for _, line := range runtimeprovider.RenderGaps(appleContainerGapRecords(spec)) {
+			fmt.Fprintf(w, "  - %s\n", line)
 		}
 	}
 	if spec.Phase != applecontainerspec.PhaseExperimental {
 		fmt.Fprintf(w, "\nThis is a plan-only preview. Launch requires the experimental gate:\n  %s=1 hazmat exec --backend=apple-container --image ... -- <command>\n", appleContainerGateEnv)
 	}
+}
+
+func appleContainerProviderStatus(phase string) runtimeprovider.Status {
+	if phase == applecontainerspec.PhaseExperimental {
+		return runtimeprovider.StatusExperimental
+	}
+	return runtimeprovider.StatusPlanOnly
+}
+
+func appleContainerGapRecords(spec applecontainerspec.LaunchSpec) []runtimeprovider.GapRecord {
+	if len(spec.CapabilityGaps) == 0 {
+		return nil
+	}
+	status := appleContainerProviderStatus(spec.Phase)
+	records := make([]runtimeprovider.GapRecord, 0, len(spec.CapabilityGaps))
+	for _, gap := range spec.CapabilityGaps {
+		records = append(records, runtimeprovider.MustGapRecord(
+			runtimeprovider.KindAppleContainer,
+			status,
+			gap.Code,
+			gap.Message,
+			gap.State,
+		))
+	}
+	return records
 }
 
 func integrationEnvKeyNames(env map[string]string) []string {

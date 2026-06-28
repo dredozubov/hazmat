@@ -56,6 +56,32 @@ type Descriptor struct {
 	IdentityBoundary IdentityBoundary
 }
 
+type StatusDefinition struct {
+	Status     Status
+	Label      string
+	Executable bool
+	Message    string
+}
+
+func StatusDefinitions() []StatusDefinition {
+	return []StatusDefinition{
+		{Status: StatusSupported, Label: "supported", Executable: true, Message: "provider may launch when admission succeeds"},
+		{Status: StatusExperimental, Label: "experimental", Executable: true, Message: "provider is executable behind explicit experimental controls"},
+		{Status: StatusPlanOnly, Label: "plan-only", Message: "provider can preview plans and gaps but must not launch"},
+		{Status: StatusSetupRequired, Label: "setup required", Message: "provider needs persistent setup resources before admission"},
+		{Status: StatusUnsupported, Label: "unsupported", Message: "provider is registered only to explain unsupported routing"},
+	}
+}
+
+func DescribeStatus(status Status) (StatusDefinition, bool) {
+	for _, definition := range StatusDefinitions() {
+		if definition.Status == status {
+			return definition, true
+		}
+	}
+	return StatusDefinition{}, false
+}
+
 func (d Descriptor) Validate() error {
 	if d.Kind == "" {
 		return fmt.Errorf("runtime provider kind is required")
@@ -80,16 +106,95 @@ func (d Descriptor) Validate() error {
 	return nil
 }
 
+func (d Descriptor) StatusRecord() ProviderStatusRecord {
+	definition, ok := DescribeStatus(d.Status)
+	if !ok {
+		definition = StatusDefinition{Status: d.Status, Label: string(d.Status)}
+	}
+	return ProviderStatusRecord{
+		Provider:         d.Kind,
+		Backend:          d.Backend,
+		Status:           d.Status,
+		StatusLabel:      definition.Label,
+		Executable:       definition.Executable,
+		IdentityBoundary: d.IdentityBoundary,
+		Message:          definition.Message,
+	}
+}
+
 func KnownDescriptors() []Descriptor {
 	return []Descriptor{
 		{Kind: KindDarwinNative, Backend: sessionbackend.KindDarwinNative, Status: StatusSupported, IdentityBoundary: IdentityMacOSAgentUser},
 		{Kind: KindDockerSandbox, Backend: sessionbackend.KindDockerSandbox, Status: StatusSupported, IdentityBoundary: IdentityContainerUser},
 		{Kind: KindAppleContainer, Backend: sessionbackend.KindAppleContainer, Status: StatusExperimental, IdentityBoundary: IdentityContainerUser},
-		{Kind: KindLinuxCurrentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusExperimental, IdentityBoundary: IdentityCurrentUser},
+		{Kind: KindLinuxCurrentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusPlanOnly, IdentityBoundary: IdentityCurrentUser},
 		{Kind: KindLinuxAgentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusSetupRequired, IdentityBoundary: IdentityLinuxAgentUser},
 		{Kind: KindRemoteEnvelope, Backend: sessionbackend.KindRemoteEnvelope, Status: StatusPlanOnly, IdentityBoundary: IdentityRemoteWorker},
 		{Kind: KindUnsupportedNative, Backend: sessionbackend.KindUnsupportedNative, Status: StatusUnsupported, IdentityBoundary: IdentityNone},
 	}
+}
+
+type ProviderStatusRecord struct {
+	Provider         Kind                `json:"provider"`
+	Backend          sessionbackend.Kind `json:"backend"`
+	Status           Status              `json:"status"`
+	StatusLabel      string              `json:"status_label"`
+	Executable       bool                `json:"executable"`
+	IdentityBoundary IdentityBoundary    `json:"identity_boundary"`
+	Message          string              `json:"message,omitempty"`
+}
+
+type GapRecord struct {
+	ID       string `json:"id"`
+	Provider Kind   `json:"provider,omitempty"`
+	Status   Status `json:"status,omitempty"`
+	Message  string `json:"message"`
+	State    string `json:"state,omitempty"`
+}
+
+func NewGapRecord(provider Kind, status Status, id, message, state string) (GapRecord, error) {
+	id = strings.TrimSpace(id)
+	message = strings.TrimSpace(message)
+	if id == "" {
+		return GapRecord{}, fmt.Errorf("runtime provider gap id is required")
+	}
+	if message == "" {
+		return GapRecord{}, fmt.Errorf("runtime provider gap message is required")
+	}
+	return GapRecord{
+		ID:       id,
+		Provider: provider,
+		Status:   status,
+		Message:  message,
+		State:    strings.TrimSpace(state),
+	}, nil
+}
+
+func MustGapRecord(provider Kind, status Status, id, message, state string) GapRecord {
+	record, err := NewGapRecord(provider, status, id, message, state)
+	if err != nil {
+		panic(err)
+	}
+	return record
+}
+
+func RenderGap(record GapRecord) string {
+	line := fmt.Sprintf("%s: %s", record.ID, record.Message)
+	if record.State != "" {
+		line += fmt.Sprintf(" (%s)", record.State)
+	}
+	return line
+}
+
+func RenderGaps(records []GapRecord) []string {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(records))
+	for _, record := range records {
+		out = append(out, RenderGap(record))
+	}
+	return out
 }
 
 type HelperStrategy string

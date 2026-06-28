@@ -111,6 +111,12 @@ func TestBuildExplainJSON(t *testing.T) {
 	if got.Mode != string(sessionModeNative) {
 		t.Fatalf("Mode = %q", got.Mode)
 	}
+	if got.Provider == nil ||
+		got.Provider.Provider != "linux-current-user" ||
+		got.Provider.Status != "plan-only" ||
+		got.Provider.Executable {
+		t.Fatalf("Provider = %+v, want Linux current-user plan-only", got.Provider)
+	}
 	if got.NetworkPolicy.Requested != "default" || got.NetworkPolicy.Effective != "default" || !got.NetworkPolicy.Enforced {
 		t.Fatalf("NetworkPolicy = %+v, want enforced default policy", got.NetworkPolicy)
 	}

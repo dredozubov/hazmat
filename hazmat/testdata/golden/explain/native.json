@@ -51,6 +51,15 @@
     }
   ],
   "project_dir": "/Users/dr/workspace/project",
+  "provider": {
+    "backend": "darwin-native",
+    "executable": true,
+    "identity_boundary": "macos-agent-user",
+    "message": "provider may launch when admission succeeds",
+    "provider": "darwin-native",
+    "status": "supported",
+    "status_label": "supported"
+  },
   "read_only_dirs": [
     "/Users/dr/workspace/reference",
     "/opt/homebrew/Cellar/go/1.2.3/libexec"

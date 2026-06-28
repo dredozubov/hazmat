@@ -51,6 +51,15 @@
     }
   ],
   "project_dir": "/Users/dr/workspace/project",
+  "provider": {
+    "backend": "docker-sandbox",
+    "executable": true,
+    "identity_boundary": "container-user",
+    "message": "provider may launch when admission succeeds",
+    "provider": "docker-sandbox",
+    "status": "supported",
+    "status_label": "supported"
+  },
   "read_only_dirs": [
     "/Users/dr/workspace/reference",
     "/opt/homebrew/Cellar/go/1.2.3/libexec"
