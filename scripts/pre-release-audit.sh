@@ -82,6 +82,8 @@ cat >"$OUTPUT_PATH" <<EOF
 | privileged-install-ownership | \`scripts/e2e.sh --vm --quick\` lifecycle, or direct \`scripts/check-privileged-install-ownership.sh --run ...\` and \`--after-rollback ...\` on disposable host | pending | |
 | live-approved | Relevant wrapper(s), exact command approval required | pending | |
 | destructive-lifecycle | \`scripts/e2e.sh --vm --quick\` or documented skip | pending | |
+| linux-current-user | \`docs/linux-current-user-vm-smoke-matrix.md\` / \`sandboxing-xuar.3.5\` transcripts | pending | |
+| linux-agent-user | \`docs/linux-agent-user-vm-lifecycle-matrix.md\` / \`sandboxing-xuar.4.5\` transcripts | pending | |
 
 ## Lane Registry Snapshot
 

@@ -729,6 +729,10 @@ locally if the hermetic harness smoke fails. The release script requires
 `--i-understand-this-may-push-release`. `scripts/pre-release-audit.sh` writes a
 markdown evidence record for the lane results and any skipped live/disposable
 host checks; it does not run tests itself.
+Linux release evidence is split by identity lane in the
+[Linux release checklist](linux-release-checklist.md). The audit output must
+record `linux-current-user` and `linux-agent-user` separately, with completed
+transcripts or explicit status-preserving skip reasons.
 
 For the release-grade local lifecycle gate, include the isolated VM lane:
 

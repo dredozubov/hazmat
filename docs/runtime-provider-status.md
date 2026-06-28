@@ -73,6 +73,8 @@ Linux current-user status is tied to the
 Linux agent-user status is separate and remains setup-required until the
 `MC_SetupRollback` model, setup resource graph, diagnostics, root-helper
 runtime, and lifecycle VM smokes are complete.
+Release promotion gates for both lanes are listed in the
+[Linux release checklist](linux-release-checklist.md).
 
 Do not write broad "Linux support" claims while either Linux lane is incomplete.
 Name the lane and status instead.
