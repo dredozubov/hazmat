@@ -33,7 +33,7 @@ For the reusable core versus provider-layer boundary, see
 | Network default/none behavior | Linux launch spec and helper | tests for default as declared capability, `none` enforced before metadata, unsupported network modes as gaps | Yes |
 | Capability gap vocabulary | `sessionbackend`, explain JSON/text, docs | golden tests for missing user namespace, mount namespace, network namespace, Landlock, seccomp, cgroup, and setup support | Yes for launch; gaps may be surfaced in plan-only |
 | Distro probe API | `platform/linux` | hermetic parser tests plus distro fixture table for kernel, namespace, Landlock, seccomp, cgroup v2, unprivileged userns | Blocks production; plan-only may report unknown |
-| Setup/rollback model boundary | future `setup/linux` | extend `MC_SetupRollback` from its platform privilege requires containment starting point before user creation, sudoers, helper install, cgroup delegation, or persistent state mutation | Yes for persistent setup |
+| Setup/rollback model boundary | future `setup/linux` | extend `MC_SetupRollback` from its `LinuxPrivilegeRequiresContainment` starting point before user creation, sudoers, helper install, cgroup delegation, or persistent state mutation | Yes for persistent setup |
 | Linux smoke target | scripts/CI/manual VM docs | containerized plan-only smoke, Linux compile-only check, and manual VM smoke before production claim | Yes |
 
 ## Contract Gates

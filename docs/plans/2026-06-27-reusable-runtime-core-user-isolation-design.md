@@ -310,8 +310,8 @@ flowchart TB
     current["current-user / no-system-user runtime"]
     agent["agent-user / multi-user runtime"]
     rootless["rootless userns + mount namespace"]
-    currentPolicy["current-user Landlock + seccomp + no_new_privs"]
-    agentPolicy["agent-user Landlock + seccomp + no_new_privs"]
+    currentPolicy["current-user no_new_privs + Landlock + seccomp"]
+    agentPolicy["agent-user no_new_privs + Landlock + seccomp"]
     setup["future setup/linux resources"]
     helper["root helper or approved setup path"]
     harnessCurrent["harness as invoking uid"]
@@ -359,10 +359,11 @@ The provider must never silently fall back from `agent-user` to
 `current-user`, from `root-helper` to `rootless-userns`, or from contract
 sandboxing to ordinary same-uid execution.
 
-For both Linux lanes, `network=default` is an honest declaration of host-network
-or agent-network authority. It must not claim egress filtering unless a
-provider-specific policy actually enforces one. `network=none` remains a
-separate enforced mode with its own namespace or equivalent proof obligation.
+For any same-UID provider, including a same-UID Seatbelt wrapper and the Linux
+current-user lane, `network=default` is an honest declaration of host-network
+authority. It must not claim egress filtering unless a provider-specific policy
+actually enforces one. `network=none` remains a separate enforced mode with its
+own namespace, sandbox rule, or equivalent proof obligation.
 
 ## Current Package Ownership Target
 

@@ -72,6 +72,7 @@ hazmat
   -> runner closes inherited file descriptors
   -> runner unshares user and mount namespaces
   -> runner builds the planned filesystem view
+  -> runner enforces network policy (network namespace for none)
   -> runner sets no_new_privs
   -> runner applies Landlock allow rules
   -> runner applies seccomp
@@ -210,8 +211,8 @@ resource names casually.
 | `linuxToolHome` | Optional agent-owned tool cache root. |
 
 Persistent mutations are owned by `MC_SetupRollback`. The existing setup model
-already proves platform privilege requires containment; Linux agent-user setup
-must extend that starting point before code lands. The model must define setup
+already proves `LinuxPrivilegeRequiresContainment`; Linux agent-user setup must
+extend that starting point before code lands. The model must define setup
 ordering, rollback ordering, what is preserved by default, destructive rollback
 behavior, and failed-step recovery.
 
@@ -377,7 +378,7 @@ Single-user mode can be documented as experimental if these pass.
 Before code:
 
 - extend `MC_SetupRollback` for Linux resources, starting from the existing
-  platform privilege requires containment proof;
+  `LinuxPrivilegeRequiresContainment` proof;
 - define preservation versus deletion semantics;
 - define helper/sudoers/cgroup ordering;
 - update `tla/VERIFIED.md` mappings.
