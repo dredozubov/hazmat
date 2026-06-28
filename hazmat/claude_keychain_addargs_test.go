@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -28,7 +29,7 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 	raw := []byte(`{"claudeAiOauth":{"accessToken":"tok"}}`)
 
 	t.Run("agent keychain write", func(t *testing.T) {
-		args := claudeKeychainAddArgs("agent", raw, "/Users/agent/Library/Keychains/login.keychain-db")
+		args := claudeKeychainAddArgs("agent", raw, "/Users/agent/Library/Keychains/login.keychain-db", false, true)
 		if got, ok := argValue(args, "-a"); !ok || got != "agent" {
 			t.Fatalf("expected -a agent, got %q (ok=%v) in %v", got, ok, args)
 		}
@@ -38,15 +39,27 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 		if got, ok := argValue(args, "-w"); !ok || got != string(raw) {
 			t.Fatalf("expected -w to carry the credential, got %q (ok=%v)", got, ok)
 		}
+		if !slices.Contains(args, "-A") {
+			t.Fatalf("agent keychain write should allow contained Claude access without item UI, got %v", args)
+		}
+		if slices.Contains(args, "-U") {
+			t.Fatalf("agent keychain write should delete-then-add instead of updating access UI, got %v", args)
+		}
 		if args[len(args)-1] != "/Users/agent/Library/Keychains/login.keychain-db" {
 			t.Fatalf("expected explicit keychain path as last arg, got %v", args)
 		}
 	})
 
 	t.Run("host keychain write omits explicit keychain", func(t *testing.T) {
-		args := claudeKeychainAddArgs("dr", raw, "")
+		args := claudeKeychainAddArgs("dr", raw, "", true, false)
 		if got, ok := argValue(args, "-a"); !ok || got != "dr" {
 			t.Fatalf("expected -a dr, got %q (ok=%v) in %v", got, ok, args)
+		}
+		if !slices.Contains(args, "-U") {
+			t.Fatalf("host keychain write should update Claude's existing item, got %v", args)
+		}
+		if slices.Contains(args, "-A") {
+			t.Fatalf("host keychain write must keep normal per-app ACLs, got %v", args)
 		}
 		for _, a := range args {
 			if strings.HasSuffix(a, "login.keychain-db") {
@@ -85,9 +98,9 @@ func TestClaudeHostKeychainSyncIsOptIn(t *testing.T) {
 
 // TestClaudeKeychainAddArgsAcceptedBySecurity runs the real argv against a
 // throwaway keychain (never the agent or host login keychain) and asserts the
-// macOS security tool accepts it and that -U updates in place. This is a real
-// outcome test, not just a shape check: before -a was added, this command
-// exited 2 every time.
+// macOS security tool accepts the agent delete-then-add path. This is a real
+// outcome test, not just a shape check: before -a was added, this command exited
+// 2 every time, and `-U -A` later proved capable of invoking item-access UI.
 func TestClaudeKeychainAddArgsAcceptedBySecurity(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("security keychain tool is macOS-only")
@@ -110,15 +123,18 @@ func TestClaudeKeychainAddArgsAcceptedBySecurity(t *testing.T) {
 	updated := []byte(`{"claudeAiOauth":{"accessToken":"updated"}}`)
 
 	add := func(raw []byte) ([]byte, error) {
-		args := append([]string{}, claudeKeychainAddArgs("agent", raw, kc)...)
+		args := append([]string{}, claudeKeychainAddArgs("agent", raw, kc, false, true)...)
 		return exec.Command(securityPath, args...).CombinedOutput()
 	}
 
 	if out, err := add(first); err != nil {
 		t.Fatalf("add-generic-password rejected the argv (the bug): %v: %s", err, out)
 	}
+	if out, err := exec.Command(securityPath, "delete-generic-password", "-s", claudeKeychainCredentialService, kc).CombinedOutput(); err != nil {
+		t.Fatalf("delete before rewrite rejected: %v: %s", err, out)
+	}
 	if out, err := add(updated); err != nil {
-		t.Fatalf("-U update rejected: %v: %s", err, out)
+		t.Fatalf("delete-then-add rewrite rejected: %v: %s", err, out)
 	}
 
 	// The harvest read path matches by service only; confirm it sees the update.

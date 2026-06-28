@@ -25,16 +25,26 @@ const claudeHostKeychainSyncEnv = "HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC"
 // 2, so the write can never succeed. Claude Code stores its item under the OS
 // short username of whoever runs it, so callers pass the matching account (the
 // agent account for the agent keychain, the invoking user for the host
-// keychain). Matching the account lets `-U` update Claude Code's own item
-// instead of creating a parallel one. keychainPath is appended only when
-// non-empty; an empty path targets the default keychain.
-func claudeKeychainAddArgs(account string, raw []byte, keychainPath string) []string {
+// keychain). updateExisting enables `-U` for the host keychain, where replacing
+// the user's normal item is correct. Agent writes deliberately delete-then-add
+// instead because `-U` can still invoke Keychain item access UI when changing an
+// existing item's access list. keychainPath is appended only when non-empty; an
+// empty path targets the default keychain. allowAnyApplication is for the
+// contained agent keychain only: it prevents macOS item-access UI for
+// Claude/Node while the sandbox already limits access to the managed agent
+// keychain. Host keychain writes must keep the normal per-app warning ACLs.
+func claudeKeychainAddArgs(account string, raw []byte, keychainPath string, updateExisting, allowAnyApplication bool) []string {
 	args := []string{
 		"add-generic-password",
-		"-U",
 		"-a", account,
 		"-s", claudeKeychainCredentialService,
 		"-w", string(raw),
+	}
+	if updateExisting {
+		args = append(args, "-U")
+	}
+	if allowAnyApplication {
+		args = append(args, "-A")
 	}
 	if keychainPath != "" {
 		args = append(args, keychainPath)
@@ -107,8 +117,13 @@ var writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
 	if len(raw) == 0 {
 		return nil
 	}
+	_ = asAgentQuiet(
+		"/usr/bin/security", "delete-generic-password",
+		"-s", claudeKeychainCredentialService,
+		agentLoginKeychainPath(),
+	)
 	args := append([]string{"/usr/bin/security"},
-		claudeKeychainAddArgs(agentUser, raw, agentLoginKeychainPath())...)
+		claudeKeychainAddArgs(agentUser, raw, agentLoginKeychainPath(), false, true)...)
 	if out, err := asAgentCombinedOutput(args...); err != nil {
 		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(out))
 	}
@@ -167,7 +182,7 @@ var writeClaudeHostKeychainCredential = func(data harnessAuthData) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	args := claudeKeychainAddArgs(currentHostKeychainAccount(), raw, "")
+	args := claudeKeychainAddArgs(currentHostKeychainAccount(), raw, "", true, false)
 	if out, err := exec.Command(hostSecurityPath, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(string(out)))
 	}

@@ -112,7 +112,7 @@ func prepareAgentLoginKeychainForLaunch() error {
 		} else {
 			detail = "\nsecurity error: " + err.Error()
 		}
-		return fmt.Errorf("prepare agent login keychain: could not unlock %s with Hazmat's empty-password keychain profile%s\nRun: hazmat claude-keychain reset",
+		return fmt.Errorf("prepare agent login keychain: could not prepare %s with Hazmat's empty-password keychain profile%s\nRun: hazmat claude-keychain reset",
 			agentLoginKeychainPath(), detail)
 	}
 	return nil
@@ -168,7 +168,7 @@ reset_agent_keychain() {
   best_effort_security /usr/bin/security login-keychain -s "$kc"
   /usr/bin/security default-keychain -s "$kc"
   /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
-  best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
+  /usr/bin/security set-keychain-settings "$kc"
 }
 
 if [ ! -e "$kc" ]; then
@@ -182,6 +182,7 @@ fi
 /usr/bin/security unlock-keychain -p "" "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
+/usr/bin/security set-keychain-settings "$kc"
 /usr/bin/security unlock-keychain -p "" "$kc"
 `
 }
@@ -231,7 +232,7 @@ printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"
 best_effort_security /usr/bin/security login-keychain -s "$kc"
 /usr/bin/security default-keychain -s "$kc"
 /usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain
-best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"
+/usr/bin/security set-keychain-settings "$kc"
 echo "Created unlocked agent login keychain: $kc"
 `
 }

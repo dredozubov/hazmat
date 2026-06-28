@@ -22,7 +22,7 @@ func TestClaudeAgentKeychainPrepareScriptCreatesOrRepairsManagedKeychain(t *test
 		`printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"`,
 		`/usr/bin/security unlock-keychain -p "" "$kc"`,
 		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
-		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
+		`/usr/bin/security set-keychain-settings "$kc"`,
 		`/usr/bin/security default-keychain -s "$kc"`,
 		`/usr/bin/security list-keychains -d user -s "$kc" /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain`,
 	} {
@@ -32,11 +32,16 @@ func TestClaudeAgentKeychainPrepareScriptCreatesOrRepairsManagedKeychain(t *test
 	}
 	for _, expensive := range []string{
 		`best_effort_security /usr/bin/security login-keychain -s "$kc"`,
-		`best_effort_security /usr/bin/security set-keychain-settings -lut 21600 "$kc"`,
 	} {
 		if count := strings.Count(script, expensive); count != 1 {
 			t.Fatalf("prepare script has %d occurrences of %q, want one repair-only call:\n%s", count, expensive, script)
 		}
+	}
+	if count := strings.Count(script, `/usr/bin/security set-keychain-settings "$kc"`); count != 2 {
+		t.Fatalf("prepare script should set no-timeout during reset and every launch, got %d occurrences:\n%s", count, script)
+	}
+	if strings.Contains(script, `set-keychain-settings -lut`) {
+		t.Fatalf("prepare script must not enable agent keychain auto-locking:\n%s", script)
 	}
 }
 
@@ -49,10 +54,14 @@ func TestClaudeAgentKeychainResetScriptBacksUpAndRecreates(t *testing.T) {
 		`/usr/bin/security create-keychain -p "" "$kc"`,
 		`printf '%s\n' "hazmat-managed claude agent login keychain" > "$marker"`,
 		`/usr/bin/security unlock-keychain -p "" "$kc"`,
+		`/usr/bin/security set-keychain-settings "$kc"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("reset script missing %q:\n%s", want, script)
 		}
+	}
+	if strings.Contains(script, `set-keychain-settings -lut`) {
+		t.Fatalf("reset script must not enable agent keychain auto-locking:\n%s", script)
 	}
 }
 
