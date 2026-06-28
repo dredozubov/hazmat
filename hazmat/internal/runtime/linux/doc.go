@@ -1,5 +1,5 @@
-// Package linux is plan-only until MC_LinuxNativeLaunch governs a concrete
-// Linux native launch runtime.
+// Package linux contains the non-effectful Linux native admission planner. It
+// stays plan-only until MC_LinuxNativeLaunch is wired to a concrete helper.
 package linux
 
 const (
