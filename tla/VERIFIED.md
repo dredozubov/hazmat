@@ -174,7 +174,7 @@ feedback, not for skipping promoted proofs.
 | Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
 | Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice, config command, and compatibility wrappers for sudoers runtime |
 | Governed code | `hazmat/rollback.go` — `runRollback()` and remaining root rollback resource callbacks not yet split from `package main` |
-| Key invariants | `AgentContained`, `LinuxPrivilegeRequiresContainment`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser` |
+| Key invariants | `AgentContained`, `LinuxPrivilegeRequiresContainment`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser`, `AgentWritableSetupParentsOwned` |
 | Key liveness | `CanAlwaysReachClean` |
 | Status | **Fixed and Re-Proved** — containment before privilege in both setup and rollback, including the optional broader maintenance sudoers rule |
 

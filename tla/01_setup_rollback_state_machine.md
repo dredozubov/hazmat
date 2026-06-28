@@ -111,6 +111,9 @@ and how many setup/rollback attempts have occurred.
    child cache/data/bin/npm paths. Those directories are modeled as part of the
    existing `wrappers` resource rather than as a separate setup phase, so
    partial setup and rollback reasoning keeps the same ordering boundary.
+   `AgentWritableSetupParentsOwned` pins the ownership contract for that
+   abstraction: setup-created parents that an agent writes through must not
+   exist after the agent identity they are owned by is gone.
 
 6. **Linux setup reuses the same resource boundary.** The model is currently
    checked with `Platform = "linux"` before Linux privileged lifecycle or
@@ -157,6 +160,7 @@ still guarantees a path back to a clean state.
 | `SudoersRequiresHelper` | The narrow launch-helper sudoers rule only exists when launch helper is present |
 | `PrivilegeRequiresAgentUser` | Any passwordless sudoers rule requires the agent user |
 | `AgentDepsRequireUser` | Agent-owned resources require agent user |
+| `AgentWritableSetupParentsOwned` | Agent-writable setup-created parent directories remain tied to the agent identity |
 | `CanAlwaysReachClean` | System can always return to clean state (liveness) |
 
 ### Important Scope Boundary

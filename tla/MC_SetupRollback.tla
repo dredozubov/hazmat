@@ -422,6 +422,13 @@ PrivilegeRequiresAgentUser ==
 AgentDepsRequireUser ==
     (seatbelt \/ claudeCode \/ credentials) => agentUser
 
+\* The wrappers resource represents setup-created parent directories that the
+\* agent process writes through, including agent-owned XDG/toolchain parents.
+\* Those parents must not exist unless the agent identity they are owned by
+\* still exists.
+AgentWritableSetupParentsOwned ==
+    wrappers => agentUser
+
 \* Combined safety.
 Safety ==
     /\ TypeOK
@@ -431,6 +438,7 @@ Safety ==
     /\ SudoersRequiresHelper
     /\ PrivilegeRequiresAgentUser
     /\ AgentDepsRequireUser
+    /\ AgentWritableSetupParentsOwned
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Liveness
