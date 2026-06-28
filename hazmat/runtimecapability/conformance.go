@@ -73,13 +73,14 @@ type SignedVerifierResult struct {
 }
 
 type ConformanceVerifyInput struct {
-	DeclarationKey         attestationkey.Key
-	VerifierKey            attestationkey.Key
-	ExpectedVerifier       string
-	ExpectedBackendVersion string
-	Now                    time.Time
-	ExpectedArtifactHashes map[string]string
-	ExpectedObligations    map[CapabilityFlag]string
+	DeclarationKey          attestationkey.Key
+	VerifierKey             attestationkey.Key
+	ExpectedSignerTrustRoot string
+	ExpectedVerifier        string
+	ExpectedBackendVersion  string
+	Now                     time.Time
+	ExpectedArtifactHashes  map[string]string
+	ExpectedObligations     map[CapabilityFlag]string
 }
 
 func (c Capability) DeclaredFlags() []CapabilityFlag {
@@ -192,9 +193,13 @@ func (r SignedVerifierResult) Fingerprint() string {
 }
 
 func VerifyCapabilityConformance(declaration Declaration, catalog CoverageCatalog, result SignedVerifierResult, input ConformanceVerifyInput) error {
+	expectedRoot := input.ExpectedSignerTrustRoot
+	if expectedRoot == "" {
+		expectedRoot = declaration.SignerTrustRoot
+	}
 	if err := VerifyDeclaration(declaration, VerifyInput{
 		Signer:                  input.DeclarationKey,
-		ExpectedSignerTrustRoot: declaration.SignerTrustRoot,
+		ExpectedSignerTrustRoot: expectedRoot,
 		ExpectedBackendVersion:  input.ExpectedBackendVersion,
 		Now:                     input.Now,
 	}); err != nil {

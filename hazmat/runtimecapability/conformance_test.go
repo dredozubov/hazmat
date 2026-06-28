@@ -50,6 +50,15 @@ func TestVerifyConformanceRejectsMismatchedBackendVersion(t *testing.T) {
 	}
 }
 
+func TestVerifyConformanceRejectsMismatchedSignerTrustRoot(t *testing.T) {
+	fixture := conformanceFixture(t)
+	fixture.input.ExpectedSignerTrustRoot = "other-runtime-root"
+	err := VerifyCapabilityConformance(fixture.declaration, fixture.catalog, fixture.result, fixture.input)
+	if err == nil || !strings.Contains(err.Error(), "expected root") {
+		t.Fatalf("err = %v, want signer trust root mismatch", err)
+	}
+}
+
 func TestVerifyConformanceRejectsStaleVerifierResult(t *testing.T) {
 	fixture := conformanceFixture(t)
 	fixture.input.Now = parseTestTime(t, "2026-06-26T00:00:00Z")
@@ -193,13 +202,14 @@ func conformanceFixture(t *testing.T) conformanceTestFixture {
 		catalog:     catalog,
 		result:      result,
 		input: ConformanceVerifyInput{
-			DeclarationKey:         key,
-			VerifierKey:            key,
-			ExpectedVerifier:       "hazmat-ci",
-			ExpectedBackendVersion: backendVersion,
-			Now:                    parseTestTime(t, "2026-06-22T12:00:00Z"),
-			ExpectedArtifactHashes: expectedHashes,
-			ExpectedObligations:    obligationsByFlag,
+			DeclarationKey:          key,
+			VerifierKey:             key,
+			ExpectedSignerTrustRoot: "planescape-runtime-root-demo",
+			ExpectedVerifier:        "hazmat-ci",
+			ExpectedBackendVersion:  backendVersion,
+			Now:                     parseTestTime(t, "2026-06-22T12:00:00Z"),
+			ExpectedArtifactHashes:  expectedHashes,
+			ExpectedObligations:     obligationsByFlag,
 		},
 		declarationKey: key,
 	}
