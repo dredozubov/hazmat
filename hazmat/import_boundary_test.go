@@ -25,43 +25,51 @@ type listedPackage struct {
 	GoFiles    []string `json:"GoFiles"`
 }
 
+var reusableCorePackages = []string{
+	"hazmat/sessionrequest",
+	"hazmat/pathpolicy",
+	"hazmat/sessionplanner",
+	"hazmat/sessioncontract",
+	"hazmat/containment",
+	"hazmat/sessionbackend",
+	"hazmat/credentials",
+	"hazmat/harnesses",
+	"hazmat/integrations",
+	"hazmat/runtimeauthority",
+	"hazmat/runtimecapability",
+
+	// Current reusable leaves that are already enforced by the package-split
+	// guard and remain effect-free under the same dependency rules.
+	"hazmat/attestationtier",
+	"hazmat/hostbroker",
+	"hazmat/containment/applecontainer",
+	"hazmat/containment/darwin",
+	"hazmat/containment/docker",
+	"hazmat/containment/linux",
+	"hazmat/configmodel",
+	"hazmat/hostfacts",
+	"hazmat/sessionmeta",
+	"hazmat/internal/sessionflow",
+}
+
+var reusableCoreForbiddenDeps = []string{
+	"os/exec",
+	"net/http",
+	"github.com/spf13/cobra",
+	"golang.org/x/term",
+	"hazmat/cmd/",
+	"hazmat/internal/",
+}
+
 func TestImportBoundaries(t *testing.T) {
 	pkgs := loadListedPackages(t)
 
-	purePackages := map[string]bool{
-		"hazmat/attestationtier":            true,
-		"hazmat/hostbroker":                 true,
-		"hazmat/containment":                true,
-		"hazmat/containment/applecontainer": true,
-		"hazmat/containment/darwin":         true,
-		"hazmat/containment/docker":         true,
-		"hazmat/containment/linux":          true,
-		"hazmat/configmodel":                true,
-		"hazmat/credentials":                true,
-		"hazmat/harnesses":                  true,
-		"hazmat/hostfacts":                  true,
-		"hazmat/integrations":               true,
-		"hazmat/pathpolicy":                 true,
-		"hazmat/sessionbackend":             true,
-		"hazmat/sessioncontract":            true,
-		"hazmat/sessionmeta":                true,
-		"hazmat/sessionplanner":             true,
-		"hazmat/sessionrequest":             true,
-		"hazmat/internal/sessionflow":       true,
-	}
-	for importPath := range purePackages {
+	for _, importPath := range reusableCorePackages {
 		pkg, ok := pkgs[importPath]
 		if !ok {
 			t.Fatalf("pure package %s is not listed by go list", importPath)
 		}
-		assertNoForbiddenDeps(t, pkg, []string{
-			"os/exec",
-			"net/http",
-			"github.com/spf13/cobra",
-			"golang.org/x/term",
-			"hazmat/cmd/",
-			"hazmat/internal/",
-		})
+		assertNoForbiddenDeps(t, pkg, reusableCoreForbiddenDeps)
 		assertNoRuntimeGOOS(t, pkg)
 	}
 
@@ -198,12 +206,46 @@ func loadListedPackages(t *testing.T) map[string]listedPackage {
 func assertNoForbiddenDeps(t *testing.T, pkg listedPackage, forbidden []string) {
 	t.Helper()
 
+	violations := forbiddenDepViolations(pkg, forbidden)
+	if len(violations) > 0 {
+		t.Fatalf("%s imports forbidden dependencies: %s", pkg.ImportPath, strings.Join(violations, ", "))
+	}
+}
+
+func forbiddenDepViolations(pkg listedPackage, forbidden []string) []string {
+	var violations []string
 	for _, dep := range pkg.Deps {
 		for _, denied := range forbidden {
 			if dep == strings.TrimSuffix(denied, "/") || strings.HasPrefix(dep, denied) {
-				t.Fatalf("%s imports forbidden dependency %s", pkg.ImportPath, dep)
+				violations = append(violations, dep)
 			}
 		}
+	}
+	sort.Strings(violations)
+	return violations
+}
+
+func TestForbiddenDependencyMatcher(t *testing.T) {
+	pkg := listedPackage{
+		ImportPath: "hazmat/sessionrequest",
+		Deps: []string{
+			"hazmat/containment",
+			"hazmat/internality",
+			"hazmat/internal/setup",
+			"hazmat/internal/runtime/linux",
+			"github.com/spf13/cobra",
+			"os/exec",
+		},
+	}
+	got := forbiddenDepViolations(pkg, reusableCoreForbiddenDeps)
+	want := []string{
+		"github.com/spf13/cobra",
+		"hazmat/internal/runtime/linux",
+		"hazmat/internal/setup",
+		"os/exec",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("forbidden dependency matcher = %#v, want %#v", got, want)
 	}
 }
 
