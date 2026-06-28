@@ -5,6 +5,7 @@ package linuxspec
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"hazmat/containment"
 	platformlinux "hazmat/platform/linux"
@@ -13,7 +14,7 @@ import (
 
 const (
 	// LaunchSpecFormatVersion is the current Linux launch-spec schema version.
-	LaunchSpecFormatVersion = 1
+	LaunchSpecFormatVersion = 2
 
 	BackendLinuxNative = "linux-native"
 	PhasePlanOnly      = "plan-only"
@@ -28,9 +29,25 @@ const (
 	GapNetworkNamespaceUnavailable = "linux.network-namespace-unavailable"
 )
 
+type IdentityLane string
+
+const (
+	IdentityCurrentUser IdentityLane = "current-user"
+	IdentityAgentUser   IdentityLane = "agent-user"
+)
+
+type HelperStrategy string
+
+const (
+	HelperRootlessUserNS HelperStrategy = "rootless-userns"
+	HelperRoot           HelperStrategy = "root-helper"
+)
+
 // CompileOptions supplies inspected host capability facts.
 type CompileOptions struct {
-	Platform platformlinux.Report
+	Platform       platformlinux.Report
+	Identity       IdentityLane
+	HelperStrategy HelperStrategy
 }
 
 // LaunchSpec is a JSON-friendly Linux native launch plan. It is intentionally
@@ -39,6 +56,8 @@ type LaunchSpec struct {
 	FormatVersion    int                  `json:"format_version"`
 	Backend          string               `json:"backend"`
 	Phase            string               `json:"phase"`
+	Identity         IdentityLane         `json:"identity"`
+	HelperStrategy   HelperStrategy       `json:"helper_strategy"`
 	Mounts           []BindMount          `json:"mounts"`
 	AgentHome        AgentHomeSpec        `json:"agent_home"`
 	Temp             TempSpec             `json:"temp"`
@@ -87,6 +106,7 @@ type ProcessSpec struct {
 	CloseInheritedFDs bool `json:"close_inherited_fds"`
 	NoNewPrivs        bool `json:"no_new_privs"`
 	DropCapabilities  bool `json:"drop_capabilities"`
+	AllowFork         bool `json:"allow_fork"`
 }
 
 // CapabilityGap records why a compiled plan is not yet executable.
@@ -103,12 +123,18 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 	if err := validateContract(contract); err != nil {
 		return LaunchSpec{}, err
 	}
+	identity, helperStrategy, err := compileIdentityOptions(opts)
+	if err != nil {
+		return LaunchSpec{}, err
+	}
 
 	spec := LaunchSpec{
-		FormatVersion: LaunchSpecFormatVersion,
-		Backend:       BackendLinuxNative,
-		Phase:         PhasePlanOnly,
-		Mounts:        compileMounts(contract),
+		FormatVersion:  LaunchSpecFormatVersion,
+		Backend:        BackendLinuxNative,
+		Phase:          PhasePlanOnly,
+		Identity:       identity,
+		HelperStrategy: helperStrategy,
+		Mounts:         compileMounts(contract),
 		AgentHome: AgentHomeSpec{
 			Path: contract.AgentHome.Path,
 		},
@@ -122,6 +148,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (LaunchSpec, er
 			CloseInheritedFDs: true,
 			NoNewPrivs:        true,
 			DropCapabilities:  true,
+			AllowFork:         contract.Process.AllowFork,
 		},
 		CapabilityGaps: capabilityGaps(opts.Platform),
 	}
@@ -135,6 +162,40 @@ func MarshalJSON(spec LaunchSpec) ([]byte, error) {
 
 func validateContract(contract containment.Contract) error {
 	return contract.Validate()
+}
+
+func compileIdentityOptions(opts CompileOptions) (IdentityLane, HelperStrategy, error) {
+	identity := opts.Identity
+	if identity == "" {
+		identity = IdentityCurrentUser
+	}
+	switch identity {
+	case IdentityCurrentUser, IdentityAgentUser:
+	default:
+		return "", "", fmt.Errorf("linux launch identity %q is unsupported", opts.Identity)
+	}
+
+	helperStrategy := opts.HelperStrategy
+	if helperStrategy == "" {
+		switch identity {
+		case IdentityCurrentUser:
+			helperStrategy = HelperRootlessUserNS
+		case IdentityAgentUser:
+			helperStrategy = HelperRoot
+		}
+	}
+	switch helperStrategy {
+	case HelperRootlessUserNS, HelperRoot:
+	default:
+		return "", "", fmt.Errorf("linux helper_strategy %q is unsupported", opts.HelperStrategy)
+	}
+	if identity == IdentityCurrentUser && helperStrategy != HelperRootlessUserNS {
+		return "", "", fmt.Errorf("linux identity %q requires helper_strategy %q", identity, HelperRootlessUserNS)
+	}
+	if identity == IdentityAgentUser && helperStrategy != HelperRoot {
+		return "", "", fmt.Errorf("linux identity %q requires helper_strategy %q", identity, HelperRoot)
+	}
+	return identity, helperStrategy, nil
 }
 
 func compileMounts(contract containment.Contract) []BindMount {

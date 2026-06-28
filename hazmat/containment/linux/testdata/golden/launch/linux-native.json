@@ -17,7 +17,9 @@
       "path": "/home/agent/.aws"
     }
   ],
-  "format_version": 1,
+  "format_version": 2,
+  "helper_strategy": "rootless-userns",
+  "identity": "current-user",
   "mounts": [
     {
       "access": "read-write",
@@ -43,6 +45,7 @@
   },
   "phase": "plan-only",
   "process": {
+    "allow_fork": true,
     "close_inherited_fds": true,
     "drop_capabilities": true,
     "no_new_privs": true
