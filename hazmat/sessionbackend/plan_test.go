@@ -238,8 +238,10 @@ func assertGolden(t *testing.T, name, got string) {
 
 func TestAppleContainerPreparedArtifactMatchesBackend(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode:      sessionmeta.ModeAppleContainer,
-		HostFacts: hostfacts.ForGOOS("darwin"),
+		Target:     "codex",
+		Mode:       sessionmeta.ModeAppleContainer,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
 	artifact := NewAppleContainerArtifact(AppleContainerLaunchSpec{
 		FormatVersion: 1,
@@ -261,8 +263,10 @@ func TestAppleContainerPreparedArtifactMatchesBackend(t *testing.T) {
 	}
 
 	dockerPlan := BuildPlan(Input{
-		Mode:      sessionmeta.ModeDockerSandbox,
-		HostFacts: hostfacts.ForGOOS("darwin"),
+		Target:     "codex",
+		Mode:       sessionmeta.ModeDockerSandbox,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
 	if _, err := NewPreparedLaunch(dockerPlan, artifact, nil); err == nil {
 		t.Fatal("NewPreparedLaunch accepted an apple-container artifact for a docker backend")

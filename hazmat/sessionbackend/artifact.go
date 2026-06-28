@@ -3,6 +3,8 @@ package sessionbackend
 import (
 	"encoding/json"
 	"fmt"
+
+	"hazmat/sessionmeta"
 )
 
 const (
@@ -66,6 +68,7 @@ type RemoteEnvelope struct {
 type PreparedArtifact interface {
 	preparedArtifact()
 	artifactKind() ArtifactKind
+	validate() error
 	applyToPreparedLaunch(*PreparedLaunch)
 }
 
@@ -173,6 +176,13 @@ func (a darwinSeatbeltArtifact) artifactKind() ArtifactKind {
 	return PreparedArtifactDarwinSeatbelt
 }
 
+func (a darwinSeatbeltArtifact) validate() error {
+	if a.artifact.PolicyPath == "" && a.artifact.Policy == "" {
+		return fmt.Errorf("darwin seatbelt artifact requires policy path or policy text")
+	}
+	return nil
+}
+
 func (a darwinSeatbeltArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
 	p.darwinSeatbelt = copyDarwinSeatbelt(&a.artifact)
 }
@@ -183,6 +193,19 @@ func (a linuxLaunchArtifact) artifactKind() ArtifactKind {
 	return PreparedArtifactLinuxLaunch
 }
 
+func (a linuxLaunchArtifact) validate() error {
+	if a.artifact.FormatVersion <= 0 {
+		return fmt.Errorf("linux launch artifact format_version is required")
+	}
+	if a.artifact.Backend != string(KindLinuxNative) {
+		return fmt.Errorf("linux launch artifact backend %q does not match %q", a.artifact.Backend, KindLinuxNative)
+	}
+	if a.artifact.Phase == "" {
+		return fmt.Errorf("linux launch artifact phase is required")
+	}
+	return nil
+}
+
 func (a linuxLaunchArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
 	p.linuxLaunch = copyLinuxLaunchSpec(&a.artifact)
 }
@@ -191,6 +214,22 @@ func (dockerSandboxArtifact) preparedArtifact() {}
 
 func (a dockerSandboxArtifact) artifactKind() ArtifactKind {
 	return PreparedArtifactDockerSandbox
+}
+
+func (a dockerSandboxArtifact) validate() error {
+	if a.artifact.Name == "" {
+		return fmt.Errorf("docker sandbox artifact name is required")
+	}
+	if a.artifact.Agent == "" {
+		return fmt.Errorf("docker sandbox artifact agent is required")
+	}
+	if a.artifact.ProjectDir == "" {
+		return fmt.Errorf("docker sandbox artifact project_dir is required")
+	}
+	if a.artifact.PolicyProfile == "" {
+		return fmt.Errorf("docker sandbox artifact policy_profile is required")
+	}
+	return nil
 }
 
 func (a dockerSandboxArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
@@ -208,6 +247,16 @@ func (a remoteEnvelopeArtifact) artifactKind() ArtifactKind {
 	return PreparedArtifactRemoteEnvelope
 }
 
+func (a remoteEnvelopeArtifact) validate() error {
+	if a.artifact.SchemaVersion <= 0 {
+		return fmt.Errorf("remote envelope artifact schema_version is required")
+	}
+	if a.artifact.Digest == "" {
+		return fmt.Errorf("remote envelope artifact digest is required")
+	}
+	return nil
+}
+
 func (a remoteEnvelopeArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
 	p.remoteEnvelope = copyRemoteEnvelope(&a.artifact)
 }
@@ -216,6 +265,25 @@ func (appleContainerArtifact) preparedArtifact() {}
 
 func (a appleContainerArtifact) artifactKind() ArtifactKind {
 	return PreparedArtifactAppleContainer
+}
+
+func (a appleContainerArtifact) validate() error {
+	if a.artifact.FormatVersion <= 0 {
+		return fmt.Errorf("apple container artifact format_version is required")
+	}
+	if a.artifact.Backend != string(KindAppleContainer) {
+		return fmt.Errorf("apple container artifact backend %q does not match %q", a.artifact.Backend, KindAppleContainer)
+	}
+	if a.artifact.Phase == "" {
+		return fmt.Errorf("apple container artifact phase is required")
+	}
+	if a.artifact.ContainerName == "" {
+		return fmt.Errorf("apple container artifact container_name is required")
+	}
+	if a.artifact.Image == "" {
+		return fmt.Errorf("apple container artifact image is required")
+	}
+	return nil
 }
 
 func (a appleContainerArtifact) applyToPreparedLaunch(p *PreparedLaunch) {
@@ -227,8 +295,14 @@ func NewPreparedLaunch(plan Plan, artifact PreparedArtifact, acceptedGaps []Acce
 	if artifact == nil {
 		return PreparedLaunch{}, fmt.Errorf("prepared launch artifact is required")
 	}
+	if err := validatePreparedPlan(plan); err != nil {
+		return PreparedLaunch{}, err
+	}
 	kind := artifact.artifactKind()
 	if err := validateArtifactBackend(kind, plan.Backend); err != nil {
+		return PreparedLaunch{}, err
+	}
+	if err := artifact.validate(); err != nil {
 		return PreparedLaunch{}, err
 	}
 	accepted, err := validateAcceptedGaps(plan.CapabilityGaps, acceptedGaps)
@@ -311,6 +385,41 @@ func validateArtifactBackend(kind ArtifactKind, backend Kind) error {
 	}
 	if backend != want {
 		return fmt.Errorf("artifact %q does not match backend %q", kind, backend)
+	}
+	return nil
+}
+
+func validatePreparedPlan(plan Plan) error {
+	if plan.Target == "" {
+		return fmt.Errorf("prepared launch plan target is required")
+	}
+	if plan.ProjectDir == "" {
+		return fmt.Errorf("prepared launch plan project_dir is required")
+	}
+	switch plan.Mode {
+	case sessionmeta.ModeNative, sessionmeta.ModeDockerSandbox, sessionmeta.ModeAppleContainer:
+	case "":
+		return fmt.Errorf("prepared launch plan mode is required")
+	default:
+		return fmt.Errorf("prepared launch plan mode %q is unsupported", plan.Mode)
+	}
+	switch plan.Backend {
+	case KindDarwinNative, KindLinuxNative, KindUnsupportedNative, KindRemoteEnvelope:
+		if plan.Mode != sessionmeta.ModeNative {
+			return fmt.Errorf("prepared launch backend %q requires mode %q", plan.Backend, sessionmeta.ModeNative)
+		}
+	case KindDockerSandbox:
+		if plan.Mode != sessionmeta.ModeDockerSandbox {
+			return fmt.Errorf("prepared launch backend %q requires mode %q", plan.Backend, sessionmeta.ModeDockerSandbox)
+		}
+	case KindAppleContainer:
+		if plan.Mode != sessionmeta.ModeAppleContainer {
+			return fmt.Errorf("prepared launch backend %q requires mode %q", plan.Backend, sessionmeta.ModeAppleContainer)
+		}
+	case "":
+		return fmt.Errorf("prepared launch plan backend is required")
+	default:
+		return fmt.Errorf("prepared launch plan backend %q is unsupported", plan.Backend)
 	}
 	return nil
 }

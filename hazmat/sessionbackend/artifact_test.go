@@ -47,7 +47,12 @@ func TestNewPreparedLaunchAcceptsSingleMatchingArtifact(t *testing.T) {
 }
 
 func TestNewPreparedLaunchRequiresArtifact(t *testing.T) {
-	plan := BuildPlan(Input{Mode: sessionmeta.ModeNative, HostFacts: hostfacts.ForGOOS("darwin")})
+	plan := BuildPlan(Input{
+		Target:     "codex",
+		Mode:       sessionmeta.ModeNative,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
+	})
 
 	_, err := NewPreparedLaunch(plan, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "artifact is required") {
@@ -66,10 +71,157 @@ func TestPreparedArtifactIsSealed(t *testing.T) {
 	}
 }
 
+func TestNewPreparedLaunchRejectsMalformedPlan(t *testing.T) {
+	valid := BuildPlan(Input{
+		Target:     "codex",
+		Mode:       sessionmeta.ModeNative,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
+	})
+	cases := []struct {
+		name string
+		mut  func(Plan) Plan
+		want string
+	}{
+		{
+			name: "missing target",
+			mut: func(plan Plan) Plan {
+				plan.Target = ""
+				return plan
+			},
+			want: "target is required",
+		},
+		{
+			name: "missing project",
+			mut: func(plan Plan) Plan {
+				plan.ProjectDir = ""
+				return plan
+			},
+			want: "project_dir is required",
+		},
+		{
+			name: "missing mode",
+			mut: func(plan Plan) Plan {
+				plan.Mode = ""
+				return plan
+			},
+			want: "mode is required",
+		},
+		{
+			name: "unsupported backend",
+			mut: func(plan Plan) Plan {
+				plan.Backend = Kind("raw")
+				return plan
+			},
+			want: `backend "raw" is unsupported`,
+		},
+		{
+			name: "backend mode mismatch",
+			mut: func(plan Plan) Plan {
+				plan.Mode = sessionmeta.ModeDockerSandbox
+				return plan
+			},
+			want: `backend "darwin-native" requires mode "native"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPreparedLaunch(tc.mut(valid), NewDarwinSeatbeltArtifact(DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"}), nil)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewPreparedLaunchRejectsMalformedArtifacts(t *testing.T) {
+	cases := []struct {
+		name         string
+		plan         Plan
+		artifact     PreparedArtifact
+		acceptedGaps []AcceptedGap
+		want         string
+	}{
+		{
+			name: "darwin empty policy",
+			plan: BuildPlan(Input{
+				Target:     "codex",
+				Mode:       sessionmeta.ModeNative,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewDarwinSeatbeltArtifact(DarwinSeatbelt{}),
+			want:     "policy path or policy text",
+		},
+		{
+			name: "linux missing backend",
+			plan: BuildPlan(Input{
+				Target:     "codex",
+				Mode:       sessionmeta.ModeNative,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("linux"),
+			}),
+			artifact: NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Phase: "plan-only"}),
+			acceptedGaps: []AcceptedGap{{
+				Feature:       GapNativeLaunch,
+				Justification: "plan-only Linux launch artifact",
+			}},
+			want: "linux launch artifact backend",
+		},
+		{
+			name: "docker missing agent",
+			plan: BuildPlan(Input{
+				Target:     "codex",
+				Mode:       sessionmeta.ModeDockerSandbox,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewDockerSandboxArtifact(DockerSandboxSpec{Name: "hazmat", ProjectDir: "/workspace/project", PolicyProfile: "baseline"}),
+			want:     "agent is required",
+		},
+		{
+			name:     "remote missing digest",
+			plan:     Plan{Target: "codex", Mode: sessionmeta.ModeNative, Backend: KindRemoteEnvelope, ProjectDir: "/workspace/project"},
+			artifact: NewRemoteEnvelopeArtifact(RemoteEnvelope{SchemaVersion: 1}),
+			want:     "digest is required",
+		},
+		{
+			name: "apple container missing image",
+			plan: BuildPlan(Input{
+				Target:     "codex",
+				Mode:       sessionmeta.ModeAppleContainer,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewAppleContainerArtifact(AppleContainerLaunchSpec{
+				FormatVersion: 1,
+				Backend:       string(KindAppleContainer),
+				Phase:         "plan-only",
+				ContainerName: "hazmat-apple",
+			}),
+			acceptedGaps: []AcceptedGap{{
+				Feature:       GapAppleContainerLaunch,
+				Justification: "plan-only Apple Container launch artifact",
+			}},
+			want: "image is required",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPreparedLaunch(tc.plan, tc.artifact, tc.acceptedGaps)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewPreparedLaunchRejectsBackendMismatch(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode:      sessionmeta.ModeDockerSandbox,
-		HostFacts: hostfacts.ForGOOS("darwin"),
+		Target:     "codex",
+		Mode:       sessionmeta.ModeDockerSandbox,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
 
 	_, err := NewPreparedLaunch(plan, NewDarwinSeatbeltArtifact(DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"}), nil)
@@ -80,8 +232,10 @@ func TestNewPreparedLaunchRejectsBackendMismatch(t *testing.T) {
 
 func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode:      sessionmeta.ModeNative,
-		HostFacts: hostfacts.ForGOOS("linux"),
+		Target:     "codex",
+		Mode:       sessionmeta.ModeNative,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("linux"),
 	})
 
 	_, err := NewPreparedLaunch(plan, NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"}), nil)
@@ -103,8 +257,10 @@ func TestNewPreparedLaunchRequiresAcceptedCapabilityGaps(t *testing.T) {
 
 func TestNewPreparedLaunchRejectsExtraAcceptedCapabilityGap(t *testing.T) {
 	plan := BuildPlan(Input{
-		Mode:      sessionmeta.ModeDockerSandbox,
-		HostFacts: hostfacts.ForGOOS("darwin"),
+		Target:     "codex",
+		Mode:       sessionmeta.ModeDockerSandbox,
+		ProjectDir: "/workspace/project",
+		HostFacts:  hostfacts.ForGOOS("darwin"),
 	})
 
 	_, err := NewPreparedLaunch(plan, NewDockerSandboxArtifact(DockerSandboxSpec{Name: "hazmat", Agent: "claude", ProjectDir: "/workspace/project", PolicyProfile: "baseline"}), []AcceptedGap{{Feature: GapNativeLaunch}})
@@ -115,8 +271,10 @@ func TestNewPreparedLaunchRejectsExtraAcceptedCapabilityGap(t *testing.T) {
 
 func TestNewPreparedLaunchAllowsRemoteEnvelopePlaceholder(t *testing.T) {
 	plan := Plan{
-		Mode:    sessionmeta.ModeNative,
-		Backend: KindRemoteEnvelope,
+		Target:     "codex",
+		Mode:       sessionmeta.ModeNative,
+		Backend:    KindRemoteEnvelope,
+		ProjectDir: "/workspace/project",
 	}
 
 	prepared, err := NewPreparedLaunch(plan, NewRemoteEnvelopeArtifact(RemoteEnvelope{SchemaVersion: 1, Digest: "sha256:test"}), nil)
@@ -309,8 +467,10 @@ func TestPreparedLaunchDTOEmitsExactlySelectedArtifact(t *testing.T) {
 		{
 			name: "darwin",
 			plan: BuildPlan(Input{
-				Mode:      sessionmeta.ModeNative,
-				HostFacts: hostfacts.ForGOOS("darwin"),
+				Target:     "codex",
+				Mode:       sessionmeta.ModeNative,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
 			}),
 			artifact: NewDarwinSeatbeltArtifact(DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"}),
 			wantKind: PreparedArtifactDarwinSeatbelt,
@@ -318,8 +478,10 @@ func TestPreparedLaunchDTOEmitsExactlySelectedArtifact(t *testing.T) {
 		{
 			name: "linux",
 			plan: BuildPlan(Input{
-				Mode:      sessionmeta.ModeNative,
-				HostFacts: hostfacts.ForGOOS("linux"),
+				Target:     "codex",
+				Mode:       sessionmeta.ModeNative,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("linux"),
 			}),
 			artifact: NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"}),
 			acceptedGaps: []AcceptedGap{{
@@ -331,23 +493,27 @@ func TestPreparedLaunchDTOEmitsExactlySelectedArtifact(t *testing.T) {
 		{
 			name: "docker",
 			plan: BuildPlan(Input{
-				Mode:      sessionmeta.ModeDockerSandbox,
-				HostFacts: hostfacts.ForGOOS("darwin"),
+				Target:     "codex",
+				Mode:       sessionmeta.ModeDockerSandbox,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
 			}),
 			artifact: NewDockerSandboxArtifact(DockerSandboxSpec{Name: "hazmat", Agent: "claude", ProjectDir: "/workspace/project", PolicyProfile: "baseline"}),
 			wantKind: PreparedArtifactDockerSandbox,
 		},
 		{
 			name:     "remote",
-			plan:     Plan{Mode: sessionmeta.ModeNative, Backend: KindRemoteEnvelope},
+			plan:     Plan{Target: "codex", Mode: sessionmeta.ModeNative, Backend: KindRemoteEnvelope, ProjectDir: "/workspace/project"},
 			artifact: NewRemoteEnvelopeArtifact(RemoteEnvelope{SchemaVersion: 1, Digest: "sha256:remote"}),
 			wantKind: PreparedArtifactRemoteEnvelope,
 		},
 		{
 			name: "apple-container",
 			plan: BuildPlan(Input{
-				Mode:      sessionmeta.ModeAppleContainer,
-				HostFacts: hostfacts.ForGOOS("darwin"),
+				Target:     "codex",
+				Mode:       sessionmeta.ModeAppleContainer,
+				ProjectDir: "/workspace/project",
+				HostFacts:  hostfacts.ForGOOS("darwin"),
 			}),
 			artifact: NewAppleContainerArtifact(AppleContainerLaunchSpec{
 				FormatVersion: 1,
