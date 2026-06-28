@@ -174,7 +174,7 @@ feedback, not for skipping promoted proofs.
 | Governed code | `hazmat/native_account*.go`, `hazmat/native_service*.go` — platform backend adapters and unsupported-platform fail-closed stubs |
 | Governed code | `hazmat/sudoers.go` — optional agent-maintenance sudoers choice, config command, and compatibility wrappers for sudoers runtime |
 | Governed code | `hazmat/rollback.go` — `runRollback()` and remaining root rollback resource callbacks not yet split from `package main` |
-| Key invariants | `AgentContained`, `LinuxPrivilegeRequiresContainment`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser`, `AgentWritableSetupParentsOwned` |
+| Key invariants | `AgentContained`, `LinuxPrivilegeRequiresContainment`, `NoOrphanedArtifacts`, `SudoersRequiresHelper`, `PrivilegeRequiresAgentUser`, `AgentDepsRequireUser`, `AgentWritableSetupParentsOwned`, `LinuxAgentUserSetupGraph`, `LinuxAgentUserRollbackRevokesPrivilegeFirst`, `LinuxAgentUserDestructiveRollbackBoundary` |
 | Key liveness | `CanAlwaysReachClean` |
 | Status | **Fixed and Re-Proved** — containment before privilege in both setup and rollback, including the optional broader maintenance sudoers rule |
 
@@ -237,12 +237,24 @@ Linux setup/rollback design only; concrete Linux systemd/nftables/resolver
 mechanics and disposable-host lifecycle tests are still required before Linux
 install or release artifacts can be enabled.
 
+**2026-06-28 Linux agent-user setup graph:** `MC_SetupRollback` now names the
+Linux multi-user resource projections from the two-lane design and checks
+identity, shared-group, workspace, helper, sudoers, cgroup/service-manager,
+distro-profile, and tool-home ordering. TLC reported "No error has been found"
+with liveness enabled across 65,662 generated states, 35,005 distinct states,
+depth 56. A shared group may survive without the dedicated user only as
+unprivileged rollback residue; workspace access, tool-home state, and sudoers
+privilege must be absent in that state.
+
 **Change rules:**
 - Any change to setup step ordering must be modeled and proved against
   `AgentContained` before committing.
 - Adding Linux setup/rollback mechanics must preserve
   `LinuxPrivilegeRequiresContainment`, not just the generic firewall-only
   `AgentContained` invariant.
+- Adding Linux agent-user resources must preserve
+  `LinuxAgentUserSetupGraph`, `LinuxAgentUserRollbackRevokesPrivilegeFirst`,
+  and `LinuxAgentUserDestructiveRollbackBoundary`.
 - Adding a new setup step requires adding the corresponding resource variable
   and updating `SetupStepSucceed` / `RollbackCore` / `RollbackDestructive`.
 - Adding a new persistent mutation inside an existing setup step still requires

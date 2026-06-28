@@ -132,6 +132,29 @@ resources == <<agentUser, devGroup, homeDirTraverse, localRepo, umask, hostCrede
                wrappers, sudoers, maintenanceSudoers, pfAnchor, dnsBlocklist,
                launchDaemon, claudeCode, credentials>>
 
+\* Linux agent-user setup resource projection. These names mirror the
+\* Linux two-lane design while reusing the already-checked setup order until
+\* setup/linux owns concrete resource callbacks.
+LinuxAgentUser == agentUser
+LinuxSharedGroup == devGroup
+LinuxAgentHome == agentUser
+LinuxWorkspaceAccess == homeDirTraverse
+LinuxLaunchHelper == launchHelper
+LinuxSudoers == sudoers \/ maintenanceSudoers
+LinuxCgroupRoot == launchDaemon
+LinuxDistroProfile == hostCredentialModes
+LinuxToolHome == wrappers
+
+\* Destructive rollback may be interrupted after deleting the agent user but
+\* before deleting the shared group. That residue is safe only while it is
+\* non-launchable and owns no workspace/tool-home state.
+LinuxUnprivilegedSharedGroupResidue ==
+    /\ rollbackAttempts > 0
+    /\ ~LinuxAgentUser
+    /\ ~LinuxWorkspaceAccess
+    /\ ~LinuxToolHome
+    /\ ~LinuxSudoers
+
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Type invariant
 \* ═══════════════════════════════════════════════════════════════════════════════
@@ -429,6 +452,30 @@ AgentDepsRequireUser ==
 AgentWritableSetupParentsOwned ==
     wrappers => agentUser
 
+\* Linux agent-user resource graph. The multi-user Linux lane may not grant
+\* root-helper privilege until the dedicated identity, helper, distro profile,
+\* and cgroup/service-manager containment resources are present.
+LinuxAgentUserSetupGraph ==
+    Platform # "linux" \/
+        /\ LinuxSharedGroup => (LinuxAgentUser \/ LinuxUnprivilegedSharedGroupResidue)
+        /\ LinuxAgentHome => LinuxAgentUser
+        /\ LinuxWorkspaceAccess => (LinuxAgentUser /\ LinuxSharedGroup)
+        /\ LinuxToolHome => LinuxAgentHome
+        /\ LinuxCgroupRoot => (pfAnchor /\ dnsBlocklist)
+        /\ LinuxSudoers => (LinuxAgentUser /\ LinuxLaunchHelper /\ LinuxCgroupRoot /\ LinuxDistroProfile)
+
+\* Linux rollback revokes root-helper privilege before removing cgroup,
+\* service-manager, firewall, resolver, or identity resources.
+LinuxAgentUserRollbackRevokesPrivilegeFirst ==
+    Platform # "linux" \/
+        (phase = "rolling_back" /\ rollbackStep > 0 => ~LinuxSudoers)
+
+\* Destructive rollback can remove the dedicated identity only after the core
+\* rollback has removed agent-writable setup state and helper privilege.
+LinuxAgentUserDestructiveRollbackBoundary ==
+    Platform # "linux" \/
+        (~LinuxAgentUser => (~LinuxAgentHome /\ ~LinuxWorkspaceAccess /\ ~LinuxToolHome /\ ~LinuxSudoers))
+
 \* Combined safety.
 Safety ==
     /\ TypeOK
@@ -439,6 +486,9 @@ Safety ==
     /\ PrivilegeRequiresAgentUser
     /\ AgentDepsRequireUser
     /\ AgentWritableSetupParentsOwned
+    /\ LinuxAgentUserSetupGraph
+    /\ LinuxAgentUserRollbackRevokesPrivilegeFirst
+    /\ LinuxAgentUserDestructiveRollbackBoundary
 
 \* ═══════════════════════════════════════════════════════════════════════════════
 \* Liveness

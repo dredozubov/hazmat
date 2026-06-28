@@ -124,7 +124,22 @@ and how many setup/rollback attempts have occurred.
    either sudoers rule can exist only after all three Linux containment
    resources are present.
 
-7. **Harness/session ergonomics are outside this setup model.** Optional
+7. **Linux agent-user setup has named resource projections.** The model now
+   names the Linux multi-user resources from the two-lane design:
+   `LinuxAgentUser`, `LinuxSharedGroup`, `LinuxAgentHome`,
+   `LinuxWorkspaceAccess`, `LinuxLaunchHelper`, `LinuxSudoers`,
+   `LinuxCgroupRoot`, `LinuxDistroProfile`, and `LinuxToolHome`. These are
+   projections over the current setup resource order until `setup/linux` owns
+   concrete callbacks. `LinuxAgentUserSetupGraph`,
+   `LinuxAgentUserRollbackRevokesPrivilegeFirst`, and
+   `LinuxAgentUserDestructiveRollbackBoundary` prove helper/sudoers/cgroup
+   ordering, privilege-last setup, privilege-first rollback, and destructive
+   rollback boundaries for the future agent-user lane. A shared group may
+   outlive the dedicated user only as non-launchable residue after a rollback
+   attempt; workspace access, tool-home state, and sudoers privilege must be
+   absent in that state.
+
+8. **Harness/session ergonomics are outside this setup model.** Optional
    harness-specific commands such as `hazmat bootstrap opencode`, curated
    import flows, and session-only integration activation are not part of
    `runInit()`. They are modeled separately where applicable and are still
@@ -161,6 +176,9 @@ still guarantees a path back to a clean state.
 | `PrivilegeRequiresAgentUser` | Any passwordless sudoers rule requires the agent user |
 | `AgentDepsRequireUser` | Agent-owned resources require agent user |
 | `AgentWritableSetupParentsOwned` | Agent-writable setup-created parent directories remain tied to the agent identity |
+| `LinuxAgentUserSetupGraph` | Linux multi-user setup resources obey identity, helper, cgroup, and sudoers ordering, except non-launchable shared-group residue after rollback |
+| `LinuxAgentUserRollbackRevokesPrivilegeFirst` | Linux rollback revokes helper privilege before removing cgroup, service, firewall, resolver, or identity resources |
+| `LinuxAgentUserDestructiveRollbackBoundary` | Destructive rollback removes agent-writable setup state before deleting the dedicated agent identity |
 | `CanAlwaysReachClean` | System can always return to clean state (liveness) |
 
 ### Important Scope Boundary
@@ -192,3 +210,12 @@ This satisfies the model-first gate for future Linux setup/rollback design, but
 does not enable Linux privileged lifecycle, artifact install, or release
 packaging without the corresponding backend implementation and disposable-host
 tests.
+
+**2026-06-28 Linux agent-user setup graph:** `MC_SetupRollback.cfg` now also
+checks the named Linux multi-user resource projections from the two-lane design:
+agent identity, shared group, workspace access, launch helper, sudoers,
+cgroup/service-manager root, distro profile, and tool-home state. TLC re-run
+with `-lncheck final` reported "No error has been found" across 65,662
+generated states, 35,005 distinct states, depth 56. The graph allows a shared
+group without the dedicated user only as unprivileged rollback residue; no
+workspace access, tool-home state, or sudoers privilege may remain there.
