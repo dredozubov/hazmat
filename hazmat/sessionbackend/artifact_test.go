@@ -170,6 +170,94 @@ func TestPreparedLaunchRequiresExplicitDTOForJSON(t *testing.T) {
 	}
 }
 
+func TestPreparedLaunchDTODisclosureScopeMatrix(t *testing.T) {
+	plan := BuildPlan(Input{
+		Target:       "codex",
+		Mode:         sessionmeta.ModeNative,
+		ProjectDir:   "/workspace/project",
+		ReadOnlyDirs: []string{"/workspace/reference"},
+		HostFacts:    hostfacts.ForGOOS("darwin"),
+	})
+	prepared, err := NewPreparedLaunch(plan, NewDarwinSeatbeltArtifact(DarwinSeatbelt{
+		PolicyPath: "/private/tmp/hazmat.sb",
+		Policy:     "sbpl-policy-text",
+	}), nil)
+	if err != nil {
+		t.Fatalf("NewPreparedLaunch: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		scope   PreparedLaunchDTOScope
+		present []string
+		absent  []string
+	}{
+		{
+			name: "default redacts host paths and policy text",
+			present: []string{
+				`"artifact_kind":"darwin-seatbelt"`,
+			},
+			absent: []string{
+				"/workspace/project",
+				"/workspace/reference",
+				"/private/tmp/hazmat.sb",
+				"sbpl-policy-text",
+			},
+		},
+		{
+			name:  "host path scope exposes paths only",
+			scope: PreparedLaunchDTOScope{IncludeResolvedHostPaths: true},
+			present: []string{
+				"/workspace/project",
+				"/workspace/reference",
+				"/private/tmp/hazmat.sb",
+			},
+			absent: []string{"sbpl-policy-text"},
+		},
+		{
+			name:  "policy scope exposes policy only",
+			scope: PreparedLaunchDTOScope{IncludePolicyText: true},
+			present: []string{
+				"sbpl-policy-text",
+			},
+			absent: []string{
+				"/workspace/project",
+				"/workspace/reference",
+				"/private/tmp/hazmat.sb",
+			},
+		},
+		{
+			name:  "full scope exposes paths and policy",
+			scope: PreparedLaunchDTOScope{IncludeResolvedHostPaths: true, IncludePolicyText: true},
+			present: []string{
+				"/workspace/project",
+				"/workspace/reference",
+				"/private/tmp/hazmat.sb",
+				"sbpl-policy-text",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(prepared.DTO(tc.scope))
+			if err != nil {
+				t.Fatalf("marshal DTO: %v", err)
+			}
+			text := string(data)
+			for _, want := range tc.present {
+				if !strings.Contains(text, want) {
+					t.Fatalf("DTO missing %q: %s", want, text)
+				}
+			}
+			for _, forbidden := range tc.absent {
+				if strings.Contains(text, forbidden) {
+					t.Fatalf("DTO leaked %q: %s", forbidden, text)
+				}
+			}
+		})
+	}
+}
+
 func TestPreparedLaunchDockerDTORedactsResolvedHostPaths(t *testing.T) {
 	plan := BuildPlan(Input{
 		Target:        "claude",
@@ -208,4 +296,102 @@ func TestPreparedLaunchDockerDTORedactsResolvedHostPaths(t *testing.T) {
 	if len(full.DockerSandbox.MountReadDirs) != 1 || full.DockerSandbox.MountReadDirs[0] != "/workspace/reference" {
 		t.Fatalf("full DTO MountReadDirs = %+v", full.DockerSandbox.MountReadDirs)
 	}
+}
+
+func TestPreparedLaunchDTOEmitsExactlySelectedArtifact(t *testing.T) {
+	cases := []struct {
+		name         string
+		plan         Plan
+		artifact     PreparedArtifact
+		acceptedGaps []AcceptedGap
+		wantKind     ArtifactKind
+	}{
+		{
+			name: "darwin",
+			plan: BuildPlan(Input{
+				Mode:      sessionmeta.ModeNative,
+				HostFacts: hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewDarwinSeatbeltArtifact(DarwinSeatbelt{PolicyPath: "/tmp/policy.sb"}),
+			wantKind: PreparedArtifactDarwinSeatbelt,
+		},
+		{
+			name: "linux",
+			plan: BuildPlan(Input{
+				Mode:      sessionmeta.ModeNative,
+				HostFacts: hostfacts.ForGOOS("linux"),
+			}),
+			artifact: NewLinuxLaunchArtifact(LinuxLaunchSpec{FormatVersion: 1, Backend: string(KindLinuxNative), Phase: "plan-only"}),
+			acceptedGaps: []AcceptedGap{{
+				Feature:       GapNativeLaunch,
+				Justification: "plan-only Linux launch artifact",
+			}},
+			wantKind: PreparedArtifactLinuxLaunch,
+		},
+		{
+			name: "docker",
+			plan: BuildPlan(Input{
+				Mode:      sessionmeta.ModeDockerSandbox,
+				HostFacts: hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewDockerSandboxArtifact(DockerSandboxSpec{Name: "hazmat", Agent: "claude", ProjectDir: "/workspace/project", PolicyProfile: "baseline"}),
+			wantKind: PreparedArtifactDockerSandbox,
+		},
+		{
+			name:     "remote",
+			plan:     Plan{Mode: sessionmeta.ModeNative, Backend: KindRemoteEnvelope},
+			artifact: NewRemoteEnvelopeArtifact(RemoteEnvelope{SchemaVersion: 1, Digest: "sha256:remote"}),
+			wantKind: PreparedArtifactRemoteEnvelope,
+		},
+		{
+			name: "apple-container",
+			plan: BuildPlan(Input{
+				Mode:      sessionmeta.ModeAppleContainer,
+				HostFacts: hostfacts.ForGOOS("darwin"),
+			}),
+			artifact: NewAppleContainerArtifact(AppleContainerLaunchSpec{
+				FormatVersion: 1,
+				Backend:       string(KindAppleContainer),
+				Phase:         "plan-only",
+				ContainerName: "hazmat-apple",
+				Image:         "example:latest",
+			}),
+			acceptedGaps: []AcceptedGap{{
+				Feature:       GapAppleContainerLaunch,
+				Justification: "plan-only Apple Container launch artifact",
+			}},
+			wantKind: PreparedArtifactAppleContainer,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := NewPreparedLaunch(tc.plan, tc.artifact, tc.acceptedGaps)
+			if err != nil {
+				t.Fatalf("NewPreparedLaunch: %v", err)
+			}
+			dto := prepared.DTO(PreparedLaunchDTOScope{IncludeResolvedHostPaths: true, IncludePolicyText: true})
+			if dto.ArtifactKind != tc.wantKind {
+				t.Fatalf("ArtifactKind = %q, want %q", dto.ArtifactKind, tc.wantKind)
+			}
+			if count := preparedLaunchDTOArtifactCount(dto); count != 1 {
+				t.Fatalf("DTO artifact count = %d, want 1: %+v", count, dto)
+			}
+		})
+	}
+}
+
+func preparedLaunchDTOArtifactCount(dto PreparedLaunchDTO) int {
+	count := 0
+	for _, present := range []bool{
+		dto.DarwinSeatbelt != nil,
+		dto.LinuxLaunch != nil,
+		dto.DockerSandbox != nil,
+		dto.RemoteEnvelope != nil,
+		dto.AppleContainer != nil,
+	} {
+		if present {
+			count++
+		}
+	}
+	return count
 }
