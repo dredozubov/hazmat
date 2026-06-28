@@ -45,7 +45,7 @@ Minimum release evidence before promotion beyond `setup-required`:
 | Setup resource design | The two-lane design names setup labels, diagnostics, dry-run/fix behavior, and rollback flags. | `sandboxing-xuar.4.2` |
 | Diagnostics/gaps | Read-only Linux reports emit `linux.setup-required`, helper, cgroup, distro, runtime, and helper-strategy gaps. | `sandboxing-xuar.4.3` |
 | Root-helper admission | Unit tests prove `agent-user` + `root-helper`, setup gap refusal, metadata order, and no current-user fallback. | `sandboxing-xuar.4.4` |
-| Setup implementation | `internal/setup/linux` implements modeled resources and typed doctor/rollback handlers. | future bead |
+| Setup implementation | `internal/setup/linux` implements modeled resources; diagnostics apply/verify setup resources; `hazmat rollback` dispatches modeled Linux rollback callbacks. | `sandboxing-xuar.4.6`, `sandboxing-xuar.4.8`, `sandboxing-r8fx` |
 | VM lifecycle matrix | U1, D1, F1, A1 transcripts satisfy A1-A11 in the agent-user matrix. | `sandboxing-xuar.4.5` |
 | Docs/status | Runtime provider docs keep `linux-agent-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 

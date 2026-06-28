@@ -17,8 +17,9 @@ import (
 type linuxDiagnosticSetupOperation string
 
 const (
-	linuxDiagnosticSetupApply  linuxDiagnosticSetupOperation = "apply"
-	linuxDiagnosticSetupVerify linuxDiagnosticSetupOperation = "verify"
+	linuxDiagnosticSetupApply    linuxDiagnosticSetupOperation = "apply"
+	linuxDiagnosticSetupVerify   linuxDiagnosticSetupOperation = "verify"
+	linuxDiagnosticSetupRollback linuxDiagnosticSetupOperation = "rollback"
 )
 
 type linuxSetupDiagnosticInfo struct {
@@ -93,27 +94,29 @@ type linuxDiagnosticSetupBackend struct {
 
 func (b linuxDiagnosticSetupBackend) callbacks() linuxsetup.Callbacks {
 	return linuxsetup.Callbacks{
-		DistroProfile:   b.callback(b.applyDistroProfile, b.verifyDistroProfile),
-		AgentUser:       b.callback(b.applyAgentUser, b.verifyAgentUser),
-		SharedGroup:     b.callback(b.applySharedGroup, b.verifySharedGroup),
-		AgentHome:       b.callback(b.applyAgentHome, b.verifyAgentHome),
-		WorkspaceAccess: b.callback(b.applyWorkspaceAccess, b.verifyWorkspaceAccess),
-		ToolHome:        b.callback(b.applyToolHome, b.verifyToolHome),
-		FirewallPolicy:  b.callback(b.applyFirewallPolicy, b.verifyFirewallPolicy),
-		ResolverPolicy:  b.callback(b.applyResolverPolicy, b.verifyResolverPolicy),
-		CgroupRoot:      b.callback(b.applyCgroupRoot, b.verifyCgroupRoot),
-		LaunchHelper:    b.callback(b.applyLaunchHelper, b.verifyLaunchHelper),
-		Sudoers:         b.callback(b.applySudoers, b.verifySudoers),
+		DistroProfile:   b.callback(b.applyDistroProfile, b.verifyDistroProfile, b.rollbackDistroProfile),
+		AgentUser:       b.callback(b.applyAgentUser, b.verifyAgentUser, b.rollbackAgentUser),
+		SharedGroup:     b.callback(b.applySharedGroup, b.verifySharedGroup, b.rollbackSharedGroup),
+		AgentHome:       b.callback(b.applyAgentHome, b.verifyAgentHome, b.rollbackAgentHome),
+		WorkspaceAccess: b.callback(b.applyWorkspaceAccess, b.verifyWorkspaceAccess, b.rollbackWorkspaceAccess),
+		ToolHome:        b.callback(b.applyToolHome, b.verifyToolHome, b.rollbackToolHome),
+		FirewallPolicy:  b.callback(b.applyFirewallPolicy, b.verifyFirewallPolicy, b.rollbackFirewallPolicy),
+		ResolverPolicy:  b.callback(b.applyResolverPolicy, b.verifyResolverPolicy, b.rollbackResolverPolicy),
+		CgroupRoot:      b.callback(b.applyCgroupRoot, b.verifyCgroupRoot, b.rollbackCgroupRoot),
+		LaunchHelper:    b.callback(b.applyLaunchHelper, b.verifyLaunchHelper, b.rollbackLaunchHelper),
+		Sudoers:         b.callback(b.applySudoers, b.verifySudoers, b.rollbackSudoers),
 	}
 }
 
-func (b linuxDiagnosticSetupBackend) callback(apply, verify func() error) linuxsetup.Callback {
+func (b linuxDiagnosticSetupBackend) callback(apply, verify, rollback func() error) linuxsetup.Callback {
 	return func() error {
 		switch b.operation {
 		case linuxDiagnosticSetupApply:
 			return apply()
 		case linuxDiagnosticSetupVerify:
 			return verify()
+		case linuxDiagnosticSetupRollback:
+			return rollback()
 		default:
 			return fmt.Errorf("unknown Linux setup operation %q", b.operation)
 		}
@@ -391,6 +394,121 @@ func (b linuxDiagnosticSetupBackend) verifySudoers() error {
 		return fmt.Errorf("Linux sudoers does not contain narrow root-helper rule")
 	}
 	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackDistroProfile() error {
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackAgentUser() error {
+	if _, err := b.runner.SudoOutput("id", "-u", linuxAgentUserName); err != nil {
+		return nil
+	}
+	if err := b.runner.Sudo("delete Linux agent user", "userdel", linuxAgentUserName); err != nil {
+		return fmt.Errorf("delete Linux agent user: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackSharedGroup() error {
+	if _, err := b.runner.SudoOutput("getent", "group", linuxSharedGroupName); err != nil {
+		return nil
+	}
+	if err := b.runner.Sudo("delete Linux shared group", "groupdel", linuxSharedGroupName); err != nil {
+		return fmt.Errorf("delete Linux shared group: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackAgentHome() error {
+	if err := b.runner.Sudo("remove Linux agent home", "rm", "-rf", linuxAgentHomePath); err != nil {
+		return fmt.Errorf("remove Linux agent home: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackWorkspaceAccess() error {
+	if strings.TrimSpace(b.projectDir) == "" {
+		return fmt.Errorf("Linux workspace access rollback requires project directory")
+	}
+	acl, err := b.runner.SudoOutput("getfacl", "-cp", b.projectDir)
+	if err != nil {
+		return fmt.Errorf("inspect Linux workspace ACL: %w", err)
+	}
+	if linuxACLContains(acl, "user", linuxAgentUserName) || linuxACLContains(acl, "group", linuxSharedGroupName) {
+		if err := b.runner.Sudo("remove Linux agent workspace ACL", "setfacl", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, b.projectDir); err != nil {
+			return fmt.Errorf("remove Linux workspace ACL: %w", err)
+		}
+	}
+	if linuxACLContains(acl, "default:user", linuxAgentUserName) || linuxACLContains(acl, "default:group", linuxSharedGroupName) {
+		if err := b.runner.Sudo("remove Linux agent default workspace ACL", "setfacl", "-d", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, b.projectDir); err != nil {
+			return fmt.Errorf("remove Linux default workspace ACL: %w", err)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackToolHome() error {
+	for _, dir := range []string{
+		filepath.Join(linuxAgentHomePath, ".cache"),
+		filepath.Join(linuxAgentHomePath, ".config"),
+		filepath.Join(linuxAgentHomePath, ".local", "share"),
+		filepath.Join(linuxAgentHomePath, ".local", "state"),
+		filepath.Join(linuxAgentHomePath, ".local", "bin"),
+	} {
+		if err := b.runner.Sudo("remove Linux agent tool dir", "rm", "-rf", dir); err != nil {
+			return fmt.Errorf("remove Linux agent tool dir %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackFirewallPolicy() error {
+	if err := b.runner.Sudo("remove Linux firewall policy root", "rm", "-rf", linuxFirewallPolicyRoot); err != nil {
+		return fmt.Errorf("remove Linux firewall policy root: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackResolverPolicy() error {
+	if err := b.runner.Sudo("remove Linux resolver policy root", "rm", "-rf", linuxResolverPolicyRoot); err != nil {
+		return fmt.Errorf("remove Linux resolver policy root: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackCgroupRoot() error {
+	if err := b.runner.Sudo("check Linux cgroup root", "test", "-d", linuxCgroupRootPath); err != nil {
+		return nil
+	}
+	if err := b.runner.Sudo("remove Linux cgroup root", "rmdir", linuxCgroupRootPath); err != nil {
+		return fmt.Errorf("remove Linux cgroup root: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackLaunchHelper() error {
+	if err := b.runner.Sudo("remove Linux root helper", "rm", "-f", linuxRootHelperPath); err != nil {
+		return fmt.Errorf("remove Linux root helper: %w", err)
+	}
+	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) rollbackSudoers() error {
+	if err := b.runner.Sudo("remove Linux root-helper sudoers entry", "rm", "-f", linuxSudoersFile); err != nil {
+		return fmt.Errorf("remove Linux sudoers: %w", err)
+	}
+	return nil
+}
+
+func linuxACLContains(acl, kind, name string) bool {
+	prefix := kind + ":" + name + ":"
+	for _, line := range strings.Split(acl, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b linuxDiagnosticSetupBackend) launchHelperSource() (string, error) {

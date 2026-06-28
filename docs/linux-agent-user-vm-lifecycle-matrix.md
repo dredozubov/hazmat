@@ -112,9 +112,9 @@ Each known-distro VM transcript must include these scenarios.
 | A10 | Destructive rollback | user/group/home/tool deletion requires explicit flags and leaves no privileged residue |
 | A11 | Unsupported host | missing cgroup/helper/setup/distro support returns typed gaps before side effects |
 
-A1 through A10 require concrete Linux setup resources and a real root-helper.
-Until those exist, transcripts must mark them skipped with the reason
-`setup/root-helper not wired`; they must not be counted as smoke passes.
+A1 through A10 require concrete Linux setup resources, a real root-helper, and
+live rollback execution on the target host. Non-live unit, model, and
+prepared-host runtime evidence must not be counted as lifecycle passes.
 
 ## Non-Live Evidence
 
@@ -134,6 +134,7 @@ helper-backed launch, rollback, or destructive rollback passed.
 
 The current non-live evidence covers model-first setup ordering, diagnostics,
 root-helper admission planning, structured gaps, fake-helper metadata handling,
+resource-specific setup/rollback callbacks, Linux rollback command dispatch,
 and no current-user fallback. It does not prove live account creation, sudoers,
 cgroup delegation, helper install, or rollback on a Linux host.
 

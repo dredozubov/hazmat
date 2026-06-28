@@ -888,18 +888,19 @@ Hazmat lifecycle inside an existing test VM; set
 - `scripts/e2e.sh` is also host-side, but destructive.
 - `scripts/e2e-vm.sh` is the isolated wrapper for the destructive lifecycle
   test.
-- `scripts/check-linux-compile.sh` is compile-only. It proves the current
-  unsupported Linux backend still builds; it does not claim Linux setup,
-  rollback, launch, firewall, ACL, account, or service behavior is implemented.
+- `scripts/check-linux-compile.sh` is compile-only. It proves the Linux package
+  set still builds; it does not claim live Linux setup, rollback, launch,
+  firewall, ACL, account, or service behavior passed on a host.
 
 If you want the strongest local release signal, prefer the VM path plus CI.
 
 ## Linux Support Test Plan
 
-Until Linux setup and rollback resources are implemented, Linux testing stays
-compile-only plus unit coverage for platform dispatch. Do not enable Linux
-install or release artifacts from a compile-only result. The model-first gate
-has a checked resource-ordering contract in `tla/MC_SetupRollback` with
+Linux testing currently has compile, unit, model, transcript-scaffold, and
+prepared-host runtime coverage. Do not enable Linux install or release
+artifacts until disposable VM lifecycle transcripts pass setup, doctor,
+root-helper launch, default rollback, and destructive rollback. The model-first
+gate has a checked resource-ordering contract in `tla/MC_SetupRollback` with
 `Platform = "linux"`: Linux sudoers privilege requires firewall policy,
 resolver policy, and service-manager persistence to all be active.
 
@@ -957,8 +958,8 @@ the lane contracts and audit checklist.
 - CI initializes Hazmat with `--bootstrap-agent skip` for containment-only
   jobs, so those lanes do not depend on vendor-specific agent downloads.
 - Linux CI runs package tests and compile checks, but Linux setup/rollback
-  remains blocked until Linux resources are implemented and mapped to the
-  verified TLA+ setup/rollback model.
+  remains blocked for release until disposable lifecycle transcripts satisfy
+  the verified TLA+ setup/rollback model.
 - Do not treat `hazmat check` as a substitute for the script-based test suite.
   It validates the installed system, not the full repo release workflow.
 - Do not treat release preflight as a replacement for pull-request/main CI. It

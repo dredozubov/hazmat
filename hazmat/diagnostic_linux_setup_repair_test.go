@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -191,6 +192,74 @@ func TestLinuxSetupBackendRejectsLaunchHelperWithoutRunAgent(t *testing.T) {
 	}
 }
 
+func TestLinuxSetupBackendRollbackRemovesPrivilegeBeforeIdentity(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	runner.outputs[linuxSetupCommandKey("getfacl", "-cp", "/work/project")] = fakeLinuxSetupOutput{
+		out: "user::rwx\nuser:agent:rwx\ngroup:dev:rwx\ndefault:user:agent:rwx\ndefault:group:dev:rwx\n",
+	}
+	runner.outputs[linuxSetupCommandKey("id", "-u", linuxAgentUserName)] = fakeLinuxSetupOutput{out: agentUID + "\n"}
+	runner.outputs[linuxSetupCommandKey("getent", "group", linuxSharedGroupName)] = fakeLinuxSetupOutput{out: "dev:x:" + sharedGID + ":dr,agent\n"}
+	backend := linuxDiagnosticSetupBackend{
+		runner:      runner,
+		operation:   linuxDiagnosticSetupRollback,
+		currentUser: "dr",
+		projectDir:  "/work/project",
+	}
+
+	err := linuxsetup.RunRollbackSteps(backend.callbacks(), linuxsetup.RollbackOptions{
+		DeleteToolHome:    true,
+		DeleteAgentHome:   true,
+		DeleteAgentUser:   true,
+		DeleteSharedGroup: true,
+	})
+	if err != nil {
+		t.Fatalf("RunRollbackSteps: %v", err)
+	}
+
+	runner.assertSudoBefore(t,
+		[]string{"rm", "-f", linuxSudoersFile},
+		[]string{"rm", "-f", linuxRootHelperPath},
+	)
+	runner.assertSudoBefore(t,
+		[]string{"rm", "-f", linuxRootHelperPath},
+		[]string{"rmdir", linuxCgroupRootPath},
+	)
+	runner.assertSudoBefore(t,
+		[]string{"setfacl", "-x", "u:" + linuxAgentUserName, "-x", "g:" + linuxSharedGroupName, "/work/project"},
+		[]string{"rm", "-rf", filepath.Join(linuxAgentHomePath, ".cache")},
+	)
+	runner.assertSudoBefore(t,
+		[]string{"rm", "-rf", linuxAgentHomePath},
+		[]string{"userdel", linuxAgentUserName},
+	)
+	runner.assertSudoBefore(t,
+		[]string{"userdel", linuxAgentUserName},
+		[]string{"groupdel", linuxSharedGroupName},
+	)
+}
+
+func TestLinuxRollbackDryRunDoesNotCreateCallbacks(t *testing.T) {
+	restoreRuntimeOS := linuxDiagnosticRuntimeOS
+	restoreDryRun := flagDryRun
+	restoreCallbacks := linuxDiagnosticSetupCallbacks
+	defer func() {
+		linuxDiagnosticRuntimeOS = restoreRuntimeOS
+		flagDryRun = restoreDryRun
+		linuxDiagnosticSetupCallbacks = restoreCallbacks
+	}()
+
+	linuxDiagnosticRuntimeOS = func() string { return "linux" }
+	flagDryRun = true
+	linuxDiagnosticSetupCallbacks = func(_ *diagnosticHostRepairBackend, _ linuxDiagnosticSetupOperation) linuxsetup.Callbacks {
+		t.Fatal("Linux rollback dry-run must use DryRunRollback records, not callbacks")
+		return linuxsetup.Callbacks{}
+	}
+	ui := &UI{DryRun: true, YesAll: true}
+	if err := runLinuxRollback(ui, NewRunner(ui, false, true), false, false); err != nil {
+		t.Fatalf("runLinuxRollback dry-run: %v", err)
+	}
+}
+
 func linuxSetupCallbacksThatRecord(record func(setup.Resource)) linuxsetup.Callbacks {
 	callback := func(resource setup.Resource) linuxsetup.Callback {
 		return func() error {
@@ -262,6 +331,27 @@ func (r *fakeLinuxSetupRunner) assertSudo(t *testing.T, want []string) {
 		}
 	}
 	t.Fatalf("sudo calls missing %v; got %+v", want, r.sudo)
+}
+
+func (r *fakeLinuxSetupRunner) assertSudoBefore(t *testing.T, before, after []string) {
+	t.Helper()
+	beforeIndex := r.sudoIndex(before)
+	afterIndex := r.sudoIndex(after)
+	if beforeIndex == -1 || afterIndex == -1 {
+		t.Fatalf("sudo calls missing before=%v after=%v; got %+v", before, after, r.sudo)
+	}
+	if beforeIndex >= afterIndex {
+		t.Fatalf("sudo call %v index %d must precede %v index %d; got %+v", before, beforeIndex, after, afterIndex, r.sudo)
+	}
+}
+
+func (r *fakeLinuxSetupRunner) sudoIndex(want []string) int {
+	for i, got := range r.sudo {
+		if reflect.DeepEqual(got, want) {
+			return i
+		}
+	}
+	return -1
 }
 
 func linuxSetupCommandKey(args ...string) string {

@@ -52,6 +52,10 @@ func runRollback(deleteUser, deleteGroup bool) error {
 	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
 	r := NewRunner(ui, flagVerbose, flagDryRun)
 
+	if linuxDiagnosticRuntimeOS() == "linux" {
+		return runLinuxRollback(ui, r, deleteUser, deleteGroup)
+	}
+
 	if err := checkPlatform(); err != nil {
 		ui.Fatal(err.Error())
 	}
