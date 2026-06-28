@@ -3,6 +3,9 @@
 **Date:** 2026-06-27
 **Bead:** `sandboxing-347h`
 **Status:** design documentation, not implementation approval
+**Related docs:**
+[reusable runtime core and user isolation design](2026-06-27-reusable-runtime-core-user-isolation-design.md),
+[Linux run-agent readiness gates](2026-06-13-linux-run-agent-readiness-gates.md)
 
 ## Purpose
 

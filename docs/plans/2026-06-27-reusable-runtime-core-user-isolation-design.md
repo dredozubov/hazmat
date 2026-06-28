@@ -10,6 +10,8 @@
 [core session extraction](2026-06-12-core-session-extraction-design.md),
 [remote launch envelope schema](2026-06-02-remote-launch-envelope-schema.md),
 [session-home typed adapters](2026-06-13-session-home-typed-adapters-design.md),
+[Linux support two-lane design](2026-06-27-linux-support-two-lane-design.md),
+[Linux run-agent readiness gates](2026-06-13-linux-run-agent-readiness-gates.md),
 [TLA+ verified areas](../../tla/VERIFIED.md)
 
 ## Purpose
@@ -17,9 +19,9 @@
 This document structures the next architectural decision: Hazmat should extract
 its reusable session contract, planning, backend artifact, runtime admission,
 and capability plumbing into library-shaped packages that other agentic
-sandboxing systems can reuse. The macOS multi-user host plumbing should remain
-a Hazmat-owned experimental layer around that core, not the core abstraction
-itself.
+sandboxing systems can reuse. Platform-specific identity plumbing, including
+macOS multi-user setup and future Linux agent-user setup, should remain
+Hazmat-owned provider layers around that core, not the core abstraction itself.
 
 The design is meant to be auditable. It names dependency direction, layering,
 user flows, data flows, trust boundaries, failure behavior, implementation
@@ -35,9 +37,13 @@ behavior changes.
   rollback, diagnostics, and approval-gated validation.
 - Hazmat should expose user-level sandboxing as an experimental Darwin-native
   provider layer that consumes the reusable core.
+- Linux support should use the same split: current-user/no-system-user
+  sandboxing is a contract-enforcing runtime lane, while agent-user setup is a
+  separate multi-user provider lane. Neither lane may silently fall back to the
+  other.
 - Other consumers should be able to reuse the core without importing Cobra,
-  `sudo`, `dscl`, `pfctl`, Keychain handling, setup/rollback, or host mutation
-  code.
+  `sudo`, `dscl`, `pfctl`, Linux user/group setup, Keychain handling,
+  setup/rollback, or host mutation code.
 - DTOs, JSON, remote envelopes, saved plans, and UI previews remain
   descriptions. They become authority only after parse-and-validate constructors
   rebuild typed authority objects.
@@ -64,7 +70,7 @@ behavior changes.
 | --- | --- | --- | --- | --- |
 | Keep everything Hazmat-only | Continue thinning `package main`, but let the CLI remain the primary integration boundary. | Lowest short-term churn. | Other agentic sandboxing tools must shell out or duplicate policy. User-isolation concerns stay tangled with reusable contracts. | Not enough reuse. |
 | Publish the whole Hazmat runtime | Treat setup, dedicated user, pf, launch helper, credential runtime, backup, diagnostics, and CLI behavior as one reusable runtime library. | Maximum feature exposure. | Leaks privileged macOS host assumptions into every consumer. Makes the public API too large and too dangerous too early. | Too broad. |
-| Extract core plus provider layers | Stabilize typed contract/planner/artifact/capability libraries. Keep effectful runtimes behind provider boundaries. Keep multi-user macOS setup as a Hazmat experimental provider layer. | Reusable security model without forcing every consumer to inherit Hazmat host mutations. Preserves model governance and lets providers fail closed on gaps. | Requires stricter import guards and compatibility tests. | Recommended. |
+| Extract core plus provider layers | Stabilize typed contract/planner/artifact/capability libraries. Keep effectful runtimes behind provider boundaries. Keep multi-user macOS setup and Linux agent-user setup as Hazmat provider layers. | Reusable security model without forcing every consumer to inherit Hazmat host mutations. Preserves model governance and lets providers fail closed on gaps. | Requires stricter import guards and compatibility tests. | Recommended. |
 
 ## Layering
 
@@ -106,12 +112,14 @@ flowchart TB
         runtimeAPI["runtime facade"]
         darwinRuntime["internal/runtime/darwin"]
         dockerRuntime["internal/runtime/docker"]
-        linuxRuntime["future internal/runtime/linux"]
+        linuxCurrentUserRuntime["future Linux current-user runtime"]
+        linuxAgentUserRuntime["future Linux agent-user runtime"]
         remoteWorker["future remote worker runtime"]
     end
 
     subgraph hazmatExperimental["Hazmat experimental host-isolation layer"]
         setupDarwin["internal/setup/darwin"]
+        setupLinux["future internal/setup/linux"]
         hostexec["internal/hostexec"]
         credentialRuntime["internal/credentialruntime"]
         backupRuntime["internal/backupruntime"]
@@ -127,7 +135,9 @@ flowchart TB
         pf["pf / DNS policy"]
         dockerSandbox["Docker Sandbox"]
         appleContainer["Apple Container"]
-        linuxNative["Linux namespaces / LSMs"]
+        linuxCurrentUser["current-user Linux sandbox"]
+        linuxAgentUser["dedicated Linux agent user"]
+        linuxKernel["Linux namespaces / Landlock / seccomp"]
         workerBoundary["remote worker"]
     end
 
@@ -159,11 +169,13 @@ flowchart TB
 
     darwinCompiler --> darwinRuntime
     dockerCompiler --> dockerRuntime
-    linuxCompiler --> linuxRuntime
+    linuxCompiler --> linuxCurrentUserRuntime
+    linuxCompiler --> linuxAgentUserRuntime
     appleCompiler --> darwinRuntime
     remoteEnvelope --> remoteWorker
 
     hazmatCLI --> setupDarwin
+    hazmatCLI --> setupLinux
     hazmatCLI --> diagnostics
     hazmatCLI --> backupRuntime
     hazmatCLI --> harnessRuntime
@@ -172,6 +184,8 @@ flowchart TB
     dockerRuntime --> credentialRuntime
     setupDarwin --> hostexec
     setupDarwin --> state
+    setupLinux --> hostexec
+    setupLinux --> state
     diagnostics --> hostexec
     harnessRuntime --> state
     sessionHome --> credentialRuntime
@@ -181,7 +195,10 @@ flowchart TB
     setupDarwin --> pf
     dockerRuntime --> dockerSandbox
     darwinRuntime --> appleContainer
-    linuxRuntime --> linuxNative
+    linuxCurrentUserRuntime --> linuxCurrentUser
+    linuxCurrentUserRuntime --> linuxKernel
+    linuxAgentUserRuntime --> linuxAgentUser
+    linuxAgentUserRuntime --> linuxKernel
     remoteWorker --> workerBoundary
 
     style core fill:#eaf1ff,stroke:#4567aa,color:#000
@@ -192,8 +209,8 @@ flowchart TB
 The important dependency rule is simple: reusable core packages may describe
 authority, but they must not perform host effects. Provider packages may perform
 effects only after receiving typed authority values and prepared artifacts.
-Hazmat's experimental user-isolation layer may own privileged macOS setup and
-repair, but it must not become a dependency of the reusable core.
+Hazmat's experimental user-isolation layer may own privileged platform setup
+and repair, but it must not become a dependency of the reusable core.
 
 ## Dependency Rules
 
@@ -257,14 +274,81 @@ Therefore the durable architecture is:
 ```text
 Reusable contract/runtime core
   + provider-specific enforcement
-  + optional Hazmat Darwin user-isolation hardening
+  + optional Hazmat user-isolation hardening
   = contained agent session
 ```
 
-The multi-user layer should be advertised and implemented as an experimental
+The multi-user layer should be advertised and implemented as an explicit
 Hazmat provider capability until its setup, repair, rollback, diagnostics,
 session-home activation, credential materialization, and live smoke evidence
-are mature enough to support a stronger status label.
+are mature enough to support a stronger status label. On macOS that layer is
+the existing Darwin dedicated-user path. On Linux it is the future
+agent-user/multi-user lane described in the
+[Linux support two-lane design](2026-06-27-linux-support-two-lane-design.md).
+
+## Linux Identity Lanes
+
+The Linux design is the clearest example of why identity must be a provider
+axis instead of a core-package assumption. Linux has two intended lanes, both
+consuming the same reusable core:
+
+```mermaid
+flowchart TB
+    request["ValidatedRequest"]
+    contract["containment.Contract"]
+    spec["containment/linux.LaunchSpec"]
+    selector["explicit linux.identity selection"]
+    current["current-user / no-system-user runtime"]
+    agent["agent-user / multi-user runtime"]
+    rootless["rootless userns + mount namespace"]
+    currentPolicy["current-user Landlock + seccomp + no_new_privs"]
+    agentPolicy["agent-user Landlock + seccomp + no_new_privs"]
+    setup["future setup/linux resources"]
+    helper["root helper or approved setup path"]
+    harnessCurrent["harness as invoking uid"]
+    harnessAgent["harness as agent uid"]
+
+    request --> contract
+    contract --> spec
+    spec --> selector
+    selector -->|"linux.identity=current-user"| current
+    selector -->|"linux.identity=agent-user"| agent
+    current --> rootless
+    rootless --> currentPolicy
+    currentPolicy --> harnessCurrent
+    agent --> setup
+    setup --> helper
+    helper --> agentPolicy
+    agentPolicy --> harnessAgent
+```
+
+| Linux lane | Core relationship | Provider work | Initial status |
+| --- | --- | --- | --- |
+| Current-user / no-system-user | Uses `sessionrequest`, `containment.Contract`, and `containment/linux.LaunchSpec`; creates no users, groups, sudoers files, or persistent helpers. | A rootless Linux runner enforces the contract through user/mount namespaces, Landlock, seccomp, `no_new_privs`, session-local HOME, and typed credential materialization. | Experimental first; unsupported without required kernel primitives. |
+| Agent-user / multi-user | Uses the same contract and launch spec; adds an identity boundary similar to macOS Hazmat. | `setup/linux`, helper install, sudoers or equivalent helper authorization, cgroup delegation, repair, rollback, diagnostics, and VM smoke evidence. | Plan/design only until setup/rollback model work exists. |
+
+The current-user lane is not "Hazmat without isolation." It must enforce the
+contract through kernel primitives because the process still has the invoking
+user's uid. Same-uid DAC is not a boundary for host-user secrets. Landlock,
+mount topology, seccomp, session-local HOME, and absence of host credential
+mounts carry the security claim.
+
+The agent-user lane is the production-parity shape. It can use ordinary Unix
+identity to keep host-user secrets out of reach, then add namespaces, Landlock,
+seccomp, network policy, and cgroups as defense in depth. It is also the lane
+with persistent setup and rollback obligations, so it belongs with Hazmat's
+host-isolation layer rather than the reusable core.
+
+Selection must be explicit:
+
+```text
+linux.identity = current-user | agent-user
+linux.helper_strategy = rootless-userns | root-helper
+```
+
+The provider must never silently fall back from `agent-user` to
+`current-user`, from `root-helper` to `rootless-userns`, or from contract
+sandboxing to ordinary same-uid execution.
 
 ## Current Package Ownership Target
 
@@ -282,7 +366,9 @@ are mature enough to support a stronger status label.
 | Integrations | `integrations` | host mutation runtime applies repairs | Manifest validation must reject unsafe env/path surfaces itself. |
 | Darwin compiler | `containment/darwin` | `internal/runtime/darwin` | Compiler emits SBPL artifacts; runtime owns policy file lifecycle and launch helper. |
 | Docker compiler | `containment/docker` | `internal/runtime/docker` | Compiler emits spec; runtime owns backend readiness, approval, sandbox lifecycle, cleanup. |
-| Linux compiler | `containment/linux` | future `internal/runtime/linux` | Plan-only until modeled runtime exists. |
+| Linux compiler | `containment/linux` | future Linux runtime lanes | Compiles the shared contract into launch specs for both current-user and agent-user lanes. |
+| Linux current-user runtime | core contract plus `containment/linux` | future rootless Linux runner | No persistent setup. Requires userns/mount namespace/Landlock/seccomp or returns gaps. |
+| Linux agent-user setup/runtime | same contract and launch spec | future `internal/setup/linux`, helper runtime, diagnostics | Multi-user lane. Model-first before user creation, sudoers/helper install, cgroup delegation, or rollback behavior. |
 | Apple Container compiler | `containment/applecontainer` | gated experimental runtime | Exec-only and explicit-gate semantics remain separate from native user isolation. |
 | Setup/rollback | none | `internal/setup/darwin`, `internal/state`, `internal/hostexec` | Hazmat product layer, model-governed, not reusable core. |
 | Backup/snapshot | plan package when split | `internal/backupruntime` | Snapshot-before-launch ordering remains model-governed. |
@@ -491,9 +577,10 @@ flowchart TB
 
 This layer is not a generic library target. It is where Hazmat owns:
 
-- macOS account and group assumptions;
+- macOS account/group assumptions today and future Linux agent account/group
+  assumptions;
 - launch helper installation and validation;
-- pf and DNS policy setup;
+- pf and DNS policy setup, and future Linux network/cgroup setup when modeled;
 - setup, repair, rollback, and migration state;
 - host execution primitives;
 - session-home activation and typed adapters;
@@ -529,7 +616,8 @@ sequenceDiagram
 The reusable core should be useful even when the provider is not Hazmat:
 
 - a local same-UID Seatbelt wrapper;
-- a Linux Landlock/seccomp runner;
+- a Linux current-user Landlock/seccomp runner;
+- a Linux agent-user provider with its own setup model;
 - a microVM or VM provider;
 - a remote worker;
 - a provider that only supports preview and gap analysis.
@@ -606,6 +694,8 @@ copy, but launch decisions should use structured categories.
 No backend should silently downgrade:
 
 - native user isolation to same-UID process;
+- Linux agent-user to current-user;
+- Linux current-user contract sandboxing to ordinary same-uid execution;
 - network-none to advisory network policy;
 - credential broker to env passthrough;
 - session-local HOME to persistent home;
@@ -620,7 +710,7 @@ flowchart TD
     s1["Slice 1: import-boundary guard"]
     s2["Slice 2: core API audit"]
     s3["Slice 3: runtime provider facade"]
-    s4["Slice 4: user-isolation provider status"]
+    s4["Slice 4: identity-lane provider status"]
     s5["Slice 5: DTO authority audit"]
     s6["Slice 6: conformance records"]
     s7["Slice 7: external consumer proof"]
@@ -640,7 +730,8 @@ flowchart TD
 Outcome:
 
 - This document is reviewed and amended.
-- Maintainers agree that the reusable core excludes multi-user macOS setup.
+- Maintainers agree that the reusable core excludes multi-user setup: macOS
+  today and Linux agent-user later.
 - Follow-up beads can reference this document instead of re-litigating the
   boundary.
 
@@ -698,12 +789,14 @@ Evidence:
 - existing backend compiler goldens remain equivalent;
 - affected TLA+ specs are re-run if moved code touches governed behavior.
 
-### Slice 4: User-Isolation Provider Status
+### Slice 4: Identity-Lane Provider Status
 
 Outcome:
 
 - Make the Darwin dedicated-user hardening layer explicit as a provider
   capability with experimental status.
+- Make Linux identity selection explicit: current-user/no-system-user versus
+  agent-user/multi-user setup.
 - Name setup prerequisites, approval-gated probes, unsupported gaps, and
   fallback rules.
 - Ensure explain and plan-only paths do not imply setup mutation.
@@ -773,7 +866,8 @@ Evidence:
 | Native launch movement | helper/fd tests, runtime admission tests, `MC_LaunchFDIsolation`. |
 | Snapshot trigger movement | launch-order tests, `MC_BackupSafety`. |
 | Docker runtime movement | admission order tests, mount/env rejection tests, `MC_Tier3LaunchContainment`. |
-| Linux runtime execution | Linux helper model update or re-run, distro fixtures, no effectful runtime until model approval. |
+| Linux current-user runtime | rootless namespace admission tests, Landlock/seccomp tests, fake-helper metadata tests, distro fixtures, and no claim of host-user identity isolation. |
+| Linux agent-user runtime/setup | Linux setup/rollback model before user creation, helper install, sudoers, cgroup delegation, or persistent state mutation. |
 | Apple Container runtime changes | `MC_AppleContainerLaunch` re-run or update, gated experimental tests. |
 | Setup/rollback/user resources | `MC_SetupRollback` model first for semantic changes; setup/rollback tests. |
 | Session-home activation | adapter registry tests, materializer tests, diagnostics tests, approval-gated live smoke only after non-live evidence. |
@@ -797,6 +891,7 @@ this design.
 | Are capability gaps structured? | Yes. Unsupported enforcement is not a warning-only string. |
 | Does the runtime accept exactly one backend artifact? | Yes. Mixed or missing artifacts fail. |
 | Is user-level sandboxing required by the core? | No. It is a provider capability, not a core dependency. |
+| Is the Linux identity lane explicit? | Yes. `current-user` and `agent-user` are distinct lanes with no silent fallback. |
 | Can preview mutate host state? | No. Setup and repair stay separate and approval-gated when required. |
 | Are records classified? | Yes. Secret and secret-adjacent fields are omitted, redacted, or scoped. |
 | Are live validations separate from default tests? | Yes. Approval-gated smokes stay opt-in. |
@@ -809,10 +904,12 @@ this design.
    three with version negotiation?
 3. Which fields in `runtimecapability` are stable enough to influence backend
    routing, and which remain audit-only?
-4. What status vocabulary should distinguish `plan-only`, `experimental`,
+4. Should the first external-consumer proof target the Linux current-user lane,
+   since it does not need Hazmat setup?
+5. What status vocabulary should distinguish `plan-only`, `experimental`,
    `supported`, and `unsupported` providers across Darwin, Linux, Docker,
    Apple Container, and remote?
-5. What is the minimum fake external consumer proof before advertising the
+6. What is the minimum fake external consumer proof before advertising the
    reusable core as usable outside Hazmat?
 
 ## Proposed Next Beads
@@ -825,7 +922,7 @@ items for review:
 | Add package import-boundary guard | Make dependency direction executable. |
 | Audit DTO-vs-authority types | Identify exported authority states and harden constructors. |
 | Define runtime provider facade | Specify prepare/admit/launch/cleanup/result interface. |
-| Classify Darwin user-isolation provider status | Make experimental status and gaps explicit in docs and diagnostics. |
+| Classify identity-lane provider status | Make Darwin dedicated-user and Linux current-user/agent-user status and gaps explicit in docs and diagnostics. |
 | Prove external core consumer | Build a fake consumer that imports only reusable core and fake provider packages. |
 
 ## Summary

@@ -18,6 +18,8 @@ These gates translate the existing Linux backend architecture and
 
 For the identity/setup split, see
 [Linux Support Two-Lane Design](2026-06-27-linux-support-two-lane-design.md).
+For the reusable core versus provider-layer boundary, see
+[Reusable Runtime Core And Experimental User Isolation Design](2026-06-27-reusable-runtime-core-user-isolation-design.md).
 
 ## Gate Summary
 
