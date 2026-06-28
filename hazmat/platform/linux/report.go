@@ -407,10 +407,8 @@ func distroGap(provider runtimeprovider.Kind, status runtimeprovider.Status, dis
 }
 
 func providerStatus(kind runtimeprovider.Kind) runtimeprovider.ProviderStatusRecord {
-	for _, descriptor := range runtimeprovider.KnownDescriptors() {
-		if descriptor.Kind == kind {
-			return descriptor.StatusRecord()
-		}
+	if descriptor, ok := runtimeprovider.DescriptorForKind(kind); ok {
+		return descriptor.StatusRecord()
 	}
 	return runtimeprovider.ProviderStatusRecord{Provider: kind, Status: runtimeprovider.StatusUnsupported}
 }

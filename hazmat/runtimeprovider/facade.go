@@ -17,13 +17,19 @@ import (
 type Kind string
 
 const (
-	KindDarwinNative      Kind = "darwin-native"
+	KindMacOSCurrentUser  Kind = "macos-current-user"
+	KindMacOSAgentUser    Kind = "macos-agent-user"
 	KindDockerSandbox     Kind = "docker-sandbox"
 	KindAppleContainer    Kind = "apple-container"
 	KindLinuxCurrentUser  Kind = "linux-current-user"
 	KindLinuxAgentUser    Kind = "linux-agent-user"
 	KindRemoteEnvelope    Kind = "remote-envelope"
 	KindUnsupportedNative Kind = "unsupported-native"
+
+	// KindDarwinNative is a compatibility alias for the supported macOS
+	// agent-user native lane. New provider-facing code should use
+	// KindMacOSAgentUser so backend and identity lane stay distinct.
+	KindDarwinNative Kind = KindMacOSAgentUser
 )
 
 // Status is the provider support state surfaced to planners and callers.
@@ -49,11 +55,39 @@ const (
 	IdentityNone           IdentityBoundary = "none"
 )
 
+type HostPlatform string
+
+const (
+	PlatformMacOS       HostPlatform = "macos"
+	PlatformLinux       HostPlatform = "linux"
+	PlatformContainer   HostPlatform = "container"
+	PlatformRemote      HostPlatform = "remote"
+	PlatformUnsupported HostPlatform = "unsupported"
+)
+
+type UserMode string
+
+const (
+	UserModeCurrent   UserMode = "current-user"
+	UserModeAgent     UserMode = "agent-user"
+	UserModeContainer UserMode = "container-user"
+	UserModeRemote    UserMode = "remote-worker"
+	UserModeNone      UserMode = "none"
+)
+
 type Descriptor struct {
 	Kind             Kind
 	Backend          sessionbackend.Kind
 	Status           Status
 	IdentityBoundary IdentityBoundary
+	HostPlatform     HostPlatform
+	UserMode         UserMode
+}
+
+type Lane struct {
+	HostPlatform HostPlatform
+	UserMode     UserMode
+	Backend      sessionbackend.Kind
 }
 
 type StatusDefinition struct {
@@ -103,6 +137,20 @@ func (d Descriptor) Validate() error {
 	default:
 		return fmt.Errorf("runtime provider identity boundary %q is unsupported", d.IdentityBoundary)
 	}
+	switch d.HostPlatform {
+	case PlatformMacOS, PlatformLinux, PlatformContainer, PlatformRemote, PlatformUnsupported:
+	case "":
+		return fmt.Errorf("runtime provider host platform is required")
+	default:
+		return fmt.Errorf("runtime provider host platform %q is unsupported", d.HostPlatform)
+	}
+	switch d.UserMode {
+	case UserModeCurrent, UserModeAgent, UserModeContainer, UserModeRemote, UserModeNone:
+	case "":
+		return fmt.Errorf("runtime provider user mode is required")
+	default:
+		return fmt.Errorf("runtime provider user mode %q is unsupported", d.UserMode)
+	}
 	return nil
 }
 
@@ -118,20 +166,49 @@ func (d Descriptor) StatusRecord() ProviderStatusRecord {
 		StatusLabel:      definition.Label,
 		Executable:       definition.Executable,
 		IdentityBoundary: d.IdentityBoundary,
+		HostPlatform:     d.HostPlatform,
+		UserMode:         d.UserMode,
 		Message:          definition.Message,
+	}
+}
+
+func (d Descriptor) Lane() Lane {
+	return Lane{
+		HostPlatform: d.HostPlatform,
+		UserMode:     d.UserMode,
+		Backend:      d.Backend,
 	}
 }
 
 func KnownDescriptors() []Descriptor {
 	return []Descriptor{
-		{Kind: KindDarwinNative, Backend: sessionbackend.KindDarwinNative, Status: StatusSupported, IdentityBoundary: IdentityMacOSAgentUser},
-		{Kind: KindDockerSandbox, Backend: sessionbackend.KindDockerSandbox, Status: StatusSupported, IdentityBoundary: IdentityContainerUser},
-		{Kind: KindAppleContainer, Backend: sessionbackend.KindAppleContainer, Status: StatusExperimental, IdentityBoundary: IdentityContainerUser},
-		{Kind: KindLinuxCurrentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusPlanOnly, IdentityBoundary: IdentityCurrentUser},
-		{Kind: KindLinuxAgentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusSetupRequired, IdentityBoundary: IdentityLinuxAgentUser},
-		{Kind: KindRemoteEnvelope, Backend: sessionbackend.KindRemoteEnvelope, Status: StatusPlanOnly, IdentityBoundary: IdentityRemoteWorker},
-		{Kind: KindUnsupportedNative, Backend: sessionbackend.KindUnsupportedNative, Status: StatusUnsupported, IdentityBoundary: IdentityNone},
+		{Kind: KindMacOSCurrentUser, Backend: sessionbackend.KindDarwinNative, Status: StatusPlanOnly, IdentityBoundary: IdentityCurrentUser, HostPlatform: PlatformMacOS, UserMode: UserModeCurrent},
+		{Kind: KindMacOSAgentUser, Backend: sessionbackend.KindDarwinNative, Status: StatusSupported, IdentityBoundary: IdentityMacOSAgentUser, HostPlatform: PlatformMacOS, UserMode: UserModeAgent},
+		{Kind: KindDockerSandbox, Backend: sessionbackend.KindDockerSandbox, Status: StatusSupported, IdentityBoundary: IdentityContainerUser, HostPlatform: PlatformContainer, UserMode: UserModeContainer},
+		{Kind: KindAppleContainer, Backend: sessionbackend.KindAppleContainer, Status: StatusExperimental, IdentityBoundary: IdentityContainerUser, HostPlatform: PlatformContainer, UserMode: UserModeContainer},
+		{Kind: KindLinuxCurrentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusPlanOnly, IdentityBoundary: IdentityCurrentUser, HostPlatform: PlatformLinux, UserMode: UserModeCurrent},
+		{Kind: KindLinuxAgentUser, Backend: sessionbackend.KindLinuxNative, Status: StatusSetupRequired, IdentityBoundary: IdentityLinuxAgentUser, HostPlatform: PlatformLinux, UserMode: UserModeAgent},
+		{Kind: KindRemoteEnvelope, Backend: sessionbackend.KindRemoteEnvelope, Status: StatusPlanOnly, IdentityBoundary: IdentityRemoteWorker, HostPlatform: PlatformRemote, UserMode: UserModeRemote},
+		{Kind: KindUnsupportedNative, Backend: sessionbackend.KindUnsupportedNative, Status: StatusUnsupported, IdentityBoundary: IdentityNone, HostPlatform: PlatformUnsupported, UserMode: UserModeNone},
 	}
+}
+
+func DescriptorForKind(kind Kind) (Descriptor, bool) {
+	for _, descriptor := range KnownDescriptors() {
+		if descriptor.Kind == kind {
+			return descriptor, true
+		}
+	}
+	return Descriptor{}, false
+}
+
+func DescriptorForLane(lane Lane) (Descriptor, bool) {
+	for _, descriptor := range KnownDescriptors() {
+		if descriptor.Lane() == lane {
+			return descriptor, true
+		}
+	}
+	return Descriptor{}, false
 }
 
 type ProviderStatusRecord struct {
@@ -141,6 +218,8 @@ type ProviderStatusRecord struct {
 	StatusLabel      string              `json:"status_label"`
 	Executable       bool                `json:"executable"`
 	IdentityBoundary IdentityBoundary    `json:"identity_boundary"`
+	HostPlatform     HostPlatform        `json:"host_platform"`
+	UserMode         UserMode            `json:"user_mode"`
 	Message          string              `json:"message,omitempty"`
 }
 

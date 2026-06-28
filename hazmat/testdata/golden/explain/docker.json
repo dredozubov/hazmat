@@ -54,11 +54,13 @@
   "provider": {
     "backend": "docker-sandbox",
     "executable": true,
+    "host_platform": "container",
     "identity_boundary": "container-user",
     "message": "provider may launch when admission succeeds",
     "provider": "docker-sandbox",
     "status": "supported",
-    "status_label": "supported"
+    "status_label": "supported",
+    "user_mode": "container-user"
   },
   "read_only_dirs": [
     "/Users/dr/workspace/reference",

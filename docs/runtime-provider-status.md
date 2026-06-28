@@ -16,23 +16,25 @@ CLI, docs, compatibility rows, and release checklists may claim.
 
 ## Provider Lanes
 
-| Provider | Backend | Status | Identity boundary | User-facing claim |
-| --- | --- | --- | --- | --- |
-| `darwin-native` | `darwin-native` | `supported` | `macos-agent-user` | macOS native containment with the configured Hazmat agent user. |
-| `docker-sandbox` | `docker-sandbox` | `supported` | `container-user` | Docker Sandbox private-daemon workflows, not shared host Docker socket authority. |
-| `apple-container` | `apple-container` | `experimental` | `container-user` | Apple Container launch is experimental and explicitly gated. |
-| `linux-current-user` | `linux-native` | `plan-only` | `current-user` | Linux current-user planning and gaps only; no executable native run-agent claim yet. |
-| `linux-agent-user` | `linux-native` | `setup-required` | `linux-agent-user` | Linux multi-user setup/runtime is model-first and not available until setup resources land. |
-| `remote-envelope` | `remote-envelope` | `plan-only` | `remote-worker` | Remote launch envelope preview only; no worker admission or runner semantics yet. |
-| `unsupported-native` | `unsupported-native` | `unsupported` | `none` | Native launch is unavailable for this platform or route. |
+| Provider | Host platform | User mode | Backend | Status | Identity boundary | User-facing claim |
+| --- | --- | --- | --- | --- | --- | --- |
+| `macos-current-user` | `macos` | `current-user` | `darwin-native` | `plan-only` | `current-user` | macOS same-user contract sandboxing is a planned lane; no executable runner claim yet. |
+| `macos-agent-user` | `macos` | `agent-user` | `darwin-native` | `supported` | `macos-agent-user` | macOS native containment with the configured Hazmat agent user. |
+| `docker-sandbox` | `container` | `container-user` | `docker-sandbox` | `supported` | `container-user` | Docker Sandbox private-daemon workflows, not shared host Docker socket authority. |
+| `apple-container` | `container` | `container-user` | `apple-container` | `experimental` | `container-user` | Apple Container launch is experimental and explicitly gated. |
+| `linux-current-user` | `linux` | `current-user` | `linux-native` | `plan-only` | `current-user` | Linux current-user planning and gaps only; no executable native run-agent claim yet. |
+| `linux-agent-user` | `linux` | `agent-user` | `linux-native` | `setup-required` | `linux-agent-user` | Linux multi-user setup/runtime is model-first and not available until setup resources land. |
+| `remote-envelope` | `remote` | `remote-worker` | `remote-envelope` | `plan-only` | `remote-worker` | Remote launch envelope preview only; no worker admission or runner semantics yet. |
+| `unsupported-native` | `unsupported` | `none` | `unsupported-native` | `unsupported` | `none` | Native launch is unavailable for this platform or route. |
 
 ## Gap Rules
 
 Unsupported authority must be reported as structured gaps, not as fallback
-behavior. Important Linux gap IDs include:
+behavior. Important gap IDs include:
 
 | Gap | Applies to | Meaning |
 | --- | --- | --- |
+| `macos.current-user-runner-missing` | `macos-current-user` | macOS current-user native runner is not implemented or admitted. |
 | `linux.native-launch-helper-missing` | `linux-current-user` | Native Linux runner is not enabled in the session pipeline or lacks VM smoke evidence. |
 | `linux.runtime-not-linux` | `linux-current-user` | The inspected runtime is not Linux. |
 | `linux.user-namespace-unavailable` | `linux-current-user` | Rootless current-user admission lacks user namespaces. |
@@ -48,6 +50,7 @@ behavior. Important Linux gap IDs include:
 Provider admission must not silently downgrade identity, helper strategy,
 containment, network, credential, or Docker authority. Examples:
 
+- `macos-agent-user` must not fall back to `macos-current-user`.
 - `linux-agent-user` must not fall back to `linux-current-user`.
 - `root-helper` must not fall back to `rootless-userns`.
 - `network=none` must not degrade to advisory network policy.
@@ -76,5 +79,10 @@ runtime, and lifecycle VM smokes are complete.
 Release promotion gates for both lanes are listed in the
 [Linux release checklist](linux-release-checklist.md).
 
-Do not write broad "Linux support" claims while either Linux lane is incomplete.
-Name the lane and status instead.
+macOS native support currently means the `macos-agent-user` lane. The
+`macos-current-user` lane is registered only to keep the identity split
+explicit; do not describe it as executable until it has its own admission,
+runner, and evidence gates.
+
+Do not write broad "Linux support" or "macOS native support" claims when the
+identity lane matters. Name the provider lane and status instead.

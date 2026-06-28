@@ -32,7 +32,7 @@ func TestPrepareRequestRequiresConstructedContract(t *testing.T) {
 }
 
 func TestAdmissionRequiresPreparedLaunchAndCopiesObligations(t *testing.T) {
-	descriptor := mustDescriptor(t, KindDarwinNative)
+	descriptor := mustDescriptor(t, KindMacOSAgentUser)
 	cleanup, err := NewCleanupPlan(CleanupGeneratedPolicy)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,8 @@ func TestKnownDescriptorsCoverProviderVocabulary(t *testing.T) {
 		seen[descriptor.Kind] = descriptor
 	}
 	for _, kind := range []Kind{
-		KindDarwinNative,
+		KindMacOSCurrentUser,
+		KindMacOSAgentUser,
 		KindDockerSandbox,
 		KindAppleContainer,
 		KindLinuxCurrentUser,
@@ -84,6 +85,55 @@ func TestKnownDescriptorsCoverProviderVocabulary(t *testing.T) {
 	}
 	if seen[KindAppleContainer].Kind == KindDockerSandbox {
 		t.Fatal("Apple Container must remain its own provider owner")
+	}
+	for _, spec := range []struct {
+		platform HostPlatform
+		mode     UserMode
+		kind     Kind
+	}{
+		{PlatformMacOS, UserModeCurrent, KindMacOSCurrentUser},
+		{PlatformMacOS, UserModeAgent, KindMacOSAgentUser},
+		{PlatformLinux, UserModeCurrent, KindLinuxCurrentUser},
+		{PlatformLinux, UserModeAgent, KindLinuxAgentUser},
+	} {
+		descriptor, ok := seen[spec.kind]
+		if !ok {
+			t.Fatalf("missing %s/%s descriptor %q", spec.platform, spec.mode, spec.kind)
+		}
+		if descriptor.HostPlatform != spec.platform || descriptor.UserMode != spec.mode {
+			t.Fatalf("descriptor %q = %+v, want %s/%s", spec.kind, descriptor, spec.platform, spec.mode)
+		}
+	}
+}
+
+func TestDescriptorLookupSeparatesLaneFromBackend(t *testing.T) {
+	for _, spec := range []struct {
+		lane Lane
+		kind Kind
+	}{
+		{Lane{HostPlatform: PlatformMacOS, UserMode: UserModeCurrent, Backend: sessionbackend.KindDarwinNative}, KindMacOSCurrentUser},
+		{Lane{HostPlatform: PlatformMacOS, UserMode: UserModeAgent, Backend: sessionbackend.KindDarwinNative}, KindMacOSAgentUser},
+		{Lane{HostPlatform: PlatformLinux, UserMode: UserModeCurrent, Backend: sessionbackend.KindLinuxNative}, KindLinuxCurrentUser},
+		{Lane{HostPlatform: PlatformLinux, UserMode: UserModeAgent, Backend: sessionbackend.KindLinuxNative}, KindLinuxAgentUser},
+		{Lane{HostPlatform: PlatformContainer, UserMode: UserModeContainer, Backend: sessionbackend.KindDockerSandbox}, KindDockerSandbox},
+		{Lane{HostPlatform: PlatformContainer, UserMode: UserModeContainer, Backend: sessionbackend.KindAppleContainer}, KindAppleContainer},
+	} {
+		descriptor, ok := DescriptorForLane(spec.lane)
+		if !ok {
+			t.Fatalf("missing descriptor for lane %+v", spec.lane)
+		}
+		if descriptor.Kind != spec.kind {
+			t.Fatalf("descriptor for lane %+v = %q, want %q", spec.lane, descriptor.Kind, spec.kind)
+		}
+	}
+	if descriptor, ok := DescriptorForKind(KindDarwinNative); !ok || descriptor.Kind != KindMacOSAgentUser {
+		t.Fatalf("KindDarwinNative compatibility lookup = %+v/%v, want macOS agent-user", descriptor, ok)
+	}
+	if _, ok := DescriptorForLane(Lane{HostPlatform: PlatformMacOS, UserMode: UserModeAgent, Backend: sessionbackend.KindLinuxNative}); ok {
+		t.Fatal("macOS agent-user lane resolved through Linux backend")
+	}
+	if _, ok := DescriptorForLane(Lane{HostPlatform: PlatformLinux, UserMode: UserModeAgent, Backend: sessionbackend.KindDarwinNative}); ok {
+		t.Fatal("Linux agent-user lane resolved through macOS backend")
 	}
 }
 
@@ -104,9 +154,17 @@ func TestProviderStatusVocabularyCoversKnownDescriptors(t *testing.T) {
 			record.Backend != descriptor.Backend ||
 			record.Status != descriptor.Status ||
 			record.IdentityBoundary != descriptor.IdentityBoundary ||
+			record.HostPlatform != descriptor.HostPlatform ||
+			record.UserMode != descriptor.UserMode ||
 			record.StatusLabel == "" {
 			t.Fatalf("status record = %+v, descriptor = %+v", record, descriptor)
 		}
+	}
+	if record := mustDescriptor(t, KindMacOSCurrentUser).StatusRecord(); record.Executable || record.Status != StatusPlanOnly {
+		t.Fatalf("macOS current-user status record = %+v, want non-executable plan-only", record)
+	}
+	if record := mustDescriptor(t, KindMacOSAgentUser).StatusRecord(); !record.Executable || record.Status != StatusSupported {
+		t.Fatalf("macOS agent-user status record = %+v, want supported executable", record)
 	}
 	if record := mustDescriptor(t, KindRemoteEnvelope).StatusRecord(); record.Executable || record.Status != StatusPlanOnly {
 		t.Fatalf("remote status record = %+v, want non-executable plan-only", record)
@@ -131,13 +189,14 @@ func TestRuntimeProviderStatusDocCoversKnownDescriptors(t *testing.T) {
 		}
 	}
 	for _, descriptor := range KnownDescriptors() {
-		row := "| `" + string(descriptor.Kind) + "` | `" + string(descriptor.Backend) + "` | `" + string(descriptor.Status) + "` | `" + string(descriptor.IdentityBoundary) + "` |"
+		row := "| `" + string(descriptor.Kind) + "` | `" + string(descriptor.HostPlatform) + "` | `" + string(descriptor.UserMode) + "` | `" + string(descriptor.Backend) + "` | `" + string(descriptor.Status) + "` | `" + string(descriptor.IdentityBoundary) + "` |"
 		if !strings.Contains(doc, row) {
 			t.Fatalf("runtime provider status doc missing descriptor row %q", row)
 		}
 	}
 	for _, phrase := range []string{
 		"Provider admission must not silently downgrade",
+		"macos.current-user-runner-missing",
 		"linux.native-launch-helper-missing",
 		"linux.setup-required",
 		"linux.distro-unsupported",
@@ -169,7 +228,7 @@ func TestGapRecordRequiresStructuredIDAndRendersStableText(t *testing.T) {
 }
 
 func TestFakeProviderLifecycle(t *testing.T) {
-	provider := fakeProvider{descriptor: mustDescriptor(t, KindDarwinNative)}
+	provider := fakeProvider{descriptor: mustDescriptor(t, KindMacOSAgentUser)}
 	req, err := NewPrepareRequest("codex", "session-1", testContract(t))
 	if err != nil {
 		t.Fatal(err)

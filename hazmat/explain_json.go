@@ -104,18 +104,16 @@ func explainProviderRecord(mode sessionMode, platform *linuxplatform.Report) *ru
 	case sessionModeDockerSandbox:
 		return providerRecord(runtimeprovider.KindDockerSandbox)
 	case sessionModeNative:
-		return providerRecord(runtimeprovider.KindDarwinNative)
+		return providerRecord(runtimeprovider.KindMacOSAgentUser)
 	default:
 		return nil
 	}
 }
 
 func providerRecord(kind runtimeprovider.Kind) *runtimeprovider.ProviderStatusRecord {
-	for _, descriptor := range runtimeprovider.KnownDescriptors() {
-		if descriptor.Kind == kind {
-			record := descriptor.StatusRecord()
-			return &record
-		}
+	if descriptor, ok := runtimeprovider.DescriptorForKind(kind); ok {
+		record := descriptor.StatusRecord()
+		return &record
 	}
 	return nil
 }

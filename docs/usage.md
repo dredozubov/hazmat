@@ -22,8 +22,9 @@ The release installer targets the current host by default and currently
 publishes only `darwin/arm64` and `darwin/amd64` artifacts. Linux is
 compile-only until its provider lanes pass their separate gates:
 `linux-current-user` is plan-only, and `linux-agent-user` is setup-required.
-See [Runtime provider status](runtime-provider-status.md) for the status
-vocabulary.
+macOS native execution currently means `macos-agent-user`; `macos-current-user`
+is registered as a plan-only lane for future same-user contract sandboxing. See
+[Runtime provider status](runtime-provider-status.md) for the status vocabulary.
 
 Then two commands:
 

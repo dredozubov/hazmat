@@ -54,11 +54,13 @@
   "provider": {
     "backend": "darwin-native",
     "executable": true,
+    "host_platform": "macos",
     "identity_boundary": "macos-agent-user",
     "message": "provider may launch when admission succeeds",
-    "provider": "darwin-native",
+    "provider": "macos-agent-user",
     "status": "supported",
-    "status_label": "supported"
+    "status_label": "supported",
+    "user_mode": "agent-user"
   },
   "read_only_dirs": [
     "/Users/dr/workspace/reference",
