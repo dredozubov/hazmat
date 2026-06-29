@@ -123,7 +123,7 @@ func requireLinuxHost(t *testing.T) {
 
 func requireNonPromptingSudo(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("sudo", "-n", "true")
+	cmd := exec.Command(hostSudoPath, "-n", "true")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("passwordless sudo is required for disposable Linux lifecycle smoke: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -250,14 +250,14 @@ func assertLinuxSharedGroupAbsent(t *testing.T) {
 
 func assertPathExists(t *testing.T, path string) {
 	t.Helper()
-	if out, err := exec.Command("sudo", "-n", "test", "-e", path).CombinedOutput(); err != nil {
+	if out, err := exec.Command(hostSudoPath, "-n", "test", "-e", path).CombinedOutput(); err != nil {
 		t.Fatalf("expected %s to exist: %v: %s", path, err, strings.TrimSpace(string(out)))
 	}
 }
 
 func assertPathAbsent(t *testing.T, path string) {
 	t.Helper()
-	out, err := exec.Command("sudo", "-n", "test", "-e", path).CombinedOutput()
+	out, err := exec.Command(hostSudoPath, "-n", "test", "-e", path).CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected %s to be absent", path)
 	}
