@@ -21,6 +21,10 @@ func (unsupportedNativeLaunchBackend) CommandSudoArgs(nativeLaunchCommandRequest
 	return nil
 }
 
+func (unsupportedNativeLaunchBackend) CommandCurrentUserArgs(nativeLaunchCommandRequest) []string {
+	return nil
+}
+
 func (unsupportedNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []string {
 	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:      "/bin/sh",
@@ -31,4 +35,17 @@ func (unsupportedNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) 
 		ConfigHome: defaultAgentConfigHome,
 		DataHome:   defaultAgentDataHome,
 	})
+}
+
+func (unsupportedNativeLaunchBackend) CurrentUserEnvPairs(req nativeLaunchEnvRequest) []string {
+	dirs := currentUserSessionDirsForConfig(req.Config)
+	return nativeLaunchBaseEnvPairsForIdentity(req.Config, nativeLaunchEnvironment{
+		Shell:      "/bin/sh",
+		Path:       currentUserLaunchPath(),
+		Home:       dirs.Home,
+		TmpDir:     dirs.TempDir,
+		CacheHome:  dirs.CacheHome,
+		ConfigHome: dirs.ConfigHome,
+		DataHome:   dirs.DataHome,
+	}, currentUserName())
 }

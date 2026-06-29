@@ -4,7 +4,10 @@ package hazmat
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"hazmat/runtimeprovider"
 )
 
 func TestDarwinNativeLaunchSudoArgsShape(t *testing.T) {
@@ -127,6 +130,65 @@ func TestDarwinNativeLaunchSudoArgsPassesHelperManagedTempDir(t *testing.T) {
 	}
 	if len(got) < len(wantPrefix) || !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
 		t.Fatalf("native launch sudo args prefix = %#v, want %#v", got[:len(wantPrefix)], wantPrefix)
+	}
+}
+
+func TestDarwinNativeLaunchCurrentUserArgsShape(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USER", "dr")
+	t.Setenv("PATH", agentHome+"/.local/bin:/usr/bin:/bin")
+	for _, key := range terminalEnvPassthroughKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TERMINFO", "")
+	t.Setenv("TERMINFO_DIRS", "")
+
+	dirs := currentUserSessionDirs{
+		Root:       "/private/tmp/hazmat-current-user-123",
+		Home:       "/private/tmp/hazmat-current-user-123/home",
+		CacheHome:  "/private/tmp/hazmat-current-user-123/home/.cache",
+		ConfigHome: "/private/tmp/hazmat-current-user-123/home/.config",
+		DataHome:   "/private/tmp/hazmat-current-user-123/home/.local/share",
+		TempDir:    "/private/tmp/hazmat-current-user-123/tmp",
+	}
+	cfg := sessionConfig{
+		ProjectDir:         "/Users/dr/workspace/project",
+		RuntimeProvider:    runtimeprovider.KindMacOSCurrentUser,
+		CurrentUserSession: &dirs,
+		TempDir:            dirs.TempDir,
+		SkipGoModCacheEnv:  true,
+	}
+	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
+	savedSupportsDirectExec := launchHelperSupportsDirectExec
+	launchHelperSupportsDirectExec = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsDirectExec = savedSupportsDirectExec })
+
+	got := nativeLaunchCurrentUserArgsWithMetadataPlanAndRuntime(cfg, nativeLaunchPlanForConfig(cfg), policy, nil, `{"kind":"hazmat.session"}`, nativeDirectProjectExecScript, "/usr/bin/true")
+
+	wantPrefix := []string{
+		launchHelperPath(),
+		"--hazmat-current-user",
+		policy.Path,
+		"--hazmat-metadata-json", `{"kind":"hazmat.session"}`,
+		"--hazmat-direct-exec",
+		"--hazmat-working-dir", cfg.ProjectDir,
+	}
+	if len(got) < len(wantPrefix) || !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("current-user args prefix = %#v, want %#v", got[:len(wantPrefix)], wantPrefix)
+	}
+	if containsString(got, "-u") || containsString(got, agentUser) {
+		t.Fatalf("current-user args must not contain sudo agent identity: %#v", got)
+	}
+	env := envPairsMap(got)
+	if env["HOME"] != dirs.Home || env["USER"] != "dr" || env["LOGNAME"] != "dr" {
+		t.Fatalf("current-user env HOME/USER/LOGNAME = %q/%q/%q", env["HOME"], env["USER"], env["LOGNAME"])
+	}
+	if strings.Contains(env["PATH"], agentHome) {
+		t.Fatalf("current-user PATH contains agent home: %q", env["PATH"])
+	}
+	if !reflect.DeepEqual(got[len(got)-2:], []string{"--", "/usr/bin/true"}) {
+		t.Fatalf("direct exec args suffix = %#v, want delimiter and target", got[len(got)-2:])
 	}
 }
 

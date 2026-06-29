@@ -13,7 +13,9 @@ import (
 type nativeLaunchBackend interface {
 	PreparePolicy(nativeLaunchPolicyRequest) (nativeLaunchPolicyArtifact, error)
 	CommandSudoArgs(nativeLaunchCommandRequest) []string
+	CommandCurrentUserArgs(nativeLaunchCommandRequest) []string
 	AgentEnvPairs(nativeLaunchEnvRequest) []string
+	CurrentUserEnvPairs(nativeLaunchEnvRequest) []string
 }
 
 type nativeLaunchPolicyRequest struct {
@@ -53,6 +55,7 @@ type nativeLaunchEnvironment struct {
 
 var launchHelperSupportsDirectExec = launchHelperSupportsDirectExecImpl
 var launchHelperSupportsSessionTemp = launchHelperSupportsSessionTempImpl
+var launchHelperSupportsCurrentUser = launchHelperSupportsCurrentUserImpl
 var launchHelperPathForBrokerChild = defaultLaunchHelperPathForBrokerChild
 
 const launchHelperCapabilityScanLimit = 2 << 20
@@ -64,6 +67,7 @@ var launchHelperCapabilityDiskCachePath = defaultLaunchHelperCapabilityDiskCache
 type launchHelperCapabilities struct {
 	DirectExec  bool `json:"direct_exec"`
 	SessionTemp bool `json:"session_temp"`
+	CurrentUser bool `json:"current_user"`
 }
 
 type launchHelperFileFingerprint struct {
@@ -90,6 +94,10 @@ func launchHelperSupportsDirectExecImpl(path string) bool {
 
 func launchHelperSupportsSessionTempImpl(path string) bool {
 	return launchHelperCapabilitiesFor(path).SessionTemp
+}
+
+func launchHelperSupportsCurrentUserImpl(path string) bool {
+	return launchHelperCapabilitiesFor(path).CurrentUser
 }
 
 func defaultLaunchHelperPathForBrokerChild() string {
@@ -154,11 +162,13 @@ func readLaunchHelperCapabilitiesWithFingerprint(path string) (launchHelperCapab
 	markers := map[string][]byte{
 		"direct_exec":  []byte("--hazmat-direct-exec"),
 		"session_temp": []byte("--hazmat-session-temp"),
+		"current_user": []byte("--hazmat-current-user"),
 	}
 	found := readerMarkersWithin(file, markers, launchHelperCapabilityScanLimit)
 	return launchHelperCapabilities{
 		DirectExec:  found["direct_exec"],
 		SessionTemp: found["session_temp"],
+		CurrentUser: found["current_user"],
 	}, fingerprint, cacheable
 }
 
@@ -373,6 +383,26 @@ func nativeLaunchSudoArgsWithMetadataPlanAndRuntime(cfg sessionConfig, plan sess
 	})
 }
 
+func nativeLaunchCurrentUserArgsWithMetadataPlanAndRuntime(cfg sessionConfig, plan sessionBackendPlan, policy nativeLaunchPolicyArtifact, runtimeEnvPairs []string, metadataJSON string, script string, args ...string) []string {
+	directExec := script == nativeDirectProjectExecScript && launchHelperSupportsDirectExec(launchHelperPath())
+	workingDir := ""
+	if directExec {
+		workingDir = cfg.ProjectDir
+	}
+	return newNativeLaunchBackend().CommandCurrentUserArgs(nativeLaunchCommandRequest{
+		Config:          cfg,
+		Plan:            plan,
+		Policy:          policy,
+		RuntimeEnvPairs: runtimeEnvPairs,
+		MetadataJSON:    metadataJSON,
+		Profile:         sessionPreparationProfileEnabled(),
+		DirectExec:      directExec,
+		WorkingDir:      workingDir,
+		Script:          script,
+		Args:            args,
+	})
+}
+
 func agentEnvPairs(cfg sessionConfig) []string {
 	return agentEnvPairsWithPlan(cfg, nativeLaunchPlanForConfig(cfg))
 }
@@ -384,11 +414,22 @@ func agentEnvPairsWithPlan(cfg sessionConfig, plan sessionBackendPlan) []string 
 	})
 }
 
+func currentUserEnvPairsWithPlan(cfg sessionConfig, plan sessionBackendPlan) []string {
+	return newNativeLaunchBackend().CurrentUserEnvPairs(nativeLaunchEnvRequest{
+		Config: cfg,
+		Plan:   plan,
+	})
+}
+
 func nativeLaunchPlanForConfig(cfg sessionConfig) sessionBackendPlan {
 	return buildSessionPlanForHostFacts(cfg.Target, cfg, sessionModeNative, false, currentHostFacts()).Backend
 }
 
 func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []string {
+	return nativeLaunchBaseEnvPairsForIdentity(cfg, env, agentUser)
+}
+
+func nativeLaunchBaseEnvPairsForIdentity(cfg sessionConfig, env nativeLaunchEnvironment, userName string) []string {
 	if cfg.SessionHome != nil {
 		env = nativeLaunchEnvironmentWithSessionHome(env, cfg.SessionHome.Launch.Layout)
 	}
@@ -402,10 +443,13 @@ func nativeLaunchBaseEnvPairs(cfg sessionConfig, env nativeLaunchEnvironment) []
 	if cfg.TempDir != "" {
 		tmpDir = cfg.TempDir
 	}
+	if userName == "" {
+		userName = agentUser
+	}
 	pairs := []string{
 		"HOME=" + home,
-		"USER=" + agentUser,
-		"LOGNAME=" + agentUser,
+		"USER=" + userName,
+		"LOGNAME=" + userName,
 		"SHELL=" + env.Shell,
 		"PATH=" + env.Path,
 		"TMPDIR=" + tmpDir,

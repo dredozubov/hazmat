@@ -1,6 +1,12 @@
 package hazmat
 
-import "hazmat/containment"
+import (
+	"os"
+	"path/filepath"
+
+	"hazmat/containment"
+	"hazmat/runtimeprovider"
+)
 
 // nativeSessionPolicy is the backend-neutral containment contract for a native
 // Hazmat session. Backends compile this contract into OS-specific enforcement:
@@ -66,6 +72,9 @@ func claudeRuntimeTempDir() string {
 }
 
 func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
+	if cfg.RuntimeProvider == runtimeprovider.KindMacOSCurrentUser || cfg.CurrentUserSession != nil {
+		return buildCurrentUserNativeSessionPolicy(cfg)
+	}
 	floor, err := containment.NewCredentialFloor(agentHome, credentialDenySubs)
 	if err != nil {
 		return nativeSessionPolicy{}, err
@@ -92,6 +101,64 @@ func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
 		MacOSAgentKeychainAccess: cfg.AgentLoginKeychainAccess,
 		RuntimeTempDirs:          runtimeTempDirsForHarness(cfg.HarnessID),
 	}, nil
+}
+
+func buildCurrentUserNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
+	dirs := currentUserSessionDirsForConfig(cfg)
+	floor, err := currentUserCredentialFloor(dirs.Home)
+	if err != nil {
+		return nativeSessionPolicy{}, err
+	}
+	contract, err := containment.NewContract(containment.ContractInput{
+		Project:       containment.PathGrant{Path: cfg.ProjectDir, Access: containment.PathReadWrite},
+		ReadOnlyDirs:  containment.PathGrants(cfg.ReadDirs, containment.PathReadOnly),
+		ReadWriteDirs: containment.PathGrants(cfg.WriteDirs, containment.PathReadWrite),
+		AgentHome: containment.AgentHomePolicy{
+			Path:           dirs.Home,
+			Mode:           containment.AgentHomeModeSessionLocal,
+			PersistentPath: currentInvokerHome(),
+		},
+		Temp:    containment.TempPolicy{Path: dirs.TempDir},
+		Network: containment.NetworkPolicy{Mode: normalizeSessionNetworkMode(cfg.NetworkMode)},
+		Process: containment.ProcessPolicy{AllowFork: true},
+	}, floor)
+	if err != nil {
+		return nativeSessionPolicy{}, err
+	}
+	return nativeSessionPolicy{
+		Contract:                 contract,
+		MacOSSecurityFramework:   false,
+		MacOSAgentKeychainAccess: false,
+		RuntimeTempDirs:          nil,
+	}, nil
+}
+
+func currentUserCredentialFloor(sessionHome string) (containment.CredentialFloor, error) {
+	var denies []containment.CredentialDeny
+	seenHomes := make(map[string]struct{})
+	for _, home := range []string{sessionHome, currentInvokerHome(), agentHome} {
+		home = filepath.Clean(home)
+		if home == "." || home == string(os.PathSeparator) {
+			continue
+		}
+		if _, ok := seenHomes[home]; ok {
+			continue
+		}
+		seenHomes[home] = struct{}{}
+		floor, err := containment.NewCredentialFloor(home, credentialDenySubs)
+		if err != nil {
+			return containment.CredentialFloor{}, err
+		}
+		denies = append(denies, floor.Denies()...)
+	}
+	return containment.CredentialFloorFromDenies(denies)
+}
+
+func currentInvokerHome() string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return home
+	}
+	return os.Getenv("HOME")
 }
 
 func sessionTempDirOrDefault(tempDir string) string {

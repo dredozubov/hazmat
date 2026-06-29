@@ -20,6 +20,7 @@ import (
 	"hazmat/internal/backupruntime"
 	launchruntime "hazmat/internal/runtime"
 	"hazmat/internal/sessionflow"
+	"hazmat/runtimeprovider"
 	"hazmat/sessionmeta"
 
 	"github.com/spf13/cobra"
@@ -58,6 +59,11 @@ type sessionConfig struct {
 	RepoSetup                *repoSetupState
 	TempDir                  string // agent-owned per-session temp dir for native launch
 	SessionHome              *sessionHomeRuntimePlan
+	RuntimeProvider          runtimeprovider.Kind
+	RuntimeProviderExplicit  bool
+	RuntimeProviderStatus    *runtimeprovider.ProviderStatusRecord
+	RuntimeProviderGaps      []runtimeprovider.GapRecord
+	CurrentUserSession       *currentUserSessionDirs
 }
 
 type sessionLaunchUI struct {
@@ -413,6 +419,7 @@ func newExecCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	var backendValue string
 	var imageValue string
+	var providerValue string
 	var auditInstall bool
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <command> [args...]",
@@ -435,6 +442,9 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
   hazmat exec --backend=apple-container --image alpine:latest -- uname -a`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if backendValue != "" && providerValue != "" {
+				return fmt.Errorf("--provider cannot be combined with --backend")
+			}
 			switch backendValue {
 			case "":
 				if imageValue != "" {
@@ -449,6 +459,8 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 				return fmt.Errorf("unknown session backend %q (want apple-container)", backendValue)
 			}
 			opts := flags.harnessSessionOpts(cmd)
+			opts.runtimeProvider = providerValue
+			opts.runtimeProviderExplicit = cmd.Flags().Changed("provider")
 			opts.auditInstall = auditInstall
 			if shouldSkipAutomaticIntegrationsForExec(args, opts) {
 				opts.skipAutoIntegrations = true
@@ -476,6 +488,9 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 					return runPreparedAgentSeatbeltScriptWithUI(prepared, execLaunchUI(), nativeDirectProjectExecScript, args...)
 				})
 			}
+			if prepared.Config.RuntimeProvider == runtimeprovider.KindMacOSCurrentUser {
+				return runPreparedCurrentUserSeatbeltScriptWithUI(prepared, execLaunchUI(), nativeDirectProjectExecScript, args...)
+			}
 			return runPreparedAgentSeatbeltScriptWithUI(prepared, execLaunchUI(), nativeDirectProjectExecScript, args...)
 		},
 	}
@@ -484,6 +499,8 @@ HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
 		"Experimental session backend (apple-container; requires HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1)")
 	cmd.Flags().StringVar(&imageValue, "image", "",
 		"Explicit Linux image for --backend=apple-container")
+	cmd.Flags().StringVar(&providerValue, "provider", "",
+		"Experimental runtime provider identity (macos-current-user or macos-agent-user)")
 	cmd.Flags().BoolVar(&auditInstall, "audit-install", false,
 		"Observe agent-user egress during an install command and print a post-run report")
 	return cmd
@@ -1064,6 +1081,8 @@ type harnessSessionOpts struct {
 	auditInstall                 bool
 	planOnly                     bool
 	claudeBareRequested          bool
+	runtimeProvider              string
+	runtimeProviderExplicit      bool
 }
 
 func (opts *harnessSessionOpts) resolvedDockerDetection(projectDir string) dockerProjectDetection {
@@ -1125,6 +1144,16 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.github = true
 		case arg == "--metadata-json":
 			opts.metadataJSON = true
+		case arg == "--provider":
+			value, err := nextValue(&i, arg, "a provider (macos-current-user or macos-agent-user)")
+			if err != nil {
+				return opts, nil, err
+			}
+			opts.runtimeProvider = value
+			opts.runtimeProviderExplicit = true
+		case strings.HasPrefix(arg, "--provider="):
+			opts.runtimeProvider = arg[len("--provider="):]
+			opts.runtimeProviderExplicit = true
 		case arg == "--docker":
 			value, err := nextValue(&i, arg, "a mode (auto, none, sandbox)")
 			if err != nil {
@@ -1487,8 +1516,27 @@ func resolvePreparedSession(commandName string, opts harnessSessionOpts, support
 }
 
 func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionOpts, supportsSandbox bool, progress *sessionPreparationProgress) (preparedSession, error) {
+	provider, providerExplicit, err := parseSessionRuntimeProvider(opts.runtimeProvider, opts.runtimeProviderExplicit)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	if provider == runtimeprovider.KindMacOSCurrentUser {
+		if commandName != "exec" {
+			return preparedSession{}, fmt.Errorf("runtime provider %s is currently supported only for hazmat exec", provider)
+		}
+		if opts.auditInstall {
+			return preparedSession{}, fmt.Errorf("--audit-install is not supported with --provider=%s", provider)
+		}
+		if opts.github {
+			return preparedSession{}, fmt.Errorf("--github is not supported with --provider=%s; current-user credential delivery is not implemented", provider)
+		}
+	}
 	if !opts.planOnly {
-		if err := requireInit(); err != nil {
+		if provider != runtimeprovider.KindMacOSCurrentUser {
+			if err := requireInit(); err != nil {
+				return preparedSession{}, err
+			}
+		} else if err := admitLiveCurrentUserProvider(); err != nil {
 			return preparedSession{}, err
 		}
 	}
@@ -1520,6 +1568,8 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		return preparedSession{}, err
 	}
 	cfg.Target = commandName
+	cfg.RuntimeProvider = provider
+	cfg.RuntimeProviderExplicit = providerExplicit
 	cfg.EmitSessionMetadataJSON = opts.metadataJSON
 	cfg.SkipGitHTTPSRuntime = opts.skipGitHTTPSRuntime
 	cfg.SkipGoModCacheEnv = opts.skipGoModCacheEnv
@@ -1570,6 +1620,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	if cfg.RuntimeProvider == runtimeprovider.KindMacOSCurrentUser && request.Mode != dockerModeNone {
+		return preparedSession{}, fmt.Errorf("--provider=%s requires --docker=none; current-user Seatbelt does not route through Docker", cfg.RuntimeProvider)
+	}
 	var detection dockerProjectDetection
 	if !opts.skipDockerDetection || request.Mode != dockerModeNone {
 		detection = opts.resolvedDockerDetection(cfg.ProjectDir)
@@ -1595,9 +1648,15 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if cfg.GitSSH != nil && mode != sessionModeNative {
 		return preparedSession{}, unsupportedGitSSHSessionModeError(commandName, cfg.ProjectDir, mode)
 	}
+	if cfg.RuntimeProvider == runtimeprovider.KindMacOSCurrentUser && cfg.GitSSH != nil {
+		return preparedSession{}, fmt.Errorf("managed Git SSH is not supported with --provider=%s; current-user credential delivery is not implemented", cfg.RuntimeProvider)
+	}
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
 	appendHarnessStaticSessionNotes(&cfg)
+	if err := applyRuntimeProviderAdmission(&cfg, opts.planOnly); err != nil {
+		return preparedSession{}, err
+	}
 	if cfg.NetworkMode == sessionNetworkNone {
 		cfg.SessionNotes = append(cfg.SessionNotes, "--network none denies outbound IPv4, IPv6, and DNS for this native session; external provider/API calls will fail closed.")
 	}
@@ -1648,10 +1707,14 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		HostMutationPlan: mergeSessionMutationPlans(integrationMutationPlan, harnessUpdateMutationPlan, harnessStateMutationPlan, harnessAssetMutationPlan),
 	}
 	if mode == sessionModeNative {
-		progress.Step("planning host repairs")
-		prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlanWithOptions(cfg, nativeSessionMutationPlanOptions{
-			SkipGitSafeDirectoryPlanning: opts.skipGitSafeDirectoryPlanning,
-		}))
+		if cfg.RuntimeProvider == runtimeprovider.KindMacOSCurrentUser {
+			progress.Step("skipping agent-user host repairs")
+		} else {
+			progress.Step("planning host repairs")
+			prepared.HostMutationPlan = mergeSessionMutationPlans(prepared.HostMutationPlan, buildNativeSessionMutationPlanWithOptions(cfg, nativeSessionMutationPlanOptions{
+				SkipGitSafeDirectoryPlanning: opts.skipGitSafeDirectoryPlanning,
+			}))
+		}
 	}
 	prepared.Config.PlannedHostMutations = prepared.HostMutationPlan.Describe()
 	if !opts.skipRepoSetupDiscovery {
@@ -1942,6 +2005,9 @@ func renderSessionContract(cfg sessionConfig, mode sessionMode, skipSnapshot boo
 
 	fmt.Fprintln(&b, "hazmat: session")
 	fmt.Fprintf(&b, "  Mode:                 %s\n", mode.Label())
+	if cfg.RuntimeProviderExplicit && cfg.RuntimeProvider != "" {
+		fmt.Fprintf(&b, "  Provider:             %s\n", cfg.RuntimeProvider)
+	}
 	if cfg.RoutingReason != "" {
 		fmt.Fprintf(&b, "  Why this mode:        %s\n", cfg.RoutingReason)
 	}

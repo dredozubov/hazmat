@@ -12,6 +12,7 @@ func newExplainCmd() *cobra.Command {
 	var flags sessionCommandFlags
 	var backendValue string
 	var imageValue string
+	var providerValue string
 	var outputJSON bool
 
 	cmd := &cobra.Command{
@@ -40,7 +41,12 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sessionOpts := flags.explainSessionOpts(cmd)
+			sessionOpts.runtimeProvider = providerValue
+			sessionOpts.runtimeProviderExplicit = cmd.Flags().Changed("provider")
 
+			if backendValue != "" && providerValue != "" {
+				return fmt.Errorf("--provider cannot be combined with --backend")
+			}
 			switch backendValue {
 			case "":
 			case explainBackendAppleContainer:
@@ -85,6 +91,8 @@ Examples:
 		"Preview an alternate plan-only backend (apple-container)")
 	cmd.Flags().StringVar(&imageValue, "image", "",
 		"Explicit Linux image for --backend=apple-container previews")
+	cmd.Flags().StringVar(&providerValue, "provider", "",
+		"Preview a runtime provider identity (macos-current-user or macos-agent-user)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false,
 		"Emit a machine-readable JSON preview instead of human-oriented text")
 

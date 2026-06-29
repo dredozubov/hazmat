@@ -62,6 +62,21 @@ func (b darwinNativeLaunchBackend) CommandSudoArgs(req nativeLaunchCommandReques
 	})
 }
 
+func (b darwinNativeLaunchBackend) CommandCurrentUserArgs(req nativeLaunchCommandRequest) []string {
+	return darwinruntime.CommandCurrentUserArgs(darwinruntime.CommandRequest{
+		LaunchHelperPath: launchHelperPath(),
+		PolicyPath:       req.Policy.Path,
+		MetadataJSON:     req.MetadataJSON,
+		Profile:          req.Profile,
+		DirectExec:       req.DirectExec,
+		WorkingDir:       req.WorkingDir,
+		EnvPairs:         b.CurrentUserEnvPairs(nativeLaunchEnvRequest{Config: req.Config, Plan: req.Plan}),
+		RuntimeEnvPairs:  req.RuntimeEnvPairs,
+		Script:           req.Script,
+		Args:             req.Args,
+	})
+}
+
 func (darwinNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []string {
 	return nativeLaunchBaseEnvPairs(req.Config, nativeLaunchEnvironment{
 		Shell:         "/bin/zsh",
@@ -73,4 +88,18 @@ func (darwinNativeLaunchBackend) AgentEnvPairs(req nativeLaunchEnvRequest) []str
 		DataHome:      defaultAgentDataHome,
 		PlatformPairs: darwinruntime.PlatformEnvPairs(),
 	})
+}
+
+func (darwinNativeLaunchBackend) CurrentUserEnvPairs(req nativeLaunchEnvRequest) []string {
+	dirs := currentUserSessionDirsForConfig(req.Config)
+	return nativeLaunchBaseEnvPairsForIdentity(req.Config, nativeLaunchEnvironment{
+		Shell:         "/bin/zsh",
+		Path:          currentUserLaunchPath(),
+		Home:          dirs.Home,
+		TmpDir:        dirs.TempDir,
+		CacheHome:     dirs.CacheHome,
+		ConfigHome:    dirs.ConfigHome,
+		DataHome:      dirs.DataHome,
+		PlatformPairs: darwinruntime.PlatformEnvPairs(),
+	}, currentUserName())
 }

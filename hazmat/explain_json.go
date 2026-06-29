@@ -13,36 +13,37 @@ import (
 const explainJSONFormatVersion = sessioncontract.PlanFormatVersion
 
 type explainJSONPreview struct {
-	FormatVersion         int                                   `json:"format_version"`
-	Target                string                                `json:"target"`
-	Mode                  string                                `json:"mode"`
-	ModeLabel             string                                `json:"mode_label"`
-	Provider              *runtimeprovider.ProviderStatusRecord `json:"provider,omitempty"`
-	ProjectDir            string                                `json:"project_dir"`
-	RoutingReason         string                                `json:"routing_reason,omitempty"`
-	SuggestedIntegrations []string                              `json:"suggested_integrations,omitempty"`
-	RepoSetupSummary      string                                `json:"repo_setup_summary,omitempty"`
-	RepoSetupApplied      []explainJSONRepoSetupEffect          `json:"repo_setup_applied,omitempty"`
-	RepoSetupPending      []explainJSONRepoSetupEffect          `json:"repo_setup_pending,omitempty"`
-	ActiveIntegrations    []string                              `json:"active_integrations,omitempty"`
-	IntegrationSources    []string                              `json:"integration_sources,omitempty"`
-	IntegrationDetails    []string                              `json:"integration_details,omitempty"`
-	IntegrationWarnings   []string                              `json:"integration_warnings,omitempty"`
-	IntegrationEnvKeys    []string                              `json:"integration_env_keys,omitempty"`
-	RegistryEnvKeys       []string                              `json:"integration_registry_env_keys,omitempty"`
-	CredentialEnvGrants   []explainJSONCredentialEnvGrant       `json:"credential_env_grants,omitempty"`
-	PlannedHostMutations  []sessionMutation                     `json:"planned_host_mutations,omitempty"`
-	ReadOnlyDirs          []string                              `json:"read_only_dirs,omitempty"`
-	AutoReadOnlyDirs      []string                              `json:"auto_read_only_dirs,omitempty"`
-	UserReadOnlyDirs      []string                              `json:"user_read_only_dirs,omitempty"`
-	ReadWriteExtensions   []string                              `json:"read_write_extensions,omitempty"`
-	NetworkPolicy         sessionNetworkPolicyMetadata          `json:"network_policy"`
-	ServiceAccess         []string                              `json:"service_access,omitempty"`
-	GitSSHKey             string                                `json:"git_ssh_key,omitempty"`
-	Snapshot              explainJSONBackup                     `json:"snapshot"`
-	SessionHome           *explainJSONSessionHome               `json:"session_home,omitempty"`
-	SessionNotes          []string                              `json:"session_notes,omitempty"`
-	Platform              *linuxplatform.Report                 `json:"platform,omitempty"`
+	FormatVersion          int                                   `json:"format_version"`
+	Target                 string                                `json:"target"`
+	Mode                   string                                `json:"mode"`
+	ModeLabel              string                                `json:"mode_label"`
+	Provider               *runtimeprovider.ProviderStatusRecord `json:"provider,omitempty"`
+	ProviderCapabilityGaps []runtimeprovider.GapRecord           `json:"provider_capability_gaps,omitempty"`
+	ProjectDir             string                                `json:"project_dir"`
+	RoutingReason          string                                `json:"routing_reason,omitempty"`
+	SuggestedIntegrations  []string                              `json:"suggested_integrations,omitempty"`
+	RepoSetupSummary       string                                `json:"repo_setup_summary,omitempty"`
+	RepoSetupApplied       []explainJSONRepoSetupEffect          `json:"repo_setup_applied,omitempty"`
+	RepoSetupPending       []explainJSONRepoSetupEffect          `json:"repo_setup_pending,omitempty"`
+	ActiveIntegrations     []string                              `json:"active_integrations,omitempty"`
+	IntegrationSources     []string                              `json:"integration_sources,omitempty"`
+	IntegrationDetails     []string                              `json:"integration_details,omitempty"`
+	IntegrationWarnings    []string                              `json:"integration_warnings,omitempty"`
+	IntegrationEnvKeys     []string                              `json:"integration_env_keys,omitempty"`
+	RegistryEnvKeys        []string                              `json:"integration_registry_env_keys,omitempty"`
+	CredentialEnvGrants    []explainJSONCredentialEnvGrant       `json:"credential_env_grants,omitempty"`
+	PlannedHostMutations   []sessionMutation                     `json:"planned_host_mutations,omitempty"`
+	ReadOnlyDirs           []string                              `json:"read_only_dirs,omitempty"`
+	AutoReadOnlyDirs       []string                              `json:"auto_read_only_dirs,omitempty"`
+	UserReadOnlyDirs       []string                              `json:"user_read_only_dirs,omitempty"`
+	ReadWriteExtensions    []string                              `json:"read_write_extensions,omitempty"`
+	NetworkPolicy          sessionNetworkPolicyMetadata          `json:"network_policy"`
+	ServiceAccess          []string                              `json:"service_access,omitempty"`
+	GitSSHKey              string                                `json:"git_ssh_key,omitempty"`
+	Snapshot               explainJSONBackup                     `json:"snapshot"`
+	SessionHome            *explainJSONSessionHome               `json:"session_home,omitempty"`
+	SessionNotes           []string                              `json:"session_notes,omitempty"`
+	Platform               *linuxplatform.Report                 `json:"platform,omitempty"`
 }
 
 type explainJSONRepoSetupEffect = sessioncontract.RepoSetupEffect
@@ -54,7 +55,10 @@ func buildExplainJSON(target string, cfg sessionConfig, mode sessionMode, skipSn
 	facts := currentHostFacts()
 	plan := buildSessionPlanForHostFacts(target, cfg, mode, skipSnapshot, facts)
 	platform := explainPlatformReport(facts)
-	return explainJSONPreviewFromPlan(plan.Contract, platform, explainProviderRecord(mode, platform))
+	provider := explainProviderRecordForConfig(cfg, mode, platform)
+	preview := explainJSONPreviewFromPlan(plan.Contract, platform, provider)
+	preview.ProviderCapabilityGaps = append([]runtimeprovider.GapRecord(nil), cfg.RuntimeProviderGaps...)
+	return preview
 }
 
 func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatform.Report, provider *runtimeprovider.ProviderStatusRecord) explainJSONPreview {
@@ -90,6 +94,17 @@ func explainJSONPreviewFromPlan(plan sessioncontract.Plan, platform *linuxplatfo
 		SessionNotes:          plan.SessionNotes,
 		Platform:              platform,
 	}
+}
+
+func explainProviderRecordForConfig(cfg sessionConfig, mode sessionMode, platform *linuxplatform.Report) *runtimeprovider.ProviderStatusRecord {
+	if cfg.RuntimeProviderStatus != nil {
+		record := *cfg.RuntimeProviderStatus
+		return &record
+	}
+	if cfg.RuntimeProvider != "" {
+		return providerRecord(cfg.RuntimeProvider)
+	}
+	return explainProviderRecord(mode, platform)
 }
 
 func explainProviderRecord(mode sessionMode, platform *linuxplatform.Report) *runtimeprovider.ProviderStatusRecord {
