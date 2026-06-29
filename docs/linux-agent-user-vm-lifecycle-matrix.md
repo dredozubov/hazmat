@@ -193,6 +193,20 @@ gh workflow run linux-evidence.yml -f lane=agent-user-live -f run_live=false
 That artifact can satisfy only the Ubuntu lifecycle row at the target commit.
 It is not a substitute for Debian, Fedora, or Arch VM lifecycle transcripts.
 
+Supplemental Debian, Fedora, and Arch container transcripts can be collected on
+demand via the same workflow:
+
+```bash
+gh workflow run linux-evidence.yml -f lane=distro-container -f run_live=false
+```
+
+That workflow uploads `linux-distro-container-{debian,fedora,arch}-evidence`.
+Those artifacts are useful for package-manager, distro-fact, transcript-shape,
+and live-run drift checks. When the container host supports the needed setup
+and cgroup operations, they can also exercise the guarded lifecycle harness, but
+they remain CI/container evidence only and do not replace the D1, F1, or A1
+disposable VM lifecycle transcript rows.
+
 ## Pass Criteria
 
 The Linux agent-user VM lifecycle matrix passes only when all of the following

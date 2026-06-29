@@ -149,6 +149,18 @@ That workflow uploads `linux-current-user-ubuntu-evidence`. It can satisfy the
 Ubuntu current-user row when the transcript passes at the target commit, but it
 does not replace Debian, Fedora, or Arch VM evidence.
 
+Supplemental Debian, Fedora, and Arch container transcripts can be collected on
+demand via the same workflow:
+
+```bash
+gh workflow run linux-evidence.yml -f lane=distro-container -f run_live=false
+```
+
+That workflow uploads `linux-distro-container-{debian,fedora,arch}-evidence`.
+Those artifacts are useful for package-manager, distro-fact, transcript-shape,
+and live-run drift checks, but they are CI/container evidence only. They do not
+replace the D1, F1, or A1 disposable VM transcript rows.
+
 ## Pass Criteria
 
 The Linux current-user VM smoke matrix passes only when all of the following

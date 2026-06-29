@@ -12,6 +12,7 @@ on:
           - current-user
           - agent-user-scaffold
           - agent-user-live
+          - distro-container
         default: all
       run_live:
         description: Run live Ubuntu current-user smoke
@@ -134,4 +135,115 @@ jobs:
         with:
           name: linux-agent-user-ubuntu-live-lifecycle
           path: linux-evidence/agent-user-ubuntu-live-lifecycle.txt
+          if-no-files-found: warn
+
+  distro-container:
+    name: ${{ matrix.label }} distro container evidence
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == 'all' || github.event.inputs.lane == 'distro-container') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: debian
+            label: Debian
+            image: debian:stable
+          - id: fedora
+            label: Fedora
+            image: fedora:latest
+          - id: arch
+            label: Arch
+            image: archlinux:latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Capture distro container transcript
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p linux-evidence
+          goroot="$(go env GOROOT)"
+          docker run --rm \
+            --privileged \
+            --cgroupns=host \
+            --security-opt seccomp=unconfined \
+            -e DISTRO_ID="${{ matrix.id }}" \
+            -e HAZMAT_LINUX_VM_RUNNER="github-actions-${{ matrix.id }}-container" \
+            -v "$PWD:/src:ro" \
+            -v "$goroot:/opt/go:ro" \
+            "${{ matrix.image }}" \
+            /bin/sh -ceu '
+              export PATH="/opt/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              export HOME=/tmp/hazmat-home
+              export GOCACHE=/tmp/hazmat-go-cache
+              export GOMODCACHE=/tmp/hazmat-go-mod
+              mkdir -p "$HOME" "$GOCACHE" "$GOMODCACHE"
+
+              case "$DISTRO_ID" in
+                debian)
+                  apt-get update
+                  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                    acl ca-certificates coreutils findutils git passwd procps sudo
+                  ;;
+                fedora)
+                  dnf install -y \
+                    acl ca-certificates coreutils findutils git procps-ng shadow-utils sudo
+                  ;;
+                arch)
+                  pacman -Sy --noconfirm --needed \
+                    acl ca-certificates coreutils findutils git procps-ng shadow sudo
+                  ;;
+                *)
+                  echo "unknown DISTRO_ID=$DISTRO_ID" >&2
+                  exit 2
+                  ;;
+              esac
+
+              mkdir -p /work/hazmat
+              cp -a /src/. /work/hazmat/
+              cd /work/hazmat
+              git config --global --add safe.directory /work/hazmat
+
+              echo "Linux distro container evidence"
+              echo "Date: $(date -u +%Y-%m-%d)"
+              echo "Commit: $(git rev-parse HEAD)"
+              echo "Runner: ${HAZMAT_LINUX_VM_RUNNER}"
+              echo "Image: $DISTRO_ID"
+              echo "Go: $(go version)"
+              echo
+              echo "This is supplemental CI/container evidence. It is not a substitute for Debian/Fedora/Arch disposable VM transcripts."
+              echo
+
+              status=0
+              run_section() {
+                echo
+                echo "## $*"
+                if "$@"; then
+                  echo "section result: pass"
+                else
+                  rc=$?
+                  echo "section result: fail exit=$rc"
+                  status=$rc
+                fi
+              }
+
+              run_section scripts/check-linux-vm-matrix-transcript.sh --mode current-user --run --skip-preflight
+              run_section scripts/check-linux-current-user-live-smoke.sh --run --i-understand-this-runs-linux-current-user-live-smoke
+              run_section scripts/check-linux-vm-matrix-transcript.sh --mode agent-user --run --skip-preflight
+              run_section scripts/check-linux-agent-user-lifecycle-smoke.sh --run --i-understand-this-runs-linux-agent-user-lifecycle-smoke
+
+              exit "$status"
+            ' | tee "linux-evidence/${{ matrix.id }}-container.txt"
+
+      - name: Upload distro container evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-distro-container-${{ matrix.id }}-evidence
+          path: linux-evidence/${{ matrix.id }}-container.txt
           if-no-files-found: warn
