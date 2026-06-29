@@ -18,7 +18,7 @@ CLI, docs, compatibility rows, and release checklists may claim.
 
 | Provider | Host platform | User mode | Backend | Status | Identity boundary | User-facing claim |
 | --- | --- | --- | --- | --- | --- | --- |
-| `macos-current-user` | `macos` | `current-user` | `darwin-native` | `plan-only` | `current-user` | macOS same-user contract sandboxing is a planned lane; no executable runner claim yet. |
+| `macos-current-user` | `macos` | `current-user` | `darwin-native` | `experimental` | `current-user` | macOS same-user Seatbelt launch is executable only with `HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1` and the current-user helper capability. |
 | `macos-agent-user` | `macos` | `agent-user` | `darwin-native` | `supported` | `macos-agent-user` | macOS native containment with the configured Hazmat agent user. |
 | `docker-sandbox` | `container` | `container-user` | `docker-sandbox` | `supported` | `container-user` | Docker Sandbox private-daemon workflows, not shared host Docker socket authority. |
 | `apple-container` | `container` | `container-user` | `apple-container` | `experimental` | `container-user` | Apple Container launch is experimental and explicitly gated. |
@@ -81,10 +81,10 @@ runtime, and lifecycle VM smokes are complete.
 Release promotion gates for both lanes are listed in the
 [Linux release checklist](linux-release-checklist.md).
 
-macOS native support currently means the `macos-agent-user` lane. The
-`macos-current-user` lane is registered only to keep the identity split
-explicit; do not describe it as executable until it has its own admission,
-runner, and evidence gates.
+macOS native support has two identity lanes. `macos-agent-user` is the
+supported default. `macos-current-user` is experimental and must be selected
+explicitly with `--provider=macos-current-user`; it does not use the agent user,
+agent HOME, agent keychain, launch broker, or agent-user repair path.
 
 Do not write broad "Linux support" or "macOS native support" claims when the
 identity lane matters. Name the provider lane and status instead.

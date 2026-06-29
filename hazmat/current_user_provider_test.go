@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"hazmat/containment"
+	darwincompiler "hazmat/containment/darwin"
 	darwinruntime "hazmat/internal/runtime/darwin"
 	"hazmat/runtimeprovider"
 )
@@ -148,6 +149,44 @@ func TestBuildCurrentUserNativeSessionPolicyUsesSessionHomeAndCredentialFloors(t
 	}
 	if policy.MacOSAgentKeychainAccess {
 		t.Fatal("current-user policy must not re-allow agent login keychain access")
+	}
+}
+
+func TestCurrentUserNativeSessionPolicyCompilesCredentialDeniesToSBPL(t *testing.T) {
+	hostHome := t.TempDir()
+	t.Setenv("HOME", hostHome)
+	sessionRoot := t.TempDir()
+	dirs := currentUserSessionDirs{
+		Root:       sessionRoot,
+		Home:       sessionRoot + "/home",
+		CacheHome:  sessionRoot + "/home/.cache",
+		ConfigHome: sessionRoot + "/home/.config",
+		DataHome:   sessionRoot + "/home/.local/share",
+		TempDir:    sessionRoot + "/tmp",
+	}
+	policy, err := buildNativeSessionPolicy(sessionConfig{
+		ProjectDir:         t.TempDir(),
+		NetworkMode:        sessionNetworkDefault,
+		RuntimeProvider:    runtimeprovider.KindMacOSCurrentUser,
+		CurrentUserSession: &dirs,
+		SkipGoModCacheEnv:  true,
+	})
+	if err != nil {
+		t.Fatalf("buildNativeSessionPolicy: %v", err)
+	}
+	sbpl, err := darwincompiler.Compile(policy.Contract, darwincompiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	for _, want := range []string{
+		`(allow file-read* file-write* (subpath "` + dirs.Home + `"))`,
+		`(deny file-read* file-write* (subpath "` + dirs.Home + `/.ssh"))`,
+		`(deny file-read* file-write* (subpath "` + hostHome + `/.ssh"))`,
+		`(deny file-read* file-write* (subpath "` + agentHome + `/.ssh"))`,
+	} {
+		if !strings.Contains(sbpl, want) {
+			t.Fatalf("compiled SBPL missing %s", want)
+		}
 	}
 }
 

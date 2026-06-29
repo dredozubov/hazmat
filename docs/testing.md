@@ -79,6 +79,36 @@ When running from a checkout, the experimental broker may still use the
 installed helper for sudo-authorized broker startup while using the checkout
 `hazmat-launch` next to the checkout `hazmat` binary for child launches.
 
+## macOS Current-User Seatbelt Smoke
+
+`macos-current-user` is an experimental same-UID Seatbelt provider. It is not
+the default `macos-agent-user` path and must be selected explicitly:
+
+```bash
+./hazmat explain --for exec --provider=macos-current-user --json -C <repo>
+```
+
+That preview is non-mutating. A live run is still approval-gated in agent
+workflows because it invokes the native launch helper and applies a real
+Seatbelt profile. Ask for exact-command approval before running:
+
+```bash
+HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1 ./hazmat exec --provider=macos-current-user --no-backup -C <scratch-project> -- /usr/bin/env
+```
+
+For a focused boundary smoke, use a disposable project and replace
+`<host-credential-path>` with an existing invoking-user credential directory
+such as `/Users/<you>/.ssh` or `/Users/<you>/.config/gh`:
+
+```bash
+HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1 ./hazmat exec --provider=macos-current-user --network none --no-backup -C <scratch-project> -- /bin/sh -lc 'test "$USER" != agent && case "$HOME" in /Users/*) exit 20;; esac && test -d "$XDG_CACHE_HOME" && ! /bin/ls <host-credential-path> >/dev/null 2>&1'
+```
+
+Passing evidence should show a session-local HOME/XDG/TMP layout, no `agent`
+identity in `USER`/`LOGNAME`, host credential path denial, and no network access
+when `--network none` is requested. Do not treat this as `macos-agent-user`
+coverage; it validates only the current-user provider lane.
+
 Linux native run-agent support is still plan-only/experimental. Its provider
 readiness gates live in
 [docs/plans/2026-06-13-linux-run-agent-readiness-gates.md](plans/2026-06-13-linux-run-agent-readiness-gates.md)
