@@ -35,6 +35,8 @@ behavior. Important gap IDs include:
 | Gap | Applies to | Meaning |
 | --- | --- | --- |
 | `macos.current-user-runner-missing` | `macos-current-user` | macOS current-user native runner is not implemented or admitted. |
+| `macos.current-user-experimental-gate-closed` | `macos-current-user` | macOS current-user native launch was requested without the explicit experimental gate. |
+| `macos.current-user-runtime-not-darwin` | `macos-current-user` | macOS current-user Seatbelt admission was evaluated on a non-Darwin host. |
 | `linux.native-launch-helper-missing` | `linux-current-user` | Native Linux runner is not enabled in the session pipeline or lacks VM smoke evidence. |
 | `linux.runtime-not-linux` | `linux-current-user` | The inspected runtime is not Linux. |
 | `linux.user-namespace-unavailable` | `linux-current-user` | Rootless current-user admission lacks user namespaces. |
