@@ -493,6 +493,11 @@ assert_fails_with \
     sh "$REPO_ROOT/scripts/check-linux-agent-user-lifecycle-smoke.sh" --run
 
 assert_fails_with \
+    "Linux QEMU VM evidence requires live ack" \
+    "refusing live run without --i-understand-this-runs-linux-disposable-vm-evidence" \
+    bash "$REPO_ROOT/scripts/check-linux-qemu-vm-evidence.sh" --run --distro debian
+
+assert_fails_with \
     "privileged install ownership check requires live ack" \
     "refusing live run without --i-understand-this-checks-privileged-install-ownership" \
     bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
@@ -633,6 +638,11 @@ assert_succeeds_with \
     "Linux agent-user lifecycle smoke defaults to disclosure" \
     "linux-agent-user-lifecycle-smoke: disclosure-only" \
     sh "$REPO_ROOT/scripts/check-linux-agent-user-lifecycle-smoke.sh"
+
+assert_succeeds_with \
+    "Linux QEMU VM evidence defaults to disclosure" \
+    "linux-qemu-vm-evidence: disclosure-only" \
+    bash "$REPO_ROOT/scripts/check-linux-qemu-vm-evidence.sh"
 
 assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \
@@ -872,6 +882,15 @@ assert_help_contains_all \
     "disposable Linux VM" \
     "namespaces, mounts, Landlock, seccomp" \
     "It does not run sudo"
+
+assert_help_contains_all \
+    "Linux QEMU VM evidence documents disposable VM scope" \
+    "$REPO_ROOT/scripts/check-linux-qemu-vm-evidence.sh" \
+    "--i-understand-this-runs-linux-disposable-vm-evidence" \
+    "--distro debian|fedora|arch" \
+    "downloads distro cloud images" \
+    "boots QEMU" \
+    "sudo-backed agent-user lifecycle"
 
 assert_help_contains_all \
     "Linux agent-user live smoke documents prepared-host scope" \

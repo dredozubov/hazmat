@@ -20,6 +20,7 @@
 .github/workflows/linux-evidence.yml#job:agent-user-scaffold-ubuntu	os-linux	live-approved
 .github/workflows/linux-evidence.yml#job:current-user-ubuntu	os-linux	live-approved
 .github/workflows/linux-evidence.yml#job:distro-container	os-linux	live-approved
+.github/workflows/linux-vm-evidence.yml#job:qemu-vm	os-linux	live-approved
 scripts/check-cache-integration-smoke.sh	live-approved	product-workflows
 scripts/check-claude-onboarding-smoke.sh	live-approved	product-workflows
 scripts/check-claude-workflow-export-smoke.sh	live-approved	product-workflows
@@ -37,6 +38,7 @@ scripts/check-linux-agent-user-live-smoke.sh	os-linux	live-approved
 scripts/check-linux-apple-container-smoke.sh	os-linux	live-approved
 scripts/check-linux-compile.sh	os-linux	-
 scripts/check-linux-current-user-live-smoke.sh	os-linux	live-approved
+scripts/check-linux-qemu-vm-evidence.sh	os-linux	live-approved
 scripts/check-linux-trace-smoke.sh	live-approved	os-linux
 scripts/check-linux-vm-matrix-transcript.sh	os-linux	-
 scripts/linux-apple-container-dev.sh	os-linux	live-approved

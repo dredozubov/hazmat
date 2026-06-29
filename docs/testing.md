@@ -905,11 +905,13 @@ prepared-host root-helper launch, default rollback, and destructive rollback on
 a disposable Ubuntu runner. The same workflow has a manual `distro-container`
 lane for Debian, Fedora, and Arch container transcripts. That lane is useful for
 package-manager, distro-fact, and supplemental live-run drift, but it is not a
-substitute for release-grade disposable VM lifecycle transcripts. Do not enable
-Linux install or release artifacts until disposable VM lifecycle transcripts
-pass setup, doctor, root-helper launch, default rollback, and destructive
-rollback across the required distro matrix. The model-first gate has a checked
-resource-ordering contract in
+substitute for release-grade disposable VM lifecycle transcripts.
+`.github/workflows/linux-vm-evidence.yml` is the on-demand QEMU path for
+Debian, Fedora, and Arch disposable VM transcripts. Do not enable Linux install
+or release artifacts until disposable VM lifecycle transcripts pass setup,
+doctor, root-helper launch, default rollback, and destructive rollback across
+the required distro matrix. The model-first gate has a checked resource-ordering
+contract in
 `tla/MC_SetupRollback` with `Platform = "linux"`: Linux sudoers privilege
 requires firewall policy, resolver policy, and service-manager persistence to
 all be active.
@@ -955,6 +957,9 @@ Current GitHub Actions coverage:
   - manual Ubuntu agent-user live lifecycle transcript artifact
   - manual Debian/Fedora/Arch distro-container transcript artifacts
   - not a substitute for Debian/Fedora/Arch VM lifecycle transcripts
+- `.github/workflows/linux-vm-evidence.yml`
+  - manual Debian/Fedora/Arch disposable QEMU VM transcript artifacts
+  - current-user, agent-user, or combined VM evidence mode
 - `.github/workflows/stack-matrix-drift.yml`
   - non-blocking scheduled drift checks against upstream heads
 - `.github/workflows/release.yml`

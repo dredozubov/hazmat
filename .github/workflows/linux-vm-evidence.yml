@@ -1,0 +1,93 @@
+name: Linux VM evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: Distro VM row to run
+        required: true
+        type: choice
+        options:
+          - all
+          - debian
+          - fedora
+          - arch
+        default: all
+      mode:
+        description: Evidence mode
+        required: true
+        type: choice
+        options:
+          - all
+          - current-user
+          - agent-user
+        default: all
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION_FILE: hazmat/go.mod
+  GO_CACHE_DEP: hazmat/go.sum
+
+jobs:
+  qemu-vm:
+    name: ${{ matrix.label }} disposable VM evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: debian
+            label: Debian
+            ssh_port: 2221
+          - id: fedora
+            label: Fedora
+            ssh_port: 2222
+          - id: arch
+            label: Arch
+            ssh_port: 2223
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        if: ${{ github.event.inputs.distro == 'all' || github.event.inputs.distro == matrix.id }}
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install QEMU dependencies
+        if: ${{ github.event.inputs.distro == 'all' || github.event.inputs.distro == matrix.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cloud-image-utils \
+            openssh-client \
+            qemu-system-x86 \
+            qemu-utils
+
+      - name: Capture disposable VM transcript
+        if: ${{ github.event.inputs.distro == 'all' || github.event.inputs.distro == matrix.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p linux-evidence
+          scripts/check-linux-qemu-vm-evidence.sh \
+            --run \
+            --i-understand-this-runs-linux-disposable-vm-evidence \
+            --distro "${{ matrix.id }}" \
+            --mode "${{ github.event.inputs.mode }}" \
+            --go-root "$(go env GOROOT)" \
+            --ssh-port "${{ matrix.ssh_port }}" \
+            --output "$PWD/linux-evidence/${{ matrix.id }}-vm.txt"
+
+      - name: Upload disposable VM evidence
+        if: always() && (github.event.inputs.distro == 'all' || github.event.inputs.distro == matrix.id)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-vm-${{ matrix.id }}-evidence
+          path: linux-evidence/${{ matrix.id }}-vm.txt
+          if-no-files-found: warn

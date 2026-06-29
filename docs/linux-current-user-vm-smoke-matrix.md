@@ -161,6 +161,17 @@ Those artifacts are useful for package-manager, distro-fact, transcript-shape,
 and live-run drift checks, but they are CI/container evidence only. They do not
 replace the D1, F1, or A1 disposable VM transcript rows.
 
+Debian, Fedora, and Arch disposable VM transcripts can be collected on demand
+with the QEMU VM evidence workflow:
+
+```bash
+gh workflow run linux-vm-evidence.yml -f distro=all -f mode=current-user
+```
+
+That workflow uploads `linux-vm-{debian,fedora,arch}-evidence` artifacts. A
+passing artifact can satisfy the corresponding D1, F1, or A1 current-user row
+when it records the required host facts and S1-S7 results at the target commit.
+
 ## Pass Criteria
 
 The Linux current-user VM smoke matrix passes only when all of the following

@@ -207,6 +207,18 @@ and cgroup operations, they can also exercise the guarded lifecycle harness, but
 they remain CI/container evidence only and do not replace the D1, F1, or A1
 disposable VM lifecycle transcript rows.
 
+Debian, Fedora, and Arch disposable VM lifecycle transcripts can be collected on
+demand with the QEMU VM evidence workflow:
+
+```bash
+gh workflow run linux-vm-evidence.yml -f distro=all -f mode=agent-user
+```
+
+That workflow uploads `linux-vm-{debian,fedora,arch}-evidence` artifacts. A
+passing artifact can satisfy the corresponding D1, F1, or A1 agent-user row
+when it records setup, prepared-host root-helper launch, default rollback, and
+destructive rollback results at the target commit.
+
 ## Pass Criteria
 
 The Linux agent-user VM lifecycle matrix passes only when all of the following

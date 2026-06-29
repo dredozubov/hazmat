@@ -28,6 +28,7 @@ Minimum release evidence before promotion beyond `plan-only`:
 | Distro/capability fixtures | Ubuntu, Debian, Fedora, Arch, unknown distro parser/gap fixtures are present. | `sandboxing-xuar.3.5` |
 | GitHub-hosted Ubuntu evidence | `.github/workflows/linux-evidence.yml` uploads the Ubuntu current-user transcript on demand and on release tags. | `sandboxing-ebm7` |
 | Supplemental distro-container evidence | `.github/workflows/linux-evidence.yml` uploads Debian, Fedora, and Arch container transcripts for drift checks; these artifacts are not release-promotion VM evidence. | `sandboxing-oqy5` |
+| Debian/Fedora/Arch VM evidence | `.github/workflows/linux-vm-evidence.yml` uploads disposable QEMU VM transcripts for Debian, Fedora, and Arch current-user rows. | `sandboxing-07im`, `sandboxing-xuar.3.5` |
 | VM smoke matrix | U1, D1, F1, A1 transcripts satisfy S1-S7 in the current-user matrix. | `sandboxing-xuar.3.5` |
 | Docs/status | Runtime provider docs keep `linux-current-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 
@@ -51,6 +52,7 @@ Minimum release evidence before promotion beyond `setup-required`:
 | GitHub-hosted Ubuntu scaffold | `.github/workflows/linux-evidence.yml` uploads an agent-user Ubuntu scaffold transcript for host facts and pending lifecycle rows. | `sandboxing-ebm7` |
 | GitHub-hosted Ubuntu lifecycle evidence | `.github/workflows/linux-evidence.yml` has an explicit manual `agent-user-live` lane that uploads setup, root-helper launch, default rollback, and destructive rollback evidence for Ubuntu only. | `sandboxing-3nn1` |
 | Supplemental distro-container evidence | `.github/workflows/linux-evidence.yml` uploads Debian, Fedora, and Arch container transcripts for drift checks; these artifacts are not release-promotion VM lifecycle evidence. | `sandboxing-oqy5` |
+| Debian/Fedora/Arch VM lifecycle evidence | `.github/workflows/linux-vm-evidence.yml` uploads disposable QEMU VM transcripts for Debian, Fedora, and Arch agent-user lifecycle rows. | `sandboxing-07im`, `sandboxing-xuar.4.5` |
 | VM lifecycle matrix | U1, D1, F1, A1 transcripts satisfy A1-A11 in the agent-user matrix. | `sandboxing-xuar.4.5` |
 | Docs/status | Runtime provider docs keep `linux-agent-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 
