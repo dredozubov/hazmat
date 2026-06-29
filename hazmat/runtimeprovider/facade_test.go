@@ -487,7 +487,7 @@ func (p *downgradeRefusingProvider) AdmitWithRequirements(ctx context.Context, l
 	if err := RequireCapabilities(required, p.available); err != nil {
 		return Admission{}, err
 	}
-	return p.fakeProvider.Admit(ctx, launch)
+	return p.Admit(ctx, launch)
 }
 
 func (p *downgradeRefusingProvider) Launch(ctx context.Context, admission Admission) (LaunchHandle, error) {

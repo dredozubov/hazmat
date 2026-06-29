@@ -129,6 +129,23 @@ func callbackForResource(callbacks Callbacks, resource setup.Resource) Callback 
 		return callbacks.LaunchHelper
 	case setup.ResourceLinuxSudoers:
 		return callbacks.Sudoers
+	case setup.ResourceAgentUser,
+		setup.ResourceDevGroup,
+		setup.ResourceHomeDirTraverse,
+		setup.ResourceLocalRepo,
+		setup.ResourceHardeningGaps,
+		setup.ResourceUmask,
+		setup.ResourceSeatbelt,
+		setup.ResourceWrappers,
+		setup.ResourcePfAnchor,
+		setup.ResourceDNSBlocklist,
+		setup.ResourceLaunchDaemon,
+		setup.ResourceLaunchHelper,
+		setup.ResourceSudoers,
+		setup.ResourceMaintenanceSudoers,
+		setup.ResourceClaudeCode,
+		setup.ResourceCredentials:
+		return nil
 	default:
 		return nil
 	}
@@ -158,6 +175,23 @@ func resourceSuffix(resource setup.Resource) string {
 		return "LaunchHelper"
 	case setup.ResourceLinuxSudoers:
 		return "Sudoers"
+	case setup.ResourceAgentUser,
+		setup.ResourceDevGroup,
+		setup.ResourceHomeDirTraverse,
+		setup.ResourceLocalRepo,
+		setup.ResourceHardeningGaps,
+		setup.ResourceUmask,
+		setup.ResourceSeatbelt,
+		setup.ResourceWrappers,
+		setup.ResourcePfAnchor,
+		setup.ResourceDNSBlocklist,
+		setup.ResourceLaunchDaemon,
+		setup.ResourceLaunchHelper,
+		setup.ResourceSudoers,
+		setup.ResourceMaintenanceSudoers,
+		setup.ResourceClaudeCode,
+		setup.ResourceCredentials:
+		return "Unknown"
 	default:
 		return "Unknown"
 	}

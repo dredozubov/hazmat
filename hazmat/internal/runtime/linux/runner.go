@@ -404,6 +404,8 @@ func validateRunMetadata(events []MetadataEvent) error {
 	switch final {
 	case PhaseContained, PhaseExited, PhaseFailed, PhaseCancelled:
 		return nil
+	case PhasePlanned, PhaseLaunched:
+		return fmt.Errorf("Linux helper metadata final phase %q is not terminal", final)
 	default:
 		return fmt.Errorf("Linux helper metadata final phase %q is not terminal", final)
 	}

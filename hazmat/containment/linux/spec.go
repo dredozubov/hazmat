@@ -307,7 +307,7 @@ func featureGapRequirements(report platformlinux.Report, identity IdentityLane) 
 			{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
 			{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
 		}
-	default:
+	case IdentityCurrentUser:
 		return []featureGapRequirement{
 			{GapUserNamespaceUnavailable, "user namespace support is not positively available", report.Features.UserNamespaces},
 			{GapMountNamespaceUnavailable, "mount namespace support is not positively available", report.Features.MountNamespaces},
@@ -316,5 +316,7 @@ func featureGapRequirements(report platformlinux.Report, identity IdentityLane) 
 			{GapSeccompUnavailable, "seccomp support is not positively available", report.Features.Seccomp},
 			{GapNetworkNamespaceUnavailable, "network namespace support is not positively available", report.Features.NetworkNamespaces},
 		}
+	default:
+		return nil
 	}
 }
