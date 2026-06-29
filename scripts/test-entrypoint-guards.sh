@@ -488,6 +488,11 @@ assert_fails_with \
     sh "$REPO_ROOT/scripts/check-linux-agent-user-live-smoke.sh" --run
 
 assert_fails_with \
+    "Linux agent-user lifecycle smoke requires live ack" \
+    "refusing live run without --i-understand-this-runs-linux-agent-user-lifecycle-smoke" \
+    sh "$REPO_ROOT/scripts/check-linux-agent-user-lifecycle-smoke.sh" --run
+
+assert_fails_with \
     "privileged install ownership check requires live ack" \
     "refusing live run without --i-understand-this-checks-privileged-install-ownership" \
     bash "$REPO_ROOT/scripts/check-privileged-install-ownership.sh" --run
@@ -623,6 +628,11 @@ assert_succeeds_with \
     "Linux agent-user live smoke defaults to disclosure" \
     "linux-agent-user-live-smoke: disclosure-only" \
     sh "$REPO_ROOT/scripts/check-linux-agent-user-live-smoke.sh"
+
+assert_succeeds_with \
+    "Linux agent-user lifecycle smoke defaults to disclosure" \
+    "linux-agent-user-lifecycle-smoke: disclosure-only" \
+    sh "$REPO_ROOT/scripts/check-linux-agent-user-lifecycle-smoke.sh"
 
 assert_succeeds_with \
     "Apple Container spike defaults to disclosure" \

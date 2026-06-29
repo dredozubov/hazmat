@@ -896,16 +896,19 @@ If you want the strongest local release signal, prefer the VM path plus CI.
 
 ## Linux Support Test Plan
 
-Linux testing currently has compile, unit, model, transcript-scaffold, and
-prepared-host runtime coverage. `.github/workflows/linux-evidence.yml` adds an
-on-demand and release-tag Ubuntu evidence lane for current-user live smoke plus
-agent-user transcript scaffolding. Do not enable Linux install or release
-artifacts until disposable VM lifecycle transcripts pass setup, doctor,
-root-helper launch, default rollback, and destructive rollback across the
-required distro matrix. The model-first gate has a checked resource-ordering
-contract in `tla/MC_SetupRollback` with `Platform = "linux"`: Linux sudoers
-privilege requires firewall policy, resolver policy, and service-manager
-persistence to all be active.
+Linux testing currently has compile, unit, model, transcript-scaffold,
+prepared-host runtime, and an explicit on-demand Ubuntu lifecycle lane.
+`.github/workflows/linux-evidence.yml` adds an on-demand and release-tag Ubuntu
+evidence lane for current-user live smoke plus agent-user transcript
+scaffolding; it also has a manual `agent-user-live` lane that runs setup,
+prepared-host root-helper launch, default rollback, and destructive rollback on
+a disposable Ubuntu runner. Do not enable Linux install or release artifacts
+until disposable VM lifecycle transcripts pass setup, doctor, root-helper
+launch, default rollback, and destructive rollback across the required distro
+matrix. The model-first gate has a checked resource-ordering contract in
+`tla/MC_SetupRollback` with `Platform = "linux"`: Linux sudoers privilege
+requires firewall policy, resolver policy, and service-manager persistence to
+all be active.
 
 The first Linux implementation should land behind four gates:
 
@@ -945,6 +948,7 @@ Current GitHub Actions coverage:
   - on-demand Linux evidence collection via `workflow_dispatch`
   - release-tag Ubuntu current-user live smoke transcript artifact
   - release-tag Ubuntu agent-user transcript scaffold artifact
+  - manual Ubuntu agent-user live lifecycle transcript artifact
   - not a substitute for Debian/Fedora/Arch VM lifecycle transcripts
 - `.github/workflows/stack-matrix-drift.yml`
   - non-blocking scheduled drift checks against upstream heads

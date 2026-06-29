@@ -158,6 +158,21 @@ rollback, or destructive rollback, so A1, A2, A3, A9, and A10 still require
 separate lifecycle transcripts before the lane can move beyond
 `setup-required`.
 
+## Guarded Disposable Lifecycle Harness
+
+Inside a disposable Linux VM or disposable CI runner, this approval-gated
+command runs the modeled setup graph, the prepared-host root-helper launch
+smoke, default rollback, and destructive rollback:
+
+```bash
+scripts/check-linux-agent-user-lifecycle-smoke.sh --run --i-understand-this-runs-linux-agent-user-lifecycle-smoke
+```
+
+It records A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, and A11 for the current
+host. It uses sudo and removes the dedicated `agent` user, `dev` group,
+`/home/agent`, root helper, sudoers entry, cgroup root, and Linux policy roots
+during cleanup. Run it only on disposable hosts.
+
 The Linux evidence workflow can collect a GitHub-hosted Ubuntu scaffold on
 demand or on release tags:
 
@@ -168,6 +183,15 @@ gh workflow run linux-evidence.yml -f lane=agent-user-scaffold -f run_live=false
 That artifact is useful for host facts and transcript shape only. It is not
 agent-user lifecycle evidence until setup, doctor repair, root-helper launch,
 default rollback, and destructive rollback run inside a disposable Linux VM.
+
+The same workflow also has an explicit manual Ubuntu lifecycle lane:
+
+```bash
+gh workflow run linux-evidence.yml -f lane=agent-user-live -f run_live=false
+```
+
+That artifact can satisfy only the Ubuntu lifecycle row at the target commit.
+It is not a substitute for Debian, Fedora, or Arch VM lifecycle transcripts.
 
 ## Pass Criteria
 

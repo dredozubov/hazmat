@@ -11,6 +11,7 @@ on:
           - all
           - current-user
           - agent-user-scaffold
+          - agent-user-live
         default: all
       run_live:
         description: Run live Ubuntu current-user smoke
@@ -96,4 +97,41 @@ jobs:
         with:
           name: linux-agent-user-ubuntu-scaffold
           path: linux-evidence/agent-user-ubuntu-scaffold.txt
+          if-no-files-found: warn
+
+  agent-user-live-ubuntu:
+    name: Agent-user Ubuntu live lifecycle evidence
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.lane == 'agent-user-live' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install lifecycle smoke prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y acl
+
+      - name: Capture agent-user live lifecycle transcript
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p linux-evidence
+          scripts/check-linux-agent-user-lifecycle-smoke.sh \
+            --run \
+            --i-understand-this-runs-linux-agent-user-lifecycle-smoke \
+            | tee linux-evidence/agent-user-ubuntu-live-lifecycle.txt
+
+      - name: Upload agent-user live lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-agent-user-ubuntu-live-lifecycle
+          path: linux-evidence/agent-user-ubuntu-live-lifecycle.txt
           if-no-files-found: warn

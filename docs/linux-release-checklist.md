@@ -48,6 +48,7 @@ Minimum release evidence before promotion beyond `setup-required`:
 | Root-helper admission | Unit tests prove `agent-user` + `root-helper`, setup gap refusal, metadata order, and no current-user fallback. | `sandboxing-xuar.4.4` |
 | Setup implementation | `internal/setup/linux` implements modeled resources; diagnostics apply/verify setup resources; `hazmat rollback` dispatches modeled Linux rollback callbacks. | `sandboxing-xuar.4.6`, `sandboxing-xuar.4.8`, `sandboxing-r8fx` |
 | GitHub-hosted Ubuntu scaffold | `.github/workflows/linux-evidence.yml` uploads an agent-user Ubuntu scaffold transcript for host facts and pending lifecycle rows. | `sandboxing-ebm7` |
+| GitHub-hosted Ubuntu lifecycle evidence | `.github/workflows/linux-evidence.yml` has an explicit manual `agent-user-live` lane that uploads setup, root-helper launch, default rollback, and destructive rollback evidence for Ubuntu only. | `sandboxing-3nn1` |
 | VM lifecycle matrix | U1, D1, F1, A1 transcripts satisfy A1-A11 in the agent-user matrix. | `sandboxing-xuar.4.5` |
 | Docs/status | Runtime provider docs keep `linux-agent-user` separate and state the correct status. | `sandboxing-xuar.5.1` |
 
