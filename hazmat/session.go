@@ -439,7 +439,11 @@ Examples:
 Experimental Apple Container backend (Linux VM-per-session; host file IO as
 the invoking user — no host account isolation; requires
 HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1):
-  hazmat exec --backend=apple-container --image alpine:latest -- uname -a`,
+  hazmat exec --backend=apple-container --image alpine:latest -- uname -a
+
+Experimental macOS current-user Seatbelt provider (same UID, no agent-user
+setup path; requires HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1):
+  HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1 hazmat exec --provider=macos-current-user -- /usr/bin/env`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if backendValue != "" && providerValue != "" {

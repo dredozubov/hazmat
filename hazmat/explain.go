@@ -37,7 +37,8 @@ Examples:
   hazmat explain --for qwen -C ~/workspace/repo
   hazmat explain --for cursor-agent -C ~/workspace/repo
   hazmat explain --for pi -C ~/workspace/repo
-  hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex`,
+  hazmat explain --backend=apple-container --image ghcr.io/example/hazmat-codex:latest --for codex
+  hazmat explain --for exec --provider=macos-current-user -C ~/workspace/repo`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sessionOpts := flags.explainSessionOpts(cmd)

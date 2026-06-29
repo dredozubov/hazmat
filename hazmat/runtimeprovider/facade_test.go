@@ -160,8 +160,8 @@ func TestProviderStatusVocabularyCoversKnownDescriptors(t *testing.T) {
 			t.Fatalf("status record = %+v, descriptor = %+v", record, descriptor)
 		}
 	}
-	if record := mustDescriptor(t, KindMacOSCurrentUser).StatusRecord(); record.Executable || record.Status != StatusPlanOnly {
-		t.Fatalf("macOS current-user status record = %+v, want non-executable plan-only", record)
+	if record := mustDescriptor(t, KindMacOSCurrentUser).StatusRecord(); !record.Executable || record.Status != StatusExperimental {
+		t.Fatalf("macOS current-user status record = %+v, want experimental executable", record)
 	}
 	if record := mustDescriptor(t, KindMacOSAgentUser).StatusRecord(); !record.Executable || record.Status != StatusSupported {
 		t.Fatalf("macOS agent-user status record = %+v, want supported executable", record)

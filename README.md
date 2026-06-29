@@ -212,7 +212,8 @@ hazmat shell
 
 Current state, not aspirational state:
 
-- **macOS native containment is the default supported path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
+- **macOS agent-user native containment is the default supported path.** Hazmat ships release artifacts for `darwin/arm64` and `darwin/amd64`.
+- **macOS current-user Seatbelt launch is experimental.** `HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1 hazmat exec --provider=macos-current-user ...` runs same-UID contract sandboxing without the agent-user setup path; it is weaker than the dedicated-user boundary and is exec-only.
 - **Eight harnesses are supported in containment.** Claude Code, Codex, OpenCode, Antigravity, Hermes, Qwen Code, Cursor Agent, and Pi. Details, tested versions, auth flows, and Phase 1 limits live in [docs/harnesses.md](docs/harnesses.md).
 - **Linux native support is plan-only.** Hazmat has Linux platform probes, a `linux-native` launch-spec compiler, Linux package tests, and Linux CI coverage. It does not yet have the native Linux launch helper, setup, rollback, or release artifacts needed to run agents directly on Linux.
 - **Experimental Apple Container exec exists for Linux workloads on macOS.** `HAZMAT_EXPERIMENTAL_APPLE_CONTAINER=1 hazmat exec --backend=apple-container --image ... -- <command>` runs a command in a short-lived Linux VM on macOS 26 Apple silicon. It is exec-only, gated, and uses Hazmat-planned mounts; host file IO still occurs as the invoking macOS user, so it is not the same boundary as native dedicated-user containment.

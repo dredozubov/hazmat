@@ -182,7 +182,7 @@ func (d Descriptor) Lane() Lane {
 
 func KnownDescriptors() []Descriptor {
 	return []Descriptor{
-		{Kind: KindMacOSCurrentUser, Backend: sessionbackend.KindDarwinNative, Status: StatusPlanOnly, IdentityBoundary: IdentityCurrentUser, HostPlatform: PlatformMacOS, UserMode: UserModeCurrent},
+		{Kind: KindMacOSCurrentUser, Backend: sessionbackend.KindDarwinNative, Status: StatusExperimental, IdentityBoundary: IdentityCurrentUser, HostPlatform: PlatformMacOS, UserMode: UserModeCurrent},
 		{Kind: KindMacOSAgentUser, Backend: sessionbackend.KindDarwinNative, Status: StatusSupported, IdentityBoundary: IdentityMacOSAgentUser, HostPlatform: PlatformMacOS, UserMode: UserModeAgent},
 		{Kind: KindDockerSandbox, Backend: sessionbackend.KindDockerSandbox, Status: StatusSupported, IdentityBoundary: IdentityContainerUser, HostPlatform: PlatformContainer, UserMode: UserModeContainer},
 		{Kind: KindAppleContainer, Backend: sessionbackend.KindAppleContainer, Status: StatusExperimental, IdentityBoundary: IdentityContainerUser, HostPlatform: PlatformContainer, UserMode: UserModeContainer},

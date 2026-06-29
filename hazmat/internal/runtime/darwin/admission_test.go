@@ -65,8 +65,8 @@ func TestAdmitCurrentUserExperimentalOnlyWithGateAndRunner(t *testing.T) {
 	if !ok {
 		t.Fatal("macOS current-user descriptor missing")
 	}
-	if descriptor.Status != runtimeprovider.StatusPlanOnly {
-		t.Fatalf("descriptor status mutated to %s, want plan-only", descriptor.Status)
+	if descriptor.Status != runtimeprovider.StatusExperimental {
+		t.Fatalf("descriptor status mutated to %s, want experimental", descriptor.Status)
 	}
 }
 

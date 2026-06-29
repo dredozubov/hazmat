@@ -298,8 +298,8 @@ exist.
 
 ### macOS
 
-macOS lanes cover the currently supported native product surface. Required
-automated coverage:
+macOS release support is the `macos-agent-user` native product surface unless a
+release note explicitly says otherwise. Required automated coverage:
 
 1. `source-safety`
 2. `package-contracts`
@@ -319,6 +319,11 @@ bash scripts/e2e-vm.sh --quick
 
 Those commands are examples of lane coverage, not blanket approval. Agents must
 still ask for exact-command approval before running approval-gated paths.
+The experimental `macos-current-user` lane has separate evidence: unit/SBPL
+tests in the Go suite plus the exact approval-gated smoke documented in
+`docs/testing.md`. A release may mention it only as experimental unless that
+same-UID smoke passes on the release candidate; it must not be counted as
+`macos-agent-user` evidence.
 The VM lane's `download` step is a compatibility name for pulling the maintained
 prebuilt VM image; the default pre-release path does not drive macOS Setup
 Assistant and does not download an IPSW.
