@@ -30,6 +30,13 @@ func parseSessionRuntimeProvider(raw string, explicit bool) (runtimeprovider.Kin
 	switch provider {
 	case runtimeprovider.KindMacOSCurrentUser, runtimeprovider.KindMacOSAgentUser:
 		return provider, true, nil
+	case runtimeprovider.KindDockerSandbox,
+		runtimeprovider.KindAppleContainer,
+		runtimeprovider.KindLinuxCurrentUser,
+		runtimeprovider.KindLinuxAgentUser,
+		runtimeprovider.KindRemoteEnvelope,
+		runtimeprovider.KindUnsupportedNative:
+		return "", false, fmt.Errorf("unknown runtime provider %q (want macos-current-user or macos-agent-user)", raw)
 	default:
 		return "", false, fmt.Errorf("unknown runtime provider %q (want macos-current-user or macos-agent-user)", raw)
 	}

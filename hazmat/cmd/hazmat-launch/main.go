@@ -94,10 +94,6 @@ type helperModeArgs struct {
 	Args        []string
 }
 
-func newLaunchProfile(args []string) *launchProfile {
-	return &launchProfile{enabled: launchProfileRequested(args)}
-}
-
 func launchProfileRequested(args []string) bool {
 	return len(args) > 0 && args[0] == launchProfileArg
 }
