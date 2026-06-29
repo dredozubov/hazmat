@@ -3,6 +3,7 @@
 package hazmat
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"os/user"
@@ -249,14 +250,20 @@ func assertLinuxSharedGroupAbsent(t *testing.T) {
 
 func assertPathExists(t *testing.T, path string) {
 	t.Helper()
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected %s to exist: %v", path, err)
+	if out, err := exec.Command("sudo", "-n", "test", "-e", path).CombinedOutput(); err != nil {
+		t.Fatalf("expected %s to exist: %v: %s", path, err, strings.TrimSpace(string(out)))
 	}
 }
 
 func assertPathAbsent(t *testing.T, path string) {
 	t.Helper()
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("expected %s to be absent, stat err = %v", path, err)
+	out, err := exec.Command("sudo", "-n", "test", "-e", path).CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected %s to be absent", path)
 	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return
+	}
+	t.Fatalf("check %s absence: %v: %s", path, err, strings.TrimSpace(string(out)))
 }
