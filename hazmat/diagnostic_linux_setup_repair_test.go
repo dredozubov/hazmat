@@ -192,6 +192,23 @@ func TestLinuxSetupBackendRejectsLaunchHelperWithoutRunAgent(t *testing.T) {
 	}
 }
 
+func TestLinuxSetupBackendVerifiesWorkspaceAccessWithSeparateModeChecks(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	backend := linuxDiagnosticSetupBackend{
+		runner:     runner,
+		operation:  linuxDiagnosticSetupVerify,
+		projectDir: "/work/project",
+	}
+
+	if err := backend.verifyWorkspaceAccess(); err != nil {
+		t.Fatalf("verifyWorkspaceAccess: %v", err)
+	}
+
+	for _, flag := range []string{"-r", "-w", "-x"} {
+		runner.assertSudo(t, []string{"-u", linuxAgentUserName, "test", flag, "/work/project"})
+	}
+}
+
 func TestLinuxSetupBackendRollbackRemovesPrivilegeBeforeIdentity(t *testing.T) {
 	runner := newFakeLinuxSetupRunner()
 	runner.outputs[linuxSetupCommandKey("getfacl", "-cp", "/work/project")] = fakeLinuxSetupOutput{

@@ -267,7 +267,12 @@ func (b linuxDiagnosticSetupBackend) verifyWorkspaceAccess() error {
 	if strings.TrimSpace(b.projectDir) == "" {
 		return fmt.Errorf("Linux workspace access verification requires project directory")
 	}
-	return b.runner.Sudo("verify Linux agent workspace access", "-u", linuxAgentUserName, "test", "-rwx", b.projectDir)
+	for _, flag := range []string{"-r", "-w", "-x"} {
+		if err := b.runner.Sudo("verify Linux agent workspace access", "-u", linuxAgentUserName, "test", flag, b.projectDir); err != nil {
+			return fmt.Errorf("verify Linux agent workspace access %s: %w", flag, err)
+		}
+	}
+	return nil
 }
 
 func (b linuxDiagnosticSetupBackend) applyToolHome() error {
