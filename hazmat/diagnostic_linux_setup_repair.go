@@ -251,28 +251,65 @@ func (b linuxDiagnosticSetupBackend) verifyAgentHome() error {
 }
 
 func (b linuxDiagnosticSetupBackend) applyWorkspaceAccess() error {
-	if strings.TrimSpace(b.projectDir) == "" {
-		return fmt.Errorf("Linux workspace access repair requires project directory")
+	projectDir, parents, err := b.workspaceAccessPaths()
+	if err != nil {
+		return err
 	}
-	if err := b.runner.Sudo("grant Linux agent workspace ACL", "setfacl", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", b.projectDir); err != nil {
+	for _, parent := range parents {
+		if err := b.runner.Sudo("grant Linux agent workspace traversal ACL", "setfacl", "-m", "u:"+linuxAgentUserName+":--x", parent); err != nil {
+			return fmt.Errorf("grant Linux workspace traversal ACL on %s: %w", parent, err)
+		}
+	}
+	if err := b.runner.Sudo("grant Linux agent workspace ACL", "setfacl", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", projectDir); err != nil {
 		return fmt.Errorf("grant Linux workspace ACL: %w", err)
 	}
-	if err := b.runner.Sudo("grant Linux agent default workspace ACL", "setfacl", "-d", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", b.projectDir); err != nil {
+	if err := b.runner.Sudo("grant Linux agent default workspace ACL", "setfacl", "-d", "-m", "u:"+linuxAgentUserName+":rwx", "-m", "g:"+linuxSharedGroupName+":rwx", projectDir); err != nil {
 		return fmt.Errorf("grant Linux default workspace ACL: %w", err)
 	}
 	return nil
 }
 
 func (b linuxDiagnosticSetupBackend) verifyWorkspaceAccess() error {
-	if strings.TrimSpace(b.projectDir) == "" {
-		return fmt.Errorf("Linux workspace access verification requires project directory")
+	projectDir, parents, err := b.workspaceAccessPaths()
+	if err != nil {
+		return err
+	}
+	for _, parent := range parents {
+		if err := b.runner.Sudo("verify Linux agent workspace traversal", "-u", linuxAgentUserName, "test", "-x", parent); err != nil {
+			return fmt.Errorf("verify Linux agent workspace traversal %s: %w", parent, err)
+		}
 	}
 	for _, flag := range []string{"-r", "-w", "-x"} {
-		if err := b.runner.Sudo("verify Linux agent workspace access", "-u", linuxAgentUserName, "test", flag, b.projectDir); err != nil {
+		if err := b.runner.Sudo("verify Linux agent workspace access", "-u", linuxAgentUserName, "test", flag, projectDir); err != nil {
 			return fmt.Errorf("verify Linux agent workspace access %s: %w", flag, err)
 		}
 	}
 	return nil
+}
+
+func (b linuxDiagnosticSetupBackend) workspaceAccessPaths() (string, []string, error) {
+	projectDir := strings.TrimSpace(b.projectDir)
+	if projectDir == "" {
+		return "", nil, fmt.Errorf("Linux workspace access requires project directory")
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve Linux workspace access project directory: %w", err)
+	}
+	projectDir = filepath.Clean(abs)
+	return projectDir, linuxWorkspaceTraverseParents(projectDir), nil
+}
+
+func linuxWorkspaceTraverseParents(projectDir string) []string {
+	projectDir = filepath.Clean(projectDir)
+	var parents []string
+	for parent := filepath.Dir(projectDir); parent != projectDir && parent != "." && parent != string(filepath.Separator); parent = filepath.Dir(parent) {
+		parents = append(parents, parent)
+	}
+	for left, right := 0, len(parents)-1; left < right; left, right = left+1, right-1 {
+		parents[left], parents[right] = parents[right], parents[left]
+	}
+	return parents
 }
 
 func (b linuxDiagnosticSetupBackend) applyToolHome() error {
@@ -433,21 +470,33 @@ func (b linuxDiagnosticSetupBackend) rollbackAgentHome() error {
 }
 
 func (b linuxDiagnosticSetupBackend) rollbackWorkspaceAccess() error {
-	if strings.TrimSpace(b.projectDir) == "" {
-		return fmt.Errorf("Linux workspace access rollback requires project directory")
+	projectDir, parents, err := b.workspaceAccessPaths()
+	if err != nil {
+		return err
 	}
-	acl, err := b.runner.SudoOutput("getfacl", "-cp", b.projectDir)
+	acl, err := b.runner.SudoOutput("getfacl", "-cp", projectDir)
 	if err != nil {
 		return fmt.Errorf("inspect Linux workspace ACL: %w", err)
 	}
 	if linuxACLContains(acl, "user", linuxAgentUserName) || linuxACLContains(acl, "group", linuxSharedGroupName) {
-		if err := b.runner.Sudo("remove Linux agent workspace ACL", "setfacl", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, b.projectDir); err != nil {
+		if err := b.runner.Sudo("remove Linux agent workspace ACL", "setfacl", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, projectDir); err != nil {
 			return fmt.Errorf("remove Linux workspace ACL: %w", err)
 		}
 	}
 	if linuxACLContains(acl, "default:user", linuxAgentUserName) || linuxACLContains(acl, "default:group", linuxSharedGroupName) {
-		if err := b.runner.Sudo("remove Linux agent default workspace ACL", "setfacl", "-d", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, b.projectDir); err != nil {
+		if err := b.runner.Sudo("remove Linux agent default workspace ACL", "setfacl", "-d", "-x", "u:"+linuxAgentUserName, "-x", "g:"+linuxSharedGroupName, projectDir); err != nil {
 			return fmt.Errorf("remove Linux default workspace ACL: %w", err)
+		}
+	}
+	for _, parent := range parents {
+		acl, err := b.runner.SudoOutput("getfacl", "-cp", parent)
+		if err != nil {
+			return fmt.Errorf("inspect Linux workspace traversal ACL on %s: %w", parent, err)
+		}
+		if linuxACLContains(acl, "user", linuxAgentUserName) {
+			if err := b.runner.Sudo("remove Linux agent workspace traversal ACL", "setfacl", "-x", "u:"+linuxAgentUserName, parent); err != nil {
+				return fmt.Errorf("remove Linux workspace traversal ACL on %s: %w", parent, err)
+			}
 		}
 	}
 	return nil

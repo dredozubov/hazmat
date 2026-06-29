@@ -192,20 +192,48 @@ func TestLinuxSetupBackendRejectsLaunchHelperWithoutRunAgent(t *testing.T) {
 	}
 }
 
+func TestLinuxSetupBackendGrantsWorkspaceTraversalBeforeProjectACL(t *testing.T) {
+	runner := newFakeLinuxSetupRunner()
+	projectDir := "/home/runner/work/hazmat/hazmat/hazmat"
+	backend := linuxDiagnosticSetupBackend{
+		runner:     runner,
+		operation:  linuxDiagnosticSetupApply,
+		projectDir: projectDir,
+	}
+
+	if err := backend.applyWorkspaceAccess(); err != nil {
+		t.Fatalf("applyWorkspaceAccess: %v", err)
+	}
+
+	parents := linuxWorkspaceTraverseParents(projectDir)
+	for _, parent := range parents {
+		runner.assertSudo(t, []string{"setfacl", "-m", "u:" + linuxAgentUserName + ":--x", parent})
+	}
+	runner.assertSudoBefore(t,
+		[]string{"setfacl", "-m", "u:" + linuxAgentUserName + ":--x", parents[len(parents)-1]},
+		[]string{"setfacl", "-m", "u:" + linuxAgentUserName + ":rwx", "-m", "g:" + linuxSharedGroupName + ":rwx", projectDir},
+	)
+	runner.assertSudo(t, []string{"setfacl", "-d", "-m", "u:" + linuxAgentUserName + ":rwx", "-m", "g:" + linuxSharedGroupName + ":rwx", projectDir})
+}
+
 func TestLinuxSetupBackendVerifiesWorkspaceAccessWithSeparateModeChecks(t *testing.T) {
 	runner := newFakeLinuxSetupRunner()
+	projectDir := "/work/project"
 	backend := linuxDiagnosticSetupBackend{
 		runner:     runner,
 		operation:  linuxDiagnosticSetupVerify,
-		projectDir: "/work/project",
+		projectDir: projectDir,
 	}
 
 	if err := backend.verifyWorkspaceAccess(); err != nil {
 		t.Fatalf("verifyWorkspaceAccess: %v", err)
 	}
 
+	for _, parent := range linuxWorkspaceTraverseParents(projectDir) {
+		runner.assertSudo(t, []string{"-u", linuxAgentUserName, "test", "-x", parent})
+	}
 	for _, flag := range []string{"-r", "-w", "-x"} {
-		runner.assertSudo(t, []string{"-u", linuxAgentUserName, "test", flag, "/work/project"})
+		runner.assertSudo(t, []string{"-u", linuxAgentUserName, "test", flag, projectDir})
 	}
 }
 
@@ -213,6 +241,9 @@ func TestLinuxSetupBackendRollbackRemovesPrivilegeBeforeIdentity(t *testing.T) {
 	runner := newFakeLinuxSetupRunner()
 	runner.outputs[linuxSetupCommandKey("getfacl", "-cp", "/work/project")] = fakeLinuxSetupOutput{
 		out: "user::rwx\nuser:agent:rwx\ngroup:dev:rwx\ndefault:user:agent:rwx\ndefault:group:dev:rwx\n",
+	}
+	runner.outputs[linuxSetupCommandKey("getfacl", "-cp", "/work")] = fakeLinuxSetupOutput{
+		out: "user::rwx\nuser:agent:--x\n",
 	}
 	runner.outputs[linuxSetupCommandKey("id", "-u", linuxAgentUserName)] = fakeLinuxSetupOutput{out: agentUID + "\n"}
 	runner.outputs[linuxSetupCommandKey("getent", "group", linuxSharedGroupName)] = fakeLinuxSetupOutput{out: "dev:x:" + sharedGID + ":dr,agent\n"}
@@ -243,6 +274,10 @@ func TestLinuxSetupBackendRollbackRemovesPrivilegeBeforeIdentity(t *testing.T) {
 	)
 	runner.assertSudoBefore(t,
 		[]string{"setfacl", "-x", "u:" + linuxAgentUserName, "-x", "g:" + linuxSharedGroupName, "/work/project"},
+		[]string{"rm", "-rf", filepath.Join(linuxAgentHomePath, ".cache")},
+	)
+	runner.assertSudoBefore(t,
+		[]string{"setfacl", "-x", "u:" + linuxAgentUserName, "/work"},
 		[]string{"rm", "-rf", filepath.Join(linuxAgentHomePath, ".cache")},
 	)
 	runner.assertSudoBefore(t,
