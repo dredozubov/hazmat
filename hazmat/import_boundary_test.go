@@ -148,10 +148,10 @@ func TestImportBoundaries(t *testing.T) {
 
 func TestFakeExternalConsumerImportsReusableCore(t *testing.T) {
 	dir := writeExternalConsumerModule(t, map[string]string{
-		"consumer_test.go": `package externalconsumer
+		"consumer.go": `package externalconsumer
 
 import (
-	"testing"
+	"fmt"
 
 	"hazmat/containment"
 	linuxspec "hazmat/containment/linux"
@@ -162,10 +162,10 @@ import (
 	"hazmat/sessionmeta"
 )
 
-func TestBuildReusableCorePlan(t *testing.T) {
+func BuildReusableCorePlan() error {
 	floor, err := containment.CredentialFloorFromDenies([]containment.CredentialDeny{{Path: "/home/agent/.ssh"}})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	contract, err := containment.NewContract(containment.ContractInput{
 		Project:      containment.PathGrant{Path: "/workspace/project", Access: containment.PathReadWrite},
@@ -180,7 +180,7 @@ func TestBuildReusableCorePlan(t *testing.T) {
 		Process: containment.ProcessPolicy{AllowFork: true},
 	}, floor)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	report := platformlinux.Report{
 		RuntimeOS: "linux",
@@ -199,10 +199,10 @@ func TestBuildReusableCorePlan(t *testing.T) {
 		HelperStrategy: linuxspec.HelperRootlessUserNS,
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if spec.Identity != linuxspec.IdentityCurrentUser || spec.HelperStrategy != linuxspec.HelperRootlessUserNS {
-		t.Fatalf("linux spec identity/helper = %q/%q", spec.Identity, spec.HelperStrategy)
+		return fmt.Errorf("linux spec identity/helper = %q/%q", spec.Identity, spec.HelperStrategy)
 	}
 	plan := sessionbackend.BuildPlan(sessionbackend.Input{
 		Target: "codex",
@@ -224,10 +224,10 @@ func TestBuildReusableCorePlan(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if prepared.ArtifactKind() != sessionbackend.PreparedArtifactLinuxLaunch {
-		t.Fatalf("artifact kind = %q", prepared.ArtifactKind())
+		return fmt.Errorf("artifact kind = %q", prepared.ArtifactKind())
 	}
 	var record runtimeprovider.ProviderStatusRecord
 	for _, descriptor := range runtimeprovider.KnownDescriptors() {
@@ -237,12 +237,23 @@ func TestBuildReusableCorePlan(t *testing.T) {
 		}
 	}
 	if record.Status != runtimeprovider.StatusPlanOnly || record.Executable {
-		t.Fatalf("linux current-user record = %+v, want non-executable plan-only", record)
+		return fmt.Errorf("linux current-user record = %+v, want non-executable plan-only", record)
 	}
+	return nil
 }
 
 func available() platformlinux.FeatureReport {
 	return platformlinux.FeatureReport{State: platformlinux.FeatureAvailable, Source: "external-consumer-test"}
+}
+`,
+		"consumer_test.go": `package externalconsumer
+
+import "testing"
+
+func TestBuildReusableCorePlan(t *testing.T) {
+	if err := BuildReusableCorePlan(); err != nil {
+		t.Fatal(err)
+	}
 }
 `,
 	})
@@ -256,9 +267,12 @@ func available() platformlinux.FeatureReport {
 		"hazmat/runtimeprovider",
 		"hazmat/sessionbackend",
 	}
-	consumer, ok := packageWithDeps(pkgs, requiredDeps)
+	consumer, ok := pkgs["externalconsumer"]
 	if !ok {
-		t.Fatalf("external consumer graph missing required deps: %s", strings.Join(requiredDeps, ", "))
+		t.Fatalf("external consumer package is missing from go list output")
+	}
+	if missing := missingDeps(consumer, requiredDeps); len(missing) > 0 {
+		t.Fatalf("external consumer graph missing required deps: %s", strings.Join(missing, ", "))
 	}
 	forbidden := []string{
 		"os/exec",
@@ -388,7 +402,7 @@ replace hazmat => %s
 func loadExternalConsumerPackages(t *testing.T, dir string) map[string]listedPackage {
 	t.Helper()
 
-	out := runExternalGoCommand(t, dir, "list", "-deps", "-test", "-json", ".")
+	out := runExternalGoCommand(t, dir, "list", "-deps", "-json", ".")
 	dec := json.NewDecoder(bytes.NewReader(out))
 	pkgs := make(map[string]listedPackage)
 	for {
@@ -407,21 +421,15 @@ func loadExternalConsumerPackages(t *testing.T, dir string) map[string]listedPac
 	return pkgs
 }
 
-func packageWithDeps(pkgs map[string]listedPackage, required []string) (listedPackage, bool) {
-	for _, pkg := range pkgs {
-		deps := depSet(pkg.Deps)
-		ok := true
-		for _, requiredDep := range required {
-			if !deps[requiredDep] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return pkg, true
+func missingDeps(pkg listedPackage, required []string) []string {
+	deps := depSet(pkg.Deps)
+	var missing []string
+	for _, requiredDep := range required {
+		if !deps[requiredDep] {
+			missing = append(missing, requiredDep)
 		}
 	}
-	return listedPackage{}, false
+	return missing
 }
 
 func runExternalGoCommand(t *testing.T, dir string, args ...string) []byte {

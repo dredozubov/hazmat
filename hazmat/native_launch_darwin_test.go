@@ -17,9 +17,10 @@ func TestDarwinNativeLaunchSudoArgsShape(t *testing.T) {
 	t.Setenv("TERMINFO_DIRS", "")
 
 	cfg := sessionConfig{
-		ProjectDir: "/Users/dr/workspace/project",
-		ReadDirs:   []string{"/Users/dr/workspace/reference"},
-		WriteDirs:  []string{"/Users/dr/.cache/project"},
+		ProjectDir:        "/Users/dr/workspace/project",
+		ReadDirs:          []string{"/Users/dr/workspace/reference"},
+		WriteDirs:         []string{"/Users/dr/.cache/project"},
+		SkipGoModCacheEnv: true,
 	}
 	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
 	script := `echo "$1"`
@@ -47,7 +48,7 @@ func TestDarwinNativeLaunchSudoArgsIncludeMetadataBeforeEnv(t *testing.T) {
 	t.Setenv("TERMINFO", "")
 	t.Setenv("TERMINFO_DIRS", "")
 
-	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project", SkipGoModCacheEnv: true}
 	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
 	metadata := `{"kind":"hazmat.session"}`
 
@@ -73,7 +74,7 @@ func TestDarwinNativeLaunchSudoArgsUsesDirectExecForProjectExecScript(t *testing
 	t.Setenv("TERMINFO", "")
 	t.Setenv("TERMINFO_DIRS", "")
 
-	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project", SkipGoModCacheEnv: true}
 	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
 	savedSupportsDirectExec := launchHelperSupportsDirectExec
 	launchHelperSupportsDirectExec = func(string) bool { return true }
@@ -108,7 +109,7 @@ func TestDarwinNativeLaunchSudoArgsPassesHelperManagedTempDir(t *testing.T) {
 	t.Setenv("TERMINFO", "")
 	t.Setenv("TERMINFO_DIRS", "")
 
-	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project", SkipGoModCacheEnv: true}
 	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
 	tempDir := agentHome + "/.cache/hazmat/tmp/123-456"
 	savedSupportsDirectExec := launchHelperSupportsDirectExec
@@ -138,7 +139,7 @@ func TestDarwinNativeLaunchSudoArgsKeepsShellPathForOlderHelper(t *testing.T) {
 	t.Setenv("TERMINFO", "")
 	t.Setenv("TERMINFO_DIRS", "")
 
-	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project"}
+	cfg := sessionConfig{ProjectDir: "/Users/dr/workspace/project", SkipGoModCacheEnv: true}
 	policy := nativeLaunchPolicyArtifact{Path: "/private/tmp/hazmat-test.sb"}
 	savedSupportsDirectExec := launchHelperSupportsDirectExec
 	launchHelperSupportsDirectExec = func(string) bool { return false }
