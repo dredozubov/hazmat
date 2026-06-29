@@ -16,7 +16,8 @@ The specific question is therefore:
 
 This spec treats the upstream launch chain as partially adversarial:
 
-- Go's `exec` path may or may not collapse `hazmat -> sudo` to stdio only
+- Go's `exec` path may or may not collapse `hazmat -> sudo` or
+  `hazmat -> current-user helper` to stdio only
 - `sudo` may or may not apply `closefrom`-style cleanup before execing the helper
 - a persistent agent-owned launch broker may hold its listener, accepted request
   socket, and other broker-owned non-stdio fds when it forks a launch child
@@ -48,6 +49,7 @@ The useful design claim is narrower and stronger:
 | `hazmat/agent_launch.go` | native sudo + helper launch construction |
 | `hazmat/session.go` | `runAgentSeatbeltScriptWithUI()`, policy-file generation |
 | `hazmat/cmd/hazmat-launch/main.go` | helper-side fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` |
+| `hazmat/internal/runtime/darwin/*.go` | agent-user and current-user Darwin launch argument/admission helpers |
 | `hazmat/cmd/hazmat-launch-fast/main.c` | experimental lower-level broker child helper for profiling the same fd cleanup, policy read, session temp preparation, `sandbox_init()`, final `exec` boundary |
 | `hazmat/internal/runtime/launchbroker/*.go` | authenticated agent-side steady-state request, verified launch request, child-plan fd cleanup contract |
 | `hazmat/native_launch_broker.go` | host-side broker request/client path for buffered non-interactive launches |
@@ -83,8 +85,9 @@ The state machine follows the actual native launch chain at the point where fd
 inheritance matters:
 
 1. `hazmat`
-2. either `sudo -> hazmat-launch`, or startup of a persistent agent-owned
-   launch broker through a fd-cleaning helper exec boundary
+2. either `sudo -> hazmat-launch`, direct current-user `hazmat-launch`, or
+   startup of a persistent agent-owned launch broker through a fd-cleaning
+   helper exec boundary
 3. broker startup fd sanitization before listening
 4. optional forkserver startup fd sanitization before it accepts launch work
 5. authenticated request to the persistent broker
@@ -176,6 +179,19 @@ Observed result:
 - `1,920 distinct states found`
 - `depth 15`
 - `Finished in <1s`
+
+2026-06-29 macOS current-user helper mode:
+
+- added an explicit `current_user_helper` launch mode for the planned
+  `macos-current-user` provider
+- modeled `hazmat` directly execing the helper without `sudo`, with Go's fd
+  cleanup still adversarial
+- preserved the existing helper cleanup, policy-open, session-temp,
+  `sandbox_init`, metadata, and final exec obligations
+- this proves the same fd-safety property for same-uid Seatbelt launch: direct
+  current-user helper invocation is safe only because the helper still closes
+  inherited descriptors before policy validation and `sandbox_init()`
+- current metrics: `3,840 generated`, `2,688 distinct`, `depth 15`
 
 2026-06-04 proof-hygiene refactor:
 

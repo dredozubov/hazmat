@@ -79,11 +79,27 @@ func CommandSudoArgs(req CommandRequest) []string {
 	return full
 }
 
+func CommandCurrentUserArgs(req CommandRequest) []string {
+	full := []string{req.LaunchHelperPath}
+	if req.Profile {
+		full = append(full, "--hazmat-launch-profile")
+	}
+	full = append(full, "--hazmat-current-user")
+	full = append(full, CommandLaunchHelperArgsWithoutBinary(req)...)
+	return full
+}
+
 func CommandLaunchHelperArgs(req CommandRequest) []string {
 	full := []string{req.LaunchHelperPath}
 	if req.Profile {
 		full = append(full, "--hazmat-launch-profile")
 	}
+	full = append(full, CommandLaunchHelperArgsWithoutBinary(req)...)
+	return full
+}
+
+func CommandLaunchHelperArgsWithoutBinary(req CommandRequest) []string {
+	var full []string
 	full = append(full, req.PolicyPath)
 	if req.MetadataJSON != "" {
 		full = append(full, "--hazmat-metadata-json", req.MetadataJSON)

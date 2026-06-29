@@ -10,7 +10,10 @@
 //   - Accepts only a policy file path (no inline policies)
 //   - Validates the policy file is at /private/tmp/hazmat-<pid>.sb
 //   - Validates the policy file is owned by the invoking user (SUDO_UID),
-//     not by root or agent, to prevent pre-planted policy substitution
+//     not by root or agent, to prevent pre-planted policy substitution.
+//     The explicit --hazmat-current-user mode instead validates ownership by
+//     the current uid for same-user Seatbelt launch; the sudo bridge remains
+//     the default.
 //   - Validates the policy file has mode 0644
 //   - Validates the policy contains (deny default)
 //
@@ -55,6 +58,7 @@ const denyDefaultMarker = "(deny default)"
 
 const metadataJSONArg = "--hazmat-metadata-json"
 const launchProfileArg = "--hazmat-launch-profile"
+const currentUserArg = "--hazmat-current-user"
 const directExecArg = "--hazmat-direct-exec"
 const workingDirArg = "--hazmat-working-dir"
 const envArg = "--hazmat-env"
@@ -84,6 +88,12 @@ type launchModeArgs struct {
 	CmdArgs      []string
 }
 
+type helperModeArgs struct {
+	Profile     bool
+	CurrentUser bool
+	Args        []string
+}
+
 func newLaunchProfile(args []string) *launchProfile {
 	return &launchProfile{enabled: launchProfileRequested(args)}
 }
@@ -97,6 +107,24 @@ func stripLaunchProfileArg(args []string) []string {
 		return args[1:]
 	}
 	return args
+}
+
+func parseHelperModeArgs(args []string) helperModeArgs {
+	var parsed helperModeArgs
+	for len(args) > 0 {
+		switch args[0] {
+		case launchProfileArg:
+			parsed.Profile = true
+			args = args[1:]
+		case currentUserArg:
+			parsed.CurrentUser = true
+			args = args[1:]
+		default:
+			parsed.Args = args
+			return parsed
+		}
+	}
+	return parsed
 }
 
 func (p *launchProfile) Record(label string, start time.Time) {
@@ -121,8 +149,9 @@ func (p *launchProfile) Done() {
 }
 
 func main() {
-	profile := newLaunchProfile(os.Args[1:])
-	args := stripLaunchProfileArg(os.Args[1:])
+	mode := parseHelperModeArgs(os.Args[1:])
+	profile := &launchProfile{enabled: mode.Profile}
+	args := mode.Args
 	if len(args) < 1 {
 		dieUsage()
 	}
@@ -149,10 +178,14 @@ func main() {
 		dieUsage()
 	}
 
-	runLaunchMode(args[0], args[1:], profile)
+	policyMode := policyOwnerSudo
+	if mode.CurrentUser {
+		policyMode = policyOwnerCurrentUser
+	}
+	runLaunchMode(args[0], args[1:], profile, policyMode)
 }
 
-func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) {
+func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile, policyMode policyOwnerMode) {
 	start := time.Now()
 	launchArgs, err := parseLaunchModeArgs(cmdArgs)
 	profile.Record("parse launch args", start)
@@ -161,7 +194,7 @@ func runLaunchMode(policyFile string, cmdArgs []string, profile *launchProfile) 
 	}
 
 	start = time.Now()
-	policy, err := validateAndReadPolicy(policyFile)
+	policy, err := validateAndReadPolicy(policyFile, policyMode)
 	profile.Record("validate and read policy", start)
 	if err != nil {
 		die("hazmat-launch: %v", err)
@@ -325,7 +358,7 @@ func execCommand(cmdArgs []string, profile *launchProfile) {
 }
 
 func dieUsage() {
-	die("usage: hazmat-launch [--hazmat-launch-profile] <policy-file> <cmd> [args...]\n       hazmat-launch [--hazmat-launch-profile] exec <cmd> [args...]")
+	die("usage: hazmat-launch [--hazmat-launch-profile] [--hazmat-current-user] <policy-file> <cmd> [args...]\n       hazmat-launch [--hazmat-launch-profile] exec <cmd> [args...]")
 }
 
 // closeInheritedFDs drops every non-stdio descriptor before any helper logic
@@ -415,8 +448,15 @@ func splitPath(path string) []string {
 	return result
 }
 
+type policyOwnerMode string
+
+const (
+	policyOwnerSudo        policyOwnerMode = "sudo"
+	policyOwnerCurrentUser policyOwnerMode = "current-user"
+)
+
 // validateAndReadPolicy checks the policy file and returns its contents.
-func validateAndReadPolicy(path string) (string, error) {
+func validateAndReadPolicy(path string, ownerMode policyOwnerMode) (string, error) {
 	// ── Path ──────────────────────────────────────────────────────────────────
 	if !policyFilePattern.MatchString(path) {
 		return "", fmt.Errorf("policy file must match /private/tmp/hazmat-<pid>.sb, got %q", path)
@@ -428,18 +468,17 @@ func validateAndReadPolicy(path string) (string, error) {
 		return "", fmt.Errorf("stat %q: %w", path, err)
 	}
 
-	// ── Ownership: must be SUDO_UID (the invoking dr user), not root/agent ─────
-	sudoUID, err := strconv.Atoi(os.Getenv("SUDO_UID"))
-	if err != nil || sudoUID == 0 {
-		return "", fmt.Errorf("SUDO_UID not set or root — not a valid sudo invocation")
-	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return "", fmt.Errorf("cannot inspect policy file ownership")
 	}
-	if int(stat.Uid) != sudoUID {
-		return "", fmt.Errorf("policy file owner uid %d does not match invoking user uid %d",
-			stat.Uid, sudoUID)
+	ownerUID, ownerLabel, err := expectedPolicyOwnerUID(ownerMode)
+	if err != nil {
+		return "", err
+	}
+	if int(stat.Uid) != ownerUID {
+		return "", fmt.Errorf("policy file owner uid %d does not match %s uid %d",
+			stat.Uid, ownerLabel, ownerUID)
 	}
 
 	// ── Mode: must be exactly 0644 ────────────────────────────────────────────
@@ -457,6 +496,25 @@ func validateAndReadPolicy(path string) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+func expectedPolicyOwnerUID(ownerMode policyOwnerMode) (int, string, error) {
+	switch ownerMode {
+	case policyOwnerSudo:
+		sudoUID, err := strconv.Atoi(os.Getenv("SUDO_UID"))
+		if err != nil || sudoUID == 0 {
+			return 0, "", fmt.Errorf("SUDO_UID not set or root — not a valid sudo invocation")
+		}
+		return sudoUID, "invoking user", nil
+	case policyOwnerCurrentUser:
+		uid := os.Getuid()
+		if uid == 0 {
+			return 0, "", fmt.Errorf("current-user policy owner uid is root — not a valid current-user invocation")
+		}
+		return uid, "current user", nil
+	default:
+		return 0, "", fmt.Errorf("unsupported policy owner mode %q", ownerMode)
+	}
 }
 
 func readFileCloexec(path string) ([]byte, error) {
@@ -478,7 +536,7 @@ func readFileCloexec(path string) ([]byte, error) {
 // validatePolicyFile checks the policy file without reading its full contents.
 // Kept for backward compatibility with tests.
 func validatePolicyFile(path string) error {
-	_, err := validateAndReadPolicy(path)
+	_, err := validateAndReadPolicy(path, policyOwnerSudo)
 	return err
 }
 

@@ -2,8 +2,9 @@
 \* Launch-time file descriptor isolation for the Tier 2 native helper path.
 \*
 \* This spec models Hazmat's host-side launch chains:
-\*   direct:   hazmat (invoker uid) -> sudo -> hazmat-launch -> sandbox_init() -> exec agent
-\*   brokered: hazmat (invoker uid) -> agent launch broker -> child -> sandbox_init() -> exec agent
+\*   agent-user:   hazmat (invoker uid) -> sudo -> hazmat-launch -> sandbox_init() -> exec agent
+\*   current-user: hazmat (invoker uid) -> hazmat-launch -> sandbox_init() -> exec command
+\*   brokered:     hazmat (invoker uid) -> agent launch broker -> child -> sandbox_init() -> exec agent
 \*
 \* Broker startup and per-launch children may use different hazmat-launch
 \* binaries: the startup path uses a sudo-authorized helper to enter the
@@ -81,7 +82,7 @@ ForkserverControlFD == 8
 Targets == {"stdio", "credential", "benign", "policy", "authority", "broker_socket", "broker_request", "executor_control", "unused"}
 Origins == {"shell", "helper", "broker", "forkserver", "none"}
 Stages == {"hazmat", "sudo", "broker_starting", "broker_listening", "forkserver_starting", "forkserver_ready", "broker", "helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"}
-LaunchModes == {"unset", "sudo_helper", "brokered"}
+LaunchModes == {"unset", "sudo_helper", "current_user_helper", "brokered"}
 ChildExecutors == {"exec_helper", "forkserver"}
 
 AllowedHelperTargetsAtSandbox == {"stdio", "policy"}
@@ -183,6 +184,20 @@ HazmatExecsSudo ==
     /\ launchMode' = "sudo_helper"
     /\ stage' = "sudo"
     /\ UNCHANGED <<hazmatFds, brokerFds, forkserverFds, helperFds, agentFds,
+                   fdTarget, fdOrigin, fdCloexec,
+                   childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
+                   peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
+
+HazmatExecsCurrentUserHelper ==
+    /\ stage = "hazmat"
+    /\ launchMode = "unset"
+    /\ helperFds' =
+        IF goExecClosesParentFDs
+            THEN StdioFDs
+            ELSE hazmatFds
+    /\ launchMode' = "current_user_helper"
+    /\ stage' = "helper"
+    /\ UNCHANGED <<hazmatFds, sudoFds, brokerFds, forkserverFds, agentFds,
                    fdTarget, fdOrigin, fdCloexec,
                    childExecutor, goExecClosesParentFDs, sudoClosesInheritedFDs,
                    peerAuthenticated, metadataEmitted, brokerActive, tokenMinted>>
@@ -375,6 +390,7 @@ Done ==
 
 Next ==
     \/ HazmatExecsSudo
+    \/ HazmatExecsCurrentUserHelper
     \/ HazmatStartsLaunchBroker
     \/ BrokerStartupSanitizesFDTable
     \/ BrokerStartsForkserver

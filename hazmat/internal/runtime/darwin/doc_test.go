@@ -53,6 +53,40 @@ func TestCommandLaunchHelperArgsOmitsSudoPrefix(t *testing.T) {
 	}
 }
 
+func TestCommandCurrentUserArgsUsesExplicitModeWithoutAgentUser(t *testing.T) {
+	got := CommandCurrentUserArgs(CommandRequest{
+		AgentUser:        "agent",
+		LaunchHelperPath: "/usr/local/libexec/hazmat-launch",
+		PolicyPath:       "/private/tmp/hazmat-test.sb",
+		DirectExec:       true,
+		WorkingDir:       "/Users/dr/workspace/project",
+		EnvPairs:         []string{"HOME=/private/tmp/hazmat-current/home", "PATH=/usr/bin"},
+		RuntimeEnvPairs:  []string{"TMPDIR=/private/tmp/hazmat-current/tmp"},
+		Args:             []string{"/usr/bin/true"},
+	})
+
+	want := []string{
+		"/usr/local/libexec/hazmat-launch",
+		"--hazmat-current-user",
+		"/private/tmp/hazmat-test.sb",
+		"--hazmat-direct-exec",
+		"--hazmat-working-dir", "/Users/dr/workspace/project",
+		"--hazmat-env", "HOME=/private/tmp/hazmat-current/home",
+		"--hazmat-env", "PATH=/usr/bin",
+		"--hazmat-env", "TMPDIR=/private/tmp/hazmat-current/tmp",
+		"--",
+		"/usr/bin/true",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CommandCurrentUserArgs() = %v, want %v", got, want)
+	}
+	for _, forbidden := range []string{"-u", "agent", "HOME=/Users/agent"} {
+		if contains(got, forbidden) {
+			t.Fatalf("CommandCurrentUserArgs() contains forbidden agent-user token %q: %v", forbidden, got)
+		}
+	}
+}
+
 func TestCommandSudoArgsPassesLaunchProfileFlag(t *testing.T) {
 	got := CommandSudoArgs(CommandRequest{
 		AgentUser:        "agent",

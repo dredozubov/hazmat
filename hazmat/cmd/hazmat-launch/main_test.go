@@ -148,6 +148,17 @@ func TestValidatePolicyFile_OwnershipCheck(t *testing.T) {
 	})
 }
 
+func TestValidatePolicyFile_CurrentUserOwnershipCheck(t *testing.T) {
+	t.Setenv("SUDO_UID", "")
+	path := writePolicyFile(t, goodPolicy, 0o644)
+	if _, err := validateAndReadPolicy(path, policyOwnerCurrentUser); err != nil {
+		t.Fatalf("current-user policy validation rejected current uid owner: %v", err)
+	}
+	if _, err := validateAndReadPolicy(path, policyOwnerSudo); err == nil {
+		t.Fatal("sudo policy validation accepted missing SUDO_UID")
+	}
+}
+
 func TestCloseInheritedFDs_ClosesExtraFiles(t *testing.T) {
 	const childEnv = "HAZMAT_LAUNCH_TEST_CHILD"
 
@@ -232,6 +243,29 @@ func TestLaunchProfileArgParsing(t *testing.T) {
 	}
 	if got := stripLaunchProfileArg(plain); !reflect.DeepEqual(got, plain) {
 		t.Fatalf("stripLaunchProfileArg() = %v, want %v", got, plain)
+	}
+}
+
+func TestParseHelperModeArgs(t *testing.T) {
+	parsed := parseHelperModeArgs([]string{
+		"--hazmat-launch-profile",
+		"--hazmat-current-user",
+		"/private/tmp/hazmat-1.sb",
+		"/usr/bin/true",
+	})
+	if !parsed.Profile || !parsed.CurrentUser {
+		t.Fatalf("parseHelperModeArgs flags = profile:%v current:%v, want both true", parsed.Profile, parsed.CurrentUser)
+	}
+	if !reflect.DeepEqual(parsed.Args, []string{"/private/tmp/hazmat-1.sb", "/usr/bin/true"}) {
+		t.Fatalf("parseHelperModeArgs args = %v", parsed.Args)
+	}
+
+	plain := parseHelperModeArgs([]string{"/private/tmp/hazmat-1.sb", "/usr/bin/true"})
+	if plain.Profile || plain.CurrentUser {
+		t.Fatalf("plain flags = profile:%v current:%v, want false", plain.Profile, plain.CurrentUser)
+	}
+	if !reflect.DeepEqual(plain.Args, []string{"/private/tmp/hazmat-1.sb", "/usr/bin/true"}) {
+		t.Fatalf("plain args = %v", plain.Args)
 	}
 }
 
