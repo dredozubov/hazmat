@@ -193,6 +193,12 @@ records the consuming harness in explain/session metadata.
   `OPENROUTER_API_KEY` once in `~/.hazmat/secrets/providers/*`. Hermes receives
   only the provider env vars allowed by Hazmat's credential registry for the
   session.
+- **API proxy adapter:** Hermes is the first supported OpenAI-compatible API
+  proxy env adapter because Hazmat already launches it as a foreground process
+  with managed `HERMES_HOME` and no host `~/.hermes` import. In proxy mode the
+  adapter renders the local proxy base URL plus a per-session token as
+  `OPENAI_BASE_URL` / `OPENAI_API_KEY`; durable provider keys stay host-side or
+  Muginn-side and are not injected into the Hermes process by that adapter.
 - **Contained setup path:** run `hazmat hermes` or
   `hazmat hermes -- chat ...` and let Hermes write any local profile state under
   the project-scoped managed `HERMES_HOME`.
