@@ -561,8 +561,12 @@ func TestScanCodexImportPlanIncludesAuthAndGitIdentity(t *testing.T) {
 	writeTestFile(t, env.hostAuthFile(), `{"OPENAI_API_KEY":"sk-test-123"}`)
 	writeTestFile(t, env.hostGitConfigPath(), "[user]\n\tname = Denis\n\temail = denis@example.com\n")
 
-	// config.toml should NOT be picked up — it's runtime config, mirroring opencode.json policy.
-	writeTestFile(t, filepath.Join(env.hostCodexDir(), "config.toml"), `model = "gpt-5"`+"\n")
+	// config.toml should NOT be picked up — it may contain runtime config and MCP servers.
+	writeTestFile(t, filepath.Join(env.hostCodexDir(), "config.toml"), `model = "gpt-5"
+
+[mcp_servers.host]
+command = "npx"
+`)
 
 	plan, err := scanCodexImportPlan(env, nil)
 	if err != nil {
