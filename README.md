@@ -10,8 +10,8 @@
 <h1 align="center">Hazmat</h1>
 
 <p align="center">
-  <strong>Run AI coding agents as a separate macOS user.</strong><br>
-  Open-source macOS containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
+  <strong>Run AI coding agents inside OS-level containment.</strong><br>
+  Open-source containment for Claude, Codex, OpenCode, Antigravity, Hermes, Qwen, Cursor Agent, Pi, and shell loops
 </p>
 
 ---
@@ -19,8 +19,8 @@
 Hazmat lets an agent edit your repo without running as your real system user
 account.
 
-It shows the session contract first, then launches the agent as a dedicated
-`agent` macOS user inside OS-level containment. Your project can be writable.
+It shows the session contract first, then launches the agent inside OS-level
+containment. Your project can be writable.
 Your real home directory, SSH keys, cloud credentials, and global dev state do
 not become the agent's default world.
 
