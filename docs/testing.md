@@ -927,7 +927,12 @@ If you want the strongest local release signal, prefer the VM path plus CI.
 ## Linux Support Test Plan
 
 Linux testing currently has compile, unit, model, transcript-scaffold,
-prepared-host runtime, and an explicit on-demand Ubuntu lifecycle lane.
+prepared-host runtime, and explicit pre-release distro evidence lanes.
+`.github/workflows/linux-pre-release.yml` is the aggregate pre-release path: it
+runs Ubuntu evidence on a disposable GitHub-hosted runner and Debian, Fedora,
+and Arch evidence in disposable QEMU VMs. It supports `mode=current-user`,
+`mode=agent-user`, or `mode=all`, uploads one artifact per distro row, runs on
+manual dispatch, and also runs on release tags.
 `.github/workflows/linux-evidence.yml` adds an on-demand and release-tag Ubuntu
 evidence lane for current-user live smoke plus agent-user transcript
 scaffolding; it also has a manual `agent-user-live` lane that runs setup,
@@ -987,6 +992,11 @@ Current GitHub Actions coverage:
   - manual Ubuntu agent-user live lifecycle transcript artifact
   - manual Debian/Fedora/Arch distro-container transcript artifacts
   - not a substitute for Debian/Fedora/Arch VM lifecycle transcripts
+- `.github/workflows/linux-pre-release.yml`
+  - aggregate pre-release Linux evidence via `workflow_dispatch`
+  - release-tag Ubuntu hosted current-user and agent-user lifecycle artifacts
+  - release-tag Debian/Fedora/Arch disposable QEMU VM artifacts
+  - current-user, agent-user, or combined evidence mode
 - `.github/workflows/linux-vm-evidence.yml`
   - manual Debian/Fedora/Arch disposable QEMU VM transcript artifacts
   - current-user, agent-user, or combined VM evidence mode

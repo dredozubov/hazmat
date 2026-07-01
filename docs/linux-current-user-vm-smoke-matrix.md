@@ -138,6 +138,17 @@ The harness records passes and typed gaps, but it does not promote support by
 itself. The matrix still requires Ubuntu, Debian, Fedora, and Arch transcripts
 at the target commit before `linux-current-user` can move beyond experimental.
 
+The aggregate pre-release workflow collects the full current-user distro set:
+
+```bash
+gh workflow run linux-pre-release.yml -f distro=all -f mode=current-user
+```
+
+It uploads `linux-pre-release-ubuntu-hosted` plus
+`linux-pre-release-{debian,fedora,arch}-qemu` artifacts. A passing artifact can
+satisfy the corresponding row when it records the required host facts and S1-S7
+results at the target commit.
+
 GitHub-hosted Ubuntu evidence can be collected on demand or on release tags via
 the Linux evidence workflow:
 

@@ -73,7 +73,7 @@ cat >"$OUTPUT_PATH" <<EOF
 | package-boundaries | \`scripts/test-lane.sh package-boundaries\` | pending | |
 | package-contracts | \`scripts/test-lane.sh package-contracts\` | pending | |
 | os-macos | \`scripts/test-lane.sh os-macos\` on macOS | pending | |
-| os-linux | Ubuntu CI \`go-test-linux\` or \`make linux-apple-container-test APPLE_CONTAINER_ACK=1\` | pending | |
+| os-linux | Ubuntu CI \`go-test-linux\`; major-distro pre-release CI via \`gh workflow run linux-pre-release.yml -f distro=all -f mode=all\` | pending | |
 | cli-ux | \`scripts/test-lane.sh cli-ux\` | pending | |
 | product-workflows | \`scripts/test-lane.sh product-workflows\` | pending | |
 | release-artifacts | \`scripts/test-lane.sh release-artifacts\` or release workflow preflight/build | pending | |
@@ -82,8 +82,8 @@ cat >"$OUTPUT_PATH" <<EOF
 | privileged-install-ownership | \`scripts/e2e.sh --vm --quick\` lifecycle, or direct \`scripts/check-privileged-install-ownership.sh --run ...\` and \`--after-rollback ...\` on disposable host | pending | |
 | live-approved | Relevant wrapper(s), exact command approval required | pending | |
 | destructive-lifecycle | \`scripts/e2e.sh --vm --quick\` or documented skip | pending | |
-| linux-current-user | \`docs/linux-current-user-vm-smoke-matrix.md\` / \`sandboxing-xuar.3.5\` transcripts | pending | |
-| linux-agent-user | \`docs/linux-agent-user-vm-lifecycle-matrix.md\` / \`sandboxing-xuar.4.5\` transcripts | pending | |
+| linux-current-user | \`linux-pre-release.yml\` with \`mode=current-user\`, or \`docs/linux-current-user-vm-smoke-matrix.md\` / \`sandboxing-xuar.3.5\` transcripts | pending | |
+| linux-agent-user | \`linux-pre-release.yml\` with \`mode=agent-user\`, or \`docs/linux-agent-user-vm-lifecycle-matrix.md\` / \`sandboxing-xuar.4.5\` transcripts | pending | |
 
 ## Lane Registry Snapshot
 
@@ -101,6 +101,7 @@ cat >>"$OUTPUT_PATH" <<'EOF'
 - Every skipped lane needs a concrete reason.
 - Live and destructive lanes require exact-command approval before execution.
 - Release preflight protects tag artifacts, but it does not replace the full CI matrix.
+- Major-distro Linux promotion evidence comes from `linux-pre-release.yml`, which runs Ubuntu on a disposable hosted runner and Debian/Fedora/Arch in disposable QEMU VMs.
 EOF
 
 echo "pre-release-audit: wrote $OUTPUT_PATH"

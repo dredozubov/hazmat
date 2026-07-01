@@ -173,6 +173,18 @@ host. It uses sudo and removes the dedicated `agent` user, `dev` group,
 `/home/agent`, root helper, sudoers entry, cgroup root, and Linux policy roots
 during cleanup. Run it only on disposable hosts.
 
+The aggregate pre-release workflow collects the full agent-user distro set:
+
+```bash
+gh workflow run linux-pre-release.yml -f distro=all -f mode=agent-user
+```
+
+It uploads `linux-pre-release-ubuntu-hosted` plus
+`linux-pre-release-{debian,fedora,arch}-qemu` artifacts. A passing artifact can
+satisfy the corresponding lifecycle row when it records setup, prepared-host
+root-helper launch, default rollback, and destructive rollback results at the
+target commit.
+
 The Linux evidence workflow can collect a GitHub-hosted Ubuntu scaffold on
 demand or on release tags:
 

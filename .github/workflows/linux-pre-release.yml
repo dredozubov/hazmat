@@ -1,0 +1,181 @@
+name: Linux pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: Distro row to run
+        required: true
+        type: choice
+        options:
+          - all
+          - ubuntu
+          - debian
+          - fedora
+          - arch
+        default: all
+      mode:
+        description: Evidence mode
+        required: true
+        type: choice
+        options:
+          - all
+          - current-user
+          - agent-user
+        default: all
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: linux-pre-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION_FILE: hazmat/go.mod
+  GO_CACHE_DEP: hazmat/go.sum
+
+jobs:
+  ubuntu-hosted:
+    name: Ubuntu hosted pre-release evidence
+    if: ${{ github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == 'ubuntu' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install lifecycle prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends acl
+
+      - name: Capture Ubuntu evidence
+        shell: bash
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'all' }}
+          HAZMAT_LINUX_VM_RUNNER: github-actions-ubuntu-latest
+        run: |
+          set -euo pipefail
+          mkdir -p linux-pre-release
+          transcript="$PWD/linux-pre-release/ubuntu-hosted.txt"
+          exec > >(tee "$transcript") 2>&1
+
+          echo "Linux pre-release Ubuntu evidence"
+          echo "Date: $(date -u +%Y-%m-%d)"
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "Mode: $MODE"
+          echo "Runner: $HAZMAT_LINUX_VM_RUNNER"
+          echo
+
+          status=0
+          run_section() {
+            echo
+            echo "## $*"
+            if "$@"; then
+              echo "section result: pass"
+            else
+              rc=$?
+              echo "section result: fail exit=$rc"
+              status=$rc
+            fi
+          }
+
+          case "$MODE" in
+            all|current-user)
+              run_section scripts/check-linux-vm-matrix-transcript.sh --mode current-user --run --skip-preflight
+              run_section scripts/check-linux-current-user-live-smoke.sh --run --i-understand-this-runs-linux-current-user-live-smoke
+              ;;
+          esac
+
+          case "$MODE" in
+            all|agent-user)
+              run_section scripts/check-linux-vm-matrix-transcript.sh --mode agent-user --run --skip-preflight
+              run_section scripts/check-linux-agent-user-lifecycle-smoke.sh --run --i-understand-this-runs-linux-agent-user-lifecycle-smoke
+              ;;
+          esac
+
+          exit "$status"
+
+      - name: Upload Ubuntu evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-pre-release-ubuntu-hosted
+          path: linux-pre-release/ubuntu-hosted.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  qemu-vm:
+    name: ${{ matrix.label }} QEMU pre-release evidence
+    if: ${{ github.event_name == 'push' || inputs.distro != 'ubuntu' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: debian
+            label: Debian
+            ssh_port: 2221
+          - id: fedora
+            label: Fedora
+            ssh_port: 2222
+          - id: arch
+            label: Arch
+            ssh_port: 2223
+    steps:
+      - uses: actions/checkout@v5
+        if: ${{ github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id }}
+
+      - uses: actions/setup-go@v5
+        if: ${{ github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id }}
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Install QEMU dependencies
+        if: ${{ github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cloud-image-utils \
+            openssh-client \
+            qemu-system-x86 \
+            qemu-utils
+
+      - name: Capture QEMU evidence
+        if: ${{ github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id }}
+        shell: bash
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'all' }}
+        run: |
+          set -euo pipefail
+          mkdir -p linux-pre-release
+          scripts/check-linux-qemu-vm-evidence.sh \
+            --run \
+            --i-understand-this-runs-linux-disposable-vm-evidence \
+            --distro "${{ matrix.id }}" \
+            --mode "$MODE" \
+            --go-root "$(go env GOROOT)" \
+            --ssh-port "${{ matrix.ssh_port }}" \
+            --output "$PWD/linux-pre-release/${{ matrix.id }}-qemu.txt"
+
+      - name: Upload QEMU evidence
+        if: ${{ always() && (github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-pre-release-${{ matrix.id }}-qemu
+          path: linux-pre-release/${{ matrix.id }}-qemu.txt
+          if-no-files-found: warn
+          retention-days: 30
