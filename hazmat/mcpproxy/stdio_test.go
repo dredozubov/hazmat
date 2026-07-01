@@ -21,6 +21,7 @@ func TestStdioProxyForwardsFakeServerAndRecordsMCPOperations(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	var cleanupCalls int
 
 	result, err := (StdioProxy{Starter: &fakeProcessStarter{handle: handle}}).Run(context.Background(), StdioRequest{
 		SessionID:  "session-1",
@@ -38,14 +39,15 @@ func TestStdioProxyForwardsFakeServerAndRecordsMCPOperations(t *testing.T) {
 				requestLine(7, "prompts/get", map[string]any{"name": "review"}) +
 				responseLine(99, `{"ok":true}`),
 		),
-		Stdout: &stdout,
-		Stderr: &stderr,
+		Stdout:  &stdout,
+		Stderr:  &stderr,
+		Cleanup: func() { cleanupCalls++ },
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !result.Process.Started || handle.killed || !handle.waited {
-		t.Fatalf("process result=%+v killed=%v waited=%v", result.Process, handle.killed, handle.waited)
+	if !result.Process.Started || handle.killed || !handle.waited || cleanupCalls != 1 {
+		t.Fatalf("process result=%+v killed=%v waited=%v cleanup=%d", result.Process, handle.killed, handle.waited, cleanupCalls)
 	}
 	if !strings.Contains(stdout.String(), `{"server":"fake"}`) {
 		t.Fatalf("stdout = %q, want fake server response", stdout.String())
@@ -146,6 +148,7 @@ func TestStdioProxyMalformedJSONRPCFailsClosed(t *testing.T) {
 		stdout: io.NopCloser(strings.NewReader("")),
 		stderr: io.NopCloser(strings.NewReader("")),
 	}
+	var cleanupCalls int
 
 	result, err := (StdioProxy{Starter: &fakeProcessStarter{handle: handle}}).Run(context.Background(), StdioRequest{
 		SessionID:  "session-1",
@@ -154,12 +157,13 @@ func TestStdioProxyMalformedJSONRPCFailsClosed(t *testing.T) {
 		Spec:       proxyruntime.ProcessSpec{Command: "fake-server"},
 		Policy:     proxyruntime.Policy{DefaultDecision: proxyruntime.DecisionAllow},
 		Stdin:      strings.NewReader("{bad json}\n"),
+		Cleanup:    func() { cleanupCalls++ },
 	})
 	if err == nil {
 		t.Fatal("Run succeeded, want malformed JSON-RPC failure")
 	}
-	if !handle.killed || !handle.waited {
-		t.Fatalf("malformed frame did not kill and wait for child: killed=%v waited=%v", handle.killed, handle.waited)
+	if !handle.killed || !handle.waited || cleanupCalls != 1 {
+		t.Fatalf("malformed frame did not kill/wait/cleanup child: killed=%v waited=%v cleanup=%d", handle.killed, handle.waited, cleanupCalls)
 	}
 	if handle.stdin.String() != "" {
 		t.Fatalf("malformed frame was forwarded: %q", handle.stdin.String())

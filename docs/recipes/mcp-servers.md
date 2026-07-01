@@ -48,6 +48,45 @@ Use `--network none` by default for filesystem and local developer-tool MCP
 servers. Use the default network only when the server genuinely needs outbound
 access, such as a documentation search service or a remote API client.
 
+## Hazmat Stdio Proxy Wrapper
+
+For local stdio servers, use a Hazmat-owned MCP entry instead of copying a host
+MCP config. The entry should point at the wrapper and pass the real server after
+`--`:
+
+```bash
+hazmat mcp proxy --stdio -- <real-mcp-server> [args...]
+```
+
+When this wrapper is launched by a harness already running inside Hazmat, the
+wrapper and the real MCP server are both inside the same executed session
+boundary. The proxy adds JSON-RPC evidence and narrow tool policy on top of that
+boundary; it does not create containment by itself outside a Hazmat session.
+
+Useful wrapper options:
+
+```bash
+hazmat mcp proxy --stdio --deny-tool delete_all -- <real-mcp-server>
+hazmat mcp proxy --stdio --events-jsonl mcp-events.jsonl -- <real-mcp-server>
+```
+
+The wrapper keeps protocol stdout separate from downstream stderr, returns a
+JSON-RPC error for denied tool calls, and fails closed on malformed JSON-RPC.
+Evidence records normalized MCP operations such as `initialize`, `tools/list`,
+`tools/call:<name>`, `resources/read`, and `prompts/get:<name>`.
+
+Use the explicit Hazmat renderers or recreate entries by hand from typed input.
+Do not copy host `mcpServers` or Codex `mcp_servers` wholesale; those entries
+often carry host paths, host env assumptions, or broad credentials.
+
+Containment claims depend on the transport shape:
+
+| Shape | Hazmat claim |
+| --- | --- |
+| Local stdio server launched through `hazmat mcp proxy --stdio` inside a Hazmat session | Containment plus protocol mediation |
+| Local HTTP MCP server launched by Hazmat and exposed through a local token/socket proxy | Future path; containment plus protocol mediation after service lifecycle support |
+| Remote HTTP MCP server behind a Hazmat proxy | Mediation only, not containment |
+
 ## Filesystem Grants
 
 The project directory is already the writable root. Most MCP servers should not

@@ -97,6 +97,7 @@ func NewRootCommand() *cobra.Command {
 			withUpdateNotifications(newPiCmd()),
 			withUpdateNotifications(newShellCmd()),
 			withUpdateNotifications(newExecCmd()),
+			newMCPCmd(),
 			newExplainCmd(),
 		},
 		Snapshots: []*cobra.Command{

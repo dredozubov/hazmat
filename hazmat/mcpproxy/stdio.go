@@ -39,6 +39,7 @@ type StdioRequest struct {
 	Stdin      io.Reader
 	Stdout     io.Writer
 	Stderr     io.Writer
+	Cleanup    func()
 }
 
 type StdioResult struct {
@@ -73,7 +74,8 @@ func (p StdioProxy) Run(ctx context.Context, req StdioRequest) (StdioResult, err
 		Starter: p.Starter,
 		Events:  emit,
 	}).Run(ctx, proxyruntime.ProcessRequest{
-		Spec: req.Spec,
+		Spec:    req.Spec,
+		Cleanup: req.Cleanup,
 		Event: proxyruntime.EventInput{
 			SessionID:  req.SessionID,
 			ProxyKind:  proxyruntime.ProxyKindMCPStdio,
