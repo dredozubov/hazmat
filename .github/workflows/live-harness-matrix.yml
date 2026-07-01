@@ -45,8 +45,8 @@ env:
 jobs:
   live-harness-matrix:
     name: ${{ matrix.label }} live harness evidence
-    if: ${{ github.event_name == 'schedule' || inputs.os_lane == 'all' || inputs.os_lane == matrix.os_lane }}
-    runs-on: ${{ matrix.runs_on }}
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -54,19 +54,22 @@ jobs:
         include:
           - os_lane: macos-agent-user
             label: macOS agent-user
-            runs_on: ["self-hosted", "macOS", "ARM64", "hazmat-live"]
+            runs_on: '["self-hosted", "macOS", "ARM64", "hazmat-live"]'
             live: true
             distro: ""
+            artifact_suffix: native
           - os_lane: linux-current-user
             label: Linux current-user
-            runs_on: ubuntu-latest
+            runs_on: '["ubuntu-latest"]'
             live: false
             distro: ubuntu
+            artifact_suffix: ubuntu
           - os_lane: linux-agent-user
             label: Linux agent-user
-            runs_on: ubuntu-latest
+            runs_on: '["ubuntu-latest"]'
             live: false
             distro: ubuntu
+            artifact_suffix: ubuntu
     env:
       MUGINN_LIVE_HARNESS_TOKEN_CMD: ${{ secrets.MUGINN_LIVE_HARNESS_TOKEN_CMD }}
       MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS: "3600"
@@ -93,7 +96,7 @@ jobs:
       - name: Run live harness matrix
         if: ${{ matrix.live }}
         env:
-          SELECTED_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.harness || 'all' }}
+          SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
         run: |
           set -euo pipefail
           mkdir -p "$PWD/live-harness-artifacts"
@@ -108,7 +111,7 @@ jobs:
       - name: Emit typed skip evidence
         if: ${{ !matrix.live }}
         env:
-          SELECTED_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.harness || 'all' }}
+          SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
         run: |
           set -euo pipefail
           mkdir -p "$PWD/live-harness-artifacts"
@@ -123,7 +126,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-harness-${{ matrix.os_lane }}-${{ matrix.distro || 'native' }}
+          name: live-harness-${{ matrix.os_lane }}-${{ matrix.artifact_suffix }}
           path: live-harness-artifacts
           if-no-files-found: warn
           retention-days: 30
