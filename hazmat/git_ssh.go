@@ -2,11 +2,13 @@ package hazmat
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hazmat/credentials"
+	"hazmat/sessionlaunch"
 	"io"
 	"net"
 	"net/url"
@@ -1171,90 +1173,81 @@ func defaultPrepareSessionRuntime(cfg sessionConfig) (preparedSessionRuntime, er
 	profile := newSessionPhaseProfile("hazmat: session runtime preparation profile:", os.Stderr)
 	defer profile.Done()
 
-	var runtimes []preparedSessionRuntime
-	cleanupPrepared := func() {
-		for i := len(runtimes) - 1; i >= 0; i-- {
-			if runtimes[i].Cleanup != nil {
-				runtimes[i].Cleanup()
-			}
-		}
+	steps := []sessionlaunch.RuntimeStep{
+		sessionRuntimeStep(profile, "prepare agent temp runtime", func() (preparedSessionRuntime, error) {
+			return prepareAgentTempRuntime()
+		}),
+		sessionRuntimeStep(profile, "prepare harness auth runtime", func() (preparedSessionRuntime, error) {
+			return prepareHarnessAuthRuntime(cfg)
+		}),
 	}
 
-	start := time.Now()
-	tempRuntime, err := prepareAgentTempRuntime()
-	profile.Record("prepare agent temp runtime", start)
-	if err != nil {
-		return preparedSessionRuntime{}, err
-	}
-	runtimes = append(runtimes, tempRuntime)
-
-	start = time.Now()
-	harnessRuntime, err := prepareHarnessAuthRuntime(cfg)
-	profile.Record("prepare harness auth runtime", start)
-	if err != nil {
-		cleanupPrepared()
-		return preparedSessionRuntime{}, err
-	}
-	runtimes = append(runtimes, harnessRuntime)
-
-	start = time.Now()
 	if cfg.SkipGitHTTPSRuntime {
+		start := time.Now()
 		profile.Record("prepare git https runtime (skipped)", start)
 	} else {
-		gitHTTPSRuntime, err := prepareGitHTTPSCredentialRuntime()
-		profile.Record("prepare git https runtime", start)
-		if err != nil {
-			cleanupPrepared()
-			return preparedSessionRuntime{}, err
-		}
-		runtimes = append(runtimes, gitHTTPSRuntime)
+		steps = append(steps, sessionRuntimeStep(profile, "prepare git https runtime", func() (preparedSessionRuntime, error) {
+			return prepareGitHTTPSCredentialRuntime()
+		}))
 	}
 
 	if cfg.GitSSH != nil {
-		start = time.Now()
-		gitSSHRuntime, err := prepareGitSSHRuntime(*cfg.GitSSH)
-		profile.Record("prepare git ssh runtime", start)
-		if err != nil {
-			cleanupPrepared()
-			return preparedSessionRuntime{}, err
-		}
-		runtimes = append(runtimes, gitSSHRuntime)
+		steps = append(steps, sessionRuntimeStep(profile, "prepare git ssh runtime", func() (preparedSessionRuntime, error) {
+			return prepareGitSSHRuntime(*cfg.GitSSH)
+		}))
 	}
 
-	start = time.Now()
-	merged := mergePreparedSessionRuntimes(runtimes...)
+	runtimes, err := sessionlaunch.PrepareRuntimeSteps(context.Background(), steps)
+	if err != nil {
+		return preparedSessionRuntime{}, err
+	}
+
+	start := time.Now()
+	merged := sessionlaunch.MergePreparedRuntimes(runtimes...)
 	profile.Record("merge session runtimes", start)
 
-	return merged, nil
+	return preparedSessionRuntimeFromLaunch(merged), nil
+}
+
+func sessionRuntimeStep(profile *sessionPhaseProfile, label string, prepare func() (preparedSessionRuntime, error)) sessionlaunch.RuntimeStep {
+	return sessionlaunch.RuntimeStep{
+		Name: label,
+		Prepare: func(context.Context) (sessionlaunch.PreparedRuntime, error) {
+			start := time.Now()
+			runtime, err := prepare()
+			profile.Record(label, start)
+			if err != nil {
+				return sessionlaunch.PreparedRuntime{}, err
+			}
+			return preparedSessionRuntimeToLaunch(runtime), nil
+		},
+	}
 }
 
 func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSessionRuntime {
-	merged := preparedSessionRuntime{Cleanup: func() {}}
-	if len(runtimes) == 0 {
-		return merged
-	}
-
-	var cleanups []func()
+	converted := make([]sessionlaunch.PreparedRuntime, 0, len(runtimes))
 	for _, runtime := range runtimes {
-		if len(runtime.EnvPairs) > 0 {
-			merged.EnvPairs = append(merged.EnvPairs, runtime.EnvPairs...)
-		}
-		if runtime.TempDir != "" {
-			merged.TempDir = runtime.TempDir
-		}
-		if runtime.LaunchHelperTempDir != "" {
-			merged.LaunchHelperTempDir = runtime.LaunchHelperTempDir
-		}
-		if runtime.Cleanup != nil {
-			cleanups = append(cleanups, runtime.Cleanup)
-		}
+		converted = append(converted, preparedSessionRuntimeToLaunch(runtime))
 	}
-	merged.Cleanup = func() {
-		for i := len(cleanups) - 1; i >= 0; i-- {
-			cleanups[i]()
-		}
+	return preparedSessionRuntimeFromLaunch(sessionlaunch.MergePreparedRuntimes(converted...))
+}
+
+func preparedSessionRuntimeToLaunch(runtime preparedSessionRuntime) sessionlaunch.PreparedRuntime {
+	return sessionlaunch.NewPreparedRuntime(sessionlaunch.PreparedRuntimeInput{
+		EnvPairs:            runtime.EnvPairs,
+		TempDir:             runtime.TempDir,
+		LaunchHelperTempDir: runtime.LaunchHelperTempDir,
+		Cleanup:             runtime.Cleanup,
+	})
+}
+
+func preparedSessionRuntimeFromLaunch(runtime sessionlaunch.PreparedRuntime) preparedSessionRuntime {
+	return preparedSessionRuntime{
+		EnvPairs:            runtime.EnvPairs(),
+		TempDir:             runtime.TempDir(),
+		LaunchHelperTempDir: runtime.LaunchHelperTempDir(),
+		Cleanup:             runtime.Cleanup,
 	}
-	return merged
 }
 
 func prepareAgentTempRuntime() (preparedSessionRuntime, error) {

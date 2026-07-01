@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"bytes"
+	"errors"
 	"hazmat/credentials"
 	"io"
 	"os"
@@ -94,6 +95,36 @@ func TestPrepareSessionRuntimeCanSkipGitHTTPSRuntime(t *testing.T) {
 	runtime.Cleanup()
 	if !slices.Equal(cleanupPaths, []string{runtime.TempDir}) {
 		t.Fatalf("cleanup paths = %v, want %s", cleanupPaths, runtime.TempDir)
+	}
+}
+
+func TestDefaultPrepareSessionRuntimeCleansPreparedTempOnGitHTTPSFailure(t *testing.T) {
+	errGitHTTPS := errors.New("git https runtime failed")
+
+	savedSupportsSessionTemp := launchHelperSupportsSessionTemp
+	launchHelperSupportsSessionTemp = func(string) bool { return true }
+	t.Cleanup(func() { launchHelperSupportsSessionTemp = savedSupportsSessionTemp })
+
+	var cleanupPaths []string
+	savedStartRemoval := startAgentTempRuntimeRemoval
+	startAgentTempRuntimeRemoval = func(path string) error {
+		cleanupPaths = append(cleanupPaths, path)
+		return nil
+	}
+	t.Cleanup(func() { startAgentTempRuntimeRemoval = savedStartRemoval })
+
+	savedPrepareGitHTTPS := prepareGitHTTPSCredentialRuntime
+	prepareGitHTTPSCredentialRuntime = func() (preparedSessionRuntime, error) {
+		return preparedSessionRuntime{}, errGitHTTPS
+	}
+	t.Cleanup(func() { prepareGitHTTPSCredentialRuntime = savedPrepareGitHTTPS })
+
+	_, err := defaultPrepareSessionRuntime(sessionConfig{})
+	if !errors.Is(err, errGitHTTPS) {
+		t.Fatalf("defaultPrepareSessionRuntime error = %v, want %v", err, errGitHTTPS)
+	}
+	if len(cleanupPaths) != 1 || cleanupPaths[0] == "" {
+		t.Fatalf("cleanup paths = %v, want one prepared temp dir", cleanupPaths)
 	}
 }
 
