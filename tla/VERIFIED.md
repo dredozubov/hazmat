@@ -1527,8 +1527,9 @@ before the experimental runtime ships.
 | Spec | `tla/17_service_harness_lifecycle.md` |
 | TLA+ files | `tla/MC_ServiceHarnessLifecycle.tla`, `tla/MC_ServiceHarnessLifecycle.cfg` |
 | Governed code | `hazmat/internal/serviceharness/lifecycle.go` — service lifecycle runner, request validation, residue recovery ordering, readiness/attach/cleanup orchestration, and redacted lifecycle events |
+| Governed code | `hazmat/proxyruntime/service.go` — service-shaped proxy lifecycle runner, local attach validation, typed credential gating, readiness/attach ordering, cleanup, and redacted lifecycle events |
 | Governed code | Future `hazmat <service-harness>` command surface and adapter-specific service metadata persistence |
-| Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachPolicyLocalOnly`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
+| Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachAuthorityHasMetadata`, `AttachPolicyLocalOnly`, `ProxyServiceAttachPolicy`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
 | Status | **Design Proved; first fake-service suite implemented** — proves the lifecycle boundary future OpenHands-style service adapters must satisfy before implementation and pins it with `make e2e-service-harness-smoke` |
 
 **What this verifies:**
@@ -1554,7 +1555,7 @@ before the experimental runtime ships.
 5. **Terminal residue is accounted for:** terminal service, credential, attach,
    or prior residue must be gone or covered by a recorded cleanup failure.
 
-TLC passes across all 875,888 distinct states (2,100,560 generated, depth 10,
+TLC passes across all 2,612,624 distinct states (6,391,472 generated, depth 10,
 ~11s).
 
 **Scope boundary:** OpenHands internals, HTTP/WebSocket payloads, service logs,
@@ -1595,7 +1596,7 @@ boundary for a future service adapter, not proof that OpenHands itself is safe.
 | `14_linux_native_launch` | `hazmat/containment/linux`; future Linux native helper implementation |
 | `15_beadpost_broker_boundary` | `hazmat/hostbroker/session.go` (contained-agent submitter + dr-owned host broker membrane; real impl behind `beadpost_hostbroker`, fail-closed stub by default) |
 | `16_apple_container_launch_containment` | `hazmat/containment/applecontainer/spec.go` (compiler); `hazmat/internal/runtime/applecontainer/runtime.go` (experimental runtime); `hazmat/exec_apple_container.go` (gated exec path); `hazmat/explain_apple_container.go` (preview) |
-| `17_service_harness_lifecycle` | `hazmat/internal/serviceharness/lifecycle.go`; future service harness adapter runtime, `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
+| `17_service_harness_lifecycle` | `hazmat/internal/serviceharness/lifecycle.go`; `hazmat/proxyruntime/service.go`; future service harness adapter runtime, `hazmat <service-harness>` command surface, readiness/attach/log/cleanup runtime, and service metadata persistence |
 
 ---
 
