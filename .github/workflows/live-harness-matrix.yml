@@ -45,7 +45,6 @@ env:
 jobs:
   live-harness-matrix:
     name: ${{ matrix.label }} live harness evidence
-    if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
     runs-on: ${{ fromJSON(matrix.runs_on) }}
     timeout-minutes: 90
     strategy:
@@ -75,26 +74,29 @@ jobs:
       MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS: "3600"
     steps:
       - uses: actions/checkout@v5
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
 
       - uses: actions/setup-go@v5
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache-dependency-path: ${{ env.GO_CACHE_DEP }}
 
       - name: Validate live harness contract
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
         run: bash scripts/check-live-harness-matrix.sh --validate-contract
 
       - name: Build Hazmat
-        if: ${{ matrix.live }}
+        if: ${{ matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         working-directory: hazmat
         run: make all
 
       - name: Add checkout binary to PATH
-        if: ${{ matrix.live }}
+        if: ${{ matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         run: echo "$PWD/hazmat" >> "$GITHUB_PATH"
 
       - name: Run live harness matrix
-        if: ${{ matrix.live }}
+        if: ${{ matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         env:
           SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
         run: |
@@ -109,7 +111,7 @@ jobs:
             --output-dir "$PWD/live-harness-artifacts"
 
       - name: Emit typed skip evidence
-        if: ${{ !matrix.live }}
+        if: ${{ !matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         env:
           SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
         run: |
@@ -123,7 +125,7 @@ jobs:
             --output-dir "$PWD/live-harness-artifacts"
 
       - name: Upload live harness evidence
-        if: always()
+        if: ${{ always() && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         uses: actions/upload-artifact@v4
         with:
           name: live-harness-${{ matrix.os_lane }}-${{ matrix.artifact_suffix }}
