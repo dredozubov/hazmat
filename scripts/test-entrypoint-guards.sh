@@ -495,7 +495,7 @@ assert_fails_with \
 assert_fails_with \
     "live harness matrix reports missing token before supported run" \
     "set MUGINN_LIVE_HARNESS_TOKEN_CMD or MUGINN_LIVE_HARNESS_CALLER_TOKEN" \
-    env -u MUGINN_LIVE_HARNESS_TOKEN_CMD -u MUGINN_LIVE_HARNESS_CALLER_TOKEN \
+    env -u GITHUB_ACTIONS -u MUGINN_LIVE_HARNESS_TOKEN_CMD -u MUGINN_LIVE_HARNESS_CALLER_TOKEN \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --i-understand-this-runs-live-harness-matrix --harness claude --os-lane macos-agent-user --output-dir /tmp/hazmat-live-harness-guard
 
 assert_fails_with \
@@ -507,7 +507,7 @@ assert_fails_with \
 assert_fails_with \
     "live harness token broker rejects overlong TTL" \
     "ttl_seconds must be 1..3600" \
-    env MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=7200 \
+    env -u GITHUB_ACTIONS MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=7200 \
     bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
 
 assert_fails_with \
@@ -706,7 +706,8 @@ printf '%s\n' "$HAZMAT_LIVE_HARNESS_EXPECTED_MARKER"
 EOF
 chmod 0755 "$LIVE_HARNESS_GUARD_ROOT/hazmat"
 
-if PATH="$LIVE_HARNESS_GUARD_ROOT:$PATH" \
+if env -u GITHUB_ACTIONS \
+    PATH="$LIVE_HARNESS_GUARD_ROOT:$PATH" \
     TMPDIR="$LIVE_HARNESS_GUARD_ROOT" \
     MUGINN_LIVE_HARNESS_CALLER_TOKEN='caller-redaction-secret-123456' \
     MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=60 \
