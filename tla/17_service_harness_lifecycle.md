@@ -1,7 +1,7 @@
 # Problem 17 — Service Harness Lifecycle
 
-**Status:** design model for future OpenHands-style service harnesses. Related
-designs:
+**Status:** design model for future OpenHands-style service harnesses and
+service-shaped proxy frontends. Related designs:
 [Service-Oriented Harness Boundary](../docs/plans/2026-06-12-service-harness-boundary-design.md)
 and
 [OpenHands Harness Candidate Evaluation](../docs/plans/2026-06-12-openhands-harness-evaluation.md).
@@ -14,8 +14,8 @@ point, WebSocket stream, Docker-backed workspace, health check, service logs,
 typed credentials, and crash cleanup. Treating that as another quick CLI wrapper
 would skip the hard parts.
 
-This model defines the first Hazmat service-harness lifecycle boundary before
-any adapter code lands:
+This model defines the first Hazmat service-harness and service-proxy lifecycle
+boundary before adapter code lands:
 
 1. stale service residue from a prior Hazmat crash is recovered or recorded
    before a new service starts;
@@ -30,6 +30,12 @@ any adapter code lands:
    container-requiring service;
 8. terminal service, attach, credential, or stale residue is removed or covered
    by a recorded cleanup failure.
+
+Stdio MCP is not service-shaped. It launches as a foreground child process and
+reuses the launch/fd-isolation boundary rather than this service lifecycle.
+The local API proxy and future HTTP MCP proxy are service-shaped and use this
+model: they bind a local attach point only after metadata, token policy, typed
+credential materialization, readiness, and cleanup obligations are satisfied.
 
 ## Model
 
@@ -50,6 +56,7 @@ any adapter code lands:
 
 The request dimensions are deliberately small but cover the unsafe boundaries:
 
+- service kind: ordinary service harness, API proxy, or HTTP MCP proxy
 - backend: native, Docker Sandbox, or VM
 - attach kind: stdio, Unix-domain socket, localhost port, or LAN-visible port
 - token policy: none or session token
@@ -71,6 +78,7 @@ cleanup failure before the new service starts.
 |-----------|---------|
 | `PriorResidueHasMetadata` | stale service, credential, or attach residue is recoverable by recorded metadata |
 | `SideEffectsHaveMetadata` | current service start, credential materialization, attach authority, and attach details never happen before current metadata exists |
+| `AttachAuthorityHasMetadata` | local bind/attach authority cannot become active before metadata |
 | `StartOnlyAfterPriorResidueHandled` | no new service starts while prior residue is still active |
 | `UnsupportedRequestsFailClosed` | unsupported requests never reach current service side effects |
 | `CredentialMaterializationGated` | only typed credentials can materialize, and only after a valid plan |
@@ -79,6 +87,7 @@ cleanup failure before the new service starts.
 | `AttachDetailsAfterReady` | user-visible attach details are printed only after readiness |
 | `AttachPolicyLocalOnly` | printed attach details are never LAN-visible |
 | `LocalhostPortRequiresToken` | localhost-port attach requires a session token |
+| `ProxyServiceAttachPolicy` | API proxy and HTTP MCP proxy service shapes use only UDS or localhost-port attach, with local attach policy satisfied |
 | `NoHostDockerSocketExposure` | no started service ever received host Docker socket authority |
 | `NoNativeContainerStart` | native containment does not start a service that requires container authority |
 | `NoProfileDaemonBrowserOrEnvStart` | profile import, persistent daemon, browser automation, and integration env passthrough cannot reach service start |
@@ -98,15 +107,16 @@ cd tla/
 ```
 
 - `Model checking completed. No error has been found.`
-- `2,100,560 states generated`
-- `875,888 distinct states found`
+- `6,391,472 states generated`
+- `2,612,624 distinct states found`
 - `depth 10`
 - `Finished in 11s`
 
 ## Interpretation
 
-This proof is intentionally narrower than "OpenHands support is implemented."
-It proves the lifecycle shape future service adapters must preserve:
+This proof is intentionally narrower than "OpenHands or proxy support is
+implemented." It proves the lifecycle shape future service and service-proxy
+adapters must preserve:
 
 - recovery precedes new service start;
 - service side effects are impossible before metadata;
@@ -119,11 +129,17 @@ Recipe-only use through `hazmat exec` does not need this model because Hazmat is
 only launching an ordinary foreground process. A first-class service adapter
 does need this model and the later fake-service smoke suite.
 
+Likewise, stdio MCP proxying can reuse foreground child-process launch semantics
+plus the `MC_LaunchFDIsolation` boundary. API proxying through Muginn and future
+HTTP MCP proxying need this service model because they create a session-scoped
+local attach point and credential/bind cleanup obligations.
+
 ## Change Rules
 
-- Adding a first-class service harness ID, service lifecycle phase, service
-  metadata field, port/socket attach policy, or crash-cleanup rule must update
-  `MC_ServiceHarnessLifecycle.tla` first and re-run TLC before implementation.
+- Adding a first-class service harness ID, service-proxy kind, service lifecycle
+  phase, service metadata field, port/socket attach policy, or crash-cleanup
+  rule must update `MC_ServiceHarnessLifecycle.tla` first and re-run TLC before
+  implementation.
 - Supporting host Docker socket access, LAN-visible binds, browser automation,
   host profile import, persistent daemon mode, or untyped credentials requires a
   deliberate model change. The current model proves those requests fail closed.

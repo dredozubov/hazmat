@@ -78,13 +78,17 @@ and file-backed residue recovery as a precondition to session launch. It still
 does **not** model concrete Keychain APIs, git credential-helper bytes, SSH
 agent liveness, cloud-provider APIs, or exact integration manifest parsing.
 
-Important service-harness boundary: the current suite now includes a design
-model for future OpenHands-style service harnesses: prior-residue recovery,
-fail-closed unsupported features, metadata-before-side-effects, readiness before
-attach, local-only attach authority, typed credential materialization, and
-terminal cleanup accounting. It does **not** model OpenHands internals, HTTP
-request bodies, browser automation, Docker or VM internals, or live service
-protocol behavior.
+Important service-harness/proxy boundary: the current suite now includes a
+design model for future OpenHands-style service harnesses and service-shaped
+proxy frontends such as the local API proxy and future HTTP MCP proxy:
+prior-residue recovery, fail-closed unsupported features,
+metadata-before-side-effects, metadata-before-bind, readiness before attach,
+local-only attach authority, localhost token policy, typed credential
+materialization, and terminal cleanup accounting. It does **not** model
+OpenHands internals, HTTP request bodies, browser automation, Docker or VM
+internals, provider APIs, MCP payload semantics, or live service protocol
+behavior. Stdio MCP proxying remains a foreground child-process shape governed
+by launch/fd-isolation rather than this service lifecycle.
 
 ---
 

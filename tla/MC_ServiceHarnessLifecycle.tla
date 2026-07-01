@@ -2,10 +2,13 @@
 
 EXTENDS Naturals, TLC
 
-\* Session-scoped service harness lifecycle model.
+\* Session-scoped service/proxy lifecycle model.
 \*
-\* This spec covers OpenHands-style service harnesses before adapter code
-\* exists. It models only Hazmat's host/session lifecycle contract:
+\* This spec covers OpenHands-style service harnesses and service-shaped
+\* proxy frontends (local API proxy, future HTTP MCP proxy) before adapter code
+\* exists. Stdio MCP remains a foreground child-process proxy and reuses the
+\* launch/fd-isolation model instead of this service lifecycle. This model
+\* covers only Hazmat's host/session lifecycle contract:
 \*   - prior service residue is recovered or recorded before a new service starts
 \*   - unsupported service features fail closed before side effects
 \*   - current-service metadata is recorded before credentials, process start,
@@ -17,6 +20,7 @@ EXTENDS Naturals, TLC
 \* It does not model a concrete service protocol, HTTP request bodies, Docker
 \* internals, browser automation, or OpenHands behavior after launch.
 
+ServiceKinds == {"service-harness", "api-proxy", "http-mcp-proxy"}
 Backends == {"native", "docker-sandbox", "vm"}
 AttachKinds == {"stdio", "uds", "localhost-port", "lan-port"}
 TokenPolicies == {"none", "session-token"}
@@ -26,7 +30,8 @@ ExitKinds == {"none", "normal", "crash"}
 Phases == 0..10
 
 Requests ==
-    [backend : Backends,
+    [serviceKind : ServiceKinds,
+     backend : Backends,
      attachKind : AttachKinds,
      tokenPolicy : TokenPolicies,
      credentialKind : CredentialKinds,
@@ -119,11 +124,19 @@ UnsupportedContainerBackend ==
 UnsupportedCredential ==
     req.credentialKind = "untyped"
 
+ProxyServiceKind ==
+    req.serviceKind \in {"api-proxy", "http-mcp-proxy"}
+
+BadProxyAttachShape ==
+    /\ ProxyServiceKind
+    /\ req.attachKind = "stdio"
+
 UnsupportedRequest ==
     \/ ForbiddenFeatureRequested
     \/ BadAttachPolicy
     \/ UnsupportedContainerBackend
     \/ UnsupportedCredential
+    \/ BadProxyAttachShape
 
 LocalAttachPolicySatisfied ==
     \/ req.attachKind \in {"stdio", "uds"}
@@ -354,6 +367,9 @@ SideEffectsHaveMetadata ==
     (cur.serviceStarted \/ CurrentResiduePresent \/ cur.attachDetailsPrinted)
         => cur.metadataRecorded
 
+AttachAuthorityHasMetadata ==
+    cur.attachAuthorityActive => cur.metadataRecorded
+
 StartOnlyAfterPriorResidueHandled ==
     cur.serviceStarted => ~PriorResiduePresent
 
@@ -387,6 +403,12 @@ LocalhostPortRequiresToken ==
     /\ cur.attachDetailsPrinted
     /\ req.attachKind = "localhost-port"
     => req.tokenPolicy = "session-token"
+
+ProxyServiceAttachPolicy ==
+    /\ cur.attachDetailsPrinted
+    /\ ProxyServiceKind
+    => /\ req.attachKind \in {"uds", "localhost-port"}
+       /\ LocalAttachPolicySatisfied
 
 NoHostDockerSocketExposure ==
     cur.serviceStarted => ~req.hostDockerSocketRequested
