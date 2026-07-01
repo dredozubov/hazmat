@@ -18,6 +18,7 @@
     "expected_marker",
     "timeout_seconds",
     "token",
+    "environment",
     "transcript",
     "skip_reason",
     "failure_reason"

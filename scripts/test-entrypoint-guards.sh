@@ -220,6 +220,30 @@ assert_file_not_contains_any() {
     pass "$label"
 }
 
+assert_file_exists() {
+    local label="$1"
+    local path="$2"
+
+    if [ -f "$path" ]; then
+        pass "$label"
+    else
+        fail "$label: missing file $path"
+    fi
+}
+
+assert_no_glob_paths() {
+    local label="$1"
+    local pattern="$2"
+    local path
+
+    for path in $pattern; do
+        if [ -e "$path" ]; then
+            fail "$label: unexpected path $path"
+        fi
+    done
+    pass "$label"
+}
+
 assert_command_contains_all_and_not() {
     local label="$1"
     local forbidden="$2"
@@ -454,6 +478,51 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --output-env /tmp/hazmat-live-harness-token.env
 
 assert_fails_with \
+    "live harness matrix rejects relative output dir" \
+    "--output-dir must be absolute" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --os-lane linux-current-user --output-dir relative
+
+assert_fails_with \
+    "live harness matrix rejects unknown harness" \
+    "unknown harness 'nope'" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --harness nope --os-lane linux-current-user --output-dir /tmp/hazmat-live-harness-guard
+
+assert_fails_with \
+    "live harness matrix rejects unknown OS lane" \
+    "unknown OS/provider lane 'nope'" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --harness claude --os-lane nope --output-dir /tmp/hazmat-live-harness-guard
+
+assert_fails_with \
+    "live harness matrix reports missing token before supported run" \
+    "set MUGINN_LIVE_HARNESS_TOKEN_CMD or MUGINN_LIVE_HARNESS_CALLER_TOKEN" \
+    env -u MUGINN_LIVE_HARNESS_TOKEN_CMD -u MUGINN_LIVE_HARNESS_CALLER_TOKEN \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --i-understand-this-runs-live-harness-matrix --harness claude --os-lane macos-agent-user --output-dir /tmp/hazmat-live-harness-guard
+
+assert_fails_with \
+    "live harness token broker rejects malformed JSON" \
+    "token command did not print JSON" \
+    env MUGINN_LIVE_HARNESS_TOKEN_CMD='printf nope' \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
+
+assert_fails_with \
+    "live harness token broker rejects overlong TTL" \
+    "ttl_seconds must be 1..3600" \
+    env MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=7200 \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
+
+assert_fails_with \
+    "live harness token broker rejects expired token" \
+    "expires_at is expired" \
+    env MUGINN_LIVE_HARNESS_TOKEN_CMD='python3 -c "import json; print(json.dumps({\"token\":\"caller-expired-token\",\"ttl_seconds\":60,\"caller_id\":\"guard\",\"expires_at\":\"2000-01-01T00:00:00Z\"}))"' \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
+
+assert_fails_with \
+    "live harness token broker rejects static CI fallback" \
+    "CI requires MUGINN_LIVE_HARNESS_TOKEN_CMD" \
+    env GITHUB_ACTIONS=true MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=60 \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
+
+assert_fails_with \
     "Darwin trace prerequisite check requires DTrace ack" \
     "refusing Darwin DTrace prerequisite probes without --i-understand-this-runs-sudo-dtrace-probes" \
     bash "$REPO_ROOT/scripts/configure-debug-trace.sh" --target darwin
@@ -619,6 +688,63 @@ assert_succeeds_with \
     "live harness token broker defaults to disclosure" \
     "live-harness-token: disclosure-only" \
     bash "$REPO_ROOT/scripts/mint-live-harness-token.sh"
+
+phase "Live harness artifact guards"
+
+LIVE_HARNESS_GUARD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-live-harness-guard.XXXXXX")"
+cleanup_live_harness_guard() {
+    rm -rf "$LIVE_HARNESS_GUARD_ROOT"
+}
+trap cleanup_live_harness_guard EXIT
+
+cat > "$LIVE_HARNESS_GUARD_ROOT/hazmat" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "fake hazmat argv: $*"
+printf '%s\n' "token=$MUGINN_TOKEN"
+printf '%s\n' "$HAZMAT_LIVE_HARNESS_EXPECTED_MARKER"
+EOF
+chmod 0755 "$LIVE_HARNESS_GUARD_ROOT/hazmat"
+
+if PATH="$LIVE_HARNESS_GUARD_ROOT:$PATH" \
+    TMPDIR="$LIVE_HARNESS_GUARD_ROOT" \
+    MUGINN_LIVE_HARNESS_CALLER_TOKEN='caller-redaction-secret-123456' \
+    MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=60 \
+    MUGINN_LIVE_HARNESS_CALLER_ID='fixture-caller' \
+    MUGINN_LIVE_HARNESS_AUDIENCE='fixture-audience' \
+    MUGINN_LIVE_HARNESS_SCOPE='fixture-scope' \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" \
+    --run \
+    --i-understand-this-runs-live-harness-matrix \
+    --harness claude \
+    --os-lane macos-agent-user \
+    --output-dir "$LIVE_HARNESS_GUARD_ROOT/out" >/dev/null 2>&1; then
+    pass "live harness matrix fake run succeeds"
+else
+    fail "live harness matrix fake run succeeds"
+fi
+assert_no_glob_paths \
+    "live harness matrix cleans auto token env" \
+    "$LIVE_HARNESS_GUARD_ROOT/hazmat-live-harness-token."*
+assert_file_exists \
+    "live harness matrix writes metadata artifact" \
+    "$LIVE_HARNESS_GUARD_ROOT/out/claude/metadata.json"
+assert_file_contains_all \
+    "live harness matrix records pass status" \
+    "$LIVE_HARNESS_GUARD_ROOT/out/claude/metadata.json" \
+    '"status": "pass"' \
+    '"audience": "fixture-audience"' \
+    '"scope": "fixture-scope"' \
+    '"value": "[redacted]"'
+assert_file_contains_all \
+    "live harness matrix redacts transcript token" \
+    "$LIVE_HARNESS_GUARD_ROOT/out/claude/transcript.txt" \
+    "[redacted-muginn-token]" \
+    "HAZMAT_LIVE_SMOKE_OK"
+assert_file_not_contains_any \
+    "live harness matrix transcript omits token" \
+    "$LIVE_HARNESS_GUARD_ROOT/out/claude/transcript.txt" \
+    "caller-redaction-secret-123456"
 
 assert_succeeds_with \
     "macOS trace smoke defaults to disclosure" \

@@ -98,6 +98,54 @@ grep -v '^#' "$REPO_ROOT/docs/test-lanes.tsv" | sed '/^[[:space:]]*$/d' >>"$OUTP
 cat >>"$OUTPUT_PATH" <<'EOF'
 ```
 
+## Supported Harness Live Evidence Matrix
+
+EOF
+
+python3 - "$REPO_ROOT/docs/live-harness-smoke-contract.json" >>"$OUTPUT_PATH" <<'PY'
+import json
+import sys
+
+contract_path = sys.argv[1]
+with open(contract_path, "r", encoding="utf-8") as f:
+    contract = json.load(f)
+
+lanes = ["macos-agent-user", "docker-sandbox", "macos-current-user", "linux-current-user", "linux-agent-user"]
+
+def artifact_hint(row, lane):
+    harness = row["id"]
+    if lane == "macos-agent-user":
+        return f"live-harness-macos-agent-user-native/{harness}/metadata.json"
+    if lane == "docker-sandbox":
+        return f"live-harness-docker-sandbox-<distro-or-native>/{harness}/metadata.json"
+    if lane == "macos-current-user":
+        return f"live-harness-macos-current-user-native/{harness}/metadata.json"
+    if lane == "linux-current-user":
+        return f"linux-pre-release/live-harness-<distro>-current-user/{harness}/metadata.json"
+    if lane == "linux-agent-user":
+        return f"linux-pre-release/live-harness-<distro>-agent-user/{harness}/metadata.json"
+    return f"live-harness-{lane}/{harness}/metadata.json"
+
+def cell(row, lane):
+    artifact = artifact_hint(row, lane)
+    for support in row["os_support"]:
+        if support["lane"] == lane:
+            if support["status"] == "supported":
+                return f"pending live artifact: `{artifact}`"
+            reason = support.get("skip_reason") or support.get("reason") or support["status"]
+            return "skip: " + reason.replace("|", "\\|") + f"; artifact: `{artifact}`"
+    return "missing contract lane"
+
+print("| Harness | Fake contract | " + " | ".join(lanes) + " |")
+print("| --- | --- | " + " | ".join(["---"] * len(lanes)) + " |")
+for row in contract["harnesses"]:
+    fake = "pending fake-harness-contract evidence"
+    cells = [cell(row, lane) for lane in lanes]
+    print(f"| {row['display_name']} | {fake} | " + " | ".join(cells) + " |")
+PY
+
+cat >>"$OUTPUT_PATH" <<'EOF'
+
 ## Notes
 
 - Record exact commands, OS/arch, and pass/fail results.

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -59,6 +60,9 @@ func TestHermeticHarnessSmoke(t *testing.T) {
 	smoke.runCursorAgent()
 	smoke.runPi()
 
+	smoke.assertFakeHarnessFailureModes()
+	smoke.assertFakeHarnessCredentialProbeMode()
+	smoke.assertFakeHarnessSlowCancellableMode()
 	smoke.assertNoSudo()
 }
 
@@ -265,8 +269,7 @@ func (s *hermeticHarnessSmoke) seedHarnessAssets() {
 }
 
 func (s *hermeticHarnessSmoke) runHermes() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "hermes"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "hermes"), fakeHarnessScript(HarnessHermes, `
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 40; }
 case "${HERMES_HOME:-}" in
   "$HOME/.hazmat/hermes/projects/"*) ;;
@@ -283,7 +286,7 @@ if [ "${1:-}" = "--version" ]; then
 fi
 echo "unexpected Hermes args: $*" >&2
 exit 46
-`)
+`))
 
 	s.executeHarnessCommand(HarnessHermes, newHermesCmd(),
 		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--version")
@@ -311,8 +314,7 @@ func (s *hermeticHarnessSmoke) runClaude() {
 }
 
 func (s *hermeticHarnessSmoke) writeFakeClaudeExecutable() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "claude"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "claude"), fakeHarnessScript(HarnessClaude, `
 cred="$HOME/.claude/.credentials.json"
 state="$HOME/.claude.json"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 50; }
@@ -324,14 +326,13 @@ grep -Fq "oauthAccount" "$state" || { echo "missing stored state" >&2; exit 55; 
 printf '{}\n' > "$cred"
 printf '{"projects":{"hazmat-smoke":true}}\n' > "$state"
 echo "FAKE_CLAUDE_OK"
-`)
+`))
 }
 
 func (s *hermeticHarnessSmoke) runCodex() {
 	s.writeHostSecret(codexAuthStorePathForHome(s.hostHome),
 		`{"tokens":{"access":"stored-codex-access"},"refresh":"stored-codex-refresh"}`)
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "codex"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "codex"), fakeHarnessScript(HarnessCodex, `
 auth="$HOME/.codex/auth.json"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 60; }
 test "${OPENAI_API_KEY:-}" = "stored-openai-provider" || { echo "missing OPENAI_API_KEY" >&2; exit 61; }
@@ -343,7 +344,7 @@ case " $* " in
   *) echo "unexpected Codex args: $*" >&2; exit 64 ;;
 esac
 echo "FAKE_CODEX_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessCodex, newCodexCmd(),
 		"--no-backup", "-C", s.project, "exec", "codex smoke")
@@ -356,8 +357,7 @@ echo "FAKE_CODEX_OK"
 func (s *hermeticHarnessSmoke) runOpenCode() {
 	s.writeHostSecret(openCodeAuthStorePathForHome(s.hostHome),
 		`{"providers":{"anthropic":{"token":"stored-opencode-token"}}}`)
-	s.writeExecutable(filepath.Join(s.agentHome, ".opencode", "bin", "opencode"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".opencode", "bin", "opencode"), fakeHarnessScript(HarnessOpenCode, `
 auth="$HOME/.local/share/opencode/auth.json"
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 70; }
 test -f "$auth" || { echo "missing materialized OpenCode auth" >&2; exit 71; }
@@ -368,7 +368,7 @@ case " $* " in
   *) echo "unexpected OpenCode args: $*" >&2; exit 73 ;;
 esac
 echo "FAKE_OPENCODE_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessOpenCode, newOpenCodeCmd(),
 		"--no-backup", "-C", s.project, "run", "opencode smoke")
@@ -379,8 +379,7 @@ echo "FAKE_OPENCODE_OK"
 }
 
 func (s *hermeticHarnessSmoke) runAntigravity() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "agy"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "agy"), fakeHarnessScript(HarnessAntigravity, `
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 80; }
 test "${ANTIGRAVITY_API_KEY:-}" = "stored-antigravity-provider" || { echo "missing ANTIGRAVITY_API_KEY" >&2; exit 81; }
 test "${GEMINI_API_KEY:-}" = "stored-gemini-provider" || { echo "missing GEMINI_API_KEY" >&2; exit 82; }
@@ -389,7 +388,7 @@ case " $* " in
   *) echo "unexpected Antigravity args: $*" >&2; exit 86 ;;
 esac
 echo "FAKE_ANTIGRAVITY_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessAntigravity, newAntigravityCmd(),
 		"--no-backup", "-C", s.project, "-p", "antigravity smoke")
@@ -397,8 +396,7 @@ echo "FAKE_ANTIGRAVITY_OK"
 }
 
 func (s *hermeticHarnessSmoke) runQwen() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "qwen"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "qwen"), fakeHarnessScript(HarnessQwen, `
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 90; }
 if [ "${1:-}" != "--yolo" ]; then
   echo "expected --yolo as first Qwen arg, got: $*" >&2
@@ -410,7 +408,7 @@ case " $* " in
   *) echo "unexpected Qwen args: $*" >&2; exit 92 ;;
 esac
 echo "FAKE_QWEN_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessQwen, newQwenCmd(),
 		"--no-backup", "-C", s.project, "--yolo", "-p", "qwen smoke")
@@ -420,8 +418,7 @@ echo "FAKE_QWEN_OK"
 }
 
 func (s *hermeticHarnessSmoke) runCursorAgent() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "cursor-agent"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "cursor-agent"), fakeHarnessScript(HarnessCursorAgent, `
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 100; }
 test "$#" -eq 8 || { echo "unexpected Cursor Agent arg count: $#" >&2; exit 101; }
 test "${1:-}" = "--print" || { echo "missing --print" >&2; exit 102; }
@@ -436,7 +433,7 @@ expected_workspace="$(cd "$SANDBOX_PROJECT_DIR" && pwd -P)"
 test "$actual_workspace" = "$expected_workspace" || { echo "unexpected workspace: ${8:-}" >&2; exit 109; }
 mkdir -p "$HOME/.cursor"
 echo "FAKE_CURSOR_AGENT_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessCursorAgent, newCursorAgentCmd(),
 		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--",
@@ -447,20 +444,131 @@ echo "FAKE_CURSOR_AGENT_OK"
 }
 
 func (s *hermeticHarnessSmoke) runPi() {
-	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "pi"), `#!/bin/sh
-set -eu
+	s.writeExecutable(filepath.Join(s.agentHome, ".local", "bin", "pi"), fakeHarnessScript(HarnessPi, `
 test "$(pwd)" = "$SANDBOX_PROJECT_DIR" || { echo "unexpected cwd=$(pwd)" >&2; exit 110; }
 test "$#" -eq 2 || { echo "unexpected Pi arg count: $#" >&2; exit 111; }
 test "${1:-}" = "--mode" || { echo "missing --mode" >&2; exit 112; }
 test "${2:-}" = "rpc" || { echo "unexpected mode: ${2:-}" >&2; exit 113; }
 mkdir -p "$HOME/.pi/agent"
 echo "FAKE_PI_OK"
-`)
+`))
 
 	s.executeHarnessCommand(HarnessPi, newPiCmd(),
 		"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--mode", "rpc")
 	s.assertOutputContains(HarnessPi, "FAKE_PI_OK")
 	s.assertDirExists(filepath.Join(s.agentHome, ".pi", "agent"), "Pi contained state directory")
+}
+
+type hermeticHarnessInvocation struct {
+	id     HarnessID
+	newCmd func() *cobra.Command
+	args   []string
+}
+
+func fakeHarnessScript(id HarnessID, body string) string {
+	return "#!/bin/sh\nset -eu\n" + fakeHarnessModePrelude(id) + body
+}
+
+func fakeHarnessModePrelude(id HarnessID) string {
+	label := strings.ToUpper(strings.ReplaceAll(string(id), "-", "_"))
+	return fmt.Sprintf(`fake_mode="${HAZMAT_HERMETIC_HARNESS_FAKE_MODE:-}"
+case "$fake_mode" in
+  "")
+    ;;
+  stderr-fail)
+    echo "FAKE_%s_STDERR failure" >&2
+    exit 77
+    ;;
+  credential-probe)
+    probe="$HOME/.ssh/id_rsa"
+    echo "FAKE_%s_CREDENTIAL_PROBE $probe" >&2
+    test ! -e "$probe" || exit 78
+    echo "FAKE_%s_CREDENTIAL_PROBE_BLOCKED"
+    exit 0
+    ;;
+  slow)
+    trap 'echo "FAKE_%s_CANCELLED" >&2; exit 130' INT TERM
+    sleep "${HAZMAT_HERMETIC_HARNESS_FAKE_SLEEP_SECONDS:-1}"
+    echo "FAKE_%s_SLOW_OK"
+    exit 0
+    ;;
+  *)
+    echo "unknown fake mode: $fake_mode" >&2
+    exit 79
+    ;;
+esac
+`, label, label, label, label, label)
+}
+
+func (s *hermeticHarnessSmoke) harnessInvocations() []hermeticHarnessInvocation {
+	return []hermeticHarnessInvocation{
+		{id: HarnessHermes, newCmd: newHermesCmd, args: []string{"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--version"}},
+		{id: HarnessClaude, newCmd: newClaudeCmd, args: []string{"--no-backup", "-C", s.project, "-p", "auth smoke"}},
+		{id: HarnessCodex, newCmd: newCodexCmd, args: []string{"--no-backup", "-C", s.project, "exec", "codex smoke"}},
+		{id: HarnessOpenCode, newCmd: newOpenCodeCmd, args: []string{"--no-backup", "-C", s.project, "run", "opencode smoke"}},
+		{id: HarnessAntigravity, newCmd: newAntigravityCmd, args: []string{"--no-backup", "-C", s.project, "-p", "antigravity smoke"}},
+		{id: HarnessQwen, newCmd: newQwenCmd, args: []string{"--no-backup", "-C", s.project, "--yolo", "-p", "qwen smoke"}},
+		{id: HarnessCursorAgent, newCmd: newCursorAgentCmd, args: []string{"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--print", "--output-format", "stream-json", "--stream-partial-output", "--force", "--trust", "--workspace", s.project}},
+		{id: HarnessPi, newCmd: newPiCmd, args: []string{"--no-backup", "--skip-harness-assets-sync", "-C", s.project, "--", "--mode", "rpc"}},
+	}
+}
+
+func (s *hermeticHarnessSmoke) assertFakeHarnessFailureModes() {
+	s.withFakeHarnessMode("stderr-fail", func() {
+		for _, invocation := range s.harnessInvocations() {
+			s.executeHarnessCommandWantError(invocation, "STDERR failure")
+		}
+	})
+}
+
+func (s *hermeticHarnessSmoke) assertFakeHarnessCredentialProbeMode() {
+	s.withFakeHarnessMode("credential-probe", func() {
+		for _, invocation := range s.harnessInvocations() {
+			s.executeHarnessCommand(invocation.id, invocation.newCmd(), invocation.args...)
+			s.assertOutputContains(invocation.id, "CREDENTIAL_PROBE_BLOCKED")
+		}
+	})
+}
+
+func (s *hermeticHarnessSmoke) assertFakeHarnessSlowCancellableMode() {
+	claudePath := filepath.Join(s.agentHome, ".local", "bin", "claude")
+	cmd := exec.Command(claudePath)
+	cmd.Env = append(os.Environ(),
+		"HOME="+s.agentHome,
+		"HAZMAT_HERMETIC_HARNESS_FAKE_MODE=slow",
+		"HAZMAT_HERMETIC_HARNESS_FAKE_SLEEP_SECONDS=10",
+	)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		s.t.Fatalf("start cancellable fake harness: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		s.t.Fatalf("signal cancellable fake harness: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		s.t.Fatalf("cancellable fake harness exited successfully; output:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "FAKE_CLAUDE_CANCELLED") {
+		s.t.Fatalf("cancellable fake harness output missing cancellation marker:\n%s", output.String())
+	}
+}
+
+func (s *hermeticHarnessSmoke) withFakeHarnessMode(mode string, fn func()) {
+	oldMode, hadMode := os.LookupEnv("HAZMAT_HERMETIC_HARNESS_FAKE_MODE")
+	if err := os.Setenv("HAZMAT_HERMETIC_HARNESS_FAKE_MODE", mode); err != nil {
+		s.t.Fatalf("set fake harness mode: %v", err)
+	}
+	defer func() {
+		if hadMode {
+			_ = os.Setenv("HAZMAT_HERMETIC_HARNESS_FAKE_MODE", oldMode)
+		} else {
+			_ = os.Unsetenv("HAZMAT_HERMETIC_HARNESS_FAKE_MODE")
+		}
+	}()
+	fn()
 }
 
 func (s *hermeticHarnessSmoke) executeHarnessCommand(id HarnessID, cmd *cobra.Command, args ...string) {
@@ -470,6 +578,20 @@ func (s *hermeticHarnessSmoke) executeHarnessCommand(id HarnessID, cmd *cobra.Co
 	cmd.SetArgs(args)
 	if err := cmd.Execute(); err != nil {
 		s.t.Fatalf("hazmat %s %s: %v\noutput:\n%s", id, strings.Join(args, " "), err, s.outputs[id])
+	}
+}
+
+func (s *hermeticHarnessSmoke) executeHarnessCommandWantError(invocation hermeticHarnessInvocation, wantOutput string) {
+	s.t.Helper()
+	cmd := invocation.newCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs(invocation.args)
+	if err := cmd.Execute(); err == nil {
+		s.t.Fatalf("hazmat %s unexpectedly succeeded in fake failure mode\noutput:\n%s", invocation.id, s.outputs[invocation.id])
+	}
+	if !strings.Contains(s.outputs[invocation.id], wantOutput) {
+		s.t.Fatalf("%s failure output missing %q:\n%s", invocation.id, wantOutput, s.outputs[invocation.id])
 	}
 }
 
@@ -610,6 +732,14 @@ func (s *hermeticHarnessSmoke) launchEnv(cfg sessionConfig, plan sessionBackendP
 	env["XDG_CACHE_HOME"] = filepath.Join(s.agentHome, ".cache")
 	env["XDG_CONFIG_HOME"] = filepath.Join(s.agentHome, ".config")
 	env["XDG_DATA_HOME"] = filepath.Join(s.agentHome, ".local", "share")
+	for _, key := range []string{
+		"HAZMAT_HERMETIC_HARNESS_FAKE_MODE",
+		"HAZMAT_HERMETIC_HARNESS_FAKE_SLEEP_SECONDS",
+	} {
+		if value := os.Getenv(key); value != "" {
+			env[key] = value
+		}
+	}
 
 	keys := make([]string, 0, len(env))
 	for key := range env {

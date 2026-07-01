@@ -68,7 +68,7 @@ jobs:
             live: false
             distro: ubuntu
     env:
-      HAZMAT_LIVE_HARNESS_TOKEN_CMD: ${{ secrets.MUGINN_LIVE_HARNESS_TOKEN_CMD }}
+      MUGINN_LIVE_HARNESS_TOKEN_CMD: ${{ secrets.MUGINN_LIVE_HARNESS_TOKEN_CMD }}
       MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS: "3600"
     steps:
       - uses: actions/checkout@v5

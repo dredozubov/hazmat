@@ -19,7 +19,7 @@ token value.
 Token sources:
   MUGINN_LIVE_HARNESS_TOKEN_CMD
       Command that prints JSON with token, ttl_seconds, caller_id, and optional
-      expires_at/model/budget_class. This is the preferred CI path.
+      expires_at/model/audience/scope/budget_class. This is the preferred CI path.
 
   MUGINN_LIVE_HARNESS_CALLER_TOKEN
       Manual fallback token. Set MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS to the
@@ -93,7 +93,7 @@ import os
 import shlex
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 output_env = sys.argv[1]
 max_ttl = int(os.environ.get("MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS", "3600"))
@@ -127,6 +127,8 @@ else:
         "ttl_seconds": os.environ.get("MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS", ""),
         "caller_id": os.environ.get("MUGINN_LIVE_HARNESS_CALLER_ID", "hazmat-live-harness"),
         "model": os.environ.get("MUGINN_LIVE_HARNESS_MODEL", ""),
+        "audience": os.environ.get("MUGINN_LIVE_HARNESS_AUDIENCE", "hazmat-live-harness"),
+        "scope": os.environ.get("MUGINN_LIVE_HARNESS_SCOPE", "live-harness-smoke:invoke"),
         "budget_class": os.environ.get("MUGINN_LIVE_HARNESS_BUDGET_CLASS", "live-harness-smoke"),
     }
     source = "env"
@@ -145,9 +147,29 @@ if ttl <= 0 or ttl > max_ttl:
     sys.exit(2)
 
 caller_id = str(payload.get("caller_id", "hazmat-live-harness")).strip() or "hazmat-live-harness"
+audience = str(payload.get("audience", "hazmat-live-harness")).strip() or "hazmat-live-harness"
+scope = str(payload.get("scope", "live-harness-smoke:invoke")).strip() or "live-harness-smoke:invoke"
 expires_at = str(payload.get("expires_at", "")).strip()
+now = datetime.now(timezone.utc)
 if not expires_at:
-    expires_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    expires_at = (now + timedelta(seconds=ttl)).isoformat(timespec="seconds").replace("+00:00", "Z")
+else:
+    try:
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        sys.stderr.write("live-harness-token: expires_at must be RFC3339/ISO-8601\n")
+        sys.exit(2)
+    if expires.tzinfo is None:
+        sys.stderr.write("live-harness-token: expires_at must include a timezone\n")
+        sys.exit(2)
+    expires = expires.astimezone(timezone.utc)
+    if expires <= now:
+        sys.stderr.write("live-harness-token: expires_at is expired\n")
+        sys.exit(2)
+    if expires > now + timedelta(seconds=ttl + 60):
+        sys.stderr.write("live-harness-token: expires_at exceeds ttl_seconds\n")
+        sys.exit(2)
+    expires_at = expires.isoformat(timespec="seconds").replace("+00:00", "Z")
 model = str(payload.get("model", "")).strip()
 budget_class = str(payload.get("budget_class", "live-harness-smoke")).strip() or "live-harness-smoke"
 
@@ -158,6 +180,8 @@ lines = [
     f"HAZMAT_LIVE_HARNESS_TOKEN_TTL_SECONDS={ttl}",
     f"HAZMAT_LIVE_HARNESS_TOKEN_EXPIRES_AT={shlex.quote(expires_at)}",
     f"HAZMAT_LIVE_HARNESS_CALLER_ID={shlex.quote(caller_id)}",
+    f"HAZMAT_LIVE_HARNESS_AUDIENCE={shlex.quote(audience)}",
+    f"HAZMAT_LIVE_HARNESS_SCOPE={shlex.quote(scope)}",
     f"HAZMAT_LIVE_HARNESS_BUDGET_CLASS={shlex.quote(budget_class)}",
 ]
 if model:

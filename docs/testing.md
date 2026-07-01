@@ -84,6 +84,59 @@ command ran. Status is `pass`, `fail`, `skip`, or `pending_live`. A support
 claim needs current `pass` evidence for that harness/OS lane, or a documented
 typed skip that preserves the current provider status.
 
+Local fake contract evidence:
+
+```bash
+bash scripts/e2e-harness-smoke.sh
+bash scripts/check-live-harness-matrix.sh --validate-contract
+```
+
+Local live evidence for one supported macOS harness:
+
+```bash
+bash scripts/check-live-harness-matrix.sh \
+  --run \
+  --i-understand-this-runs-live-harness-matrix \
+  --harness claude \
+  --os-lane macos-agent-user \
+  --output-dir /absolute/path/to/live-harness-artifacts
+```
+
+GitHub evidence entrypoints:
+
+```bash
+gh workflow run live-harness-matrix.yml -f harness=claude -f os_lane=macos-agent-user
+gh workflow run linux-pre-release.yml -f distro=all -f mode=all
+```
+
+`MUGINN_LIVE_HARNESS_TOKEN_CMD` must print one JSON object:
+
+```json
+{
+  "token": "<caller-token>",
+  "ttl_seconds": 900,
+  "caller_id": "hazmat-live-harness",
+  "expires_at": "2026-07-01T12:00:00Z",
+  "model": "provider/model",
+  "audience": "hazmat-live-harness",
+  "scope": "live-harness-smoke:invoke",
+  "budget_class": "live-harness-smoke"
+}
+```
+
+`token`, `ttl_seconds`, and `caller_id` are required. `ttl_seconds` must be
+positive and no greater than `MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS`
+(default 3600). If `expires_at` is present it must be timezone-qualified, not
+expired, and not later than the TTL window. The broker writes `MUGINN_TOKEN`,
+`MUGINN_CALLER_TOKEN`, and redacted metadata fields to a temporary 0600 env
+file; the live wrapper removes auto-created env files after sourcing them.
+Manual local fallback uses `MUGINN_LIVE_HARNESS_CALLER_TOKEN` plus
+`MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS`. CI refuses that static fallback unless
+`MUGINN_LIVE_HARNESS_ALLOW_STATIC_CI_TOKEN=1`. Live runners may set
+`HAZMAT_LIVE_HARNESS_<HARNESS_ID>_VERSION` (uppercased, `-` as `_`) to record a
+provider CLI version in each artifact; otherwise the artifact records the
+unavailable reason.
+
 ## Native Launch Performance Profiling
 
 Use `HAZMAT_SESSION_PREP_PROFILE=yes` before proposing native launch rewrites.

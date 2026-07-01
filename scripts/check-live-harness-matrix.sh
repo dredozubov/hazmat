@@ -12,6 +12,7 @@ OS_LANE="${HAZMAT_LIVE_HARNESS_OS_LANE:-macos-agent-user}"
 DISTRO="${HAZMAT_LIVE_HARNESS_DISTRO:-}"
 OUTPUT_DIR=""
 TOKEN_ENV=""
+AUTO_TOKEN_ENV=0
 
 usage() {
 	cat <<'EOF'
@@ -148,7 +149,8 @@ print("1" if needs else "0")
 PY
 )"
 	if [ "$NEEDS_TOKEN" = "1" ]; then
-		TOKEN_ENV="$(mktemp "${TMPDIR:-/tmp}/hazmat-live-harness-token.XXXXXX.env")"
+		TOKEN_ENV="$(mktemp "${TMPDIR:-/tmp}/hazmat-live-harness-token.XXXXXX")"
+		AUTO_TOKEN_ENV=1
 		bash "$SCRIPT_DIR/mint-live-harness-token.sh" \
 			--issue-token \
 			--i-understand-this-mints-live-harness-token \
@@ -169,11 +171,15 @@ if [ -n "$TOKEN_ENV" ]; then
 	# shellcheck disable=SC1090
 	. "$TOKEN_ENV"
 	set +a
+	if [ "$AUTO_TOKEN_ENV" -eq 1 ]; then
+		rm -f "$TOKEN_ENV"
+	fi
 fi
 
 python3 - "$MODE" "$CONTRACT" "$HARNESS" "$OS_LANE" "$DISTRO" "${OUTPUT_DIR:-}" "$REPO_ROOT" <<'PY'
 import json
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -232,6 +238,10 @@ def validate_row(row):
 for row in contract["harnesses"]:
     validate_row(row)
 
+known_lanes = {support["lane"] for row in contract["harnesses"] for support in row["os_support"]}
+if mode in ("run", "emit") and os_lane not in known_lanes:
+    die(f"unknown OS/provider lane {os_lane!r}")
+
 if mode == "validate":
     print(f"live-harness-matrix: contract ok ({len(contract['harnesses'])} harnesses)")
     sys.exit(0)
@@ -243,7 +253,7 @@ def support_for(row):
     for entry in row["os_support"]:
         if entry["lane"] == os_lane:
             return entry
-    return {"lane": os_lane, "status": "typed_skip", "skip_reason": f"unknown OS lane {os_lane}"}
+    die(f"{row['id']} contract missing OS/provider lane {os_lane!r}")
 
 def redact(text, token):
     if token:
@@ -253,6 +263,52 @@ def redact(text, token):
     text = re.sub(r"AIza[A-Za-z0-9_-]{10,}", "[redacted-token]", text)
     text = re.sub(r"caller-[A-Za-z0-9_-]+", "[redacted-caller-token]", text)
     return text
+
+def read_os_release():
+    facts = {}
+    try:
+        with open("/etc/os-release", "r", encoding="utf-8") as f:
+            for line in f:
+                if "=" not in line:
+                    continue
+                key, value = line.rstrip("\n").split("=", 1)
+                facts[key.lower()] = value.strip('"')
+    except OSError:
+        pass
+    return facts
+
+def command_stdout(args):
+    try:
+        proc = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
+
+def environment_facts(row):
+    os_release = read_os_release()
+    env_version_key = f"HAZMAT_LIVE_HARNESS_{row['id'].upper().replace('-', '_')}_VERSION"
+    harness_version = os.environ.get(env_version_key, "").strip()
+    return {
+        "os_name": platform.system(),
+        "os_release": platform.release(),
+        "os_version": platform.version(),
+        "arch": platform.machine(),
+        "linux_id": os_release.get("id", ""),
+        "linux_version_id": os_release.get("version_id", ""),
+        "linux_pretty_name": os_release.get("pretty_name", ""),
+        "macos_product_version": command_stdout(["sw_vers", "-productVersion"]) if platform.system() == "Darwin" else "",
+        "macos_build_version": command_stdout(["sw_vers", "-buildVersion"]) if platform.system() == "Darwin" else "",
+        "runner": os.environ.get("RUNNER_NAME", "") or os.environ.get("GITHUB_RUNNER_NAME", "") or os.environ.get("HAZMAT_LINUX_VM_RUNNER", ""),
+        "github_workflow": os.environ.get("GITHUB_WORKFLOW", ""),
+        "github_job": os.environ.get("GITHUB_JOB", ""),
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "containment_provider": os_lane,
+        "harness_version": harness_version,
+        "harness_version_env": env_version_key,
+        "harness_version_unavailable_reason": "" if harness_version else "not provided by runner environment",
+    }
 
 def write_artifact(row, status, support, command, transcript="", failure_reason="", started_at=None, finished_at=None):
     out = Path(output_dir) / row["id"]
@@ -278,9 +334,12 @@ def write_artifact(row, status, support, command, transcript="", failure_reason=
             "ttl_seconds": os.environ.get("HAZMAT_LIVE_HARNESS_TOKEN_TTL_SECONDS", ""),
             "expires_at": os.environ.get("HAZMAT_LIVE_HARNESS_TOKEN_EXPIRES_AT", ""),
             "caller_id": os.environ.get("HAZMAT_LIVE_HARNESS_CALLER_ID", ""),
+            "audience": os.environ.get("HAZMAT_LIVE_HARNESS_AUDIENCE", ""),
+            "scope": os.environ.get("HAZMAT_LIVE_HARNESS_SCOPE", ""),
             "budget_class": os.environ.get("HAZMAT_LIVE_HARNESS_BUDGET_CLASS", ""),
             "value": "[redacted]"
         },
+        "environment": environment_facts(row),
         "transcript": "transcript.txt" if transcript else "",
         "skip_reason": support.get("skip_reason", "") if status == "skip" else "",
         "failure_reason": failure_reason,
