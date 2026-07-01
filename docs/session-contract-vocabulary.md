@@ -46,6 +46,20 @@ They become actionable only after admission checks, signature or integrity
 checks, replay defense, worker identity checks, path mapping, credential handle
 validation, and cleanup obligations are satisfied.
 
+## Proxy Evidence Is Not Authority
+
+`proxyruntime.Event` records what a proxy observed and which narrow proxy policy
+decision it made. It is audit evidence. It can describe a downstream identity,
+attach shape, normalized operation, allow/deny decision, reason, and redaction
+markers, but it does not enforce filesystem, network, process, or credential
+boundaries by itself.
+
+Proxy policy DTOs are similarly narrow. They can allow or deny by downstream
+identity, MCP tool name, HTTP route, or local session-token presence. They do
+not replace `containment.Contract`, `sessionbackend.PreparedLaunch`, or the
+executed backend boundary. Use "proxy evidence", "proxy policy decision", or
+"proxy mediation" for this layer; do not call it runtime authority.
+
 ## Authority-Bearing Objects
 
 These objects carry authority inside the process:
