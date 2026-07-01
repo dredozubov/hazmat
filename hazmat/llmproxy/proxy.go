@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"hazmat/proxyruntime"
@@ -27,6 +25,7 @@ type Config struct {
 	Downstream      proxyruntime.DownstreamIdentity
 	Backend         sessionbackend.Kind
 	UpstreamBaseURL string
+	Upstream        UpstreamConfig
 	Client          *http.Client
 	Policy          proxyruntime.Policy
 	Events          proxyruntime.EventSink
@@ -37,7 +36,7 @@ type Proxy struct {
 	sessionToken string
 	downstream   proxyruntime.DownstreamIdentity
 	backend      sessionbackend.Kind
-	upstream     *url.URL
+	upstream     normalizedUpstream
 	client       *http.Client
 	policy       proxyruntime.Policy
 	events       proxyruntime.EventSink
@@ -48,12 +47,9 @@ func New(config Config) (*Proxy, error) {
 	if sessionToken == "" {
 		return nil, errors.New("llmproxy: session token is required")
 	}
-	upstream, err := url.Parse(strings.TrimSpace(config.UpstreamBaseURL))
+	upstream, err := normalizeUpstreamConfig(config.Upstream, config.UpstreamBaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse upstream base URL: %w", err)
-	}
-	if upstream.Scheme != "http" && upstream.Scheme != "https" || upstream.Host == "" {
-		return nil, errors.New("llmproxy: upstream base URL must be http or https")
+		return nil, err
 	}
 	client := config.Client
 	if client == nil {
@@ -120,6 +116,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if p.upstream.sanitizeFailures && resp.StatusCode >= http.StatusBadRequest {
+		p.emit(r.Context(), "upstream:error", proxyruntime.DirectionOutbound, proxyruntime.DecisionError, "upstream returned failure status", map[string]string{
+			"status":          resp.Status,
+			"upstream_kind":   string(p.upstream.kind),
+			"credential_mode": string(p.upstream.credentialMode),
+		})
+		_, _ = io.Copy(io.Discard, resp.Body)
+		writeError(w, resp.StatusCode, "upstream request failed")
+		return
+	}
 
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
@@ -139,16 +145,23 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) newUpstreamRequest(r *http.Request) (*http.Request, error) {
-	target := *p.upstream
-	target.Path = joinURLPath(p.upstream.Path, r.URL.Path)
+	target := *p.upstream.baseURL
+	target.Path = joinURLPath(p.upstream.baseURL.Path, r.URL.Path)
 	target.RawQuery = r.URL.RawQuery
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), r.Body)
 	if err != nil {
 		return nil, err
 	}
 	copyRequestHeaders(req.Header, r.Header)
+	if p.upstream.bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+p.upstream.bearerToken)
+	}
 	req.Host = target.Host
 	return req, nil
+}
+
+func (p *Proxy) UpstreamPlan() UpstreamPlan {
+	return p.upstream.plan()
 }
 
 func (p *Proxy) emit(_ context.Context, operation string, direction proxyruntime.Direction, decision proxyruntime.Decision, reason string, attrs map[string]string) {
