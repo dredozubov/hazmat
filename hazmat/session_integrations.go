@@ -39,6 +39,10 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 	if sessionPreparationProfileEnabled() {
 		fmt.Fprintf(os.Stderr, "hazmat: process startup before session preparation: %.3fs\n", time.Since(processStartTime).Seconds())
 	}
+	return prepareLaunchSessionWithProgress(commandName, opts, supportsSandbox, progress, true, true)
+}
+
+func prepareLaunchSessionWithProgress(commandName string, opts harnessSessionOpts, supportsSandbox bool, progress *sessionPreparationProgress, repoSetupInteractive, repoSetupPersist bool) (preparedSession, error) {
 	progress.Step("resolving launch context")
 	projectDir, err := resolveDir(opts.project, true)
 	if err != nil {
@@ -66,7 +70,7 @@ func prepareLaunchSession(commandName string, opts harnessSessionOpts, supportsS
 		return preparedSession{}, err
 	}
 	progress.Step("finalizing repo setup")
-	prepared, err = finalizePreparedRepoSetup(prepared, true, true)
+	prepared, err = finalizePreparedRepoSetup(prepared, repoSetupInteractive, repoSetupPersist)
 	if err != nil {
 		return preparedSession{}, err
 	}
