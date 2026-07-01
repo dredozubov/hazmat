@@ -1,0 +1,129 @@
+name: Live harness matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: Supported harness to run
+        required: true
+        type: choice
+        options:
+          - all
+          - claude
+          - codex
+          - opencode
+          - antigravity
+          - hermes
+          - qwen
+          - cursor-agent
+          - pi
+        default: all
+      os_lane:
+        description: OS/provider lane
+        required: true
+        type: choice
+        options:
+          - all
+          - macos-agent-user
+          - linux-current-user
+          - linux-agent-user
+        default: all
+  schedule:
+    - cron: "17 8 * * *"
+
+concurrency:
+  group: live-harness-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION_FILE: hazmat/go.mod
+  GO_CACHE_DEP: hazmat/go.sum
+
+jobs:
+  live-harness-matrix:
+    name: ${{ matrix.label }} live harness evidence
+    if: ${{ github.event_name == 'schedule' || inputs.os_lane == 'all' || inputs.os_lane == matrix.os_lane }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_lane: macos-agent-user
+            label: macOS agent-user
+            runs_on: ["self-hosted", "macOS", "ARM64", "hazmat-live"]
+            live: true
+            distro: ""
+          - os_lane: linux-current-user
+            label: Linux current-user
+            runs_on: ubuntu-latest
+            live: false
+            distro: ubuntu
+          - os_lane: linux-agent-user
+            label: Linux agent-user
+            runs_on: ubuntu-latest
+            live: false
+            distro: ubuntu
+    env:
+      HAZMAT_LIVE_HARNESS_TOKEN_CMD: ${{ secrets.MUGINN_LIVE_HARNESS_TOKEN_CMD }}
+      MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS: "3600"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Validate live harness contract
+        run: bash scripts/check-live-harness-matrix.sh --validate-contract
+
+      - name: Build Hazmat
+        if: ${{ matrix.live }}
+        working-directory: hazmat
+        run: make all
+
+      - name: Add checkout binary to PATH
+        if: ${{ matrix.live }}
+        run: echo "$PWD/hazmat" >> "$GITHUB_PATH"
+
+      - name: Run live harness matrix
+        if: ${{ matrix.live }}
+        env:
+          SELECTED_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.harness || 'all' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$PWD/live-harness-artifacts"
+          bash scripts/check-live-harness-matrix.sh \
+            --run \
+            --i-understand-this-runs-live-harness-matrix \
+            --harness "$SELECTED_HARNESS" \
+            --os-lane "${{ matrix.os_lane }}" \
+            --distro "${{ matrix.distro }}" \
+            --output-dir "$PWD/live-harness-artifacts"
+
+      - name: Emit typed skip evidence
+        if: ${{ !matrix.live }}
+        env:
+          SELECTED_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.harness || 'all' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$PWD/live-harness-artifacts"
+          bash scripts/check-live-harness-matrix.sh \
+            --emit-skip-evidence \
+            --harness "$SELECTED_HARNESS" \
+            --os-lane "${{ matrix.os_lane }}" \
+            --distro "${{ matrix.distro }}" \
+            --output-dir "$PWD/live-harness-artifacts"
+
+      - name: Upload live harness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-harness-${{ matrix.os_lane }}-${{ matrix.distro || 'native' }}
+          path: live-harness-artifacts
+          if-no-files-found: warn
+          retention-days: 30

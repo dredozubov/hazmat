@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "description": "Source-of-truth contract for fake and live supported-harness smoke evidence.",
+  "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+  "max_token_ttl_seconds": 3600,
+  "default_timeout_seconds": 240,
+  "artifact_fields": [
+    "schema_version",
+    "harness",
+    "display_name",
+    "os_lane",
+    "distro",
+    "hazmat_commit",
+    "status",
+    "started_at",
+    "finished_at",
+    "command",
+    "expected_marker",
+    "timeout_seconds",
+    "token",
+    "transcript",
+    "skip_reason",
+    "failure_reason"
+  ],
+  "harnesses": [
+    {
+      "id": "claude",
+      "display_name": "Claude Code",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat claude",
+      "bootstrap_command": "hazmat bootstrap claude",
+      "inference_shape": "single-shot prompt via -p",
+      "live_argv": ["hazmat", "claude", "--no-backup", "--network", "none", "-C", "{project}", "-p", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Claude OAuth/API-key profile or API-proxy materialization; no host ~/.claude import in CI"
+      },
+      "state_roots": ["/Users/agent/.claude", "/Users/agent/.claude.json", "~/.hazmat/secrets/claude"],
+      "skip_conditions": ["missing caller token", "missing contained Claude auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "codex",
+      "display_name": "Codex",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat codex",
+      "bootstrap_command": "hazmat bootstrap codex",
+      "inference_shape": "non-interactive exec prompt",
+      "live_argv": ["hazmat", "codex", "--no-backup", "--network", "none", "-C", "{project}", "exec", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Codex auth.json/API-key profile or API-proxy materialization; no host ~/.codex import in CI"
+      },
+      "state_roots": ["/Users/agent/.codex", "/Users/agent/.agents", "~/.hazmat/secrets/codex"],
+      "skip_conditions": ["missing caller token", "missing contained Codex auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "opencode",
+      "display_name": "OpenCode",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat opencode",
+      "bootstrap_command": "hazmat bootstrap opencode",
+      "inference_shape": "non-interactive run prompt",
+      "live_argv": ["hazmat", "opencode", "--no-backup", "--network", "none", "-C", "{project}", "run", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained OpenCode auth.json/provider profile or API-proxy materialization; no host opencode auth import in CI"
+      },
+      "state_roots": ["/Users/agent/.config/opencode", "/Users/agent/.local/share/opencode", "~/.hazmat/secrets/opencode"],
+      "skip_conditions": ["missing caller token", "missing contained OpenCode auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "antigravity",
+      "display_name": "Antigravity",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat antigravity",
+      "bootstrap_command": "hazmat bootstrap antigravity",
+      "inference_shape": "single-shot prompt via -p",
+      "live_argv": ["hazmat", "antigravity", "--no-backup", "--network", "none", "-C", "{project}", "-p", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Antigravity API-key path or API-proxy materialization; no host Keychain OAuth sync in CI"
+      },
+      "state_roots": ["/Users/agent/.gemini/antigravity-cli", "~/.hazmat/secrets/providers/antigravity-api-key"],
+      "skip_conditions": ["missing caller token", "missing contained Antigravity auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "hermes",
+      "display_name": "Hermes",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat hermes",
+      "bootstrap_command": "hazmat bootstrap hermes",
+      "inference_shape": "foreground chat prompt",
+      "live_argv": ["hazmat", "hermes", "--no-backup", "--network", "none", "-C", "{project}", "--", "chat", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Hermes provider env/profile or API-proxy materialization; host ~/.hermes is never imported"
+      },
+      "state_roots": ["/Users/agent/.hazmat/hermes/projects/<project-hash>", "~/.hazmat/secrets/providers"],
+      "skip_conditions": ["missing caller token", "missing manual Hermes binary", "missing contained Hermes auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "qwen",
+      "display_name": "Qwen Code",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat qwen",
+      "bootstrap_command": "hazmat bootstrap qwen",
+      "inference_shape": "single-shot prompt via -p",
+      "live_argv": ["hazmat", "qwen", "--no-backup", "--network", "none", "-C", "{project}", "-p", "Reply exactly: {marker}"],
+      "timeout_seconds": 240,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Qwen profile or API-proxy materialization; host ~/.qwen is never imported"
+      },
+      "state_roots": ["/Users/agent/.qwen"],
+      "skip_conditions": ["missing caller token", "missing contained Qwen auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "cursor-agent",
+      "display_name": "Cursor Agent",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat cursor-agent",
+      "bootstrap_command": "hazmat bootstrap cursor-agent",
+      "inference_shape": "headless print prompt with stream-json output",
+      "live_argv": ["hazmat", "cursor-agent", "--no-backup", "--network", "none", "-C", "{project}", "--", "--print", "--output-format", "stream-json", "--stream-partial-output", "--force", "--trust", "--workspace", "{project}", "Reply exactly: {marker}"],
+      "timeout_seconds": 300,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Cursor Agent profile or API-proxy materialization; host Cursor IDE state is never imported"
+      },
+      "state_roots": ["/Users/agent/.cursor", "/Users/agent/.config/cursor"],
+      "skip_conditions": ["missing caller token", "missing manual Cursor Agent binary", "missing contained Cursor Agent auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    },
+    {
+      "id": "pi",
+      "display_name": "Pi",
+      "support_sources": [
+        "hazmat/harnesses/harnesses.go",
+        "hazmat/harness.go",
+        "hazmat/trace.go",
+        "docs/harnesses.md"
+      ],
+      "launch_command": "hazmat pi",
+      "bootstrap_command": "hazmat bootstrap pi",
+      "inference_shape": "non-interactive prompt via -p with json mode",
+      "live_argv": ["hazmat", "pi", "--no-backup", "--network", "none", "-C", "{project}", "--", "-p", "Reply exactly: {marker}", "--mode", "json", "--no-approve"],
+      "timeout_seconds": 300,
+      "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
+      "auth_token_mapping": {
+        "broker": "scripts/mint-live-harness-token.sh",
+        "caller_token_env": "MUGINN_TOKEN",
+        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
+        "harness_delivery": "contained Pi profile or API-proxy materialization; host ~/.pi/agent is never imported"
+      },
+      "state_roots": ["/Users/agent/.pi/agent"],
+      "skip_conditions": ["missing caller token", "missing manual Pi binary", "missing contained Pi auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "os_support": [
+        {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
+        {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
+        {"lane": "macos-current-user", "status": "typed_skip", "skip_reason": "current-user provider is experimental and exec-only"},
+        {"lane": "linux-current-user", "status": "typed_skip", "skip_reason": "linux-current-user is plan-only"},
+        {"lane": "linux-agent-user", "status": "typed_skip", "skip_reason": "linux-agent-user is setup-required"}
+      ]
+    }
+  ]
+}

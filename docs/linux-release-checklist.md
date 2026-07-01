@@ -66,9 +66,17 @@ Every `scripts/pre-release-audit.sh` output must include separate rows for:
 
 - `linux-current-user`
 - `linux-agent-user`
+- `live-real-harness-matrix`
+- `supported-harness-os-evidence`
 
 Each row needs either completed transcript evidence or an explicit skip reason
 that preserves the current provider status.
+
+`linux-pre-release.yml` also uploads `live-harness-<distro>-current-user` and
+`live-harness-<distro>-agent-user` artifact directories. While Linux native
+harness launch is `plan-only` / `setup-required`, those directories are typed
+skip evidence. They become pass/fail evidence only after the corresponding
+provider lane is executable and the live harness contract allows the lane.
 
 The aggregate pre-release CI command is:
 

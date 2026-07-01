@@ -14,6 +14,7 @@
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
 #   - live README proof-stack smoke refuses to run without its explicit ack
 #   - native harness smoke refuses live mode without its explicit ack
+#   - live real-harness matrix and token broker refuse without explicit ack
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
 #   - Linux-in-Apple-Container smoke refuses live mode without its explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
@@ -443,6 +444,16 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/e2e-harness-smoke-native.sh" --run
 
 assert_fails_with \
+    "live harness matrix requires live ack" \
+    "refusing live run without --i-understand-this-runs-live-harness-matrix" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --output-dir /tmp/hazmat-live-harness-guard
+
+assert_fails_with \
+    "live harness token broker requires issue ack" \
+    "refusing token issue without --i-understand-this-mints-live-harness-token" \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --output-env /tmp/hazmat-live-harness-token.env
+
+assert_fails_with \
     "Darwin trace prerequisite check requires DTrace ack" \
     "refusing Darwin DTrace prerequisite probes without --i-understand-this-runs-sudo-dtrace-probes" \
     bash "$REPO_ROOT/scripts/configure-debug-trace.sh" --target darwin
@@ -598,6 +609,16 @@ assert_succeeds_with \
     "native harness smoke defaults to disclosure" \
     "native-harness-smoke: disclosure-only" \
     bash "$REPO_ROOT/scripts/e2e-harness-smoke-native.sh"
+
+assert_succeeds_with \
+    "live harness matrix defaults to disclosure" \
+    "live-harness-matrix: disclosure-only" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh"
+
+assert_succeeds_with \
+    "live harness token broker defaults to disclosure" \
+    "live-harness-token: disclosure-only" \
+    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh"
 
 assert_succeeds_with \
     "macOS trace smoke defaults to disclosure" \

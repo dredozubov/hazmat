@@ -105,12 +105,41 @@ jobs:
 
           exit "$status"
 
+      - name: Emit Ubuntu live harness OS evidence
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'all' }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            all|current-user)
+              bash scripts/check-live-harness-matrix.sh \
+                --emit-skip-evidence \
+                --os-lane linux-current-user \
+                --distro ubuntu \
+                --output-dir "$PWD/linux-pre-release/live-harness-ubuntu-current-user"
+              ;;
+          esac
+          case "$MODE" in
+            all|agent-user)
+              bash scripts/check-live-harness-matrix.sh \
+                --emit-skip-evidence \
+                --os-lane linux-agent-user \
+                --distro ubuntu \
+                --output-dir "$PWD/linux-pre-release/live-harness-ubuntu-agent-user"
+              ;;
+          esac
+
       - name: Upload Ubuntu evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: linux-pre-release-ubuntu-hosted
-          path: linux-pre-release/ubuntu-hosted.txt
+          path: |
+            linux-pre-release/ubuntu-hosted.txt
+            linux-pre-release/live-harness-ubuntu-current-user
+            linux-pre-release/live-harness-ubuntu-agent-user
           if-no-files-found: warn
           retention-days: 30
 
@@ -171,11 +200,40 @@ jobs:
             --ssh-port "${{ matrix.ssh_port }}" \
             --output "$PWD/linux-pre-release/${{ matrix.id }}-qemu.txt"
 
+      - name: Emit QEMU live harness OS evidence
+        if: ${{ always() && (github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id) }}
+        shell: bash
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'all' }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            all|current-user)
+              bash scripts/check-live-harness-matrix.sh \
+                --emit-skip-evidence \
+                --os-lane linux-current-user \
+                --distro "${{ matrix.id }}" \
+                --output-dir "$PWD/linux-pre-release/live-harness-${{ matrix.id }}-current-user"
+              ;;
+          esac
+          case "$MODE" in
+            all|agent-user)
+              bash scripts/check-live-harness-matrix.sh \
+                --emit-skip-evidence \
+                --os-lane linux-agent-user \
+                --distro "${{ matrix.id }}" \
+                --output-dir "$PWD/linux-pre-release/live-harness-${{ matrix.id }}-agent-user"
+              ;;
+          esac
+
       - name: Upload QEMU evidence
         if: ${{ always() && (github.event_name == 'push' || inputs.distro == 'all' || inputs.distro == matrix.id) }}
         uses: actions/upload-artifact@v4
         with:
           name: linux-pre-release-${{ matrix.id }}-qemu
-          path: linux-pre-release/${{ matrix.id }}-qemu.txt
+          path: |
+            linux-pre-release/${{ matrix.id }}-qemu.txt
+            linux-pre-release/live-harness-${{ matrix.id }}-current-user
+            linux-pre-release/live-harness-${{ matrix.id }}-agent-user
           if-no-files-found: warn
           retention-days: 30

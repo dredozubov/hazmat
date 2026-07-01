@@ -185,6 +185,23 @@ jobs:
           path: stack-matrix-contract.json
           if-no-files-found: ignore
 
+  fake-harness-contract:
+    name: Fake harness contract
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: ${{ env.GO_CACHE_DEP }}
+
+      - name: Validate live harness smoke contract
+        run: bash scripts/check-live-harness-matrix.sh --validate-contract
+
+      - name: Run hermetic all-harness smoke
+        run: bash scripts/e2e-harness-smoke.sh
+
   go-build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: macos-latest
@@ -320,7 +337,7 @@ jobs:
   e2e:
     name: E2E lifecycle
     runs-on: macos-14
-    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract, fake-harness-contract]
     steps:
       - uses: actions/checkout@v5
 
@@ -336,7 +353,7 @@ jobs:
     name: E2E lifecycle (VM)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e_vm }}
     runs-on: ${{ fromJSON(inputs.e2e_vm_runner || '["self-hosted","macOS","ARM64","tart"]') }}
-    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract, fake-harness-contract]
     env:
       HAZMAT_E2E_VM_PROVIDER: ${{ inputs.e2e_vm_provider || 'tart' }}
     steps:
@@ -359,7 +376,7 @@ jobs:
   e2e-bootstrap:
     name: E2E bootstrap
     runs-on: macos-14
-    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, test-entrypoint-guards, repo-matrix-contract, fake-harness-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
@@ -403,7 +420,7 @@ jobs:
     name: Repo matrix smoke
     if: github.event_name == 'push'
     runs-on: macos-14
-    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, repo-matrix-contract]
+    needs: [go-test-macos, go-test-linux, package-boundaries, go-build, repo-matrix-contract, fake-harness-contract]
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:

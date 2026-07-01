@@ -84,6 +84,9 @@ cat >"$OUTPUT_PATH" <<EOF
 | destructive-lifecycle | \`scripts/e2e.sh --vm --quick\` or documented skip | pending | |
 | linux-current-user | \`linux-pre-release.yml\` with \`mode=current-user\`, or \`docs/linux-current-user-vm-smoke-matrix.md\` / \`sandboxing-xuar.3.5\` transcripts | pending | |
 | linux-agent-user | \`linux-pre-release.yml\` with \`mode=agent-user\`, or \`docs/linux-agent-user-vm-lifecycle-matrix.md\` / \`sandboxing-xuar.4.5\` transcripts | pending | |
+| fake-harness-contract | CI \`fake-harness-contract\` job or \`scripts/e2e-harness-smoke.sh\` plus \`scripts/check-live-harness-matrix.sh --validate-contract\` | pending | |
+| live-real-harness-matrix | \`.github/workflows/live-harness-matrix.yml\` artifacts or exact approved \`scripts/check-live-harness-matrix.sh --run ...\` | pending | |
+| supported-harness-os-evidence | Per-harness \`metadata.json\` artifacts for macOS pass/fail and Linux typed skips from \`linux-pre-release.yml\` | pending | |
 
 ## Lane Registry Snapshot
 
@@ -102,6 +105,7 @@ cat >>"$OUTPUT_PATH" <<'EOF'
 - Live and destructive lanes require exact-command approval before execution.
 - Release preflight protects tag artifacts, but it does not replace the full CI matrix.
 - Major-distro Linux promotion evidence comes from `linux-pre-release.yml`, which runs Ubuntu on a disposable hosted runner and Debian/Fedora/Arch in disposable QEMU VMs.
+- Supported-harness claims require fake contract evidence plus current live pass artifacts for executable OS lanes, or typed skip artifacts that preserve the provider status.
 EOF
 
 echo "pre-release-audit: wrote $OUTPUT_PATH"

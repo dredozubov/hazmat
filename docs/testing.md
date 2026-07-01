@@ -27,6 +27,8 @@ or with a product-facing scenario flow.
 | `scripts/check-claude-onboarding-smoke.sh` | Does a real `hazmat claude` startup authenticate in print mode and avoid auth/onboarding prompts in interactive TUI startup? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
+| `scripts/mint-live-harness-token.sh` | Can the live harness matrix obtain a short-lived Muginn caller token without printing token material? | Prepared CI/local operator environment, explicit approval only | Writes a temporary 0600 env file |
+| `scripts/check-live-harness-matrix.sh` | Do supported real harness CLIs run one bounded marker inference through Hazmat, or emit typed OS/fixture skips? | Prepared macOS live runner; Linux pre-release currently emits typed skips | Creates temporary contained sessions when live |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -53,6 +55,34 @@ Prepared-host smoke wrappers are different. Their `--check-prereqs`,
 `--check-fixtures`, and `--run` paths may intentionally call `sudo -n`,
 `hazmat exec`, `hazmat claude`, or native helper-backed launch paths, so agents
 must ask for exact-command approval before running them.
+
+## Live Harness Evidence
+
+Supported harness evidence has three tiers:
+
+| Tier | Entrypoint | Scope |
+| --- | --- | --- |
+| Fake contract CI | CI job `fake-harness-contract`, `scripts/e2e-harness-smoke.sh` | Always-on, no real LLMs, covers all supported harness command/auth/state plumbing. |
+| Live real-harness matrix | `.github/workflows/live-harness-matrix.yml`, `scripts/check-live-harness-matrix.sh --run ...` | Manual/nightly, prepared macOS live runner, one marker inference per selected harness. |
+| Pre-release OS evidence | `linux-pre-release.yml` plus live harness artifacts | Release artifacts show pass/fail on supported executable lanes and typed skips on Linux native lanes while they remain non-executable. |
+
+The source-of-truth contract is
+[`docs/live-harness-smoke-contract.json`](live-harness-smoke-contract.json). It
+names each supported harness, launch argv, expected marker, timeout, token
+mapping, state roots, skip reasons, artifact fields, and OS lane applicability.
+`TestLiveHarnessSmokeContractMatchesManagedRegistry` fails if the contract
+drifts from `managedHarnessRegistry`.
+
+The live matrix uses `scripts/mint-live-harness-token.sh` to write a temporary
+env file with `MUGINN_TOKEN`. The broker accepts `MUGINN_LIVE_HARNESS_TOKEN_CMD`
+as the preferred CI mint/fetch path and rejects static CI token fallback by
+default. Token values are never printed, artifacts store only redacted token
+metadata, and the wrapper rejects TTL metadata above 3600 seconds.
+
+Artifacts are per harness: `metadata.json` plus `transcript.txt` when a live
+command ran. Status is `pass`, `fail`, `skip`, or `pending_live`. A support
+claim needs current `pass` evidence for that harness/OS lane, or a documented
+typed skip that preserves the current provider status.
 
 ## Native Launch Performance Profiling
 

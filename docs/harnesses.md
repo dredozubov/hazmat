@@ -65,6 +65,29 @@ not import Cursor IDE profile/auth state. Use the `ANTIGRAVITY_API_KEY` /
 `GEMINI_API_KEY` env path or Hermes provider keys from `hazmat config agent`, or
 configure the narrower harnesses inside their contained profiles.
 
+## Evidence tiers
+
+Harness support claims are split by evidence type:
+
+| Harness | Fake contract evidence | Live inference evidence | OS lane rule |
+| --- | --- | --- | --- |
+| Claude Code | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `claude` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Codex | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `codex` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| OpenCode | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `opencode` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Antigravity | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `antigravity` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Hermes | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `hermes` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Qwen Code | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `qwen` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Cursor Agent | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `cursor-agent` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+| Pi | `fake-harness-contract` CI / `scripts/e2e-harness-smoke.sh` | `live-harness-matrix` artifact for `pi` | macOS agent-user can pass; Linux native lanes are typed skips until provider status changes |
+
+The live contract is
+[`docs/live-harness-smoke-contract.json`](live-harness-smoke-contract.json). It
+records each harness's real launch argv, expected marker, token mapping,
+timeout, state roots, explicit skip reasons, and artifact fields. Release
+support claims must cite either current live pass artifacts or a typed skip that
+preserves the provider status in
+[`docs/runtime-provider-status.md`](runtime-provider-status.md).
+
 ## Credential storage summary
 
 Hazmat's current credential map is registry-backed. Durable managed credentials
