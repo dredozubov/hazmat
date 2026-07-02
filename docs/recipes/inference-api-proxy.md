@@ -33,6 +33,18 @@ Hermes is the first supported API proxy env adapter because Hazmat already
 launches it as a foreground process with managed `HERMES_HOME`, and Hermes v1
 does not import host `~/.hermes` profile state.
 
+Start a Hermes session through the local Muginn proxy with:
+
+```bash
+hazmat hermes --api-proxy=muginn -- chat --model muginn/subscription-auto
+```
+
+On this workstation, Hazmat defaults to
+`direnv exec ~/ops ~/workspace/muginn/muginnctl proxy start --daemon --model muginn/subscription-auto --output json`
+when `~/ops` and `~/workspace/muginn/muginnctl` exist. Override with
+`HAZMAT_MUGINNCTL` or `HAZMAT_MUGINN_OPS_DIR`; set
+`HAZMAT_MUGINN_OPS_DIR=-` to run `muginnctl` without the ops direnv profile.
+
 The adapter renders:
 
 ```text

@@ -241,6 +241,7 @@ type sessionCommandFlags struct {
 	allowDocker      bool
 	dockerModeValue  string
 	networkModeValue string
+	apiProxyValue    string
 	metadataJSON     bool
 }
 
@@ -316,6 +317,8 @@ func bindSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags, opts sessi
 		"Docker routing: none (default), sandbox, or auto")
 	cmd.Flags().StringVar(&flags.networkModeValue, "network", string(sessionNetworkDefault),
 		"Native network policy: default or none")
+	cmd.Flags().StringVar(&flags.apiProxyValue, "api-proxy", string(apiProxyModeNone),
+		"API proxy mode: none (default) or muginn")
 	if opts.includeMetadataJSON {
 		cmd.Flags().BoolVar(&flags.metadataJSON, "metadata-json", false,
 			"Emit one machine-readable session metadata JSON line to stderr before launch")
@@ -348,6 +351,8 @@ func (f sessionCommandFlags) harnessSessionOpts(cmd *cobra.Command) harnessSessi
 		dockerModeExplicit:    cmd.Flags().Changed("docker"),
 		networkMode:           f.networkModeValue,
 		networkModeExplicit:   cmd.Flags().Changed("network"),
+		apiProxyMode:          f.apiProxyValue,
+		apiProxyModeExplicit:  cmd.Flags().Changed("api-proxy"),
 		metadataJSON:          f.metadataJSON,
 	}
 }
@@ -1081,6 +1086,8 @@ type harnessSessionOpts struct {
 	dockerModeExplicit           bool
 	networkMode                  string
 	networkModeExplicit          bool
+	apiProxyMode                 string
+	apiProxyModeExplicit         bool
 	metadataJSON                 bool
 	auditInstall                 bool
 	planOnly                     bool
@@ -1113,7 +1120,7 @@ func legacyIntegrationFlagError(_ *cobra.Command, err error) error {
 // parseHarnessArgs separates hazmat flags from a forwarded harness CLI.
 // Hazmat flags (--project, --read, --write, --integration,
 // --skip-harness-assets-sync, --no-backup, --github,
-// --docker, --network, --metadata-json, --sandbox, --ignore-docker)
+// --docker, --network, --api-proxy, --metadata-json, --sandbox, --ignore-docker)
 // are extracted; everything else is returned as forwarded args.
 func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 	var opts harnessSessionOpts
@@ -1178,6 +1185,16 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 		case strings.HasPrefix(arg, "--network="):
 			opts.networkMode = arg[len("--network="):]
 			opts.networkModeExplicit = true
+		case arg == "--api-proxy":
+			value, err := nextValue(&i, arg, "a mode (none, muginn)")
+			if err != nil {
+				return opts, nil, err
+			}
+			opts.apiProxyMode = value
+			opts.apiProxyModeExplicit = true
+		case strings.HasPrefix(arg, "--api-proxy="):
+			opts.apiProxyMode = arg[len("--api-proxy="):]
+			opts.apiProxyModeExplicit = true
 		case arg == "--sandbox":
 			opts.useSandbox = true
 		case arg == "--ignore-docker":
@@ -1524,6 +1541,11 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	apiProxyMode, err := parseAPIProxyMode(opts.apiProxyMode)
+	if err != nil {
+		return preparedSession{}, err
+	}
+	opts.apiProxyMode = string(apiProxyMode)
 	if provider == runtimeprovider.KindMacOSCurrentUser {
 		if commandName != "exec" {
 			return preparedSession{}, fmt.Errorf("runtime provider %s is currently supported only for hazmat exec", provider)
@@ -1642,6 +1664,9 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if opts.auditInstall && mode != sessionModeNative {
 		return preparedSession{}, fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions; use --docker=none for install audit")
 	}
+	if err := validateAPIProxySession(cfg, mode, apiProxyMode); err != nil {
+		return preparedSession{}, err
+	}
 
 	progress.Step("checking Git SSH access")
 	managedGitSSH, err := resolveManagedGitSSH(cfg)
@@ -1678,7 +1703,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 		}
 	}
 	progress.Step("loading harness credentials")
-	if err := applyHarnessAPIKeyEnvForSession(&cfg, opts.planOnly); err != nil {
+	if err := applyHarnessCredentialEnvForSession(&cfg, apiProxyMode, opts.planOnly); err != nil {
 		return preparedSession{}, err
 	}
 	appendClaudeBareSessionNote(&cfg, mode)

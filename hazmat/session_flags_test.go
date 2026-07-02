@@ -33,6 +33,12 @@ func TestCommonSessionFlagsDefaults(t *testing.T) {
 	if opts.networkModeExplicit {
 		t.Fatal("networkModeExplicit should be false by default")
 	}
+	if opts.apiProxyMode != string(apiProxyModeNone) {
+		t.Fatalf("apiProxyMode = %q, want %q", opts.apiProxyMode, apiProxyModeNone)
+	}
+	if opts.apiProxyModeExplicit {
+		t.Fatal("apiProxyModeExplicit should be false by default")
+	}
 }
 
 func TestCommonHarnessSessionFlagsEnableAssetSyncSkip(t *testing.T) {
@@ -74,6 +80,7 @@ func TestExplainSessionFlagsBuildPlanOnlyOpts(t *testing.T) {
 	setFlag("github", "true")
 	setFlag("docker", "sandbox")
 	setFlag("network", "none")
+	setFlag("api-proxy", "muginn")
 
 	opts := flags.explainSessionOpts(cmd)
 	if !opts.planOnly {
@@ -103,6 +110,9 @@ func TestExplainSessionFlagsBuildPlanOnlyOpts(t *testing.T) {
 	if opts.networkMode != "none" || !opts.networkModeExplicit {
 		t.Fatalf("network opts = mode:%q explicit:%v, want none explicit", opts.networkMode, opts.networkModeExplicit)
 	}
+	if opts.apiProxyMode != "muginn" || !opts.apiProxyModeExplicit {
+		t.Fatalf("api proxy opts = mode:%q explicit:%v, want muginn explicit", opts.apiProxyMode, opts.apiProxyModeExplicit)
+	}
 }
 
 func TestSessionFlagBindersShareCoreSurface(t *testing.T) {
@@ -124,6 +134,7 @@ func TestSessionFlagBindersShareCoreSurface(t *testing.T) {
 		"github",
 		"docker",
 		"network",
+		"api-proxy",
 		"sandbox",
 		"ignore-docker",
 	}
@@ -171,6 +182,30 @@ func TestParseHarnessCommandArgsRendersHelp(t *testing.T) {
 	}
 }
 
+func TestParseHarnessArgsExtractsAPIProxyFlag(t *testing.T) {
+	opts, forwarded, err := parseHarnessArgs([]string{"--api-proxy", "muginn", "--", "chat"})
+	if err != nil {
+		t.Fatalf("parseHarnessArgs: %v", err)
+	}
+	if opts.apiProxyMode != "muginn" || !opts.apiProxyModeExplicit {
+		t.Fatalf("api proxy opts = mode:%q explicit:%v, want muginn explicit", opts.apiProxyMode, opts.apiProxyModeExplicit)
+	}
+	if !slices.Equal(forwarded, []string{"chat"}) {
+		t.Fatalf("forwarded = %v, want [chat]", forwarded)
+	}
+
+	opts, forwarded, err = parseHarnessArgs([]string{"--api-proxy=muginn", "chat"})
+	if err != nil {
+		t.Fatalf("parseHarnessArgs inline: %v", err)
+	}
+	if opts.apiProxyMode != "muginn" || !opts.apiProxyModeExplicit {
+		t.Fatalf("inline api proxy opts = mode:%q explicit:%v, want muginn explicit", opts.apiProxyMode, opts.apiProxyModeExplicit)
+	}
+	if !slices.Equal(forwarded, []string{"chat"}) {
+		t.Fatalf("inline forwarded = %v, want [chat]", forwarded)
+	}
+}
+
 func TestCommonSessionFlagsBuildHarnessOpts(t *testing.T) {
 	var flags sessionCommandFlags
 	cmd := &cobra.Command{Use: "test"}
@@ -192,6 +227,7 @@ func TestCommonSessionFlagsBuildHarnessOpts(t *testing.T) {
 	setFlag("github", "true")
 	setFlag("docker", "auto")
 	setFlag("network", "none")
+	setFlag("api-proxy", "muginn")
 	setFlag("metadata-json", "true")
 
 	opts := flags.harnessSessionOpts(cmd)
@@ -215,6 +251,9 @@ func TestCommonSessionFlagsBuildHarnessOpts(t *testing.T) {
 	}
 	if opts.networkMode != "none" || !opts.networkModeExplicit {
 		t.Fatalf("network opts = mode:%q explicit:%v, want none explicit", opts.networkMode, opts.networkModeExplicit)
+	}
+	if opts.apiProxyMode != "muginn" || !opts.apiProxyModeExplicit {
+		t.Fatalf("api proxy opts = mode:%q explicit:%v, want muginn explicit", opts.apiProxyMode, opts.apiProxyModeExplicit)
 	}
 }
 

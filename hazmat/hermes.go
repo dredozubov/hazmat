@@ -23,6 +23,7 @@ Hazmat flags (parsed first, may appear anywhere before --):
   --github               Grant configured GitHub API token as GH_TOKEN
   --docker <mode>        Docker routing: none (default), sandbox, or auto
   --network <mode>       Native network policy: default or none
+  --api-proxy <mode>     API proxy mode: none (default) or muginn
   --metadata-json        Emit one launch metadata JSON line to stderr
   --ignore-docker        Alias for --docker=none (deprecated)
 
@@ -37,6 +38,7 @@ Examples:
   hazmat hermes -- chat --toolsets terminal,file
   hazmat hermes -C /proj -- chat
   hazmat hermes --network none -- --version
+  hazmat hermes --api-proxy=muginn -- chat --model muginn/subscription-auto
   hazmat hermes --github -- chat`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
