@@ -1,8 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "description": "Source-of-truth contract for fake and live supported-harness smoke evidence.",
   "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
-  "max_token_ttl_seconds": 3600,
   "default_timeout_seconds": 240,
   "artifact_fields": [
     "schema_version",
@@ -40,13 +39,16 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Claude OAuth/API-key profile or API-proxy materialization; no host ~/.claude import in CI"
+        "mode": "direct-provider-secret",
+        "materializer": "scripts/check-live-harness-matrix.sh",
+        "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY",
+        "harness_delivery": "temporary ~/.hazmat/secrets/providers/anthropic-api-key materialization for the invocation; Hazmat grants ANTHROPIC_API_KEY only to Claude"
       },
+      "direct_provider_tokens": [
+        {"provider": "anthropic", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY", "session_env": "ANTHROPIC_API_KEY", "store_rel_path": "providers/anthropic-api-key"}
+      ],
       "state_roots": ["/Users/agent/.claude", "/Users/agent/.claude.json", "~/.hazmat/secrets/claude"],
-      "skip_conditions": ["missing caller token", "missing contained Claude auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["missing direct provider token", "missing contained Claude binary/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -71,13 +73,16 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Codex auth.json/API-key profile or API-proxy materialization; no host ~/.codex import in CI"
+        "mode": "direct-provider-secret",
+        "materializer": "scripts/check-live-harness-matrix.sh",
+        "ci_token_envs": "HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY",
+        "harness_delivery": "temporary ~/.hazmat/secrets/providers/openai-api-key materialization for the invocation; Hazmat grants OPENAI_API_KEY only to Codex"
       },
+      "direct_provider_tokens": [
+        {"provider": "openai", "ci_env": "HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY", "session_env": "OPENAI_API_KEY", "store_rel_path": "providers/openai-api-key"}
+      ],
       "state_roots": ["/Users/agent/.codex", "/Users/agent/.agents", "~/.hazmat/secrets/codex"],
-      "skip_conditions": ["missing caller token", "missing contained Codex auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["missing direct provider token", "missing contained Codex binary/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -102,13 +107,15 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained OpenCode auth.json/provider profile or API-proxy materialization; no host opencode auth import in CI"
+        "mode": "contained-harness-auth",
+        "materializer": "manual-contained-profile",
+        "ci_token_envs": "none",
+        "harness_delivery": "contained OpenCode auth.json/provider profile only; no Hazmat registry-managed generic provider API-key grant in v1"
       },
+      "direct_provider_tokens": [],
+      "direct_provider_skip_reason": "OpenCode does not have a Hazmat registry-managed provider API-key grant; use contained OpenCode auth/profile until a direct provider adapter exists",
       "state_roots": ["/Users/agent/.config/opencode", "/Users/agent/.local/share/opencode", "~/.hazmat/secrets/opencode"],
-      "skip_conditions": ["missing caller token", "missing contained OpenCode auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["direct provider grant not implemented", "missing contained OpenCode auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -133,13 +140,17 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Antigravity API-key path or API-proxy materialization; no host Keychain OAuth sync in CI"
+        "mode": "direct-provider-secret",
+        "materializer": "scripts/check-live-harness-matrix.sh",
+        "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY,HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY",
+        "harness_delivery": "temporary ~/.hazmat/secrets/providers/antigravity-api-key or gemini-api-key materialization for the invocation; Hazmat grants only the selected Antigravity provider env"
       },
+      "direct_provider_tokens": [
+        {"provider": "antigravity", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY", "session_env": "ANTIGRAVITY_API_KEY", "store_rel_path": "providers/antigravity-api-key"},
+        {"provider": "gemini", "ci_env": "HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY", "session_env": "GEMINI_API_KEY", "store_rel_path": "providers/gemini-api-key"}
+      ],
       "state_roots": ["/Users/agent/.gemini/antigravity-cli", "~/.hazmat/secrets/providers/antigravity-api-key"],
-      "skip_conditions": ["missing caller token", "missing contained Antigravity auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["missing direct provider token", "missing contained Antigravity binary/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -164,13 +175,19 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Hermes provider env/profile or API-proxy materialization; host ~/.hermes is never imported"
+        "mode": "direct-provider-secret",
+        "materializer": "scripts/check-live-harness-matrix.sh",
+        "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY,HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY,HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY,HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY",
+        "harness_delivery": "temporary ~/.hazmat/secrets/providers/* materialization for the selected provider; Hazmat grants only registry-allowed Hermes provider env"
       },
+      "direct_provider_tokens": [
+        {"provider": "anthropic", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY", "session_env": "ANTHROPIC_API_KEY", "store_rel_path": "providers/anthropic-api-key"},
+        {"provider": "openai", "ci_env": "HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY", "session_env": "OPENAI_API_KEY", "store_rel_path": "providers/openai-api-key"},
+        {"provider": "gemini", "ci_env": "HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY", "session_env": "GEMINI_API_KEY", "store_rel_path": "providers/gemini-api-key"},
+        {"provider": "openrouter", "ci_env": "HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY", "session_env": "OPENROUTER_API_KEY", "store_rel_path": "providers/openrouter-api-key"}
+      ],
       "state_roots": ["/Users/agent/.hazmat/hermes/projects/<project-hash>", "~/.hazmat/secrets/providers"],
-      "skip_conditions": ["missing caller token", "missing manual Hermes binary", "missing contained Hermes auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["missing direct provider token", "missing manual Hermes binary", "missing contained Hermes profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -195,13 +212,15 @@
       "timeout_seconds": 240,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Qwen profile or API-proxy materialization; host ~/.qwen is never imported"
+        "mode": "contained-harness-auth",
+        "materializer": "manual-contained-profile",
+        "ci_token_envs": "none",
+        "harness_delivery": "contained Qwen profile only; no Hazmat registry-managed generic provider API-key grant in v1"
       },
+      "direct_provider_tokens": [],
+      "direct_provider_skip_reason": "Qwen does not have a Hazmat registry-managed provider API-key grant; use contained Qwen auth/profile until a direct provider adapter exists",
       "state_roots": ["/Users/agent/.qwen"],
-      "skip_conditions": ["missing caller token", "missing contained Qwen auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["direct provider grant not implemented", "missing contained Qwen auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -226,13 +245,15 @@
       "timeout_seconds": 300,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Cursor Agent profile or API-proxy materialization; host Cursor IDE state is never imported"
+        "mode": "contained-harness-auth",
+        "materializer": "manual-contained-profile",
+        "ci_token_envs": "none",
+        "harness_delivery": "contained Cursor Agent profile only; no Hazmat registry-managed generic provider API-key grant in v1"
       },
+      "direct_provider_tokens": [],
+      "direct_provider_skip_reason": "Cursor Agent does not have a Hazmat registry-managed provider API-key grant; use contained Cursor Agent auth/profile until a direct provider adapter exists",
       "state_roots": ["/Users/agent/.cursor", "/Users/agent/.config/cursor"],
-      "skip_conditions": ["missing caller token", "missing manual Cursor Agent binary", "missing contained Cursor Agent auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["direct provider grant not implemented", "missing manual Cursor Agent binary", "missing contained Cursor Agent auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},
@@ -257,13 +278,15 @@
       "timeout_seconds": 300,
       "expected_marker": "HAZMAT_LIVE_SMOKE_OK",
       "auth_token_mapping": {
-        "broker": "scripts/mint-live-harness-token.sh",
-        "caller_token_env": "MUGINN_TOKEN",
-        "ci_token_command_env": "MUGINN_LIVE_HARNESS_TOKEN_CMD",
-        "harness_delivery": "contained Pi profile or API-proxy materialization; host ~/.pi/agent is never imported"
+        "mode": "contained-harness-auth",
+        "materializer": "manual-contained-profile",
+        "ci_token_envs": "none",
+        "harness_delivery": "contained Pi profile only; no Hazmat registry-managed generic provider API-key grant in v1"
       },
+      "direct_provider_tokens": [],
+      "direct_provider_skip_reason": "Pi does not have a Hazmat registry-managed provider API-key grant; use contained Pi auth/profile until a direct provider adapter exists",
       "state_roots": ["/Users/agent/.pi/agent"],
-      "skip_conditions": ["missing caller token", "missing manual Pi binary", "missing contained Pi auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
+      "skip_conditions": ["direct provider grant not implemented", "missing manual Pi binary", "missing contained Pi auth/profile", "unsupported OS lane", "budget exhausted", "provider admission cooldown"],
       "os_support": [
         {"lane": "macos-agent-user", "status": "supported", "reason": "default supported native containment lane"},
         {"lane": "docker-sandbox", "status": "supported", "reason": "Docker Sandbox supports managed harness entrypoints"},

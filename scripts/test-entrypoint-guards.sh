@@ -14,7 +14,7 @@
 #   - live OpenHands recipe smoke refuses to run without its explicit ack
 #   - live README proof-stack smoke refuses to run without its explicit ack
 #   - native harness smoke refuses live mode without its explicit ack
-#   - live real-harness matrix and token broker refuse without explicit ack
+#   - live real-harness matrix and legacy token broker refuse without explicit ack
 #   - debug trace entrypoints refuse sudo-adjacent live modes without explicit ack
 #   - Linux-in-Apple-Container smoke refuses live mode without its explicit ack
 #   - Apple Container spike refuses live mode without its explicit ack
@@ -494,8 +494,13 @@ assert_fails_with \
 
 assert_fails_with \
     "live harness matrix reports missing token before supported run" \
-    "set MUGINN_LIVE_HARNESS_TOKEN_CMD or MUGINN_LIVE_HARNESS_CALLER_TOKEN" \
-    env -u GITHUB_ACTIONS -u MUGINN_LIVE_HARNESS_TOKEN_CMD -u MUGINN_LIVE_HARNESS_CALLER_TOKEN \
+    "missing direct provider token; set one of: HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY" \
+    env -u GITHUB_ACTIONS \
+    -u HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY \
+    -u HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY \
+    -u HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY \
+    -u HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY \
+    -u HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --i-understand-this-runs-live-harness-matrix --harness claude --os-lane macos-agent-user --output-dir /tmp/hazmat-live-harness-guard
 
 assert_fails_with \
@@ -701,23 +706,21 @@ cat > "$LIVE_HARNESS_GUARD_ROOT/hazmat" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "fake hazmat argv: $*"
-printf '%s\n' "token=$MUGINN_TOKEN"
+printf '%s\n' "token=${ANTHROPIC_API_KEY:-}"
 printf '%s\n' "$HAZMAT_LIVE_HARNESS_EXPECTED_MARKER"
 EOF
 chmod 0755 "$LIVE_HARNESS_GUARD_ROOT/hazmat"
 
 if env -u GITHUB_ACTIONS \
+    HOME="$LIVE_HARNESS_GUARD_ROOT/home" \
     PATH="$LIVE_HARNESS_GUARD_ROOT:$PATH" \
     TMPDIR="$LIVE_HARNESS_GUARD_ROOT" \
-    MUGINN_LIVE_HARNESS_CALLER_TOKEN='caller-redaction-secret-123456' \
-    MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=60 \
-    MUGINN_LIVE_HARNESS_CALLER_ID='fixture-caller' \
-    MUGINN_LIVE_HARNESS_AUDIENCE='fixture-audience' \
-    MUGINN_LIVE_HARNESS_SCOPE='fixture-scope' \
+    HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY='provider-redaction-secret-123456' \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" \
     --run \
     --i-understand-this-runs-live-harness-matrix \
     --harness claude \
+    --provider anthropic \
     --os-lane macos-agent-user \
     --output-dir "$LIVE_HARNESS_GUARD_ROOT/out" >/dev/null 2>&1; then
     pass "live harness matrix fake run succeeds"
@@ -725,8 +728,8 @@ else
     fail "live harness matrix fake run succeeds"
 fi
 assert_no_glob_paths \
-    "live harness matrix cleans auto token env" \
-    "$LIVE_HARNESS_GUARD_ROOT/hazmat-live-harness-token."*
+    "live harness matrix cleans provider secret file" \
+    "$LIVE_HARNESS_GUARD_ROOT/home/.hazmat/secrets/providers/"*
 assert_file_exists \
     "live harness matrix writes metadata artifact" \
     "$LIVE_HARNESS_GUARD_ROOT/out/claude/metadata.json"
@@ -734,18 +737,20 @@ assert_file_contains_all \
     "live harness matrix records pass status" \
     "$LIVE_HARNESS_GUARD_ROOT/out/claude/metadata.json" \
     '"status": "pass"' \
-    '"audience": "fixture-audience"' \
-    '"scope": "fixture-scope"' \
+    '"provider": "anthropic"' \
+    '"ci_env": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY"' \
+    '"session_env": "ANTHROPIC_API_KEY"' \
+    '"store_rel_path": "providers/anthropic-api-key"' \
     '"value": "[redacted]"'
 assert_file_contains_all \
     "live harness matrix redacts transcript token" \
     "$LIVE_HARNESS_GUARD_ROOT/out/claude/transcript.txt" \
-    "[redacted-muginn-token]" \
+    "[redacted-provider-token]" \
     "HAZMAT_LIVE_SMOKE_OK"
 assert_file_not_contains_any \
     "live harness matrix transcript omits token" \
     "$LIVE_HARNESS_GUARD_ROOT/out/claude/transcript.txt" \
-    "caller-redaction-secret-123456"
+    "provider-redaction-secret-123456"
 
 assert_succeeds_with \
     "macOS trace smoke defaults to disclosure" \

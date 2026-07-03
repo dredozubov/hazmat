@@ -11,8 +11,7 @@ HARNESS="all"
 OS_LANE="${HAZMAT_LIVE_HARNESS_OS_LANE:-macos-agent-user}"
 DISTRO="${HAZMAT_LIVE_HARNESS_DISTRO:-}"
 OUTPUT_DIR=""
-TOKEN_ENV=""
-AUTO_TOKEN_ENV=0
+PROVIDER="${HAZMAT_LIVE_HARNESS_PROVIDER:-auto}"
 
 usage() {
 	cat <<'EOF'
@@ -21,12 +20,12 @@ Usage:
   bash scripts/check-live-harness-matrix.sh --list-harnesses
   bash scripts/check-live-harness-matrix.sh --validate-contract
   bash scripts/check-live-harness-matrix.sh --emit-skip-evidence --os-lane LANE --output-dir DIR
-  bash scripts/check-live-harness-matrix.sh --run --i-understand-this-runs-live-harness-matrix [--harness ID|all] [--os-lane LANE] --output-dir DIR
+  bash scripts/check-live-harness-matrix.sh --run --i-understand-this-runs-live-harness-matrix [--harness ID|all] [--provider PROVIDER|auto] [--os-lane LANE] --output-dir DIR
 
 Default mode is disclosure-only. Live mode launches real supported harness CLIs
 through Hazmat containment, performs one bounded marker prompt per harness, and
-writes redacted artifacts. It is approval-gated and expects a short-lived
-Muginn caller token from scripts/mint-live-harness-token.sh or --token-env.
+writes redacted artifacts. It is approval-gated and expects direct provider
+API keys in HAZMAT_LIVE_PROVIDER_* CI secrets.
 EOF
 }
 
@@ -59,13 +58,13 @@ while [ "$#" -gt 0 ]; do
 			shift
 			DISTRO="${1:-}"
 			;;
+		--provider)
+			shift
+			PROVIDER="${1:-}"
+			;;
 		--output-dir)
 			shift
 			OUTPUT_DIR="${1:-}"
-			;;
-		--token-env)
-			shift
-			TOKEN_ENV="${1:-}"
 			;;
 		-h|--help)
 			usage
@@ -90,7 +89,7 @@ and Pi. Live mode uses one short marker prompt per harness and writes redacted
 metadata/transcript artifacts.
 
 To run live, ask for exact approval for:
-  bash scripts/check-live-harness-matrix.sh --run --i-understand-this-runs-live-harness-matrix --harness all --os-lane macos-agent-user --output-dir <absolute-dir>
+  bash scripts/check-live-harness-matrix.sh --run --i-understand-this-runs-live-harness-matrix --harness all --provider auto --os-lane macos-agent-user --output-dir <absolute-dir>
 EOF
 	exit 0
 fi
@@ -130,65 +129,18 @@ case "$MODE" in
 		;;
 esac
 
-if [ "$MODE" = "run" ] && [ -z "$TOKEN_ENV" ]; then
-	NEEDS_TOKEN="$(python3 - "$CONTRACT" "$HARNESS" "$OS_LANE" <<'PY'
-import json
-import sys
-
-contract_path, selected, os_lane = sys.argv[1:4]
-with open(contract_path, "r", encoding="utf-8") as f:
-    rows = json.load(f)["harnesses"]
-if selected != "all":
-    rows = [row for row in rows if row["id"] == selected]
-needs = False
-for row in rows:
-    for support in row["os_support"]:
-        if support["lane"] == os_lane and support["status"] == "supported":
-            needs = True
-print("1" if needs else "0")
-PY
-)"
-	if [ "$NEEDS_TOKEN" = "1" ]; then
-		TOKEN_ENV="$(mktemp "${TMPDIR:-/tmp}/hazmat-live-harness-token.XXXXXX")"
-		AUTO_TOKEN_ENV=1
-		bash "$SCRIPT_DIR/mint-live-harness-token.sh" \
-			--issue-token \
-			--i-understand-this-mints-live-harness-token \
-			--output-env "$TOKEN_ENV"
-	fi
-fi
-
-if [ -n "$TOKEN_ENV" ]; then
-	case "$TOKEN_ENV" in
-		/*) ;;
-		*) echo "live-harness-matrix: --token-env must be absolute" >&2; exit 2 ;;
-	esac
-	if [ ! -r "$TOKEN_ENV" ]; then
-		echo "live-harness-matrix: token env file is not readable: $TOKEN_ENV" >&2
-		exit 2
-	fi
-	set -a
-	# shellcheck disable=SC1090
-	. "$TOKEN_ENV"
-	set +a
-	if [ "$AUTO_TOKEN_ENV" -eq 1 ]; then
-		rm -f "$TOKEN_ENV"
-	fi
-fi
-
-python3 - "$MODE" "$CONTRACT" "$HARNESS" "$OS_LANE" "$DISTRO" "${OUTPUT_DIR:-}" "$REPO_ROOT" <<'PY'
+python3 - "$MODE" "$CONTRACT" "$HARNESS" "$OS_LANE" "$DISTRO" "${OUTPUT_DIR:-}" "$REPO_ROOT" "$PROVIDER" <<'PY'
 import json
 import os
 import platform
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-mode, contract_path, selected, os_lane, distro, output_dir, repo_root = sys.argv[1:8]
+mode, contract_path, selected, os_lane, distro, output_dir, repo_root, provider_filter = sys.argv[1:9]
 
 with open(contract_path, "r", encoding="utf-8") as f:
     contract = json.load(f)
@@ -197,11 +149,11 @@ def die(msg):
     sys.stderr.write(f"live-harness-matrix: {msg}\n")
     sys.exit(2)
 
-required_top = ["schema_version", "expected_marker", "max_token_ttl_seconds", "artifact_fields", "harnesses"]
+required_top = ["schema_version", "expected_marker", "artifact_fields", "harnesses"]
 for key in required_top:
     if key not in contract:
         die(f"contract missing {key}")
-if contract["schema_version"] != 1:
+if contract["schema_version"] != 2:
     die("unsupported schema_version")
 
 rows = contract["harnesses"]
@@ -219,6 +171,8 @@ def validate_row(row):
     for key in ["id", "display_name", "launch_command", "bootstrap_command", "inference_shape", "live_argv", "timeout_seconds", "expected_marker", "auth_token_mapping", "state_roots", "skip_conditions", "os_support"]:
         if key not in row or row[key] in ("", [], {}):
             die(f"{row.get('id', '<unknown>')} missing {key}")
+    if "direct_provider_tokens" not in row:
+        die(f"{row['id']} missing direct_provider_tokens")
     if row["expected_marker"] != contract["expected_marker"]:
         die(f"{row['id']} marker drift")
     if row["live_argv"][0] != "hazmat":
@@ -228,8 +182,23 @@ def validate_row(row):
     if "{marker}" not in " ".join(row["live_argv"]):
         die(f"{row['id']} live_argv missing marker placeholder")
     mapping = row["auth_token_mapping"]
-    if mapping.get("caller_token_env") != "MUGINN_TOKEN":
-        die(f"{row['id']} caller_token_env must be MUGINN_TOKEN")
+    if mapping.get("mode") not in ("direct-provider-secret", "contained-harness-auth"):
+        die(f"{row['id']} auth_token_mapping mode is unsupported")
+    for key in ["materializer", "ci_token_envs", "harness_delivery"]:
+        if not mapping.get(key, "").strip():
+            die(f"{row['id']} auth_token_mapping missing {key}")
+    if mapping["mode"] == "direct-provider-secret" and not row["direct_provider_tokens"]:
+        die(f"{row['id']} direct-provider-secret mode needs direct_provider_tokens")
+    if mapping["mode"] == "contained-harness-auth" and not row.get("direct_provider_skip_reason", "").strip():
+        die(f"{row['id']} contained-harness-auth mode needs direct_provider_skip_reason")
+    for token in row["direct_provider_tokens"]:
+        for key in ["provider", "ci_env", "session_env", "store_rel_path"]:
+            if not token.get(key, "").strip():
+                die(f"{row['id']} direct_provider_tokens entry missing {key}")
+        if not token["ci_env"].startswith("HAZMAT_LIVE_PROVIDER_"):
+            die(f"{row['id']} direct provider ci_env must use HAZMAT_LIVE_PROVIDER_*")
+        if not token["store_rel_path"].startswith("providers/") or ".." in Path(token["store_rel_path"]).parts:
+            die(f"{row['id']} direct provider store_rel_path must stay under providers/")
     lanes = {entry["lane"]: entry for entry in row["os_support"]}
     for lane in ["macos-agent-user", "docker-sandbox", "macos-current-user", "linux-current-user", "linux-agent-user"]:
         if lane not in lanes:
@@ -255,14 +224,105 @@ def support_for(row):
             return entry
     die(f"{row['id']} contract missing OS/provider lane {os_lane!r}")
 
-def redact(text, token):
-    if token:
-        text = text.replace(token, "[redacted-muginn-token]")
+def redact(text, values):
+    for value in values:
+        if value:
+            text = text.replace(value, "[redacted-provider-token]")
     text = re.sub(r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer [redacted]", text)
     text = re.sub(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{8,}", "[redacted-token]", text)
     text = re.sub(r"AIza[A-Za-z0-9_-]{10,}", "[redacted-token]", text)
     text = re.sub(r"caller-[A-Za-z0-9_-]+", "[redacted-caller-token]", text)
     return text
+
+def provider_tokens_for(row):
+    tokens = row.get("direct_provider_tokens", [])
+    if provider_filter == "auto":
+        return tokens
+    return [token for token in tokens if token["provider"] == provider_filter or token["session_env"] == provider_filter]
+
+def all_provider_secret_values():
+    values = []
+    for row in contract["harnesses"]:
+        for token in row.get("direct_provider_tokens", []):
+            value = os.environ.get(token["ci_env"], "")
+            if value:
+                values.append(value)
+    return values
+
+def select_provider_token(row):
+    tokens = provider_tokens_for(row)
+    if not tokens:
+        if row.get("direct_provider_tokens") and provider_filter != "auto":
+            return None, f"provider {provider_filter!r} is not configured for {row['id']}"
+        return None, row.get("direct_provider_skip_reason", "direct provider token materializer is not configured")
+    for token in tokens:
+        value = os.environ.get(token["ci_env"], "").strip()
+        if value:
+            selected_token = dict(token)
+            selected_token["value"] = value
+            return selected_token, ""
+    envs = ", ".join(token["ci_env"] for token in tokens)
+    return None, f"missing direct provider token; set one of: {envs}"
+
+def secret_store_path(store_rel_path):
+    root = (Path.home() / ".hazmat" / "secrets").resolve(strict=False)
+    target = (root / store_rel_path).resolve(strict=False)
+    if root != target and root not in target.parents:
+        die(f"provider secret path escapes ~/.hazmat/secrets: {store_rel_path}")
+    return target
+
+def materialize_provider_token(token):
+    target = secret_store_path(token["store_rel_path"])
+    target.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    try:
+        target.parent.chmod(0o700)
+    except OSError:
+        pass
+    existed = target.exists()
+    old_data = target.read_bytes() if existed else None
+    old_mode = target.stat().st_mode & 0o777 if existed else None
+    tmp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+    tmp.write_text(token["value"].rstrip("\n") + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, target)
+    return {
+        "target": target,
+        "existed": existed,
+        "old_data": old_data,
+        "old_mode": old_mode,
+    }
+
+def restore_provider_token(snapshot):
+    target = snapshot["target"]
+    if snapshot["existed"]:
+        tmp = target.with_name(f".{target.name}.restore-{os.getpid()}")
+        tmp.write_bytes(snapshot["old_data"])
+        os.chmod(tmp, snapshot["old_mode"] or 0o600)
+        os.replace(tmp, target)
+        return
+    try:
+        target.unlink()
+    except FileNotFoundError:
+        pass
+
+def token_metadata(token):
+    if not token:
+        return {
+            "source": "direct-provider-secret",
+            "provider": "",
+            "ci_env": "",
+            "session_env": "",
+            "store_rel_path": "",
+            "value": "[redacted]",
+        }
+    return {
+        "source": "direct-provider-secret",
+        "provider": token["provider"],
+        "ci_env": token["ci_env"],
+        "session_env": token["session_env"],
+        "store_rel_path": token["store_rel_path"],
+        "value": "[redacted]",
+    }
 
 def read_os_release():
     facts = {}
@@ -310,12 +370,12 @@ def environment_facts(row):
         "harness_version_unavailable_reason": "" if harness_version else "not provided by runner environment",
     }
 
-def write_artifact(row, status, support, command, transcript="", failure_reason="", started_at=None, finished_at=None):
+def write_artifact(row, status, support, command, transcript="", failure_reason="", started_at=None, finished_at=None, token=None):
     out = Path(output_dir) / row["id"]
     out.mkdir(parents=True, exist_ok=True)
-    token = os.environ.get("MUGINN_TOKEN", "")
     if transcript:
-        (out / "transcript.txt").write_text(redact(transcript, token), encoding="utf-8")
+        extra_values = [token["value"]] if token and token.get("value") else []
+        (out / "transcript.txt").write_text(redact(transcript, all_provider_secret_values() + extra_values), encoding="utf-8")
     metadata = {
         "schema_version": contract["schema_version"],
         "harness": row["id"],
@@ -329,16 +389,7 @@ def write_artifact(row, status, support, command, transcript="", failure_reason=
         "command": command,
         "expected_marker": row["expected_marker"],
         "timeout_seconds": row["timeout_seconds"],
-        "token": {
-            "source": os.environ.get("HAZMAT_LIVE_HARNESS_TOKEN_SOURCE", ""),
-            "ttl_seconds": os.environ.get("HAZMAT_LIVE_HARNESS_TOKEN_TTL_SECONDS", ""),
-            "expires_at": os.environ.get("HAZMAT_LIVE_HARNESS_TOKEN_EXPIRES_AT", ""),
-            "caller_id": os.environ.get("HAZMAT_LIVE_HARNESS_CALLER_ID", ""),
-            "audience": os.environ.get("HAZMAT_LIVE_HARNESS_AUDIENCE", ""),
-            "scope": os.environ.get("HAZMAT_LIVE_HARNESS_SCOPE", ""),
-            "budget_class": os.environ.get("HAZMAT_LIVE_HARNESS_BUDGET_CLASS", ""),
-            "value": "[redacted]"
-        },
+        "token": token_metadata(token),
         "environment": environment_facts(row),
         "transcript": "transcript.txt" if transcript else "",
         "skip_reason": support.get("skip_reason", "") if status == "skip" else "",
@@ -350,8 +401,12 @@ if mode == "emit":
     for row in rows:
         support = support_for(row)
         if support["status"] == "supported":
-            status = "pending_live"
-            reason = {"reason": "supported lane requires live matrix run"}
+            if row.get("direct_provider_tokens"):
+                status = "pending_live"
+                reason = {"reason": "supported lane requires direct-provider live matrix run"}
+            else:
+                status = "skip"
+                reason = {"skip_reason": row.get("direct_provider_skip_reason", "direct provider token materializer is not configured")}
         else:
             status = "skip"
             reason = support
@@ -368,14 +423,23 @@ for row in rows:
     if support["status"] != "supported":
         write_artifact(row, "skip", support, [])
         continue
-    if not os.environ.get("MUGINN_TOKEN", ""):
-        die("MUGINN_TOKEN is required for supported live run")
+    provider_token, provider_error = select_provider_token(row)
+    if not provider_token:
+        if (not row.get("direct_provider_tokens") or "not configured" in provider_error) and selected == "all":
+            write_artifact(row, "skip", {"skip_reason": provider_error}, [])
+            continue
+        failures += 1
+        sys.stderr.write(f"live-harness-matrix: {row['id']}: {provider_error}\n")
+        write_artifact(row, "fail", support, [], failure_reason=provider_error)
+        continue
     marker = row["expected_marker"]
     with tempfile.TemporaryDirectory(prefix=f"hazmat-live-{row['id']}-") as project:
         Path(project, "README.md").write_text("# Hazmat live harness smoke\n", encoding="utf-8")
         argv = [arg.replace("{project}", project).replace("{marker}", marker) for arg in row["live_argv"]]
         env = os.environ.copy()
         env["HAZMAT_LIVE_HARNESS_EXPECTED_MARKER"] = marker
+        env[provider_token["session_env"]] = provider_token["value"]
+        snapshot = materialize_provider_token(provider_token)
         started = utcnow()
         try:
             proc = subprocess.run(argv, cwd=repo_root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=int(row["timeout_seconds"]))
@@ -383,17 +447,19 @@ for row in rows:
             finished = utcnow()
             if proc.returncode != 0:
                 failures += 1
-                write_artifact(row, "fail", support, argv, transcript, f"exit status {proc.returncode}", started, finished)
+                write_artifact(row, "fail", support, argv, transcript, f"exit status {proc.returncode}", started, finished, provider_token)
                 continue
             if marker not in transcript:
                 failures += 1
-                write_artifact(row, "fail", support, argv, transcript, "expected marker missing", started, finished)
+                write_artifact(row, "fail", support, argv, transcript, "expected marker missing", started, finished, provider_token)
                 continue
-            write_artifact(row, "pass", support, argv, transcript, "", started, finished)
+            write_artifact(row, "pass", support, argv, transcript, "", started, finished, provider_token)
         except subprocess.TimeoutExpired as exc:
             failures += 1
             transcript = exc.stdout or ""
-            write_artifact(row, "fail", support, argv, transcript, "timeout", started, utcnow())
+            write_artifact(row, "fail", support, argv, transcript, "timeout", started, utcnow(), provider_token)
+        finally:
+            restore_provider_token(snapshot)
 
 if failures:
     sys.exit(1)

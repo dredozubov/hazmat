@@ -28,6 +28,18 @@ on:
           - linux-current-user
           - linux-agent-user
         default: all
+      provider:
+        description: Direct provider token to use
+        required: true
+        type: choice
+        options:
+          - auto
+          - anthropic
+          - openai
+          - antigravity
+          - gemini
+          - openrouter
+        default: auto
   schedule:
     - cron: "17 8 * * *"
 
@@ -70,8 +82,11 @@ jobs:
             distro: ubuntu
             artifact_suffix: ubuntu
     env:
-      MUGINN_LIVE_HARNESS_TOKEN_CMD: ${{ secrets.MUGINN_LIVE_HARNESS_TOKEN_CMD }}
-      MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS: "3600"
+      HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY: ${{ secrets.HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY }}
+      HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY: ${{ secrets.HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY }}
+      HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY: ${{ secrets.HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY }}
+      HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY: ${{ secrets.HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY }}
+      HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY: ${{ secrets.HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v5
         if: ${{ github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane }}
@@ -99,6 +114,7 @@ jobs:
         if: ${{ matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         env:
           SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
+          SELECTED_PROVIDER: ${{ github.event.inputs.provider || 'auto' }}
         run: |
           set -euo pipefail
           mkdir -p "$PWD/live-harness-artifacts"
@@ -106,6 +122,7 @@ jobs:
             --run \
             --i-understand-this-runs-live-harness-matrix \
             --harness "$SELECTED_HARNESS" \
+            --provider "$SELECTED_PROVIDER" \
             --os-lane "${{ matrix.os_lane }}" \
             --distro "${{ matrix.distro }}" \
             --output-dir "$PWD/live-harness-artifacts"
@@ -114,12 +131,14 @@ jobs:
         if: ${{ !matrix.live && (github.event_name == 'schedule' || github.event.inputs.os_lane == 'all' || github.event.inputs.os_lane == matrix.os_lane) }}
         env:
           SELECTED_HARNESS: ${{ github.event.inputs.harness || 'all' }}
+          SELECTED_PROVIDER: ${{ github.event.inputs.provider || 'auto' }}
         run: |
           set -euo pipefail
           mkdir -p "$PWD/live-harness-artifacts"
           bash scripts/check-live-harness-matrix.sh \
             --emit-skip-evidence \
             --harness "$SELECTED_HARNESS" \
+            --provider "$SELECTED_PROVIDER" \
             --os-lane "${{ matrix.os_lane }}" \
             --distro "${{ matrix.distro }}" \
             --output-dir "$PWD/live-harness-artifacts"

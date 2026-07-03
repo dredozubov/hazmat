@@ -27,8 +27,8 @@ or with a product-facing scenario flow.
 | `scripts/check-claude-onboarding-smoke.sh` | Does a real `hazmat claude` startup authenticate in print mode and avoid auth/onboarding prompts in interactive TUI startup? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
-| `scripts/mint-live-harness-token.sh` | Can the live harness matrix obtain a short-lived Muginn caller token without printing token material? | Prepared CI/local operator environment, explicit approval only | Writes a temporary 0600 env file |
-| `scripts/check-live-harness-matrix.sh` | Do supported real harness CLIs run one bounded marker inference through Hazmat, or emit typed OS/fixture skips? | Prepared macOS live runner; Linux pre-release currently emits typed skips | Creates temporary contained sessions when live |
+| `scripts/mint-live-harness-token.sh` | Legacy token broker guard retained for old local experiments; not used by live CI | Prepared local operator environment, explicit approval only | Writes a temporary 0600 env file |
+| `scripts/check-live-harness-matrix.sh` | Do supported real harness CLIs run one bounded marker inference through Hazmat with direct provider CI secrets, or emit typed OS/fixture skips? | Prepared macOS live runner; Linux pre-release currently emits typed skips | Creates temporary contained sessions and temporary provider secret-store files when live |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -68,16 +68,18 @@ Supported harness evidence has three tiers:
 
 The source-of-truth contract is
 [`docs/live-harness-smoke-contract.json`](live-harness-smoke-contract.json). It
-names each supported harness, launch argv, expected marker, timeout, token
-mapping, state roots, skip reasons, artifact fields, and OS lane applicability.
+names each supported harness, launch argv, expected marker, timeout, direct
+provider credential mapping, state roots, skip reasons, artifact fields, and OS
+lane applicability.
 `TestLiveHarnessSmokeContractMatchesManagedRegistry` fails if the contract
 drifts from `managedHarnessRegistry`.
 
-The live matrix uses `scripts/mint-live-harness-token.sh` to write a temporary
-env file with `MUGINN_TOKEN`. The broker accepts `MUGINN_LIVE_HARNESS_TOKEN_CMD`
-as the preferred CI mint/fetch path and rejects static CI token fallback by
-default. Token values are never printed, artifacts store only redacted token
-metadata, and the wrapper rejects TTL metadata above 3600 seconds.
+The live matrix uses direct provider CI secrets, not Muginn or a tailnet-only
+proxy. `scripts/check-live-harness-matrix.sh` reads one selected
+`HAZMAT_LIVE_PROVIDER_*` value, writes it temporarily to the matching
+`~/.hazmat/secrets/providers/*` file, launches the harness through Hazmat, and
+then restores or removes that file. Token values are never printed; artifacts
+store only redacted provider metadata.
 
 Artifacts are per harness: `metadata.json` plus `transcript.txt` when a live
 command ran. Status is `pass`, `fail`, `skip`, or `pending_live`. A support
@@ -98,6 +100,7 @@ bash scripts/check-live-harness-matrix.sh \
   --run \
   --i-understand-this-runs-live-harness-matrix \
   --harness claude \
+  --provider anthropic \
   --os-lane macos-agent-user \
   --output-dir /absolute/path/to/live-harness-artifacts
 ```
@@ -105,34 +108,24 @@ bash scripts/check-live-harness-matrix.sh \
 GitHub evidence entrypoints:
 
 ```bash
-gh workflow run live-harness-matrix.yml -f harness=claude -f os_lane=macos-agent-user
+gh workflow run live-harness-matrix.yml -f harness=claude -f provider=anthropic -f os_lane=macos-agent-user
 gh workflow run linux-pre-release.yml -f distro=all -f mode=all
 ```
 
-`MUGINN_LIVE_HARNESS_TOKEN_CMD` must print one JSON object:
+Set provider secrets one at a time in GitHub Actions:
 
-```json
-{
-  "token": "<caller-token>",
-  "ttl_seconds": 900,
-  "caller_id": "hazmat-live-harness",
-  "expires_at": "2026-07-01T12:00:00Z",
-  "model": "provider/model",
-  "audience": "hazmat-live-harness",
-  "scope": "live-harness-smoke:invoke",
-  "budget_class": "live-harness-smoke"
-}
-```
+| Provider | GitHub secret | Harness rows that can use it |
+| --- | --- | --- |
+| Anthropic | `HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY` | `claude`, `hermes --provider anthropic` |
+| OpenAI | `HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY` | `codex`, `hermes --provider openai` |
+| Antigravity | `HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY` | `antigravity --provider antigravity` |
+| Gemini | `HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY` | `antigravity --provider gemini`, `hermes --provider gemini` |
+| OpenRouter | `HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY` | `hermes --provider openrouter` |
 
-`token`, `ttl_seconds`, and `caller_id` are required. `ttl_seconds` must be
-positive and no greater than `MUGINN_LIVE_HARNESS_MAX_TOKEN_TTL_SECONDS`
-(default 3600). If `expires_at` is present it must be timezone-qualified, not
-expired, and not later than the TTL window. The broker writes `MUGINN_TOKEN`,
-`MUGINN_CALLER_TOKEN`, and redacted metadata fields to a temporary 0600 env
-file; the live wrapper removes auto-created env files after sourcing them.
-Manual local fallback uses `MUGINN_LIVE_HARNESS_CALLER_TOKEN` plus
-`MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS`. CI refuses that static fallback unless
-`MUGINN_LIVE_HARNESS_ALLOW_STATIC_CI_TOKEN=1`. Live runners may set
+OpenCode, Qwen, Cursor Agent, and Pi currently have no registry-managed generic
+provider API-key grant. `harness=all` records typed skips for those rows under
+the direct-token policy; selecting one directly fails until a contained-auth or
+direct-provider adapter is added. Live runners may set
 `HAZMAT_LIVE_HARNESS_<HARNESS_ID>_VERSION` (uppercased, `-` as `_`) to record a
 provider CLI version in each artifact; otherwise the artifact records the
 unavailable reason.

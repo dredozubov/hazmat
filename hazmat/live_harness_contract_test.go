@@ -8,27 +8,35 @@ import (
 )
 
 type liveHarnessContract struct {
-	SchemaVersion      int                      `json:"schema_version"`
-	ExpectedMarker     string                   `json:"expected_marker"`
-	MaxTokenTTLSeconds int                      `json:"max_token_ttl_seconds"`
-	ArtifactFields     []string                 `json:"artifact_fields"`
-	Harnesses          []liveHarnessContractRow `json:"harnesses"`
+	SchemaVersion  int                      `json:"schema_version"`
+	ExpectedMarker string                   `json:"expected_marker"`
+	ArtifactFields []string                 `json:"artifact_fields"`
+	Harnesses      []liveHarnessContractRow `json:"harnesses"`
 }
 
 type liveHarnessContractRow struct {
-	ID               string                 `json:"id"`
-	DisplayName      string                 `json:"display_name"`
-	SupportSources   []string               `json:"support_sources"`
-	LaunchCommand    string                 `json:"launch_command"`
-	BootstrapCommand string                 `json:"bootstrap_command"`
-	InferenceShape   string                 `json:"inference_shape"`
-	LiveArgv         []string               `json:"live_argv"`
-	TimeoutSeconds   int                    `json:"timeout_seconds"`
-	ExpectedMarker   string                 `json:"expected_marker"`
-	AuthTokenMapping map[string]string      `json:"auth_token_mapping"`
-	StateRoots       []string               `json:"state_roots"`
-	SkipConditions   []string               `json:"skip_conditions"`
-	OSSupport        []liveHarnessOSSupport `json:"os_support"`
+	ID                       string                           `json:"id"`
+	DisplayName              string                           `json:"display_name"`
+	SupportSources           []string                         `json:"support_sources"`
+	LaunchCommand            string                           `json:"launch_command"`
+	BootstrapCommand         string                           `json:"bootstrap_command"`
+	InferenceShape           string                           `json:"inference_shape"`
+	LiveArgv                 []string                         `json:"live_argv"`
+	TimeoutSeconds           int                              `json:"timeout_seconds"`
+	ExpectedMarker           string                           `json:"expected_marker"`
+	AuthTokenMapping         map[string]string                `json:"auth_token_mapping"`
+	DirectProviderTokens     []liveHarnessDirectProviderToken `json:"direct_provider_tokens"`
+	DirectProviderSkipReason string                           `json:"direct_provider_skip_reason"`
+	StateRoots               []string                         `json:"state_roots"`
+	SkipConditions           []string                         `json:"skip_conditions"`
+	OSSupport                []liveHarnessOSSupport           `json:"os_support"`
+}
+
+type liveHarnessDirectProviderToken struct {
+	Provider     string `json:"provider"`
+	CIEnv        string `json:"ci_env"`
+	SessionEnv   string `json:"session_env"`
+	StoreRelPath string `json:"store_rel_path"`
 }
 
 type liveHarnessOSSupport struct {
@@ -40,14 +48,11 @@ type liveHarnessOSSupport struct {
 
 func TestLiveHarnessSmokeContractMatchesManagedRegistry(t *testing.T) {
 	contract := loadLiveHarnessContract(t)
-	if contract.SchemaVersion != 1 {
-		t.Fatalf("schema_version = %d, want 1", contract.SchemaVersion)
+	if contract.SchemaVersion != 2 {
+		t.Fatalf("schema_version = %d, want 2", contract.SchemaVersion)
 	}
 	if contract.ExpectedMarker != "HAZMAT_LIVE_SMOKE_OK" {
 		t.Fatalf("expected_marker = %q", contract.ExpectedMarker)
-	}
-	if contract.MaxTokenTTLSeconds <= 0 || contract.MaxTokenTTLSeconds > 3600 {
-		t.Fatalf("max_token_ttl_seconds = %d, want 1..3600", contract.MaxTokenTTLSeconds)
 	}
 	for _, field := range []string{"harness", "os_lane", "status", "transcript", "skip_reason"} {
 		if !liveContractContainsString(contract.ArtifactFields, field) {
@@ -139,13 +144,46 @@ func assertLiveHarnessRowComplete(t *testing.T, row liveHarnessContractRow, mark
 			t.Fatalf("%s support_sources missing %s", row.ID, source)
 		}
 	}
-	for _, key := range []string{"broker", "caller_token_env", "ci_token_command_env", "harness_delivery"} {
+	for _, key := range []string{"mode", "materializer", "ci_token_envs", "harness_delivery"} {
 		if strings.TrimSpace(row.AuthTokenMapping[key]) == "" {
 			t.Fatalf("%s auth_token_mapping missing %s", row.ID, key)
 		}
 	}
-	if row.AuthTokenMapping["caller_token_env"] != "MUGINN_TOKEN" {
-		t.Fatalf("%s caller_token_env = %q, want MUGINN_TOKEN", row.ID, row.AuthTokenMapping["caller_token_env"])
+	if strings.Contains(strings.Join(liveContractMapValues(row.AuthTokenMapping), "\n"), "MUGINN") ||
+		strings.Contains(strings.ToLower(strings.Join(liveContractMapValues(row.AuthTokenMapping), "\n")), "muginn") {
+		t.Fatalf("%s auth_token_mapping must not depend on Muginn", row.ID)
+	}
+	switch row.AuthTokenMapping["mode"] {
+	case "direct-provider-secret":
+		if len(row.DirectProviderTokens) == 0 {
+			t.Fatalf("%s direct-provider-secret mode needs direct_provider_tokens", row.ID)
+		}
+	case "contained-harness-auth":
+		if len(row.DirectProviderTokens) != 0 {
+			t.Fatalf("%s contained-harness-auth mode must not list direct_provider_tokens", row.ID)
+		}
+		if strings.TrimSpace(row.DirectProviderSkipReason) == "" {
+			t.Fatalf("%s contained-harness-auth mode needs direct_provider_skip_reason", row.ID)
+		}
+	default:
+		t.Fatalf("%s auth_token_mapping mode = %q", row.ID, row.AuthTokenMapping["mode"])
+	}
+	for _, token := range row.DirectProviderTokens {
+		if strings.TrimSpace(token.Provider) == "" {
+			t.Fatalf("%s direct_provider_tokens has empty provider", row.ID)
+		}
+		if !strings.HasPrefix(token.CIEnv, "HAZMAT_LIVE_PROVIDER_") {
+			t.Fatalf("%s ci_env = %q, want HAZMAT_LIVE_PROVIDER_*", row.ID, token.CIEnv)
+		}
+		if strings.TrimSpace(token.SessionEnv) == "" {
+			t.Fatalf("%s direct_provider_tokens has empty session_env", row.ID)
+		}
+		if !strings.HasPrefix(token.StoreRelPath, "providers/") || strings.Contains(token.StoreRelPath, "..") {
+			t.Fatalf("%s store_rel_path = %q, want providers/*", row.ID, token.StoreRelPath)
+		}
+		if !strings.Contains(row.AuthTokenMapping["ci_token_envs"], token.CIEnv) {
+			t.Fatalf("%s ci_token_envs does not list %s", row.ID, token.CIEnv)
+		}
 	}
 	for label, values := range map[string][]string{
 		"state_roots":     row.StateRoots,
@@ -190,4 +228,12 @@ func liveContractContainsString(values []string, want string) bool {
 
 func liveContractContainsJoined(values []string, want string) bool {
 	return strings.Contains(strings.Join(values, "\x00"), want)
+}
+
+func liveContractMapValues(values map[string]string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
 }

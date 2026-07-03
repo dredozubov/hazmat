@@ -82,11 +82,14 @@ Harness support claims are split by evidence type:
 
 The live contract is
 [`docs/live-harness-smoke-contract.json`](live-harness-smoke-contract.json). It
-records each harness's real launch argv, expected marker, token mapping,
-timeout, state roots, explicit skip reasons, and artifact fields. Release
-support claims must cite either current live pass artifacts or a typed skip that
-preserves the provider status in
+records each harness's real launch argv, expected marker, direct provider
+credential mapping, timeout, state roots, explicit skip reasons, and artifact
+fields. Release support claims must cite either current live pass artifacts or a
+typed skip that preserves the provider status in
 [`docs/runtime-provider-status.md`](runtime-provider-status.md).
+The live matrix uses direct provider CI secrets for registry-backed rows:
+Claude, Codex, Antigravity, and Hermes. OpenCode, Qwen, Cursor Agent, and Pi
+remain contained-auth/direct-provider-adapter follow-ups under this policy.
 
 ## Credential storage summary
 
