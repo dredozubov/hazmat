@@ -493,6 +493,11 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --harness claude --os-lane nope --output-dir /tmp/hazmat-live-harness-guard
 
 assert_fails_with \
+    "live harness matrix rejects unknown provider" \
+    "unknown provider 'nope'" \
+    bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --harness all --provider nope --os-lane linux-current-user --output-dir /tmp/hazmat-live-harness-guard
+
+assert_fails_with \
     "live harness matrix reports missing token before supported run" \
     "missing direct provider token; set one of: HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY" \
     env -u GITHUB_ACTIONS \

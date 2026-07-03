@@ -210,6 +210,13 @@ for row in contract["harnesses"]:
 known_lanes = {support["lane"] for row in contract["harnesses"] for support in row["os_support"]}
 if mode in ("run", "emit") and os_lane not in known_lanes:
     die(f"unknown OS/provider lane {os_lane!r}")
+known_providers = {"auto"}
+for row in contract["harnesses"]:
+    for token in row.get("direct_provider_tokens", []):
+        known_providers.add(token["provider"])
+        known_providers.add(token["session_env"])
+if provider_filter not in known_providers:
+    die(f"unknown provider {provider_filter!r}")
 
 if mode == "validate":
     print(f"live-harness-matrix: contract ok ({len(contract['harnesses'])} harnesses)")
