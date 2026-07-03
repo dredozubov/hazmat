@@ -155,10 +155,38 @@ chmod +x "$binary_path"
 
 # Run claude install to set up launcher and shell integration
 echo "Setting up Claude Code..."
-"$binary_path" install ${TARGET:+"$TARGET"}
+install_code=0
+"$binary_path" install ${TARGET:+"$TARGET"} || install_code=$?
 
 # Clean up downloaded file
 rm -f "$binary_path"
+
+if [ "$install_code" -ne 0 ]; then
+    # A signal death mid-install kills the binary's TUI with no chance to
+    # restore the terminal, leaving the user's shell in raw mode (typed
+    # characters stop echoing). Restore it before printing anything.
+    if [ "$install_code" -ge 128 ] && [ -t 0 ]; then
+        stty sane 2>/dev/null || true
+    fi
+    # Red when stderr is a terminal, so the explanation stands out from the
+    # surrounding install output; plain when piped or captured
+    red="" reset=""
+    if [ -t 2 ]; then
+        red=$'\033[31m'
+        reset=$'\033[0m'
+    fi
+    # Signal deaths (exit code 128+N) print nothing of their own — bash shows
+    # only e.g. "Killed". 137 = SIGKILL, which on Linux is almost always the
+    # kernel OOM killer on small hosts; macOS has no equivalent OOM kill, so
+    # the out-of-memory explanation is Linux-only.
+    if [ "$install_code" -eq 137 ] && [ "$os" = "linux" ]; then
+        echo "${red}Installation was killed before it could finish (exit code 137). This usually means the system ran out of memory.${reset}" >&2
+        echo "${red}Claude Code needs roughly 512MB of free memory to install. Free up memory, then run this script again.${reset}" >&2
+    elif [ "$install_code" -ge 128 ]; then
+        echo "${red}Installation was killed before it could finish (exit code $install_code).${reset}" >&2
+    fi
+    exit "$install_code"
+fi
 
 echo ""
 echo "✅ Installation complete!"
