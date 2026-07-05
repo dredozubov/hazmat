@@ -1224,14 +1224,6 @@ func sessionRuntimeStep(profile *sessionPhaseProfile, label string, prepare func
 	}
 }
 
-func mergePreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSessionRuntime {
-	converted := make([]sessionlaunch.PreparedRuntime, 0, len(runtimes))
-	for _, runtime := range runtimes {
-		converted = append(converted, preparedSessionRuntimeToLaunch(runtime))
-	}
-	return preparedSessionRuntimeFromLaunch(sessionlaunch.MergePreparedRuntimes(converted...))
-}
-
 func preparedSessionRuntimeToLaunch(runtime preparedSessionRuntime) sessionlaunch.PreparedRuntime {
 	return sessionlaunch.NewPreparedRuntime(sessionlaunch.PreparedRuntimeInput{
 		EnvPairs:            runtime.EnvPairs,

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"hazmat/sessionlaunch"
+
 	"github.com/spf13/cobra"
 )
 
@@ -618,7 +620,15 @@ func (s *hermeticHarnessSmoke) prepareSessionRuntime(cfg sessionConfig) (prepare
 	}
 	runtimes = append(runtimes, harnessRuntime)
 
-	return mergePreparedSessionRuntimes(runtimes...), nil
+	return mergeHermeticPreparedSessionRuntimes(runtimes...), nil
+}
+
+func mergeHermeticPreparedSessionRuntimes(runtimes ...preparedSessionRuntime) preparedSessionRuntime {
+	converted := make([]sessionlaunch.PreparedRuntime, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		converted = append(converted, preparedSessionRuntimeToLaunch(runtime))
+	}
+	return preparedSessionRuntimeFromLaunch(sessionlaunch.MergePreparedRuntimes(converted...))
 }
 
 func (s *hermeticHarnessSmoke) runAgentSeatbeltScriptWithPlan(cfg sessionConfig, plan sessionBackendPlan, _ sessionLaunchUI, script string, args ...string) error {

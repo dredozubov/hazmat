@@ -380,6 +380,8 @@ func localServiceAttach(kind AttachKind) bool {
 	switch kind {
 	case AttachKindUnixSocket, AttachKindLocalHTTP:
 		return true
+	case AttachKindStdio, AttachKindRemoteHTTP:
+		return false
 	default:
 		return false
 	}
@@ -410,6 +412,8 @@ func validProxyKind(kind ProxyKind) bool {
 	switch kind {
 	case ProxyKindMCPHTTP, ProxyKindLLMHTTP:
 		return true
+	case ProxyKindMCPStdio:
+		return false
 	default:
 		return false
 	}
@@ -419,6 +423,8 @@ func validBackend(backend sessionbackend.Kind) bool {
 	switch backend {
 	case sessionbackend.KindDarwinNative, sessionbackend.KindLinuxNative, sessionbackend.KindDockerSandbox, sessionbackend.KindAppleContainer:
 		return true
+	case sessionbackend.KindUnsupportedNative, sessionbackend.KindRemoteEnvelope:
+		return false
 	default:
 		return false
 	}

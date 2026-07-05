@@ -109,6 +109,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "build upstream request failed")
 		return
 	}
+	// #nosec G704 -- upstreamReq uses a configured upstream base URL; downstream input only selects an allowlisted path/query.
 	resp, err := p.client.Do(upstreamReq)
 	if err != nil {
 		p.emit(r.Context(), "upstream:error", proxyruntime.DirectionOutbound, proxyruntime.DecisionError, err.Error(), nil)
@@ -262,9 +263,11 @@ func skipHopByHopHeader(name string) bool {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]map[string]string{
 		"error": {"message": message},
-	})
+	}); err != nil {
+		return
+	}
 }
 
 func copyStreaming(w http.ResponseWriter, r io.Reader) error {
