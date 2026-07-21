@@ -1,0 +1,18 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "cancellation",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "valid",
+  "request_kind": "cancellation",
+  "response_kind": "cancellation_ack",
+  "expected_disposition": "accepted",
+  "provider_epoch": 7,
+  "session_id": "session-1",
+  "operation_id": "cancel-1",
+  "operation_sequence": 3,
+  "nonce": "nonce-cancel",
+  "plan_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "payload_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "transition": "active_to_cancelled"
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "unknown-version",
+  "protocol_version": "v2",
+  "provider_profile": "portable.v1",
+  "category": "invalid",
+  "request_kind": "provider_capabilities",
+  "response_kind": "error",
+  "expected_disposition": "invalid"
+}

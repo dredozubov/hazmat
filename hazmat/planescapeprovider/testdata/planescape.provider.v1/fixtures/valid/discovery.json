@@ -1,0 +1,15 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "discovery",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "valid",
+  "request_kind": "provider_capabilities",
+  "response_kind": "provider_capabilities",
+  "expected_disposition": "accepted",
+  "required_capabilities": ["artifact_read", "workspace_read"],
+  "advertised_capabilities": ["artifact_read", "workspace_read", "workspace_write"],
+  "required_resource_dimensions": ["memory_bytes", "workspace_bytes"],
+  "advertised_resource_dimensions": ["cpu_time", "memory_bytes", "workspace_bytes"],
+  "transition": "undiscovered_to_discovered"
+}

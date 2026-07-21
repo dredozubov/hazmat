@@ -1,0 +1,11 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "profile-downgrade",
+  "protocol_version": "v1",
+  "required_profile": "stock_linux.v1",
+  "provider_profile": "portable.v1",
+  "category": "invalid",
+  "request_kind": "execution_requirement",
+  "response_kind": "session_admission",
+  "expected_disposition": "unsupported"
+}

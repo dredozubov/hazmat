@@ -1,0 +1,22 @@
+{
+  "schema": "planescape.provider.fixture_manifest.v1",
+  "files": [
+    "crosswire/stale-epoch.json",
+    "crosswire/wrong-plan.json",
+    "invalid/profile-downgrade.json",
+    "invalid/unknown-field.json",
+    "invalid/unknown-version.json",
+    "invalid/zero-operation-sequence.json",
+    "replay/conflicting-nonce.json",
+    "unavailable/provider-unreachable.json",
+    "valid/cancellation.json",
+    "valid/discovery.json",
+    "valid/execution-requirement.json",
+    "valid/operation-closeout.json",
+    "valid/operation-result.json",
+    "valid/quiescence-freeze.json",
+    "valid/quiescence.json",
+    "valid/session-admission.json"
+  ],
+  "corpus_sha256": "sha256:683a6960a745b5ddc120825b6aba574490aa136acbad1ea28328052353c055e8"
+}

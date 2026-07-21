@@ -39,6 +39,7 @@ var reusableCorePackages = []string{
 	"hazmat/runtimeprovider",
 	"hazmat/runtimeauthority",
 	"hazmat/runtimecapability",
+	"hazmat/planescapeprovider",
 
 	// Current reusable leaves that are already enforced by the package-split
 	// guard and remain effect-free under the same dependency rules.
@@ -118,6 +119,15 @@ func TestImportBoundaries(t *testing.T) {
 		}
 		assertNoForbiddenDeps(t, pkg, []string{
 			"hazmat/internal/credentialruntime",
+		})
+	}
+
+	if pkg, ok := pkgs["hazmat/planescapeprovider"]; ok {
+		// The shared-provider client is a protocol peer, never a second Linux
+		// containment compiler or a route to an in-process fallback.
+		assertNoForbiddenDeps(t, pkg, []string{
+			"hazmat/containment",
+			"hazmat/containment/linux",
 		})
 	}
 

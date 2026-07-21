@@ -1,0 +1,18 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "operation-closeout",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "valid",
+  "request_kind": "agent_operation",
+  "response_kind": "closeout",
+  "expected_disposition": "accepted",
+  "provider_epoch": 7,
+  "session_id": "session-1",
+  "operation_id": "operation-1",
+  "operation_sequence": 1,
+  "nonce": "nonce-2",
+  "plan_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "logical_evidence_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "transition": "frozen_to_closed"
+}

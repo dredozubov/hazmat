@@ -1,0 +1,19 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "operation-result",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "valid",
+  "request_kind": "agent_operation",
+  "response_kind": "operation_result",
+  "expected_disposition": "accepted",
+  "provider_epoch": 7,
+  "session_id": "session-1",
+  "operation_id": "tool-1",
+  "operation_sequence": 1,
+  "nonce": "nonce-tool",
+  "plan_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "payload_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "logical_evidence_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "transition": "admitted_to_active"
+}

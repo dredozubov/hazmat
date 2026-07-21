@@ -1,0 +1,12 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "provider-unreachable",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "unavailable",
+  "request_kind": "execution_requirement",
+  "response_kind": "error",
+  "expected_disposition": "unavailable",
+  "provider_epoch": 7,
+  "requirement_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+}

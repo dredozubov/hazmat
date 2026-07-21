@@ -1,0 +1,16 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "stale-epoch",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "crosswire",
+  "request_kind": "execution_requirement",
+  "response_kind": "session_admission",
+  "expected_disposition": "conflict",
+  "provider_epoch": 7,
+  "session_id": "session-1",
+  "operation_id": "admission-2",
+  "requirement_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "compiled_plan_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "bound_plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

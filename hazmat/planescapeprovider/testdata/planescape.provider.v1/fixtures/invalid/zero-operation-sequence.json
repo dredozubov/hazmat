@@ -1,0 +1,11 @@
+{
+  "schema": "planescape.provider.conformance_case.v1",
+  "case_id": "zero-operation-sequence",
+  "protocol_version": "v1",
+  "provider_profile": "portable.v1",
+  "category": "invalid",
+  "request_kind": "agent_operation",
+  "response_kind": "error",
+  "expected_disposition": "invalid",
+  "operation_sequence": 0
+}
