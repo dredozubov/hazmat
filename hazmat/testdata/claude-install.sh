@@ -11,6 +11,30 @@ if [[ -n "$TARGET" ]] && [[ ! "$TARGET" =~ ^(stable|latest|[0-9]+\.[0-9]+\.[0-9]
     exit 1
 fi
 
+# Refuse to run under sudo from a regular user's shell. This installer puts
+# everything under $HOME, which under sudo typically resolves to root's home:
+# the binary lands in /root/.local/bin (or is left root-owned in the user's
+# home, depending on the distro's sudo configuration), and the 'claude'
+# command is then not found in the user's own shell. Plain root with no sudo
+# (containers, CI, root-only systems) is unaffected by this check.
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -z "${CLAUDE_INSTALL_ALLOW_SUDO:-}" ]; then
+    echo "Error: do not run this installer with sudo." >&2
+    echo "" >&2
+    echo "Claude Code installs into your home directory and does not need root access." >&2
+    echo "With sudo, the installation would go into root's home directory instead of" >&2
+    echo "yours, and the 'claude' command would not work from your own shell." >&2
+    echo "" >&2
+    echo "Please re-run the same command without sudo, e.g.:" >&2
+    # pinned-dep-allow: display-only guidance text in an error message, not an executed install; install.sh is Anthropic's own installer
+    echo "    curl -fsSL https://claude.ai/install.sh | bash" >&2
+    echo "" >&2
+    echo "To intentionally install Claude Code for the root user, re-run with" >&2
+    echo "CLAUDE_INSTALL_ALLOW_SUDO=1 set in the installer's environment, e.g.:" >&2
+    # pinned-dep-allow: display-only guidance text in an error message, not an executed install; install.sh is Anthropic's own installer
+    echo "    curl -fsSL https://claude.ai/install.sh | sudo CLAUDE_INSTALL_ALLOW_SUDO=1 bash" >&2
+    exit 1
+fi
+
 DOWNLOAD_BASE_URL="https://downloads.claude.ai/claude-code-releases"
 DOWNLOAD_DIR="$HOME/.claude/downloads"
 
