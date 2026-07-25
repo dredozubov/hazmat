@@ -46,7 +46,13 @@ Examples:
 				return nil
 			}
 
-			prepared, err := prepareAndBeginLaunchSession("cursor-agent", opts, true, true)
+			prepared, err := prepareAndBeginLaunchSession(
+				"cursor-agent",
+				forwarded,
+				opts,
+				true,
+				true,
+			)
 			if err != nil {
 				return err
 			}

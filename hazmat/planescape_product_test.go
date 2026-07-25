@@ -160,6 +160,12 @@ func TestConfiguredPlanescapeProviderFailuresNeverStartLocalRuntime(t *testing.T
 			_, err := runSessionStartupWithExecutionProvider(
 				context.Background(),
 				sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+				testPlanescapeProductInvocation(
+					t,
+					"exec",
+					[]string{"/usr/bin/true"},
+					"request-failure",
+				),
 				planescapeProductDependencies{
 					Endpoint:           endpoint,
 					CompiledPlanSource: compiledPlanSource,
@@ -214,6 +220,12 @@ func TestConfiguredPlanescapeProviderTransmitsAndRetainsExactCompiledPlan(t *tes
 	_, startupErr := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+		testPlanescapeProductInvocation(
+			t,
+			"exec",
+			[]string{"/usr/bin/true"},
+			"request-retain-plan",
+		),
 		planescapeProductDependencies{
 			Endpoint:           endpoint,
 			CompiledPlanSource: source,
@@ -278,6 +290,117 @@ func TestConfiguredPlanescapeProviderTransmitsAndRetainsExactCompiledPlan(t *tes
 	}
 }
 
+func TestConfiguredPlanescapeProviderRejectsWrongInvocationBeforeDialOrEffect(
+	t *testing.T,
+) {
+	capabilities, plan, admission := planescapeProductAdmissionFixtures(t)
+	requested := testPlanescapeProductInvocation(
+		t,
+		"exec",
+		[]string{"/usr/bin/printf", "requested-argument-secret"},
+		"requested-session-secret",
+	)
+	cases := []struct {
+		name  string
+		bound planescapeProductInvocation
+	}{
+		{
+			name: "command",
+			bound: testPlanescapeProductInvocation(
+				t,
+				"shell",
+				[]string{"/usr/bin/printf", "requested-argument-secret"},
+				"requested-session-secret",
+			),
+		},
+		{
+			name: "forwarded args",
+			bound: testPlanescapeProductInvocation(
+				t,
+				"exec",
+				[]string{"/usr/bin/printf", "different-argument-secret"},
+				"requested-session-secret",
+			),
+		},
+		{
+			name: "session request",
+			bound: testPlanescapeProductInvocation(
+				t,
+				"exec",
+				[]string{"/usr/bin/printf", "requested-argument-secret"},
+				"different-session-secret",
+			),
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			endpoint := &planescapeProductEndpointFake{
+				capabilities: capabilities,
+				admission:    admission,
+			}
+			source := &planescapeProductCompiledPlanSourceFake{
+				plan:       plan,
+				invocation: &test.bound,
+			}
+			operations := &planescapeProductOperationSourceFake{}
+			localStarts := 0
+			_, err := runSessionStartupWithExecutionProvider(
+				context.Background(),
+				sessionConfig{
+					ExecutionProvider: configmodel.ExecutionProviderPlanescape,
+				},
+				requested,
+				planescapeProductDependencies{
+					Endpoint:           endpoint,
+					CompiledPlanSource: source,
+					OperationSource:    operations,
+					CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
+				},
+				func() error {
+					localStarts++
+					return nil
+				},
+			)
+			requirePlanescapeProductErrorClass(
+				t,
+				err,
+				planescapeprovider.ErrorConflict,
+			)
+			if localStarts != 0 ||
+				endpoint.discoverCalls != 0 ||
+				endpoint.admitCalls != 0 ||
+				len(endpoint.operations) != 0 ||
+				operations.toolCalls != 0 ||
+				operations.quiescenceCalls != 0 {
+				t.Fatalf(
+					"wrong invocation reached fallback/dial/effect: local=%d discover=%d admit=%d provider_ops=%d source_ops=%d/%d",
+					localStarts,
+					endpoint.discoverCalls,
+					endpoint.admitCalls,
+					len(endpoint.operations),
+					operations.toolCalls,
+					operations.quiescenceCalls,
+				)
+			}
+			for _, secret := range []string{
+				"requested-argument-secret",
+				"different-argument-secret",
+				"requested-session-secret",
+				"different-session-secret",
+			} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("product error leaked invocation material: %v", err)
+				}
+			}
+			if len(source.received) != 1 ||
+				!source.received[0].matches(requested) {
+				t.Fatal("compiled-plan source did not receive the exact invocation")
+			}
+		})
+	}
+}
+
 func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallback(
 	t *testing.T,
 ) {
@@ -311,11 +434,18 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 		tool:       toolInput,
 		quiescence: quiescenceInput,
 	}
+	invocation := testPlanescapeProductInvocation(
+		t,
+		"exec",
+		[]string{"/usr/bin/true"},
+		"request-lifecycle",
+	)
 	checkpointRoot := filepath.Join(t.TempDir(), "checkpoints")
 	localStarts := 0
 	lifecycle, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+		invocation,
 		planescapeProductDependencies{
 			Endpoint:           endpoint,
 			CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
@@ -375,7 +505,8 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 	for index, binding := range operations.bindings {
 		if binding.PlanHash() != plan.CanonicalHash() ||
 			binding.SessionID() != admission.SessionID() ||
-			binding.Backend() != wantBackend {
+			binding.Backend() != wantBackend ||
+			!binding.Invocation().matches(invocation) {
 			t.Fatalf("source binding %d = %+v, want exact plan/session/backend", index, binding)
 		}
 	}
@@ -554,6 +685,12 @@ func TestConfiguredPlanescapeProviderBackendDriftFailsBeforeToolWithoutFallback(
 	_, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+		testPlanescapeProductInvocation(
+			t,
+			"exec",
+			[]string{"/usr/bin/true"},
+			"request-backend-drift",
+		),
 		planescapeProductDependencies{
 			Endpoint:           endpoint,
 			CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
@@ -602,6 +739,12 @@ func TestConfiguredPlanescapeProviderToolFailureDoesNotFallbackOrQuiesce(
 	_, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+		testPlanescapeProductInvocation(
+			t,
+			"exec",
+			[]string{"/usr/bin/true"},
+			"request-tool-failure",
+		),
 		planescapeProductDependencies{
 			Endpoint:           endpoint,
 			CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
@@ -640,6 +783,7 @@ func TestUnconfiguredPlanescapeEndpointDoesNotAffectLocalStartup(t *testing.T) {
 	lifecycle, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderLocal},
+		planescapeProductInvocation{},
 		planescapeProductDependencies{
 			Endpoint:           endpoint,
 			CompiledPlanSource: source,
@@ -890,9 +1034,11 @@ func (*planescapeProductEndpointFake) Cancel(
 }
 
 type planescapeProductCompiledPlanSourceFake struct {
-	plan  planescapeprovider.CompiledContainmentPlan
-	err   error
-	calls int
+	plan       planescapeprovider.CompiledContainmentPlan
+	err        error
+	invocation *planescapeProductInvocation
+	received   []planescapeProductInvocation
+	calls      int
 }
 
 type planescapeProductOperationSourceFake struct {
@@ -935,10 +1081,37 @@ func (s *planescapeProductOperationSourceFake) QuiescenceOperation(
 }
 
 func (s *planescapeProductCompiledPlanSourceFake) CompiledContainmentPlan(
-	context.Context,
-) (planescapeprovider.CompiledContainmentPlan, error) {
+	_ context.Context,
+	invocation planescapeProductInvocation,
+) (planescapeProductCompiledPlanArtifact, error) {
 	s.calls++
-	return s.plan, s.err
+	s.received = append(s.received, invocation.clone())
+	bound := invocation
+	if s.invocation != nil {
+		bound = s.invocation.clone()
+	}
+	return planescapeProductCompiledPlanArtifact{
+		plan:       s.plan,
+		invocation: bound,
+	}, s.err
+}
+
+func testPlanescapeProductInvocation(
+	t *testing.T,
+	commandName string,
+	forwardedArgs []string,
+	sessionRequestID string,
+) planescapeProductInvocation {
+	t.Helper()
+	value, err := newPlanescapeProductInvocation(
+		commandName,
+		forwardedArgs,
+		sessionRequestID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func planescapeProductAdmissionFixtures(

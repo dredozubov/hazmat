@@ -386,15 +386,33 @@ func parseHarnessCommandArgs(cmd *cobra.Command, args []string, parser harnessAr
 	return opts, forwarded, false, nil
 }
 
-func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox, preflightBeforeSnapshot bool) (preparedSession, error) {
+func prepareAndBeginLaunchSession(
+	commandName string,
+	forwardedArgs []string,
+	opts harnessSessionOpts,
+	supportsSandbox,
+	preflightBeforeSnapshot bool,
+) (preparedSession, error) {
 	executionProvider, err := configuredSessionExecutionProvider()
 	if err != nil {
 		return preparedSession{}, err
+	}
+	var invocation planescapeProductInvocation
+	if executionProvider == configmodel.ExecutionProviderPlanescape {
+		invocation, err = newPlanescapeProductInvocation(
+			commandName,
+			forwardedArgs,
+			"hazmat-"+generateToken(),
+		)
+		if err != nil {
+			return preparedSession{}, err
+		}
 	}
 	var prepared preparedSession
 	planescape, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: executionProvider},
+		invocation,
 		planescapeProductDependenciesForSession(),
 		func() error {
 			var err error
@@ -436,7 +454,13 @@ func newShellCmd() *cobra.Command {
 		Short: "Open a contained shell as the agent user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			prepared, err := prepareAndBeginLaunchSession("shell", flags.harnessSessionOpts(cmd), true, false)
+			prepared, err := prepareAndBeginLaunchSession(
+				"shell",
+				nil,
+				flags.harnessSessionOpts(cmd),
+				true,
+				false,
+			)
 			if err != nil {
 				return err
 			}
@@ -527,7 +551,13 @@ setup path; requires HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1):
 				opts.skipProjectHooks = true
 				opts.skipDockerDetection = true
 			}
-			prepared, err := prepareAndBeginLaunchSession("exec", opts, true, false)
+			prepared, err := prepareAndBeginLaunchSession(
+				"exec",
+				args,
+				opts,
+				true,
+				false,
+			)
 			if err != nil {
 				return err
 			}
@@ -585,7 +615,13 @@ func launchUniformHarness(
 	if handled {
 		return nil
 	}
-	prepared, err := prepareAndBeginLaunchSession(name, opts, true, preflightBeforeSnapshot)
+	prepared, err := prepareAndBeginLaunchSession(
+		name,
+		forwarded,
+		opts,
+		true,
+		preflightBeforeSnapshot,
+	)
 	if err != nil {
 		return err
 	}
@@ -662,7 +698,13 @@ Examples:
 			}
 			opts.claudeBareRequested = claudeBareRequested(forwarded)
 
-			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
+			prepared, err := prepareAndBeginLaunchSession(
+				"claude",
+				forwarded,
+				opts,
+				true,
+				false,
+			)
 			if err != nil {
 				return err
 			}
@@ -1009,7 +1051,13 @@ func codexAppShimBoolEnv(lookup func(string) (string, bool), name string) (bool,
 }
 
 func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error {
-	prepared, err := prepareAndBeginLaunchSession("codex", opts, true, true)
+	prepared, err := prepareAndBeginLaunchSession(
+		"codex",
+		forwarded,
+		opts,
+		true,
+		true,
+	)
 	if err != nil {
 		return err
 	}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"hazmat/configmodel"
 	"hazmat/planescapeprovider"
@@ -57,8 +60,147 @@ func (e *planescapeProductError) admissionState() (planescapeProductAdmission, b
 	return *e.admission, true
 }
 
+const (
+	maxPlanescapeProductCommandBytes   = 128
+	maxPlanescapeProductForwardedArgs  = 1024
+	maxPlanescapeProductArgumentBytes  = 16 * 1024
+	maxPlanescapeProductArgumentsBytes = 64 * 1024
+)
+
+// planescapeProductInvocation is the exact product request presented to the
+// Rust plan source. Its session request ID is generated before compilation and
+// is distinct from the provider-minted admitted session ID.
+type planescapeProductInvocation struct {
+	commandName      string
+	forwardedArgs    []string
+	sessionRequestID planescapeprovider.Identifier
+}
+
+func newPlanescapeProductInvocation(
+	commandName string,
+	forwardedArgs []string,
+	sessionRequestID string,
+) (planescapeProductInvocation, error) {
+	id, err := planescapeprovider.NewIdentifier(sessionRequestID)
+	if err != nil ||
+		!validPlanescapeProductCommandName(commandName) ||
+		!validPlanescapeProductForwardedArgs(forwardedArgs) {
+		return planescapeProductInvocation{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductInvocation{
+		commandName:      commandName,
+		forwardedArgs:    slices.Clone(forwardedArgs),
+		sessionRequestID: id,
+	}, nil
+}
+
+func validPlanescapeProductCommandName(value string) bool {
+	return value != "" &&
+		value == strings.TrimSpace(value) &&
+		len(value) <= maxPlanescapeProductCommandBytes &&
+		utf8.ValidString(value) &&
+		!strings.ContainsFunc(value, func(r rune) bool {
+			return r < 0x20 || r == 0x7f
+		})
+}
+
+func validPlanescapeProductForwardedArgs(values []string) bool {
+	if len(values) > maxPlanescapeProductForwardedArgs {
+		return false
+	}
+	total := 0
+	for _, value := range values {
+		if !utf8.ValidString(value) ||
+			strings.ContainsRune(value, '\x00') ||
+			len(value) > maxPlanescapeProductArgumentBytes {
+			return false
+		}
+		total += len(value)
+		if total > maxPlanescapeProductArgumentsBytes {
+			return false
+		}
+	}
+	return true
+}
+
+func (v planescapeProductInvocation) valid() bool {
+	_, err := planescapeprovider.NewIdentifier(v.sessionRequestID.String())
+	return err == nil &&
+		validPlanescapeProductCommandName(v.commandName) &&
+		validPlanescapeProductForwardedArgs(v.forwardedArgs)
+}
+
+func (v planescapeProductInvocation) clone() planescapeProductInvocation {
+	v.forwardedArgs = slices.Clone(v.forwardedArgs)
+	return v
+}
+
+func (v planescapeProductInvocation) matches(other planescapeProductInvocation) bool {
+	return v.valid() &&
+		other.valid() &&
+		v.commandName == other.commandName &&
+		v.sessionRequestID == other.sessionRequestID &&
+		slices.Equal(v.forwardedArgs, other.forwardedArgs)
+}
+
+func (v planescapeProductInvocation) CommandName() string {
+	return v.commandName
+}
+
+func (v planescapeProductInvocation) ForwardedArgs() []string {
+	return slices.Clone(v.forwardedArgs)
+}
+
+func (v planescapeProductInvocation) SessionRequestID() planescapeprovider.Identifier {
+	return v.sessionRequestID
+}
+
+// planescapeProductCompiledPlanArtifact is an opaque, invocation-bound result
+// from a Rust plan source. A production source must verify the Rust artifact's
+// cryptographic plan/invocation binding before constructing this value.
+type planescapeProductCompiledPlanArtifact struct {
+	plan       planescapeprovider.CompiledContainmentPlan
+	invocation planescapeProductInvocation
+}
+
+func newPlanescapeProductCompiledPlanArtifact(
+	plan planescapeprovider.CompiledContainmentPlan,
+	invocation planescapeProductInvocation,
+) (planescapeProductCompiledPlanArtifact, error) {
+	if !invocation.valid() {
+		return planescapeProductCompiledPlanArtifact{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	if _, err := planescapeprovider.NewAdmissionInput(plan); err != nil {
+		return planescapeProductCompiledPlanArtifact{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductCompiledPlanArtifact{
+		plan:       plan,
+		invocation: invocation.clone(),
+	}, nil
+}
+
+func (v planescapeProductCompiledPlanArtifact) valid() bool {
+	if !v.invocation.valid() {
+		return false
+	}
+	_, err := planescapeprovider.NewAdmissionInput(v.plan)
+	return err == nil
+}
+
 type planescapeProductCompiledPlanSource interface {
-	CompiledContainmentPlan(context.Context) (planescapeprovider.CompiledContainmentPlan, error)
+	CompiledContainmentPlan(
+		context.Context,
+		planescapeProductInvocation,
+	) (planescapeProductCompiledPlanArtifact, error)
 }
 
 // planescapeProductOperationSource supplies only unbound operation intent.
@@ -84,18 +226,21 @@ type planescapeProductDependencies struct {
 }
 
 type planescapeProductBinding struct {
-	planHash planescapeprovider.Fingerprint
-	session  planescapeprovider.Identifier
-	backend  planescapeprovider.BackendIdentityBinding
+	planHash   planescapeprovider.Fingerprint
+	session    planescapeprovider.Identifier
+	backend    planescapeprovider.BackendIdentityBinding
+	invocation planescapeProductInvocation
 }
 
 func newPlanescapeProductBinding(
 	plan planescapeprovider.CompiledContainmentPlan,
 	session planescapeprovider.Session,
 	backend planescapeprovider.BackendIdentityBinding,
+	invocation planescapeProductInvocation,
 ) (planescapeProductBinding, error) {
 	sessionID, ok := session.ID()
 	if !ok ||
+		!invocation.valid() ||
 		backend.ProviderEpoch() != plan.ProviderEpoch() ||
 		backend.IdentitySHA256().String() == "" {
 		return planescapeProductBinding{}, newPlanescapeProductError(
@@ -104,9 +249,10 @@ func newPlanescapeProductBinding(
 		)
 	}
 	return planescapeProductBinding{
-		planHash: plan.CanonicalHash(),
-		session:  sessionID,
-		backend:  backend,
+		planHash:   plan.CanonicalHash(),
+		session:    sessionID,
+		backend:    backend,
+		invocation: invocation.clone(),
 	}, nil
 }
 
@@ -114,7 +260,8 @@ func (v planescapeProductBinding) valid() bool {
 	return v.planHash.String() != "" &&
 		v.session.String() != "" &&
 		v.backend.IdentitySHA256().String() != "" &&
-		v.backend.ProviderEpoch().Uint64() != 0
+		v.backend.ProviderEpoch().Uint64() != 0 &&
+		v.invocation.valid()
 }
 
 func (v planescapeProductBinding) PlanHash() planescapeprovider.Fingerprint {
@@ -129,6 +276,10 @@ func (v planescapeProductBinding) Backend() planescapeprovider.BackendIdentityBi
 	return v.backend
 }
 
+func (v planescapeProductBinding) Invocation() planescapeProductInvocation {
+	return v.invocation.clone()
+}
+
 // planescapeProductAdmission retains the exact Rust-produced plan together
 // with the client-bound admitted session. The zero value is inert.
 type planescapeProductAdmission struct {
@@ -141,6 +292,7 @@ func newPlanescapeProductAdmission(
 	input planescapeprovider.AdmissionInput,
 	session planescapeprovider.Session,
 	backend planescapeprovider.BackendIdentityBinding,
+	invocation planescapeProductInvocation,
 ) (planescapeProductAdmission, error) {
 	if _, err := planescapeprovider.NewAdmissionInput(input.Plan()); err != nil {
 		return planescapeProductAdmission{}, newPlanescapeProductError(
@@ -154,7 +306,12 @@ func newPlanescapeProductAdmission(
 			planescapeProductProviderFailure,
 		)
 	}
-	binding, err := newPlanescapeProductBinding(input.Plan(), session, backend)
+	binding, err := newPlanescapeProductBinding(
+		input.Plan(),
+		session,
+		backend,
+		invocation,
+	)
 	if err != nil {
 		return planescapeProductAdmission{}, err
 	}
@@ -279,6 +436,7 @@ func openPlanescapeProductClient(
 func runSessionStartupWithExecutionProvider(
 	ctx context.Context,
 	cfg sessionConfig,
+	invocation planescapeProductInvocation,
 	dependencies planescapeProductDependencies,
 	localStartup func() error,
 ) (*planescapeProductLifecycleResult, error) {
@@ -304,8 +462,14 @@ func runSessionStartupWithExecutionProvider(
 			planescapeProductProviderFailure,
 		)
 	}
+	if !invocation.valid() {
+		return nil, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
 
-	admission, err := admitPlanescapeProductSession(ctx, dependencies)
+	admission, err := admitPlanescapeProductSession(ctx, invocation, dependencies)
 	if err != nil {
 		return nil, err
 	}
@@ -325,9 +489,10 @@ func runSessionStartupWithExecutionProvider(
 
 func admitPlanescapeProductSession(
 	ctx context.Context,
+	invocation planescapeProductInvocation,
 	dependencies planescapeProductDependencies,
 ) (planescapeProductAdmission, error) {
-	if ctx == nil {
+	if ctx == nil || !invocation.valid() {
 		return planescapeProductAdmission{}, newPlanescapeProductError(
 			planescapeprovider.ErrorUnavailable,
 			planescapeProductProviderFailure,
@@ -339,10 +504,26 @@ func admitPlanescapeProductSession(
 			planescapeProductProviderFailure,
 		)
 	}
-	plan, err := dependencies.CompiledPlanSource.CompiledContainmentPlan(ctx)
+	artifact, err := dependencies.CompiledPlanSource.CompiledContainmentPlan(
+		ctx,
+		invocation.clone(),
+	)
 	if err != nil {
 		return planescapeProductAdmission{}, mapPlanescapeProductError(err)
 	}
+	if !artifact.valid() {
+		return planescapeProductAdmission{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	if !artifact.invocation.matches(invocation) {
+		return planescapeProductAdmission{}, newPlanescapeProductError(
+			planescapeprovider.ErrorConflict,
+			planescapeProductProviderFailure,
+		)
+	}
+	plan := artifact.plan
 	input, err := planescapeprovider.NewAdmissionInput(plan)
 	if err != nil {
 		return planescapeProductAdmission{}, newPlanescapeProductError(
@@ -366,6 +547,7 @@ func admitPlanescapeProductSession(
 		input,
 		session,
 		dependencies.Endpoint.BackendBinding(),
+		invocation,
 	)
 }
 

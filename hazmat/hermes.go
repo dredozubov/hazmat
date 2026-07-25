@@ -53,7 +53,13 @@ Examples:
 				return err
 			}
 
-			prepared, err := prepareAndBeginLaunchSession("hermes", opts, true, true)
+			prepared, err := prepareAndBeginLaunchSession(
+				"hermes",
+				forwarded,
+				opts,
+				true,
+				true,
+			)
 			if err != nil {
 				return err
 			}

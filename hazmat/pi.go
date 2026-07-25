@@ -43,7 +43,13 @@ Examples:
 				return nil
 			}
 
-			prepared, err := prepareAndBeginLaunchSession("pi", opts, true, true)
+			prepared, err := prepareAndBeginLaunchSession(
+				"pi",
+				forwarded,
+				opts,
+				true,
+				true,
+			)
 			if err != nil {
 				return err
 			}
