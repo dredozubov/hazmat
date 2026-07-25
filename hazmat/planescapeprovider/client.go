@@ -7,11 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
 
-const checkpointSchema = "hazmat.planescapeprovider.checkpoint.v2"
+const (
+	checkpointSchema                 = "hazmat.planescapeprovider.checkpoint.v2"
+	normalizedRecordStoreKeyPrefixV1 = "normalized-record-v1-"
+)
 
 // Endpoint is the transport-independent provider boundary. A concrete endpoint
 // owns authentication and wire framing; it must decode bounded v1 records
@@ -33,10 +37,11 @@ type BoundEndpoint interface {
 	BackendBinding() BackendIdentityBinding
 }
 
-// CheckpointStore persists opaque, bounded client checkpoints. Implementations
-// must durably save a request before Client sends an effect-bearing operation.
-// Values contain only protocol bindings and hashes, never source, output, or
-// credential bytes.
+// CheckpointStore persists opaque, bounded client state. Implementations must
+// durably save each content-addressed normalized-record sidecar before the
+// session checkpoint that references it and before Client sends an
+// effect-bearing operation. Session checkpoints contain only protocol bindings
+// and hashes; normalized request bytes live only in bounded sidecars.
 type CheckpointStore interface {
 	Load(context.Context, string) ([]byte, bool, error)
 	Save(context.Context, string, []byte) error
@@ -554,7 +559,12 @@ func (s Session) runOperation(
 	}
 
 	if entry, index := state.operation(input.operationID); index >= 0 {
-		if entry.operation.kind != input.kind || entry.operation.nonce != input.nonce || entry.operation.payloadHash != input.payloadHash || entry.expected != expected || entry.closeoutID != closeoutID {
+		if entry.operation.kind != input.kind ||
+			entry.operation.nonce != input.nonce ||
+			entry.operation.payloadHash != input.payloadHash ||
+			entry.operation.normalized != input.normalizedRecord ||
+			entry.expected != expected ||
+			entry.closeoutID != closeoutID {
 			return nil, s.client.poison(ctx, &state)
 		}
 		return s.client.sendOperation(ctx, &state, index, entry.operation, entry.expected, entry.closeoutID)
@@ -916,15 +926,16 @@ type checkpointDTO struct {
 }
 
 type operationCheckpointDTO struct {
-	OperationID   string        `json:"operation_id"`
-	Sequence      uint64        `json:"sequence"`
-	Kind          OperationKind `json:"kind"`
-	Nonce         string        `json:"nonce"`
-	PayloadHash   string        `json:"payload_hash"`
-	CanonicalHash string        `json:"canonical_hash"`
-	Expected      responseKind  `json:"expected_response"`
-	CloseoutID    string        `json:"closeout_id,omitempty"`
-	Done          bool          `json:"done"`
+	OperationID            string        `json:"operation_id"`
+	Sequence               uint64        `json:"sequence"`
+	Kind                   OperationKind `json:"kind"`
+	Nonce                  string        `json:"nonce"`
+	PayloadHash            string        `json:"payload_hash"`
+	NormalizedRecordSHA256 string        `json:"normalized_record_sha256,omitempty"`
+	CanonicalHash          string        `json:"canonical_hash"`
+	Expected               responseKind  `json:"expected_response"`
+	CloseoutID             string        `json:"closeout_id,omitempty"`
+	Done                   bool          `json:"done"`
 }
 
 type freezeCheckpointDTO struct {
@@ -951,18 +962,33 @@ type evidenceCheckpointDTO struct {
 }
 
 func (c *Client) saveState(ctx context.Context, state sessionState) error {
+	if strings.HasPrefix(
+		state.sessionID.String(),
+		normalizedRecordStoreKeyPrefixV1,
+	) {
+		return clientError(ErrorConflict)
+	}
+	for _, entry := range state.operations {
+		if entry.operation.kind == OperationTool {
+			if err := c.saveNormalizedRecord(ctx, entry.operation.normalized); err != nil {
+				return err
+			}
+		} else if !entry.operation.normalized.empty() {
+			return clientError(ErrorConflict)
+		}
+	}
 	data, err := json.Marshal(state.checkpoint())
 	if err != nil || len(data) > MaxRecordBytes {
 		return clientError(ErrorConflict)
 	}
-	if err := c.store.Save(ctx, state.sessionID.String(), data); err != nil {
+	if err := c.store.Save(ctx, sessionCheckpointStoreKey(state.sessionID), data); err != nil {
 		return clientError(ErrorUnavailable)
 	}
 	return nil
 }
 
 func (c *Client) loadState(ctx context.Context, id Identifier) (sessionState, error) {
-	data, ok, err := c.store.Load(ctx, id.String())
+	data, ok, err := c.store.Load(ctx, sessionCheckpointStoreKey(id))
 	if err != nil {
 		return sessionState{}, clientError(ErrorUnavailable)
 	}
@@ -982,8 +1008,20 @@ func (c *Client) loadState(ctx context.Context, id Identifier) (sessionState, er
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return sessionState{}, clientError(ErrorConflict)
 	}
-	state, err := sessionStateFromCheckpoint(checkpoint)
-	if err != nil || state.sessionID != id {
+	state, err := sessionStateFromCheckpoint(
+		checkpoint,
+		func(expected Fingerprint) (normalizedRecordV1, error) {
+			return c.loadNormalizedRecord(ctx, expected)
+		},
+	)
+	if err != nil {
+		var classified *Error
+		if errors.As(err, &classified) {
+			return sessionState{}, classified
+		}
+		return sessionState{}, clientError(ErrorConflict)
+	}
+	if state.sessionID != id {
 		return sessionState{}, clientError(ErrorConflict)
 	}
 	if err := c.validateEndpointBinding(); err != nil {
@@ -995,10 +1033,77 @@ func (c *Client) loadState(ctx context.Context, id Identifier) (sessionState, er
 	return state, nil
 }
 
+func (c *Client) saveNormalizedRecord(
+	ctx context.Context,
+	record normalizedRecordV1,
+) error {
+	if c == nil || c.store == nil || !record.valid() {
+		return clientError(ErrorConflict)
+	}
+	key := normalizedRecordStoreKey(record.sha256)
+	existing, ok, err := c.store.Load(ctx, key)
+	if err != nil {
+		return clientError(ErrorUnavailable)
+	}
+	if ok {
+		validated, validationErr := newNormalizedRecordV1(existing)
+		if validationErr != nil ||
+			validated.sha256 != record.sha256 ||
+			validated.value != record.value {
+			return clientError(ErrorConflict)
+		}
+		return nil
+	}
+	if err := c.store.Save(ctx, key, record.Bytes()); err != nil {
+		return clientError(ErrorUnavailable)
+	}
+	persisted, ok, err := c.store.Load(ctx, key)
+	if err != nil {
+		return clientError(ErrorUnavailable)
+	}
+	validated, validationErr := newNormalizedRecordV1(persisted)
+	if !ok ||
+		validationErr != nil ||
+		validated.sha256 != record.sha256 ||
+		validated.value != record.value {
+		return clientError(ErrorConflict)
+	}
+	return nil
+}
+
+func (c *Client) loadNormalizedRecord(
+	ctx context.Context,
+	expected Fingerprint,
+) (normalizedRecordV1, error) {
+	if c == nil || c.store == nil || !expected.valid() {
+		return normalizedRecordV1{}, clientError(ErrorConflict)
+	}
+	data, ok, err := c.store.Load(ctx, normalizedRecordStoreKey(expected))
+	if err != nil {
+		return normalizedRecordV1{}, clientError(ErrorUnavailable)
+	}
+	if !ok {
+		return normalizedRecordV1{}, clientError(ErrorConflict)
+	}
+	record, err := newNormalizedRecordV1(data)
+	if err != nil || record.sha256 != expected {
+		return normalizedRecordV1{}, clientError(ErrorConflict)
+	}
+	return record, nil
+}
+
+func sessionCheckpointStoreKey(id Identifier) string {
+	return id.String()
+}
+
+func normalizedRecordStoreKey(hash Fingerprint) string {
+	return normalizedRecordStoreKeyPrefixV1 + hash.String()
+}
+
 func (s sessionState) checkpoint() checkpointDTO {
 	operations := make([]operationCheckpointDTO, 0, len(s.operations))
 	for _, entry := range s.operations {
-		operations = append(operations, operationCheckpointDTO{
+		operation := operationCheckpointDTO{
 			OperationID:   entry.operation.operationID.String(),
 			Sequence:      entry.operation.sequence.Uint64(),
 			Kind:          entry.operation.kind,
@@ -1008,7 +1113,12 @@ func (s sessionState) checkpoint() checkpointDTO {
 			Expected:      entry.expected,
 			CloseoutID:    entry.closeoutID.String(),
 			Done:          entry.done,
-		})
+		}
+		if entry.operation.kind == OperationTool {
+			operation.NormalizedRecordSHA256 =
+				entry.operation.normalized.sha256.String()
+		}
+		operations = append(operations, operation)
 	}
 	checkpoint := checkpointDTO{
 		Schema:                checkpointSchema,
@@ -1064,9 +1174,15 @@ func fingerprintStrings(values []Fingerprint) []string {
 	return out
 }
 
-func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) {
+func sessionStateFromCheckpoint(
+	checkpoint checkpointDTO,
+	loadNormalizedRecord func(Fingerprint) (normalizedRecordV1, error),
+) (sessionState, error) {
 	if checkpoint.Schema != checkpointSchema || !checkpoint.Phase.valid() || checkpoint.ExpiresAtMS <= 0 || checkpoint.NextSequence == 0 || len(checkpoint.Operations) > maxCapabilities {
 		return sessionState{}, fmt.Errorf("invalid checkpoint header")
+	}
+	if loadNormalizedRecord == nil {
+		return sessionState{}, fmt.Errorf("normalized record loader is unavailable")
 	}
 	sessionID, err := NewIdentifier(checkpoint.SessionID)
 	if err != nil {
@@ -1125,11 +1241,31 @@ func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) 
 	seenSequences := make(map[OperationSequence]struct{}, len(checkpoint.Operations))
 	var maximumSequence uint64
 	for _, value := range checkpoint.Operations {
+		var normalizedRecord normalizedRecordV1
+		if value.Kind == OperationTool {
+			normalizedRecordSHA256, err := ParseFingerprint(
+				value.NormalizedRecordSHA256,
+			)
+			if err != nil {
+				return sessionState{}, err
+			}
+			normalizedRecord, err = loadNormalizedRecord(normalizedRecordSHA256)
+			if err != nil {
+				return sessionState{}, err
+			}
+			if !normalizedRecord.valid() ||
+				normalizedRecord.sha256 != normalizedRecordSHA256 {
+				return sessionState{}, fmt.Errorf("invalid checkpoint normalized record")
+			}
+		} else if value.NormalizedRecordSHA256 != "" {
+			return sessionState{}, fmt.Errorf("non-Tool checkpoint has normalized record")
+		}
 		input, err := NewOperationInput(OperationInputValues{
-			OperationID: value.OperationID,
-			Kind:        value.Kind,
-			Nonce:       value.Nonce,
-			PayloadHash: value.PayloadHash,
+			OperationID:      value.OperationID,
+			Kind:             value.Kind,
+			Nonce:            value.Nonce,
+			PayloadHash:      value.PayloadHash,
+			NormalizedRecord: normalizedRecord.Bytes(),
 		})
 		if err != nil {
 			return sessionState{}, err

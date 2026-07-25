@@ -39,6 +39,7 @@ type scriptedEndpoint struct {
 	calls          []string
 	admitCalls     int
 	admittedPlans  []CompiledContainmentPlan
+	operated       []AgentOperation
 }
 
 func (s *scriptedEndpoint) BackendBinding() BackendIdentityBinding {
@@ -65,6 +66,7 @@ func (s *scriptedEndpoint) Admit(
 
 func (s *scriptedEndpoint) Operate(_ context.Context, operation AgentOperation) (OperationResponse, error) {
 	s.calls = append(s.calls, "operate:"+operation.OperationID().String())
+	s.operated = append(s.operated, operation)
 	if len(s.operations) == 0 {
 		return nil, errors.New("unexpected operation")
 	}
@@ -167,11 +169,16 @@ func mustAdmission(t *testing.T, plan CompiledContainmentPlan) SessionAdmission 
 
 func mustOperation(t *testing.T, id string, kind OperationKind, nonce, payload string) OperationInput {
 	t.Helper()
+	var normalizedRecord []byte
+	if kind == OperationTool {
+		normalizedRecord = []byte("normalized:" + id)
+	}
 	value, err := NewOperationInput(OperationInputValues{
-		OperationID: id,
-		Kind:        kind,
-		Nonce:       nonce,
-		PayloadHash: fingerprint(payload),
+		OperationID:      id,
+		Kind:             kind,
+		Nonce:            nonce,
+		PayloadHash:      fingerprint(payload),
+		NormalizedRecord: normalizedRecord,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -216,8 +223,19 @@ func TestAgentOperationDerivesCanonicalHashAfterSessionAndSequenceBinding(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := record.value.(AgentOperation); got != first {
-		t.Fatalf("derived operation round trip = %+v, want %+v", got, first)
+	got := record.value.(AgentOperation)
+	if got.CanonicalHash() != first.CanonicalHash() ||
+		got.SessionID() != first.SessionID() ||
+		got.OperationID() != first.OperationID() ||
+		got.Sequence() != first.Sequence() ||
+		got.Kind() != first.Kind() ||
+		got.PlanHash() != first.PlanHash() ||
+		got.Nonce() != first.Nonce() ||
+		got.PayloadHash() != first.PayloadHash() {
+		t.Fatalf("derived operation round trip = %+v, want canonical record %+v", got, first)
+	}
+	if got.dispatchableTool() {
+		t.Fatal("provider-v1 operation record unexpectedly carried normalized bytes")
 	}
 }
 
@@ -472,7 +490,14 @@ func TestClientMapsAdmittedToolDirectlyToQuiescence(t *testing.T) {
 		"discover,admit,operate:tool-1,operate:pause-1" {
 		t.Fatalf("calls = %s", got)
 	}
-	data, ok, err := store.Load(context.Background(), "session-1")
+	sessionID, err := NewIdentifier("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok, err := store.Load(
+		context.Background(),
+		sessionCheckpointStoreKey(sessionID),
+	)
 	if err != nil || !ok {
 		t.Fatalf("load direct lifecycle checkpoint = %v, %v", ok, err)
 	}
@@ -485,7 +510,8 @@ func TestClientMapsAdmittedToolDirectlyToQuiescence(t *testing.T) {
 			testBackendIdentityBinding().IdentitySHA256().String() ||
 		len(checkpoint.Operations) != 2 ||
 		checkpoint.Operations[0].Sequence != 1 ||
-		checkpoint.Operations[1].Sequence != 2 {
+		checkpoint.Operations[1].Sequence != 2 ||
+		checkpoint.Operations[1].NormalizedRecordSHA256 != "" {
 		t.Fatalf("direct lifecycle checkpoint = %+v", checkpoint)
 	}
 }
@@ -556,7 +582,10 @@ func TestClientAdmissionPersistsExactCompiledPlanBindings(t *testing.T) {
 		endpoint.admittedPlans[0].ContainmentRequestHash() != plan.ContainmentRequestHash() {
 		t.Fatal("endpoint did not receive the exact compiled plan")
 	}
-	data, ok, err := store.Load(context.Background(), admission.SessionID().String())
+	data, ok, err := store.Load(
+		context.Background(),
+		sessionCheckpointStoreKey(admission.SessionID()),
+	)
 	if err != nil || !ok {
 		t.Fatalf("load durable admission = %v, %v", ok, err)
 	}

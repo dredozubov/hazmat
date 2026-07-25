@@ -5,6 +5,7 @@
 package planescapeprovider
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -674,20 +675,73 @@ func (v SessionAdmission) valid() bool {
 	return v.sessionID.valid() && v.providerID.valid() && v.epoch != 0 && v.requirementHash.valid() && v.compiledPlanHash.valid() && v.sessionCapabilityHash.valid() && !v.expiresAt.IsZero() && v.canonicalHash.valid()
 }
 
+// normalizedRecordV1 owns one bounded, opaque, policy-normalized request. Its
+// raw digest is used only for content-addressed client storage; the provider-v1
+// payload hash remains the semantic commitment supplied by the caller.
+type normalizedRecordV1 struct {
+	value  string
+	sha256 Fingerprint
+}
+
+func newNormalizedRecordV1(value []byte) (normalizedRecordV1, error) {
+	if len(value) == 0 || len(value) > MaxRecordBytes {
+		return normalizedRecordV1{}, fmt.Errorf("planescapeprovider: normalized record is invalid")
+	}
+	digest := sha256.Sum256(value)
+	fingerprint, err := ParseFingerprint("sha256:" + hex.EncodeToString(digest[:]))
+	if err != nil {
+		return normalizedRecordV1{}, fmt.Errorf("planescapeprovider: normalized record is invalid")
+	}
+	return normalizedRecordV1{
+		value:  string(value),
+		sha256: fingerprint,
+	}, nil
+}
+
+func (v normalizedRecordV1) valid() bool {
+	if len(v.value) == 0 || len(v.value) > MaxRecordBytes || !v.sha256.valid() {
+		return false
+	}
+	digest := sha256.Sum256([]byte(v.value))
+	return v.sha256.String() == "sha256:"+hex.EncodeToString(digest[:])
+}
+
+func (v normalizedRecordV1) empty() bool {
+	return v.value == "" && v.sha256.String() == ""
+}
+
+func (v normalizedRecordV1) clone() normalizedRecordV1 {
+	if !v.valid() {
+		return normalizedRecordV1{}
+	}
+	return normalizedRecordV1{
+		value:  v.value,
+		sha256: v.sha256,
+	}
+}
+
+func (v normalizedRecordV1) Bytes() []byte {
+	return []byte(v.value)
+}
+
 // OperationInput is the product's bounded, opaque operation request. Session,
 // sequence, and plan bindings are assigned by Session, not supplied by callers.
+// The normalized record is defensively copied and remains outside the
+// provider-v1 AgentOperation record.
 type OperationInput struct {
-	operationID Identifier
-	kind        OperationKind
-	nonce       Nonce
-	payloadHash Fingerprint
+	operationID      Identifier
+	kind             OperationKind
+	nonce            Nonce
+	payloadHash      Fingerprint
+	normalizedRecord normalizedRecordV1
 }
 
 type OperationInputValues struct {
-	OperationID string
-	Kind        OperationKind
-	Nonce       string
-	PayloadHash string
+	OperationID      string
+	Kind             OperationKind
+	Nonce            string
+	PayloadHash      string
+	NormalizedRecord []byte
 }
 
 func NewOperationInput(input OperationInputValues) (OperationInput, error) {
@@ -706,11 +760,21 @@ func NewOperationInput(input OperationInputValues) (OperationInput, error) {
 	if err != nil {
 		return OperationInput{}, err
 	}
+	var normalizedRecord normalizedRecordV1
+	if input.Kind == OperationTool {
+		normalizedRecord, err = newNormalizedRecordV1(input.NormalizedRecord)
+		if err != nil {
+			return OperationInput{}, err
+		}
+	} else if len(input.NormalizedRecord) != 0 {
+		return OperationInput{}, fmt.Errorf("planescapeprovider: normalized record is Tool-only")
+	}
 	return OperationInput{
-		operationID: operationID,
-		kind:        input.Kind,
-		nonce:       nonce,
-		payloadHash: payloadHash,
+		operationID:      operationID,
+		kind:             input.Kind,
+		nonce:            nonce,
+		payloadHash:      payloadHash,
+		normalizedRecord: normalizedRecord,
 	}, nil
 }
 
@@ -718,9 +782,19 @@ func (v OperationInput) OperationID() Identifier  { return v.operationID }
 func (v OperationInput) Kind() OperationKind      { return v.kind }
 func (v OperationInput) Nonce() Nonce             { return v.nonce }
 func (v OperationInput) PayloadHash() Fingerprint { return v.payloadHash }
+func (v OperationInput) NormalizedRecord() []byte { return v.normalizedRecord.Bytes() }
 
 func (v OperationInput) valid() bool {
-	return v.operationID.valid() && v.kind.valid() && v.nonce.valid() && v.payloadHash.valid()
+	if !v.operationID.valid() ||
+		!v.kind.valid() ||
+		!v.nonce.valid() ||
+		!v.payloadHash.valid() {
+		return false
+	}
+	if v.kind == OperationTool {
+		return v.normalizedRecord.valid()
+	}
+	return v.normalizedRecord.empty()
 }
 
 // AgentOperation is the fully bound record sent to a provider.
@@ -733,21 +807,55 @@ type AgentOperation struct {
 	nonce         Nonce
 	payloadHash   Fingerprint
 	canonicalHash Fingerprint
+	normalized    normalizedRecordV1
 }
 
 func newAgentOperation(sessionID Identifier, sequence OperationSequence, planHash Fingerprint, input OperationInput) (AgentOperation, error) {
 	if !sessionID.valid() || sequence == 0 || !planHash.valid() || !input.valid() {
 		return AgentOperation{}, fmt.Errorf("planescapeprovider: invalid agent operation")
 	}
+	return newAgentOperationFromFields(
+		sessionID,
+		input.operationID,
+		sequence,
+		input.kind,
+		planHash,
+		input.nonce,
+		input.payloadHash,
+		input.normalizedRecord,
+	)
+}
+
+func newAgentOperationFromFields(
+	sessionID Identifier,
+	operationID Identifier,
+	sequence OperationSequence,
+	kind OperationKind,
+	planHash Fingerprint,
+	nonce Nonce,
+	payloadHash Fingerprint,
+	normalized normalizedRecordV1,
+) (AgentOperation, error) {
+	if !sessionID.valid() ||
+		!operationID.valid() ||
+		sequence == 0 ||
+		!kind.valid() ||
+		!planHash.valid() ||
+		!nonce.valid() ||
+		!payloadHash.valid() ||
+		(!normalized.empty() && !normalized.valid()) ||
+		(kind != OperationTool && !normalized.empty()) {
+		return AgentOperation{}, fmt.Errorf("planescapeprovider: invalid agent operation")
+	}
 	dto := providerV1OperationDTO{
 		Schema:            providerV1SchemaOperation,
 		SessionID:         sessionID.String(),
-		OperationID:       input.operationID.String(),
+		OperationID:       operationID.String(),
 		OperationSequence: sequence.Uint64(),
-		OperationKind:     string(input.kind),
+		OperationKind:     string(kind),
 		PlanHash:          planHash.String(),
-		Nonce:             input.nonce.String(),
-		PayloadHash:       input.payloadHash.String(),
+		Nonce:             nonce.String(),
+		PayloadHash:       payloadHash.String(),
 	}
 	preimage, err := dto.canonicalPreimage()
 	if err != nil {
@@ -759,13 +867,14 @@ func newAgentOperation(sessionID Identifier, sequence OperationSequence, planHas
 	}
 	return AgentOperation{
 		sessionID:     sessionID,
-		operationID:   input.operationID,
+		operationID:   operationID,
 		sequence:      sequence,
-		kind:          input.kind,
+		kind:          kind,
 		planHash:      planHash,
-		nonce:         input.nonce,
-		payloadHash:   input.payloadHash,
+		nonce:         nonce,
+		payloadHash:   payloadHash,
 		canonicalHash: canonicalHash,
+		normalized:    normalized.clone(),
 	}, nil
 }
 
@@ -780,6 +889,10 @@ func (v AgentOperation) CanonicalHash() Fingerprint  { return v.canonicalHash }
 
 func (v AgentOperation) valid() bool {
 	return v.sessionID.valid() && v.operationID.valid() && v.sequence != 0 && v.kind.valid() && v.planHash.valid() && v.nonce.valid() && v.payloadHash.valid() && v.canonicalHash.valid()
+}
+
+func (v AgentOperation) dispatchableTool() bool {
+	return v.valid() && v.kind == OperationTool && v.normalized.valid()
 }
 
 type responseKind string

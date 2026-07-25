@@ -556,16 +556,32 @@ func decodeProviderV1OperationRecord(
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
-	input, err := NewOperationInput(OperationInputValues{
-		OperationID: dto.OperationID,
-		Kind:        OperationKind(dto.OperationKind),
-		Nonce:       dto.Nonce,
-		PayloadHash: dto.PayloadHash,
-	})
+	operationID, err := NewIdentifier(dto.OperationID)
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
-	value, err := newAgentOperation(sessionID, sequence, planHash, input)
+	kind := OperationKind(dto.OperationKind)
+	if !kind.valid() {
+		return decodedProviderV1Record{}, errProviderV1Frame
+	}
+	nonce, err := NewNonce(dto.Nonce)
+	if err != nil {
+		return decodedProviderV1Record{}, errProviderV1Frame
+	}
+	payloadHash, err := ParseFingerprint(dto.PayloadHash)
+	if err != nil {
+		return decodedProviderV1Record{}, errProviderV1Frame
+	}
+	value, err := newAgentOperationFromFields(
+		sessionID,
+		operationID,
+		sequence,
+		kind,
+		planHash,
+		nonce,
+		payloadHash,
+		normalizedRecordV1{},
+	)
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
