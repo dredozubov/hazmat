@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"strings"
+	"time"
 )
 
 const (
@@ -71,6 +73,14 @@ func (v CompiledContainmentPlan) ContainmentRequestHash() Fingerprint {
 	return v.containmentRequest.requestHash
 }
 
+func (v CompiledContainmentPlan) DeadlineAt() (time.Time, bool) {
+	if v.containmentRequest.deadlineAtMS == 0 ||
+		v.containmentRequest.deadlineAtMS > math.MaxInt64 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(int64(v.containmentRequest.deadlineAtMS)).UTC(), true
+}
+
 func (v CompiledContainmentPlan) AuthorityHash() Fingerprint {
 	return v.requirement.AuthorityHash()
 }
@@ -104,17 +114,20 @@ func (v CompiledContainmentPlan) ValidateProvider(provider ProviderCapabilities)
 	return nil
 }
 
-// ValidateSessionAdmission requires every provider, requirement, plan, and
-// selected-capability binding to be repeated exactly by the admission.
+// ValidateSessionAdmission requires every provider, requirement, plan,
+// selected-capability, and deadline binding to be repeated exactly.
 func (v CompiledContainmentPlan) ValidateSessionAdmission(
 	admission SessionAdmission,
 ) error {
+	deadline, hasDeadline := v.DeadlineAt()
 	if !v.valid() || !admission.valid() ||
+		!hasDeadline ||
 		admission.ProviderID() != v.providerID ||
 		admission.ProviderEpoch() != v.providerEpoch ||
 		admission.RequirementHash() != v.requirement.CanonicalHash() ||
 		admission.CompiledPlanHash() != v.canonicalHash ||
-		admission.SessionCapabilityHash() != v.providerCapability {
+		admission.SessionCapabilityHash() != v.providerCapability ||
+		!admission.ExpiresAt().Equal(deadline) {
 		return errProviderV1Frame
 	}
 	return nil
@@ -208,7 +221,7 @@ func decodeProviderV1CompiledContainmentPlan(
 	if !ok {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
-	canonicalRequirement, err := (ProviderV1FrameCodec{}).EncodeAdmission(requirement)
+	canonicalRequirement, err := (ProviderV1FrameCodec{}).EncodeExecutionRequirement(requirement)
 	if err != nil || !bytes.Equal(canonicalRequirement, requirementJSON) ||
 		dto.RequirementHash != requirement.CanonicalHash().String() ||
 		dto.AuthorityHash != requirement.AuthorityHash().String() ||
@@ -292,8 +305,9 @@ func decodeProviderV1CanonicalBase64URL(
 }
 
 type providerV1ContainmentLeaseRequest struct {
-	record      []byte
-	requestHash Fingerprint
+	record       []byte
+	requestHash  Fingerprint
+	deadlineAtMS uint64
 }
 
 func (v providerV1ContainmentLeaseRequest) canonicalJSON() []byte {
@@ -303,7 +317,8 @@ func (v providerV1ContainmentLeaseRequest) canonicalJSON() []byte {
 func (v providerV1ContainmentLeaseRequest) valid() bool {
 	return len(v.record) > 0 &&
 		len(v.record) <= providerV1MaxEmbeddedContainmentBytes &&
-		v.requestHash.valid()
+		v.requestHash.valid() &&
+		v.deadlineAtMS > 0
 }
 
 type providerV1ContainmentLeaseRequestDTO struct {
@@ -384,8 +399,9 @@ func parseProviderV1ContainmentLeaseRequest(
 		return providerV1ContainmentLeaseRequest{}, errProviderV1Frame
 	}
 	return providerV1ContainmentLeaseRequest{
-		record:      append([]byte(nil), canonical...),
-		requestHash: requestHash,
+		record:       append([]byte(nil), canonical...),
+		requestHash:  requestHash,
+		deadlineAtMS: dto.Scope.DeadlineAtMS,
 	}, nil
 }
 

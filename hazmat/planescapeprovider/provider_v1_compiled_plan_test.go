@@ -56,6 +56,10 @@ func TestProviderV1CompiledContainmentPlanReplaysAndValidatesBindings(
 		plan.ProviderCapabilityHash() != admission.SessionCapabilityHash() {
 		t.Fatal("compiled plan accessors do not expose exact admission bindings")
 	}
+	deadline, ok := plan.DeadlineAt()
+	if !ok || !deadline.Equal(admission.ExpiresAt()) {
+		t.Fatal("compiled plan deadline does not bind admission expiry")
+	}
 
 	wrongHash, err := ParseFingerprint(fingerprint("f"))
 	if err != nil {
@@ -65,6 +69,11 @@ func TestProviderV1CompiledContainmentPlanReplaysAndValidatesBindings(
 	wrongAdmission.sessionCapabilityHash = wrongHash
 	if err := plan.ValidateSessionAdmission(wrongAdmission); !errors.Is(err, errProviderV1Frame) {
 		t.Fatalf("session-capability mismatch error = %v, want rejection", err)
+	}
+	wrongAdmission = admission
+	wrongAdmission.expiresAt = wrongAdmission.expiresAt.Add(1)
+	if err := plan.ValidateSessionAdmission(wrongAdmission); !errors.Is(err, errProviderV1Frame) {
+		t.Fatalf("deadline mismatch error = %v, want rejection", err)
 	}
 	wrongProvider := capabilities
 	wrongProvider.capabilityHash = wrongHash

@@ -21,7 +21,7 @@ type FrameTransport interface {
 type FrameCodec interface {
 	EncodeDiscovery() ([]byte, error)
 	DecodeCapabilities([]byte) (ProviderCapabilities, error)
-	EncodeAdmission(ExecutionRequirement) ([]byte, error)
+	EncodeCompiledContainmentPlan(CompiledContainmentPlan) ([]byte, error)
 	DecodeAdmission([]byte) (SessionAdmission, error)
 	EncodeOperation(AgentOperation) ([]byte, error)
 	DecodeOperation([]byte) (OperationResponse, error)
@@ -72,11 +72,17 @@ func (e *FramedEndpoint) Discover(ctx context.Context) (ProviderCapabilities, er
 	return value, nil
 }
 
-func (e *FramedEndpoint) Admit(ctx context.Context, request ExecutionRequirement) (SessionAdmission, error) {
+func (e *FramedEndpoint) Admit(
+	ctx context.Context,
+	request CompiledContainmentPlan,
+) (SessionAdmission, error) {
 	if !e.usable() {
 		return SessionAdmission{}, framingError{class: ErrorUnavailable}
 	}
-	frame, err := e.codec.EncodeAdmission(request)
+	if !request.valid() {
+		return SessionAdmission{}, framingError{class: ErrorInvalid}
+	}
+	frame, err := e.codec.EncodeCompiledContainmentPlan(request)
 	if err != nil {
 		return SessionAdmission{}, framingError{class: ErrorInvalid}
 	}

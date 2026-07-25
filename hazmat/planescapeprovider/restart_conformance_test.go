@@ -44,7 +44,7 @@ func (c *lifecycleFrameCodec) DecodeCapabilities([]byte) (ProviderCapabilities, 
 	return c.capabilities, nil
 }
 
-func (*lifecycleFrameCodec) EncodeAdmission(ExecutionRequirement) ([]byte, error) {
+func (*lifecycleFrameCodec) EncodeCompiledContainmentPlan(CompiledContainmentPlan) ([]byte, error) {
 	return []byte(`{"kind":"admit"}`), nil
 }
 
@@ -125,11 +125,8 @@ func newFramedTestClient(t *testing.T, codec FrameCodec, transport FrameTranspor
 
 func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 	ctx := context.Background()
-	requirement := mustRequirement(t)
-	capabilities := mustCapabilities(t, ProfilePortable, []Capability{
-		CapabilityToolExecute,
-		CapabilityWorkspaceRead,
-	})
+	plan := mustCompiledPlan(t)
+	capabilities := mustReleasedCapabilities(t)
 	store, err := NewFileStore(filepath.Join(t.TempDir(), "provider-checkpoints"))
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +134,7 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 
 	firstCodec := &lifecycleFrameCodec{
 		capabilities: capabilities,
-		admission:    mustAdmission(t, requirement),
+		admission:    mustAdmission(t, plan),
 		operationReplies: []OperationResponse{
 			mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9"),
 		},
@@ -153,7 +150,7 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := mustSession(t, firstClient, discovery, requirement)
+	session := mustSession(t, firstClient, discovery, plan)
 	if _, err := session.Launch(ctx, mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +233,7 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 		operationID:   "tool-1",
 		sequence:      2,
 		kind:          OperationTool,
-		planHash:      fingerprint("4"),
+		planHash:      plan.CanonicalHash().String(),
 		nonce:         "nonce-tool",
 		payloadHash:   fingerprint("a"),
 		canonicalHash: fingerprint("b"),

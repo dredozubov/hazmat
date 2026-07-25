@@ -538,25 +538,23 @@ func (v ExecutionRequirement) valid() bool {
 	return capabilityErr == nil && resourceErr == nil
 }
 
-// AdmissionInput pairs a kernel-bound requirement with the product's required
-// profile. The profile is an acceptance expectation, not a second policy plan.
+// AdmissionInput carries one validated Rust-produced containment plan. Hazmat
+// intentionally has no constructor that can derive a plan from requirement or
+// profile inputs.
 type AdmissionInput struct {
-	requirement     ExecutionRequirement
-	requiredProfile Profile
+	plan CompiledContainmentPlan
 }
 
-func NewAdmissionInput(requirement ExecutionRequirement, requiredProfile Profile) (AdmissionInput, error) {
-	if !requirement.valid() {
-		return AdmissionInput{}, fmt.Errorf("planescapeprovider: invalid execution requirement")
+func NewAdmissionInput(plan CompiledContainmentPlan) (AdmissionInput, error) {
+	if !plan.valid() {
+		return AdmissionInput{}, fmt.Errorf("planescapeprovider: invalid compiled containment plan")
 	}
-	if !requiredProfile.valid() {
-		return AdmissionInput{}, fmt.Errorf("planescapeprovider: unsupported required profile")
-	}
-	return AdmissionInput{requirement: requirement, requiredProfile: requiredProfile}, nil
+	return AdmissionInput{plan: plan}, nil
 }
 
-func (v AdmissionInput) Requirement() ExecutionRequirement { return v.requirement }
-func (v AdmissionInput) RequiredProfile() Profile          { return v.requiredProfile }
+func (v AdmissionInput) Plan() CompiledContainmentPlan { return v.plan }
+
+func (v AdmissionInput) valid() bool { return v.plan.valid() }
 
 // SessionAdmission is the provider's exact binding of a session to one
 // discovered identity, epoch, requirement, and compiled plan.

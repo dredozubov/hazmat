@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -158,36 +159,7 @@ func TestConfiguredPlanescapeProviderCannotReachNativeRunner(t *testing.T) {
 
 func TestPlanescapeProductClientReopensDurableCheckpointStore(t *testing.T) {
 	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	capabilities := planescapeProductCapabilities(t)
-	requirement, err := planescapeprovider.NewExecutionRequirement(
-		planescapeprovider.ExecutionRequirementInput{
-			RequirementID:              "requirement-product-1",
-			ControllerAttemptID:        "attempt-product-1",
-			AuthorityHash:              planescapeProductHash("a"),
-			RequiredCapabilities:       []planescapeprovider.Capability{planescapeprovider.CapabilityToolExecute},
-			RequiredResourceDimensions: []planescapeprovider.ResourceDimension{planescapeprovider.ResourceMemoryBytes},
-			EvidenceProfileHash:        planescapeProductHash("b"),
-			CanonicalHash:              planescapeProductHash("c"),
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admission, err := planescapeprovider.NewSessionAdmission(
-		planescapeprovider.SessionAdmissionInput{
-			SessionID:             "session-product-1",
-			ProviderID:            capabilities.ProviderID().String(),
-			ProviderEpoch:         capabilities.ProviderEpoch().Uint64(),
-			RequirementHash:       requirement.CanonicalHash().String(),
-			CompiledPlanHash:      planescapeProductHash("d"),
-			SessionCapabilityHash: planescapeProductHash("e"),
-			ExpiresAt:             now.Add(time.Hour),
-			CanonicalHash:         planescapeProductHash("f"),
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	capabilities, plan, admission := planescapeProductAdmissionFixtures(t)
 	endpoint := &planescapeProductEndpointFake{
 		capabilities: capabilities,
 		admission:    admission,
@@ -207,10 +179,7 @@ func TestPlanescapeProductClientReopensDurableCheckpointStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admissionInput, err := planescapeprovider.NewAdmissionInput(
-		requirement,
-		planescapeprovider.ProfilePortable,
-	)
+	admissionInput, err := planescapeprovider.NewAdmissionInput(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,6 +224,10 @@ func TestPlanescapeProductClientReopensDurableCheckpointStore(t *testing.T) {
 	if endpoint.admitCalls != 1 {
 		t.Fatalf("Admit calls = %d, want 1; reconnect must use durable state", endpoint.admitCalls)
 	}
+	if len(endpoint.admittedPlans) != 1 ||
+		endpoint.admittedPlans[0].CanonicalHash() != plan.CanonicalHash() {
+		t.Fatal("product endpoint did not receive the exact compiled plan")
+	}
 }
 
 func TestConfiguredSessionExecutionProviderLoadsExplicitPlanescapeSelection(t *testing.T) {
@@ -298,6 +271,7 @@ type planescapeProductEndpointFake struct {
 	discoverErr   error
 	discoverCalls int
 	admitCalls    int
+	admittedPlans []planescapeprovider.CompiledContainmentPlan
 }
 
 func (e *planescapeProductEndpointFake) Discover(context.Context) (planescapeprovider.ProviderCapabilities, error) {
@@ -306,10 +280,11 @@ func (e *planescapeProductEndpointFake) Discover(context.Context) (planescapepro
 }
 
 func (e *planescapeProductEndpointFake) Admit(
-	context.Context,
-	planescapeprovider.ExecutionRequirement,
+	_ context.Context,
+	plan planescapeprovider.CompiledContainmentPlan,
 ) (planescapeprovider.SessionAdmission, error) {
 	e.admitCalls++
+	e.admittedPlans = append(e.admittedPlans, plan)
 	return e.admission, nil
 }
 
@@ -355,6 +330,59 @@ func planescapeProductCapabilities(t *testing.T) planescapeprovider.ProviderCapa
 		t.Fatal(err)
 	}
 	return capabilities
+}
+
+func planescapeProductAdmissionFixtures(
+	t *testing.T,
+) (
+	planescapeprovider.ProviderCapabilities,
+	planescapeprovider.CompiledContainmentPlan,
+	planescapeprovider.SessionAdmission,
+) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(
+		"planescapeprovider",
+		"testdata",
+		"planescape.provider.v1",
+		"wire",
+		"vectors.json",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors struct {
+		Records []struct {
+			Kind     string `json:"kind"`
+			WireJSON string `json:"wire_json"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(data, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	record := func(kind string) []byte {
+		t.Helper()
+		for _, candidate := range vectors.Records {
+			if candidate.Kind == kind {
+				return []byte(candidate.WireJSON)
+			}
+		}
+		t.Fatalf("provider-v1 vector %q is missing", kind)
+		return nil
+	}
+	codec := planescapeprovider.ProviderV1FrameCodec{}
+	capabilities, err := codec.DecodeCapabilities(record("provider_capabilities"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := codec.DecodeCompiledContainmentPlan(record("compiled_containment_plan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission, err := codec.DecodeAdmission(record("session_admission"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return capabilities, plan, admission
 }
 
 func newPlanescapeProviderFailureForTest(

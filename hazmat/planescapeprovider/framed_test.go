@@ -27,7 +27,7 @@ func (s frameCodecStub) EncodeDiscovery() ([]byte, error) { return s.encode, nil
 func (s frameCodecStub) DecodeCapabilities([]byte) (ProviderCapabilities, error) {
 	return s.capabilities, nil
 }
-func (frameCodecStub) EncodeAdmission(ExecutionRequirement) ([]byte, error) {
+func (frameCodecStub) EncodeCompiledContainmentPlan(CompiledContainmentPlan) ([]byte, error) {
 	return nil, errors.New("unused")
 }
 func (frameCodecStub) DecodeAdmission([]byte) (SessionAdmission, error) {
@@ -96,6 +96,31 @@ func TestFramedEndpointMapsTransportFailureToUnavailable(t *testing.T) {
 	client := mustClient(t, endpoint)
 	_, err = client.Discover(context.Background())
 	requireClass(t, err, ErrorUnavailable)
+}
+
+func TestFramedEndpointRejectsZeroCompiledPlanBeforeTransport(t *testing.T) {
+	transport := &frameTransportStub{response: []byte(`{}`)}
+	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
+		Transport: transport,
+		Codec:     frameCodecStub{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := endpoint.Admit(
+		context.Background(),
+		CompiledContainmentPlan{},
+	); err == nil {
+		t.Fatal("zero compiled plan reached framed admission")
+	} else {
+		var failure framingError
+		if !errors.As(err, &failure) || failure.class != ErrorInvalid {
+			t.Fatalf("zero compiled plan error = %v, want invalid", err)
+		}
+	}
+	if transport.request != nil {
+		t.Fatal("zero compiled plan reached transport")
+	}
 }
 
 func TestFramedEndpointRejectsInvalidOutboundFrame(t *testing.T) {

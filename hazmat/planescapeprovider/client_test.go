@@ -2,7 +2,9 @@ package planescapeprovider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +37,7 @@ type scriptedEndpoint struct {
 	cancellations []cancellationReply
 	calls         []string
 	admitCalls    int
+	admittedPlans []CompiledContainmentPlan
 }
 
 func (s *scriptedEndpoint) Discover(_ context.Context) (ProviderCapabilities, error) {
@@ -42,9 +45,13 @@ func (s *scriptedEndpoint) Discover(_ context.Context) (ProviderCapabilities, er
 	return s.capabilities, s.discoverErr
 }
 
-func (s *scriptedEndpoint) Admit(_ context.Context, _ ExecutionRequirement) (SessionAdmission, error) {
+func (s *scriptedEndpoint) Admit(
+	_ context.Context,
+	plan CompiledContainmentPlan,
+) (SessionAdmission, error) {
 	s.calls = append(s.calls, "admit")
 	s.admitCalls++
+	s.admittedPlans = append(s.admittedPlans, plan)
 	return s.admission, s.admitErr
 }
 
@@ -99,36 +106,52 @@ func mustCapabilities(t *testing.T, profile Profile, capabilities []Capability) 
 	return value
 }
 
-func mustRequirement(t *testing.T) ExecutionRequirement {
+func mustCompiledPlan(t *testing.T) CompiledContainmentPlan {
 	t.Helper()
-	value, err := NewExecutionRequirement(ExecutionRequirementInput{
-		RequirementID:              "requirement-1",
-		ControllerAttemptID:        "attempt-1",
-		AuthorityHash:              fingerprint("1"),
-		RequiredCapabilities:       []Capability{CapabilityToolExecute, CapabilityWorkspaceRead},
-		RequiredResourceDimensions: []ResourceDimension{ResourceMemoryBytes, ResourceWorkspaceBytes},
-		EvidenceProfileHash:        fingerprint("2"),
-		CanonicalHash:              fingerprint("3"),
-	})
+	vectors := loadReleasedProviderV1Vectors(t)
+	value, err := (ProviderV1FrameCodec{}).DecodeCompiledContainmentPlan(
+		[]byte(releasedProviderV1RecordByKind(
+			t,
+			vectors,
+			providerV1KindCompiledPlan,
+		).WireJSON),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return value
 }
 
-func mustAdmission(t *testing.T, requirement ExecutionRequirement) SessionAdmission {
+func mustReleasedCapabilities(t *testing.T) ProviderCapabilities {
 	t.Helper()
-	value, err := NewSessionAdmission(SessionAdmissionInput{
-		SessionID:             "session-1",
-		ProviderID:            "provider-1",
-		ProviderEpoch:         7,
-		RequirementHash:       requirement.CanonicalHash().String(),
-		CompiledPlanHash:      fingerprint("4"),
-		SessionCapabilityHash: fingerprint("5"),
-		ExpiresAt:             testNow.Add(time.Hour),
-		CanonicalHash:         fingerprint("6"),
-	})
+	vectors := loadReleasedProviderV1Vectors(t)
+	value, err := (ProviderV1FrameCodec{}).DecodeCapabilities(
+		[]byte(releasedProviderV1RecordByKind(
+			t,
+			vectors,
+			providerV1KindCapabilities,
+		).WireJSON),
+	)
 	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func mustAdmission(t *testing.T, plan CompiledContainmentPlan) SessionAdmission {
+	t.Helper()
+	vectors := loadReleasedProviderV1Vectors(t)
+	value, err := (ProviderV1FrameCodec{}).DecodeAdmission(
+		[]byte(releasedProviderV1RecordByKind(
+			t,
+			vectors,
+			providerV1KindAdmission,
+		).WireJSON),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ValidateSessionAdmission(value); err != nil {
 		t.Fatal(err)
 	}
 	return value
@@ -221,9 +244,14 @@ func mustClient(t *testing.T, endpoint Endpoint) *Client {
 	return client
 }
 
-func mustSession(t *testing.T, client *Client, discovery Discovery, requirement ExecutionRequirement) Session {
+func mustSession(
+	t *testing.T,
+	client *Client,
+	discovery Discovery,
+	plan CompiledContainmentPlan,
+) Session {
 	t.Helper()
-	input, err := NewAdmissionInput(requirement, ProfilePortable)
+	input, err := NewAdmissionInput(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,11 +276,39 @@ func requireClass(t *testing.T, err error, want ErrorClass) {
 	}
 }
 
+func TestAdmissionAPIRequiresCompiledContainmentPlan(t *testing.T) {
+	endpointMethod, ok := reflect.TypeOf((*Endpoint)(nil)).Elem().MethodByName("Admit")
+	if !ok {
+		t.Fatal("Endpoint.Admit is missing")
+	}
+	wantEndpointMethod := reflect.TypeOf(
+		(func(context.Context, CompiledContainmentPlan) (SessionAdmission, error))(nil),
+	)
+	if endpointMethod.Type != wantEndpointMethod {
+		t.Fatalf("Endpoint.Admit type = %v, want %v", endpointMethod.Type, wantEndpointMethod)
+	}
+	wantConstructor := reflect.TypeOf(
+		(func(CompiledContainmentPlan) (AdmissionInput, error))(nil),
+	)
+	if got := reflect.TypeOf(NewAdmissionInput); got != wantConstructor {
+		t.Fatalf("NewAdmissionInput type = %v, want %v", got, wantConstructor)
+	}
+	codecType := reflect.TypeOf(ProviderV1FrameCodec{})
+	if _, ok := codecType.MethodByName("EncodeAdmission"); ok {
+		t.Fatal("requirement-shaped EncodeAdmission remains reachable")
+	}
+	requirementEncoder, ok := codecType.MethodByName("EncodeExecutionRequirement")
+	if !ok ||
+		requirementEncoder.Type.In(1) != reflect.TypeOf(ExecutionRequirement{}) {
+		t.Fatal("execution requirement encoding is not isolated as compiler input")
+	}
+}
+
 func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	endpoint := &scriptedEndpoint{
-		capabilities: mustCapabilities(t, ProfileStockLinux, []Capability{CapabilityArtifactRead, CapabilityToolExecute, CapabilityWorkspaceRead, CapabilityWorkspaceWrite}),
-		admission:    mustAdmission(t, requirement),
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
 		operations: []operationReply{
 			{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")},
 			{response: mustResult(t, "tool-1", 2, ResultCompleted, "a", "b", "c")},
@@ -267,7 +323,7 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := mustSession(t, client, discovery, requirement)
+	session := mustSession(t, client, discovery, plan)
 
 	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 		t.Fatal(err)
@@ -318,8 +374,250 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	}
 }
 
+func TestClientAdmissionPersistsExactCompiledPlanBindings(t *testing.T) {
+	plan := mustCompiledPlan(t)
+	capabilities := mustReleasedCapabilities(t)
+	admission := mustAdmission(t, plan)
+	endpoint := &scriptedEndpoint{
+		capabilities: capabilities,
+		admission:    admission,
+	}
+	store := &MemoryStore{}
+	client, err := NewClient(ClientConfig{
+		Endpoint: endpoint,
+		Store:    store,
+		Now:      func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := NewAdmissionInput(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Admit(context.Background(), discovery, input); err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoint.admittedPlans) != 1 ||
+		endpoint.admittedPlans[0].CanonicalHash() != plan.CanonicalHash() ||
+		endpoint.admittedPlans[0].ContainmentRequestHash() != plan.ContainmentRequestHash() {
+		t.Fatal("endpoint did not receive the exact compiled plan")
+	}
+	data, ok, err := store.Load(context.Background(), admission.SessionID().String())
+	if err != nil || !ok {
+		t.Fatalf("load durable admission = %v, %v", ok, err)
+	}
+	var checkpoint checkpointDTO
+	if err := json.Unmarshal(data, &checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	deadline, ok := plan.DeadlineAt()
+	if !ok {
+		t.Fatal("compiled plan has no representable deadline")
+	}
+	if checkpoint.ProviderID != plan.ProviderID().String() ||
+		checkpoint.ProviderEpoch != plan.ProviderEpoch().Uint64() ||
+		checkpoint.Profile != plan.ProviderProfile() ||
+		checkpoint.RequirementHash != plan.Requirement().CanonicalHash().String() ||
+		checkpoint.PlanHash != plan.CanonicalHash().String() ||
+		checkpoint.SessionCapabilityHash != plan.ProviderCapabilityHash().String() ||
+		checkpoint.ExpiresAtMS != deadline.UnixMilli() {
+		t.Fatalf("durable admission bindings = %+v", checkpoint)
+	}
+}
+
+func TestClientAdmissionRejectsBindingMismatchesBeforeDurableSuccess(t *testing.T) {
+	otherProvider, err := NewIdentifier("other-provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badHash, err := ParseFingerprint(fingerprint("0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name               string
+		mutateCapabilities func(*ProviderCapabilities)
+		mutateAdmission    func(*SessionAdmission)
+		wantAdmitCalls     int
+	}{
+		{
+			name: "selected provider",
+			mutateCapabilities: func(value *ProviderCapabilities) {
+				value.providerID = otherProvider
+			},
+		},
+		{
+			name: "selected provider capability",
+			mutateCapabilities: func(value *ProviderCapabilities) {
+				value.capabilityHash = badHash
+			},
+		},
+		{
+			name: "admission provider",
+			mutateAdmission: func(value *SessionAdmission) {
+				value.providerID = otherProvider
+			},
+			wantAdmitCalls: 1,
+		},
+		{
+			name: "admission requirement hash",
+			mutateAdmission: func(value *SessionAdmission) {
+				value.requirementHash = badHash
+			},
+			wantAdmitCalls: 1,
+		},
+		{
+			name: "admission plan hash",
+			mutateAdmission: func(value *SessionAdmission) {
+				value.compiledPlanHash = badHash
+			},
+			wantAdmitCalls: 1,
+		},
+		{
+			name: "admission session capability",
+			mutateAdmission: func(value *SessionAdmission) {
+				value.sessionCapabilityHash = badHash
+			},
+			wantAdmitCalls: 1,
+		},
+		{
+			name: "admission deadline",
+			mutateAdmission: func(value *SessionAdmission) {
+				value.expiresAt = value.expiresAt.Add(time.Millisecond)
+			},
+			wantAdmitCalls: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := mustCompiledPlan(t)
+			capabilities := mustReleasedCapabilities(t)
+			admission := mustAdmission(t, plan)
+			if test.mutateCapabilities != nil {
+				test.mutateCapabilities(&capabilities)
+			}
+			if test.mutateAdmission != nil {
+				test.mutateAdmission(&admission)
+			}
+			endpoint := &scriptedEndpoint{
+				capabilities: capabilities,
+				admission:    admission,
+			}
+			store := &MemoryStore{}
+			client, err := NewClient(ClientConfig{
+				Endpoint: endpoint,
+				Store:    store,
+				Now:      func() time.Time { return testNow },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			discovery, err := client.Discover(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, err := NewAdmissionInput(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Admit(context.Background(), discovery, input)
+			requireClass(t, err, ErrorConflict)
+			if endpoint.admitCalls != test.wantAdmitCalls {
+				t.Fatalf("admit calls = %d, want %d", endpoint.admitCalls, test.wantAdmitCalls)
+			}
+			if len(store.records) != 0 {
+				t.Fatal("binding mismatch reached durable success")
+			}
+			for _, admittedPlan := range endpoint.admittedPlans {
+				if admittedPlan.CanonicalHash() != plan.CanonicalHash() {
+					t.Fatal("endpoint received a substituted compiled plan")
+				}
+			}
+		})
+	}
+}
+
+func TestClientRejectsExpiredCompiledPlanBeforeAdmission(t *testing.T) {
+	plan := mustCompiledPlan(t)
+	deadline, ok := plan.DeadlineAt()
+	if !ok {
+		t.Fatal("compiled plan has no representable deadline")
+	}
+	endpoint := &scriptedEndpoint{
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
+	}
+	store := &MemoryStore{}
+	client, err := NewClient(ClientConfig{
+		Endpoint: endpoint,
+		Store:    store,
+		Now:      func() time.Time { return deadline },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := NewAdmissionInput(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Admit(context.Background(), discovery, input)
+	requireClass(t, err, ErrorUnavailable)
+	if endpoint.admitCalls != 0 || len(store.records) != 0 {
+		t.Fatal("expired compiled plan reached admission or durable success")
+	}
+}
+
+func TestClientReconnectRejectsProviderCapabilityChange(t *testing.T) {
+	plan := mustCompiledPlan(t)
+	endpoint := &scriptedEndpoint{
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
+	}
+	client := mustClient(t, endpoint)
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := mustSession(t, client, discovery, plan)
+	sessionID, ok := session.ID()
+	if !ok {
+		t.Fatal("admitted session has no ID")
+	}
+	endpoint.capabilities, err = NewProviderCapabilities(ProviderCapabilitiesInput{
+		ProviderID:         plan.ProviderID().String(),
+		ProviderEpoch:      plan.ProviderEpoch().Uint64(),
+		Profile:            plan.ProviderProfile(),
+		CapabilityHash:     fingerprint("0"),
+		CanonicalHash:      fingerprint("1"),
+		Capabilities:       endpoint.capabilities.Capabilities(),
+		ResourceDimensions: endpoint.capabilities.ResourceDimensions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedDiscovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Reconnect(
+		context.Background(),
+		changedDiscovery,
+		sessionID.String(),
+	)
+	requireClass(t, err, ErrorConflict)
+}
+
 func TestClientCancellationBindsEvidence(t *testing.T) {
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	ack, err := NewCancellationAck(CancellationAckInput{
 		SessionID:           "session-1",
 		CancellationID:      "cancel-1",
@@ -331,8 +629,8 @@ func TestClientCancellationBindsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	endpoint := &scriptedEndpoint{
-		capabilities:  mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-		admission:     mustAdmission(t, requirement),
+		capabilities:  mustReleasedCapabilities(t),
+		admission:     mustAdmission(t, plan),
 		operations:    []operationReply{{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")}},
 		cancellations: []cancellationReply{{ack: ack}},
 	}
@@ -341,7 +639,7 @@ func TestClientCancellationBindsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := mustSession(t, client, discovery, requirement)
+	session := mustSession(t, client, discovery, plan)
 	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 		t.Fatal(err)
 	}
@@ -363,10 +661,10 @@ func TestClientCancellationBindsEvidence(t *testing.T) {
 
 func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 	t.Run("freeze", func(t *testing.T) {
-		requirement := mustRequirement(t)
+		plan := mustCompiledPlan(t)
 		endpoint := &scriptedEndpoint{
-			capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-			admission:    mustAdmission(t, requirement),
+			capabilities: mustReleasedCapabilities(t),
+			admission:    mustAdmission(t, plan),
 			operations: []operationReply{
 				{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")},
 				{response: mustQuiescence(t)},
@@ -378,7 +676,7 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		session := mustSession(t, client, discovery, requirement)
+		session := mustSession(t, client, discovery, plan)
 		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 			t.Fatal(err)
 		}
@@ -398,7 +696,7 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 	})
 
 	t.Run("cancellation", func(t *testing.T) {
-		requirement := mustRequirement(t)
+		plan := mustCompiledPlan(t)
 		ack, err := NewCancellationAck(CancellationAckInput{
 			SessionID:           "session-1",
 			CancellationID:      "cancel-1",
@@ -410,8 +708,8 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		endpoint := &scriptedEndpoint{
-			capabilities:  mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-			admission:     mustAdmission(t, requirement),
+			capabilities:  mustReleasedCapabilities(t),
+			admission:     mustAdmission(t, plan),
 			operations:    []operationReply{{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")}},
 			cancellations: []cancellationReply{{ack: ack}, {ack: ack}},
 		}
@@ -420,7 +718,7 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		session := mustSession(t, client, discovery, requirement)
+		session := mustSession(t, client, discovery, plan)
 		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 			t.Fatal(err)
 		}
@@ -439,11 +737,11 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 
 func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 	t.Run("denial", func(t *testing.T) {
-		requirement := mustRequirement(t)
+		plan := mustCompiledPlan(t)
 		denial, err := NewProviderFailure(ProviderFailureInput{
 			Code:          ProviderErrorUnsupported,
-			ProviderID:    "provider-1",
-			ProviderEpoch: 7,
+			ProviderID:    plan.ProviderID().String(),
+			ProviderEpoch: plan.ProviderEpoch().Uint64(),
 			RetryFrom:     TransitionAdmit,
 			CanonicalHash: fingerprint("a"),
 		})
@@ -451,7 +749,7 @@ func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 			t.Fatal(err)
 		}
 		endpoint := &scriptedEndpoint{
-			capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
+			capabilities: mustReleasedCapabilities(t),
 			admitErr:     denial,
 		}
 		client := mustClient(t, endpoint)
@@ -459,7 +757,7 @@ func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, err := NewAdmissionInput(requirement, ProfilePortable)
+		input, err := NewAdmissionInput(plan)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,17 +766,17 @@ func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 	})
 
 	t.Run("restart", func(t *testing.T) {
-		requirement := mustRequirement(t)
+		plan := mustCompiledPlan(t)
 		endpoint := &scriptedEndpoint{
-			capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-			admission:    mustAdmission(t, requirement),
+			capabilities: mustReleasedCapabilities(t),
+			admission:    mustAdmission(t, plan),
 		}
 		client := mustClient(t, endpoint)
 		discovery, err := client.Discover(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		_ = mustSession(t, client, discovery, requirement)
+		_ = mustSession(t, client, discovery, plan)
 		endpoint.capabilities, err = NewProviderCapabilities(ProviderCapabilitiesInput{
 			ProviderID:         "provider-1",
 			ProviderEpoch:      8,
@@ -501,10 +799,10 @@ func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 }
 
 func TestClientUnavailableOperationPreservesReplay(t *testing.T) {
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	endpoint := &scriptedEndpoint{
-		capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-		admission:    mustAdmission(t, requirement),
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
 		operations: []operationReply{
 			{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")},
 			{err: context.DeadlineExceeded},
@@ -516,7 +814,7 @@ func TestClientUnavailableOperationPreservesReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := mustSession(t, client, discovery, requirement)
+	session := mustSession(t, client, discovery, plan)
 	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 		t.Fatal(err)
 	}
@@ -529,29 +827,29 @@ func TestClientUnavailableOperationPreservesReplay(t *testing.T) {
 }
 
 func TestClientRejectsCapabilityDowngradeWithoutAdmitting(t *testing.T) {
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	endpoint := &scriptedEndpoint{
 		capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityWorkspaceRead}),
-		admission:    mustAdmission(t, requirement),
+		admission:    mustAdmission(t, plan),
 	}
 	client := mustClient(t, endpoint)
 	discovery, err := client.Discover(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := NewAdmissionInput(requirement, ProfilePortable)
+	input, err := NewAdmissionInput(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = client.Admit(context.Background(), discovery, input)
-	requireClass(t, err, ErrorUnsupported)
+	requireClass(t, err, ErrorConflict)
 	if endpoint.admitCalls != 0 {
 		t.Fatalf("admit calls = %d, want 0", endpoint.admitCalls)
 	}
 }
 
 func TestClientRejectsMalformedAndCrossSessionResults(t *testing.T) {
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	wrongSession, err := NewOperationResult(OperationResultInput{
 		SessionID:     "session-other",
 		OperationID:   "launch-1",
@@ -570,8 +868,8 @@ func TestClientRejectsMalformedAndCrossSessionResults(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			endpoint := &scriptedEndpoint{
-				capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-				admission:    mustAdmission(t, requirement),
+				capabilities: mustReleasedCapabilities(t),
+				admission:    mustAdmission(t, plan),
 				operations:   []operationReply{{response: response}},
 			}
 			client := mustClient(t, endpoint)
@@ -579,7 +877,7 @@ func TestClientRejectsMalformedAndCrossSessionResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			session := mustSession(t, client, discovery, requirement)
+			session := mustSession(t, client, discovery, plan)
 			_, err = session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8"))
 			requireClass(t, err, ErrorConflict)
 			_, err = session.Replay(context.Background(), "launch-1")
@@ -592,10 +890,10 @@ func TestClientRejectsConflictingDuplicateAndMissingProvider(t *testing.T) {
 	_, err := NewClient(ClientConfig{Store: &MemoryStore{}})
 	requireClass(t, err, ErrorUnavailable)
 
-	requirement := mustRequirement(t)
+	plan := mustCompiledPlan(t)
 	endpoint := &scriptedEndpoint{
-		capabilities: mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead}),
-		admission:    mustAdmission(t, requirement),
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
 		operations: []operationReply{
 			{response: mustResult(t, "launch-1", 1, ResultAccepted, "7", "8", "9")},
 			{response: mustResult(t, "tool-1", 2, ResultAccepted, "a", "b", "c")},
@@ -606,7 +904,7 @@ func TestClientRejectsConflictingDuplicateAndMissingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := mustSession(t, client, discovery, requirement)
+	session := mustSession(t, client, discovery, plan)
 	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
 		t.Fatal(err)
 	}

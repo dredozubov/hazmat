@@ -113,10 +113,10 @@ func TestProtectedBrokerDiscoveryEndpointRejectsLifecycleBeforeTCPDial(t *testin
 	endpoint := mustProtectedBrokerLoopbackDiscoveryEndpoint(t, target, harness.client)
 
 	vectors := loadReleasedProviderV1Vectors(t)
-	requirement := decodeReleasedProviderV1Record(
+	plan := decodeReleasedProviderV1Record(
 		t,
-		releasedProviderV1RecordByKind(t, vectors, providerV1KindRequirement),
-	).value.(ExecutionRequirement)
+		releasedProviderV1RecordByKind(t, vectors, providerV1KindCompiledPlan),
+	).value.(CompiledContainmentPlan)
 	operation := decodeReleasedProviderV1Record(
 		t,
 		releasedProviderV1RecordByKind(t, vectors, providerV1KindOperation),
@@ -130,7 +130,7 @@ func TestProtectedBrokerDiscoveryEndpointRejectsLifecycleBeforeTCPDial(t *testin
 		releasedProviderV1RecordByKind(t, vectors, providerV1KindCancellation),
 	).value.(Cancellation)
 
-	_, err := endpoint.Admit(context.Background(), requirement)
+	_, err := endpoint.Admit(context.Background(), plan)
 	requireStableProtectedBrokerError(t, err, ProtectedBrokerInvalidRequestV1, target.String())
 	_, err = endpoint.Operate(context.Background(), operation)
 	requireStableProtectedBrokerError(t, err, ProtectedBrokerInvalidRequestV1, target.String())

@@ -133,6 +133,43 @@ func TestProviderV1CodecIntegratesWithFramedEndpoint(t *testing.T) {
 	}
 }
 
+func TestProviderV1CodecFramedAdmissionTransmitsExactCompiledPlan(t *testing.T) {
+	vectors := loadReleasedProviderV1Vectors(t)
+	planVector := releasedProviderV1RecordByKind(
+		t,
+		vectors,
+		providerV1KindCompiledPlan,
+	)
+	admissionVector := releasedProviderV1RecordByKind(
+		t,
+		vectors,
+		providerV1KindAdmission,
+	)
+	codec := ProviderV1FrameCodec{}
+	plan, err := codec.DecodeCompiledContainmentPlan([]byte(planVector.WireJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &frameTransportStub{response: []byte(admissionVector.WireJSON)}
+	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
+		Transport: transport,
+		Codec:     codec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission, err := endpoint.Admit(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(transport.request); got != planVector.WireJSON {
+		t.Fatalf("admission request = %s, want released compiled plan %s", got, planVector.WireJSON)
+	}
+	if err := plan.ValidateSessionAdmission(admission); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProviderV1CodecRejectsReleasedVectorMutations(t *testing.T) {
 	vectors := loadReleasedProviderV1Vectors(t)
 	capabilities := releasedProviderV1RecordByKind(t, vectors, providerV1KindCapabilities)
@@ -266,7 +303,7 @@ func TestProviderV1CodecRejectsMismatchedOutboundHashes(t *testing.T) {
 
 	for name, encode := range map[string]func() ([]byte, error){
 		"execution requirement": func() ([]byte, error) {
-			return codec.EncodeAdmission(requirement)
+			return codec.EncodeExecutionRequirement(requirement)
 		},
 		"compiled containment plan": func() ([]byte, error) {
 			return codec.EncodeCompiledContainmentPlan(plan)
@@ -410,7 +447,7 @@ func encodeReleasedProviderV1Record(
 	case providerV1KindDiscovery:
 		frame, err = codec.EncodeDiscovery()
 	case providerV1KindRequirement:
-		frame, err = codec.EncodeAdmission(record.value.(ExecutionRequirement))
+		frame, err = codec.EncodeExecutionRequirement(record.value.(ExecutionRequirement))
 	case providerV1KindCompiledPlan:
 		frame, err = codec.EncodeCompiledContainmentPlan(record.value.(CompiledContainmentPlan))
 	case providerV1KindOperation:

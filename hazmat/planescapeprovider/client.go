@@ -19,7 +19,7 @@ const checkpointSchema = "hazmat.planescapeprovider.checkpoint.v1"
 // legacy or in-process containment implementation when Endpoint is unavailable.
 type Endpoint interface {
 	Discover(context.Context) (ProviderCapabilities, error)
-	Admit(context.Context, ExecutionRequirement) (SessionAdmission, error)
+	Admit(context.Context, CompiledContainmentPlan) (SessionAdmission, error)
 	Operate(context.Context, AgentOperation) (OperationResponse, error)
 	Freeze(context.Context, Freeze) (FreezeAck, error)
 	Cancel(context.Context, Cancellation) (CancellationAck, error)
@@ -136,39 +136,49 @@ func (s Session) ID() (Identifier, bool) {
 	return s.id, true
 }
 
-// Admit validates discovery against a kernel-bound requirement, then persists
-// the exact provider/session/plan bindings before returning a usable Session.
+// Admit validates discovery against a Rust-produced containment plan, then
+// persists its exact provider/session/plan bindings before returning a usable
+// Session.
 func (c *Client) Admit(ctx context.Context, discovery Discovery, input AdmissionInput) (Session, error) {
 	if c == nil || c.endpoint == nil || c.store == nil {
 		return Session{}, clientError(ErrorUnavailable)
 	}
-	if !discovery.validFor(c) || !input.requirement.valid() || !input.requiredProfile.valid() {
+	if !discovery.validFor(c) || !input.valid() {
 		return Session{}, clientError(ErrorInvalid)
 	}
 	capabilities := discovery.capabilities
-	if !capabilities.profile.Satisfies(input.requiredProfile) ||
-		!containsCapabilities(capabilities.capabilities, input.requirement.requiredCapabilities) ||
-		!containsResources(capabilities.resourceDimensions, input.requirement.requiredResourceDimensions) {
-		return Session{}, clientError(ErrorUnsupported)
+	plan := input.plan
+	if err := plan.ValidateProvider(capabilities); err != nil {
+		return Session{}, clientError(ErrorConflict)
+	}
+	deadline, ok := plan.DeadlineAt()
+	if !ok {
+		return Session{}, clientError(ErrorInvalid)
+	}
+	if !deadline.After(c.now().UTC()) {
+		return Session{}, clientError(ErrorUnavailable)
 	}
 
-	admission, err := c.endpoint.Admit(ctx, input.requirement)
+	admission, err := c.endpoint.Admit(ctx, plan)
 	if err != nil {
 		return Session{}, c.endpointError(err, &capabilities)
 	}
-	if !admission.valid() || admission.providerID != capabilities.providerID || admission.epoch != capabilities.epoch || admission.requirementHash != input.requirement.canonicalHash || !admission.expiresAt.After(c.now().UTC()) {
+	if err := plan.ValidateSessionAdmission(admission); err != nil {
 		return Session{}, clientError(ErrorConflict)
+	}
+	if !admission.expiresAt.After(c.now().UTC()) {
+		return Session{}, clientError(ErrorUnavailable)
 	}
 
 	state := sessionState{
 		sessionID:             admission.sessionID,
-		providerID:            admission.providerID,
-		epoch:                 admission.epoch,
-		profile:               capabilities.profile,
-		requirementHash:       admission.requirementHash,
-		planHash:              admission.compiledPlanHash,
-		sessionCapabilityHash: admission.sessionCapabilityHash,
-		expiresAt:             admission.expiresAt,
+		providerID:            plan.ProviderID(),
+		epoch:                 plan.ProviderEpoch(),
+		profile:               plan.ProviderProfile(),
+		requirementHash:       plan.Requirement().CanonicalHash(),
+		planHash:              plan.CanonicalHash(),
+		sessionCapabilityHash: plan.ProviderCapabilityHash(),
+		expiresAt:             deadline,
 		phase:                 phaseAdmitted,
 		nextSequence:          1,
 	}
@@ -551,7 +561,12 @@ func (c *Client) sendOperation(ctx context.Context, state *sessionState, index i
 }
 
 func (c *Client) validateUsableState(state sessionState, capabilities ProviderCapabilities) error {
-	if state.poisoned || !capabilities.valid() || state.providerID != capabilities.providerID || state.epoch != capabilities.epoch || state.profile != capabilities.profile {
+	if state.poisoned ||
+		!capabilities.valid() ||
+		state.providerID != capabilities.providerID ||
+		state.epoch != capabilities.epoch ||
+		state.profile != capabilities.profile ||
+		state.sessionCapabilityHash != capabilities.capabilityHash {
 		return clientError(ErrorConflict)
 	}
 	if !state.expiresAt.After(c.now().UTC()) {

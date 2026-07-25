@@ -48,7 +48,9 @@ func (ProviderV1FrameCodec) DecodeCapabilities(frame []byte) (ProviderCapabiliti
 	return value, nil
 }
 
-func (ProviderV1FrameCodec) EncodeAdmission(
+// EncodeExecutionRequirement encodes compiler input for corpus and
+// interoperability checks. It is not a lifecycle admission request.
+func (ProviderV1FrameCodec) EncodeExecutionRequirement(
 	requirement ExecutionRequirement,
 ) ([]byte, error) {
 	dto := providerV1RequirementDTO{
