@@ -38,3 +38,28 @@ func TestParseDockerModeRejectsUnknownMode(t *testing.T) {
 		t.Fatalf("ValidDockerMode(host) = true, want false")
 	}
 }
+
+func TestParseExecutionProvider(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want ExecutionProvider
+	}{
+		{raw: "", want: ExecutionProviderLocal},
+		{raw: "planescape", want: ExecutionProviderPlanescape},
+		{raw: " Planescape ", want: ExecutionProviderPlanescape},
+	} {
+		got, err := ParseExecutionProvider(test.raw)
+		if err != nil {
+			t.Fatalf("ParseExecutionProvider(%q): %v", test.raw, err)
+		}
+		if got != test.want {
+			t.Fatalf("ParseExecutionProvider(%q) = %q, want %q", test.raw, got, test.want)
+		}
+	}
+}
+
+func TestParseExecutionProviderRejectsUnknownProvider(t *testing.T) {
+	if got, err := ParseExecutionProvider("linux-local"); err == nil {
+		t.Fatalf("ParseExecutionProvider(linux-local) = %q, nil error; want error", got)
+	}
+}

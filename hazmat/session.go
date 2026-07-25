@@ -2,6 +2,7 @@ package hazmat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,7 @@ type sessionConfig struct {
 	RuntimeProviderStatus    *runtimeprovider.ProviderStatusRecord
 	RuntimeProviderGaps      []runtimeprovider.GapRecord
 	CurrentUserSession       *currentUserSessionDirs
+	ExecutionProvider        configmodel.ExecutionProvider
 }
 
 type sessionLaunchUI struct {
@@ -378,11 +380,24 @@ func parseHarnessCommandArgs(cmd *cobra.Command, args []string, parser harnessAr
 }
 
 func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, supportsSandbox, preflightBeforeSnapshot bool) (preparedSession, error) {
-	prepared, err := prepareLaunchSession(commandName, opts, supportsSandbox)
+	executionProvider, err := configuredSessionExecutionProvider()
 	if err != nil {
 		return preparedSession{}, err
 	}
-	if err := beginPreparedSession(prepared, commandName, opts.noBackup, preflightBeforeSnapshot); err != nil {
+	var prepared preparedSession
+	if err := runSessionStartupWithExecutionProvider(
+		context.Background(),
+		sessionConfig{ExecutionProvider: executionProvider},
+		defaultPlanescapeProductDependencies(),
+		func() error {
+			var err error
+			prepared, err = prepareLaunchSession(commandName, opts, supportsSandbox)
+			if err != nil {
+				return err
+			}
+			return beginPreparedSession(prepared, commandName, opts.noBackup, preflightBeforeSnapshot)
+		},
+	); err != nil {
 		return preparedSession{}, err
 	}
 	return prepared, nil
@@ -453,6 +468,17 @@ setup path; requires HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1):
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if backendValue != "" && providerValue != "" {
 				return fmt.Errorf("--provider cannot be combined with --backend")
+			}
+			if backendValue != "" {
+				executionProvider, err := configuredSessionExecutionProvider()
+				if err != nil {
+					return err
+				}
+				if err := rejectConfiguredProviderLocalFallback(sessionConfig{
+					ExecutionProvider: executionProvider,
+				}); err != nil {
+					return err
+				}
 			}
 			switch backendValue {
 			case "":
@@ -1593,6 +1619,10 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if err != nil {
 		return preparedSession{}, err
 	}
+	cfg.ExecutionProvider, err = configuredSessionExecutionProvider()
+	if err != nil {
+		return preparedSession{}, err
+	}
 	cfg.Target = commandName
 	cfg.RuntimeProvider = provider
 	cfg.RuntimeProviderExplicit = providerExplicit
@@ -1683,6 +1713,12 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 
 	cfg.RoutingReason, cfg.SessionNotes = sessionRoutingExplanation(commandName, cfg.ProjectDir, request, detection, mode, slices.Contains(cfg.ActiveIntegrations, "docker"))
 	appendHarnessStaticSessionNotes(&cfg)
+	if cfg.ExecutionProvider == configmodel.ExecutionProviderPlanescape {
+		cfg.SessionNotes = append(
+			cfg.SessionNotes,
+			"Planescape is the configured execution provider; local runtime fallback is disabled.",
+		)
+	}
 	if err := applyRuntimeProviderAdmission(&cfg, opts.planOnly); err != nil {
 		return preparedSession{}, err
 	}
@@ -2673,7 +2709,31 @@ func runPreparedAgentSeatbeltScript(prepared preparedSession, script string, arg
 }
 
 func runPreparedAgentSeatbeltScriptWithUI(prepared preparedSession, ui sessionLaunchUI, script string, args ...string) error {
-	return runAgentSeatbeltScriptWithPlan(prepared.Config, prepared.BackendPlan, ui, script, args...)
+	return runPreparedAgentSeatbeltScriptWithRunner(
+		prepared,
+		ui,
+		script,
+		runAgentSeatbeltScriptWithPlan,
+		args...,
+	)
+}
+
+type agentSeatbeltPlanRunner func(sessionConfig, sessionBackendPlan, sessionLaunchUI, string, ...string) error
+
+func runPreparedAgentSeatbeltScriptWithRunner(
+	prepared preparedSession,
+	ui sessionLaunchUI,
+	script string,
+	runner agentSeatbeltPlanRunner,
+	args ...string,
+) error {
+	if err := rejectConfiguredProviderLocalFallback(prepared.Config); err != nil {
+		return err
+	}
+	if runner == nil {
+		return fmt.Errorf("native session runner is not configured")
+	}
+	return runner(prepared.Config, prepared.BackendPlan, ui, script, args...)
 }
 
 var runAgentSeatbeltScriptWithPlan = defaultRunAgentSeatbeltScriptWithPlan

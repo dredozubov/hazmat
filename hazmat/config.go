@@ -45,6 +45,7 @@ type ProjectSSHConfig = configmodel.ProjectSSHConfig
 type ProjectSSHKey = configmodel.ProjectSSHKey
 type ProjectGitSSHConfig = configmodel.ProjectGitSSHConfig
 type SessionConfig = configmodel.SessionConfig
+type ExecutionProvider = configmodel.ExecutionProvider
 type IntegrationsConfig = configmodel.IntegrationsConfig
 type IntegrationPin = configmodel.IntegrationPin
 type IntegrationRejection = configmodel.IntegrationRejection
@@ -149,6 +150,10 @@ func (c HazmatConfig) HarnessAssets() bool {
 		return true
 	}
 	return *c.Session.HarnessAssets
+}
+
+func (c HazmatConfig) SessionExecutionProvider() ExecutionProvider {
+	return c.Session.ExecutionProvider
 }
 
 func (c HazmatConfig) HomebrewIntegrationConsent() (bool, bool) {
@@ -297,6 +302,11 @@ func loadConfig() (HazmatConfig, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
+	executionProvider, err := configmodel.ParseExecutionProvider(string(cfg.Session.ExecutionProvider))
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Session.ExecutionProvider = executionProvider
 
 	if cfg.Backup.Cloud != nil && cfg.Backup.Cloud.RecoveryKey == "" && cfg.Backup.Cloud.LegacyRecoveryKey != "" {
 		cfg.Backup.Cloud.RecoveryKey = cfg.Backup.Cloud.LegacyRecoveryKey
@@ -571,6 +581,11 @@ func runConfigShow() error {
 	fmt.Printf("    Skip permissions: %v (bypass Claude/Codex app prompts)\n", cfg.SkipPermissions())
 	fmt.Printf("    Status bar:       %v (opt-in)\n", cfg.StatusBar())
 	fmt.Printf("    Harness assets:   %v (managed prompt-asset sync)\n", cfg.HarnessAssets())
+	if provider := cfg.SessionExecutionProvider(); provider != configmodel.ExecutionProviderLocal {
+		fmt.Printf("    Execution provider: %s (external; local fallback disabled)\n", provider)
+	} else {
+		fmt.Printf("    Execution provider: local (default)\n")
+	}
 	if _, ok, err := readGitHubStoredToken(); err == nil && ok {
 		fmt.Printf("    GitHub API:       configured (enable per session with --github)\n")
 	} else {
@@ -768,6 +783,16 @@ func runConfigSet(key, value string) error {
 	case "session.harness_assets":
 		b := value == "true" || value == "1" || value == "yes"
 		cfg.Session.HarnessAssets = &b
+	case "session.execution_provider":
+		raw := value
+		if strings.EqualFold(strings.TrimSpace(raw), "none") {
+			raw = ""
+		}
+		provider, err := configmodel.ParseExecutionProvider(raw)
+		if err != nil {
+			return err
+		}
+		cfg.Session.ExecutionProvider = provider
 	case "session.read_dirs.add":
 		dirs := cfg.SessionReadDirs()
 		for _, d := range dirs {

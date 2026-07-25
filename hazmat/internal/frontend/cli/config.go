@@ -451,6 +451,7 @@ Keys:
   session.skip_permissions       Bypass Claude/Codex app-level permission prompts (default: true)
   session.status_bar             Enable Hazmat's terminal status bar (default: false)
   session.harness_assets         Enable managed harness prompt-asset sync (default: true)
+  session.execution_provider     External execution provider: planescape or none
   session.read_dirs.add          Add a read-only directory to auto-include in sessions
   session.read_dirs.remove       Remove a read-only directory from auto-include
   integrations.homebrew          Homebrew-backed integration resolution: enabled, disabled, or ask
@@ -463,6 +464,7 @@ Examples:
   hazmat config set session.skip_permissions false
   hazmat config set session.status_bar true
   hazmat config set session.harness_assets false
+  hazmat config set session.execution_provider planescape
   hazmat config set session.read_dirs.add ~/other-code
   hazmat config set integrations.homebrew enabled
   hazmat config set integrations.pin "~/workspace/my-app:node,python-uv"

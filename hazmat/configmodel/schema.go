@@ -13,6 +13,16 @@ const (
 	DockerModeSandbox DockerMode = "sandbox"
 )
 
+// ExecutionProvider selects an external semantic execution boundary. Empty
+// keeps Hazmat's existing local runtime selection; Planescape is opt-in and
+// must never fall back to that local path.
+type ExecutionProvider string
+
+const (
+	ExecutionProviderLocal      ExecutionProvider = ""
+	ExecutionProviderPlanescape ExecutionProvider = "planescape"
+)
+
 type ProjectConfig struct {
 	Docker    DockerMode           `yaml:"docker,omitempty"`
 	ReadDirs  []string             `yaml:"read_dirs,omitempty"`
@@ -22,6 +32,11 @@ type ProjectConfig struct {
 }
 
 type SessionConfig struct {
+	// ExecutionProvider selects the external provider for every product
+	// session. Planescape remains fail-closed until its live endpoint and RPC
+	// admission path are available.
+	ExecutionProvider ExecutionProvider `yaml:"execution_provider,omitempty"`
+
 	// SkipPermissions passes harness-specific auto-approval flags to agent
 	// CLIs (for example Claude's --dangerously-skip-permissions and Codex's
 	// --dangerously-bypass-approvals-and-sandbox). Default: true. The
@@ -134,4 +149,14 @@ func ParseDockerMode(raw string) (DockerMode, error) {
 		return mode, nil
 	}
 	return "", fmt.Errorf("invalid Docker mode %q (want auto, none, or sandbox)", raw)
+}
+
+func ParseExecutionProvider(raw string) (ExecutionProvider, error) {
+	provider := ExecutionProvider(strings.ToLower(strings.TrimSpace(raw)))
+	switch provider {
+	case ExecutionProviderLocal, ExecutionProviderPlanescape:
+		return provider, nil
+	default:
+		return "", fmt.Errorf("invalid execution provider %q (want planescape or empty)", raw)
+	}
 }
