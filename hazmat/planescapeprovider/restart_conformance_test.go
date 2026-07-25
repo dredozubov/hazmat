@@ -2,37 +2,12 @@ package planescapeprovider
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
-
-type diskCheckpointStore struct {
-	dir string
-}
-
-func (s diskCheckpointStore) Load(_ context.Context, key string) ([]byte, bool, error) {
-	data, err := os.ReadFile(s.path(key))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	return data, true, nil
-}
-
-func (s diskCheckpointStore) Save(_ context.Context, key string, value []byte) error {
-	return os.WriteFile(s.path(key), value, 0o600)
-}
-
-func (s diskCheckpointStore) path(key string) string {
-	return filepath.Join(s.dir, hex.EncodeToString([]byte(key))+".json")
-}
 
 type frameReply struct {
 	response []byte
@@ -155,7 +130,10 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 		CapabilityToolExecute,
 		CapabilityWorkspaceRead,
 	})
-	store := diskCheckpointStore{dir: t.TempDir()}
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "provider-checkpoints"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	firstCodec := &lifecycleFrameCodec{
 		capabilities: capabilities,
