@@ -895,6 +895,10 @@ func (v AgentOperation) dispatchableTool() bool {
 	return v.valid() && v.kind == OperationTool && v.normalized.valid()
 }
 
+func (v AgentOperation) dispatchablePause() bool {
+	return v.valid() && v.kind == OperationPause && v.normalized.empty()
+}
+
 type responseKind string
 
 const (
