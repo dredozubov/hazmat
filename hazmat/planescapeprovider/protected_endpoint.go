@@ -34,20 +34,21 @@ func NewProtectedBrokerDiscoveryEndpointV1(
 	return endpoint, nil
 }
 
-// ProtectedBrokerEndpointConfigV1 composes productive discovery and compiled-
-// plan admission over fresh authenticated connections to the same exact
-// protected-broker address.
+// ProtectedBrokerEndpointConfigV1 composes productive discovery, compiled-plan
+// admission, and Tool execution over fresh authenticated connections to the
+// same exact protected-broker address.
 type ProtectedBrokerEndpointConfigV1 struct {
 	Dialer ProtectedBrokerDialerV1
 	Client *ProtectedBrokerClientV1
 }
 
-// ProtectedBrokerEndpointV1 exposes only the protected lifecycle surface that
-// has a published authenticated RPC. Later lifecycle methods remain
-// unreachable before the dial boundary.
+// ProtectedBrokerEndpointV1 exposes only the protected lifecycle surface with
+// a published authenticated RPC. Freeze and Cancel remain unreachable before
+// the dial boundary.
 type ProtectedBrokerEndpointV1 struct {
 	discovery Endpoint
 	admission *ProtectedBrokerAdmissionTransportV1
+	tool      *ProtectedBrokerToolTransportV1
 	backend   BackendIdentityBinding
 }
 
@@ -75,9 +76,19 @@ func NewProtectedBrokerEndpointV1(
 	if err != nil {
 		return nil, err
 	}
+	tool, err := NewProtectedBrokerToolTransportV1(
+		ProtectedBrokerToolTransportConfigV1{
+			Dialer: config.Dialer,
+			Client: config.Client,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 	return &ProtectedBrokerEndpointV1{
 		discovery: discovery,
 		admission: admission,
+		tool:      tool,
 		backend:   config.Client.BackendBinding(),
 	}, nil
 }
@@ -109,13 +120,17 @@ func (e *ProtectedBrokerEndpointV1) Admit(
 }
 
 func (e *ProtectedBrokerEndpointV1) Operate(
-	context.Context,
-	AgentOperation,
+	ctx context.Context,
+	operation AgentOperation,
 ) (OperationResponse, error) {
 	if !e.usable() {
 		return nil, protectedBrokerError(ProtectedBrokerUnavailableV1)
 	}
-	return nil, protectedBrokerError(ProtectedBrokerInvalidRequestV1)
+	result, err := e.tool.Operate(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (e *ProtectedBrokerEndpointV1) Freeze(
@@ -140,5 +155,5 @@ func (e *ProtectedBrokerEndpointV1) Cancel(
 
 func (e *ProtectedBrokerEndpointV1) usable() bool {
 	return e != nil && e.discovery != nil && e.admission != nil &&
-		e.backend.valid()
+		e.tool != nil && e.backend.valid()
 }

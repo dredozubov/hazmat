@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const protectedBrokerFixtureSHA256 = "858040f6b8c60b6c73e80b6dba144cbddd3861bed0b66628fb75ebb7d41372fa"
+const protectedBrokerFixtureSHA256 = "72a1a49d9cd9317ebc4487696168a5c7159cac650d76385485a0c018729e4232"
 
 type protectedBrokerDiscoveryFixtureV1 struct {
 	Schema string `json:"schema"`
@@ -61,6 +61,23 @@ type protectedBrokerDiscoveryFixtureV1 struct {
 		Request      protectedBrokerDiscoveryRPCFixtureV1    `json:"request"`
 		Response     protectedBrokerDiscoveryRPCFixtureV1    `json:"response"`
 	} `json:"provider_admission_rpc"`
+	ProviderToolRPC protectedBrokerProviderToolFixtureV1 `json:"provider_tool_rpc"`
+}
+
+type protectedBrokerProviderToolFixtureV1 struct {
+	Operation        protectedBrokerDiscoveryRecordFixtureV1 `json:"operation"`
+	NormalizedRecord struct {
+		BytesBase64URL string `json:"bytes_b64"`
+	} `json:"normalized_record"`
+	Result  protectedBrokerDiscoveryRecordFixtureV1 `json:"result"`
+	Request struct {
+		Wire                  protectedBrokerDiscoveryRPCWireFixtureV1   `json:"wire"`
+		OperationPayloadHash  protectedBrokerDiscoveryHashFixtureV1      `json:"operation_payload_hash"`
+		NormalizedPayloadHash protectedBrokerDiscoveryHashFixtureV1      `json:"normalized_payload_hash"`
+		Hash                  protectedBrokerDiscoveryHashFixtureV1      `json:"hash"`
+		Signature             protectedBrokerDiscoverySignatureFixtureV1 `json:"signature"`
+	} `json:"request"`
+	Response protectedBrokerDiscoveryRPCFixtureV1 `json:"response"`
 }
 
 type protectedBrokerDiscoveryRecordFixtureV1 struct {
@@ -72,14 +89,16 @@ type protectedBrokerDiscoveryRecordFixtureV1 struct {
 }
 
 type protectedBrokerDiscoveryRPCFixtureV1 struct {
-	Wire struct {
-		CanonicalJSON  string `json:"canonical_json"`
-		JSONByteCount  int    `json:"json_byte_count"`
-		FramedBytesB64 string `json:"framed_bytes_b64"`
-	} `json:"wire"`
+	Wire        protectedBrokerDiscoveryRPCWireFixtureV1   `json:"wire"`
 	PayloadHash protectedBrokerDiscoveryHashFixtureV1      `json:"payload_hash"`
 	Hash        protectedBrokerDiscoveryHashFixtureV1      `json:"hash"`
 	Signature   protectedBrokerDiscoverySignatureFixtureV1 `json:"signature"`
+}
+
+type protectedBrokerDiscoveryRPCWireFixtureV1 struct {
+	CanonicalJSON  string `json:"canonical_json"`
+	JSONByteCount  int    `json:"json_byte_count"`
+	FramedBytesB64 string `json:"framed_bytes_b64"`
 }
 
 type protectedBrokerDiscoveryHashFixtureV1 struct {
