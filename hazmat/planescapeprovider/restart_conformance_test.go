@@ -108,7 +108,11 @@ func bindingOf(operation AgentOperation) operationBinding {
 
 func newFramedTestClient(t *testing.T, codec FrameCodec, transport FrameTransport, store CheckpointStore) *Client {
 	t.Helper()
-	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{Transport: transport, Codec: codec})
+	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
+		Transport:      transport,
+		Codec:          codec,
+		BackendBinding: testBackendIdentityBinding(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,15 +186,8 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 	staleCodec := &lifecycleFrameCodec{capabilities: staleCapabilities}
 	staleTransport := &lifecycleFrameTransport{replies: []frameReply{{response: []byte(`{}`)}}}
 	staleClient := newFramedTestClient(t, staleCodec, staleTransport, store)
-	staleDiscovery, err := staleClient.Discover(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := staleClient.Reconnect(ctx, staleDiscovery, "session-1"); err == nil {
-		t.Fatal("stale provider epoch reconnected")
-	} else {
-		requireClass(t, err, ErrorConflict)
-	}
+	_, err = staleClient.Discover(ctx)
+	requireClass(t, err, ErrorConflict)
 	if len(staleCodec.operationRequests) != 0 || len(staleTransport.requests) != 1 {
 		t.Fatal("stale reconnect reached an effect-bearing provider path")
 	}

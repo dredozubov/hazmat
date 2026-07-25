@@ -28,16 +28,24 @@ type cancellationReply struct {
 }
 
 type scriptedEndpoint struct {
-	capabilities  ProviderCapabilities
-	discoverErr   error
-	admission     SessionAdmission
-	admitErr      error
-	operations    []operationReply
-	freezes       []freezeReply
-	cancellations []cancellationReply
-	calls         []string
-	admitCalls    int
-	admittedPlans []CompiledContainmentPlan
+	backendBinding BackendIdentityBinding
+	capabilities   ProviderCapabilities
+	discoverErr    error
+	admission      SessionAdmission
+	admitErr       error
+	operations     []operationReply
+	freezes        []freezeReply
+	cancellations  []cancellationReply
+	calls          []string
+	admitCalls     int
+	admittedPlans  []CompiledContainmentPlan
+}
+
+func (s *scriptedEndpoint) BackendBinding() BackendIdentityBinding {
+	if s != nil && s.backendBinding.valid() {
+		return s.backendBinding
+	}
+	return testBackendIdentityBinding()
 }
 
 func (s *scriptedEndpoint) Discover(_ context.Context) (ProviderCapabilities, error) {
@@ -235,13 +243,22 @@ func mustCloseout(t *testing.T, closeoutID string) Closeout {
 	return value
 }
 
-func mustClient(t *testing.T, endpoint Endpoint) *Client {
+func mustClient(t *testing.T, endpoint BoundEndpoint) *Client {
 	t.Helper()
 	client, err := NewClient(ClientConfig{Endpoint: endpoint, Store: &MemoryStore{}, Now: func() time.Time { return testNow }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func testBackendIdentityBinding() BackendIdentityBinding {
+	identity, _ := ParseFingerprint(fingerprint("f"))
+	epoch, _ := NewProviderEpoch(7)
+	return BackendIdentityBinding{
+		identitySHA256: identity,
+		epoch:          epoch,
+	}
 }
 
 func mustSession(
@@ -374,6 +391,97 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	}
 }
 
+func TestClientMapsAdmittedToolDirectlyToQuiescence(t *testing.T) {
+	plan := mustCompiledPlan(t)
+	endpoint := &scriptedEndpoint{
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
+		operations: []operationReply{
+			{response: mustResult(t, "tool-1", 1, ResultCompleted, "a", "b", "c")},
+			{response: mustQuiescence(t)},
+		},
+	}
+	store := &MemoryStore{}
+	client, err := NewClient(ClientConfig{
+		Endpoint: endpoint,
+		Store:    store,
+		Now:      func() time.Time { return testNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := mustSession(t, client, discovery, plan)
+	if _, err := session.RunTool(
+		context.Background(),
+		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Quiesce(
+		context.Background(),
+		mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c", "d"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(endpoint.calls, ","); got !=
+		"discover,admit,operate:tool-1,operate:pause-1" {
+		t.Fatalf("calls = %s", got)
+	}
+	data, ok, err := store.Load(context.Background(), "session-1")
+	if err != nil || !ok {
+		t.Fatalf("load direct lifecycle checkpoint = %v, %v", ok, err)
+	}
+	var checkpoint checkpointDTO
+	if err := json.Unmarshal(data, &checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Phase != phaseQuiescent ||
+		checkpoint.BackendIdentitySHA256 !=
+			testBackendIdentityBinding().IdentitySHA256().String() ||
+		len(checkpoint.Operations) != 2 ||
+		checkpoint.Operations[0].Sequence != 1 ||
+		checkpoint.Operations[1].Sequence != 2 {
+		t.Fatalf("direct lifecycle checkpoint = %+v", checkpoint)
+	}
+}
+
+func TestClientRejectsBackendIdentityDriftBeforeEffect(t *testing.T) {
+	plan := mustCompiledPlan(t)
+	endpoint := &scriptedEndpoint{
+		capabilities: mustReleasedCapabilities(t),
+		admission:    mustAdmission(t, plan),
+		operations: []operationReply{
+			{response: mustResult(t, "tool-1", 1, ResultCompleted, "a", "b", "c")},
+		},
+	}
+	client := mustClient(t, endpoint)
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := mustSession(t, client, discovery, plan)
+	changedIdentity, err := ParseFingerprint(fingerprint("e"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint.backendBinding = BackendIdentityBinding{
+		identitySHA256: changedIdentity,
+		epoch:          testBackendIdentityBinding().ProviderEpoch(),
+	}
+	_, err = session.RunTool(
+		context.Background(),
+		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b"),
+	)
+	requireClass(t, err, ErrorConflict)
+	if got := strings.Join(endpoint.calls, ","); got != "discover,admit" {
+		t.Fatalf("backend drift reached effect path: %s", got)
+	}
+}
+
 func TestClientAdmissionPersistsExactCompiledPlanBindings(t *testing.T) {
 	plan := mustCompiledPlan(t)
 	capabilities := mustReleasedCapabilities(t)
@@ -425,6 +533,8 @@ func TestClientAdmissionPersistsExactCompiledPlanBindings(t *testing.T) {
 		checkpoint.RequirementHash != plan.Requirement().CanonicalHash().String() ||
 		checkpoint.PlanHash != plan.CanonicalHash().String() ||
 		checkpoint.SessionCapabilityHash != plan.ProviderCapabilityHash().String() ||
+		checkpoint.BackendIdentitySHA256 !=
+			testBackendIdentityBinding().IdentitySHA256().String() ||
 		checkpoint.ExpiresAtMS != deadline.UnixMilli() {
 		t.Fatalf("durable admission bindings = %+v", checkpoint)
 	}
@@ -789,11 +899,7 @@ func TestClientMapsProviderDenialAndRejectsRestartedEpoch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		restartedDiscovery, err := client.Discover(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = client.Reconnect(context.Background(), restartedDiscovery, "session-1")
+		_, err = client.Discover(context.Background())
 		requireClass(t, err, ErrorConflict)
 	})
 }

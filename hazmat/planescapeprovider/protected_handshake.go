@@ -187,6 +187,16 @@ func NewProtectedBrokerClientV1(
 	}, nil
 }
 
+func (c *ProtectedBrokerClientV1) BackendBinding() BackendIdentityBinding {
+	if c == nil || !c.valid() {
+		return BackendIdentityBinding{}
+	}
+	return BackendIdentityBinding{
+		identitySHA256: c.expectedBackend.IdentitySHA256(),
+		epoch:          c.expectedBackend.BrokerEpoch(),
+	}
+}
+
 // Authenticate performs exactly one fresh mutual-authentication handshake over
 // the supplied byte stream. No admission or provider RPC is exposed here.
 func (c *ProtectedBrokerClientV1) Authenticate(

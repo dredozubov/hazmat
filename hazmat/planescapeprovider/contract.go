@@ -297,6 +297,43 @@ func NewProviderEpoch(value uint64) (ProviderEpoch, error) {
 
 func (v ProviderEpoch) Uint64() uint64 { return uint64(v) }
 
+// BackendIdentityBinding pins one provider lifecycle to the exact protected
+// containment backend that authenticated the endpoint. IdentitySHA256 commits
+// the backend executable, environment, profile, attestor, and broker epoch.
+type BackendIdentityBinding struct {
+	identitySHA256 Fingerprint
+	epoch          ProviderEpoch
+}
+
+type BackendIdentityBindingInput struct {
+	IdentitySHA256 string
+	ProviderEpoch  uint64
+}
+
+func NewBackendIdentityBinding(
+	input BackendIdentityBindingInput,
+) (BackendIdentityBinding, error) {
+	identitySHA256, err := ParseFingerprint(input.IdentitySHA256)
+	if err != nil {
+		return BackendIdentityBinding{}, err
+	}
+	epoch, err := NewProviderEpoch(input.ProviderEpoch)
+	if err != nil {
+		return BackendIdentityBinding{}, err
+	}
+	return BackendIdentityBinding{
+		identitySHA256: identitySHA256,
+		epoch:          epoch,
+	}, nil
+}
+
+func (v BackendIdentityBinding) IdentitySHA256() Fingerprint  { return v.identitySHA256 }
+func (v BackendIdentityBinding) ProviderEpoch() ProviderEpoch { return v.epoch }
+
+func (v BackendIdentityBinding) valid() bool {
+	return v.identitySHA256.valid() && v.epoch != 0
+}
+
 type OperationSequence uint64
 
 func NewOperationSequence(value uint64) (OperationSequence, error) {

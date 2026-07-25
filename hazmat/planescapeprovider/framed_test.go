@@ -64,7 +64,11 @@ func TestFramedEndpointValidatesBoundedJSON(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			transport := &frameTransportStub{response: response.frame}
-			endpoint, err := NewFramedEndpoint(FramedEndpointConfig{Transport: transport, Codec: frameCodecStub{capabilities: capabilities, encode: []byte(`{}`)}})
+			endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
+				Transport:      transport,
+				Codec:          frameCodecStub{capabilities: capabilities, encode: []byte(`{}`)},
+				BackendBinding: testBackendIdentityBinding(),
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,8 +91,9 @@ func TestFramedEndpointValidatesBoundedJSON(t *testing.T) {
 func TestFramedEndpointMapsTransportFailureToUnavailable(t *testing.T) {
 	capabilities := mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead})
 	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
-		Transport: &frameTransportStub{err: context.DeadlineExceeded},
-		Codec:     frameCodecStub{capabilities: capabilities, encode: []byte(`{}`)},
+		Transport:      &frameTransportStub{err: context.DeadlineExceeded},
+		Codec:          frameCodecStub{capabilities: capabilities, encode: []byte(`{}`)},
+		BackendBinding: testBackendIdentityBinding(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,8 +131,9 @@ func TestFramedEndpointRejectsZeroCompiledPlanBeforeTransport(t *testing.T) {
 func TestFramedEndpointRejectsInvalidOutboundFrame(t *testing.T) {
 	capabilities := mustCapabilities(t, ProfilePortable, []Capability{CapabilityToolExecute, CapabilityWorkspaceRead})
 	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
-		Transport: &frameTransportStub{response: []byte(`{}`)},
-		Codec:     frameCodecStub{capabilities: capabilities, encode: []byte(`not-json`)},
+		Transport:      &frameTransportStub{response: []byte(`{}`)},
+		Codec:          frameCodecStub{capabilities: capabilities, encode: []byte(`not-json`)},
+		BackendBinding: testBackendIdentityBinding(),
 	})
 	if err != nil {
 		t.Fatal(err)

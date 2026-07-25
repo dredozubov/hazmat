@@ -118,8 +118,9 @@ func TestProviderV1CodecIntegratesWithFramedEndpoint(t *testing.T) {
 	capabilities := releasedProviderV1RecordByKind(t, vectors, providerV1KindCapabilities)
 	transport := &frameTransportStub{response: []byte(capabilities.WireJSON)}
 	endpoint, err := NewFramedEndpoint(FramedEndpointConfig{
-		Transport: transport,
-		Codec:     ProviderV1FrameCodec{},
+		Transport:      transport,
+		Codec:          ProviderV1FrameCodec{},
+		BackendBinding: testBackendIdentityBinding(),
 	})
 	if err != nil {
 		t.Fatal(err)

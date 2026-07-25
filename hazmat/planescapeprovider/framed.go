@@ -32,25 +32,39 @@ type FrameCodec interface {
 }
 
 type FramedEndpointConfig struct {
-	Transport FrameTransport
-	Codec     FrameCodec
+	Transport      FrameTransport
+	Codec          FrameCodec
+	BackendBinding BackendIdentityBinding
 }
 
 // FramedEndpoint turns a released envelope codec into the semantic Endpoint
 // consumed by Client. It validates the bounded-JSON outer frame before any DTO
 // reaches the lifecycle client.
 type FramedEndpoint struct {
-	transport FrameTransport
-	codec     FrameCodec
+	transport      FrameTransport
+	codec          FrameCodec
+	backendBinding BackendIdentityBinding
 }
 
 var _ Endpoint = (*FramedEndpoint)(nil)
+var _ BoundEndpoint = (*FramedEndpoint)(nil)
 
 func NewFramedEndpoint(config FramedEndpointConfig) (*FramedEndpoint, error) {
 	if config.Transport == nil || config.Codec == nil {
 		return nil, fmt.Errorf("planescapeprovider: framed transport and codec are required")
 	}
-	return &FramedEndpoint{transport: config.Transport, codec: config.Codec}, nil
+	return &FramedEndpoint{
+		transport:      config.Transport,
+		codec:          config.Codec,
+		backendBinding: config.BackendBinding,
+	}, nil
+}
+
+func (e *FramedEndpoint) BackendBinding() BackendIdentityBinding {
+	if e == nil {
+		return BackendIdentityBinding{}
+	}
+	return e.backendBinding
 }
 
 func (e *FramedEndpoint) Discover(ctx context.Context) (ProviderCapabilities, error) {

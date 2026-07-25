@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const checkpointSchema = "hazmat.planescapeprovider.checkpoint.v1"
+const checkpointSchema = "hazmat.planescapeprovider.checkpoint.v2"
 
 // Endpoint is the transport-independent provider boundary. A concrete endpoint
 // owns authentication and wire framing; it must decode bounded v1 records
@@ -23,6 +23,14 @@ type Endpoint interface {
 	Operate(context.Context, AgentOperation) (OperationResponse, error)
 	Freeze(context.Context, Freeze) (FreezeAck, error)
 	Cancel(context.Context, Cancellation) (CancellationAck, error)
+}
+
+// BoundEndpoint exposes the immutable backend identity authenticated by its
+// transport. Client refuses endpoints without this proof and persists the
+// binding with every admitted session.
+type BoundEndpoint interface {
+	Endpoint
+	BackendBinding() BackendIdentityBinding
 }
 
 // CheckpointStore persists opaque, bounded client checkpoints. Implementations
@@ -71,28 +79,38 @@ func (s *MemoryStore) Save(_ context.Context, key string, value []byte) error {
 // ClientConfig has no default endpoint: a configured shared provider that is
 // absent is unavailable, not permission to select weaker containment.
 type ClientConfig struct {
-	Endpoint Endpoint
+	Endpoint BoundEndpoint
 	Store    CheckpointStore
 	Now      func() time.Time
 }
 
 // Client maps Hazmat product lifecycle calls to exact provider records.
 type Client struct {
-	endpoint Endpoint
-	store    CheckpointStore
-	now      func() time.Time
-	mu       sync.Mutex
+	endpoint       BoundEndpoint
+	backendBinding BackendIdentityBinding
+	store          CheckpointStore
+	now            func() time.Time
+	mu             sync.Mutex
 }
 
 func NewClient(config ClientConfig) (*Client, error) {
 	if config.Endpoint == nil || config.Store == nil {
 		return nil, clientError(ErrorUnavailable)
 	}
+	backendBinding := config.Endpoint.BackendBinding()
+	if !backendBinding.valid() {
+		return nil, clientError(ErrorUnavailable)
+	}
 	now := config.Now
 	if now == nil {
 		now = time.Now
 	}
-	return &Client{endpoint: config.Endpoint, store: config.Store, now: now}, nil
+	return &Client{
+		endpoint:       config.Endpoint,
+		backendBinding: backendBinding,
+		store:          config.Store,
+		now:            now,
+	}, nil
 }
 
 // Discovery is a client-bound, non-reserving provider declaration.
@@ -111,11 +129,15 @@ func (c *Client) Discover(ctx context.Context) (Discovery, error) {
 	if c == nil || c.endpoint == nil {
 		return Discovery{}, clientError(ErrorUnavailable)
 	}
+	if err := c.validateEndpointBinding(); err != nil {
+		return Discovery{}, err
+	}
 	capabilities, err := c.endpoint.Discover(ctx)
 	if err != nil {
 		return Discovery{}, c.endpointError(err, nil)
 	}
-	if !capabilities.valid() {
+	if !capabilities.valid() ||
+		capabilities.ProviderEpoch() != c.backendBinding.ProviderEpoch() {
 		return Discovery{}, clientError(ErrorConflict)
 	}
 	return Discovery{client: c, capabilities: capabilities}, nil
@@ -148,6 +170,12 @@ func (c *Client) Admit(ctx context.Context, discovery Discovery, input Admission
 	}
 	capabilities := discovery.capabilities
 	plan := input.plan
+	if err := c.validateEndpointBinding(); err != nil {
+		return Session{}, err
+	}
+	if plan.ProviderEpoch() != c.backendBinding.ProviderEpoch() {
+		return Session{}, clientError(ErrorConflict)
+	}
 	if err := plan.ValidateProvider(capabilities); err != nil {
 		return Session{}, clientError(ErrorConflict)
 	}
@@ -162,6 +190,9 @@ func (c *Client) Admit(ctx context.Context, discovery Discovery, input Admission
 	admission, err := c.endpoint.Admit(ctx, plan)
 	if err != nil {
 		return Session{}, c.endpointError(err, &capabilities)
+	}
+	if err := c.validateEndpointBinding(); err != nil {
+		return Session{}, err
 	}
 	if err := plan.ValidateSessionAdmission(admission); err != nil {
 		return Session{}, clientError(ErrorConflict)
@@ -178,6 +209,7 @@ func (c *Client) Admit(ctx context.Context, discovery Discovery, input Admission
 		requirementHash:       plan.Requirement().CanonicalHash(),
 		planHash:              plan.CanonicalHash(),
 		sessionCapabilityHash: plan.ProviderCapabilityHash(),
+		backendIdentityHash:   c.backendBinding.IdentitySHA256(),
 		expiresAt:             deadline,
 		phase:                 phaseAdmitted,
 		nextSequence:          1,
@@ -219,7 +251,13 @@ func (s Session) Launch(ctx context.Context, input OperationInput) (OperationRes
 	if input.kind != OperationAgentStart {
 		return OperationResult{}, clientError(ErrorInvalid)
 	}
-	response, err := s.runOperation(ctx, input, phaseAdmitted, responseOperationResult, Identifier{})
+	response, err := s.runOperation(
+		ctx,
+		input,
+		operationPhaseAdmitted,
+		responseOperationResult,
+		Identifier{},
+	)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -235,7 +273,13 @@ func (s Session) RunTool(ctx context.Context, input OperationInput) (OperationRe
 	if input.kind != OperationTool {
 		return OperationResult{}, clientError(ErrorInvalid)
 	}
-	response, err := s.runOperation(ctx, input, phaseActive, responseOperationResult, Identifier{})
+	response, err := s.runOperation(
+		ctx,
+		input,
+		operationPhaseAdmittedOrActive,
+		responseOperationResult,
+		Identifier{},
+	)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -251,7 +295,13 @@ func (s Session) Workspace(ctx context.Context, input OperationInput) (Operation
 	if input.kind != OperationWorkspace {
 		return OperationResult{}, clientError(ErrorInvalid)
 	}
-	response, err := s.runOperation(ctx, input, phaseActive, responseOperationResult, Identifier{})
+	response, err := s.runOperation(
+		ctx,
+		input,
+		operationPhaseActive,
+		responseOperationResult,
+		Identifier{},
+	)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -267,7 +317,13 @@ func (s Session) Quiesce(ctx context.Context, input OperationInput) (Quiescence,
 	if input.kind != OperationPause {
 		return Quiescence{}, clientError(ErrorInvalid)
 	}
-	response, err := s.runOperation(ctx, input, phaseActive, responseQuiescence, Identifier{})
+	response, err := s.runOperation(
+		ctx,
+		input,
+		operationPhaseActive,
+		responseQuiescence,
+		Identifier{},
+	)
 	if err != nil {
 		return Quiescence{}, err
 	}
@@ -289,7 +345,13 @@ func (s Session) Closeout(ctx context.Context, input OperationInput, closeoutID 
 	if err != nil {
 		return Closeout{}, clientError(ErrorInvalid)
 	}
-	response, err := s.runOperation(ctx, input, phaseFrozen, responseCloseout, id)
+	response, err := s.runOperation(
+		ctx,
+		input,
+		operationPhaseFrozen,
+		responseCloseout,
+		id,
+	)
 	if err != nil {
 		return Closeout{}, err
 	}
@@ -375,6 +437,9 @@ func (s Session) Freeze(ctx context.Context, input FreezeInput) (FreezeAck, erro
 	if err != nil {
 		return FreezeAck{}, s.client.endpointError(err, state.capabilities())
 	}
+	if err := s.client.validateEndpointBinding(); err != nil {
+		return FreezeAck{}, err
+	}
 	if !ack.valid() || ack.sessionID != state.sessionID || ack.freezeID != request.freezeID || ack.quiescenceHash != state.quiescenceHash {
 		return FreezeAck{}, s.client.poison(ctx, &state)
 	}
@@ -431,6 +496,9 @@ func (s Session) Cancel(ctx context.Context, input CancellationInput) (Cancellat
 	if err != nil {
 		return CancellationAck{}, s.client.endpointError(err, state.capabilities())
 	}
+	if err := s.client.validateEndpointBinding(); err != nil {
+		return CancellationAck{}, err
+	}
 	if !ack.valid() || ack.sessionID != state.sessionID || ack.cancellationID != request.cancellationID {
 		return CancellationAck{}, s.client.poison(ctx, &state)
 	}
@@ -459,7 +527,13 @@ func (s Session) Evidence(ctx context.Context) (EvidenceReferences, error) {
 	return state.evidence.public(), nil
 }
 
-func (s Session) runOperation(ctx context.Context, input OperationInput, requiredPhase sessionPhase, expected responseKind, closeoutID Identifier) (OperationResponse, error) {
+func (s Session) runOperation(
+	ctx context.Context,
+	input OperationInput,
+	requiredPhase operationPhaseRequirement,
+	expected responseKind,
+	closeoutID Identifier,
+) (OperationResponse, error) {
 	if s.client == nil || !s.id.valid() || !input.valid() {
 		return nil, clientError(ErrorInvalid)
 	}
@@ -508,6 +582,9 @@ func (c *Client) sendOperation(ctx context.Context, state *sessionState, index i
 	response, err := c.endpoint.Operate(ctx, operation)
 	if err != nil {
 		return nil, c.endpointError(err, state.capabilities())
+	}
+	if err := c.validateEndpointBinding(); err != nil {
+		return nil, err
 	}
 	if response == nil || !response.valid() || response.responseKind() != expected {
 		return nil, c.poison(ctx, state)
@@ -562,6 +639,7 @@ func (c *Client) sendOperation(ctx context.Context, state *sessionState, index i
 
 func (c *Client) validateUsableState(state sessionState, capabilities ProviderCapabilities) error {
 	if state.poisoned ||
+		state.backendIdentityHash != c.backendBinding.IdentitySHA256() ||
 		!capabilities.valid() ||
 		state.providerID != capabilities.providerID ||
 		state.epoch != capabilities.epoch ||
@@ -575,15 +653,29 @@ func (c *Client) validateUsableState(state sessionState, capabilities ProviderCa
 	return nil
 }
 
-func (c *Client) validateStateForEffect(state sessionState, required sessionPhase) error {
+func (c *Client) validateStateForEffect(
+	state sessionState,
+	required operationPhaseRequirement,
+) error {
 	if state.poisoned {
 		return clientError(ErrorConflict)
 	}
-	if state.phase != required {
+	if !required.allows(state.phase) {
 		return clientError(ErrorInvalid)
 	}
 	if !state.expiresAt.After(c.now().UTC()) {
 		return clientError(ErrorUnavailable)
+	}
+	return nil
+}
+
+func (c *Client) validateEndpointBinding() error {
+	if c == nil || c.endpoint == nil || !c.backendBinding.valid() {
+		return clientError(ErrorUnavailable)
+	}
+	if current := c.endpoint.BackendBinding(); !current.valid() ||
+		current != c.backendBinding {
+		return clientError(ErrorConflict)
 	}
 	return nil
 }
@@ -650,6 +742,30 @@ func (p sessionPhase) valid() bool {
 	}
 }
 
+type operationPhaseRequirement uint8
+
+const (
+	operationPhaseAdmitted operationPhaseRequirement = iota + 1
+	operationPhaseAdmittedOrActive
+	operationPhaseActive
+	operationPhaseFrozen
+)
+
+func (r operationPhaseRequirement) allows(phase sessionPhase) bool {
+	switch r {
+	case operationPhaseAdmitted:
+		return phase == phaseAdmitted
+	case operationPhaseAdmittedOrActive:
+		return phase == phaseAdmitted || phase == phaseActive
+	case operationPhaseActive:
+		return phase == phaseActive
+	case operationPhaseFrozen:
+		return phase == phaseFrozen
+	default:
+		return false
+	}
+}
+
 type operationEntry struct {
 	operation  AgentOperation
 	expected   responseKind
@@ -675,6 +791,7 @@ type sessionState struct {
 	requirementHash       Fingerprint
 	planHash              Fingerprint
 	sessionCapabilityHash Fingerprint
+	backendIdentityHash   Fingerprint
 	expiresAt             time.Time
 	phase                 sessionPhase
 	nextSequence          uint64
@@ -786,6 +903,7 @@ type checkpointDTO struct {
 	RequirementHash       string                     `json:"requirement_hash"`
 	PlanHash              string                     `json:"plan_hash"`
 	SessionCapabilityHash string                     `json:"session_capability_hash"`
+	BackendIdentitySHA256 string                     `json:"backend_identity_sha256"`
 	ExpiresAtMS           int64                      `json:"expires_at_ms"`
 	Phase                 sessionPhase               `json:"phase"`
 	NextSequence          uint64                     `json:"next_sequence"`
@@ -868,6 +986,12 @@ func (c *Client) loadState(ctx context.Context, id Identifier) (sessionState, er
 	if err != nil || state.sessionID != id {
 		return sessionState{}, clientError(ErrorConflict)
 	}
+	if err := c.validateEndpointBinding(); err != nil {
+		return sessionState{}, err
+	}
+	if state.backendIdentityHash != c.backendBinding.IdentitySHA256() {
+		return sessionState{}, clientError(ErrorConflict)
+	}
 	return state, nil
 }
 
@@ -895,6 +1019,7 @@ func (s sessionState) checkpoint() checkpointDTO {
 		RequirementHash:       s.requirementHash.String(),
 		PlanHash:              s.planHash.String(),
 		SessionCapabilityHash: s.sessionCapabilityHash.String(),
+		BackendIdentitySHA256: s.backendIdentityHash.String(),
 		ExpiresAtMS:           s.expiresAt.UnixMilli(),
 		Phase:                 s.phase,
 		NextSequence:          s.nextSequence,
@@ -970,6 +1095,10 @@ func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) 
 	if err != nil {
 		return sessionState{}, err
 	}
+	backendIdentityHash, err := ParseFingerprint(checkpoint.BackendIdentitySHA256)
+	if err != nil {
+		return sessionState{}, err
+	}
 	state := sessionState{
 		sessionID:             sessionID,
 		providerID:            providerID,
@@ -978,6 +1107,7 @@ func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) 
 		requirementHash:       requirementHash,
 		planHash:              planHash,
 		sessionCapabilityHash: sessionCapabilityHash,
+		backendIdentityHash:   backendIdentityHash,
 		expiresAt:             time.UnixMilli(checkpoint.ExpiresAtMS).UTC(),
 		phase:                 checkpoint.Phase,
 		nextSequence:          checkpoint.NextSequence,

@@ -48,9 +48,11 @@ type ProtectedBrokerEndpointConfigV1 struct {
 type ProtectedBrokerEndpointV1 struct {
 	discovery Endpoint
 	admission *ProtectedBrokerAdmissionTransportV1
+	backend   BackendIdentityBinding
 }
 
 var _ Endpoint = (*ProtectedBrokerEndpointV1)(nil)
+var _ BoundEndpoint = (*ProtectedBrokerEndpointV1)(nil)
 
 func NewProtectedBrokerEndpointV1(
 	config ProtectedBrokerEndpointConfigV1,
@@ -76,7 +78,15 @@ func NewProtectedBrokerEndpointV1(
 	return &ProtectedBrokerEndpointV1{
 		discovery: discovery,
 		admission: admission,
+		backend:   config.Client.BackendBinding(),
 	}, nil
+}
+
+func (e *ProtectedBrokerEndpointV1) BackendBinding() BackendIdentityBinding {
+	if e == nil {
+		return BackendIdentityBinding{}
+	}
+	return e.backend
 }
 
 func (e *ProtectedBrokerEndpointV1) Discover(
@@ -129,5 +139,6 @@ func (e *ProtectedBrokerEndpointV1) Cancel(
 }
 
 func (e *ProtectedBrokerEndpointV1) usable() bool {
-	return e != nil && e.discovery != nil && e.admission != nil
+	return e != nil && e.discovery != nil && e.admission != nil &&
+		e.backend.valid()
 }
