@@ -73,6 +73,12 @@ type PlanescapeProviderConfig struct {
 	BrokerPublicKeyBase64URL string                                  `yaml:"broker_public_key_base64url"`
 	ClientPublicKeyBase64URL string                                  `yaml:"client_public_key_base64url"`
 	ClientSigningSeedFile    string                                  `yaml:"client_signing_seed_file"`
+	// InvocationAuthorityFile names one externally authored, exact lifecycle
+	// artifact. Its path and contents are never included in product errors.
+	InvocationAuthorityFile string `yaml:"invocation_authority_file"`
+	// InvocationAuthorityFileSHA256 pins the complete artifact, including its
+	// invocation and every Rust-authored provider record.
+	InvocationAuthorityFileSHA256 string `yaml:"invocation_authority_file_sha256"`
 }
 
 // PlanescapeProviderBackendIdentityConfig pins every component committed by

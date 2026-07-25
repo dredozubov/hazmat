@@ -19,6 +19,7 @@ const (
 	planescapeProductProviderFailure  planescapeProductFailureReason = "provider_failure"
 	planescapeProductLifecyclePending planescapeProductFailureReason = "lifecycle_pending"
 	planescapeProductTerminalPending  planescapeProductFailureReason = "terminal_pending"
+	planescapeProductCancelled        planescapeProductFailureReason = "cancelled"
 	planescapeProductLocalFallback    planescapeProductFailureReason = "local_fallback"
 )
 
@@ -39,6 +40,8 @@ func (e *planescapeProductError) Error() string {
 		return "configured Planescape provider admitted the session, but product lifecycle execution is unavailable; local execution is disabled"
 	case planescapeProductTerminalPending:
 		return "configured Planescape provider reached quiescence, but terminal lifecycle execution is unavailable; local execution is disabled"
+	case planescapeProductCancelled:
+		return "configured Planescape provider cancelled the session; local execution is disabled"
 	case planescapeProductLocalFallback:
 		return "configured Planescape provider session cannot use a local execution path"
 	case planescapeProductProviderFailure:
@@ -71,8 +74,8 @@ const (
 )
 
 // planescapeProductInvocation is the exact product request presented to the
-// Rust plan source. Its session request ID is generated before compilation and
-// is distinct from the provider-minted admitted session ID.
+// Rust plan source. Its externally authored session request ID is distinct
+// from the provider's deterministic admitted session ID.
 type planescapeProductInvocation struct {
 	commandName      string
 	forwardedArgs    []string
@@ -199,6 +202,12 @@ func (v planescapeProductCompiledPlanArtifact) valid() bool {
 	return err == nil
 }
 
+// planescapeProductInvocationSource binds the actual command and forwarded
+// arguments to the session request identity authored outside Go.
+type planescapeProductInvocationSource interface {
+	Invocation(string, []string) (planescapeProductInvocation, error)
+}
+
 type planescapeProductCompiledPlanSource interface {
 	CompiledContainmentPlan(
 		context.Context,
@@ -206,18 +215,75 @@ type planescapeProductCompiledPlanSource interface {
 	) (planescapeProductCompiledPlanArtifact, error)
 }
 
-// planescapeProductOperationSource supplies only unbound operation intent.
+// planescapeProductPostToolIntent is closed so a source must explicitly select
+// either the pause/freeze/closeout path or the cancellation path.
+type planescapeProductPostToolIntent interface {
+	planescapeProductPostToolIntent()
+	valid() bool
+}
+
+type planescapeProductPauseIntent struct {
+	operation planescapeprovider.OperationInput
+}
+
+func newPlanescapeProductPauseIntent(
+	operation planescapeprovider.OperationInput,
+) (planescapeProductPauseIntent, error) {
+	if !validPlanescapeProductOperationInput(
+		operation,
+		planescapeprovider.OperationPause,
+	) {
+		return planescapeProductPauseIntent{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductPauseIntent{operation: operation}, nil
+}
+
+func (planescapeProductPauseIntent) planescapeProductPostToolIntent() {}
+
+func (v planescapeProductPauseIntent) valid() bool {
+	return validPlanescapeProductOperationInput(
+		v.operation,
+		planescapeprovider.OperationPause,
+	)
+}
+
+type planescapeProductCancellationIntent struct {
+	input planescapeprovider.CancellationInput
+}
+
+func newPlanescapeProductCancellationIntent(
+	input planescapeprovider.CancellationInput,
+) (planescapeProductCancellationIntent, error) {
+	if !validPlanescapeProductCancellationInput(input) {
+		return planescapeProductCancellationIntent{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductCancellationIntent{input: input}, nil
+}
+
+func (planescapeProductCancellationIntent) planescapeProductPostToolIntent() {}
+
+func (v planescapeProductCancellationIntent) valid() bool {
+	return validPlanescapeProductCancellationInput(v.input)
+}
+
+// planescapeProductOperationSource supplies only Rust-authored unbound intent.
 // Session adds the exact admitted session, sequence, plan, and backend binding.
 type planescapeProductOperationSource interface {
 	ToolOperation(
 		context.Context,
 		planescapeProductBinding,
 	) (planescapeprovider.OperationInput, error)
-	QuiescenceOperation(
+	PostToolIntent(
 		context.Context,
 		planescapeProductBinding,
 		planescapeprovider.OperationResult,
-	) (planescapeprovider.OperationInput, error)
+	) (planescapeProductPostToolIntent, error)
 }
 
 // planescapeProductTerminalSource supplies Rust-authored terminal intent for
@@ -235,6 +301,7 @@ type planescapeProductTerminalSource interface {
 }
 
 type planescapeProductDependencies struct {
+	InvocationSource   planescapeProductInvocationSource
 	Endpoint           planescapeprovider.BoundEndpoint
 	CompiledPlanSource planescapeProductCompiledPlanSource
 	OperationSource    planescapeProductOperationSource
@@ -372,6 +439,11 @@ func (v planescapeProductAdmission) Binding() (planescapeProductBinding, bool) {
 	return v.binding, true
 }
 
+type planescapeProductPostToolLifecycle interface {
+	planescapeProductPostToolLifecycle()
+	valid() bool
+}
+
 // planescapeProductQuiescedLifecycle is explicitly non-terminal. Its exact
 // admitted session is retained so only Session can bind later terminal intent.
 type planescapeProductQuiescedLifecycle struct {
@@ -380,6 +452,8 @@ type planescapeProductQuiescedLifecycle struct {
 	quiescence planescapeprovider.Quiescence
 	evidence   planescapeprovider.EvidenceReferences
 }
+
+func (planescapeProductQuiescedLifecycle) planescapeProductPostToolLifecycle() {}
 
 func (v planescapeProductQuiescedLifecycle) valid() bool {
 	return v.admission.valid() &&
@@ -402,6 +476,35 @@ func (v planescapeProductQuiescedLifecycle) Quiescence() planescapeprovider.Quie
 
 func (v planescapeProductQuiescedLifecycle) Evidence() planescapeprovider.EvidenceReferences {
 	return v.evidence
+}
+
+type planescapeProductCancelledLifecycle struct {
+	admission    planescapeProductAdmission
+	tool         planescapeprovider.OperationResult
+	cancellation planescapeprovider.CancellationAck
+	evidence     planescapeprovider.EvidenceReferences
+}
+
+func (planescapeProductCancelledLifecycle) planescapeProductPostToolLifecycle() {}
+
+func (v planescapeProductCancelledLifecycle) valid() bool {
+	logicalEvidence, hasLogicalEvidence := v.evidence.LogicalEvidence()
+	return v.admission.valid() &&
+		v.tool.SessionID() == v.admission.binding.SessionID() &&
+		validPlanescapeProductCancellationAck(v.cancellation) &&
+		v.cancellation.SessionID() == v.admission.binding.SessionID() &&
+		v.cancellation.TerminalOutcome() ==
+			planescapeprovider.OutcomeCancelled &&
+		hasLogicalEvidence &&
+		logicalEvidence == v.cancellation.LogicalEvidenceHash() &&
+		containsPlanescapeProductFingerprint(
+			v.evidence.Artifacts(),
+			v.tool.ArtifactHash(),
+		) &&
+		containsPlanescapeProductFingerprint(
+			v.evidence.OperationEvidence(),
+			v.tool.EvidenceHash(),
+		)
 }
 
 type planescapeProductFrozenLifecycle struct {
@@ -546,12 +649,22 @@ func defaultPlanescapeProductDependencies() (
 	if cfg.SessionExecutionProvider() != configmodel.ExecutionProviderPlanescape {
 		return dependencies, nil
 	}
+	source, err := configuredPlanescapeProductAuthoritySource(
+		cfg.Session.Planescape,
+	)
+	if err != nil {
+		return planescapeProductDependencies{}, mapPlanescapeProductError(err)
+	}
 	dependencies.Endpoint, err = configuredPlanescapeProductEndpoint(
 		cfg.Session.Planescape,
 	)
 	if err != nil {
 		return planescapeProductDependencies{}, mapPlanescapeProductError(err)
 	}
+	dependencies.InvocationSource = source
+	dependencies.CompiledPlanSource = source
+	dependencies.OperationSource = source
+	dependencies.TerminalSource = source
 	return dependencies, nil
 }
 
@@ -633,13 +746,25 @@ func runSessionStartupWithExecutionProvider(
 	if dependencies.OperationSource == nil {
 		return nil, newPlanescapeProductLifecyclePendingError(admission)
 	}
-	quiesced, err := quiescePlanescapeProductLifecycle(
+	continuation, err := advancePlanescapeProductLifecycle(
 		ctx,
 		admission,
 		dependencies.OperationSource,
 	)
 	if err != nil {
 		return nil, err
+	}
+	quiesced, ok := continuation.(planescapeProductQuiescedLifecycle)
+	if !ok {
+		cancelled, cancelledOK :=
+			continuation.(planescapeProductCancelledLifecycle)
+		if !cancelledOK || !cancelled.valid() {
+			return nil, newPlanescapeProductError(
+				planescapeprovider.ErrorConflict,
+				planescapeProductProviderFailure,
+			)
+		}
+		return nil, newPlanescapeProductCancelledError()
 	}
 	if dependencies.TerminalSource == nil {
 		return nil, newPlanescapeProductTerminalPendingError()
@@ -719,68 +844,101 @@ func admitPlanescapeProductSession(
 	)
 }
 
-func quiescePlanescapeProductLifecycle(
+func advancePlanescapeProductLifecycle(
 	ctx context.Context,
 	admission planescapeProductAdmission,
 	source planescapeProductOperationSource,
-) (planescapeProductQuiescedLifecycle, error) {
+) (planescapeProductPostToolLifecycle, error) {
 	if ctx == nil || source == nil || !admission.valid() {
-		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
+		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorUnavailable,
 			planescapeProductProviderFailure,
 		)
 	}
 	binding, ok := admission.Binding()
 	if !ok {
-		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
+		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorConflict,
 			planescapeProductProviderFailure,
 		)
 	}
 	toolInput, err := source.ToolOperation(ctx, binding)
 	if err != nil {
-		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
+		return nil, mapPlanescapeProductError(err)
 	}
 	if toolInput.Kind() != planescapeprovider.OperationTool {
-		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
+		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
 		)
 	}
 	tool, err := admission.session.RunTool(ctx, toolInput)
 	if err != nil {
-		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
+		return nil, mapPlanescapeProductError(err)
 	}
-	quiescenceInput, err := source.QuiescenceOperation(ctx, binding, tool)
+	intent, err := source.PostToolIntent(ctx, binding, tool)
 	if err != nil {
-		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
+		return nil, mapPlanescapeProductError(err)
 	}
-	if quiescenceInput.Kind() != planescapeprovider.OperationPause {
-		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
+	if intent == nil || !intent.valid() {
+		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
 		)
 	}
-	quiescence, err := admission.session.Quiesce(ctx, quiescenceInput)
-	if err != nil {
-		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
-	}
-	evidence, err := admission.session.Evidence(ctx)
-	if err != nil {
-		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
-	}
-	if !planescapeProductEvidenceMatches(tool, quiescence, evidence) {
-		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
-			planescapeprovider.ErrorConflict,
+	switch value := intent.(type) {
+	case planescapeProductPauseIntent:
+		quiescence, err := admission.session.Quiesce(
+			ctx,
+			value.operation,
+		)
+		if err != nil {
+			return nil, mapPlanescapeProductError(err)
+		}
+		evidence, err := admission.session.Evidence(ctx)
+		if err != nil {
+			return nil, mapPlanescapeProductError(err)
+		}
+		if !planescapeProductEvidenceMatches(tool, quiescence, evidence) {
+			return nil, newPlanescapeProductError(
+				planescapeprovider.ErrorConflict,
+				planescapeProductProviderFailure,
+			)
+		}
+		return planescapeProductQuiescedLifecycle{
+			admission:  admission,
+			tool:       tool,
+			quiescence: quiescence,
+			evidence:   evidence,
+		}, nil
+	case planescapeProductCancellationIntent:
+		cancellation, err := admission.session.Cancel(ctx, value.input)
+		if err != nil {
+			return nil, mapPlanescapeProductError(err)
+		}
+		evidence, err := admission.session.Evidence(ctx)
+		if err != nil {
+			return nil, mapPlanescapeProductError(err)
+		}
+		cancelled := planescapeProductCancelledLifecycle{
+			admission:    admission,
+			tool:         tool,
+			cancellation: cancellation,
+			evidence:     evidence,
+		}
+		if !cancelled.valid() {
+			return nil, newPlanescapeProductError(
+				planescapeprovider.ErrorConflict,
+				planescapeProductProviderFailure,
+			)
+		}
+		return cancelled, nil
+	default:
+		return nil, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
 		)
 	}
-	return planescapeProductQuiescedLifecycle{
-		admission:  admission,
-		tool:       tool,
-		quiescence: quiescence,
-		evidence:   evidence,
-	}, nil
 }
 
 func closePlanescapeProductLifecycle(
@@ -896,6 +1054,35 @@ func validPlanescapeProductFreezeAck(
 			QuiescenceHash: value.QuiescenceHash().String(),
 			FrozenAt:       value.FrozenAt(),
 			CanonicalHash:  value.CanonicalHash().String(),
+		},
+	)
+	return err == nil
+}
+
+func validPlanescapeProductCancellationInput(
+	input planescapeprovider.CancellationInput,
+) bool {
+	_, err := planescapeprovider.NewCancellationInput(
+		planescapeprovider.CancellationInputValues{
+			CancellationID: input.CancellationID().String(),
+			Reason:         input.Reason(),
+			Nonce:          input.Nonce().String(),
+			CanonicalHash:  input.CanonicalHash().String(),
+		},
+	)
+	return err == nil
+}
+
+func validPlanescapeProductCancellationAck(
+	value planescapeprovider.CancellationAck,
+) bool {
+	_, err := planescapeprovider.NewCancellationAck(
+		planescapeprovider.CancellationAckInput{
+			SessionID:           value.SessionID().String(),
+			CancellationID:      value.CancellationID().String(),
+			TerminalOutcome:     value.TerminalOutcome(),
+			LogicalEvidenceHash: value.LogicalEvidenceHash().String(),
+			CanonicalHash:       value.CanonicalHash().String(),
 		},
 	)
 	return err == nil
@@ -1032,5 +1219,12 @@ func newPlanescapeProductTerminalPendingError() error {
 	return &planescapeProductError{
 		class:  planescapeprovider.ErrorUnsupported,
 		reason: planescapeProductTerminalPending,
+	}
+}
+
+func newPlanescapeProductCancelledError() error {
+	return &planescapeProductError{
+		class:  planescapeprovider.ErrorUnavailable,
+		reason: planescapeProductCancelled,
 	}
 }

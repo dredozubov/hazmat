@@ -50,10 +50,22 @@ func TestDefaultPlanescapeProductDependenciesBuildExactProtectedEndpoint(
 		binding.ProviderEpoch().Uint64() != config.Backend.BrokerEpoch {
 		t.Fatalf("endpoint binding = %+v, want exact configured identity", binding)
 	}
-	if dependencies.CompiledPlanSource != nil ||
-		dependencies.OperationSource != nil ||
-		dependencies.TerminalSource != nil {
-		t.Fatal("default dependencies fabricated a Rust plan, operation, or terminal source")
+	if dependencies.InvocationSource == nil ||
+		dependencies.CompiledPlanSource == nil ||
+		dependencies.OperationSource == nil ||
+		dependencies.TerminalSource == nil {
+		t.Fatal("default dependencies omitted configured Rust authority")
+	}
+	invocation, err := dependencies.InvocationSource.Invocation(
+		"exec",
+		[]string{"/usr/bin/true"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.SessionRequestID().String() !=
+		"configured-authority-session" {
+		t.Fatal("default dependencies did not retain exact Rust session binding")
 	}
 	wantCheckpointRoot := filepath.Join(
 		filepath.Dir(configFilePath),
@@ -118,7 +130,7 @@ func TestConfiguredPlanescapeProviderAbsenceDoesNotStartNativeRuntime(
 	}
 }
 
-func TestConfiguredEndpointWithoutRustPlanSourceDoesNotDialOrFallback(
+func TestConfiguredEndpointWithoutRustAuthorityDoesNotDialOrFallback(
 	t *testing.T,
 ) {
 	isolateConfig(t)
@@ -136,6 +148,8 @@ func TestConfiguredEndpointWithoutRustPlanSourceDoesNotDialOrFallback(
 		t,
 		listener.Addr().String(),
 	)
+	config.InvocationAuthorityFile = ""
+	config.InvocationAuthorityFileSHA256 = ""
 	hazmatConfig := defaultConfig()
 	hazmatConfig.Session.ExecutionProvider =
 		configmodel.ExecutionProviderPlanescape
@@ -143,37 +157,12 @@ func TestConfiguredEndpointWithoutRustPlanSourceDoesNotDialOrFallback(
 	if err := saveConfig(hazmatConfig); err != nil {
 		t.Fatal(err)
 	}
-	dependencies, err := defaultPlanescapeProductDependencies()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	localStarts := 0
-	_, err = runSessionStartupWithExecutionProvider(
-		context.Background(),
-		sessionConfig{
-			ExecutionProvider: configmodel.ExecutionProviderPlanescape,
-		},
-		testPlanescapeProductInvocation(
-			t,
-			"exec",
-			[]string{"/usr/bin/true"},
-			"configured-without-rust-source",
-		),
-		dependencies,
-		func() error {
-			localStarts++
-			return nil
-		},
-	)
+	_, err = defaultPlanescapeProductDependencies()
 	requirePlanescapeProductErrorClass(
 		t,
 		err,
-		planescapeprovider.ErrorUnavailable,
+		planescapeprovider.ErrorInvalid,
 	)
-	if localStarts != 0 {
-		t.Fatalf("local startup calls = %d, want 0", localStarts)
-	}
 
 	if err := tcpListener.SetDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatal(err)
@@ -181,7 +170,7 @@ func TestConfiguredEndpointWithoutRustPlanSourceDoesNotDialOrFallback(
 	connection, acceptErr := listener.Accept()
 	if connection != nil {
 		_ = connection.Close()
-		t.Fatal("missing Rust plan source still dialed the provider")
+		t.Fatal("missing Rust authority still dialed the provider")
 	}
 	var networkError net.Error
 	if !errors.As(acceptErr, &networkError) || !networkError.Timeout() {
@@ -215,11 +204,13 @@ func TestConfiguredPlanescapeProviderDeathDoesNotFallback(
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, plan, _ := planescapeProductAdmissionFixtures(t)
-	dependencies.CompiledPlanSource =
-		&planescapeProductCompiledPlanSourceFake{plan: plan}
-	operations := &planescapeProductOperationSourceFake{}
-	dependencies.OperationSource = operations
+	invocation, err := dependencies.InvocationSource.Invocation(
+		"exec",
+		[]string{"/usr/bin/true"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	localStarts := 0
 	_, err = runSessionStartupWithExecutionProvider(
@@ -227,12 +218,7 @@ func TestConfiguredPlanescapeProviderDeathDoesNotFallback(
 		sessionConfig{
 			ExecutionProvider: configmodel.ExecutionProviderPlanescape,
 		},
-		testPlanescapeProductInvocation(
-			t,
-			"exec",
-			[]string{"/usr/bin/true"},
-			"configured-provider-death",
-		),
+		invocation,
 		dependencies,
 		func() error {
 			localStarts++
@@ -244,14 +230,10 @@ func TestConfiguredPlanescapeProviderDeathDoesNotFallback(
 		err,
 		planescapeprovider.ErrorUnavailable,
 	)
-	if localStarts != 0 ||
-		operations.toolCalls != 0 ||
-		operations.quiescenceCalls != 0 {
+	if localStarts != 0 {
 		t.Fatalf(
-			"provider death reached fallback/effect: local=%d operations=%d/%d",
+			"provider death reached fallback: local=%d",
 			localStarts,
-			operations.toolCalls,
-			operations.quiescenceCalls,
 		)
 	}
 	for _, sensitive := range []string{
@@ -358,7 +340,7 @@ func planescapeProductProviderConfigFixture(
 	}
 	clear(seed)
 
-	return &configmodel.PlanescapeProviderConfig{
+	config := &configmodel.PlanescapeProviderConfig{
 		Endpoint:                 endpoint,
 		DialTimeoutMS:            250,
 		BrokerPublicKeyBase64URL: fixture.BrokerPublicKeyBase64URL,
@@ -373,4 +355,13 @@ func planescapeProductProviderConfigFixture(
 			BrokerEpoch:                fixture.BrokerEpoch,
 		},
 	}
+	configurePlanescapeProductAuthorityFixture(
+		t,
+		config,
+		"exec",
+		[]string{"/usr/bin/true"},
+		"configured-authority-session",
+		planescapeProductAuthorityTerminalCloseoutV1,
+	)
+	return config
 }

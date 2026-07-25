@@ -684,6 +684,9 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 				error,
 			) {
 				return planescapeProductDependencies{
+					InvocationSource: planescapeProductInvocationSourceFake{
+						sessionRequestID: "configured-command-session",
+					},
 					Endpoint:           endpoint,
 					CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
 					OperationSource:    operations,
@@ -1037,18 +1040,22 @@ type planescapeProductEndpointFake struct {
 	capabilities    planescapeprovider.ProviderCapabilities
 	admission       planescapeprovider.SessionAdmission
 	freezeAck       planescapeprovider.FreezeAck
+	cancellationAck planescapeprovider.CancellationAck
 	discoverErr     error
 	admitErr        error
 	operationErr    error
 	operationErrors map[planescapeprovider.OperationKind]error
 	freezeErr       error
+	cancellationErr error
 	discoverCalls   int
 	admitCalls      int
 	cancelCalls     int
 	admittedPlans   []planescapeprovider.CompiledContainmentPlan
 	operations      []planescapeprovider.AgentOperation
 	freezes         []planescapeprovider.Freeze
+	cancellations   []planescapeprovider.Cancellation
 	responses       []planescapeprovider.OperationResponse
+	afterAdmit      func(*planescapeProductEndpointFake)
 }
 
 func (e *planescapeProductEndpointFake) BackendBinding() planescapeprovider.BackendIdentityBinding {
@@ -1075,7 +1082,11 @@ func (e *planescapeProductEndpointFake) Admit(
 ) (planescapeprovider.SessionAdmission, error) {
 	e.admitCalls++
 	e.admittedPlans = append(e.admittedPlans, plan)
-	return e.admission, e.admitErr
+	admission, err := e.admission, e.admitErr
+	if e.afterAdmit != nil {
+		e.afterAdmit(e)
+	}
+	return admission, err
 }
 
 func (e *planescapeProductEndpointFake) Operate(
@@ -1109,11 +1120,19 @@ func (e *planescapeProductEndpointFake) Freeze(
 }
 
 func (e *planescapeProductEndpointFake) Cancel(
-	context.Context,
-	planescapeprovider.Cancellation,
+	_ context.Context,
+	cancellation planescapeprovider.Cancellation,
 ) (planescapeprovider.CancellationAck, error) {
 	e.cancelCalls++
-	return planescapeprovider.CancellationAck{}, errors.New("unexpected Cancel call")
+	e.cancellations = append(e.cancellations, cancellation)
+	if e.cancellationErr != nil {
+		return planescapeprovider.CancellationAck{}, e.cancellationErr
+	}
+	if !validPlanescapeProductCancellationAck(e.cancellationAck) {
+		return planescapeprovider.CancellationAck{},
+			errors.New("unexpected Cancel call")
+	}
+	return e.cancellationAck, nil
 }
 
 type planescapeProductCompiledPlanSourceFake struct {
@@ -1124,9 +1143,15 @@ type planescapeProductCompiledPlanSourceFake struct {
 	calls      int
 }
 
+type planescapeProductInvocationSourceFake struct {
+	sessionRequestID string
+	err              error
+}
+
 type planescapeProductOperationSourceFake struct {
 	tool             planescapeprovider.OperationInput
 	quiescence       planescapeprovider.OperationInput
+	cancellation     planescapeprovider.CancellationInput
 	toolErr          error
 	quiescenceErr    error
 	toolCalls        int
@@ -1162,18 +1187,32 @@ func (s *planescapeProductOperationSourceFake) ToolOperation(
 	return s.tool, s.toolErr
 }
 
-func (s *planescapeProductOperationSourceFake) QuiescenceOperation(
+func (s *planescapeProductOperationSourceFake) PostToolIntent(
 	_ context.Context,
 	binding planescapeProductBinding,
 	tool planescapeprovider.OperationResult,
-) (planescapeprovider.OperationInput, error) {
+) (planescapeProductPostToolIntent, error) {
 	s.quiescenceCalls++
 	s.bindings = append(s.bindings, binding)
 	s.toolResult = tool
 	if s.beforeQuiescence != nil {
 		s.beforeQuiescence()
 	}
-	return s.quiescence, s.quiescenceErr
+	if s.quiescenceErr != nil {
+		return nil, s.quiescenceErr
+	}
+	if validPlanescapeProductCancellationInput(s.cancellation) {
+		intent, err := newPlanescapeProductCancellationIntent(s.cancellation)
+		if err != nil {
+			return nil, err
+		}
+		return intent, nil
+	}
+	intent, err := newPlanescapeProductPauseIntent(s.quiescence)
+	if err != nil {
+		return nil, err
+	}
+	return intent, nil
 }
 
 func (s *planescapeProductTerminalSourceFake) FreezeInput(
@@ -1214,6 +1253,20 @@ func (s *planescapeProductCompiledPlanSourceFake) CompiledContainmentPlan(
 		plan:       s.plan,
 		invocation: bound,
 	}, s.err
+}
+
+func (s planescapeProductInvocationSourceFake) Invocation(
+	commandName string,
+	forwardedArgs []string,
+) (planescapeProductInvocation, error) {
+	if s.err != nil {
+		return planescapeProductInvocation{}, s.err
+	}
+	return newPlanescapeProductInvocation(
+		commandName,
+		forwardedArgs,
+		s.sessionRequestID,
+	)
 }
 
 func testPlanescapeProductInvocation(

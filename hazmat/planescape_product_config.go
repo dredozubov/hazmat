@@ -188,7 +188,7 @@ func readPlanescapeProductSigningSeed(path string) ([]byte, error) {
 			planescapeProductProviderFailure,
 		)
 	}
-	if !validPlanescapeProductSigningSeedFile(pathInfo) {
+	if !validPlanescapeProductSecureRegularFile(pathInfo) {
 		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
@@ -205,7 +205,7 @@ func readPlanescapeProductSigningSeed(path string) ([]byte, error) {
 	openedInfo, statErr := file.Stat()
 	if statErr != nil ||
 		!os.SameFile(pathInfo, openedInfo) ||
-		!validPlanescapeProductSigningSeedFile(openedInfo) {
+		!validPlanescapeProductSecureRegularFile(openedInfo) {
 		_ = file.Close()
 		return nil, newPlanescapeProductError(
 			planescapeprovider.ErrorConflict,
@@ -234,7 +234,7 @@ func readPlanescapeProductSigningSeed(path string) ([]byte, error) {
 	return seed, nil
 }
 
-func validPlanescapeProductSigningSeedFile(info os.FileInfo) bool {
+func validPlanescapeProductSecureRegularFile(info os.FileInfo) bool {
 	if info == nil ||
 		!info.Mode().IsRegular() ||
 		info.Mode().Perm() != 0o600 ||

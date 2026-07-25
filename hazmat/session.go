@@ -21,6 +21,7 @@ import (
 	"hazmat/internal/backupruntime"
 	launchruntime "hazmat/internal/runtime"
 	"hazmat/internal/sessionflow"
+	"hazmat/planescapeprovider"
 	"hazmat/runtimeprovider"
 	"hazmat/sessionmeta"
 
@@ -397,20 +398,25 @@ func prepareAndBeginLaunchSession(
 	if err != nil {
 		return preparedSession{}, err
 	}
-	var invocation planescapeProductInvocation
-	if executionProvider == configmodel.ExecutionProviderPlanescape {
-		invocation, err = newPlanescapeProductInvocation(
-			commandName,
-			forwardedArgs,
-			"hazmat-"+generateToken(),
-		)
-		if err != nil {
-			return preparedSession{}, err
-		}
-	}
 	dependencies, err := planescapeProductDependenciesForSession()
 	if err != nil {
 		return preparedSession{}, mapPlanescapeProductError(err)
+	}
+	var invocation planescapeProductInvocation
+	if executionProvider == configmodel.ExecutionProviderPlanescape {
+		if dependencies.InvocationSource == nil {
+			return preparedSession{}, newPlanescapeProductError(
+				planescapeprovider.ErrorUnavailable,
+				planescapeProductProviderFailure,
+			)
+		}
+		invocation, err = dependencies.InvocationSource.Invocation(
+			commandName,
+			forwardedArgs,
+		)
+		if err != nil {
+			return preparedSession{}, mapPlanescapeProductError(err)
+		}
 	}
 	var prepared preparedSession
 	planescape, err := runSessionStartupWithExecutionProvider(
