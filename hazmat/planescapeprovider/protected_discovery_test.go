@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const protectedBrokerFixtureSHA256 = "72a1a49d9cd9317ebc4487696168a5c7159cac650d76385485a0c018729e4232"
+const protectedBrokerFixtureSHA256 = "bf389aeaddb6de54c8ecb4edc7014760ee1ea38dba37f826b0158c112d753519"
 
 type protectedBrokerDiscoveryFixtureV1 struct {
 	Schema string `json:"schema"`
@@ -48,7 +48,8 @@ type protectedBrokerDiscoveryFixtureV1 struct {
 		ServerAcceptedJSON     string `json:"server_accepted_json"`
 	} `json:"shared_handshake_public"`
 	Handshake struct {
-		ReconnectTransportSessionSHA256 string `json:"reconnect_transport_session_sha256"`
+		QuiescenceTransportSessionSHA256 string `json:"quiescence_transport_session_sha256"`
+		ReconnectTransportSessionSHA256  string `json:"reconnect_transport_session_sha256"`
 	} `json:"handshake"`
 	ProviderDiscoveryRPC struct {
 		Discovery    protectedBrokerDiscoveryRecordFixtureV1 `json:"discovery"`
@@ -61,7 +62,20 @@ type protectedBrokerDiscoveryFixtureV1 struct {
 		Request      protectedBrokerDiscoveryRPCFixtureV1    `json:"request"`
 		Response     protectedBrokerDiscoveryRPCFixtureV1    `json:"response"`
 	} `json:"provider_admission_rpc"`
-	ProviderToolRPC protectedBrokerProviderToolFixtureV1 `json:"provider_tool_rpc"`
+	ProviderQuiescenceRPC protectedBrokerProviderQuiescenceFixtureV1 `json:"provider_quiescence_rpc"`
+	ProviderToolRPC       protectedBrokerProviderToolFixtureV1       `json:"provider_tool_rpc"`
+}
+
+type protectedBrokerProviderQuiescenceFixtureV1 struct {
+	Operation  protectedBrokerDiscoveryRecordFixtureV1 `json:"operation"`
+	Quiescence protectedBrokerDiscoveryRecordFixtureV1 `json:"quiescence"`
+	Request    struct {
+		Wire                 protectedBrokerDiscoveryRPCWireFixtureV1   `json:"wire"`
+		OperationPayloadHash protectedBrokerDiscoveryHashFixtureV1      `json:"operation_payload_hash"`
+		Hash                 protectedBrokerDiscoveryHashFixtureV1      `json:"hash"`
+		Signature            protectedBrokerDiscoverySignatureFixtureV1 `json:"signature"`
+	} `json:"request"`
+	Response protectedBrokerDiscoveryRPCFixtureV1 `json:"response"`
 }
 
 type protectedBrokerProviderToolFixtureV1 struct {

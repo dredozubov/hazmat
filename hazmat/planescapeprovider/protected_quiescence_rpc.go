@@ -180,10 +180,13 @@ func newProtectedBrokerProviderQuiescenceRequestV1(
 ) (protectedBrokerProviderQuiescenceRequestWireV1, error) {
 	if client == nil ||
 		!client.valid() ||
-		sequence == 0 ||
 		!operation.dispatchablePause() {
 		return protectedBrokerProviderQuiescenceRequestWireV1{},
 			protectedBrokerError(ProtectedBrokerInvalidRequestV1)
+	}
+	if sequence != protectedBrokerProviderQuiescenceSequenceV1 {
+		return protectedBrokerProviderQuiescenceRequestWireV1{},
+			protectedBrokerError(ProtectedBrokerReplayedSequenceV1)
 	}
 	if err := validateProtectedBrokerProviderSessionV1(client, session); err != nil {
 		return protectedBrokerProviderQuiescenceRequestWireV1{}, err
@@ -277,6 +280,10 @@ func (v protectedBrokerProviderQuiescenceResponseWireV1) validate(
 	expectedRequestSHA256 protectedBrokerHashV1,
 	operation AgentOperation,
 ) (Quiescence, error) {
+	if expectedSequence != protectedBrokerProviderQuiescenceSequenceV1 {
+		return Quiescence{},
+			protectedBrokerError(ProtectedBrokerReplayedSequenceV1)
+	}
 	if v.Schema != protectedBrokerProviderQuiescenceResponseSchemaV1 {
 		return Quiescence{},
 			protectedBrokerError(ProtectedBrokerInvalidSchemaV1)
@@ -415,8 +422,7 @@ func (v *protectedBrokerProviderQuiescenceResponsePayloadV1) UnmarshalJSON(
 			encoded,
 			&wire,
 		); err != nil ||
-			!wire.QuiescenceSHA256.valid() ||
-			wire.QuiescenceJSONBase64URL == "" {
+			!wire.QuiescenceSHA256.valid() {
 			return errors.New("invalid protected broker provider quiescence payload")
 		}
 		*v = protectedBrokerProviderQuiescenceResponsePayloadV1{
@@ -464,8 +470,7 @@ func (v protectedBrokerProviderQuiescenceResponsePayloadV1) intoValidated(
 		v.success.QuiescenceJSONBase64URL,
 	)
 	if err != nil {
-		return Quiescence{},
-			protectedBrokerError(ProtectedBrokerInvalidEvidenceV1)
+		return Quiescence{}, err
 	}
 	response, err := (ProviderV1FrameCodec{}).DecodeOperation(quiescenceJSON)
 	if err != nil {
@@ -473,9 +478,12 @@ func (v protectedBrokerProviderQuiescenceResponsePayloadV1) intoValidated(
 			protectedBrokerError(ProtectedBrokerInvalidEvidenceV1)
 	}
 	quiescence, ok := response.(Quiescence)
-	if !ok ||
-		quiescence.CanonicalHash().String() !=
-			v.success.QuiescenceSHA256.String() {
+	if !ok {
+		return Quiescence{},
+			protectedBrokerError(ProtectedBrokerInvalidEvidenceV1)
+	}
+	if quiescence.CanonicalHash().String() !=
+		v.success.QuiescenceSHA256.String() {
 		return Quiescence{},
 			protectedBrokerError(ProtectedBrokerResponseHashMismatchV1)
 	}
