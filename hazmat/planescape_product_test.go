@@ -624,14 +624,17 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 					"c",
 				),
 			}
-			planescapeProductDependenciesForSession = func() planescapeProductDependencies {
+			planescapeProductDependenciesForSession = func() (
+				planescapeProductDependencies,
+				error,
+			) {
 				return planescapeProductDependencies{
 					Endpoint:           endpoint,
 					CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
 					OperationSource:    operations,
 					CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
 					Now:                func() time.Time { return now },
-				}
+				}, nil
 			}
 
 			command := test.command()
@@ -945,10 +948,8 @@ func TestConfiguredSessionExecutionProviderLoadsExplicitPlanescapeSelection(t *t
 	if provider != configmodel.ExecutionProviderPlanescape {
 		t.Fatalf("execution provider = %q, want %q", provider, configmodel.ExecutionProviderPlanescape)
 	}
-	dependencies := defaultPlanescapeProductDependencies()
-	wantRoot := filepath.Join(configDir, "planescape-provider-checkpoints")
-	if dependencies.CheckpointRoot != wantRoot {
-		t.Fatalf("checkpoint root = %q, want %q", dependencies.CheckpointRoot, wantRoot)
+	if _, err := defaultPlanescapeProductDependencies(); err == nil {
+		t.Fatal("Planescape selection without protected endpoint config succeeded")
 	}
 	if err := runConfigSet("session.execution_provider", "none"); err != nil {
 		t.Fatal(err)
@@ -959,6 +960,14 @@ func TestConfiguredSessionExecutionProviderLoadsExplicitPlanescapeSelection(t *t
 	}
 	if provider != configmodel.ExecutionProviderLocal {
 		t.Fatalf("execution provider after none = %q, want local", provider)
+	}
+	dependencies, err := defaultPlanescapeProductDependencies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot := filepath.Join(configDir, "planescape-provider-checkpoints")
+	if dependencies.CheckpointRoot != wantRoot {
+		t.Fatalf("checkpoint root = %q, want %q", dependencies.CheckpointRoot, wantRoot)
 	}
 }
 

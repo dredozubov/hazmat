@@ -37,6 +37,10 @@ type SessionConfig struct {
 	// admission path are available.
 	ExecutionProvider ExecutionProvider `yaml:"execution_provider,omitempty"`
 
+	// Planescape pins one exact protected broker. Private signing material is
+	// referenced by path and must never be embedded in config.yaml.
+	Planescape *PlanescapeProviderConfig `yaml:"planescape,omitempty"`
+
 	// SkipPermissions passes harness-specific auto-approval flags to agent
 	// CLIs (for example Claude's --dangerously-skip-permissions and Codex's
 	// --dangerously-bypass-approvals-and-sandbox). Default: true. The
@@ -58,6 +62,28 @@ type SessionConfig struct {
 	// HarnessAssets enables managed sync of supported user-global prompt assets
 	// for built-in harness commands. Default: true.
 	HarnessAssets *bool `yaml:"harness_assets,omitempty"`
+}
+
+// PlanescapeProviderConfig is the YAML boundary for one protected-broker
+// client. Product construction parses it into validated private types.
+type PlanescapeProviderConfig struct {
+	Endpoint                 string                                  `yaml:"endpoint"`
+	DialTimeoutMS            uint64                                  `yaml:"dial_timeout_ms"`
+	Backend                  PlanescapeProviderBackendIdentityConfig `yaml:"backend"`
+	BrokerPublicKeyBase64URL string                                  `yaml:"broker_public_key_base64url"`
+	ClientPublicKeyBase64URL string                                  `yaml:"client_public_key_base64url"`
+	ClientSigningSeedFile    string                                  `yaml:"client_signing_seed_file"`
+}
+
+// PlanescapeProviderBackendIdentityConfig pins every component committed by
+// the protected broker's canonical backend identity.
+type PlanescapeProviderBackendIdentityConfig struct {
+	IdentitySHA256             string `yaml:"identity_sha256"`
+	BackendInstanceSHA256      string `yaml:"backend_instance_sha256"`
+	ExecutableSHA256           string `yaml:"executable_sha256"`
+	ExecutionEnvironmentSHA256 string `yaml:"execution_environment_sha256"`
+	ProfileSHA256              string `yaml:"profile_sha256"`
+	BrokerEpoch                uint64 `yaml:"broker_epoch"`
 }
 
 type IntegrationsConfig struct {

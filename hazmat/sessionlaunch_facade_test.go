@@ -102,9 +102,12 @@ func TestSessionLauncherPrepareRejectsPlanescapeBeforeProductEffects(t *testing.
 		planescapeProductDependenciesForSession = savedDependencies
 	})
 	dependencyCalls := 0
-	planescapeProductDependenciesForSession = func() planescapeProductDependencies {
+	planescapeProductDependenciesForSession = func() (
+		planescapeProductDependencies,
+		error,
+	) {
 		dependencyCalls++
-		return planescapeProductDependencies{}
+		return planescapeProductDependencies{}, nil
 	}
 
 	_, err := NewSessionLauncher().Prepare(

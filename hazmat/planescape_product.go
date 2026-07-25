@@ -392,13 +392,35 @@ func configuredSessionExecutionProvider() (configmodel.ExecutionProvider, error)
 	return cfg.SessionExecutionProvider(), nil
 }
 
-func defaultPlanescapeProductDependencies() planescapeProductDependencies {
-	return planescapeProductDependencies{
+type planescapeProductDependencyFactory func() (planescapeProductDependencies, error)
+
+func defaultPlanescapeProductDependencies() (
+	planescapeProductDependencies,
+	error,
+) {
+	dependencies := planescapeProductDependencies{
 		CheckpointRoot: filepath.Join(filepath.Dir(configFilePath), "planescape-provider-checkpoints"),
 	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return planescapeProductDependencies{}, newPlanescapeProductError(
+			planescapeprovider.ErrorUnavailable,
+			planescapeProductProviderFailure,
+		)
+	}
+	if cfg.SessionExecutionProvider() != configmodel.ExecutionProviderPlanescape {
+		return dependencies, nil
+	}
+	dependencies.Endpoint, err = configuredPlanescapeProductEndpoint(
+		cfg.Session.Planescape,
+	)
+	if err != nil {
+		return planescapeProductDependencies{}, mapPlanescapeProductError(err)
+	}
+	return dependencies, nil
 }
 
-var planescapeProductDependenciesForSession = defaultPlanescapeProductDependencies
+var planescapeProductDependenciesForSession planescapeProductDependencyFactory = defaultPlanescapeProductDependencies
 
 // openPlanescapeProductClient binds the semantic client to one injected
 // Endpoint and a stable on-disk checkpoint root. Reopening this function in a

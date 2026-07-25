@@ -408,12 +408,16 @@ func prepareAndBeginLaunchSession(
 			return preparedSession{}, err
 		}
 	}
+	dependencies, err := planescapeProductDependenciesForSession()
+	if err != nil {
+		return preparedSession{}, mapPlanescapeProductError(err)
+	}
 	var prepared preparedSession
 	planescape, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: executionProvider},
 		invocation,
-		planescapeProductDependenciesForSession(),
+		dependencies,
 		func() error {
 			var err error
 			prepared, err = prepareLaunchSession(commandName, opts, supportsSandbox)
