@@ -6,17 +6,12 @@
   "required_profile": "portable.v1",
   "category": "valid",
   "request_kind": "execution_requirement",
-  "response_kind": "session_admission",
+  "response_kind": "provider_capabilities",
   "expected_disposition": "accepted",
   "provider_epoch": 7,
-  "session_id": "session-1",
-  "operation_id": "admission-1",
-  "nonce": "nonce-admit",
   "requirement_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-  "compiled_plan_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
   "required_capabilities": ["artifact_read", "workspace_read"],
   "advertised_capabilities": ["artifact_read", "workspace_read"],
   "required_resource_dimensions": ["memory_bytes", "workspace_bytes"],
-  "advertised_resource_dimensions": ["memory_bytes", "workspace_bytes"],
-  "transition": "discovered_to_admitted"
+  "advertised_resource_dimensions": ["memory_bytes", "workspace_bytes"]
 }

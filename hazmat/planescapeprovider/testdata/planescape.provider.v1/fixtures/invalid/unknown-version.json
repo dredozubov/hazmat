@@ -4,7 +4,7 @@
   "protocol_version": "v2",
   "provider_profile": "portable.v1",
   "category": "invalid",
-  "request_kind": "provider_capabilities",
+  "request_kind": "provider_discovery",
   "response_kind": "error",
   "expected_disposition": "invalid"
 }

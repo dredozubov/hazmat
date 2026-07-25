@@ -22,7 +22,9 @@ var conformanceFields = map[string]struct{}{
 	"compiled_plan_hash": {}, "plan_hash": {}, "bound_plan_hash": {}, "payload_hash": {},
 	"prior_payload_hash": {}, "logical_evidence_hash": {}, "required_capabilities": {},
 	"advertised_capabilities": {}, "required_resource_dimensions": {},
-	"advertised_resource_dimensions": {}, "transition": {},
+	"advertised_resource_dimensions": {}, "containment_request_hash": {},
+	"provider_capability_hash": {}, "authority_hash": {}, "evidence_profile_hash": {},
+	"transition": {},
 }
 
 func TestPlanescapeProviderConformanceCorpus(t *testing.T) {
@@ -88,13 +90,34 @@ func TestConformanceFixtureMutationsFailClosed(t *testing.T) {
 		"protocol_version":     ProtocolVersionV1,
 		"provider_profile":     string(ProfilePortable),
 		"category":             "valid",
-		"request_kind":         "provider_capabilities",
+		"request_kind":         "provider_discovery",
 		"response_kind":        "provider_capabilities",
 		"expected_disposition": "accepted",
 		"transition":           string(TransitionDiscover),
 	}
 	if err := validateConformanceFixture(valid); err != nil {
 		t.Fatal(err)
+	}
+	compilerInput := map[string]any{
+		"schema":                         conformanceSchema,
+		"case_id":                        "compiler-input",
+		"protocol_version":               ProtocolVersionV1,
+		"provider_profile":               string(ProfileStockLinux),
+		"category":                       "valid",
+		"request_kind":                   "execution_requirement",
+		"response_kind":                  "provider_capabilities",
+		"expected_disposition":           "accepted",
+		"required_capabilities":          []any{"artifact_read"},
+		"advertised_capabilities":        []any{"artifact_read"},
+		"required_resource_dimensions":   []any{"memory_bytes"},
+		"advertised_resource_dimensions": []any{"memory_bytes"},
+	}
+	if err := validateConformanceFixture(compilerInput); err != nil {
+		t.Fatal(err)
+	}
+	compilerInput["transition"] = string(TransitionAdmit)
+	if err := validateConformanceFixture(compilerInput); err == nil {
+		t.Fatal("accepted lifecycle transition on compiler input")
 	}
 	valid["ambient_host_path"] = "/forbidden"
 	if err := validateConformanceFixture(valid); err == nil {
@@ -163,7 +186,7 @@ func validateConformanceFixture(fixture map[string]any) error {
 	if !profile.valid() {
 		return fmt.Errorf("unknown provider profile")
 	}
-	if !oneOf(text(fixture["request_kind"]), "provider_capabilities", "execution_requirement", "agent_operation", "freeze", "cancellation") ||
+	if !oneOf(text(fixture["request_kind"]), "provider_discovery", "execution_requirement", "compiled_containment_plan", "agent_operation", "freeze", "cancellation") ||
 		!oneOf(text(fixture["response_kind"]), "provider_capabilities", "session_admission", "operation_result", "quiescence", "freeze_ack", "cancellation_ack", "closeout", "error") {
 		return fmt.Errorf("unknown request or response kind")
 	}
@@ -196,8 +219,8 @@ func validateConformanceFixture(fixture map[string]any) error {
 
 	if category == "valid" {
 		transitions := map[string]Transition{
-			"provider_capabilities/provider_capabilities": TransitionDiscover,
-			"execution_requirement/session_admission":     TransitionAdmit,
+			"provider_discovery/provider_capabilities":    TransitionDiscover,
+			"compiled_containment_plan/session_admission": TransitionAdmit,
 			"agent_operation/operation_result":            TransitionActivate,
 			"agent_operation/quiescence":                  TransitionQuiesce,
 			"freeze/freeze_ack":                           TransitionFreeze,
@@ -205,11 +228,28 @@ func validateConformanceFixture(fixture map[string]any) error {
 			"agent_operation/closeout":                    TransitionCloseout,
 		}
 		key := text(fixture["request_kind"]) + "/" + text(fixture["response_kind"])
-		if text(fixture["transition"]) != string(transitions[key]) {
+		if key == "execution_requirement/provider_capabilities" {
+			if _, present := fixture["transition"]; present {
+				return fmt.Errorf("compiler input must not declare a lifecycle transition")
+			}
+		} else if transition, ok := transitions[key]; !ok ||
+			text(fixture["transition"]) != string(transition) {
 			return fmt.Errorf("invalid lifecycle transition")
 		}
 	}
-	for _, field := range []string{"requirement_hash", "compiled_plan_hash", "plan_hash", "bound_plan_hash", "payload_hash", "prior_payload_hash", "logical_evidence_hash"} {
+	for _, field := range []string{
+		"requirement_hash",
+		"compiled_plan_hash",
+		"containment_request_hash",
+		"provider_capability_hash",
+		"authority_hash",
+		"evidence_profile_hash",
+		"plan_hash",
+		"bound_plan_hash",
+		"payload_hash",
+		"prior_payload_hash",
+		"logical_evidence_hash",
+	} {
 		if value, ok := fixture[field]; ok {
 			if _, err := ParseFingerprint(text(value)); err != nil {
 				return fmt.Errorf("%s must be sha256", field)

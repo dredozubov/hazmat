@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-const releasedProviderV1VectorsSHA256 = "75eb632d5178bbb5454dd93ee9f476b61173002f7bddca8d432c639cdf67faf3"
+const releasedProviderV1VectorsSHA256 = "e761a1e6122233f370588007b64dd11d0ca1f0ce1e61cad2c001c238e888ebed"
 
 type releasedProviderV1Vectors struct {
 	Schema          string `json:"schema"`
@@ -42,6 +42,7 @@ func TestProviderV1CodecMatchesReleasedVectors(t *testing.T) {
 		providerV1KindDiscovery,
 		providerV1KindCapabilities,
 		providerV1KindRequirement,
+		providerV1KindCompiledPlan,
 		providerV1KindAdmission,
 		providerV1KindOperation,
 		providerV1KindOperationResult,
@@ -235,6 +236,13 @@ func TestProviderV1CodecRejectsMismatchedOutboundHashes(t *testing.T) {
 	requirement := requirementRecord.value.(ExecutionRequirement)
 	requirement.canonicalHash = badHash
 
+	planRecord := decodeReleasedProviderV1Record(
+		t,
+		releasedProviderV1RecordByKind(t, vectors, providerV1KindCompiledPlan),
+	)
+	plan := planRecord.value.(CompiledContainmentPlan)
+	plan.canonicalHash = badHash
+
 	operationRecord := decodeReleasedProviderV1Record(
 		t,
 		releasedProviderV1RecordByKind(t, vectors, providerV1KindOperation),
@@ -259,6 +267,9 @@ func TestProviderV1CodecRejectsMismatchedOutboundHashes(t *testing.T) {
 	for name, encode := range map[string]func() ([]byte, error){
 		"execution requirement": func() ([]byte, error) {
 			return codec.EncodeAdmission(requirement)
+		},
+		"compiled containment plan": func() ([]byte, error) {
+			return codec.EncodeCompiledContainmentPlan(plan)
 		},
 		"agent operation": func() ([]byte, error) {
 			return codec.EncodeOperation(operation)
@@ -400,6 +411,8 @@ func encodeReleasedProviderV1Record(
 		frame, err = codec.EncodeDiscovery()
 	case providerV1KindRequirement:
 		frame, err = codec.EncodeAdmission(record.value.(ExecutionRequirement))
+	case providerV1KindCompiledPlan:
+		frame, err = codec.EncodeCompiledContainmentPlan(record.value.(CompiledContainmentPlan))
 	case providerV1KindOperation:
 		frame, err = codec.EncodeOperation(record.value.(AgentOperation))
 	case providerV1KindFreeze:

@@ -64,6 +64,28 @@ func (ProviderV1FrameCodec) EncodeAdmission(
 	return encodeProviderV1DTO(providerV1KindRequirement, dto)
 }
 
+// EncodeCompiledContainmentPlan replays a previously validated Rust-produced
+// carrier. It does not compile a plan from semantic inputs.
+func (ProviderV1FrameCodec) EncodeCompiledContainmentPlan(
+	plan CompiledContainmentPlan,
+) ([]byte, error) {
+	return encodeProviderV1DTO(providerV1KindCompiledPlan, plan.dto())
+}
+
+func (ProviderV1FrameCodec) DecodeCompiledContainmentPlan(
+	frame []byte,
+) (CompiledContainmentPlan, error) {
+	record, err := decodeProviderV1Expected(frame, providerV1KindCompiledPlan)
+	if err != nil {
+		return CompiledContainmentPlan{}, err
+	}
+	value, ok := record.value.(CompiledContainmentPlan)
+	if !ok {
+		return CompiledContainmentPlan{}, errProviderV1Frame
+	}
+	return value, nil
+}
+
 func (ProviderV1FrameCodec) DecodeAdmission(frame []byte) (SessionAdmission, error) {
 	record, err := decodeProviderV1Expected(frame, providerV1KindAdmission)
 	if err != nil {
@@ -295,6 +317,8 @@ func decodeProviderV1Record(frame []byte) (decodedProviderV1Record, error) {
 		return decodeProviderV1Capabilities(object)
 	case providerV1SchemaRequirement:
 		return decodeProviderV1Requirement(object)
+	case providerV1SchemaCompiledPlan:
+		return decodeProviderV1CompiledContainmentPlan(object)
 	case providerV1SchemaAdmission:
 		return decodeProviderV1Admission(object)
 	case providerV1SchemaOperation:

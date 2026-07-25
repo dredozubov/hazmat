@@ -4,6 +4,7 @@ const (
 	providerV1KindDiscovery         = "provider_discovery"
 	providerV1KindCapabilities      = "provider_capabilities"
 	providerV1KindRequirement       = "execution_requirement"
+	providerV1KindCompiledPlan      = "compiled_containment_plan"
 	providerV1KindAdmission         = "session_admission"
 	providerV1KindOperation         = "agent_operation"
 	providerV1KindOperationResult   = "operation_result"
@@ -17,6 +18,7 @@ const (
 	providerV1SchemaDiscovery       = "planescape.provider.discovery.v1"
 	providerV1SchemaCapabilities    = "planescape.provider.provider_capabilities.v1"
 	providerV1SchemaRequirement     = "planescape.provider.execution_requirement.v1"
+	providerV1SchemaCompiledPlan    = "planescape.provider.compiled_containment_plan.v1"
 	providerV1SchemaAdmission       = "planescape.provider.session_admission.v1"
 	providerV1SchemaOperation       = "planescape.provider.agent_operation.v1"
 	providerV1SchemaOperationResult = "planescape.provider.operation_result.v1"
@@ -31,6 +33,7 @@ const (
 	providerV1DomainDiscovery       = "planescape.provider.discovery.canonical.v1"
 	providerV1DomainCapabilities    = "planescape.provider.capabilities.canonical.v1"
 	providerV1DomainRequirement     = "planescape.provider.requirement.canonical.v1"
+	providerV1DomainCompiledPlan    = "planescape.provider.compiled_containment_plan.canonical.v1"
 	providerV1DomainAdmission       = "planescape.provider.session_admission.canonical.v1"
 	providerV1DomainOperation       = "planescape.provider.agent_operation.canonical.v1"
 	providerV1DomainOperationResult = "planescape.provider.operation_result.canonical.v1"
@@ -106,6 +109,41 @@ func (v providerV1RequirementDTO) canonicalPreimage() ([]byte, error) {
 	builder.sortedList(5, v.RequiredCapabilities)
 	builder.sortedList(6, v.RequiredResourceDimensions)
 	builder.fingerprint(7, v.EvidenceProfileHash)
+	return builder.preimage()
+}
+
+type providerV1CompiledContainmentPlanDTO struct {
+	Schema                      string `json:"schema"`
+	ProtocolVersion             string `json:"protocol_version"`
+	RequirementRecordBase64URL  string `json:"requirement_record_base64url"`
+	RequirementHash             string `json:"requirement_hash"`
+	RequiredProfileID           string `json:"required_profile_id"`
+	ProviderID                  string `json:"provider_id"`
+	ProviderEpoch               uint64 `json:"provider_epoch"`
+	ProviderProfileID           string `json:"provider_profile_id"`
+	ProviderCapabilityHash      string `json:"provider_capability_hash"`
+	ContainmentRequestBase64URL string `json:"containment_request_base64url"`
+	ContainmentRequestHash      string `json:"containment_request_hash"`
+	AuthorityHash               string `json:"authority_hash"`
+	EvidenceProfileHash         string `json:"evidence_profile_hash"`
+	CanonicalHash               string `json:"canonical_hash"`
+}
+
+func (v providerV1CompiledContainmentPlanDTO) canonicalPreimage() ([]byte, error) {
+	builder := newProviderV1CanonicalBuilder(providerV1DomainCompiledPlan)
+	builder.utf8(1, v.Schema)
+	builder.utf8(2, v.ProtocolVersion)
+	builder.utf8(3, v.RequirementRecordBase64URL)
+	builder.fingerprint(4, v.RequirementHash)
+	builder.utf8(5, v.RequiredProfileID)
+	builder.utf8(6, v.ProviderID)
+	builder.u64(7, v.ProviderEpoch)
+	builder.utf8(8, v.ProviderProfileID)
+	builder.fingerprint(9, v.ProviderCapabilityHash)
+	builder.utf8(10, v.ContainmentRequestBase64URL)
+	builder.fingerprint(11, v.ContainmentRequestHash)
+	builder.fingerprint(12, v.AuthorityHash)
+	builder.fingerprint(13, v.EvidenceProfileHash)
 	return builder.preimage()
 }
 

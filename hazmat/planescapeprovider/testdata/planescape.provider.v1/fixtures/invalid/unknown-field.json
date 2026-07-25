@@ -4,7 +4,7 @@
   "protocol_version": "v1",
   "provider_profile": "portable.v1",
   "category": "invalid",
-  "request_kind": "provider_capabilities",
+  "request_kind": "provider_discovery",
   "response_kind": "provider_capabilities",
   "expected_disposition": "invalid",
   "ambient_host_path": "/tmp/not-authority"

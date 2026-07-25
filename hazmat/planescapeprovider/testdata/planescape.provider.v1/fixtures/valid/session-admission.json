@@ -4,7 +4,7 @@
   "protocol_version": "v1",
   "provider_profile": "stock_linux.v1",
   "category": "valid",
-  "request_kind": "execution_requirement",
+  "request_kind": "compiled_containment_plan",
   "response_kind": "session_admission",
   "expected_disposition": "accepted",
   "provider_epoch": 7,
