@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const protectedBrokerDiscoveryFixtureSHA256 = "17aaeb8fa4955cc4e86fc2b1415ab3f506b62694721fbc14a5e974b3cf662cab"
+const protectedBrokerFixtureSHA256 = "858040f6b8c60b6c73e80b6dba144cbddd3861bed0b66628fb75ebb7d41372fa"
 
 type protectedBrokerDiscoveryFixtureV1 struct {
 	Schema string `json:"schema"`
@@ -56,6 +56,11 @@ type protectedBrokerDiscoveryFixtureV1 struct {
 		Request      protectedBrokerDiscoveryRPCFixtureV1    `json:"request"`
 		Response     protectedBrokerDiscoveryRPCFixtureV1    `json:"response"`
 	} `json:"provider_discovery_rpc"`
+	ProviderAdmissionRPC struct {
+		CompiledPlan protectedBrokerDiscoveryRecordFixtureV1 `json:"compiled_plan"`
+		Request      protectedBrokerDiscoveryRPCFixtureV1    `json:"request"`
+		Response     protectedBrokerDiscoveryRPCFixtureV1    `json:"response"`
+	} `json:"provider_admission_rpc"`
 }
 
 type protectedBrokerDiscoveryRecordFixtureV1 struct {
@@ -1179,13 +1184,13 @@ func loadProtectedBrokerDiscoveryFixture(
 	t *testing.T,
 ) protectedBrokerDiscoveryFixtureV1 {
 	t.Helper()
-	encoded, err := os.ReadFile("testdata/protected_broker.v1/provider_discovery_rpc.v1.json")
+	encoded, err := os.ReadFile("testdata/protected_broker.v1/protected_broker_v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(encoded)
-	if got := fmt.Sprintf("%x", digest); got != protectedBrokerDiscoveryFixtureSHA256 {
-		t.Fatalf("published fixture sha256 = %s, want %s", got, protectedBrokerDiscoveryFixtureSHA256)
+	if got := fmt.Sprintf("%x", digest); got != protectedBrokerFixtureSHA256 {
+		t.Fatalf("published fixture sha256 = %s, want %s", got, protectedBrokerFixtureSHA256)
 	}
 	var fixture protectedBrokerDiscoveryFixtureV1
 	if err := json.Unmarshal(encoded, &fixture); err != nil {
