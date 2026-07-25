@@ -50,6 +50,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if prepared.completedByPlanescape() {
+				return nil
+			}
 			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxCursorAgentSession(prepared, forwarded)
 			}

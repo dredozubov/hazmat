@@ -106,6 +106,13 @@ type preparedSession struct {
 	BackendPlan      sessionBackendPlan
 	Runtime          launchruntime.Selection
 	HostMutationPlan sessionMutationPlan
+	planescape       *planescapeProductLifecycleResult
+}
+
+func (p preparedSession) completedByPlanescape() bool {
+	return p.planescape != nil &&
+		p.planescape.valid() &&
+		p.Config.ExecutionProvider == configmodel.ExecutionProviderPlanescape
 }
 
 type sessionPreparationProgress struct {
@@ -385,10 +392,10 @@ func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, s
 		return preparedSession{}, err
 	}
 	var prepared preparedSession
-	if err := runSessionStartupWithExecutionProvider(
+	planescape, err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: executionProvider},
-		defaultPlanescapeProductDependencies(),
+		planescapeProductDependenciesForSession(),
 		func() error {
 			var err error
 			prepared, err = prepareLaunchSession(commandName, opts, supportsSandbox)
@@ -397,8 +404,17 @@ func prepareAndBeginLaunchSession(commandName string, opts harnessSessionOpts, s
 			}
 			return beginPreparedSession(prepared, commandName, opts.noBackup, preflightBeforeSnapshot)
 		},
-	); err != nil {
+	)
+	if err != nil {
 		return preparedSession{}, err
+	}
+	if planescape != nil {
+		return preparedSession{
+			Config: sessionConfig{
+				ExecutionProvider: configmodel.ExecutionProviderPlanescape,
+			},
+			planescape: planescape,
+		}, nil
 	}
 	return prepared, nil
 }
@@ -423,6 +439,9 @@ func newShellCmd() *cobra.Command {
 			prepared, err := prepareAndBeginLaunchSession("shell", flags.harnessSessionOpts(cmd), true, false)
 			if err != nil {
 				return err
+			}
+			if prepared.completedByPlanescape() {
+				return nil
 			}
 			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxShellSession(prepared)
@@ -512,6 +531,9 @@ setup path; requires HAZMAT_EXPERIMENTAL_MACOS_CURRENT_USER=1):
 			if err != nil {
 				return err
 			}
+			if prepared.completedByPlanescape() {
+				return nil
+			}
 			if prepared.Runtime.UsesDockerSandbox() {
 				if auditInstall {
 					return fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions; use --docker=none for install audit")
@@ -566,6 +588,9 @@ func launchUniformHarness(
 	prepared, err := prepareAndBeginLaunchSession(name, opts, true, preflightBeforeSnapshot)
 	if err != nil {
 		return err
+	}
+	if prepared.completedByPlanescape() {
+		return nil
 	}
 	if prepared.Runtime.UsesDockerSandbox() {
 		return sandboxRunner(prepared, forwarded)
@@ -640,6 +665,9 @@ Examples:
 			prepared, err := prepareAndBeginLaunchSession("claude", opts, true, false)
 			if err != nil {
 				return err
+			}
+			if prepared.completedByPlanescape() {
+				return nil
 			}
 
 			if prepared.Runtime.UsesDockerSandbox() {
@@ -984,6 +1012,9 @@ func runContainedCodexSession(opts harnessSessionOpts, forwarded []string) error
 	prepared, err := prepareAndBeginLaunchSession("codex", opts, true, true)
 	if err != nil {
 		return err
+	}
+	if prepared.completedByPlanescape() {
+		return nil
 	}
 	if prepared.Runtime.UsesDockerSandbox() {
 		return runPreparedSandboxCodexSession(prepared, forwarded)

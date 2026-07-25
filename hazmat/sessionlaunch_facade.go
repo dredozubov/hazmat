@@ -33,24 +33,20 @@ func (sessionLauncher) Prepare(ctx context.Context, request sessionlaunch.Launch
 	if err != nil {
 		return sessionlaunch.PreparedSession{}, err
 	}
-	var prepared preparedSession
-	if err := runSessionStartupWithExecutionProvider(
-		ctx,
-		sessionConfig{ExecutionProvider: executionProvider},
-		defaultPlanescapeProductDependencies(),
-		func() error {
-			var err error
-			prepared, err = prepareLaunchSessionWithProgress(
-				request.Target,
-				harnessSessionOptsForLaunchRequest(request),
-				request.Options.SupportsSandbox,
-				nil,
-				request.Options.InteractiveRepoSetup,
-				request.Options.PersistRepoSetup,
-			)
-			return err
-		},
-	); err != nil {
+	if err := rejectConfiguredProviderLocalFallback(sessionConfig{
+		ExecutionProvider: executionProvider,
+	}); err != nil {
+		return sessionlaunch.PreparedSession{}, err
+	}
+	prepared, err := prepareLaunchSessionWithProgress(
+		request.Target,
+		harnessSessionOptsForLaunchRequest(request),
+		request.Options.SupportsSandbox,
+		nil,
+		request.Options.InteractiveRepoSetup,
+		request.Options.PersistRepoSetup,
+	)
+	if err != nil {
 		return sessionlaunch.PreparedSession{}, err
 	}
 	if err := ctx.Err(); err != nil {

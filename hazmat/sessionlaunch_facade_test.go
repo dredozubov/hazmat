@@ -9,6 +9,7 @@ import (
 	"slices"
 	"testing"
 
+	"hazmat/planescapeprovider"
 	"hazmat/sessionbackend"
 	launch "hazmat/sessionlaunch"
 	"hazmat/sessionmeta"
@@ -88,5 +89,30 @@ func TestSessionLauncherPrepareHonorsCanceledContext(t *testing.T) {
 	_, err := NewSessionLauncher().Prepare(ctx, launch.LaunchRequest{Target: "exec"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Prepare error = %v, want context canceled", err)
+	}
+}
+
+func TestSessionLauncherPrepareRejectsPlanescapeBeforeProductEffects(t *testing.T) {
+	isolateConfig(t)
+	if err := runConfigSet("session.execution_provider", "planescape"); err != nil {
+		t.Fatal(err)
+	}
+	savedDependencies := planescapeProductDependenciesForSession
+	t.Cleanup(func() {
+		planescapeProductDependenciesForSession = savedDependencies
+	})
+	dependencyCalls := 0
+	planescapeProductDependenciesForSession = func() planescapeProductDependencies {
+		dependencyCalls++
+		return planescapeProductDependencies{}
+	}
+
+	_, err := NewSessionLauncher().Prepare(
+		context.Background(),
+		launch.LaunchRequest{Target: "exec"},
+	)
+	requirePlanescapeProductErrorClass(t, err, planescapeprovider.ErrorUnsupported)
+	if dependencyCalls != 0 {
+		t.Fatalf("Planescape dependency construction calls = %d, want 0", dependencyCalls)
 	}
 }

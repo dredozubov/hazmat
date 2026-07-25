@@ -47,6 +47,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if prepared.completedByPlanescape() {
+				return nil
+			}
 			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxPiSession(prepared, forwarded)
 			}

@@ -53,6 +53,9 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if prepared.completedByPlanescape() {
+				return nil
+			}
 			forwarded = qwenLaunchArgs(forwarded, qwenShouldSkipPermissions())
 			if prepared.Runtime.UsesDockerSandbox() {
 				return runPreparedSandboxQwenSession(prepared, forwarded)
