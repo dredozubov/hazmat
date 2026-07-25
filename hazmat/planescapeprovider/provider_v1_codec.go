@@ -100,6 +100,23 @@ func (ProviderV1FrameCodec) DecodeAdmission(frame []byte) (SessionAdmission, err
 	return value, nil
 }
 
+// DecodeAgentOperation validates one fully bound Rust-authored operation
+// record. Product adapters may project its unbound input only after checking
+// the embedded session, sequence, and plan against their live binding.
+func (ProviderV1FrameCodec) DecodeAgentOperation(
+	frame []byte,
+) (AgentOperation, error) {
+	record, err := decodeProviderV1Expected(frame, providerV1KindOperation)
+	if err != nil {
+		return AgentOperation{}, err
+	}
+	value, ok := record.value.(AgentOperation)
+	if !ok || !value.valid() {
+		return AgentOperation{}, errProviderV1Frame
+	}
+	return value, nil
+}
+
 func (ProviderV1FrameCodec) EncodeOperation(
 	operation AgentOperation,
 ) ([]byte, error) {
@@ -146,6 +163,19 @@ func (ProviderV1FrameCodec) EncodeFreeze(freeze Freeze) ([]byte, error) {
 	return encodeProviderV1DTO(providerV1KindFreeze, dto)
 }
 
+// DecodeFreeze validates one fully bound Rust-authored freeze record.
+func (ProviderV1FrameCodec) DecodeFreeze(frame []byte) (Freeze, error) {
+	record, err := decodeProviderV1Expected(frame, providerV1KindFreeze)
+	if err != nil {
+		return Freeze{}, err
+	}
+	value, ok := record.value.(Freeze)
+	if !ok || !value.valid() {
+		return Freeze{}, errProviderV1Frame
+	}
+	return value, nil
+}
+
 func (ProviderV1FrameCodec) DecodeFreezeAck(frame []byte) (FreezeAck, error) {
 	record, err := decodeProviderV1Expected(frame, providerV1KindFreezeAck)
 	if err != nil {
@@ -170,6 +200,22 @@ func (ProviderV1FrameCodec) EncodeCancellation(
 		CanonicalHash:  cancellation.CanonicalHash().String(),
 	}
 	return encodeProviderV1DTO(providerV1KindCancellation, dto)
+}
+
+// DecodeCancellation validates one fully bound Rust-authored cancellation
+// record.
+func (ProviderV1FrameCodec) DecodeCancellation(
+	frame []byte,
+) (Cancellation, error) {
+	record, err := decodeProviderV1Expected(frame, providerV1KindCancellation)
+	if err != nil {
+		return Cancellation{}, err
+	}
+	value, ok := record.value.(Cancellation)
+	if !ok || !value.valid() {
+		return Cancellation{}, errProviderV1Frame
+	}
+	return value, nil
 }
 
 func (ProviderV1FrameCodec) DecodeCancellationAck(

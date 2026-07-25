@@ -479,10 +479,16 @@ func decodeReleasedProviderV1Response(
 		_, err = codec.DecodeCapabilities([]byte(vector.WireJSON))
 	case providerV1KindAdmission:
 		_, err = codec.DecodeAdmission([]byte(vector.WireJSON))
+	case providerV1KindOperation:
+		_, err = codec.DecodeAgentOperation([]byte(vector.WireJSON))
 	case providerV1KindOperationResult, providerV1KindQuiescence, providerV1KindCloseout:
 		_, err = codec.DecodeOperation([]byte(vector.WireJSON))
+	case providerV1KindFreeze:
+		_, err = codec.DecodeFreeze([]byte(vector.WireJSON))
 	case providerV1KindFreezeAck:
 		_, err = codec.DecodeFreezeAck([]byte(vector.WireJSON))
+	case providerV1KindCancellation:
+		_, err = codec.DecodeCancellation([]byte(vector.WireJSON))
 	case providerV1KindCancellationAck:
 		_, err = codec.DecodeCancellationAck([]byte(vector.WireJSON))
 	case providerV1KindError:
