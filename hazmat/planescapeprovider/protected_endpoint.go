@@ -35,22 +35,24 @@ func NewProtectedBrokerDiscoveryEndpointV1(
 }
 
 // ProtectedBrokerEndpointConfigV1 composes productive discovery, compiled-plan
-// admission, Tool execution, and Pause quiescence over fresh authenticated
-// connections to the same exact protected-broker address.
+// admission, Tool, Pause, Freeze, Closeout, and Cancellation over fresh
+// authenticated connections to the same exact protected-broker address.
 type ProtectedBrokerEndpointConfigV1 struct {
 	Dialer ProtectedBrokerDialerV1
 	Client *ProtectedBrokerClientV1
 }
 
-// ProtectedBrokerEndpointV1 exposes only the protected lifecycle surface with
-// a published authenticated RPC. Unsupported lifecycle kinds remain
-// unreachable before the dial boundary.
+// ProtectedBrokerEndpointV1 exposes only lifecycle effects with a published
+// authenticated RPC. Unsupported kinds remain unreachable before dialing.
 type ProtectedBrokerEndpointV1 struct {
-	discovery  Endpoint
-	admission  *ProtectedBrokerAdmissionTransportV1
-	tool       *ProtectedBrokerToolTransportV1
-	quiescence *ProtectedBrokerQuiescenceTransportV1
-	backend    BackendIdentityBinding
+	discovery    Endpoint
+	admission    *ProtectedBrokerAdmissionTransportV1
+	tool         *ProtectedBrokerToolTransportV1
+	quiescence   *ProtectedBrokerQuiescenceTransportV1
+	freeze       *ProtectedBrokerFreezeTransportV1
+	closeout     *ProtectedBrokerCloseoutTransportV1
+	cancellation *ProtectedBrokerCancellationTransportV1
+	backend      BackendIdentityBinding
 }
 
 var _ Endpoint = (*ProtectedBrokerEndpointV1)(nil)
@@ -95,12 +97,42 @@ func NewProtectedBrokerEndpointV1(
 	if err != nil {
 		return nil, err
 	}
+	freeze, err := NewProtectedBrokerFreezeTransportV1(
+		ProtectedBrokerFreezeTransportConfigV1{
+			Dialer: config.Dialer,
+			Client: config.Client,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	closeout, err := NewProtectedBrokerCloseoutTransportV1(
+		ProtectedBrokerCloseoutTransportConfigV1{
+			Dialer: config.Dialer,
+			Client: config.Client,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	cancellation, err := NewProtectedBrokerCancellationTransportV1(
+		ProtectedBrokerCancellationTransportConfigV1{
+			Dialer: config.Dialer,
+			Client: config.Client,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 	return &ProtectedBrokerEndpointV1{
-		discovery:  discovery,
-		admission:  admission,
-		tool:       tool,
-		quiescence: quiescence,
-		backend:    config.Client.BackendBinding(),
+		discovery:    discovery,
+		admission:    admission,
+		tool:         tool,
+		quiescence:   quiescence,
+		freeze:       freeze,
+		closeout:     closeout,
+		cancellation: cancellation,
+		backend:      config.Client.BackendBinding(),
 	}, nil
 }
 
@@ -150,32 +182,39 @@ func (e *ProtectedBrokerEndpointV1) Operate(
 			return nil, err
 		}
 		return result, nil
+	case OperationCloseout:
+		result, err := e.closeout.Closeout(ctx, operation)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 	default:
 		return nil, protectedBrokerError(ProtectedBrokerInvalidRequestV1)
 	}
 }
 
 func (e *ProtectedBrokerEndpointV1) Freeze(
-	context.Context,
-	Freeze,
+	ctx context.Context,
+	request Freeze,
 ) (FreezeAck, error) {
 	if !e.usable() {
 		return FreezeAck{}, protectedBrokerError(ProtectedBrokerUnavailableV1)
 	}
-	return FreezeAck{}, protectedBrokerError(ProtectedBrokerInvalidRequestV1)
+	return e.freeze.Freeze(ctx, request)
 }
 
 func (e *ProtectedBrokerEndpointV1) Cancel(
-	context.Context,
-	Cancellation,
+	ctx context.Context,
+	request Cancellation,
 ) (CancellationAck, error) {
 	if !e.usable() {
 		return CancellationAck{}, protectedBrokerError(ProtectedBrokerUnavailableV1)
 	}
-	return CancellationAck{}, protectedBrokerError(ProtectedBrokerInvalidRequestV1)
+	return e.cancellation.Cancel(ctx, request)
 }
 
 func (e *ProtectedBrokerEndpointV1) usable() bool {
 	return e != nil && e.discovery != nil && e.admission != nil &&
-		e.tool != nil && e.quiescence != nil && e.backend.valid()
+		e.tool != nil && e.quiescence != nil && e.freeze != nil &&
+		e.closeout != nil && e.cancellation != nil && e.backend.valid()
 }

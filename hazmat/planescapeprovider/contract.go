@@ -899,6 +899,10 @@ func (v AgentOperation) dispatchablePause() bool {
 	return v.valid() && v.kind == OperationPause && v.normalized.empty()
 }
 
+func (v AgentOperation) dispatchableCloseout() bool {
+	return v.valid() && v.kind == OperationCloseout && v.normalized.empty()
+}
+
 type responseKind string
 
 const (

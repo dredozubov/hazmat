@@ -1055,7 +1055,6 @@ func TestProtectedBrokerQuiescenceRejectsWrongKindsBeforeDial(t *testing.T) {
 		OperationWorkspace,
 		OperationCancel,
 		OperationFreeze,
-		OperationCloseout,
 	} {
 		operation := mustProtectedBrokerOperationForKindForTest(
 			t,

@@ -330,19 +330,11 @@ func TestProtectedBrokerEndpointPersistsAdmissionAcrossFreshDiscoveryAndAdmissio
 		t,
 		releasedProviderV1RecordByKind(t, vectors, providerV1KindOperation),
 	).value.(AgentOperation)
-	freeze := decodeReleasedProviderV1Record(
-		t,
-		releasedProviderV1RecordByKind(t, vectors, providerV1KindFreeze),
-	).value.(Freeze)
-	cancellation := decodeReleasedProviderV1Record(
-		t,
-		releasedProviderV1RecordByKind(t, vectors, providerV1KindCancellation),
-	).value.(Cancellation)
 	_, err = endpoint.Operate(context.Background(), operation)
 	requireProtectedBrokerErrorClass(t, err, ProtectedBrokerInvalidRequestV1)
-	_, err = endpoint.Freeze(context.Background(), freeze)
+	_, err = endpoint.Freeze(context.Background(), Freeze{})
 	requireProtectedBrokerErrorClass(t, err, ProtectedBrokerInvalidRequestV1)
-	_, err = endpoint.Cancel(context.Background(), cancellation)
+	_, err = endpoint.Cancel(context.Background(), Cancellation{})
 	requireProtectedBrokerErrorClass(t, err, ProtectedBrokerInvalidRequestV1)
 
 	dialMu.Lock()
