@@ -1045,12 +1045,17 @@ func newPlanescapeProductOperationInput(
 	payloadCharacter string,
 ) planescapeprovider.OperationInput {
 	t.Helper()
+	var normalizedRecord []byte
+	if kind == planescapeprovider.OperationTool {
+		normalizedRecord = []byte("normalized:" + operationID)
+	}
 	value, err := planescapeprovider.NewOperationInput(
 		planescapeprovider.OperationInputValues{
-			OperationID: operationID,
-			Kind:        kind,
-			Nonce:       nonce,
-			PayloadHash: planescapeProductHash(payloadCharacter),
+			OperationID:      operationID,
+			Kind:             kind,
+			Nonce:            nonce,
+			PayloadHash:      planescapeProductHash(payloadCharacter),
+			NormalizedRecord: normalizedRecord,
 		},
 	)
 	if err != nil {
