@@ -18,6 +18,7 @@ type planescapeProductFailureReason string
 const (
 	planescapeProductProviderFailure  planescapeProductFailureReason = "provider_failure"
 	planescapeProductLifecyclePending planescapeProductFailureReason = "lifecycle_pending"
+	planescapeProductTerminalPending  planescapeProductFailureReason = "terminal_pending"
 	planescapeProductLocalFallback    planescapeProductFailureReason = "local_fallback"
 )
 
@@ -36,6 +37,8 @@ func (e *planescapeProductError) Error() string {
 	switch e.reason {
 	case planescapeProductLifecyclePending:
 		return "configured Planescape provider admitted the session, but product lifecycle execution is unavailable; local execution is disabled"
+	case planescapeProductTerminalPending:
+		return "configured Planescape provider reached quiescence, but terminal lifecycle execution is unavailable; local execution is disabled"
 	case planescapeProductLocalFallback:
 		return "configured Planescape provider session cannot use a local execution path"
 	case planescapeProductProviderFailure:
@@ -217,10 +220,25 @@ type planescapeProductOperationSource interface {
 	) (planescapeprovider.OperationInput, error)
 }
 
+// planescapeProductTerminalSource supplies Rust-authored terminal intent for
+// one exact quiesced lifecycle. Hazmat binds that intent to the admitted
+// session and prior provider evidence; it never derives terminal authority.
+type planescapeProductTerminalSource interface {
+	FreezeInput(
+		context.Context,
+		planescapeProductQuiescedLifecycle,
+	) (planescapeprovider.FreezeInput, error)
+	CloseoutIntent(
+		context.Context,
+		planescapeProductFrozenLifecycle,
+	) (planescapeProductCloseoutIntent, error)
+}
+
 type planescapeProductDependencies struct {
 	Endpoint           planescapeprovider.BoundEndpoint
 	CompiledPlanSource planescapeProductCompiledPlanSource
 	OperationSource    planescapeProductOperationSource
+	TerminalSource     planescapeProductTerminalSource
 	CheckpointRoot     string
 	Now                func() time.Time
 }
@@ -354,30 +372,147 @@ func (v planescapeProductAdmission) Binding() (planescapeProductBinding, bool) {
 	return v.binding, true
 }
 
-type planescapeProductLifecycleResult struct {
-	binding    planescapeProductBinding
+// planescapeProductQuiescedLifecycle is explicitly non-terminal. Its exact
+// admitted session is retained so only Session can bind later terminal intent.
+type planescapeProductQuiescedLifecycle struct {
+	admission  planescapeProductAdmission
 	tool       planescapeprovider.OperationResult
 	quiescence planescapeprovider.Quiescence
 	evidence   planescapeprovider.EvidenceReferences
 }
 
-func (v planescapeProductLifecycleResult) valid() bool {
-	return v.binding.valid() &&
-		v.tool.SessionID() == v.binding.SessionID() &&
-		v.quiescence.SessionID() == v.binding.SessionID() &&
+func (v planescapeProductQuiescedLifecycle) valid() bool {
+	return v.admission.valid() &&
+		v.tool.SessionID() == v.admission.binding.SessionID() &&
+		v.quiescence.SessionID() == v.admission.binding.SessionID() &&
 		planescapeProductEvidenceMatches(v.tool, v.quiescence, v.evidence)
 }
 
-func (v planescapeProductLifecycleResult) Binding() planescapeProductBinding {
-	return v.binding
+func (v planescapeProductQuiescedLifecycle) Binding() planescapeProductBinding {
+	return v.admission.binding
 }
 
-func (v planescapeProductLifecycleResult) Tool() planescapeprovider.OperationResult {
+func (v planescapeProductQuiescedLifecycle) Tool() planescapeprovider.OperationResult {
 	return v.tool
 }
 
-func (v planescapeProductLifecycleResult) Quiescence() planescapeprovider.Quiescence {
+func (v planescapeProductQuiescedLifecycle) Quiescence() planescapeprovider.Quiescence {
 	return v.quiescence
+}
+
+func (v planescapeProductQuiescedLifecycle) Evidence() planescapeprovider.EvidenceReferences {
+	return v.evidence
+}
+
+type planescapeProductFrozenLifecycle struct {
+	quiesced planescapeProductQuiescedLifecycle
+	freeze   planescapeprovider.FreezeAck
+}
+
+func (v planescapeProductFrozenLifecycle) valid() bool {
+	return v.quiesced.valid() &&
+		validPlanescapeProductFreezeAck(v.freeze) &&
+		v.freeze.SessionID() == v.quiesced.Binding().SessionID() &&
+		v.freeze.QuiescenceHash() == v.quiesced.quiescence.QuiescenceHash()
+}
+
+func (v planescapeProductFrozenLifecycle) Binding() planescapeProductBinding {
+	return v.quiesced.Binding()
+}
+
+func (v planescapeProductFrozenLifecycle) Tool() planescapeprovider.OperationResult {
+	return v.quiesced.Tool()
+}
+
+func (v planescapeProductFrozenLifecycle) Quiescence() planescapeprovider.Quiescence {
+	return v.quiesced.Quiescence()
+}
+
+func (v planescapeProductFrozenLifecycle) Evidence() planescapeprovider.EvidenceReferences {
+	return v.quiesced.Evidence()
+}
+
+func (v planescapeProductFrozenLifecycle) Freeze() planescapeprovider.FreezeAck {
+	return v.freeze
+}
+
+// planescapeProductCloseoutIntent keeps the provider operation and closeout
+// identity inseparable. Its zero value cannot reach Session.Closeout.
+type planescapeProductCloseoutIntent struct {
+	operation  planescapeprovider.OperationInput
+	closeoutID planescapeprovider.Identifier
+}
+
+func newPlanescapeProductCloseoutIntent(
+	operation planescapeprovider.OperationInput,
+	closeoutID string,
+) (planescapeProductCloseoutIntent, error) {
+	id, err := planescapeprovider.NewIdentifier(closeoutID)
+	if err != nil || !validPlanescapeProductOperationInput(
+		operation,
+		planescapeprovider.OperationCloseout,
+	) {
+		return planescapeProductCloseoutIntent{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductCloseoutIntent{
+		operation:  operation,
+		closeoutID: id,
+	}, nil
+}
+
+func (v planescapeProductCloseoutIntent) valid() bool {
+	_, err := planescapeprovider.NewIdentifier(v.closeoutID.String())
+	return err == nil && validPlanescapeProductOperationInput(
+		v.operation,
+		planescapeprovider.OperationCloseout,
+	)
+}
+
+// planescapeProductLifecycleResult represents only a provider-closed,
+// successful lifecycle. Quiescence alone can never satisfy valid.
+type planescapeProductLifecycleResult struct {
+	frozen   planescapeProductFrozenLifecycle
+	closeout planescapeprovider.Closeout
+	evidence planescapeprovider.EvidenceReferences
+}
+
+func (v planescapeProductLifecycleResult) valid() bool {
+	return v.frozen.valid() &&
+		validPlanescapeProductCloseout(v.closeout) &&
+		v.closeout.SessionID() == v.frozen.Binding().SessionID() &&
+		v.closeout.QuiescenceHash() ==
+			v.frozen.Quiescence().QuiescenceHash() &&
+		v.closeout.TerminalOutcome() ==
+			planescapeprovider.OutcomeSucceeded &&
+		planescapeProductEvidenceMatches(
+			v.frozen.Tool(),
+			v.frozen.Quiescence(),
+			v.evidence,
+		) &&
+		planescapeProductTerminalEvidenceMatches(v.closeout, v.evidence)
+}
+
+func (v planescapeProductLifecycleResult) Binding() planescapeProductBinding {
+	return v.frozen.Binding()
+}
+
+func (v planescapeProductLifecycleResult) Tool() planescapeprovider.OperationResult {
+	return v.frozen.Tool()
+}
+
+func (v planescapeProductLifecycleResult) Quiescence() planescapeprovider.Quiescence {
+	return v.frozen.Quiescence()
+}
+
+func (v planescapeProductLifecycleResult) Freeze() planescapeprovider.FreezeAck {
+	return v.frozen.Freeze()
+}
+
+func (v planescapeProductLifecycleResult) Closeout() planescapeprovider.Closeout {
+	return v.closeout
 }
 
 func (v planescapeProductLifecycleResult) Evidence() planescapeprovider.EvidenceReferences {
@@ -498,10 +633,21 @@ func runSessionStartupWithExecutionProvider(
 	if dependencies.OperationSource == nil {
 		return nil, newPlanescapeProductLifecyclePendingError(admission)
 	}
-	result, err := runPlanescapeProductLifecycle(
+	quiesced, err := quiescePlanescapeProductLifecycle(
 		ctx,
 		admission,
 		dependencies.OperationSource,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if dependencies.TerminalSource == nil {
+		return nil, newPlanescapeProductTerminalPendingError()
+	}
+	result, err := closePlanescapeProductLifecycle(
+		ctx,
+		quiesced,
+		dependencies.TerminalSource,
 	)
 	if err != nil {
 		return nil, err
@@ -573,68 +719,203 @@ func admitPlanescapeProductSession(
 	)
 }
 
-func runPlanescapeProductLifecycle(
+func quiescePlanescapeProductLifecycle(
 	ctx context.Context,
 	admission planescapeProductAdmission,
 	source planescapeProductOperationSource,
-) (planescapeProductLifecycleResult, error) {
+) (planescapeProductQuiescedLifecycle, error) {
 	if ctx == nil || source == nil || !admission.valid() {
-		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
 			planescapeprovider.ErrorUnavailable,
 			planescapeProductProviderFailure,
 		)
 	}
 	binding, ok := admission.Binding()
 	if !ok {
-		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
 			planescapeprovider.ErrorConflict,
 			planescapeProductProviderFailure,
 		)
 	}
 	toolInput, err := source.ToolOperation(ctx, binding)
 	if err != nil {
-		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
 	}
 	if toolInput.Kind() != planescapeprovider.OperationTool {
-		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
 			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
 		)
 	}
 	tool, err := admission.session.RunTool(ctx, toolInput)
 	if err != nil {
-		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
 	}
 	quiescenceInput, err := source.QuiescenceOperation(ctx, binding, tool)
 	if err != nil {
-		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
 	}
 	if quiescenceInput.Kind() != planescapeprovider.OperationPause {
-		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
 			planescapeprovider.ErrorInvalid,
 			planescapeProductProviderFailure,
 		)
 	}
 	quiescence, err := admission.session.Quiesce(ctx, quiescenceInput)
 	if err != nil {
-		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
 	}
 	evidence, err := admission.session.Evidence(ctx)
 	if err != nil {
-		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+		return planescapeProductQuiescedLifecycle{}, mapPlanescapeProductError(err)
 	}
 	if !planescapeProductEvidenceMatches(tool, quiescence, evidence) {
+		return planescapeProductQuiescedLifecycle{}, newPlanescapeProductError(
+			planescapeprovider.ErrorConflict,
+			planescapeProductProviderFailure,
+		)
+	}
+	return planescapeProductQuiescedLifecycle{
+		admission:  admission,
+		tool:       tool,
+		quiescence: quiescence,
+		evidence:   evidence,
+	}, nil
+}
+
+func closePlanescapeProductLifecycle(
+	ctx context.Context,
+	quiesced planescapeProductQuiescedLifecycle,
+	source planescapeProductTerminalSource,
+) (planescapeProductLifecycleResult, error) {
+	if ctx == nil || source == nil || !quiesced.valid() {
+		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+			planescapeprovider.ErrorUnavailable,
+			planescapeProductProviderFailure,
+		)
+	}
+	freezeInput, err := source.FreezeInput(ctx, quiesced)
+	if err != nil {
+		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+	}
+	if !validPlanescapeProductFreezeInput(freezeInput) {
+		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	freeze, err := quiesced.admission.session.Freeze(ctx, freezeInput)
+	if err != nil {
+		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+	}
+	frozen := planescapeProductFrozenLifecycle{
+		quiesced: quiesced,
+		freeze:   freeze,
+	}
+	if !frozen.valid() {
 		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
 			planescapeprovider.ErrorConflict,
 			planescapeProductProviderFailure,
 		)
 	}
-	return planescapeProductLifecycleResult{
-		binding:    binding,
-		tool:       tool,
-		quiescence: quiescence,
-		evidence:   evidence,
-	}, nil
+	closeoutIntent, err := source.CloseoutIntent(ctx, frozen)
+	if err != nil {
+		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+	}
+	if !closeoutIntent.valid() {
+		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+			planescapeprovider.ErrorInvalid,
+			planescapeProductProviderFailure,
+		)
+	}
+	closeout, err := quiesced.admission.session.Closeout(
+		ctx,
+		closeoutIntent.operation,
+		closeoutIntent.closeoutID.String(),
+	)
+	if err != nil {
+		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+	}
+	evidence, err := quiesced.admission.session.Evidence(ctx)
+	if err != nil {
+		return planescapeProductLifecycleResult{}, mapPlanescapeProductError(err)
+	}
+	result := planescapeProductLifecycleResult{
+		frozen:   frozen,
+		closeout: closeout,
+		evidence: evidence,
+	}
+	if !result.valid() {
+		return planescapeProductLifecycleResult{}, newPlanescapeProductError(
+			planescapeprovider.ErrorConflict,
+			planescapeProductProviderFailure,
+		)
+	}
+	return result, nil
+}
+
+func validPlanescapeProductOperationInput(
+	input planescapeprovider.OperationInput,
+	kind planescapeprovider.OperationKind,
+) bool {
+	if input.Kind() != kind {
+		return false
+	}
+	_, err := planescapeprovider.NewOperationInput(
+		planescapeprovider.OperationInputValues{
+			OperationID:      input.OperationID().String(),
+			Kind:             input.Kind(),
+			Nonce:            input.Nonce().String(),
+			PayloadHash:      input.PayloadHash().String(),
+			NormalizedRecord: input.NormalizedRecord(),
+		},
+	)
+	return err == nil
+}
+
+func validPlanescapeProductFreezeInput(
+	input planescapeprovider.FreezeInput,
+) bool {
+	_, err := planescapeprovider.NewFreezeInput(
+		planescapeprovider.FreezeInputValues{
+			FreezeID:      input.FreezeID().String(),
+			Nonce:         input.Nonce().String(),
+			CanonicalHash: input.CanonicalHash().String(),
+		},
+	)
+	return err == nil
+}
+
+func validPlanescapeProductFreezeAck(
+	value planescapeprovider.FreezeAck,
+) bool {
+	_, err := planescapeprovider.NewFreezeAck(
+		planescapeprovider.FreezeAckInput{
+			SessionID:      value.SessionID().String(),
+			FreezeID:       value.FreezeID().String(),
+			QuiescenceHash: value.QuiescenceHash().String(),
+			FrozenAt:       value.FrozenAt(),
+			CanonicalHash:  value.CanonicalHash().String(),
+		},
+	)
+	return err == nil
+}
+
+func validPlanescapeProductCloseout(
+	value planescapeprovider.Closeout,
+) bool {
+	_, err := planescapeprovider.NewCloseout(
+		planescapeprovider.CloseoutInput{
+			SessionID:           value.SessionID().String(),
+			CloseoutID:          value.CloseoutID().String(),
+			TerminalOutcome:     value.TerminalOutcome(),
+			QuiescenceHash:      value.QuiescenceHash().String(),
+			LogicalEvidenceHash: value.LogicalEvidenceHash().String(),
+			NativeExtensionHash: value.NativeExtensionHash().String(),
+			CanonicalHash:       value.CanonicalHash().String(),
+		},
+	)
+	return err == nil
 }
 
 func planescapeProductEvidenceMatches(
@@ -653,6 +934,18 @@ func planescapeProductEvidenceMatches(
 	}
 	resourceEvidence, ok := evidence.ResourceEvidence()
 	return ok && resourceEvidence == quiescence.ResourceEvidenceHash()
+}
+
+func planescapeProductTerminalEvidenceMatches(
+	closeout planescapeprovider.Closeout,
+	evidence planescapeprovider.EvidenceReferences,
+) bool {
+	logicalEvidence, hasLogicalEvidence := evidence.LogicalEvidence()
+	nativeExtension, hasNativeExtension := evidence.NativeExtension()
+	return hasLogicalEvidence &&
+		hasNativeExtension &&
+		logicalEvidence == closeout.LogicalEvidenceHash() &&
+		nativeExtension == closeout.NativeExtensionHash()
 }
 
 func containsPlanescapeProductFingerprint(
@@ -732,5 +1025,12 @@ func newPlanescapeProductLifecyclePendingError(
 		class:     planescapeprovider.ErrorUnsupported,
 		reason:    planescapeProductLifecyclePending,
 		admission: &admission,
+	}
+}
+
+func newPlanescapeProductTerminalPendingError() error {
+	return &planescapeProductError{
+		class:  planescapeprovider.ErrorUnsupported,
+		reason: planescapeProductTerminalPending,
 	}
 }

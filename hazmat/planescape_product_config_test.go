@@ -51,8 +51,9 @@ func TestDefaultPlanescapeProductDependenciesBuildExactProtectedEndpoint(
 		t.Fatalf("endpoint binding = %+v, want exact configured identity", binding)
 	}
 	if dependencies.CompiledPlanSource != nil ||
-		dependencies.OperationSource != nil {
-		t.Fatal("default dependencies fabricated a Rust plan or operation source")
+		dependencies.OperationSource != nil ||
+		dependencies.TerminalSource != nil {
+		t.Fatal("default dependencies fabricated a Rust plan, operation, or terminal source")
 	}
 	wantCheckpointRoot := filepath.Join(
 		filepath.Dir(configFilePath),

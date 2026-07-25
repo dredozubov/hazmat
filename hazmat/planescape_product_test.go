@@ -401,7 +401,7 @@ func TestConfiguredPlanescapeProviderRejectsWrongInvocationBeforeDialOrEffect(
 	}
 }
 
-func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallback(
+func TestConfiguredPlanescapeProviderRunsExactClosedLifecycleWithoutLocalFallback(
 	t *testing.T,
 ) {
 	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
@@ -422,17 +422,25 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 	)
 	toolResult := newPlanescapeProductToolResult(t, admission.SessionID().String())
 	quiescence := newPlanescapeProductQuiescence(t, admission.SessionID().String())
+	freezeAck := newPlanescapeProductFreezeAck(t, admission.SessionID().String())
+	closeout := newPlanescapeProductCloseout(t, admission.SessionID().String())
 	endpoint := &planescapeProductEndpointFake{
 		capabilities: capabilities,
 		admission:    admission,
+		freezeAck:    freezeAck,
 		responses: []planescapeprovider.OperationResponse{
 			toolResult,
 			quiescence,
+			closeout,
 		},
 	}
 	operations := &planescapeProductOperationSourceFake{
 		tool:       toolInput,
 		quiescence: quiescenceInput,
+	}
+	terminal := &planescapeProductTerminalSourceFake{
+		freezeInput: newPlanescapeProductFreezeInput(t),
+		closeout:    newPlanescapeProductCloseoutIntentForTest(t),
 	}
 	invocation := testPlanescapeProductInvocation(
 		t,
@@ -450,6 +458,7 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 			Endpoint:           endpoint,
 			CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
 			OperationSource:    operations,
+			TerminalSource:     terminal,
 			CheckpointRoot:     checkpointRoot,
 			Now:                func() time.Time { return now },
 		},
@@ -483,13 +492,27 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 			operations.quiescenceCalls,
 		)
 	}
-	if len(endpoint.operations) != 2 {
-		t.Fatalf("provider operations = %d, want 2", len(endpoint.operations))
+	if terminal.freezeCalls != 1 || terminal.closeoutCalls != 1 {
+		t.Fatalf(
+			"terminal source calls = %d/%d, want 1/1",
+			terminal.freezeCalls,
+			terminal.closeoutCalls,
+		)
+	}
+	if len(endpoint.freezes) != 1 || len(endpoint.operations) != 3 {
+		t.Fatalf(
+			"provider terminal calls = freezes:%d operations:%d, want 1/3",
+			len(endpoint.freezes),
+			len(endpoint.operations),
+		)
 	}
 	for index, operation := range endpoint.operations {
 		wantKind := planescapeprovider.OperationTool
-		if index == 1 {
+		switch index {
+		case 1:
 			wantKind = planescapeprovider.OperationPause
+		case 2:
+			wantKind = planescapeprovider.OperationCloseout
 		}
 		if operation.SessionID() != admission.SessionID() ||
 			operation.PlanHash() != plan.CanonicalHash() ||
@@ -509,6 +532,21 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 			!binding.Invocation().matches(invocation) {
 			t.Fatalf("source binding %d = %+v, want exact plan/session/backend", index, binding)
 		}
+	}
+	if !terminal.quiesced.valid() ||
+		!terminal.quiesced.Binding().Invocation().matches(invocation) ||
+		terminal.quiesced.Quiescence().CanonicalHash() !=
+			quiescence.CanonicalHash() {
+		t.Fatal("freeze source did not receive exact quiesced invocation state")
+	}
+	if !terminal.frozen.valid() ||
+		!terminal.frozen.Binding().Invocation().matches(invocation) ||
+		terminal.frozen.Freeze().CanonicalHash() != freezeAck.CanonicalHash() {
+		t.Fatal("closeout source did not receive exact frozen invocation state")
+	}
+	if lifecycle.Freeze().CanonicalHash() != freezeAck.CanonicalHash() ||
+		lifecycle.Closeout().CanonicalHash() != closeout.CanonicalHash() {
+		t.Fatal("terminal result did not retain exact provider records")
 	}
 
 	store, err := planescapeprovider.NewFileStore(checkpointRoot)
@@ -531,7 +569,13 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 			Artifacts         []string `json:"artifacts"`
 			OperationEvidence []string `json:"operation_evidence"`
 			ResourceEvidence  string   `json:"resource_evidence"`
+			LogicalEvidence   string   `json:"logical_evidence"`
+			NativeExtension   string   `json:"native_extension_hash"`
 		} `json:"evidence"`
+		Freeze *struct {
+			FreezeID string `json:"freeze_id"`
+			Done     bool   `json:"done"`
+		} `json:"freeze"`
 	}
 	if err := json.Unmarshal(checkpoint, &durable); err != nil {
 		t.Fatal(err)
@@ -539,13 +583,19 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 	if durable.Schema != "hazmat.planescapeprovider.checkpoint.v2" ||
 		durable.PlanHash != plan.CanonicalHash().String() ||
 		durable.BackendIdentitySHA256 != wantBackend.IdentitySHA256().String() ||
-		durable.Phase != "quiescent" ||
-		len(durable.Operations) != 2 ||
+		durable.Phase != "closed" ||
+		len(durable.Operations) != 3 ||
 		durable.Operations[0].Kind != planescapeprovider.OperationTool ||
 		durable.Operations[1].Kind != planescapeprovider.OperationPause ||
+		durable.Operations[2].Kind != planescapeprovider.OperationCloseout ||
+		durable.Freeze == nil ||
+		durable.Freeze.FreezeID != freezeAck.FreezeID().String() ||
+		!durable.Freeze.Done ||
 		len(durable.Evidence.Artifacts) != 1 ||
 		len(durable.Evidence.OperationEvidence) != 1 ||
-		durable.Evidence.ResourceEvidence != quiescence.ResourceEvidenceHash().String() {
+		durable.Evidence.ResourceEvidence != quiescence.ResourceEvidenceHash().String() ||
+		durable.Evidence.LogicalEvidence != closeout.LogicalEvidenceHash().String() ||
+		durable.Evidence.NativeExtension != closeout.NativeExtensionHash().String() {
 		t.Fatalf("durable lifecycle evidence lost an exact binding: %+v", durable)
 	}
 }
@@ -603,9 +653,14 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 			endpoint := &planescapeProductEndpointFake{
 				capabilities: capabilities,
 				admission:    admission,
+				freezeAck: newPlanescapeProductFreezeAck(
+					t,
+					admission.SessionID().String(),
+				),
 				responses: []planescapeprovider.OperationResponse{
 					newPlanescapeProductToolResult(t, admission.SessionID().String()),
 					newPlanescapeProductQuiescence(t, admission.SessionID().String()),
+					newPlanescapeProductCloseout(t, admission.SessionID().String()),
 				},
 			}
 			operations := &planescapeProductOperationSourceFake{
@@ -632,8 +687,12 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 					Endpoint:           endpoint,
 					CompiledPlanSource: &planescapeProductCompiledPlanSourceFake{plan: plan},
 					OperationSource:    operations,
-					CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
-					Now:                func() time.Time { return now },
+					TerminalSource: &planescapeProductTerminalSourceFake{
+						freezeInput: newPlanescapeProductFreezeInput(t),
+						closeout:    newPlanescapeProductCloseoutIntentForTest(t),
+					},
+					CheckpointRoot: filepath.Join(t.TempDir(), "checkpoints"),
+					Now:            func() time.Time { return now },
 				}, nil
 			}
 
@@ -651,9 +710,11 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 			if nativeRunnerCalls != 0 {
 				t.Fatalf("native runner calls = %d, want 0", nativeRunnerCalls)
 			}
-			if len(endpoint.operations) != 2 ||
+			if len(endpoint.freezes) != 1 ||
+				len(endpoint.operations) != 3 ||
 				endpoint.operations[0].Kind() != planescapeprovider.OperationTool ||
-				endpoint.operations[1].Kind() != planescapeprovider.OperationPause {
+				endpoint.operations[1].Kind() != planescapeprovider.OperationPause ||
+				endpoint.operations[2].Kind() != planescapeprovider.OperationCloseout {
 				t.Fatalf("external lifecycle = %+v", endpoint.operations)
 			}
 		})
@@ -972,17 +1033,22 @@ func TestConfiguredSessionExecutionProviderLoadsExplicitPlanescapeSelection(t *t
 }
 
 type planescapeProductEndpointFake struct {
-	backend       planescapeprovider.BackendIdentityBinding
-	capabilities  planescapeprovider.ProviderCapabilities
-	admission     planescapeprovider.SessionAdmission
-	discoverErr   error
-	admitErr      error
-	operationErr  error
-	discoverCalls int
-	admitCalls    int
-	admittedPlans []planescapeprovider.CompiledContainmentPlan
-	operations    []planescapeprovider.AgentOperation
-	responses     []planescapeprovider.OperationResponse
+	backend         planescapeprovider.BackendIdentityBinding
+	capabilities    planescapeprovider.ProviderCapabilities
+	admission       planescapeprovider.SessionAdmission
+	freezeAck       planescapeprovider.FreezeAck
+	discoverErr     error
+	admitErr        error
+	operationErr    error
+	operationErrors map[planescapeprovider.OperationKind]error
+	freezeErr       error
+	discoverCalls   int
+	admitCalls      int
+	cancelCalls     int
+	admittedPlans   []planescapeprovider.CompiledContainmentPlan
+	operations      []planescapeprovider.AgentOperation
+	freezes         []planescapeprovider.Freeze
+	responses       []planescapeprovider.OperationResponse
 }
 
 func (e *planescapeProductEndpointFake) BackendBinding() planescapeprovider.BackendIdentityBinding {
@@ -1020,6 +1086,9 @@ func (e *planescapeProductEndpointFake) Operate(
 	if e.operationErr != nil {
 		return nil, e.operationErr
 	}
+	if err := e.operationErrors[operation.Kind()]; err != nil {
+		return nil, err
+	}
 	if len(e.responses) == 0 {
 		return nil, errors.New("unexpected Operate call")
 	}
@@ -1028,17 +1097,22 @@ func (e *planescapeProductEndpointFake) Operate(
 	return response, nil
 }
 
-func (*planescapeProductEndpointFake) Freeze(
-	context.Context,
-	planescapeprovider.Freeze,
+func (e *planescapeProductEndpointFake) Freeze(
+	_ context.Context,
+	freeze planescapeprovider.Freeze,
 ) (planescapeprovider.FreezeAck, error) {
-	return planescapeprovider.FreezeAck{}, errors.New("unexpected Freeze call")
+	e.freezes = append(e.freezes, freeze)
+	if e.freezeErr != nil {
+		return planescapeprovider.FreezeAck{}, e.freezeErr
+	}
+	return e.freezeAck, nil
 }
 
-func (*planescapeProductEndpointFake) Cancel(
+func (e *planescapeProductEndpointFake) Cancel(
 	context.Context,
 	planescapeprovider.Cancellation,
 ) (planescapeprovider.CancellationAck, error) {
+	e.cancelCalls++
 	return planescapeprovider.CancellationAck{}, errors.New("unexpected Cancel call")
 }
 
@@ -1061,6 +1135,19 @@ type planescapeProductOperationSourceFake struct {
 	toolResult       planescapeprovider.OperationResult
 	beforeTool       func()
 	beforeQuiescence func()
+}
+
+type planescapeProductTerminalSourceFake struct {
+	freezeInput    planescapeprovider.FreezeInput
+	closeout       planescapeProductCloseoutIntent
+	freezeErr      error
+	closeoutErr    error
+	freezeCalls    int
+	closeoutCalls  int
+	quiesced       planescapeProductQuiescedLifecycle
+	frozen         planescapeProductFrozenLifecycle
+	beforeFreeze   func()
+	beforeCloseout func()
 }
 
 func (s *planescapeProductOperationSourceFake) ToolOperation(
@@ -1087,6 +1174,30 @@ func (s *planescapeProductOperationSourceFake) QuiescenceOperation(
 		s.beforeQuiescence()
 	}
 	return s.quiescence, s.quiescenceErr
+}
+
+func (s *planescapeProductTerminalSourceFake) FreezeInput(
+	_ context.Context,
+	quiesced planescapeProductQuiescedLifecycle,
+) (planescapeprovider.FreezeInput, error) {
+	s.freezeCalls++
+	s.quiesced = quiesced
+	if s.beforeFreeze != nil {
+		s.beforeFreeze()
+	}
+	return s.freezeInput, s.freezeErr
+}
+
+func (s *planescapeProductTerminalSourceFake) CloseoutIntent(
+	_ context.Context,
+	frozen planescapeProductFrozenLifecycle,
+) (planescapeProductCloseoutIntent, error) {
+	s.closeoutCalls++
+	s.frozen = frozen
+	if s.beforeCloseout != nil {
+		s.beforeCloseout()
+	}
+	return s.closeout, s.closeoutErr
 }
 
 func (s *planescapeProductCompiledPlanSourceFake) CompiledContainmentPlan(
@@ -1279,6 +1390,86 @@ func newPlanescapeProductQuiescence(
 			QuiescenceHash:       planescapeProductHash("7"),
 			ResourceEvidenceHash: planescapeProductHash("8"),
 			CanonicalHash:        planescapeProductHash("9"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func newPlanescapeProductFreezeInput(
+	t *testing.T,
+) planescapeprovider.FreezeInput {
+	t.Helper()
+	value, err := planescapeprovider.NewFreezeInput(
+		planescapeprovider.FreezeInputValues{
+			FreezeID:      "freeze-1",
+			Nonce:         "freeze-nonce",
+			CanonicalHash: planescapeProductHash("a"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func newPlanescapeProductFreezeAck(
+	t *testing.T,
+	sessionID string,
+) planescapeprovider.FreezeAck {
+	t.Helper()
+	value, err := planescapeprovider.NewFreezeAck(
+		planescapeprovider.FreezeAckInput{
+			SessionID:      sessionID,
+			FreezeID:       "freeze-1",
+			QuiescenceHash: planescapeProductHash("7"),
+			FrozenAt:       time.Date(2026, 7, 25, 12, 1, 0, 0, time.UTC),
+			CanonicalHash:  planescapeProductHash("b"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func newPlanescapeProductCloseoutIntentForTest(
+	t *testing.T,
+) planescapeProductCloseoutIntent {
+	t.Helper()
+	operation := newPlanescapeProductOperationInput(
+		t,
+		"closeout-operation-1",
+		planescapeprovider.OperationCloseout,
+		"closeout-nonce",
+		"d",
+	)
+	value, err := newPlanescapeProductCloseoutIntent(
+		operation,
+		"closeout-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func newPlanescapeProductCloseout(
+	t *testing.T,
+	sessionID string,
+) planescapeprovider.Closeout {
+	t.Helper()
+	value, err := planescapeprovider.NewCloseout(
+		planescapeprovider.CloseoutInput{
+			SessionID:           sessionID,
+			CloseoutID:          "closeout-1",
+			TerminalOutcome:     planescapeprovider.OutcomeSucceeded,
+			QuiescenceHash:      planescapeProductHash("7"),
+			LogicalEvidenceHash: planescapeProductHash("c"),
+			NativeExtensionHash: planescapeProductHash("d"),
+			CanonicalHash:       planescapeProductHash("e"),
 		},
 	)
 	if err != nil {
