@@ -1,6 +1,7 @@
 package hazmat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,53 +17,152 @@ import (
 
 func TestConfiguredPlanescapeProviderFailuresNeverStartLocalRuntime(t *testing.T) {
 	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	capabilities := planescapeProductCapabilities(t)
-	cases := map[string]struct {
-		endpoint *planescapeProductEndpointFake
-		want     planescapeprovider.ErrorClass
-		secret   string
+	capabilities, plan, admission := planescapeProductAdmissionFixtures(t)
+	cases := []struct {
+		name              string
+		sourceAbsent      bool
+		sourcePlan        planescapeprovider.CompiledContainmentPlan
+		sourceErr         error
+		discoverErr       error
+		admission         planescapeprovider.SessionAdmission
+		admitErr          error
+		want              planescapeprovider.ErrorClass
+		wantMessage       string
+		wantSourceCalls   int
+		wantDiscoverCalls int
+		wantAdmitCalls    int
+		wantAdmission     bool
+		secret            string
 	}{
-		"unsupported": {
-			endpoint: &planescapeProductEndpointFake{
-				discoverErr: newPlanescapeProviderFailureForTest(
-					t,
-					planescapeprovider.ProviderErrorUnsupported,
-				),
-			},
-			want: planescapeprovider.ErrorUnsupported,
+		{
+			name:              "compiled plan source is absent",
+			sourceAbsent:      true,
+			admission:         admission,
+			want:              planescapeprovider.ErrorUnavailable,
+			wantMessage:       "configured Planescape provider failed closed: unavailable",
+			wantSourceCalls:   0,
+			wantDiscoverCalls: 0,
 		},
-		"unavailable": {
-			endpoint: &planescapeProductEndpointFake{
-				discoverErr: newPlanescapeProviderFailureForTest(
-					t,
-					planescapeprovider.ProviderErrorUnavailable,
-				),
-			},
-			want: planescapeprovider.ErrorUnavailable,
+		{
+			name:              "compiled plan source fails",
+			sourceErr:         errors.New("compiled-plan-source-secret"),
+			admission:         admission,
+			want:              planescapeprovider.ErrorUnavailable,
+			wantMessage:       "configured Planescape provider failed closed: unavailable",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 0,
+			secret:            "compiled-plan-source-secret",
 		},
-		"endpoint death": {
-			endpoint: &planescapeProductEndpointFake{
-				discoverErr: errors.New("provider-death-secret-diagnostic"),
-			},
-			want:   planescapeprovider.ErrorUnavailable,
-			secret: "provider-death-secret-diagnostic",
+		{
+			name:              "compiled plan source returns an invalid zero value",
+			admission:         admission,
+			want:              planescapeprovider.ErrorInvalid,
+			wantMessage:       "configured Planescape provider failed closed: invalid",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 0,
 		},
-		"discovery succeeds but RPC admission is unavailable": {
-			endpoint: &planescapeProductEndpointFake{capabilities: capabilities},
-			want:     planescapeprovider.ErrorUnsupported,
+		{
+			name:       "discovery is unsupported",
+			sourcePlan: plan,
+			discoverErr: newPlanescapeProviderFailureForTest(
+				t,
+				capabilities,
+				planescapeprovider.ProviderErrorUnsupported,
+				planescapeprovider.TransitionDiscover,
+			),
+			admission:         admission,
+			want:              planescapeprovider.ErrorUnsupported,
+			wantMessage:       "configured Planescape provider failed closed: unsupported",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+		},
+		{
+			name:              "provider dies during discovery",
+			sourcePlan:        plan,
+			discoverErr:       errors.New("provider-discovery-death-secret"),
+			admission:         admission,
+			want:              planescapeprovider.ErrorUnavailable,
+			wantMessage:       "configured Planescape provider failed closed: unavailable",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+			secret:            "provider-discovery-death-secret",
+		},
+		{
+			name:       "admission is unavailable",
+			sourcePlan: plan,
+			admission:  admission,
+			admitErr: newPlanescapeProviderFailureForTest(
+				t,
+				capabilities,
+				planescapeprovider.ProviderErrorUnavailable,
+				planescapeprovider.TransitionAdmit,
+			),
+			want:              planescapeprovider.ErrorUnavailable,
+			wantMessage:       "configured Planescape provider failed closed: unavailable",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+			wantAdmitCalls:    1,
+		},
+		{
+			name:              "provider dies during admission",
+			sourcePlan:        plan,
+			admission:         admission,
+			admitErr:          errors.New("provider-admission-death-secret"),
+			want:              planescapeprovider.ErrorUnavailable,
+			wantMessage:       "configured Planescape provider failed closed: unavailable",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+			wantAdmitCalls:    1,
+			secret:            "provider-admission-death-secret",
+		},
+		{
+			name:              "provider returns invalid admission",
+			sourcePlan:        plan,
+			want:              planescapeprovider.ErrorConflict,
+			wantMessage:       "configured Planescape provider failed closed: conflict",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+			wantAdmitCalls:    1,
+		},
+		{
+			name:              "exact admission succeeds but lifecycle is pending",
+			sourcePlan:        plan,
+			admission:         admission,
+			want:              planescapeprovider.ErrorUnsupported,
+			wantMessage:       "configured Planescape provider admitted the session, but product lifecycle execution is unavailable; local execution is disabled",
+			wantSourceCalls:   1,
+			wantDiscoverCalls: 1,
+			wantAdmitCalls:    1,
+			wantAdmission:     true,
 		},
 	}
 
-	for name, test := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var source *planescapeProductCompiledPlanSourceFake
+			var compiledPlanSource planescapeProductCompiledPlanSource
+			if !test.sourceAbsent {
+				source = &planescapeProductCompiledPlanSourceFake{
+					plan: test.sourcePlan,
+					err:  test.sourceErr,
+				}
+				compiledPlanSource = source
+			}
+			endpoint := &planescapeProductEndpointFake{
+				capabilities: capabilities,
+				admission:    test.admission,
+				discoverErr:  test.discoverErr,
+				admitErr:     test.admitErr,
+			}
 			localStarts := 0
 			err := runSessionStartupWithExecutionProvider(
 				context.Background(),
 				sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
 				planescapeProductDependencies{
-					Endpoint:       test.endpoint,
-					CheckpointRoot: filepath.Join(t.TempDir(), "checkpoints"),
-					Now:            func() time.Time { return now },
+					Endpoint:           endpoint,
+					CompiledPlanSource: compiledPlanSource,
+					CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
+					Now:                func() time.Time { return now },
 				},
 				func() error {
 					localStarts++
@@ -73,16 +173,106 @@ func TestConfiguredPlanescapeProviderFailuresNeverStartLocalRuntime(t *testing.T
 			if localStarts != 0 {
 				t.Fatalf("local startup calls = %d, want 0", localStarts)
 			}
-			if test.endpoint.discoverCalls != 1 {
-				t.Fatalf("Discover calls = %d, want 1", test.endpoint.discoverCalls)
+			if source != nil && source.calls != test.wantSourceCalls {
+				t.Fatalf("compiled plan source calls = %d, want %d", source.calls, test.wantSourceCalls)
 			}
-			if test.endpoint.admitCalls != 0 {
-				t.Fatalf("Admit calls = %d, want 0 before RPC exists", test.endpoint.admitCalls)
+			if endpoint.discoverCalls != test.wantDiscoverCalls {
+				t.Fatalf("Discover calls = %d, want %d", endpoint.discoverCalls, test.wantDiscoverCalls)
+			}
+			if endpoint.admitCalls != test.wantAdmitCalls {
+				t.Fatalf("Admit calls = %d, want %d", endpoint.admitCalls, test.wantAdmitCalls)
+			}
+			if err.Error() != test.wantMessage {
+				t.Fatalf("error = %q, want %q", err, test.wantMessage)
 			}
 			if test.secret != "" && strings.Contains(err.Error(), test.secret) {
 				t.Fatalf("product error leaked endpoint diagnostic: %v", err)
 			}
+			var productError *planescapeProductError
+			if !errors.As(err, &productError) {
+				t.Fatalf("error %T = %v, want planescapeProductError", err, err)
+			}
+			_, retained := productError.admissionState()
+			if retained != test.wantAdmission {
+				t.Fatalf("retained admission = %v, want %v", retained, test.wantAdmission)
+			}
 		})
+	}
+}
+
+func TestConfiguredPlanescapeProviderTransmitsAndRetainsExactCompiledPlan(t *testing.T) {
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	capabilities, plan, admission := planescapeProductAdmissionFixtures(t)
+	source := &planescapeProductCompiledPlanSourceFake{plan: plan}
+	endpoint := &planescapeProductEndpointFake{
+		capabilities: capabilities,
+		admission:    admission,
+	}
+	localStarts := 0
+	startupErr := runSessionStartupWithExecutionProvider(
+		context.Background(),
+		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderPlanescape},
+		planescapeProductDependencies{
+			Endpoint:           endpoint,
+			CompiledPlanSource: source,
+			CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
+			Now:                func() time.Time { return now },
+		},
+		func() error {
+			localStarts++
+			return nil
+		},
+	)
+	requirePlanescapeProductErrorClass(t, startupErr, planescapeprovider.ErrorUnsupported)
+	if localStarts != 0 {
+		t.Fatalf("local startup calls = %d, want 0", localStarts)
+	}
+	if source.calls != 1 {
+		t.Fatalf("compiled plan source calls = %d, want 1", source.calls)
+	}
+	if len(endpoint.admittedPlans) != 1 {
+		t.Fatalf("admitted plans = %d, want 1", len(endpoint.admittedPlans))
+	}
+
+	codec := planescapeprovider.ProviderV1FrameCodec{}
+	wantPlan, err := codec.EncodeCompiledContainmentPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotPlan, err := codec.EncodeCompiledContainmentPlan(endpoint.admittedPlans[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotPlan, wantPlan) {
+		t.Fatal("admission did not transmit the exact compiled plan")
+	}
+
+	var productError *planescapeProductError
+	if !errors.As(startupErr, &productError) {
+		t.Fatalf("error %T = %v, want planescapeProductError", startupErr, startupErr)
+	}
+	state, ok := productError.admissionState()
+	if !ok {
+		t.Fatal("successful admission did not retain typed lifecycle state")
+	}
+	retainedPlan, ok := state.Plan()
+	if !ok {
+		t.Fatal("retained admission has no valid compiled plan")
+	}
+	retainedPlanFrame, err := codec.EncodeCompiledContainmentPlan(retainedPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(retainedPlanFrame, wantPlan) {
+		t.Fatal("retained admission substituted the compiled plan")
+	}
+	retainedSession, ok := state.Session()
+	if !ok {
+		t.Fatal("retained admission has no valid session")
+	}
+	sessionID, ok := retainedSession.ID()
+	if !ok || sessionID != admission.SessionID() {
+		t.Fatalf("retained session ID = %q, %v; want %q, true", sessionID.String(), ok, admission.SessionID().String())
 	}
 }
 
@@ -90,13 +280,17 @@ func TestUnconfiguredPlanescapeEndpointDoesNotAffectLocalStartup(t *testing.T) {
 	endpoint := &planescapeProductEndpointFake{
 		discoverErr: errors.New("must not be called"),
 	}
+	source := &planescapeProductCompiledPlanSourceFake{
+		err: errors.New("must not be called"),
+	}
 	localStarts := 0
 	err := runSessionStartupWithExecutionProvider(
 		context.Background(),
 		sessionConfig{ExecutionProvider: configmodel.ExecutionProviderLocal},
 		planescapeProductDependencies{
-			Endpoint:       endpoint,
-			CheckpointRoot: filepath.Join(t.TempDir(), "checkpoints"),
+			Endpoint:           endpoint,
+			CompiledPlanSource: source,
+			CheckpointRoot:     filepath.Join(t.TempDir(), "checkpoints"),
 		},
 		func() error {
 			localStarts++
@@ -111,6 +305,9 @@ func TestUnconfiguredPlanescapeEndpointDoesNotAffectLocalStartup(t *testing.T) {
 	}
 	if endpoint.discoverCalls != 0 {
 		t.Fatalf("Discover calls = %d, want 0 without explicit provider configuration", endpoint.discoverCalls)
+	}
+	if source.calls != 0 {
+		t.Fatalf("compiled plan source calls = %d, want 0 without explicit provider configuration", source.calls)
 	}
 }
 
@@ -269,6 +466,7 @@ type planescapeProductEndpointFake struct {
 	capabilities  planescapeprovider.ProviderCapabilities
 	admission     planescapeprovider.SessionAdmission
 	discoverErr   error
+	admitErr      error
 	discoverCalls int
 	admitCalls    int
 	admittedPlans []planescapeprovider.CompiledContainmentPlan
@@ -285,7 +483,7 @@ func (e *planescapeProductEndpointFake) Admit(
 ) (planescapeprovider.SessionAdmission, error) {
 	e.admitCalls++
 	e.admittedPlans = append(e.admittedPlans, plan)
-	return e.admission, nil
+	return e.admission, e.admitErr
 }
 
 func (*planescapeProductEndpointFake) Operate(
@@ -309,27 +507,17 @@ func (*planescapeProductEndpointFake) Cancel(
 	return planescapeprovider.CancellationAck{}, errors.New("unexpected Cancel call")
 }
 
-func planescapeProductCapabilities(t *testing.T) planescapeprovider.ProviderCapabilities {
-	t.Helper()
-	capabilities, err := planescapeprovider.NewProviderCapabilities(
-		planescapeprovider.ProviderCapabilitiesInput{
-			ProviderID:     "planescape-linux-test",
-			ProviderEpoch:  7,
-			Profile:        planescapeprovider.ProfilePortable,
-			CapabilityHash: planescapeProductHash("1"),
-			CanonicalHash:  planescapeProductHash("2"),
-			Capabilities: []planescapeprovider.Capability{
-				planescapeprovider.CapabilityToolExecute,
-			},
-			ResourceDimensions: []planescapeprovider.ResourceDimension{
-				planescapeprovider.ResourceMemoryBytes,
-			},
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return capabilities
+type planescapeProductCompiledPlanSourceFake struct {
+	plan  planescapeprovider.CompiledContainmentPlan
+	err   error
+	calls int
+}
+
+func (s *planescapeProductCompiledPlanSourceFake) CompiledContainmentPlan(
+	context.Context,
+) (planescapeprovider.CompiledContainmentPlan, error) {
+	s.calls++
+	return s.plan, s.err
 }
 
 func planescapeProductAdmissionFixtures(
@@ -387,15 +575,17 @@ func planescapeProductAdmissionFixtures(
 
 func newPlanescapeProviderFailureForTest(
 	t *testing.T,
+	capabilities planescapeprovider.ProviderCapabilities,
 	code planescapeprovider.ProviderErrorCode,
+	retryFrom planescapeprovider.Transition,
 ) error {
 	t.Helper()
 	failure, err := planescapeprovider.NewProviderFailure(
 		planescapeprovider.ProviderFailureInput{
 			Code:          code,
-			ProviderID:    "planescape-linux-test",
-			ProviderEpoch: 7,
-			RetryFrom:     planescapeprovider.TransitionDiscover,
+			ProviderID:    capabilities.ProviderID().String(),
+			ProviderEpoch: capabilities.ProviderEpoch().Uint64(),
+			RetryFrom:     retryFrom,
 			CanonicalHash: planescapeProductHash("9"),
 		},
 	)
