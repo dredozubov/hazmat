@@ -554,7 +554,7 @@ func (s Session) runOperation(
 	}
 
 	if entry, index := state.operation(input.operationID); index >= 0 {
-		if entry.operation.kind != input.kind || entry.operation.nonce != input.nonce || entry.operation.payloadHash != input.payloadHash || entry.operation.canonicalHash != input.canonicalHash || entry.expected != expected || entry.closeoutID != closeoutID {
+		if entry.operation.kind != input.kind || entry.operation.nonce != input.nonce || entry.operation.payloadHash != input.payloadHash || entry.expected != expected || entry.closeoutID != closeoutID {
 			return nil, s.client.poison(ctx, &state)
 		}
 		return s.client.sendOperation(ctx, &state, index, entry.operation, entry.expected, entry.closeoutID)
@@ -1125,7 +1125,16 @@ func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) 
 	seenSequences := make(map[OperationSequence]struct{}, len(checkpoint.Operations))
 	var maximumSequence uint64
 	for _, value := range checkpoint.Operations {
-		input, err := NewOperationInput(OperationInputValues{OperationID: value.OperationID, Kind: value.Kind, Nonce: value.Nonce, PayloadHash: value.PayloadHash, CanonicalHash: value.CanonicalHash})
+		input, err := NewOperationInput(OperationInputValues{
+			OperationID: value.OperationID,
+			Kind:        value.Kind,
+			Nonce:       value.Nonce,
+			PayloadHash: value.PayloadHash,
+		})
+		if err != nil {
+			return sessionState{}, err
+		}
+		canonicalHash, err := ParseFingerprint(value.CanonicalHash)
 		if err != nil {
 			return sessionState{}, err
 		}
@@ -1145,6 +1154,9 @@ func sessionStateFromCheckpoint(checkpoint checkpointDTO) (sessionState, error) 
 		operation, err := newAgentOperation(sessionID, sequence, planHash, input)
 		if err != nil {
 			return sessionState{}, err
+		}
+		if operation.canonicalHash != canonicalHash {
+			return sessionState{}, fmt.Errorf("invalid checkpoint operation canonical hash")
 		}
 		seenIDs[input.operationID] = struct{}{}
 		seenSequences[sequence] = struct{}{}

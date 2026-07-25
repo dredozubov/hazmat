@@ -289,7 +289,6 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 		planescapeprovider.OperationTool,
 		"tool-nonce",
 		"a",
-		"b",
 	)
 	quiescenceInput := newPlanescapeProductOperationInput(
 		t,
@@ -297,7 +296,6 @@ func TestConfiguredPlanescapeProviderRunsExactToolAndQuiescenceWithoutLocalFallb
 		planescapeprovider.OperationPause,
 		"pause-nonce",
 		"c",
-		"d",
 	)
 	toolResult := newPlanescapeProductToolResult(t, admission.SessionID().String())
 	quiescence := newPlanescapeProductQuiescence(t, admission.SessionID().String())
@@ -486,7 +484,6 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 					planescapeprovider.OperationTool,
 					"tool-nonce",
 					"a",
-					"b",
 				),
 				quiescence: newPlanescapeProductOperationInput(
 					t,
@@ -494,7 +491,6 @@ func TestConfiguredPlanescapeCommandsCompleteExternallyWithoutNativeRunner(
 					planescapeprovider.OperationPause,
 					"pause-nonce",
 					"c",
-					"d",
 				),
 			}
 			planescapeProductDependenciesForSession = func() planescapeProductDependencies {
@@ -549,7 +545,6 @@ func TestConfiguredPlanescapeProviderBackendDriftFailsBeforeToolWithoutFallback(
 			planescapeprovider.OperationTool,
 			"tool-nonce",
 			"a",
-			"b",
 		),
 		beforeTool: func() {
 			endpoint.backend = newPlanescapeProductBackendBinding(t, "f")
@@ -601,7 +596,6 @@ func TestConfiguredPlanescapeProviderToolFailureDoesNotFallbackOrQuiesce(
 			planescapeprovider.OperationTool,
 			"tool-nonce",
 			"a",
-			"b",
 		),
 	}
 	localStarts := 0
@@ -1049,16 +1043,14 @@ func newPlanescapeProductOperationInput(
 	kind planescapeprovider.OperationKind,
 	nonce string,
 	payloadCharacter string,
-	canonicalCharacter string,
 ) planescapeprovider.OperationInput {
 	t.Helper()
 	value, err := planescapeprovider.NewOperationInput(
 		planescapeprovider.OperationInputValues{
-			OperationID:   operationID,
-			Kind:          kind,
-			Nonce:         nonce,
-			PayloadHash:   planescapeProductHash(payloadCharacter),
-			CanonicalHash: planescapeProductHash(canonicalCharacter),
+			OperationID: operationID,
+			Kind:        kind,
+			Nonce:       nonce,
+			PayloadHash: planescapeProductHash(payloadCharacter),
 		},
 	)
 	if err != nil {

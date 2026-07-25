@@ -155,10 +155,10 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustSession(t, firstClient, discovery, plan)
-	if _, err := session.Launch(ctx, mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+	if _, err := session.Launch(ctx, mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
-	tool := mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b")
+	tool := mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a")
 	if _, err := session.RunTool(ctx, tool); err == nil {
 		t.Fatal("disconnected tool operation succeeded")
 	} else {
@@ -225,6 +225,18 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	sessionID, err := NewIdentifier("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence, err := NewOperationSequence(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedOperation, err := newAgentOperation(sessionID, sequence, plan.CanonicalHash(), tool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantBinding := operationBinding{
 		sessionID:     "session-1",
 		operationID:   "tool-1",
@@ -233,7 +245,7 @@ func TestFramedClientReconnectReplaysAmbiguousOperationExactly(t *testing.T) {
 		planHash:      plan.CanonicalHash().String(),
 		nonce:         "nonce-tool",
 		payloadHash:   fingerprint("a"),
-		canonicalHash: fingerprint("b"),
+		canonicalHash: expectedOperation.CanonicalHash().String(),
 	}
 	if got := bindingOf(firstCodec.operationRequests[1]); got != wantBinding {
 		t.Fatalf("disconnected operation binding = %+v, want %+v", got, wantBinding)

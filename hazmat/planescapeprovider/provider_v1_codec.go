@@ -557,11 +557,10 @@ func decodeProviderV1OperationRecord(
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	input, err := NewOperationInput(OperationInputValues{
-		OperationID:   dto.OperationID,
-		Kind:          OperationKind(dto.OperationKind),
-		Nonce:         dto.Nonce,
-		PayloadHash:   dto.PayloadHash,
-		CanonicalHash: dto.CanonicalHash,
+		OperationID: dto.OperationID,
+		Kind:        OperationKind(dto.OperationKind),
+		Nonce:       dto.Nonce,
+		PayloadHash: dto.PayloadHash,
 	})
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame

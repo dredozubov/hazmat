@@ -677,19 +677,17 @@ func (v SessionAdmission) valid() bool {
 // OperationInput is the product's bounded, opaque operation request. Session,
 // sequence, and plan bindings are assigned by Session, not supplied by callers.
 type OperationInput struct {
-	operationID   Identifier
-	kind          OperationKind
-	nonce         Nonce
-	payloadHash   Fingerprint
-	canonicalHash Fingerprint
+	operationID Identifier
+	kind        OperationKind
+	nonce       Nonce
+	payloadHash Fingerprint
 }
 
 type OperationInputValues struct {
-	OperationID   string
-	Kind          OperationKind
-	Nonce         string
-	PayloadHash   string
-	CanonicalHash string
+	OperationID string
+	Kind        OperationKind
+	Nonce       string
+	PayloadHash string
 }
 
 func NewOperationInput(input OperationInputValues) (OperationInput, error) {
@@ -708,21 +706,21 @@ func NewOperationInput(input OperationInputValues) (OperationInput, error) {
 	if err != nil {
 		return OperationInput{}, err
 	}
-	canonicalHash, err := ParseFingerprint(input.CanonicalHash)
-	if err != nil {
-		return OperationInput{}, err
-	}
-	return OperationInput{operationID: operationID, kind: input.Kind, nonce: nonce, payloadHash: payloadHash, canonicalHash: canonicalHash}, nil
+	return OperationInput{
+		operationID: operationID,
+		kind:        input.Kind,
+		nonce:       nonce,
+		payloadHash: payloadHash,
+	}, nil
 }
 
-func (v OperationInput) OperationID() Identifier    { return v.operationID }
-func (v OperationInput) Kind() OperationKind        { return v.kind }
-func (v OperationInput) Nonce() Nonce               { return v.nonce }
-func (v OperationInput) PayloadHash() Fingerprint   { return v.payloadHash }
-func (v OperationInput) CanonicalHash() Fingerprint { return v.canonicalHash }
+func (v OperationInput) OperationID() Identifier  { return v.operationID }
+func (v OperationInput) Kind() OperationKind      { return v.kind }
+func (v OperationInput) Nonce() Nonce             { return v.nonce }
+func (v OperationInput) PayloadHash() Fingerprint { return v.payloadHash }
 
 func (v OperationInput) valid() bool {
-	return v.operationID.valid() && v.kind.valid() && v.nonce.valid() && v.payloadHash.valid() && v.canonicalHash.valid()
+	return v.operationID.valid() && v.kind.valid() && v.nonce.valid() && v.payloadHash.valid()
 }
 
 // AgentOperation is the fully bound record sent to a provider.
@@ -741,6 +739,24 @@ func newAgentOperation(sessionID Identifier, sequence OperationSequence, planHas
 	if !sessionID.valid() || sequence == 0 || !planHash.valid() || !input.valid() {
 		return AgentOperation{}, fmt.Errorf("planescapeprovider: invalid agent operation")
 	}
+	dto := providerV1OperationDTO{
+		Schema:            providerV1SchemaOperation,
+		SessionID:         sessionID.String(),
+		OperationID:       input.operationID.String(),
+		OperationSequence: sequence.Uint64(),
+		OperationKind:     string(input.kind),
+		PlanHash:          planHash.String(),
+		Nonce:             input.nonce.String(),
+		PayloadHash:       input.payloadHash.String(),
+	}
+	preimage, err := dto.canonicalPreimage()
+	if err != nil {
+		return AgentOperation{}, fmt.Errorf("planescapeprovider: invalid agent operation")
+	}
+	canonicalHash, err := ParseFingerprint(providerV1CanonicalHash(preimage))
+	if err != nil {
+		return AgentOperation{}, fmt.Errorf("planescapeprovider: invalid agent operation")
+	}
 	return AgentOperation{
 		sessionID:     sessionID,
 		operationID:   input.operationID,
@@ -749,7 +765,7 @@ func newAgentOperation(sessionID Identifier, sequence OperationSequence, planHas
 		planHash:      planHash,
 		nonce:         input.nonce,
 		payloadHash:   input.payloadHash,
-		canonicalHash: input.canonicalHash,
+		canonicalHash: canonicalHash,
 	}, nil
 }
 

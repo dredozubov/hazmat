@@ -165,19 +165,60 @@ func mustAdmission(t *testing.T, plan CompiledContainmentPlan) SessionAdmission 
 	return value
 }
 
-func mustOperation(t *testing.T, id string, kind OperationKind, nonce, payload, canonical string) OperationInput {
+func mustOperation(t *testing.T, id string, kind OperationKind, nonce, payload string) OperationInput {
 	t.Helper()
 	value, err := NewOperationInput(OperationInputValues{
-		OperationID:   id,
-		Kind:          kind,
-		Nonce:         nonce,
-		PayloadHash:   fingerprint(payload),
-		CanonicalHash: fingerprint(canonical),
+		OperationID: id,
+		Kind:        kind,
+		Nonce:       nonce,
+		PayloadHash: fingerprint(payload),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func TestAgentOperationDerivesCanonicalHashAfterSessionAndSequenceBinding(t *testing.T) {
+	input := mustOperation(t, "tool-derived", OperationTool, "nonce-derived", "a")
+	sessionID, err := NewIdentifier("session-derived")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSequence, err := NewOperationSequence(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSequence, err := NewOperationSequence(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planHash, err := ParseFingerprint(fingerprint("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := newAgentOperation(sessionID, firstSequence, planHash, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newAgentOperation(sessionID, secondSequence, planHash, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CanonicalHash() == second.CanonicalHash() {
+		t.Fatal("operation sequence did not change the derived canonical hash")
+	}
+	frame, err := (ProviderV1FrameCodec{}).EncodeOperation(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := decodeProviderV1Record(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := record.value.(AgentOperation); got != first {
+		t.Fatalf("derived operation round trip = %+v, want %+v", got, first)
+	}
 }
 
 func mustResult(t *testing.T, operationID string, sequence uint64, result ResultKind, artifact, evidence, canonical string) OperationResult {
@@ -342,13 +383,13 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	}
 	session := mustSession(t, client, discovery, plan)
 
-	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b")); err != nil {
+	if _, err := session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c", "d")); err != nil {
+	if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c")); err != nil {
 		t.Fatal(err)
 	}
 	freezeInput, err := NewFreezeInput(FreezeInputValues{FreezeID: "freeze-1", Nonce: "nonce-freeze", CanonicalHash: fingerprint("e")})
@@ -358,7 +399,7 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	if _, err := session.Freeze(context.Background(), freezeInput); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Closeout(context.Background(), mustOperation(t, "closeout-operation-1", OperationCloseout, "nonce-closeout", "f", "1"), "closeout-terminal-1"); err != nil {
+	if _, err := session.Closeout(context.Background(), mustOperation(t, "closeout-operation-1", OperationCloseout, "nonce-closeout", "f"), "closeout-terminal-1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -417,13 +458,13 @@ func TestClientMapsAdmittedToolDirectlyToQuiescence(t *testing.T) {
 	session := mustSession(t, client, discovery, plan)
 	if _, err := session.RunTool(
 		context.Background(),
-		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b"),
+		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a"),
 	); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := session.Quiesce(
 		context.Background(),
-		mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c", "d"),
+		mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c"),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +515,7 @@ func TestClientRejectsBackendIdentityDriftBeforeEffect(t *testing.T) {
 	}
 	_, err = session.RunTool(
 		context.Background(),
-		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b"),
+		mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a"),
 	)
 	requireClass(t, err, ErrorConflict)
 	if got := strings.Join(endpoint.calls, ","); got != "discover,admit" {
@@ -750,7 +791,7 @@ func TestClientCancellationBindsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustSession(t, client, discovery, plan)
-	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
 	cancelInput, err := NewCancellationInput(CancellationInputValues{CancellationID: "cancel-1", Reason: "operator_cancelled", Nonce: "nonce-cancel", CanonicalHash: fingerprint("a")})
@@ -787,10 +828,10 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		session := mustSession(t, client, discovery, plan)
-		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "9", "a")); err != nil {
+		if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "9")); err != nil {
 			t.Fatal(err)
 		}
 		input, err := NewFreezeInput(FreezeInputValues{FreezeID: "freeze-1", Nonce: "nonce-freeze", CanonicalHash: fingerprint("b")})
@@ -829,7 +870,7 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		session := mustSession(t, client, discovery, plan)
-		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 			t.Fatal(err)
 		}
 		input, err := NewCancellationInput(CancellationInputValues{CancellationID: "cancel-1", Reason: "operator_cancelled", Nonce: "nonce-cancel", CanonicalHash: fingerprint("a")})
@@ -921,10 +962,10 @@ func TestClientUnavailableOperationPreservesReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustSession(t, client, discovery, plan)
-	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
-	tool := mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a", "b")
+	tool := mustOperation(t, "tool-1", OperationTool, "nonce-tool", "a")
 	_, err = session.RunTool(context.Background(), tool)
 	requireClass(t, err, ErrorUnavailable)
 	if _, err := session.Replay(context.Background(), "tool-1"); err != nil {
@@ -984,7 +1025,7 @@ func TestClientRejectsMalformedAndCrossSessionResults(t *testing.T) {
 				t.Fatal(err)
 			}
 			session := mustSession(t, client, discovery, plan)
-			_, err = session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8"))
+			_, err = session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7"))
 			requireClass(t, err, ErrorConflict)
 			_, err = session.Replay(context.Background(), "launch-1")
 			requireClass(t, err, ErrorConflict)
@@ -1011,13 +1052,13 @@ func TestClientRejectsConflictingDuplicateAndMissingProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := mustSession(t, client, discovery, plan)
-	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7", "8")); err != nil {
+	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-one", "a", "b")); err != nil {
+	if _, err := session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-one", "a")); err != nil {
 		t.Fatal(err)
 	}
-	_, err = session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-two", "c", "d"))
+	_, err = session.RunTool(context.Background(), mustOperation(t, "tool-1", OperationTool, "nonce-two", "c"))
 	requireClass(t, err, ErrorConflict)
 	if got := len(endpoint.calls); got != 4 {
 		t.Fatalf("calls = %d, want 4", got)
