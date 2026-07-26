@@ -126,6 +126,156 @@ func TestConfiguredPlanescapeAuthoritySourceBindsExactInvocationAndRecords(
 	}
 }
 
+func TestConfiguredPlanescapeAuthorityUsesFirstRunTerminalIntentBoundary(
+	t *testing.T,
+) {
+	config := planescapeProductProviderConfigFixture(
+		t,
+		"127.0.0.1:43191",
+	)
+	data, err := os.ReadFile(config.InvocationAuthorityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope planescapeProductAuthorityFileV2
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Schema != planescapeProductAuthorityFileSchemaV2 {
+		t.Fatalf("authority schema = %q", envelope.Schema)
+	}
+	var terminal planescapeProductAuthorityCloseoutFileV2
+	if err := json.Unmarshal(envelope.Terminal, &terminal); err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Kind != planescapeProductAuthorityTerminalCloseoutV2 ||
+		terminal.Freeze.FreezeID == "" ||
+		terminal.Freeze.Nonce == "" ||
+		terminal.Closeout.OperationID == "" ||
+		terminal.Closeout.OperationSequence != 3 ||
+		terminal.Closeout.Nonce == "" {
+		t.Fatalf("terminal intent is incomplete: %+v", terminal)
+	}
+	for _, forbidden := range []string{
+		"freeze_json_b64",
+		"closeout_operation_json_b64",
+		"quiescence_hash",
+		"freeze_ack",
+		"payload_hash",
+		"canonical_hash",
+	} {
+		if bytes.Contains(envelope.Terminal, []byte(forbidden)) {
+			t.Fatalf("first-run terminal authority contains %q", forbidden)
+		}
+	}
+
+	fixture := loadPlanescapeProductRustAuthorityFixture(t)
+	for _, priorRunRecord := range []string{
+		fixture.ProviderTerminalRPC.Freeze.RequestRecord.CanonicalJSON,
+		fixture.ProviderTerminalRPC.Closeout.RequestRecord.CanonicalJSON,
+	} {
+		encoded := base64.RawURLEncoding.EncodeToString(
+			[]byte(priorRunRecord),
+		)
+		if bytes.Contains(data, []byte(encoded)) {
+			t.Fatal("authority retained a prior-run terminal request record")
+		}
+	}
+	if _, err := configuredPlanescapeProductAuthoritySource(config); err != nil {
+		t.Fatalf("fresh first-run authority did not load: %v", err)
+	}
+}
+
+func TestConfiguredPlanescapeAuthorityRejectsPriorEnvelopeVersion(
+	t *testing.T,
+) {
+	config := planescapeProductProviderConfigFixture(
+		t,
+		"127.0.0.1:43191",
+	)
+	data, err := os.ReadFile(config.InvocationAuthorityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope planescapeProductAuthorityFileV2
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope.Schema = "hazmat.planescape.rust_invocation_authority.v1"
+	writePlanescapeProductAuthorityEnvelope(t, config, envelope)
+
+	_, err = configuredPlanescapeProductAuthoritySource(config)
+	requirePlanescapeProductErrorClass(
+		t,
+		err,
+		planescapeprovider.ErrorInvalid,
+	)
+}
+
+func TestConfiguredPlanescapeAuthorityRejectsInvalidTerminalIntent(
+	t *testing.T,
+) {
+	cases := []struct {
+		name   string
+		mutate func(*planescapeProductAuthorityCloseoutFileV2)
+	}{
+		{
+			name: "missing Freeze identity",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Freeze.FreezeID = ""
+			},
+		},
+		{
+			name: "wrong Closeout sequence",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Closeout.OperationSequence = 4
+			},
+		},
+		{
+			name: "missing Closeout nonce",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Closeout.Nonce = ""
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			config := planescapeProductProviderConfigFixture(
+				t,
+				"127.0.0.1:43191",
+			)
+			data, err := os.ReadFile(config.InvocationAuthorityFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var envelope planescapeProductAuthorityFileV2
+			if err := json.Unmarshal(data, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			var terminal planescapeProductAuthorityCloseoutFileV2
+			if err := json.Unmarshal(
+				envelope.Terminal,
+				&terminal,
+			); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&terminal)
+			envelope.Terminal, err = json.Marshal(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writePlanescapeProductAuthorityEnvelope(t, config, envelope)
+
+			_, err = configuredPlanescapeProductAuthoritySource(config)
+			requirePlanescapeProductErrorClass(
+				t,
+				err,
+				planescapeprovider.ErrorInvalid,
+			)
+		})
+	}
+}
+
 func TestConfiguredPlanescapeInvocationMismatchDoesNotDialOrFallback(
 	t *testing.T,
 ) {
@@ -336,7 +486,7 @@ func TestConfiguredPlanescapeAuthorityRejectsRecordMutationBeforeEffect(
 	if err != nil {
 		t.Fatal(err)
 	}
-	var envelope planescapeProductAuthorityFileV1
+	var envelope planescapeProductAuthorityFileV2
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		t.Fatal(err)
 	}
@@ -525,6 +675,35 @@ func TestConfiguredPlanescapeFileAuthorityCompletesCloseoutWithoutFallback(
 			len(endpoint.freezes),
 			endpoint.cancelCalls,
 		)
+	}
+	codec := planescapeprovider.ProviderV1FrameCodec{}
+	wantOperations := []string{
+		fixture.ProviderToolRPC.Operation.CanonicalJSON,
+		fixture.ProviderQuiescenceRPC.Operation.CanonicalJSON,
+		fixture.ProviderTerminalRPC.Closeout.RequestRecord.CanonicalJSON,
+	}
+	for index, want := range wantOperations {
+		got, err := codec.EncodeOperation(endpoint.operations[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf(
+				"runtime operation %d did not match the exact Rust record",
+				index+1,
+			)
+		}
+	}
+	freezeRequest, err := codec.EncodeFreeze(endpoint.freezes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(freezeRequest) !=
+		fixture.ProviderTerminalRPC.Freeze.RequestRecord.CanonicalJSON {
+		t.Fatal("runtime Freeze did not match the exact Rust record")
+	}
+	if endpoint.operations[2].PayloadHash() != freeze.CanonicalHash() {
+		t.Fatal("Closeout payload was not bound to the live Freeze acknowledgement")
 	}
 }
 
@@ -778,7 +957,7 @@ func TestConfiguredPlanescapeFileAuthorityUsesDistinctCancellationPath(
 		"exec",
 		[]string{"/usr/bin/true"},
 		"configured-cancellation-session",
-		planescapeProductAuthorityTerminalCancellationV1,
+		planescapeProductAuthorityTerminalCancellationV2,
 	)
 	source, err := configuredPlanescapeProductAuthoritySource(config)
 	if err != nil {
@@ -851,6 +1030,21 @@ func TestConfiguredPlanescapeFileAuthorityUsesDistinctCancellationPath(
 			endpoint.cancelCalls,
 		)
 	}
+	if len(endpoint.cancellations) != 1 {
+		t.Fatalf(
+			"cancellation requests = %d, want 1",
+			len(endpoint.cancellations),
+		)
+	}
+	request, err := (planescapeprovider.ProviderV1FrameCodec{}).
+		EncodeCancellation(endpoint.cancellations[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(request) !=
+		fixture.ProviderTerminalRPC.Cancellation.RequestRecord.CanonicalJSON {
+		t.Fatal("runtime Cancellation did not match the exact Rust record")
+	}
 }
 
 func configurePlanescapeProductAuthorityFixture(
@@ -869,9 +1063,9 @@ func configurePlanescapeProductAuthorityFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope := planescapeProductAuthorityFileV1{
-		Schema: planescapeProductAuthorityFileSchemaV1,
-		Invocation: planescapeProductAuthorityInvocationFileV1{
+	envelope := planescapeProductAuthorityFileV2{
+		Schema: planescapeProductAuthorityFileSchemaV2,
+		Invocation: planescapeProductAuthorityInvocationFileV2{
 			CommandName:      commandName,
 			ForwardedArgs:    append([]string(nil), forwardedArgs...),
 			SessionRequestID: sessionRequestID,
@@ -881,7 +1075,7 @@ func configurePlanescapeProductAuthorityFixture(
 				fixture.ProviderAdmissionRPC.CompiledPlan.CanonicalJSON,
 			),
 		),
-		Tool: planescapeProductAuthorityToolFileV1{
+		Tool: planescapeProductAuthorityToolFileV2{
 			OperationJSONBase64URL: base64.RawURLEncoding.EncodeToString(
 				[]byte(fixture.ProviderToolRPC.Operation.CanonicalJSON),
 			),
@@ -892,9 +1086,28 @@ func configurePlanescapeProductAuthorityFixture(
 		},
 	}
 	switch terminalKind {
-	case planescapeProductAuthorityTerminalCloseoutV1:
+	case planescapeProductAuthorityTerminalCloseoutV2:
+		codec := planescapeprovider.ProviderV1FrameCodec{}
+		freeze, err := codec.DecodeFreeze(
+			[]byte(
+				fixture.ProviderTerminalRPC.Freeze.RequestRecord.
+					CanonicalJSON,
+			),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		closeout, err := codec.DecodeAgentOperation(
+			[]byte(
+				fixture.ProviderTerminalRPC.Closeout.RequestRecord.
+					CanonicalJSON,
+			),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		terminal, err := json.Marshal(
-			planescapeProductAuthorityCloseoutFileV1{
+			planescapeProductAuthorityCloseoutFileV2{
 				Kind: terminalKind,
 				PauseOperationJSONBase64URL: base64.RawURLEncoding.EncodeToString(
 					[]byte(
@@ -902,28 +1115,25 @@ func configurePlanescapeProductAuthorityFixture(
 							CanonicalJSON,
 					),
 				),
-				FreezeJSONBase64URL: base64.RawURLEncoding.EncodeToString(
-					[]byte(
-						fixture.ProviderTerminalRPC.Freeze.
-							RequestRecord.CanonicalJSON,
-					),
-				),
-				CloseoutOperationJSONBase64URL: base64.RawURLEncoding.EncodeToString(
-					[]byte(
-						fixture.ProviderTerminalRPC.Closeout.
-							RequestRecord.CanonicalJSON,
-					),
-				),
-				CloseoutID: "conformance-provider-closeout",
+				Freeze: planescapeProductAuthorityFreezeIntentFileV2{
+					FreezeID: freeze.FreezeID().String(),
+					Nonce:    freeze.Nonce().String(),
+				},
+				Closeout: planescapeProductAuthorityCloseoutIntentFileV2{
+					OperationID: closeout.OperationID().String(),
+					OperationSequence: closeout.Sequence().
+						Uint64(),
+					Nonce: closeout.Nonce().String(),
+				},
 			},
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
 		envelope.Terminal = terminal
-	case planescapeProductAuthorityTerminalCancellationV1:
+	case planescapeProductAuthorityTerminalCancellationV2:
 		terminal, err := json.Marshal(
-			planescapeProductAuthorityCancellationFileV1{
+			planescapeProductAuthorityCancellationFileV2{
 				Kind: terminalKind,
 				CancellationJSONBase64URL: base64.RawURLEncoding.EncodeToString(
 					[]byte(
@@ -946,7 +1156,7 @@ func configurePlanescapeProductAuthorityFixture(
 func writePlanescapeProductAuthorityEnvelope(
 	t *testing.T,
 	config *configmodel.PlanescapeProviderConfig,
-	envelope planescapeProductAuthorityFileV1,
+	envelope planescapeProductAuthorityFileV2,
 ) {
 	t.Helper()
 	data, err := json.Marshal(envelope)

@@ -361,7 +361,7 @@ func planescapeProductProviderConfigFixture(
 		"exec",
 		[]string{"/usr/bin/true"},
 		"configured-authority-session",
-		planescapeProductAuthorityTerminalCloseoutV1,
+		planescapeProductAuthorityTerminalCloseoutV2,
 	)
 	return config
 }

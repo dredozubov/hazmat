@@ -1036,9 +1036,8 @@ func validPlanescapeProductFreezeInput(
 ) bool {
 	_, err := planescapeprovider.NewFreezeInput(
 		planescapeprovider.FreezeInputValues{
-			FreezeID:      input.FreezeID().String(),
-			Nonce:         input.Nonce().String(),
-			CanonicalHash: input.CanonicalHash().String(),
+			FreezeID: input.FreezeID().String(),
+			Nonce:    input.Nonce().String(),
 		},
 	)
 	return err == nil
@@ -1067,7 +1066,6 @@ func validPlanescapeProductCancellationInput(
 			CancellationID: input.CancellationID().String(),
 			Reason:         input.Reason(),
 			Nonce:          input.Nonce().String(),
-			CanonicalHash:  input.CanonicalHash().String(),
 		},
 	)
 	return err == nil

@@ -1457,9 +1457,8 @@ func newPlanescapeProductFreezeInput(
 	t.Helper()
 	value, err := planescapeprovider.NewFreezeInput(
 		planescapeprovider.FreezeInputValues{
-			FreezeID:      "freeze-1",
-			Nonce:         "freeze-nonce",
-			CanonicalHash: planescapeProductHash("a"),
+			FreezeID: "freeze-1",
+			Nonce:    "freeze-nonce",
 		},
 	)
 	if err != nil {
