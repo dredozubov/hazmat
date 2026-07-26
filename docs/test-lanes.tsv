@@ -50,6 +50,7 @@ scripts/linux-apple-container-dev.sh	os-linux	live-approved
 scripts/mint-live-harness-token.sh	live-approved	product-workflows
 scripts/check-macos-trace-smoke.sh	live-approved	os-macos
 scripts/check-openhands-recipe-smoke.sh	live-approved	product-workflows
+scripts/check-planescape-configured-provider-live.sh	live-approved	product-workflows
 scripts/check-privileged-install-ownership.sh	privileged-install-ownership	live-approved
 scripts/check-readme-proof-stack-smoke.sh	live-approved	product-workflows
 scripts/check-secret-patterns.sh	source-safety	-
