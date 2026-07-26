@@ -13,6 +13,7 @@ CLIENT_SEED_FILE=""
 CHECKPOINT_ROOT=""
 HANDOFF_FILE=""
 EXPECTED_ERROR_CLASS=""
+PREBUILT_TEST_BINARY=""
 
 usage() {
 	cat <<'EOF'
@@ -29,7 +30,8 @@ Usage:
     --client-seed-file ABSOLUTE_PRIVATE_FILE \
     --checkpoint-root ABSOLUTE_PRIVATE_DIRECTORY \
     [--handoff-file ABSOLUTE_PRIVATE_FILE] \
-    [--expected-error-class CLASS]
+    [--expected-error-class CLASS] \
+    [--prebuilt-test-binary ABSOLUTE_OWNER_ONLY_EXECUTABLE]
 
 Phases:
   lifecycle       Run configured Tool -> Pause -> Freeze -> Closeout.
@@ -41,6 +43,8 @@ Phases:
 
 The coordinator starts, restarts, and stops the external Planescape endpoint.
 This harness never controls Tart or Planescape and never creates plan authority.
+Without --prebuilt-test-binary, the harness builds the Go test from source.
+The prebuilt binary must be a current-user-owned, single-link 0700 regular file.
 Live diagnostics contain only a phase and a stable status/reason.
 EOF
 }
@@ -108,6 +112,11 @@ while [ "$#" -gt 0 ]; do
 			take_value "$@"
 			shift
 			EXPECTED_ERROR_CLASS="$1"
+			;;
+		--prebuilt-test-binary)
+			take_value "$@"
+			shift
+			PREBUILT_TEST_BINARY="$1"
 			;;
 		-h|--help)
 			usage
@@ -255,10 +264,40 @@ case "$PHASE" in
 		;;
 esac
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)" ||
-	fail "harness-unavailable"
-REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd)" ||
-	fail "harness-unavailable"
+prebuilt_test_binary_metadata() {
+	if metadata="$(stat -f '%u:%Lp:%l' "$PREBUILT_TEST_BINARY" 2>/dev/null)"; then
+		printf '%s\n' "$metadata"
+		return 0
+	fi
+	stat -c '%u:%a:%h' "$PREBUILT_TEST_BINARY" 2>/dev/null
+}
+
+if [ -n "$PREBUILT_TEST_BINARY" ]; then
+	case "$PREBUILT_TEST_BINARY" in
+		/*)
+			;;
+		*)
+			fail "invalid-test-binary-path"
+			;;
+	esac
+	if [ ! -f "$PREBUILT_TEST_BINARY" ] ||
+		[ -L "$PREBUILT_TEST_BINARY" ] ||
+		[ ! -x "$PREBUILT_TEST_BINARY" ]; then
+		fail "unsafe-test-binary"
+	fi
+	CURRENT_UID="$(id -u 2>/dev/null)" ||
+		fail "harness-unavailable"
+	PREBUILT_TEST_BINARY_METADATA="$(prebuilt_test_binary_metadata)" ||
+		fail "unsafe-test-binary"
+	if [ "$PREBUILT_TEST_BINARY_METADATA" != "$CURRENT_UID:700:1" ]; then
+		fail "unsafe-test-binary"
+	fi
+else
+	SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)" ||
+		fail "harness-unavailable"
+	REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd)" ||
+		fail "harness-unavailable"
+fi
 
 umask 077
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-planescape-live.XXXXXX" 2>/dev/null)" ||
@@ -266,22 +305,48 @@ RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hazmat-planescape-live.XXXXXX" 2>/dev/null
 trap 'rm -rf -- "$RUN_DIR"' EXIT HUP INT TERM
 GO_OUTPUT="$RUN_DIR/go-test.output"
 
-if (
-	cd "$REPO_ROOT/hazmat" &&
+run_with_live_environment() {
 	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE=1 \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_PHASE="$PHASE" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_ENDPOINT="$ENDPOINT" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CONFIG_FILE="$CONFIG_FILE" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_AUTHORITY_FILE="$AUTHORITY_FILE" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_AUTHORITY_SHA256="$AUTHORITY_SHA256" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CLIENT_SEED_FILE="$CLIENT_SEED_FILE" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CHECKPOINT_ROOT="$CHECKPOINT_ROOT" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_HANDOFF_FILE="$HANDOFF_FILE" \
-	HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_EXPECTED_ERROR_CLASS="$EXPECTED_ERROR_CLASS" \
-	go test -count=1 -timeout=180s \
-		-run '^TestConfiguredPlanescapeProviderLiveAcceptance$' . \
-		>"$GO_OUTPUT" 2>&1
-); then
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_PHASE="$PHASE" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_ENDPOINT="$ENDPOINT" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CONFIG_FILE="$CONFIG_FILE" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_AUTHORITY_FILE="$AUTHORITY_FILE" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_AUTHORITY_SHA256="$AUTHORITY_SHA256" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CLIENT_SEED_FILE="$CLIENT_SEED_FILE" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_CHECKPOINT_ROOT="$CHECKPOINT_ROOT" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_HANDOFF_FILE="$HANDOFF_FILE" \
+		HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_EXPECTED_ERROR_CLASS="$EXPECTED_ERROR_CLASS" \
+		"$@"
+}
+
+run_live_acceptance() {
+	if [ -n "$PREBUILT_TEST_BINARY" ]; then
+		run_with_live_environment \
+			"$PREBUILT_TEST_BINARY" \
+			-test.count=1 \
+			-test.timeout=180s \
+			-test.v \
+			-test.run '^TestConfiguredPlanescapeProviderLiveAcceptance$'
+		return
+	fi
+
+	(
+		cd "$REPO_ROOT/hazmat" &&
+			run_with_live_environment \
+				go test -count=1 -timeout=180s \
+				-run '^TestConfiguredPlanescapeProviderLiveAcceptance$' .
+	)
+}
+
+if run_live_acceptance >"$GO_OUTPUT" 2>&1; then
+	if [ -n "$PREBUILT_TEST_BINARY" ] &&
+		! grep -Fqx \
+			'=== RUN   TestConfiguredPlanescapeProviderLiveAcceptance' \
+			"$GO_OUTPUT"; then
+		printf '%s\n' \
+			"hazmat-planescape-live-acceptance: phase=$PHASE status=fail reason=acceptance" >&2
+		exit 1
+	fi
 	printf '%s\n' \
 		"hazmat-planescape-live-acceptance: phase=$PHASE status=pass"
 	exit 0

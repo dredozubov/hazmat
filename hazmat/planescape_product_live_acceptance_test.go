@@ -1003,6 +1003,310 @@ func TestPlanescapeLiveAcceptanceScriptRejectsMalformedAuthorityHash(
 	}
 }
 
+func TestPlanescapeLiveAcceptanceScriptRunsDetachedPrebuiltTestBinary(
+	t *testing.T,
+) {
+	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+	testBinary := filepath.Join(root, "hazmat-live.test")
+	testBinarySource := `#!/bin/sh
+set -eu
+[ "$#" -eq 5 ]
+[ "$1" = "-test.count=1" ]
+[ "$2" = "-test.timeout=180s" ]
+[ "$3" = "-test.v" ]
+[ "$4" = "-test.run" ]
+[ "$5" = "^TestConfiguredPlanescapeProviderLiveAcceptance$" ]
+[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE" = "1" ]
+[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_PHASE" = "lifecycle" ]
+printf '%s\n' \
+	'=== RUN   TestConfiguredPlanescapeProviderLiveAcceptance' \
+	'--- PASS: TestConfiguredPlanescapeProviderLiveAcceptance (0.00s)' \
+	'PASS'
+`
+	if err := os.WriteFile(testBinary, []byte(testBinarySource), 0o700); err != nil {
+		t.Fatal("failed to prepare detached live acceptance test binary")
+	}
+
+	scriptSource, err := os.ReadFile(planescapeLiveAcceptanceScriptPath())
+	if err != nil {
+		t.Fatal("failed to read live acceptance script")
+	}
+	detachedRoot := t.TempDir()
+	detachedScript := filepath.Join(detachedRoot, "check-live")
+	if err := os.WriteFile(detachedScript, scriptSource, 0o500); err != nil {
+		t.Fatal("failed to prepare detached live acceptance helper")
+	}
+	if err := os.Chmod(detachedRoot, 0o500); err != nil {
+		t.Fatal("failed to make detached helper directory read-only")
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(detachedRoot, 0o700)
+	})
+
+	arguments = append(
+		arguments,
+		"--prebuilt-test-binary",
+		testBinary,
+	)
+	command := exec.Command(
+		"sh",
+		append([]string{detachedScript}, arguments...)...,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatal("detached prebuilt live acceptance invocation failed")
+	}
+	const want = "hazmat-planescape-live-acceptance: phase=lifecycle status=pass\n"
+	if string(output) != want {
+		t.Fatal("detached prebuilt live acceptance diagnostic was unstable")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptRejectsUnsafePrebuiltTestBinary(
+	t *testing.T,
+) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string) string
+		reason  string
+	}{
+		{
+			name: "relative",
+			prepare: func(_ *testing.T, _ string) string {
+				return "sensitive-relative-test-binary"
+			},
+			reason: "invalid-test-binary-path",
+		},
+		{
+			name: "directory",
+			prepare: func(_ *testing.T, root string) string {
+				return root
+			},
+			reason: "unsafe-test-binary",
+		},
+		{
+			name: "symlink",
+			prepare: func(t *testing.T, root string) string {
+				target := filepath.Join(root, "test-binary-target")
+				link := filepath.Join(root, "sensitive-test-binary-link")
+				writePlanescapeLiveTestBinary(t, target, 0o700, "exit 0\n")
+				if err := os.Symlink(target, link); err != nil {
+					t.Fatal("failed to prepare symlinked test binary")
+				}
+				return link
+			},
+			reason: "unsafe-test-binary",
+		},
+		{
+			name: "broad mode",
+			prepare: func(t *testing.T, root string) string {
+				path := filepath.Join(root, "sensitive-broad-mode-test-binary")
+				writePlanescapeLiveTestBinary(t, path, 0o755, "exit 0\n")
+				return path
+			},
+			reason: "unsafe-test-binary",
+		},
+		{
+			name: "multiple links",
+			prepare: func(t *testing.T, root string) string {
+				target := filepath.Join(root, "test-binary-target")
+				link := filepath.Join(root, "sensitive-hard-linked-test-binary")
+				writePlanescapeLiveTestBinary(t, target, 0o700, "exit 0\n")
+				if err := os.Link(target, link); err != nil {
+					t.Fatal("failed to prepare hard-linked test binary")
+				}
+				return link
+			},
+			reason: "unsafe-test-binary",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+			testBinary := test.prepare(t, root)
+			arguments = append(
+				arguments,
+				"--prebuilt-test-binary",
+				testBinary,
+			)
+			command := exec.Command(
+				"sh",
+				append(
+					[]string{planescapeLiveAcceptanceScriptPath()},
+					arguments...,
+				)...,
+			)
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatal("live acceptance script accepted unsafe test binary")
+			}
+			want := "hazmat-planescape-live-acceptance: status=fail reason=" +
+				test.reason + "\n"
+			if strings.Contains(string(output), testBinary) ||
+				string(output) != want {
+				t.Fatal(
+					"unsafe test binary diagnostic was unstable or unredacted",
+				)
+			}
+		})
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptKeepsPrebuiltOutputPrivate(
+	t *testing.T,
+) {
+	const privateOutput = "sensitive-prebuilt-test-output"
+	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+	testBinary := filepath.Join(root, "hazmat-live.test")
+	writePlanescapeLiveTestBinary(
+		t,
+		testBinary,
+		0o700,
+		"printf '%s\\n' '"+privateOutput+"' >&2\nexit 1\n",
+	)
+	arguments = append(
+		arguments,
+		"--prebuilt-test-binary",
+		testBinary,
+	)
+	command := exec.Command(
+		"sh",
+		append(
+			[]string{planescapeLiveAcceptanceScriptPath()},
+			arguments...,
+		)...,
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("failing prebuilt test binary produced a passing result")
+	}
+	const want = "hazmat-planescape-live-acceptance: phase=lifecycle status=fail reason=acceptance\n"
+	if strings.Contains(string(output), privateOutput) || string(output) != want {
+		t.Fatal("prebuilt test binary output was public or diagnostic was unstable")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptRequiresExactPrebuiltTest(
+	t *testing.T,
+) {
+	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+	testBinary := filepath.Join(root, "hazmat-live.test")
+	writePlanescapeLiveTestBinary(
+		t,
+		testBinary,
+		0o700,
+		"printf '%s\\n' 'testing: warning: no tests to run' 'PASS'\n",
+	)
+	arguments = append(
+		arguments,
+		"--prebuilt-test-binary",
+		testBinary,
+	)
+	command := exec.Command(
+		"sh",
+		append(
+			[]string{planescapeLiveAcceptanceScriptPath()},
+			arguments...,
+		)...,
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("prebuilt binary without the exact test produced a passing result")
+	}
+	const want = "hazmat-planescape-live-acceptance: phase=lifecycle status=fail reason=acceptance\n"
+	if string(output) != want {
+		t.Fatal("missing exact prebuilt test diagnostic was unstable")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptGuardsPrebuiltTestBinaryContract(
+	t *testing.T,
+) {
+	source, err := os.ReadFile(planescapeLiveAcceptanceScriptPath())
+	if err != nil {
+		t.Fatal("failed to read live acceptance script")
+	}
+	required := []string{
+		"--prebuilt-test-binary",
+		`[ ! -f "$PREBUILT_TEST_BINARY" ]`,
+		`[ -L "$PREBUILT_TEST_BINARY" ]`,
+		`[ ! -x "$PREBUILT_TEST_BINARY" ]`,
+		`stat -f '%u:%Lp:%l'`,
+		`stat -c '%u:%a:%h'`,
+		`"$CURRENT_UID:700:1"`,
+		"-test.timeout=180s",
+		"-test.v",
+		"-test.run '^TestConfiguredPlanescapeProviderLiveAcceptance$'",
+		"go test -count=1 -timeout=180s",
+		`run_live_acceptance >"$GO_OUTPUT" 2>&1`,
+	}
+	for _, fragment := range required {
+		if !strings.Contains(string(source), fragment) {
+			t.Fatalf("live acceptance script missing source guard %q", fragment)
+		}
+	}
+}
+
+func planescapeLiveAcceptanceScriptPath() string {
+	return filepath.Join(
+		"..",
+		"scripts",
+		"check-planescape-configured-provider-live.sh",
+	)
+}
+
+func planescapeLiveAcceptanceScriptFixture(
+	t *testing.T,
+) (string, []string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal("failed to prepare private live acceptance script directory")
+	}
+	configFile := filepath.Join(root, "config.yaml")
+	authorityFile := filepath.Join(root, "authority.json")
+	seedFile := filepath.Join(root, "client.seed")
+	for _, path := range []string{configFile, authorityFile, seedFile} {
+		if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+			t.Fatal("failed to prepare private live acceptance script input")
+		}
+	}
+	return root, []string{
+		"--run",
+		"--i-understand-this-contacts-a-live-planescape-provider",
+		"--phase",
+		"lifecycle",
+		"--endpoint",
+		"127.0.0.1:43191",
+		"--config-file",
+		configFile,
+		"--authority-file",
+		authorityFile,
+		"--authority-sha256",
+		"sha256:" + strings.Repeat("a", 64),
+		"--client-seed-file",
+		seedFile,
+		"--checkpoint-root",
+		filepath.Join(root, "planescape-provider-checkpoints"),
+	}
+}
+
+func writePlanescapeLiveTestBinary(
+	t *testing.T,
+	path string,
+	mode os.FileMode,
+	body string,
+) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nset -eu\n"+body), mode); err != nil {
+		t.Fatal("failed to prepare live acceptance test binary")
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal("failed to set live acceptance test binary mode")
+	}
+}
+
 func planescapeLivePreflightFixture(
 	t *testing.T,
 	phase planescapeLiveAcceptancePhase,
