@@ -57,4 +57,5 @@ stopwords = [
   "example-aws-secret-access-key",
   "example-openrouter-key",
   "example-context7-key",
+  "normalized-record-v1-",
 ]
