@@ -91,15 +91,13 @@ func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
 		vector                planescapeProductRustAuthorityVector
 		expectedJSONByteCount uint64
 		expectedSHA256        string
-		requiresPauseIntent   bool
 		assertTerminal        func(*testing.T, planescapeProductFileTerminalAuthority)
 	}{
 		{
 			name:                  "successful closeout",
 			vector:                fixture.HazmatRustInvocationAuthorityV2.SuccessfulCloseout,
-			expectedJSONByteCount: 7080,
-			expectedSHA256:        "sha256:09b39be4e95ffd7985b96bee595364d72b4b1eff77cde133c7949fed7e6e6dd3",
-			requiresPauseIntent:   true,
+			expectedJSONByteCount: 6443,
+			expectedSHA256:        "sha256:c635d41e5e2ac900dc88cf5334b26739eeac98bb5131abb1a87bc65a5d28260c",
 			assertTerminal: func(
 				t *testing.T,
 				terminal planescapeProductFileTerminalAuthority,
@@ -128,15 +126,6 @@ func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			if test.requiresPauseIntent &&
-				!planescapeProductRustAuthorityVectorHasPauseIntent(
-					t,
-					test.vector,
-				) {
-				t.Skip(
-					"canonical Rust closeout vector awaits Pause-intent v2 regeneration",
-				)
-			}
 			if test.vector.JSONByteCount != test.expectedJSONByteCount {
 				t.Fatalf(
 					"Rust vector byte count = %d, want %d",
@@ -1703,24 +1692,6 @@ func configurePlanescapeProductExactAuthorityVector(
 	}
 	config.InvocationAuthorityFile = path
 	config.InvocationAuthorityFileSHA256 = vector.SHA256
-}
-
-func planescapeProductRustAuthorityVectorHasPauseIntent(
-	t *testing.T,
-	vector planescapeProductRustAuthorityVector,
-) bool {
-	t.Helper()
-	var envelope struct {
-		Terminal map[string]json.RawMessage `json:"terminal"`
-	}
-	if err := json.Unmarshal(
-		[]byte(vector.CanonicalJSON),
-		&envelope,
-	); err != nil {
-		t.Fatal(err)
-	}
-	pause, ok := envelope.Terminal["pause"]
-	return ok && len(pause) != 0 && !bytes.Equal(pause, []byte("null"))
 }
 
 func loadPlanescapeProductRustAuthorityFixture(

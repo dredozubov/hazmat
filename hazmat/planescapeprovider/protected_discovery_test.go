@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const protectedBrokerFixtureSHA256 = "f7dbbf59e0740a7239b37f186963a2f1d40b46203fe6e029714e9e342749442e"
+const protectedBrokerFixtureSHA256 = "889664c399d0290a38bb13fe4a716f1dd9a4ab65bdda37ad3422bd7ce0fd0461"
 
 type protectedBrokerDiscoveryFixtureV1 struct {
 	Schema string `json:"schema"`
