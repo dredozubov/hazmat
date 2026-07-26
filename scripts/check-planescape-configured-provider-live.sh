@@ -187,7 +187,10 @@ if [ "${#AUTHORITY_SHA256}" -ne 71 ]; then
 	fail "invalid-authority-sha256"
 fi
 case "$AUTHORITY_SHA256" in
-	sha256:[0-9a-f]*)
+	sha256:*[!0-9a-f]*)
+		fail "invalid-authority-sha256"
+		;;
+	sha256:*)
 		;;
 	*)
 		fail "invalid-authority-sha256"

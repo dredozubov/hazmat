@@ -954,6 +954,55 @@ func TestPlanescapeLiveAcceptanceScriptRedactsInputValues(t *testing.T) {
 	}
 }
 
+func TestPlanescapeLiveAcceptanceScriptRejectsMalformedAuthorityHash(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	configFile := filepath.Join(root, "config.yaml")
+	authorityFile := filepath.Join(root, "authority.json")
+	seedFile := filepath.Join(root, "client.seed")
+	for _, path := range []string{configFile, authorityFile, seedFile} {
+		if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+			t.Fatal("failed to prepare live acceptance script input")
+		}
+	}
+	malformedHash := "sha256:" + strings.Repeat("a", 63) + "G"
+	script := filepath.Join(
+		"..",
+		"scripts",
+		"check-planescape-configured-provider-live.sh",
+	)
+	command := exec.Command(
+		"sh",
+		script,
+		"--run",
+		"--i-understand-this-contacts-a-live-planescape-provider",
+		"--phase",
+		"lifecycle",
+		"--endpoint",
+		"127.0.0.1:43191",
+		"--config-file",
+		configFile,
+		"--authority-file",
+		authorityFile,
+		"--authority-sha256",
+		malformedHash,
+		"--client-seed-file",
+		seedFile,
+		"--checkpoint-root",
+		filepath.Join(root, "planescape-provider-checkpoints"),
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("live acceptance script accepted a malformed authority hash")
+	}
+	if strings.Contains(string(output), malformedHash) ||
+		string(output) !=
+			"hazmat-planescape-live-acceptance: status=fail reason=invalid-authority-sha256\n" {
+		t.Fatal("live acceptance script hash diagnostic was unstable or unredacted")
+	}
+}
+
 func planescapeLivePreflightFixture(
 	t *testing.T,
 	phase planescapeLiveAcceptancePhase,
