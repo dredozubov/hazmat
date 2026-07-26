@@ -743,15 +743,14 @@ func decodeProviderV1Freeze(
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	input, err := NewFreezeInput(FreezeInputValues{
-		FreezeID:      dto.FreezeID,
-		Nonce:         dto.Nonce,
-		CanonicalHash: dto.CanonicalHash,
+		FreezeID: dto.FreezeID,
+		Nonce:    dto.Nonce,
 	})
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	value, err := newFreeze(sessionID, quiescenceHash, input)
-	if err != nil {
+	if err != nil || value.CanonicalHash().String() != dto.CanonicalHash {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	return decodedProviderV1Record{
@@ -871,13 +870,12 @@ func decodeProviderV1Cancellation(
 		CancellationID: dto.CancellationID,
 		Reason:         dto.Reason,
 		Nonce:          dto.Nonce,
-		CanonicalHash:  dto.CanonicalHash,
 	})
 	if err != nil {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	value, err := newCancellation(sessionID, input)
-	if err != nil {
+	if err != nil || value.CanonicalHash().String() != dto.CanonicalHash {
 		return decodedProviderV1Record{}, errProviderV1Frame
 	}
 	return decodedProviderV1Record{

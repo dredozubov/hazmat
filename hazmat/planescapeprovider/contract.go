@@ -1030,17 +1030,16 @@ func (v Quiescence) valid() bool {
 }
 
 // FreezeInput intentionally omits quiescence: Session supplies only the exact
-// prior quiescence hash it persisted from the provider.
+// prior quiescence hash it persisted from the provider. Its canonical hash is
+// derived only after that runtime binding exists.
 type FreezeInput struct {
-	freezeID      Identifier
-	nonce         Nonce
-	canonicalHash Fingerprint
+	freezeID Identifier
+	nonce    Nonce
 }
 
 type FreezeInputValues struct {
-	FreezeID      string
-	Nonce         string
-	CanonicalHash string
+	FreezeID string
+	Nonce    string
 }
 
 func NewFreezeInput(input FreezeInputValues) (FreezeInput, error) {
@@ -1052,18 +1051,13 @@ func NewFreezeInput(input FreezeInputValues) (FreezeInput, error) {
 	if err != nil {
 		return FreezeInput{}, err
 	}
-	canonicalHash, err := ParseFingerprint(input.CanonicalHash)
-	if err != nil {
-		return FreezeInput{}, err
-	}
-	return FreezeInput{freezeID: freezeID, nonce: nonce, canonicalHash: canonicalHash}, nil
+	return FreezeInput{freezeID: freezeID, nonce: nonce}, nil
 }
 
-func (v FreezeInput) FreezeID() Identifier       { return v.freezeID }
-func (v FreezeInput) Nonce() Nonce               { return v.nonce }
-func (v FreezeInput) CanonicalHash() Fingerprint { return v.canonicalHash }
+func (v FreezeInput) FreezeID() Identifier { return v.freezeID }
+func (v FreezeInput) Nonce() Nonce         { return v.nonce }
 func (v FreezeInput) valid() bool {
-	return v.freezeID.valid() && v.nonce.valid() && v.canonicalHash.valid()
+	return v.freezeID.valid() && v.nonce.valid()
 }
 
 // Freeze is the fully bound provider freeze record.
@@ -1079,7 +1073,28 @@ func newFreeze(sessionID Identifier, quiescenceHash Fingerprint, input FreezeInp
 	if !sessionID.valid() || !quiescenceHash.valid() || !input.valid() {
 		return Freeze{}, fmt.Errorf("planescapeprovider: invalid freeze")
 	}
-	return Freeze{sessionID: sessionID, freezeID: input.freezeID, quiescenceHash: quiescenceHash, nonce: input.nonce, canonicalHash: input.canonicalHash}, nil
+	dto := providerV1FreezeDTO{
+		Schema:         providerV1SchemaFreeze,
+		SessionID:      sessionID.String(),
+		FreezeID:       input.freezeID.String(),
+		QuiescenceHash: quiescenceHash.String(),
+		Nonce:          input.nonce.String(),
+	}
+	preimage, err := dto.canonicalPreimage()
+	if err != nil {
+		return Freeze{}, fmt.Errorf("planescapeprovider: invalid freeze")
+	}
+	canonicalHash, err := ParseFingerprint(providerV1CanonicalHash(preimage))
+	if err != nil {
+		return Freeze{}, fmt.Errorf("planescapeprovider: invalid freeze")
+	}
+	return Freeze{
+		sessionID:      sessionID,
+		freezeID:       input.freezeID,
+		quiescenceHash: quiescenceHash,
+		nonce:          input.nonce,
+		canonicalHash:  canonicalHash,
+	}, nil
 }
 
 func (v Freeze) SessionID() Identifier       { return v.sessionID }
@@ -1140,19 +1155,18 @@ func (v FreezeAck) valid() bool {
 }
 
 // CancellationInput omits a session binding; Session supplies the one durable
-// session it owns. Reason is bounded but is never reflected through Error.
+// session it owns and derives the canonical hash after binding. Reason is
+// bounded but is never reflected through Error.
 type CancellationInput struct {
 	cancellationID Identifier
 	reason         string
 	nonce          Nonce
-	canonicalHash  Fingerprint
 }
 
 type CancellationInputValues struct {
 	CancellationID string
 	Reason         string
 	Nonce          string
-	CanonicalHash  string
 }
 
 func NewCancellationInput(input CancellationInputValues) (CancellationInput, error) {
@@ -1168,19 +1182,18 @@ func NewCancellationInput(input CancellationInputValues) (CancellationInput, err
 	if err != nil {
 		return CancellationInput{}, err
 	}
-	canonicalHash, err := ParseFingerprint(input.CanonicalHash)
-	if err != nil {
-		return CancellationInput{}, err
-	}
-	return CancellationInput{cancellationID: cancellationID, reason: reason, nonce: nonce, canonicalHash: canonicalHash}, nil
+	return CancellationInput{
+		cancellationID: cancellationID,
+		reason:         reason,
+		nonce:          nonce,
+	}, nil
 }
 
 func (v CancellationInput) CancellationID() Identifier { return v.cancellationID }
 func (v CancellationInput) Reason() string             { return v.reason }
 func (v CancellationInput) Nonce() Nonce               { return v.nonce }
-func (v CancellationInput) CanonicalHash() Fingerprint { return v.canonicalHash }
 func (v CancellationInput) valid() bool {
-	return v.cancellationID.valid() && v.reason != "" && v.nonce.valid() && v.canonicalHash.valid()
+	return v.cancellationID.valid() && v.reason != "" && v.nonce.valid()
 }
 
 type Cancellation struct {
@@ -1195,7 +1208,28 @@ func newCancellation(sessionID Identifier, input CancellationInput) (Cancellatio
 	if !sessionID.valid() || !input.valid() {
 		return Cancellation{}, fmt.Errorf("planescapeprovider: invalid cancellation")
 	}
-	return Cancellation{sessionID: sessionID, cancellationID: input.cancellationID, reason: input.reason, nonce: input.nonce, canonicalHash: input.canonicalHash}, nil
+	dto := providerV1CancellationDTO{
+		Schema:         providerV1SchemaCancellation,
+		SessionID:      sessionID.String(),
+		CancellationID: input.cancellationID.String(),
+		Reason:         input.reason,
+		Nonce:          input.nonce.String(),
+	}
+	preimage, err := dto.canonicalPreimage()
+	if err != nil {
+		return Cancellation{}, fmt.Errorf("planescapeprovider: invalid cancellation")
+	}
+	canonicalHash, err := ParseFingerprint(providerV1CanonicalHash(preimage))
+	if err != nil {
+		return Cancellation{}, fmt.Errorf("planescapeprovider: invalid cancellation")
+	}
+	return Cancellation{
+		sessionID:      sessionID,
+		cancellationID: input.cancellationID,
+		reason:         input.reason,
+		nonce:          input.nonce,
+		canonicalHash:  canonicalHash,
+	}, nil
 }
 
 func (v Cancellation) SessionID() Identifier      { return v.sessionID }

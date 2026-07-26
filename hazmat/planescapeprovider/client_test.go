@@ -239,6 +239,100 @@ func TestAgentOperationDerivesCanonicalHashAfterSessionAndSequenceBinding(t *tes
 	}
 }
 
+func TestTerminalRequestsDeriveCanonicalHashAfterRuntimeBinding(t *testing.T) {
+	sessionID, err := NewIdentifier("session-derived")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSessionID, err := NewIdentifier("other-session-derived")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiescenceHash, err := ParseFingerprint(fingerprint("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherQuiescenceHash, err := ParseFingerprint(fingerprint("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeInput, err := NewFreezeInput(FreezeInputValues{
+		FreezeID: "freeze-derived",
+		Nonce:    "freeze-nonce-derived",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstFreeze, err := newFreeze(sessionID, quiescenceHash, freezeInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondFreeze, err := newFreeze(
+		sessionID,
+		otherQuiescenceHash,
+		freezeInput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstFreeze.CanonicalHash() == secondFreeze.CanonicalHash() {
+		t.Fatal("runtime quiescence did not change the Freeze canonical hash")
+	}
+	freezeFrame, err := (ProviderV1FrameCodec{}).EncodeFreeze(firstFreeze)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedFreeze, err := (ProviderV1FrameCodec{}).DecodeFreeze(freezeFrame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decodedFreeze.CanonicalHash() != firstFreeze.CanonicalHash() {
+		t.Fatal("runtime-bound Freeze did not round trip exactly")
+	}
+
+	cancellationInput, err := NewCancellationInput(
+		CancellationInputValues{
+			CancellationID: "cancel-derived",
+			Reason:         "operator_cancelled",
+			Nonce:          "cancel-nonce-derived",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCancellation, err := newCancellation(sessionID, cancellationInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCancellation, err := newCancellation(
+		otherSessionID,
+		cancellationInput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstCancellation.CanonicalHash() ==
+		secondCancellation.CanonicalHash() {
+		t.Fatal("runtime session did not change the Cancellation canonical hash")
+	}
+	cancellationFrame, err := (ProviderV1FrameCodec{}).EncodeCancellation(
+		firstCancellation,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedCancellation, err := (ProviderV1FrameCodec{}).DecodeCancellation(
+		cancellationFrame,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decodedCancellation.CanonicalHash() !=
+		firstCancellation.CanonicalHash() {
+		t.Fatal("runtime-bound Cancellation did not round trip exactly")
+	}
+}
+
 func mustResult(t *testing.T, operationID string, sequence uint64, result ResultKind, artifact, evidence, canonical string) OperationResult {
 	t.Helper()
 	value, err := NewOperationResult(OperationResultInput{
@@ -410,7 +504,10 @@ func TestClientMapsFullLifecycleAndReplay(t *testing.T) {
 	if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "c")); err != nil {
 		t.Fatal(err)
 	}
-	freezeInput, err := NewFreezeInput(FreezeInputValues{FreezeID: "freeze-1", Nonce: "nonce-freeze", CanonicalHash: fingerprint("e")})
+	freezeInput, err := NewFreezeInput(FreezeInputValues{
+		FreezeID: "freeze-1",
+		Nonce:    "nonce-freeze",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -823,7 +920,11 @@ func TestClientCancellationBindsEvidence(t *testing.T) {
 	if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 		t.Fatal(err)
 	}
-	cancelInput, err := NewCancellationInput(CancellationInputValues{CancellationID: "cancel-1", Reason: "operator_cancelled", Nonce: "nonce-cancel", CanonicalHash: fingerprint("a")})
+	cancelInput, err := NewCancellationInput(CancellationInputValues{
+		CancellationID: "cancel-1",
+		Reason:         "operator_cancelled",
+		Nonce:          "nonce-cancel",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +964,10 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 		if _, err := session.Quiesce(context.Background(), mustOperation(t, "pause-1", OperationPause, "nonce-pause", "9")); err != nil {
 			t.Fatal(err)
 		}
-		input, err := NewFreezeInput(FreezeInputValues{FreezeID: "freeze-1", Nonce: "nonce-freeze", CanonicalHash: fingerprint("b")})
+		input, err := NewFreezeInput(FreezeInputValues{
+			FreezeID: "freeze-1",
+			Nonce:    "nonce-freeze",
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -902,7 +1006,11 @@ func TestClientReplaysExactFreezeAndCancellation(t *testing.T) {
 		if _, err := session.Launch(context.Background(), mustOperation(t, "launch-1", OperationAgentStart, "nonce-launch", "7")); err != nil {
 			t.Fatal(err)
 		}
-		input, err := NewCancellationInput(CancellationInputValues{CancellationID: "cancel-1", Reason: "operator_cancelled", Nonce: "nonce-cancel", CanonicalHash: fingerprint("a")})
+		input, err := NewCancellationInput(CancellationInputValues{
+			CancellationID: "cancel-1",
+			Reason:         "operator_cancelled",
+			Nonce:          "nonce-cancel",
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

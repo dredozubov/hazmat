@@ -1314,7 +1314,10 @@ func sessionStateFromCheckpoint(
 		return sessionState{}, fmt.Errorf("checkpoint next sequence does not advance")
 	}
 	if checkpoint.Freeze != nil {
-		input, err := NewFreezeInput(FreezeInputValues{FreezeID: checkpoint.Freeze.FreezeID, Nonce: checkpoint.Freeze.Nonce, CanonicalHash: checkpoint.Freeze.CanonicalHash})
+		input, err := NewFreezeInput(FreezeInputValues{
+			FreezeID: checkpoint.Freeze.FreezeID,
+			Nonce:    checkpoint.Freeze.Nonce,
+		})
 		if err != nil || !state.hasQuiescence {
 			return sessionState{}, fmt.Errorf("invalid freeze checkpoint")
 		}
@@ -1322,16 +1325,27 @@ func sessionStateFromCheckpoint(
 		if err != nil {
 			return sessionState{}, err
 		}
+		if request.canonicalHash.String() != checkpoint.Freeze.CanonicalHash {
+			return sessionState{}, fmt.Errorf("invalid freeze checkpoint canonical hash")
+		}
 		state.freeze = &freezeEntry{request: request, done: checkpoint.Freeze.Done}
 	}
 	if checkpoint.Cancellation != nil {
-		input, err := NewCancellationInput(CancellationInputValues{CancellationID: checkpoint.Cancellation.CancellationID, Reason: checkpoint.Cancellation.Reason, Nonce: checkpoint.Cancellation.Nonce, CanonicalHash: checkpoint.Cancellation.CanonicalHash})
+		input, err := NewCancellationInput(CancellationInputValues{
+			CancellationID: checkpoint.Cancellation.CancellationID,
+			Reason:         checkpoint.Cancellation.Reason,
+			Nonce:          checkpoint.Cancellation.Nonce,
+		})
 		if err != nil {
 			return sessionState{}, err
 		}
 		request, err := newCancellation(sessionID, input)
 		if err != nil {
 			return sessionState{}, err
+		}
+		if request.canonicalHash.String() != checkpoint.Cancellation.CanonicalHash {
+			return sessionState{},
+				fmt.Errorf("invalid cancellation checkpoint canonical hash")
 		}
 		state.cancellation = &cancellationEntry{request: request, done: checkpoint.Cancellation.Done}
 	}
