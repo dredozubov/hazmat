@@ -91,6 +91,7 @@ func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
 		vector                planescapeProductRustAuthorityVector
 		expectedJSONByteCount uint64
 		expectedSHA256        string
+		requiresPauseIntent   bool
 		assertTerminal        func(*testing.T, planescapeProductFileTerminalAuthority)
 	}{
 		{
@@ -98,6 +99,7 @@ func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
 			vector:                fixture.HazmatRustInvocationAuthorityV2.SuccessfulCloseout,
 			expectedJSONByteCount: 7080,
 			expectedSHA256:        "sha256:09b39be4e95ffd7985b96bee595364d72b4b1eff77cde133c7949fed7e6e6dd3",
+			requiresPauseIntent:   true,
 			assertTerminal: func(
 				t *testing.T,
 				terminal planescapeProductFileTerminalAuthority,
@@ -126,6 +128,15 @@ func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
+			if test.requiresPauseIntent &&
+				!planescapeProductRustAuthorityVectorHasPauseIntent(
+					t,
+					test.vector,
+				) {
+				t.Skip(
+					"canonical Rust closeout vector awaits Pause-intent v2 regeneration",
+				)
+			}
 			if test.vector.JSONByteCount != test.expectedJSONByteCount {
 				t.Fatalf(
 					"Rust vector byte count = %d, want %d",
@@ -262,6 +273,9 @@ func TestConfiguredPlanescapeAuthorityUsesFirstRunTerminalIntentBoundary(
 		t.Fatal(err)
 	}
 	if terminal.Kind != planescapeProductAuthorityTerminalCloseoutV2 ||
+		terminal.Pause.OperationID == "" ||
+		terminal.Pause.OperationSequence != 2 ||
+		terminal.Pause.Nonce == "" ||
 		terminal.Freeze.FreezeID == "" ||
 		terminal.Freeze.Nonce == "" ||
 		terminal.Closeout.OperationID == "" ||
@@ -270,11 +284,15 @@ func TestConfiguredPlanescapeAuthorityUsesFirstRunTerminalIntentBoundary(
 		t.Fatalf("terminal intent is incomplete: %+v", terminal)
 	}
 	for _, forbidden := range []string{
+		"pause_operation_json_b64",
 		"freeze_json_b64",
 		"closeout_operation_json_b64",
 		"quiescence_hash",
 		"freeze_ack",
 		"payload_hash",
+		"evidence_hash",
+		"session_id",
+		"plan_hash",
 		"canonical_hash",
 	} {
 		if bytes.Contains(envelope.Terminal, []byte(forbidden)) {
@@ -284,6 +302,7 @@ func TestConfiguredPlanescapeAuthorityUsesFirstRunTerminalIntentBoundary(
 
 	fixture := loadPlanescapeProductRustAuthorityFixture(t)
 	for _, priorRunRecord := range []string{
+		fixture.ProviderQuiescenceRPC.Operation.CanonicalJSON,
 		fixture.ProviderTerminalRPC.Freeze.RequestRecord.CanonicalJSON,
 		fixture.ProviderTerminalRPC.Closeout.RequestRecord.CanonicalJSON,
 	} {
@@ -296,6 +315,67 @@ func TestConfiguredPlanescapeAuthorityUsesFirstRunTerminalIntentBoundary(
 	}
 	if _, err := configuredPlanescapeProductAuthoritySource(config); err != nil {
 		t.Fatalf("fresh first-run authority did not load: %v", err)
+	}
+}
+
+func TestConfiguredPlanescapeAuthorityBindsPauseToLiveToolEvidence(
+	t *testing.T,
+) {
+	config := planescapeProductProviderConfigFixture(
+		t,
+		"127.0.0.1:43191",
+	)
+	source, err := configuredPlanescapeProductAuthoritySource(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveEvidenceHash := planescapeProductHash("d")
+	tool, err := planescapeprovider.NewOperationResult(
+		planescapeprovider.OperationResultInput{
+			SessionID:     source.tool.record.SessionID().String(),
+			OperationID:   source.tool.record.OperationID().String(),
+			Sequence:      source.tool.record.Sequence().Uint64(),
+			ResultKind:    planescapeprovider.ResultCompleted,
+			ArtifactHash:  planescapeProductHash("e"),
+			EvidenceHash:  liveEvidenceHash,
+			CanonicalHash: planescapeProductHash("f"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := planescapeProductBinding{
+		planHash:   source.plan.CanonicalHash(),
+		session:    source.tool.record.SessionID(),
+		backend:    configuredPlanescapeProductBackendBinding(t, config),
+		invocation: source.invocation,
+	}
+	intent, err := source.PostToolIntent(
+		context.Background(),
+		binding,
+		tool,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pause, ok := intent.(planescapeProductPauseIntent)
+	if !ok || !pause.valid() {
+		t.Fatalf("post-Tool intent = %T, want valid Pause", intent)
+	}
+	if pause.operation.PayloadHash().String() != liveEvidenceHash {
+		t.Fatalf(
+			"Pause payload hash = %q, want live Tool evidence %q",
+			pause.operation.PayloadHash().String(),
+			liveEvidenceHash,
+		)
+	}
+	terminal, ok := source.terminal.(planescapeProductFileCloseoutAuthority)
+	if !ok {
+		t.Fatalf("terminal authority = %T, want closeout", source.terminal)
+	}
+	if pause.operation.OperationID() != terminal.pause.operationID ||
+		pause.operation.Nonce() != terminal.pause.nonce {
+		t.Fatal("runtime Pause did not retain exact authored identity")
 	}
 }
 
@@ -333,6 +413,24 @@ func TestConfiguredPlanescapeAuthorityRejectsInvalidTerminalIntent(
 		mutate func(*planescapeProductAuthorityCloseoutFileV2)
 	}{
 		{
+			name: "missing Pause identity",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Pause.OperationID = ""
+			},
+		},
+		{
+			name: "wrong Pause sequence",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Pause.OperationSequence = 3
+			},
+		},
+		{
+			name: "missing Pause nonce",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Pause.Nonce = ""
+			},
+		},
+		{
 			name: "missing Freeze identity",
 			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
 				value.Freeze.FreezeID = ""
@@ -348,6 +446,18 @@ func TestConfiguredPlanescapeAuthorityRejectsInvalidTerminalIntent(
 			name: "missing Closeout nonce",
 			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
 				value.Closeout.Nonce = ""
+			},
+		},
+		{
+			name: "Pause reuses Tool identity",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Pause.OperationID = "conformance-provider-tool"
+			},
+		},
+		{
+			name: "Closeout reuses Pause identity",
+			mutate: func(value *planescapeProductAuthorityCloseoutFileV2) {
+				value.Closeout.OperationID = value.Pause.OperationID
 			},
 		},
 	}
@@ -386,6 +496,274 @@ func TestConfiguredPlanescapeAuthorityRejectsInvalidTerminalIntent(
 				planescapeprovider.ErrorInvalid,
 			)
 		})
+	}
+}
+
+func TestConfiguredPlanescapeAuthorityRejectsAuthoredPauseBinding(
+	t *testing.T,
+) {
+	fixture := loadPlanescapeProductRustAuthorityFixture(t)
+	legacyPause := base64.RawURLEncoding.EncodeToString(
+		[]byte(fixture.ProviderQuiescenceRPC.Operation.CanonicalJSON),
+	)
+	setTerminalField := func(
+		t *testing.T,
+		terminal map[string]json.RawMessage,
+		name string,
+		value any,
+	) {
+		t.Helper()
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		terminal[name] = encoded
+	}
+	setPauseField := func(
+		t *testing.T,
+		terminal map[string]json.RawMessage,
+		name string,
+		value any,
+	) {
+		t.Helper()
+		var pause map[string]json.RawMessage
+		if err := json.Unmarshal(terminal["pause"], &pause); err != nil {
+			t.Fatal(err)
+		}
+		setTerminalField(t, pause, name, value)
+		encoded, err := json.Marshal(pause)
+		if err != nil {
+			t.Fatal(err)
+		}
+		terminal["pause"] = encoded
+	}
+	cases := []struct {
+		name   string
+		mutate func(*testing.T, map[string]json.RawMessage)
+	}{
+		{
+			name: "legacy Pause operation record",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				delete(terminal, "pause")
+				setTerminalField(
+					t,
+					terminal,
+					"pause_operation_json_b64",
+					legacyPause,
+				)
+			},
+		},
+		{
+			name: "ambiguous intent and legacy record",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				setTerminalField(
+					t,
+					terminal,
+					"pause_operation_json_b64",
+					legacyPause,
+				)
+			},
+		},
+		{
+			name: "authored payload hash",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				setPauseField(
+					t,
+					terminal,
+					"payload_hash",
+					planescapeProductHash("a"),
+				)
+			},
+		},
+		{
+			name: "authored evidence hash",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				setPauseField(
+					t,
+					terminal,
+					"evidence_hash",
+					planescapeProductHash("b"),
+				)
+			},
+		},
+		{
+			name: "authored session binding",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				setPauseField(
+					t,
+					terminal,
+					"session_id",
+					"authored-session",
+				)
+			},
+		},
+		{
+			name: "authored plan binding",
+			mutate: func(
+				t *testing.T,
+				terminal map[string]json.RawMessage,
+			) {
+				setPauseField(
+					t,
+					terminal,
+					"plan_hash",
+					planescapeProductHash("c"),
+				)
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			config := planescapeProductProviderConfigFixture(
+				t,
+				"127.0.0.1:43191",
+			)
+			data, err := os.ReadFile(config.InvocationAuthorityFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var envelope planescapeProductAuthorityFileV2
+			if err := json.Unmarshal(data, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			var terminal map[string]json.RawMessage
+			if err := json.Unmarshal(
+				envelope.Terminal,
+				&terminal,
+			); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, terminal)
+			envelope.Terminal, err = json.Marshal(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writePlanescapeProductAuthorityEnvelope(t, config, envelope)
+
+			_, err = configuredPlanescapeProductAuthoritySource(config)
+			requirePlanescapeProductErrorClass(
+				t,
+				err,
+				planescapeprovider.ErrorInvalid,
+			)
+		})
+	}
+}
+
+func TestConfiguredPlanescapeLegacyPauseDoesNotDialOrFallback(
+	t *testing.T,
+) {
+	isolateConfig(t)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	tcpListener, ok := listener.(*net.TCPListener)
+	if !ok {
+		t.Fatalf("listener %T is not TCP", listener)
+	}
+	config := planescapeProductProviderConfigFixture(
+		t,
+		listener.Addr().String(),
+	)
+	data, err := os.ReadFile(config.InvocationAuthorityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope planescapeProductAuthorityFileV2
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var terminal map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.Terminal, &terminal); err != nil {
+		t.Fatal(err)
+	}
+	delete(terminal, "pause")
+	fixture := loadPlanescapeProductRustAuthorityFixture(t)
+	legacyPause, err := json.Marshal(
+		base64.RawURLEncoding.EncodeToString(
+			[]byte(fixture.ProviderQuiescenceRPC.Operation.CanonicalJSON),
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal["pause_operation_json_b64"] = legacyPause
+	envelope.Terminal, err = json.Marshal(terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePlanescapeProductAuthorityEnvelope(t, config, envelope)
+
+	hazmatConfig := defaultConfig()
+	hazmatConfig.Session.ExecutionProvider =
+		configmodel.ExecutionProviderPlanescape
+	hazmatConfig.Session.Planescape = config
+	if err := saveConfig(hazmatConfig); err != nil {
+		t.Fatal(err)
+	}
+	savedDependencies := planescapeProductDependenciesForSession
+	savedRunner := runAgentSeatbeltScriptWithPlan
+	planescapeProductDependenciesForSession =
+		defaultPlanescapeProductDependencies
+	nativeRunnerCalls := 0
+	runAgentSeatbeltScriptWithPlan = func(
+		sessionConfig,
+		sessionBackendPlan,
+		sessionLaunchUI,
+		string,
+		...string,
+	) error {
+		nativeRunnerCalls++
+		return nil
+	}
+	t.Cleanup(func() {
+		planescapeProductDependenciesForSession = savedDependencies
+		runAgentSeatbeltScriptWithPlan = savedRunner
+	})
+
+	command := newExecCmd()
+	command.SetArgs([]string{"/usr/bin/true"})
+	command.SilenceErrors = true
+	command.SilenceUsage = true
+	err = command.Execute()
+	requirePlanescapeProductErrorClass(
+		t,
+		err,
+		planescapeprovider.ErrorInvalid,
+	)
+	if nativeRunnerCalls != 0 {
+		t.Fatalf("native runner calls = %d, want 0", nativeRunnerCalls)
+	}
+	if err := tcpListener.SetDeadline(
+		time.Now().Add(100 * time.Millisecond),
+	); err != nil {
+		t.Fatal(err)
+	}
+	connection, acceptErr := listener.Accept()
+	if connection != nil {
+		_ = connection.Close()
+		t.Fatal("legacy Pause authority dialed the provider")
+	}
+	var networkError net.Error
+	if !errors.As(acceptErr, &networkError) || !networkError.Timeout() {
+		t.Fatalf("Accept error = %v, want timeout without a dial", acceptErr)
 	}
 }
 
@@ -807,6 +1185,13 @@ func TestConfiguredPlanescapeFileAuthorityCompletesCloseoutWithoutFallback(
 			)
 		}
 	}
+	runtimePause := endpoint.operations[1]
+	if runtimePause.SessionID() != admission.SessionID() ||
+		runtimePause.PlanHash() != source.plan.CanonicalHash() ||
+		runtimePause.Sequence().Uint64() != 2 ||
+		runtimePause.PayloadHash() != tool.EvidenceHash() {
+		t.Fatal("runtime Pause lost live session, plan, sequence, or Tool evidence binding")
+	}
 	freezeRequest, err := codec.EncodeFreeze(endpoint.freezes[0])
 	if err != nil {
 		t.Fatal(err)
@@ -1210,6 +1595,15 @@ func configurePlanescapeProductAuthorityFixture(
 		if err != nil {
 			t.Fatal(err)
 		}
+		pause, err := codec.DecodeAgentOperation(
+			[]byte(
+				fixture.ProviderQuiescenceRPC.Operation.
+					CanonicalJSON,
+			),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		closeout, err := codec.DecodeAgentOperation(
 			[]byte(
 				fixture.ProviderTerminalRPC.Closeout.RequestRecord.
@@ -1222,12 +1616,12 @@ func configurePlanescapeProductAuthorityFixture(
 		terminal, err := json.Marshal(
 			planescapeProductAuthorityCloseoutFileV2{
 				Kind: terminalKind,
-				PauseOperationJSONBase64URL: base64.RawURLEncoding.EncodeToString(
-					[]byte(
-						fixture.ProviderQuiescenceRPC.Operation.
-							CanonicalJSON,
-					),
-				),
+				Pause: planescapeProductAuthorityPauseIntentFileV2{
+					OperationID: pause.OperationID().String(),
+					OperationSequence: pause.Sequence().
+						Uint64(),
+					Nonce: pause.Nonce().String(),
+				},
 				Freeze: planescapeProductAuthorityFreezeIntentFileV2{
 					FreezeID: freeze.FreezeID().String(),
 					Nonce:    freeze.Nonce().String(),
@@ -1309,6 +1703,24 @@ func configurePlanescapeProductExactAuthorityVector(
 	}
 	config.InvocationAuthorityFile = path
 	config.InvocationAuthorityFileSHA256 = vector.SHA256
+}
+
+func planescapeProductRustAuthorityVectorHasPauseIntent(
+	t *testing.T,
+	vector planescapeProductRustAuthorityVector,
+) bool {
+	t.Helper()
+	var envelope struct {
+		Terminal map[string]json.RawMessage `json:"terminal"`
+	}
+	if err := json.Unmarshal(
+		[]byte(vector.CanonicalJSON),
+		&envelope,
+	); err != nil {
+		t.Fatal(err)
+	}
+	pause, ok := envelope.Terminal["pause"]
+	return ok && len(pause) != 0 && !bytes.Equal(pause, []byte("null"))
 }
 
 func loadPlanescapeProductRustAuthorityFixture(

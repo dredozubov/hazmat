@@ -272,7 +272,8 @@ func (v planescapeProductCancellationIntent) valid() bool {
 	return validPlanescapeProductCancellationInput(v.input)
 }
 
-// planescapeProductOperationSource supplies only Rust-authored unbound intent.
+// planescapeProductOperationSource supplies Rust-authored unbound identity and
+// policy intent. After Tool, it binds result-dependent payload evidence;
 // Session adds the exact admitted session, sequence, plan, and backend binding.
 type planescapeProductOperationSource interface {
 	ToolOperation(

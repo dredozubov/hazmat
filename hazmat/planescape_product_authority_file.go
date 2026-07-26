@@ -47,10 +47,16 @@ type planescapeProductAuthorityTerminalHeaderFileV2 struct {
 }
 
 type planescapeProductAuthorityCloseoutFileV2 struct {
-	Kind                        string                                         `json:"kind"`
-	PauseOperationJSONBase64URL string                                         `json:"pause_operation_json_b64"`
-	Freeze                      planescapeProductAuthorityFreezeIntentFileV2   `json:"freeze"`
-	Closeout                    planescapeProductAuthorityCloseoutIntentFileV2 `json:"closeout"`
+	Kind     string                                         `json:"kind"`
+	Pause    planescapeProductAuthorityPauseIntentFileV2    `json:"pause"`
+	Freeze   planescapeProductAuthorityFreezeIntentFileV2   `json:"freeze"`
+	Closeout planescapeProductAuthorityCloseoutIntentFileV2 `json:"closeout"`
+}
+
+type planescapeProductAuthorityPauseIntentFileV2 struct {
+	OperationID       string `json:"operation_id"`
+	OperationSequence uint64 `json:"operation_sequence"`
+	Nonce             string `json:"nonce"`
 }
 
 type planescapeProductAuthorityFreezeIntentFileV2 struct {
@@ -100,7 +106,7 @@ type planescapeProductFileTerminalAuthority interface {
 }
 
 type planescapeProductFileCloseoutAuthority struct {
-	pause    planescapeProductExpectedOperation
+	pause    planescapeProductFilePauseIntent
 	freeze   planescapeprovider.FreezeInput
 	closeout planescapeProductFileCloseoutIntent
 }
@@ -112,13 +118,86 @@ func (v planescapeProductFileCloseoutAuthority) valid(
 	tool planescapeProductExpectedOperation,
 ) bool {
 	return tool.valid(planescapeprovider.OperationTool, 1) &&
-		v.pause.valid(planescapeprovider.OperationPause, 2) &&
+		v.pause.valid() &&
 		validPlanescapeProductFreezeInput(v.freeze) &&
 		v.closeout.valid() &&
-		v.pause.record.SessionID() == tool.record.SessionID() &&
-		v.pause.record.PlanHash() == tool.record.PlanHash() &&
+		v.pause.operationID != tool.record.OperationID() &&
 		v.closeout.operationID != tool.record.OperationID() &&
-		v.closeout.operationID != v.pause.record.OperationID()
+		v.closeout.operationID != v.pause.operationID
+}
+
+// planescapeProductFilePauseIntent carries only the Rust-authored identity
+// needed before the first Tool run. The Tool evidence payload does not exist
+// until PostToolIntent observes the live completed result.
+type planescapeProductFilePauseIntent struct {
+	operationID planescapeprovider.Identifier
+	sequence    planescapeprovider.OperationSequence
+	nonce       planescapeprovider.Nonce
+}
+
+func newPlanescapeProductFilePauseIntent(
+	operationID string,
+	sequence uint64,
+	nonce string,
+) (planescapeProductFilePauseIntent, error) {
+	id, err := planescapeprovider.NewIdentifier(operationID)
+	if err != nil {
+		return planescapeProductFilePauseIntent{}, err
+	}
+	operationSequence, err := planescapeprovider.NewOperationSequence(sequence)
+	if err != nil {
+		return planescapeProductFilePauseIntent{}, err
+	}
+	operationNonce, err := planescapeprovider.NewNonce(nonce)
+	if err != nil {
+		return planescapeProductFilePauseIntent{}, err
+	}
+	value := planescapeProductFilePauseIntent{
+		operationID: id,
+		sequence:    operationSequence,
+		nonce:       operationNonce,
+	}
+	if !value.valid() {
+		return planescapeProductFilePauseIntent{},
+			invalidPlanescapeProductAuthority()
+	}
+	return value, nil
+}
+
+func (v planescapeProductFilePauseIntent) valid() bool {
+	return v.operationID.String() != "" &&
+		v.sequence.Uint64() == 2 &&
+		v.nonce.String() != ""
+}
+
+func (v planescapeProductFilePauseIntent) bind(
+	binding planescapeProductBinding,
+	tool planescapeprovider.OperationResult,
+) (planescapeProductPauseIntent, error) {
+	if !v.valid() ||
+		!binding.valid() ||
+		tool.SessionID() != binding.SessionID() ||
+		tool.Sequence().Uint64()+1 != v.sequence.Uint64() ||
+		tool.ResultKind() != planescapeprovider.ResultCompleted {
+		return planescapeProductPauseIntent{},
+			newPlanescapeProductError(
+				planescapeprovider.ErrorConflict,
+				planescapeProductProviderFailure,
+			)
+	}
+	input, err := planescapeprovider.NewOperationInput(
+		planescapeprovider.OperationInputValues{
+			OperationID: v.operationID.String(),
+			Kind:        planescapeprovider.OperationPause,
+			Nonce:       v.nonce.String(),
+			PayloadHash: tool.EvidenceHash().String(),
+		},
+	)
+	if err != nil {
+		return planescapeProductPauseIntent{},
+			invalidPlanescapeProductAuthority()
+	}
+	return newPlanescapeProductPauseIntent(input)
 }
 
 type planescapeProductFileCloseoutIntent struct {
@@ -415,13 +494,13 @@ func decodePlanescapeProductFileTerminalAuthority(
 		if err := decodePlanescapeProductAuthorityJSON(raw, &dto); err != nil {
 			return nil, invalidPlanescapeProductAuthority()
 		}
-		pause, err := decodePlanescapeProductExpectedOperation(
-			codec,
-			dto.PauseOperationJSONBase64URL,
-			nil,
+		pause, err := newPlanescapeProductFilePauseIntent(
+			dto.Pause.OperationID,
+			dto.Pause.OperationSequence,
+			dto.Pause.Nonce,
 		)
 		if err != nil {
-			return nil, err
+			return nil, invalidPlanescapeProductAuthority()
 		}
 		freezeInput, err := planescapeprovider.NewFreezeInput(
 			planescapeprovider.FreezeInputValues{
@@ -728,13 +807,7 @@ func (s *planescapeProductFileAuthoritySource) PostToolIntent(
 	}
 	switch terminal := s.terminal.(type) {
 	case planescapeProductFileCloseoutAuthority:
-		if !terminal.pause.matches(binding) {
-			return nil, newPlanescapeProductError(
-				planescapeprovider.ErrorConflict,
-				planescapeProductProviderFailure,
-			)
-		}
-		return newPlanescapeProductPauseIntent(terminal.pause.input)
+		return terminal.pause.bind(binding, tool)
 	case planescapeProductFileCancellationAuthority:
 		if terminal.record.SessionID() != binding.SessionID() {
 			return nil, newPlanescapeProductError(
