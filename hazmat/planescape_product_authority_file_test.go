@@ -20,6 +20,10 @@ import (
 )
 
 type planescapeProductRustAuthorityFixture struct {
+	HazmatRustInvocationAuthorityV2 struct {
+		Cancellation       planescapeProductRustAuthorityVector `json:"cancellation"`
+		SuccessfulCloseout planescapeProductRustAuthorityVector `json:"successful_closeout"`
+	} `json:"hazmat_rust_invocation_authority_v2"`
 	ProviderAdmissionRPC struct {
 		CompiledPlan struct {
 			CanonicalJSON string `json:"canonical_json"`
@@ -70,6 +74,115 @@ type planescapeProductRustAuthorityFixture struct {
 			} `json:"response_record"`
 		} `json:"cancellation"`
 	} `json:"provider_terminal_rpc"`
+}
+
+type planescapeProductRustAuthorityVector struct {
+	CanonicalJSON string `json:"canonical_json"`
+	JSONByteCount uint64 `json:"json_byte_count"`
+	SHA256        string `json:"sha256"`
+}
+
+func TestConfiguredPlanescapeAuthoritySourceAcceptsExactRustV2Vectors(
+	t *testing.T,
+) {
+	fixture := loadPlanescapeProductRustAuthorityFixture(t)
+	cases := []struct {
+		name                  string
+		vector                planescapeProductRustAuthorityVector
+		expectedJSONByteCount uint64
+		expectedSHA256        string
+		assertTerminal        func(*testing.T, planescapeProductFileTerminalAuthority)
+	}{
+		{
+			name:                  "successful closeout",
+			vector:                fixture.HazmatRustInvocationAuthorityV2.SuccessfulCloseout,
+			expectedJSONByteCount: 7080,
+			expectedSHA256:        "sha256:09b39be4e95ffd7985b96bee595364d72b4b1eff77cde133c7949fed7e6e6dd3",
+			assertTerminal: func(
+				t *testing.T,
+				terminal planescapeProductFileTerminalAuthority,
+			) {
+				t.Helper()
+				if _, ok := terminal.(planescapeProductFileCloseoutAuthority); !ok {
+					t.Fatalf("terminal authority = %T, want closeout", terminal)
+				}
+			},
+		},
+		{
+			name:                  "cancellation",
+			vector:                fixture.HazmatRustInvocationAuthorityV2.Cancellation,
+			expectedJSONByteCount: 6620,
+			expectedSHA256:        "sha256:53c860d8fd2444765e836518ce01dfbcc175f2509938bb976889d5b8075107af",
+			assertTerminal: func(
+				t *testing.T,
+				terminal planescapeProductFileTerminalAuthority,
+			) {
+				t.Helper()
+				if _, ok := terminal.(planescapeProductFileCancellationAuthority); !ok {
+					t.Fatalf("terminal authority = %T, want cancellation", terminal)
+				}
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if test.vector.JSONByteCount != test.expectedJSONByteCount {
+				t.Fatalf(
+					"Rust vector byte count = %d, want %d",
+					test.vector.JSONByteCount,
+					test.expectedJSONByteCount,
+				)
+			}
+			if test.vector.SHA256 != test.expectedSHA256 {
+				t.Fatalf(
+					"Rust vector SHA-256 = %q, want %q",
+					test.vector.SHA256,
+					test.expectedSHA256,
+				)
+			}
+			config := planescapeProductProviderConfigFixture(
+				t,
+				"127.0.0.1:43191",
+			)
+			configurePlanescapeProductExactAuthorityVector(
+				t,
+				config,
+				test.vector,
+			)
+			configuredData, err := os.ReadFile(
+				config.InvocationAuthorityFile,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(
+				configuredData,
+				[]byte(test.vector.CanonicalJSON),
+			) {
+				t.Fatal("configured authority bytes differ from Rust vector")
+			}
+
+			source, err := configuredPlanescapeProductAuthoritySource(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation, err := source.Invocation(
+				"exec",
+				[]string{"/usr/bin/true"},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if invocation.SessionRequestID().String() !=
+				"configured-authority-session" {
+				t.Fatalf(
+					"session request ID = %q",
+					invocation.SessionRequestID().String(),
+				)
+			}
+			test.assertTerminal(t, source.terminal)
+		})
+	}
 }
 
 func TestConfiguredPlanescapeAuthoritySourceBindsExactInvocationAndRecords(
@@ -1170,6 +1283,32 @@ func writePlanescapeProductAuthorityEnvelope(
 	config.InvocationAuthorityFile = path
 	config.InvocationAuthorityFileSHA256 =
 		planescapeProductAuthorityBytesSHA256(data)
+}
+
+func configurePlanescapeProductExactAuthorityVector(
+	t *testing.T,
+	config *configmodel.PlanescapeProviderConfig,
+	vector planescapeProductRustAuthorityVector,
+) {
+	t.Helper()
+	data := []byte(vector.CanonicalJSON)
+	if vector.JSONByteCount == 0 ||
+		uint64(len(data)) != vector.JSONByteCount {
+		t.Fatalf(
+			"Rust authority byte count = %d, want %d",
+			len(data),
+			vector.JSONByteCount,
+		)
+	}
+	if actual := planescapeProductAuthorityBytesSHA256(data); actual != vector.SHA256 {
+		t.Fatalf("Rust authority SHA-256 = %q, want %q", actual, vector.SHA256)
+	}
+	path := filepath.Join(t.TempDir(), "rust-invocation-authority.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.InvocationAuthorityFile = path
+	config.InvocationAuthorityFileSHA256 = vector.SHA256
 }
 
 func loadPlanescapeProductRustAuthorityFixture(
