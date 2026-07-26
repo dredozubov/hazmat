@@ -1008,24 +1008,12 @@ func TestPlanescapeLiveAcceptanceScriptRunsDetachedPrebuiltTestBinary(
 ) {
 	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
 	testBinary := filepath.Join(root, "hazmat-live.test")
-	testBinarySource := `#!/bin/sh
-set -eu
-[ "$#" -eq 5 ]
-[ "$1" = "-test.count=1" ]
-[ "$2" = "-test.timeout=180s" ]
-[ "$3" = "-test.v" ]
-[ "$4" = "-test.run" ]
-[ "$5" = "^TestConfiguredPlanescapeProviderLiveAcceptance$" ]
-[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE" = "1" ]
-[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_PHASE" = "lifecycle" ]
-printf '%s\n' \
-	'=== RUN   TestConfiguredPlanescapeProviderLiveAcceptance' \
-	'--- PASS: TestConfiguredPlanescapeProviderLiveAcceptance (0.00s)' \
-	'PASS'
-`
-	if err := os.WriteFile(testBinary, []byte(testBinarySource), 0o700); err != nil {
-		t.Fatal("failed to prepare detached live acceptance test binary")
-	}
+	writePlanescapeLiveTestBinary(
+		t,
+		testBinary,
+		0o700,
+		planescapeLivePassingTestBinaryBody,
+	)
 
 	scriptSource, err := os.ReadFile(planescapeLiveAcceptanceScriptPath())
 	if err != nil {
@@ -1059,6 +1047,110 @@ printf '%s\n' \
 	const want = "hazmat-planescape-live-acceptance: phase=lifecycle status=pass\n"
 	if string(output) != want {
 		t.Fatal("detached prebuilt live acceptance diagnostic was unstable")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptRunsRootOwned0500PrebuiltTestBinary(
+	t *testing.T,
+) {
+	if os.Geteuid() != 0 {
+		t.Skip("root-only live acceptance executable policy")
+	}
+	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+	testBinary := filepath.Join(root, "hazmat-live.test")
+	writePlanescapeLiveTestBinary(
+		t,
+		testBinary,
+		0o500,
+		planescapeLivePassingTestBinaryBody,
+	)
+	arguments = append(
+		arguments,
+		"--prebuilt-test-binary",
+		testBinary,
+	)
+	command := exec.Command(
+		"sh",
+		append(
+			[]string{planescapeLiveAcceptanceScriptPath()},
+			arguments...,
+		)...,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatal("root-owned 0500 prebuilt test binary invocation failed")
+	}
+	const want = "hazmat-planescape-live-acceptance: phase=lifecycle status=pass\n"
+	if string(output) != want {
+		t.Fatal("root-owned 0500 prebuilt test diagnostic was unstable")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptRejects0500PrebuiltTestBinaryForNonRoot(
+	t *testing.T,
+) {
+	if os.Geteuid() == 0 {
+		t.Skip("non-root live acceptance executable policy")
+	}
+	root, arguments := planescapeLiveAcceptanceScriptFixture(t)
+	testBinary := filepath.Join(root, "sensitive-hazmat-live.test")
+	writePlanescapeLiveTestBinary(
+		t,
+		testBinary,
+		0o500,
+		planescapeLivePassingTestBinaryBody,
+	)
+	arguments = append(
+		arguments,
+		"--prebuilt-test-binary",
+		testBinary,
+	)
+	command := exec.Command(
+		"sh",
+		append(
+			[]string{planescapeLiveAcceptanceScriptPath()},
+			arguments...,
+		)...,
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("non-root harness accepted a 0500 prebuilt test binary")
+	}
+	const want = "hazmat-planescape-live-acceptance: status=fail reason=unsafe-test-binary\n"
+	if strings.Contains(string(output), testBinary) || string(output) != want {
+		t.Fatal("non-root 0500 diagnostic was unstable or unredacted")
+	}
+}
+
+func TestPlanescapeLiveAcceptanceScriptPrebuiltMetadataPolicy(t *testing.T) {
+	source, err := os.ReadFile(planescapeLiveAcceptanceScriptPath())
+	if err != nil {
+		t.Fatal("failed to read live acceptance script")
+	}
+	const functionStart = "prebuilt_test_binary_metadata_is_safe() {\n"
+	start := strings.Index(string(source), functionStart)
+	if start < 0 {
+		t.Fatal("live acceptance script missing metadata policy")
+	}
+	remainder := string(source[start:])
+	end := strings.Index(remainder, "\n}\n")
+	if end < 0 {
+		t.Fatal("live acceptance metadata policy was malformed")
+	}
+	functionSource := remainder[:end+3]
+	probe := "set -eu\n" + functionSource + `
+prebuilt_test_binary_metadata_is_safe 0 0:500:1
+prebuilt_test_binary_metadata_is_safe 0 0:700:1
+prebuilt_test_binary_metadata_is_safe 501 501:700:1
+if prebuilt_test_binary_metadata_is_safe 501 501:500:1; then exit 1; fi
+if prebuilt_test_binary_metadata_is_safe 501 0:500:1; then exit 1; fi
+if prebuilt_test_binary_metadata_is_safe 0 501:500:1; then exit 1; fi
+if prebuilt_test_binary_metadata_is_safe 0 0:500:2; then exit 1; fi
+if prebuilt_test_binary_metadata_is_safe 0 0:700:2; then exit 1; fi
+`
+	command := exec.Command("sh", "-c", probe)
+	if output, err := command.CombinedOutput(); err != nil || len(output) != 0 {
+		t.Fatal("live acceptance prebuilt metadata policy rejected its contract")
 	}
 }
 
@@ -1234,7 +1326,9 @@ func TestPlanescapeLiveAcceptanceScriptGuardsPrebuiltTestBinaryContract(
 		`[ ! -x "$PREBUILT_TEST_BINARY" ]`,
 		`stat -f '%u:%Lp:%l'`,
 		`stat -c '%u:%a:%h'`,
-		`"$CURRENT_UID:700:1"`,
+		`"$policy_uid:700:1"`,
+		`[ "$policy_uid" = "0" ]`,
+		`[ "$policy_metadata" = "0:500:1" ]`,
 		"-test.timeout=180s",
 		"-test.v",
 		"-test.run '^TestConfiguredPlanescapeProviderLiveAcceptance$'",
@@ -1247,6 +1341,20 @@ func TestPlanescapeLiveAcceptanceScriptGuardsPrebuiltTestBinaryContract(
 		}
 	}
 }
+
+const planescapeLivePassingTestBinaryBody = `[ "$#" -eq 5 ]
+[ "$1" = "-test.count=1" ]
+[ "$2" = "-test.timeout=180s" ]
+[ "$3" = "-test.v" ]
+[ "$4" = "-test.run" ]
+[ "$5" = "^TestConfiguredPlanescapeProviderLiveAcceptance$" ]
+[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE" = "1" ]
+[ "$HAZMAT_PLANESCAPE_LIVE_ACCEPTANCE_PHASE" = "lifecycle" ]
+printf '%s\n' \
+	'=== RUN   TestConfiguredPlanescapeProviderLiveAcceptance' \
+	'--- PASS: TestConfiguredPlanescapeProviderLiveAcceptance (0.00s)' \
+	'PASS'
+`
 
 func planescapeLiveAcceptanceScriptPath() string {
 	return filepath.Join(

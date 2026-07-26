@@ -45,6 +45,7 @@ The coordinator starts, restarts, and stops the external Planescape endpoint.
 This harness never controls Tart or Planescape and never creates plan authority.
 Without --prebuilt-test-binary, the harness builds the Go test from source.
 The prebuilt binary must be a current-user-owned, single-link 0700 regular file.
+When the harness runs as root, a root-owned single-link 0500 file is also valid.
 Live diagnostics contain only a phase and a stable status/reason.
 EOF
 }
@@ -272,6 +273,16 @@ prebuilt_test_binary_metadata() {
 	stat -c '%u:%a:%h' "$PREBUILT_TEST_BINARY" 2>/dev/null
 }
 
+prebuilt_test_binary_metadata_is_safe() {
+	policy_uid="$1"
+	policy_metadata="$2"
+	if [ "$policy_metadata" = "$policy_uid:700:1" ]; then
+		return 0
+	fi
+	[ "$policy_uid" = "0" ] &&
+		[ "$policy_metadata" = "0:500:1" ]
+}
+
 if [ -n "$PREBUILT_TEST_BINARY" ]; then
 	case "$PREBUILT_TEST_BINARY" in
 		/*)
@@ -289,7 +300,9 @@ if [ -n "$PREBUILT_TEST_BINARY" ]; then
 		fail "harness-unavailable"
 	PREBUILT_TEST_BINARY_METADATA="$(prebuilt_test_binary_metadata)" ||
 		fail "unsafe-test-binary"
-	if [ "$PREBUILT_TEST_BINARY_METADATA" != "$CURRENT_UID:700:1" ]; then
+	if ! prebuilt_test_binary_metadata_is_safe \
+		"$CURRENT_UID" \
+		"$PREBUILT_TEST_BINARY_METADATA"; then
 		fail "unsafe-test-binary"
 	fi
 else
