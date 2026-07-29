@@ -110,7 +110,12 @@ func TestFinalizePreparedRepoSetupRememberPersistsEffects(t *testing.T) {
 	}
 }
 
-func TestDefaultPromptRepoSetupSafeAutoRemembersWithoutDialog(t *testing.T) {
+func TestDefaultPromptRepoSetupSafeRequiresChoiceAndShowsEffects(t *testing.T) {
+	restoreTTY := stubTerminal(t, true)
+	defer restoreTTY()
+	restoreStdin := stubStdinFile(t, "1\n")
+	defer restoreStdin()
+
 	var action repoSetupPromptAction
 	var err error
 	stderr := captureStderr(t, func() {
@@ -132,8 +137,30 @@ func TestDefaultPromptRepoSetupSafeAutoRemembersWithoutDialog(t *testing.T) {
 	if action != repoSetupPromptRemember {
 		t.Fatalf("action = %q, want remember", action)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want no safe repo setup dialog", stderr)
+	for _, want := range []string{"additional repo setup available", "read-only: /tmp/toolchain", "Generic repo heuristic"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+}
+
+func TestDefaultPromptRepoSetupSafeDefaultsToKeepCurrent(t *testing.T) {
+	restoreTTY := stubTerminal(t, true)
+	defer restoreTTY()
+	restoreStdin := stubStdinFile(t, "\n")
+	defer restoreStdin()
+
+	action, err := defaultPromptRepoSetupSafe(repoSetupState{
+		PendingSafe: []repoSetupEffect{{
+			ID: "ro:/tmp/toolchain", Class: repoSetupEffectClassSafe,
+			Kind: repoSetupEffectReadOnly, Value: "/tmp/toolchain",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("defaultPromptRepoSetupSafe: %v", err)
+	}
+	if action != repoSetupPromptKeepCurrent {
+		t.Fatalf("action = %q, want keep-current", action)
 	}
 }
 
