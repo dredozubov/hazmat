@@ -5,10 +5,12 @@ EXTENDS Naturals, TLC
 \* Session-scoped service/proxy lifecycle model.
 \*
 \* This spec covers OpenHands-style service harnesses and service-shaped
-\* proxy frontends (local API proxy, future HTTP MCP proxy) before adapter code
-\* exists. Stdio MCP remains a foreground child-process proxy and reuses the
-\* launch/fd-isolation model instead of this service lifecycle. This model
-\* covers only Hazmat's host/session lifecycle contract:
+\* proxy frontends before adapter code exists. It also covers attachment to an
+\* externally managed OpenAI-compatible endpoint: Hazmat validates and delivers
+\* its typed URL/token pair but never starts or owns that endpoint. Stdio MCP
+\* remains a foreground child-process proxy and reuses the launch/fd-isolation
+\* model instead of this service lifecycle. This model covers only Hazmat's
+\* host/session lifecycle contract:
 \*   - prior service residue is recovered or recorded before a new service starts
 \*   - unsupported service features fail closed before side effects
 \*   - current-service metadata is recorded before credentials, process start,
@@ -20,16 +22,21 @@ EXTENDS Naturals, TLC
 \* It does not model a concrete service protocol, HTTP request bodies, Docker
 \* internals, browser automation, or OpenHands behavior after launch.
 
-ServiceKinds == {"service-harness", "api-proxy", "http-mcp-proxy"}
+ServiceKinds == {
+    "service-harness",
+    "api-proxy",
+    "http-mcp-proxy",
+    "external-api-endpoint"
+}
 Backends == {"native", "docker-sandbox", "vm"}
-AttachKinds == {"stdio", "uds", "localhost-port", "lan-port"}
+AttachKinds == {"stdio", "uds", "localhost-port", "external-http", "lan-port"}
 TokenPolicies == {"none", "session-token"}
 CredentialKinds == {"none", "typed", "untyped"}
 StartResults == {"succeed", "fail-no-residue", "fail-with-residue"}
 ExitKinds == {"none", "normal", "crash"}
 Phases == 0..10
 
-Requests ==
+RawRequests ==
     [serviceKind : ServiceKinds,
      backend : Backends,
      attachKind : AttachKinds,
@@ -43,6 +50,14 @@ Requests ==
      integrationEnvRequested : BOOLEAN,
      startResult : StartResults,
      healthOK : BOOLEAN]
+
+Requests ==
+    {r \in RawRequests :
+        IF r.serviceKind = "external-api-endpoint"
+        THEN /\ r.startResult = "succeed"
+             /\ r.healthOK
+             /\ ~r.requiresContainer
+        ELSE r.attachKind # "external-http"}
 
 PriorStates ==
     [serviceResidue : BOOLEAN,
@@ -127,9 +142,21 @@ UnsupportedCredential ==
 ProxyServiceKind ==
     req.serviceKind \in {"api-proxy", "http-mcp-proxy"}
 
+ExternalAPIEndpoint ==
+    req.serviceKind = "external-api-endpoint"
+
+ExternalEndpointConfigComplete ==
+    /\ req.attachKind = "external-http"
+    /\ req.tokenPolicy = "session-token"
+    /\ req.credentialKind = "typed"
+
 BadProxyAttachShape ==
     /\ ProxyServiceKind
     /\ req.attachKind = "stdio"
+
+BadExternalEndpointShape ==
+    /\ ExternalAPIEndpoint
+    /\ ~ExternalEndpointConfigComplete
 
 UnsupportedRequest ==
     \/ ForbiddenFeatureRequested
@@ -137,6 +164,7 @@ UnsupportedRequest ==
     \/ UnsupportedContainerBackend
     \/ UnsupportedCredential
     \/ BadProxyAttachShape
+    \/ BadExternalEndpointShape
 
 LocalAttachPolicySatisfied ==
     \/ req.attachKind \in {"stdio", "uds"}
@@ -218,6 +246,7 @@ SkipCredential ==
 
 StartServiceSucceed ==
     /\ phase = 3
+    /\ ~ExternalAPIEndpoint
     /\ req.startResult = "succeed"
     /\ cur' =
         [cur EXCEPT
@@ -228,6 +257,7 @@ StartServiceSucceed ==
 
 StartServiceFailNoResidue ==
     /\ phase = 3
+    /\ ~ExternalAPIEndpoint
     /\ req.startResult = "fail-no-residue"
     /\ cur' = [cur EXCEPT !.failed = TRUE]
     /\ phase' = 7
@@ -235,6 +265,7 @@ StartServiceFailNoResidue ==
 
 StartServiceFailWithResidue ==
     /\ phase = 3
+    /\ ~ExternalAPIEndpoint
     /\ req.startResult = "fail-with-residue"
     /\ cur' =
         [cur EXCEPT
@@ -242,6 +273,15 @@ StartServiceFailWithResidue ==
             !.serviceRunning = TRUE,
             !.failed = TRUE]
     /\ phase' = 7
+    /\ UNCHANGED <<req, prior, genesisPrior>>
+
+AcceptExternalEndpoint ==
+    /\ phase = 3
+    /\ ExternalAPIEndpoint
+    /\ ExternalEndpointConfigComplete
+    /\ cur.credentialMaterialized
+    /\ cur' = [cur EXCEPT !.readinessEvidence = TRUE]
+    /\ phase' = 5
     /\ UNCHANGED <<req, prior, genesisPrior>>
 
 HealthPass ==
@@ -346,6 +386,7 @@ Next ==
     \/ StartServiceSucceed
     \/ StartServiceFailNoResidue
     \/ StartServiceFailWithResidue
+    \/ AcceptExternalEndpoint
     \/ HealthPass
     \/ HealthFail
     \/ AttachService
@@ -386,9 +427,28 @@ CredentialMaterializationGated ==
         /\ ~UnsupportedRequest
 
 ReadyRequiresHealth ==
-    cur.readinessEvidence =>
+    /\ cur.readinessEvidence
+    /\ ~ExternalAPIEndpoint
+    =>
         /\ req.healthOK
         /\ (phase \in {5, 6, 7} => cur.serviceRunning)
+
+ExternalEndpointNeverStartsService ==
+    ExternalAPIEndpoint =>
+        /\ ~cur.serviceStarted
+        /\ ~cur.serviceRunning
+        /\ ~cur.attachAuthorityActive
+
+ExternalEndpointReadinessIsConfigurationOnly ==
+    /\ ExternalAPIEndpoint
+    /\ cur.readinessEvidence
+    =>
+        /\ cur.metadataRecorded
+        /\ ExternalEndpointConfigComplete
+        /\ (phase \in 5..8 => cur.credentialMaterialized)
+        /\ (phase = 10 =>
+                \/ cur.credentialRemoved
+                \/ cur.cleanupFailureRecorded)
 
 AttachOnlyAfterReady ==
     cur.attached => cur.readinessEvidence
@@ -397,7 +457,14 @@ AttachDetailsAfterReady ==
     cur.attachDetailsPrinted => cur.readinessEvidence
 
 AttachPolicyLocalOnly ==
-    cur.attachDetailsPrinted => LocalAttachPolicySatisfied
+    /\ cur.attachDetailsPrinted
+    /\ ~ExternalAPIEndpoint
+    => LocalAttachPolicySatisfied
+
+ExternalEndpointAttachPolicy ==
+    /\ cur.attachDetailsPrinted
+    /\ ExternalAPIEndpoint
+    => ExternalEndpointConfigComplete
 
 LocalhostPortRequiresToken ==
     /\ cur.attachDetailsPrinted

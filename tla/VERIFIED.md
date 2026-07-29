@@ -79,16 +79,18 @@ does **not** model concrete Keychain APIs, git credential-helper bytes, SSH
 agent liveness, cloud-provider APIs, or exact integration manifest parsing.
 
 Important service-harness/proxy boundary: the current suite now includes a
-design model for future OpenHands-style service harnesses and service-shaped
-proxy frontends such as the local API proxy and future HTTP MCP proxy:
-prior-residue recovery, fail-closed unsupported features,
+design model for future OpenHands-style service harnesses, service-shaped proxy
+frontends such as a local API proxy or future HTTP MCP proxy, and
+configuration-only attachment to an externally managed OpenAI-compatible
+endpoint: prior-residue recovery, fail-closed unsupported features,
 metadata-before-side-effects, metadata-before-bind, readiness before attach,
 local-only attach authority, localhost token policy, typed credential
-materialization, and terminal cleanup accounting. It does **not** model
-OpenHands internals, HTTP request bodies, browser automation, Docker or VM
-internals, provider APIs, MCP payload semantics, or live service protocol
-behavior. Stdio MCP proxying remains a foreground child-process shape governed
-by launch/fd-isolation rather than this service lifecycle.
+materialization, terminal cleanup accounting, and no host service start or bind
+authority for external endpoint attachment. It does **not** model OpenHands
+internals, HTTP request bodies, browser automation, Docker or VM internals,
+provider APIs, MCP payload semantics, or live service protocol behavior. Stdio
+MCP proxying remains a foreground child-process shape governed by
+launch/fd-isolation rather than this service lifecycle.
 
 ---
 
@@ -1540,7 +1542,7 @@ before the experimental runtime ships.
 | Governed code | `hazmat/internal/serviceharness/lifecycle.go` — service lifecycle runner, request validation, residue recovery ordering, readiness/attach/cleanup orchestration, and redacted lifecycle events |
 | Governed code | `hazmat/proxyruntime/service.go` — service-shaped proxy lifecycle runner, local attach validation, typed credential gating, readiness/attach ordering, cleanup, and redacted lifecycle events |
 | Governed code | Future `hazmat <service-harness>` command surface and adapter-specific service metadata persistence |
-| Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachAuthorityHasMetadata`, `AttachPolicyLocalOnly`, `ProxyServiceAttachPolicy`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
+| Key invariants | `PriorResidueHasMetadata`, `SideEffectsHaveMetadata`, `StartOnlyAfterPriorResidueHandled`, `UnsupportedRequestsFailClosed`, `CredentialMaterializationGated`, `ReadyRequiresHealth`, `ExternalEndpointNeverStartsService`, `ExternalEndpointReadinessIsConfigurationOnly`, `AttachOnlyAfterReady`, `AttachDetailsAfterReady`, `AttachAuthorityHasMetadata`, `AttachPolicyLocalOnly`, `ExternalEndpointAttachPolicy`, `ProxyServiceAttachPolicy`, `LocalhostPortRequiresToken`, `NoHostDockerSocketExposure`, `NoNativeContainerStart`, `NoProfileDaemonBrowserOrEnvStart`, `TerminalResidueHandled`, `RejectedRequestsHaveNoCurrentSideEffects`, `CredentialRemovedOnlyAfterTypedPlan` |
 | Status | **Design Proved; first fake-service suite implemented** — proves the lifecycle boundary future OpenHands-style service adapters must satisfy before implementation and pins it with `make e2e-service-harness-smoke` |
 
 **What this verifies:**
@@ -1566,8 +1568,13 @@ before the experimental runtime ships.
 5. **Terminal residue is accounted for:** terminal service, credential, attach,
    or prior residue must be gone or covered by a recorded cleanup failure.
 
-TLC passes across all 2,612,624 distinct states (6,391,472 generated, depth 10,
-~11s).
+6. **External API attachment starts no host service:** a complete typed
+   OpenAI-compatible URL/token pair can reach attach readiness, but that branch
+   never sets service-start, service-running, or local-bind authority state.
+   Partial or invalid pairs fail at the unsupported-request gate.
+
+TLC passes across all 2,702,168 distinct states (6,624,536 generated, depth 10,
+~13s).
 
 **Scope boundary:** OpenHands internals, HTTP/WebSocket payloads, service logs,
 Docker Sandbox or VM internals, browser automation, and concrete service
@@ -1578,6 +1585,8 @@ boundary for a future service adapter, not proof that OpenHands itself is safe.
 - Adding a first-class service harness adapter, service lifecycle phase, service
   metadata field, port/socket attach policy, or crash-cleanup rule must update
   `MC_ServiceHarnessLifecycle.tla` first and re-run TLC before implementation.
+- Changing external API endpoint configuration, credential delivery, endpoint
+  policy, or ownership must update the external branch first.
 - Supporting host Docker socket access, LAN-visible binds, browser automation,
   host profile import, persistent daemon mode, or untyped credentials requires
   a deliberate model change; the current model proves those requests fail closed.
