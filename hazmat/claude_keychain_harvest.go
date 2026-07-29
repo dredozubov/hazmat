@@ -29,11 +29,10 @@ const claudeHostKeychainSyncEnv = "HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC"
 // the user's normal item is correct. Agent writes deliberately delete-then-add
 // instead because `-U` can still invoke Keychain item access UI when changing an
 // existing item's access list. keychainPath is appended only when non-empty; an
-// empty path targets the default keychain. allowAnyApplication is for the
-// contained agent keychain only: it prevents macOS item-access UI for
-// Claude/Node while the sandbox already limits access to the managed agent
-// keychain. Host keychain writes must keep the normal per-app warning ACLs.
-func claudeKeychainAddArgs(account string, raw []byte, keychainPath string, updateExisting, allowAnyApplication bool) []string {
+// empty path targets the default keychain. Writes retain the normal per-app
+// Keychain ACLs; in particular, credentials must never be added with `-A`,
+// because contained project processes can access the managed agent keychain.
+func claudeKeychainAddArgs(account string, raw []byte, keychainPath string, updateExisting bool) []string {
 	args := []string{
 		"add-generic-password",
 		"-a", account,
@@ -42,9 +41,6 @@ func claudeKeychainAddArgs(account string, raw []byte, keychainPath string, upda
 	}
 	if updateExisting {
 		args = append(args, "-U")
-	}
-	if allowAnyApplication {
-		args = append(args, "-A")
 	}
 	if keychainPath != "" {
 		args = append(args, keychainPath)
@@ -123,7 +119,7 @@ var writeClaudeAgentKeychainCredential = func(data harnessAuthData) error {
 		agentLoginKeychainPath(),
 	)
 	args := append([]string{"/usr/bin/security"},
-		claudeKeychainAddArgs(agentUser, raw, agentLoginKeychainPath(), false, true)...)
+		claudeKeychainAddArgs(agentUser, raw, agentLoginKeychainPath(), false)...)
 	if out, err := asAgentCombinedOutput(args...); err != nil {
 		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(out))
 	}
@@ -182,7 +178,7 @@ var writeClaudeHostKeychainCredential = func(data harnessAuthData) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	args := claudeKeychainAddArgs(currentHostKeychainAccount(), raw, "", true, false)
+	args := claudeKeychainAddArgs(currentHostKeychainAccount(), raw, "", true)
 	if out, err := exec.Command(hostSecurityPath, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("security add-generic-password failed: %w%s", err, securityOutputDetail(string(out)))
 	}
