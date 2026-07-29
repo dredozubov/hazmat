@@ -289,7 +289,44 @@ func repoSetupEffectLabel(kind repoSetupEffectKind) string {
 }
 
 func defaultPromptRepoSetupSafe(state repoSetupState) (repoSetupPromptAction, error) {
-	return repoSetupPromptRemember, nil
+	ui := &UI{DryRun: flagDryRun, YesAll: flagYesAll}
+	for {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "hazmat: additional repo setup available")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprint(os.Stderr, renderRepoSetupDetails(&state))
+
+		choice, err := ui.Choose("Choose repo setup handling [1-4, Enter for default]:", []UIChoice{
+			{
+				Key:         string(repoSetupPromptRemember),
+				Label:       "Remember for this repo",
+				Description: "Store these effects in host-owned repo setup state.",
+			},
+			{
+				Key:         string(repoSetupPromptUseOnce),
+				Label:       "Use once",
+				Description: "Use these effects for this launch only.",
+			},
+			{
+				Key:         string(repoSetupPromptKeepCurrent),
+				Label:       "Keep current access",
+				Description: "Continue without adding these effects.",
+			},
+			{
+				Key:         string(repoSetupPromptExplain),
+				Label:       "Explain",
+				Description: "Show the exact effects and where Hazmat learned them.",
+			},
+		}, string(repoSetupPromptKeepCurrent))
+		if err != nil {
+			return "", err
+		}
+		if repoSetupPromptAction(choice) == repoSetupPromptExplain {
+			fmt.Fprint(os.Stderr, renderRepoSetupDetails(&state))
+			continue
+		}
+		return repoSetupPromptAction(choice), nil
+	}
 }
 
 func defaultPromptRepoSetupExplicit(state repoSetupState) (repoSetupPromptAction, error) {
