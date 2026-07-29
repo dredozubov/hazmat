@@ -104,8 +104,14 @@ project/read/temp/credential path rules checked by this spec.
 The current implementation keeps `HOME=/Users/agent`, but section 4 is no
 longer a blanket agent-home allow. It grants explicit durable state/tooling
 entries such as `.claude`, `.claude.json`, `.codex`, `.agents`, `.opencode`,
-`.gemini`, `.qwen`, `.cursor`, `.config`, `.cache`, and `.local`, plus known
-shell/config files. Credential deny paths remain denied later by section 8.
+`.gemini/antigravity-cli`, `.qwen`, `.cursor`, `.config`, `.cache`, and
+`.local`, plus known shell/config files. Credential deny paths remain denied
+later by section 8.
+
+The Antigravity entry is intentionally limited to its nested state directory.
+The legacy `.gemini` parent is not durable harness state because it can contain
+file-backed Gemini OAuth and account residue from older Hazmat installations;
+leaving that parent unlisted keeps those credentials outside section 4 grants.
 
 The model now also includes the planned session-local HOME mode for Feature 3B.
 In that mode, section 4 grants a broad disposable `sessionHome` rooted under
