@@ -26,7 +26,7 @@ func TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths(t *testing.T) {
 		".claude.json":            AgentHomeStateHarnessState,
 		".codex":                  AgentHomeStateHarnessState,
 		".opencode":               AgentHomeStateHarnessState,
-		".gemini":                 AgentHomeStateHarnessState, // covers Antigravity (~/.gemini/antigravity-cli)
+		".gemini/antigravity-cli": AgentHomeStateHarnessState,
 		".cursor":                 AgentHomeStateHarnessState,
 		".claude/commands":        AgentHomeStateHarnessState,
 		".claude/skills":          AgentHomeStateHarnessState,
@@ -53,6 +53,17 @@ func TestPersistentAgentHomeManifestCoversHomeMoveAuditPaths(t *testing.T) {
 		}
 		if gotClass, ok := PersistentAgentHomePathClass(rel); !ok || gotClass != wantClass {
 			t.Fatalf("PersistentAgentHomePathClass(%q) = (%q, %v), want (%q, true)", rel, gotClass, ok, wantClass)
+		}
+	}
+}
+
+func TestPersistentAgentHomeManifestDoesNotCoverLegacyGeminiCredentials(t *testing.T) {
+	for _, rel := range []string{
+		".gemini/oauth_creds.json",
+		".gemini/google_accounts.json",
+	} {
+		if PersistentAgentHomeManifestCovers(rel) {
+			t.Errorf("PersistentAgentHomeManifestCovers(%q) = true, want false", rel)
 		}
 	}
 }

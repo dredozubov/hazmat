@@ -85,7 +85,7 @@
 (allow file-read* file-write* (subpath "/Users/agent/.cursor"))
 (allow file-read* file-write* (subpath "/Users/agent/.deno"))
 (allow file-read* file-write* (subpath "/Users/agent/.gem"))
-(allow file-read* file-write* (subpath "/Users/agent/.gemini"))
+(allow file-read* file-write* (subpath "/Users/agent/.gemini/antigravity-cli"))
 (allow file-read* file-write* (subpath "/Users/agent/.gradle"))
 (allow file-read* file-write* (subpath "/Users/agent/.hazmat"))
 (allow file-read* file-write* (subpath "/Users/agent/.ivy2"))

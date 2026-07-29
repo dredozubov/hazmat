@@ -256,9 +256,9 @@ EmitResumeDir ==
 \* Section 4: Home config.
 \* HOME remains /Users/agent, but the policy no longer grants the whole home.
 \* AgentHomeSubs represents supported persistent directories such as .claude,
-\* .codex, .agents, .opencode, .gemini, .qwen, .cursor, .config, .cache, and
-\* .local. AgentHomeFiles represents supported persistent literal files such as
-\* .claude.json.
+\* .codex, .agents, .opencode, .gemini/antigravity-cli, .qwen, .cursor,
+\* .config, .cache, and .local. AgentHomeFiles represents supported persistent
+\* literal files such as .claude.json.
 \* In future session-local HOME mode, HOME is an assembled disposable directory
 \* under /private/tmp/hazmat-home/<session>. It may be broadly writable because
 \* long-lived credentials and durable transcript stores must not be mounted
