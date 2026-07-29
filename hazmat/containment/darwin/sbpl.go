@@ -16,9 +16,10 @@ import (
 // CompileOptions supplies Darwin-specific policy gates that are not part of the
 // backend-neutral containment contract.
 type CompileOptions struct {
-	MacOSSecurityFramework   bool
-	MacOSAgentKeychainAccess bool
-	RuntimeTempDirs          []string
+	MacOSSecurityFramework       bool
+	MacOSAgentKeychainReadAccess bool
+	MacOSAgentKeychainAccess     bool
+	RuntimeTempDirs              []string
 }
 
 // Compile produces a per-session Seatbelt (SBPL) policy with all
@@ -303,11 +304,11 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 		w("(deny file-read* file-write* (subpath %q))\n", path)
 	}
 
-	if opts.MacOSSecurityFramework {
-		w(";; ── Re-allow agent's empty login keychain (post-deny override) ────────────\n")
+	if opts.MacOSAgentKeychainReadAccess {
+		w(";; ── Re-allow agent login keychain for approved harness (post-deny) ───────\n")
 		w(";; The broader %s/Library/Keychains deny stays. macOS Security framework on\n", home)
 		w(";; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable\n")
-		w(";; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain\n")
+		w(";; (errSecNoSuchKeychain -25291). Allowing read of the login keychain\n")
 		w(";; lets Rust reqwest's native-tls path complete trust setup using system roots.\n")
 		w(";; The directory metadata allow lets Security stat() the keychain dir before\n")
 		w(";; opening the whitelisted keychain DB files inside it.\n")

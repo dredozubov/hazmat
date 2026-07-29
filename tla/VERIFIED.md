@@ -405,6 +405,14 @@ remains the adapter-required external boundary. The full suite (`check_suite.sh`
 re-ran green (exit 0); `MC_SeatbeltPolicy` alone reported "No error has been found"
 across the same 7,667,712 generated / 7,028,736 distinct states, depth 11.
 
+**2026-07-29 Security framework/keychain-read gate separation:**
+The Security framework compatibility gate and the post-deny agent login
+keychain exception are separate policy inputs. In particular, Antigravity may
+retain the configd/trustd/Security framework TLS surface without receiving the
+login-keychain file exception, because its durable OAuth state is stored in
+that keychain. `MC_SeatbeltPolicy` models the keychain exception as an
+independent boolean rather than deriving it from TLS compatibility.
+
 **2026-06-26 Claude state file grant:** The spec now distinguishes section-4
 agent-home directory grants (`AgentHomeSubs`) from literal file grants
 (`AgentHomeFiles`) and models `/Users/agent/.claude.json` as durable Claude

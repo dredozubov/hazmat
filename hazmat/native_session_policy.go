@@ -18,6 +18,10 @@ type nativeSessionPolicy struct {
 	// framework or the security(1) helper during startup or network setup. Such
 	// harnesses need the wider trust/keychain/configd surface in compileDarwinSBPL.
 	MacOSSecurityFramework bool
+	// MacOSAgentKeychainReadAccess is the narrower TLS-compatibility exception
+	// for harnesses explicitly approved to read the agent login keychain. It must
+	// not be inferred from MacOSSecurityFramework.
+	MacOSAgentKeychainReadAccess bool
 	// MacOSAgentKeychainAccess is true when a native session must write the
 	// agent login keychain for harness auth. Keep this narrower than the general
 	// Security framework surface: it grants only the agent login keychain files,
@@ -44,6 +48,15 @@ type nativeSessionPolicy struct {
 func harnessUsesMacOSSecurityFramework(id HarnessID) bool {
 	switch id {
 	case HarnessClaude, HarnessCodex, HarnessAntigravity:
+		return true
+	default:
+		return false
+	}
+}
+
+func harnessMayReadAgentLoginKeychain(id HarnessID) bool {
+	switch id {
+	case HarnessClaude, HarnessCodex:
 		return true
 	default:
 		return false
@@ -96,10 +109,11 @@ func buildNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy, error) {
 		return nativeSessionPolicy{}, err
 	}
 	return nativeSessionPolicy{
-		Contract:                 contract,
-		MacOSSecurityFramework:   harnessUsesMacOSSecurityFramework(cfg.HarnessID),
-		MacOSAgentKeychainAccess: cfg.AgentLoginKeychainAccess,
-		RuntimeTempDirs:          runtimeTempDirsForHarness(cfg.HarnessID),
+		Contract:                     contract,
+		MacOSSecurityFramework:       harnessUsesMacOSSecurityFramework(cfg.HarnessID),
+		MacOSAgentKeychainReadAccess: harnessMayReadAgentLoginKeychain(cfg.HarnessID),
+		MacOSAgentKeychainAccess:     cfg.AgentLoginKeychainAccess,
+		RuntimeTempDirs:              runtimeTempDirsForHarness(cfg.HarnessID),
 	}, nil
 }
 
@@ -126,10 +140,11 @@ func buildCurrentUserNativeSessionPolicy(cfg sessionConfig) (nativeSessionPolicy
 		return nativeSessionPolicy{}, err
 	}
 	return nativeSessionPolicy{
-		Contract:                 contract,
-		MacOSSecurityFramework:   false,
-		MacOSAgentKeychainAccess: false,
-		RuntimeTempDirs:          nil,
+		Contract:                     contract,
+		MacOSSecurityFramework:       false,
+		MacOSAgentKeychainReadAccess: false,
+		MacOSAgentKeychainAccess:     false,
+		RuntimeTempDirs:              nil,
 	}, nil
 }
 

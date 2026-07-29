@@ -16,11 +16,12 @@ type PolicyArtifact struct {
 }
 
 type PolicyArtifactRequest struct {
-	Contract                 containment.Contract
-	MacOSSecurityFramework   bool
-	MacOSAgentKeychainAccess bool
-	RuntimeTempDirs          []string
-	PID                      int
+	Contract                     containment.Contract
+	MacOSSecurityFramework       bool
+	MacOSAgentKeychainReadAccess bool
+	MacOSAgentKeychainAccess     bool
+	RuntimeTempDirs              []string
+	PID                          int
 }
 
 func PreparePolicyArtifact(req PolicyArtifactRequest) (PolicyArtifact, error) {
@@ -28,9 +29,10 @@ func PreparePolicyArtifact(req PolicyArtifactRequest) (PolicyArtifact, error) {
 		return PolicyArtifact{}, fmt.Errorf("policy artifact pid must be positive")
 	}
 	policy, err := darwincompiler.Compile(req.Contract, darwincompiler.CompileOptions{
-		MacOSSecurityFramework:   req.MacOSSecurityFramework,
-		MacOSAgentKeychainAccess: req.MacOSAgentKeychainAccess,
-		RuntimeTempDirs:          append([]string(nil), req.RuntimeTempDirs...),
+		MacOSSecurityFramework:       req.MacOSSecurityFramework,
+		MacOSAgentKeychainReadAccess: req.MacOSAgentKeychainReadAccess,
+		MacOSAgentKeychainAccess:     req.MacOSAgentKeychainAccess,
+		RuntimeTempDirs:              append([]string(nil), req.RuntimeTempDirs...),
 	})
 	if err != nil {
 		return PolicyArtifact{}, fmt.Errorf("compile seatbelt policy: %w", err)

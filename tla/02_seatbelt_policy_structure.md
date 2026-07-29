@@ -169,8 +169,11 @@ Thirty-one abstract paths with a containment relation:
   per-session deny-all egress mode
 - `HomeMode ∈ {persistent, session}` — tests current `HOME=/Users/agent`
   policy projection and the planned disposable session-local HOME projection
-- `AgentKeychainAccess ∈ BOOLEAN` — tests native Claude OAuth's exact
-  agent-login-keychain exception and the normal no-exception path
+- `AgentKeychainAccess ∈ BOOLEAN` — tests the exact agent-login-keychain
+  exception and the normal no-exception path. This input is deliberately
+  independent of the macOS Security framework TLS compatibility surface: a
+  harness may need `SecTrustEvaluate` without receiving access to persistent
+  login-keychain files.
 
 ### Variables
 

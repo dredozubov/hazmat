@@ -42,6 +42,21 @@ func TestCompileBuildsSeatbeltPolicy(t *testing.T) {
 	}
 }
 
+func TestCompileSecurityFrameworkDoesNotExposeAgentLoginKeychain(t *testing.T) {
+	policy, err := Compile(testContract(t), CompileOptions{MacOSSecurityFramework: true})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	for _, leaked := range []string{
+		`(allow file-read-metadata (literal "/home/agent/Library/Keychains"))`,
+		`(allow file-read* (literal "/home/agent/Library/Keychains/login.keychain-db"))`,
+	} {
+		if strings.Contains(policy, leaked) {
+			t.Fatalf("Security framework policy exposes agent keychain via %q\n%s", leaked, policy)
+		}
+	}
+}
+
 func TestGoldenDarwinSBPLBaselines(t *testing.T) {
 	agentHome := "/Users/agent"
 	cases := map[string]struct {
@@ -59,14 +74,18 @@ func TestGoldenDarwinSBPLBaselines(t *testing.T) {
 			projectDir: "/Users/dr/workspace/project",
 			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-network-none",
 			network:    sessionmeta.NetworkNone,
-			options:    CompileOptions{MacOSSecurityFramework: true},
+			options: CompileOptions{
+				MacOSSecurityFramework:       true,
+				MacOSAgentKeychainReadAccess: true,
+			},
 		},
 		"sbpl/resume.sbpl": {
 			projectDir: "/Users/dr/workspace/project",
 			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-resume",
 			options: CompileOptions{
-				MacOSSecurityFramework: true,
-				RuntimeTempDirs:        []string{"/private/tmp/claude-777"},
+				MacOSSecurityFramework:       true,
+				MacOSAgentKeychainReadAccess: true,
+				RuntimeTempDirs:              []string{"/private/tmp/claude-777"},
 			},
 		},
 		"sbpl/read-parent-reassert.sbpl": {
@@ -82,15 +101,19 @@ func TestGoldenDarwinSBPLBaselines(t *testing.T) {
 		"sbpl/codex-native-tls.sbpl": {
 			projectDir: "/Users/dr/workspace/project",
 			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-codex-native-tls",
-			options:    CompileOptions{MacOSSecurityFramework: true},
+			options: CompileOptions{
+				MacOSSecurityFramework:       true,
+				MacOSAgentKeychainReadAccess: true,
+			},
 		},
 		"sbpl/claude-keychain.sbpl": {
 			projectDir: "/Users/dr/workspace/project",
 			tempDir:    agentHome + "/.cache/hazmat/tmp/golden-claude-keychain",
 			options: CompileOptions{
-				MacOSSecurityFramework:   true,
-				MacOSAgentKeychainAccess: true,
-				RuntimeTempDirs:          []string{"/private/tmp/claude-777"},
+				MacOSSecurityFramework:       true,
+				MacOSAgentKeychainReadAccess: true,
+				MacOSAgentKeychainAccess:     true,
+				RuntimeTempDirs:              []string{"/private/tmp/claude-777"},
 			},
 		},
 	}

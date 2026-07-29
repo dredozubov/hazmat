@@ -15,7 +15,8 @@
 \*   Section 6: Project write re-assertion (same path as section 2, last allow)
 \*   Section 7: Host temp socket/capability denies
 \*   Section 8: Credential denies (static — .ssh, .aws, Keychains, etc.)
-\*   Section 9: Explicit agent login keychain exception for Claude / Antigravity OAuth
+\*   Section 9: Explicit agent login keychain exception, independently gated
+\*              from the macOS Security framework TLS compatibility surface
 \*
 \* Per-session network policy is independent of filesystem last-match behavior:
 \* the default mode emits outbound network and DNS lookup allowances, while
@@ -56,7 +57,7 @@ CONSTANTS
     Paths,          \* finite set of abstract path identifiers
     CredPaths,      \* subset: credential deny roots (.ssh, .aws, Keychains, etc.)
     CredentialTargets, \* subset: representative sensitive paths covered by credential deny roots
-    AgentKeychainExceptionPaths, \* subset: exact agent login keychain files allowed only for Claude / Antigravity OAuth
+    AgentKeychainExceptionPaths, \* subset: exact agent login keychain files allowed only with an explicit keychain grant
     AgentHomeSubs,  \* subset: dirs under agent home that get static read+write+exec allows
     AgentHomeFiles, \* subset: files under agent home that get static read+write allows
     ProjectChoices, \* subset: valid choices for ProjectDir
@@ -153,7 +154,7 @@ VARIABLES
     networkMode,  \* "default" or "none"
     homeMode,     \* "persistent" keeps HOME=/Users/agent; "session" uses sessionHome
     resumeDir,    \* chosen resume session directory (a Path or "none")
-    agentKeychainAccess, \* whether Claude / Antigravity OAuth gets the exact agent login keychain exception
+    agentKeychainAccess, \* whether the exact agent login keychain exception is emitted; independent of TLS compatibility
     rules,        \* set of emitted rules: [section, action, path]
     networkAllows,\* set of emitted network grants
     section       \* 0..10: which section we're generating (10 = done)

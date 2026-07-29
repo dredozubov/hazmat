@@ -257,10 +257,10 @@
 (deny file-read* file-write* (subpath "/Users/agent/.local/state/goose"))
 (deny file-read* file-write* (subpath "/Users/agent/Library/Application Support/Claude"))
 (deny file-read* file-write* (subpath "/Users/agent/Library/Application Support/Cursor"))
-;; ── Re-allow agent's empty login keychain (post-deny override) ────────────
+;; ── Re-allow agent login keychain for approved harness (post-deny) ───────
 ;; The broader /Users/agent/Library/Keychains deny stays. macOS Security framework on
 ;; Sequoia+ refuses TLS trust evaluation when no user keychain is loadable
-;; (errSecNoSuchKeychain -25291). Allowing read of the (empty) login keychain
+;; (errSecNoSuchKeychain -25291). Allowing read of the login keychain
 ;; lets Rust reqwest's native-tls path complete trust setup using system roots.
 ;; The directory metadata allow lets Security stat() the keychain dir before
 ;; opening the whitelisted keychain DB files inside it.

@@ -1636,8 +1636,6 @@ var macOSSecurityFrameworkSBPLRules = []string{
 	`(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))`,
 	`(allow ipc-posix-shm-write-create (ipc-posix-name "com.apple.AppleDatabaseChanged"))`,
 	`(allow system-socket (require-all (socket-domain 32) (socket-protocol 2)))`,
-	`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
-	`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
 }
 
 func TestGenerateSBPLSecurityFrameworkHarnessesGetRules(t *testing.T) {
@@ -1652,6 +1650,24 @@ func TestGenerateSBPLSecurityFrameworkHarnessesGetRules(t *testing.T) {
 			if !strings.Contains(policy, want) {
 				t.Errorf("harness %q policy missing macOS Security framework rule:\n  %s", harness, want)
 			}
+		}
+	}
+}
+
+func TestGenerateSBPLAntigravityCannotReadAgentLoginKeychain(t *testing.T) {
+	policy := generateSBPL(sessionConfig{
+		ProjectDir: "/tmp/myproject",
+		HarnessID:  HarnessAntigravity,
+	})
+
+	for _, leaked := range []string{
+		`(allow file-read-metadata (literal "` + agentHome + `/Library/Keychains"))`,
+		`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db"))`,
+		`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db-shm"))`,
+		`(allow file-read* (literal "` + agentHome + `/Library/Keychains/login.keychain-db-wal"))`,
+	} {
+		if strings.Contains(policy, leaked) {
+			t.Fatalf("Antigravity policy exposes agent login keychain via %q:\n%s", leaked, policy)
 		}
 	}
 }

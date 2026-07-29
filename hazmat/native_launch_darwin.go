@@ -20,11 +20,12 @@ func (darwinNativeLaunchBackend) PreparePolicy(req nativeLaunchPolicyRequest) (n
 		return nativeLaunchPolicyArtifact{}, err
 	}
 	artifact, err := darwinruntime.PreparePolicyArtifact(darwinruntime.PolicyArtifactRequest{
-		Contract:                 policy.Contract,
-		MacOSSecurityFramework:   policy.MacOSSecurityFramework,
-		MacOSAgentKeychainAccess: policy.MacOSAgentKeychainAccess,
-		RuntimeTempDirs:          policy.RuntimeTempDirs,
-		PID:                      os.Getpid(),
+		Contract:                     policy.Contract,
+		MacOSSecurityFramework:       policy.MacOSSecurityFramework,
+		MacOSAgentKeychainReadAccess: policy.MacOSAgentKeychainReadAccess,
+		MacOSAgentKeychainAccess:     policy.MacOSAgentKeychainAccess,
+		RuntimeTempDirs:              policy.RuntimeTempDirs,
+		PID:                          os.Getpid(),
 	})
 	if err != nil {
 		return nativeLaunchPolicyArtifact{}, err
