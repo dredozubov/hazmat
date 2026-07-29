@@ -95,11 +95,9 @@ after reset if it used keychain-backed OAuth.`,
 	}
 }
 
-// prepareAgentLoginKeychainForLaunch provisions and unlocks the shared agent
+// prepareAgentLoginKeychainForLaunch provisions and unlocks the agent
 // account login keychain with Hazmat's empty-password profile before a native
-// launch. It is harness-neutral: every agent-user harness that reads or writes
-// OAuth through the macOS Keychain (Claude Code, Antigravity) uses this same
-// /Users/agent/Library/Keychains/login.keychain-db.
+// Claude Code launch.
 func prepareAgentLoginKeychainForLaunch() error {
 	if runtime.GOOS != "darwin" {
 		return nil

@@ -3,6 +3,7 @@ package hazmat
 import (
 	"hazmat/credentials"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -105,7 +106,8 @@ func TestBuiltinCredentialDescriptorsAreWellFormed(t *testing.T) {
 				t.Fatalf("%s materialized credential must preserve conflicts", descriptor.ID)
 			}
 		case credentials.DeliveryNone, credentials.DeliveryBrokeredHelper, credentials.DeliveryExternalReference:
-			if descriptor.Delivery == credentials.DeliveryExternalReference && descriptor.ExternalRef == "" {
+			if descriptor.Delivery == credentials.DeliveryExternalReference &&
+				descriptor.Support == credentials.SupportExternal && descriptor.ExternalRef == "" {
 				t.Fatalf("%s external-reference delivery must describe the external authority", descriptor.ID)
 			}
 			if descriptor.AgentPath != "" {
@@ -377,12 +379,11 @@ func TestCredentialRegistrySummaryReportsManagedAndExternal(t *testing.T) {
 	if summary.ManagedHostSecretStore != 15 {
 		t.Fatalf("ManagedHostSecretStore = %d, want 15", summary.ManagedHostSecretStore)
 	}
-	// The Antigravity Keychain adapter is now an active external boundary, so no
-	// built-in credential is adapter-required.
-	if len(summary.AdapterRequired) != 0 {
-		t.Fatalf("AdapterRequired = %v, want none", summary.AdapterRequired)
+	wantAdapterRequired := []string{"Antigravity Keychain OAuth state"}
+	if !slices.Equal(summary.AdapterRequired, wantAdapterRequired) {
+		t.Fatalf("AdapterRequired = %v, want %v", summary.AdapterRequired, wantAdapterRequired)
 	}
-	wantExternal := []string{"Claude agent Keychain OAuth state", "Antigravity Keychain OAuth state", "Git SSH external identity reference"}
+	wantExternal := []string{"Claude agent Keychain OAuth state", "Git SSH external identity reference"}
 	if len(summary.ExternalBoundaries) != len(wantExternal) {
 		t.Fatalf("ExternalBoundaries = %v, want %v", summary.ExternalBoundaries, wantExternal)
 	}
@@ -477,7 +478,7 @@ func TestGitSSHCredentialDescriptorsModelIdentitySources(t *testing.T) {
 	}
 }
 
-func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
+func TestAntigravityKeychainCredentialRequiresIsolatedAdapter(t *testing.T) {
 	descriptor := mustCredentialDescriptor(credentials.HarnessAntigravityKeychain)
 	if descriptor.Backend != credentials.StorageKeychain {
 		t.Fatalf("Antigravity Keychain backend = %q, want %q", descriptor.Backend, credentials.StorageKeychain)
@@ -485,14 +486,14 @@ func TestAntigravityKeychainCredentialBoundaryIsExternal(t *testing.T) {
 	if descriptor.Delivery != credentials.DeliveryExternalReference {
 		t.Fatalf("Antigravity Keychain delivery = %q, want %q", descriptor.Delivery, credentials.DeliveryExternalReference)
 	}
-	if descriptor.Support != credentials.SupportExternal {
-		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentials.SupportExternal)
+	if descriptor.Support != credentials.SupportAdapterRequired {
+		t.Fatalf("Antigravity Keychain support = %q, want %q", descriptor.Support, credentials.SupportAdapterRequired)
 	}
 	if !descriptor.CanDeliverTo(HarnessAntigravity) || descriptor.CanDeliverTo(HarnessClaude) {
 		t.Fatalf("Antigravity Keychain consumers = %v, want Antigravity only", descriptor.ConsumerHarnessIDs())
 	}
-	if descriptor.ExternalRef != agentLoginKeychainPath() {
-		t.Fatalf("Antigravity Keychain external ref = %q, want %q", descriptor.ExternalRef, agentLoginKeychainPath())
+	if descriptor.ExternalRef != "" {
+		t.Fatalf("Antigravity Keychain external ref = %q, want none without an isolated adapter", descriptor.ExternalRef)
 	}
 	if descriptor.StoreRelPath != "" || descriptor.AgentPath != "" {
 		t.Fatalf("Antigravity Keychain descriptor must not declare file paths: %+v", descriptor)

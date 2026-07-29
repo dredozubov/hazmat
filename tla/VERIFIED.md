@@ -1173,6 +1173,15 @@ the agent login keychain before launch. `MC_CredentialCapabilityLifecycle` re-ra
 with TLC: "No error has been found" across 5,335,005 distinct states (22,243,319
 generated, depth 40). `MC_SeatbeltPolicy` re-ran green (comment-only change).
 
+**2026-07-29 Antigravity Keychain isolation correction:** the shared agent login
+keychain is not an item-scoped adapter. Seatbelt can limit filesystem authority to
+that database and its sidecars, but cannot prevent agy from reading or changing
+other harness items in the same unlocked database. `antigravity_keychain` is
+therefore adapter-required and inert again; only Claude may receive the agent
+login keychain exception. Antigravity OAuth remains disabled until a per-harness
+keychain or item-scoped broker is available, while provider API-key authentication
+continues to work.
+
 ---
 
 ### 9 — Launch FD Isolation
