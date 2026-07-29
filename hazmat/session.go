@@ -55,7 +55,7 @@ type sessionConfig struct {
 	RoutingReason            string    // plain-language explanation for the chosen mode
 	SessionNotes             []string  // plain-language notes about session behavior
 	HarnessID                HarnessID // which agent harness this session is for ("" = generic shell/exec)
-	AgentLoginKeychainAccess bool      // native Claude/Antigravity OAuth path may use the agent login keychain
+	AgentLoginKeychainAccess bool      // native Claude OAuth path may use the agent login keychain
 	RepoSetup                *repoSetupState
 	TempDir                  string // agent-owned per-session temp dir for native launch
 	SessionHome              *sessionHomeRuntimePlan
@@ -1272,16 +1272,6 @@ func claudeAPIKeyAuthAvailable(cfg sessionConfig) bool {
 	return strings.TrimSpace(cfg.HarnessEnv["ANTHROPIC_API_KEY"]) != ""
 }
 
-// antigravityAPIKeyAuthAvailable reports whether a granted ANTIGRAVITY_API_KEY or
-// GEMINI_API_KEY lets agy authenticate without the interactive keychain OAuth flow.
-func antigravityAPIKeyAuthAvailable(cfg sessionConfig) bool {
-	if cfg.HarnessID != HarnessAntigravity {
-		return false
-	}
-	return strings.TrimSpace(cfg.HarnessEnv["ANTIGRAVITY_API_KEY"]) != "" ||
-		strings.TrimSpace(cfg.HarnessEnv["GEMINI_API_KEY"]) != ""
-}
-
 func claudeUseBareMode(cfg sessionConfig, mode sessionMode) bool {
 	return mode == sessionModeNative && claudeAPIKeyAuthAvailable(cfg)
 }
@@ -1291,18 +1281,6 @@ func claudeNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode, bareReq
 		cfg.HarnessID == HarnessClaude &&
 		!bareRequested &&
 		!claudeAPIKeyAuthAvailable(cfg)
-}
-
-// antigravityNeedsAgentKeychainAccess reports whether a native Antigravity (agy)
-// session should get the prepared agent login keychain. agy stores interactive
-// Google OAuth in the macOS Keychain; when no API key is granted it falls back to
-// that flow, so Hazmat provisions and unlocks the agent login keychain to avoid a
-// SecurityAgent password prompt for the wrong user's keychain. With an API key
-// present agy uses the key and never touches the keychain.
-func antigravityNeedsAgentKeychainAccess(cfg sessionConfig, mode sessionMode) bool {
-	return mode == sessionModeNative &&
-		cfg.HarnessID == HarnessAntigravity &&
-		!antigravityAPIKeyAuthAvailable(cfg)
 }
 
 func appendClaudeBareSessionNote(cfg *sessionConfig, mode sessionMode) {
@@ -1316,11 +1294,6 @@ func appendAgentKeychainSessionNote(cfg *sessionConfig, mode sessionMode, bareRe
 	if claudeNeedsAgentKeychainAccess(*cfg, mode, bareRequested) {
 		cfg.AgentLoginKeychainAccess = true
 		cfg.SessionNotes = append(cfg.SessionNotes, "Claude Code may use the agent account login keychain for OAuth; Hazmat will prepare and unlock that keychain before launch.")
-		return
-	}
-	if antigravityNeedsAgentKeychainAccess(*cfg, mode) {
-		cfg.AgentLoginKeychainAccess = true
-		cfg.SessionNotes = append(cfg.SessionNotes, "Antigravity (agy) may use the agent account login keychain for Google OAuth; Hazmat will prepare and unlock that keychain before launch. Configure ANTIGRAVITY_API_KEY/GEMINI_API_KEY to use a key instead.")
 		return
 	}
 }

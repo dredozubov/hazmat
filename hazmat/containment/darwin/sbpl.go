@@ -318,8 +318,7 @@ func Compile(contract containment.Contract, opts CompileOptions) (string, error)
 	}
 	if opts.MacOSAgentKeychainAccess {
 		w(";; ── Re-allow the agent login keychain (post-deny override) ───────────────\n")
-		w(";; Agent-user harnesses that store/read OAuth via the agent account login\n")
-		w(";; keychain (Claude Code on newer releases; Antigravity/agy Google sign-in)\n")
+		w(";; Claude Code stores/reads OAuth via the agent account login keychain and\n")
 		w(";; need read-write of that one managed keychain DB and sidecar paths, after\n")
 		w(";; the broader Keychains credential deny.\n")
 		w("(allow file-read-metadata (literal %q))\n", home+"/Library/Keychains")

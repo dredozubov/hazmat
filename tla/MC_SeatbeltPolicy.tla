@@ -15,7 +15,7 @@
 \*   Section 6: Project write re-assertion (same path as section 2, last allow)
 \*   Section 7: Host temp socket/capability denies
 \*   Section 8: Credential denies (static — .ssh, .aws, Keychains, etc.)
-\*   Section 9: Explicit agent login keychain exception for Claude / Antigravity OAuth
+\*   Section 9: Explicit agent login keychain exception for Claude OAuth
 \*
 \* Per-session network policy is independent of filesystem last-match behavior:
 \* the default mode emits outbound network and DNS lookup allowances, while
@@ -56,7 +56,7 @@ CONSTANTS
     Paths,          \* finite set of abstract path identifiers
     CredPaths,      \* subset: credential deny roots (.ssh, .aws, Keychains, etc.)
     CredentialTargets, \* subset: representative sensitive paths covered by credential deny roots
-    AgentKeychainExceptionPaths, \* subset: exact agent login keychain files allowed only for Claude / Antigravity OAuth
+    AgentKeychainExceptionPaths, \* subset: exact agent login keychain files allowed only for Claude OAuth
     AgentHomeSubs,  \* subset: dirs under agent home that get static read+write+exec allows
     AgentHomeFiles, \* subset: files under agent home that get static read+write allows
     ProjectChoices, \* subset: valid choices for ProjectDir
@@ -153,7 +153,7 @@ VARIABLES
     networkMode,  \* "default" or "none"
     homeMode,     \* "persistent" keeps HOME=/Users/agent; "session" uses sessionHome
     resumeDir,    \* chosen resume session directory (a Path or "none")
-    agentKeychainAccess, \* whether Claude / Antigravity OAuth gets the exact agent login keychain exception
+    agentKeychainAccess, \* whether Claude OAuth gets the exact agent login keychain exception
     rules,        \* set of emitted rules: [section, action, path]
     networkAllows,\* set of emitted network grants
     section       \* 0..10: which section we're generating (10 = done)
@@ -264,7 +264,7 @@ EmitResumeDir ==
 \* long-lived credentials and durable transcript stores must not be mounted
 \* below it.
 \* Credential directories are still denied in section 8; section 9 may re-allow
-\* only exact agent login keychain files for Claude / Antigravity OAuth.
+\* only exact agent login keychain files for Claude OAuth.
 EmitHomeConfig ==
     /\ section = 4
     /\ IF homeMode = "persistent"
@@ -329,7 +329,7 @@ EmitCredDenies ==
     /\ section' = 9
     /\ UNCHANGED <<projectDir, readDirs, networkMode, homeMode, resumeDir, agentKeychainAccess, networkAllows>>
 
-\* Section 9: Exact agent login keychain exception for Claude / Antigravity OAuth.
+\* Section 9: Exact agent login keychain exception for Claude OAuth.
 \* The broader Keychains deny root remains denied. Only the managed login
 \* keychain DB representative is re-allowed when the session explicitly needs
 \* agent-account Keychain OAuth compatibility.

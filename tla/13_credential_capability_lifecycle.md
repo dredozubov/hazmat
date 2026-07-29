@@ -144,6 +144,15 @@ Observed TLC result for the promoted seamless-sync model:
 - `depth 40`
 - runtime 26m56s on the standalone local 10-worker run
 
+### Antigravity keychain isolation correction
+
+Antigravity's OAuth credential is adapter-required rather than an external
+reference. Seatbelt can authorize a keychain database, but cannot restrict a
+session to one item inside the shared agent login keychain. Treating the shared
+database as Antigravity's external credential would therefore expose credentials
+owned by other harnesses. The credential must remain inert until Hazmat provides
+a per-harness keychain or an item-scoped broker.
+
 ## Scope Boundary
 
 This proof is registry-level. It does **not** model:
