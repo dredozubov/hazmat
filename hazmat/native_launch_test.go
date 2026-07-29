@@ -131,7 +131,7 @@ func TestLaunchHelperCapabilitiesInvalidatesStaleDiskCache(t *testing.T) {
 	}
 }
 
-func TestLaunchHelperPathForBrokerChildPrefersCheckoutSiblingHelper(t *testing.T) {
+func TestLaunchHelperPathForBrokerChildIgnoresCheckoutSiblingHelper(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	t.Setenv("HOME", home)
@@ -160,12 +160,8 @@ func TestLaunchHelperPathForBrokerChildPrefersCheckoutSiblingHelper(t *testing.T
 	currentExecutablePath = func() (string, error) { return checkoutHazmat, nil }
 	t.Cleanup(func() { currentExecutablePath = oldExecutablePath })
 
-	wantHelper, err := filepath.EvalSymlinks(checkoutHelper)
-	if err != nil {
-		t.Fatalf("resolve checkout helper: %v", err)
-	}
-	if got := launchHelperPathForBrokerChild(); got != wantHelper {
-		t.Fatalf("launchHelperPathForBrokerChild() = %q, want checkout helper %q", got, wantHelper)
+	if got := launchHelperPathForBrokerChild(); got != userHelper {
+		t.Fatalf("launchHelperPathForBrokerChild() = %q, want installed helper %q", got, userHelper)
 	}
 }
 

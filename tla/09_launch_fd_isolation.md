@@ -120,12 +120,14 @@ The checked config fixes the helper-side design knobs to the intended values:
 - `BrokerAuthenticatesPeer = TRUE`
 - `BrokerStartupClosesInheritedFDs = TRUE`
 - `ForkserverStartupClosesInheritedFDs = TRUE`
+- `ChildLaunchHelperSource = "installed"`
 
 ## What TLC Checks
 
 | Invariant | Meaning |
 |-----------|---------|
 | `BrokerLaunchRequiresAuthenticatedPeer` | A brokered launch cannot fork/reach the executor path until the host peer is authenticated |
+| `BrokerLaunchUsesTrustedHelper` | A brokered launch cannot reach its child helper boundary unless the selected helper is trusted |
 | `BrokerFDTableDropsHostInheritedFDs` | Once the persistent broker is listening or serving, it no longer holds host-origin non-stdio fds inherited during startup |
 | `ForkserverFDTableAllowlistedWhenReady` | A persistent forkserver retains only stdio plus its private control fd before serving launch work |
 | `HelperFDTableAllowlistedAtSandbox` | Once sandboxing starts, the helper holds only stdio plus its helper-opened policy fd |
@@ -284,10 +286,13 @@ Observed result:
   directory, without also carrying the shell-script field. That preserves the
   broker's request validation rule that direct exec and shell launches are
   mutually exclusive while allowing capable helpers to skip the shell wrapper.
-- broker startup and broker child launches may use different helper paths: the
-  startup command still goes through the sudo-authorized helper for the proved
-  fd-cleaning `hazmat-launch exec` boundary, while the agent-owned broker can
-  use a newer checkout-built helper for per-launch child execution. If the
+- broker startup and broker child launches may use different explicitly
+  configured helper paths: the startup command still goes through the
+  sudo-authorized helper for the proved fd-cleaning `hazmat-launch exec`
+  boundary, while the agent-owned broker can use a separately configured child
+  helper for per-launch execution. The broker never automatically discovers a
+  sibling helper beside the current executable because that executable may be
+  in an agent-writable checkout. If the
   broker path is unavailable, Hazmat repairs the agent temp dir before falling
   back to an older sudo helper that cannot create helper-managed session temp.
 - the host-side broker supervisor removes only stale Unix socket path residue

@@ -8,8 +8,10 @@
 \*
 \* Broker startup and per-launch children may use different hazmat-launch
 \* binaries: the startup path uses a sudo-authorized helper to enter the
-\* agent-owned broker process, while the broker may later use a newer checkout
-\* helper for child launches. The fd-safety obligation is path-independent:
+\* agent-owned broker process, while the broker may later use a separately
+\* configured trusted helper for child launches. Automatic checkout-sibling
+\* discovery is excluded because the checkout may be writable by contained
+\* code. The fd-safety obligation is path-independent:
 \* both the broker startup transition and every child helper transition must
 \* sanitize inherited descriptors before the broker listens or sandbox_init()
 \* runs.
@@ -69,7 +71,8 @@ CONSTANTS
     PolicyFileUsesCloexec,
     BrokerAuthenticatesPeer,
     BrokerStartupClosesInheritedFDs,
-    ForkserverStartupClosesInheritedFDs
+    ForkserverStartupClosesInheritedFDs,
+    ChildLaunchHelperSource
 
 FDs == 0..8
 StdioFDs == 0..2
@@ -87,6 +90,7 @@ ChildExecutors == {"exec_helper", "forkserver"}
 
 AllowedHelperTargetsAtSandbox == {"stdio", "policy"}
 AllowedAgentTargets == {"stdio"}
+TrustedChildHelperSources == {"installed", "explicit"}
 
 VARIABLES
     stage,
@@ -115,6 +119,7 @@ vars ==
       metadataEmitted, brokerActive, tokenMinted>>
 
 TypeOK ==
+    /\ ChildLaunchHelperSource \in {"installed", "explicit", "checkout_sibling"}
     /\ stage \in Stages
     /\ launchMode \in LaunchModes
     /\ hazmatFds \subseteq FDs
@@ -292,6 +297,7 @@ BrokerForksLaunchChild ==
     /\ stage = "broker"
     /\ launchMode = "brokered"
     /\ peerAuthenticated
+    /\ ChildLaunchHelperSource \in TrustedChildHelperSources
     /\ helperFds' =
         IF childExecutor = "forkserver"
             THEN forkserverFds
@@ -421,6 +427,10 @@ HelperFDTableAllowlistedAtSandbox ==
 BrokerLaunchRequiresAuthenticatedPeer ==
     launchMode = "brokered" /\ stage \in {"helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
         peerAuthenticated
+
+BrokerLaunchUsesTrustedHelper ==
+    launchMode = "brokered" /\ stage \in {"helper", "helper_sanitized", "policy_opened", "temp_prepared", "sandboxed", "agent"} =>
+        ChildLaunchHelperSource \in TrustedChildHelperSources
 
 \* The long-lived broker must not retain host-origin non-stdio descriptors once
 \* it is listening or serving requests. Child cleanup protects sandbox_init(),
