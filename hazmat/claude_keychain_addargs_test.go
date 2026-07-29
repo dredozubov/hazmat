@@ -29,7 +29,7 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 	raw := []byte(`{"claudeAiOauth":{"accessToken":"tok"}}`)
 
 	t.Run("agent keychain write", func(t *testing.T) {
-		args := claudeKeychainAddArgs("agent", raw, "/Users/agent/Library/Keychains/login.keychain-db", false, true)
+		args := claudeKeychainAddArgs("agent", raw, "/Users/agent/Library/Keychains/login.keychain-db", false)
 		if got, ok := argValue(args, "-a"); !ok || got != "agent" {
 			t.Fatalf("expected -a agent, got %q (ok=%v) in %v", got, ok, args)
 		}
@@ -39,8 +39,8 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 		if got, ok := argValue(args, "-w"); !ok || got != string(raw) {
 			t.Fatalf("expected -w to carry the credential, got %q (ok=%v)", got, ok)
 		}
-		if !slices.Contains(args, "-A") {
-			t.Fatalf("agent keychain write should allow contained Claude access without item UI, got %v", args)
+		if slices.Contains(args, "-A") {
+			t.Fatalf("agent keychain write must not allow arbitrary contained applications to read the credential, got %v", args)
 		}
 		if slices.Contains(args, "-U") {
 			t.Fatalf("agent keychain write should delete-then-add instead of updating access UI, got %v", args)
@@ -51,7 +51,7 @@ func TestClaudeKeychainAddArgsCarriesRequiredAccount(t *testing.T) {
 	})
 
 	t.Run("host keychain write omits explicit keychain", func(t *testing.T) {
-		args := claudeKeychainAddArgs("dr", raw, "", true, false)
+		args := claudeKeychainAddArgs("dr", raw, "", true)
 		if got, ok := argValue(args, "-a"); !ok || got != "dr" {
 			t.Fatalf("expected -a dr, got %q (ok=%v) in %v", got, ok, args)
 		}
@@ -123,7 +123,7 @@ func TestClaudeKeychainAddArgsAcceptedBySecurity(t *testing.T) {
 	updated := []byte(`{"claudeAiOauth":{"accessToken":"updated"}}`)
 
 	add := func(raw []byte) ([]byte, error) {
-		args := append([]string{}, claudeKeychainAddArgs("agent", raw, kc, false, true)...)
+		args := append([]string{}, claudeKeychainAddArgs("agent", raw, kc, false)...)
 		return exec.Command(securityPath, args...).CombinedOutput()
 	}
 
