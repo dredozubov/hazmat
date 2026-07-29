@@ -43,12 +43,12 @@ func TestProxyClosesUpstreamResponseBodies(t *testing.T) {
 	}
 
 	failureBody := &trackingReadCloser{Reader: strings.NewReader("provider-secret")}
-	upstream, err := NewMuginnUpstream(MuginnUpstreamConfig{
-		BaseURL:     "http://muginn.example",
-		CallerToken: "muginn-token",
+	upstream, err := NewBearerUpstream(BearerUpstreamConfig{
+		BaseURL:     "http://facade.example",
+		BearerToken: "upstream-token",
 	})
 	if err != nil {
-		t.Fatalf("NewMuginnUpstream: %v", err)
+		t.Fatalf("NewBearerUpstream: %v", err)
 	}
 	failureProxy, err := New(Config{
 		SessionID:    "session-1",

@@ -194,6 +194,7 @@ scan_repo() {
 		'scripts/*.sh' \
 		'scripts/pre-commit' \
 		'scripts/pre-push' | while IFS= read -r path; do
+			[ -f "$REPO_ROOT/$path" ] || continue
 			if is_candidate_path "$path" && ! is_skipped_path "$path"; then
 				scan_file "$REPO_ROOT/$path" "$path"
 			fi

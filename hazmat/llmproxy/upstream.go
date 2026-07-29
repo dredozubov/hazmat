@@ -11,14 +11,13 @@ type UpstreamKind string
 
 const (
 	UpstreamKindOpenAICompatible UpstreamKind = "openai-compatible"
-	UpstreamKindMuginn           UpstreamKind = "muginn"
 )
 
 type CredentialMode string
 
 const (
 	CredentialModeUnmanaged         CredentialMode = "unmanaged"
-	CredentialModeMuginnSide        CredentialMode = "muginn-side"
+	CredentialModeUpstreamBearer    CredentialMode = "upstream-bearer"
 	CredentialModeProxySessionToken CredentialMode = "proxy-session-token"
 )
 
@@ -31,9 +30,9 @@ type UpstreamConfig struct {
 	SanitizeFailures     bool
 }
 
-type MuginnUpstreamConfig struct {
+type BearerUpstreamConfig struct {
 	BaseURL              string
-	CallerToken          string
+	BearerToken          string
 	ModelUpdatesRequired bool
 }
 
@@ -60,20 +59,20 @@ type normalizedUpstream struct {
 	sanitizeFailures     bool
 }
 
-func NewMuginnUpstream(config MuginnUpstreamConfig) (UpstreamConfig, error) {
+func NewBearerUpstream(config BearerUpstreamConfig) (UpstreamConfig, error) {
 	baseURL := strings.TrimSpace(config.BaseURL)
 	if baseURL == "" {
-		return UpstreamConfig{}, errors.New("llmproxy: muginn base URL is required")
+		return UpstreamConfig{}, errors.New("llmproxy: upstream base URL is required")
 	}
-	callerToken := strings.TrimSpace(config.CallerToken)
-	if callerToken == "" {
-		return UpstreamConfig{}, errors.New("llmproxy: muginn caller token is required")
+	bearerToken := strings.TrimSpace(config.BearerToken)
+	if bearerToken == "" {
+		return UpstreamConfig{}, errors.New("llmproxy: upstream bearer token is required")
 	}
 	return UpstreamConfig{
-		Kind:                 UpstreamKindMuginn,
+		Kind:                 UpstreamKindOpenAICompatible,
 		BaseURL:              baseURL,
-		BearerToken:          callerToken,
-		CredentialMode:       CredentialModeMuginnSide,
+		BearerToken:          bearerToken,
+		CredentialMode:       CredentialModeUpstreamBearer,
 		ModelUpdatesRequired: config.ModelUpdatesRequired,
 		SanitizeFailures:     true,
 	}, nil
@@ -82,9 +81,6 @@ func NewMuginnUpstream(config MuginnUpstreamConfig) (UpstreamConfig, error) {
 func (c UpstreamConfig) Plan() UpstreamPlan {
 	kind := normalizeUpstreamKind(c.Kind)
 	credentialMode := normalizeCredentialMode(c.CredentialMode)
-	if kind == UpstreamKindMuginn && credentialMode == CredentialModeUnmanaged {
-		credentialMode = CredentialModeMuginnSide
-	}
 	plan := UpstreamPlan{
 		Kind:                       kind,
 		BaseURL:                    strings.TrimSpace(c.BaseURL),
@@ -110,10 +106,7 @@ func normalizeUpstreamConfig(config UpstreamConfig, fallbackBaseURL string) (nor
 	}
 	kind := normalizeUpstreamKind(config.Kind)
 	credentialMode := normalizeCredentialMode(config.CredentialMode)
-	if kind == UpstreamKindMuginn {
-		if credentialMode == CredentialModeUnmanaged {
-			credentialMode = CredentialModeMuginnSide
-		}
+	if credentialMode == CredentialModeUpstreamBearer {
 		config.SanitizeFailures = true
 	}
 	upstreamURL, err := url.Parse(strings.TrimSpace(config.BaseURL))
@@ -123,8 +116,8 @@ func normalizeUpstreamConfig(config UpstreamConfig, fallbackBaseURL string) (nor
 	if upstreamURL.Scheme != "http" && upstreamURL.Scheme != "https" || upstreamURL.Host == "" {
 		return normalizedUpstream{}, errors.New("llmproxy: upstream base URL must be http or https")
 	}
-	if kind == UpstreamKindMuginn && strings.TrimSpace(config.BearerToken) == "" {
-		return normalizedUpstream{}, errors.New("llmproxy: muginn caller token is required")
+	if credentialMode == CredentialModeUpstreamBearer && strings.TrimSpace(config.BearerToken) == "" {
+		return normalizedUpstream{}, errors.New("llmproxy: upstream bearer token is required")
 	}
 	return normalizedUpstream{
 		kind:                 kind,
@@ -162,8 +155,6 @@ func normalizeUpstreamKind(kind UpstreamKind) UpstreamKind {
 	switch kind {
 	case "", UpstreamKindOpenAICompatible:
 		return UpstreamKindOpenAICompatible
-	case UpstreamKindMuginn:
-		return UpstreamKindMuginn
 	default:
 		return UpstreamKindOpenAICompatible
 	}
@@ -171,7 +162,7 @@ func normalizeUpstreamKind(kind UpstreamKind) UpstreamKind {
 
 func knownUpstreamKind(kind UpstreamKind) bool {
 	switch kind {
-	case "", UpstreamKindOpenAICompatible, UpstreamKindMuginn:
+	case "", UpstreamKindOpenAICompatible:
 		return true
 	default:
 		return false
@@ -182,7 +173,7 @@ func normalizeCredentialMode(mode CredentialMode) CredentialMode {
 	switch mode {
 	case "", CredentialModeUnmanaged:
 		return CredentialModeUnmanaged
-	case CredentialModeMuginnSide, CredentialModeProxySessionToken:
+	case CredentialModeUpstreamBearer, CredentialModeProxySessionToken:
 		return mode
 	default:
 		return CredentialModeUnmanaged
@@ -191,7 +182,7 @@ func normalizeCredentialMode(mode CredentialMode) CredentialMode {
 
 func knownCredentialMode(mode CredentialMode) bool {
 	switch mode {
-	case "", CredentialModeUnmanaged, CredentialModeMuginnSide, CredentialModeProxySessionToken:
+	case "", CredentialModeUnmanaged, CredentialModeUpstreamBearer, CredentialModeProxySessionToken:
 		return true
 	default:
 		return false

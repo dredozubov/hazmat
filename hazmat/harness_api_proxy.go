@@ -1,61 +1,45 @@
 package hazmat
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
+	"hazmat/llmproxy"
 	"hazmat/llmproxyadapter"
 )
 
 type apiProxyMode string
 
 const (
-	apiProxyModeNone   apiProxyMode = "none"
-	apiProxyModeMuginn apiProxyMode = "muginn"
-
-	defaultMuginnProxyModel = "muginn/subscription-auto"
-	envHazmatMuginnctl      = "HAZMAT_MUGINNCTL"
-	envHazmatMuginnOpsDir   = "HAZMAT_MUGINN_OPS_DIR"
+	apiProxyModeNone             apiProxyMode = "none"
+	apiProxyModeOpenAICompatible apiProxyMode = "openai-compatible"
 )
 
-type muginnProxyRuntimeInfo struct {
-	Schema             string `json:"schema"`
-	Listen             string `json:"listen"`
-	Upstream           string `json:"upstream"`
-	Caller             string `json:"caller"`
-	OpenAIBaseURL      string `json:"openai_base_url"`
-	OpenAIAPIKey       string `json:"openai_api_key"`
-	OpenAIModel        string `json:"openai_model"`
-	WorkUnitMode       string `json:"work_unit_mode"`
-	WorkUnitKeyPresent bool   `json:"work_unit_key_present"`
+type openAICompatibleProxyInput struct {
+	baseURL string
+	apiKey  string
 }
-
-type commandOutputRunner func(name string, args ...string) ([]byte, []byte, error)
-
-var (
-	startMuginnOpenAIProxy                     = defaultStartMuginnOpenAIProxy
-	runCommandOutput       commandOutputRunner = defaultRunCommandOutput
-)
 
 func parseAPIProxyMode(raw string) (apiProxyMode, error) {
 	switch mode := apiProxyMode(strings.ToLower(strings.TrimSpace(raw))); mode {
 	case "", apiProxyModeNone:
 		return apiProxyModeNone, nil
-	case apiProxyModeMuginn:
-		return apiProxyModeMuginn, nil
+	case apiProxyModeOpenAICompatible:
+		return apiProxyModeOpenAICompatible, nil
 	default:
-		return "", fmt.Errorf("unsupported --api-proxy mode %q (want none or muginn)", raw)
+		return "", fmt.Errorf("unsupported --api-proxy mode %q (want none or openai-compatible)", raw)
 	}
 }
 
-func validateAPIProxySession(cfg sessionConfig, mode sessionMode, proxyMode apiProxyMode) error {
+func validateAPIProxySession(cfg sessionConfig, mode sessionMode, proxyMode apiProxyMode, explicit bool) error {
 	if proxyMode == apiProxyModeNone {
 		return nil
+	}
+	if !explicit {
+		return fmt.Errorf("--api-proxy=%s must be selected explicitly", proxyMode)
 	}
 	if cfg.HarnessID != HarnessHermes {
 		return fmt.Errorf("--api-proxy=%s is supported only for hazmat hermes in this release", proxyMode)
@@ -64,7 +48,7 @@ func validateAPIProxySession(cfg sessionConfig, mode sessionMode, proxyMode apiP
 		return fmt.Errorf("--api-proxy=%s is supported only for native sessions; use --docker=none", proxyMode)
 	}
 	if normalizeSessionNetworkMode(cfg.NetworkMode) == sessionNetworkNone {
-		return fmt.Errorf("--api-proxy=%s requires native network access to the loopback proxy; remove --network none", proxyMode)
+		return fmt.Errorf("--api-proxy=%s requires native network access to the configured endpoint; remove --network none", proxyMode)
 	}
 	return nil
 }
@@ -73,37 +57,28 @@ func applyHarnessCredentialEnvForSession(cfg *sessionConfig, proxyMode apiProxyM
 	switch proxyMode {
 	case apiProxyModeNone:
 		return applyHarnessAPIKeyEnvForSession(cfg, planOnly)
-	case apiProxyModeMuginn:
-		return applyMuginnAPIProxyEnvForSession(cfg, planOnly)
+	case apiProxyModeOpenAICompatible:
+		return applyOpenAICompatibleAPIProxyEnvForSession(cfg)
 	default:
 		return fmt.Errorf("unsupported API proxy mode %q", proxyMode)
 	}
 }
 
-func applyMuginnAPIProxyEnvForSession(cfg *sessionConfig, planOnly bool) error {
-	info := plannedMuginnProxyRuntimeInfo()
-	if !planOnly {
-		var err error
-		info, err = startMuginnOpenAIProxy(defaultMuginnProxyModel)
-		if err != nil {
-			return err
-		}
-	}
-	if err := validateMuginnProxyRuntimeInfo(info, defaultMuginnProxyModel); err != nil {
+func applyOpenAICompatibleAPIProxyEnvForSession(cfg *sessionConfig) error {
+	input, err := openAICompatibleProxyInputFromEnvironment()
+	if err != nil {
 		return err
 	}
 
 	additionalEnv := copyStringMap(cfg.HarnessEnv)
-	if additionalEnv == nil {
-		additionalEnv = make(map[string]string, 1)
-	}
-	additionalEnv["OPENAI_MODEL"] = info.OpenAIModel
+	delete(additionalEnv, "OPENAI_MODEL")
 	plan, err := llmproxyadapter.PlanEnv(llmproxyadapter.Request{
 		Harness:              cfg.HarnessID,
-		ProxyBaseURL:         info.OpenAIBaseURL,
-		SessionToken:         info.OpenAIAPIKey,
+		ProxyBaseURL:         input.baseURL,
+		SessionToken:         input.apiKey,
+		ProviderEnv:          cfg.HarnessEnv,
 		AdditionalEnv:        additionalEnv,
-		ModelUpdatesRequired: true,
+		ModelUpdatesRequired: false,
 	})
 	if err != nil {
 		return err
@@ -111,103 +86,69 @@ func applyMuginnAPIProxyEnvForSession(cfg *sessionConfig, planOnly bool) error {
 	cfg.HarnessEnv = envPairsToMap(plan.EnvPairs())
 	cfg.CredentialEnvGrants = appendSessionCredentialEnvGrant(cfg.CredentialEnvGrants, sessionCredentialEnvGrant{
 		EnvVar:          "OPENAI_API_KEY",
-		Source:          "Muginn local proxy session token",
+		Source:          "invoking environment proxy token",
 		ConsumerHarness: cfg.HarnessID,
 	})
-	cfg.ServiceAccess = appendUniqueString(cfg.ServiceAccess, "muginn-api-proxy")
+	cfg.ServiceAccess = appendUniqueString(cfg.ServiceAccess, "openai-compatible-api-proxy")
 	cfg.SessionNotes = append(cfg.SessionNotes,
-		"Hermes OpenAI-compatible traffic is routed through the Muginn local proxy using model "+info.OpenAIModel+"; durable provider keys are not injected into the Hermes process.",
+		"Hermes OpenAI-compatible traffic is routed through the configured external endpoint; endpoint lifecycle and model discovery stay outside Hazmat, and durable provider keys are not injected into the Hermes process.",
 	)
 	return nil
 }
 
-func plannedMuginnProxyRuntimeInfo() muginnProxyRuntimeInfo {
-	return muginnProxyRuntimeInfo{
-		Schema:             "muginnctl.proxy.openai.v1",
-		Listen:             "http://127.0.0.1:0",
-		Upstream:           "muginn",
-		Caller:             "configured by muginnctl",
-		OpenAIBaseURL:      "http://127.0.0.1:0/v1",
-		OpenAIAPIKey:       "muginn-local-proxy-token",
-		OpenAIModel:        defaultMuginnProxyModel,
-		WorkUnitMode:       "launch",
-		WorkUnitKeyPresent: true,
-	}
+func openAICompatibleProxyInputFromEnvironment() (openAICompatibleProxyInput, error) {
+	return newOpenAICompatibleProxyInput(
+		os.Getenv(llmproxy.OpenAIBaseURLEnv),
+		os.Getenv(llmproxy.OpenAIAPIKeyEnv),
+	)
 }
 
-func defaultStartMuginnOpenAIProxy(model string) (muginnProxyRuntimeInfo, error) {
-	name, args := muginnProxyStartCommand(model)
-	stdout, stderr, err := runCommandOutput(name, args...)
-	if err != nil {
-		detail := oneLine(string(stderr))
-		return muginnProxyRuntimeInfo{}, fmt.Errorf("start Muginn OpenAI proxy with %s: %w: %s", name, err, detail)
+func newOpenAICompatibleProxyInput(baseURL, apiKey string) (openAICompatibleProxyInput, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	apiKey = strings.TrimSpace(apiKey)
+	if baseURL == "" || apiKey == "" {
+		return openAICompatibleProxyInput{}, fmt.Errorf(
+			"--api-proxy=%s requires %s and %s together in the invoking environment",
+			apiProxyModeOpenAICompatible,
+			llmproxy.OpenAIBaseURLEnv,
+			llmproxy.OpenAIAPIKeyEnv,
+		)
 	}
-	var info muginnProxyRuntimeInfo
-	if err := json.Unmarshal(stdout, &info); err != nil {
-		return muginnProxyRuntimeInfo{}, fmt.Errorf("parse Muginn proxy startup JSON: %w", err)
+	if err := validateOpenAICompatibleBaseURL(baseURL); err != nil {
+		return openAICompatibleProxyInput{}, err
 	}
-	return info, nil
+	return openAICompatibleProxyInput{baseURL: baseURL, apiKey: apiKey}, nil
 }
 
-func muginnProxyStartCommand(model string) (string, []string) {
-	muginnctl := configuredMuginnctlPath()
-	args := []string{"proxy", "start", "--daemon", "--model", model, "--output", "json"}
-	if opsDir := configuredMuginnOpsDir(); opsDir != "" {
-		return "direnv", append([]string{"exec", opsDir, muginnctl}, args...)
+func validateOpenAICompatibleBaseURL(raw string) error {
+	endpoint, err := url.Parse(raw)
+	if err != nil ||
+		!endpoint.IsAbs() ||
+		endpoint.Opaque != "" ||
+		endpoint.Hostname() == "" ||
+		endpoint.User != nil ||
+		endpoint.RawQuery != "" ||
+		endpoint.Fragment != "" {
+		return fmt.Errorf("%s must be an absolute HTTPS URL or loopback HTTP URL without credentials, query, or fragment", llmproxy.OpenAIBaseURLEnv)
 	}
-	return muginnctl, args
-}
 
-func configuredMuginnctlPath() string {
-	if value := strings.TrimSpace(os.Getenv(envHazmatMuginnctl)); value != "" {
-		return value
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		path := filepath.Join(home, "workspace", "muginn", "muginnctl")
-		if executableFile(path) {
-			return path
+	switch strings.ToLower(endpoint.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if openAICompatibleLoopbackHost(endpoint.Hostname()) {
+			return nil
 		}
 	}
-	return "muginnctl"
+	return fmt.Errorf("%s must use HTTPS or loopback HTTP", llmproxy.OpenAIBaseURLEnv)
 }
 
-func configuredMuginnOpsDir() string {
-	if value, ok := os.LookupEnv(envHazmatMuginnOpsDir); ok {
-		value = strings.TrimSpace(value)
-		if value == "-" {
-			return ""
-		}
-		return value
+func openAICompatibleLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		path := filepath.Join(home, "ops")
-		if directoryExists(path) {
-			return path
-		}
-	}
-	return ""
-}
-
-func defaultRunCommandOutput(name string, args ...string) ([]byte, []byte, error) {
-	cmd := exec.Command(name, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
-}
-
-func validateMuginnProxyRuntimeInfo(info muginnProxyRuntimeInfo, wantModel string) error {
-	if strings.TrimSpace(info.OpenAIBaseURL) == "" {
-		return fmt.Errorf("Muginn proxy did not report openai_base_url")
-	}
-	if strings.TrimSpace(info.OpenAIAPIKey) == "" {
-		return fmt.Errorf("Muginn proxy did not report a local openai_api_key")
-	}
-	if strings.TrimSpace(info.OpenAIModel) != wantModel {
-		return fmt.Errorf("Muginn proxy model = %q, want %q; stop the existing proxy and retry", info.OpenAIModel, wantModel)
-	}
-	return nil
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func envPairsToMap(pairs []string) map[string]string {
@@ -246,14 +187,4 @@ func appendUniqueString(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
-}
-
-func executableFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
-}
-
-func directoryExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }

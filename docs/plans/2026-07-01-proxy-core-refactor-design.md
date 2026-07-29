@@ -33,9 +33,10 @@ Two near-term proxy use cases need the same lower-level machinery:
    wrapper command that the contained harness starts as its MCP server. The
    wrapper launches the real server as a child, proxies JSON-RPC, and records or
    enforces policy on MCP messages.
-2. Inference API proxying through Muginn. A contained harness should talk to a
-   local session-scoped endpoint, while host-side Hazmat or Muginn handles
-   upstream provider routing, credentials, logging policy, and streaming.
+2. Inference through an externally managed OpenAI-compatible endpoint. A
+   contained harness should receive only an explicit endpoint URL and token,
+   while the external facade handles provider routing, credentials, logging
+   policy, model discovery, and streaming.
 
 Today, Hazmat has the core ingredients, but they are not exposed as a clean
 surface for proxy code:
@@ -87,8 +88,8 @@ Responsibilities:
 - expose env pairs and cleanup handles;
 - return redaction-safe plan/evidence DTOs.
 
-It should not know about MCP, OpenAI, Muginn, HTTP, JSON-RPC, Cobra, terminal UI,
-or harness config file formats.
+It should not know about MCP, OpenAI, provider-specific control planes, HTTP,
+JSON-RPC, Cobra, terminal UI, or harness config file formats.
 
 Sketch:
 
@@ -181,8 +182,7 @@ type Event struct {
 Protocol frontends should be small packages:
 
 - `mcpproxy` for MCP JSON-RPC;
-- `llmproxy` for OpenAI-compatible HTTP/SSE first, with Muginn as the initial
-  upstream routing target.
+- `llmproxy` for provider-neutral OpenAI-compatible HTTP/SSE forwarding.
 
 Each frontend owns protocol validation and forwarding. Neither owns session
 launch, credential materialization, cleanup, or backend policy compilation.
@@ -227,28 +227,28 @@ credential/policy mediation only.
 
 ## Inference API Proxy Design
 
-The first API proxy should be a session-scoped HTTP/SSE proxy for
-OpenAI-compatible inference traffic routed through Muginn.
+The first API adapter should consume an already-running OpenAI-compatible
+endpoint without knowing its implementation.
 
-User-facing shape is still open, but the runtime shape should be:
+Runtime shape:
 
-1. Hazmat starts a host-side local proxy for one session.
-2. The proxy binds only to a local attach point, preferably `127.0.0.1` with a
-   per-session token or a Unix-domain socket where the harness supports it.
-3. The contained harness receives only proxy base URL and session token.
-4. Provider credentials stay host-side or Muginn-side.
-5. Direct provider egress is denied or made unnecessary where the selected
-   backend can enforce that honestly.
+1. The operator starts and authenticates the endpoint outside Hazmat.
+2. The operator explicitly selects `--api-proxy=openai-compatible` with
+   `OPENAI_BASE_URL` and `OPENAI_API_KEY` present together.
+3. Hazmat validates the URL/token pair without starting or discovering a
+   helper process.
+4. The contained harness receives only that URL and token.
+5. Provider credentials, routing, model discovery, and model changes remain
+   facade-side.
 
 MVP behavior:
 
-- OpenAI-compatible request forwarding;
-- streaming SSE pass-through;
-- bearer/session-token validation on inbound calls;
-- upstream base URL configured as Muginn;
-- request/response metadata logging with body logging disabled by default;
-- redaction of auth headers, cookies, tokens, and provider keys;
-- provider-specific unsupported endpoints fail closed with clear errors.
+- typed, atomic environment input;
+- HTTPS or loopback-HTTP endpoint policy;
+- no stored-provider-key fallback;
+- redaction of the facade token;
+- no model injection or provider-specific response parsing;
+- unsupported endpoint or session shapes fail before launch.
 
 This is not MCP containment. It is inference egress brokering. It controls model
 traffic and credentials, but it does not constrain arbitrary local tools unless
@@ -275,7 +275,7 @@ Initial MCP adapter targets:
 Initial API adapter targets:
 
 - harnesses that accept OpenAI-compatible base URL and API key env vars;
-- Muginn-controlled provider routing;
+- externally controlled provider routing and standard model discovery;
 - no OAuth/profile import in the first pass.
 
 ## Evidence And Policy
@@ -417,17 +417,17 @@ Acceptance:
 - downstream stderr is not mixed into JSON-RPC stdout;
 - remote HTTP MCP is documented as out of scope.
 
-### Phase 5: API Proxy Through Muginn
+### Phase 5: External OpenAI-Compatible API Adapter
 
-Add OpenAI-compatible HTTP/SSE proxy support.
+Add explicit configuration-only endpoint attachment.
 
 Acceptance:
 
-- fake Muginn/upstream server;
-- streaming pass-through test;
-- auth header redaction test;
-- unsupported endpoint rejection test;
-- contained harness receives only local proxy env;
+- fake generic facade configuration;
+- URL and paired-token validation tests;
+- executable non-discovery regression test;
+- model non-injection test;
+- contained harness receives only generic proxy env;
 - direct provider key is not exposed to the agent env in supported mode.
 
 ### Phase 6: Additional Adapters
@@ -458,7 +458,7 @@ Default tests should remain hermetic and non-sudo:
 Approval-gated tests should be separate:
 
 - live local stdio MCP wrapper smoke;
-- live API proxy to Muginn smoke;
+- live API proxy to an operator-managed endpoint;
 - native helper-backed launch smoke;
 - any `hazmat check --full` or helper-backed validation.
 
@@ -469,7 +469,8 @@ Do not add these to the default unit suite.
 - Should the public command be `hazmat mcp proxy` or `hazmat proxy mcp`?
 - Should the API proxy command be user-facing, or only an implementation detail
   activated by a harness adapter?
-- Which first API-compatible harness should receive Muginn proxy injection?
+- Which additional API-compatible harness should receive generic proxy
+  injection?
 - Does the first API proxy bind to localhost HTTP, Unix-domain socket, or both?
 - Should proxy evidence reuse runtime authority trace storage, or get a separate
   event log namespace?

@@ -1,7 +1,7 @@
 // Package sessionlaunch defines Hazmat's reusable session preparation facade.
 //
 // The package is data-only: it does not know about Cobra commands, protocol
-// frontends, harness config files, MCP, HTTP, OpenAI, or Muginn.
+// frontends, harness config files, MCP, HTTP, OpenAI, or upstream providers.
 package sessionlaunch
 
 import (

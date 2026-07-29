@@ -18,7 +18,7 @@ Recipes are a **Community** support surface. They are useful, but they are not a
 - [Gemini + TLA+](gemini-tla.md)
 - [AGENTS.md Hazmat security snippet](agents-md.md)
 - [Local MCP servers under Hazmat](mcp-servers.md)
-- [Inference API proxy through Muginn](inference-api-proxy.md)
+- [Inference through an OpenAI-compatible endpoint](inference-api-proxy.md)
 - [Local ACP agent under Hazmat](acp-local-agent.md)
 - [OpenHands under Hazmat](openhands-recipe-only.md)
 

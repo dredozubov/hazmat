@@ -318,7 +318,7 @@ func bindSessionFlags(cmd *cobra.Command, flags *sessionCommandFlags, opts sessi
 	cmd.Flags().StringVar(&flags.networkModeValue, "network", string(sessionNetworkDefault),
 		"Native network policy: default or none")
 	cmd.Flags().StringVar(&flags.apiProxyValue, "api-proxy", string(apiProxyModeNone),
-		"API proxy mode: none (default) or muginn")
+		"API proxy mode: none (default) or openai-compatible")
 	if opts.includeMetadataJSON {
 		cmd.Flags().BoolVar(&flags.metadataJSON, "metadata-json", false,
 			"Emit one machine-readable session metadata JSON line to stderr before launch")
@@ -1186,7 +1186,7 @@ func parseHarnessArgs(args []string) (harnessSessionOpts, []string, error) {
 			opts.networkMode = arg[len("--network="):]
 			opts.networkModeExplicit = true
 		case arg == "--api-proxy":
-			value, err := nextValue(&i, arg, "a mode (none, muginn)")
+			value, err := nextValue(&i, arg, "a mode (none, openai-compatible)")
 			if err != nil {
 				return opts, nil, err
 			}
@@ -1637,7 +1637,7 @@ func resolvePreparedSessionWithProgress(commandName string, opts harnessSessionO
 	if opts.auditInstall && mode != sessionModeNative {
 		return preparedSession{}, fmt.Errorf("--audit-install is currently supported only for native hazmat exec sessions; use --docker=none for install audit")
 	}
-	if err := validateAPIProxySession(cfg, mode, apiProxyMode); err != nil {
+	if err := validateAPIProxySession(cfg, mode, apiProxyMode, opts.apiProxyModeExplicit); err != nil {
 		return preparedSession{}, err
 	}
 

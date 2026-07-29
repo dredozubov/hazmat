@@ -1,99 +1,84 @@
-# Inference API Proxy Through Muginn
+# Inference Through an OpenAI-Compatible Endpoint
 
-Use this shape when a contained harness can talk to an OpenAI-compatible local
-API endpoint and provider routing should stay outside the harness process.
+Use this shape when a contained harness should send inference traffic through
+an OpenAI-compatible facade whose lifecycle and provider routing stay outside
+Hazmat.
 
-The API proxy is inference egress brokering. It is not MCP containment and it is
-not full tool containment. Hazmat still relies on the selected session backend
-for filesystem, process, and network boundaries.
+The adapter is inference egress configuration. It is not MCP containment, an
+endpoint process manager, or full tool containment. Hazmat still relies on the
+selected session backend for filesystem, process, and network boundaries.
 
 ## Runtime Shape
 
-1. Hazmat starts a session-scoped local HTTP/SSE proxy.
-2. The proxy binds only to a local attach point, such as `127.0.0.1`, and
-   requires a per-session token.
-3. The contained harness receives only the local proxy base URL and that
-   session token.
-4. The proxy forwards supported OpenAI-compatible routes to Muginn.
-5. Durable provider keys stay host-side or Muginn-side.
+1. The operator starts and authenticates an OpenAI-compatible endpoint outside
+   Hazmat.
+2. The operator exports `OPENAI_BASE_URL` and `OPENAI_API_KEY` together.
+3. Hazmat validates the pair only after explicit proxy-mode selection.
+4. The contained Hermes process receives that URL and token.
+5. Endpoint lifecycle, provider credentials, routing, model discovery, and
+   model changes remain outside Hazmat.
 
-Supported proxy routes currently include:
-
-| Route | Behavior |
-| --- | --- |
-| `POST /v1/responses` | Forwarded to the configured upstream |
-| `POST /v1/chat/completions` | Forwarded, including SSE streaming responses |
-| `POST /v1/embeddings` | Forwarded |
-
-Unsupported endpoints fail closed before any upstream request is made.
+Hazmat never searches for or executes an endpoint helper. It does not fall back
+to the stored OpenAI provider key when the environment pair is missing or
+partial.
 
 ## Hermes Adapter
 
-Hermes is the first supported API proxy env adapter because Hazmat already
-launches it as a foreground process with managed `HERMES_HOME`, and Hermes v1
-does not import host `~/.hermes` profile state.
+Hermes is the first supported adapter because Hazmat already launches it as a
+foreground process with managed `HERMES_HOME` and does not import host
+`~/.hermes` state.
 
-Start a Hermes session through the local Muginn proxy with:
+Start the facade separately, then export its standard client configuration:
 
 ```bash
-hazmat hermes --api-proxy=muginn -- chat --model muginn/subscription-auto
+export OPENAI_BASE_URL=http://127.0.0.1:18743/v1
+export OPENAI_API_KEY='<facade-access-token>'
+hazmat hermes --api-proxy=openai-compatible -- chat
 ```
 
-On this workstation, Hazmat defaults to
-`direnv exec ~/ops ~/workspace/muginn/muginnctl proxy start --daemon --model muginn/subscription-auto --output json`
-when `~/ops` and `~/workspace/muginn/muginnctl` exist. Override with
-`HAZMAT_MUGINNCTL` or `HAZMAT_MUGINN_OPS_DIR`; set
-`HAZMAT_MUGINN_OPS_DIR=-` to run `muginnctl` without the ops direnv profile.
+The mode is native-only and needs session network access. HTTPS endpoints are
+accepted. Plain HTTP is accepted only for `localhost` or an IP loopback
+address. URLs containing credentials, query parameters, or fragments are
+rejected.
 
-The adapter renders:
+Hazmat deliberately does not inject `OPENAI_MODEL`. Hermes and the endpoint can
+use standard `GET /v1/models` discovery, and model IDs are treated as opaque
+strings. A selected model can be passed through Hermes normally:
 
-```text
-OPENAI_BASE_URL=http://127.0.0.1:<port>
-OPENAI_API_KEY=<session-token>
+```bash
+hazmat hermes --api-proxy=openai-compatible -- chat --model '<model-id>'
 ```
-
-That `OPENAI_API_KEY` value is the local proxy session token, not a durable
-provider key. Existing provider env vars such as `ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `GEMINI_API_KEY`, and `OPENROUTER_API_KEY` are excluded in
-proxy mode.
 
 ## Credential Boundary
 
+Proxy mode consumes exactly the invoking environment pair. Existing provider
+environment values such as `ANTHROPIC_API_KEY`, a stored `OPENAI_API_KEY`,
+`GEMINI_API_KEY`, and `OPENROUTER_API_KEY` are not substituted or forwarded by
+the adapter.
+
 The contained harness should not receive:
 
-- Muginn caller tokens
-- provider API keys
-- host provider profile files
-- OAuth or subscription profile state
-- host `~/.hermes`, `~/.codex`, `~/.claude`, or similar harness roots
+- durable provider API keys unrelated to the facade;
+- host provider profile files;
+- OAuth or subscription profile state;
+- host `~/.hermes`, `~/.codex`, `~/.claude`, or similar harness roots.
 
-The host-side proxy may add a Muginn caller token on the upstream leg. Proxy
-evidence records the credential mode and redaction markers, not raw token
-bytes.
+Session plans record the `OPENAI_API_KEY` grant as redacted and never print its
+value.
 
-## Errors And Streaming
+## Errors and Testing
 
-Streaming responses with `Content-Type: text/event-stream` are passed through
-without buffering the full stream. Proxy evidence records `stream:start` and
-`stream:end`.
-
-Muginn upstream failure bodies are sanitized before they are returned to the
-harness, so provider or routing secrets in an upstream error body are not echoed
-back into the contained process.
-
-## Testing Boundary
+Missing or partial environment input, unsafe endpoint URLs, unsupported
+harnesses, non-native backends, and `--network none` fail before harness
+launch.
 
 Default tests are hermetic and non-sudo:
 
 ```bash
 go test ./llmproxy ./llmproxyadapter
+go test . -run 'Test(HermesOpenAICompatible|OpenAICompatible)'
 ```
 
-Those tests use fake upstream and fake Muginn servers. They cover non-streaming
-forwarding, SSE pass-through, auth failure, unsupported endpoints, upstream
-error sanitization, provider-key absence, and response-body cleanup.
-
-Live Muginn validation is approval-gated. Do not make it part of default local
-or CI test runs. If a future smoke script starts a real Muginn path or mints a
-caller token, treat the exact command as sudo-adjacent in Hazmat agent
-workflows and ask before running it.
+The tests cover typed input validation, URL policy, provider-key exclusion,
+model non-injection, redaction, and a regression fixture proving that a
+discoverable executable is not run.

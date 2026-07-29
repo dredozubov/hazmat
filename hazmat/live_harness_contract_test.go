@@ -149,10 +149,6 @@ func assertLiveHarnessRowComplete(t *testing.T, row liveHarnessContractRow, mark
 			t.Fatalf("%s auth_token_mapping missing %s", row.ID, key)
 		}
 	}
-	if strings.Contains(strings.Join(liveContractMapValues(row.AuthTokenMapping), "\n"), "MUGINN") ||
-		strings.Contains(strings.ToLower(strings.Join(liveContractMapValues(row.AuthTokenMapping), "\n")), "muginn") {
-		t.Fatalf("%s auth_token_mapping must not depend on Muginn", row.ID)
-	}
 	switch row.AuthTokenMapping["mode"] {
 	case "direct-provider-secret":
 		if len(row.DirectProviderTokens) == 0 {
@@ -228,12 +224,4 @@ func liveContractContainsString(values []string, want string) bool {
 
 func liveContractContainsJoined(values []string, want string) bool {
 	return strings.Contains(strings.Join(values, "\x00"), want)
-}
-
-func liveContractMapValues(values map[string]string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		out = append(out, value)
-	}
-	return out
 }

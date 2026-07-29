@@ -473,11 +473,6 @@ assert_fails_with \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --output-dir /tmp/hazmat-live-harness-guard
 
 assert_fails_with \
-    "live harness token broker requires issue ack" \
-    "refusing token issue without --i-understand-this-mints-live-harness-token" \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --output-env /tmp/hazmat-live-harness-token.env
-
-assert_fails_with \
     "live harness matrix rejects relative output dir" \
     "--output-dir must be absolute" \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --emit-skip-evidence --os-lane linux-current-user --output-dir relative
@@ -507,30 +502,6 @@ assert_fails_with \
     -u HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY \
     -u HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh" --run --i-understand-this-runs-live-harness-matrix --harness claude --os-lane macos-agent-user --output-dir /tmp/hazmat-live-harness-guard
-
-assert_fails_with \
-    "live harness token broker rejects malformed JSON" \
-    "token command did not print JSON" \
-    env MUGINN_LIVE_HARNESS_TOKEN_CMD='printf nope' \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
-
-assert_fails_with \
-    "live harness token broker rejects overlong TTL" \
-    "ttl_seconds must be 1..3600" \
-    env -u GITHUB_ACTIONS MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=7200 \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
-
-assert_fails_with \
-    "live harness token broker rejects expired token" \
-    "expires_at is expired" \
-    env MUGINN_LIVE_HARNESS_TOKEN_CMD='python3 -c "import json; print(json.dumps({\"token\":\"caller-expired-token\",\"ttl_seconds\":60,\"caller_id\":\"guard\",\"expires_at\":\"2000-01-01T00:00:00Z\"}))"' \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
-
-assert_fails_with \
-    "live harness token broker rejects static CI fallback" \
-    "CI requires MUGINN_LIVE_HARNESS_TOKEN_CMD" \
-    env GITHUB_ACTIONS=true MUGINN_LIVE_HARNESS_CALLER_TOKEN=caller-test-token MUGINN_LIVE_HARNESS_TOKEN_TTL_SECONDS=60 \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh" --issue-token --i-understand-this-mints-live-harness-token --output-env /tmp/hazmat-live-harness-token.env
 
 assert_fails_with \
     "Darwin trace prerequisite check requires DTrace ack" \
@@ -693,11 +664,6 @@ assert_succeeds_with \
     "live harness matrix defaults to disclosure" \
     "live-harness-matrix: disclosure-only" \
     bash "$REPO_ROOT/scripts/check-live-harness-matrix.sh"
-
-assert_succeeds_with \
-    "live harness token broker defaults to disclosure" \
-    "live-harness-token: disclosure-only" \
-    bash "$REPO_ROOT/scripts/mint-live-harness-token.sh"
 
 phase "Live harness artifact guards"
 

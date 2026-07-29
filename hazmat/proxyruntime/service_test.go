@@ -197,7 +197,7 @@ func validServiceRequest() ServiceRequest {
 		ServiceKind:       ServiceKindProxyAPI,
 		SessionID:         "session-1",
 		ProxyKind:         ProxyKindLLMHTTP,
-		Downstream:        DownstreamIdentity{ID: "muginn"},
+		Downstream:        DownstreamIdentity{ID: "external-facade"},
 		Backend:           sessionbackend.KindDockerSandbox,
 		RequiresContainer: true,
 		Attach: ServiceAttach{

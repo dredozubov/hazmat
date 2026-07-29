@@ -13,8 +13,8 @@ import (
 	"hazmat/sessionbackend"
 )
 
-func TestMuginnUpstreamAddsHostSideAuthAndRecordsCredentialMode(t *testing.T) {
-	const muginnToken = "muginn-caller-token"
+func TestBearerUpstreamAddsHostSideAuthAndRecordsCredentialMode(t *testing.T) {
+	const upstreamToken = "facade-access-token"
 	var upstreamAuth string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuth = r.Header.Get("Authorization")
@@ -33,13 +33,13 @@ func TestMuginnUpstreamAddsHostSideAuthAndRecordsCredentialMode(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	upstreamConfig, err := NewMuginnUpstream(MuginnUpstreamConfig{
+	upstreamConfig, err := NewBearerUpstream(BearerUpstreamConfig{
 		BaseURL:              upstream.URL,
-		CallerToken:          muginnToken,
+		BearerToken:          upstreamToken,
 		ModelUpdatesRequired: true,
 	})
 	if err != nil {
-		t.Fatalf("NewMuginnUpstream: %v", err)
+		t.Fatalf("NewBearerUpstream: %v", err)
 	}
 	var events []proxyruntime.Event
 	proxy, err := New(Config{
@@ -65,12 +65,12 @@ func TestMuginnUpstreamAddsHostSideAuthAndRecordsCredentialMode(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%q", res.Code, res.Body.String())
 	}
-	if upstreamAuth != "Bearer "+muginnToken {
-		t.Fatalf("upstream auth = %q, want Muginn caller token", upstreamAuth)
+	if upstreamAuth != "Bearer "+upstreamToken {
+		t.Fatalf("upstream auth = %q, want upstream bearer token", upstreamAuth)
 	}
 	plan := proxy.UpstreamPlan()
-	if plan.Kind != UpstreamKindMuginn ||
-		plan.CredentialMode != CredentialModeMuginnSide ||
+	if plan.Kind != UpstreamKindOpenAICompatible ||
+		plan.CredentialMode != CredentialModeUpstreamBearer ||
 		!plan.ModelUpdatesRequired ||
 		plan.ProviderCredentialInjected {
 		t.Fatalf("upstream plan = %+v", plan)
@@ -79,29 +79,29 @@ func TestMuginnUpstreamAddsHostSideAuthAndRecordsCredentialMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal plan: %v", err)
 	}
-	if strings.Contains(string(rawPlan), muginnToken) {
-		t.Fatalf("upstream plan leaked Muginn token: %s", rawPlan)
+	if strings.Contains(string(rawPlan), upstreamToken) {
+		t.Fatalf("upstream plan leaked bearer token: %s", rawPlan)
 	}
 	if got := eventOperations(events); !slices.Equal(got, []string{"POST /v1/responses"}) {
 		t.Fatalf("events = %v, want request event", got)
 	}
 }
 
-func TestMuginnUpstreamFailureIsBoundedAndRedacted(t *testing.T) {
-	const muginnToken = "muginn-caller-secret"
+func TestBearerUpstreamFailureIsBoundedAndRedacted(t *testing.T) {
+	const upstreamToken = "facade-access-secret"
 	const providerSecret = "provider-secret"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte("upstream failed with " + muginnToken + " and " + providerSecret))
+		_, _ = w.Write([]byte("upstream failed with " + upstreamToken + " and " + providerSecret))
 	}))
 	t.Cleanup(upstream.Close)
 
-	upstreamConfig, err := NewMuginnUpstream(MuginnUpstreamConfig{
+	upstreamConfig, err := NewBearerUpstream(BearerUpstreamConfig{
 		BaseURL:     upstream.URL,
-		CallerToken: muginnToken,
+		BearerToken: upstreamToken,
 	})
 	if err != nil {
-		t.Fatalf("NewMuginnUpstream: %v", err)
+		t.Fatalf("NewBearerUpstream: %v", err)
 	}
 	var events []proxyruntime.Event
 	proxy, err := New(Config{
@@ -126,14 +126,14 @@ func TestMuginnUpstreamFailureIsBoundedAndRedacted(t *testing.T) {
 	if res.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, body=%q", res.Code, res.Body.String())
 	}
-	if strings.Contains(res.Body.String(), muginnToken) || strings.Contains(res.Body.String(), providerSecret) {
+	if strings.Contains(res.Body.String(), upstreamToken) || strings.Contains(res.Body.String(), providerSecret) {
 		t.Fatalf("bounded error leaked secret: %q", res.Body.String())
 	}
 	rawEvents, err := json.Marshal(events)
 	if err != nil {
 		t.Fatalf("marshal events: %v", err)
 	}
-	for _, secret := range []string{muginnToken, providerSecret} {
+	for _, secret := range []string{upstreamToken, providerSecret} {
 		if strings.Contains(string(rawEvents), secret) {
 			t.Fatalf("events leaked %q: %s", secret, rawEvents)
 		}
