@@ -37,11 +37,12 @@ SecretVals == Versions \cup {NoSecret}
 Phases ==
     {"idle",
      "recovering",
+     "probing",
      "materializing",
      "running",
      "harvesting",
      "removing"}
-ActivePhases == {"materializing", "running", "harvesting", "removing"}
+ActivePhases == {"probing", "materializing", "running", "harvesting", "removing"}
 
 VARIABLES
     phase,
@@ -160,7 +161,7 @@ BeginLaunch(h) ==
     /\ recovered = Harnesses
     /\ \A x \in Harnesses : agent[x] = NoSecret
     /\ \A x \in Harnesses : keychain[x] = NoSecret
-    /\ phase' = "materializing"
+    /\ phase' = "probing"
     /\ active' = h
     /\ baseline' = [baseline EXCEPT ![h] = host[h]]
     /\ UNCHANGED << host,
@@ -169,6 +170,25 @@ BeginLaunch(h) ==
                     conflicts,
                     latest,
                     recovered >>
+
+\* Harness version discovery may execute an agent-owned binary before the
+\* native sandbox is active. It must therefore finish before any host-owned
+\* credential is copied into the agent home.
+ProbeHarnessVersion(h) ==
+    /\ phase = "probing"
+    /\ h \in Harnesses
+    /\ active = h
+    /\ \A x \in Harnesses : agent[x] = NoSecret
+    /\ \A x \in Harnesses : keychain[x] = NoSecret
+    /\ phase' = "materializing"
+    /\ UNCHANGED << active,
+                    host,
+                    agent,
+                    keychain,
+                    conflicts,
+                    latest,
+                    recovered,
+                    baseline >>
 
 MaterializeStored(h) ==
     /\ phase = "materializing"
@@ -358,6 +378,7 @@ Next ==
     \/ \E h \in Harnesses : RecoverOne(h)
     \/ FinishRecover
     \/ \E h \in Harnesses : BeginLaunch(h)
+    \/ \E h \in Harnesses : ProbeHarnessVersion(h)
     \/ \E h \in Harnesses : MaterializeStored(h)
     \/ \E h \in Harnesses : MaterializeAbsent(h)
     \/ \E h \in Harnesses, v \in Versions : ToolRefresh(h, v)
@@ -423,6 +444,12 @@ NoCrossHarnessAgentExposure ==
 
 LaunchOnlyAfterRecovery ==
     phase \in ActivePhases => recovered = Harnesses
+
+NoSecretDuringPreSandboxProbe ==
+    phase = "probing" =>
+        \A h \in Harnesses :
+            /\ agent[h] = NoSecret
+            /\ keychain[h] = NoSecret
 
 IdleClearsSessionBaseline ==
     phase = "idle" =>

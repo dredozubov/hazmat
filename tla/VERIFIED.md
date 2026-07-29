@@ -990,7 +990,7 @@ hooksPath owner's own code.
 | Governed code | `hazmat/secret_store.go`, `hazmat/internal/credentialruntime/store.go` — host/agent secret file read/write/remove helpers |
 | Governed code | `hazmat/claude_keychain.go` — agent login keychain preparation |
 | Governed code | `hazmat/claude_keychain_harvest.go` — agent keychain read/clear for keychain-backed OAuth rotation; `reconcileKeychainResidueIntoAgentFile` in `hazmat/harness_auth_runtime.go` folds the keychain value into the file copy for uniform harvest/recovery |
-| Key invariants | `LatestValueNeverSilentlyLost`, `AgentKeychainNeverBothLive`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `IdleClearsSessionBaseline` |
+| Key invariants | `LatestValueNeverSilentlyLost`, `AgentKeychainNeverBothLive`, `CleanRecoveredStateHasNoAgentResidue`, `CleanRecoveredStateKeepsLatestHostOwned`, `NoCrossHarnessAgentExposure`, `LaunchOnlyAfterRecovery`, `NoSecretDuringPreSandboxProbe`, `IdleClearsSessionBaseline` |
 | Status | **Proved and implemented** — file-backed harness auth survives crash/restart interleavings without silently losing the latest known value; the model also covers keychain-backed OAuth rotation (rotated token lands in the agent login keychain while the file copy is emptied), and harvest/recovery promote whichever runtime sink is live. Implemented in `hazmat/claude_keychain_harvest.go` + `reconcileKeychainResidueIntoAgentFile` in `hazmat/harness_auth_runtime.go`; covered by `TestHermeticClaudeKeychainRotationLogout` (`hazmat/harness_claude_keychain_rotation_test.go`). |
 
 **What this verifies:**

@@ -497,8 +497,7 @@ func harvestClaudePortableSettings(home, runtimeHome string) error {
 	return writeJSONMapStoreFile(storePath, storeState)
 }
 
-func materializeClaudeCompletedOnboardingVersion(home, runtimeHome string) error {
-	installedVersion, ok := detectClaudeInstalledVersionForOnboarding()
+func materializeClaudeCompletedOnboardingVersion(home, runtimeHome, installedVersion string, ok bool) error {
 	if !ok {
 		return nil
 	}
@@ -773,6 +772,13 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 	if cfg.AgentLoginKeychainAccess && cfg.HarnessID == HarnessClaude {
 		artifacts = preferClaudeAgentKeychainDelivery(artifacts)
 	}
+	var claudeVersion string
+	var claudeVersionOK bool
+	if cfg.HarnessID == HarnessClaude {
+		// This executes an agent-owned binary before the native sandbox is active.
+		// Probe it before materializing host-owned credentials into the agent home.
+		claudeVersion, claudeVersionOK = detectClaudeInstalledVersionForOnboarding()
+	}
 	runtime, err := prepareHarnessAuthRuntimeForArtifacts(artifacts)
 	if err != nil {
 		return runtime, err
@@ -780,7 +786,7 @@ func prepareHarnessAuthRuntime(cfg sessionConfig) (preparedSessionRuntime, error
 	if cfg.HarnessID != HarnessClaude {
 		return runtime, nil
 	}
-	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome, claudeVersion, claudeVersionOK); err != nil {
 		runtime.Cleanup()
 		return preparedSessionRuntime{}, err
 	}

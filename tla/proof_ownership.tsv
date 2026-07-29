@@ -137,6 +137,7 @@ MC_SecretStoreRecovery	invariant	CleanRecoveredStateKeepsLatestHostOwned	12	tla/
 MC_SecretStoreRecovery	invariant	IdleClearsSessionBaseline	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	LatestValueNeverSilentlyLost	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	LaunchOnlyAfterRecovery	12	tla/12_secret_store_recovery.md	secret store recovery contract
+MC_SecretStoreRecovery	invariant	NoSecretDuringPreSandboxProbe	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	NoCrossHarnessAgentExposure	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_SecretStoreRecovery	invariant	TypeOK	12	tla/12_secret_store_recovery.md	secret store recovery contract
 MC_ServiceHarnessLifecycle	invariant	AttachAuthorityHasMetadata	17	tla/17_service_harness_lifecycle.md	service harness lifecycle contract
