@@ -1191,7 +1191,7 @@ generated, depth 40). `MC_SeatbeltPolicy` re-ran green (comment-only change).
 | Governed code | `hazmat/launch_broker_supervisor.go` — host-side broker startup command construction through `hazmat-launch exec` and fake-startable supervision |
 | Governed code | `hazmat/native_launch_broker.go`, `hazmat/session.go` — opt-in host-side broker client path for buffered non-interactive launches |
 | Governed future code | persistent native launch broker executor wiring — forkserver or equivalent lower-level executor, interactive stdio/session transport, and default persistent broker lifecycle |
-| Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `BrokerFDTableDropsHostInheritedFDs`, `ForkserverFDTableAllowlistedWhenReady`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
+| Key invariants | `BrokerLaunchRequiresAuthenticatedPeer`, `BrokerLaunchUsesTrustedHelper`, `BrokerFDTableDropsHostInheritedFDs`, `ForkserverFDTableAllowlistedWhenReady`, `HelperFDTableAllowlistedAtSandbox`, `NoInheritedShellFDsAtSandbox`, `CredentialFDsGoneBeforeSandbox`, `AgentFDTableAllowlisted`, `StdioSurvivesToAgent`, `BrokerStartsOnlyAfterSandboxConfirmed`, `TokenMintedOnlyAfterSandboxConfirmed`, `AgentFDTableDoesNotCarryAuthority` |
 | Status | **Proved and Partly Implemented** — the native helper now sanitizes inherited fds before sandboxing and keeps the final agent exec to stdio only; the broker transport boundary authenticates peers, constructs only fd-cleanup child plans, plans direct helper invocation without sudo, has a buffered helper executor for non-interactive launches, has a typed service lifecycle wrapper, has a host-side start plan that routes long-lived broker startup through `hazmat-launch exec`, has opt-in host-side buffered launch client wiring, and has a proved forkserver/control-fd alternative for future lower-level executor work; interactive stdio/session transport and default persistent broker lifecycle remain pending |
 
 **What this verifies:**
@@ -1283,7 +1283,9 @@ and explicitly configured sockets remain fail-fast. The
 host-side start plan can now split the startup helper from the child launch
 helper: broker startup still uses the sudo-authorized helper for the proved
 fd-cleaning `hazmat-launch exec` boundary, while the agent-owned broker may use
-a newer checkout-built helper for per-launch child execution. If the broker path
+a separately and explicitly configured trusted helper for per-launch child
+execution. It does not automatically select an executable sibling from a
+potentially agent-writable checkout. If the broker path
 falls back to sudo and the sudo helper cannot create helper-managed session
 temp, Hazmat creates the agent temp dir before fallback. The supervisor removes
 stale socket path residue before startup, but refuses live sockets, symlinks,

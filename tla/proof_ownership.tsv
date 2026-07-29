@@ -82,6 +82,7 @@ MC_LaunchFDIsolation	invariant	AgentFDTableAllowlisted	9	tla/09_launch_fd_isolat
 MC_LaunchFDIsolation	invariant	AgentFDTableDoesNotCarryAuthority	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	BrokerFDTableDropsHostInheritedFDs	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	BrokerLaunchRequiresAuthenticatedPeer	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
+MC_LaunchFDIsolation	invariant	BrokerLaunchUsesTrustedHelper	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	BrokerStartsOnlyAfterSandboxConfirmed	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	CredentialFDsGoneBeforeSandbox	9	tla/09_launch_fd_isolation.md	launch fd isolation contract
 MC_LaunchFDIsolation	invariant	ForkserverFDTableAllowlistedWhenReady	9	tla/09_launch_fd_isolation.md	launch fd isolation contract

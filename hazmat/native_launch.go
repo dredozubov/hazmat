@@ -107,22 +107,7 @@ func defaultLaunchHelperPathForBrokerChild() string {
 	if override := os.Getenv("HAZMAT_LAUNCH_HELPER"); override != "" {
 		return override
 	}
-	helperPath := launchHelperPath()
-	if exe, err := currentExecutablePath(); err == nil {
-		if resolved, resolveErr := filepath.EvalSymlinks(exe); resolveErr == nil {
-			exe = resolved
-		}
-		candidate := filepath.Join(filepath.Dir(exe), "hazmat-launch")
-		if candidate != helperPath && executableRegularFile(candidate) {
-			return candidate
-		}
-	}
-	return helperPath
-}
-
-func executableRegularFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+	return launchHelperPath()
 }
 
 func launchHelperCapabilitiesFor(path string) launchHelperCapabilities {
