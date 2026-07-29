@@ -28,7 +28,7 @@ or with a product-facing scenario flow.
 | `scripts/check-cache-integration-smoke.sh` | Do Hugging Face, Ollama, and PyTorch torch-hub cache-only integrations work against selected local fixtures? | Prepared host, live mode requires explicit approval | Creates temporary contained sessions |
 | `scripts/check-openhands-recipe-smoke.sh` | Does the recipe-only OpenHands path launch OpenHands through `hazmat exec` without host profile or Docker-socket shortcuts? | Prepared host, live mode requires explicit approval | Creates a temporary contained session |
 | `scripts/mint-live-harness-token.sh` | Legacy token broker guard retained for old local experiments; not used by live CI | Prepared local operator environment, explicit approval only | Writes a temporary 0600 env file |
-| `scripts/check-live-harness-matrix.sh` | Do supported real harness CLIs run one bounded marker inference through Hazmat with direct provider CI secrets, or emit typed OS/fixture skips? | Prepared macOS live runner; Linux pre-release currently emits typed skips | Creates temporary contained sessions and temporary provider secret-store files when live |
+| `scripts/check-live-harness-matrix.sh` | Do supported real harness CLIs run one bounded marker inference through Hazmat with direct provider CI secrets, or emit typed OS/fixture skips? | Prepared macOS live runner; Linux pre-release currently emits typed skips | Creates temporary contained sessions and process-scoped provider environment grants when live |
 | `scripts/test-entrypoint-guards.sh` | Do the test harness safety rails fail loudly and correctly? | Host | No |
 | `scripts/e2e-bootstrap.sh` | Can Hazmat develop Hazmat inside containment? | Host | No |
 | `scripts/e2e-harness-smoke.sh` | Do harness command parsing, auth materialization/harvest, env delivery, and foreground launch scripts compose for every managed harness? | Host or CI | No |
@@ -76,10 +76,11 @@ drifts from `managedHarnessRegistry`.
 
 The live matrix uses direct provider CI secrets, not Muginn or a tailnet-only
 proxy. `scripts/check-live-harness-matrix.sh` reads one selected
-`HAZMAT_LIVE_PROVIDER_*` value, writes it temporarily to the matching
-`~/.hazmat/secrets/providers/*` file, launches the harness through Hazmat, and
-then restores or removes that file. Token values are never printed; artifacts
-store only redacted provider metadata.
+`HAZMAT_LIVE_PROVIDER_*` value and grants it only in the environment of the
+Hazmat invocation. It never writes the CI value into the persistent host secret
+store, so abrupt runner termination cannot leave it available to later Hazmat
+sessions. Token values are never printed; artifacts store only redacted
+provider metadata.
 
 Artifacts are per harness: `metadata.json` plus `transcript.txt` when a live
 command ran. Status is `pass`, `fail`, `skip`, or `pending_live`. A support

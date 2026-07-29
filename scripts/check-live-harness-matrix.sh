@@ -271,47 +271,6 @@ def select_provider_token(row):
     envs = ", ".join(token["ci_env"] for token in tokens)
     return None, f"missing direct provider token; set one of: {envs}"
 
-def secret_store_path(store_rel_path):
-    root = (Path.home() / ".hazmat" / "secrets").resolve(strict=False)
-    target = (root / store_rel_path).resolve(strict=False)
-    if root != target and root not in target.parents:
-        die(f"provider secret path escapes ~/.hazmat/secrets: {store_rel_path}")
-    return target
-
-def materialize_provider_token(token):
-    target = secret_store_path(token["store_rel_path"])
-    target.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-    try:
-        target.parent.chmod(0o700)
-    except OSError:
-        pass
-    existed = target.exists()
-    old_data = target.read_bytes() if existed else None
-    old_mode = target.stat().st_mode & 0o777 if existed else None
-    tmp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
-    tmp.write_text(token["value"].rstrip("\n") + "\n", encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, target)
-    return {
-        "target": target,
-        "existed": existed,
-        "old_data": old_data,
-        "old_mode": old_mode,
-    }
-
-def restore_provider_token(snapshot):
-    target = snapshot["target"]
-    if snapshot["existed"]:
-        tmp = target.with_name(f".{target.name}.restore-{os.getpid()}")
-        tmp.write_bytes(snapshot["old_data"])
-        os.chmod(tmp, snapshot["old_mode"] or 0o600)
-        os.replace(tmp, target)
-        return
-    try:
-        target.unlink()
-    except FileNotFoundError:
-        pass
-
 def token_metadata(token):
     if not token:
         return {
@@ -446,7 +405,6 @@ for row in rows:
         env = os.environ.copy()
         env["HAZMAT_LIVE_HARNESS_EXPECTED_MARKER"] = marker
         env[provider_token["session_env"]] = provider_token["value"]
-        snapshot = materialize_provider_token(provider_token)
         started = utcnow()
         try:
             proc = subprocess.run(argv, cwd=repo_root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=int(row["timeout_seconds"]))
@@ -465,8 +423,6 @@ for row in rows:
             failures += 1
             transcript = exc.stdout or ""
             write_artifact(row, "fail", support, argv, transcript, "timeout", started, utcnow(), provider_token)
-        finally:
-            restore_provider_token(snapshot)
 
 if failures:
     sys.exit(1)

@@ -42,7 +42,7 @@
         "mode": "direct-provider-secret",
         "materializer": "scripts/check-live-harness-matrix.sh",
         "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY",
-        "harness_delivery": "temporary ~/.hazmat/secrets/providers/anthropic-api-key materialization for the invocation; Hazmat grants ANTHROPIC_API_KEY only to Claude"
+        "harness_delivery": "process-scoped ANTHROPIC_API_KEY environment grant for the invocation; no host secret-store materialization"
       },
       "direct_provider_tokens": [
         {"provider": "anthropic", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY", "session_env": "ANTHROPIC_API_KEY", "store_rel_path": "providers/anthropic-api-key"}
@@ -76,7 +76,7 @@
         "mode": "direct-provider-secret",
         "materializer": "scripts/check-live-harness-matrix.sh",
         "ci_token_envs": "HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY",
-        "harness_delivery": "temporary ~/.hazmat/secrets/providers/openai-api-key materialization for the invocation; Hazmat grants OPENAI_API_KEY only to Codex"
+        "harness_delivery": "process-scoped OPENAI_API_KEY environment grant for the invocation; no host secret-store materialization"
       },
       "direct_provider_tokens": [
         {"provider": "openai", "ci_env": "HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY", "session_env": "OPENAI_API_KEY", "store_rel_path": "providers/openai-api-key"}
@@ -143,7 +143,7 @@
         "mode": "direct-provider-secret",
         "materializer": "scripts/check-live-harness-matrix.sh",
         "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY,HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY",
-        "harness_delivery": "temporary ~/.hazmat/secrets/providers/antigravity-api-key or gemini-api-key materialization for the invocation; Hazmat grants only the selected Antigravity provider env"
+        "harness_delivery": "process-scoped selected provider environment grant for the invocation; no host secret-store materialization"
       },
       "direct_provider_tokens": [
         {"provider": "antigravity", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTIGRAVITY_API_KEY", "session_env": "ANTIGRAVITY_API_KEY", "store_rel_path": "providers/antigravity-api-key"},
@@ -178,7 +178,7 @@
         "mode": "direct-provider-secret",
         "materializer": "scripts/check-live-harness-matrix.sh",
         "ci_token_envs": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY,HAZMAT_LIVE_PROVIDER_OPENAI_API_KEY,HAZMAT_LIVE_PROVIDER_GEMINI_API_KEY,HAZMAT_LIVE_PROVIDER_OPENROUTER_API_KEY",
-        "harness_delivery": "temporary ~/.hazmat/secrets/providers/* materialization for the selected provider; Hazmat grants only registry-allowed Hermes provider env"
+        "harness_delivery": "process-scoped selected provider environment grant for the invocation; no host secret-store materialization"
       },
       "direct_provider_tokens": [
         {"provider": "anthropic", "ci_env": "HAZMAT_LIVE_PROVIDER_ANTHROPIC_API_KEY", "session_env": "ANTHROPIC_API_KEY", "store_rel_path": "providers/anthropic-api-key"},

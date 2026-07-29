@@ -733,8 +733,14 @@ else
     fail "live harness matrix fake run succeeds"
 fi
 assert_no_glob_paths \
-    "live harness matrix cleans provider secret file" \
+    "live harness matrix never materializes provider secret file" \
     "$LIVE_HARNESS_GUARD_ROOT/home/.hazmat/secrets/providers/"*
+assert_file_not_contains_any \
+    "live harness matrix has no host secret-store mutation path" \
+    "$REPO_ROOT/scripts/check-live-harness-matrix.sh" \
+    "materialize_provider_token" \
+    "restore_provider_token" \
+    "os.replace(tmp, target)"
 assert_file_exists \
     "live harness matrix writes metadata artifact" \
     "$LIVE_HARNESS_GUARD_ROOT/out/claude/metadata.json"
