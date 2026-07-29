@@ -1090,7 +1090,8 @@ func TestPrepareHarnessAuthRuntimeClaudeStateRepairsCompletedOnboardingVersion(t
 	if err != nil {
 		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
 	}
-	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+	version, versionOK := detectClaudeInstalledVersionForOnboarding()
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome, version, versionOK); err != nil {
 		t.Fatalf("materializeClaudeCompletedOnboardingVersion: %v", err)
 	}
 
@@ -1110,6 +1111,51 @@ func TestPrepareHarnessAuthRuntimeClaudeStateRepairsCompletedOnboardingVersion(t
 	}
 	if !strings.Contains(string(storeRaw), `"lastOnboardingVersion": "2.1.193"`) {
 		t.Fatalf("harvested Claude store state did not keep repaired onboarding version:\n%s", string(storeRaw))
+	}
+}
+
+func TestPrepareHarnessAuthRuntimeProbesClaudeBeforeCredentialMaterialization(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	runtimeHome := filepath.Join(root, "agent")
+	t.Setenv("HOME", home)
+
+	credentialArtifact := claudeCredentialsHarnessAuthArtifactForRuntimeHome(home, runtimeHome)
+	if err := writeJSONMapStoreFile(credentialArtifact.StorePath, map[string]json.RawMessage{
+		"claudeAiOauth": json.RawMessage(`{"accessToken":"oauth-secret"}`),
+	}); err != nil {
+		t.Fatalf("write Claude credential store: %v", err)
+	}
+	if err := writeJSONMapStoreFile(claudeStateStorePathForHome(home), map[string]json.RawMessage{
+		"hasCompletedOnboarding": json.RawMessage(`true`),
+		"lastOnboardingVersion":  json.RawMessage(`"2.1.71"`),
+	}); err != nil {
+		t.Fatalf("write Claude state store: %v", err)
+	}
+
+	oldDetect := detectClaudeInstalledVersionForOnboarding
+	detectClaudeInstalledVersionForOnboarding = func() (string, bool) {
+		if _, err := os.Stat(credentialArtifact.AgentPath); !os.IsNotExist(err) {
+			t.Fatalf("Claude credential existed during pre-sandbox version probe: %v", err)
+		}
+		return "2.1.193", true
+	}
+	t.Cleanup(func() {
+		detectClaudeInstalledVersionForOnboarding = oldDetect
+	})
+
+	runtime, err := prepareHarnessAuthRuntime(sessionConfig{
+		HarnessID: HarnessClaude,
+		SessionHome: &sessionHomeRuntimePlan{
+			Launch: sessionHomeLaunchPlan{Layout: sessionHomeLayout{Home: runtimeHome}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareHarnessAuthRuntime: %v", err)
+	}
+	defer runtime.Cleanup()
+	if _, err := os.Stat(credentialArtifact.AgentPath); err != nil {
+		t.Fatalf("Claude credential was not materialized after version probe: %v", err)
 	}
 }
 
@@ -1246,7 +1292,8 @@ func TestPrepareHarnessAuthRuntimeClaudeStateDoesNotRepairIncompleteOnboardingVe
 	if err != nil {
 		t.Fatalf("prepareHarnessAuthRuntimeForArtifacts: %v", err)
 	}
-	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome); err != nil {
+	version, versionOK := detectClaudeInstalledVersionForOnboarding()
+	if err := materializeClaudeCompletedOnboardingVersion(home, runtimeHome, version, versionOK); err != nil {
 		t.Fatalf("materializeClaudeCompletedOnboardingVersion: %v", err)
 	}
 	defer runtime.Cleanup()

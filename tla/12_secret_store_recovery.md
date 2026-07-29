@@ -39,6 +39,8 @@ auth artifacts:
   residue is removed
 - session materialization copies the host value into `/Users/agent` only after
   startup recovery has completed
+- any pre-sandbox harness version probe completes after recovery but before
+  session credential materialization, while agent credential sinks are empty
 - session harvest copies refreshed agent auth back into the host store and
   removes the agent copy
 - a crash can happen at any phase, and the next launch restarts recovery
@@ -63,6 +65,7 @@ The implementation covered by this model is in:
 | `CleanRecoveredStateKeepsLatestHostOwned` | After recovery reaches an idle clean state, the latest known value is host-owned: primary store or conflict archive, not agent-only residue. |
 | `NoCrossHarnessAgentExposure` | During an active session, only the selected harness may have materialized agent-side auth. |
 | `LaunchOnlyAfterRecovery` | Materialization, running, harvest, and removal only occur after startup recovery has completed. |
+| `NoSecretDuringPreSandboxProbe` | An agent-owned harness binary probed before sandbox activation cannot observe a materialized file or agent-keychain credential. |
 | `IdleClearsSessionBaseline` | The materialization baseline used for harvest conflict checks cannot leak across sessions. |
 
 ## Scope Boundary
@@ -138,3 +141,5 @@ Observed TLC result for the promoted model:
    divergent host value first.
 4. Adding concurrent host-store mutation guarantees requires adding explicit
    revision metadata to the model before claiming the stronger property.
+5. Any pre-sandbox execution of an agent-owned harness binary must remain
+   ordered before session credential materialization.
