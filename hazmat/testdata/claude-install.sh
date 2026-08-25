@@ -55,6 +55,11 @@ if command -v jq >/dev/null 2>&1; then
     HAS_JQ=true
 fi
 
+HAS_ZSTD=false
+if command -v zstd >/dev/null 2>&1; then
+    HAS_ZSTD=true
+fi
+
 # Download function that works with both curl and wget
 download_file() {
     local url="$1"
@@ -85,12 +90,24 @@ get_checksum_from_manifest() {
     # Normalize JSON to single line and extract checksum
     json=$(echo "$json" | tr -d '\n\r\t' | sed 's/ \+/ /g')
     
-    # Extract checksum for platform using bash regex
-    if [[ $json =~ \"$platform\"[^}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\" ]]; then
+    # Extract checksum for platform using bash regex. [^{}] keeps the match
+    # inside the platform's own object (manifest.zst.json nests a darwin bundle).
+    if [[ $json =~ \"$platform\"[[:space:]]*:[[:space:]]*[{][^{}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\" ]]; then
         echo "${BASH_REMATCH[1]}"
         return 0
     fi
     
+    return 1
+}
+
+get_size_from_manifest() {
+    local json="$1"
+    local platform="$2"
+    json=$(echo "$json" | tr -d '\n\r\t' | sed 's/ \+/ /g')
+    if [[ $json =~ \"$platform\"[[:space:]]*:[[:space:]]*[{][^{}]*\"size\"[[:space:]]*:[[:space:]]*([0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
     return 1
 }
 
@@ -144,8 +161,10 @@ manifest_json=$(download_file "$DOWNLOAD_BASE_URL/$version/manifest.json")
 # Use jq if available, otherwise fall back to pure bash parsing
 if [ "$HAS_JQ" = true ]; then
     checksum=$(echo "$manifest_json" | jq -r ".platforms[\"$platform\"].checksum // empty")
+    size=$(echo "$manifest_json" | jq -r ".platforms[\"$platform\"].size // empty")
 else
-    checksum=$(get_checksum_from_manifest "$manifest_json" "$platform")
+    checksum=$(get_checksum_from_manifest "$manifest_json" "$platform" || true)
+    size=$(get_size_from_manifest "$manifest_json" "$platform" || true)
 fi
 
 # Validate checksum format (SHA256 = 64 hex characters)
@@ -154,25 +173,49 @@ if [ -z "$checksum" ] || [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
     exit 1
 fi
 
-# Download and verify
+checksum_matches() {
+    local actual
+    if [ "$os" = "darwin" ]; then
+        actual=$(shasum -a 256 "$1" | cut -d' ' -f1)
+    else
+        actual=$(sha256sum "$1" | cut -d' ' -f1)
+    fi
+    [ "$actual" = "$2" ]
+}
+
+zst_checksum=""
+if [ "$HAS_ZSTD" = true ] && [[ "$size" =~ ^[1-9][0-9]*$ ]]; then
+    zst_manifest_json=$(download_file "$DOWNLOAD_BASE_URL/$version/manifest.zst.json" 2>/dev/null || true)
+    if [ "$HAS_JQ" = true ]; then
+        zst_checksum=$(echo "$zst_manifest_json" | jq -r ".platforms[\"$platform\"].checksum // empty" 2>/dev/null || true)
+    else
+        zst_checksum=$(get_checksum_from_manifest "$zst_manifest_json" "$platform" || true)
+    fi
+fi
+
 binary_path="$DOWNLOAD_DIR/claude-$version-$platform"
-if ! download_file "$DOWNLOAD_BASE_URL/$version/$platform/claude" "$binary_path"; then
-    echo "Download failed" >&2
-    rm -f "$binary_path"
-    exit 1
+verified=false
+if [[ "$zst_checksum" =~ ^[a-f0-9]{64}$ ]]; then
+    if download_file "$DOWNLOAD_BASE_URL/$version/$platform/claude.zst" "$binary_path.zst" \
+        && checksum_matches "$binary_path.zst" "$zst_checksum"; then
+        zstd -d -q -c "$binary_path.zst" 2>/dev/null | head -c "$size" > "$binary_path" || true
+        if checksum_matches "$binary_path" "$checksum"; then
+            verified=true
+        fi
+    fi
+    rm -f "$binary_path.zst"
 fi
-
-# Pick the right checksum tool
-if [ "$os" = "darwin" ]; then
-    actual=$(shasum -a 256 "$binary_path" | cut -d' ' -f1)
-else
-    actual=$(sha256sum "$binary_path" | cut -d' ' -f1)
-fi
-
-if [ "$actual" != "$checksum" ]; then
-    echo "Checksum verification failed" >&2
-    rm -f "$binary_path"
-    exit 1
+if [ "$verified" = false ]; then
+    if ! download_file "$DOWNLOAD_BASE_URL/$version/$platform/claude" "$binary_path"; then
+        echo "Download failed" >&2
+        rm -f "$binary_path"
+        exit 1
+    fi
+    if ! checksum_matches "$binary_path" "$checksum"; then
+        echo "Checksum verification failed" >&2
+        rm -f "$binary_path"
+        exit 1
+    fi
 fi
 
 chmod +x "$binary_path"

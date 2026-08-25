@@ -9,7 +9,7 @@ import (
 
 const (
 	claudeInstallerURL    = "https://claude.ai/install.sh"
-	claudeInstallerSHA256 = "cde4f1702d3b1695f92b73d26888364e17bca476e17f0fd676484c951d36c125"
+	claudeInstallerSHA256 = "3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944"
 )
 
 func findInstalledClaudeBinary() (string, bool) {
