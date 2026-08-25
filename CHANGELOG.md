@@ -6,8 +6,32 @@ Safety-facing entries should follow the proof/caveat convention in
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-08-25
+
+### Added
+- Typed OpenAI-compatible HTTP and stdio MCP proxy foundations, including bounded process lifecycle, policy/evidence records, external provider attachment modeling, and a strict Planescape provider client.
+- Runtime-provider admission and evidence lanes for macOS current-user Seatbelt, Apple Container development, and Linux current-user/agent-user designs.
+- A live supported-harness matrix that supplies CI provider credentials as process-scoped environment grants and records redacted per-harness evidence.
+
+### Changed
+- Runtime launch preparation now separates reusable provider authority from harness-specific session plumbing, and external proxy mode no longer depends on an internal provider declaration.
+- The pinned `https://claude.ai/install.sh` snapshot now trusts the reviewed upstream installer with optional checksum-verified Zstandard downloads and full-binary fallback.
+
 ### Fixed
 - `hazmat claude` skips host login-Keychain synchronization by default so startup does not block on a macOS keychain password prompt. Set `HAZMAT_CLAUDE_HOST_KEYCHAIN_SYNC=1` to opt into host Keychain import/publish.
+- Claude credential materialization is restricted to the expected Keychain item and happens only after the installed CLI version probe; Antigravity state is isolated from unrelated agent Keychain data.
+- Live provider tokens stay out of the persistent host secret store, broker child launches require the trusted helper path, and repo setup approval cannot be inferred from a nominally safe command.
+
+### Proof
+- `tla/MC_ServiceHarnessLifecycle.tla`, `tla/VERIFIED.md`, runtime-provider tests, package-boundary guards, and the live-harness contract cover the modeled authority and proxy boundaries.
+- Release preflight runs Go vet/tests, import-boundary checks, entrypoint guards, and CLI smoke tests before producing artifacts.
+
+### Caveats
+- Native Linux execution remains plan-only: setup, rollback, and release artifacts are not yet promoted. Apple Container Linux is a development lane.
+- Live harness results remain fixture- and approval-dependent; proxy foundations do not imply blanket support for arbitrary providers or MCP servers.
+
+### Next
+- Complete and verify the native Linux setup/rollback/runtime path before publishing Linux artifacts.
 
 ## [0.10.1] - 2026-06-26
 
