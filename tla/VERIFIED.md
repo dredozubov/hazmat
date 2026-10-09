@@ -1398,7 +1398,7 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
 | Spec | `tla/15_beadpost_broker_boundary.md` |
 | TLA+ files | `tla/MC_BeadpostBrokerBoundary.tla`, `tla/MC_BeadpostBrokerBoundary.cfg` |
 | Governed code | `hazmat/hostbroker/session.go` — `Open()`, `confirmSandboxBoundary()`, `allocateBrokerSocket()`, `deriveAuthorityFromLaunchFacts()`, `invokeDelivery()`, `Close()` |
-| Key invariants | `BrokerSocketOnlyAfterConfirmedSession`, `AcceptedRequestHasConfirmedSession`, `AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`, `NoCrossSessionRequest`, `NoRequestAfterSessionClose`, `HostAuthorityNeverAgentReadable`, `DeliveryOnlyFromAcceptedRequest` |
+| Key invariants | `BrokerSocketOnlyAfterConfirmedSession`, `AcceptedRequestHasConfirmedSession`, `AcceptedRequestHasSessionCapability`, `AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`, `NoCrossSessionRequest`, `NoRequestAfterSessionClose`, `HostAuthorityNeverAgentReadable`, `DeliveryOnlyFromAcceptedRequest` |
 | Status | **Design Proved; Implemented (sandboxing-x74u.6)** — the contained-agent submitter + dr-owned host broker membrane. Real implementation behind `//go:build beadpost_hostbroker`; the default/public build ships dependency-free fail-closed stubs and never links the contract module. |
 
 **What this verifies:**
@@ -1408,18 +1408,23 @@ TLC passes across all 2,842 reachable states (3,866 generated, depth 11, <1s).
    confirmation ordering — `sandbox_init` then metadata — is proved in
    `MC_LaunchFDIsolation`; this spec treats "confirmed" as the entry gate.)
 
-2. **Authority is derived, never supplied:** the agent submits closed request
+2. **Possession gates each session:** every request must present the unguessable
+   capability minted for that exact session. Discovering or connecting to a
+   group-accessible socket is not sufficient authority
+   (`AcceptedRequestHasSessionCapability`).
+
+3. **Authority is derived, never supplied:** the agent submits closed request
    *content* only. The broker stamps `deliveredAuthority := launchFacts[s]`
    unconditionally, so authority is never a function of agent input
    (`AgentCannotSupplyAuthorityFields`, `AcceptedAuthorityEqualsLaunchFacts`).
 
-3. **Host authority is write-once:** no action mutates `launchFacts`; the genesis
+4. **Host authority is write-once:** no action mutates `launchFacts`; the genesis
    snapshot witnesses immutability (`HostAuthorityNeverAgentReadable`).
 
-4. **Deterministic per-session binding:** no two sessions share a broker socket
+5. **Deterministic per-session binding:** no two sessions share a broker socket
    (`NoCrossSessionRequest`).
 
-5. **Clean teardown:** a closed session retains no socket, content, authority, or
+6. **Clean teardown:** a closed session retains no socket, content, authority, or
    acceptance (`NoRequestAfterSessionClose`); delivery only follows an accepted
    request (`DeliveryOnlyFromAcceptedRequest`).
 

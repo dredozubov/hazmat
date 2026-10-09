@@ -2,8 +2,9 @@
 \* Beadpost attestation-boundary broker membrane.
 \*
 \* Model: contained-agent submitter + dr-owned host broker.
-\* A contained agent submits CLOSED request payloads (request CONTENT only, never
-\* authority fields) to a per-session, dr-owned broker socket. The broker is
+\* A contained agent submits CLOSED request payloads (request CONTENT plus an
+\* unguessable session capability, never authority fields) to a per-session,
+\* dr-owned broker socket. The broker is
 \* created only after a session's containment is confirmed (modeled abstractly as
 \* the "confirmed" transition; the launch-time sandbox_init ordering itself is
 \* proved in MC_LaunchFDIsolation). The broker DERIVES project/session/tier
@@ -28,6 +29,7 @@ CONSTANTS
     Projects,        \* finite set of project identifiers
     Tiers,           \* finite set of containment tier labels
     BrokerSockets,   \* finite set of host-owned per-session broker socket ids
+    Capabilities,    \* finite set of unguessable, per-session capability ids
     RequestContent,  \* finite set of opaque request-content payloads (NO authority)
     NoSocket,        \* sentinel: no socket bound
     NoAuthority,     \* sentinel: no authority stamped
@@ -39,6 +41,7 @@ Authority == Projects \X Tiers
 ASSUME NoSocket \notin BrokerSockets
 ASSUME NoContent \notin RequestContent
 ASSUME NoAuthority \notin Authority
+ASSUME Cardinality(Capabilities) >= Cardinality(Sessions)
 
 VARIABLES
     launchFacts,        \* Sessions -> Authority — host-set at confirmation time, write-once
@@ -47,13 +50,16 @@ VARIABLES
     confirmedSessions,  \* SUBSET Sessions — sessions whose containment was confirmed
     activeSessions,     \* SUBSET Sessions — confirmed and not yet closed
     brokerSocket,       \* Sessions -> BrokerSockets \cup {NoSocket}
+    sessionCapability,  \* Sessions -> Capabilities, unique host-minted binding
+    submittedCapability, \* Sessions -> Capabilities, untrusted peer presentation
     agentContent,       \* Sessions -> RequestContent \cup {NoContent} — agent-supplied CONTENT only
     deliveredAuthority, \* Sessions -> Authority \cup {NoAuthority} — what the broker stamped
     requestAccepted     \* Sessions -> BOOLEAN
 
 vars ==
     <<launchFacts, genesisFacts, sessionState, confirmedSessions, activeSessions,
-      brokerSocket, agentContent, deliveredAuthority, requestAccepted>>
+      brokerSocket, sessionCapability, submittedCapability, agentContent,
+      deliveredAuthority, requestAccepted>>
 
 TypeOK ==
     /\ launchFacts        \in [Sessions -> Authority]
@@ -62,6 +68,8 @@ TypeOK ==
     /\ confirmedSessions  \subseteq Sessions
     /\ activeSessions     \subseteq Sessions
     /\ brokerSocket       \in [Sessions -> BrokerSockets \cup {NoSocket}]
+    /\ sessionCapability  \in [Sessions -> Capabilities]
+    /\ submittedCapability \in [Sessions -> Capabilities]
     /\ agentContent       \in [Sessions -> RequestContent \cup {NoContent}]
     /\ deliveredAuthority \in [Sessions -> Authority \cup {NoAuthority}]
     /\ requestAccepted    \in [Sessions -> BOOLEAN]
@@ -73,6 +81,10 @@ Init ==
     /\ confirmedSessions  = {}
     /\ activeSessions     = {}
     /\ brokerSocket       = [s \in Sessions |-> NoSocket]
+    /\ sessionCapability  \in [Sessions -> Capabilities]
+    /\ \A s1, s2 \in Sessions :
+        s1 /= s2 => sessionCapability[s1] /= sessionCapability[s2]
+    /\ submittedCapability \in [Sessions -> Capabilities]
     /\ agentContent       = [s \in Sessions |-> NoContent]
     /\ deliveredAuthority = [s \in Sessions |-> NoAuthority]
     /\ requestAccepted    = [s \in Sessions |-> FALSE]
@@ -89,31 +101,39 @@ SessionConfirmSandboxed(s) ==
     /\ sessionState'      = [sessionState EXCEPT ![s] = "confirmed"]
     /\ confirmedSessions' = confirmedSessions \cup {s}
     /\ activeSessions'    = activeSessions \cup {s}
-    /\ UNCHANGED <<launchFacts, genesisFacts, agentContent, deliveredAuthority, requestAccepted>>
+    /\ UNCHANGED <<launchFacts, genesisFacts, sessionCapability,
+                   submittedCapability, agentContent, deliveredAuthority, requestAccepted>>
 
-\* The contained agent submits a CLOSED request payload over the socket: content
-\* only. There is no authority field for the agent to set.
+\* A socket peer submits a CLOSED request payload and presents a capability.
+\* There is no authority field for the peer to set, and a peer that merely knows
+\* the socket path may choose the wrong capability modeled here.
 AgentSubmitsRequest(s) ==
     /\ s \in confirmedSessions
     /\ sessionState[s] = "confirmed"
     /\ brokerSocket[s] /= NoSocket
     /\ agentContent[s] = NoContent
     /\ \E c \in RequestContent : agentContent' = [agentContent EXCEPT ![s] = c]
+    /\ \E cap \in Capabilities :
+        submittedCapability' = [submittedCapability EXCEPT ![s] = cap]
     /\ UNCHANGED <<launchFacts, genesisFacts, sessionState, confirmedSessions,
-                   activeSessions, brokerSocket, deliveredAuthority, requestAccepted>>
+                   activeSessions, brokerSocket, sessionCapability,
+                   deliveredAuthority, requestAccepted>>
 
 \* The broker DERIVES authority from host launch facts (never from agentContent)
-\* and accepts the request. There is no agent-driven validation/reject path,
-\* because the agent supplied no authority to validate.
+\* and accepts the request only after the session capability matches. There is
+\* no agent-driven authority validation path because the agent supplied no
+\* authority to validate.
 BrokerDeriveAndAccept(s) ==
     /\ s \in confirmedSessions
     /\ sessionState[s] = "confirmed"
     /\ agentContent[s] /= NoContent
+    /\ submittedCapability[s] = sessionCapability[s]
     /\ ~requestAccepted[s]
     /\ deliveredAuthority' = [deliveredAuthority EXCEPT ![s] = launchFacts[s]]
     /\ requestAccepted'    = [requestAccepted EXCEPT ![s] = TRUE]
     /\ UNCHANGED <<launchFacts, genesisFacts, sessionState, confirmedSessions,
-                   activeSessions, brokerSocket, agentContent>>
+                   activeSessions, brokerSocket, sessionCapability,
+                   submittedCapability, agentContent>>
 
 \* Delivery happens only for an accepted request.
 BrokerInvokeDelivery(s) ==
@@ -121,7 +141,8 @@ BrokerInvokeDelivery(s) ==
     /\ sessionState[s] = "confirmed"
     /\ sessionState' = [sessionState EXCEPT ![s] = "accepted"]
     /\ UNCHANGED <<launchFacts, genesisFacts, confirmedSessions, activeSessions,
-                   brokerSocket, agentContent, deliveredAuthority, requestAccepted>>
+                   brokerSocket, sessionCapability, submittedCapability,
+                   agentContent, deliveredAuthority, requestAccepted>>
 
 \* Session close releases the socket and clears all residual request authority.
 SessionClose(s) ==
@@ -132,7 +153,8 @@ SessionClose(s) ==
     /\ agentContent'      = [agentContent EXCEPT ![s] = NoContent]
     /\ deliveredAuthority' = [deliveredAuthority EXCEPT ![s] = NoAuthority]
     /\ requestAccepted'   = [requestAccepted EXCEPT ![s] = FALSE]
-    /\ UNCHANGED <<launchFacts, genesisFacts, confirmedSessions>>
+    /\ UNCHANGED <<launchFacts, genesisFacts, confirmedSessions,
+                   sessionCapability, submittedCapability>>
 
 \* Terminal stutter when every session has closed.
 Done ==
@@ -160,6 +182,12 @@ BrokerSocketOnlyAfterConfirmedSession ==
 \* A request can only be accepted for a confirmed session.
 AcceptedRequestHasConfirmedSession ==
     \A s \in Sessions : requestAccepted[s] => s \in confirmedSessions
+
+\* Possession of a socket path is insufficient: acceptance requires the
+\* unguessable capability minted for that exact session.
+AcceptedRequestHasSessionCapability ==
+    \A s \in Sessions :
+        requestAccepted[s] => submittedCapability[s] = sessionCapability[s]
 
 \* Any stamped authority is exactly the host launch facts — the agent cannot
 \* supply or influence authority (it stamps launchFacts unconditionally).
